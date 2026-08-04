@@ -114,6 +114,29 @@ fn legacy_options_only_describe_the_stored_partial() -> VortexResult<()> {
 // State algebra: the `{sum, is_overflow, is_empty}` monoid.
 
 #[test]
+fn sum_rejects_null_partial() -> VortexResult<()> {
+    let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+    let mut state = Sum.empty_partial(&SumAggregateOpts::default(), &dtype)?;
+    let partial_dtype = Sum.to_scalar(&state)?.dtype().clone();
+
+    assert!(
+        Sum.combine_partials(&mut state, Scalar::null(partial_dtype))
+            .is_err()
+    );
+    Ok(())
+}
+
+#[test]
+fn sum_rejects_partial_with_wrong_sum_dtype() -> VortexResult<()> {
+    let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+    let mut state = Sum.empty_partial(&SumAggregateOpts::default(), &dtype)?;
+    let wrong_partial = partial_with_value(Scalar::primitive(1i32, Nullable))?;
+
+    assert!(Sum.combine_partials(&mut state, wrong_partial).is_err());
+    Ok(())
+}
+
+#[test]
 fn sum_state_empty_is_null() -> VortexResult<()> {
     // A state that never saw a valid value finalizes to null, and combining empty states
     // stays empty.

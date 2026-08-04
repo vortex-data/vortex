@@ -6,13 +6,11 @@ use vortex_buffer::BitBufferMut;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use super::IS_EMPTY_FIELD;
-use super::IS_OVERFLOW_FIELD;
-use super::SUM_FIELD;
 use super::Sum;
 use super::primitive::sum_float_all;
 use super::primitive::sum_signed_all;
 use super::primitive::sum_unsigned_all;
+use super::sum_partial_fields;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -24,8 +22,6 @@ use crate::arrays::BoolArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
-use crate::dtype::FieldName;
-use crate::dtype::FieldNames;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::match_each_native_ptype;
@@ -109,20 +105,22 @@ fn grouped_sum(
         }
     );
 
-    Ok(StructArray::try_new(
-        FieldNames::from_iter([
-            FieldName::from(SUM_FIELD),
-            FieldName::from(IS_OVERFLOW_FIELD),
-            FieldName::from(IS_EMPTY_FIELD),
-        ]),
-        vec![
-            sums.into_array(),
-            BoolArray::new(is_overflow, Validity::NonNullable).into_array(),
-            BoolArray::new(is_empty, Validity::NonNullable).into_array(),
-        ],
-        group_validity.len(),
-        Validity::from_mask(group_validity.clone(), Nullability::Nullable),
-    )?
+    let partial_fields = sum_partial_fields(sums.dtype().clone());
+
+    // SAFETY: all three children have one value per group and match `partial_fields`; the struct
+    // validity is derived from the same group count.
+    Ok(unsafe {
+        StructArray::new_unchecked(
+            vec![
+                sums.into_array(),
+                BoolArray::new(is_overflow, Validity::NonNullable).into_array(),
+                BoolArray::new(is_empty, Validity::NonNullable).into_array(),
+            ],
+            partial_fields,
+            group_validity.len(),
+            Validity::from_mask(group_validity.clone(), Nullability::Nullable),
+        )
+    }
     .into_array())
 }
 

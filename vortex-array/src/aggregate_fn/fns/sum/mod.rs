@@ -12,9 +12,9 @@ use std::fmt::Formatter;
 
 pub(crate) use grouped::PrimitiveGroupedSumEncodingKernel;
 use prost::Message;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_proto::expr as pb;
@@ -250,77 +250,23 @@ impl AggregateFnVTable for Sum {
     }
 
     fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()> {
-        let other = other.cast(&sum_partial_dtype(partial.return_dtype.clone()))?;
-        if other.is_null() {
-            partial.is_empty = false;
-            partial.is_overflow = true;
+        let (other_sum, other_is_overflow, other_is_empty) = decode_sum_partial_scalar(other)?;
+        validate_sum_field_dtype(&other_sum, &partial.return_dtype)?;
+
+        if partial.is_overflow {
             return Ok(());
         }
-
-        let fields = other.as_struct();
-        let other = fields
-            .field(SUM_FIELD)
-            .ok_or_else(|| vortex_err!("Sum partial is missing the `{SUM_FIELD}` field"))?;
-        let other_is_overflow = fields
-            .field(IS_OVERFLOW_FIELD)
-            .and_then(|is_overflow| is_overflow.as_bool().value())
-            .ok_or_else(|| vortex_err!("Sum partial has an invalid `{IS_OVERFLOW_FIELD}` field"))?;
-        let other_is_empty = fields
-            .field(IS_EMPTY_FIELD)
-            .and_then(|is_empty| is_empty.as_bool().value())
-            .ok_or_else(|| vortex_err!("Sum partial has an invalid `{IS_EMPTY_FIELD}` field"))?;
-
-        partial.is_empty &= other_is_empty;
-        if partial.is_overflow || other_is_overflow {
+        if other_is_overflow {
             partial.is_overflow = true;
+            partial.is_empty = false;
             return Ok(());
         }
         if other_is_empty {
             return Ok(());
         }
 
-        let saturated = match &mut partial.sum {
-            SumState::Unsigned(acc) => {
-                let val = other
-                    .as_primitive()
-                    .typed_value::<u64>()
-                    .vortex_expect("checked non-null");
-                checked_add_u64(acc, val)
-            }
-            SumState::Signed(acc) => {
-                let val = other
-                    .as_primitive()
-                    .typed_value::<i64>()
-                    .vortex_expect("checked non-null");
-                checked_add_i64(acc, val)
-            }
-            SumState::Float(acc) => {
-                let val = other
-                    .as_primitive()
-                    .typed_value::<f64>()
-                    .vortex_expect("checked non-null");
-                *acc += val;
-                false
-            }
-            SumState::Decimal { value, dtype } => {
-                let val = other
-                    .as_decimal()
-                    .decimal_value()
-                    .vortex_expect("checked non-null");
-                match value.checked_add(&val) {
-                    Some(r) if r.fits_in_precision(*dtype) => {
-                        *value = r;
-                        false
-                    }
-                    Some(_) | None => true,
-                }
-            }
-        };
-        if saturated {
-            partial.is_overflow = true;
-        } else {
-            partial.is_empty = false;
-        }
+        partial.is_overflow = checked_add_sum_state(&mut partial.sum, &other_sum)?;
+        partial.is_empty = false;
         Ok(())
     }
 
@@ -328,7 +274,7 @@ impl AggregateFnVTable for Sum {
         Ok(Scalar::struct_(
             sum_partial_dtype(partial.return_dtype.clone()),
             vec![
-                sum_state_scalar(partial),
+                sum_state_scalar(partial, Nullability::NonNullable),
                 Scalar::bool(partial.is_overflow, Nullability::NonNullable),
                 Scalar::bool(partial.is_empty, Nullability::NonNullable),
             ],
@@ -481,6 +427,60 @@ pub enum SumState {
     },
 }
 
+fn decode_sum_partial_scalar(scalar: Scalar) -> VortexResult<(Scalar, bool, bool)> {
+    vortex_ensure!(!scalar.is_null(), "Sum partial must not be null");
+
+    let Some(fields) = scalar.as_struct_opt() else {
+        vortex_bail!("Sum partial must be a struct, got {}", scalar.dtype());
+    };
+    let sum = fields
+        .field(SUM_FIELD)
+        .ok_or_else(|| vortex_err!("Sum partial is missing the `{SUM_FIELD}` field"))?;
+    let is_overflow =
+        bool::try_from(&fields.field(IS_OVERFLOW_FIELD).ok_or_else(|| {
+            vortex_err!("Sum partial is missing the `{IS_OVERFLOW_FIELD}` field")
+        })?)?;
+    let is_empty = bool::try_from(
+        &fields
+            .field(IS_EMPTY_FIELD)
+            .ok_or_else(|| vortex_err!("Sum partial is missing the `{IS_EMPTY_FIELD}` field"))?,
+    )?;
+
+    Ok((sum, is_overflow, is_empty))
+}
+
+fn validate_sum_field_dtype(sum: &Scalar, return_dtype: &DType) -> VortexResult<()> {
+    vortex_ensure!(
+        sum.dtype().nullability() == Nullability::NonNullable
+            && sum.dtype().eq_ignore_nullability(return_dtype),
+        "Sum partial value has dtype {}, expected {}",
+        sum.dtype(),
+        return_dtype.as_nonnullable(),
+    );
+    Ok(())
+}
+
+fn checked_add_sum_state(state: &mut SumState, other: &Scalar) -> VortexResult<bool> {
+    Ok(match state {
+        SumState::Unsigned(acc) => checked_add_u64(acc, u64::try_from(other)?),
+        SumState::Signed(acc) => checked_add_i64(acc, i64::try_from(other)?),
+        SumState::Float(acc) => {
+            *acc += f64::try_from(other)?;
+            false
+        }
+        SumState::Decimal { value, dtype } => {
+            let other = DecimalValue::try_from(other)?;
+            match value.checked_add(&other) {
+                Some(result) if result.fits_in_precision(*dtype) => {
+                    *value = result;
+                    false
+                }
+                Some(_) | None => true,
+            }
+        }
+    })
+}
+
 fn make_zero_state(return_dtype: &DType) -> SumState {
     match return_dtype {
         DType::Primitive(ptype, _) => match ptype {
@@ -497,35 +497,30 @@ fn make_zero_state(return_dtype: &DType) -> SumState {
 }
 
 fn sum_partial_dtype(sum_dtype: DType) -> DType {
-    DType::Struct(
-        StructFields::new(
-            FieldNames::from_iter([
-                FieldName::from(SUM_FIELD),
-                FieldName::from(IS_OVERFLOW_FIELD),
-                FieldName::from(IS_EMPTY_FIELD),
-            ]),
-            vec![
-                sum_dtype.as_nonnullable(),
-                DType::Bool(Nullability::NonNullable),
-                DType::Bool(Nullability::NonNullable),
-            ],
-        ),
-        Nullability::Nullable,
+    DType::Struct(sum_partial_fields(sum_dtype), Nullability::Nullable)
+}
+
+fn sum_partial_fields(sum_dtype: DType) -> StructFields {
+    StructFields::new(
+        FieldNames::from_iter([
+            FieldName::from(SUM_FIELD),
+            FieldName::from(IS_OVERFLOW_FIELD),
+            FieldName::from(IS_EMPTY_FIELD),
+        ]),
+        vec![
+            sum_dtype.as_nonnullable(),
+            DType::Bool(Nullability::NonNullable),
+            DType::Bool(Nullability::NonNullable),
+        ],
     )
 }
 
-fn sum_state_scalar(partial: &SumPartial) -> Scalar {
+fn sum_state_scalar(partial: &SumPartial, nullability: Nullability) -> Scalar {
     match &partial.sum {
-        SumState::Unsigned(v) => Scalar::primitive(*v, Nullability::NonNullable),
-        SumState::Signed(v) => Scalar::primitive(*v, Nullability::NonNullable),
-        SumState::Float(v) => Scalar::primitive(*v, Nullability::NonNullable),
-        SumState::Decimal { value, .. } => {
-            let decimal_dtype = *partial
-                .return_dtype
-                .as_decimal_opt()
-                .vortex_expect("return dtype must be decimal");
-            Scalar::decimal(*value, decimal_dtype, Nullability::NonNullable)
-        }
+        SumState::Unsigned(v) => Scalar::primitive(*v, nullability),
+        SumState::Signed(v) => Scalar::primitive(*v, nullability),
+        SumState::Float(v) => Scalar::primitive(*v, nullability),
+        SumState::Decimal { value, dtype } => Scalar::decimal(*value, *dtype, nullability),
     }
 }
 
@@ -534,22 +529,7 @@ fn sum_value_scalar(partial: &SumPartial) -> Scalar {
         return Scalar::null(partial.return_dtype.as_nullable());
     }
 
-    nullable_sum_state_scalar(partial)
-}
-
-fn nullable_sum_state_scalar(partial: &SumPartial) -> Scalar {
-    match &partial.sum {
-        SumState::Unsigned(v) => Scalar::primitive(*v, Nullability::Nullable),
-        SumState::Signed(v) => Scalar::primitive(*v, Nullability::Nullable),
-        SumState::Float(v) => Scalar::primitive(*v, Nullability::Nullable),
-        SumState::Decimal { value, .. } => {
-            let decimal_dtype = *partial
-                .return_dtype
-                .as_decimal_opt()
-                .vortex_expect("return dtype must be decimal");
-            Scalar::decimal(*value, decimal_dtype, Nullability::Nullable)
-        }
-    }
+    sum_state_scalar(partial, Nullability::Nullable)
 }
 
 /// Convert scalar legacy Sum partials read from storage (a single nullable primitive) to the struct partial shape.
