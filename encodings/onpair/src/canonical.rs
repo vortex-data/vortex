@@ -27,6 +27,7 @@ use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 
 use crate::OnPair;
 use crate::OnPairArraySlotsExt;
@@ -46,7 +47,6 @@ pub(super) fn canonicalize_onpair(
     })
 }
 
-/// Everything needed to decode an OnPair array's values in one bulk `try_decode_into` call.
 pub(crate) struct OnPairDecodePlan<'a> {
     codes: Buffer<u16>,
     dict: CompactDictionaryView<'a>,
@@ -71,24 +71,79 @@ impl<'a> OnPairDecodePlan<'a> {
                 .sum()
         });
 
-    // Slice the `codes` child to that window *before* unpacking it, so a sliced
-    // array materialises only its own codes rather than the whole column's. The
-    // contiguous decoder walks `codes` in order and never reads the per-row
-    // boundaries, so an empty boundary slice is sound.
-    let codes = collect_widened::<u16>(&array.codes().slice(code_start..code_end)?, ctx)?;
-    let dict = dict_view(array, ctx)?;
-    let mut out_bytes = ByteBufferMut::with_capacity(total_size);
-    let written = onpair::try_decode_into(codes.as_slice(), dict, out_bytes.spare_capacity_mut())
-        .map_err(|_| {
-        vortex_err!("OnPair codes decode to more bytes than uncompressed_lengths records")
-    })?;
-    vortex_ensure!(
-        written == total_size,
-        "OnPair codes decoded to {written} bytes but uncompressed_lengths records {total_size}"
-    );
-    // SAFETY: `try_decode_into` initialised exactly `written` bytes.
+        // `codes_offsets` holds the per-row code boundaries and may itself be a
+        // sliced or filtered view of the original. Its first and last entries
+        // bound the contiguous run of `codes` belonging to the rows present in
+        // this array: `slice` keeps the full `codes` child and only narrows
+        // `codes_offsets` (so `code_start > 0` and/or `code_end < codes.len()`),
+        // while `filter` rebuilds both children so the window is the whole stream.
+        // OnPair has no `TakeExecute`, so a reordering take is served from the
+        // canonical `VarBinView` and never reaches this path. We only need those
+        // two boundaries, so point-look them up rather than decoding every offset.
+        let codes_offsets = array.codes_offsets();
+        let code_start = code_boundary_at(codes_offsets, 0, ctx)?;
+        let code_end = code_boundary_at(codes_offsets, array.len(), ctx)?;
+        vortex_ensure!(
+            code_start <= code_end,
+            "OnPair codes_offsets must be nondecreasing"
+        );
+        vortex_ensure!(
+            code_end <= array.codes().len(),
+            "OnPair codes_offsets end {} exceeds codes len {}",
+            code_end,
+            array.codes().len()
+        );
+
+        // Slice the `codes` child to that window *before* unpacking it, so a sliced
+        // array materialises only its own codes rather than the whole column's. The
+        // contiguous decoder walks `codes` in order and never reads the per-row
+        // boundaries, so an empty boundary slice is sound.
+        let codes = collect_widened::<u16>(&array.codes().slice(code_start..code_end)?, ctx)?;
+        let dict = dict_view(array, ctx)?;
+
+        Ok(Self {
+            codes,
+            dict,
+            lengths,
+            total_size,
+        })
+    }
+
+    /// Bulk-decodes the whole code stream into `out`, which must hold at least `total_size` bytes.
+    ///
+    /// Do not reach for `#[inline(always)]` here. `try_decode_into` is monomorphized for
+    /// `CompactDictionaryView` whichever way this is annotated, and it is far too large to inline
+    /// either way — it stays an out-of-line call in both. All `always` buys is dropping this
+    /// wrapper's own frame, one `bl`/`ret` per decoded chunk against a whole-column decode, which
+    /// `benches/decode.rs::canonicalize_to_varbinview` cannot tell apart from noise.
+    #[inline]
+    pub(crate) fn decode_into(&self, out: &mut [MaybeUninit<u8>]) -> VortexResult<usize> {
+        let written = match onpair::try_decode_into(self.codes.as_slice(), self.dict, out) {
+            Ok(written) => written,
+            Err(_) => {
+                vortex_panic!("OnPair codes decode to more bytes than uncompressed_lengths records")
+            }
+        };
+        if written != self.total_size {
+            vortex_panic!(
+                "OnPair codes decoded to {written} bytes but uncompressed_lengths records {}",
+                self.total_size
+            );
+        }
+        Ok(written)
+    }
+}
+
+pub(crate) fn onpair_decode_bytes(
+    array: ArrayView<'_, OnPair>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<(ByteBufferMut, PrimitiveArray)> {
+    let plan = OnPairDecodePlan::new(array, ctx)?;
+    let mut out_bytes = ByteBufferMut::with_capacity(plan.total_size);
+    let written = plan.decode_into(out_bytes.spare_capacity_mut())?;
+    // SAFETY: `decode_into` initialised exactly `written` bytes.
     unsafe { out_bytes.set_len(written) };
-    Ok((out_bytes, lengths))
+    Ok((out_bytes, plan.lengths))
 }
 
 pub(crate) fn onpair_decode_views(
