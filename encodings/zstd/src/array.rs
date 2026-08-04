@@ -59,6 +59,7 @@ use vortex_session::registry::CachedId;
 
 use crate::ZstdFrameMetadata;
 use crate::ZstdMetadata;
+use crate::validate_frame_content_size;
 
 // Zstd doesn't support training dictionaries on very few samples.
 const MIN_SAMPLES_FOR_DICTIONARY: usize = 8;
@@ -670,6 +671,10 @@ impl ZstdData {
             self.frames.len(),
             self.metadata.frames.len()
         );
+        for (index, (frame, metadata)) in self.frames.iter().zip(&self.metadata.frames).enumerate()
+        {
+            validate_frame_content_size(frame.as_slice(), metadata.uncompressed_size, index)?;
+        }
 
         Ok(())
     }

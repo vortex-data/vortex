@@ -13,6 +13,7 @@ use vortex_array::assert_nth_scalar;
 use vortex_array::builders::DynVarBinBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
@@ -288,4 +289,21 @@ fn test_zstd_frame_start_buffer_alignment() {
     let compressed = Zstd::from_primitive(&array, 0, 1, &mut ctx);
 
     assert!(compressed.is_ok());
+}
+
+#[test]
+fn test_zstd_rejects_mismatched_frame_content_size() {
+    let mut ctx = array_session().create_execution_ctx();
+    let compressed =
+        Zstd::from_primitive(&PrimitiveArray::from_iter([1_i32, 2, 3]), 0, 0, &mut ctx).unwrap();
+    let mut data = compressed.data().clone();
+    data.metadata.frames[0].uncompressed_size = 16 * 1024 * 1024 * 1024;
+
+    let error = Zstd::try_new(
+        DType::Primitive(PType::I32, Nullability::NonNullable),
+        data,
+        Validity::NonNullable,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("metadata declares"));
 }
