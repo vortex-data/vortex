@@ -135,12 +135,11 @@ fn collect_sums<T: NativePType, A: NativePType + Default>(
     all_valid: bool,
     sum_run: impl Fn(&mut A, &[T]) -> bool,
 ) -> (PrimitiveArray, BitBuffer, BitBuffer) {
-    let mut is_overflow = BitBufferMut::with_capacity(group_ranges.len());
-    let mut is_empty = BitBufferMut::with_capacity(group_ranges.len());
+    let group_count = group_ranges.len();
+    let mut is_overflow = BitBufferMut::new_unset(group_count);
+    let mut is_empty = BitBufferMut::new_unset(group_count);
     let sums = group_ranges.iter().enumerate().map(|(i, (offset, size))| {
         if !group_validity.value(i) {
-            is_overflow.append(false);
-            is_empty.append(true);
             return A::default();
         }
         let mut acc = A::default();
@@ -149,8 +148,16 @@ fn collect_sums<T: NativePType, A: NativePType + Default>(
         } else {
             sum_masked_group(&mut acc, values, offset, size, elem_mask, &sum_run)
         };
-        is_overflow.append(overflow);
-        is_empty.append(!any_valid);
+        if overflow {
+            // SAFETY: `i` comes from enumerating `group_ranges`, and the bitmap has one bit per
+            // group.
+            unsafe { is_overflow.set_unchecked(i) };
+        }
+        if !any_valid {
+            // SAFETY: `i` comes from enumerating `group_ranges`, and the bitmap has one bit per
+            // group.
+            unsafe { is_empty.set_unchecked(i) };
+        }
         acc
     });
     let sums = PrimitiveArray::from_iter(sums);
