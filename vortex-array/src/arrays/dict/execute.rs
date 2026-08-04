@@ -49,7 +49,7 @@ pub(crate) fn take_canonical(
         CanonicalView::Decimal(a) => Canonical::Decimal(take_decimal(a, codes, ctx)),
         CanonicalView::VarBinView(a) => Canonical::VarBinView(take_varbinview(a, codes, ctx)),
         CanonicalView::List(a) => Canonical::List(take_listview(a, codes, ctx)),
-        Canonical::Map(_) => vortex_bail!("Map arrays don't support take"),
+        CanonicalView::Map(_) => vortex_bail!("Map arrays don't support take"),
         CanonicalView::FixedSizeList(a) => {
             Canonical::FixedSizeList(take_fixed_size_list(a, codes, ctx))
         }
