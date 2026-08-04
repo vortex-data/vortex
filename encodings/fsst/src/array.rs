@@ -143,8 +143,18 @@ impl VTable for FSST {
 
     fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         match idx {
-            0 => BufferHandle::new_host(array.symbols().into_byte_buffer()),
-            1 => BufferHandle::new_host(array.symbol_lengths().into_byte_buffer()),
+            0 => BufferHandle::new_host(
+                array
+                    .padded_symbol_lengths()
+                    .slice(0..array.n_symbols())
+                    .into_byte_buffer(),
+            ),
+            1 => BufferHandle::new_host(
+                array
+                    .padded_symbol_lengths()
+                    .slice(0..array.n_symbols())
+                    .into_byte_buffer(),
+            ),
             2 => array.codes_bytes_handle().clone(),
             _ => vortex_panic!("FSSTArray buffer index {idx} out of bounds"),
         }
@@ -916,19 +926,15 @@ impl FSSTData {
     /// This is the populated prefix of the symbol table; the padding added on construction to
     /// reach [`FSST_SYMBOL_TABLE_LEN`] is not included. Use [`Self::padded_symbols`] to get the
     /// whole buffer.
-    pub fn symbols(&self) -> Buffer<Symbol> {
-        self.symbol_table
-            .padded_symbols()
-            .slice(0..self.symbol_table.n_symbols)
+    pub fn symbols(&self) -> &[Symbol] {
+        &self.symbol_table.padded_symbols().as_slice()[0..self.symbol_table.n_symbols]
     }
 
     /// Access the symbol lengths array.
     ///
     /// As with [`Self::symbols`], this excludes the padding added on construction.
-    pub fn symbol_lengths(&self) -> Buffer<u8> {
-        self.symbol_table
-            .padded_symbol_lengths()
-            .slice(0..self.symbol_table.n_symbols)
+    pub fn symbol_lengths(&self) -> &[u8] {
+        &self.symbol_table.padded_symbol_lengths().as_slice()[0..self.symbol_table.n_symbols]
     }
 
     /// The whole symbols buffer, padded to exactly [`FSST_SYMBOL_TABLE_LEN`] entries with
@@ -948,7 +954,7 @@ impl FSSTData {
         self.symbol_table.n_symbols
     }
 
-    pub(crate) fn symbol_table(&self) -> Arc<FSSTSymbolTable> {
+    pub fn symbol_table(&self) -> Arc<FSSTSymbolTable> {
         Arc::clone(&self.symbol_table)
     }
 
@@ -1095,7 +1101,7 @@ mod test {
         // Accessors and serialized buffers only see the two populated symbols.
         assert_eq!(fsst_array.n_symbols(), 2);
         assert_eq!(fsst_array.symbols().len(), 2);
-        assert_eq!(fsst_array.symbol_lengths().as_slice(), &[3, 8]);
+        assert_eq!(fsst_array.symbol_lengths(), &[3, 8]);
         assert_eq!(
             FSST::buffer(fsst_array.as_view(), 0).len(),
             2 * size_of::<Symbol>()
@@ -1121,8 +1127,18 @@ mod test {
         let fsst_array = fsst_compress(&input, &compressor, &mut ctx)?;
 
         let buffers = [
-            BufferHandle::new_host(fsst_array.symbols().into_byte_buffer()),
-            BufferHandle::new_host(fsst_array.symbol_lengths().into_byte_buffer()),
+            BufferHandle::new_host(
+                fsst_array
+                    .padded_symbols()
+                    .slice(0..fsst_array.n_symbols())
+                    .into_byte_buffer(),
+            ),
+            BufferHandle::new_host(
+                fsst_array
+                    .padded_symbol_lengths()
+                    .slice(0..fsst_array.n_symbols())
+                    .into_byte_buffer(),
+            ),
             fsst_array.codes_bytes_handle().clone(),
         ];
         assert!(buffers[1].len() < FSST_SYMBOL_TABLE_LEN);

@@ -255,10 +255,9 @@ mod tests {
         let input = VarBinViewArray::from_iter_str(["hello"]).into_array();
         let mut ctx = SESSION.create_execution_ctx();
         let encoded = fsst_compress(&input, &fsst_train_compressor(&input, &mut ctx)?, &mut ctx)?;
-        let invalid = FSST::try_new(
+        let invalid = FSST::try_new_with_symbol_table(
             encoded.dtype().clone(),
-            encoded.symbols(),
-            encoded.symbol_lengths(),
+            encoded.symbol_table(),
             encoded.codes(),
             PrimitiveArray::from_iter([4i32]).into_array(),
             &mut ctx,
