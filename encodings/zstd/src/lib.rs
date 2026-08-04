@@ -43,10 +43,12 @@ mod zstd_buffers;
 #[cfg(test)]
 mod test;
 
-/// Register the Zstd encodings and their optional edition declaration with a Vortex session.
+/// Register the Zstd encodings, their compute kernels, and their optional edition declaration
+/// with a Vortex session.
 pub fn initialize(session: &VortexSession) {
     session.arrays().register(Zstd);
     session.arrays().register(ZstdBuffers);
+    compute::initialize(session);
     if session.editions().find(&editions::ZSTD_2026_02).is_none() {
         session
             .editions()

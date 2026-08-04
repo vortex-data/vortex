@@ -205,5 +205,8 @@
     "cosine_similarity": 9,
     "inner_product": 6,
     "l2_norm": 6
+  },
+  "vortex-zstd": {
+    "filter_zstd": 10
   }
 }
