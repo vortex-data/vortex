@@ -318,9 +318,6 @@ impl Mask {
     }
 
     fn from_slices_unchecked(len: usize, slices: Vec<(usize, usize)>) -> Self {
-        #[cfg(debug_assertions)]
-        Self::check_slices(len, &slices);
-
         let true_count = slices.iter().map(|(b, e)| e - b).sum();
         if true_count == 0 {
             return Self::AllFalse(len);
@@ -329,15 +326,10 @@ impl Mask {
             return Self::AllTrue(len);
         }
 
-        let mut buf = BitBufferMut::with_capacity(len);
-        let mut cursor = 0;
+        let mut buf = BitBufferMut::new_unset(len);
         for (start, end) in slices.iter().copied() {
-            buf.append_n(false, start - cursor);
-            buf.append_n(true, end - start);
-            cursor = end;
+            buf.fill_range(start, end, true);
         }
-        buf.append_n(false, len - cursor);
-        debug_assert_eq!(buf.len(), len);
 
         Self::Values(Arc::new(MaskValues {
             buffer: buf.freeze(),
