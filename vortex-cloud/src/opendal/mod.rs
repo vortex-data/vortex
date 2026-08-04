@@ -203,9 +203,8 @@ pub(crate) fn build_operator<B>(builder: B) -> Result<Operator, OpenDALStoreErro
 where
     B: ::opendal::Builder,
 {
-    let operator: Operator = Operator::new(builder)
-        .map_err(OpenDALStoreError::Build)?
-        .finish();
+    // OpenDAL 0.58+: Operator::new returns a finished Operator (no .finish()).
+    let operator: Operator = Operator::new(builder).map_err(OpenDALStoreError::Build)?;
     Ok(operator)
 }
 
