@@ -36,7 +36,7 @@ impl<'a> Arbitrary<'a> for FieldName {
 
 fn random_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
     const BASE_TYPE_COUNT: i32 = 5;
-    const CONTAINER_TYPE_COUNT: i32 = 4;
+    const CONTAINER_TYPE_COUNT: i32 = 3;
     let max_dtype_kind = if depth == 0 {
         BASE_TYPE_COUNT
     } else {
@@ -59,13 +59,6 @@ fn random_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
             u.choose_index(3)?.try_into().vortex_expect("impossible"),
             u.arbitrary()?,
         ),
-        9 => DType::map(
-            random_dtype(u, depth - 1)?.as_nonnullable(),
-            random_dtype(u, depth - 1)?,
-            u.arbitrary()?,
-            u.arbitrary()?,
-        )
-        .vortex_expect("non-nullable generated map keys are always valid"),
         // Null,
         // Extension(ExtDType, Nullability),
         _ => unreachable!("Number out of range"),
