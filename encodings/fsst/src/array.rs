@@ -454,13 +454,47 @@ impl FSSTSymbolTable {
     /// `n_symbols` is the number of populated entries; everything past it is padding. Buffers
     /// longer than [`FSST_SYMBOL_TABLE_LEN`] are truncated; callers are expected to have rejected
     /// them already (see [`FSSTData::try_new`]).
-    fn new(symbols: Buffer<Symbol>, symbol_lengths: Buffer<u8>, n_symbols: usize) -> Self {
+    pub(crate) fn new(
+        symbols: Buffer<Symbol>,
+        symbol_lengths: Buffer<u8>,
+        n_symbols: usize,
+    ) -> Self {
         Self {
             padded_symbols: pad_symbol_table(symbols, Symbol::ZERO),
             padded_symbol_lengths: pad_symbol_table(symbol_lengths, 0),
             n_symbols: n_symbols.min(FSST_SYMBOL_TABLE_LEN),
             compressor: OnceLock::new(),
         }
+    }
+
+    /// Builds a symbol table, padding `symbols` and `symbol_lengths` out to
+    /// [`FSST_SYMBOL_TABLE_LEN`] entries if they are shorter.
+    ///
+    /// `n_symbols` is the number of populated entries; everything past it is padding. Buffers
+    /// longer than [`FSST_SYMBOL_TABLE_LEN`] are truncated; callers are expected to have rejected
+    /// them already (see [`FSSTData::try_new`]).
+    pub(crate) fn new_padded(
+        padded_symbols: Buffer<Symbol>,
+        padded_symbol_lengths: Buffer<u8>,
+        n_symbols: usize,
+    ) -> VortexResult<Self> {
+        vortex_ensure!(
+            padded_symbols.len() == FSST_SYMBOL_TABLE_LEN
+                && padded_symbol_lengths.len() == FSST_SYMBOL_TABLE_LEN,
+            InvalidArgument: "padded symbol table must have exactly {FSST_SYMBOL_TABLE_LEN} entries, found {} symbols and {} symbol lengths",
+            padded_symbols.len(),
+            padded_symbol_lengths.len()
+        );
+        vortex_ensure!(
+            n_symbols <= FSST_SYMBOL_TABLE_LEN,
+            InvalidArgument: "n_symbols must be <= {FSST_SYMBOL_TABLE_LEN}, found {n_symbols}"
+        );
+        Ok(Self {
+            padded_symbols,
+            padded_symbol_lengths,
+            n_symbols,
+            compressor: OnceLock::new(),
+        })
     }
 
     /// The populated symbols, excluding the padding added by [`Self::new`].
@@ -522,9 +556,7 @@ fn pad_symbol_table<T: Copy>(buffer: Buffer<T>, pad: T) -> Buffer<T> {
 /// with `pad`.
 ///
 /// FSST symbol tables are stored padded so that [`FSSTData::decompressor`] can borrow them as the
-/// fixed-size arrays [`Decompressor`] requires, without copying. Producers that already hold a
-/// padded table can build one here and hand it to [`FSST::try_new_padded`] to skip the copy that
-/// [`FSST::try_new`] would otherwise make.
+/// fixed-size arrays [`Decompressor`] requires, without copying.
 pub(crate) fn padded_symbol_table<T: Copy>(values: &[T], pad: T) -> Buffer<T> {
     let populated = values.len().min(FSST_SYMBOL_TABLE_LEN);
     let mut padded = BufferMut::with_capacity(FSST_SYMBOL_TABLE_LEN);
@@ -538,10 +570,6 @@ pub struct FSST;
 
 impl FSST {
     /// Build an FSST array from a set of `symbols` and `codes`.
-    ///
-    /// `symbols` and `symbol_lengths` hold only the populated entries; they are padded out to
-    /// [`FSST_SYMBOL_TABLE_LEN`] internally. Callers that already hold a padded symbol table
-    /// should use [`Self::try_new_padded`] to avoid that copy.
     ///
     /// The `codes` VarBinArray is decomposed: its bytes are stored in [`FSSTData`], while
     /// its offsets and validity become array slots. The codes VarBinArray can be
@@ -567,43 +595,6 @@ impl FSST {
         let slots = FSSTData::make_slots(&codes, &uncompressed_lengths);
         let codes_bytes = codes.bytes_handle().clone();
         let data = FSSTData::try_new(symbols, symbol_lengths, codes_bytes, len)?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(FSST, dtype, len, data).with_slots(slots))
-        })
-    }
-
-    /// Build an FSST array from a symbol table that is already padded to
-    /// [`FSST_SYMBOL_TABLE_LEN`] entries, of which the first `n_symbols` are populated.
-    ///
-    /// This is the allocation-free counterpart to [`Self::try_new`] for producers such as
-    /// [`Compressor`], whose symbol table is already stored padded.
-    pub fn try_new_padded(
-        dtype: DType,
-        padded_symbols: Buffer<Symbol>,
-        padded_symbol_lengths: Buffer<u8>,
-        n_symbols: usize,
-        codes: VarBinArray,
-        uncompressed_lengths: ArrayRef,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<FSSTArray> {
-        let len = codes.len();
-        let data = FSSTData::try_new_padded(
-            padded_symbols,
-            padded_symbol_lengths,
-            n_symbols,
-            codes.bytes_handle().clone(),
-            len,
-        )?;
-        FSSTData::validate_parts_from_codes(
-            data.symbol_table.symbols(),
-            data.symbol_table.symbol_lengths(),
-            &codes,
-            &uncompressed_lengths,
-            &dtype,
-            len,
-            ctx,
-        )?;
-        let slots = FSSTData::make_slots(&codes, &uncompressed_lengths);
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(FSST, dtype, len, data).with_slots(slots))
         })
@@ -757,40 +748,6 @@ impl FSSTData {
             Ok(Self::new_unchecked(
                 symbols,
                 symbol_lengths,
-                n_symbols,
-                codes_bytes,
-                len,
-            ))
-        }
-    }
-
-    /// Build FSST data from a symbol table that is already padded to [`FSST_SYMBOL_TABLE_LEN`]
-    /// entries, of which the first `n_symbols` are populated.
-    ///
-    /// Unlike [`Self::try_new`], this stores the buffers as given, without copying them.
-    pub fn try_new_padded(
-        padded_symbols: Buffer<Symbol>,
-        padded_symbol_lengths: Buffer<u8>,
-        n_symbols: usize,
-        codes_bytes: BufferHandle,
-        len: usize,
-    ) -> VortexResult<Self> {
-        vortex_ensure!(
-            padded_symbols.len() == FSST_SYMBOL_TABLE_LEN
-                && padded_symbol_lengths.len() == FSST_SYMBOL_TABLE_LEN,
-            InvalidArgument: "padded symbol table must have exactly {FSST_SYMBOL_TABLE_LEN} entries, found {} symbols and {} symbol lengths",
-            padded_symbols.len(),
-            padded_symbol_lengths.len()
-        );
-        vortex_ensure!(
-            n_symbols <= FSST_SYMBOL_TABLE_LEN,
-            InvalidArgument: "n_symbols must be <= {FSST_SYMBOL_TABLE_LEN}, found {n_symbols}"
-        );
-        // SAFETY: the symbol table shape is validated above.
-        unsafe {
-            Ok(Self::new_unchecked(
-                padded_symbols,
-                padded_symbol_lengths,
                 n_symbols,
                 codes_bytes,
                 len,
@@ -1099,6 +1056,7 @@ mod test {
     use crate::array::FSSTArraySlotsExt;
     use crate::array::FSSTData;
     use crate::array::FSSTMetadata;
+    use crate::array::FSSTSymbolTable;
     use crate::array::padded_symbol_table;
     use crate::fsst_compress;
     use crate::fsst_train_compressor;
@@ -1229,20 +1187,14 @@ mod test {
         let symbols_ptr = symbols.as_slice().as_ptr();
         let symbol_lengths_ptr = symbol_lengths.as_slice().as_ptr();
 
-        let data = FSSTData::try_new_padded(
-            symbols,
-            symbol_lengths,
-            1,
-            BufferHandle::new_host(Buffer::<u8>::empty()),
-            0,
-        )?;
+        let data = FSSTSymbolTable::new_padded(symbols, symbol_lengths, 1)?;
 
         assert_eq!(data.padded_symbols().as_slice().as_ptr(), symbols_ptr);
         assert_eq!(
             data.padded_symbol_lengths().as_slice().as_ptr(),
             symbol_lengths_ptr
         );
-        assert_eq!(data.n_symbols(), 1);
+        assert_eq!(data.symbols().len(), 1);
         Ok(())
     }
 
@@ -1251,22 +1203,18 @@ mod test {
     #[test]
     fn rejects_unpadded_input_to_padded_constructor() {
         assert!(
-            FSSTData::try_new_padded(
+            FSSTSymbolTable::new_padded(
                 Buffer::<Symbol>::copy_from([Symbol::from_slice(b"ab000000")]),
                 Buffer::<u8>::copy_from([2]),
                 1,
-                BufferHandle::new_host(Buffer::<u8>::empty()),
-                0,
             )
             .is_err()
         );
         assert!(
-            FSSTData::try_new_padded(
+            FSSTSymbolTable::new_padded(
                 Buffer::<Symbol>::full(Symbol::ZERO, FSST_SYMBOL_TABLE_LEN),
                 Buffer::<u8>::full(0, FSST_SYMBOL_TABLE_LEN),
                 FSST_SYMBOL_TABLE_LEN + 1,
-                BufferHandle::new_host(Buffer::<u8>::empty()),
-                0,
             )
             .is_err()
         );

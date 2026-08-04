@@ -36,6 +36,7 @@ use vortex_mask::Mask;
 
 use crate::FSST;
 use crate::FSSTArray;
+use crate::array::FSSTSymbolTable;
 use crate::array::padded_symbol_table;
 
 /// FSST worst case: every input byte expands to an escape + literal (2x).
@@ -328,11 +329,13 @@ impl<'c, O: OffsetBuilderPType + 'static> FsstSink<'c, O> {
         let codes = self.builder.finish_into_varbin();
         // Pad the symbol table here so that the array can hand it straight to a `Decompressor`
         // without copying.
-        FSST::try_new_padded(
+        FSST::try_new_with_symbol_table(
             dtype,
-            padded_symbol_table(self.compressor.symbol_table(), Symbol::ZERO),
-            padded_symbol_table(self.compressor.symbol_lengths(), 0),
-            self.compressor.n_symbols(),
+            Arc::new(FSSTSymbolTable::new_padded(
+                padded_symbol_table(self.compressor.symbol_table(), Symbol::ZERO),
+                padded_symbol_table(self.compressor.symbol_lengths(), 0),
+                self.compressor.n_symbols(),
+            )?),
             codes,
             self.uncompressed_lengths.into_array(),
             ctx,
