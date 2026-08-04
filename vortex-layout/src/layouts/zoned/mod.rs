@@ -267,6 +267,7 @@ impl LegacyStatsLayout {
         usize::try_from(self.children().child_row_count(1))
             .vortex_expect("Invalid number of zones, cannot handle more than usize zones")
     }
+
     /// Returns display names for the zone-map aggregates stored by this layout.
     pub fn present_aggregates(&self) -> Arc<[String]> {
         present_aggregates(&self.zone_map_schema)
@@ -420,7 +421,11 @@ impl DeserializeMetadata for ZonedMetadata {
             vortex_bail!("Zoned metadata missing protobuf version");
         };
 
-        vortex_ensure_eq!(version, ZONED_METADATA_PROTO_VERSION);
+        vortex_ensure!(
+            version == ZONED_METADATA_PROTO_VERSION,
+            "Unsupported zoned metadata version: {}",
+            version
+        );
         vortex_ensure!(!proto_bytes.is_empty(), "Zoned metadata missing protobuf");
 
         let proto = ZonedMetadataProto::decode(proto_bytes)?;
