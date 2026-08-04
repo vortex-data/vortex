@@ -52,6 +52,7 @@ use vortex::layout::layouts::compressed::CompressingStrategy;
 use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex::session::VortexSession;
 use vortex::utils::aliases::hash_set::HashSet;
+use vortex::utils::parallelism::get_available_parallelism;
 use vortex_arrow::FromArrowArray;
 use vortex_arrow::FromArrowType;
 use vortex_geo::extension::GeoMetadata;
@@ -72,9 +73,6 @@ const MEMORY_PER_STREAM_GB: u64 = 4;
 /// Minimum number of concurrent conversion streams.
 const MIN_CONCURRENCY: u64 = 1;
 
-/// Maximum number of concurrent conversion streams. This is somewhat arbitary.
-const MAX_CONCURRENCY: u64 = 16;
-
 /// Returns the available system memory in bytes.
 fn available_memory_bytes() -> u64 {
     System::new_all().available_memory()
@@ -83,14 +81,15 @@ fn available_memory_bytes() -> u64 {
 /// Calculate appropriate concurrency based on available memory.
 fn calculate_concurrency() -> usize {
     let available_gb = available_memory_bytes() / (1024 * 1024 * 1024);
-    let concurrency = (available_gb / MEMORY_PER_STREAM_GB).clamp(MIN_CONCURRENCY, MAX_CONCURRENCY);
+    let max_concurrency = get_available_parallelism().unwrap_or(1) as u64;
+    let concurrency = (available_gb / MEMORY_PER_STREAM_GB).clamp(MIN_CONCURRENCY, max_concurrency);
 
     info!(
         "Available memory: {}GB, maximum concurrency is: {}",
         available_gb, concurrency
     );
 
-    concurrency as usize
+    usize::try_from(concurrency).unwrap_or(1)
 }
 
 /// Read a Parquet file and return it as a Vortex [`ChunkedArray`].
