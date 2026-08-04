@@ -717,7 +717,7 @@ impl FSSTData {
     ///
     /// `symbols` and `symbol_lengths` hold only the populated entries; they are padded out to
     /// [`FSST_SYMBOL_TABLE_LEN`] entries so that [`Self::decompressor`] can borrow them without
-    /// copying. Callers that already hold a padded table should use [`Self::try_new_padded`].
+    /// copying.
     ///
     /// The offsets and validity for the codes are stored in the array's slots, not here.
     /// Use [`FSSTArrayExt::codes()`] to reconstruct a full `VarBinArray`.
@@ -740,11 +740,10 @@ impl FSSTData {
         );
         let n_symbols = symbols.len();
         // SAFETY: the symbol table shape is validated above.
+        let symbol_table = Arc::new(FSSTSymbolTable::new(symbols, symbol_lengths, n_symbols));
         unsafe {
-            Ok(Self::new_unchecked(
-                symbols,
-                symbol_lengths,
-                n_symbols,
+            Ok(Self::new_unchecked_with_symbol_table(
+                symbol_table,
                 codes_bytes,
                 len,
             ))
@@ -888,17 +887,6 @@ impl FSSTData {
             len,
             ctx,
         )
-    }
-
-    pub(crate) unsafe fn new_unchecked(
-        symbols: Buffer<Symbol>,
-        symbol_lengths: Buffer<u8>,
-        n_symbols: usize,
-        codes_bytes: BufferHandle,
-        len: usize,
-    ) -> Self {
-        let symbol_table = Arc::new(FSSTSymbolTable::new(symbols, symbol_lengths, n_symbols));
-        unsafe { Self::new_unchecked_with_symbol_table(symbol_table, codes_bytes, len) }
     }
 
     pub(crate) unsafe fn new_unchecked_with_symbol_table(

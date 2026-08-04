@@ -305,11 +305,14 @@ mod setup {
         // Rebuild FSST with compressed codes
         let compressed_fsst = FSST::try_new_with_symbol_table(
             fsst.dtype().clone(),
-            Arc::new(FSSTSymbolTable::new_padded(
-                fsst.padded_symbols().clone(),
-                fsst.padded_symbol_lengths().clone(),
-                fsst.n_symbols(),
-            ).unwrap()),
+            Arc::new(
+                FSSTSymbolTable::new_padded(
+                    fsst.padded_symbols().clone(),
+                    fsst.padded_symbol_lengths().clone(),
+                    fsst.n_symbols(),
+                )
+                .unwrap(),
+            ),
             compressed_codes,
             fsst.uncompressed_lengths().clone(),
             &mut ctx,
