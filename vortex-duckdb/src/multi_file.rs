@@ -29,6 +29,12 @@ use crate::duckdb::ExtractedValue;
 static REGISTRY: LazyLock<Registry> = LazyLock::new(Registry::new);
 
 fn resolve_filesystem(base_url: &Url) -> VortexResult<FileSystemRef> {
+    // Compat makes us use tokio which is very bad for local reads on
+    // high-core machines because reads go into blocking pool
+    if base_url.scheme() == "file" {
+        return Ok(Arc::new(ObjectStoreFileSystem::local(RUNTIME.handle())));
+    }
+
     // `base_url` has its path cleared by the caller, so the resolved path is empty and only the
     // store matters here. Going through the shared registry means DuckDB resolves the same set of
     // schemes as the Python and Java bindings, including the OpenDAL-backed ones when the
