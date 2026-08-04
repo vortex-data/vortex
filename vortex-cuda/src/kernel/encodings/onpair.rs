@@ -649,7 +649,7 @@ mod tests {
     use vortex::dtype::Nullability;
     use vortex::error::VortexExpect;
     use vortex_array::VortexSessionExecute;
-    use vortex_onpair::DEFAULT_DICT12_CONFIG;
+    use vortex_onpair::DEFAULT_CONFIG;
     use vortex_onpair::onpair_compress;
 
     use super::*;
@@ -683,7 +683,7 @@ mod tests {
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let varbin = VarBinArray::from_iter(strings, dtype).into_array();
-        let onpair = onpair_compress(&varbin, DEFAULT_DICT12_CONFIG, ctx.execution_ctx())?;
+        let onpair = onpair_compress(&varbin, DEFAULT_CONFIG, ctx.execution_ctx())?;
         vortex_ensure!(
             onpair.as_opt::<OnPair>().is_some(),
             "expected OnPair array, got {}",
@@ -806,7 +806,7 @@ mod tests {
             DType::Utf8(Nullability::NonNullable),
         )
         .into_array();
-        let onpair = onpair_compress(&varbin, DEFAULT_DICT12_CONFIG, cuda_ctx.execution_ctx())?;
+        let onpair = onpair_compress(&varbin, DEFAULT_CONFIG, cuda_ctx.execution_ctx())?;
 
         let gpu_result = OnPairExecutor
             .execute(onpair.clone(), &mut cuda_ctx)
@@ -837,7 +837,7 @@ mod tests {
             DType::Utf8(Nullability::NonNullable),
         )
         .into_array();
-        let onpair = onpair_compress(&varbin, DEFAULT_DICT12_CONFIG, cuda_ctx.execution_ctx())?;
+        let onpair = onpair_compress(&varbin, DEFAULT_CONFIG, cuda_ctx.execution_ctx())?;
         let sliced = onpair.slice(19_997..20_101)?;
 
         let gpu_result = OnPairExecutor

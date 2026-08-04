@@ -27,7 +27,7 @@ use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
-use vortex_onpair::DEFAULT_DICT12_CONFIG;
+use vortex_onpair::DEFAULT_CONFIG;
 use vortex_onpair::onpair_compress;
 
 use crate::timed_launch_strategy::TimedLaunchStrategy;
@@ -55,7 +55,7 @@ fn make_fixture(n: usize) -> OnPairBenchFixture {
         DType::Utf8(Nullability::NonNullable),
     )
     .into_array();
-    let array = onpair_compress(&varbin, DEFAULT_DICT12_CONFIG, setup_ctx.execution_ctx())
+    let array = onpair_compress(&varbin, DEFAULT_CONFIG, setup_ctx.execution_ctx())
         .vortex_expect("OnPair compression failed");
 
     OnPairBenchFixture {
