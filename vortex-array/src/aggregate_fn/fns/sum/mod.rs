@@ -621,6 +621,12 @@ fn try_accumulate_cached_sum(
     let Precision::Exact(sum) = batch.statistics().get(Stat::Sum) else {
         return Ok(false);
     };
+    if sum.is_null() {
+        // A finalized null cannot distinguish an empty batch from overflow, so it is not a
+        // mergeable partial. Array stats cannot currently store nulls, but recompute if that
+        // representation changes in the future.
+        return Ok(false);
+    }
 
     let sum = sum.cast(&partial.return_dtype)?;
     let partial_scalar = sum_result_partial_scalar(sum, &partial.return_dtype, false)?;
