@@ -309,7 +309,7 @@ mod setup {
                 fsst.padded_symbols().clone(),
                 fsst.padded_symbol_lengths().clone(),
                 fsst.n_symbols(),
-            )),
+            ).unwrap()),
             compressed_codes,
             fsst.uncompressed_lengths().clone(),
             &mut ctx,
