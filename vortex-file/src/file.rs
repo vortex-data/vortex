@@ -247,10 +247,10 @@ impl VortexFile {
 
     /// Return the file's natural row splits as root-coordinate ranges.
     ///
-    /// These are the ranges that [`SplitBy::Layout`] would use for an all-fields scan.
+    /// These are the ranges that [`SplitBy::LayoutSubSplitting`] would use for an all-fields scan.
     pub fn splits(&self) -> VortexResult<Vec<Range<u64>>> {
         let reader = self.layout_reader()?;
-        Ok(SplitBy::Layout
+        Ok(SplitBy::LayoutSubSplitting
             .splits(reader.as_ref(), &(0..reader.row_count()), &[FieldMask::All])?
             .into_iter()
             .tuple_windows()

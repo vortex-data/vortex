@@ -189,7 +189,11 @@ impl PyVortexDataset {
                 .scan()?
                 .with_projection(projection)
                 .with_some_filter(filter)
-                .with_split_by(split_by.map(SplitBy::RowCount).unwrap_or(SplitBy::Layout));
+                .with_split_by(
+                    split_by
+                        .map(SplitBy::RowCount)
+                        .unwrap_or(SplitBy::LayoutSubSplitting),
+                );
             if let Some((l, r)) = row_range {
                 scan = scan.with_row_range(l..r);
             }
@@ -228,7 +232,11 @@ impl PyVortexDataset {
                 .scan()?
                 .with_projection(select(FieldNames::empty(), root()))
                 .with_some_filter(filter)
-                .with_split_by(split_by.map(SplitBy::RowCount).unwrap_or(SplitBy::Layout));
+                .with_split_by(
+                    split_by
+                        .map(SplitBy::RowCount)
+                        .unwrap_or(SplitBy::LayoutSubSplitting),
+                );
             if let Some((l, r)) = row_range {
                 scan = scan.with_row_range(l..r);
             }
