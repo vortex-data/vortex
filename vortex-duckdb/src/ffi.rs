@@ -48,7 +48,7 @@ use crate::table_function::to_string;
 
 #[unsafe(no_mangle)]
 unsafe extern "C-unwind" fn duckdb_table_function_to_string(
-    bind_data: *mut c_void,
+    bind_data: *const c_void,
     map: cpp::duckdb_vx_string_map,
 ) {
     let bind_data = unsafe { bind_data.cast::<TableFunctionBind>().as_ref() }
@@ -178,7 +178,7 @@ pub unsafe extern "C-unwind" fn duckdb_table_function_pushdown_expression(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn duckdb_table_function_cardinality(
-    bind_data: *mut c_void,
+    bind_data: *const c_void,
     node_stats_out: *mut cpp::duckdb_vx_node_statistics,
 ) {
     let bind_data = unsafe { bind_data.cast::<TableFunctionBind>().as_ref() }

@@ -26,11 +26,6 @@ extern "C" void duckdb_vx_vector_dictionary(duckdb_vector ffi_vector,
     vector->Dictionary(*dict, dictionary_size, *sel_vec, count);
 }
 
-extern "C" void duckdb_vx_set_dictionary_vector_length(duckdb_vector dict, unsigned int len) {
-    auto ddict = reinterpret_cast<duckdb::Vector *>(dict);
-    ddict->GetBuffer()->Cast<DictionaryBuffer>().SetDictionarySize(len);
-}
-
 extern "C" void
 duckdb_vx_sequence_vector(duckdb_vector c_vector, int64_t start, int64_t step, idx_t capacity) {
     auto vector = reinterpret_cast<Vector *>(c_vector);

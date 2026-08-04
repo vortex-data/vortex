@@ -112,12 +112,6 @@ impl VectorRef {
         }
     }
 
-    // Used to by duckdb to know the dictionary value length (since each vector doesn't know its own
-    // length only its capacity).
-    pub fn set_dictionary_len(&mut self, len: u32) {
-        unsafe { cpp::duckdb_vx_set_dictionary_vector_length(self.as_ptr(), len) }
-    }
-
     pub fn to_sequence(&mut self, start: i64, stop: i64, capacity: u64) {
         unsafe { cpp::duckdb_vx_sequence_vector(self.as_ptr(), start, stop, capacity) }
     }

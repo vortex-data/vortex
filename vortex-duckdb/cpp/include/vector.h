@@ -22,8 +22,6 @@ void duckdb_vx_vector_dictionary(duckdb_vector ffi_vector,
                                  duckdb_selection_vector ffi_sel_vec,
                                  idx_t count);
 
-void duckdb_vx_set_dictionary_vector_length(duckdb_vector dict, unsigned int len);
-
 // Reset vector's validity mask to nullptr, making all vector's elements valid.
 // vector must not be a DictionaryVector or a SequenceVector
 void duckdb_vx_vector_set_all_valid(duckdb_vector ffi_vector);
