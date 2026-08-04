@@ -19,7 +19,7 @@
 //!
 //! Both parent dispatch chains are covered. An optimization of a heap array and one of borrowed
 //! construction parts ([`ArrayParts::optimize`](crate::array::ArrayParts::optimize)) record the
-//! same events, and a parent is summarized from its metadata via [`TraceArray`], so recording a
+//! same events, and a parent is summarized from its metadata via `TraceArray`, so recording a
 //! trace never forces a stack-allocated parent to materialize.
 //!
 //! Despite the name `trace_op`, the harness is *not* a generic logging facility: it is closely
