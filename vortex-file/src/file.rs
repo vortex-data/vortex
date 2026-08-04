@@ -11,7 +11,6 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 
 use itertools::Itertools;
-use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
@@ -214,7 +213,7 @@ impl VortexFile {
 
     /// Initiate a scan of the file, returning a builder for projection, filtering, selection, and
     /// execution options.
-    pub fn scan(&self) -> VortexResult<ScanBuilder<ArrayRef>> {
+    pub fn scan(&self) -> VortexResult<ScanBuilder> {
         Ok(ScanBuilder::new(
             self.session.clone(),
             self.layout_reader()?,

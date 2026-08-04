@@ -10,7 +10,6 @@ use pyo3::exceptions::PyValueError;
 use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
-use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::builtins::ArrayBuiltins;
@@ -507,7 +506,7 @@ fn scan_builder(
     limit: Option<u64>,
     indices: Option<StrictSortedBuffer<u64>>,
     batch_size: Option<usize>,
-) -> VortexResult<ScanBuilder<ArrayRef>> {
+) -> VortexResult<ScanBuilder> {
     let projection = projection
         .unwrap_or_else(root)
         .bind(vxf.dtype())?
