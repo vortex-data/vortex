@@ -209,9 +209,11 @@ fn default_zoned_aggregate_fns(dtype: &DType, session: &VortexSession) -> Arc<[A
     };
 
     let mut aggregate_fns = vec![max, min];
-    let sum_options = SumAggregateOpts::skip_nans();
-    if Sum.return_dtype(&sum_options, dtype).is_some() {
-        aggregate_fns.push(Sum.bind(sum_options));
+    if Sum
+        .return_dtype(&SumAggregateOpts::skip_nans(), dtype)
+        .is_some()
+    {
+        aggregate_fns.push(Sum.bind(SumAggregateOpts::skip_nans()));
     }
     aggregate_fns.push(NanCount.bind(EmptyOptions));
     aggregate_fns.push(NullCount.bind(EmptyOptions));
