@@ -6,7 +6,6 @@ use std::hash::Hasher;
 use num_traits::AsPrimitive;
 use prost::Message;
 use smallvec::smallvec;
-use vortex_buffer::BitBufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -28,6 +27,7 @@ use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::CanonicalView;
 use crate::EqMode;
 use crate::IntoArray;
 use crate::array::Array;
@@ -38,8 +38,7 @@ use crate::array::VTable;
 use crate::array::with_empty_buffers;
 use crate::arrays::ConstantArray;
 use crate::arrays::Primitive;
-use crate::arrays::PrimitiveArray;
-use crate::arrays::VarBinViewArray;
+use crate::arrays::VarBinView;
 use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::dict::compute::rules::PARENT_RULES;
@@ -48,7 +47,6 @@ use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinBuilder;
 use crate::dtype::DType;
-use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
 use crate::dtype::OffsetBuilderPType;
 use crate::dtype::PType;
@@ -216,7 +214,7 @@ impl VTable for Dict {
 
         Ok(ExecutionResult::done(take_canonical(
             values.as_::<AnyCanonical>(),
-            &codes.downcast::<Primitive>(),
+            codes.as_::<Primitive>(),
             ctx,
         )?))
     }
@@ -233,16 +231,15 @@ impl VTable for Dict {
             )
             && !codes.validity()?.definitely_all_null()
         {
-            let codes = codes.into_owned();
-            if let Canonical::VarBinView(values) = Canonical::from(values)
-                && varbin_fast_path_is_host(&codes, &values)
+            if let CanonicalView::VarBinView(values) = values
                 && let Some(result) = match_each_varbin_builder!(builder, |builder| {
-                    append_dict_to_varbin(&codes, &values, builder, ctx)
+                    let validity = array.validity()?.execute_mask(array.len(), ctx)?;
+                    append_dict_to_varbin(codes, values, validity, builder)
                 })
             {
                 return result;
             }
-            let canonical = take_canonical(values, &codes, ctx)?.into_array();
+            let canonical = take_canonical(values, codes, ctx)?.into_array();
             canonical.append_to_builder(builder, ctx)?;
             return Ok(());
         }
@@ -265,22 +262,6 @@ impl VTable for Dict {
     }
 }
 
-/// Whether every buffer that [`append_dict_to_varbin`] dereferences directly is host-resident.
-///
-/// The fast path reads the codes and the dictionary's views and data buffers as plain slices,
-/// which is only possible for host allocations. Device-resident dictionaries fall back to the
-/// canonical take, which goes through the compute stack and can therefore be served by a device
-/// kernel. This mirrors [`DictArrayExt::validate_all_values_referenced`], which likewise skips
-/// host-only work when the codes are not resident on the host.
-///
-/// This is a handful of enum discriminant checks over the array's buffer handles, so it stays
-/// outside the per-row loop and costs nothing measurable on the host-resident path.
-fn varbin_fast_path_is_host(codes: &PrimitiveArray, values: &VarBinViewArray) -> bool {
-    codes.buffer_handle().is_on_host()
-        && values.views_handle().is_on_host()
-        && values.data_buffers().iter().all(BufferHandle::is_on_host)
-}
-
 /// Gathers the dictionary values straight into `builder`.
 ///
 /// The canonical route first takes the values to full logical length, which allocates and then
@@ -291,17 +272,15 @@ fn varbin_fast_path_is_host(codes: &PrimitiveArray, values: &VarBinViewArray) ->
 /// The caller must have checked [`varbin_fast_path_is_host`]; this function indexes the backing
 /// buffers as host slices and panics otherwise.
 fn append_dict_to_varbin<O: OffsetBuilderPType>(
-    codes: &PrimitiveArray,
-    values: &VarBinViewArray,
+    codes: ArrayView<'_, Primitive>,
+    values: ArrayView<'_, VarBinView>,
+    validity: Mask,
     builder: &mut VarBinBuilder<O>,
-    ctx: &mut ExecutionCtx,
 ) -> VortexResult<()>
 where
     usize: AsPrimitive<O>,
 {
     let len = codes.as_ref().len();
-    let codes_validity = codes.as_ref().validity()?.execute_mask(len, ctx)?;
-    let values_validity = values.validity()?.execute_mask(values.len(), ctx)?;
 
     // Resolve the dictionary's storage once so that looking up a code is an O(1) read.
     let views = values.views();
@@ -313,7 +292,6 @@ where
 
     match_each_integer_ptype!(codes.ptype(), |C| {
         let codes = codes.as_slice::<C>();
-        let validity = dict_validity(&codes_validity, codes, &values_validity);
         let view = |row: usize| &views[AsPrimitive::<usize>::as_(codes[row])];
 
         // Both passes below resolve a row through its code, so the byte total comes from the same
@@ -335,34 +313,6 @@ where
     })
 }
 
-/// Combines the codes' validity with the dictionary values' validity resolved through the codes.
-///
-/// A code pointing at a null dictionary entry produces a null row, matching what
-/// [`take_canonical`] derives from [`Validity::take`](crate::validity::Validity::take).
-fn dict_validity<C: IntegerPType>(
-    codes_validity: &Mask,
-    codes: &[C],
-    values_validity: &Mask,
-) -> Mask {
-    if values_validity.all_true() {
-        return codes_validity.clone();
-    }
-
-    let mut valid = BitBufferMut::new_unset(codes.len());
-    match codes_validity.bit_buffer() {
-        AllOr::All => {
-            for (row, &code) in codes.iter().enumerate() {
-                valid.set_to(row, values_validity.value(code.as_()));
-            }
-        }
-        AllOr::None => {}
-        AllOr::Some(bits) => bits.for_each_set_index(|row| {
-            valid.set_to(row, values_validity.value(codes[row].as_()));
-        }),
-    }
-    Mask::from_buffer(valid.freeze())
-}
-
 #[cfg(test)]
 mod tests {
     use std::any::Any;
@@ -373,18 +323,16 @@ mod tests {
     use futures::future::BoxFuture;
     use vortex_buffer::Alignment;
     use vortex_buffer::ByteBuffer;
-    use vortex_buffer::buffer;
 
     use super::*;
     use crate::VortexSessionExecute;
     use crate::array_session;
+    use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::dict::DictArray;
     use crate::assert_arrays_eq;
     use crate::buffer::DeviceBuffer;
-    use crate::dtype::Nullability::NonNullable;
     use crate::dtype::Nullability::Nullable;
-    use crate::validity::Validity;
 
     const LONG: &str = "a string that is far too long to be inlined in a view";
 
@@ -450,39 +398,5 @@ mod tests {
         );
         assert_arrays_eq!(builder.finish_into_varbin(), expected, &mut ctx);
         Ok(())
-    }
-
-    /// The fast path indexes the codes and the dictionary's buffers as host slices, so it must be
-    /// skipped whenever any of them lives on a device. Regression test for the fast path panicking
-    /// on device-resident dictionaries instead of deferring to the canonical take.
-    #[test]
-    fn fast_path_is_skipped_for_device_resident_buffers() {
-        let codes = PrimitiveArray::new(buffer![0u32, 1, 0], Validity::NonNullable);
-        let values = VarBinViewArray::from_iter_str([LONG, "short"]);
-
-        assert!(varbin_fast_path_is_host(&codes, &values));
-
-        let device_codes = PrimitiveArray::from_buffer_handle(
-            to_device(codes.buffer_handle()),
-            PType::U32,
-            Validity::NonNullable,
-        );
-        assert!(!varbin_fast_path_is_host(&device_codes, &values));
-
-        let device_views = VarBinViewArray::new_handle(
-            to_device(values.views_handle()),
-            Arc::clone(values.data_buffers()),
-            DType::Utf8(NonNullable),
-            Validity::NonNullable,
-        );
-        assert!(!varbin_fast_path_is_host(&codes, &device_views));
-
-        let device_data = VarBinViewArray::new_handle(
-            values.views_handle().clone(),
-            values.data_buffers().iter().map(to_device).collect(),
-            DType::Utf8(NonNullable),
-            Validity::NonNullable,
-        );
-        assert!(!varbin_fast_path_is_host(&codes, &device_data));
     }
 }
