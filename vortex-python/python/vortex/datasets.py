@@ -29,17 +29,17 @@ import vortex as vx
 from vortex.expr import Expr, and_
 from vortex.store import (
     AzureStore,
-    ClientConfig,
+    CosStore,
     GCSStore,
+    HfStore,
     HTTPStore,
     LocalStore,
     MemoryStore,
     S3Store,
 )
 
-# The stores `vx.open` accepts. This is narrower than `vortex.store.ObjectStore`, which also
-# covers the OpenDAL-backed `CosStore` that `vx.open` cannot read from.
-ObjectStore: TypeAlias = AzureStore | GCSStore | HTTPStore | LocalStore | MemoryStore | S3Store
+# The stores `vx.open` accepts.
+ObjectStore: TypeAlias = AzureStore | CosStore | GCSStore | HfStore | HTTPStore | LocalStore | MemoryStore | S3Store
 
 try:
     import datasets as hf_datasets
@@ -50,7 +50,6 @@ try:
     )
     from datasets.table import InMemoryTable
     from huggingface_hub import HfApi, snapshot_download
-    from huggingface_hub import constants as hf_hub_constants
 except ImportError as e:  # pragma: no cover - exercised only without optional deps.
     raise ImportError("Install vortex-data[hf] to use vortex.datasets.") from e
 
@@ -62,7 +61,6 @@ except ImportError:  # datasets 4.x signals disallowed source shuffling by retur
 
 _DEFAULT_SPLIT = "train"
 _DEFAULT_DATA_FILES = "**/*.vortex"
-_DEFAULT_REVISION = "main"
 _ITERABLE_DATASET_HAS_SHUFFLING = "shuffling" in inspect.signature(hf_datasets.IterableDataset).parameters
 
 
@@ -852,9 +850,9 @@ def _resolve_hub_files(
     ``token`` (and ``token=True``, which asks for exactly that saved login) the matched files are
     returned as ``hf://`` URIs and need no store.
 
-    The two cases the reader cannot express are handled with a store of its own: a ``token`` string,
-    which the reader has no way to see, and ``token=False``, which must suppress the credentials the
-    reader would otherwise pick up from the environment.
+    The two cases a URI cannot express go through an :class:`~vortex.store.HfStore` instead: a
+    ``token`` string, which the reader has no way to see, and ``token=False``, which must suppress
+    the credentials the reader would otherwise pick up from the environment.
 
     The Hub serves no listing over the object-store protocol, so the patterns are expanded here
     through the Hub API either way.
@@ -872,14 +870,8 @@ def _resolve_hub_files(
         split_to_matches[split_name] = matches
 
     if token is False or isinstance(token, str):
-        # The Hub only routes the percent-encoded form of a revision containing `/`, so the store is
-        # rooted at the encoded `resolve` prefix and the files stay in-repository paths.
-        revision_path = quote(revision if revision is not None else _DEFAULT_REVISION, safe="")
-        base = f"{hf_hub_constants.ENDPOINT}/datasets/{repo_id}/resolve/{revision_path}"
-        client_options: ClientConfig | None = (
-            {"default_headers": {"authorization": f"Bearer {token}"}} if isinstance(token, str) else None
-        )
-        return split_to_matches, HTTPStore(base, client_options=client_options)
+        # An HfStore is rooted at the repository and revision, so the files stay in-repository paths.
+        return split_to_matches, HfStore(repo_id, revision=revision, token=token)
 
     prefix = f"hf://datasets/{repo_id}"
     if revision is not None:

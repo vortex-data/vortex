@@ -17,7 +17,7 @@ import pyarrow as pa
 import pytest
 import vortex.datasets as vx_datasets
 from typing_extensions import override
-from vortex.store import HTTPStore
+from vortex.store import HfStore
 
 import vortex as vx
 import vortex.expr as ve
@@ -462,9 +462,8 @@ def test_hub_streaming_with_token_false_forces_anonymous_store(monkeypatch: pyte
     )
 
     # `token=False` must suppress the credentials Vortex would otherwise read from the environment,
-    # which an `hf://` URI cannot express, so it gets an unauthenticated store instead.
-    assert isinstance(store, HTTPStore)
-    assert store.url.endswith("/datasets/org/name/resolve/main")
+    # which an `hf://` URI cannot express, so it gets an anonymous store instead.
+    assert isinstance(store, HfStore)
     assert files == {"train": ["data/validation.vortex", "train.vortex"]}
 
 
@@ -483,9 +482,8 @@ def test_hub_streaming_with_token_uses_authenticated_store(monkeypatch: pytest.M
     )
 
     # An explicitly passed token cannot reach the Vortex reader, so this is the one path that still
-    # builds a store; the files are then relative to it.
-    assert isinstance(store, HTTPStore)
-    assert store.url.endswith("/datasets/org/name/resolve/main")
+    # builds a store; the files are then paths within the repository.
+    assert isinstance(store, HfStore)
     assert files == {"train": ["data/validation.vortex", "train.vortex"]}
 
 
@@ -602,3 +600,46 @@ def test_local_directory_in_data_files(tmp_path: Path):
 )
 def test_glob_match(pattern: str, path: str, expected: bool):
     assert vx_datasets._glob_match(path, pattern) is expected  # pyright: ignore[reportPrivateUsage]
+
+
+@pytest.mark.parametrize("repo_type", ["dataset", "datasets", "model", "space"])
+def test_hf_store_accepts_each_repo_type(repo_type: str):
+    assert isinstance(HfStore("org/name", repo_type=repo_type), HfStore)
+
+
+def test_hf_store_rejects_unknown_repo_type():
+    with pytest.raises(ValueError, match="repository type"):
+        _ = HfStore("org/name", repo_type="notarepo")
+
+
+@pytest.mark.parametrize("token", [None, True, False, "hf_explicit_token"])
+def test_hf_store_accepts_each_token_spelling(token: bool | str | None):
+    # `token` follows huggingface_hub's convention: None/True use the environment, False forces an
+    # anonymous read, and a string is used directly.
+    assert isinstance(HfStore("org/name", token=token), HfStore)
+
+
+def test_hf_store_rejects_unusable_token():
+    with pytest.raises(ValueError, match="token"):
+        _ = HfStore("org/name", token="bad\nvalue")
+
+
+def test_hf_store_reads_a_repository_relative_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # Point the store at a local server standing in for the Hub, so this exercises the real read
+    # path: HfStore is rooted at the repository revision and the path is relative to it.
+    monkeypatch.setenv("ALLOW_HTTP", "true")
+    rows: list[dict[str, object]] = [{"idx": i} for i in range(4)]
+    resolve_dir = tmp_path / "datasets" / "org" / "name" / "resolve" / "main"
+    resolve_dir.mkdir(parents=True)
+    write_vortex(resolve_dir / "train.vortex", rows)
+
+    handler = type("Handler", (_RangeRequestHandler,), {"directory": tmp_path})
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        endpoint = f"http://127.0.0.1:{server.server_address[1]}"
+        store = HfStore("org/name", endpoint=endpoint)
+        assert vx.open("train.vortex", store=store).to_arrow().read_all().to_pylist() == rows
+    finally:
+        server.shutdown()

@@ -19,13 +19,14 @@ from ._client import ClientConfig
 from ._cos import CosStore
 from ._gcs import GCSConfig, GCSCredential, GCSCredentialProvider, GCSStore
 from ._goosefs import GoosefsStore
+from ._hf import HfStore
 from ._http import HTTPStore
 from ._local import LocalStore
 from ._memory import MemoryStore
 from ._retry import BackoffConfig, RetryConfig
 
 ObjectStore: TypeAlias = (
-    AzureStore | CosStore | GoosefsStore | GCSStore | HTTPStore | S3Store | LocalStore | MemoryStore
+    AzureStore | CosStore | GoosefsStore | GCSStore | HfStore | HTTPStore | S3Store | LocalStore | MemoryStore
 )
 """All supported ObjectStore implementations."""
 
@@ -160,6 +161,8 @@ __all__ = [
     "GCSStore",
     # HTTP
     "HTTPStore",
+    # Hugging Face Hub
+    "HfStore",
     # Local
     "LocalStore",
     "MemoryStore",

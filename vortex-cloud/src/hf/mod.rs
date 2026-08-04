@@ -71,6 +71,7 @@ const TOKEN_VAR: &str = "HF_TOKEN";
 const TOKEN_PATH_VAR: &str = "HF_TOKEN_PATH";
 const HF_HOME_VAR: &str = "HF_HOME";
 const HOME_VAR: &str = "HOME";
+const ALLOW_HTTP_VAR: &str = "ALLOW_HTTP";
 
 /// The URL authority that marks a dataset repository.
 const DATASETS_HOST: &str = "datasets";
@@ -116,6 +117,21 @@ impl HfRepoType {
     }
 }
 
+impl std::str::FromStr for HfRepoType {
+    type Err = HfStoreError;
+
+    /// Parses either the singular name or the plural the Hub uses in its URLs, so a caller can pass
+    /// whichever it has.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "dataset" | "datasets" => Ok(HfRepoType::Dataset),
+            "model" | "models" => Ok(HfRepoType::Model),
+            "space" | "spaces" => Ok(HfRepoType::Space),
+            other => Err(HfStoreError::UnknownRepoType(other.to_string())),
+        }
+    }
+}
+
 /// Error type for building a Hugging Face Hub object store.
 #[derive(Debug)]
 pub enum HfStoreError {
@@ -123,6 +139,8 @@ pub enum HfStoreError {
     UnsupportedScheme(String),
     /// The URL is not a well-formed `hf://` URL.
     InvalidUrl(String),
+    /// The repository kind is not one the Hub serves.
+    UnknownRepoType(String),
     /// The bearer token could not be used as an HTTP header value.
     InvalidToken(http::header::InvalidHeaderValue),
     /// The underlying HTTP store rejected the configuration.
@@ -138,6 +156,10 @@ impl std::fmt::Display for HfStoreError {
                 "invalid Hugging Face URL {url}: expected hf://datasets/<owner>/<name>[@revision][/path], \
                  hf://spaces/<owner>/<name>[@revision][/path] or hf://<owner>/<name>[@revision][/path]"
             ),
+            HfStoreError::UnknownRepoType(kind) => write!(
+                f,
+                "unknown Hugging Face repository type {kind}: expected one of dataset, model, space"
+            ),
             HfStoreError::InvalidToken(e) => write!(f, "invalid Hugging Face token: {e}"),
             HfStoreError::Build(e) => write!(f, "failed to build Hugging Face store: {e}"),
         }
@@ -149,7 +171,9 @@ impl std::error::Error for HfStoreError {
         match self {
             HfStoreError::InvalidToken(e) => Some(e),
             HfStoreError::Build(e) => Some(e),
-            HfStoreError::UnsupportedScheme(_) | HfStoreError::InvalidUrl(_) => None,
+            HfStoreError::UnsupportedScheme(_)
+            | HfStoreError::InvalidUrl(_)
+            | HfStoreError::UnknownRepoType(_) => None,
         }
     }
 }
@@ -198,6 +222,45 @@ impl Default for HfConfig {
 }
 
 impl HfConfig {
+    /// Configuration for one repository, taking the token and endpoint from the process environment
+    /// exactly as resolving an `hf://` URL does.
+    ///
+    /// `revision` defaults to `main`. Callers that must read anonymously should clear
+    /// [`HfConfig::token`] afterwards, since this picks up whatever credentials the environment
+    /// offers.
+    pub fn from_env(
+        repo_type: HfRepoType,
+        repo_id: impl Into<String>,
+        revision: Option<String>,
+    ) -> Self {
+        Self::from_env_lookup(repo_type, repo_id, revision, |key| std::env::var(key).ok())
+    }
+
+    /// [`HfConfig::from_env`], reading environment configuration through `env_lookup`.
+    fn from_env_lookup<F>(
+        repo_type: HfRepoType,
+        repo_id: impl Into<String>,
+        revision: Option<String>,
+        env_lookup: F,
+    ) -> Self
+    where
+        F: Fn(&str) -> Option<String>,
+    {
+        Self {
+            repo_type,
+            repo_id: repo_id.into(),
+            revision: revision.unwrap_or_else(|| DEFAULT_REVISION.to_string()),
+            token: resolve_token(&env_lookup),
+            endpoint: env_lookup(ENDPOINT_VAR)
+                .filter(|endpoint| !endpoint.is_empty())
+                .unwrap_or_else(|| DEFAULT_ENDPOINT.to_string()),
+            // Every other scheme picks `allow_http` out of the environment, because that is how
+            // `parse_url_opts` reads its configuration. Honour it here too, so a plain-HTTP
+            // `HF_ENDPOINT` (a test double, or a self-hosted Hub) behaves the same way.
+            client_options: ClientOptions::default().with_allow_http(allow_http(&env_lookup)),
+        }
+    }
+
     /// The URL this repository's files hang off, which is where the store is rooted.
     fn resolve_prefix(&self) -> String {
         let endpoint = self.endpoint.trim_end_matches('/');
@@ -308,22 +371,28 @@ where
         None => (*name, DEFAULT_REVISION.to_string()),
     };
 
-    let config = HfConfig {
+    let config = HfConfig::from_env_lookup(
         repo_type,
-        repo_id: format!("{owner}/{name}"),
-        revision,
-        token: resolve_token(&env_lookup),
-        endpoint: env_lookup(ENDPOINT_VAR)
-            .filter(|endpoint| !endpoint.is_empty())
-            .unwrap_or_else(|| DEFAULT_ENDPOINT.to_string()),
-        client_options: ClientOptions::default(),
-    };
+        format!("{owner}/{name}"),
+        Some(revision),
+        &env_lookup,
+    );
 
     // The segments still carry their URL escapes, so decode them into the object key rather than
     // joining them raw.
     let path = Path::from_url_path(rest.join("/")).map_err(|_| invalid())?;
 
     Ok((config, path))
+}
+
+/// Whether plain-HTTP endpoints are permitted, from the `ALLOW_HTTP` variable the `object_store`
+/// builders read. Anything other than a `true`-ish value leaves HTTPS as the requirement.
+fn allow_http<F>(env_lookup: &F) -> bool
+where
+    F: Fn(&str) -> Option<String>,
+{
+    env_lookup(ALLOW_HTTP_VAR)
+        .is_some_and(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "true" | "1"))
 }
 
 /// The bearer token to read with, following the same precedence as `huggingface_hub.get_token()`:

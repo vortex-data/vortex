@@ -39,6 +39,7 @@ use crate::classes::table_class;
 use crate::dataset::PyVortexDataset;
 use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
+use crate::hf_store::HfStore;
 use crate::install_module;
 use crate::iter::PyArrayIterator;
 use crate::object_store::resolve::ResolvedStore;
@@ -68,7 +69,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// ----------
 /// url : str
 ///     The URL to read from.
-/// store : vortex.store.AzureStore | vortex.store.CosStore | vortex.store.GCSStore | vortex.store.HTTPStore | vortex.store.LocalStore | vortex.store.MemoryStore | vortex.store.S3Store | None
+/// store : vortex.store.AzureStore | vortex.store.CosStore | vortex.store.GCSStore | vortex.store.HfStore | vortex.store.HTTPStore | vortex.store.LocalStore | vortex.store.MemoryStore | vortex.store.S3Store | None
 ///     Pre-configured object store with credentials and settings.
 ///     If provided, uses this store's configuration.
 ///     If None, checks session registry for matching URL pattern.
@@ -146,11 +147,14 @@ pub fn read_url<'py>(
 
 /// A store object accepted by `read_url` / `write`.
 ///
-/// This recognizes both the built-in `pyo3-object_store` classes (S3, Azure, GCS, HTTP,
-/// Local, Memory) and Vortex's own OpenDAL-backed classes (`CosStore`, `GoosefsStore`).
+/// This recognizes the built-in `pyo3-object_store` classes (S3, Azure, GCS, HTTP, Local, Memory)
+/// and Vortex's own classes: the Hugging Face Hub store and the OpenDAL-backed `CosStore` and
+/// `GoosefsStore`.
 pub(crate) enum AnyVortexStore {
     /// A store extracted from one of the built-in `pyo3-object_store` classes.
     Builtin(PyObjectStore),
+    /// Vortex's Hugging Face Hub store.
+    Hf(HfStore),
     /// Vortex's OpenDAL-backed COS store.
     #[cfg(feature = "opendal")]
     Cos(CosStore),
@@ -161,9 +165,10 @@ pub(crate) enum AnyVortexStore {
 
 impl AnyVortexStore {
     /// Consume self and return the underlying `Arc<dyn ObjectStore>`.
-    fn into_inner(self) -> Arc<dyn object_store::ObjectStore> {
+    pub(crate) fn into_inner(self) -> Arc<dyn object_store::ObjectStore> {
         match self {
             AnyVortexStore::Builtin(s) => s.into_inner(),
+            AnyVortexStore::Hf(s) => s.to_arc(),
             #[cfg(feature = "opendal")]
             AnyVortexStore::Cos(s) => s.to_arc(),
             #[cfg(feature = "opendal")]
@@ -179,6 +184,9 @@ impl<'py> FromPyObject<'_, 'py> for AnyVortexStore {
         if let Ok(builtin) = obj.extract::<PyObjectStore>() {
             return Ok(AnyVortexStore::Builtin(builtin));
         }
+        if let Ok(hf) = obj.extract::<HfStore>() {
+            return Ok(AnyVortexStore::Hf(hf));
+        }
         #[cfg(feature = "opendal")]
         if let Ok(cos) = obj.extract::<CosStore>() {
             return Ok(AnyVortexStore::Cos(cos));
@@ -188,7 +196,7 @@ impl<'py> FromPyObject<'_, 'py> for AnyVortexStore {
             return Ok(AnyVortexStore::Goosefs(goosefs));
         }
         Err(PyTypeError::new_err(
-            "Expected an object store instance (S3/Azure/GCS/HTTP/Local/Memory/COS/OSS/GooseFS store)",
+            "Expected an object store instance (S3/Azure/GCS/HTTP/Local/Memory/HF/COS/OSS/GooseFS store)",
         ))
     }
 }
@@ -204,7 +212,7 @@ impl<'py> FromPyObject<'_, 'py> for AnyVortexStore {
 /// path : str
 ///     The file path.
 ///
-/// store : vortex.store.AzureStore | vortex.store.CosStore | vortex.store.GCSStore | vortex.store.HTTPStore | vortex.store.LocalStore | vortex.store.MemoryStore | vortex.store.S3Store | None
+/// store : vortex.store.AzureStore | vortex.store.CosStore | vortex.store.GCSStore | vortex.store.HfStore | vortex.store.HTTPStore | vortex.store.LocalStore | vortex.store.MemoryStore | vortex.store.S3Store | None
 ///     An optional object store configuration to use for writing the output.
 ///
 /// Examples
@@ -346,7 +354,7 @@ impl PyVortexWriteOptions {
     /// path : str
     ///     The file path.
     ///
-    /// store : vortex.store.AzureStore | vortex.store.CosStore | vortex.store.GCSStore | vortex.store.HTTPStore | vortex.store.LocalStore | vortex.store.MemoryStore | vortex.store.S3Store | None
+    /// store : vortex.store.AzureStore | vortex.store.CosStore | vortex.store.GCSStore | vortex.store.HfStore | vortex.store.HTTPStore | vortex.store.LocalStore | vortex.store.MemoryStore | vortex.store.S3Store | None
     ///     An optional object store configuration to use for writing the output.
     ///
     /// Examples

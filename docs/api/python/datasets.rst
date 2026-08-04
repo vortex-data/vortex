@@ -19,8 +19,9 @@ transforms.
 
 Hub repositories are streamed in place: files are read with HTTP range requests, so only the
 projected columns and matching rows are ever transferred. Private and gated repositories
-authenticate with the ``token`` argument or the locally saved login. Files are downloaded (with
-the usual Hub caching) only when ``streaming=False`` or ``local_files_only=True``.
+authenticate with the ``token`` argument, ``HF_TOKEN``, or the locally saved login — see
+:doc:`store/huggingface` for the full precedence. Files are downloaded (with the usual Hub
+caching) only when ``streaming=False`` or ``local_files_only=True``.
 
 .. code-block:: python
 

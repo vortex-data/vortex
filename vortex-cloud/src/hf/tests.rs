@@ -298,3 +298,67 @@ fn test_make_hf_store() -> Result<(), Box<dyn std::error::Error>> {
     ));
     Ok(())
 }
+
+#[rstest]
+// Both the singular name and the plural the Hub spells in its URLs are accepted, so a caller can
+// pass whichever it has.
+#[case("dataset", HfRepoType::Dataset)]
+#[case("datasets", HfRepoType::Dataset)]
+#[case("model", HfRepoType::Model)]
+#[case("models", HfRepoType::Model)]
+#[case("space", HfRepoType::Space)]
+#[case("spaces", HfRepoType::Space)]
+fn test_repo_type_from_str(
+    #[case] spelling: &str,
+    #[case] expected: HfRepoType,
+) -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(spelling.parse::<HfRepoType>()?, expected);
+    Ok(())
+}
+
+#[test]
+fn test_repo_type_from_str_rejects_unknown() {
+    assert!(matches!(
+        "notarepo".parse::<HfRepoType>(),
+        Err(HfStoreError::UnknownRepoType(_))
+    ));
+}
+
+/// `from_env` must resolve the token and endpoint the same way an `hf://` URL does, since the store
+/// class and the URL registry are two doors onto one configuration.
+#[test]
+fn test_from_env_matches_url_resolution() -> Result<(), Box<dyn std::error::Error>> {
+    let vars = &[
+        ("HF_TOKEN", "hf_shared"),
+        ("HF_ENDPOINT", "https://hub.example.com"),
+    ];
+    let url = Url::parse("hf://datasets/org/name/train.vortex")?;
+
+    let (from_url, _path) = url_to_config(&url, env(vars))?;
+    let direct = HfConfig::from_env_lookup(HfRepoType::Dataset, "org/name", None, env(vars));
+
+    assert_eq!(from_url.token, direct.token);
+    assert_eq!(from_url.endpoint, direct.endpoint);
+    assert_eq!(from_url.resolve_prefix(), direct.resolve_prefix());
+    Ok(())
+}
+
+/// `ALLOW_HTTP` must reach the client options, since that is how every other scheme is told plain
+/// HTTP is acceptable and a self-hosted or stubbed Hub endpoint needs the same door. `ClientOptions`
+/// exposes no getter, so the observable assertion is an actual plain-HTTP read; that lives in
+/// `vortex-python/test/test_hf_datasets.py::test_hf_store_reads_a_repository_relative_path`.
+#[test]
+fn test_allow_http_is_configured_from_env() {
+    let allowed = HfConfig::from_env_lookup(
+        HfRepoType::Dataset,
+        "org/name",
+        None,
+        env(&[("ALLOW_HTTP", "true")]),
+    );
+    let denied = HfConfig::from_env_lookup(HfRepoType::Dataset, "org/name", None, env(&[]));
+
+    assert_ne!(
+        format!("{:?}", allowed.client_options),
+        format!("{:?}", denied.client_options)
+    );
+}

@@ -17,7 +17,9 @@ from .dataset import VortexDataset
 from .scan import RepeatedScan
 from .store import (
     AzureStore,
+    CosStore,
     GCSStore,
+    HfStore,
     HTTPStore,
     LocalStore,
     MemoryStore,
@@ -32,7 +34,7 @@ if TYPE_CHECKING:
 def open(
     path: str,
     *,
-    store: AzureStore | GCSStore | HTTPStore | LocalStore | MemoryStore | S3Store | None = None,
+    store: AzureStore | CosStore | GCSStore | HfStore | HTTPStore | LocalStore | MemoryStore | S3Store | None = None,
     without_segment_cache: bool = False,
 ) -> VortexFile:
     """
