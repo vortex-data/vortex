@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::Range;
+use std::sync::Arc;
 
 use vortex_scan::selection::Selection;
 
@@ -19,7 +20,7 @@ pub enum Splits {
     /// column chunks).
     ///
     /// The vec is sorted in ascending order and deduplicated.
-    Natural(Vec<u64>),
+    Natural(Arc<[u64]>),
 
     /// Exact split ranges.
     ///

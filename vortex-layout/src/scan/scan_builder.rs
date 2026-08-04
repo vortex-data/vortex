@@ -308,11 +308,11 @@ impl<A: 'static + Send> ScanBuilder<A> {
                     .row_range
                     .clone()
                     .unwrap_or_else(|| 0..layout_reader.row_count());
-                Splits::Natural(self.split_by.splits(
-                    layout_reader.as_ref(),
-                    &split_range,
-                    &field_mask,
-                )?)
+                Splits::Natural(
+                    self.split_by
+                        .splits(layout_reader.as_ref(), &split_range, &field_mask)?
+                        .into(),
+                )
             };
 
         Ok(RepeatedScan::new(
