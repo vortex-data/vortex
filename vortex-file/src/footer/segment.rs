@@ -67,7 +67,7 @@ mod tests {
     fn rejects_excessive_alignment_exponent() {
         // A representable alignment can still cause an unreasonable allocation when a segment is
         // copied to satisfy it.
-        let fb_spec = fb::SegmentSpec::new(0, 0, 13, 0, 0);
+        let fb_spec = fb::SegmentSpec::new(0, 0, 17, 0, 0);
         let err = SegmentSpec::try_from(&fb_spec).unwrap_err();
         assert!(err.to_string().contains("exceeds"), "{err}");
     }

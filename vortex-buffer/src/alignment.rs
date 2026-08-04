@@ -19,9 +19,9 @@ pub struct Alignment(usize);
 impl Alignment {
     /// Largest alignment accepted from untrusted serialized input.
     ///
-    /// A copy to satisfy an alignment allocates `len + alignment`, once per buffer, so this bounds
-    /// the amplification. 16x the [`Self::DEFAULT_ALIGNMENT`] every writer here records.
-    pub const MAX_UNTRUSTED: Self = Alignment::new(4096);
+    /// This admits 64KiB page alignment, as used on some ARM systems, while bounding the extra
+    /// allocation required to satisfy an alignment from untrusted input.
+    pub const MAX_UNTRUSTED: Self = Alignment::new(64 * 1024);
 
     /// Default alignment for device-to-host buffer copies.
     pub const HOST_COPY: Self = Alignment::new(256);
@@ -297,10 +297,10 @@ mod test {
     #[test]
     fn try_from_untrusted_exponent() {
         assert_eq!(
-            Alignment::try_from_untrusted_exponent(12).unwrap(),
-            Alignment::new(4096)
+            Alignment::try_from_untrusted_exponent(16).unwrap(),
+            Alignment::new(64 * 1024)
         );
-        assert!(Alignment::try_from_untrusted_exponent(13).is_err());
+        assert!(Alignment::try_from_untrusted_exponent(17).is_err());
         assert!(Alignment::try_from_untrusted_exponent(u8::MAX).is_err());
     }
 
