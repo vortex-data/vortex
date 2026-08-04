@@ -83,7 +83,8 @@ impl ZstdBuffers {
             buffer_alignments.push(u32::from(handle.alignment()));
             let host_buf = handle.clone().try_to_host_sync()?;
             uncompressed_sizes.push(host_buf.len() as u64);
-            let compressed = compressor.compress(&host_buf)?;
+            let mut compressed = compressor.compress(&host_buf)?;
+            compressed.shrink_to_fit();
             compressed_buffers.push(BufferHandle::new_host(ByteBuffer::from(compressed)));
         }
 

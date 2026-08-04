@@ -661,9 +661,10 @@ impl ZstdData {
                 .unwrap_or(value_bytes.len());
 
             let uncompressed = &value_bytes.slice(frame_byte_starts[i]..frame_byte_end);
-            let compressed = compressor
+            let mut compressed = compressor
                 .compress(uncompressed)
                 .map_err(|err| VortexError::from(err).with_context("while compressing"))?;
+            compressed.shrink_to_fit();
             frame_metas.push(ZstdFrameMetadata {
                 uncompressed_size: uncompressed.len() as u64,
                 n_values: values_per_frame.min(n_values - i * values_per_frame) as u64,
