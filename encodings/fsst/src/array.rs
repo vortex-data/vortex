@@ -434,7 +434,7 @@ impl Debug for FSSTData {
     }
 }
 
-pub(crate) struct FSSTSymbolTable {
+pub struct FSSTSymbolTable {
     /// Symbols padded out to [`FSST_SYMBOL_TABLE_LEN`] entries, zero-filled past `n_symbols`,
     /// so that a [`Decompressor`] can borrow them without copying.
     padded_symbols: Buffer<Symbol>,
@@ -454,11 +454,7 @@ impl FSSTSymbolTable {
     /// `n_symbols` is the number of populated entries; everything past it is padding. Buffers
     /// longer than [`FSST_SYMBOL_TABLE_LEN`] are truncated; callers are expected to have rejected
     /// them already (see [`FSSTData::try_new`]).
-    pub(crate) fn new(
-        symbols: Buffer<Symbol>,
-        symbol_lengths: Buffer<u8>,
-        n_symbols: usize,
-    ) -> Self {
+    pub fn new(symbols: Buffer<Symbol>, symbol_lengths: Buffer<u8>, n_symbols: usize) -> Self {
         Self {
             padded_symbols: pad_symbol_table(symbols, Symbol::ZERO),
             padded_symbol_lengths: pad_symbol_table(symbol_lengths, 0),
@@ -473,7 +469,7 @@ impl FSSTSymbolTable {
     /// `n_symbols` is the number of populated entries; everything past it is padding. Buffers
     /// longer than [`FSST_SYMBOL_TABLE_LEN`] are truncated; callers are expected to have rejected
     /// them already (see [`FSSTData::try_new`]).
-    pub(crate) fn new_padded(
+    pub fn new_padded(
         padded_symbols: Buffer<Symbol>,
         padded_symbol_lengths: Buffer<u8>,
         n_symbols: usize,
@@ -600,7 +596,7 @@ impl FSST {
         })
     }
 
-    pub(crate) fn try_new_with_symbol_table(
+    pub fn try_new_with_symbol_table(
         dtype: DType,
         symbol_table: Arc<FSSTSymbolTable>,
         codes: VarBinArray,
