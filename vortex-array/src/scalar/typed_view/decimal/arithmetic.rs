@@ -43,8 +43,9 @@ use crate::scalar::NumericOperator;
 ///
 /// # Errors
 ///
-/// Returns an error if the operation has no valid result type: a Mul whose scale would exceed
-/// [`MAX_SCALE`], or a Div whose precision would fall outside the legal range.
+/// Returns an error if the operation has no valid result type: a Mul whose doubled scale is
+/// unrepresentable — above [`MAX_SCALE`], or below the `i8::MIN` floor of the scale field — or a
+/// Div whose precision would fall outside the legal range.
 pub(crate) fn decimal_numeric_result_dtype(
     input: DecimalDType,
     op: NumericOperator,

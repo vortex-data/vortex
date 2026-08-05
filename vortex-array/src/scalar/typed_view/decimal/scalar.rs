@@ -202,8 +202,9 @@ impl<'a> DecimalScalar<'a> {
     /// # Errors
     ///
     /// Returns an error if the operands have different decimal types, or if the operation has no
-    /// valid result type: a Mul whose scale would exceed the maximum scale, or a Div whose
-    /// precision would fall outside the legal range.
+    /// valid result type: a Mul whose doubled scale is unrepresentable — either above the maximum
+    /// scale or below the minimum an `i8` scale can hold — or a Div whose precision would fall
+    /// outside the legal range.
     pub fn checked_binary_numeric(
         &self,
         other: &DecimalScalar<'_>,
