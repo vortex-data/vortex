@@ -12,7 +12,6 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_session::VortexSession;
 
 use crate::dtype::DType;
 use crate::expr::display::DisplayTreeExpr;
@@ -21,7 +20,6 @@ use crate::expr::traversal::pre_order_visit_down;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::root::Root;
-use crate::stats::rewrite::StatsRewriteCtx;
 
 /// A node in a Vortex expression tree.
 ///
@@ -116,40 +114,12 @@ impl Expression {
         self.scalar_fn.validity(self)
     }
 
-    /// Returns an expression that proves this predicate is definitely false from stats.
-    ///
-    /// `scope` is the dtype of the row this expression evaluates over.
-    ///
-    /// If the returned expression evaluates to `true` for a stats scope, this expression is
-    /// guaranteed to be false for every row in that scope. `false` and `null` are unknown.
-    pub fn falsify(
-        &self,
-        scope: &DType,
-        session: &VortexSession,
-    ) -> VortexResult<Option<Expression>> {
-        StatsRewriteCtx::new(session, scope).falsify(self)
-    }
-
-    /// Returns an expression that proves this predicate is definitely true from stats.
-    ///
-    /// `scope` is the dtype of the row this expression evaluates over.
-    ///
-    /// If the returned expression evaluates to `true` for a stats scope, this expression is
-    /// guaranteed to be true for every row in that scope. `false` and `null` are unknown.
-    pub fn satisfy(
-        &self,
-        scope: &DType,
-        session: &VortexSession,
-    ) -> VortexResult<Option<Expression>> {
-        StatsRewriteCtx::new(session, scope).satisfy(self)
-    }
-
     /// Format the expression as a compact string.
     ///
     /// Since this is a recursive formatter, it is exposed on the public Expression type.
     /// See fmt_data that is only implemented on the vtable trait.
     pub fn fmt_sql(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        self.scalar_fn().fmt_sql(self, f)
+        self.scalar_fn.fmt_sql(self, f)
     }
 
     /// Display the expression as a formatted tree structure.

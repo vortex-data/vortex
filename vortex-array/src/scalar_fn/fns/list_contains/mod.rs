@@ -600,23 +600,26 @@ mod tests {
         );
 
         assert_eq!(
-            expr.falsify(&scope, &STATS_SESSION)?,
-            Some(and(
+            expr.bind(&scope)?.falsify(&STATS_SESSION)?,
+            Some(
                 and(
-                    or(
-                        lt(stat(col("a"), Stat::Max), lit(1i32)),
-                        gt(stat(col("a"), Stat::Min), lit(1i32)),
+                    and(
+                        or(
+                            lt(stat(col("a"), Stat::Max), lit(1i32)),
+                            gt(stat(col("a"), Stat::Min), lit(1i32)),
+                        ),
+                        or(
+                            lt(stat(col("a"), Stat::Max), lit(2i32)),
+                            gt(stat(col("a"), Stat::Min), lit(2i32)),
+                        )
                     ),
                     or(
-                        lt(stat(col("a"), Stat::Max), lit(2i32)),
-                        gt(stat(col("a"), Stat::Min), lit(2i32)),
+                        lt(stat(col("a"), Stat::Max), lit(3i32)),
+                        gt(stat(col("a"), Stat::Min), lit(3i32)),
                     )
-                ),
-                or(
-                    lt(stat(col("a"), Stat::Max), lit(3i32)),
-                    gt(stat(col("a"), Stat::Min), lit(3i32)),
                 )
-            ))
+                .bind(&scope)?
+            )
         );
         Ok(())
     }

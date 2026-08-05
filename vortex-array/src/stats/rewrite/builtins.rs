@@ -3,7 +3,9 @@
 
 use std::sync::Arc;
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_utils::iter::ReduceBalancedIterExt;
 
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTableExt;
@@ -12,19 +14,9 @@ use crate::aggregate_fn::fns::all_non_nan::AllNonNan;
 use crate::aggregate_fn::fns::all_non_null::AllNonNull;
 use crate::aggregate_fn::fns::all_null::AllNull;
 use crate::dtype::DType;
-use crate::expr::Expression;
-use crate::expr::and;
-use crate::expr::and_collect;
-use crate::expr::cast;
-use crate::expr::eq;
-use crate::expr::gt;
-use crate::expr::gt_eq;
-use crate::expr::lit;
-use crate::expr::lt;
-use crate::expr::lt_eq;
-use crate::expr::or;
-use crate::expr::or_collect;
+use crate::expr::BoundExpression as BoundExpr;
 use crate::expr::stats::Stat;
+use crate::scalar::Scalar;
 use crate::scalar::StringLike;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ScalarFnId;
@@ -68,6 +60,65 @@ pub(crate) fn register_builtins(session: &StatsSession) {
     session.register_rewrite(DynamicComparisonAllNonNanStatsRewrite);
 }
 
+fn binary(operator: Operator, lhs: BoundExpr, rhs: BoundExpr) -> BoundExpr {
+    Binary
+        .try_new_bound_expr(operator, [lhs, rhs])
+        .vortex_expect("stats rewrites must construct well-typed binary expressions")
+}
+
+fn and(lhs: BoundExpr, rhs: BoundExpr) -> BoundExpr {
+    binary(Operator::And, lhs, rhs)
+}
+
+fn or(lhs: BoundExpr, rhs: BoundExpr) -> BoundExpr {
+    binary(Operator::Or, lhs, rhs)
+}
+
+fn eq(lhs: BoundExpr, rhs: BoundExpr) -> BoundExpr {
+    binary(Operator::Eq, lhs, rhs)
+}
+
+fn gt(lhs: BoundExpr, rhs: BoundExpr) -> BoundExpr {
+    binary(Operator::Gt, lhs, rhs)
+}
+
+fn gt_eq(lhs: BoundExpr, rhs: BoundExpr) -> BoundExpr {
+    binary(Operator::Gte, lhs, rhs)
+}
+
+fn lt(lhs: BoundExpr, rhs: BoundExpr) -> BoundExpr {
+    binary(Operator::Lt, lhs, rhs)
+}
+
+fn lt_eq(lhs: BoundExpr, rhs: BoundExpr) -> BoundExpr {
+    binary(Operator::Lte, lhs, rhs)
+}
+
+fn and_collect(exprs: impl IntoIterator<Item = BoundExpr>) -> Option<BoundExpr> {
+    exprs.into_iter().reduce_balanced(and)
+}
+
+fn or_collect(exprs: impl IntoIterator<Item = BoundExpr>) -> Option<BoundExpr> {
+    exprs.into_iter().reduce_balanced(or)
+}
+
+fn lit(value: impl Into<Scalar>) -> BoundExpr {
+    Literal
+        .try_new_bound_expr(value.into(), [])
+        .vortex_expect("literal expressions are always well-typed")
+}
+
+fn cast(expr: BoundExpr, dtype: DType) -> BoundExpr {
+    Cast.try_new_bound_expr(dtype, [expr])
+        .vortex_expect("stats rewrites only preserve casts from a bound predicate")
+}
+
+fn row_count() -> BoundExpr {
+    RowCount
+        .try_new_bound_expr(EmptyOptions, [])
+        .vortex_expect("row-count expressions are always well-typed")
+}
+
 #[derive(Debug)]
 struct BinaryNanCountStatsRewrite;
 
@@ -78,9 +129,9 @@ impl StatsRewriteRule for BinaryNanCountStatsRewrite {
 
     fn falsify(
         &self,
-        expr: &Expression,
+        expr: &BoundExpr,
         ctx: &StatsRewriteCtx<'_>,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Option<BoundExpr>> {
         binary_falsify::<NanCountProof>(expr, ctx)
     }
 }
@@ -95,17 +146,17 @@ impl StatsRewriteRule for BinaryAllNonNanStatsRewrite {
 
     fn falsify(
         &self,
-        expr: &Expression,
+        expr: &BoundExpr,
         ctx: &StatsRewriteCtx<'_>,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Option<BoundExpr>> {
         binary_falsify::<AllNonNanProof>(expr, ctx)
     }
 }
 
 fn binary_falsify<P: NonNanProof>(
-    expr: &Expression,
+    expr: &BoundExpr,
     ctx: &StatsRewriteCtx<'_>,
-) -> VortexResult<Option<Expression>> {
+) -> VortexResult<Option<BoundExpr>> {
     let operator = expr.as_::<Binary>();
     let lhs = expr.child(0);
     let rhs = expr.child(1);
@@ -178,16 +229,16 @@ impl StatsRewriteRule for BetweenStatsRewrite {
 
     fn falsify(
         &self,
-        expr: &Expression,
+        expr: &BoundExpr,
         ctx: &StatsRewriteCtx<'_>,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Option<BoundExpr>> {
         let options = expr.as_::<Between>();
         let arr = expr.child(0).clone();
         let lower = expr.child(1).clone();
         let upper = expr.child(2).clone();
 
-        let lhs = Binary.new_expr(options.lower_strict.to_operator(), [lower, arr.clone()]);
-        let rhs = Binary.new_expr(options.upper_strict.to_operator(), [arr, upper]);
+        let lhs = binary(options.lower_strict.to_operator(), lower, arr.clone());
+        let rhs = binary(options.upper_strict.to_operator(), arr, upper);
         ctx.falsify(&and(lhs, rhs))
     }
 }
@@ -202,19 +253,18 @@ impl StatsRewriteRule for IsNullNullCountStatsRewrite {
 
     fn falsify(
         &self,
-        expr: &Expression,
+        expr: &BoundExpr,
         ctx: &StatsRewriteCtx<'_>,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Option<BoundExpr>> {
         Ok(null_count(expr.child(0), ctx).map(|null_count| eq(null_count, lit(0u64))))
     }
 
     fn satisfy(
         &self,
-        expr: &Expression,
+        expr: &BoundExpr,
         ctx: &StatsRewriteCtx<'_>,
-    ) -> VortexResult<Option<Expression>> {
-        Ok(null_count(expr.child(0), ctx)
-            .map(|null_count| eq(null_count, RowCount.new_expr(EmptyOptions, []))))
+    ) -> VortexResult<Option<BoundExpr>> {
+        Ok(null_count(expr.child(0), ctx).map(|null_count| eq(null_count, row_count())))
     }
 }
 
@@ -228,9 +278,9 @@ impl StatsRewriteRule for IsNullAllNonNullStatsRewrite {
 
     fn falsify(
         &self,
-        expr: &Expression,
+        expr: &BoundExpr,
         _ctx: &StatsRewriteCtx<'_>,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Option<BoundExpr>> {
         Ok(Some(all_non_null(expr.child(0))))
     }
 }
@@ -245,9 +295,9 @@ impl StatsRewriteRule for IsNullAllNullStatsRewrite {
 
     fn satisfy(
         &self,
-        expr: &Expression,
+        expr: &BoundExpr,
         _ctx: &StatsRewriteCtx<'_>,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Option<BoundExpr>> {
         Ok(Some(all_null(expr.child(0))))
     }
 }
@@ -262,18 +312,17 @@ impl StatsRewriteRule for IsNotNullNullCountStatsRewrite {
 
     fn falsify(
         &self,
-        expr: &Expression,
+        expr: &BoundExpr,
         ctx: &StatsRewriteCtx<'_>,
-    ) -> VortexResult<Option<Expression>> {
-        Ok(null_count(expr.child(0), ctx)
-            .map(|null_count| eq(null_count, RowCount.new_expr(EmptyOptions, []))))
+    ) -> VortexResult<Option<BoundExpr>> {
+        Ok(null_count(expr.child(0), ctx).map(|null_count| eq(null_count, row_count())))
     }
 
     fn satisfy(
         &self,
-        expr: &Expression,
+        expr: &BoundExpr,
         ctx: &StatsRewriteCtx<'_>,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Option<BoundExpr>> {
         Ok(null_count(expr.child(0), ctx).map(|null_count| eq(null_count, lit(0u64))))
     }
 }
@@ -288,9 +337,9 @@ impl StatsRewriteRule for IsNotNullAllNullStatsRewrite {
 
     fn falsify(
         &self,
-        expr: &Expression,
+        expr: &BoundExpr,
         _ctx: &StatsRewriteCtx<'_>,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Option<BoundExpr>> {
         Ok(Some(all_null(expr.child(0))))
     }
 }
@@ -305,9 +354,9 @@ impl StatsRewriteRule for IsNotNullAllNonNullStatsRewrite {
 
     fn satisfy(
         &self,
-        expr: &Expression,
+        expr: &BoundExpr,
         _ctx: &StatsRewriteCtx<'_>,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Option<BoundExpr>> {
         Ok(Some(all_non_null(expr.child(0))))
     }
 }
@@ -322,9 +371,9 @@ impl StatsRewriteRule for LikeStatsRewrite {
 
     fn falsify(
         &self,
-        expr: &Expression,
+        expr: &BoundExpr,
         ctx: &StatsRewriteCtx<'_>,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Option<BoundExpr>> {
         let like_options = expr.as_::<Like>();
         if like_options.negated || like_options.case_insensitive {
             return Ok(None);
@@ -377,9 +426,9 @@ impl StatsRewriteRule for ListContainsNanCountStatsRewrite {
 
     fn falsify(
         &self,
-        expr: &Expression,
+        expr: &BoundExpr,
         ctx: &StatsRewriteCtx<'_>,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Option<BoundExpr>> {
         list_contains_falsify::<NanCountProof>(expr, ctx)
     }
 }
@@ -394,17 +443,17 @@ impl StatsRewriteRule for ListContainsAllNonNanStatsRewrite {
 
     fn falsify(
         &self,
-        expr: &Expression,
+        expr: &BoundExpr,
         ctx: &StatsRewriteCtx<'_>,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Option<BoundExpr>> {
         list_contains_falsify::<AllNonNanProof>(expr, ctx)
     }
 }
 
 fn list_contains_falsify<P: NonNanProof>(
-    expr: &Expression,
+    expr: &BoundExpr,
     ctx: &StatsRewriteCtx<'_>,
-) -> VortexResult<Option<Expression>> {
+) -> VortexResult<Option<BoundExpr>> {
     let list = expr.child(0);
     let needle = expr.child(1);
 
@@ -451,9 +500,9 @@ impl StatsRewriteRule for DynamicComparisonNanCountStatsRewrite {
 
     fn falsify(
         &self,
-        expr: &Expression,
+        expr: &BoundExpr,
         ctx: &StatsRewriteCtx<'_>,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Option<BoundExpr>> {
         dynamic_comparison_falsify::<NanCountProof>(expr, ctx)
     }
 }
@@ -468,17 +517,17 @@ impl StatsRewriteRule for DynamicComparisonAllNonNanStatsRewrite {
 
     fn falsify(
         &self,
-        expr: &Expression,
+        expr: &BoundExpr,
         ctx: &StatsRewriteCtx<'_>,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Option<BoundExpr>> {
         dynamic_comparison_falsify::<AllNonNanProof>(expr, ctx)
     }
 }
 
 fn dynamic_comparison_falsify<P: NonNanProof>(
-    expr: &Expression,
+    expr: &BoundExpr,
     ctx: &StatsRewriteCtx<'_>,
-) -> VortexResult<Option<Expression>> {
+) -> VortexResult<Option<BoundExpr>> {
     let dynamic = expr.as_::<DynamicComparison>();
     let lhs = expr.child(0);
 
@@ -492,47 +541,49 @@ fn dynamic_comparison_falsify<P: NonNanProof>(
         return Ok(None);
     };
 
-    let value_predicate = DynamicComparison.new_expr(
-        DynamicComparisonExpr {
-            operator,
-            rhs: Arc::clone(&dynamic.rhs),
-            default: !dynamic.default,
-        },
-        [lhs_stat],
-    );
+    let value_predicate = DynamicComparison
+        .try_new_bound_expr(
+            DynamicComparisonExpr {
+                operator,
+                rhs: Arc::clone(&dynamic.rhs),
+                default: !dynamic.default,
+            },
+            [lhs_stat],
+        )
+        .vortex_expect("a rewritten dynamic comparison preserves its bound input type");
     with_non_nan_guards::<P>(ctx, [lhs], value_predicate)
 }
 
-fn min(expr: &Expression, ctx: &StatsRewriteCtx<'_>) -> Option<Expression> {
+fn min(expr: &BoundExpr, ctx: &StatsRewriteCtx<'_>) -> Option<BoundExpr> {
     stat_expr(expr, Stat::Min, ctx)
 }
 
-fn max(expr: &Expression, ctx: &StatsRewriteCtx<'_>) -> Option<Expression> {
+fn max(expr: &BoundExpr, ctx: &StatsRewriteCtx<'_>) -> Option<BoundExpr> {
     stat_expr(expr, Stat::Max, ctx)
 }
 
-fn null_count(expr: &Expression, ctx: &StatsRewriteCtx<'_>) -> Option<Expression> {
+fn null_count(expr: &BoundExpr, ctx: &StatsRewriteCtx<'_>) -> Option<BoundExpr> {
     stat_expr(expr, Stat::NullCount, ctx)
 }
 
-fn all_null(expr: &Expression) -> Expression {
+fn all_null(expr: &BoundExpr) -> BoundExpr {
     stat_fn(expr.clone(), AllNull.bind(AggregateEmptyOptions))
 }
 
-fn all_non_null(expr: &Expression) -> Expression {
+fn all_non_null(expr: &BoundExpr) -> BoundExpr {
     stat_fn(expr.clone(), AllNonNull.bind(AggregateEmptyOptions))
 }
 
 enum NanCheck {
     NotNeeded,
-    Check(Expression),
+    Check(BoundExpr),
     Unavailable,
 }
 
 trait NonNanProof {
     const EMIT_UNGUARDED_REWRITES: bool;
 
-    fn check(ctx: &StatsRewriteCtx<'_>, expr: &Expression) -> VortexResult<NanCheck>;
+    fn check(ctx: &StatsRewriteCtx<'_>, expr: &BoundExpr) -> VortexResult<NanCheck>;
 }
 
 struct NanCountProof;
@@ -540,7 +591,7 @@ struct NanCountProof;
 impl NonNanProof for NanCountProof {
     const EMIT_UNGUARDED_REWRITES: bool = true;
 
-    fn check(ctx: &StatsRewriteCtx<'_>, expr: &Expression) -> VortexResult<NanCheck> {
+    fn check(ctx: &StatsRewriteCtx<'_>, expr: &BoundExpr) -> VortexResult<NanCheck> {
         non_nan_check(ctx, expr, |expr| {
             match stat_expr(expr, Stat::NaNCount, ctx) {
                 Some(nan_count) => NanCheck::Check(eq(nan_count, lit(0u64))),
@@ -555,7 +606,7 @@ struct AllNonNanProof;
 impl NonNanProof for AllNonNanProof {
     const EMIT_UNGUARDED_REWRITES: bool = false;
 
-    fn check(ctx: &StatsRewriteCtx<'_>, expr: &Expression) -> VortexResult<NanCheck> {
+    fn check(ctx: &StatsRewriteCtx<'_>, expr: &BoundExpr) -> VortexResult<NanCheck> {
         non_nan_check(ctx, expr, |expr| {
             NanCheck::Check(stat_fn(expr.clone(), AllNonNan.bind(AggregateEmptyOptions)))
         })
@@ -567,8 +618,8 @@ impl NonNanProof for AllNonNanProof {
 // from float to non-float still needs a proof about the float source values.
 fn non_nan_check(
     ctx: &StatsRewriteCtx<'_>,
-    expr: &Expression,
-    proof: impl FnOnce(&Expression) -> NanCheck,
+    expr: &BoundExpr,
+    proof: impl FnOnce(&BoundExpr) -> NanCheck,
 ) -> VortexResult<NanCheck> {
     if let Some(scalar) = expr.as_opt::<Literal>() {
         if !scalar.dtype().is_float() {
@@ -600,7 +651,7 @@ fn has_nans(dtype: &DType) -> bool {
     dtype.is_float()
 }
 
-fn stat_expr(expr: &Expression, stat: Stat, ctx: &StatsRewriteCtx<'_>) -> Option<Expression> {
+fn stat_expr(expr: &BoundExpr, stat: Stat, ctx: &StatsRewriteCtx<'_>) -> Option<BoundExpr> {
     if let Some(literal) = literal_stat(expr, stat) {
         return Some(literal);
     }
@@ -629,9 +680,9 @@ fn stat_expr(expr: &Expression, stat: Stat, ctx: &StatsRewriteCtx<'_>) -> Option
 
 fn with_non_nan_guards<'a, P: NonNanProof>(
     ctx: &StatsRewriteCtx<'_>,
-    exprs: impl IntoIterator<Item = &'a Expression>,
-    value_predicate: Expression,
-) -> VortexResult<Option<Expression>> {
+    exprs: impl IntoIterator<Item = &'a BoundExpr>,
+    value_predicate: BoundExpr,
+) -> VortexResult<Option<BoundExpr>> {
     let mut nan_checks = Vec::new();
     for expr in exprs {
         match P::check(ctx, expr)? {
@@ -652,7 +703,7 @@ fn with_non_nan_guards<'a, P: NonNanProof>(
     })
 }
 
-fn literal_stat(expr: &Expression, stat: Stat) -> Option<Expression> {
+fn literal_stat(expr: &BoundExpr, stat: Stat) -> Option<BoundExpr> {
     let scalar = expr.as_opt::<Literal>()?;
     match stat {
         Stat::Min | Stat::Max => Some(lit(scalar.clone())),
@@ -674,11 +725,11 @@ fn literal_stat(expr: &Expression, stat: Stat) -> Option<Expression> {
 }
 
 fn cast_stat(
-    expr: &Expression,
+    expr: &BoundExpr,
     dtype: &DType,
     stat: Stat,
     ctx: &StatsRewriteCtx<'_>,
-) -> Option<Expression> {
+) -> Option<BoundExpr> {
     match stat {
         Stat::Min | Stat::Max => stat_expr(expr, stat, ctx).map(|stat| cast(stat, dtype.clone())),
         Stat::NaNCount | Stat::Sum | Stat::UncompressedSizeInBytes => stat_expr(expr, stat, ctx),
@@ -686,8 +737,10 @@ fn cast_stat(
     }
 }
 
-fn stat_fn(expr: Expression, aggregate_fn: AggregateFnRef) -> Expression {
-    StatFn.new_expr(StatOptions::new(aggregate_fn), [expr])
+fn stat_fn(expr: BoundExpr, aggregate_fn: AggregateFnRef) -> BoundExpr {
+    StatFn
+        .try_new_bound_expr(StatOptions::new(aggregate_fn), [expr])
+        .vortex_expect("stats rewrites only construct supported aggregate expressions")
 }
 
 #[cfg(test)]
@@ -700,8 +753,6 @@ mod tests {
 
     use super::StatFn;
     use super::StatOptions;
-    use super::all_non_null;
-    use super::all_null;
     use crate::aggregate_fn::AggregateFnRef;
     use crate::aggregate_fn::AggregateFnVTableExt;
     use crate::aggregate_fn::EmptyOptions as AggregateEmptyOptions;
@@ -710,7 +761,8 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
-    use crate::expr::Expression;
+    use crate::expr::BoundExpression;
+    use crate::expr::Expression as BoundExpr;
     use crate::expr::and;
     use crate::expr::between;
     use crate::expr::cast;
@@ -740,12 +792,12 @@ mod tests {
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
 
-    fn stat(expr: Expression, stat: Stat) -> Expression {
+    fn stat(expr: BoundExpr, stat: Stat) -> BoundExpr {
         let aggregate_fn = stat.aggregate_fn().expect("stat should have aggregate fn");
         stat_fn(expr, aggregate_fn)
     }
 
-    fn stat_fn(expr: Expression, aggregate_fn: AggregateFnRef) -> Expression {
+    fn stat_fn(expr: BoundExpr, aggregate_fn: AggregateFnRef) -> BoundExpr {
         StatFn.new_expr(StatOptions::new(aggregate_fn), [expr])
     }
 
@@ -770,15 +822,33 @@ mod tests {
         )
     }
 
-    fn falsify(expr: &Expression) -> VortexResult<Option<Expression>> {
-        expr.falsify(&test_scope(), &SESSION)
+    fn falsify(expr: &BoundExpr) -> VortexResult<Option<BoundExpression>> {
+        expr.bind(&test_scope())?.falsify(&SESSION)
     }
 
-    fn satisfy(expr: &Expression) -> VortexResult<Option<Expression>> {
-        expr.satisfy(&test_scope(), &SESSION)
+    fn satisfy(expr: &BoundExpr) -> VortexResult<Option<BoundExpression>> {
+        expr.bind(&test_scope())?.satisfy(&SESSION)
     }
 
-    fn nan_guarded(expr: Expression, value_predicate: Expression) -> Expression {
+    fn bind_expected(expr: Option<BoundExpr>) -> VortexResult<Option<BoundExpression>> {
+        expr.map(|expr| expr.bind(&test_scope())).transpose()
+    }
+
+    fn all_null(expr: &BoundExpr) -> BoundExpr {
+        crate::stats::all_null(expr.clone())
+    }
+
+    fn all_non_null(expr: &BoundExpr) -> BoundExpr {
+        crate::stats::all_non_null(expr.clone())
+    }
+
+    macro_rules! assert_rewrite_eq {
+        ($actual:expr, $expected:expr) => {
+            assert_eq!($actual, bind_expected($expected)?)
+        };
+    }
+
+    fn nan_guarded(expr: BoundExpr, value_predicate: BoundExpr) -> BoundExpr {
         or(
             and(
                 eq(stat(expr.clone(), Stat::NaNCount), lit(0u64)),
@@ -794,13 +864,13 @@ mod tests {
     #[test]
     fn rewrites_comparison_falsifier() -> VortexResult<()> {
         let expr = gt(col("a"), lit(10));
-        assert_eq!(
+        assert_rewrite_eq!(
             falsify(&expr)?,
             Some(lt_eq(stat(col("a"), Stat::Max), lit(10)))
         );
 
         let expr = eq(col("a"), col("b"));
-        assert_eq!(
+        assert_rewrite_eq!(
             falsify(&expr)?,
             Some(or(
                 gt(stat(col("a"), Stat::Min), stat(col("b"), Stat::Max)),
@@ -809,7 +879,7 @@ mod tests {
         );
 
         let expr = eq(col("s"), col("t"));
-        assert_eq!(
+        assert_rewrite_eq!(
             falsify(&expr)?,
             Some(or(
                 gt(stat(col("s"), Stat::Min), stat(col("t"), Stat::Max)),
@@ -822,7 +892,7 @@ mod tests {
     #[test]
     fn rewrites_boolean_falsifiers() -> VortexResult<()> {
         let expr = and(gt(col("a"), lit(10)), lt(col("a"), lit(50)));
-        assert_eq!(
+        assert_rewrite_eq!(
             falsify(&expr)?,
             Some(or(
                 lt_eq(stat(col("a"), Stat::Max), lit(10)),
@@ -844,7 +914,7 @@ mod tests {
             },
         );
 
-        assert_eq!(
+        assert_rewrite_eq!(
             falsify(&expr)?,
             Some(or(
                 gt(lit(10), stat(col("a"), Stat::Max)),
@@ -856,7 +926,7 @@ mod tests {
 
     #[test]
     fn rewrites_null_falsifiers() -> VortexResult<()> {
-        assert_eq!(
+        assert_rewrite_eq!(
             falsify(&is_null(col("a")))?,
             Some(or(
                 eq(stat(col("a"), Stat::NullCount), lit(0u64)),
@@ -864,7 +934,7 @@ mod tests {
             ))
         );
 
-        assert_eq!(
+        assert_rewrite_eq!(
             falsify(&is_not_null(col("a")))?,
             Some(or(
                 eq(
@@ -879,7 +949,7 @@ mod tests {
 
     #[test]
     fn rewrites_null_satisfiers() -> VortexResult<()> {
-        assert_eq!(
+        assert_rewrite_eq!(
             satisfy(&is_null(col("a")))?,
             Some(or(
                 eq(
@@ -890,7 +960,7 @@ mod tests {
             ))
         );
 
-        assert_eq!(
+        assert_rewrite_eq!(
             satisfy(&is_not_null(col("a")))?,
             Some(or(
                 eq(stat(col("a"), Stat::NullCount), lit(0u64)),
@@ -909,7 +979,7 @@ mod tests {
         );
         let expr = list_contains(lit(list), col("a"));
 
-        assert_eq!(
+        assert_rewrite_eq!(
             falsify(&expr)?,
             Some(and(
                 and(
@@ -934,7 +1004,7 @@ mod tests {
     #[test]
     fn rewrites_like_falsifier() -> VortexResult<()> {
         let expr = like(col("s"), lit("prefix%"));
-        assert_eq!(
+        assert_rewrite_eq!(
             falsify(&expr)?,
             Some(or(
                 gt_eq(stat(col("s"), Stat::Min), lit("prefiy")),
@@ -943,7 +1013,7 @@ mod tests {
         );
 
         let expr = like(col("s"), lit(r"\%%"));
-        assert_eq!(
+        assert_rewrite_eq!(
             falsify(&expr)?,
             Some(or(
                 gt_eq(stat(col("s"), Stat::Min), lit("&")),
@@ -952,7 +1022,7 @@ mod tests {
         );
 
         let expr = like(col("s"), lit("pref%ix%"));
-        assert_eq!(
+        assert_rewrite_eq!(
             falsify(&expr)?,
             Some(or(
                 gt_eq(stat(col("s"), Stat::Min), lit("preg")),
@@ -961,7 +1031,7 @@ mod tests {
         );
 
         let expr = like(col("s"), lit("pref_ix_"));
-        assert_eq!(
+        assert_rewrite_eq!(
             falsify(&expr)?,
             Some(or(
                 gt_eq(stat(col("s"), Stat::Min), lit("preg")),
@@ -970,7 +1040,7 @@ mod tests {
         );
 
         let expr = like(col("s"), lit("exact"));
-        assert_eq!(
+        assert_rewrite_eq!(
             falsify(&expr)?,
             Some(or(
                 gt(stat(col("s"), Stat::Min), lit("exact")),
@@ -979,7 +1049,7 @@ mod tests {
         );
 
         let expr = like(col("s"), lit("%suffix"));
-        assert_eq!(falsify(&expr)?, None);
+        assert_rewrite_eq!(falsify(&expr)?, None);
         Ok(())
     }
 
@@ -994,7 +1064,7 @@ mod tests {
         );
         let dynamic = expr.as_::<DynamicComparison>();
 
-        assert_eq!(
+        assert_rewrite_eq!(
             falsify(&expr)?,
             Some(DynamicComparison.new_expr(
                 DynamicComparisonExpr {
@@ -1013,7 +1083,7 @@ mod tests {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let expr = gt(cast(col("f"), dtype.clone()), lit(5i32));
 
-        assert_eq!(
+        assert_rewrite_eq!(
             falsify(&expr)?,
             Some(nan_guarded(
                 col("f"),
@@ -1031,8 +1101,8 @@ mod tests {
             nested_struct_dtype(),
             vec![Scalar::primitive(1.0f32, Nullability::Nullable)],
         );
-        assert_eq!(falsify(&lt_eq(col("n"), lit(struct_scalar.clone())))?, None);
-        assert_eq!(falsify(&eq(col("n"), lit(struct_scalar)))?, None);
+        assert_rewrite_eq!(falsify(&lt_eq(col("n"), lit(struct_scalar.clone())))?, None);
+        assert_rewrite_eq!(falsify(&eq(col("n"), lit(struct_scalar)))?, None);
         Ok(())
     }
 
@@ -1041,7 +1111,7 @@ mod tests {
         let dtype = DType::Primitive(PType::I64, Nullability::NonNullable);
         let expr = eq(cast(col("a"), dtype.clone()), lit(42i64));
 
-        assert_eq!(
+        assert_rewrite_eq!(
             falsify(&expr)?,
             Some(or(
                 gt(cast(stat(col("a"), Stat::Min), dtype.clone()), lit(42i64)),

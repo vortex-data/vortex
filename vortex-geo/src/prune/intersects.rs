@@ -3,9 +3,7 @@
 
 //! `ST_Intersects(geom, const)` pruning.
 
-use vortex_array::expr::Expression;
-use vortex_array::expr::gt;
-use vortex_array::expr::lit;
+use vortex_array::expr::BoundExpression as BoundExpr;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::stats::rewrite::StatsRewriteCtx;
@@ -14,6 +12,8 @@ use vortex_error::VortexResult;
 
 use super::aabb_stat;
 use super::geometry_and_constant;
+use super::gt;
+use super::lit;
 use super::min_dist_sq;
 use super::query_aabb;
 use crate::scalar_fn::intersects::GeoIntersects;
@@ -34,9 +34,9 @@ impl StatsRewriteRule for GeoIntersectsPrune {
 
     fn falsify(
         &self,
-        expr: &Expression,
+        expr: &BoundExpr,
         ctx: &StatsRewriteCtx<'_>,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Option<BoundExpr>> {
         let Some((geom, constant)) = geometry_and_constant(expr, ctx)? else {
             return Ok(None);
         };
@@ -56,7 +56,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::Expression;
+    use vortex_array::expr::BoundExpression;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
     use vortex_array::scalar::Scalar;
@@ -75,7 +75,7 @@ mod tests {
 
     /// Run the intersects rule against `GeoIntersects(root, point(1.0, 0.5))`, operands swapped
     /// when `geom_first` is false.
-    fn falsify_intersects(geom_first: bool) -> VortexResult<Option<Expression>> {
+    fn falsify_intersects(geom_first: bool) -> VortexResult<Option<BoundExpression>> {
         let session = geo_session();
         let mut ctx = session.create_execution_ctx();
 
@@ -86,8 +86,10 @@ mod tests {
         } else {
             [lit(query), root()]
         };
-        let predicate = GeoIntersects.new_expr(EmptyOptions, operands);
-        GeoIntersectsPrune.falsify(&predicate, &StatsRewriteCtx::new(&session, &scope))
+        let predicate = GeoIntersects
+            .new_expr(EmptyOptions, operands)
+            .bind(&scope)?;
+        GeoIntersectsPrune.falsify(&predicate, &StatsRewriteCtx::new(&session))
     }
 
     /// Intersects is symmetric: both operand orders produce a proof.
@@ -99,8 +101,7 @@ mod tests {
         Ok(())
     }
 
-    /// A scope dtype without `GeometryAabb` support gets no proof, the stat reference would
-    /// fail to bind at prune time.
+    /// A non-geometry scope is rejected while binding, before stats rewriting.
     #[test]
     fn unsupported_scope_is_not_pruned() -> VortexResult<()> {
         let session = geo_session();
@@ -109,9 +110,7 @@ mod tests {
         let scope = DType::Primitive(PType::F64, Nullability::NonNullable);
         let query = point_column(vec![0.0], vec![0.0])?.execute_scalar(0, &mut ctx)?;
         let predicate = GeoIntersects.new_expr(EmptyOptions, [root(), lit(query)]);
-
-        let ctx = StatsRewriteCtx::new(&session, &scope);
-        assert!(GeoIntersectsPrune.falsify(&predicate, &ctx)?.is_none());
+        assert!(predicate.bind(&scope).is_err());
         Ok(())
     }
 
@@ -123,9 +122,11 @@ mod tests {
 
         let scope = point_column(vec![0.0], vec![0.0])?.dtype().clone();
         let null_query = Scalar::null(scope.as_nullable());
-        let predicate = GeoIntersects.new_expr(EmptyOptions, [root(), lit(null_query)]);
+        let predicate = GeoIntersects
+            .new_expr(EmptyOptions, [root(), lit(null_query)])
+            .bind(&scope)?;
 
-        let ctx = StatsRewriteCtx::new(&session, &scope);
+        let ctx = StatsRewriteCtx::new(&session);
         assert!(GeoIntersectsPrune.falsify(&predicate, &ctx)?.is_none());
         Ok(())
     }
@@ -152,7 +153,8 @@ mod tests {
         let query = point_column(vec![1.0], vec![0.5])?.execute_scalar(0, &mut ctx)?;
         let predicate = GeoIntersects.new_expr(EmptyOptions, [root(), lit(query)]);
         let proof = predicate
-            .falsify(&point_dtype, &session)?
+            .bind(&point_dtype)?
+            .falsify(&session)?
             .expect("intersects filter should be falsifiable");
 
         let mask = zone_map.prune(&proof, &session)?;
@@ -172,7 +174,8 @@ mod tests {
         let query = point_column(vec![0.0], vec![0.0])?.execute_scalar(0, &mut ctx)?;
         let proof = GeoIntersects
             .new_expr(EmptyOptions, [root(), lit(query)])
-            .falsify(&point_dtype, &session)?
+            .bind(&point_dtype)?
+            .falsify(&session)?
             .expect("intersects filter should be falsifiable");
 
         let mask = zone_map.prune(&proof, &session)?;

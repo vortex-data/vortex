@@ -4,12 +4,7 @@
 //! `ST_Distance(geom, const) <op> radius` pruning.
 
 use geo::Rect as GeoRect;
-use vortex_array::expr::Expression;
-use vortex_array::expr::gt;
-use vortex_array::expr::gt_eq;
-use vortex_array::expr::lit;
-use vortex_array::expr::lt;
-use vortex_array::expr::lt_eq;
+use vortex_array::expr::BoundExpression as BoundExpr;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::fns::binary::Binary;
@@ -21,6 +16,11 @@ use vortex_error::VortexResult;
 
 use super::aabb_stat;
 use super::geometry_and_constant;
+use super::gt;
+use super::gt_eq;
+use super::lit;
+use super::lt;
+use super::lt_eq;
 use super::max_dist_sq;
 use super::min_dist_sq;
 use super::query_aabb;
@@ -42,9 +42,9 @@ impl StatsRewriteRule for GeoDistancePrune {
 
     fn falsify(
         &self,
-        expr: &Expression,
+        expr: &BoundExpr,
         ctx: &StatsRewriteCtx<'_>,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Option<BoundExpr>> {
         // Only the ordered comparisons prune today. `== r` could prune in the future (a chunk is
         // provably empty when `r` lies outside its box's [min, max] distance interval), it's just
         // not implemented. `!= r` cannot: pruning would need every row's distance to equal `r`,
@@ -94,11 +94,11 @@ impl StatsRewriteRule for GeoDistancePrune {
 ///
 /// A distance is always `>= 0`, which decides the degenerate radii up front.
 fn distance_prune_proof(
-    geom: &Expression,
+    geom: &BoundExpr,
     query: GeoRect<f64>,
     op: Operator,
     radius: f64,
-) -> Option<Expression> {
+) -> Option<BoundExpr> {
     // A distance is always non-negative, so degenerate radii resolve without touching the box.
     match op {
         // `<= r` / `< r` with a negative radius (or zero, for `<`) match nothing: prune every chunk.
@@ -130,7 +130,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::Expression;
+    use vortex_array::expr::BoundExpression;
     use vortex_array::expr::gt_eq;
     use vortex_array::expr::lit;
     use vortex_array::expr::lt_eq;
@@ -158,7 +158,7 @@ mod tests {
         operator: Operator,
         geom_first: bool,
         radius: impl Into<Scalar>,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Option<BoundExpression>> {
         let session = geo_session();
         let mut ctx = session.create_execution_ctx();
 
@@ -170,9 +170,11 @@ mod tests {
             [lit(origin), root()]
         };
         let distance = GeoDistance.new_expr(EmptyOptions, operands);
-        let predicate = Binary.new_expr(operator, [distance, lit(radius.into())]);
+        let predicate = Binary
+            .new_expr(operator, [distance, lit(radius.into())])
+            .bind(&scope)?;
 
-        GeoDistancePrune.falsify(&predicate, &StatsRewriteCtx::new(&session, &scope))
+        GeoDistancePrune.falsify(&predicate, &StatsRewriteCtx::new(&session))
     }
 
     /// A null geometry literal (`ST_Distance(geom, NULL) <= r`) declines cleanly instead of
@@ -184,9 +186,11 @@ mod tests {
         let scope = point_column(vec![0.0], vec![0.0])?.dtype().clone();
         let null_query = Scalar::null(scope.as_nullable());
         let distance = GeoDistance.new_expr(EmptyOptions, [root(), lit(null_query)]);
-        let predicate = Binary.new_expr(Operator::Lte, [distance, lit(0.5f64)]);
+        let predicate = Binary
+            .new_expr(Operator::Lte, [distance, lit(0.5f64)])
+            .bind(&scope)?;
 
-        let ctx = StatsRewriteCtx::new(&session, &scope);
+        let ctx = StatsRewriteCtx::new(&session);
         assert!(GeoDistancePrune.falsify(&predicate, &ctx)?.is_none());
         Ok(())
     }
@@ -231,11 +235,10 @@ mod tests {
         Ok(())
     }
 
-    /// Filter expressions arrive uncoerced, so `distance <= 10` may carry an integer literal -
-    /// it casts and prunes like an f64 radius.
+    /// An uncoerced integer radius is rejected while binding the comparison.
     #[test]
-    fn integer_radius_prunes() -> VortexResult<()> {
-        assert!(falsify_distance(Operator::Lte, true, 10i64)?.is_some());
+    fn uncoerced_integer_radius_fails_to_bind() -> VortexResult<()> {
+        assert!(falsify_distance(Operator::Lte, true, 10i64).is_err());
         Ok(())
     }
 
@@ -259,8 +262,7 @@ mod tests {
         Ok(())
     }
 
-    /// A scope dtype without `GeometryAabb` support gets no proof - the stat reference would
-    /// fail to bind at prune time.
+    /// A non-geometry scope is rejected while binding, before stats rewriting.
     #[test]
     fn unsupported_scope_is_not_pruned() -> VortexResult<()> {
         let session = geo_session();
@@ -270,9 +272,7 @@ mod tests {
         let origin = point_column(vec![0.0], vec![0.0])?.execute_scalar(0, &mut ctx)?;
         let distance = GeoDistance.new_expr(EmptyOptions, [root(), lit(origin)]);
         let predicate = lt_eq(distance, lit(0.5f64));
-
-        let ctx = StatsRewriteCtx::new(&session, &scope);
-        assert!(GeoDistancePrune.falsify(&predicate, &ctx)?.is_none());
+        assert!(predicate.bind(&scope).is_err());
         Ok(())
     }
 
@@ -282,8 +282,8 @@ mod tests {
         let session = geo_session();
         let scope = point_column(vec![0.0], vec![0.0])?.dtype().clone();
 
-        let predicate = lt_eq(lit(1.0f64), lit(2.0f64));
-        let ctx = StatsRewriteCtx::new(&session, &scope);
+        let predicate = lt_eq(lit(1.0f64), lit(2.0f64)).bind(&scope)?;
+        let ctx = StatsRewriteCtx::new(&session);
         assert!(GeoDistancePrune.falsify(&predicate, &ctx)?.is_none());
         Ok(())
     }
@@ -305,7 +305,8 @@ mod tests {
         let distance = GeoDistance.new_expr(EmptyOptions, [root(), lit(origin)]);
         let predicate = lt_eq(distance, lit(0.5f64));
         let proof = predicate
-            .falsify(&point_dtype, &session)?
+            .bind(&point_dtype)?
+            .falsify(&session)?
             .expect("distance filter should be falsifiable");
 
         // `true` means the zone is pruned: chunk 0 (near origin) is kept, chunk 1 (far) is skipped.
@@ -330,7 +331,8 @@ mod tests {
         let distance = GeoDistance.new_expr(EmptyOptions, [root(), lit(origin)]);
         let predicate = lt_eq(distance, lit(1.0f64));
         let proof = predicate
-            .falsify(&point_dtype, &session)?
+            .bind(&point_dtype)?
+            .falsify(&session)?
             .expect("distance filter should be falsifiable");
 
         assert_eq!(
@@ -361,7 +363,8 @@ mod tests {
         let origin = point_column(vec![0.0], vec![0.0])?.execute_scalar(0, &mut ctx)?;
         let distance = GeoDistance.new_expr(EmptyOptions, [root(), lit(origin)]);
         let proof = gt_eq(distance, lit(2.0f64))
-            .falsify(&point_dtype, &session)?
+            .bind(&point_dtype)?
+            .falsify(&session)?
             .expect("distance filter should be falsifiable");
 
         // Chunk 0 (within 2) is pruned for `>= 2`; chunk 1 (beyond 2) is kept.
@@ -383,7 +386,8 @@ mod tests {
         let origin = point_column(vec![0.0], vec![0.0])?.execute_scalar(0, &mut ctx)?;
         let distance = GeoDistance.new_expr(EmptyOptions, [root(), lit(origin)]);
         let proof = lt_eq(distance, lit(0.5f64))
-            .falsify(&point_dtype, &session)?
+            .bind(&point_dtype)?
+            .falsify(&session)?
             .expect("distance filter should be falsifiable");
 
         let mask = zone_map.prune(&proof, &session)?;

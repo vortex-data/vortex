@@ -16,7 +16,6 @@ use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
-use vortex_array::expr::Expression;
 use vortex_error::VortexResult;
 use vortex_layout::ArrayFuture;
 use vortex_layout::LayoutReader;
@@ -73,10 +72,9 @@ impl FileStatsLayoutReader {
     ///
     /// Row-count placeholders are resolved against the full file row count,
     /// independent of the requested row range.
-    fn evaluate_file_stats(&self, expr: &Expression) -> VortexResult<bool> {
+    fn evaluate_file_stats(&self, expr: &BoundExpression) -> VortexResult<bool> {
         can_prune_file_stats(
             expr,
-            self.child.dtype(),
             self.child.row_count(),
             &self.file_stats,
             &self.struct_fields,
@@ -129,8 +127,7 @@ impl LayoutReader for FileStatsLayoutReader {
         }
 
         // Evaluate and cache.
-        let expression = expr.unbind();
-        let pruned = self.evaluate_file_stats(&expression)?;
+        let pruned = self.evaluate_file_stats(expr)?;
         self.prune_cache.insert(key, pruned);
 
         if pruned {

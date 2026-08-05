@@ -58,10 +58,7 @@ impl FilterExpr {
         let conjuncts = bound_conjuncts(&expr);
         let num_conjuncts = conjuncts.len();
 
-        let dynamic_conjuncts = conjuncts
-            .iter()
-            .map(|expr| DynamicExprUpdates::new(&expr.unbind()))
-            .collect_vec();
+        let dynamic_conjuncts = conjuncts.iter().map(DynamicExprUpdates::new).collect_vec();
 
         Self {
             conjuncts,
