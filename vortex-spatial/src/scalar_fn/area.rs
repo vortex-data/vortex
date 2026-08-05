@@ -119,7 +119,8 @@ impl ScalarFnVTable for SpatialArea {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::Canonical;
+    use rstest::rstest;
+    use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
@@ -142,60 +143,35 @@ mod tests {
     use crate::test_harness::polygon_column;
     use crate::test_harness::rect_column;
 
-    #[test]
-    fn measures_non_polygon_native_geometries() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
-        let cases = vec![
-            (point_column(vec![1.0], vec![2.0])?, 0.0),
-            (linestring_column(vec![vec![(0.0, 0.0), (3.0, 4.0)]])?, 0.0),
-            (multipoint_column(vec![vec![(0.0, 0.0), (1.0, 1.0)]])?, 0.0),
-            (
-                multilinestring_column(vec![vec![
-                    vec![(0.0, 0.0), (1.0, 1.0)],
-                    vec![(2.0, 2.0), (3.0, 3.0)],
-                ]])?,
-                0.0,
-            ),
-            (rect_column(vec![(0.0, 0.0, 5.0, 3.0)])?, 15.0),
-        ];
-
-        for (geometry, expected) in cases {
-            let areas = SpatialArea::try_new_array(geometry)?
-                .into_array()
-                .execute::<Canonical>(&mut ctx)?
-                .into_primitive();
-            assert_eq!(areas.as_slice::<f64>(), &[expected]);
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn measures_polygons_with_holes_and_empty_polygons() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
-        let polygons = polygon_column(vec![
+    #[rstest]
+    #[case::point(point_column(vec![1.0], vec![2.0]), &[0.0])]
+    #[case::line_string(
+        linestring_column(vec![vec![(0.0, 0.0), (3.0, 4.0)]]),
+        &[0.0]
+    )]
+    #[case::multi_point(
+        multipoint_column(vec![vec![(0.0, 0.0), (1.0, 1.0)]]),
+        &[0.0]
+    )]
+    #[case::multi_line_string(
+        multilinestring_column(vec![vec![
+            vec![(0.0, 0.0), (1.0, 1.0)],
+            vec![(2.0, 2.0), (3.0, 3.0)],
+        ]]),
+        &[0.0]
+    )]
+    #[case::polygon(
+        polygon_column(vec![
             vec![
                 vec![(0.0, 0.0), (4.0, 0.0), (4.0, 3.0), (0.0, 3.0), (0.0, 0.0)],
                 vec![(1.0, 1.0), (2.0, 1.0), (2.0, 2.0), (1.0, 2.0), (1.0, 1.0)],
             ],
             vec![],
-        ])?;
-
-        let areas = SpatialArea::try_new_array(polygons)?
-            .into_array()
-            .execute::<Canonical>(&mut ctx)?
-            .into_primitive();
-
-        assert_eq!(areas.as_slice::<f64>(), &[11.0, 0.0]);
-        Ok(())
-    }
-
-    #[test]
-    fn measures_multipolygons() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
-        let multipolygons = multipolygon_column(vec![vec![
+        ]),
+        &[11.0, 0.0]
+    )]
+    #[case::multi_polygon(
+        multipolygon_column(vec![vec![
             vec![vec![
                 (0.0, 0.0),
                 (2.0, 0.0),
@@ -210,14 +186,19 @@ mod tests {
                 (3.0, 3.0),
                 (3.0, 0.0),
             ]],
-        ]])?;
-
-        let areas = SpatialArea::try_new_array(multipolygons)?
-            .into_array()
-            .execute::<Canonical>(&mut ctx)?
-            .into_primitive();
-
-        assert_eq!(areas.as_slice::<f64>(), &[13.0]);
+        ]]),
+        &[13.0]
+    )]
+    #[case::rect(rect_column(vec![(0.0, 0.0, 5.0, 3.0)]), &[15.0])]
+    fn measures_native_geometries(
+        #[case] geometry: VortexResult<ArrayRef>,
+        #[case] expected: &[f64],
+    ) -> VortexResult<()> {
+        let session = vortex_array::array_session();
+        let mut ctx = session.create_execution_ctx();
+        let areas = SpatialArea::try_new_array(geometry?)?.into_array();
+        let expected = PrimitiveArray::from_iter(expected.iter().copied()).into_array();
+        assert_arrays_eq!(areas, expected, &mut ctx);
         Ok(())
     }
 
@@ -240,6 +221,19 @@ mod tests {
             PrimitiveArray::new(vec![4.0f64, 0.0], Validity::from_iter([true, false])).into_array();
 
         assert_arrays_eq!(areas, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::none(0)]
+    #[case::two(2)]
+    fn rejects_wrong_arity(#[case] arity: usize) -> VortexResult<()> {
+        let dtype = point_column(vec![0.0], vec![0.0])?.dtype().clone();
+        assert!(
+            SpatialArea
+                .return_dtype(&EmptyOptions, &vec![dtype; arity])
+                .is_err()
+        );
         Ok(())
     }
 
