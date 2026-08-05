@@ -709,14 +709,10 @@ impl Executable for CanonicalValidity {
             }
             Canonical::Map(map) => {
                 let map_dtype = map.map_dtype().clone();
-                let entries = map.entries().as_::<ListView>().into_owned();
+                let entries = map.entries().clone();
                 Ok(CanonicalValidity(Canonical::Map(MapArray::new(
                     map_dtype,
-                    entries
-                        .into_array()
-                        .execute::<CanonicalValidity>(ctx)?
-                        .0
-                        .into_listview(),
+                    entries.execute::<CanonicalValidity>(ctx)?.0.into_listview(),
                 ))))
             }
             Canonical::FixedSizeList(fsl) => {
@@ -895,11 +891,10 @@ impl Executable for RecursiveCanonical {
             }
             Canonical::Map(map) => {
                 let map_dtype = map.map_dtype().clone();
-                let entries = map.entries().as_::<ListView>().into_owned();
+                let entries = map.entries().clone();
                 Ok(RecursiveCanonical(Canonical::Map(MapArray::new(
                     map_dtype,
                     entries
-                        .into_array()
                         .execute::<RecursiveCanonical>(ctx)?
                         .0
                         .into_listview(),
