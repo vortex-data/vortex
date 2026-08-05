@@ -43,6 +43,7 @@ use vortex_array::stats::StatsSet;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
+use vortex_error::SharedVortexResult;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -326,7 +327,7 @@ impl DataSource for MultiLayoutDataSource {
 #[derive(Clone)]
 struct BoundScanRequest {
     projection: BoundExpression,
-    filter: Option<BoundExpression>,
+    filter: SharedVortexResult<Option<BoundExpression>>,
     row_range: Option<Range<u64>>,
     selection: Selection,
     partition_selection: Selection,
@@ -352,7 +353,8 @@ impl BoundScanRequest {
             projection: optimize_and_bind(projection, dtype)?,
             filter: filter
                 .map(|expr| optimize_and_bind(expr, dtype))
-                .transpose()?,
+                .transpose()
+                .map_err(Arc::new),
             row_range,
             selection,
             partition_selection,
@@ -503,7 +505,7 @@ fn reader_partition(
 
     // Check file-level pruning: if the filter can be proven false for the entire row range
     // using file-level statistics, skip this reader entirely.
-    if let Some(filter) = &request.filter {
+    if let Ok(Some(filter)) = &request.filter {
         let mask_len = usize::try_from(row_range.end - row_range.start).unwrap_or(usize::MAX);
         let mask = Mask::new_true(mask_len);
         if let Ok(pruning_future) = reader.pruning_evaluation(&row_range, filter, mask)
@@ -559,7 +561,11 @@ impl Partition for MultiLayoutPartition {
             .limit
             .map_or(row_count, |limit| row_count.min(limit));
 
-        if self.request.filter.is_some() {
+        let has_filter = match &self.request.filter {
+            Ok(filter) => filter.is_some(),
+            Err(_) => true,
+        };
+        if has_filter {
             Precision::inexact(row_count)
         } else {
             Precision::exact(row_count)
@@ -572,10 +578,11 @@ impl Partition for MultiLayoutPartition {
 
     fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
         let request = self.request;
+        let filter = request.filter?;
         let mut builder = ScanBuilder::new(self.session, self.reader)
             .with_selection(request.selection)
             .with_projection(request.projection)
-            .with_some_filter(request.filter)
+            .with_some_filter(filter)
             .with_some_limit(request.limit)
             .with_ordered(request.ordered);
 
@@ -596,6 +603,10 @@ impl Partition for MultiLayoutPartition {
 mod tests {
     use rstest::rstest;
     use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::expr::eq;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::root;
 
     use super::*;
     use crate::scan::test::new_session;
@@ -629,5 +640,20 @@ mod tests {
     #[case::no_children(vec![], Precision::exact(0u64))]
     fn byte_size_precision(#[case] sizes: Vec<Option<u64>>, #[case] expected: Precision<u64>) {
         assert_eq!(deferred_source(sizes).byte_size(), expected);
+    }
+
+    #[test]
+    fn filter_binding_errors_are_deferred() -> VortexResult<()> {
+        let dtype = DType::Primitive(PType::U8, Nullability::NonNullable);
+        let request = ScanRequest {
+            filter: Some(eq(root(), lit(67_i32))),
+            ..ScanRequest::default()
+        };
+
+        let request = BoundScanRequest::try_new(request, &dtype)?;
+
+        assert_eq!(request.projection.dtype(), &dtype);
+        assert!(request.filter.is_err());
+        Ok(())
     }
 }
