@@ -71,6 +71,9 @@ pub struct ScanBuilder<A> {
     selection: Selection,
     /// How to split the file for concurrent processing.
     split_by: SplitBy,
+    /// Precomputed full-file natural split boundaries; when set, [`prepare`](Self::prepare)
+    /// uses them instead of walking the layout.
+    natural_splits: Option<Arc<[u64]>>,
     /// The number of splits to make progress on concurrently **per-thread**.
     concurrency: usize,
     /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
@@ -97,6 +100,7 @@ impl ScanBuilder<ArrayRef> {
             row_range: None,
             selection: Default::default(),
             split_by: SplitBy::Layout,
+            natural_splits: None,
             // We default to four tasks per worker thread, which allows for some I/O lookahead
             // without too much impact on work-stealing.
             concurrency: 4,
@@ -191,6 +195,40 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
+    /// Supply precomputed full-file natural split boundaries (see
+    /// [`full_file_splits`](Self::full_file_splits)) so [`prepare`](Self::prepare) reuses them
+    /// instead of walking the layout. Callers translating external partitions into row ranges
+    /// can compute the boundaries once per file and share them across partitions.
+    ///
+    /// Takes precedence over [`with_split_by`](Self::with_split_by); boundaries outside the
+    /// scan's row range are clamped during execution.
+    pub fn with_natural_splits(mut self, boundaries: Arc<[u64]>) -> Self {
+        self.natural_splits = Some(boundaries);
+        self
+    }
+
+    /// Compute the full-file natural split boundaries for the fields referenced by this scan's
+    /// projection and filter, ignoring any configured row range.
+    ///
+    /// These are the boundaries [`prepare`](Self::prepare) derives for a whole-file scan; hand
+    /// them back via [`with_natural_splits`](Self::with_natural_splits) to skip the layout walk
+    /// in `prepare`.
+    pub fn full_file_splits(&self) -> VortexResult<Vec<u64>> {
+        let dtype = self.layout_reader.dtype();
+        let bound_projection = self.projection.optimize_recursive(dtype)?.bind(dtype)?;
+        let bound_filter = self
+            .filter
+            .as_ref()
+            .map(|f| f.optimize_recursive(dtype)?.bind(dtype))
+            .transpose()?;
+        let field_mask = referenced_field_masks(&bound_projection, bound_filter.as_ref())?;
+        self.split_by.splits(
+            self.layout_reader.as_ref(),
+            &(0..self.layout_reader.row_count()),
+            &field_mask,
+        )
+    }
+
     /// Returns the per-worker row-split concurrency.
     pub fn concurrency(&self) -> usize {
         self.concurrency
@@ -253,6 +291,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             row_range: self.row_range,
             selection: self.selection,
             split_by: self.split_by,
+            natural_splits: self.natural_splits,
             concurrency: self.concurrency,
             metrics_registry: self.metrics_registry,
             file_stats: self.file_stats,
@@ -297,13 +336,15 @@ impl<A: 'static + Send> ScanBuilder<A> {
             .map(|expr| expr.bind(layout_reader.dtype()))
             .transpose()?;
 
-        // Construct field masks and compute the row splits of the scan.
-        let field_mask = referenced_field_masks(&bound_projection, bound_filter.as_ref())?;
-
+        // Compute the row splits of the scan.
         let splits =
             if let Some(ranges) = attempt_split_ranges(&self.selection, self.row_range.as_ref()) {
                 Splits::Ranges(ranges)
+            } else if let Some(boundaries) = self.natural_splits {
+                // Caller-supplied full-file boundaries; execution clamps them to the row range.
+                Splits::Natural(boundaries)
             } else {
+                let field_mask = referenced_field_masks(&bound_projection, bound_filter.as_ref())?;
                 let split_range = self
                     .row_range
                     .clone()
@@ -770,6 +811,47 @@ mod test {
         assert_eq!(calls.load(Ordering::Relaxed), 1);
         assert_eq!(values.as_ref(), [0, 1, 2, 3]);
 
+        Ok(())
+    }
+
+    #[test]
+    fn supplied_natural_splits_skip_layout_walk() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let reader = Arc::new(SplittingLayoutReader::new(Arc::clone(&calls)));
+
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+
+        let stream = ScanBuilder::new(session, reader)
+            .with_natural_splits(vec![0u64, 2, 4].into())
+            .with_row_range(1..4)
+            .into_stream()?;
+        let mut iter = runtime.block_on_stream(stream);
+
+        let mut chunks = Vec::new();
+        for chunk in &mut iter {
+            let prim = chunk?.execute::<PrimitiveArray>(&mut ctx)?;
+            chunks.push(prim.into_buffer::<i32>().to_vec());
+        }
+
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
+        // Supplied full-file boundaries [0, 2, 4] clamped to rows 1..4.
+        assert_eq!(chunks, [vec![1], vec![2, 3]]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn full_file_splits_ignore_row_range() -> VortexResult<()> {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let reader = Arc::new(SplittingLayoutReader::new(Arc::clone(&calls)));
+
+        let splits = ScanBuilder::new(SCAN_SESSION.clone(), reader)
+            .with_row_range(1..3)
+            .full_file_splits()?;
+
+        assert_eq!(splits, [0, 1, 2, 3, 4]);
         Ok(())
     }
 

@@ -19,7 +19,7 @@ pub enum Splits {
     /// Natural splits computed by the layout reader (e.g., computing splits across different-sized
     /// column chunks).
     ///
-    /// The vec is sorted in ascending order and deduplicated.
+    /// The boundaries are sorted in ascending order and deduplicated.
     Natural(Arc<[u64]>),
 
     /// Exact split ranges.

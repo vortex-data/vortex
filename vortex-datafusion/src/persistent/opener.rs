@@ -40,14 +40,12 @@ use futures::stream;
 use object_store::path::Path;
 use tracing::Instrument;
 use vortex::array::VortexSessionExecute;
-use vortex::dtype::FieldMask;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::scan_builder::ScanBuilder;
-use vortex::layout::scan::split_by::SplitBy;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
 use vortex::session::VortexSession;
@@ -359,33 +357,6 @@ impl FileOpener for VortexOpener {
                 scan_builder = vortex_plan.apply_to_builder(scan_builder);
             }
 
-            if let Some(file_range) = file.range {
-                let byte_range = Range {
-                    start: u64::try_from(file_range.start)
-                        .map_err(|_| exec_datafusion_err!("Vortex file range start is negative"))?,
-                    end: u64::try_from(file_range.end)
-                        .map_err(|_| exec_datafusion_err!("Vortex file range end is negative"))?,
-                };
-                if byte_range.start != 0 || byte_range.end != file.object_meta.size {
-                    // Full-file scans already cover every natural split. Only translate the
-                    // byte range back into row boundaries when DataFusion has trimmed the file.
-                    let natural_splits = natural_splits_for_file(
-                        natural_splits.as_ref(),
-                        &file.object_meta.location,
-                        &layout_reader,
-                        file.object_meta.size,
-                    )?;
-
-                    let Some(row_range) =
-                        split_aligned_row_range(byte_range, natural_splits.as_ref())
-                    else {
-                        return Ok(stream::empty().boxed());
-                    };
-
-                    scan_builder = scan_builder.with_row_range(row_range);
-                }
-            }
-
             let filter = filter
                 .and_then(|f| {
                     // Verify that all filters we've accepted from DataFusion get pushed down.
@@ -428,11 +399,46 @@ impl FileOpener for VortexOpener {
                 scan_builder = scan_builder.with_concurrency(concurrency);
             }
 
+            // Set before the byte-range translation below, which computes natural splits for
+            // the fields the scan's projection and filter reference.
+            scan_builder = scan_builder
+                .with_projection(scan_projection)
+                .with_some_filter(filter);
+
+            if let Some(file_range) = file.range {
+                let byte_range = Range {
+                    start: u64::try_from(file_range.start)
+                        .map_err(|_| exec_datafusion_err!("Vortex file range start is negative"))?,
+                    end: u64::try_from(file_range.end)
+                        .map_err(|_| exec_datafusion_err!("Vortex file range end is negative"))?,
+                };
+                if byte_range.start != 0 || byte_range.end != file.object_meta.size {
+                    // Full-file scans already cover every natural split. Only translate the
+                    // byte range back into row boundaries when DataFusion has trimmed the file.
+                    let natural_splits = natural_splits_for_file(
+                        natural_splits.as_ref(),
+                        &file.object_meta.location,
+                        &scan_builder,
+                        file.object_meta.size,
+                    )?;
+
+                    let Some(row_range) =
+                        split_aligned_row_range(byte_range, natural_splits.as_ref())
+                    else {
+                        return Ok(stream::empty().boxed());
+                    };
+
+                    scan_builder = scan_builder
+                        .with_row_range(row_range)
+                        // Hand the shared full-file boundaries back to the scan so prepare()
+                        // skips its own layout walk.
+                        .with_natural_splits(Arc::clone(&natural_splits.row_boundaries));
+                }
+            }
+
             let stream_target_field = Field::new_struct("", stream_schema.fields().clone(), false);
             let stream = scan_builder
                 .with_metrics_registry(metrics_registry)
-                .with_projection(scan_projection)
-                .with_some_filter(filter)
                 .with_ordered(has_output_ordering)
                 .map(move |chunk| {
                     let mut ctx = session.create_execution_ctx();
@@ -480,9 +486,24 @@ impl FileOpener for VortexOpener {
     }
 }
 
+/// A file's natural split boundaries plus the precomputed byte each split is assigned to,
+/// enabling [`split_aligned_row_range`] to translate a DataFusion byte range into row
+/// boundaries with a binary search instead of re-projecting every split per partition.
+///
+/// The boundaries are computed for the fields referenced by the scan's projection and filter.
+/// All partitions translate through the first opener's cached entry (the cache lives on the
+/// source, so projection and filter are fixed for its lifetime), which keeps the byte ranges
+/// tiling the file's rows exactly once.
 #[derive(Debug)]
 pub(crate) struct NaturalSplits {
+    /// Sorted row boundaries of the natural splits; split `i` covers
+    /// `row_boundaries[i]..row_boundaries[i + 1]`. Shared so partitions can hand the
+    /// boundaries back to the scan via [`ScanBuilder::with_natural_splits`], skipping the
+    /// per-partition layout walk in `prepare`.
     row_boundaries: Arc<[u64]>,
+    /// For each split, the byte a DataFusion byte range must contain to own it (see
+    /// [`split_assignment_byte`]); one entry per split, sorted because split midpoints
+    /// increase monotonically under the row-to-byte projection.
     assignment_bytes: Box<[u64]>,
 }
 
@@ -519,10 +540,11 @@ impl NaturalSplits {
     }
 }
 
-fn natural_splits_for_file(
+/// Return the cached [`NaturalSplits`] for `path`, computing and caching them on first use.
+fn natural_splits_for_file<A: 'static + Send>(
     natural_splits: &DashMap<Path, Arc<NaturalSplits>>,
     path: &Path,
-    layout_reader: &Arc<dyn LayoutReader>,
+    scan_builder: &ScanBuilder<A>,
     total_size: u64,
 ) -> DFResult<Arc<NaturalSplits>> {
     if let Some(splits) = natural_splits.get(path) {
@@ -535,21 +557,21 @@ fn natural_splits_for_file(
     match natural_splits.entry(path.clone()) {
         Entry::Occupied(entry) => Ok(Arc::clone(entry.get())),
         Entry::Vacant(entry) => {
-            let splits = compute_natural_splits(layout_reader.as_ref(), total_size)?;
+            let splits = compute_natural_splits(scan_builder, total_size)?;
             entry.insert(Arc::clone(&splits));
             Ok(splits)
         }
     }
 }
 
-fn compute_natural_splits(
-    layout_reader: &dyn LayoutReader,
+/// Walk the layout tree to compute the file's full natural split boundaries for the fields
+/// referenced by the scan's projection and filter.
+fn compute_natural_splits<A: 'static + Send>(
+    scan_builder: &ScanBuilder<A>,
     total_size: u64,
 ) -> DFResult<Arc<NaturalSplits>> {
-    let row_count = layout_reader.row_count();
-    let row_range = 0..row_count;
-    let row_boundaries = SplitBy::Layout
-        .splits(layout_reader, &row_range, &[FieldMask::All])
+    let row_boundaries = scan_builder
+        .full_file_splits()
         .map_err(|e| exec_datafusion_err!("Failed to compute Vortex natural splits: {e}"))?;
 
     Ok(Arc::new(NaturalSplits::new(
