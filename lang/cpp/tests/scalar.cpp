@@ -46,16 +46,19 @@ TEST_CASE("Null scalar", "[scalar]") {
     Scalar s = scalar::null(dtype::int32(true));
     REQUIRE(s.is_null());
     REQUIRE(s.dtype().variant() == DataTypeVariant::Primitive);
-    REQUIRE_THROWS_AS(s.get<float>(), VortexException);
+    REQUIRE_THROWS_AS(s.get<int32_t>(), VortexException);
 }
 
 TEST_CASE("UTF-8 scalar", "[scalar]") {
     Scalar s = scalar::of("hello"sv);
     REQUIRE_FALSE(s.is_null());
     REQUIRE(s.dtype().variant() == DataTypeVariant::Utf8);
+    REQUIRE_THROWS_AS(s.get<float>(), VortexException);
 
     REQUIRE_FALSE(scalar::of(""sv).is_null());
     s = scalar::of("Широкая строка"sv);
+    REQUIRE_THROWS_AS(s.get<bool>(), VortexException);
+    REQUIRE_THROWS_AS(s.get_decimal<int8_t>(), VortexException);
     REQUIRE(s.dtype().variant() == DataTypeVariant::Utf8);
 
     REQUIRE_THROWS_AS(scalar::of("\xFF\xFE"sv), VortexException);
@@ -115,6 +118,9 @@ TEST_CASE("String getters", "[scalar]") {
 }
 
 TEST_CASE("Decimal getters", "[scalar]") {
+    Scalar s = scalar::null(dtype::decimal(5, 2));
+    REQUIRE_THROWS_AS(s.get_decimal<int8_t>(), VortexException);
+
     REQUIRE(decimal<int8_t>(56, 5, 2).get_decimal<int8_t>() == 56);
     REQUIRE(decimal<int16_t>(1234, 5, 2).get_decimal<int16_t>() == 1234);
     REQUIRE(decimal<int32_t>(5678, 6, 2).get_decimal<int32_t>() == 5678);

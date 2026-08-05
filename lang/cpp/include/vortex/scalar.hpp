@@ -42,7 +42,8 @@ public:
     /**
      * Read a decimal scalar's unscaled value.
      * int8/16/32/64_t are supported.
-     * Throws if scalar is not a decimal, is Null, or value does not fit in T.
+     * Throws if scalar is not a decimal or is Null.
+     * Trying to get decimal's value that overflows T is UB.
      */
     template <primitive_type T>
     T get_decimal() const;
@@ -69,8 +70,8 @@ T Scalar::get() const {
 
     const DataType data_type = dtype();
     const DataTypeVariant variant = data_type.variant();
-    if (variant == Null) {
-        throw VortexException("DataType is null", InvalidArgument);
+    if (is_null()) {
+        throw VortexException("Scalar is null", InvalidArgument);
     }
 
     const vx_scalar *const h = handle_.get();
@@ -158,6 +159,9 @@ T Scalar::get() const {
 
 template <primitive_type T>
 T Scalar::get_decimal() const {
+    if (is_null()) {
+        throw VortexException("Scalar is null", ErrorCode::InvalidArgument);
+    }
     if (dtype().variant() != DataTypeVariant::Decimal) {
         throw VortexException("DataType is not Decimal", ErrorCode::InvalidArgument);
     }
