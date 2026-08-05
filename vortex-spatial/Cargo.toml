@@ -69,5 +69,10 @@ harness = false
 [[bench]]
 name = "length"
 harness = false
+
+[[bench]]
+name = "collect"
+harness = false
+
 [lints]
 workspace = true
