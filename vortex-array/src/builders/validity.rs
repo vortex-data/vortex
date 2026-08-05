@@ -3,7 +3,6 @@
 
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
-use vortex_mask::Mask;
 
 use crate::builders::LazyBitBufferBuilder;
 use crate::dtype::Nullability;
@@ -78,13 +77,6 @@ impl ValidityBuilder {
         self.flush_pending();
         self.runs_len += len;
         self.runs.push((validity, len));
-    }
-
-    /// Replaces everything recorded so far with `validity`.
-    pub fn set_validity(&mut self, validity: Mask) {
-        self.runs.clear();
-        self.runs_len = 0;
-        self.pending = LazyBitBufferBuilder::from_validity_mask(validity);
     }
 
     /// Allocates space for `additional` more bits in the null buffer.
@@ -232,21 +224,6 @@ mod tests {
         assert_eq!(mask, expected);
 
         Ok(())
-    }
-
-    /// Setting the validity discards everything recorded before it, runs included.
-    #[test]
-    fn test_set_validity_replaces_runs() {
-        let mut builder = ValidityBuilder::new(0);
-
-        builder.append_validity(Validity::AllInvalid, RUN_LEN);
-        builder.set_validity(Mask::new_true(RUN_LEN));
-        assert_eq!(builder.len(), RUN_LEN);
-
-        assert!(matches!(
-            builder.finish_with_nullability(Nullable),
-            Validity::AllValid
-        ));
     }
 
     #[test]

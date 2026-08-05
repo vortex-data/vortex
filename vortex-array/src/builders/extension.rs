@@ -5,7 +5,6 @@ use std::any::Any;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -112,10 +111,6 @@ impl ArrayBuilder for ExtensionBuilder {
 
     fn reserve_exact(&mut self, capacity: usize) {
         self.storage.reserve_exact(capacity)
-    }
-
-    unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        unsafe { self.storage.set_validity_unchecked(validity) };
     }
 
     fn finish(&mut self) -> ArrayRef {

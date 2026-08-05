@@ -630,10 +630,6 @@ impl<O: OffsetBuilderPType> ArrayBuilder for VarBinBuilder<O> {
         self.validity.reserve(additional);
     }
 
-    unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        self.replace_validity(validity)
-    }
-
     fn finish(&mut self) -> ArrayRef {
         self.finish_into_varbin().into_array()
     }
@@ -949,7 +945,6 @@ mod tests {
                 builder.append_scalar(&Scalar::utf8("hello", Nullable))?;
                 builder.append_null();
                 assert_eq!(builder.len(), 3);
-                builder.set_validity(validity.clone());
                 Ok(())
             })?;
             assert_eq!(result.validity()?.execute_mask(3, &mut ctx)?, validity);

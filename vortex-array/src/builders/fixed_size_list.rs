@@ -9,7 +9,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -258,10 +257,6 @@ impl ArrayBuilder for FixedSizeListBuilder {
         self.elements_builder
             .reserve_exact(additional * self.list_size() as usize);
         self.nulls.reserve_exact(additional);
-    }
-
-    unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        self.nulls.set_validity(validity);
     }
 
     fn finish(&mut self) -> ArrayRef {

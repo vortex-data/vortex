@@ -40,7 +40,6 @@ use std::any::Any;
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -169,24 +168,6 @@ pub trait ArrayBuilder: Send {
 
     /// Allocate space for extra `additional` items
     fn reserve_exact(&mut self, additional: usize);
-
-    /// Override builders validity with the one provided.
-    ///
-    /// Note that this will have no effect on the final array if the array builder is non-nullable.
-    fn set_validity(&mut self, validity: Mask) {
-        if !self.dtype().is_nullable() {
-            return;
-        }
-        assert_eq!(self.len(), validity.len());
-        unsafe { self.set_validity_unchecked(validity) }
-    }
-
-    /// override validity with the one provided, without checking lengths
-    ///
-    /// # Safety
-    ///
-    /// Given validity must have an equal length to [`self.len()`](Self::len).
-    unsafe fn set_validity_unchecked(&mut self, validity: Mask);
 
     /// Constructs an Array from the builder components.
     ///

@@ -10,7 +10,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -375,10 +374,6 @@ impl<O: OffsetBuilderPType> ArrayBuilder for ListBuilder<O> {
         self.elements_builder.reserve_exact(additional);
         self.offsets_builder.reserve_exact(additional);
         self.nulls.reserve_exact(additional);
-    }
-
-    unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        self.nulls.set_validity(validity);
     }
 
     fn finish(&mut self) -> ArrayRef {

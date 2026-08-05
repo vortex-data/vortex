@@ -8,7 +8,6 @@ use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -866,70 +865,6 @@ fn test_append_scalar_repeated_same_instance() {
     }
 }
 
-/// Test that `set_validity` correctly overrides a builder's validity across all mask variants.
-///
-/// `set_validity` moves the mask's buffer into the builder rather than copying it, so the
-/// `sliced_offset` case is important: slicing a `Mask::Values` at a non-byte-aligned boundary
-/// yields a buffer with a non-zero bit offset, which the move path must preserve.
-#[rstest]
-#[case::all_true(Mask::new_true(8), vec![true; 8])]
-#[case::all_false(Mask::new_false(8), vec![false; 8])]
-#[case::values(
-    Mask::from_iter([true, false, true, true, false, false, true, false]),
-    vec![true, false, true, true, false, false, true, false]
-)]
-#[case::sliced_offset(
-    Mask::from_iter([
-        false, false, false, // dropped by the slice
-        true, false, true, true, false, false, true, false, // kept: indices 3..11
-        true, true, true, true, true, // dropped by the slice
-    ])
-    .slice(3..11),
-    vec![true, false, true, true, false, false, true, false]
-)]
-fn test_set_validity_overrides_validity(
-    #[case] mask: Mask,
-    #[case] expected: Vec<bool>,
-) -> VortexResult<()> {
-    let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
-    let mut builder = builder_with_capacity(&dtype, mask.len());
-    builder.append_zeros(mask.len());
-
-    builder.set_validity(mask);
-
-    let validity = builder.finish().validity()?;
-    let mut ctx = array_session().create_execution_ctx();
-    for (i, &valid) in expected.iter().enumerate() {
-        assert_eq!(
-            validity.execute_is_valid(i, &mut ctx)?,
-            valid,
-            "validity mismatch at index {i}"
-        );
-    }
-    Ok(())
-}
-
-/// Test that `set_validity` is a no-op on a non-nullable builder.
-#[test]
-fn test_set_validity_noop_when_non_nullable() -> VortexResult<()> {
-    let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-    let mut builder = builder_with_capacity(&dtype, 4);
-    builder.append_zeros(4);
-
-    // Providing an all-false mask must not make the non-nullable array invalid.
-    builder.set_validity(Mask::new_false(4));
-
-    let validity = builder.finish().validity()?;
-    let mut ctx = array_session().create_execution_ctx();
-    for i in 0..4 {
-        assert!(
-            validity.execute_is_valid(i, &mut ctx)?,
-            "index {i} should remain valid"
-        );
-    }
-    Ok(())
-}
-
 /// Builders only promise a canonical *top level*, so a child array that is long enough to be worth
 /// a chunk must come back out of the builder in the encoding it went in with.
 ///
@@ -1260,44 +1195,6 @@ fn test_validity_survives_chunked_children(
         vec![array.clone(), null.finish(), array],
         built.dtype().clone(),
     )?;
-    assert_arrays_eq!(&built, &expected, &mut ctx);
-
-    Ok(())
-}
-
-/// An extension array has no validity of its own — it lives in the storage — so overriding the
-/// builder's validity has to reach into the chunked storage.
-#[test]
-fn test_extension_set_validity_reaches_chunked_storage() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
-    let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased();
-
-    let array = ExtensionArray::new(
-        ext_dtype.clone(),
-        ConstantArray::new(Scalar::primitive(0i64, Nullability::Nullable), CHUNK_LEN).into_array(),
-    )
-    .into_array();
-
-    let mut builder = builder_with_capacity(array.dtype(), 0);
-    array.append_to_builder(builder.as_mut(), &mut ctx)?;
-    array.append_to_builder(builder.as_mut(), &mut ctx)?;
-
-    let invalid = [0, 2 * CHUNK_LEN - 1];
-    builder.set_validity(Mask::from_iter(
-        (0..2 * CHUNK_LEN).map(|i| !invalid.contains(&i)),
-    ));
-    let built = builder.finish();
-
-    assert!(built.as_::<Extension>().storage().is::<Chunked>());
-
-    let expected = ExtensionArray::new(
-        ext_dtype,
-        PrimitiveArray::from_option_iter(
-            (0..2 * CHUNK_LEN).map(|i| (!invalid.contains(&i)).then_some(0i64)),
-        )
-        .into_array(),
-    )
-    .into_array();
     assert_arrays_eq!(&built, &expected, &mut ctx);
 
     Ok(())
