@@ -135,6 +135,14 @@ fn mul_u32_nonnull(bencher: Bencher) {
 }
 
 #[divan::bench]
+fn mul_u64_nonnull(bencher: Bencher) {
+    let lhs = primitive_u64_small_nonnull(1).into_array();
+    let rhs = primitive_u64_small_nonnull(17).into_array();
+
+    bench_primitive(bencher, lhs, rhs, Operator::Mul);
+}
+
+#[divan::bench]
 fn mul_i32_nullable(bencher: Bencher) {
     let lhs = primitive_i32_small_nullable(1, 7).into_array();
     let rhs = primitive_i32_small_nullable(17, 5).into_array();
@@ -284,6 +292,10 @@ fn primitive_i32_small_nonnull(offset: i32) -> PrimitiveArray {
 
 fn primitive_u32_small_nonnull(offset: u32) -> PrimitiveArray {
     PrimitiveArray::from_iter((0..LEN).map(|i| ((i + offset as usize) % 4096 + 1) as u32))
+}
+
+fn primitive_u64_small_nonnull(offset: u64) -> PrimitiveArray {
+    PrimitiveArray::from_iter((0..LEN).map(|i| ((i + offset as usize) % 4096 + 1) as u64))
 }
 
 fn primitive_nonzero() -> PrimitiveArray {
