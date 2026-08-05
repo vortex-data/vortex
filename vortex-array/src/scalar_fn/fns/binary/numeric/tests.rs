@@ -464,6 +464,25 @@ fn test_decimal_value_outside_working_width_errors() {
 }
 
 #[test]
+fn test_decimal_div_negative_result_scale() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    // A negative result scale scales the divisor rather than the dividend: 5e12 / 2e8 is 25_000,
+    // truncated to 2 at the decimal(6, -4) result scale. The i64 working width is also wider than
+    // the i32 result storage, so this narrows on the way out.
+    let dtype = DecimalDType::new(10, -8);
+    let lhs = DecimalArray::from_iter::<i64, _>([50_000], dtype).into_array();
+    let rhs = DecimalArray::from_iter::<i64, _>([2], dtype).into_array();
+
+    let result = decimal_binary(lhs, rhs, Operator::Div)?;
+    assert_arrays_eq!(
+        result,
+        DecimalArray::from_iter::<i32, _>([2], DecimalDType::new(6, -4)),
+        &mut ctx
+    );
+    Ok(())
+}
+
+#[test]
 fn test_decimal_mul_value_outside_precision_errors() {
     // `DecimalArray::new` does not validate stored values against the declared precision, so Mul
     // cannot assume its inputs are in-precision: 500 * 500 is 250_000, well past the 99_999 that

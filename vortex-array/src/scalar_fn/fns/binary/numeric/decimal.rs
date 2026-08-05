@@ -41,6 +41,7 @@ use crate::arrays::decimal::DecimalArrayExt;
 use crate::dtype::BigCast;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
+use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
@@ -88,21 +89,26 @@ pub(super) fn execute_numeric_decimal(
     let work_dtype = decimal_numeric_work_dtype(*decimal_dtype, result_decimal_dtype, op);
     match_each_decimal_value_type!(DecimalType::smallest_decimal_value_type(&work_dtype), |W| {
         let constants = DecimalOpConstants::<W>::new(result_decimal_dtype, op)?;
-        match_each_decimal_value_type!(
-            DecimalType::smallest_decimal_value_type(&result_decimal_dtype),
-            |O| {
-                execute_decimal_at_widths::<W, O>(
+        macro_rules! execute_typed {
+            ($Op:ty) => {
+                execute_decimal_typed::<W, $Op>(
                     &lhs,
                     &rhs,
-                    op,
                     result_decimal_dtype,
                     &result_dtype,
                     validity,
                     &valid_rows,
                     &constants,
                 )
-            }
-        )
+            };
+        }
+
+        match op {
+            NumericOperator::Add => execute_typed!(CheckedDecimalAdd),
+            NumericOperator::Sub => execute_typed!(CheckedDecimalSub),
+            NumericOperator::Mul => execute_typed!(CheckedDecimalMul),
+            NumericOperator::Div => execute_typed!(CheckedDecimalDiv),
+        }
     })
 }
 
@@ -311,45 +317,7 @@ impl CheckedDecimalOp for CheckedDecimalDiv {
     }
 }
 
-#[expect(clippy::too_many_arguments, reason = "internal width-dispatch shim")]
-fn execute_decimal_at_widths<W, O>(
-    lhs: &DecimalOperand,
-    rhs: &DecimalOperand,
-    op: NumericOperator,
-    result_decimal_dtype: DecimalDType,
-    result_dtype: &DType,
-    validity: Validity,
-    valid_rows: &Mask,
-    constants: &DecimalOpConstants<W>,
-) -> VortexResult<ArrayRef>
-where
-    W: NativeDecimalType + CheckedAdd + CheckedSub + CheckedMul + CheckedDiv + Mul<Output = W>,
-    O: NativeDecimalType,
-    DecimalValue: From<O>,
-{
-    macro_rules! execute_typed {
-        ($Op:ty) => {
-            execute_decimal_typed::<W, O, $Op>(
-                lhs,
-                rhs,
-                result_decimal_dtype,
-                result_dtype,
-                validity,
-                valid_rows,
-                constants,
-            )
-        };
-    }
-
-    match op {
-        NumericOperator::Add => execute_typed!(CheckedDecimalAdd),
-        NumericOperator::Sub => execute_typed!(CheckedDecimalSub),
-        NumericOperator::Mul => execute_typed!(CheckedDecimalMul),
-        NumericOperator::Div => execute_typed!(CheckedDecimalDiv),
-    }
-}
-
-fn execute_decimal_typed<W, O, Op>(
+fn execute_decimal_typed<W, Op>(
     lhs: &DecimalOperand,
     rhs: &DecimalOperand,
     result_decimal_dtype: DecimalDType,
@@ -360,15 +328,14 @@ fn execute_decimal_typed<W, O, Op>(
 ) -> VortexResult<ArrayRef>
 where
     W: NativeDecimalType + CheckedAdd + CheckedSub + CheckedMul + CheckedDiv + Mul<Output = W>,
-    O: NativeDecimalType,
-    DecimalValue: From<O>,
+    DecimalValue: From<W>,
     Op: CheckedDecimalOp,
 {
     let len = lhs.len();
 
     let values = match (lhs, rhs) {
         (DecimalOperand::Array { values: lhs, .. }, DecimalOperand::Array { values: rhs, .. }) => {
-            checked_decimal_arrays::<W, O, Op>(lhs, rhs, constants, valid_rows)
+            checked_decimal_arrays::<W, Op>(lhs, rhs, constants, valid_rows)
         }
         (DecimalOperand::Array { values: lhs, .. }, DecimalOperand::Constant { value, .. }) => {
             let rhs = typed_constant::<W>(value);
@@ -376,7 +343,6 @@ where
                 let lhs = lhs.buffer::<L>();
                 checked_lanes(lhs.as_slice(), valid_rows, |lhs| {
                     Op::apply(<W as BigCast>::from(lhs)?, rhs, constants)
-                        .map(cast_result_value::<W, O>)
                 })
             })
         }
@@ -386,7 +352,6 @@ where
                 let rhs = rhs.buffer::<R>();
                 checked_lanes(rhs.as_slice(), valid_rows, |rhs| {
                     Op::apply(lhs, <W as BigCast>::from(rhs)?, constants)
-                        .map(cast_result_value::<W, O>)
                 })
             })
         }
@@ -398,13 +363,11 @@ where
             let rhs = typed_constant::<W>(rhs);
             let value = Op::apply(lhs, rhs, constants)
                 .ok_or_else(|| vortex_err!(InvalidArgument: "{}", Op::ERROR))?;
-            let value = cast_result_value::<W, O>(value);
+            let value = DecimalValue::from(value)
+                .normalize(result_decimal_dtype)
+                .vortex_expect("bounds-checked result fits the result precision");
             return Ok(ConstantArray::new(
-                Scalar::decimal(
-                    DecimalValue::from(value),
-                    result_decimal_dtype,
-                    result_dtype.nullability(),
-                ),
+                Scalar::decimal(value, result_decimal_dtype, result_dtype.nullability()),
                 len,
             )
             .into_array());
@@ -412,23 +375,45 @@ where
     }
     .map_err(|_lane| vortex_err!(InvalidArgument: "{}", Op::ERROR))?;
 
-    Ok(DecimalArray::new(
+    Ok(decimal_array_narrowed(
         values,
         result_decimal_dtype,
         validity.union_nullability(result_dtype.nullability()),
-    )
-    .into_array())
+    ))
 }
 
-fn checked_decimal_arrays<W, O, Op>(
+/// Build the result array, narrowing to the dtype's own storage width when the working width is
+/// wider than it. Only division picks a working width above the result precision, and only for a
+/// negative result scale, so this copies in a corner case rather than on the common path.
+fn decimal_array_narrowed<W: NativeDecimalType>(
+    values: Buffer<W>,
+    decimal_dtype: DecimalDType,
+    validity: Validity,
+) -> ArrayRef {
+    let target = DecimalType::smallest_decimal_value_type(&decimal_dtype);
+    if target == W::DECIMAL_TYPE {
+        return DecimalArray::new(values, decimal_dtype, validity).into_array();
+    }
+
+    match_each_decimal_value_type!(target, |O| {
+        let narrowed: Buffer<O> = values
+            .as_slice()
+            .iter()
+            .copied()
+            .map(cast_result_value::<W, O>)
+            .collect();
+        DecimalArray::new(narrowed, decimal_dtype, validity).into_array()
+    })
+}
+
+fn checked_decimal_arrays<W, Op>(
     lhs: &DecimalArray,
     rhs: &DecimalArray,
     constants: &DecimalOpConstants<W>,
     valid_rows: &Mask,
-) -> Result<Buffer<O>, usize>
+) -> Result<Buffer<W>, usize>
 where
     W: NativeDecimalType + CheckedAdd + CheckedSub + CheckedMul + CheckedDiv + Mul<Output = W>,
-    O: NativeDecimalType,
     Op: CheckedDecimalOp,
 {
     debug_assert_eq!(lhs.len(), rhs.len());
@@ -445,7 +430,6 @@ where
                         <W as BigCast>::from(rhs)?,
                         constants,
                     )
-                    .map(cast_result_value::<W, O>)
                 },
             )
         })
