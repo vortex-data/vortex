@@ -11,6 +11,7 @@ use crate::array::ArrayView;
 use crate::arrays::ListView;
 use crate::arrays::map::Map;
 use crate::arrays::map::MapArrayExt;
+use crate::arrays::map::MapArraySlotsExt;
 use crate::arrays::map::compute::rebuild_map_from_array;
 use crate::dtype::DType;
 use crate::dtype::MapDType;
@@ -47,7 +48,10 @@ impl CastReduce for Map {
             return Ok(None);
         };
 
-        let Some(entries) = <ListView as CastReduce>::cast(array.entries(), &target_entries_dtype)?
+        let Some(entries) = <ListView as CastReduce>::cast(
+            array.entries().as_::<ListView>(),
+            &target_entries_dtype,
+        )?
         else {
             return Ok(None);
         };
@@ -67,8 +71,11 @@ impl CastKernel for Map {
             return Ok(None);
         };
 
-        let Some(entries) =
-            <ListView as CastKernel>::cast(array.entries(), &target_entries_dtype, ctx)?
+        let Some(entries) = <ListView as CastKernel>::cast(
+            array.entries().as_::<ListView>(),
+            &target_entries_dtype,
+            ctx,
+        )?
         else {
             return Ok(None);
         };

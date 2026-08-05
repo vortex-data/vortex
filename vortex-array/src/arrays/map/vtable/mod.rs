@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use smallvec::smallvec;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -21,9 +20,8 @@ use crate::array::ValidityVTableFromChild;
 use crate::array::with_empty_buffers;
 use crate::arrays::ListView;
 use crate::arrays::map::MapData;
-use crate::arrays::map::array::ENTRIES_SLOT;
-use crate::arrays::map::array::NUM_SLOTS;
-use crate::arrays::map::array::SLOT_NAMES;
+use crate::arrays::map::MapSlots;
+use crate::arrays::map::MapSlotsView;
 use crate::arrays::map::array::validate_entries;
 use crate::arrays::map::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
@@ -69,18 +67,17 @@ impl VTable for Map {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "MapArray expected {NUM_SLOTS} slot, found {}",
+            slots.len() == MapSlots::COUNT,
+            "MapArray expected {} slot, found {}",
+            MapSlots::COUNT,
             slots.len()
         );
 
         let DType::Map(map_dtype, nullability) = dtype else {
             vortex_bail!("Expected map dtype, got {dtype}");
         };
-        let entries = slots[ENTRIES_SLOT]
-            .as_ref()
-            .ok_or_else(|| vortex_error::vortex_err!("MapArray missing entries slot"))?;
-        validate_entries(map_dtype, *nullability, len, entries)
+        let slots = MapSlotsView::from_slots(slots);
+        validate_entries(map_dtype, *nullability, len, slots.entries)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -131,26 +128,27 @@ impl VTable for Map {
             vortex_bail!("Expected map dtype, got {dtype}");
         };
         vortex_ensure!(
-            children.len() == NUM_SLOTS,
-            "MapArray expected {NUM_SLOTS} child, found {}",
+            children.len() == MapSlots::COUNT,
+            "MapArray expected {} child, found {}",
+            MapSlots::COUNT,
             children.len()
         );
 
         let expected_entries_dtype =
             DType::List(std::sync::Arc::new(map_dtype.entries_dtype()), *nullability);
-        let entries = children.get(ENTRIES_SLOT, &expected_entries_dtype, len)?;
+        let entries = children.get(MapSlots::ENTRIES, &expected_entries_dtype, len)?;
         vortex_ensure!(
             entries.is::<ListView>(),
             "MapArray entries must use vortex.listview encoding, got {}",
             entries.encoding_id()
         );
 
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, MapData)
-            .with_slots(smallvec![Some(entries)]))
+        let slots = MapData::make_slots(entries);
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, MapData).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        MapSlots::NAMES[idx].to_string()
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

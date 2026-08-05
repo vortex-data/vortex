@@ -13,6 +13,7 @@ use crate::arrays::BoolArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
+use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::MapArray;
 use crate::arrays::MaskedArray;
@@ -27,6 +28,7 @@ use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::map::MapArrayExt;
+use crate::arrays::map::MapArraySlotsExt;
 use crate::arrays::struct_::StructArrayExt;
 use crate::arrays::union::UnionArrayExt;
 use crate::arrays::union::UnionArraySlotsExt;
@@ -131,7 +133,7 @@ fn mask_validity_listview(array: ListViewArray, validity: Validity) -> VortexRes
 }
 
 fn mask_validity_map(array: MapArray, validity: Validity) -> VortexResult<MapArray> {
-    let entries = mask_validity_listview(array.entries().into_owned(), validity)?;
+    let entries = mask_validity_listview(array.entries().as_::<ListView>().into_owned(), validity)?;
     MapArray::try_new(array.map_dtype().clone(), entries)
 }
 

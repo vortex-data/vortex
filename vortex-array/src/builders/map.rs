@@ -13,9 +13,10 @@ use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::arrays::ListView;
 use crate::arrays::Map;
 use crate::arrays::MapArray;
-use crate::arrays::map::MapArrayExt;
+use crate::arrays::map::MapArraySlotsExt;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::ListViewBuilder;
@@ -103,7 +104,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> MapBuilder<O, S> {
             array.dtype()
         );
         self.entries_builder
-            .append_listview_array(array.entries(), ctx)
+            .append_listview_array(array.entries().as_::<ListView>(), ctx)
     }
 }
 

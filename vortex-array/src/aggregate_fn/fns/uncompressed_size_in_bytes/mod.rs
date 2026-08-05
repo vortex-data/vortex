@@ -45,7 +45,8 @@ use crate::aggregate_fn::EmptyOptions;
 use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::map::MapArrayExt;
+use crate::arrays::ListView;
+use crate::arrays::map::MapArraySlotsExt;
 use crate::arrays::varbinview::BinaryView;
 use crate::dtype::DType;
 use crate::dtype::DecimalType;
@@ -200,9 +201,10 @@ pub(crate) fn canonical_uncompressed_size_in_bytes(
         Canonical::Decimal(array) => decimal_uncompressed_size_in_bytes(array, ctx),
         Canonical::VarBinView(array) => varbinview_uncompressed_size_in_bytes(array, ctx),
         Canonical::List(array) => list_view_uncompressed_size_in_bytes(array, ctx),
-        Canonical::Map(array) => {
-            list_view_uncompressed_size_in_bytes(&array.entries().into_owned(), ctx)
-        }
+        Canonical::Map(array) => list_view_uncompressed_size_in_bytes(
+            &array.entries().as_::<ListView>().into_owned(),
+            ctx,
+        ),
         Canonical::FixedSizeList(array) => fixed_size_list_uncompressed_size_in_bytes(array, ctx),
         Canonical::Struct(array) => struct_uncompressed_size_in_bytes(array, ctx),
         Canonical::Union(array) => union_uncompressed_size_in_bytes(array, ctx),

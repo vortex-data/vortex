@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use smallvec::smallvec;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -20,13 +19,16 @@ use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::FilterArray;
+use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::Map;
 use crate::arrays::MapArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::map::MapArrayExt;
+use crate::arrays::map::MapArraySlotsExt;
 use crate::arrays::map::MapData;
 use crate::arrays::map::MapDataParts;
+use crate::arrays::map::MapSlots;
 use crate::assert_arrays_eq;
 use crate::builders::ArrayBuilder;
 use crate::builders::MapBuilder;
@@ -177,7 +179,12 @@ fn rejects_malformed_entry_storage() -> VortexResult<()> {
         entries.len(),
         MapData,
     )
-    .with_slots(smallvec![Some(entries.into_array())]);
+    .with_slots(
+        MapSlots {
+            entries: entries.into_array(),
+        }
+        .into_slots(),
+    );
     assert!(Array::<Map>::try_from_parts(parts).is_err());
 
     assert!(
@@ -373,6 +380,7 @@ fn filter_dropping_nonempty_middle_row_clears_zero_copy_flag() -> VortexResult<(
         !reduced
             .as_::<Map>()
             .entries()
+            .as_::<ListView>()
             .into_owned()
             .is_zero_copy_to_list()
     );
@@ -381,7 +389,13 @@ fn filter_dropping_nonempty_middle_row_clears_zero_copy_flag() -> VortexResult<(
     let executed = FilterArray::new(source, mask)
         .into_array()
         .execute::<MapArray>(&mut ctx)?;
-    assert!(!executed.entries().into_owned().is_zero_copy_to_list());
+    assert!(
+        !executed
+            .entries()
+            .as_::<ListView>()
+            .into_owned()
+            .is_zero_copy_to_list()
+    );
     assert_arrays_eq!(executed, expected, &mut ctx);
 
     Ok(())

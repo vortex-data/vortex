@@ -6,7 +6,6 @@ use std::fmt::Formatter;
 use std::hash::Hasher;
 use std::sync::Arc;
 
-use smallvec::smallvec;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -14,12 +13,13 @@ use vortex_error::vortex_ensure;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::EqMode;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::ArrayView;
 use crate::array::TypedArrayRef;
+use crate::array_slots;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::listview::ListViewArrayExt;
@@ -28,10 +28,12 @@ use crate::dtype::DType;
 use crate::dtype::MapDType;
 use crate::validity::Validity;
 
-/// The one child slot holding a [`ListViewArray`] of map entries.
-pub(super) const ENTRIES_SLOT: usize = 0;
-pub(super) const NUM_SLOTS: usize = 1;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["entries"];
+#[array_slots(Map)]
+pub struct MapSlots {
+    /// The list-view storage of non-null `{key, value}` entry structs.
+    #[slot(0)]
+    pub entries: ArrayRef,
+}
 
 /// Encoding-specific metadata for [`crate::arrays::MapArray`].
 ///
@@ -56,6 +58,12 @@ impl ArrayHash for MapData {
     fn array_hash<H: Hasher>(&self, _state: &mut H, _accuracy: EqMode) {}
 }
 
+impl MapData {
+    pub(crate) fn make_slots(entries: ArrayRef) -> ArraySlots {
+        MapSlots { entries }.into_slots()
+    }
+}
+
 /// The logical and physical inputs used to construct a [`crate::arrays::MapArray`].
 pub struct MapDataParts {
     /// The key/value type and sortedness assertion for the map.
@@ -65,28 +73,20 @@ pub struct MapDataParts {
 }
 
 /// Accessors for the canonical map representation.
-pub trait MapArrayExt: TypedArrayRef<Map> {
-    /// Returns the list-view storage of map entry structs.
-    fn entries(&self) -> ArrayView<'_, ListView> {
-        self.as_ref().slots()[ENTRIES_SLOT]
-            .as_ref()
-            .vortex_expect("MapArray entries slot")
-            .as_::<ListView>()
-    }
-
+pub trait MapArrayExt: MapArraySlotsExt {
     /// Returns the entry structs for one map row.
     fn entries_at(&self, index: usize) -> VortexResult<ArrayRef> {
-        self.entries().list_elements_at(index)
+        self.entries().as_::<ListView>().list_elements_at(index)
     }
 
     /// Returns the number of entries in one map row.
     fn entry_count_at(&self, index: usize) -> usize {
-        self.entries().size_at(index)
+        self.entries().as_::<ListView>().size_at(index)
     }
 
     /// Returns the outer map validity delegated from the entries list-view.
     fn map_validity(&self) -> Validity {
-        self.entries().listview_validity()
+        self.entries().as_::<ListView>().listview_validity()
     }
 
     /// Returns this map's key/value type information.
@@ -125,8 +125,8 @@ impl Array<Map> {
         let nullability = entries.nullability();
         let dtype = DType::Map(map_dtype, nullability);
         let len = entries.len();
-        let parts = ArrayParts::new(Map, dtype, len, MapData)
-            .with_slots(smallvec![Some(entries.into_array())]);
+        let slots = MapData::make_slots(entries.into_array());
+        let parts = ArrayParts::new(Map, dtype, len, MapData).with_slots(slots);
         Self::try_from_parts(parts)
     }
 
@@ -141,8 +141,8 @@ impl Array<Map> {
         let nullability = entries.nullability();
         let dtype = DType::Map(map_dtype, nullability);
         let len = entries.len();
-        let parts = ArrayParts::new(Map, dtype, len, MapData)
-            .with_slots(smallvec![Some(entries.into_array())]);
+        let slots = MapData::make_slots(entries.into_array());
+        let parts = ArrayParts::new(Map, dtype, len, MapData).with_slots(slots);
         unsafe { Self::from_parts_unchecked(parts) }
     }
 
@@ -153,7 +153,7 @@ impl Array<Map> {
             .as_map_opt()
             .vortex_expect("MapArray requires a map dtype")
             .clone();
-        let entries = self.entries().into_owned();
+        let entries = self.entries().clone().downcast::<ListView>();
         MapDataParts { map_dtype, entries }
     }
 }

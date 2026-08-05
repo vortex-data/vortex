@@ -5,8 +5,11 @@
 
 mod array;
 pub use array::MapArrayExt;
+pub use array::MapArraySlotsExt;
 pub use array::MapData;
 pub use array::MapDataParts;
+pub use array::MapSlots;
+pub use array::MapSlotsView;
 
 pub(crate) mod compute;
 

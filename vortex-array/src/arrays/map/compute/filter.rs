@@ -5,19 +5,22 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
+use crate::arrays::MapArray;
 use crate::arrays::filter::FilterKernel;
 use crate::arrays::filter::FilterReduce;
 use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::map::Map;
 use crate::arrays::map::MapArrayExt;
-use crate::arrays::map::compute::rebuild_map;
+use crate::arrays::map::MapArraySlotsExt;
 use crate::executor::ExecutionCtx;
 
 impl FilterReduce for Map {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
-        let entries = array.entries();
+        let entries = array.entries().as_::<ListView>();
 
         // SAFETY: filtering row metadata keeps offsets and sizes paired, preserves the original
         // elements, and filters validity to the same output length. The zero-copy-to-list flag is
@@ -31,7 +34,11 @@ impl FilterReduce for Map {
             )
         };
 
-        rebuild_map(array.map_dtype().clone(), filtered_entries).map(Some)
+        {
+            let map_dtype = array.map_dtype().clone();
+            MapArray::try_new(map_dtype, filtered_entries).map(IntoArray::into_array)
+        }
+        .map(Some)
     }
 }
 

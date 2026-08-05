@@ -5,8 +5,10 @@ use vortex_error::VortexResult;
 
 use super::list::check_list_identical;
 use crate::ExecutionCtx;
+use crate::arrays::ListView;
 use crate::arrays::MapArray;
 use crate::arrays::map::MapArrayExt;
+use crate::arrays::map::MapArraySlotsExt;
 
 pub(super) fn check_map_identical(
     lhs: &MapArray,
@@ -18,8 +20,8 @@ pub(super) fn check_map_identical(
     }
 
     check_list_identical(
-        &lhs.entries().into_owned(),
-        &rhs.entries().into_owned(),
+        &lhs.entries().as_::<ListView>().into_owned(),
+        &rhs.entries().as_::<ListView>().into_owned(),
         ctx,
     )
 }
