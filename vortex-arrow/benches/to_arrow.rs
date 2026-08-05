@@ -42,7 +42,7 @@ use vortex_arrow::dtype::ToArrowType as _;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
 use vortex_mask::Mask;
-use vortex_onpair::DEFAULT_DICT12_CONFIG;
+use vortex_onpair::DEFAULT_CONFIG;
 use vortex_onpair::onpair_compress;
 use vortex_session::VortexSession;
 use vortex_zstd::Zstd;
@@ -258,7 +258,7 @@ fn string_array(encoding: StringEncoding) -> ArrayRef {
         ),
         StringEncoding::OnPair => onpair_compress(
             &structured_strings(OFFSET_STRING_ROWS).into_array(),
-            DEFAULT_DICT12_CONFIG,
+            DEFAULT_CONFIG,
             &mut ctx,
         )
         .unwrap(),
