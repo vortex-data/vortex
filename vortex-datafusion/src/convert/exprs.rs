@@ -72,6 +72,47 @@ pub(crate) fn make_vortex_predicate(
 }
 
 /// Trait for converting DataFusion expressions to Vortex ones.
+///
+/// # Implementing a custom convertor
+///
+/// ```
+/// use std::sync::Arc;
+///
+/// use arrow_schema::Schema;
+/// use datafusion_common::Result as DFResult;
+/// use datafusion_physical_expr::PhysicalExpr;
+/// use datafusion_physical_expr::projection::ProjectionExprs;
+/// use vortex::expr::Expression;
+/// use vortex_datafusion::convert::DefaultExpressionConvertor;
+/// use vortex_datafusion::convert::ExpressionConvertor;
+/// use vortex_datafusion::convert::ProcessedProjection;
+///
+/// struct CustomExpressionConvertor(DefaultExpressionConvertor);
+///
+/// impl ExpressionConvertor for CustomExpressionConvertor {
+///     fn can_be_pushed_down(&self, expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> bool {
+///         self.0.can_be_pushed_down(expr, schema)
+///     }
+///
+///     fn convert(&self, expr: &dyn PhysicalExpr) -> DFResult<Expression> {
+///         self.0.convert(expr)
+///     }
+///
+///     fn split_projection(
+///         &self,
+///         source_projection: ProjectionExprs,
+///         input_schema: &Schema,
+///         output_schema: &Schema,
+///     ) -> DFResult<ProcessedProjection> {
+///         self.0
+///             .split_projection(source_projection, input_schema, output_schema)
+///     }
+/// }
+///
+/// let _convertor: Arc<dyn ExpressionConvertor> = Arc::new(CustomExpressionConvertor(
+///     DefaultExpressionConvertor::default(),
+/// ));
+/// ```
 pub trait ExpressionConvertor: Send + Sync {
     /// Can an expression be pushed down given a specific schema
     fn can_be_pushed_down(&self, expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> bool;

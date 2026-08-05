@@ -784,6 +784,7 @@ mod tests {
     use std::sync::atomic::AtomicBool;
     use std::sync::atomic::Ordering;
 
+    use arrow_array::Int32Array;
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use datafusion_common::ScalarValue;
@@ -800,27 +801,56 @@ mod tests {
     use crate::convert::DefaultExpressionConvertor;
     use crate::convert::ProcessedProjection;
 
-    struct RejectingExpressionConvertor {
-        inner: DefaultExpressionConvertor,
-        called: Arc<AtomicBool>,
+    #[derive(Clone, Copy)]
+    enum PushdownMode {
+        Reject,
+        Delegate,
     }
 
-    impl RejectingExpressionConvertor {
-        fn new(session: VortexSession, called: Arc<AtomicBool>) -> Self {
+    #[derive(Default)]
+    struct ExpressionConvertorCalls {
+        can_be_pushed_down: AtomicBool,
+        convert: AtomicBool,
+    }
+
+    impl ExpressionConvertorCalls {
+        fn reset(&self) {
+            self.can_be_pushed_down.store(false, Ordering::Relaxed);
+            self.convert.store(false, Ordering::Relaxed);
+        }
+    }
+
+    struct TestExpressionConvertor {
+        inner: DefaultExpressionConvertor,
+        pushdown_mode: PushdownMode,
+        calls: Arc<ExpressionConvertorCalls>,
+    }
+
+    impl TestExpressionConvertor {
+        fn new(
+            session: VortexSession,
+            pushdown_mode: PushdownMode,
+            calls: Arc<ExpressionConvertorCalls>,
+        ) -> Self {
             Self {
                 inner: DefaultExpressionConvertor::new(session),
-                called,
+                pushdown_mode,
+                calls,
             }
         }
     }
 
-    impl ExpressionConvertor for RejectingExpressionConvertor {
-        fn can_be_pushed_down(&self, _expr: &Arc<dyn PhysicalExpr>, _schema: &Schema) -> bool {
-            self.called.store(true, Ordering::Relaxed);
-            false
+    impl ExpressionConvertor for TestExpressionConvertor {
+        fn can_be_pushed_down(&self, expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> bool {
+            self.calls.can_be_pushed_down.store(true, Ordering::Relaxed);
+            match self.pushdown_mode {
+                PushdownMode::Reject => false,
+                PushdownMode::Delegate => self.inner.can_be_pushed_down(expr, schema),
+            }
         }
 
         fn convert(&self, expr: &dyn PhysicalExpr) -> DFResult<Expression> {
+            self.calls.convert.store(true, Ordering::Relaxed);
             self.inner.convert(expr)
         }
 
@@ -846,9 +876,9 @@ mod tests {
         Arc::new(df_expr::BinaryExpr::new(column, Operator::Gt, literal))
     }
 
-    fn assert_uses_expression_convertor(
+    fn assert_rejects_pushdown_with_expression_convertor(
         format: &dyn FileFormat,
-        called: &AtomicBool,
+        calls: &ExpressionConvertorCalls,
     ) -> anyhow::Result<()> {
         let source = format.file_source(TableSchema::from_file_schema(
             expression_convertor_test_schema(),
@@ -858,7 +888,8 @@ mod tests {
             &ConfigOptions::new(),
         )?;
 
-        assert!(called.load(Ordering::Relaxed));
+        assert!(calls.can_be_pushed_down.load(Ordering::Relaxed));
+        assert!(!calls.convert.load(Ordering::Relaxed));
         assert!(matches!(result.filters.as_slice(), [PushedDown::No]));
         Ok(())
     }
@@ -937,31 +968,79 @@ mod tests {
     #[test]
     fn format_plumbs_expression_convertor() -> anyhow::Result<()> {
         let session = VortexSession::default();
-        let called = Arc::new(AtomicBool::new(false));
-        let convertor = Arc::new(RejectingExpressionConvertor::new(
+        let calls = Arc::new(ExpressionConvertorCalls::default());
+        let convertor = Arc::new(TestExpressionConvertor::new(
             session.clone(),
-            Arc::clone(&called),
+            PushdownMode::Reject,
+            Arc::clone(&calls),
         ));
         let format = VortexFormat::new(session).with_expression_convertor(convertor);
 
-        assert_uses_expression_convertor(&format, &called)
+        assert_rejects_pushdown_with_expression_convertor(&format, &calls)
     }
 
     #[test]
     fn factory_plumbs_expression_convertor() -> anyhow::Result<()> {
-        let called = Arc::new(AtomicBool::new(false));
-        let convertor = Arc::new(RejectingExpressionConvertor::new(
+        let calls = Arc::new(ExpressionConvertorCalls::default());
+        let convertor = Arc::new(TestExpressionConvertor::new(
             VortexSession::default(),
-            Arc::clone(&called),
+            PushdownMode::Reject,
+            Arc::clone(&calls),
         ));
         let factory = VortexFormatFactory::new().with_expression_convertor(convertor);
         let ctx = TestSessionContext::default();
 
         let format = factory.create(&ctx.session.state(), &Default::default())?;
-        assert_uses_expression_convertor(format.as_ref(), &called)?;
+        assert_rejects_pushdown_with_expression_convertor(format.as_ref(), &calls)?;
 
-        called.store(false, Ordering::Relaxed);
+        calls.reset();
         let format = FileFormatFactory::default(&factory);
-        assert_uses_expression_convertor(format.as_ref(), &called)
+        assert_rejects_pushdown_with_expression_convertor(format.as_ref(), &calls)
+    }
+
+    #[tokio::test]
+    async fn external_table_query_uses_factory_expression_convertor() -> anyhow::Result<()> {
+        let calls = Arc::new(ExpressionConvertorCalls::default());
+        let convertor = Arc::new(TestExpressionConvertor::new(
+            VortexSession::default(),
+            PushdownMode::Delegate,
+            Arc::clone(&calls),
+        ));
+        let factory = Arc::new(VortexFormatFactory::new().with_expression_convertor(convertor));
+        let ctx = TestSessionContext::new_with_factory(factory);
+
+        ctx.session
+            .sql(
+                "CREATE EXTERNAL TABLE numbers (a INT NOT NULL) \
+                 STORED AS vortex LOCATION '/expression-convertor/'",
+            )
+            .await?;
+        ctx.session
+            .sql("INSERT INTO numbers VALUES (1), (2), (3)")
+            .await?
+            .collect()
+            .await?;
+
+        calls.reset();
+        let batches = ctx
+            .session
+            .sql("SELECT a FROM numbers WHERE a > 1 ORDER BY a")
+            .await?
+            .collect()
+            .await?;
+
+        assert!(calls.can_be_pushed_down.load(Ordering::Relaxed));
+        assert!(calls.convert.load(Ordering::Relaxed));
+        let mut values = Vec::new();
+        for batch in batches {
+            let array = batch
+                .column(0)
+                .as_any()
+                .downcast_ref::<Int32Array>()
+                .ok_or_else(|| anyhow::anyhow!("expected Int32 result column"))?;
+            values.extend(array.values().iter().copied());
+        }
+        assert_eq!(values, vec![2, 3]);
+        Ok(())
     }
 }
