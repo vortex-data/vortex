@@ -1357,7 +1357,7 @@ impl ZstdData {
                 frame_uncompressed_size / byte_width
             } else {
                 // The same fallback would read a byte count as a value count for variable-width
-                // values, which mis-attributes values to frames. A single frame holds every stored
+                // values, which misattributes values to frames. A single frame holds every stored
                 // value, so that case is still recoverable; anything else is not.
                 vortex_ensure!(
                     self.frames.len() == 1,
