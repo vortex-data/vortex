@@ -45,6 +45,7 @@ use tracing::trace;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::DictArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
@@ -384,9 +385,9 @@ impl ArrowSession {
     /// [`Self::from_arrow_field`] so extension metadata on nested fields dispatches through
     /// registered import plugins. Leaf types use the canonical Arrow → Vortex mapping.
     ///
-    /// [`DataType::Dictionary`] is the one exception: Arrow models its values as a bare
-    /// [`DataType`] rather than a [`Field`], so dictionary values cannot carry extension
-    /// metadata and are converted with the naive mapping.
+    /// [`DataType::Dictionary`] is a partial exception: Arrow models its values as a bare
+    /// [`DataType`] rather than a [`Field`], so the values themselves cannot carry an extension
+    /// name. Fields nested *inside* that data type still do, and are dispatched normally.
     pub fn from_arrow_datatype(
         &self,
         data_type: &DataType,
@@ -692,6 +693,17 @@ impl ArrowSession {
                     ),
                 }
             }
+            DataType::Dictionary(_, values_type) => {
+                let dict = array.as_any_dictionary();
+                let values_field = dictionary_values_field(values_type, field.is_nullable());
+                let values =
+                    self.from_arrow_array(ArrowArrayRef::clone(dict.values()), &values_field)?;
+                let codes = dict.keys();
+                let codes = ArrayRef::from_arrow(codes, codes.is_nullable())?;
+                // SAFETY: arrow-rs enforces the dictionary invariants on construction, so the
+                // codes are in-bounds for the values.
+                Ok(unsafe { DictArray::new_unchecked(codes, values) }.into_array())
+            }
             _ => ArrayRef::from_arrow(array.as_ref(), field.is_nullable()),
         }
     }
@@ -724,6 +736,17 @@ fn run_end_values_field(values_field: &FieldRef, nullability: Nullability) -> Fi
         .as_ref()
         .clone()
         .with_nullable(nullability.into())
+}
+
+/// A synthetic field for the values of an Arrow [`DataType::Dictionary`], carrying the dictionary
+/// array's own nullability.
+///
+/// Arrow models dictionary values as a bare [`DataType`], so there is no field metadata to carry
+/// an extension name for the values themselves. Fields *nested inside* that data type (list
+/// elements, struct fields, map entries) do keep their metadata, so wrapping the values in a field
+/// is enough to route them back through the plugin-aware conversion.
+fn dictionary_values_field(values_type: &DataType, nullable: bool) -> Field {
+    Field::new("", values_type.clone(), nullable)
 }
 
 // NOTE(aduffy): We should remove this once we bump Arrow to 0.59.0. This is replicating the
@@ -763,14 +786,19 @@ impl<S: SessionExt> ArrowSessionExt for S {
 mod tests {
     use std::sync::Arc;
 
+    use arrow_array::DictionaryArray;
     use arrow_array::FixedSizeBinaryArray;
     use arrow_array::Int32Array;
+    use arrow_array::ListArray as ArrowListArray;
+    use arrow_array::StringArray;
     use arrow_array::cast::AsArray;
+    use arrow_buffer::OffsetBuffer;
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::extension::Uuid as ArrowUuid;
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
+    use vortex_array::arrays::Dict;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldName;
     use vortex_array::dtype::Nullability;
@@ -1089,6 +1117,78 @@ mod tests {
         let values = ree.values().as_fixed_size_binary();
         assert_eq!(values.value(0), b"0123456789abcdef");
         assert_eq!(values.value(1), b"fedcba9876543210");
+        Ok(())
+    }
+
+    /// An Arrow dictionary array cannot carry extension metadata on the values themselves, but
+    /// fields nested inside the values data type can. Both the dtype and the array conversion
+    /// must dispatch those through their importer, and must agree with each other.
+    #[test]
+    fn dictionary_recurses_into_nested_extension_values() -> VortexResult<()> {
+        let session = ArrowSession::default();
+
+        let mut elem = Field::new("item", DataType::FixedSizeBinary(16), false);
+        elem.try_with_extension_type(ArrowUuid)?;
+
+        let uuids = FixedSizeBinaryArray::try_from_iter(
+            [*b"0123456789abcdef", *b"fedcba9876543210"].into_iter(),
+        )?;
+        let values = ArrowListArray::try_new(
+            Arc::new(elem),
+            OffsetBuffer::new(vec![0, 1, 2].into()),
+            Arc::new(uuids),
+            None,
+        )?;
+        let dict: ArrowArrayRef = Arc::new(DictionaryArray::<Int32Type>::try_new(
+            Int32Array::from(vec![0, 1, 0]),
+            Arc::new(values),
+        )?);
+        let field = Field::new("ids", dict.data_type().clone(), false);
+
+        let dtype = session.from_arrow_field(&field)?;
+        let DType::List(elem_dt, _) = &dtype else {
+            panic!("expected a List dtype, got {dtype}");
+        };
+        assert!(
+            elem_dt.as_extension().is::<Uuid>(),
+            "expected a Uuid extension element, got {elem_dt}"
+        );
+
+        let array = session.from_arrow_array(dict, &field)?;
+        assert_eq!(array.len(), 3);
+        // The array conversion must agree with the dtype conversion.
+        assert_eq!(array.dtype(), &dtype);
+
+        // Arrow's dictionary values data type does carry the nested element field, so the
+        // extension survives the export as well.
+        let mut ctx = array_session().create_execution_ctx();
+        let exported = session.execute_arrow(array, Some(&field), &mut ctx)?;
+        assert_eq!(exported.data_type(), field.data_type());
+        let values = exported.as_any_dictionary().values().as_list::<i32>();
+        let uuids = values.values().as_fixed_size_binary();
+        assert_eq!(uuids.value(0), b"0123456789abcdef");
+        assert_eq!(uuids.value(1), b"fedcba9876543210");
+        Ok(())
+    }
+
+    /// A plain Arrow dictionary imports as a Vortex `Dict` array over the dictionary values,
+    /// matching the dtype the schema conversion reports.
+    #[test]
+    fn dictionary_imports_as_dict_encoding() -> VortexResult<()> {
+        let session = ArrowSession::default();
+        let dict: ArrowArrayRef = Arc::new(DictionaryArray::<Int32Type>::try_new(
+            Int32Array::from(vec![0, 1, 0, 1]),
+            Arc::new(StringArray::from(vec!["a", "b"])),
+        )?);
+        let field = Field::new("s", dict.data_type().clone(), false);
+
+        let dtype = session.from_arrow_field(&field)?;
+        assert_eq!(dtype, DType::Utf8(Nullability::NonNullable));
+
+        let array = session.from_arrow_array(dict, &field)?;
+        assert!(array.is::<Dict>(), "expected a Dict encoding, got {array}");
+        assert_eq!(array.dtype(), &dtype);
+        assert_eq!(array.len(), 4);
         Ok(())
     }
 }
