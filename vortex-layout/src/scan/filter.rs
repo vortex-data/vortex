@@ -173,13 +173,12 @@ mod tests {
         let filter = FilterExpr::new(bound);
         let conjuncts = filter.conjuncts();
 
-        assert_eq!(
-            conjuncts
-                .iter()
-                .map(|expr| expr.unbind())
-                .collect::<Vec<_>>(),
-            vec![root(), not(root()), lit(true)]
-        );
+        let expected = vec![
+            root().bind(&dtype)?,
+            not(root()).bind(&dtype)?,
+            lit(true).bind(&dtype)?,
+        ];
+        assert_eq!(conjuncts, expected.as_slice());
         assert_eq!(
             conjuncts
                 .iter()
