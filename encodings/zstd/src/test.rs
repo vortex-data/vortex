@@ -383,18 +383,16 @@ fn test_zstd_rejects_corrupt_frame_metadata(
     Ok(())
 }
 
-/// Frame bytes are as untrusted as the metadata describing them, so a frame whose last value is
-/// nothing but a length prefix has to surface as an error from every read path rather than as a
-/// trailing empty value.
+/// Frame bytes are as untrusted as the metadata describing them: a frame whose last value is
+/// nothing but a length prefix has to error from every read path, not read back as an empty value.
 #[test]
 fn test_zstd_rejects_a_frame_ending_in_a_dangling_length_prefix() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let mut values = Vec::new();
     values.extend_from_slice(&3u32.to_le_bytes());
     values.extend_from_slice(b"cat");
-    // A prefix with no value after it. It takes up exactly the four bytes the second value's own
-    // prefix would have, so treating that value as empty totals the byte count the metadata
-    // implies: two values holding three bytes between them.
+    // A prefix with no value after it. Treating the missing value as empty still totals the three
+    // bytes the metadata implies for two values.
     values.extend_from_slice(&1u32.to_le_bytes());
 
     let dtype = DType::Utf8(Nullability::NonNullable);
