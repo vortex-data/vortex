@@ -76,11 +76,14 @@ fn make_fixture(n: usize) -> FSSTBenchFixture {
 
     let binary = FSST::try_new_with_symbol_table(
         DType::Binary(Nullability::NonNullable),
-        Arc::new(FSSTSymbolTable::new_padded(
-            fsst.padded_symbols().clone(),
-            fsst.padded_symbol_lengths().clone(),
-            fsst.n_symbols(),
-        ).vortex_expect("construction")),
+        Arc::new(
+            FSSTSymbolTable::new_padded(
+                fsst.padded_symbols().clone(),
+                fsst.padded_symbol_lengths().clone(),
+                fsst.n_symbols(),
+            )
+            .vortex_expect("construction"),
+        ),
         fsst.codes(),
         fsst.uncompressed_lengths().clone(),
         setup_ctx.execution_ctx(),
