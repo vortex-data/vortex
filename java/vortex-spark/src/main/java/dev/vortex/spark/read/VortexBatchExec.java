@@ -7,11 +7,13 @@ import com.google.common.collect.ImmutableMap;
 import dev.vortex.api.Session;
 import dev.vortex.jni.NativeFiles;
 import dev.vortex.spark.VortexFilePartition;
+import dev.vortex.spark.VortexOptions;
 import dev.vortex.spark.VortexSparkSession;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -27,7 +29,7 @@ import org.apache.spark.sql.types.StructType;
 public final class VortexBatchExec implements Batch {
     private final List<String> paths;
     private final StructType readSchema;
-    private final Map<String, String> formatOptions;
+    private final VortexOptions formatOptions;
     private final Predicate[] pushedPredicates;
     private List<String> resolvedPaths;
 
@@ -40,10 +42,10 @@ public final class VortexBatchExec implements Batch {
      *     time
      */
     public VortexBatchExec(
-            List<String> paths, List<Column> columns, Map<String, String> formatOptions, Predicate[] pushedPredicates) {
+            List<String> paths, List<Column> columns, VortexOptions formatOptions, Predicate[] pushedPredicates) {
         this.paths = List.copyOf(paths);
         this.readSchema = CatalogV2Util.v2ColumnsToStructType(columns.toArray(new Column[0]));
-        this.formatOptions = Map.copyOf(formatOptions);
+        this.formatOptions = Objects.requireNonNull(formatOptions, "formatOptions");
         this.pushedPredicates = pushedPredicates == null ? new Predicate[0] : pushedPredicates.clone();
     }
 
@@ -68,6 +70,9 @@ public final class VortexBatchExec implements Batch {
 
     @Override
     public PartitionReaderFactory createReaderFactory() {
+        // Resolve the worker-thread count here, on the driver: an invalid value then fails the query
+        // once, rather than once per task after the readers have already been shipped to executors.
+        formatOptions.workerThreads();
         List<String> files = resolvedPaths != null ? resolvedPaths : resolvePaths();
         Set<String> partitionColumns = collectPartitionColumnNames(files);
         List<String> dataColumnNames = Arrays.stream(readSchema.fieldNames())
@@ -85,11 +90,11 @@ public final class VortexBatchExec implements Batch {
      * file are kept as-is. Shared with {@link VortexScan#estimateStatistics()} so planning and execution resolve paths
      * identically.
      */
-    static List<String> resolveVortexPaths(Session session, List<String> paths, Map<String, String> formatOptions) {
+    static List<String> resolveVortexPaths(Session session, List<String> paths, VortexOptions formatOptions) {
         return paths.stream()
                 .flatMap(path -> path.endsWith(".vortex")
                         ? Stream.of(path)
-                        : NativeFiles.listFiles(session, path, formatOptions).stream())
+                        : NativeFiles.listFiles(session, path, formatOptions.asMap()).stream())
                 .collect(Collectors.toList());
     }
 

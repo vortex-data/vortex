@@ -6,7 +6,7 @@ package dev.vortex.spark.read;
 import static com.google.common.base.Preconditions.checkState;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Maps;
+import dev.vortex.spark.VortexOptions;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -33,12 +33,12 @@ public final class VortexScanBuilder
     private final ImmutableList.Builder<String> paths;
     private final List<Column> tableColumns;
     private final List<Column> readColumns;
-    private final Map<String, String> formatOptions;
+    private final VortexOptions formatOptions;
     private final Set<String> partitionColumnNames;
     private Predicate[] pushedPredicates = new Predicate[0];
 
     /** Creates a new VortexScanBuilder with empty paths and columns. */
-    public VortexScanBuilder(Map<String, String> formatOptions) {
+    public VortexScanBuilder(VortexOptions formatOptions) {
         this(formatOptions, new Transform[0]);
     }
 
@@ -47,14 +47,11 @@ public final class VortexScanBuilder
      * reference partition columns are not pushed down, since the partition columns are not stored inside the Vortex
      * files.
      */
-    public VortexScanBuilder(Map<String, String> formatOptions, Transform[] partitionTransforms) {
+    public VortexScanBuilder(VortexOptions formatOptions, Transform[] partitionTransforms) {
         this.paths = ImmutableList.builder();
-        Map<String, String> options = Maps.newHashMap();
-        options.put("vortex.workerThreads", "4");
-        options.putAll(formatOptions);
         this.tableColumns = new ArrayList<>();
         this.readColumns = new ArrayList<>();
-        this.formatOptions = options;
+        this.formatOptions = formatOptions;
         this.partitionColumnNames = collectPartitionColumnNames(partitionTransforms);
     }
 

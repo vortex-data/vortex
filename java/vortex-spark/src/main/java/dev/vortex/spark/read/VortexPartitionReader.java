@@ -14,6 +14,7 @@ import dev.vortex.relocated.org.apache.arrow.memory.BufferAllocator;
 import dev.vortex.relocated.org.apache.arrow.vector.VectorSchemaRoot;
 import dev.vortex.relocated.org.apache.arrow.vector.ipc.ArrowReader;
 import dev.vortex.spark.VortexFilePartition;
+import dev.vortex.spark.VortexOptions;
 import dev.vortex.spark.VortexSparkSession;
 import java.io.IOException;
 import java.util.List;
@@ -51,13 +52,13 @@ final class VortexPartitionReader implements PartitionReader<ColumnarBatch> {
     VortexPartitionReader(
             VortexFilePartition spark,
             List<String> dataColumnNames,
-            Map<String, String> formatOptions,
+            VortexOptions formatOptions,
             Predicate[] pushedPredicates) {
         this.spark = spark;
         this.allocator = ArrowAllocation.rootAllocator();
 
         session = VortexSparkSession.get(formatOptions);
-        dataSource = DataSource.open(session, spark.paths(), formatOptions);
+        dataSource = DataSource.open(session, spark.paths(), formatOptions.asMap());
 
         var options = ScanOptions.builder();
         if (!dataColumnNames.isEmpty()) {

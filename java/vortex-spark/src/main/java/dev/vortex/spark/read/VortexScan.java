@@ -5,6 +5,7 @@ package dev.vortex.spark.read;
 
 import dev.vortex.api.DataSource;
 import dev.vortex.api.Session;
+import dev.vortex.spark.VortexOptions;
 import dev.vortex.spark.VortexSparkSession;
 import java.util.Arrays;
 import java.util.List;
@@ -37,7 +38,7 @@ public final class VortexScan implements Scan, SupportsReportStatistics {
     private final List<String> paths;
     private final List<Column> tableColumns;
     private final List<Column> readColumns;
-    private final Map<String, String> formatOptions;
+    private final VortexOptions formatOptions;
     private final Predicate[] pushedPredicates;
 
     private volatile Statistics cachedStatistics;
@@ -56,7 +57,7 @@ public final class VortexScan implements Scan, SupportsReportStatistics {
             List<Column> tableColumns,
             List<Column> readColumns,
             Predicate[] pushedPredicates,
-            Map<String, String> formatOptions) {
+            VortexOptions formatOptions) {
         this.paths = paths;
         this.tableColumns = tableColumns;
         this.readColumns = readColumns;
@@ -141,7 +142,7 @@ public final class VortexScan implements Scan, SupportsReportStatistics {
             return new VortexStatistics(OptionalLong.empty(), OptionalLong.empty());
         }
 
-        DataSource source = DataSource.open(session, resolvedPaths, formatOptions);
+        DataSource source = DataSource.open(session, resolvedPaths, formatOptions.asMap());
         return new VortexStatistics(
                 source.rowCount().asOptional(),
                 scaleSizeInBytes(source.byteSize().asOptional()));

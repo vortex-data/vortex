@@ -25,8 +25,5 @@ import org.apache.spark.sql.types.StructType;
  * @param partitionValues Hive-style partition column values shared by all {@link #paths()}
  */
 public record VortexFilePartition(
-        List<String> paths,
-        StructType readSchema,
-        Map<String, String> formatOptions,
-        Map<String, String> partitionValues)
+        List<String> paths, StructType readSchema, VortexOptions formatOptions, Map<String, String> partitionValues)
         implements InputPartition, Serializable {}

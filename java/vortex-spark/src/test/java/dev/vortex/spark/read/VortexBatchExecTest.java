@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 import dev.vortex.spark.VortexFilePartition;
+import dev.vortex.spark.VortexOptions;
 import java.util.List;
 import java.util.Map;
 import org.apache.spark.sql.connector.catalog.Column;
@@ -29,7 +30,7 @@ final class VortexBatchExecTest {
             Column.create("name", org.apache.spark.sql.types.DataTypes.StringType));
 
     private static VortexBatchExec execFor(List<String> paths) {
-        return new VortexBatchExec(paths, COLUMNS, Map.of(), new Predicate[0]);
+        return new VortexBatchExec(paths, COLUMNS, VortexOptions.empty(), new Predicate[0]);
     }
 
     @Test
@@ -85,11 +86,14 @@ final class VortexBatchExecTest {
     @Test
     @DisplayName("Format options are propagated to every partition")
     void formatOptionsPropagated() {
-        Map<String, String> options = Map.of("vortex.workerThreads", "8");
+        VortexOptions options = VortexOptions.of(Map.of(VortexOptions.WORKER_THREADS, "8"));
         VortexBatchExec exec = new VortexBatchExec(List.of("/data/a.vortex"), COLUMNS, options, new Predicate[0]);
 
         VortexFilePartition partition = (VortexFilePartition) exec.planInputPartitions()[0];
 
-        assertEquals("8", partition.formatOptions().get("vortex.workerThreads"));
+        assertEquals(8, partition.formatOptions().workerThreads());
+        // Also pin the raw spelling: the native bindings receive asMap(), so a key mangled in
+        // transit would still resolve through the case-insensitive accessor above.
+        assertEquals("8", partition.formatOptions().asMap().get(VortexOptions.WORKER_THREADS));
     }
 }

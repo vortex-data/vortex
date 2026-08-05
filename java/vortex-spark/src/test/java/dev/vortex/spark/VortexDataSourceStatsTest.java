@@ -13,7 +13,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
-import java.util.Map;
 import java.util.stream.Stream;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
@@ -180,7 +179,7 @@ public final class VortexDataSourceStatsTest {
                 .load();
         StructType readSchema = readDf.schema();
 
-        VortexScanBuilder builder = new VortexScanBuilder(Map.of());
+        VortexScanBuilder builder = new VortexScanBuilder(VortexOptions.empty());
         builder.addPath(outputPath.toUri().toString());
         for (StructField field : readSchema.fields()) {
             builder.addColumn(Column.create(field.name(), field.dataType()));

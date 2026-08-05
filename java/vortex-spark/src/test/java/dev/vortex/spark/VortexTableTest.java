@@ -42,7 +42,7 @@ final class VortexTableTest {
     });
 
     private static VortexTable tableFor(String... paths) {
-        return new VortexTable(ImmutableList.copyOf(paths), SCHEMA, Map.of(), new Transform[0]);
+        return new VortexTable(ImmutableList.copyOf(paths), SCHEMA, VortexOptions.empty(), new Transform[0]);
     }
 
     @Test
@@ -66,7 +66,7 @@ final class VortexTableTest {
     @DisplayName("Schema and partitioning are returned as supplied")
     void schemaAndPartitioningRoundTrip() {
         Transform[] transforms = new Transform[] {Expressions.identity("year")};
-        VortexTable table = new VortexTable(ImmutableList.of("/tbl"), SCHEMA, Map.of(), transforms);
+        VortexTable table = new VortexTable(ImmutableList.of("/tbl"), SCHEMA, VortexOptions.empty(), transforms);
 
         assertEquals(SCHEMA, table.schema());
         assertArrayEquals(transforms, table.partitioning());
@@ -120,6 +120,27 @@ final class VortexTableTest {
         VortexTable table = tableFor();
 
         assertThrows(NoSuchElementException.class, () -> table.newWriteBuilder(writeInfo()));
+    }
+
+    @Test
+    @DisplayName("Scan options override the table's own options, whatever the spelling")
+    void scanOptionsOverrideTableOptions() {
+        VortexTable table = new VortexTable(
+                ImmutableList.of("/data/a.vortex"),
+                SCHEMA,
+                VortexOptions.of(Map.of(VortexOptions.WORKER_THREADS, "4", "aws_region", "us-east-1")),
+                new Transform[0]);
+
+        var builder = table.newScanBuilder(new CaseInsensitiveStringMap(Map.of(VortexOptions.WORKER_THREADS, "16")));
+        VortexFilePartition partition =
+                (VortexFilePartition) ((org.apache.spark.sql.connector.read.SupportsReportStatistics) builder.build())
+                        .toBatch()
+                        .planInputPartitions()[0];
+
+        assertEquals(16, partition.formatOptions().workerThreads());
+        // The unrelated table option survives, and the overridden one is not left behind twice.
+        assertEquals("us-east-1", partition.formatOptions().asMap().get("aws_region"));
+        assertEquals(2, partition.formatOptions().asMap().size());
     }
 
     private static LogicalWriteInfo writeInfo() {

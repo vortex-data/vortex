@@ -3,13 +3,12 @@
 
 package dev.vortex.spark.write;
 
+import dev.vortex.spark.VortexOptions;
 import java.io.Serializable;
-import java.util.Map;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.connector.write.DataWriter;
 import org.apache.spark.sql.connector.write.DataWriterFactory;
 import org.apache.spark.sql.types.StructType;
-import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,8 +24,7 @@ public final class VortexDataWriterFactory implements DataWriterFactory, Seriali
 
     private final String outputUri;
     private final StructType schema;
-    // Store options as a serializable Map instead of CaseInsensitiveStringMap
-    private final Map<String, String> options;
+    private final VortexOptions options;
     private final PartitionedVortexDataWriter.ResolvedTransform[] resolvedTransforms;
 
     /**
@@ -40,7 +38,7 @@ public final class VortexDataWriterFactory implements DataWriterFactory, Seriali
     VortexDataWriterFactory(
             String outputUri,
             StructType schema,
-            Map<String, String> options,
+            VortexOptions options,
             PartitionedVortexDataWriter.ResolvedTransform[] resolvedTransforms) {
         this.outputUri = outputUri;
         this.schema = schema;
@@ -62,12 +60,9 @@ public final class VortexDataWriterFactory implements DataWriterFactory, Seriali
     public DataWriter<InternalRow> createWriter(int partitionId, long taskId) {
         log.debug("Creating writer for partition={} task={}", partitionId, taskId);
 
-        CaseInsensitiveStringMap optionsMap = new CaseInsensitiveStringMap(options);
-
         if (resolvedTransforms.length > 0) {
             log.debug("Creating partitioned writer with {} transforms", resolvedTransforms.length);
-            return new PartitionedVortexDataWriter(
-                    outputUri, schema, optionsMap, resolvedTransforms, partitionId, taskId);
+            return new PartitionedVortexDataWriter(outputUri, schema, options, resolvedTransforms, partitionId, taskId);
         }
 
         // Non-partitioned write: single file per task
@@ -80,6 +75,6 @@ public final class VortexDataWriterFactory implements DataWriterFactory, Seriali
         }
 
         log.debug("Output file: {}", fileUri);
-        return new VortexDataWriter(fileUri, schema, optionsMap);
+        return new VortexDataWriter(fileUri, schema, options);
     }
 }

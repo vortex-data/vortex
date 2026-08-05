@@ -5,6 +5,7 @@ package dev.vortex.spark.write;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.primitives.ImmutableIntArray;
+import dev.vortex.spark.VortexOptions;
 import java.io.IOException;
 import java.io.Serializable;
 import java.net.URLEncoder;
@@ -46,7 +47,6 @@ import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.types.TimestampNTZType;
 import org.apache.spark.sql.types.TimestampType;
-import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 import org.apache.spark.unsafe.types.UTF8String;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -65,7 +65,7 @@ public final class PartitionedVortexDataWriter implements DataWriter<InternalRow
     private final String baseOutputUri;
     private final StructType dataSchema;
     private final UnsafeProjection dataProjection;
-    private final CaseInsensitiveStringMap options;
+    private final VortexOptions options;
     private final ResolvedTransform[] resolvedTransforms;
     private final int partitionId;
     private final long taskId;
@@ -86,7 +86,7 @@ public final class PartitionedVortexDataWriter implements DataWriter<InternalRow
     PartitionedVortexDataWriter(
             String baseOutputUri,
             StructType schema,
-            CaseInsensitiveStringMap options,
+            VortexOptions options,
             ResolvedTransform[] resolvedTransforms,
             int partitionId,
             long taskId) {

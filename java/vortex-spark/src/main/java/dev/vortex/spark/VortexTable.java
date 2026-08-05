@@ -6,11 +6,9 @@ package dev.vortex.spark;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Maps;
 import dev.vortex.spark.read.VortexScanBuilder;
 import dev.vortex.spark.write.VortexWriteBuilder;
 import java.util.Arrays;
-import java.util.Map;
 import java.util.Set;
 import org.apache.spark.sql.connector.catalog.CatalogV2Util;
 import org.apache.spark.sql.connector.catalog.SupportsRead;
@@ -30,14 +28,14 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
 
     private final ImmutableList<String> paths;
     private final StructType schema;
-    private final Map<String, String> formatOptions;
+    private final VortexOptions formatOptions;
     private final Transform[] partitionTransforms;
 
     /** Creates a new VortexTable with read/write support. */
     public VortexTable(
             ImmutableList<String> paths,
             StructType schema,
-            Map<String, String> formatOptions,
+            VortexOptions formatOptions,
             Transform[] partitionTransforms) {
         this.paths = paths;
         this.schema = schema;
@@ -55,10 +53,7 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
      */
     @Override
     public ScanBuilder newScanBuilder(CaseInsensitiveStringMap options) {
-        Map<String, String> opts = Maps.newHashMap();
-        opts.putAll(formatOptions);
-        opts.putAll(options);
-        return new VortexScanBuilder(opts, partitionTransforms)
+        return new VortexScanBuilder(formatOptions.withOverrides(options), partitionTransforms)
                 .addAllPaths(paths)
                 .addAllColumns(Arrays.asList(CatalogV2Util.structTypeToV2Columns(schema)));
     }

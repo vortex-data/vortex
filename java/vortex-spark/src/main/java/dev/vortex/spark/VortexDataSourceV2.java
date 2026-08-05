@@ -83,7 +83,8 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
         // If the path is a directory, scan the directory for a file and use that file
         if (!pathToInfer.endsWith(".vortex")) {
             Optional<String> firstFile =
-                    NativeFiles.listFiles(VortexSparkSession.get(formatOptions), pathToInfer, formatOptions).stream()
+                    NativeFiles.listFiles(VortexSparkSession.get(formatOptions), pathToInfer, formatOptions.asMap())
+                            .stream()
                             .findFirst();
 
             if (firstFile.isEmpty()) {
@@ -99,7 +100,7 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
 
         StructType dataSchema;
         {
-            DataSource ds = DataSource.open(VortexSparkSession.get(formatOptions), pathToInfer, formatOptions);
+            DataSource ds = DataSource.open(VortexSparkSession.get(formatOptions), pathToInfer, formatOptions.asMap());
             var arrowSchema = ds.arrowSchema(dev.vortex.arrow.ArrowAllocation.rootAllocator());
             StructField[] fields = arrowSchema.getFields().stream()
                     .map(f -> new StructField(
@@ -145,7 +146,8 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
         String pathToInfer = Objects.requireNonNull(Iterables.getLast(paths));
         if (!pathToInfer.endsWith(".vortex")) {
             Optional<String> firstFile =
-                    NativeFiles.listFiles(VortexSparkSession.get(formatOptions), pathToInfer, formatOptions).stream()
+                    NativeFiles.listFiles(VortexSparkSession.get(formatOptions), pathToInfer, formatOptions.asMap())
+                            .stream()
                             .findFirst();
             if (firstFile.isEmpty()) {
                 return new Transform[0];
@@ -208,7 +210,7 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
         return "vortex";
     }
 
-    private Map<String, String> buildDataSourceOptions(Map<String, String> properties) {
+    private VortexOptions buildDataSourceOptions(Map<String, String> properties) {
         var hadoopConf = sparkSession.get().sessionState().newHadoopConf();
 
         var options = ImmutableMap.<String, String>builder();
@@ -219,7 +221,7 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
         // Forward any Azure-relevant properties from hadoopConf to the reader config.
         options.putAll(HadoopUtils.azurePropertiesFromHadoopConf(hadoopConf));
 
-        return options.build();
+        return VortexOptions.of(options.build());
     }
 
     private static ImmutableList<String> getPathsOrEmpty(CaseInsensitiveStringMap uncased) {

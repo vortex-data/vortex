@@ -28,6 +28,7 @@ import dev.vortex.relocated.org.apache.arrow.vector.VectorSchemaRoot;
 import dev.vortex.relocated.org.apache.arrow.vector.complex.ListVector;
 import dev.vortex.relocated.org.apache.arrow.vector.complex.MapVector;
 import dev.vortex.relocated.org.apache.arrow.vector.complex.StructVector;
+import dev.vortex.spark.VortexOptions;
 import dev.vortex.spark.VortexSparkSession;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -58,7 +59,6 @@ import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.types.TimestampNTZType;
 import org.apache.spark.sql.types.TimestampType;
-import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 import org.apache.spark.unsafe.types.UTF8String;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -72,13 +72,9 @@ import org.slf4j.LoggerFactory;
 public final class VortexDataWriter implements DataWriter<InternalRow>, AutoCloseable {
     private static final Logger logger = LoggerFactory.getLogger(VortexDataWriter.class);
 
-    private static final int DEFAULT_BATCH_SIZE = 2048;
-    private static final int MIN_BATCH_SIZE = 1;
-    private static final int MAX_BATCH_SIZE = 65536; // 64K rows max per batch
-
     private final String filePath;
     private final StructType schema;
-    private final CaseInsensitiveStringMap options;
+    private final VortexOptions options;
     private final int batchSize;
 
     private Session session;
@@ -97,37 +93,34 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
      * @param schema the schema of the data to write
      * @param options additional write options
      */
-    VortexDataWriter(String filePath, StructType schema, CaseInsensitiveStringMap options) {
+    VortexDataWriter(String filePath, StructType schema, VortexOptions options) {
         this.filePath = filePath;
         this.schema = schema;
         this.options = options;
 
-        // Get batch size from options with validation
-        // Users can set this with: .option("vortex.write.batch.size", "4096")
-        int configuredBatchSize =
-                options.getInt("vortex.write.batch.size", options.getInt("batch.size", DEFAULT_BATCH_SIZE));
-        if (configuredBatchSize < MIN_BATCH_SIZE || configuredBatchSize > MAX_BATCH_SIZE) {
-            logger.warn(
-                    "Batch size {} is out of valid range [{}, {}], using default: {}",
-                    configuredBatchSize,
-                    MIN_BATCH_SIZE,
-                    MAX_BATCH_SIZE,
-                    DEFAULT_BATCH_SIZE);
-            this.batchSize = DEFAULT_BATCH_SIZE;
-        } else {
-            this.batchSize = configuredBatchSize;
-            if (this.batchSize != DEFAULT_BATCH_SIZE) {
-                logger.debug("Using configured batch size: {}", this.batchSize);
-            }
-        }
+        this.batchSize = options.writeBatchSize();
+        options.rejectedWriteBatchSize()
+                .ifPresentOrElse(
+                        rejected -> logger.warn(
+                                "{}={} is out of the valid range [{}, {}], using the default of {}",
+                                rejected.key(),
+                                rejected.value(),
+                                VortexOptions.MIN_WRITE_BATCH_SIZE,
+                                VortexOptions.MAX_WRITE_BATCH_SIZE,
+                                VortexOptions.DEFAULT_WRITE_BATCH_SIZE),
+                        () -> {
+                            if (this.batchSize != VortexOptions.DEFAULT_WRITE_BATCH_SIZE) {
+                                logger.debug("Using configured batch size: {}", this.batchSize);
+                            }
+                        });
 
         try {
             this.allocator = new RootAllocator();
             var arrowSchema = SparkToArrowSchema.convert(schema);
 
-            this.session = VortexSparkSession.get(options.asCaseSensitiveMap());
+            this.session = VortexSparkSession.get(options);
             this.vortexWriter = VortexWriter.builder(session, filePath, arrowSchema, allocator)
-                    .options(options.asCaseSensitiveMap())
+                    .options(options.asMap())
                     .build();
             this.vectorSchemaRoot = VectorSchemaRoot.create(arrowSchema, allocator);
 

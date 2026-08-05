@@ -4,8 +4,8 @@
 package dev.vortex.spark;
 
 import dev.vortex.api.Session;
-import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -31,7 +31,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class VortexSparkSession {
     /** Options key used to select a {@link VortexSessionProvider} by class name. */
-    public static final String PROVIDER_OPTION = "vortex.session.provider";
+    public static final String PROVIDER_OPTION = VortexOptions.SESSION_PROVIDER;
 
     private static final ConcurrentHashMap<String, Session> providerCache = new ConcurrentHashMap<>();
     private static volatile Session defaultSession;
@@ -53,15 +53,14 @@ public final class VortexSparkSession {
     }
 
     /**
-     * Resolve the session to use for a given set of Spark format options. Honours the {@value #PROVIDER_OPTION} key;
+     * Resolve the session to use for a given set of Vortex format options. Honours the {@value #PROVIDER_OPTION} key;
      * falls back to {@link #get()} otherwise.
      */
-    public static Session get(Map<String, String> options) {
-        String providerClass = options == null ? null : options.get(PROVIDER_OPTION);
-        if (providerClass == null || providerClass.isEmpty()) {
-            return get();
-        }
-        return providerCache.computeIfAbsent(providerClass, VortexSparkSession::loadProvider);
+    public static Session get(VortexOptions options) {
+        Optional<String> providerClass = options == null ? Optional.empty() : options.sessionProvider();
+        return providerClass
+                .map(className -> providerCache.computeIfAbsent(className, VortexSparkSession::loadProvider))
+                .orElseGet(VortexSparkSession::get);
     }
 
     /**

@@ -4,12 +4,12 @@
 package dev.vortex.spark.read;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import dev.vortex.jni.NativeRuntime;
 import dev.vortex.spark.VortexFilePartition;
+import dev.vortex.spark.VortexOptions;
 import java.io.Serializable;
 import java.util.List;
-import java.util.Map;
+import java.util.Objects;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.connector.expressions.filter.Predicate;
 import org.apache.spark.sql.connector.read.InputPartition;
@@ -29,13 +29,13 @@ public final class VortexPartitionReaderFactory implements PartitionReaderFactor
     private static final long serialVersionUID = 1L;
 
     private final ImmutableList<String> dataColumnNames;
-    private final ImmutableMap<String, String> formatOptions;
+    private final VortexOptions formatOptions;
     private final Predicate[] pushedPredicates;
 
     public VortexPartitionReaderFactory(
-            List<String> dataColumnNames, Map<String, String> formatOptions, Predicate[] pushedPredicates) {
+            List<String> dataColumnNames, VortexOptions formatOptions, Predicate[] pushedPredicates) {
         this.dataColumnNames = ImmutableList.copyOf(dataColumnNames);
-        this.formatOptions = ImmutableMap.copyOf(formatOptions);
+        this.formatOptions = Objects.requireNonNull(formatOptions, "formatOptions");
         this.pushedPredicates = pushedPredicates == null ? new Predicate[0] : pushedPredicates.clone();
     }
 
@@ -46,7 +46,7 @@ public final class VortexPartitionReaderFactory implements PartitionReaderFactor
 
     @Override
     public PartitionReader<ColumnarBatch> createColumnarReader(InputPartition partition) {
-        NativeRuntime.setWorkerThreads(Integer.parseInt(formatOptions.getOrDefault("vortex.workerThreads", "4")));
+        NativeRuntime.setWorkerThreads(formatOptions.workerThreads());
         VortexFilePartition spark = (VortexFilePartition) partition;
         return new VortexPartitionReader(spark, dataColumnNames, formatOptions, pushedPredicates);
     }

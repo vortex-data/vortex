@@ -4,11 +4,11 @@
 package dev.vortex.spark.write;
 
 import dev.vortex.jni.NativeFiles;
+import dev.vortex.spark.VortexOptions;
 import dev.vortex.spark.VortexSparkSession;
 import java.io.Serializable;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.spark.sql.connector.expressions.Transform;
@@ -32,7 +32,7 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
     private static final Logger log = LoggerFactory.getLogger(VortexBatchWrite.class);
     private final String outputPath;
     private final StructType schema;
-    private final Map<String, String> options;
+    private final VortexOptions options;
     private final boolean overwrite;
     // Resolved eagerly so that Spark Transform objects (Scala case classes that are not
     // Java-serializable) never reach the DataWriterFactory serialization boundary.
@@ -50,7 +50,7 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
     VortexBatchWrite(
             String outputPath,
             StructType schema,
-            Map<String, String> options,
+            VortexOptions options,
             boolean overwrite,
             Transform[] partitionTransforms) {
         this.outputPath = outputPath;
@@ -85,7 +85,7 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
         // Handle overwrite cleanup BEFORE writing starts
         if (overwrite) {
             var session = VortexSparkSession.get(options);
-            var uris = NativeFiles.listFiles(session, outputPath, options);
+            var uris = NativeFiles.listFiles(session, outputPath, options.asMap());
             // Deleting the existing files is destructive and happens before the new data is written:
             // if the subsequent write fails, abort() only removes the newly written files and cannot
             // restore what was deleted here. Log loudly so operators can see what was removed.
@@ -94,7 +94,7 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
                             + "this cannot be undone if the subsequent write fails",
                     uris.size(),
                     outputPath);
-            NativeFiles.delete(session, uris.toArray(new String[0]), options);
+            NativeFiles.delete(session, uris.toArray(new String[0]), options.asMap());
         }
 
         return new VortexDataWriterFactory(outputPath, schema, options, resolvedTransforms);
@@ -146,7 +146,7 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
         }
         log.warn("Deleting {} file(s) written before the job failed, under {}", filePaths.size(), outputPath);
         try {
-            NativeFiles.delete(VortexSparkSession.get(options), filePaths.toArray(new String[0]), options);
+            NativeFiles.delete(VortexSparkSession.get(options), filePaths.toArray(new String[0]), options.asMap());
         } catch (RuntimeException e) {
             log.error("Failed to clean up {} file(s) under {}", filePaths.size(), outputPath, e);
         }

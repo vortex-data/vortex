@@ -3,7 +3,7 @@
 
 package dev.vortex.spark.write;
 
-import java.util.Map;
+import dev.vortex.spark.VortexOptions;
 import org.apache.spark.sql.connector.expressions.Transform;
 import org.apache.spark.sql.connector.write.LogicalWriteInfo;
 import org.apache.spark.sql.connector.write.SupportsTruncate;
@@ -20,7 +20,7 @@ public final class VortexWriteBuilder implements WriteBuilder, SupportsTruncate 
 
     private final String paths;
     private final LogicalWriteInfo writeInfo;
-    private final Map<String, String> options;
+    private final VortexOptions options;
     private final Transform[] partitionTransforms;
     private boolean truncate = false;
 
@@ -33,7 +33,7 @@ public final class VortexWriteBuilder implements WriteBuilder, SupportsTruncate 
      * @param partitionTransforms partition transforms (may be empty)
      */
     public VortexWriteBuilder(
-            String paths, LogicalWriteInfo writeInfo, Map<String, String> options, Transform[] partitionTransforms) {
+            String paths, LogicalWriteInfo writeInfo, VortexOptions options, Transform[] partitionTransforms) {
         this.paths = paths;
         this.writeInfo = writeInfo;
         this.options = options;
