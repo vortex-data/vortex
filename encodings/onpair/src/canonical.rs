@@ -24,10 +24,8 @@ use vortex_array::match_each_integer_ptype;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
-use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
+use vortex_error::{VortexResult, vortex_bail};
 
 use crate::OnPair;
 use crate::OnPairArraySlotsExt;
@@ -121,15 +119,15 @@ impl<'a> OnPairDecodePlan<'a> {
         let written = match onpair::try_decode_into(self.codes.as_slice(), self.dict, out) {
             Ok(written) => written,
             Err(_) => {
-                vortex_panic!("OnPair codes decode to more bytes than uncompressed_lengths records")
+                vortex_bail!("OnPair codes decode to more bytes than uncompressed_lengths records")
             }
         };
-        if written != self.total_size {
-            vortex_panic!(
-                "OnPair codes decoded to {written} bytes but uncompressed_lengths records {}",
-                self.total_size
-            );
-        }
+
+        vortex_ensure!(
+            written == self.total_size,
+            "OnPair codes decoded to {written} bytes but uncompressed_lengths records {}",
+            self.total_size
+        );
         Ok(written)
     }
 }
