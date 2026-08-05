@@ -750,7 +750,8 @@ bool vx_array_get_bool(const vx_array *array, size_t index);
  *
  * If element at index is invalid, returns a Null vx_scalar.
  *
- * This is an expensive operation. If you need bulk access, use
+ * This operation executes the array to extract a scalar and thus is
+ * expensive. If you need bulk access, use
  * vx_array_data_ptr_primitive or vx_data_ptr_bool.
  *
  * Errors if "index" is out of bounds.
@@ -1290,6 +1291,14 @@ double vx_scalar_get_f64(const vx_scalar *scalar);
  * The value is read from raw uint16_t.
  */
 vx_scalar *vx_scalar_new_f16_bits(uint16_t bits, bool is_nullable);
+
+/**
+ * Return 16-bit floating point value stored in scalar.
+ * The value is read into raw uint16_t.
+ *
+ * Panics if scalar is not a primitive scalar of this type or is null.
+ */
+uint16_t vx_scalar_get_f16_bits(const vx_scalar *scalar);
 
 /**
  * Create a UTF-8 scalar.

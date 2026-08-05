@@ -34,5 +34,6 @@ TEST_CASE("F16 scalar (compatibility)", "[scalar]") {
     Scalar scalar = scalar::of(float16t);
     REQUIRE(scalar.dtype().variant() == DataTypeVariant::Primitive);
     REQUIRE(scalar.dtype().primitive_type() == vortex::PType::F16);
+    REQUIRE(scalar.get<float16_t>() == float16t);
 }
 } // namespace

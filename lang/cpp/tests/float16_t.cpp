@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#include "vortex/dtype.hpp"
 #include <catch2/catch_test_macros.hpp>
 #include <vortex/scalar.hpp>
 
@@ -25,11 +24,13 @@ TEST_CASE("F16 scalar", "[scalar]") {
     Scalar scalar = scalar::of(float16t);
     REQUIRE(scalar.dtype().variant() == DataTypeVariant::Primitive);
     REQUIRE(scalar.dtype().primitive_type() == vortex::PType::F16);
+    REQUIRE(scalar.get<float16_t>() == float16t);
 
     _Float16 float16t_alias = 1.0f16;
     scalar = scalar::of(float16t_alias);
     REQUIRE(scalar.dtype().variant() == DataTypeVariant::Primitive);
     REQUIRE(scalar.dtype().primitive_type() == vortex::PType::F16);
+    REQUIRE(scalar.get<float16_t>() == float16t_alias);
 }
 #endif
 } // namespace

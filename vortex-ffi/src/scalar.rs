@@ -125,6 +125,19 @@ pub unsafe extern "C-unwind" fn vx_scalar_new_f16_bits(
     ))
 }
 
+/// Return 16-bit floating point value stored in scalar.
+/// The value is read into raw uint16_t.
+///
+/// Panics if scalar is not a primitive scalar of this type or is null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_scalar_get_f16_bits(scalar: *const vx_scalar) -> u16 {
+    let value = vx_scalar::as_ref(scalar)
+        .as_primitive()
+        .typed_value::<f16>()
+        .vortex_expect("scalar is null or not a u16");
+    f16::to_bits(value)
+}
+
 /// Create a UTF-8 scalar.
 ///
 /// "value" bytes are copied into scalar.

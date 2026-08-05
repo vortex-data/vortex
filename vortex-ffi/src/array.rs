@@ -506,7 +506,8 @@ pub unsafe extern "C-unwind" fn vx_array_get_bool(array: *const vx_array, index:
 ///
 /// If element at index is invalid, returns a Null vx_scalar.
 ///
-/// This is an expensive operation. If you need bulk access, use
+/// This operation executes the array to extract a scalar and thus is
+/// expensive. If you need bulk access, use
 /// vx_array_data_ptr_primitive or vx_data_ptr_bool.
 ///
 /// Errors if "index" is out of bounds.

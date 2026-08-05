@@ -46,6 +46,7 @@ TEST_CASE("Null scalar", "[scalar]") {
     Scalar s = scalar::null(dtype::int32(true));
     REQUIRE(s.is_null());
     REQUIRE(s.dtype().variant() == DataTypeVariant::Primitive);
+    REQUIRE_THROWS_AS(s.get<float>(), VortexException);
 }
 
 TEST_CASE("UTF-8 scalar", "[scalar]") {
@@ -87,6 +88,11 @@ TEST_CASE("Decimal scalars", "[scalar]") {
     REQUIRE(d64.dtype().variant() == DataTypeVariant::Decimal);
     REQUIRE(d64.dtype().decimal_precision() == 12);
     REQUIRE(d64.dtype().decimal_scale() == 3);
+}
+
+TEST_CASE("Invalid scalar getter", "[scalar]") {
+    Scalar scalar = of<int32_t>(0);
+    REQUIRE_THROWS_AS(scalar.get<double>(), VortexException);
 }
 
 TEST_CASE("Primitive getters", "[scalar]") {
