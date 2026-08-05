@@ -29,13 +29,16 @@ import org.apache.arrow.c.ArrowArray;
 import org.apache.arrow.c.ArrowSchema;
 import org.apache.arrow.c.Data;
 import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ViewVarBinaryVector;
 import org.apache.arrow.vector.ViewVarCharVector;
+import org.apache.arrow.vector.complex.MapVector;
 import org.apache.arrow.vector.complex.StructVector;
+import org.apache.arrow.vector.complex.impl.UnionMapWriter;
 import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
@@ -79,6 +82,40 @@ public final class JNIWriterTest {
                         Field.notNullable("metadata", new ArrowType.Binary()),
                         Field.nullable("value", new ArrowType.Binary())));
         return new Schema(List.of(variant));
+    }
+
+    private static Schema mapSchema() {
+        Field key = Field.notNullable(MapVector.KEY_NAME, new ArrowType.Int(32, true));
+        Field value = Field.nullable(MapVector.VALUE_NAME, new ArrowType.Int(64, true));
+        Field entries = new Field("entries", FieldType.notNullable(ArrowType.Struct.INSTANCE), List.of(key, value));
+        Field map = new Field("map", FieldType.nullable(new ArrowType.Map(false)), List.of(entries));
+        return new Schema(List.of(map));
+    }
+
+    private static void populateMapRoot(VectorSchemaRoot root) {
+        MapVector map = (MapVector) root.getVector("map");
+        UnionMapWriter writer = map.getWriter();
+        writer.allocate();
+
+        writer.setPosition(0);
+        writer.startMap();
+        writer.startEntry();
+        writer.key().integer().writeInt(1);
+        writer.value().bigInt().writeBigInt(10L);
+        writer.endEntry();
+        writer.startEntry();
+        writer.key().integer().writeInt(2);
+        writer.value().bigInt().writeBigInt(20L);
+        writer.endEntry();
+        writer.endMap();
+
+        // Position 1 remains null.
+        writer.setPosition(2);
+        writer.startMap();
+        writer.endMap();
+
+        map.setValueCount(3);
+        root.setRowCount(3);
     }
 
     private static void populateParquetVariantRoot(VectorSchemaRoot root) {
@@ -233,6 +270,58 @@ public final class JNIWriterTest {
                 assertEquals(40, ageOut.get(2));
             }
         }
+    }
+
+    @Test
+    public void testMapRoundTrip() throws IOException {
+        Path outputPath = tempDir.resolve("test_map.vortex");
+        String writePath = outputPath.toAbsolutePath().toUri().toString();
+
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Schema schema = mapSchema();
+        Session session = Session.create();
+
+        try (VortexWriter writer = VortexWriter.builder(session, writePath, schema, allocator)
+                        .build();
+                VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator)) {
+            populateMapRoot(root);
+            try (ArrowArray arrowArray = ArrowArray.allocateNew(allocator);
+                    ArrowSchema arrowSchema = ArrowSchema.allocateNew(allocator)) {
+                Data.exportVectorSchemaRoot(allocator, root, null, arrowArray, arrowSchema);
+                writer.writeBatch(arrowArray.memoryAddress(), arrowSchema.memoryAddress());
+            }
+        }
+
+        DataSource dataSource = DataSource.open(session, writePath);
+        assertEquals(
+                new ArrowType.Map(false),
+                dataSource.arrowSchema(allocator).findField("map").getType());
+
+        boolean sawBatch = false;
+        Scan scan = dataSource.scan(ScanOptions.of());
+        while (scan.hasNext()) {
+            Partition partition = scan.next();
+            try (ArrowReader reader = partition.scanArrow(allocator)) {
+                while (reader.loadNextBatch()) {
+                    sawBatch = true;
+                    MapVector map = (MapVector) reader.getVectorSchemaRoot().getVector("map");
+                    StructVector entries = (StructVector) map.getDataVector();
+                    IntVector keys = entries.getChild(MapVector.KEY_NAME, IntVector.class);
+                    BigIntVector values = entries.getChild(MapVector.VALUE_NAME, BigIntVector.class);
+
+                    int firstOffset = map.getOffsetBuffer().getInt(0);
+                    assertEquals(2, map.getInnerValueCountAt(0));
+                    assertEquals(1, keys.get(firstOffset));
+                    assertEquals(10L, values.get(firstOffset));
+                    assertEquals(2, keys.get(firstOffset + 1));
+                    assertEquals(20L, values.get(firstOffset + 1));
+                    assertTrue(map.isNull(1));
+                    assertFalse(map.isNull(2));
+                    assertEquals(0, map.getInnerValueCountAt(2));
+                }
+            }
+        }
+        assertTrue(sawBatch);
     }
 
     /** Write a single three-row batch of {@link #personSchema()} data. */
