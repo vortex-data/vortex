@@ -19,6 +19,8 @@ use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
 use vortex_array::expr::analysis::referenced_field_paths;
 use vortex_array::expr::root;
+use vortex_array::expr::traversal::TraversalOrder;
+use vortex_array::expr::traversal::pre_order_visit_down;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorAdapter;
 use vortex_array::stats::StatsSet;
@@ -274,12 +276,27 @@ impl<A: 'static + Send> ScanBuilder<A> {
         // conjunction splitting if a filter is provided.
         let mut layout_reader = self.layout_reader;
 
+        let mut found_row_idx = false;
+        pre_order_visit_down(&self.projection, |node| {
+            if node.is::<RowIdx>() {
+                found_row_idx = true;
+                return Ok(TraversalOrder::Stop);
+            }
+            Ok(TraversalOrder::Continue)
+        })?;
+        if !found_row_idx && let Some(filter) = self.filter.as_ref() {
+            pre_order_visit_down(filter, |node| {
+                if node.is::<RowIdx>() {
+                    found_row_idx = true;
+                    return Ok(TraversalOrder::Stop);
+                }
+                Ok(TraversalOrder::Continue)
+            })?;
+        }
         // Enrich the layout reader to support RowIdx expressions if scan uses #row_idx.
         // Note that this is applied below the filter layout reader since it can perform
         // better over individual conjunctions.
-        if references_row_idx(&self.projection)
-            || self.filter.as_ref().is_some_and(references_row_idx)
-        {
+        if found_row_idx {
             layout_reader = Arc::new(RowIdxLayoutReader::new(
                 self.row_offset,
                 layout_reader,
@@ -436,10 +453,6 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
     }
 }
 
-fn references_row_idx(expr: &Expression) -> bool {
-    expr.is::<RowIdx>() || expr.children().iter().any(references_row_idx)
-}
-
 /// Compute masks of field paths referenced by the projection and filter in the scan.
 ///
 /// Projection and filter must be pre-simplified.
@@ -503,7 +516,6 @@ mod test {
     use crate::LayoutReader;
     use crate::RowSplits;
     use crate::SplitRange;
-    use crate::layouts::row_idx::row_idx;
     use crate::scan::test::SCAN_SESSION;
     use crate::scan::test::session_with_handle;
 
@@ -905,11 +917,5 @@ mod test {
         assert_eq!(values.as_ref(), [1, 2]);
 
         Ok(())
-    }
-
-    #[test]
-    fn references_row_idx() {
-        assert!(super::references_row_idx(&eq(row_idx(), lit(3u64))));
-        assert!(!super::references_row_idx(&eq(root(), lit(1i32))));
     }
 }
