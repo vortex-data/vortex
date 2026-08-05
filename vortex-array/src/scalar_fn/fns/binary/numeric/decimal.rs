@@ -33,12 +33,12 @@ use crate::arrays::decimal::DecimalArrayExt;
 use crate::dtype::BigCast;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
-use crate::dtype::MAX_PRECISION;
 use crate::dtype::NativeDecimalType;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
 use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
+use crate::scalar::decimal_numeric_result_dtype;
 use crate::validity::Validity;
 
 /// Derive the result decimal dtype for a numeric operation over same-typed operands.
@@ -47,14 +47,7 @@ pub(crate) fn result_decimal_dtype(
     op: NumericOperator,
 ) -> VortexResult<DecimalDType> {
     match op {
-        NumericOperator::Add | NumericOperator::Sub => {
-            // A p-digit Add/Sub result needs at most one carry digit:
-            // 2 * (10^p - 1) < 10^(p + 1). Follows Arrow rules.
-            Ok(DecimalDType::new(
-                input.precision().saturating_add(1).min(MAX_PRECISION),
-                input.scale(),
-            ))
-        }
+        NumericOperator::Add | NumericOperator::Sub => decimal_numeric_result_dtype(input, op),
         NumericOperator::Mul | NumericOperator::Div => {
             vortex_bail!("numeric operator {op} is not yet supported for decimal arrays")
         }

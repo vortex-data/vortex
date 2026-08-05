@@ -476,10 +476,14 @@ mod tests {
                 .checked_add(&rhs.as_primitive())
                 .map(Scalar::from)
                 .unwrap_or_else(|| Scalar::null(sum_dtype.as_nullable())),
-            DType::Decimal(..) => lhs
+            // Add widens the result precision, so restate the sum in the accumulator's own
+            // decimal type, treating a value that no longer fits as an overflow.
+            DType::Decimal(decimal_dtype, _) => lhs
                 .as_decimal()
-                .checked_binary_numeric(&rhs.as_decimal(), NumericOperator::Add)
-                .map(Scalar::from)
+                .checked_binary_numeric(&rhs.as_decimal(), NumericOperator::Add)?
+                .and_then(|scalar| scalar.as_decimal().decimal_value())
+                .filter(|value| value.fits_in_precision(*decimal_dtype))
+                .map(|value| Scalar::decimal(value, *decimal_dtype, Nullable))
                 .unwrap_or_else(|| Scalar::null(sum_dtype.as_nullable())),
             _ => unreachable!("Sum will always be a decimal or a primitive dtype"),
         })

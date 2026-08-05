@@ -209,6 +209,7 @@ impl DecimalValue {
         let value_type = DecimalType::smallest_decimal_value_type(&decimal_type);
         match_each_decimal_value_type!(value_type, |T| {
             let value = self.cast::<T>()?;
+            // `T` is the narrowest type covering `precision`, so both tables index in bounds.
             let precision = usize::from(decimal_type.precision());
             (T::MIN_BY_PRECISION[precision] <= value && value <= T::MAX_BY_PRECISION[precision])
                 .then_some(Self::from(value))

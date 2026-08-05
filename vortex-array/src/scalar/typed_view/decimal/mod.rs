@@ -3,9 +3,11 @@
 
 //! Definition and implementation of [`DecimalScalar`] and [`DecimalValue`].
 
+mod arithmetic;
 mod dvalue;
 mod scalar;
 
+pub(crate) use arithmetic::decimal_numeric_result_dtype;
 pub use dvalue::DecimalValue;
 pub use scalar::DecimalScalar;
 

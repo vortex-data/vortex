@@ -450,19 +450,19 @@ impl MutTypedStatsSetRef<'_, '_> {
                             .as_primitive()
                             .checked_add(&s2.as_primitive())
                             .and_then(|pscalar| pscalar.pvalue().map(ScalarValue::Primitive)),
-                        DType::Decimal(..) => s1
+                        // Add widens the result precision, so the merged sum is only exact as a
+                        // stat if it still fits the summands' own decimal type.
+                        DType::Decimal(decimal_dtype, _) => s1
                             .as_decimal()
                             .checked_binary_numeric(
                                 &s2.as_decimal(),
                                 crate::scalar::NumericOperator::Add,
                             )
-                            .map(|scalar| {
-                                ScalarValue::Decimal(
-                                    scalar
-                                        .decimal_value()
-                                        .vortex_expect("no decimal value in scalar"),
-                                )
-                            }),
+                            .ok()
+                            .flatten()
+                            .and_then(|scalar| scalar.as_decimal().decimal_value())
+                            .filter(|value| value.fits_in_precision(*decimal_dtype))
+                            .map(ScalarValue::Decimal),
                         _ => None,
                     })
                 {

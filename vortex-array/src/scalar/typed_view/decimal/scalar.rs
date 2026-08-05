@@ -6,23 +6,17 @@
 use std::cmp::Ordering;
 use std::fmt;
 
-use num_traits::CheckedAdd;
-use num_traits::CheckedDiv;
-use num_traits::CheckedMul;
 use num_traits::ToPrimitive as NumToPrimitive;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 
-use crate::dtype::BigCast;
+use super::arithmetic::checked_decimal_numeric;
+use super::arithmetic::decimal_numeric_result_dtype;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
-use crate::dtype::MAX_PRECISION;
-use crate::dtype::NativeDecimalType;
 use crate::dtype::PType;
 use crate::match_each_decimal_value;
-use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
 use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
@@ -186,137 +180,58 @@ impl<'a> DecimalScalar<'a> {
 
     /// Apply the (checked) operator to self and other using SQL-style null semantics.
     ///
-    /// Both operands must share the same decimal type (precision and scale), and the result
-    /// keeps that type. Add and Sub are exact; Mul and Div are fixed-point at the shared scale,
-    /// truncating toward zero when digits beyond the scale are discarded.
+    /// Both operands must share the same decimal type `(p, s)`. The result type follows Arrow's
+    /// decimal arithmetic rules, so it is generally *wider* than the operands, and the result is
+    /// therefore an owned [`Scalar`] rather than a view:
     ///
-    /// If the operation overflows, exceeds the precision, or divides by zero, `None` is
-    /// returned.
+    /// | operator | result precision | result scale |
+    /// | -------- | ---------------- | ------------ |
+    /// | Add, Sub | `p + 1`          | `s`          |
+    /// | Mul      | `2p + 1`         | `2s`         |
+    /// | Div      | `p + s + 4`      | `s + 4`      |
+    ///
+    /// Precision saturates at the maximum decimal precision. Mul is exact — the doubled scale
+    /// leaves the raw product of the stored integers correctly scaled — while Div truncates
+    /// toward zero.
     ///
     /// If either value is null, the result is null.
+    ///
+    /// `Ok(None)` means the operation overflowed the result precision or divided by zero. Note
+    /// that the array kernels raise an error in that situation rather than yielding null.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operands have different decimal types, or if the operation has no
+    /// valid result type: a Mul whose scale would exceed the maximum scale, or a Div whose
+    /// precision would fall outside the legal range.
     pub fn checked_binary_numeric(
         &self,
-        other: &DecimalScalar<'a>,
+        other: &DecimalScalar<'_>,
         op: NumericOperator,
-    ) -> Option<DecimalScalar<'a>> {
+    ) -> VortexResult<Option<Scalar>> {
         // We could have ops between different types but need to add rules for type inference.
         if self.decimal_type != other.decimal_type {
-            vortex_panic!(
+            vortex_bail!(
                 "decimal types must match: {} vs {}",
                 self.decimal_type,
                 other.decimal_type
             );
         }
 
-        // Use the more nullable dtype as the result type
-        let result_dtype = if self.dtype.is_nullable() {
-            self.dtype
-        } else {
-            other.dtype
+        let result_decimal_type = decimal_numeric_result_dtype(self.decimal_type, op)?;
+        let nullability = self.dtype.nullability() | other.dtype.nullability();
+        let result_dtype = DType::Decimal(result_decimal_type, nullability);
+
+        // Handle null cases using SQL semantics.
+        let (Some(lhs), Some(rhs)) = (self.decimal_value, other.decimal_value) else {
+            return Ok(Some(Scalar::null(result_dtype.as_nullable())));
         };
 
-        // Handle null cases using SQL semantics
-        let result_value = match (self.decimal_value, other.decimal_value) {
-            (None, _) | (_, None) => None,
-            (Some(lhs), Some(rhs)) => {
-                // Add/Sub on stored integers preserve the shared scale; Mul/Div must rescale.
-                let operation_result = match op {
-                    NumericOperator::Add => lhs.checked_add(&rhs),
-                    NumericOperator::Sub => lhs.checked_sub(&rhs),
-                    NumericOperator::Mul | NumericOperator::Div => {
-                        checked_fixed_point(lhs, rhs, self.decimal_type, op)
-                    }
-                }?;
-
-                Some(operation_result.normalize(self.decimal_type)?)
-            }
-        };
-
-        Some(DecimalScalar {
-            dtype: result_dtype,
-            decimal_type: self.decimal_type,
-            decimal_value: result_value,
-        })
+        Ok(
+            checked_decimal_numeric(lhs, rhs, self.decimal_type, result_decimal_type, op)
+                .map(|value| Scalar::decimal(value, result_decimal_type, nullability)),
+        )
     }
-}
-
-/// Execute fixed-point scalar arithmetic at the smallest width that can hold its intermediates.
-fn checked_fixed_point(
-    lhs: DecimalValue,
-    rhs: DecimalValue,
-    dtype: DecimalDType,
-    op: NumericOperator,
-) -> Option<DecimalValue> {
-    let work_precision = match op {
-        NumericOperator::Mul => dtype.precision().saturating_mul(2),
-        NumericOperator::Div => dtype
-            .precision()
-            .saturating_add(dtype.scale().unsigned_abs()),
-        NumericOperator::Add | NumericOperator::Sub => unreachable!("fixed-point Add/Sub"),
-    }
-    .min(MAX_PRECISION);
-    let work_dtype = DecimalDType::new(work_precision, 0);
-
-    match_each_decimal_value_type!(DecimalType::smallest_decimal_value_type(&work_dtype), |W| {
-        let lhs = lhs.cast::<W>()?;
-        let rhs = rhs.cast::<W>()?;
-        checked_fixed_point_at_width(lhs, rhs, dtype.scale(), op).map(DecimalValue::from)
-    })
-}
-
-fn checked_fixed_point_at_width<W>(lhs: W, rhs: W, scale: i8, op: NumericOperator) -> Option<W>
-where
-    W: NativeDecimalType + CheckedAdd + CheckedMul + CheckedDiv,
-{
-    let zero = W::default();
-    match op {
-        NumericOperator::Mul => {
-            let product = lhs.checked_mul(&rhs)?;
-            if scale == 0 || product == zero {
-                return Some(product);
-            }
-
-            let factor = decimal_scale_factor::<W>(scale.unsigned_abs() as u32)?;
-            if scale > 0 {
-                product.checked_div(&factor)
-            } else {
-                product.checked_mul(&factor)
-            }
-        }
-        NumericOperator::Div => {
-            if rhs == zero {
-                return None;
-            }
-            if scale == 0 {
-                return lhs.checked_div(&rhs);
-            }
-
-            if scale > 0 {
-                let factor = decimal_scale_factor::<W>(scale as u32)?;
-                lhs.checked_mul(&factor)?.checked_div(&rhs)
-            } else {
-                // trunc(trunc(lhs / rhs) / factor) equals trunc(lhs / (rhs * factor)), while
-                // avoiding an unnecessarily wide scaled divisor.
-                let quotient = lhs.checked_div(&rhs)?;
-                if quotient == zero {
-                    return Some(zero);
-                }
-                let Some(factor) = decimal_scale_factor::<W>(scale.unsigned_abs() as u32) else {
-                    return Some(zero);
-                };
-                quotient.checked_div(&factor)
-            }
-        }
-        NumericOperator::Add | NumericOperator::Sub => unreachable!("fixed-point Add/Sub"),
-    }
-}
-
-fn decimal_scale_factor<W>(exp: u32) -> Option<W>
-where
-    W: NativeDecimalType + CheckedAdd,
-{
-    let max = *W::MAX_BY_PRECISION.get(usize::try_from(exp).ok()?)?;
-    max.checked_add(&<W as BigCast>::from(1_i8)?)
 }
 
 impl PartialEq for DecimalScalar<'_> {
