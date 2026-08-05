@@ -55,7 +55,7 @@ pub struct DictReader {
     /// Cached dict values array
     values_array: OnceLock<SharedArrayFuture>,
     /// Cache of expression evaluation results on the values array by expression
-    values_evals: DashMap<BoundExpression, SharedArrayFuture>,
+    values_evals: DashMap<ExactBoundExpr, SharedArrayFuture>,
 
     values: LayoutReaderRef,
     codes: LayoutReaderRef,
@@ -153,13 +153,15 @@ impl DictReader {
         // shouldn't.
         // TODO(joe): fixme
 
+        let key = ExactBoundExpr(expr.clone());
+
         // Check cache first with read-only lock
-        if let Some(fut) = self.values_evals.get(&expr) {
+        if let Some(fut) = self.values_evals.get(&key) {
             return fut.clone();
         }
 
         self.values_evals
-            .entry(expr.clone())
+            .entry(key)
             .or_insert_with(|| {
                 self.values_array_uncanonical()
                     .map(move |array| {

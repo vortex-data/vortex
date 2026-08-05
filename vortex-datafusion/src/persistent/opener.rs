@@ -46,6 +46,7 @@ use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::scan_builder::ScanBuilder;
+use vortex::layout::scan::scan_builder::optimize_and_bind;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
 use vortex::session::VortexSession;
@@ -299,9 +300,11 @@ impl FileOpener for VortexOpener {
 
             // The schema of the stream returned from the vortex scan.
             // We use a reference schema for types that don't roundtrip (Dictionary, Utf8, etc.).
-            let scan_dtype = scan_projection.return_dtype(vxf.dtype()).map_err(|_e| {
-                exec_datafusion_err!("Couldn't get the dtype for the underlying Vortex scan")
-            })?;
+            let scan_projection =
+                optimize_and_bind(scan_projection, vxf.dtype()).map_err(|_e| {
+                    exec_datafusion_err!("Couldn't get the dtype for the underlying Vortex scan")
+                })?;
+            let scan_dtype = scan_projection.dtype().clone();
 
             // When projection pushdown is enabled, the scan outputs the projected columns.
             // When disabled, the scan outputs raw columns and the projection is applied after.
@@ -388,6 +391,10 @@ impl FileOpener for VortexOpener {
                     make_vortex_predicate(expr_convertor.as_ref(), &pushed).transpose()
                 })
                 .transpose()?;
+            let filter = filter
+                .map(|filter| optimize_and_bind(filter, vxf.dtype()))
+                .transpose()
+                .map_err(|e| exec_datafusion_err!("Couldn't bind Vortex scan filter: {e}"))?;
 
             if let Some(limit) = limit
                 && filter.is_none()

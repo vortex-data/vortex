@@ -70,6 +70,7 @@
 //! use vortex::array::validity::Validity;
 //! use vortex::buffer::{ByteBufferMut, buffer};
 //! use vortex::file::{OpenOptionsSessionExt, WriteOptionsSessionExt};
+//! use vortex::layout::scan::scan_builder::optimize_and_bind;
 //! use vortex::session::VortexSession;
 //!
 //! # async fn example() -> vortex::error::VortexResult<()> {
@@ -82,11 +83,13 @@
 //!     .write(&mut bytes, array.into_array().to_array_stream())
 //!     .await?;
 //!
-//! let filtered = session
+//! let file = session
 //!     .open_options()
-//!     .open_buffer(bytes)?
+//!     .open_buffer(bytes)?;
+//! let filter = optimize_and_bind(gt(root(), lit(2u64)), file.dtype())?;
+//! let filtered = file
 //!     .scan()?
-//!     .with_filter(gt(root(), lit(2u64)))
+//!     .with_filter(filter)
 //!     .into_array_stream()?
 //!     .read_all()
 //!     .await?;
@@ -357,6 +360,7 @@ mod test {
     use vortex_file::OpenOptionsSessionExt;
     use vortex_file::WriteOptionsSessionExt;
     use vortex_file::WriteStrategyBuilder;
+    use vortex_layout::scan::scan_builder::optimize_and_bind;
     use vortex_session::VortexSession;
 
     use crate as vortex;
@@ -438,12 +442,11 @@ mod test {
         // [write]
 
         // [read]
-        let array = session
-            .open_options()
-            .open_path(path.clone())
-            .await?
+        let file = session.open_options().open_path(path.clone()).await?;
+        let filter = optimize_and_bind(gt(root(), lit(2u64)), file.dtype())?;
+        let array = file
             .scan()?
-            .with_filter(gt(root(), lit(2u64)))
+            .with_filter(filter)
             .into_array_stream()?
             .read_all()
             .await?;
@@ -537,12 +540,11 @@ mod test {
             .await?;
 
         // Read the file back, but project down to just the "value" column.
-        let projected = session
-            .open_options()
-            .open_path(path.clone())
-            .await?
+        let file = session.open_options().open_path(path.clone()).await?;
+        let projection = optimize_and_bind(select(["value"], root()), file.dtype())?;
+        let projected = file
             .scan()?
-            .with_projection(select(["value"], root()))
+            .with_projection(projection)
             .into_array_stream()?
             .read_all()
             .await?;

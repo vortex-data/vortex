@@ -18,7 +18,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::Nullability;
-use vortex_array::expr::Expression;
+use vortex_array::expr::BoundExpression;
 use vortex_array::expr::stats::Precision;
 use vortex_array::scalar::Scalar;
 use vortex_array::stats::StatsSet;
@@ -41,6 +41,7 @@ use vortex_session::VortexSession;
 
 use crate::LayoutReaderRef;
 use crate::scan::scan_builder::ScanBuilder;
+use crate::scan::scan_builder::optimize_and_bind;
 
 /// An implementation of a [`DataSource`] that reads data from a [`LayoutReaderRef`].
 pub struct LayoutReaderDataSource {
@@ -115,13 +116,18 @@ impl DataSource for LayoutReaderDataSource {
         let total_rows = self.reader.row_count();
         let row_range = scan_request.row_range.unwrap_or(0..total_rows);
 
-        let dtype = scan_request.projection.return_dtype(self.reader.dtype())?;
+        let projection = optimize_and_bind(scan_request.projection, self.reader.dtype())?;
+        let filter = scan_request
+            .filter
+            .map(|expr| optimize_and_bind(expr, self.reader.dtype()))
+            .transpose()?;
+        let dtype = projection.dtype().clone();
 
         // If the dtype is an empty struct, and there is no filter, we can return a special
         // length-only scan.
         if let DType::Struct(fields, Nullability::NonNullable) = &dtype
             && fields.nfields() == 0
-            && scan_request.filter.is_none()
+            && filter.is_none()
         {
             // FIXME(ngates): extract out maybe?
             let row_count = row_range.end - row_range.start;
@@ -139,14 +145,13 @@ impl DataSource for LayoutReaderDataSource {
 
         // Check file-level pruning: if the filter can be proven false for the entire row range
         // using file-level statistics (e.g. via FileStatsLayoutReader), skip the scan entirely.
-        if let Some(filter) = &scan_request.filter {
-            let filter = filter.bind(self.reader.dtype())?;
+        if let Some(filter) = &filter {
             let mask = Mask::new_true(
                 usize::try_from(row_range.end - row_range.start).unwrap_or(usize::MAX),
             );
             let pruning_result = self
                 .reader
-                .pruning_evaluation(&row_range, &filter, mask)?
+                .pruning_evaluation(&row_range, filter, mask)?
                 .now_or_never();
             if let Some(Ok(result_mask)) = pruning_result
                 && result_mask.all_false()
@@ -162,8 +167,8 @@ impl DataSource for LayoutReaderDataSource {
             reader: Arc::clone(&self.reader),
             session: self.session.clone(),
             dtype,
-            projection: scan_request.projection,
-            filter: scan_request.filter,
+            projection,
+            filter,
             limit: scan_request.limit,
             selection: scan_request.selection,
             ordered: scan_request.ordered,
@@ -183,8 +188,8 @@ struct LayoutReaderScan {
     reader: LayoutReaderRef,
     session: VortexSession,
     dtype: DType,
-    projection: Expression,
-    filter: Option<Expression>,
+    projection: BoundExpression,
+    filter: Option<BoundExpression>,
     limit: Option<u64>,
     ordered: bool,
     selection: Selection,
@@ -276,8 +281,8 @@ impl Stream for LayoutReaderScan {
 struct LayoutReaderSplit {
     reader: LayoutReaderRef,
     session: VortexSession,
-    projection: Expression,
-    filter: Option<Expression>,
+    projection: BoundExpression,
+    filter: Option<BoundExpression>,
     limit: Option<u64>,
     ordered: bool,
     row_range: Range<u64>,

@@ -78,8 +78,9 @@ session.write_options()
     .await?;
 
 // Scanning a layout
+let filter = optimize_and_bind(expr, layout_reader.dtype())?;
 ScanBuilder::new(session.clone(), layout_reader)
-    .with_filter(expr)
+    .with_filter(filter)
     .into_array_stream()?;
 ```
 
