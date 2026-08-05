@@ -74,5 +74,9 @@ harness = false
 name = "collect"
 harness = false
 
+[[bench]]
+name = "convex_hull"
+harness = false
+
 [lints]
 workspace = true
