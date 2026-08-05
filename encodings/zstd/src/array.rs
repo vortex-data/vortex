@@ -59,6 +59,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 use zstd::zstd_safe::WriteBuf;
@@ -331,12 +332,24 @@ where
         .data()
         .decompress_slice(array.dtype(), &unsliced_validity(array), ctx)?;
     let mask = slice.validity.execute_mask(slice.n_rows, ctx)?;
+    append_slice_to_varbin(&slice, &mask, builder)
+}
+
+/// Copies the values `mask` marks as valid out of `slice` and into `builder`.
+fn append_slice_to_varbin<O: OffsetBuilderPType>(
+    slice: &DecompressedSlice,
+    mask: &Mask,
+    builder: &mut VarBinBuilder<O>,
+) -> VortexResult<()>
+where
+    usize: AsPrimitive<O>,
+{
     let (values, num_bytes) = slice.value_bytes()?;
     // Each value is length-prefixed, so the frames can only be walked in order — which is the
-    // order `append_valid_slices` visits the valid rows in. A stream that runs out early yields
-    // empty slices and so fails the builder's byte-count check.
-    let mut values = zstd_values(values);
-    builder.append_valid_slices(num_bytes, &mask, |_| values.next().unwrap_or_default())
+    // order `append_valid_slices` visits the valid rows in. A walk that runs out early hands back
+    // its undecoded remainder, which the builder rejects as a byte-count mismatch.
+    let mut values = ZstdValues::new(values);
+    builder.append_valid_slices(num_bytes, mask, |_| values.next_value())
 }
 
 /// Hands the decompressed frames to `builder` as data buffers with views built over them.
@@ -787,10 +800,16 @@ impl DecompressedSlice {
         Ok(start..end)
     }
 
-    /// The bounds within `bytes` of the length-prefixed region holding exactly this slice's values.
+    /// The bounds within `bytes` of the length-prefixed region that should hold exactly this
+    /// slice's values.
     ///
     /// Walking the length prefixes is a dependent load chain, so both ends are derived from the
-    /// slice metadata where possible: an unsliced array skips both walks.
+    /// slice metadata where possible: an unsliced array skips both walks. That makes the far end a
+    /// claim by the frame metadata rather than a checked fact, so a caller must still hold the
+    /// values it reads to the count [`Self::value_range`] gives — by walking them with
+    /// [`ZstdValues`], whose shortfall shows up in the byte total from [`Self::value_bytes`], or by
+    /// counting the ones it decodes, as [`try_reconstruct_views`] does. A region that ends part way
+    /// through a value is otherwise free to pass its trailing bytes off as values of their own.
     fn value_byte_range(&self) -> VortexResult<Range<usize>> {
         let Range { start, end } = self.value_range()?;
         let buffer = self.bytes.as_slice();
@@ -871,22 +890,39 @@ fn zstd_value_len(buffer: &[u8], offset: usize) -> VortexResult<usize> {
     Ok(ViewLen::from_le_bytes(*prefix) as usize)
 }
 
-/// Iterates the values of a length-prefixed region, stopping at the first prefix that leaves it.
-///
-/// Stopping short leaves the value count and byte total below what the caller declared, which the
-/// consuming builder rejects, so the walk does not need to report the error itself.
-fn zstd_values(buffer: &[u8]) -> impl Iterator<Item = &[u8]> {
-    let mut offset = 0;
-    std::iter::from_fn(move || {
-        if offset >= buffer.len() {
-            return None;
+/// A forward walk over the values of a length-prefixed region.
+struct ZstdValues<'a> {
+    buffer: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> ZstdValues<'a> {
+    fn new(buffer: &'a [u8]) -> Self {
+        Self { buffer, offset: 0 }
+    }
+
+    /// The next value, or every byte the walk could not decode once a prefix leaves the region.
+    ///
+    /// Handing back the remainder is what lets a caller that knows how many values the region holds
+    /// detect a walk that fell short purely from the byte total, without a second walk to validate
+    /// the region up front. A caller sizes that total as the region minus one length prefix per
+    /// value, so `k` of `n` values decoded leaves it expecting the `n - k` prefixes the walk
+    /// abandoned as well: the remainder either covers them and more, or is empty because the region
+    /// ended exactly and the decoded values already fall short of the total. Neither can add up, so
+    /// a shortfall is always rejected rather than passed off as trailing empty values.
+    fn next_value(&mut self) -> &'a [u8] {
+        let value_start = self.offset + size_of::<ViewLen>();
+        let value = zstd_value_len(self.buffer, self.offset)
+            .ok()
+            .and_then(|len| self.buffer.get(value_start..value_start.checked_add(len)?));
+        match value {
+            Some(value) => {
+                self.offset = value_start + value.len();
+                value
+            }
+            None => &self.buffer[self.offset..],
         }
-        let len = zstd_value_len(buffer, offset).ok()?;
-        let value_start = offset + size_of::<ViewLen>();
-        let value = buffer.get(value_start..value_start + len)?;
-        offset = value_start + len;
-        Some(value)
-    })
+    }
 }
 
 impl ZstdData {
@@ -1576,12 +1612,18 @@ impl OperationsVTable<Zstd> for Zstd {
 #[expect(clippy::cast_possible_truncation)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::arrays::varbin::VarBinArrayExt as _;
+    use vortex_array::builders::VarBinBuilder;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::validity::Validity;
     use vortex_buffer::ByteBuffer;
     use vortex_error::VortexResult;
+    use vortex_mask::Mask;
 
     use super::DecompressedSlice;
     use super::ViewLen;
+    use super::append_slice_to_varbin;
     use super::reconstruct_views;
     use super::try_reconstruct_views;
     use super::zstd_value_len;
@@ -1727,5 +1769,37 @@ mod tests {
         // Frame metadata claims nine values but only two are stored.
         let slice = decompressed_slice(make_interleaved(&[b"hello", b"world"]), 0, 5, 0, 9);
         assert!(slice.value_bytes().is_err());
+    }
+
+    #[test]
+    fn test_append_to_varbin_copies_the_stored_values() -> VortexResult<()> {
+        let slice = decompressed_slice(make_interleaved(&[b"hello", b"world"]), 0, 2, 0, 2);
+        let mut builder = VarBinBuilder::<i32>::new(DType::Utf8(NonNullable));
+        append_slice_to_varbin(&slice, &Mask::new_true(2), &mut builder)?;
+
+        let appended = builder.finish_into_varbin();
+        assert_eq!(appended.bytes_at(0).as_slice(), b"hello");
+        assert_eq!(appended.bytes_at(1).as_slice(), b"world");
+        Ok(())
+    }
+
+    /// Both ends of the region a slice reads come from the frame metadata where they can, so the
+    /// values in it have to be held to the value count the metadata declared. Otherwise a buffer
+    /// whose last value is only a length prefix reads back as a trailing empty value.
+    #[test]
+    fn test_append_to_varbin_rejects_a_dangling_length_prefix() {
+        let mut buffer = Vec::new();
+        buffer.extend_from_slice(&3u32.to_le_bytes());
+        buffer.extend_from_slice(b"cat");
+        // A prefix with no value after it. It takes up exactly the four bytes the second value's
+        // own prefix would have, so treating that value as empty would still total the byte count
+        // the metadata implies and append ["cat", ""].
+        buffer.extend_from_slice(&1u32.to_le_bytes());
+
+        let slice = decompressed_slice(ByteBuffer::copy_from(buffer.as_slice()), 0, 2, 0, 2);
+        let mut builder = VarBinBuilder::<i32>::new(DType::Utf8(NonNullable));
+        assert!(append_slice_to_varbin(&slice, &Mask::new_true(2), &mut builder).is_err());
+        // The builder rejected the values before committing any of them.
+        assert_eq!(builder.finish_into_varbin().len(), 0);
     }
 }

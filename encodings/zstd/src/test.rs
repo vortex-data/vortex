@@ -20,12 +20,14 @@ use vortex_array::dtype::PType;
 use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::Zstd;
 use crate::ZstdArray;
 use crate::ZstdData;
+use crate::ZstdFrameMetadata;
 use crate::ZstdMetadata;
 
 #[test]
@@ -378,6 +380,46 @@ fn test_zstd_rejects_corrupt_frame_metadata(
             .append_to_builder(&mut builder, &mut ctx)
             .is_err()
     );
+    Ok(())
+}
+
+/// Frame bytes are as untrusted as the metadata describing them, so a frame whose last value is
+/// nothing but a length prefix has to surface as an error from every read path rather than as a
+/// trailing empty value.
+#[test]
+fn test_zstd_rejects_a_frame_ending_in_a_dangling_length_prefix() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let mut values = Vec::new();
+    values.extend_from_slice(&3u32.to_le_bytes());
+    values.extend_from_slice(b"cat");
+    // A prefix with no value after it. It takes up exactly the four bytes the second value's own
+    // prefix would have, so treating that value as empty totals the byte count the metadata
+    // implies: two values holding three bytes between them.
+    values.extend_from_slice(&1u32.to_le_bytes());
+
+    let dtype = DType::Utf8(Nullability::NonNullable);
+    let compressed = Zstd::try_new(
+        dtype.clone(),
+        ZstdData::new(
+            None,
+            vec![ByteBuffer::from(zstd::bulk::compress(&values, 3)?)],
+            ZstdMetadata {
+                dictionary_size: 0,
+                frames: vec![ZstdFrameMetadata {
+                    uncompressed_size: values.len() as u64,
+                    n_values: 2,
+                }],
+            },
+            2,
+        ),
+        Validity::NonNullable,
+    )?;
+
+    assert!(Zstd::decompress(&compressed, &mut ctx).is_err());
+    let mut varbin = VarBinBuilder::<i32>::with_capacity(dtype.clone(), 2);
+    assert!(compressed.append_to_builder(&mut varbin, &mut ctx).is_err());
+    let mut views = VarBinViewBuilder::with_capacity(dtype, 2);
+    assert!(compressed.append_to_builder(&mut views, &mut ctx).is_err());
     Ok(())
 }
 
