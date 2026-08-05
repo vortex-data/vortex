@@ -25,10 +25,10 @@ use crate::arrays::varbin::VarBinData;
 use crate::arrays::varbin::VarBinSlots;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
-use crate::builders::DynVarBinBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::match_each_varbin_builder;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 mod canonical;
@@ -209,8 +209,10 @@ impl VTable for VarBin {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        if let Some(builder) = builder.as_any_mut().downcast_mut::<DynVarBinBuilder>() {
-            return builder.append_varbin(array, ctx);
+        if let Some(result) =
+            match_each_varbin_builder!(builder, |builder| builder.append_varbin(array, ctx))
+        {
+            return result;
         }
         varbin_to_canonical(array, ctx)?
             .into_array()

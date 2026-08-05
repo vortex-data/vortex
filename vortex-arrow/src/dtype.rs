@@ -38,6 +38,8 @@ use vortex_array::extension::datetime::Timestamp;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
@@ -224,6 +226,35 @@ impl TryFromArrowType<(&DataType, Nullability)> for DType {
                 nullability,
             ),
             DataType::Struct(f) => DType::Struct(StructFields::try_from_arrow(f)?, nullability),
+            DataType::Map(entries, keys_sorted) => {
+                vortex_ensure!(
+                    !entries.is_nullable(),
+                    "Arrow map entries field must be non-nullable"
+                );
+                let DataType::Struct(fields) = entries.data_type() else {
+                    vortex_bail!(
+                        "Arrow map entries field must have Struct type, got {:?}",
+                        entries.data_type()
+                    );
+                };
+                vortex_ensure_eq!(
+                    fields.len(),
+                    2,
+                    InvalidArgument: "Arrow map entries struct must contain exactly two fields"
+                );
+                let key = &fields[0];
+                let value = &fields[1];
+                vortex_ensure!(
+                    !key.is_nullable(),
+                    "Arrow map key field must be non-nullable"
+                );
+                DType::map(
+                    Self::try_from_arrow(key.as_ref())?,
+                    Self::try_from_arrow(value.as_ref())?,
+                    *keys_sorted,
+                    nullability,
+                )?
+            }
             DataType::Dictionary(_, value_type) => {
                 Self::try_from_arrow((value_type.as_ref(), nullability))?
             }
@@ -368,6 +399,17 @@ pub(crate) fn to_data_type_naive(dtype: &DType) -> VortexResult<DataType> {
             )),
             *size as i32,
         ),
+        DType::Map(map_dtype, _) => {
+            let key = Field::new("key", to_data_type_naive(&map_dtype.key_dtype())?, false);
+            let value_dtype = map_dtype.value_dtype();
+            let value = Field::new(
+                "value",
+                to_data_type_naive(&value_dtype)?,
+                value_dtype.is_nullable(),
+            );
+            let entries = Field::new_struct("entries", Fields::from(vec![key, value]), false);
+            DataType::Map(FieldRef::new(entries), map_dtype.keys_sorted())
+        }
         DType::Struct(struct_dtype, _) => {
             let mut fields = Vec::with_capacity(struct_dtype.names().len());
             for (field_name, field_dt) in struct_dtype.names().iter().zip(struct_dtype.fields()) {
@@ -636,6 +678,92 @@ mod test {
         let roundtripped_dtype = DType::from_arrow((&arrow_dtype, Nullability::NonNullable));
 
         assert_eq!(original_dtype, roundtripped_dtype);
+    }
+
+    #[test]
+    fn map_dtype_roundtrip_uses_conventional_export_names_and_positional_import() -> VortexResult<()>
+    {
+        let dtype = DType::map(
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            DType::Utf8(Nullability::Nullable),
+            true,
+            Nullability::Nullable,
+        )?;
+
+        let arrow = dtype.to_arrow_dtype()?;
+        let DataType::Map(entries, keys_sorted) = &arrow else {
+            panic!("expected Map, got {arrow:?}");
+        };
+        assert!(*keys_sorted);
+        assert_eq!(entries.name(), "entries");
+        assert!(!entries.is_nullable());
+        let DataType::Struct(fields) = entries.data_type() else {
+            panic!("expected map entries to be a struct");
+        };
+        assert_eq!(fields[0].name(), "key");
+        assert!(!fields[0].is_nullable());
+        assert_eq!(fields[1].name(), "value");
+        assert!(fields[1].is_nullable());
+        assert_eq!(
+            DType::try_from_arrow((&arrow, Nullability::Nullable))?,
+            dtype
+        );
+
+        let positional = DataType::Map(
+            Arc::new(Field::new_struct(
+                "anything",
+                Fields::from(vec![
+                    Field::new("first", DataType::Int32, false),
+                    Field::new("second", DataType::Utf8, true),
+                ]),
+                false,
+            )),
+            false,
+        );
+        assert_eq!(
+            DType::try_from_arrow((&positional, Nullability::NonNullable))?,
+            DType::map(
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+                DType::Utf8(Nullability::Nullable),
+                false,
+                Nullability::NonNullable,
+            )?
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn map_dtype_import_rejects_invalid_arrow_shape() {
+        let invalid_entries = [
+            Field::new_struct(
+                "entries",
+                Fields::from(vec![
+                    Field::new("key", DataType::Int32, false),
+                    Field::new("value", DataType::Utf8, true),
+                ]),
+                true,
+            ),
+            Field::new("entries", DataType::Int32, false),
+            Field::new_struct(
+                "entries",
+                Fields::from(vec![Field::new("key", DataType::Int32, false)]),
+                false,
+            ),
+            Field::new_struct(
+                "entries",
+                Fields::from(vec![
+                    Field::new("key", DataType::Int32, true),
+                    Field::new("value", DataType::Utf8, true),
+                ]),
+                false,
+            ),
+        ];
+
+        for entries in invalid_entries {
+            let data_type = DataType::Map(Arc::new(entries), false);
+            assert!(DType::try_from_arrow((&data_type, Nullability::NonNullable)).is_err());
+        }
     }
 
     // Regression test for https://github.com/vortex-data/vortex/issues/8346: unsupported Arrow

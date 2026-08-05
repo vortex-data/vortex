@@ -149,7 +149,11 @@ pub fn search_sorted_canonical_array(
                 .collect::<VortexResult<Vec<_>>>()?;
             scalar_vals.search_sorted(&scalar.cast(array.dtype())?, side)
         }
-        d @ (DType::Null | DType::Union(..) | DType::Variant(_) | DType::Extension(_)) => {
+        d @ (DType::Null
+        | DType::Map(..)
+        | DType::Union(..)
+        | DType::Variant(_)
+        | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }
     }

@@ -100,6 +100,20 @@ impl DType {
             return Some(DType::List(Arc::new(elem), union_null));
         }
 
+        if let (DType::Map(lhs, _), DType::Map(rhs, _)) = (self, other) {
+            if lhs.key_dtype() != rhs.key_dtype() || lhs.value_dtype() != rhs.value_dtype() {
+                return None;
+            }
+
+            return DType::map(
+                lhs.key_dtype(),
+                lhs.value_dtype(),
+                lhs.keys_sorted() && rhs.keys_sorted(),
+                union_null,
+            )
+            .ok();
+        }
+
         // Identity (ignoring nullability): return self with union nullability
         if self.eq_ignore_nullability(other) {
             return Some(self.with_nullability(union_null));
@@ -185,6 +199,13 @@ impl DType {
         if let (DType::List(target_elem, _), DType::List(source_elem, _)) = (self, other) {
             return (self.is_nullable() || !other.is_nullable())
                 && target_elem.can_coerce_from(source_elem);
+        }
+
+        if let (DType::Map(target, _), DType::Map(source, _)) = (self, other) {
+            return (self.is_nullable() || !other.is_nullable())
+                && (!target.keys_sorted() || source.keys_sorted())
+                && target.key_dtype() == source.key_dtype()
+                && target.value_dtype() == source.value_dtype();
         }
 
         // Same type (ignoring nullability): check nullability compatibility
@@ -803,5 +824,51 @@ mod tests {
             result,
             DType::Decimal(DecimalDType::new(15, 5), NonNullable)
         );
+    }
+
+    #[test]
+    fn map_least_supertype_unions_outer_nullability_and_intersects_sortedness() {
+        let key = DType::Primitive(PType::I32, NonNullable);
+        let value = DType::Utf8(Nullable);
+        let sorted = DType::map(key.clone(), value.clone(), true, NonNullable).unwrap();
+        let unsorted = DType::map(key.clone(), value.clone(), false, Nullable).unwrap();
+
+        assert_eq!(
+            sorted.least_supertype(&unsorted),
+            Some(DType::map(key, value, false, Nullable).unwrap())
+        );
+    }
+
+    #[test]
+    fn map_least_supertype_requires_identical_key_and_value_dtypes() {
+        let i32_map = DType::map(
+            DType::Primitive(PType::I32, NonNullable),
+            DType::Utf8(Nullable),
+            false,
+            NonNullable,
+        )
+        .unwrap();
+        let i64_map = DType::map(
+            DType::Primitive(PType::I64, NonNullable),
+            DType::Utf8(Nullable),
+            false,
+            NonNullable,
+        )
+        .unwrap();
+
+        assert_eq!(i32_map.least_supertype(&i64_map), None);
+    }
+
+    #[test]
+    fn map_coercion_does_not_create_a_sortedness_assertion() {
+        let key = DType::Primitive(PType::I32, NonNullable);
+        let value = DType::Utf8(Nullable);
+        let sorted = DType::map(key.clone(), value.clone(), true, Nullable).unwrap();
+        let unsorted = DType::map(key.clone(), value, false, Nullable).unwrap();
+        let different_value = DType::map(key, DType::Utf8(NonNullable), false, Nullable).unwrap();
+
+        assert!(!sorted.can_coerce_from(&unsorted));
+        assert!(unsorted.can_coerce_from(&sorted));
+        assert!(!unsorted.can_coerce_from(&different_value));
     }
 }

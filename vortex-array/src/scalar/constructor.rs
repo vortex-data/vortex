@@ -9,6 +9,7 @@ use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
@@ -137,6 +138,58 @@ impl Scalar {
         nullability: Nullability,
     ) -> Self {
         Self::create_list(element_dtype, children, nullability, ListKind::FixedSize)
+    }
+
+    /// Creates a map scalar with the given dtype and ordered key/value entries.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `dtype` is not a map or an entry has an incompatible key or value dtype.
+    pub fn map(dtype: DType, entries: impl IntoIterator<Item = (Scalar, Scalar)>) -> Self {
+        Self::try_map(dtype, entries).vortex_expect("unable to construct a map `Scalar`")
+    }
+
+    /// Attempts to create a map scalar with the given dtype and ordered key/value entries.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `dtype` is not a map or an entry has an incompatible key or value
+    /// dtype.
+    pub fn try_map(
+        dtype: DType,
+        entries: impl IntoIterator<Item = (Scalar, Scalar)>,
+    ) -> VortexResult<Self> {
+        let map = dtype
+            .as_map_opt()
+            .ok_or_else(|| vortex_error::vortex_err!("Expected map dtype, found {dtype}"))?;
+        let key_dtype = map.key_dtype();
+        let value_dtype = map.value_dtype();
+
+        let entries = entries
+            .into_iter()
+            .enumerate()
+            .map(|(index, (key, value))| {
+                if key.dtype() != &key_dtype {
+                    vortex_bail!(
+                        "map entry {index} expected key dtype {key_dtype}, got {}",
+                        key.dtype()
+                    );
+                }
+                if value.dtype() != &value_dtype {
+                    vortex_bail!(
+                        "map entry {index} expected value dtype {value_dtype}, got {}",
+                        value.dtype()
+                    );
+                }
+
+                Ok(Some(ScalarValue::Tuple(vec![
+                    key.into_value(),
+                    value.into_value(),
+                ])))
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
+
+        Self::try_new(dtype, Some(ScalarValue::Tuple(entries)))
     }
 
     /// Creates a list [`Scalar`] from an element dtype, children, nullability, and list kind.

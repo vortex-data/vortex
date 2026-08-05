@@ -24,6 +24,7 @@ use crate::arrays::Extension;
 use crate::arrays::FixedSizeList;
 use crate::arrays::List;
 use crate::arrays::ListView;
+use crate::arrays::Map;
 use crate::arrays::Masked;
 use crate::arrays::Null;
 use crate::arrays::PiecewiseSequence;
@@ -74,6 +75,7 @@ impl Default for ArraySession {
         this.register(Decimal);
         this.register(VarBinView);
         this.register(ListView);
+        this.register(Map);
         this.register(FixedSizeList);
         this.register(Struct);
         this.register(Union);

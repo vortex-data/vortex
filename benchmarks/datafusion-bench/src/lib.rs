@@ -122,7 +122,7 @@ fn vortex_table_options() -> VortexTableOptions {
     let mut opts = VortexTableOptions::default();
 
     opts.predicate_pushdown = true;
-    opts.predicate_pushdown = true;
+    opts.projection_pushdown = true;
 
     opts
 }

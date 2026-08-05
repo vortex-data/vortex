@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::mem::MaybeUninit;
 use std::sync::Arc;
 
+use fsst::Decompressor;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -42,36 +44,82 @@ pub(super) fn canonicalize_fsst(
     })
 }
 
+/// Extra headroom that keeps [`Decompressor::decompress_into`] on its fast path.
+///
+/// It never writes past the slice it is given — every store is bounded by the end of the output —
+/// but it emits whole 8-byte symbols, so it can only use the wide-store loop while at least 8
+/// bytes remain. Handing it 7 spare bytes lets that loop run through the final value instead of
+/// finishing byte at a time. This is a performance knob, not a safety requirement.
+///
+/// [`Decompressor::decompress_into`]: fsst::Decompressor::decompress_into
+pub(crate) const FSST_DECODE_SLACK: usize = 7;
+
+/// Everything needed to decode an FSST array's values in one bulk `decompress_into` call.
+pub(crate) struct FsstDecodePlan {
+    codes: ByteBuffer,
+    /// Per-row uncompressed lengths, zero for null rows.
+    pub(crate) lengths: PrimitiveArray,
+    /// Total decoded size, i.e. the sum of `lengths`.
+    pub(crate) total_size: usize,
+}
+
+impl FsstDecodePlan {
+    pub(crate) fn new(
+        fsst_array: ArrayView<'_, FSST>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Self> {
+        let codes = fsst_array.codes().sliced_bytes();
+        let lengths = fsst_array
+            .uncompressed_lengths()
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?;
+
+        #[expect(clippy::cast_possible_truncation)]
+        let total_size: usize = match_each_integer_ptype!(lengths.ptype(), |P| {
+            lengths.as_slice::<P>().iter().map(|x| *x as usize).sum()
+        });
+
+        Ok(Self {
+            codes,
+            lengths,
+            total_size,
+        })
+    }
+
+    /// Bulk-decompresses the whole code stream into `out`, which must hold at least
+    /// `total_size + FSST_DECODE_SLACK` bytes.
+    ///
+    /// Kept inlinable so the decoder is not called from behind an extra frame in whichever
+    /// codegen unit the caller lands in; see OnPair's equivalent for why that matters.
+    #[inline]
+    pub(crate) fn decode_into(
+        &self,
+        decompressor: &Decompressor<'_>,
+        out: &mut [MaybeUninit<u8>],
+    ) -> VortexResult<usize> {
+        let len = decompressor.decompress_into(self.codes.as_slice(), out);
+        vortex_ensure!(
+            len == self.total_size,
+            "FSST decoded {len} bytes, expected {}",
+            self.total_size
+        );
+        Ok(len)
+    }
+}
+
 pub(crate) fn fsst_decode_bytes(
     fsst_array: ArrayView<'_, FSST>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<(ByteBufferMut, PrimitiveArray)> {
-    let bytes = fsst_array.codes().sliced_bytes();
-    let uncompressed_lens_array = fsst_array
-        .uncompressed_lengths()
-        .clone()
-        .execute::<PrimitiveArray>(ctx)?;
-
-    #[expect(clippy::cast_possible_truncation)]
-    let total_size: usize = match_each_integer_ptype!(uncompressed_lens_array.ptype(), |P| {
-        uncompressed_lens_array
-            .as_slice::<P>()
-            .iter()
-            .map(|x| *x as usize)
-            .sum()
-    });
-
-    let decompressor = fsst_array.decompressor();
-    let mut uncompressed_bytes = ByteBufferMut::with_capacity(total_size + 7);
-    let len =
-        decompressor.decompress_into(bytes.as_slice(), uncompressed_bytes.spare_capacity_mut());
-    vortex_ensure!(
-        len == total_size,
-        "FSST decoded {len} bytes, expected {total_size}"
-    );
-    // SAFETY: `decompress_into` initialized the first `len` bytes.
+    let plan = FsstDecodePlan::new(fsst_array, ctx)?;
+    let mut uncompressed_bytes = ByteBufferMut::with_capacity(plan.total_size + FSST_DECODE_SLACK);
+    let len = plan.decode_into(
+        &fsst_array.decompressor(),
+        uncompressed_bytes.spare_capacity_mut(),
+    )?;
+    // SAFETY: `decode_into` initialized the first `len` bytes.
     unsafe { uncompressed_bytes.set_len(len) };
-    Ok((uncompressed_bytes, uncompressed_lens_array))
+    Ok((uncompressed_bytes, plan.lengths))
 }
 
 pub(crate) fn fsst_decode_views(
@@ -106,7 +154,7 @@ mod tests {
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::varbin::VarBinArrayExt;
     use vortex_array::builders::ArrayBuilder;
-    use vortex_array::builders::DynVarBinBuilder;
+    use vortex_array::builders::VarBinBuilder;
     use vortex_array::builders::VarBinViewBuilder;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -212,7 +260,7 @@ mod tests {
 
         {
             let mut builder =
-                DynVarBinBuilder::with_capacity(chunked_arr.dtype().clone(), false, data.len());
+                VarBinBuilder::<i32>::with_capacity(chunked_arr.dtype().clone(), data.len());
             chunked_arr
                 .into_array()
                 .append_to_builder(&mut builder, &mut ctx)?;
@@ -255,10 +303,9 @@ mod tests {
         let input = VarBinViewArray::from_iter_str(["hello"]).into_array();
         let mut ctx = SESSION.create_execution_ctx();
         let encoded = fsst_compress(&input, &fsst_train_compressor(&input, &mut ctx)?, &mut ctx)?;
-        let invalid = FSST::try_new(
+        let invalid = FSST::try_new_with_symbol_table(
             encoded.dtype().clone(),
-            encoded.symbols().clone(),
-            encoded.symbol_lengths().clone(),
+            encoded.symbol_table(),
             encoded.codes(),
             PrimitiveArray::from_iter([4i32]).into_array(),
             &mut ctx,

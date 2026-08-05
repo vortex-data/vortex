@@ -244,6 +244,7 @@ impl TryFrom<&DType> for LogicalType {
             DType::Struct(struct_type, _) => {
                 return LogicalType::try_from(struct_type);
             }
+            DType::Map(..) => vortex_bail!("Vortex Map isn't supported"),
             // TODO(connor): Union
             DType::Union(..) => vortex_bail!("Vortex Union isn't supported"),
             DType::Variant(_) => vortex_bail!("Vortex Variant array aren't supported"),

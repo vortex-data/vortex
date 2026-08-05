@@ -73,9 +73,6 @@ jobs:
         with:
           enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
       - uses: ./.github/actions/system-info
-      - run: |
-          sudo apt-get update
-          sudo apt-get install -y libc6-dbg
       - name: Install Codspeed
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
         with:
@@ -85,7 +82,7 @@ jobs:
           RUSTFLAGS: "-C target-feature=+avx2"
         run: cargo codspeed build ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) --profile bench
       - name: Run benchmarks
-        uses: CodSpeedHQ/action@d872884a306dd4853acf0f584f4b706cf0cc72a2
+        uses: CodSpeedHQ/action@0ca9cbbf4623b599a6c3ed4fc8a922942705d9f1  # v5
         with:
           run: cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
@@ -166,9 +163,6 @@ jobs:
           nvidia-smi
           nvidia-smi -L
           nvidia-smi -q -d Memory
-      - run: |
-          sudo apt-get update
-          sudo apt-get install -y libc6-dbg
       - name: Install Codspeed
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
         with:
@@ -181,7 +175,7 @@ jobs:
       - name: Restore executable permissions
         run: find target/codspeed -type f -exec chmod +x {} +
       - name: Run benchmarks
-        uses: CodSpeedHQ/action@d872884a306dd4853acf0f584f4b706cf0cc72a2
+        uses: CodSpeedHQ/action@0ca9cbbf4623b599a6c3ed4fc8a922942705d9f1  # v5
         env:
           CARGO_MANIFEST_DIR: ${{ github.workspace }}/vortex-cuda
         with:

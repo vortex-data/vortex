@@ -84,8 +84,22 @@ pub struct Union {
     pub nullable: bool,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Map {
+    #[prost(message, optional, boxed, tag = "1")]
+    pub key_type: ::core::option::Option<::prost::alloc::boxed::Box<DType>>,
+    #[prost(message, optional, boxed, tag = "2")]
+    pub value_type: ::core::option::Option<::prost::alloc::boxed::Box<DType>>,
+    #[prost(bool, tag = "3")]
+    pub keys_sorted: bool,
+    #[prost(bool, tag = "4")]
+    pub nullable: bool,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DType {
-    #[prost(oneof = "d_type::DtypeType", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12")]
+    #[prost(
+        oneof = "d_type::DtypeType",
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13"
+    )]
     pub dtype_type: ::core::option::Option<d_type::DtypeType>,
 }
 /// Nested message and enum types in `DType`.
@@ -117,6 +131,8 @@ pub mod d_type {
         Variant(super::Variant),
         #[prost(message, tag = "12")]
         Union(super::Union),
+        #[prost(message, tag = "13")]
+        Map(::prost::alloc::boxed::Box<super::Map>),
     }
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]

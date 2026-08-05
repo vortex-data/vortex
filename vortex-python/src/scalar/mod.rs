@@ -116,6 +116,9 @@ impl PyScalar {
                 // of "fixed-size" only applies to full arrays, not scalars.
                 Self::with_subclass(py, scalar, PyListScalar)
             }
+            DType::Map(..) => Err(PyValueError::new_err(
+                "Map scalars are not supported in Python",
+            )),
             DType::Struct(..) => Self::with_subclass(py, scalar, PyStructScalar),
             DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
             DType::Variant(_) => Err(PyValueError::new_err(

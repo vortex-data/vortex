@@ -18,6 +18,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
+use vortex_array::expr::BoundExpression;
 use vortex_array::expr::Expression;
 use vortex_array::expr::root;
 use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
@@ -47,7 +48,7 @@ pub(super) struct PruningState {
     aggregate_fns: Arc<[AggregateFnRef]>,
     lazy_children: Arc<LazyReaderChildren>,
     session: VortexSession,
-    pruning_result: LazyLock<DashMap<Expression, Option<SharedPruningResult>>>,
+    pruning_result: LazyLock<DashMap<BoundExpression, Option<SharedPruningResult>>>,
     zone_map: OnceLock<SharedZoneMap>,
     pruning_predicates: LazyLock<Arc<DashMap<Expression, PredicateCache>>>,
 }
@@ -77,45 +78,48 @@ impl PruningState {
         }
     }
 
-    pub(super) fn pruning_mask_future(&self, expr: Expression) -> Option<SharedPruningResult> {
+    pub(super) fn pruning_mask_future(&self, expr: BoundExpression) -> Option<SharedPruningResult> {
         if let Some(result) = self.pruning_result.get(&expr) {
             return result.value().clone();
         }
 
         self.pruning_result
             .entry(expr.clone())
-            .or_insert_with(|| match self.pruning_predicate(expr.clone()) {
-                None => {
-                    trace!(%expr, "no pruning predicate");
-                    None
-                }
-                Some(predicate) => {
-                    trace!(%expr, ?predicate, "constructed pruning predicate");
-                    let zone_map = self.zone_map();
-                    let dynamic_updates = DynamicExprUpdates::new(&expr);
-                    let session = self.session.clone();
+            .or_insert_with(|| {
+                let expr = expr.unbind();
+                match self.pruning_predicate(expr.clone()) {
+                    None => {
+                        trace!(%expr, "no pruning predicate");
+                        None
+                    }
+                    Some(predicate) => {
+                        trace!(%expr, ?predicate, "constructed pruning predicate");
+                        let zone_map = self.zone_map();
+                        let dynamic_updates = DynamicExprUpdates::new(&expr);
+                        let session = self.session.clone();
 
-                    Some(
-                        async move {
-                            let zone_map = zone_map.await?;
-                            let initial_mask =
-                                zone_map.prune(&predicate, &session).map_err(|err| {
-                                    err.with_context(format!(
+                        Some(
+                            async move {
+                                let zone_map = zone_map.await?;
+                                let initial_mask =
+                                    zone_map.prune(&predicate, &session).map_err(|err| {
+                                        err.with_context(format!(
                                         "While evaluating pruning predicate {} (derived from {})",
                                         predicate, expr
                                     ))
-                                })?;
-                            Ok(Arc::new(PruningResult {
-                                zone_map,
-                                predicate,
-                                dynamic_updates,
-                                latest_result: RwLock::new((0, initial_mask)),
-                                session,
-                            }))
-                        }
-                        .boxed()
-                        .shared(),
-                    )
+                                    })?;
+                                Ok(Arc::new(PruningResult {
+                                    zone_map,
+                                    predicate,
+                                    dynamic_updates,
+                                    latest_result: RwLock::new((0, initial_mask)),
+                                    session,
+                                }))
+                            }
+                            .boxed()
+                            .shared(),
+                        )
+                    }
                 }
             })
             .clone()
@@ -139,13 +143,17 @@ impl PruningState {
         self.zone_map
             .get_or_init(move || {
                 let zone_count = self.zone_count;
-                let zones_eval = self
+                let zones_reader = self
                     .lazy_children
                     .get(1)
-                    .vortex_expect("failed to get zone child")
+                    .vortex_expect("failed to get zone child");
+                let root = root()
+                    .bind(zones_reader.dtype())
+                    .vortex_expect("root must bind against the zone-map dtype");
+                let zones_eval = zones_reader
                     .projection_evaluation(
                         &(0..zone_count as u64),
-                        &root(),
+                        &root,
                         MaskFuture::new_true(zone_count),
                     )
                     .vortex_expect("Failed construct zone map evaluation");

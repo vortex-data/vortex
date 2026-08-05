@@ -21,6 +21,7 @@ use vortex_session::VortexSession;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::FieldDType;
+use crate::dtype::MapDType;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
 use crate::dtype::UnionVariants;
@@ -128,6 +129,32 @@ impl UnionVariants {
     }
 }
 
+impl MapDType {
+    /// Creates a map dtype from a flatbuffer-defined object and its underlying buffer.
+    fn from_fb(
+        fb_map: fbd::Map<'_>,
+        buffer: FlatBuffer,
+        session: VortexSession,
+    ) -> VortexResult<Self> {
+        let key = fb_map
+            .key_type()
+            .ok_or_else(|| vortex_err!("failed to parse map key type from flatbuffer"))?;
+        let value = fb_map
+            .value_type()
+            .ok_or_else(|| vortex_err!("failed to parse map value type from flatbuffer"))?;
+
+        MapDType::try_from_fields(
+            FieldDType::from(ViewedDType::from_fb_loc(
+                key._tab.loc(),
+                buffer.clone(),
+                session.clone(),
+            )),
+            FieldDType::from(ViewedDType::from_fb_loc(value._tab.loc(), buffer, session)),
+            fb_map.keys_sorted(),
+        )
+    }
+}
+
 impl DType {
     /// Create a [`DType`] from a flatbuffer buffer.
     pub fn from_flatbuffer(buffer: FlatBuffer, session: &VortexSession) -> VortexResult<Self> {
@@ -219,6 +246,13 @@ impl TryFrom<ViewedDType> for DType {
                     fb_fixed_size_list.size(),
                     fb_fixed_size_list.nullable().into(),
                 ))
+            }
+            fb::Type::Map => {
+                let fb_map = fb
+                    .type__as_map()
+                    .ok_or_else(|| vortex_err!("failed to parse map from flatbuffer"))?;
+                let map = MapDType::from_fb(fb_map, vfdt.buffer().clone(), vfdt.session.clone())?;
+                Ok(Self::Map(map, fb_map.nullable().into()))
             }
             fb::Type::Struct_ => {
                 let fb_struct = fb
@@ -357,6 +391,20 @@ impl WriteFlatBuffer for DType {
                 )
                 .as_union_value()
             }
+            Self::Map(map, n) => {
+                let key_type = Some(map.key_dtype().write_flatbuffer(fbb)?);
+                let value_type = Some(map.value_dtype().write_flatbuffer(fbb)?);
+                fb::Map::create(
+                    fbb,
+                    &fb::MapArgs {
+                        key_type,
+                        value_type,
+                        keys_sorted: map.keys_sorted(),
+                        nullable: (*n).into(),
+                    },
+                )
+                .as_union_value()
+            }
             Self::Struct(st, n) => {
                 let names = st
                     .names()
@@ -448,6 +496,7 @@ impl WriteFlatBuffer for DType {
             Self::Binary(_) => fb::Type::Binary,
             Self::List(..) => fb::Type::List,
             Self::FixedSizeList(..) => fb::Type::FixedSizeList,
+            Self::Map(..) => fb::Type::Map,
             Self::Struct(..) => fb::Type::Struct_,
             Self::Union(..) => fb::Type::Union,
             Self::Variant(_) => fb::Type::Variant,
@@ -569,6 +618,21 @@ mod test {
             ),
             Nullability::NonNullable,
         ));
+        let inner_map = DType::map(
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            DType::Utf8(Nullability::Nullable),
+            true,
+            Nullability::NonNullable,
+        )
+        .unwrap();
+        let map = DType::map(
+            inner_map,
+            DType::Utf8(Nullability::Nullable),
+            false,
+            Nullability::Nullable,
+        )
+        .unwrap();
+        roundtrip_dtype(DType::struct_([("map", map)], Nullability::NonNullable));
         roundtrip_dtype(DType::Variant(Nullability::Nullable));
     }
 

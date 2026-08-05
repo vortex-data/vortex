@@ -3,6 +3,8 @@
 
 //! FSST (Fast Static Symbol Table) string compression.
 
+use std::sync::Arc;
+
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
@@ -20,6 +22,7 @@ use vortex_error::VortexResult;
 use vortex_fsst::FSST;
 use vortex_fsst::FSSTArrayExt;
 use vortex_fsst::FSSTArraySlotsExt;
+use vortex_fsst::FSSTSymbolTable;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
 
@@ -109,10 +112,14 @@ impl Scheme for FSSTScheme {
             fsst.codes().validity()?,
         )?;
 
-        let fsst = FSST::try_new(
+        // Reuse the padded symbol table as-is; only the codes and lengths change here.
+        let fsst = FSST::try_new_with_symbol_table(
             fsst.dtype().clone(),
-            fsst.symbols().clone(),
-            fsst.symbol_lengths().clone(),
+            Arc::new(FSSTSymbolTable::new_padded(
+                fsst.padded_symbols().clone(),
+                fsst.padded_symbol_lengths().clone(),
+                fsst.n_symbols(),
+            )?),
             compressed_codes,
             compressed_original_lengths,
             exec_ctx,

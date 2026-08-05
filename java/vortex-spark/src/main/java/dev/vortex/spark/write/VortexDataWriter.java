@@ -250,8 +250,16 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
             ListVector listVector = ((ListVector) vector);
             int writtenElements = listVector.getElementEndIndex(listVector.getLastSet());
             listVector.startNewValue(rowIndex);
+            FieldVector elementVector = listVector.getDataVector();
             for (int i = 0; i < data.numElements(); i++) {
-                populateVector(listVector.getDataVector(), arrayType.elementType(), data, i, writtenElements + i);
+                int elementIndex = writtenElements + i;
+                if (data.isNullAt(i)) {
+                    // Reading a null slot of a fixed-width element returns the zeroed slot, and the
+                    // typed setters mark it valid, so a null element must be written explicitly.
+                    elementVector.setNull(elementIndex);
+                } else {
+                    populateVector(elementVector, arrayType.elementType(), data, i, elementIndex);
+                }
             }
             listVector.endValue(rowIndex, data.numElements());
         } else {

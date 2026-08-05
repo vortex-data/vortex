@@ -5,11 +5,7 @@ package dev.vortex.spark.write;
 
 import dev.vortex.jni.NativeFiles;
 import dev.vortex.spark.VortexSparkSession;
-import java.io.IOException;
 import java.io.Serializable;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -137,21 +133,22 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
     /**
      * Aborts the write job due to failures.
      *
-     * <p>This method cleans up any partially written files.
+     * <p>Deletes the files the tasks reported, through the same native filesystem layer the writers used, so that URL
+     * paths ({@code file://}, {@code s3://}) resolve the same way on cleanup as they did on write.
      *
      * @param messages commit messages from write tasks (may include failures)
      */
     @Override
     public void abort(WriterCommitMessage[] messages) {
-        for (String filePath : extractFilePaths(messages)) {
-            try {
-                Path path = Paths.get(filePath);
-                if (Files.exists(path)) {
-                    Files.delete(path);
-                }
-            } catch (IOException e) {
-                log.error("Failed to clean up file: {}", filePath, e);
-            }
+        List<String> filePaths = extractFilePaths(messages);
+        if (filePaths.isEmpty()) {
+            return;
+        }
+        log.warn("Deleting {} file(s) written before the job failed, under {}", filePaths.size(), outputPath);
+        try {
+            NativeFiles.delete(VortexSparkSession.get(options), filePaths.toArray(new String[0]), options);
+        } catch (RuntimeException e) {
+            log.error("Failed to clean up {} file(s) under {}", filePaths.size(), outputPath, e);
         }
     }
 

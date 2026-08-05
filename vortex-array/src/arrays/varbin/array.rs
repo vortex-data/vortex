@@ -25,8 +25,8 @@ use crate::arrays::VarBin;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
-use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
+use crate::dtype::OffsetBuilderPType;
 use crate::legacy_session;
 use crate::match_each_integer_ptype;
 use crate::validity::Validity;
@@ -383,11 +383,11 @@ impl Array<VarBin> {
         dtype: DType,
     ) -> Self {
         let iter = iter.into_iter();
-        let mut builder = VarBinBuilder::<u32>::with_capacity(iter.size_hint().0);
+        let mut builder = VarBinBuilder::<u32>::with_capacity(dtype, iter.size_hint().0);
         for v in iter {
             builder.append(v.as_ref().map(|o| o.as_ref()));
         }
-        builder.finish(dtype)
+        builder.finish_into_varbin()
     }
 
     pub fn from_iter_nonnull<T: AsRef<[u8]>, I: IntoIterator<Item = T>>(
@@ -395,23 +395,23 @@ impl Array<VarBin> {
         dtype: DType,
     ) -> Self {
         let iter = iter.into_iter();
-        let mut builder = VarBinBuilder::<u32>::with_capacity(iter.size_hint().0);
+        let mut builder = VarBinBuilder::<u32>::with_capacity(dtype, iter.size_hint().0);
         for v in iter {
             builder.append_value(v);
         }
-        builder.finish(dtype)
+        builder.finish_into_varbin()
     }
 
     fn from_vec_sized<O, T>(vec: Vec<T>, dtype: DType) -> Self
     where
-        O: IntegerPType,
+        O: OffsetBuilderPType,
         T: AsRef<[u8]>,
     {
-        let mut builder = VarBinBuilder::<O>::with_capacity(vec.len());
+        let mut builder = VarBinBuilder::<O>::with_capacity(dtype, vec.len());
         for v in vec {
             builder.append_value(v.as_ref());
         }
-        builder.finish(dtype)
+        builder.finish_into_varbin()
     }
 
     /// Create from a vector of string slices.

@@ -29,11 +29,11 @@ use crate::arrays::varbinview::array::VarBinViewSlots;
 use crate::arrays::varbinview::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
-use crate::builders::DynVarBinBuilder;
 use crate::builders::VarBinViewBuilder;
 use crate::dtype::DType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
+use crate::match_each_varbin_builder;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 mod kernel;
@@ -249,8 +249,10 @@ impl VTable for VarBinView {
         if let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() {
             return builder.append_varbinview_array(&array.into_owned(), ctx);
         }
-        if let Some(builder) = builder.as_any_mut().downcast_mut::<DynVarBinBuilder>() {
-            return builder.append_varbinview(array, ctx);
+        if let Some(result) =
+            match_each_varbin_builder!(builder, |builder| builder.append_varbinview(array, ctx))
+        {
+            return result;
         }
         vortex_bail!("append_to_builder for VarBinView requires a variable-binary builder")
     }

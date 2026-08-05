@@ -10,11 +10,13 @@ use std::sync::Arc;
 use DType::*;
 use itertools::Itertools;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use super::DType;
 use crate::dtype::FieldDType;
 use crate::dtype::FieldName;
+use crate::dtype::MapDType;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
 use crate::dtype::UnionVariants;
@@ -35,7 +37,7 @@ pub trait NativeDType {
     fn dtype() -> DType;
 }
 
-/// Assert that the size of DType is 16 bytes.
+/// Assert that the size of DType is 24 bytes.
 #[cfg(not(target_arch = "wasm32"))]
 const _: [(); size_of::<DType>()] = [(); 24]; // FIXME(ngates): should we keep this at 16?
 
@@ -65,6 +67,7 @@ impl DType {
             | Binary(null)
             | List(_, null)
             | FixedSizeList(_, _, null)
+            | Map(_, null)
             | Struct(_, null)
             | Union(_, null)
             | Variant(null) => matches!(null, Nullability::Nullable),
@@ -95,6 +98,7 @@ impl DType {
             Binary(_) => Binary(nullability),
             List(edt, _) => List(Arc::clone(edt), nullability),
             FixedSizeList(edt, size, _) => FixedSizeList(Arc::clone(edt), *size, nullability),
+            Map(map, _) => Map(map.clone(), nullability),
             Struct(sf, _) => Struct(sf.clone(), nullability),
             Union(vs, _) => Union(vs.clone(), nullability),
             Variant(_) => Variant(nullability),
@@ -121,6 +125,7 @@ impl DType {
             (FixedSizeList(lhs_dtype, lhs_size, _), FixedSizeList(rhs_dtype, rhs_size, _)) => {
                 lhs_size == rhs_size && lhs_dtype.eq_ignore_nullability(rhs_dtype)
             }
+            (Map(lhs, _), Map(rhs, _)) => lhs.eq_ignore_nullability(rhs),
             (Struct(lhs_dtype, _), Struct(rhs_dtype, _)) => {
                 lhs_dtype.eq_ignore_nullability(rhs_dtype)
             }
@@ -146,6 +151,7 @@ impl DType {
                 element.hash_ignore_nullability(state);
                 size.hash(state);
             }
+            Map(map, _) => map.hash_ignore_nullability(state),
             Struct(fields, _) => fields.hash_ignore_nullability(state),
             Union(variants, _) => variants.hash_ignore_nullability(state),
             Extension(ext) => ext.hash_ignore_nullability(state),
@@ -262,6 +268,11 @@ impl DType {
         matches!(self, FixedSizeList(..))
     }
 
+    /// Check if `self` is a [`DType::Map`].
+    pub fn is_map(&self) -> bool {
+        matches!(self, Map(..))
+    }
+
     /// Check if `self` is a [`DType::Struct`]
     pub fn is_struct(&self) -> bool {
         matches!(self, Struct(_, _))
@@ -286,7 +297,7 @@ impl DType {
     /// recursive type.
     pub fn is_nested(&self) -> bool {
         match self {
-            List(..) | FixedSizeList(..) | Struct(..) | Union(..) | Variant(..) => true,
+            List(..) | FixedSizeList(..) | Map(..) | Struct(..) | Union(..) | Variant(..) => true,
             Extension(ext) => ext.storage_dtype().is_nested(),
             _ => false,
         }
@@ -305,7 +316,7 @@ impl DType {
             Decimal(decimal, _) => {
                 Some(DecimalType::smallest_decimal_value_type(decimal).byte_width())
             }
-            Utf8(_) | Binary(_) | List(..) => None,
+            Utf8(_) | Binary(_) | List(..) | Map(..) => None,
             FixedSizeList(elem_dtype, list_size, _) => {
                 elem_dtype.element_size().map(|s| s * *list_size as usize)
             }
@@ -379,6 +390,24 @@ impl DType {
     pub fn into_fixed_size_list_element_opt(self) -> Option<Arc<DType>> {
         if let FixedSizeList(edt, ..) = self {
             Some(edt)
+        } else {
+            None
+        }
+    }
+
+    /// Get the [`MapDType`] if `self` is a [`DType::Map`], otherwise `None`.
+    pub fn as_map_opt(&self) -> Option<&MapDType> {
+        if let Map(map, _) = self {
+            Some(map)
+        } else {
+            None
+        }
+    }
+
+    /// Owned version of [Self::as_map_opt].
+    pub fn into_map_opt(self) -> Option<MapDType> {
+        if let Map(map, _) = self {
+            Some(map)
         } else {
             None
         }
@@ -488,6 +517,23 @@ impl DType {
         List(Arc::new(dtype.into()), nullability)
     }
 
+    /// Convenience method for creating a [`DType::Map`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the key dtype is nullable.
+    pub fn map(
+        key: impl Into<DType>,
+        value: impl Into<DType>,
+        keys_sorted: bool,
+        nullability: Nullability,
+    ) -> VortexResult<Self> {
+        Ok(Map(
+            MapDType::try_new(key.into(), value.into(), keys_sorted)?,
+            nullability,
+        ))
+    }
+
     /// Convenience method for creating a [`DType::Struct`].
     pub fn struct_<I: IntoIterator<Item = (impl Into<FieldName>, impl Into<FieldDType>)>>(
         iter: I,
@@ -508,6 +554,7 @@ impl Display for DType {
             Binary(null) => write!(f, "binary{null}"),
             List(edt, null) => write!(f, "list({edt}){null}"),
             FixedSizeList(edt, size, null) => write!(f, "fixed_size_list({edt})[{size}]{null}"),
+            Map(map, null) => write!(f, "{map}{null}"),
             Struct(sf, null) => write!(
                 f,
                 "{{{}}}{null}",
@@ -588,6 +635,27 @@ mod tests {
             )?,
             NonNullable,
         );
+
+        assert!(lhs.eq_ignore_nullability(&rhs));
+        assert_eq!(hash_ignore_nullability(&lhs), hash_ignore_nullability(&rhs));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_map_dtype_hash_ignores_entry_nullability() -> VortexResult<()> {
+        let lhs = DType::map(
+            DType::Primitive(PType::I32, NonNullable),
+            DType::Utf8(NonNullable),
+            true,
+            NonNullable,
+        )?;
+        let rhs = DType::map(
+            DType::Primitive(PType::I32, NonNullable),
+            DType::Utf8(Nullable),
+            true,
+            Nullable,
+        )?;
 
         assert!(lhs.eq_ignore_nullability(&rhs));
         assert_eq!(hash_ignore_nullability(&lhs), hash_ignore_nullability(&rhs));

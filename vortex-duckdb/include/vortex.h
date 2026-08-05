@@ -17,7 +17,7 @@
 extern "C" {
 #endif // __cplusplus
 
-extern void duckdb_table_function_to_string(void *bind_data, duckdb_vx_string_map map);
+extern void duckdb_table_function_to_string(const void *bind_data, duckdb_vx_string_map map);
 
 extern
 bool duckdb_table_function_statistics(const void *bind_data,
@@ -56,7 +56,7 @@ void duckdb_table_function_scan(void *global_init_data,
 extern bool duckdb_table_function_pushdown_expression(duckdb_vx_expr expr);
 
 extern
-void duckdb_table_function_cardinality(void *bind_data,
+void duckdb_table_function_cardinality(const void *bind_data,
                                        duckdb_vx_node_statistics *node_stats_out);
 
 extern

@@ -153,6 +153,7 @@ pub fn mask_canonical_array(
         Canonical::Union(_) => {
             todo!("TODO(connor)[Union]: support Union arrays in the mask fuzzer")
         }
+        Canonical::Map(_) => unreachable!("Map arrays are not fuzzed"),
         Canonical::Variant(_) => unreachable!("Variant arrays are not fuzzed"),
     })
 }

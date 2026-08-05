@@ -1227,6 +1227,7 @@ fn test_cast_slice_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
                 opposite,
             )]
         }
+        DType::Map(..) => vec![], /* Map arrays are not materializable until their layout is chosen. */
         DType::Struct(fields, nullability) => {
             let opposite = match nullability {
                 Nullability::NonNullable => Nullability::Nullable,

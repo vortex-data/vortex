@@ -18,6 +18,7 @@ pub(crate) mod stats;
 
 pub use exprs::DefaultExpressionConvertor;
 pub use exprs::ExpressionConvertor;
+pub use exprs::ProcessedProjection;
 
 /// First-party trait for implementing conversion from DataFusion types to Vortex types.
 pub trait FromDataFusion<D: ?Sized>: Sized {

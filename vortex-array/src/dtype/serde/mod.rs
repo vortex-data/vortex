@@ -203,4 +203,31 @@ mod test {
         assert_eq!(deserialized, dtype);
         assert_eq!(deserialized.nullability(), Nullability::Nullable);
     }
+
+    #[test]
+    fn test_serde_nested_map_dtype_json_roundtrip() {
+        let inner_map = DType::map(
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            DType::Utf8(Nullability::Nullable),
+            true,
+            Nullability::NonNullable,
+        )
+        .unwrap();
+        let map = DType::map(
+            inner_map,
+            DType::Utf8(Nullability::Nullable),
+            false,
+            Nullability::Nullable,
+        )
+        .unwrap();
+        let dtype = DType::struct_([("map", map)], Nullability::Nullable);
+
+        let json = serde_json::to_string(&dtype).unwrap();
+        let mut deserializer = serde_json::Deserializer::from_str(&json);
+        let deserialized: DType = DTypeSerde::<DType>::new(&SESSION)
+            .deserialize(&mut deserializer)
+            .unwrap();
+
+        assert_eq!(deserialized, dtype);
+    }
 }

@@ -19,14 +19,16 @@ use vortex_array::arrays::SharedArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::Nullability;
-use vortex_array::expr::Expression;
-use vortex_array::expr::direct_annotations;
-use vortex_array::expr::is_root;
-use vortex_array::expr::label_tree;
-use vortex_array::expr::pack;
+use vortex_array::expr::BoundExpression;
+use vortex_array::expr::ExactBoundExpr;
+use vortex_array::expr::direct_bound_annotations;
+use vortex_array::expr::label_bound_tree;
 use vortex_array::expr::root;
-use vortex_array::expr::transform::partition_annotations;
+use vortex_array::expr::transform::partition_bound_annotations;
 use vortex_array::optimizer::ArrayOptimizer;
+use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_array::scalar_fn::fns::pack::Pack;
+use vortex_array::scalar_fn::fns::pack::PackOptions;
 use vortex_array::scalar_fn::is_negative_cost;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
@@ -53,7 +55,7 @@ pub struct DictReader {
     /// Cached dict values array
     values_array: OnceLock<SharedArrayFuture>,
     /// Cache of expression evaluation results on the values array by expression
-    values_evals: DashMap<Expression, SharedArrayFuture>,
+    values_evals: DashMap<BoundExpression, SharedArrayFuture>,
 
     values: LayoutReaderRef,
     codes: LayoutReaderRef,
@@ -103,12 +105,15 @@ impl DictReader {
         // We capture the name, so it may be wrong if we re-use the same reader within multiple
         // different parent readers. But that's rare...
         let values_len = self.values_len;
+        let root = root()
+            .bind(self.values.dtype())
+            .vortex_expect("root must bind against the dictionary values dtype");
         self.values_array
             .get_or_init(move || {
                 self.values
                     .projection_evaluation(
                         &(0..values_len as u64),
-                        &root(),
+                        &root,
                         MaskFuture::new_true(values_len),
                     )
                     .vortex_expect("must construct dict values array evaluation")
@@ -125,11 +130,14 @@ impl DictReader {
         // We capture the name, so it may be wrong if we re-use the same reader within multiple
         // different parent readers. But that's rare...
         let values_len = self.values_len;
+        let root = root()
+            .bind(self.values.dtype())
+            .vortex_expect("root must bind against the dictionary values dtype");
         self.values_array.get().cloned().unwrap_or_else(|| {
             self.values
                 .projection_evaluation(
                     &(0..values_len as u64),
-                    &root(),
+                    &root,
                     MaskFuture::new_true(values_len),
                 )
                 .vortex_expect("must construct dict values array evaluation")
@@ -139,7 +147,7 @@ impl DictReader {
         })
     }
 
-    fn values_eval(&self, expr: Expression) -> SharedArrayFuture {
+    fn values_eval(&self, expr: BoundExpression) -> SharedArrayFuture {
         // This is unsound since we cannot be sure that all the values are referenced in the query
         // after applying the filter, so if the expression is fallible this might fail when it
         // shouldn't.
@@ -155,7 +163,7 @@ impl DictReader {
             .or_insert_with(|| {
                 self.values_array_uncanonical()
                     .map(move |array| {
-                        let array = array?.apply(&expr)?;
+                        let array = array?.apply_bound(&expr)?;
                         Ok(SharedArray::new(array).into_array())
                     })
                     .boxed()
@@ -178,23 +186,29 @@ const PUSHDOWN_ANNOTATION: &str = "";
 /// We want to push to the array only if the expression has a negative cost, is infallible, and is
 /// strict. Strictness ensures dictionary null codes still force a null result after pushdown.
 fn split_expression_for_pushdown(
-    expr: Expression,
-    dtype: &DType,
-) -> VortexResult<(Expression, Option<Expression>)> {
-    let references_root = label_tree(&expr, is_root, |acc, &child| acc | child);
-    let annotations = direct_annotations(&expr, |expr| {
-        let signature = expr.signature();
+    expr: &BoundExpression,
+) -> VortexResult<(BoundExpression, Option<BoundExpression>)> {
+    let references_root =
+        label_bound_tree(expr, BoundExpression::is_root, |acc, &child| acc | child);
+    let annotations = direct_bound_annotations(expr, |expr: &BoundExpression| {
+        let Some(scalar_fn) = expr.as_scalar() else {
+            return vec![];
+        };
+        let signature = scalar_fn.signature();
         if !signature.is_fallible()
             && signature.is_strict()
-            && is_negative_cost(expr.id())
-            && references_root.get(&expr).copied().unwrap_or(true)
+            && is_negative_cost(scalar_fn.id())
+            && references_root
+                .get(&ExactBoundExpr(expr.clone()))
+                .copied()
+                .unwrap_or(true)
         {
             vec![PUSHDOWN_ANNOTATION]
         } else {
             vec![]
         }
     });
-    let partition = partition_annotations(expr.clone(), dtype, annotations)?;
+    let partition = partition_bound_annotations(expr.clone(), annotations)?;
     if partition.partitions.is_empty() {
         Ok((partition.root, None))
     } else {
@@ -228,7 +242,7 @@ impl LayoutReader for DictReader {
     fn pruning_evaluation(
         &self,
         _row_range: &Range<u64>,
-        _expr: &Expression,
+        _expr: &BoundExpression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         // NOTE: we can get the values here, convert expression to the codes domain, and push down
@@ -241,7 +255,7 @@ impl LayoutReader for DictReader {
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         // TODO(joe): fix up expr partitioning with fallibility and strictness annotations
@@ -250,11 +264,10 @@ impl LayoutReader for DictReader {
         // We register interest on the entire codes row_range for now, there
         // is no straightforward shift into the codes domain we can do to the expression
         // without reading values.
-        let codes_eval = self.codes.projection_evaluation(
-            row_range,
-            &root(),
-            MaskFuture::new_true(mask.len()),
-        )?;
+        let root = root().bind(self.codes.dtype())?;
+        let codes_eval =
+            self.codes
+                .projection_evaluation(row_range, &root, MaskFuture::new_true(mask.len()))?;
 
         let session = self.session.clone();
 
@@ -273,36 +286,44 @@ impl LayoutReader for DictReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpression,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         // TODO: fix up expr partitioning with fallibility and strictness annotations
+        let codes_root = root().bind(self.codes.dtype())?;
         let codes_eval = self
             .codes
-            .projection_evaluation(row_range, &root(), mask)
+            .projection_evaluation(row_range, &codes_root, mask)
             .map_err(|err| err.with_context("While evaluating projection on codes"))?;
 
-        let (expr_outer, expr_inner) = split_expression_for_pushdown(expr.clone(), self.dtype())?;
+        let (expr_outer, expr_inner) = split_expression_for_pushdown(expr)?;
 
         let values_eval = if let Some(inner) = expr_inner {
             // "outer" takes a struct field with PUSHDOWN_ANNOTATION name, so
             // pack inner with this name as well
-            let inner = pack([(PUSHDOWN_ANNOTATION, inner)], Nullability::NonNullable);
+            let inner = BoundExpression::try_new(
+                Pack.bind(PackOptions {
+                    names: [PUSHDOWN_ANNOTATION].into(),
+                    nullability: Nullability::NonNullable,
+                }),
+                [inner],
+            )?;
 
             // We can't use values_eval as it uses values_array_uncanonical
             // which in turn gets populated from self.values. If
             // self.values_array() is called first, it will populate
             // self.values with uncompressed data. Supply uncached data
             let values_len = self.values_len;
+            let values_root = root().bind(self.values.dtype())?;
             self.values
                 .projection_evaluation(
                     &(0..values_len as u64),
-                    &root(),
+                    &values_root,
                     MaskFuture::new_true(values_len),
                 )
                 .vortex_expect("must construct dict values array evaluation")
                 .map_err(Arc::new)
-                .map(move |array| Ok(SharedArray::new(array?.apply(&inner)?).into_array()))
+                .map(move |array| Ok(SharedArray::new(array?.apply_bound(&inner)?).into_array()))
                 .boxed()
                 .shared()
         } else {
@@ -324,7 +345,7 @@ impl LayoutReader for DictReader {
             .into_array()
             .optimize()?;
 
-            array.apply(&expr_outer)
+            array.apply_bound(&expr_outer)
         }
         .boxed())
     }
@@ -483,9 +504,11 @@ mod tests {
                 Nullability::NonNullable,
             );
             assert!(layout.encoding_id() == LayoutId::new("vortex.dict"));
-            let actual = layout
+            let reader = layout
                 .new_reader("".into(), segments, &session, &Default::default())
-                .unwrap()
+                .unwrap();
+            let expression = expression.bind(reader.dtype()).unwrap();
+            let actual = reader
                 .projection_evaluation(
                     &(0..layout.row_count()),
                     &expression,
@@ -569,9 +592,11 @@ mod tests {
                     Nullability::Nullable,
                 )),
             );
-            let mask = layout
+            let reader = layout
                 .new_reader("".into(), segments, &session, &Default::default())
-                .unwrap()
+                .unwrap();
+            let filter = filter.bind(reader.dtype()).unwrap();
+            let mask = reader
                 .filter_evaluation(&(0..3), &filter, MaskFuture::new_true(3))
                 .unwrap()
                 .await
@@ -632,9 +657,11 @@ mod tests {
 
             let expression = is_not_null(root());
             assert_eq!(layout.encoding_id(), LayoutId::new("vortex.dict"));
-            let actual = layout
+            let reader = layout
                 .new_reader("".into(), segments, &session, &Default::default())
-                .unwrap()
+                .unwrap();
+            let expression = expression.bind(reader.dtype()).unwrap();
+            let actual = reader
                 .projection_evaluation(
                     &(0..layout.row_count()),
                     &expression,
@@ -687,12 +714,14 @@ mod tests {
             let mut ctx = session.create_execution_ctx();
             let (layout, segments) = write_dict_layout(array, &session).await;
             assert_eq!(layout.encoding_id(), LayoutId::new("vortex.dict"));
-            let actual = layout
+            let reader = layout
                 .new_reader("".into(), segments, &session, &Default::default())
-                .unwrap()
+                .unwrap();
+            let expression = byte_length(root()).bind(reader.dtype()).unwrap();
+            let actual = reader
                 .projection_evaluation(
                     &(0..layout.row_count()),
-                    &byte_length(root()),
+                    &expression,
                     MaskFuture::new_true(layout.row_count().try_into().unwrap()),
                 )
                 .unwrap()
@@ -735,9 +764,18 @@ mod tests {
         Ok(())
     }
 
+    fn split_unbound(
+        expr: Expression,
+        dtype: &DType,
+    ) -> VortexResult<(Expression, Option<Expression>)> {
+        let bound = expr.bind(dtype)?;
+        let (outer, inner) = split_expression_for_pushdown(&bound)?;
+        Ok((outer.unbind(), inner.map(|expr| expr.unbind())))
+    }
+
     #[test]
     fn split_expr_root() {
-        let (outer, inner) = split_expression_for_pushdown(root(), &DType::Null).unwrap();
+        let (outer, inner) = split_unbound(root(), &DType::Null).unwrap();
         assert_eq!(outer, root());
         assert_eq!(inner, None);
     }
@@ -747,8 +785,7 @@ mod tests {
         // cast is fallible, thus not pushed
         let target = DType::Primitive(PType::I64, Nullability::Nullable);
         let expr = cast(byte_length(root()), target.clone());
-        let (outer, inner) =
-            split_expression_for_pushdown(expr.clone(), &DType::Utf8(false.into()))?;
+        let (outer, inner) = split_unbound(expr.clone(), &DType::Utf8(false.into()))?;
         let inner = inner.unwrap();
         // [0] = cast([1], dtype)
         // [1] = byte_length(root)
@@ -760,8 +797,7 @@ mod tests {
     #[test]
     fn split_expr_full_pushdown() -> VortexResult<()> {
         let expr = byte_length(root());
-        let (outer, inner) =
-            split_expression_for_pushdown(expr.clone(), &DType::Utf8(false.into()))?;
+        let (outer, inner) = split_unbound(expr.clone(), &DType::Utf8(false.into()))?;
         let inner = inner.unwrap();
         assert_eq!(outer, pushed_ref(0));
         assert_eq!(inner, pushed_inner([byte_length(root())]));
@@ -771,9 +807,8 @@ mod tests {
     #[test]
     fn split_expr_no_pushdown() {
         // like is fallible, thus not pushed. lit() does not reference root()
-        let expr = like(root(), lit(1u64));
-        let (outer, inner) =
-            split_expression_for_pushdown(expr.clone(), &DType::Utf8(true.into())).unwrap();
+        let expr = like(root(), lit("abc"));
+        let (outer, inner) = split_unbound(expr.clone(), &DType::Utf8(true.into())).unwrap();
         assert_eq!(outer, expr);
         assert_eq!(inner, None);
     }

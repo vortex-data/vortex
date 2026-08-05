@@ -631,6 +631,9 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
                     .collect();
                 Scalar::fixed_size_list(Arc::clone(element_dtype), elements, *n)
             }
+            DType::Map(..) => {
+                panic!("map builders are not supported until MapArray exists")
+            }
             DType::Struct(fields, n) => {
                 // Create struct scalars with field values.
                 let field_values: Vec<Scalar> = fields

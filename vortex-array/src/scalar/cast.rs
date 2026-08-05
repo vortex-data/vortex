@@ -57,6 +57,7 @@ impl Scalar {
             DType::Utf8(_) => self.as_utf8().cast(target_dtype),
             DType::Binary(_) => self.as_binary().cast(target_dtype),
             DType::List(..) | DType::FixedSizeList(..) => self.as_list().cast(target_dtype),
+            DType::Map(..) => self.as_map().cast(target_dtype),
             DType::Struct(..) => self.as_struct().cast(target_dtype),
             DType::Union(..) => vortex_bail!(
                 "union scalar cast from {} to {target_dtype} is not supported (yet)",

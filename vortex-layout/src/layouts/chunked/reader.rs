@@ -18,7 +18,7 @@ use vortex_array::MaskFuture;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
-use vortex_array::expr::Expression;
+use vortex_array::expr::BoundExpression;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -213,7 +213,7 @@ impl LayoutReader for ChunkedReader {
     fn pruning_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         if row_range.is_empty() {
@@ -259,7 +259,7 @@ impl LayoutReader for ChunkedReader {
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         if row_range.is_empty() {
@@ -298,14 +298,11 @@ impl LayoutReader for ChunkedReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpression,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         if row_range.is_empty() {
-            return Ok(future::ready(Ok(
-                Canonical::empty(&expr.return_dtype(self.dtype())?).into_array()
-            ))
-            .boxed());
+            return Ok(future::ready(Ok(Canonical::empty(expr.dtype()).into_array())).boxed());
         }
 
         let mut chunk_evals = vec![];
@@ -473,12 +470,14 @@ mod test {
     ) {
         block_on(|_h| async {
             let mut ctx = SESSION.create_execution_ctx();
-            let result = layout
+            let reader = layout
                 .new_reader("".into(), segments, &SESSION, &Default::default())
-                .unwrap()
+                .unwrap();
+            let expr = root().bind(reader.dtype()).unwrap();
+            let result = reader
                 .projection_evaluation(
                     &(0..layout.row_count()),
-                    &root(),
+                    &expr,
                     MaskFuture::new_true(usize::try_from(layout.row_count()).unwrap()),
                 )
                 .unwrap()

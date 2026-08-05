@@ -230,7 +230,7 @@ mod tests {
         const N: usize = 9000;
         const LEN: usize = 1000;
         // The final offset is (N - 1) * LEN, which must exceed 2^23 to be a meaningful check.
-        const _: () = assert!((N - 1) * LEN > (1 << 23));
+        const { assert!((N - 1) * LEN > (1 << 23)) };
 
         let values: Vec<Vec<u8>> = (0..N)
             .map(|i| {

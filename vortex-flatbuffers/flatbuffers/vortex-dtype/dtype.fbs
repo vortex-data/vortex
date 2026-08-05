@@ -74,6 +74,13 @@ table Union {
     nullable: bool;
 }
 
+table Map {
+    key_type: DType;
+    value_type: DType;
+    keys_sorted: bool;
+    nullable: bool;
+}
+
 union Type {
     Null = 1,
     Bool = 2,
@@ -87,6 +94,7 @@ union Type {
     FixedSizeList = 10, // This is after `Extension` for backwards compatibility.
     Variant = 11,
     Union = 12,
+    Map = 13,
 }
 
 table DType {

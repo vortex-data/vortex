@@ -125,6 +125,9 @@ impl TryToDataFusion<ScalarValue> for Scalar {
             dtype @ DType::FixedSizeList(..) => vortex_bail!(
                 "cannot convert Vortex scalar dtype {dtype} to DataFusion ScalarValue: unsupported scalar type"
             ),
+            dtype @ DType::Map(..) => vortex_bail!(
+                "cannot convert Vortex scalar dtype {dtype} to DataFusion ScalarValue: unsupported scalar type"
+            ),
             DType::Struct(..) => struct_to_df(self)?,
             dtype @ DType::Union(..) => vortex_bail!(
                 "cannot convert Vortex scalar dtype {dtype} to DataFusion ScalarValue: unsupported scalar type"

@@ -23,13 +23,13 @@ use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::arrays::listview::list_from_list_view;
 use vortex_array::arrays::masked::MaskedArraySlotsExt;
-use vortex_array::arrays::scalar_fn::AnyScalarFn;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::arrays::union::UnionArrayExt;
 use vortex_array::arrays::union::UnionArraySlotsExt;
 use vortex_array::arrays::variant::VariantArraySlotsExt;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use super::CascadingCompressor;
 use super::constant;
@@ -154,6 +154,7 @@ impl CascadingCompressor {
                     self.compress_list_view_array(list_view_array, compress_ctx, exec_ctx)
                 }
             }
+            Canonical::Map(_) => vortex_bail!("Map arrays are not yet supported by the compressor"),
             Canonical::FixedSizeList(fsl_array) => {
                 let compressed_elems = self.compress(fsl_array.elements(), exec_ctx)?;
 
@@ -175,10 +176,6 @@ impl CascadingCompressor {
                     compress_ctx,
                     exec_ctx,
                 )?;
-                // TODO(connor): HACK TO SUPPORT L2 DENORMALIZATION!!!
-                if scheme_compressed.is::<AnyScalarFn>() {
-                    return Ok(scheme_compressed);
-                }
 
                 // A constant extension array (that might be masked) is already in its terminal
                 // representation, and compressing the storage separately cannot do better.
@@ -321,8 +318,7 @@ impl CascadingCompressor {
         let after_nbytes = compressed.nbytes();
         let actual_ratio = (after_nbytes != 0).then(|| before_nbytes as f64 / after_nbytes as f64);
 
-        // TODO(connor): HACK TO SUPPORT L2 DENORMALIZATION!!!
-        let accepted = after_nbytes < before_nbytes || compressed.is::<AnyScalarFn>();
+        let accepted = after_nbytes < before_nbytes;
 
         trace::record_winner_compress_result(
             after_nbytes,

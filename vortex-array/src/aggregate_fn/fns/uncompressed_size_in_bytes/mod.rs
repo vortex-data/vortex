@@ -45,6 +45,7 @@ use crate::aggregate_fn::EmptyOptions;
 use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
+use crate::arrays::map::MapArrayExt;
 use crate::arrays::varbinview::BinaryView;
 use crate::dtype::DType;
 use crate::dtype::DecimalType;
@@ -199,6 +200,9 @@ pub(crate) fn canonical_uncompressed_size_in_bytes(
         Canonical::Decimal(array) => decimal_uncompressed_size_in_bytes(array, ctx),
         Canonical::VarBinView(array) => varbinview_uncompressed_size_in_bytes(array, ctx),
         Canonical::List(array) => list_view_uncompressed_size_in_bytes(array, ctx),
+        Canonical::Map(array) => {
+            list_view_uncompressed_size_in_bytes(&array.entries().into_owned(), ctx)
+        }
         Canonical::FixedSizeList(array) => fixed_size_list_uncompressed_size_in_bytes(array, ctx),
         Canonical::Struct(array) => struct_uncompressed_size_in_bytes(array, ctx),
         Canonical::Union(array) => union_uncompressed_size_in_bytes(array, ctx),
@@ -232,7 +236,11 @@ pub(crate) fn constant_uncompressed_size_in_bytes(
             array.len(),
             array.scalar().as_binary().value().map(|value| value.len()),
         )?,
-        DType::List(..) | DType::FixedSizeList(..) | DType::Struct(..) | DType::Extension(_) => {
+        DType::List(..)
+        | DType::Map(..)
+        | DType::FixedSizeList(..)
+        | DType::Struct(..)
+        | DType::Extension(_) => {
             let canonical = array.array().clone().execute::<Canonical>(ctx)?;
             return canonical_uncompressed_size_in_bytes(&canonical, ctx);
         }
@@ -293,6 +301,10 @@ fn supports_uncompressed_size_in_bytes(dtype: &DType) -> bool {
         | DType::Binary(_) => true,
         DType::List(element_dtype, _) | DType::FixedSizeList(element_dtype, ..) => {
             supports_uncompressed_size_in_bytes(element_dtype)
+        }
+        DType::Map(map_dtype, _) => {
+            supports_uncompressed_size_in_bytes(&map_dtype.key_dtype())
+                && supports_uncompressed_size_in_bytes(&map_dtype.value_dtype())
         }
         DType::Struct(fields, _) => fields
             .fields()

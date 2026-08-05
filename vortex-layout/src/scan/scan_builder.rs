@@ -16,6 +16,7 @@ use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
+use vortex_array::expr::BoundExpression;
 use vortex_array::expr::Expression;
 use vortex_array::expr::analysis::referenced_field_paths;
 use vortex_array::expr::root;
@@ -290,9 +291,14 @@ impl<A: 'static + Send> ScanBuilder<A> {
             .map(|f| f.optimize_recursive(layout_reader.dtype()))
             .transpose()?;
 
+        let bound_projection = projection.bind(layout_reader.dtype())?;
+        let bound_filter = filter
+            .as_ref()
+            .map(|expr| expr.bind(layout_reader.dtype()))
+            .transpose()?;
+
         // Construct field masks and compute the row splits of the scan.
-        let field_mask =
-            referenced_field_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
+        let field_mask = referenced_field_masks(&bound_projection, bound_filter.as_ref())?;
 
         let splits =
             if let Some(ranges) = attempt_split_ranges(&self.selection, self.row_range.as_ref()) {
@@ -312,8 +318,8 @@ impl<A: 'static + Send> ScanBuilder<A> {
         Ok(RepeatedScan::new(
             self.session.clone(),
             layout_reader,
-            projection,
-            filter,
+            bound_projection,
+            bound_filter,
             self.ordered,
             self.row_range,
             self.selection,
@@ -433,21 +439,25 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
 
 /// Compute masks of field paths referenced by the projection and filter in the scan.
 ///
-/// Projection and filter must be pre-simplified.
+/// Projection and filter must be pre-simplified and bound against the scan dtype.
 pub fn referenced_field_masks(
-    projection: &Expression,
-    filter: Option<&Expression>,
-    dtype: &DType,
+    projection: &BoundExpression,
+    filter: Option<&BoundExpression>,
 ) -> VortexResult<Vec<FieldMask>> {
-    if dtype.as_struct_fields_opt().is_none() {
-        return Ok(vec![FieldMask::All]);
-    }
-
-    let mut field_paths = referenced_field_paths(projection, dtype)?;
+    let mut field_paths = referenced_field_paths(projection)?;
     if let Some(filter) = filter {
-        field_paths.extend(referenced_field_paths(filter, dtype)?);
+        field_paths.extend(referenced_field_paths(filter)?);
     }
-    Ok(field_paths.into_iter().map(FieldMask::Prefix).collect_vec())
+    Ok(field_paths
+        .into_iter()
+        .map(|path| {
+            if path.is_root() {
+                FieldMask::All
+            } else {
+                FieldMask::Prefix(path)
+            }
+        })
+        .collect_vec())
 }
 
 #[cfg(test)]
@@ -476,7 +486,7 @@ mod test {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
-    use vortex_array::expr::Expression;
+    use vortex_array::expr::BoundExpression;
     use vortex_array::expr::eq;
     use vortex_array::expr::get_item;
     use vortex_array::expr::is_not_null;
@@ -517,11 +527,21 @@ mod test {
     }
 
     #[test]
-    fn nested_projection_preserves_field_path_in_split_mask() -> VortexResult<()> {
-        let projection = get_item("1", get_item("a", root()));
-        let filter = eq(get_item("2", get_item("a", root())), lit(0_i32));
+    fn root_projection_produces_all_mask() -> VortexResult<()> {
+        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let projection = root().bind(&dtype)?;
 
-        let field_masks = referenced_field_masks(&projection, Some(&filter), &nested_dtype())?;
+        assert_eq!(referenced_field_masks(&projection, None)?, [FieldMask::All]);
+        Ok(())
+    }
+
+    #[test]
+    fn nested_projection_preserves_field_path_in_split_mask() -> VortexResult<()> {
+        let dtype = nested_dtype();
+        let projection = get_item("1", get_item("a", root())).bind(&dtype)?;
+        let filter = eq(get_item("2", get_item("a", root())), lit(0_i32)).bind(&dtype)?;
+
+        let field_masks = referenced_field_masks(&projection, Some(&filter))?;
 
         assert_eq!(field_masks.len(), 2);
         assert!(field_masks.contains(&FieldMask::Prefix(FieldPath::from_name("a").push("1"))));
@@ -531,10 +551,11 @@ mod test {
 
     #[test]
     fn filter_path_covers_nested_projection_path() -> VortexResult<()> {
-        let projection = get_item("1", get_item("a", root()));
-        let filter = is_not_null(get_item("a", root()));
+        let dtype = nested_dtype();
+        let projection = get_item("1", get_item("a", root())).bind(&dtype)?;
+        let filter = is_not_null(get_item("a", root())).bind(&dtype)?;
 
-        let field_masks = referenced_field_masks(&projection, Some(&filter), &nested_dtype())?;
+        let field_masks = referenced_field_masks(&projection, Some(&filter))?;
 
         assert_eq!(field_masks, [FieldMask::Prefix(FieldPath::from_name("a"))]);
         Ok(())
@@ -542,10 +563,11 @@ mod test {
 
     #[test]
     fn parent_projection_path_covers_nested_filter_path() -> VortexResult<()> {
-        let projection = get_item("a", root());
-        let filter = is_not_null(get_item("1", get_item("a", root())));
+        let dtype = nested_dtype();
+        let projection = get_item("a", root()).bind(&dtype)?;
+        let filter = is_not_null(get_item("1", get_item("a", root()))).bind(&dtype)?;
 
-        let field_masks = referenced_field_masks(&projection, Some(&filter), &nested_dtype())?;
+        let field_masks = referenced_field_masks(&projection, Some(&filter))?;
 
         assert_eq!(field_masks, [FieldMask::Prefix(FieldPath::from_name("a"))]);
         Ok(())
@@ -597,7 +619,7 @@ mod test {
         fn pruning_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &Expression,
+            _expr: &BoundExpression,
             _mask: Mask,
         ) -> VortexResult<MaskFuture> {
             unimplemented!("not needed for this test");
@@ -606,7 +628,7 @@ mod test {
         fn filter_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &Expression,
+            _expr: &BoundExpression,
             _mask: MaskFuture,
         ) -> VortexResult<MaskFuture> {
             unimplemented!("not needed for this test");
@@ -615,7 +637,7 @@ mod test {
         fn projection_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &Expression,
+            _expr: &BoundExpression,
             _mask: MaskFuture,
         ) -> VortexResult<ArrayFuture> {
             Ok(Box::pin(async move {
@@ -688,7 +710,7 @@ mod test {
         fn pruning_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &Expression,
+            _expr: &BoundExpression,
             mask: Mask,
         ) -> VortexResult<MaskFuture> {
             Ok(MaskFuture::ready(mask))
@@ -697,7 +719,7 @@ mod test {
         fn filter_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &Expression,
+            _expr: &BoundExpression,
             mask: MaskFuture,
         ) -> VortexResult<MaskFuture> {
             Ok(mask)
@@ -706,7 +728,7 @@ mod test {
         fn projection_evaluation(
             &self,
             row_range: &Range<u64>,
-            _expr: &Expression,
+            _expr: &BoundExpression,
             _mask: MaskFuture,
         ) -> VortexResult<ArrayFuture> {
             let start = usize::try_from(row_range.start)
@@ -800,7 +822,7 @@ mod test {
         fn pruning_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &Expression,
+            _expr: &BoundExpression,
             _mask: Mask,
         ) -> VortexResult<MaskFuture> {
             unimplemented!("not needed for this test");
@@ -809,7 +831,7 @@ mod test {
         fn filter_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &Expression,
+            _expr: &BoundExpression,
             _mask: MaskFuture,
         ) -> VortexResult<MaskFuture> {
             unimplemented!("not needed for this test");
@@ -818,7 +840,7 @@ mod test {
         fn projection_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &Expression,
+            _expr: &BoundExpression,
             _mask: MaskFuture,
         ) -> VortexResult<ArrayFuture> {
             Ok(Box::pin(async move {

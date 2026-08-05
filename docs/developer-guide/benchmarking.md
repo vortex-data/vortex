@@ -119,10 +119,20 @@ const VECTOR_SIZE: &[usize] = &[16, 256, 2048, 8192];
 fn my_bench<const N: usize>(bencher: Bencher, num_indices: usize) { ... }
 ```
 
-### Keep per-iteration execution time under ~1 ms
+### Keep per-iteration execution time under 1 ms
 
-Each individual iteration of the benchmarked closure should complete in
-**less than 1ms**. This is to keep benchmarks snappy, locally and on CI.
+**1 ms is the maximum, not a soft target.** Each individual iteration of the benchmarked
+closure must complete in less than 1 ms. This is to keep benchmarks snappy, locally and on
+CI.
+
+A benchmark that needs longer than that is measuring too much work at once. Shrink the
+input size until a single iteration fits, split it into smaller parameterized cases, or
+gate it with `#[cfg(not(codspeed))]` if it genuinely cannot be made to fit.
+
+The number to check against the budget is the per-iteration time, not the time the whole
+benchmark binary takes. CodSpeed reports exactly that: its performance report on a pull
+request lists the per-iteration time under `HEAD` for every benchmark the pull request adds
+or changes, so check any new benchmark there before merging.
 
 ### Gate CodSpeed-incompatible benchmarks
 

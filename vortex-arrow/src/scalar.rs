@@ -7,6 +7,10 @@ use std::sync::Arc;
 
 use arrow_array::Scalar as ArrowScalar;
 use arrow_array::*;
+use arrow_buffer::NullBuffer;
+use arrow_buffer::OffsetBuffer;
+use arrow_schema::Field;
+use arrow_schema::Fields;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::extension::datetime::AnyTemporal;
@@ -17,12 +21,15 @@ use vortex_array::scalar::BoolScalar;
 use vortex_array::scalar::DecimalScalar;
 use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::ExtScalar;
+use vortex_array::scalar::MapScalar;
 use vortex_array::scalar::PrimitiveScalar;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::Utf8Scalar;
 use vortex_error::VortexError;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+
+use crate::dtype::to_data_type_naive;
 
 /// Arrow represents scalars as single-element arrays. This constant is the length of those arrays.
 const SCALAR_ARRAY_LEN: usize = 1;
@@ -70,6 +77,7 @@ impl ToArrowDatum for Scalar {
             DType::Binary(_) => binary_to_arrow(value.as_binary()),
             DType::List(..) => unimplemented!("list scalar conversion"),
             DType::FixedSizeList(..) => unimplemented!("fixed-size list scalar conversion"),
+            DType::Map(..) => map_to_arrow(value.as_map()),
             DType::Struct(..) => unimplemented!("struct scalar conversion"),
             DType::Union(..) => unimplemented!("union scalar conversion"),
             DType::Variant(_) => unimplemented!("Variant scalar conversion"),
@@ -124,6 +132,69 @@ fn utf8_to_arrow(scalar: Utf8Scalar<'_>) -> Result<Arc<dyn Datum>, VortexError> 
 /// Convert a [`BinaryScalar`] to an Arrow [`Datum`].
 fn binary_to_arrow(scalar: BinaryScalar<'_>) -> Result<Arc<dyn Datum>, VortexError> {
     value_to_arrow_scalar!(scalar.value(), BinaryViewArray)
+}
+
+/// Convert a [`MapScalar`] to an Arrow [`Datum`].
+fn map_to_arrow(scalar: MapScalar<'_>) -> Result<Arc<dyn Datum>, VortexError> {
+    let map_dtype = scalar.map_dtype();
+    let key_dtype = map_dtype.key_dtype();
+    let value_dtype = map_dtype.value_dtype();
+    let key_field = Field::new("key", to_data_type_naive(&key_dtype)?, false);
+    let value_field = Field::new(
+        "value",
+        to_data_type_naive(&value_dtype)?,
+        value_dtype.is_nullable(),
+    );
+    let fields = Fields::from(vec![key_field, value_field]);
+
+    let entries = scalar.entries().collect::<Vec<_>>();
+    let keys = entries
+        .iter()
+        .map(|(key, _)| key.to_arrow_datum())
+        .collect::<Result<Vec<_>, _>>()?;
+    let values = entries
+        .iter()
+        .map(|(_, value)| value.to_arrow_datum())
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let key_array = concat_scalar_arrays(&keys, &key_dtype)?;
+    let value_array = concat_scalar_arrays(&values, &value_dtype)?;
+    let entries = StructArray::new(fields.clone(), vec![key_array, value_array], None);
+
+    let entries_len = entries.len();
+    let entries_len = i32::try_from(entries_len).map_err(|_| {
+        vortex_err!(
+            "Cannot convert map scalar with {entries_len} entries to Arrow: MapArray offsets are i32"
+        )
+    })?;
+    let offsets = OffsetBuffer::new(vec![0_i32, entries_len].into());
+    let entries_field = Arc::new(Field::new_struct("entries", fields, false));
+    let nulls = scalar
+        .is_null()
+        .then(|| NullBuffer::new_null(SCALAR_ARRAY_LEN));
+    let map = MapArray::try_new(
+        entries_field,
+        offsets,
+        entries,
+        nulls,
+        map_dtype.keys_sorted(),
+    )?;
+    Ok(Arc::new(ArrowScalar::new(map)))
+}
+
+fn concat_scalar_arrays(
+    scalars: &[Arc<dyn Datum>],
+    dtype: &DType,
+) -> Result<ArrayRef, VortexError> {
+    if scalars.is_empty() {
+        return Ok(new_empty_array(&to_data_type_naive(dtype)?));
+    }
+
+    let arrays = scalars
+        .iter()
+        .map(|scalar| scalar.get().0)
+        .collect::<Vec<_>>();
+    Ok(arrow_select::concat::concat(&arrays)?)
 }
 
 /// Convert an [`ExtScalar`] to an Arrow [`Datum`].
@@ -199,6 +270,10 @@ fn extension_to_arrow(scalar: ExtScalar<'_>) -> Result<Arc<dyn Datum>, VortexErr
 mod tests {
     use std::sync::Arc;
 
+    use arrow_array::Array;
+    use arrow_array::Int32Array;
+    use arrow_array::MapArray;
+    use arrow_array::StringViewArray;
     use rstest::rstest;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::DecimalDType;
@@ -417,6 +492,57 @@ mod tests {
         let scalar = Scalar::null(DType::Decimal(decimal_dtype, Nullability::Nullable));
         let result = scalar.to_arrow_datum();
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_map_scalar_to_arrow() -> VortexResult<()> {
+        let dtype = DType::map(
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            DType::Utf8(Nullability::Nullable),
+            true,
+            Nullability::Nullable,
+        )?;
+        let scalar = Scalar::try_map(
+            dtype,
+            [
+                (
+                    Scalar::primitive(1i32, Nullability::NonNullable),
+                    Scalar::utf8("one", Nullability::Nullable),
+                ),
+                (
+                    Scalar::primitive(2i32, Nullability::NonNullable),
+                    Scalar::null(DType::Utf8(Nullability::Nullable)),
+                ),
+            ],
+        )?;
+
+        let datum = scalar.to_arrow_datum()?;
+        let (array, is_scalar) = datum.get();
+        assert!(is_scalar);
+        let map = array
+            .as_any()
+            .downcast_ref::<MapArray>()
+            .expect("map scalar should convert to MapArray");
+        assert_eq!(map.len(), 1);
+        assert_eq!(map.value_offsets(), &[0, 2]);
+        assert!(map.is_valid(0));
+        assert_eq!(
+            map.keys()
+                .as_any()
+                .downcast_ref::<Int32Array>()
+                .expect("map key array should be Int32")
+                .values(),
+            &[1, 2]
+        );
+        let values = map
+            .values()
+            .as_any()
+            .downcast_ref::<StringViewArray>()
+            .expect("map value array should be StringView");
+        assert_eq!(values.value(0), "one");
+        assert!(values.is_null(1));
+
+        Ok(())
     }
 
     #[test]

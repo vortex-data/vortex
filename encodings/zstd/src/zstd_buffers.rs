@@ -39,6 +39,7 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::ZstdBuffersMetadata;
+use crate::validate_frame_content_size;
 
 /// A [`ZstdBuffers`]-encoded Vortex array.
 pub type ZstdBuffersArray = Array<ZstdBuffers>;
@@ -83,7 +84,8 @@ impl ZstdBuffers {
             buffer_alignments.push(u32::from(handle.alignment()));
             let host_buf = handle.clone().try_to_host_sync()?;
             uncompressed_sizes.push(host_buf.len() as u64);
-            let compressed = compressor.compress(&host_buf)?;
+            let mut compressed = compressor.compress(&host_buf)?;
+            compressed.shrink_to_fit();
             compressed_buffers.push(BufferHandle::new_host(ByteBuffer::from(compressed)));
         }
 
@@ -258,6 +260,8 @@ impl ZstdBuffersData {
             let alignment = self.buffer_alignments.get(i).copied().unwrap_or(1);
 
             let aligned = Alignment::try_from(alignment)?;
+            let compressed = buf.clone().try_to_host_sync()?;
+            validate_frame_content_size(compressed.as_slice(), uncompressed_size, i)?;
             let mut output = ByteBufferMut::with_capacity_aligned(size, aligned);
             let spare = output.spare_capacity_mut();
 
@@ -274,7 +278,6 @@ impl ZstdBuffersData {
             // `set_len(size)` after zstd reports how many bytes were written.
             let dst =
                 unsafe { std::slice::from_raw_parts_mut(spare.as_mut_ptr().cast::<u8>(), size) };
-            let compressed = buf.clone().try_to_host_sync()?;
             let written = decompressor.decompress_to_buffer(compressed.as_slice(), dst)?;
             if written != size {
                 return Err(vortex_err!(
@@ -295,6 +298,18 @@ impl ZstdBuffersData {
         // If invariants are somehow broken, device decompression could have UB, so ensure
         // they still hold.
         self.validate()?;
+        // Only host-resident frames are checked: reading a device frame's header would cost a D2H
+        // copy per frame, and the device output allocation is fallible so it cannot abort.
+        for (index, (buffer, &metadata_size)) in self
+            .compressed_buffers
+            .iter()
+            .zip(&self.uncompressed_sizes)
+            .enumerate()
+        {
+            if let Some(frame) = buffer.as_host_opt() {
+                validate_frame_content_size(frame.as_slice(), metadata_size, index)?;
+            }
+        }
 
         let output_sizes = self
             .uncompressed_sizes
@@ -650,6 +665,24 @@ mod tests {
         let compressed = ZstdBuffers::compress(&input, 3, &array_session())?;
 
         assert!(!compressed.statistics().get(Stat::Min).is_absent());
+        Ok(())
+    }
+
+    #[test]
+    fn test_rejects_mismatched_frame_content_size_before_output_allocation() -> VortexResult<()> {
+        let compressed = ZstdBuffers::compress(&make_primitive_array(), 3, &array_session())?;
+        let mut data = compressed.data().clone();
+        data.uncompressed_sizes[0] = 16 * 1024 * 1024 * 1024;
+
+        for error in [
+            data.decompress_buffers().unwrap_err(),
+            data.decode_plan().unwrap_err(),
+        ] {
+            assert!(
+                error.to_string().contains("metadata declares"),
+                "unexpected error: {error}"
+            );
+        }
         Ok(())
     }
 

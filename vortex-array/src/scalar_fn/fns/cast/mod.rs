@@ -197,6 +197,7 @@ fn cast_canonical(
         CanonicalView::Decimal(a) => <Decimal as CastKernel>::cast(a, dtype, ctx),
         CanonicalView::VarBinView(a) => <VarBinView as CastKernel>::cast(a, dtype, ctx),
         CanonicalView::List(a) => <ListView as CastKernel>::cast(a, dtype, ctx),
+        CanonicalView::Map(_) => vortex_bail!("Map arrays don't support casting"),
         CanonicalView::FixedSizeList(a) => <FixedSizeList as CastKernel>::cast(a, dtype, ctx),
         CanonicalView::Struct(a) => struct_cast(a, dtype, ctx),
         CanonicalView::Union(_) => {

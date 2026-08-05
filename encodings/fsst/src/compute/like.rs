@@ -47,11 +47,8 @@ impl LikeKernel for FSST {
             return Ok(None);
         };
 
-        let symbols = array.symbols();
-        let symbol_lengths = array.symbol_lengths();
-
         let Some(matcher) =
-            FsstMatcher::try_new(symbols.as_slice(), symbol_lengths.as_slice(), pattern_bytes)?
+            FsstMatcher::try_new(array.symbols(), array.symbol_lengths(), pattern_bytes)?
         else {
             return Ok(None);
         };

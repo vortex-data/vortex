@@ -30,8 +30,10 @@ use vortex_array::arrays::varbinview::build_views::BinaryView;
 use vortex_array::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
-use vortex_array::builders::DynVarBinBuilder;
+use vortex_array::builders::VarBinBuilder;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::OffsetBuilderPType;
+use vortex_array::match_each_varbin_builder;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::smallvec::smallvec;
@@ -59,6 +61,7 @@ use vortex_session::registry::CachedId;
 
 use crate::ZstdFrameMetadata;
 use crate::ZstdMetadata;
+use crate::validate_frame_content_size;
 
 // Zstd doesn't support training dictionaries on very few samples.
 const MIN_SAMPLES_FOR_DICTIONARY: usize = 8;
@@ -276,49 +279,17 @@ impl VTable for Zstd {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        let Some(builder) = builder.as_any_mut().downcast_mut::<DynVarBinBuilder>() else {
-            return array
-                .array()
-                .clone()
-                .execute::<Canonical>(ctx)?
-                .into_array()
-                .append_to_builder(builder, ctx);
-        };
-
-        let unsliced_validity =
-            child_to_validity(array.slots()[0].as_ref(), array.dtype().nullability());
-        let slice = array
-            .data()
-            .decompress_slice(array.dtype(), &unsliced_validity, ctx)?;
-        let value_start = slice.value_idx_start - slice.n_skipped_values;
-        let value_count = slice.value_idx_stop - slice.value_idx_start;
-        let mut values = zstd_values(slice.bytes.as_slice())
-            .skip(value_start)
-            .take(value_count);
-        let mask = slice.validity.execute_mask(slice.n_rows, ctx)?;
-        match mask.indices() {
-            AllOr::All => {
-                for value in values {
-                    builder.append_n_values(value, 1);
-                }
-            }
-            AllOr::None => builder.append_nulls(slice.n_rows),
-            AllOr::Some(valid_indices) => {
-                let mut row = 0;
-                for &valid_index in valid_indices {
-                    builder.append_nulls(valid_index - row);
-                    builder.append_n_values(
-                        values
-                            .next()
-                            .vortex_expect("Zstd value count must match validity"),
-                        1,
-                    );
-                    row = valid_index + 1;
-                }
-                builder.append_nulls(slice.n_rows - row);
-            }
+        if let Some(result) =
+            match_each_varbin_builder!(builder, |builder| append_to_varbin(array, builder, ctx))
+        {
+            return result;
         }
-        Ok(())
+        array
+            .array()
+            .clone()
+            .execute::<Canonical>(ctx)?
+            .into_array()
+            .append_to_builder(builder, ctx)
     }
 
     fn reduce_parent(
@@ -328,6 +299,50 @@ impl VTable for Zstd {
     ) -> VortexResult<Option<ArrayRef>> {
         crate::rules::RULES.evaluate(array, parent, child_idx)
     }
+}
+
+/// Copies the decompressed values into `builder`.
+fn append_to_varbin<O: OffsetBuilderPType>(
+    array: ArrayView<'_, Zstd>,
+    builder: &mut VarBinBuilder<O>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    let unsliced_validity = child_to_validity(
+        array.slots()[ZstdSlots::VALIDITY].as_ref(),
+        array.dtype().nullability(),
+    );
+    let slice = array
+        .data()
+        .decompress_slice(array.dtype(), &unsliced_validity, ctx)?;
+    let value_start = slice.value_idx_start - slice.n_skipped_values;
+    let value_count = slice.value_idx_stop - slice.value_idx_start;
+    let mut values = zstd_values(slice.bytes.as_slice())
+        .skip(value_start)
+        .take(value_count);
+    let mask = slice.validity.execute_mask(slice.n_rows, ctx)?;
+    match mask.indices() {
+        AllOr::All => {
+            for value in values {
+                builder.append_n_values(value, 1)?;
+            }
+        }
+        AllOr::None => builder.push_nulls(slice.n_rows),
+        AllOr::Some(valid_indices) => {
+            let mut row = 0;
+            for &valid_index in valid_indices {
+                builder.push_nulls(valid_index - row);
+                builder.append_n_values(
+                    values
+                        .next()
+                        .vortex_expect("Zstd value count must match validity"),
+                    1,
+                )?;
+                row = valid_index + 1;
+            }
+            builder.push_nulls(slice.n_rows - row);
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug)]
@@ -670,6 +685,10 @@ impl ZstdData {
             self.frames.len(),
             self.metadata.frames.len()
         );
+        for (index, (frame, metadata)) in self.frames.iter().zip(&self.metadata.frames).enumerate()
+        {
+            validate_frame_content_size(frame.as_slice(), metadata.uncompressed_size, index)?;
+        }
 
         Ok(())
     }
@@ -742,9 +761,10 @@ impl ZstdData {
                 .unwrap_or(value_bytes.len());
 
             let uncompressed = &value_bytes.slice(frame_byte_starts[i]..frame_byte_end);
-            let compressed = compressor
+            let mut compressed = compressor
                 .compress(uncompressed)
                 .map_err(|err| VortexError::from(err).with_context("while compressing"))?;
+            compressed.shrink_to_fit();
             frame_metas.push(ZstdFrameMetadata {
                 uncompressed_size: uncompressed.len() as u64,
                 n_values: values_per_frame.min(n_values - i * values_per_frame) as u64,

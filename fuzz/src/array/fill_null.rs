@@ -47,6 +47,7 @@ pub fn fill_null_canonical_array(
         }
         Canonical::Struct(_)
         | Canonical::List(_)
+        | Canonical::Map(_)
         | Canonical::FixedSizeList(_)
         | Canonical::Extension(_) => canonical.into_array().fill_null(fill_value.clone())?,
         Canonical::Union(_) => {

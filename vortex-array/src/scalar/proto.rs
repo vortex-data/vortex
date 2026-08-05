@@ -471,13 +471,17 @@ fn list_from_proto(
                 .map(|(value, field_dtype)| ScalarValue::from_proto(value, &field_dtype, session))
                 .collect::<VortexResult<Vec<_>>>()?
         }
-        _ => {
-            vortex_bail!(
-                Serde: "expected List, FixedSizeList, or Struct dtype for ListValue, got {dtype}"
-            )
+        DType::Map(map, _) => {
+            let entry_dtype = map.entries_dtype();
+            v.values
+                .iter()
+                .map(|entry| ScalarValue::from_proto(entry, &entry_dtype, session))
+                .collect::<VortexResult<Vec<_>>>()?
         }
+        _ => vortex_bail!(
+            Serde: "expected a tuple-backed dtype for ListValue, got {dtype}"
+        ),
     };
-
     Ok(ScalarValue::Tuple(values))
 }
 
@@ -604,6 +608,34 @@ mod tests {
                 Some(ScalarValue::Primitive(43i32.into())),
             ])),
         ));
+    }
+
+    #[test]
+    fn test_map() {
+        let dtype = DType::map(
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            DType::Utf8(Nullability::Nullable),
+            true,
+            Nullability::Nullable,
+        )
+        .unwrap();
+        round_trip(
+            Scalar::try_map(
+                dtype.clone(),
+                [
+                    (
+                        Scalar::primitive(1i32, Nullability::NonNullable),
+                        Scalar::utf8("one", Nullability::Nullable),
+                    ),
+                    (
+                        Scalar::primitive(2i32, Nullability::NonNullable),
+                        Scalar::null(DType::Utf8(Nullability::Nullable)),
+                    ),
+                ],
+            )
+            .unwrap(),
+        );
+        round_trip(Scalar::null(dtype));
     }
 
     #[test]

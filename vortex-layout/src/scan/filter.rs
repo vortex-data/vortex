@@ -7,9 +7,10 @@ use bit_vec::BitVec;
 use itertools::Itertools;
 use parking_lot::RwLock;
 use sketches_ddsketch::DDSketch;
-use vortex_array::expr::Expression;
-use vortex_array::expr::forms::conjuncts;
+use vortex_array::expr::BoundExpression;
+use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
@@ -22,7 +23,7 @@ const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
 /// conjunctions in an attempt to minimize the work done.
 pub struct FilterExpr {
     /// The conjuncts involved in the filter expression.
-    conjuncts: Vec<Expression>,
+    conjuncts: Vec<BoundExpression>,
     /// A histogram for the selectivity of each conjunct.
     conjunct_selectivity: Vec<RwLock<DDSketch>>,
     /// Dynamic expression trackers for each conjunct, incase they contain dynamic expressions.
@@ -33,12 +34,34 @@ pub struct FilterExpr {
     selectivity_quantile: f64,
 }
 
+fn bound_conjuncts(expr: &BoundExpression) -> Vec<BoundExpression> {
+    let mut conjuncts = Vec::new();
+    let mut pending = vec![expr];
+
+    while let Some(expr) = pending.pop() {
+        if expr
+            .as_scalar()
+            .and_then(|scalar_fn| scalar_fn.as_opt::<Binary>())
+            .is_some_and(|operator| *operator == Operator::And)
+        {
+            pending.extend(expr.children().iter().rev());
+        } else {
+            conjuncts.push(expr.clone());
+        }
+    }
+
+    conjuncts
+}
+
 impl FilterExpr {
-    pub fn new(expr: Expression) -> Self {
-        let conjuncts = conjuncts(&expr);
+    pub fn new(expr: BoundExpression) -> Self {
+        let conjuncts = bound_conjuncts(&expr);
         let num_conjuncts = conjuncts.len();
 
-        let dynamic_conjuncts = conjuncts.iter().map(DynamicExprUpdates::new).collect_vec();
+        let dynamic_conjuncts = conjuncts
+            .iter()
+            .map(|expr| DynamicExprUpdates::new(&expr.unbind()))
+            .collect_vec();
 
         Self {
             conjuncts,
@@ -55,7 +78,7 @@ impl FilterExpr {
 
     /// The conjuncts that make up this filter expression.
     #[inline]
-    pub fn conjuncts(&self) -> &[Expression] {
+    pub fn conjuncts(&self) -> &[BoundExpression] {
         &self.conjuncts
     }
 
@@ -130,5 +153,47 @@ impl FilterExpr {
                 .map(|&idx| format!("({}) => {}", self.conjuncts[idx], all_selectivity[idx]))
                 .join(", ")
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::expr::and;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::not;
+    use vortex_array::expr::root;
+    use vortex_error::VortexResult;
+
+    use super::FilterExpr;
+
+    #[test]
+    fn bound_conjuncts_preserve_order_and_types() -> VortexResult<()> {
+        let expr = and(root(), and(not(root()), lit(true)));
+        let dtype = DType::Bool(Nullability::Nullable);
+        let bound = expr.bind(&dtype)?;
+        let filter = FilterExpr::new(bound);
+        let conjuncts = filter.conjuncts();
+
+        assert_eq!(
+            conjuncts
+                .iter()
+                .map(|expr| expr.unbind())
+                .collect::<Vec<_>>(),
+            vec![root(), not(root()), lit(true)]
+        );
+        assert_eq!(
+            conjuncts
+                .iter()
+                .map(|expr| expr.dtype().clone())
+                .collect::<Vec<_>>(),
+            vec![
+                DType::Bool(Nullability::Nullable),
+                DType::Bool(Nullability::Nullable),
+                DType::Bool(Nullability::NonNullable),
+            ]
+        );
+        Ok(())
     }
 }

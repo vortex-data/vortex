@@ -247,6 +247,16 @@ impl ArrowSession {
                     nullability.is_nullable(),
                 ))
             }
+            DType::Map(map_dtype, nullability) => {
+                let key = self.to_arrow_field("key", &map_dtype.key_dtype())?;
+                let value = self.to_arrow_field("value", &map_dtype.value_dtype())?;
+                let entries = Field::new_struct("entries", Fields::from(vec![key, value]), false);
+                Ok(Field::new(
+                    name,
+                    DataType::Map(Arc::new(entries), map_dtype.keys_sorted()),
+                    nullability.is_nullable(),
+                ))
+            }
             DType::Struct(fields, nullability) => {
                 let arrow_fields = Fields::from_iter(
                     fields
@@ -346,6 +356,32 @@ impl ArrowSession {
                 *size as u32,
                 nullability,
             ),
+            DataType::Map(entries, keys_sorted) => {
+                vortex_ensure!(
+                    !entries.is_nullable(),
+                    "Arrow map entries field must be non-nullable"
+                );
+                let DataType::Struct(fields) = entries.data_type() else {
+                    vortex_bail!(
+                        "Arrow map entries field must have Struct type, got {:?}",
+                        entries.data_type()
+                    );
+                };
+                vortex_ensure!(
+                    fields.len() == 2,
+                    "Arrow map entries struct must contain exactly two fields"
+                );
+                vortex_ensure!(
+                    !fields[0].is_nullable(),
+                    "Arrow map key field must be non-nullable"
+                );
+                DType::map(
+                    self.from_arrow_field(fields[0].as_ref())?,
+                    self.from_arrow_field(fields[1].as_ref())?,
+                    *keys_sorted,
+                    nullability,
+                )?
+            }
             DataType::Struct(fields) => {
                 let entries = fields
                     .iter()
@@ -584,6 +620,9 @@ impl ArrowSession {
                 let validity = nulls(list.nulls(), field.is_nullable())?;
                 Ok(ListViewArray::try_new(elements, offsets, sizes, validity)?.into_array())
             }
+            DataType::Map(..) => {
+                vortex_bail!("Arrow MapArray conversion is not yet supported")
+            }
             _ => ArrayRef::from_arrow(array.as_ref(), field.is_nullable()),
         }
     }
@@ -706,6 +745,40 @@ mod tests {
         };
         assert_eq!(*size, 3);
         assert!(has_valid_extension_type::<ArrowUuid>(elem));
+        Ok(())
+    }
+
+    #[test]
+    fn schema_roundtrip_preserves_map_uuid_fields() -> VortexResult<()> {
+        let session = ArrowSession::default();
+        let map = DType::map(
+            uuid_dtype(false),
+            uuid_dtype(true),
+            true,
+            Nullability::Nullable,
+        )?;
+        let dtype = DType::Struct(
+            StructFields::from_iter([(FieldName::from("ids"), map)]),
+            Nullability::NonNullable,
+        );
+
+        let schema = session.to_arrow_schema(&dtype)?;
+        let field = schema.field(0);
+        let DataType::Map(entries, keys_sorted) = field.data_type() else {
+            panic!("expected Map, got {:?}", field.data_type());
+        };
+        assert!(*keys_sorted);
+        assert_eq!(entries.name(), "entries");
+        assert!(!entries.is_nullable());
+        let DataType::Struct(fields) = entries.data_type() else {
+            panic!("expected map entries struct, got {:?}", entries.data_type());
+        };
+        assert!(has_valid_extension_type::<ArrowUuid>(&fields[0]));
+        assert!(has_valid_extension_type::<ArrowUuid>(&fields[1]));
+        assert!(!fields[0].is_nullable());
+        assert!(fields[1].is_nullable());
+
+        assert_eq!(session.from_arrow_schema(&schema)?, dtype);
         Ok(())
     }
 

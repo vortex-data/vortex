@@ -19,7 +19,7 @@ use vortex::array::MaskFuture;
 use vortex::array::ProstMetadata;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::Constant;
-use vortex::array::expr::Expression;
+use vortex::array::expr::BoundExpression;
 use vortex::array::expr::stats::Precision;
 use vortex::array::expr::stats::Stat;
 use vortex::array::expr::stats::StatsProvider;
@@ -268,7 +268,7 @@ impl LayoutReader for CudaFlatReader {
     fn pruning_evaluation(
         &self,
         _row_range: &Range<u64>,
-        _expr: &Expression,
+        _expr: &BoundExpression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         Ok(MaskFuture::ready(mask))
@@ -277,7 +277,7 @@ impl LayoutReader for CudaFlatReader {
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         let row_range = usize::try_from(row_range.start)
@@ -299,13 +299,13 @@ impl LayoutReader for CudaFlatReader {
 
             let mask_density = mask.density();
             let array_mask = if mask_density < EXPR_EVAL_THRESHOLD {
-                let array = array.apply(&expr)?;
+                let array = array.apply_bound(&expr)?;
                 let array = array.filter(mask.clone())?;
                 let mut ctx = session.create_execution_ctx();
                 let array_mask = array.null_as_false().execute(&mut ctx)?;
                 mask.intersect_by_rank(&array_mask)
             } else {
-                let array = array.apply(&expr)?;
+                let array = array.apply_bound(&expr)?;
                 let mut ctx = session.create_execution_ctx();
                 let array_mask = array.null_as_false().execute(&mut ctx)?;
                 mask.bitand(&array_mask)
@@ -326,7 +326,7 @@ impl LayoutReader for CudaFlatReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpression,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         let row_range = usize::try_from(row_range.start)
@@ -351,7 +351,7 @@ impl LayoutReader for CudaFlatReader {
                 array = array.filter(mask)?;
             }
 
-            array = array.apply(&expr)?;
+            array = array.apply_bound(&expr)?;
 
             Ok(array)
         }

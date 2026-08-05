@@ -78,14 +78,6 @@ fn decompress_fsst(bencher: Bencher, (string_count, avg_len, unique_chars): (usi
 }
 
 #[divan::bench(args = BENCH_ARGS)]
-fn train_compressor(bencher: Bencher, (string_count, avg_len, unique_chars): (usize, usize, u8)) {
-    let array = generate_test_data(string_count, avg_len, unique_chars);
-    bencher
-        .with_inputs(|| (&array, SESSION.create_execution_ctx()))
-        .bench_refs(|(array, ctx)| fsst_train_compressor(array, ctx).unwrap())
-}
-
-#[divan::bench(args = BENCH_ARGS)]
 fn pushdown_compare(bencher: Bencher, (string_count, avg_len, unique_chars): (usize, usize, u8)) {
     let array = generate_test_data(string_count, avg_len, unique_chars);
     let len = array.len();

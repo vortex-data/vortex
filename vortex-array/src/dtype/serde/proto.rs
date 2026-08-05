@@ -10,6 +10,7 @@ use vortex_session::VortexSession;
 
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
+use crate::dtype::MapDType;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
 use crate::dtype::UnionVariants;
@@ -77,6 +78,26 @@ impl DType {
                     nullable,
                 ))
             }
+            DtypeType::Map(map) => Ok(Self::Map(
+                MapDType::try_new(
+                    DType::from_proto(
+                        map.key_type
+                            .as_ref()
+                            .ok_or_else(|| vortex_err!(Serde: "Invalid map key type"))?
+                            .as_ref(),
+                        session,
+                    )?,
+                    DType::from_proto(
+                        map.value_type
+                            .as_ref()
+                            .ok_or_else(|| vortex_err!(Serde: "Invalid map value type"))?
+                            .as_ref(),
+                        session,
+                    )?,
+                    map.keys_sorted,
+                )?,
+                map.nullable.into(),
+            )),
             DtypeType::Struct(s) => Ok(Self::Struct(
                 StructFields::new(
                     s.names.iter().map(|s| s.as_str()).collect(),
@@ -162,6 +183,16 @@ impl TryFrom<&DType> for pb::DType {
                     DtypeType::FixedSizeList(Box::new(pb::FixedSizeList {
                         element_type: Some(Box::new(edt.as_ref().try_into()?)),
                         size: *size,
+                        nullable: (*null).into(),
+                    }))
+                }
+                DType::Map(map, null) => {
+                    let key_dtype = map.key_dtype();
+                    let value_dtype = map.value_dtype();
+                    DtypeType::Map(Box::new(pb::Map {
+                        key_type: Some(Box::new(Self::try_from(&key_dtype)?)),
+                        value_type: Some(Box::new(Self::try_from(&value_dtype)?)),
+                        keys_sorted: map.keys_sorted(),
                         nullable: (*null).into(),
                     }))
                 }
@@ -391,6 +422,27 @@ mod tests {
             let converted = round_trip_dtype(&dtype);
             assert_eq!(dtype, converted);
         }
+    }
+
+    #[test]
+    fn test_nested_map_round_trip() {
+        let inner_map = DType::map(
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            DType::Utf8(Nullability::Nullable),
+            true,
+            Nullability::NonNullable,
+        )
+        .unwrap();
+        let map = DType::map(
+            inner_map,
+            DType::Utf8(Nullability::Nullable),
+            false,
+            Nullability::Nullable,
+        )
+        .unwrap();
+        let dtype = DType::struct_([("map", map)], Nullability::NonNullable);
+
+        assert_eq!(round_trip_dtype(&dtype), dtype);
     }
 
     #[test]

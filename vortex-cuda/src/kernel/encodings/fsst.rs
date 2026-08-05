@@ -216,8 +216,12 @@ where
     let validity = fsst.codes().validity()?;
     let len = fsst.len();
     let len_u64 = len as u64;
-    let symbols_u64: Vec<u64> = fsst.symbols().iter().map(|s| s.to_u64()).collect();
-    let symbol_lengths = fsst.symbol_lengths().clone();
+    let symbols_u64 = fsst
+        .symbols()
+        .iter()
+        .map(|s| s.to_u64())
+        .collect::<Vec<_>>();
+    let symbol_lengths = fsst.padded_symbol_lengths().slice(0..fsst.n_symbols());
     let codes_bytes_handle = fsst.codes_bytes_handle().clone();
     let PrimitiveDataParts {
         buffer: codes_offsets_buffer,
@@ -301,8 +305,12 @@ where
         }));
     }
 
-    let symbols_u64: Vec<u64> = fsst.symbols().iter().map(|s| s.to_u64()).collect();
-    let symbol_lengths = fsst.symbol_lengths().clone();
+    let symbols_u64 = fsst
+        .symbols()
+        .iter()
+        .map(|s| s.to_u64())
+        .collect::<Vec<_>>();
+    let symbol_lengths = fsst.padded_symbol_lengths().slice(0..fsst.n_symbols());
     let codes_bytes_handle = fsst.codes_bytes_handle().clone();
     let PrimitiveDataParts {
         buffer: codes_offsets_buffer,

@@ -68,6 +68,7 @@ use super::cache::CachedVortexMetadata;
 use super::sink::VortexSink;
 use super::source::VortexSource;
 use crate::PrecisionExt as _;
+use crate::convert::ExpressionConvertor;
 use crate::convert::TryToDataFusion;
 use crate::convert::stats::is_constant_to_distinct_count;
 
@@ -123,12 +124,17 @@ const DEFAULT_FOOTER_INITIAL_READ_SIZE_BYTES: usize = MAX_POSTSCRIPT_SIZE as usi
 pub struct VortexFormat {
     session: VortexSession,
     opts: VortexTableOptions,
+    expression_convertor: Option<Arc<dyn ExpressionConvertor>>,
 }
 
 impl Debug for VortexFormat {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("VortexFormat")
             .field("opts", &self.opts)
+            .field(
+                "has_expression_convertor",
+                &self.expression_convertor.is_some(),
+            )
             .finish()
     }
 }
@@ -270,10 +276,23 @@ impl ConfigExtension for VortexTableOptions {
 /// ```
 ///
 /// [`ListingTable`]: https://docs.rs/datafusion/latest/datafusion/datasource/listing/struct.ListingTable.html
-#[derive(Debug)]
 pub struct VortexFormatFactory {
     session: VortexSession,
     options: Option<VortexTableOptions>,
+    expression_convertor: Option<Arc<dyn ExpressionConvertor>>,
+}
+
+impl Debug for VortexFormatFactory {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VortexFormatFactory")
+            .field("session", &self.session)
+            .field("options", &self.options)
+            .field(
+                "has_expression_convertor",
+                &self.expression_convertor.is_some(),
+            )
+            .finish()
+    }
 }
 
 impl GetExt for VortexFormatFactory {
@@ -297,6 +316,7 @@ impl VortexFormatFactory {
         Self {
             session: VortexSession::default(),
             options: None,
+            expression_convertor: None,
         }
     }
 
@@ -311,6 +331,7 @@ impl VortexFormatFactory {
         Self {
             session,
             options: Some(options),
+            expression_convertor: None,
         }
     }
 
@@ -335,6 +356,15 @@ impl VortexFormatFactory {
     /// ```
     pub fn with_options(mut self, options: VortexTableOptions) -> Self {
         self.options = Some(options);
+        self
+    }
+
+    /// Sets the [`ExpressionConvertor`] used by formats and sources created by this factory.
+    pub fn with_expression_convertor(
+        mut self,
+        expression_convertor: Arc<dyn ExpressionConvertor>,
+    ) -> Self {
+        self.expression_convertor = Some(expression_convertor);
         self
     }
 }
@@ -374,14 +404,19 @@ impl FileFormatFactory for VortexFormatFactory {
             }
         }
 
-        Ok(Arc::new(VortexFormat::new_with_options(
-            self.session.clone(),
-            opts,
-        )))
+        let mut format = VortexFormat::new_with_options(self.session.clone(), opts);
+        if let Some(expression_convertor) = &self.expression_convertor {
+            format = format.with_expression_convertor(Arc::clone(expression_convertor));
+        }
+        Ok(Arc::new(format))
     }
 
     fn default(&self) -> Arc<dyn FileFormat> {
-        Arc::new(VortexFormat::new(self.session.clone()))
+        let mut format = VortexFormat::new(self.session.clone());
+        if let Some(expression_convertor) = &self.expression_convertor {
+            format = format.with_expression_convertor(Arc::clone(expression_convertor));
+        }
+        Arc::new(format)
     }
 }
 
@@ -398,13 +433,26 @@ impl VortexFormat {
 
     /// Creates a format with explicit [`VortexTableOptions`].
     pub fn new_with_options(session: VortexSession, opts: VortexTableOptions) -> Self {
-        Self { session, opts }
+        Self {
+            session,
+            opts,
+            expression_convertor: None,
+        }
     }
 
     /// Returns the format-specific configuration that will be copied into the
     /// [`VortexSource`] created for a scan.
     pub fn options(&self) -> &VortexTableOptions {
         &self.opts
+    }
+
+    /// Sets the [`ExpressionConvertor`] used by every [`VortexSource`] created by this format.
+    pub fn with_expression_convertor(
+        mut self,
+        expression_convertor: Arc<dyn ExpressionConvertor>,
+    ) -> Self {
+        self.expression_convertor = Some(expression_convertor);
+        self
     }
 }
 
@@ -702,9 +750,12 @@ impl FileFormat for VortexFormat {
     }
 
     fn file_source(&self, table_schema: TableSchema) -> Arc<dyn FileSource> {
-        Arc::new(
-            VortexSource::new(table_schema, self.session.clone()).with_options(self.opts.clone()),
-        ) as _
+        let mut source =
+            VortexSource::new(table_schema, self.session.clone()).with_options(self.opts.clone());
+        if let Some(expression_convertor) = &self.expression_convertor {
+            source = source.with_expression_convertor(Arc::clone(expression_convertor));
+        }
+        Arc::new(source) as _
     }
 }
 
@@ -730,9 +781,118 @@ fn scalar_stat_to_df(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::Ordering;
+
+    use arrow_array::Int32Array;
+    use arrow_schema::DataType;
+    use arrow_schema::Field;
+    use datafusion_common::ScalarValue;
+    use datafusion_common::config::ConfigOptions;
+    use datafusion_expr::Operator;
+    use datafusion_physical_expr::PhysicalExpr;
+    use datafusion_physical_expr::expressions as df_expr;
+    use datafusion_physical_expr::projection::ProjectionExprs;
+    use datafusion_physical_plan::filter_pushdown::PushedDown;
+    use vortex::expr::Expression;
 
     use super::*;
     use crate::common_tests::TestSessionContext;
+    use crate::convert::DefaultExpressionConvertor;
+    use crate::convert::ProcessedProjection;
+
+    #[derive(Clone, Copy)]
+    enum PushdownMode {
+        Reject,
+        Delegate,
+    }
+
+    #[derive(Default)]
+    struct ExpressionConvertorCalls {
+        can_be_pushed_down: AtomicBool,
+        convert: AtomicBool,
+    }
+
+    impl ExpressionConvertorCalls {
+        fn reset(&self) {
+            self.can_be_pushed_down.store(false, Ordering::Relaxed);
+            self.convert.store(false, Ordering::Relaxed);
+        }
+    }
+
+    struct TestExpressionConvertor {
+        inner: DefaultExpressionConvertor,
+        pushdown_mode: PushdownMode,
+        calls: Arc<ExpressionConvertorCalls>,
+    }
+
+    impl TestExpressionConvertor {
+        fn new(
+            session: VortexSession,
+            pushdown_mode: PushdownMode,
+            calls: Arc<ExpressionConvertorCalls>,
+        ) -> Self {
+            Self {
+                inner: DefaultExpressionConvertor::new(session),
+                pushdown_mode,
+                calls,
+            }
+        }
+    }
+
+    impl ExpressionConvertor for TestExpressionConvertor {
+        fn can_be_pushed_down(&self, expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> bool {
+            self.calls.can_be_pushed_down.store(true, Ordering::Relaxed);
+            match self.pushdown_mode {
+                PushdownMode::Reject => false,
+                PushdownMode::Delegate => self.inner.can_be_pushed_down(expr, schema),
+            }
+        }
+
+        fn convert(&self, expr: &dyn PhysicalExpr) -> DFResult<Expression> {
+            self.calls.convert.store(true, Ordering::Relaxed);
+            self.inner.convert(expr)
+        }
+
+        fn split_projection(
+            &self,
+            source_projection: ProjectionExprs,
+            input_schema: &Schema,
+            output_schema: &Schema,
+        ) -> DFResult<ProcessedProjection> {
+            self.inner
+                .split_projection(source_projection, input_schema, output_schema)
+        }
+    }
+
+    fn expression_convertor_test_schema() -> Arc<Schema> {
+        Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, false)]))
+    }
+
+    fn expression_convertor_test_filter() -> Arc<dyn PhysicalExpr> {
+        let column = Arc::new(df_expr::Column::new("a", 0)) as Arc<dyn PhysicalExpr>;
+        let literal =
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(1)))) as Arc<dyn PhysicalExpr>;
+        Arc::new(df_expr::BinaryExpr::new(column, Operator::Gt, literal))
+    }
+
+    fn assert_rejects_pushdown_with_expression_convertor(
+        format: &dyn FileFormat,
+        calls: &ExpressionConvertorCalls,
+    ) -> anyhow::Result<()> {
+        let source = format.file_source(TableSchema::from_file_schema(
+            expression_convertor_test_schema(),
+        ));
+        let result = source.try_pushdown_filters(
+            vec![expression_convertor_test_filter()],
+            &ConfigOptions::new(),
+        )?;
+
+        assert!(calls.can_be_pushed_down.load(Ordering::Relaxed));
+        assert!(!calls.convert.load(Ordering::Relaxed));
+        assert!(matches!(result.filters.as_slice(), [PushedDown::No]));
+        Ok(())
+    }
 
     #[tokio::test]
     async fn create_table() -> anyhow::Result<()> {
@@ -802,6 +962,85 @@ mod tests {
         );
         assert_eq!(source.options().predicate_pushdown, opts.predicate_pushdown);
         assert_eq!(source.options().scan_concurrency, opts.scan_concurrency);
+        Ok(())
+    }
+
+    #[test]
+    fn format_plumbs_expression_convertor() -> anyhow::Result<()> {
+        let session = VortexSession::default();
+        let calls = Arc::new(ExpressionConvertorCalls::default());
+        let convertor = Arc::new(TestExpressionConvertor::new(
+            session.clone(),
+            PushdownMode::Reject,
+            Arc::clone(&calls),
+        ));
+        let format = VortexFormat::new(session).with_expression_convertor(convertor);
+
+        assert_rejects_pushdown_with_expression_convertor(&format, &calls)
+    }
+
+    #[test]
+    fn factory_plumbs_expression_convertor() -> anyhow::Result<()> {
+        let calls = Arc::new(ExpressionConvertorCalls::default());
+        let convertor = Arc::new(TestExpressionConvertor::new(
+            VortexSession::default(),
+            PushdownMode::Reject,
+            Arc::clone(&calls),
+        ));
+        let factory = VortexFormatFactory::new().with_expression_convertor(convertor);
+        let ctx = TestSessionContext::default();
+
+        let format = factory.create(&ctx.session.state(), &Default::default())?;
+        assert_rejects_pushdown_with_expression_convertor(format.as_ref(), &calls)?;
+
+        calls.reset();
+        let format = FileFormatFactory::default(&factory);
+        assert_rejects_pushdown_with_expression_convertor(format.as_ref(), &calls)
+    }
+
+    #[tokio::test]
+    async fn external_table_query_uses_factory_expression_convertor() -> anyhow::Result<()> {
+        let calls = Arc::new(ExpressionConvertorCalls::default());
+        let convertor = Arc::new(TestExpressionConvertor::new(
+            VortexSession::default(),
+            PushdownMode::Delegate,
+            Arc::clone(&calls),
+        ));
+        let factory = Arc::new(VortexFormatFactory::new().with_expression_convertor(convertor));
+        let ctx = TestSessionContext::new_with_factory(factory);
+
+        ctx.session
+            .sql(
+                "CREATE EXTERNAL TABLE numbers (a INT NOT NULL) \
+                 STORED AS vortex LOCATION '/expression-convertor/'",
+            )
+            .await?;
+        ctx.session
+            .sql("INSERT INTO numbers VALUES (1), (2), (3)")
+            .await?
+            .collect()
+            .await?;
+
+        calls.reset();
+        let batches = ctx
+            .session
+            .sql("SELECT a FROM numbers WHERE a > 1 ORDER BY a")
+            .await?
+            .collect()
+            .await?;
+
+        assert!(calls.can_be_pushed_down.load(Ordering::Relaxed));
+        assert!(calls.convert.load(Ordering::Relaxed));
+        let mut values = Vec::new();
+        for batch in batches {
+            let array = batch
+                .column(0)
+                .as_any()
+                .downcast_ref::<Int32Array>()
+                .ok_or_else(|| anyhow::anyhow!("expected Int32 result column"))?;
+            values.extend(array.values().iter().copied());
+        }
+        assert_eq!(values, vec![2, 3]);
         Ok(())
     }
 }

@@ -86,6 +86,23 @@ pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
             )),
         )
         .vortex_expect("unable to construct random `Scalar`_"),
+        DType::Map(map, _) => Scalar::try_new(
+            dtype.clone(),
+            Some(ScalarValue::Tuple(
+                iter::from_fn(|| {
+                    u.arbitrary().unwrap_or(false).then(|| {
+                        let key = random_scalar(u, &map.key_dtype())?;
+                        let value = random_scalar(u, &map.value_dtype())?;
+                        Ok(Some(ScalarValue::Tuple(vec![
+                            key.into_value(),
+                            value.into_value(),
+                        ])))
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?,
+            )),
+        )
+        .vortex_expect("unable to construct random `Scalar`_"),
         DType::Struct(sdt, _) => Scalar::try_new(
             dtype.clone(),
             Some(ScalarValue::Tuple(

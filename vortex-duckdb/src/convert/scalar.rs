@@ -82,6 +82,7 @@ impl ToDuckDBScalar for Scalar {
             DType::FixedSizeList(..) => {
                 vortex_bail!("Vortex FixedSizeList scalars aren't supported")
             }
+            DType::Map(..) => vortex_bail!("Vortex Map scalars aren't supported"),
             DType::Variant(_) => vortex_bail!("Vortex Variant scalars aren't supported"),
             DType::Struct(..) => vortex_bail!("Vortex Struct scalars aren't supported"),
             // TODO(connor): Union

@@ -23,7 +23,9 @@ use crate::arrays::varbin::VarBinArraySlotsExt;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
+use crate::dtype::OffsetBuilderPType;
 use crate::match_each_integer_ptype;
+use crate::match_smallest_list_offset_type;
 
 impl FilterKernel for VarBin {
     fn filter(
@@ -62,21 +64,23 @@ fn filter_select_var_bin_by_slice(
 ) -> VortexResult<VarBinArray> {
     let offsets = values.offsets().clone().execute::<PrimitiveArray>(ctx)?;
     match_each_integer_ptype!(offsets.ptype(), |O| {
-        filter_select_var_bin_by_slice_primitive_offset(
-            values.dtype().clone(),
-            offsets.as_slice::<O>(),
-            values.bytes().as_slice(),
-            mask_slices,
-            values
-                .varbin_validity()
-                .execute_mask(values.as_ref().len(), ctx)
-                .vortex_expect("Failed to compute validity mask"),
-            selection_count,
-        )
+        match_smallest_list_offset_type!(values.bytes().len(), |B| {
+            filter_select_var_bin_by_slice_primitive_offset::<O, B>(
+                values.dtype().clone(),
+                offsets.as_slice::<O>(),
+                values.bytes().as_slice(),
+                mask_slices,
+                values
+                    .varbin_validity()
+                    .execute_mask(values.as_ref().len(), ctx)
+                    .vortex_expect("Failed to compute validity mask"),
+                selection_count,
+            )
+        })
     })
 }
 
-fn filter_select_var_bin_by_slice_primitive_offset<O>(
+fn filter_select_var_bin_by_slice_primitive_offset<O, B>(
     dtype: DType,
     offsets: &[O],
     data: &[u8],
@@ -86,9 +90,10 @@ fn filter_select_var_bin_by_slice_primitive_offset<O>(
 ) -> VortexResult<VarBinArray>
 where
     O: IntegerPType,
-    usize: AsPrimitive<O>,
+    B: OffsetBuilderPType,
+    usize: AsPrimitive<B>,
 {
-    let mut builder = VarBinBuilder::<O>::with_capacity(selection_count);
+    let mut builder = VarBinBuilder::<B>::with_capacity(dtype, selection_count);
     match logical_validity.bit_buffer() {
         AllOr::All => {
             for &(start, end) in mask_slices {
@@ -96,7 +101,7 @@ where
             }
         }
         AllOr::None => {
-            builder.append_n_nulls(selection_count);
+            builder.push_nulls(selection_count);
         }
         AllOr::Some(validity) => {
             for (start, end) in mask_slices.iter().copied() {
@@ -120,26 +125,27 @@ where
                             })?;
                             builder.append_value(&data[s..e])
                         } else {
-                            builder.append_null()
+                            builder.push_null()
                         }
                     }
                 }
             }
         }
     }
-    Ok(builder.finish(dtype))
+    Ok(builder.finish_into_varbin())
 }
 
-fn update_non_nullable_slice<O>(
+fn update_non_nullable_slice<O, B>(
     data: &[u8],
     offsets: &[O],
-    builder: &mut VarBinBuilder<O>,
+    builder: &mut VarBinBuilder<B>,
     start: usize,
     end: usize,
 ) -> VortexResult<()>
 where
     O: IntegerPType,
-    usize: AsPrimitive<O>,
+    B: OffsetBuilderPType,
+    usize: AsPrimitive<B>,
 {
     let offset_start = offsets[start]
         .to_usize()
@@ -163,21 +169,23 @@ fn filter_select_var_bin_by_index(
 ) -> VortexResult<VarBinArray> {
     let offsets = values.offsets().clone().execute::<PrimitiveArray>(ctx)?;
     match_each_integer_ptype!(offsets.ptype(), |O| {
-        filter_select_var_bin_by_index_primitive_offset(
-            values.dtype().clone(),
-            offsets.as_slice::<O>(),
-            values.bytes().as_slice(),
-            mask_indices,
-            values
-                .varbin_validity()
-                .execute_mask(values.as_ref().len(), ctx)
-                .vortex_expect("Failed to compute validity mask"),
-            selection_count,
-        )
+        match_smallest_list_offset_type!(values.bytes().len(), |B| {
+            filter_select_var_bin_by_index_primitive_offset::<O, B>(
+                values.dtype().clone(),
+                offsets.as_slice::<O>(),
+                values.bytes().as_slice(),
+                mask_indices,
+                values
+                    .varbin_validity()
+                    .execute_mask(values.as_ref().len(), ctx)
+                    .vortex_expect("Failed to compute validity mask"),
+                selection_count,
+            )
+        })
     })
 }
 
-fn filter_select_var_bin_by_index_primitive_offset<O: IntegerPType>(
+fn filter_select_var_bin_by_index_primitive_offset<O: IntegerPType, B: OffsetBuilderPType>(
     dtype: DType,
     offsets: &[O],
     data: &[u8],
@@ -195,7 +203,7 @@ fn filter_select_var_bin_by_index_primitive_offset<O: IntegerPType>(
         Ok(&data[start..end])
     };
 
-    let mut builder = VarBinBuilder::<O>::with_capacity(selection_count);
+    let mut builder = VarBinBuilder::<B>::with_capacity(dtype, selection_count);
     match mask.bit_buffer() {
         AllOr::All => {
             for idx in mask_indices.iter().copied() {
@@ -203,19 +211,19 @@ fn filter_select_var_bin_by_index_primitive_offset<O: IntegerPType>(
             }
         }
         AllOr::None => {
-            builder.append_n_nulls(selection_count);
+            builder.push_nulls(selection_count);
         }
         AllOr::Some(validity) => {
             for idx in mask_indices.iter().copied() {
                 if validity.value(idx) {
                     builder.append_value(value_at(idx)?)
                 } else {
-                    builder.append_null()
+                    builder.push_null()
                 }
             }
         }
     }
-    Ok(builder.finish(dtype))
+    Ok(builder.finish_into_varbin())
 }
 
 #[cfg(test)]

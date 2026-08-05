@@ -4,17 +4,15 @@
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
-use crate::dtype::DType;
 use crate::dtype::Field;
 use crate::dtype::FieldPath;
 use crate::dtype::FieldPathSet;
-use crate::expr::Expression;
+use crate::expr::BoundExpression;
 use crate::expr::traversal::FoldDownContext;
 use crate::expr::traversal::FoldUp;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::NodeFolderContext;
 use crate::scalar_fn::fns::get_item::GetItem;
-use crate::scalar_fn::fns::root::Root;
 use crate::scalar_fn::fns::select::Select;
 
 /// Returns the rooted field paths referenced by an expression.
@@ -24,47 +22,13 @@ use crate::scalar_fn::fns::select::Select;
 /// expression is represented by [`FieldPath::root`], which conservatively selects all fields.
 /// Scalar functions other than `GetItem` and `Select` conservatively reference each complete child
 /// output.
-pub fn referenced_field_paths(expr: &Expression, scope: &DType) -> VortexResult<FieldPathSet> {
-    // Validate the whole expression so plain GetItem paths and Select paths behave consistently.
-    expr.return_dtype(scope)?;
-
+pub fn referenced_field_paths(expr: &BoundExpression) -> VortexResult<FieldPathSet> {
     let mut collector = ReferencedFieldPaths {
-        scope,
         field_paths: FieldPathSet::default(),
     };
     expr.clone()
         .fold_context(&vec![FieldPath::root()], &mut collector)?;
-    let field_paths = collector.field_paths;
-
-    // The top-level field of every referenced path must be one of the immediately accessed scope
-    // fields: this analysis only refines *which nested fields* are read, never which top-level
-    // fields. `FieldPath::root()` stands in for "all fields", so it expands to the whole scope.
-    #[cfg(debug_assertions)]
-    if let Some(scope_fields) = scope.as_struct_fields_opt() {
-        use vortex_utils::aliases::hash_set::HashSet;
-
-        use crate::dtype::FieldName;
-        use crate::expr::analysis::immediate_access::immediate_scope_access;
-
-        let referenced_heads: HashSet<FieldName> = if field_paths.iter().any(FieldPath::is_root) {
-            scope_fields.names().iter().cloned().collect()
-        } else {
-            field_paths
-                .iter()
-                .filter_map(|path| match path.parts().first() {
-                    Some(Field::Name(name)) => Some(name.clone()),
-                    _ => None,
-                })
-                .collect()
-        };
-        debug_assert_eq!(
-            referenced_heads,
-            immediate_scope_access(expr, scope_fields),
-            "referenced field path heads must match the immediately accessed scope fields"
-        );
-    }
-
-    Ok(field_paths)
+    Ok(collector.field_paths)
 }
 
 /// Threads the set of currently-requested field paths down the expression tree, narrowing it at
@@ -78,22 +42,21 @@ pub fn referenced_field_paths(expr: &Expression, scope: &DType) -> VortexResult<
 /// column projection). Any other function is opaque—we cannot assume it preserves a field's
 /// provenance—so its children conservatively re-request the whole scope, which is what keeps an
 /// expression like `f($).x` reading every field of `$` rather than just `x`.
-struct ReferencedFieldPaths<'a> {
-    scope: &'a DType,
+struct ReferencedFieldPaths {
     field_paths: FieldPathSet,
 }
 
-impl NodeFolderContext for ReferencedFieldPaths<'_> {
-    type NodeTy = Expression;
+impl NodeFolderContext for ReferencedFieldPaths {
+    type NodeTy = BoundExpression;
     type Result = ();
     type Context = Vec<FieldPath>;
 
     fn visit_down(
         &mut self,
         requested: &Self::Context,
-        node: &Expression,
+        node: &BoundExpression,
     ) -> VortexResult<FoldDownContext<Self::Context, ()>> {
-        if node.is::<Root>() {
+        if node.is_root() {
             self.field_paths.extend(
                 requested
                     .iter()
@@ -102,7 +65,10 @@ impl NodeFolderContext for ReferencedFieldPaths<'_> {
             return Ok(FoldDownContext::Skip(()));
         }
 
-        if let Some(field_name) = node.as_opt::<GetItem>() {
+        if let Some(field_name) = node
+            .as_scalar()
+            .and_then(|scalar_fn| scalar_fn.as_opt::<GetItem>())
+        {
             let appended = requested
                 .iter()
                 .map(|path| path.clone().push(Field::Name(field_name.clone())))
@@ -112,9 +78,12 @@ impl NodeFolderContext for ReferencedFieldPaths<'_> {
 
         // Keep requested paths whose head is included, expanding a whole-scope request into one
         // path per included field.
-        if let Some(selection) = node.as_opt::<Select>() {
-            let child_dtype = node.child(0).return_dtype(self.scope)?;
-            let child_fields = child_dtype
+        if let Some(selection) = node
+            .as_scalar()
+            .and_then(|scalar_fn| scalar_fn.as_opt::<Select>())
+        {
+            let child_fields = node.children()[0]
+                .dtype()
                 .as_struct_fields_opt()
                 .ok_or_else(|| vortex_err!("Select child is not a struct"))?;
             let included_fields = selection.normalize_to_included_fields(child_fields.names())?;
@@ -146,7 +115,7 @@ impl NodeFolderContext for ReferencedFieldPaths<'_> {
 
     fn visit_up(
         &mut self,
-        _node: Expression,
+        _node: BoundExpression,
         _requested: &Self::Context,
         _children: Vec<()>,
     ) -> VortexResult<FoldUp<()>> {
@@ -159,9 +128,11 @@ mod tests {
     use vortex_utils::aliases::hash_set::HashSet;
 
     use super::*;
+    use crate::dtype::DType;
     use crate::dtype::Nullability::NonNullable;
     use crate::dtype::PType::I32;
     use crate::dtype::StructFields;
+    use crate::expr::Expression;
     use crate::expr::get_item;
     use crate::expr::pack;
     use crate::expr::root;
@@ -183,7 +154,7 @@ mod tests {
 
     /// Collects the prefix-minimal field paths referenced by `expr` against [`scope`].
     fn referenced(expr: &Expression) -> VortexResult<HashSet<FieldPath>> {
-        Ok(referenced_field_paths(expr, &scope())?
+        Ok(referenced_field_paths(&expr.bind(&scope())?)?
             .into_iter()
             .collect())
     }
@@ -259,6 +230,9 @@ mod tests {
 
     #[test]
     fn invalid_get_item_path_returns_error() {
-        assert!(referenced_field_paths(&get_item("missing", root()), &scope()).is_err());
+        let result = get_item("missing", root())
+            .bind(&scope())
+            .and_then(|expr| referenced_field_paths(&expr));
+        assert!(result.is_err());
     }
 }

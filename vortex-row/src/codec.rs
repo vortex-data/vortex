@@ -224,9 +224,9 @@ pub(crate) fn row_width_for_dtype(dtype: &DType) -> VortexResult<RowWidth> {
             }
             Ok(RowWidth::Fixed(total))
         }
-        DType::List(..) => {
+        DType::List(..) | DType::Map(..) => {
             vortex_bail!(
-                "row encoding does not support variable-size List arrays (no well-defined ordering)"
+                "row encoding does not support variable-size List or Map arrays (no well-defined ordering)"
             )
         }
         DType::Variant(_) => {

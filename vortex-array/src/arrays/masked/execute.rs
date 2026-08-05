@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use crate::Canonical;
 use crate::IntoArray;
@@ -50,6 +51,7 @@ pub fn mask_validity_canonical(
         Canonical::Decimal(a) => Canonical::Decimal(mask_validity_decimal(a, validity)?),
         Canonical::VarBinView(a) => Canonical::VarBinView(mask_validity_varbinview(a, validity)?),
         Canonical::List(a) => Canonical::List(mask_validity_listview(a, validity)?),
+        Canonical::Map(_) => vortex_bail!("Map arrays don't support masking"),
         Canonical::FixedSizeList(a) => {
             Canonical::FixedSizeList(mask_validity_fixed_size_list(a, validity)?)
         }

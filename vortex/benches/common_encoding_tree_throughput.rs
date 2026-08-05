@@ -5,6 +5,7 @@
 
 use std::fmt;
 use std::ops::Deref;
+use std::sync::Arc;
 use std::sync::LazyLock;
 
 use divan::Bencher;
@@ -76,6 +77,7 @@ fn with_byte_counter<'a, 'b>(bencher: Bencher<'a, 'b>, bytes: u64) -> Bencher<'a
 mod setup {
     use rand::rngs::StdRng;
     use vortex_array::VortexSessionExecute;
+    use vortex_fsst::FSSTSymbolTable;
 
     use super::*;
 
@@ -301,10 +303,16 @@ mod setup {
         .unwrap();
 
         // Rebuild FSST with compressed codes
-        let compressed_fsst = FSST::try_new(
+        let compressed_fsst = FSST::try_new_with_symbol_table(
             fsst.dtype().clone(),
-            fsst.symbols().clone(),
-            fsst.symbol_lengths().clone(),
+            Arc::new(
+                FSSTSymbolTable::new_padded(
+                    fsst.padded_symbols().clone(),
+                    fsst.padded_symbol_lengths().clone(),
+                    fsst.n_symbols(),
+                )
+                .unwrap(),
+            ),
             compressed_codes,
             fsst.uncompressed_lengths().clone(),
             &mut ctx,

@@ -19,9 +19,9 @@ use vortex_array::session::ArraySessionExt;
 use vortex_arrow::ArrowSessionExt;
 use vortex_session::VortexSession;
 
+use crate::encodings::normalized::Normalized;
 use crate::scalar_fns::cosine_similarity::CosineSimilarity;
 use crate::scalar_fns::inner_product::InnerProduct;
-use crate::scalar_fns::l2_denorm::L2Denorm;
 use crate::scalar_fns::l2_norm::L2Norm;
 use crate::types::fixed_shape_tensor::FixedShapeTensor;
 use crate::types::vector::Vector;
@@ -41,10 +41,13 @@ pub mod vector_search;
 mod utils;
 
 /// Environment variable that gates registration of the tensor scalar-fn array plugins (the array
-/// encodings that let [`CosineSimilarity`], [`InnerProduct`], [`L2Denorm`], and [`L2Norm`]
-/// persist in a Vortex file). When unset, only the scalar functions themselves
-/// are registered; readers of files containing serialized tensor scalar-fn arrays will fail to
-/// deserialize. Opt-in by setting the variable to any non-empty value.
+/// encodings that let [`CosineSimilarity`], [`InnerProduct`], and [`L2Norm`] persist in a Vortex
+/// file). When unset, only the scalar functions themselves are registered; readers of files
+/// containing serialized tensor scalar-fn arrays will fail to deserialize. Opt-in by setting the
+/// variable to any non-empty value.
+///
+/// This does **not** gate [`Normalized`]. That is a real array encoding rather than a persisted
+/// scalar function, and the compressor can emit it, so it always registers.
 pub const SCALAR_FN_ARRAY_TENSOR_PLUGIN_ENV: &str = "VX_SCALAR_FN_ARRAY_TENSOR_PLUGIN";
 
 /// Initialize the Vortex tensor library with a Vortex session.
@@ -56,11 +59,12 @@ pub fn initialize(session: &VortexSession) {
     arrow_session.register_exporter(Arc::new(Vector));
     arrow_session.register_importer(Arc::new(Vector));
 
+    session.arrays().register(Normalized);
+
     let session_fns = session.scalar_fns();
 
     session_fns.register(CosineSimilarity);
     session_fns.register(InnerProduct);
-    session_fns.register(L2Denorm);
     session_fns.register(L2Norm);
 
     // Registering the scalar-fn array plugins lets the tensor scalar fns be serialized as array
@@ -72,7 +76,6 @@ pub fn initialize(session: &VortexSession) {
 
         session_arrays.register(ScalarFnArrayPlugin::new(CosineSimilarity));
         session_arrays.register(ScalarFnArrayPlugin::new(InnerProduct));
-        session_arrays.register(ScalarFnArrayPlugin::new(L2Denorm));
         session_arrays.register(ScalarFnArrayPlugin::new(L2Norm));
     }
 }

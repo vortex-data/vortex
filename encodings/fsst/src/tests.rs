@@ -30,15 +30,14 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 
 /// this function is VERY slow on miri, so we only want to run it once
 pub(crate) fn build_fsst_array(ctx: &mut ExecutionCtx) -> ArrayRef {
-    let mut input_array = VarBinBuilder::<i32>::with_capacity(3);
+    let mut input_array =
+        VarBinBuilder::<i32>::with_capacity(DType::Utf8(Nullability::NonNullable), 3);
     input_array.append_value(b"The Greeks never said that the limit could not be overstepped");
     input_array.append_value(
         b"They said it existed and that whoever dared to exceed it was mercilessly struck down",
     );
     input_array.append_value(b"Nothing in present history can contradict them");
-    let input_array = input_array
-        .finish(DType::Utf8(Nullability::NonNullable))
-        .into_array();
+    let input_array = input_array.finish_into_varbin().into_array();
 
     let compressor = fsst_train_compressor(&input_array, ctx).unwrap();
     fsst_compress(&input_array, &compressor, ctx)
@@ -162,13 +161,11 @@ fn fsst_compress_offsets_overflow_i32() {
 
     println!("building large VarBinArray");
     let string = vec![b'a'; STRING_LEN];
-    let mut builder = VarBinBuilder::<i64>::with_capacity(N);
+    let mut builder = VarBinBuilder::<i64>::with_capacity(DType::Utf8(Nullability::NonNullable), N);
     for _ in 0..N {
         builder.append_value(&string);
     }
-    let array = builder
-        .finish(DType::Utf8(Nullability::NonNullable))
-        .into_array();
+    let array = builder.finish_into_varbin().into_array();
 
     let compressor = CompressorBuilder::default().build();
     let len = array.len();

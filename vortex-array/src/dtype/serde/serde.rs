@@ -110,6 +110,14 @@ impl Serialize for DType {
                 state.serialize_field(n)?;
                 state.end()
             }
+            DType::Map(map, n) => {
+                let mut state = serializer.serialize_tuple_variant("DType", 12, "Map", 4)?;
+                state.serialize_field(&map.key_dtype())?;
+                state.serialize_field(&map.value_dtype())?;
+                state.serialize_field(&map.keys_sorted())?;
+                state.serialize_field(n)?;
+                state.end()
+            }
             DType::Struct(fields, n) => {
                 let mut state = serializer.serialize_tuple_variant("DType", 8, "Struct", 2)?;
                 state.serialize_field(&fields)?;
@@ -181,6 +189,7 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, DType> {
             "Union",
             "Variant",
             "Extension",
+            "Map",
         ];
 
         struct DTypeVisitor<'a> {
@@ -234,6 +243,9 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, DType> {
                     "FixedSizeList" => access.newtype_variant_seed(FixedSizeListFieldsSeed {
                         session: self.session,
                     }),
+                    "Map" => access.newtype_variant_seed(MapFieldsSeed {
+                        session: self.session,
+                    }),
                     "Struct" => access.newtype_variant_seed(StructFieldsSeed {
                         session: self.session,
                     }),
@@ -258,6 +270,59 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, DType> {
             "DType",
             VARIANTS,
             DTypeVisitor {
+                session: self.session,
+            },
+        )
+    }
+}
+
+struct MapFieldsSeed<'a> {
+    session: &'a VortexSession,
+}
+
+impl<'de> DeserializeSeed<'de> for MapFieldsSeed<'_> {
+    type Value = DType;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct MapVisitor<'a> {
+            session: &'a VortexSession,
+        }
+
+        impl<'de> Visitor<'de> for MapVisitor<'_> {
+            type Value = DType;
+
+            fn expecting(&self, f: &mut Formatter) -> fmt::Result {
+                f.write_str("Map tuple (key_dtype, value_dtype, keys_sorted, nullability)")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let key = seq
+                    .next_element_seed(DTypeSerde::<DType>::new(self.session))?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+                let value = seq
+                    .next_element_seed(DTypeSerde::<DType>::new(self.session))?
+                    .ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                let keys_sorted = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(2, &self))?;
+                let nullability = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(3, &self))?;
+
+                DType::map(key, value, keys_sorted, nullability)
+                    .map_err(|error| de::Error::custom(error.to_string()))
+            }
+        }
+
+        deserializer.deserialize_tuple(
+            4,
+            MapVisitor {
                 session: self.session,
             },
         )

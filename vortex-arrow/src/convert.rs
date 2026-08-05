@@ -546,6 +546,9 @@ impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
             DataType::ListView(_) => Self::from_arrow(array.as_list_view::<i32>(), nullable),
             DataType::LargeListView(_) => Self::from_arrow(array.as_list_view::<i64>(), nullable),
             DataType::FixedSizeList(..) => Self::from_arrow(array.as_fixed_size_list(), nullable),
+            DataType::Map(..) => {
+                vortex_bail!("Arrow MapArray conversion is not yet supported")
+            }
             DataType::Null => Self::from_arrow(as_null_array(array), nullable),
             DataType::Timestamp(u, _) => match u {
                 ArrowTimeUnit::Second => {

@@ -12,7 +12,7 @@ use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
-use vortex_array::expr::Expression;
+use vortex_array::expr::BoundExpression;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -136,7 +136,7 @@ impl LayoutReader for ZonedReader {
     fn pruning_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         trace!("Stats pruning evaluation: {} - {}", &self.name, expr);
@@ -209,7 +209,7 @@ impl LayoutReader for ZonedReader {
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         self.data_child()?.filter_evaluation(row_range, expr, mask)
@@ -218,7 +218,7 @@ impl LayoutReader for ZonedReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpression,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         // TODO(ngates): there are some projection expressions that we may also be able to
@@ -325,12 +325,14 @@ mod test {
         block_on(|handle| async {
             let mut ctx = array_session().create_execution_ctx();
             let session = session_with_handle(handle);
-            let result = layout
+            let reader = layout
                 .new_reader("".into(), segments, &session, &Default::default())
-                .unwrap()
+                .unwrap();
+            let expr = root().bind(reader.dtype()).unwrap();
+            let result = reader
                 .projection_evaluation(
                     &(0..layout.row_count()),
-                    &root(),
+                    &expr,
                     MaskFuture::new_true(layout.row_count().try_into().unwrap()),
                 )
                 .unwrap()
@@ -354,7 +356,7 @@ mod test {
                 .unwrap();
 
             // Choose a prune-able expression
-            let expr = gt(root(), lit(7));
+            let expr = gt(root(), lit(7)).bind(reader.dtype()).unwrap();
 
             let result = reader
                 .pruning_evaluation(
@@ -420,10 +422,11 @@ mod test {
                 .new_reader("".into(), segments, &session, &Default::default())
                 .unwrap();
 
+            let expr = is_not_null(root()).bind(reader.dtype()).unwrap();
             let result = reader
                 .pruning_evaluation(
                     &(0..row_count),
-                    &is_not_null(root()),
+                    &expr,
                     Mask::new_true(row_count.try_into().unwrap()),
                 )
                 .unwrap()
@@ -483,20 +486,22 @@ mod test {
             let reader =
                 legacy_layout.new_reader("".into(), segments, &session, &Default::default())?;
 
+            let expr = gt(root(), lit(7)).bind(reader.dtype())?;
             let result = reader
                 .pruning_evaluation(
                     &(0..row_count),
-                    &gt(root(), lit(7)),
+                    &expr,
                     Mask::new_true(row_count.try_into().unwrap()),
                 )?
                 .await?;
 
             assert_eq!(result, Mask::from_iter(expected));
 
+            let root = root().bind(reader.dtype())?;
             let projected = reader
                 .projection_evaluation(
                     &(0..row_count),
-                    &root(),
+                    &root,
                     MaskFuture::new_true(row_count.try_into().unwrap()),
                 )?
                 .await?;
