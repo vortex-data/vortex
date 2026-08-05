@@ -268,9 +268,6 @@ impl VTable for Dict {
 /// re-reads a views buffer proportional to the row count. The dictionary is usually far smaller
 /// than the column, so resolving each code against it in place skips that intermediate entirely
 /// and leaves one `memcpy` per row as the only work.
-///
-/// The caller must have checked [`varbin_fast_path_is_host`]; this function indexes the backing
-/// buffers as host slices and panics otherwise.
 fn append_dict_to_varbin<O: OffsetBuilderPType>(
     codes: ArrayView<'_, Primitive>,
     values: ArrayView<'_, VarBinView>,
