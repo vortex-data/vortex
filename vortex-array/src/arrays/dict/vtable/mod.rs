@@ -319,7 +319,6 @@ mod tests {
     use crate::arrays::VarBinViewArray;
     use crate::arrays::dict::DictArray;
     use crate::assert_arrays_eq;
-    use crate::buffer::DeviceBuffer;
     use crate::dtype::Nullability::Nullable;
 
     const LONG: &str = "a string that is far too long to be inlined in a view";
