@@ -25,7 +25,7 @@ use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::operators::CompareOperator;
 use vortex::scan::selection::Selection;
-use vortex::scan::selection::StrictSortedBuffer;
+use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
 
 use super::expr::try_from_bound_expression_with_col_sub;
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
@@ -211,7 +211,7 @@ pub fn try_from_virtual_column_filter(
                 if let Selection::IncludeByIndex(buf) = sel {
                     indices = Some(match indices {
                         None => buf.as_slice().to_vec(),
-                        Some(existing) => intersect_sorted(&existing, buf.as_ref()),
+                        Some(existing) => intersect_sorted(&existing, buf.as_slice()),
                     });
                 }
                 if let Some(r) = range {

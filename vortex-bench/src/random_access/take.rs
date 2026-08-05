@@ -25,7 +25,7 @@ use vortex::array::stream::ArrayStreamExt;
 use vortex::buffer::Buffer;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
-use vortex::scan::selection::StrictSortedBuffer;
+use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::Format;

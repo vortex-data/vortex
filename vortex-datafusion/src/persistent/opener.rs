@@ -617,7 +617,7 @@ mod tests {
     use vortex::io::object_store::ObjectStoreWrite;
     use vortex::metrics::DefaultMetricsRegistry;
     use vortex::scan::selection::Selection;
-    use vortex::scan::selection::StrictSortedBuffer;
+    use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
     use vortex::session::VortexSession;
     use vortex_arrow::FromArrowArray;
 

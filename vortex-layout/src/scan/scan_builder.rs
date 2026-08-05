@@ -33,7 +33,7 @@ use vortex_io::runtime::Task;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_metrics::MetricsRegistry;
 use vortex_scan::selection::Selection;
-use vortex_scan::selection::StrictSortedBuffer;
+use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 

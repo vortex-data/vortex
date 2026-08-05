@@ -86,7 +86,8 @@ let record_batch: RecordBatch = batch ?;
 ### Row Selection
 
 ```rust
-use vortex_scan::selection::{Selection, StrictSortedBuffer};
+use vortex_scan::selection::Selection;
+use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 
 // Select specific rows by index
 let scan = ScanBuilder::new(layout_reader)

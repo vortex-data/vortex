@@ -6,86 +6,11 @@
 use std::ops::Not;
 use std::ops::Range;
 
-use vortex_buffer::Buffer;
-use vortex_error::VortexError;
-use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::row_mask::RowMask;
-
-/// A buffer whose values are known to be strictly sorted in ascending order.
-#[derive(Clone, Debug)]
-pub struct StrictSortedBuffer<T> {
-    buffer: Buffer<T>,
-}
-
-impl<T> StrictSortedBuffer<T> {
-    /// Return the sorted values.
-    pub fn as_slice(&self) -> &[T] {
-        self.buffer.as_slice()
-    }
-
-    /// Return the sorted buffer.
-    pub fn into_inner(self) -> Buffer<T> {
-        self.buffer
-    }
-
-    /// Return true if the buffer contains no values.
-    pub fn is_empty(&self) -> bool {
-        self.buffer.is_empty()
-    }
-
-    /// Return the number of values in the buffer.
-    pub fn len(&self) -> usize {
-        self.buffer.len()
-    }
-}
-
-impl<T: Ord> StrictSortedBuffer<T> {
-    /// Create a new buffer, failing if the values are not strictly increasing.
-    pub fn try_new(buffer: Buffer<T>) -> VortexResult<Self> {
-        validate_strictly_sorted(buffer.as_slice())?;
-        Ok(Self { buffer })
-    }
-}
-
-impl<T> Default for StrictSortedBuffer<T> {
-    fn default() -> Self {
-        Self {
-            buffer: Buffer::default(),
-        }
-    }
-}
-
-impl<T: Ord> TryFrom<Buffer<T>> for StrictSortedBuffer<T> {
-    type Error = VortexError;
-
-    fn try_from(value: Buffer<T>) -> Result<Self, Self::Error> {
-        Self::try_new(value)
-    }
-}
-
-impl<T> From<StrictSortedBuffer<T>> for Buffer<T> {
-    fn from(value: StrictSortedBuffer<T>) -> Self {
-        value.into_inner()
-    }
-}
-
-impl<T> std::ops::Deref for StrictSortedBuffer<T> {
-    type Target = [T];
-
-    fn deref(&self) -> &Self::Target {
-        self.as_slice()
-    }
-}
-
-impl<T> AsRef<[T]> for StrictSortedBuffer<T> {
-    fn as_ref(&self) -> &[T] {
-        self.as_slice()
-    }
-}
+use crate::strict_sorted_buffer::StrictSortedBuffer;
 
 /// A selection identifies a set of rows to include in the scan (in addition to applying any
 /// filter predicates).
@@ -184,19 +109,6 @@ impl Selection {
     }
 }
 
-fn validate_strictly_sorted<T: Ord>(values: &[T]) -> VortexResult<()> {
-    for (idx, window) in values.windows(2).enumerate() {
-        if window[0] >= window[1] {
-            vortex_bail!(
-                "buffer values must be strictly increasing at positions {} and {}",
-                idx,
-                idx + 1
-            );
-        }
-    }
-    Ok(())
-}
-
 /// Build the mask of positions within `range` that are named by the given sorted row indices.
 fn index_mask(range: &Range<u64>, range_len: usize, row_indices: &[u64]) -> Mask {
     indices_range(range, row_indices)
@@ -250,7 +162,7 @@ mod tests {
     use vortex_buffer::Buffer;
 
     use super::Selection;
-    use super::StrictSortedBuffer;
+    use crate::strict_sorted_buffer::StrictSortedBuffer;
 
     fn strict_sorted(indices: impl IntoIterator<Item = u64>) -> StrictSortedBuffer<u64> {
         StrictSortedBuffer::try_new(Buffer::from_iter(indices))
@@ -263,18 +175,6 @@ mod tests {
 
     fn exclude(indices: impl IntoIterator<Item = u64>) -> Selection {
         Selection::ExcludeByIndex(strict_sorted(indices))
-    }
-
-    #[test]
-    fn strict_sorted_buffer_rejects_unsorted_values() {
-        let err = StrictSortedBuffer::try_new(Buffer::from_iter([3, 1])).unwrap_err();
-        assert!(err.to_string().contains("strictly increasing"));
-    }
-
-    #[test]
-    fn strict_sorted_buffer_rejects_duplicate_values() {
-        let err = StrictSortedBuffer::try_new(Buffer::from_iter([1, 1])).unwrap_err();
-        assert!(err.to_string().contains("strictly increasing"));
     }
 
     #[test]

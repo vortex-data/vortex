@@ -78,7 +78,7 @@ use vortex_layout::layouts::zoned::Zoned;
 use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::scan::split_by::SplitBy;
 use vortex_layout::session::LayoutSession;
-use vortex_scan::selection::StrictSortedBuffer;
+use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 
 use crate::MAX_POSTSCRIPT_SIZE;

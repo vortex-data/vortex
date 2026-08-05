@@ -32,7 +32,7 @@ use vortex::scan::Partition;
 use vortex::scan::PartitionStream;
 use vortex::scan::ScanRequest;
 use vortex::scan::selection::Selection;
-use vortex::scan::selection::StrictSortedBuffer;
+use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::ToArrowType;
 
