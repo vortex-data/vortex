@@ -900,6 +900,14 @@ fn checked_op(
     Some(DecimalDType::new(MAX_PRECISION, 4))
 )]
 #[case::mul_scale_exceeds_max(NumericOperator::Mul, DecimalDType::new(MAX_PRECISION, 39), None)]
+// -70 + -70 is -140, which is not representable as an i8 scale.
+#[case::mul_scale_underflows(NumericOperator::Mul, DecimalDType::new(10, -70), None)]
+// -64 + -64 is exactly i8::MIN, the most negative scale that is still representable.
+#[case::mul_scale_reaches_min(
+    NumericOperator::Mul,
+    DecimalDType::new(10, -64),
+    Some(DecimalDType::new(21, -128))
+)]
 #[case::div_precision_underflows(NumericOperator::Div, DecimalDType::new(2, -8), None)]
 fn test_decimal_numeric_result_dtype(
     #[case] op: NumericOperator,
@@ -1059,6 +1067,21 @@ fn test_decimal_scalar_null_handling() -> VortexResult<()> {
         &DType::Decimal(DecimalDType::new(11, 2), Nullability::Nullable)
     );
     Ok(())
+}
+
+#[test]
+fn test_decimal_scalar_mul_rejects_unrepresentable_scale() {
+    // 2e70 * 3e70 is 6e140, and a scale of -140 has no i8 representation. Saturating it to -128
+    // would have silently returned the raw product 6 as 6e128.
+    let dtype = DecimalDType::new(10, -70);
+    let lhs = Scalar::decimal(DecimalValue::I64(2), dtype, Nullability::NonNullable);
+    let rhs = Scalar::decimal(DecimalValue::I64(3), dtype, Nullability::NonNullable);
+
+    assert!(
+        lhs.as_decimal()
+            .checked_binary_numeric(&rhs.as_decimal(), NumericOperator::Mul)
+            .is_err()
+    );
 }
 
 #[test]

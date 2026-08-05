@@ -59,14 +59,20 @@ pub(crate) fn decimal_numeric_result_dtype(
             ))
         }
         NumericOperator::Mul => {
-            let result_scale = input.scale().saturating_add(input.scale());
-            if result_scale > MAX_SCALE {
-                // The SQL standard rejects a product whose scale cannot be represented rather
-                // than rounding it away.
+            // Doubling the scale in i8 would saturate a very negative sum into a legal-looking
+            // scale, so widen first. The SQL standard rejects a product whose scale cannot be
+            // represented rather than rounding it away.
+            let result_scale = <i16 as From<i8>>::from(input.scale()) * 2;
+            let Some(result_scale) = i8::try_from(result_scale)
+                .ok()
+                .filter(|scale| *scale <= MAX_SCALE)
+            else {
                 vortex_bail!(
-                    "output scale of {input} {op} {input} would exceed max scale of {MAX_SCALE}"
+                    "output scale {result_scale} of {input} {op} {input} is outside the \
+                     representable scale range of {} to {MAX_SCALE}",
+                    i8::MIN
                 );
-            }
+            };
             let result_precision = input
                 .precision()
                 .saturating_add(input.precision().saturating_add(1))
