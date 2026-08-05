@@ -62,5 +62,8 @@ harness = false
 name = "make_line"
 harness = false
 
+[[bench]]
+name = "area"
+harness = false
 [lints]
 workspace = true
