@@ -13,9 +13,11 @@ use arrow_schema::Field;
 use arrow_schema::extension::ExtensionType;
 use geo_traits::to_geo::ToGeoGeometry;
 use geo_types::Geometry;
+use geoarrow::array::GeoArrowArray;
 use geoarrow::array::GeoArrowArrayAccessor;
 use geoarrow::array::IntoArrow;
 use geoarrow::array::PolygonArray;
+use geoarrow::array::PolygonBuilder;
 use geoarrow::datatypes::CoordType;
 use geoarrow::datatypes::PolygonType;
 use prost::Message;
@@ -24,6 +26,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
@@ -110,6 +113,25 @@ static ARROW_POLYGON: CachedId = CachedId::new(PolygonType::NAME);
 /// matching `Polygon` storage.
 fn polygon_type(spatial_metadata: &SpatialMetadata, dimension: Dimension) -> PolygonType {
     PolygonType::new(dimension.into(), geoarrow_metadata(spatial_metadata))
+}
+
+/// Build a native 2-D [`Polygon`] array from row-oriented `geo_types` polygons.
+pub(crate) fn build_polygon_array(
+    polygons: &[Option<geo_types::Polygon<f64>>],
+    metadata: SpatialMetadata,
+    nullability: Nullability,
+) -> VortexResult<ArrayRef> {
+    let polygons =
+        PolygonBuilder::from_nullable_polygons(polygons, polygon_type(&metadata, Dimension::Xy))
+            .finish();
+    let storage_dtype = polygon_storage_dtype(Dimension::Xy, nullability);
+    let storage = ArrayRef::from_arrow(
+        polygons.to_array_ref().as_ref(),
+        nullability == Nullability::Nullable,
+    )?
+    .cast(storage_dtype.clone())?;
+    let ext_dtype = ExtDType::<Polygon>::try_new(metadata, storage_dtype)?;
+    Ok(ExtensionArray::try_new(ext_dtype.erased(), storage)?.into_array())
 }
 
 /// Decode `Polygon` storage (`List<List<coordinate>>`) to `geo_types` polygons, for the spatial scalar
