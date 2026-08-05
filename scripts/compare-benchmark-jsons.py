@@ -130,9 +130,10 @@ def comparison_target(name: Any, target: Any = None) -> tuple[str, str, int | st
             file_format = random_access.group("file_format")
             if file_format == "vortex":
                 file_format = "vortex-file-compressed"
-            return "random-access", file_format, (
-                f"{random_access.group('prefix')}/{random_access.group('variant')}"
+            query = (
+                None if file_format == "lance" else f"{random_access.group('prefix')}/{random_access.group('variant')}"
             )
+            return "random-access", file_format, query
 
     engine = str(target_engine or name_engine or "unknown")
     file_format = str(target_format or normalize_format_name(name_format) or "unknown")
