@@ -19,8 +19,6 @@ use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
 use vortex_array::expr::analysis::referenced_field_paths;
 use vortex_array::expr::root;
-use vortex_array::expr::traversal::TraversalOrder;
-use vortex_array::expr::traversal::pre_order_visit_down;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorAdapter;
 use vortex_array::stats::StatsSet;
@@ -276,26 +274,13 @@ impl<A: 'static + Send> ScanBuilder<A> {
         // conjunction splitting if a filter is provided.
         let mut layout_reader = self.layout_reader;
 
-        let mut found_row_idx = false;
-        pre_order_visit_down(&self.projection, |node| {
-            if node.is::<RowIdx>() {
-                found_row_idx = true;
-                return Ok(TraversalOrder::Stop);
-            }
-            Ok(TraversalOrder::Continue)
-        })?;
-        if !found_row_idx && let Some(filter) = self.filter.as_ref() {
-            pre_order_visit_down(filter, |node| {
-                if node.is::<RowIdx>() {
-                    found_row_idx = true;
-                    return Ok(TraversalOrder::Stop);
-                }
-                Ok(TraversalOrder::Continue)
-            })?;
-        }
         // Enrich the layout reader to support RowIdx expressions if scan uses #row_idx.
         // Note that this is applied below the filter layout reader since it can perform
         // better over individual conjunctions.
+        let mut found_row_idx = self.projection.contains::<RowIdx>()?;
+        if !found_row_idx && let Some(filter) = self.filter.as_ref() {
+            found_row_idx = filter.contains::<RowIdx>()?;
+        }
         if found_row_idx {
             layout_reader = Arc::new(RowIdxLayoutReader::new(
                 self.row_offset,

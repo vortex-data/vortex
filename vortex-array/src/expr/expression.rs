@@ -16,7 +16,10 @@ use vortex_session::VortexSession;
 
 use crate::dtype::DType;
 use crate::expr::display::DisplayTreeExpr;
+use crate::expr::traversal::TraversalOrder;
+use crate::expr::traversal::pre_order_visit_down;
 use crate::scalar_fn::ScalarFnRef;
+use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::root::Root;
 use crate::stats::rewrite::StatsRewriteCtx;
 
@@ -203,6 +206,30 @@ impl Expression {
     /// ```
     pub fn display_tree(&self) -> impl Display {
         DisplayTreeExpr(self)
+    }
+
+    /// Returns true if this expression contains expression E inside.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use vortex_array::scalar_fn::fns::literal::Literal;
+    /// # use vortex_array::expr::{eq, lit, root};
+    /// let expression = &eq(root(), lit(3u64));
+    /// assert!(expression.contains::<Literal>().unwrap());
+    /// let expression = root();
+    /// assert!(!expression.contains::<Literal>().unwrap());
+    /// ```
+    pub fn contains<E: ScalarFnVTable>(&self) -> VortexResult<bool> {
+        let mut contains = false;
+        pre_order_visit_down(self, |node| {
+            if node.is::<E>() {
+                contains = true;
+                return Ok(TraversalOrder::Stop);
+            }
+            Ok(TraversalOrder::Continue)
+        })?;
+        Ok(contains)
     }
 }
 

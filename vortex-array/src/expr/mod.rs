@@ -156,6 +156,10 @@ mod tests {
     use std::collections::hash_map::RandomState;
     use std::hash::BuildHasher;
 
+    use vortex_array::expr::eq;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::root;
+
     use super::*;
     use crate::dtype::DType;
     use crate::dtype::FieldNames;
@@ -164,20 +168,18 @@ mod tests {
     use crate::dtype::StructFields;
     use crate::expr::and;
     use crate::expr::col;
-    use crate::expr::eq;
     use crate::expr::get_item;
     use crate::expr::gt;
     use crate::expr::gt_eq;
-    use crate::expr::lit;
     use crate::expr::lt;
     use crate::expr::lt_eq;
     use crate::expr::not;
     use crate::expr::not_eq;
     use crate::expr::or;
-    use crate::expr::root;
     use crate::expr::select;
     use crate::expr::select_exclude;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::fns::literal::Literal;
 
     #[test]
     fn basic_expr_split_test() {
@@ -310,5 +312,13 @@ mod tests {
             .to_string(),
             "{dog: 32u32, cat: \"rufus\"}"
         );
+    }
+
+    #[test]
+    fn expr_contains() {
+        let expression = &eq(root(), lit(3u64));
+        assert!(expression.contains::<Literal>().unwrap());
+        let expression = root();
+        assert!(!expression.contains::<Literal>().unwrap());
     }
 }
