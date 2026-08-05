@@ -171,14 +171,28 @@ mod tests {
     #[test]
     fn bound_conjuncts_preserve_order_and_types() -> VortexResult<()> {
         let expr = and(root(), and(not(root()), lit(true)));
-        let bound = expr.bind(&DType::Bool(Nullability::NonNullable))?;
+        let dtype = DType::Bool(Nullability::Nullable);
+        let bound = expr.bind(&dtype)?;
         let filter = FilterExpr::new(bound);
+        let conjuncts = filter.conjuncts();
 
-        assert!(
-            filter
-                .conjuncts()
+        assert_eq!(
+            conjuncts
                 .iter()
-                .all(|expr| { expr.dtype() == &DType::Bool(Nullability::NonNullable) })
+                .map(|expr| expr.unbind())
+                .collect::<Vec<_>>(),
+            vec![root(), not(root()), lit(true)]
+        );
+        assert_eq!(
+            conjuncts
+                .iter()
+                .map(|expr| expr.dtype().clone())
+                .collect::<Vec<_>>(),
+            vec![
+                DType::Bool(Nullability::Nullable),
+                DType::Bool(Nullability::Nullable),
+                DType::Bool(Nullability::NonNullable),
+            ]
         );
         Ok(())
     }
