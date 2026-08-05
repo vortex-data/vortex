@@ -413,6 +413,31 @@ def test_file_size_report_reads_shared_benchmark_rows() -> None:
     assert "| part-0.vortex | 10 | vortex-file-compressed | 100 B | 125 B | +25 B | +25.0% |" in report
 
 
+def test_file_size_report_ignores_file_identities_with_a_zero_byte_side() -> None:
+    compare = load_compare_module()
+
+    report = compare.format_file_size_report(
+        pd.DataFrame(
+            [
+                file_size_record_for("base-sha", 100, "tpch", "10", "vortex-file-compressed", "head-empty"),
+                file_size_record_for("base-sha", 0, "tpch", "10", "vortex-file-compressed", "base-empty"),
+                file_size_record_for("base-sha", 100, "tpch", "10", "vortex-file-compressed", "changed"),
+            ]
+        ),
+        pd.DataFrame(
+            [
+                file_size_record_for("pr-sha", 0, "tpch", "10", "vortex-file-compressed", "head-empty"),
+                file_size_record_for("pr-sha", 125, "tpch", "10", "vortex-file-compressed", "base-empty"),
+                file_size_record_for("pr-sha", 125, "tpch", "10", "vortex-file-compressed", "changed"),
+            ]
+        ),
+    )
+
+    assert "<summary>File Size Changes (1 files changed, +25.0% overall, 1↑ 0↓)</summary>" in report
+    assert "head-empty" not in report
+    assert "base-empty" not in report
+
+
 def test_file_size_report_ignores_baseline_rows_outside_pr_scope() -> None:
     compare = load_compare_module()
 

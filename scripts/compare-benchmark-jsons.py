@@ -614,12 +614,15 @@ def format_pct_change(pct: float) -> str:
     return f"{sign}{pct:.1f}%"
 
 
-def extract_file_size_data(df: pd.DataFrame) -> dict[tuple[str, str, str, str], int]:
-    """Extract file-size rows keyed by benchmark, scale factor, format, and file."""
+def extract_file_size_data(
+    df: pd.DataFrame,
+) -> tuple[dict[tuple[str, str, str, str], int], set[tuple[str, str, str, str]]]:
+    """Extract file-size rows and the identities explicitly ignored for being empty."""
 
     data = {}
+    ignored = set()
     if df.empty:
-        return data
+        return data, ignored
 
     for _, row in df.iterrows():
         metadata = row.get("file_size")
@@ -635,19 +638,26 @@ def extract_file_size_data(df: pd.DataFrame) -> dict[tuple[str, str, str, str], 
         value = row.get("value")
         if pd.isna(value):
             continue
-        data[key] = int(value)
+        size = int(value)
+        if size == 0:
+            ignored.add(key)
+            continue
+        data[key] = size
 
-    return data
+    return data, ignored
 
 
 def format_file_size_report(base_rows: pd.DataFrame, pr_rows: pd.DataFrame) -> str:
     """Render a shared-comment file-size comparison report."""
 
-    pr_data = extract_file_size_data(pr_rows)
+    pr_data, pr_ignored = extract_file_size_data(pr_rows)
+    base_data, base_ignored = extract_file_size_data(base_rows)
+    ignored = base_ignored | pr_ignored
+    pr_data = {key: value for key, value in pr_data.items() if key not in ignored}
     if not pr_data:
         return ""
 
-    base_data = extract_file_size_data(base_rows)
+    base_data = {key: value for key, value in base_data.items() if key not in ignored}
     pr_scopes = {(benchmark, scale_factor) for benchmark, scale_factor, _file_format, _file_name in pr_data}
     base_data = {key: value for key, value in base_data.items() if key[:2] in pr_scopes}
     if not base_data:
