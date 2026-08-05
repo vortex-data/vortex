@@ -132,6 +132,11 @@ fn test_cast_from_null(array: &ArrayRef, ctx: &mut ExecutionCtx) {
 }
 
 fn test_cast_to_non_nullable(array: &ArrayRef, ctx: &mut ExecutionCtx) {
+    // DType::Null has no non-nullable form
+    if &DType::Null == array.dtype() {
+        return;
+    }
+
     if array
         .invalid_count(ctx)
         .vortex_expect("invalid_count should succeed in conformance test")
@@ -170,8 +175,8 @@ fn test_cast_to_non_nullable(array: &ArrayRef, ctx: &mut ExecutionCtx) {
         }
     } else {
         if &DType::Null == array.dtype() {
-            // DType::Null.as_nonnullable() (confusingly) returns DType:Null. Of course, a null
-            // array can be casted to DType::Null.
+            // DType::Null has no non-nullable form. A null array can only
+            // be cast to DType::Null
             return;
         }
         cast_and_execute(&array.clone(), array.dtype().as_nonnullable(), ctx)

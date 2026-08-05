@@ -87,9 +87,12 @@ impl DType {
 
     /// Get a new DType with the given nullability (but otherwise the same as `self`).
     ///
-    /// [`DType::Null`] has intrinsic nullability and is returned unchanged.
+    /// Invoking .with_nullability(NonNullable) on DType::Null panics.
     pub fn with_nullability(&self, nullability: Nullability) -> Self {
         match self {
+            Null if nullability == Nullability::NonNullable => {
+                vortex_panic!("DType::Null cannot be made non-nullable")
+            }
             Null => Null,
             Bool(_) => Bool(nullability),
             Primitive(pdt, _) => Primitive(*pdt, nullability),
@@ -748,5 +751,11 @@ mod tests {
             .element_size(),
             None
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "DType::Null cannot be made non-nullable")]
+    fn null_as_nonnullable_panics() {
+        DType::Null.as_nonnullable();
     }
 }
