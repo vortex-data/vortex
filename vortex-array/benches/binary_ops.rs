@@ -22,9 +22,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::dtype::BigCast;
 use vortex_array::dtype::DecimalDType;
-use vortex_array::dtype::NativeDecimalType;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_session::VortexSession;
 
@@ -192,60 +190,35 @@ fn add_decimal_i128_nullable(bencher: Bencher) {
     bench_decimal(bencher, lhs, rhs, Operator::Add);
 }
 
-macro_rules! decimal_mul_div_benches {
-    ($mul:ident, $div:ident, $native:ty, $precision:expr, $scale:expr) => {
-        #[divan::bench]
-        fn $mul(bencher: Bencher) {
-            let dtype = DecimalDType::new($precision, $scale);
-            let lhs = comparison_vortex_decimal::<$native>(dtype, 1).into_array();
-            let rhs = comparison_vortex_decimal::<$native>(dtype, 17).into_array();
-            bench_decimal(bencher, lhs, rhs, Operator::Mul);
-        }
-
-        #[divan::bench]
-        fn $div(bencher: Bencher) {
-            let dtype = DecimalDType::new($precision, $scale);
-            let lhs = comparison_vortex_decimal::<$native>(dtype, 1).into_array();
-            let rhs = comparison_vortex_decimal::<$native>(dtype, 17).into_array();
-            bench_decimal(bencher, lhs, rhs, Operator::Div);
-        }
-    };
-}
-
-decimal_mul_div_benches!(mul_decimal_i32_nonnull, div_decimal_i32_nonnull, i32, 4, 1);
-decimal_mul_div_benches!(mul_decimal_i64_nonnull, div_decimal_i64_nonnull, i64, 8, 2);
-decimal_mul_div_benches!(
-    mul_decimal_i128_nonnull,
-    div_decimal_i128_nonnull,
-    i128,
-    18,
-    2
-);
-decimal_mul_div_benches!(
-    mul_decimal_i256_nonnull,
-    div_decimal_i256_nonnull,
-    vortex_array::dtype::i256,
-    38,
-    2
-);
-
 #[divan::bench]
-fn mul_decimal_i256_nullable(bencher: Bencher) {
-    let dtype = DecimalDType::new(38, 2);
-    let lhs =
-        comparison_vortex_decimal_nullable::<vortex_array::dtype::i256>(dtype, 1, 7).into_array();
-    let rhs =
-        comparison_vortex_decimal_nullable::<vortex_array::dtype::i256>(dtype, 17, 5).into_array();
+fn mul_decimal_i64_nonnull(bencher: Bencher) {
+    let lhs = decimal_i64_nonnull(0).into_array();
+    let rhs = decimal_i64_nonnull(1_000_000).into_array();
+
     bench_decimal(bencher, lhs, rhs, Operator::Mul);
 }
 
 #[divan::bench]
-fn div_decimal_i256_nullable(bencher: Bencher) {
-    let dtype = DecimalDType::new(38, 2);
-    let lhs =
-        comparison_vortex_decimal_nullable::<vortex_array::dtype::i256>(dtype, 1, 7).into_array();
-    let rhs =
-        comparison_vortex_decimal_nullable::<vortex_array::dtype::i256>(dtype, 17, 5).into_array();
+fn mul_decimal_i128_nullable(bencher: Bencher) {
+    let lhs = decimal_i128_nullable(0, 7).into_array();
+    let rhs = decimal_i128_nullable(1_000_000, 5).into_array();
+
+    bench_decimal(bencher, lhs, rhs, Operator::Mul);
+}
+
+#[divan::bench]
+fn div_decimal_i64_nonnull(bencher: Bencher) {
+    let lhs = decimal_i64_nonnull(0).into_array();
+    let rhs = decimal_i64_nonnull(1_000_000).into_array();
+
+    bench_decimal(bencher, lhs, rhs, Operator::Div);
+}
+
+#[divan::bench]
+fn div_decimal_i128_nullable(bencher: Bencher) {
+    let lhs = decimal_i128_nullable(0, 7).into_array();
+    let rhs = decimal_i128_nullable(1_000_000, 5).into_array();
+
     bench_decimal(bencher, lhs, rhs, Operator::Div);
 }
 
@@ -322,33 +295,6 @@ fn decimal_i128_nullable(base: i128, null_every: usize) -> DecimalArray {
     DecimalArray::from_option_iter::<i128, _>(
         (0..LEN as i128).map(|i| (!(i as usize).is_multiple_of(null_every)).then_some(base + i)),
         DecimalDType::new(38, 2),
-    )
-}
-
-fn comparison_vortex_decimal<T>(dtype: DecimalDType, offset: usize) -> DecimalArray
-where
-    T: NativeDecimalType,
-{
-    DecimalArray::from_iter::<T, _>(
-        (0..LEN).map(|idx| <T as BigCast>::from(((idx + offset) % 89 + 1) as i64).unwrap()),
-        dtype,
-    )
-}
-
-fn comparison_vortex_decimal_nullable<T>(
-    dtype: DecimalDType,
-    offset: usize,
-    null_every: usize,
-) -> DecimalArray
-where
-    T: NativeDecimalType,
-{
-    DecimalArray::from_option_iter::<T, _>(
-        (0..LEN).map(|idx| {
-            (!idx.is_multiple_of(null_every))
-                .then(|| <T as BigCast>::from(((idx + offset) % 89 + 1) as i64).unwrap())
-        }),
-        dtype,
     )
 }
 
