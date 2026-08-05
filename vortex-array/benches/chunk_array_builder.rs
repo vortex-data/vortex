@@ -134,10 +134,14 @@ fn chunked_varbinview_opt_into_canonical(bencher: Bencher, (len, chunk_count): (
         .bench_refs(|(chunk, ctx)| (**chunk).clone().execute::<Canonical>(ctx))
 }
 
-/// `VarBin` chunks into a `VarBinViewBuilder`: the views are built straight over each chunk's
-/// value bytes and numbered against the builder's buffers, rather than canonicalizing each chunk
-/// into a `VarBinViewArray` whose views then get rewritten to rebase their buffer index.
-#[divan::bench(args = BENCH_ARGS)]
+// Fewer rows than BENCH_ARGS: decoding VarBin values is the most expensive work in this file.
+const VARBIN_BENCH_ARGS: &[(usize, usize)] = &[
+    // length, chunk_count
+    (10, 200),
+    (1000, 2),
+];
+
+#[divan::bench(args = VARBIN_BENCH_ARGS)]
 fn chunked_varbin_to_varbinview_builder(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunks = make_varbin_chunks(false, len, chunk_count);
 
@@ -153,7 +157,7 @@ fn chunked_varbin_to_varbinview_builder(bencher: Bencher, (len, chunk_count): (u
         })
 }
 
-#[divan::bench(args = BENCH_ARGS)]
+#[divan::bench(args = VARBIN_BENCH_ARGS)]
 fn chunked_varbin_opt_to_varbinview_builder(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunks = make_varbin_chunks(true, len, chunk_count);
 
@@ -169,9 +173,7 @@ fn chunked_varbin_opt_to_varbinview_builder(bencher: Bencher, (len, chunk_count)
         })
 }
 
-/// The same chunks routed through `execute::<Canonical>`, which is what the builder append used to
-/// do per chunk before pushing the result.
-#[divan::bench(args = BENCH_ARGS)]
+#[divan::bench(args = VARBIN_BENCH_ARGS)]
 fn chunked_varbin_into_canonical(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunks = make_varbin_chunks(false, len, chunk_count);
 
@@ -273,8 +275,6 @@ fn make_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {
         .into_array()
 }
 
-/// Chunks of `VarBin`, with a mix of inlinable (≤12 byte) and buffer-referencing values so both
-/// halves of the view construction are exercised.
 fn make_varbin_chunks(nullable: bool, len: usize, chunk_count: usize) -> ArrayRef {
     let mut rng = StdRng::seed_from_u64(123);
     let dtype = DType::Utf8(nullable.into());
