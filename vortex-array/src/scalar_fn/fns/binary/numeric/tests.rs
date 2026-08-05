@@ -464,6 +464,31 @@ fn test_decimal_value_outside_working_width_errors() {
 }
 
 #[test]
+fn test_decimal_mul_value_outside_precision_errors() {
+    // `DecimalArray::new` does not validate stored values against the declared precision, so Mul
+    // cannot assume its inputs are in-precision: 500 * 500 is 250_000, well past the 99_999 that
+    // the decimal(5, 0) result can represent.
+    let dtype = DecimalDType::new(2, 0);
+    let value = i256::from_i128(500);
+    let lhs = DecimalArray::new(buffer![value], dtype, Validity::NonNullable).into_array();
+    let rhs = DecimalArray::new(buffer![value], dtype, Validity::NonNullable).into_array();
+
+    assert!(decimal_binary(lhs, rhs, Operator::Mul).is_err());
+}
+
+#[test]
+fn test_decimal_mul_value_outside_working_width_errors() {
+    // 50_000 * 50_000 overflows the i32 working width chosen for a decimal(5, 0) result, which
+    // an unchecked multiply would wrap in release and panic on in debug.
+    let dtype = DecimalDType::new(2, 0);
+    let value = i256::from_i128(50_000);
+    let lhs = DecimalArray::new(buffer![value], dtype, Validity::NonNullable).into_array();
+    let rhs = DecimalArray::new(buffer![value], dtype, Validity::NonNullable).into_array();
+
+    assert!(decimal_binary(lhs, rhs, Operator::Mul).is_err());
+}
+
+#[test]
 fn test_decimal_value_outside_working_width_on_null_lane_ignored() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let dtype = DecimalDType::new(2, 0);
@@ -574,7 +599,7 @@ fn test_decimal_mul_widens_before_multiplying() -> VortexResult<()> {
 }
 
 #[test]
-fn test_decimal_mul_above_guaranteed_precision_checks_logical_bounds() {
+fn test_decimal_mul_above_result_precision_errors() {
     let dtype = DecimalDType::new(39, 0);
     let one = i256::from_i128(1);
     let ten_to_38 = <i256 as NativeDecimalType>::MAX_BY_PRECISION[38] + one;
