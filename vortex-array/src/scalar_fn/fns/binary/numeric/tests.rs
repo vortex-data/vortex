@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use rstest::rstest;
+use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 
@@ -21,6 +22,7 @@ use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
+use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::dtype::i256;
 use crate::scalar::DecimalValue;
@@ -197,6 +199,132 @@ fn test_integer_array_array_errors_on_valid_lanes() {
         .and_then(|a| a.execute::<PrimitiveArray>(&mut array_session().create_execution_ctx()));
 
     assert!(result.is_err());
+}
+
+/// Multiply two non-nullable lanes of `lhs` by two of `rhs`, expecting `Some(product)` where the
+/// product fits and `None` where the checked kernel must report overflow.
+#[track_caller]
+fn assert_multiply<T: NativePType>(lhs: T, rhs: T, expected: Option<T>) -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let result = PrimitiveArray::from_iter([lhs, lhs])
+        .into_array()
+        .binary(
+            PrimitiveArray::from_iter([rhs, rhs]).into_array(),
+            Operator::Mul,
+        )?
+        .execute::<PrimitiveArray>(&mut ctx);
+
+    let Some(product) = expected else {
+        assert!(result.is_err(), "{lhs:?} * {rhs:?} must report overflow");
+        return Ok(());
+    };
+
+    assert_arrays_eq!(
+        result?,
+        PrimitiveArray::from_iter([product, product]),
+        &mut ctx
+    );
+
+    Ok(())
+}
+
+/// Multiplication derives overflow from the bits the narrow product discards rather than from a
+/// comparison, and it does so by a different formula per width, so each boundary of each formula is
+/// worth pinning. The 8 and 32-bit signed cases cover the two-sided range check, the 64-bit signed
+/// ones the sign-extension XOR, and the unsigned ones the high-half shift.
+#[rstest]
+#[case::i8_fits(100i8, 1, Some(100))]
+#[case::i8_overflows(100i8, 2, None)]
+#[case::i8_min_times_minus_one(i8::MIN,     -1,       None)]
+#[case::i32_fits(             1i32 << 15,   1 << 15,  Some(1 << 30))]
+#[case::i32_min_times_minus_one(i32::MIN,   -1,       None)]
+#[case::i64_min_times_one(i64::MIN, 1, Some(i64::MIN))]
+#[case::i64_minus_one_squared(-1i64,        -1,       Some(1))]
+#[case::i64_max_times_one(i64::MAX, 1, Some(i64::MAX))]
+#[case::i64_negative_product( -5i64,        3,        Some(-15))]
+#[case::i64_zero(0i64, i64::MIN, Some(0))]
+#[case::i64_min_times_minus_one(i64::MIN,   -1,       None)]
+#[case::i64_max_times_two(i64::MAX, 2, None)]
+#[case::i64_min_times_two(i64::MIN, 2, None)]
+#[case::u8_fits(200u8, 1, Some(200))]
+#[case::u8_overflows(200u8, 2, None)]
+#[case::u16_boundary(65535u16, 1, Some(65535))]
+#[case::u32_halves(           1u32 << 16,   1 << 15,  Some(1 << 31))]
+#[case::u32_overflows(        1u32 << 16,   1 << 16,  None)]
+#[case::u64_max(u64::MAX, 1, Some(u64::MAX))]
+#[case::u64_overflows(u64::MAX, 2, None)]
+fn test_multiply_overflow_boundaries<T: NativePType>(
+    #[case] lhs: T,
+    #[case] rhs: T,
+    #[case] expected: Option<T>,
+) -> VortexResult<()> {
+    assert_multiply(lhs, rhs, expected)
+}
+
+/// An overflowing multiply behind a null row stays invisible, whichever width of evidence the lane
+/// reports: `bool` for narrow signed, the operand itself for unsigned, and `u64` for 64-bit.
+#[rstest]
+#[case::signed_8(i8::MAX, 3, 9)]
+#[case::unsigned_32(u32::MAX, 7, 49)]
+#[case::signed_64(i64::MAX, 2, 4)]
+fn test_multiply_overflow_on_null_lane_ignored<T: NativePType>(
+    #[case] overflowing: T,
+    #[case] rhs: T,
+    #[case] expected: T,
+) -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let lhs = PrimitiveArray::new(
+        Buffer::copy_from([overflowing, rhs]),
+        Validity::from_iter([false, true]),
+    )
+    .into_array();
+
+    let result = lhs
+        .binary(
+            PrimitiveArray::from_iter([rhs, rhs]).into_array(),
+            Operator::Mul,
+        )?
+        .execute::<RecursiveCanonical>(&mut ctx)?
+        .0
+        .into_array();
+
+    assert_arrays_eq!(
+        result,
+        PrimitiveArray::from_option_iter([None, Some(expected)]),
+        &mut ctx
+    );
+
+    Ok(())
+}
+
+/// The hot pass OR-reduces evidence across whole 64-lane chunks before anything looks at it, so an
+/// overflow in a late chunk must still be caught, and must still be suppressed when its lane is
+/// null. Every other test here fits in a single chunk and cannot show either.
+#[rstest]
+#[case::reported(true)]
+#[case::suppressed_by_null(false)]
+fn test_multiply_overflow_survives_chunk_reduction(
+    #[case] lane_is_valid: bool,
+) -> VortexResult<()> {
+    const LEN: u32 = 1000;
+    const OVERFLOW_AT: u32 = 700;
+
+    let mut ctx = array_session().create_execution_ctx();
+    let mut lhs: Vec<u32> = (0..LEN).map(|i| i % 100 + 1).collect();
+    lhs[OVERFLOW_AT as usize] = u32::MAX;
+
+    let validity = Validity::from_iter((0..LEN).map(|i| i != OVERFLOW_AT || lane_is_valid));
+    let result = PrimitiveArray::new(Buffer::copy_from(&lhs), validity)
+        .into_array()
+        .binary(
+            PrimitiveArray::from_iter(vec![3u32; LEN as usize]).into_array(),
+            Operator::Mul,
+        )?
+        .execute::<RecursiveCanonical>(&mut ctx);
+
+    assert_eq!(result.is_err(), lane_is_valid);
+
+    Ok(())
 }
 
 #[test]

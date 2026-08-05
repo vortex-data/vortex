@@ -8,6 +8,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
+use super::checked::Failure;
 use super::checked::checked_apply_lanes;
 use super::checked::checked_lanes;
 use crate::ArrayRef;
@@ -35,24 +36,36 @@ struct CheckedMul;
 struct CheckedDiv;
 
 trait CheckedPrimitiveOp<T: NativePType>: Sized {
+    /// Message for the error raised when this operation fails on a valid lane.
     const ERROR: &'static str;
+
+    /// Whether to check inside the value loop and exit early, rather than reducing evidence over
+    /// the whole batch and re-running only once some lane has flagged.
     const CHECKED_VALUE_LOOP: bool = false;
 
-    // The vectorizable kernels need an overflowing-style result, not
-    // `Option<T>`: every lane can write a value unconditionally while reducing
-    // the error flag separately. `checked` is still available for scalar and
-    // one-pass paths where early exit is the right shape.
-    fn apply(lhs: T, rhs: T) -> (T, bool);
+    /// How this operation reports a failing lane. See [`Failure`].
+    type Failure: Failure;
 
+    /// Compute a lane's value and its failure evidence together.
+    ///
+    /// Overflowing-style rather than `Option<T>`, so the vectorizable kernels can write every
+    /// lane's value unconditionally and reduce the evidence separately. [`Self::checked`] is the
+    /// shape for the scalar and early-exit paths.
+    fn apply(lhs: T, rhs: T) -> (T, Self::Failure);
+
+    /// [`Self::apply`] folded into the `Option` that the early-exit kernels take.
     #[inline(always)]
     fn checked(lhs: T, rhs: T) -> Option<T> {
         let (value, failed) = Self::apply(lhs, rhs);
-        if failed { None } else { Some(value) }
+
+        (failed == Self::Failure::default()).then_some(value)
     }
 }
 
 impl<T: CheckedArithmetic> CheckedPrimitiveOp<T> for CheckedAdd {
     const ERROR: &'static str = "integer overflow in checked add";
+
+    type Failure = bool;
 
     #[inline(always)]
     fn apply(lhs: T, rhs: T) -> (T, bool) {
@@ -63,6 +76,8 @@ impl<T: CheckedArithmetic> CheckedPrimitiveOp<T> for CheckedAdd {
 impl<T: CheckedArithmetic> CheckedPrimitiveOp<T> for CheckedSub {
     const ERROR: &'static str = "integer overflow in checked sub";
 
+    type Failure = bool;
+
     #[inline(always)]
     fn apply(lhs: T, rhs: T) -> (T, bool) {
         (lhs.sub_value(rhs), lhs.sub_error(rhs))
@@ -72,9 +87,11 @@ impl<T: CheckedArithmetic> CheckedPrimitiveOp<T> for CheckedSub {
 impl<T: CheckedArithmetic> CheckedPrimitiveOp<T> for CheckedMul {
     const ERROR: &'static str = "integer overflow in checked mul";
 
+    type Failure = T::MulFailure;
+
     #[inline(always)]
-    fn apply(lhs: T, rhs: T) -> (T, bool) {
-        (lhs.mul_value(rhs), lhs.mul_error(rhs))
+    fn apply(lhs: T, rhs: T) -> (T, T::MulFailure) {
+        (lhs.mul_value(rhs), lhs.mul_failure(rhs))
     }
 }
 
@@ -86,6 +103,8 @@ impl<T: CheckedArithmetic> CheckedPrimitiveOp<T> for CheckedDiv {
     // division, matching Arrow/Velox. Float division has no checked errors and
     // stays on the split/vectorizable default path.
     const CHECKED_VALUE_LOOP: bool = T::DIV_CHECKS_IN_VALUE_LOOP;
+
+    type Failure = bool;
 
     #[inline(always)]
     fn apply(lhs: T, rhs: T) -> (T, bool) {
@@ -184,13 +203,11 @@ where
     primitive_result_array::<T>(values, validity, &result_dtype)
 }
 
-/// Run `Op` over the lanes of `source` in the loop shape the op declares: the split
-/// value/error kernel for vectorizable ops, or the one-pass early-exit checked kernel when
-/// `Op::CHECKED_VALUE_LOOP` is set.
+/// Run `Op` over the lanes of `source` in the loop shape it declares: the one-pass early-exit
+/// kernel when `Op::CHECKED_VALUE_LOOP` is set, and the split value/failure kernel otherwise.
 ///
-/// `#[inline(always)]`: keeps the `to_operands` closure environment (captured constant
-/// operands) flattened into the kernel loop — see `checked::checked_lanes`.
-#[inline(always)]
+/// `#[inline]`: see [`checked_lanes`].
+#[inline]
 fn checked_op_lanes<S, T, Op>(
     source: S,
     valid_rows: &Mask,
@@ -297,12 +314,16 @@ impl<T: NativePType> PrimitiveOperand<T> {
 trait CheckedArithmetic: NativePType {
     const DIV_CHECKS_IN_VALUE_LOOP: bool;
 
+    /// How multiplication reports a failing lane, which is width-dependent in a way the other
+    /// operations are not. Each impl's `mul_failure` says why it chose what it chose.
+    type MulFailure: Failure;
+
     fn add_value(self, rhs: Self) -> Self;
     fn add_error(self, rhs: Self) -> bool;
     fn sub_value(self, rhs: Self) -> Self;
     fn sub_error(self, rhs: Self) -> bool;
     fn mul_value(self, rhs: Self) -> Self;
-    fn mul_error(self, rhs: Self) -> bool;
+    fn mul_failure(self, rhs: Self) -> Self::MulFailure;
     fn div_value(self, rhs: Self) -> Self;
     fn div_error(self, rhs: Self) -> bool;
     fn div_checked(self, rhs: Self) -> Option<Self>;
@@ -312,6 +333,8 @@ macro_rules! impl_checked_unsigned {
     ($ty:ty,widening_mul: $wide:ty) => {
         impl CheckedArithmetic for $ty {
             const DIV_CHECKS_IN_VALUE_LOOP: bool = true;
+
+            type MulFailure = $ty;
 
             #[inline(always)]
             fn add_value(self, rhs: Self) -> Self {
@@ -338,9 +361,11 @@ macro_rules! impl_checked_unsigned {
                 self.wrapping_mul(rhs)
             }
 
+            /// The bits the narrow product discards, which are non-zero exactly when the multiply
+            /// overflowed and cost none of the comparison LLVM folds into `umul.with.overflow`.
             #[inline(always)]
-            fn mul_error(self, rhs: Self) -> bool {
-                (self as $wide) * (rhs as $wide) > <$ty>::MAX as $wide
+            fn mul_failure(self, rhs: Self) -> $ty {
+                (((self as $wide) * (rhs as $wide)) >> <$ty>::BITS) as $ty
             }
 
             #[inline(always)]
@@ -363,6 +388,8 @@ macro_rules! impl_checked_unsigned {
         impl CheckedArithmetic for $ty {
             const DIV_CHECKS_IN_VALUE_LOOP: bool = true;
 
+            type MulFailure = u64;
+
             #[inline(always)]
             fn add_value(self, rhs: Self) -> Self {
                 self.wrapping_add(rhs)
@@ -388,9 +415,13 @@ macro_rules! impl_checked_unsigned {
                 self.wrapping_mul(rhs)
             }
 
+            /// As the narrower widths, but through `u128`, because this arm is the 64-bit width and
+            /// has no wider native type to widen into.
             #[inline(always)]
-            fn mul_error(self, rhs: Self) -> bool {
-                self.overflowing_mul(rhs).1
+            fn mul_failure(self, rhs: Self) -> u64 {
+                const { assert!(<$ty>::BITS == 64) };
+
+                (((self as u128) * (rhs as u128)) >> 64) as u64
             }
 
             #[inline(always)]
@@ -416,6 +447,8 @@ macro_rules! impl_checked_signed {
         impl CheckedArithmetic for $ty {
             const DIV_CHECKS_IN_VALUE_LOOP: bool = true;
 
+            type MulFailure = bool;
+
             #[inline(always)]
             fn add_value(self, rhs: Self) -> Self {
                 self.wrapping_add(rhs)
@@ -443,9 +476,12 @@ macro_rules! impl_checked_signed {
                 self.wrapping_mul(rhs)
             }
 
+            /// A plain `bool`, because the two-sided range check is not the shape LLVM folds
+            /// into an overflow intrinsic, so these widths vectorize without reporting evidence.
             #[inline(always)]
-            fn mul_error(self, rhs: Self) -> bool {
+            fn mul_failure(self, rhs: Self) -> bool {
                 let product = (self as $wide) * (rhs as $wide);
+
                 product < <$ty>::MIN as $wide || product > <$ty>::MAX as $wide
             }
 
@@ -469,6 +505,8 @@ macro_rules! impl_checked_signed {
         impl CheckedArithmetic for $ty {
             const DIV_CHECKS_IN_VALUE_LOOP: bool = true;
 
+            type MulFailure = u64;
+
             #[inline(always)]
             fn add_value(self, rhs: Self) -> Self {
                 self.wrapping_add(rhs)
@@ -496,9 +534,23 @@ macro_rules! impl_checked_signed {
                 self.wrapping_mul(rhs)
             }
 
+            /// A signed multiply overflows exactly when the discarded half of the true product
+            /// differs from the sign extension of the half that was kept, so the two XOR to zero
+            /// on the lanes that fit. `tests::test_i64_multiply_overflow_boundaries` pins the
+            /// boundaries this replaces `overflowing_mul` at.
             #[inline(always)]
-            fn mul_error(self, rhs: Self) -> bool {
-                self.overflowing_mul(rhs).1
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "the truncated half is the result, and the discarded half is the evidence"
+            )]
+            fn mul_failure(self, rhs: Self) -> u64 {
+                const { assert!(<$ty>::BITS == 64) };
+
+                let wide = (self as i128) * (rhs as i128);
+                let kept = wide as i64;
+                let discarded = (wide >> 64) as i64;
+
+                (discarded ^ (kept >> 63)) as u64
             }
 
             #[inline(always)]
@@ -524,6 +576,8 @@ macro_rules! impl_checked_float {
         $(
             impl CheckedArithmetic for $ty {
                 const DIV_CHECKS_IN_VALUE_LOOP: bool = false;
+
+                type MulFailure = bool;
 
                 #[inline(always)]
                 fn add_value(self, rhs: Self) -> Self {
@@ -551,7 +605,7 @@ macro_rules! impl_checked_float {
                 }
 
                 #[inline(always)]
-                fn mul_error(self, _rhs: Self) -> bool {
+                fn mul_failure(self, _rhs: Self) -> bool {
                     false
                 }
 
@@ -583,3 +637,69 @@ impl_checked_signed!(i16, widening_mul: i32);
 impl_checked_signed!(i32, widening_mul: i64);
 impl_checked_signed!(i64, overflowing_mul);
 impl_checked_float!(f16, f32, f64);
+
+#[cfg(test)]
+mod tests {
+    use super::CheckedArithmetic;
+
+    /// Values whose pairwise products are worth probing: the saturating boundaries, the sign-change
+    /// pivots, and a spread of magnitudes that straddles the 64-bit split.
+    const PROBES: &[i64] = &[
+        0,            //
+        1,            //
+        -1,           //
+        2,            //
+        -2,           //
+        3,            //
+        i64::MIN,     //
+        i64::MIN + 1, //
+        i64::MAX,     //
+        i64::MAX - 1, //
+        1 << 31,      //
+        1 << 32,      //
+        1 << 62,      //
+        -(1 << 62),   //
+        0x7FFF_FFFF,  //
+        -0x8000_0000, //
+    ];
+
+    /// Every `mul_failure` impl is either a bit trick or a two-sided range check, so hold each
+    /// against the obvious reference: `reference` is the width's own `checked_mul`, whose `None`
+    /// _is_ the definition of overflow.
+    #[track_caller]
+    fn assert_agrees_with_checked_mul<T: CheckedArithmetic>(lhs: T, rhs: T, reference: Option<T>) {
+        let failed = lhs.mul_failure(rhs) != <T::MulFailure as Default>::default();
+
+        assert_eq!(failed, reference.is_none(), "{lhs:?} * {rhs:?}");
+    }
+
+    #[test]
+    fn mul_failure_agrees_with_checked_mul_at_64_bits() {
+        for &lhs in PROBES {
+            for &rhs in PROBES {
+                assert_agrees_with_checked_mul(lhs, rhs, lhs.checked_mul(rhs));
+
+                let (lhs, rhs) = (lhs as u64, rhs as u64);
+
+                assert_agrees_with_checked_mul(lhs, rhs, lhs.checked_mul(rhs));
+            }
+        }
+    }
+
+    /// The 8-bit widths are cheap enough to check exhaustively, which pins the shift of the
+    /// unsigned formula and the range check of the signed one against every product that exists.
+    #[test]
+    fn mul_failure_agrees_with_checked_mul_exhaustively_at_8_bits() {
+        for lhs in u8::MIN..=u8::MAX {
+            for rhs in u8::MIN..=u8::MAX {
+                assert_agrees_with_checked_mul(lhs, rhs, lhs.checked_mul(rhs));
+            }
+        }
+
+        for lhs in i8::MIN..=i8::MAX {
+            for rhs in i8::MIN..=i8::MAX {
+                assert_agrees_with_checked_mul(lhs, rhs, lhs.checked_mul(rhs));
+            }
+        }
+    }
+}

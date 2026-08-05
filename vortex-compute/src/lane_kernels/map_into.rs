@@ -5,6 +5,7 @@
 //! caller-provided `&mut [MaybeUninit<R>]`.
 
 use std::mem::MaybeUninit;
+use std::ops::BitOrAssign;
 
 use vortex_buffer::BitBuffer;
 
@@ -217,22 +218,19 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
         }
     }
 
-    /// Split value/error map with **no validity awareness at all**: apply
-    /// `f(value) -> (R, bool)` to every lane, write the value unconditionally, and
-    /// OR-reduce the per-lane error flags into the returned `bool`.
+    /// Split value/failure map with **no validity awareness at all**: write every lane's value
+    /// unconditionally and OR-reduce its failure evidence into the return.
     ///
-    /// This is the highest-throughput checked shape for operations whose error
-    /// check auto-vectorizes (e.g. checked integer add/sub/mul): the loop carries a
-    /// single flag reduction with no per-lane select and no per-chunk exit branch,
-    /// so it runs at the speed of the unchecked [`map_into`]. The trade-off is that
-    /// it reports only *whether* some lane failed, not which one, and it never
-    /// exits early. Callers that need attribution or null-lane filtering should
-    /// re-run the (now known cold) input through [`try_map_into`] or
-    /// [`try_map_masked_into`] when this returns `true`.
+    /// The fastest checked shape, running at the speed of the unchecked [`map_into`] in exchange
+    /// for reporting only _that_ some lane failed and never exiting early. Re-run the now known
+    /// cold input through [`try_map_into`] or [`try_map_masked_into`] to attribute the failure or
+    /// to drop the null-lane ones. The evidence reduces inside the kernel because a captured `&mut`
+    /// becomes a loop-carried memory dependence that blocks vectorization.
     ///
-    /// The flag is deliberately reduced inside the kernel rather than through a
-    /// closure-captured `&mut bool`: an escaped flag becomes a loop-carried memory
-    /// dependence that blocks auto-vectorization of the whole loop.
+    /// Anything other than [`Default`] means failure, and `bool` is the ordinary `Fail`. Wider
+    /// words exist for operations where deriving a `bool` costs the vectorization it guards.
+    /// **`Fail` must be no wider than `R`**, asserted below, or the reduction rather than the
+    /// operation decides how many lanes fit in a vector.
     ///
     /// [`map_into`]: IndexedSourceExt::map_into
     /// [`try_map_into`]: IndexedSourceExt::try_map_into
@@ -242,21 +240,30 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
     ///
     /// Panics if `out.len() != self.len()`.
     #[inline]
-    fn map_checked_into<R, F>(self, out: &mut [MaybeUninit<R>], mut f: F) -> bool
+    fn map_checked_into<R, Fail, Apply>(self, out: &mut [MaybeUninit<R>], mut apply: Apply) -> Fail
     where
-        R: Copy,
-        F: FnMut(Self::Item) -> (R, bool),
+        Fail: Copy + Default + BitOrAssign,
+        Apply: FnMut(Self::Item) -> (R, Fail),
     {
+        const {
+            assert!(
+                size_of::<Fail>() <= size_of::<R>(),
+                "failure evidence must be no wider than the value, or it bounds the vector width"
+            )
+        };
+
         let values = self;
         let len = values.len();
         assert_eq!(out.len(), len, "out must have the same length as values");
 
-        let mut failed = false;
+        let mut failed = Fail::default();
         for idx in 0..len {
             // SAFETY: idx < len by the loop bound, and out.len() == len.
             let val = unsafe { values.get_unchecked(idx) };
-            let (result, error) = f(val);
-            failed |= error;
+
+            let (result, failure) = apply(val);
+            failed |= failure;
+
             // SAFETY: idx < len == out.len().
             unsafe { out.get_unchecked_mut(idx).write(result) };
         }
