@@ -21,6 +21,7 @@ use crate::extension::Rect;
 use crate::extension::WellKnownBinary;
 use crate::prune::SpatialDistancePrune;
 use crate::prune::SpatialIntersectsPrune;
+use crate::scalar_fn::area::SpatialArea;
 use crate::scalar_fn::contains::SpatialContains;
 use crate::scalar_fn::distance::SpatialDistance;
 use crate::scalar_fn::envelope::SpatialEnvelope;
@@ -65,6 +66,7 @@ pub fn initialize(session: &VortexSession) {
     session.arrow().register_importer(Arc::new(Rect));
 
     // Register the geometry scalar functions.
+    session.scalar_fns().register(SpatialArea);
     session.scalar_fns().register(SpatialEnvelope);
     session.scalar_fns().register(SpatialContains);
     session.scalar_fns().register(SpatialDistance);
