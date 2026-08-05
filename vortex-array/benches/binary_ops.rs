@@ -36,7 +36,7 @@ fn main() {
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
-const LEN: usize = 65_536;
+const LEN: usize = 32_768;
 
 #[divan::bench]
 fn add_i64_nonnull(bencher: Bencher) {

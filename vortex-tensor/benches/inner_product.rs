@@ -38,7 +38,7 @@ fn main() {
 /// `ELEMENTS / width`. CodSpeed's CPU simulation charges memory traffic far more than a desktop
 /// does, so this budget is what keeps every arm inside the 1 ms per-iteration limit from
 /// `docs/developer-guide/benchmarking.md`.
-const ELEMENTS: usize = 16_384;
+const ELEMENTS: usize = 8_192;
 
 const WIDTHS: &[usize] = &[2, 32, 256];
 

@@ -37,8 +37,8 @@ static GLOBAL: MiMalloc = MiMalloc;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(geo_session);
 
-const POINT_ROWS: usize = 1_024;
-const POLYGON_ROWS: usize = 64;
+const POINT_ROWS: usize = 512;
+const POLYGON_ROWS: usize = 32;
 
 fn main() {
     divan::main();

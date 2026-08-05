@@ -45,7 +45,7 @@ fn main() {
 /// the constant arms recompute the broadcast vector's norm per row and cost roughly ten times the
 /// column arms per element. It is what keeps every arm inside the 1 ms per-iteration limit from
 /// `docs/developer-guide/benchmarking.md`, measured against CodSpeed's CPU simulation.
-const ELEMENTS: usize = 4_096;
+const ELEMENTS: usize = 2_048;
 
 /// Widths chosen to separate the two costs, as in `l2_norm.rs`: the redundant norm pass is
 /// `O(rows * width)`, one third of the closure's arithmetic, so wide tensors show the hoist

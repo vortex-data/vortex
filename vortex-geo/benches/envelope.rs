@@ -48,11 +48,8 @@ fn main() {
 static SESSION: LazyLock<VortexSession> = LazyLock::new(geo_session);
 
 /// Every case has the same row count so results are comparable across shapes: differences then
-/// reflect per-row cost (nesting depth, validity handling) rather than input size. The nested cases
-/// carry 32 vertices per row, and CodSpeed's CPU simulation charges their memory traffic far more
-/// than a desktop does, so this is what keeps them inside the 1 ms per-iteration budget from
-/// `docs/developer-guide/benchmarking.md`.
-const ROWS: usize = 1 << 11;
+/// reflect per-row cost (nesting depth, validity handling) rather than input size.
+const ROWS: usize = 1 << 9;
 
 /// Deterministic pseudo-random ordinate in `[0, 1000)`.
 fn ordinate(i: usize) -> f64 {
