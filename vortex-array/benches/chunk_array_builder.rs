@@ -137,8 +137,8 @@ fn chunked_varbinview_opt_into_canonical(bencher: Bencher, (len, chunk_count): (
 // Fewer rows than BENCH_ARGS: decoding VarBin values is the most expensive work in this file.
 const VARBIN_BENCH_ARGS: &[(usize, usize)] = &[
     // length, chunk_count
-    (10, 200),
-    (1000, 2),
+    (10, 100),
+    (500, 2),
 ];
 
 #[divan::bench(args = VARBIN_BENCH_ARGS)]
