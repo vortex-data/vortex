@@ -39,6 +39,7 @@ use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
+use crate::layouts::row_idx::RowIdx;
 use crate::layouts::row_idx::RowIdxLayoutReader;
 use crate::scan::repeated_scan::RepeatedScan;
 use crate::scan::split_by::SplitBy;
@@ -273,14 +274,18 @@ impl<A: 'static + Send> ScanBuilder<A> {
         // conjunction splitting if a filter is provided.
         let mut layout_reader = self.layout_reader;
 
-        // Enrich the layout reader to support RowIdx expressions.
+        // Enrich the layout reader to support RowIdx expressions if scan uses #row_idx.
         // Note that this is applied below the filter layout reader since it can perform
         // better over individual conjunctions.
-        layout_reader = Arc::new(RowIdxLayoutReader::new(
-            self.row_offset,
-            layout_reader,
-            self.session.clone(),
-        ));
+        if references_row_idx(&self.projection)
+            || self.filter.as_ref().is_some_and(references_row_idx)
+        {
+            layout_reader = Arc::new(RowIdxLayoutReader::new(
+                self.row_offset,
+                layout_reader,
+                self.session.clone(),
+            ));
+        }
 
         // Normalize and simplify the expressions.
         let projection = self.projection.optimize_recursive(layout_reader.dtype())?;
@@ -431,6 +436,10 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
     }
 }
 
+fn references_row_idx(expr: &Expression) -> bool {
+    expr.is::<RowIdx>() || expr.children().iter().any(references_row_idx)
+}
+
 /// Compute masks of field paths referenced by the projection and filter in the scan.
 ///
 /// Projection and filter must be pre-simplified.
@@ -494,6 +503,7 @@ mod test {
     use crate::LayoutReader;
     use crate::RowSplits;
     use crate::SplitRange;
+    use crate::layouts::row_idx::row_idx;
     use crate::scan::test::SCAN_SESSION;
     use crate::scan::test::session_with_handle;
 
@@ -895,5 +905,11 @@ mod test {
         assert_eq!(values.as_ref(), [1, 2]);
 
         Ok(())
+    }
+
+    #[test]
+    fn references_row_idx() {
+        assert!(super::references_row_idx(&eq(row_idx(), lit(3u64))));
+        assert!(!super::references_row_idx(&eq(root(), lit(1i32))));
     }
 }
