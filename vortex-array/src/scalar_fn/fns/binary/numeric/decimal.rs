@@ -168,16 +168,36 @@ impl DecimalOperand {
     }
 }
 
-/// Per-execution constants for a decimal operation at working width `W`, hoisted out of the
-/// lane loop.
+/// Per-execution bounds for checked decimal lane operations at working width `W`.
 ///
 /// Native-width checked arithmetic only detects overflow of `W`, whose range may exceed the
 /// declared decimal precision. In particular, `i256` can represent values outside precision 76,
 /// so every native result must also be checked against these logical bounds.
-struct DecimalOpConstants<W> {
+struct DecimalValueBounds<W> {
     /// Inclusive stored-value bounds implied by the result precision.
     lower_bound: W,
     upper_bound: W,
+}
+
+impl<W: NativeDecimalType> DecimalValueBounds<W> {
+    fn new(dtype: DecimalDType) -> Self {
+        let precision = usize::from(dtype.precision());
+        Self {
+            lower_bound: W::MIN_BY_PRECISION[precision],
+            upper_bound: W::MAX_BY_PRECISION[precision],
+        }
+    }
+
+    /// Bounds-check a candidate result against the result precision.
+    fn in_precision(&self, value: W) -> Option<W> {
+        (self.lower_bound <= value && value <= self.upper_bound).then_some(value)
+    }
+}
+
+/// Per-execution constants for a decimal operation at working width `W`, hoisted out of the
+/// lane loop.
+struct DecimalOpConstants<W> {
+    bounds: DecimalValueBounds<W>,
     /// Arrow's division rescaling factors. Both are one for every other operator.
     lhs_scale_factor: W,
     rhs_scale_factor: W,
@@ -203,18 +223,11 @@ where
             (one, one)
         };
 
-        let precision = usize::from(result.precision());
         Ok(Self {
-            lower_bound: W::MIN_BY_PRECISION[precision],
-            upper_bound: W::MAX_BY_PRECISION[precision],
+            bounds: DecimalValueBounds::new(result),
             lhs_scale_factor,
             rhs_scale_factor,
         })
-    }
-
-    /// Bounds-check a candidate result against the result precision.
-    fn in_precision(&self, value: W) -> Option<W> {
-        (self.lower_bound <= value && value <= self.upper_bound).then_some(value)
     }
 }
 
@@ -259,7 +272,7 @@ impl CheckedDecimalOp for CheckedDecimalAdd {
     where
         W: NativeDecimalType + CheckedAdd + CheckedSub + CheckedMul + CheckedDiv + Mul<Output = W>,
     {
-        constants.in_precision(lhs.checked_add(&rhs)?)
+        constants.bounds.in_precision(lhs.checked_add(&rhs)?)
     }
 }
 
@@ -270,7 +283,7 @@ impl CheckedDecimalOp for CheckedDecimalSub {
     where
         W: NativeDecimalType + CheckedAdd + CheckedSub + CheckedMul + CheckedDiv + Mul<Output = W>,
     {
-        constants.in_precision(lhs.checked_sub(&rhs)?)
+        constants.bounds.in_precision(lhs.checked_sub(&rhs)?)
     }
 }
 
@@ -281,7 +294,7 @@ impl CheckedDecimalOp for CheckedDecimalMul {
     where
         W: NativeDecimalType + CheckedAdd + CheckedSub + CheckedMul + CheckedDiv + Mul<Output = W>,
     {
-        constants.in_precision(lhs.checked_mul(&rhs)?)
+        constants.bounds.in_precision(lhs.checked_mul(&rhs)?)
     }
 }
 
@@ -294,7 +307,7 @@ impl CheckedDecimalOp for CheckedDecimalDiv {
     {
         let lhs = lhs.checked_mul(&constants.lhs_scale_factor)?;
         let rhs = rhs.checked_mul(&constants.rhs_scale_factor)?;
-        constants.in_precision(lhs.checked_div(&rhs)?)
+        constants.bounds.in_precision(lhs.checked_div(&rhs)?)
     }
 }
 
