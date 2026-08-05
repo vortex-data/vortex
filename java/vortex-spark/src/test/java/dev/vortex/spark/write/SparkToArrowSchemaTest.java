@@ -175,12 +175,43 @@ final class SparkToArrowSchemaTest {
     }
 
     @Test
-    @DisplayName("MapType is rejected rather than converted to a childless List")
-    void mapTypeIsRejected() {
-        StructType schema =
-                new StructType().add("m", DataTypes.createMapType(DataTypes.StringType, DataTypes.IntegerType));
-        UnsupportedOperationException e =
-                assertThrows(UnsupportedOperationException.class, () -> SparkToArrowSchema.convert(schema));
-        assertTrue(e.getMessage().contains("MapType"));
+    @DisplayName("MapType converts to a Map field with non-null keys and value nullability")
+    void mapConvertsWithEntries() {
+        Field map = single("m", DataTypes.createMapType(DataTypes.StringType, DataTypes.IntegerType, true), true);
+
+        assertEquals(new ArrowType.Map(false), map.getType());
+        assertEquals(1, map.getChildren().size());
+
+        Field entries = map.getChildren().get(0);
+        assertEquals("entries", entries.getName());
+        assertEquals(new ArrowType.Struct(), entries.getType());
+        assertFalse(entries.isNullable());
+
+        Field key = entries.getChildren().get(0);
+        assertEquals("key", key.getName());
+        assertEquals(new ArrowType.Utf8(), key.getType());
+        assertFalse(key.isNullable());
+
+        Field value = entries.getChildren().get(1);
+        assertEquals("value", value.getName());
+        assertEquals(new ArrowType.Int(32, true), value.getType());
+        assertTrue(value.isNullable());
+    }
+
+    @Test
+    @DisplayName("Nested MapType children retain their Arrow structure")
+    void nestedMapConvertsRecursively() {
+        Field map = single(
+                "m",
+                DataTypes.createMapType(
+                        DataTypes.StringType,
+                        DataTypes.createArrayType(DataTypes.createMapType(DataTypes.IntegerType, DataTypes.LongType))),
+                true);
+
+        Field value = map.getChildren().get(0).getChildren().get(1);
+        Field element = value.getChildren().get(0);
+        assertEquals(new ArrowType.List(), value.getType());
+        assertEquals(new ArrowType.Map(false), element.getType());
+        assertEquals(2, element.getChildren().get(0).getChildren().size());
     }
 }

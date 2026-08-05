@@ -14,7 +14,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.spark.sql.Dataset;
@@ -23,6 +25,7 @@ import org.apache.spark.sql.RowFactory;
 import org.apache.spark.sql.SaveMode;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.MapType;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.junit.jupiter.api.AfterAll;
@@ -470,6 +473,54 @@ public final class VortexDataSourceWriteTest {
         assertEquals(Arrays.asList(1, null, 3), read.getList(0));
         assertEquals(Arrays.asList(null, 2.5d), read.getList(1));
         assertEquals(Arrays.asList("a", null, "c"), read.getList(2));
+    }
+
+    @Test
+    @DisplayName("Map columns round-trip populated, null, and empty values")
+    public void testWriteAndReadMapColumns() {
+        Dataset<Row> mapsDf = spark.range(0, 3)
+                .selectExpr(
+                        "cast(id as int) as id",
+                        """
+                CASE
+                    WHEN id = 0 THEN map(1, 'one', 2, cast(null as string))
+                    WHEN id = 1 THEN cast(null as map<int, string>)
+                    ELSE map_from_arrays(cast(array() as array<int>), cast(array() as array<string>))
+                END AS attrs""",
+                        "named_struct('attrs', map(cast(id as int), cast(id * 10 as bigint))) AS payload");
+
+        Path outputPath = tempDir.resolve("map_output");
+        mapsDf.write()
+                .format("vortex")
+                .option("path", outputPath.toUri().toString())
+                .mode(SaveMode.Overwrite)
+                .save();
+
+        Dataset<Row> readDf = spark.read()
+                .format("vortex")
+                .option("path", outputPath.toUri().toString())
+                .load()
+                .orderBy("id");
+
+        MapType mapType = (MapType) readDf.schema().apply("attrs").dataType();
+        assertEquals(DataTypes.IntegerType, mapType.keyType());
+        assertEquals(DataTypes.StringType, mapType.valueType());
+        assertTrue(mapType.valueContainsNull());
+
+        List<Row> rows = readDf.collectAsList();
+        Map<Integer, String> expected = new HashMap<>();
+        expected.put(1, "one");
+        expected.put(2, null);
+        assertEquals(expected, rows.get(0).getJavaMap(1));
+        assertTrue(rows.get(1).isNullAt(1));
+        assertTrue(rows.get(2).getJavaMap(1).isEmpty());
+
+        List<Row> nestedRows = readDf.selectExpr("id", "payload.attrs[id] AS nested_value")
+                .orderBy("id")
+                .collectAsList();
+        assertEquals(
+                List.of(0L, 10L, 20L),
+                nestedRows.stream().map(row -> row.getLong(1)).toList());
     }
 
     /** Creates a test DataFrame with monotonically increasing integers and their string representations. */

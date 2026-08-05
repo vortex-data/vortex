@@ -26,6 +26,7 @@ import dev.vortex.relocated.org.apache.arrow.vector.VarBinaryVector;
 import dev.vortex.relocated.org.apache.arrow.vector.VarCharVector;
 import dev.vortex.relocated.org.apache.arrow.vector.VectorSchemaRoot;
 import dev.vortex.relocated.org.apache.arrow.vector.complex.ListVector;
+import dev.vortex.relocated.org.apache.arrow.vector.complex.MapVector;
 import dev.vortex.relocated.org.apache.arrow.vector.complex.StructVector;
 import dev.vortex.spark.VortexSparkSession;
 import java.io.IOException;
@@ -36,6 +37,7 @@ import java.util.List;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.catalyst.expressions.SpecializedGetters;
 import org.apache.spark.sql.catalyst.util.ArrayData;
+import org.apache.spark.sql.catalyst.util.MapData;
 import org.apache.spark.sql.connector.write.DataWriter;
 import org.apache.spark.sql.connector.write.WriterCommitMessage;
 import org.apache.spark.sql.types.ArrayType;
@@ -49,6 +51,7 @@ import org.apache.spark.sql.types.DoubleType;
 import org.apache.spark.sql.types.FloatType;
 import org.apache.spark.sql.types.IntegerType;
 import org.apache.spark.sql.types.LongType;
+import org.apache.spark.sql.types.MapType;
 import org.apache.spark.sql.types.ShortType;
 import org.apache.spark.sql.types.StringType;
 import org.apache.spark.sql.types.StructField;
@@ -262,6 +265,29 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
                 }
             }
             listVector.endValue(rowIndex, data.numElements());
+        } else if (dataType instanceof MapType mapType) {
+            MapData data = row.getMap(fieldIndex);
+            MapVector mapVector = (MapVector) vector;
+            int writtenEntries = mapVector.getElementEndIndex(mapVector.getLastSet());
+            mapVector.startNewValue(rowIndex);
+
+            StructVector entries = (StructVector) mapVector.getDataVector();
+            FieldVector keyVector = entries.getChild(MapVector.KEY_NAME);
+            FieldVector valueVector = entries.getChild(MapVector.VALUE_NAME);
+            ArrayData keys = data.keyArray();
+            ArrayData values = data.valueArray();
+
+            for (int i = 0; i < data.numElements(); i++) {
+                int entryIndex = writtenEntries + i;
+                entries.setIndexDefined(entryIndex);
+                populateVector(keyVector, mapType.keyType(), keys, i, entryIndex);
+                if (values.isNullAt(i)) {
+                    valueVector.setNull(entryIndex);
+                } else {
+                    populateVector(valueVector, mapType.valueType(), values, i, entryIndex);
+                }
+            }
+            mapVector.endValue(rowIndex, data.numElements());
         } else {
             // For unsupported types, set null
             throw new IllegalArgumentException("Unsupported data type: " + dataType);
