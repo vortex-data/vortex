@@ -145,7 +145,7 @@ impl VTable for FSST {
         match idx {
             0 => BufferHandle::new_host(
                 array
-                    .padded_symbol_lengths()
+                    .padded_symbols()
                     .slice(0..array.n_symbols())
                     .into_byte_buffer(),
             ),
