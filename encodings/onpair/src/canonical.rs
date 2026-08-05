@@ -24,8 +24,9 @@ use vortex_array::match_each_integer_ptype;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::{VortexResult, vortex_bail};
 
 use crate::OnPair;
 use crate::OnPairArraySlotsExt;
