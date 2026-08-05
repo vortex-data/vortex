@@ -4,6 +4,7 @@
 //! Geometry scalar functions over the native geometry extension types.
 
 pub mod area;
+pub mod collect;
 pub mod contains;
 pub mod distance;
 pub mod envelope;
