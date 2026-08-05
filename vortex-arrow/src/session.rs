@@ -27,9 +27,15 @@ use std::sync::Arc;
 use arrow_array::Array as _;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::RecordBatch;
+use arrow_array::RunArray;
 use arrow_array::make_array;
+use arrow_array::types::Int16Type;
+use arrow_array::types::Int32Type;
+use arrow_array::types::Int64Type;
+use arrow_array::types::RunEndIndexType;
 use arrow_schema::DataType;
 use arrow_schema::Field;
+use arrow_schema::FieldRef;
 use arrow_schema::Fields;
 use arrow_schema::Schema;
 use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
@@ -46,6 +52,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
+use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
 use vortex_array::dtype::extension::ExtId;
@@ -55,6 +62,7 @@ use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_session::ArcSwapMap;
 use vortex_session::SessionExt;
 use vortex_session::SessionGuard;
@@ -69,6 +77,7 @@ use crate::convert::remove_nulls;
 use crate::dtype::from_arrow_data_type;
 use crate::dtype::to_data_type_naive;
 use crate::executor::execute_arrow_naive;
+use crate::run_end_import::run_end_from_arrow;
 
 /// Outcome of a successful call to [`ArrowExportVTable::execute_arrow`].
 ///
@@ -371,9 +380,13 @@ impl ArrowSession {
     /// Build the Vortex [`DType`] for an Arrow [`DataType`].
     ///
     /// Recurses into container types ([`DataType::List`] family, [`DataType::FixedSizeList`],
-    /// [`DataType::Struct`], [`DataType::Dictionary`], [`DataType::RunEndEncoded`]) via
+    /// [`DataType::Struct`], [`DataType::Map`], [`DataType::RunEndEncoded`]) via
     /// [`Self::from_arrow_field`] so extension metadata on nested fields dispatches through
     /// registered import plugins. Leaf types use the canonical Arrow → Vortex mapping.
+    ///
+    /// [`DataType::Dictionary`] is the one exception: Arrow models its values as a bare
+    /// [`DataType`] rather than a [`Field`], so dictionary values cannot carry extension
+    /// metadata and are converted with the naive mapping.
     pub fn from_arrow_datatype(
         &self,
         data_type: &DataType,
@@ -422,7 +435,7 @@ impl ArrowSession {
                 self.from_arrow_datatype(value_type.as_ref(), nullability)?
             }
             DataType::RunEndEncoded(_, value_field) => {
-                self.from_arrow_datatype(value_field.data_type(), nullability)?
+                self.from_arrow_field(&run_end_values_field(value_field, nullability))?
             }
             _ => from_arrow_data_type(data_type, nullability)?,
         })
@@ -668,9 +681,49 @@ impl ArrowSession {
                     field.is_nullable(),
                 )
             }
+            DataType::RunEndEncoded(ends_field, values_field) => {
+                let values_field = run_end_values_field(values_field, field.is_nullable().into());
+                match ends_field.data_type() {
+                    DataType::Int16 => self.run_end_from_arrow::<Int16Type>(&array, &values_field),
+                    DataType::Int32 => self.run_end_from_arrow::<Int32Type>(&array, &values_field),
+                    DataType::Int64 => self.run_end_from_arrow::<Int64Type>(&array, &values_field),
+                    ends_dt => vortex_bail!(
+                        "Arrow run-end array run ends must be Int16, Int32 or Int64, got {ends_dt}"
+                    ),
+                }
+            }
             _ => ArrayRef::from_arrow(array.as_ref(), field.is_nullable()),
         }
     }
+
+    /// Decode an Arrow run-end array, recursing into its values so extension metadata on the
+    /// values field reaches its importer.
+    #[allow(clippy::wrong_self_convention)]
+    fn run_end_from_arrow<R: RunEndIndexType>(
+        &self,
+        array: &ArrowArrayRef,
+        values_field: &Field,
+    ) -> VortexResult<ArrayRef>
+    where
+        R::Native: NativePType,
+    {
+        let run_array = array
+            .as_any()
+            .downcast_ref::<RunArray<R>>()
+            .ok_or_else(|| vortex_err!("expected an Arrow RunArray, got {}", array.data_type()))?;
+        let values =
+            self.from_arrow_array(ArrowArrayRef::clone(run_array.values()), values_field)?;
+        run_end_from_arrow(run_array, values)
+    }
+}
+
+/// The values field of an Arrow [`DataType::RunEndEncoded`], re-stamped with the run-end array's
+/// own nullability.
+fn run_end_values_field(values_field: &FieldRef, nullability: Nullability) -> Field {
+    values_field
+        .as_ref()
+        .clone()
+        .with_nullable(nullability.into())
 }
 
 // NOTE(aduffy): We should remove this once we bump Arrow to 0.59.0. This is replicating the
@@ -711,6 +764,7 @@ mod tests {
     use std::sync::Arc;
 
     use arrow_array::FixedSizeBinaryArray;
+    use arrow_array::Int32Array;
     use arrow_array::cast::AsArray;
     use arrow_schema::DataType;
     use arrow_schema::Field;
@@ -979,6 +1033,62 @@ mod tests {
         assert_eq!(fsb.len(), 2);
         assert_eq!(fsb.value(0), b"0123456789abcdef");
         assert_eq!(fsb.value(1), b"fedcba9876543210");
+        Ok(())
+    }
+
+    /// An Arrow run-end array whose values field carries extension metadata must import as that
+    /// extension, through both the dtype and the array conversion.
+    #[test]
+    fn run_end_recurses_into_extension_values() -> VortexResult<()> {
+        let vortex_session = array_session();
+        let mut ctx = vortex_session.create_execution_ctx();
+        let session = vortex_session.arrow();
+
+        let mut values_field = Field::new("values", DataType::FixedSizeBinary(16), false);
+        values_field.try_with_extension_type(ArrowUuid)?;
+        let field = Field::new(
+            "id",
+            DataType::RunEndEncoded(
+                Arc::new(Field::new("run_ends", DataType::Int32, false)),
+                Arc::new(values_field),
+            ),
+            false,
+        );
+
+        let dtype = session.from_arrow_field(&field)?;
+        assert!(
+            dtype.as_extension().is::<Uuid>(),
+            "expected a Uuid extension dtype, got {dtype}"
+        );
+
+        let values = FixedSizeBinaryArray::try_from_iter(
+            [*b"0123456789abcdef", *b"fedcba9876543210"].into_iter(),
+        )?;
+        let run_array: ArrowArrayRef = Arc::new(RunArray::<Int32Type>::try_new(
+            &Int32Array::from(vec![2i32, 5]),
+            &values,
+        )?);
+
+        let vortex_array = session.from_arrow_array(run_array, &field)?;
+        assert_eq!(vortex_array.len(), 5);
+        // The array conversion must agree with the dtype conversion.
+        assert_eq!(vortex_array.dtype(), &dtype);
+
+        // And the values must round-trip back out through the export plugin.
+        let exported = session.execute_arrow(vortex_array, Some(&field), &mut ctx)?;
+        assert_eq!(exported.len(), 5);
+        let ree = exported
+            .as_any()
+            .downcast_ref::<RunArray<Int32Type>>()
+            .ok_or_else(|| {
+                vortex_err!(
+                    "expected an Int32 run-end array, got {}",
+                    exported.data_type()
+                )
+            })?;
+        let values = ree.values().as_fixed_size_binary();
+        assert_eq!(values.value(0), b"0123456789abcdef");
+        assert_eq!(values.value(1), b"fedcba9876543210");
         Ok(())
     }
 }
