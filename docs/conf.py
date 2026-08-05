@@ -52,10 +52,11 @@ git_root = Path(__file__).parent.parent
 
 nitpicky = True  # ensures all :class:, :obj:, etc. links are valid
 nitpick_ignore = [
-    # `vortex.store.CosStore` is re-exported through the private `vortex.store._cos` module,
-    # and the `ObjectStore` type alias resolves to the private path. The public class is
-    # fully documented in `opendal.rst`; the private path is intentionally not.
+    # `vortex.store.CosStore` / `GoosefsStore` are re-exported through private modules,
+    # and the `ObjectStore` type alias resolves to those private paths. The public
+    # classes are fully documented in `opendal.rst`; the private paths are intentionally not.
     ("py:class", "vortex.store._cos.CosStore"),
+    ("py:class", "vortex.store._goosefs.GoosefsStore"),
 ]
 
 doctest_global_setup = "import pyarrow; import vortex; import vortex as vx; import random; random.seed(a=0)"

@@ -3684,20 +3684,21 @@ dependencies = [
 
 [[package]]
 name = "goosefs-sdk"
-version = "0.1.8"
+version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a9bc9414e3b2cb0bd08dfe0eb315b177e86b119c7fa5e16179c92fc7b184860"
+checksum = "e1ea4eee6dcbc31b25ab4fd577adc55b677d2bed3aa3016c44c58fbe1b2298a5"
 dependencies = [
  "arc-swap",
  "async-trait",
  "bytes",
  "dashmap",
+ "fastrand",
  "futures",
  "hostname",
  "io-uring",
  "itoa",
  "libc",
- "lru 0.12.5",
+ "lru 0.18.1",
  "memmap2",
  "moka",
  "prost 0.14.4",

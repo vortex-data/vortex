@@ -22,7 +22,6 @@ class CosStore:
         disable_config_load: bool = False,
     ) -> None: ...
 
-
 class GoosefsStore:
     """A Tencent Cloud GooseFS object store, backed by OpenDAL.
 
