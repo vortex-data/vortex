@@ -9,8 +9,8 @@ use vortex::scan::selection::Selection;
 ///
 /// `VortexAccessPlan` is the hook to use when an external index or planner
 /// already knows that only part of a file needs to be scanned. The plan is
-/// attached as `extensions` on `PartitionedFile`, and the internal
-/// `VortexOpener` applies it before building the Vortex scan.
+/// attached as `extensions` on `PartitionedFile`, and the internal Vortex
+/// morsel planner applies it before building the Vortex scan.
 ///
 /// The current access plan surface is intentionally small: it lets callers
 /// provide a [`Selection`] that narrows the rows considered by the scan.
@@ -56,7 +56,7 @@ impl VortexAccessPlan {
 
     /// Applies this access plan to a [`ScanBuilder`].
     ///
-    /// This is used internally by the file opener after it has translated a
+    /// This is used internally by the morsel planner after it has translated a
     /// `PartitionedFile` into a Vortex scan.
     pub fn apply_to_builder(&self, mut scan_builder: ScanBuilder) -> ScanBuilder {
         let Self { selection } = self;

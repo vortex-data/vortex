@@ -26,7 +26,7 @@ mod access_plan;
 mod cache;
 mod format;
 pub mod metrics;
-mod opener;
+pub mod morsel;
 pub mod reader;
 mod sink;
 mod source;

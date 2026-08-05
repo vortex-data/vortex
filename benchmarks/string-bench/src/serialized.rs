@@ -8,9 +8,8 @@
 //!   blocks, zoned statistics, dictionary probe, coalesce, compress with the
 //!   forced string scheme and its children, layout, serialize into a buffer;
 //! * **read** opens that buffer and runs the scan, decoding each row split to
-//!   canonical `VarBinViewArray` form inside its own scan task and dropping it
-//!   before the next split runs — the shape production uses, where
-//!   `into_record_batch_stream` fuses the Arrow conversion into the split task.
+//!   canonical `VarBinViewArray` form as it is yielded and dropping it before
+//!   consuming the next split.
 //!
 //! Both run on a current-thread runtime, so these are single-threaded CPU costs
 //! and exclude physical I/O.
@@ -201,35 +200,19 @@ async fn write_serialized_file(
 }
 
 /// Time one complete read of a serialized Vortex buffer: open the file, then run
-/// the scan with the canonical decode fused into each row split's task, dropping
-/// each decoded chunk before the next split runs.
-///
-/// The splits are awaited one at a time rather than through
-/// `ScanBuilder::into_array_stream`, which spawns
-/// `concurrency * available_parallelism()` of them at once. On a current-thread
-/// runtime that read-ahead buys no parallelism; it only holds that many chunks in
-/// memory and makes the result depend on the host's core count. Awaiting one at a
-/// time keeps the per-split work identical to production while making the
-/// measurement machine-independent.
+/// the scan with minimal read-ahead and decode each yielded chunk to canonical
+/// form before consuming the next one.
 async fn read_serialized_buffer(session: &VortexSession, data: Bytes) -> Result<Duration> {
-    let decode_session = session.clone();
-
     let start = Instant::now();
     let file = session.open_options().open_buffer(data)?;
-    let splits = file
-        .scan()?
-        .map(move |chunk: ArrayRef| {
-            let mut ctx = decode_session.create_execution_ctx();
-            chunk.execute::<VarBinViewArray>(&mut ctx)
-        })
-        .build()?;
+    let mut chunks = file.scan()?.with_concurrency(1).into_array_stream()?;
 
     let mut rows = 0usize;
-    for split in splits {
-        if let Some(canonical) = split.await? {
-            rows += canonical.len();
-            drop(black_box(canonical));
-        }
+    let mut ctx = session.create_execution_ctx();
+    while let Some(chunk) = chunks.try_next().await? {
+        let canonical = chunk.execute::<VarBinViewArray>(&mut ctx)?;
+        rows += canonical.len();
+        drop(black_box(canonical));
     }
 
     black_box(rows);

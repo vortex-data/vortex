@@ -66,6 +66,8 @@ pub struct ScanBuilder {
     selection: Selection,
     /// How to split the file for concurrent processing.
     split_by: SplitBy,
+    /// Precomputed natural row boundaries for the full scan input.
+    natural_splits: Option<Arc<[u64]>>,
     /// The number of splits to make progress on concurrently **per-thread**.
     concurrency: usize,
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
@@ -90,6 +92,7 @@ impl ScanBuilder {
             row_range: None,
             selection: Default::default(),
             split_by: SplitBy::Layout,
+            natural_splits: None,
             // We default to four tasks per worker thread, which allows for some I/O lookahead
             // without too much impact on work-stealing.
             concurrency: 4,
@@ -183,6 +186,19 @@ impl ScanBuilder {
         self
     }
 
+    /// Use precomputed natural row boundaries instead of walking the layout during preparation.
+    ///
+    /// The boundaries must be sorted, deduplicated, and relative to the full scan input. Exact
+    /// ranges derived from a row selection still take precedence over these boundaries.
+    pub fn with_natural_splits(mut self, splits: Arc<[u64]>) -> Self {
+        debug_assert!(
+            splits.windows(2).all(|window| window[0] < window[1]),
+            "natural splits must be sorted and deduplicated"
+        );
+        self.natural_splits = Some(splits);
+        self
+    }
+
     /// Returns the per-worker row-split concurrency.
     pub fn concurrency(&self) -> usize {
         self.concurrency
@@ -268,6 +284,8 @@ impl ScanBuilder {
         let splits =
             if let Some(ranges) = attempt_split_ranges(&self.selection, self.row_range.as_ref()) {
                 Splits::Ranges(ranges)
+            } else if let Some(natural_splits) = self.natural_splits {
+                Splits::Natural(natural_splits)
             } else {
                 let split_range = self
                     .row_range
@@ -723,6 +741,33 @@ mod test {
 
         assert_eq!(calls.load(Ordering::Relaxed), 1);
         assert_eq!(values.as_ref(), [0, 1, 2, 3]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn precomputed_natural_splits_skip_layout_split_calculation() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let reader = Arc::new(SplittingLayoutReader::new(Arc::clone(&calls)));
+
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+
+        let stream = ScanBuilder::new(session, reader)
+            .with_row_range(2..4)
+            .with_natural_splits(vec![0, 2, 4].into())
+            .into_stream()?;
+        let mut iter = runtime.block_on_stream(stream);
+
+        let mut values = Vec::new();
+        for chunk in &mut iter {
+            let prim = chunk?.execute::<PrimitiveArray>(&mut ctx)?;
+            values.push(prim.into_buffer::<i32>()[0]);
+        }
+
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
+        assert_eq!(values.as_ref(), [2]);
 
         Ok(())
     }

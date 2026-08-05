@@ -7,6 +7,7 @@ use std::sync::Weak;
 
 use datafusion_common::Result as DFResult;
 use datafusion_common::config::ConfigOptions;
+use datafusion_common::not_impl_err;
 use datafusion_datasource::TableSchema;
 use datafusion_datasource::file::FileSource;
 use datafusion_datasource::file_scan_config::FileScanConfig;
@@ -35,8 +36,8 @@ use vortex::metrics::MetricsRegistry;
 use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 
-use super::opener::NaturalSplits;
-use super::opener::VortexOpener;
+use super::morsel::NaturalSplitCache;
+use super::morsel::VortexMorselizer;
 use crate::VortexTableOptions;
 use crate::convert::exprs::DefaultExpressionConvertor;
 use crate::convert::exprs::ExpressionConvertor;
@@ -161,10 +162,10 @@ use crate::persistent::reader::VortexReaderFactory;
 ///
 /// 1. DataFusion calls `DataSourceExec`, which delegates file opening to
 ///    `VortexSource`.
-/// 2. `VortexSource` creates a `VortexOpener` configured with the current
+/// 2. `VortexSource` creates a `VortexMorselizer` configured with the current
 ///    projection, predicate, options, and metrics.
-/// 3. The opener adapts filters and schema for the specific file, applies any
-///    [`VortexAccessPlan`], and builds a Vortex scan.
+/// 3. The morsel planner adapts filters and schema for the specific file,
+///    applies any [`VortexAccessPlan`], and builds a Vortex scan.
 /// 4. Scan results are converted into Arrow `RecordBatch` values for
 ///    DataFusion.
 ///
@@ -189,14 +190,15 @@ pub struct VortexSource {
     /// Subset of predicates that can be pushed down into Vortex scan operations.
     /// These are expressions that Vortex can efficiently evaluate during scanning.
     pub(crate) vortex_predicate: Option<PhysicalExprRef>,
+    /// Desired row count for record batches returned from the scan.
     /// DataFusion-native metrics exposed through `DataSourceExec`.
     df_metrics: ExecutionPlanMetricsSet,
     /// Shared layout readers, the source only lives as long as one scan.
     ///
     /// Sharing the readers allows us to only read every layout once from the file, even across partitions.
     layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
-    /// Shared full-file natural splits keyed by path.
-    natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
+    /// Shared full-file natural split ranges keyed by path.
+    natural_splits: Arc<NaturalSplitCache>,
     expression_convertor: Arc<dyn ExpressionConvertor>,
     pub(crate) vortex_reader_factory: Option<Arc<dyn VortexReaderFactory>>,
     pub(crate) ordered: bool,
@@ -327,12 +329,12 @@ impl VortexSource {
         self.vortex_predicate.as_ref()
     }
 
-    fn create_vortex_opener(
+    fn create_vortex_morselizer(
         &self,
         object_store: Arc<dyn ObjectStore>,
         base_config: &FileScanConfig,
         partition: usize,
-    ) -> DFResult<VortexOpener> {
+    ) -> DFResult<VortexMorselizer> {
         let expr_adapter_factory = base_config
             .expr_adapter_factory
             .clone()
@@ -343,7 +345,7 @@ impl VortexSource {
             .clone()
             .unwrap_or_else(|| Arc::new(DefaultVortexReaderFactory::new(object_store)));
 
-        let opener = VortexOpener {
+        Ok(VortexMorselizer {
             partition,
             session: self.session.clone(),
             vortex_reader_factory,
@@ -362,29 +364,36 @@ impl VortexSource {
             file_metadata_cache: self.file_metadata_cache.clone(),
             projection_pushdown: self.options.projection_pushdown,
             scan_concurrency: self.options.scan_concurrency,
-        };
-
-        Ok(opener)
+        })
     }
 }
 
 impl FileSource for VortexSource {
     fn create_file_opener(
         &self,
+        _object_store: Arc<dyn ObjectStore>,
+        _base_config: &FileScanConfig,
+        _partition: usize,
+    ) -> DFResult<Arc<dyn FileOpener>> {
+        not_impl_err!("VortexSource only supports morsel-driven I/O")
+    }
+
+    fn with_batch_size(&self, _batch_size: usize) -> Arc<dyn FileSource> {
+        // DataSourceExec applies BatchSplitStream after the morsel stream.
+        Arc::new(self.clone())
+    }
+
+    fn create_morselizer(
+        &self,
         object_store: Arc<dyn ObjectStore>,
         base_config: &FileScanConfig,
         partition: usize,
-    ) -> DFResult<Arc<dyn FileOpener>> {
-        Ok(Arc::new(self.create_vortex_opener(
+    ) -> DFResult<Box<dyn datafusion_datasource::morsel::Morselizer>> {
+        Ok(Box::new(self.create_vortex_morselizer(
             object_store,
             base_config,
             partition,
         )?))
-    }
-
-    fn with_batch_size(&self, _batch_size: usize) -> Arc<dyn FileSource> {
-        // DataSourceExec applies BatchSplitStream after the FileSource stream.
-        Arc::new(self.clone())
     }
 
     fn filter(&self) -> Option<Arc<dyn PhysicalExpr>> {
@@ -654,7 +663,7 @@ mod tests {
     }
 
     #[test]
-    fn create_vortex_opener_preserves_expression_convertor() -> anyhow::Result<()> {
+    fn create_vortex_morselizer_preserves_configuration() -> anyhow::Result<()> {
         let file_schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, false)]));
         let expression_convertor = Arc::new(TrackingExpressionConvertor {
             inner: DefaultExpressionConvertor::default(),
@@ -672,14 +681,14 @@ mod tests {
         )
         .build();
 
-        let opener = source.create_vortex_opener(
+        let morselizer = source.create_vortex_morselizer(
             Arc::new(InMemory::new()) as Arc<dyn ObjectStore>,
             &config,
             0,
         )?;
 
         assert!(Arc::ptr_eq(
-            &opener.expression_convertor,
+            &morselizer.expression_convertor,
             &expression_convertor
         ));
         Ok(())
