@@ -9,7 +9,7 @@
 //! policy with [`crate::editions::enable_default_editions`].
 //!
 //! The default file writer resolves the session's enabled editions at write time. The
-//! facade enables the newest frozen `core` edition, [`crate::editions::CORE_2026_08_1`], and
+//! facade enables the newest frozen `core` edition, [`crate::editions::CORE_2026_08`], and
 //! additionally enables the latest unstable edition when the `unstable_encodings` feature is
 //! selected.
 
@@ -33,14 +33,14 @@ pub use self::core::CORE_2025_05_0;
 pub use self::core::CORE_2025_06_0;
 pub use self::core::CORE_2025_10_0;
 pub use self::core::CORE_2026_07_0;
-pub use self::core::CORE_2026_08_1;
+pub use self::core::CORE_2026_08;
 pub use self::unstable::UNSTABLE_2025_05_0;
 pub use self::unstable::UNSTABLE_2026_02_0;
 pub use self::unstable::UNSTABLE_2026_04_0;
 pub use self::unstable::UNSTABLE_2026_06_0;
 
 /// The `core` edition enabled for writing by the default Vortex session.
-pub const DEFAULT_CORE_EDITION: EditionId = CORE_2026_08_1;
+pub const DEFAULT_CORE_EDITION: EditionId = CORE_2026_08;
 
 /// The `unstable` edition enabled for writing by the default Vortex session when the
 /// `unstable_encodings` feature is selected.
@@ -52,7 +52,7 @@ pub static EDITION_DECLARATIONS: &[&EditionDeclaration] = &[
     &core::v2025_06::DECLARATION,
     &core::v2025_10::DECLARATION,
     &core::v2026_07::DECLARATION,
-    &core::v2026_08_1::DECLARATION,
+    &core::v2026_08::DECLARATION,
     &unstable::v2025_05::DECLARATION,
     &unstable::v2026_02::DECLARATION,
     &unstable::v2026_04::DECLARATION,

@@ -39,7 +39,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use super::CORE_2025_05_0;
 use super::CORE_2026_07_0;
-use super::CORE_2026_08_1;
+use super::CORE_2026_08;
 use super::DEFAULT_CORE_EDITION;
 use super::DEFAULT_UNSTABLE_EDITION;
 use super::EDITION_DECLARATIONS;
@@ -139,7 +139,7 @@ fn encodings_in_editions_unions_families() {
 fn earlier_editions_are_subsets() {
     let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
     let first = session.encodings_in(&CORE_2025_05_0);
-    let latest = session.encodings_in(&CORE_2026_08_1);
+    let latest = session.encodings_in(&CORE_2026_08);
     assert!(first.iter().all(|inclusion| {
         latest
             .iter()
@@ -170,7 +170,7 @@ fn core_edition_ids_are_registered_array_encodings() {
 
     let session = VortexSession::default();
     let registry = session.arrays().registry().clone();
-    for inclusion in session.editions().encodings_in(&CORE_2026_08_1) {
+    for inclusion in session.editions().encodings_in(&CORE_2026_08) {
         assert!(
             registry.contains_key(&inclusion.encoding_id),
             "{} is declared in core but not registered as an array encoding",
