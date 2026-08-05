@@ -6,10 +6,12 @@ use std::sync::Arc;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::StructArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::listview::ListViewArrayExt;
+use vortex_array::arrays::map::MapArrayExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::arrays::varbin::varbin_scalar;
 use vortex_array::dtype::DType;
@@ -107,7 +109,78 @@ pub fn scalar_at_canonical_array(
         Canonical::Union(_) => {
             todo!("TODO(connor)[Union]: support Union arrays in the scalar_at fuzzer")
         }
-        Canonical::Map(_) => unreachable!("Map arrays are not fuzzed"),
+        Canonical::Map(array) => {
+            let entries = array.entries_at(index)?.execute::<StructArray>(ctx)?;
+            let keys = entries
+                .unmasked_field(0)
+                .clone()
+                .execute::<Canonical>(ctx)?;
+            let values = entries
+                .unmasked_field(1)
+                .clone()
+                .execute::<Canonical>(ctx)?;
+            let pairs = (0..entries.len())
+                .map(|entry_index| {
+                    Ok((
+                        scalar_at_canonical_array(keys.clone(), entry_index, ctx)?,
+                        scalar_at_canonical_array(values.clone(), entry_index, ctx)?,
+                    ))
+                })
+                .collect::<VortexResult<Vec<_>>>()?;
+            Scalar::try_map(array.dtype().clone(), pairs)?
+        }
         Canonical::Variant(_) => unreachable!("Variant arrays are not fuzzed"),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::MapArray;
+    use vortex_array::builders::ArrayBuilder;
+    use vortex_array::builders::MapBuilder;
+    use vortex_array::dtype::MapDType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+
+    use super::*;
+    use crate::SESSION;
+
+    #[test]
+    fn map_scalar_at_uses_independent_baseline() -> VortexResult<()> {
+        let map_dtype = MapDType::try_new(
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            DType::Utf8(Nullability::Nullable),
+            false,
+        )?;
+        let dtype = DType::Map(map_dtype.clone(), Nullability::Nullable);
+        let rows = [
+            Scalar::try_map(
+                dtype.clone(),
+                [(
+                    Scalar::primitive(7i32, Nullability::NonNullable),
+                    Scalar::utf8("seven", Nullability::Nullable),
+                )],
+            )?,
+            Scalar::null(dtype.clone()),
+            Scalar::try_map(dtype, [])?,
+        ];
+        let mut builder =
+            MapBuilder::<u64, u64>::with_capacity(map_dtype, Nullability::Nullable, rows.len());
+        for row in &rows {
+            builder.append_scalar(row)?;
+        }
+        let array: MapArray = builder.finish_into_map();
+        let mut ctx = SESSION.create_execution_ctx();
+
+        for (index, expected) in rows.into_iter().enumerate() {
+            let canonical = array.clone().into_array().execute::<Canonical>(&mut ctx)?;
+            assert_eq!(
+                scalar_at_canonical_array(canonical, index, &mut ctx)?,
+                expected
+            );
+        }
+
+        Ok(())
+    }
 }
