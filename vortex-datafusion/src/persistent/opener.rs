@@ -37,7 +37,6 @@ use futures::FutureExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream;
-use itertools::Itertools;
 use object_store::path::Path;
 use tracing::Instrument;
 use vortex::array::VortexSessionExecute;
@@ -98,8 +97,8 @@ pub(crate) struct VortexOpener {
     /// To save on the overhead of reparsing FlatBuffers and rebuilding the layout tree, we cache
     /// a file reader the first time we read a file.
     pub layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
-    /// Shared full-file natural split ranges keyed by file path.
-    pub natural_split_ranges: Arc<DashMap<Path, Arc<[Range<u64>]>>>,
+    /// Shared full-file natural splits keyed by file path.
+    pub natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
     /// Whether the query has output ordering specified
     pub has_output_ordering: bool,
 
@@ -140,7 +139,7 @@ impl FileOpener for VortexOpener {
         let unified_file_schema = Arc::clone(self.table_schema.file_schema());
         let limit = self.limit;
         let layout_readers = Arc::clone(&self.layout_readers);
-        let natural_split_ranges = Arc::clone(&self.natural_split_ranges);
+        let natural_splits = Arc::clone(&self.natural_splits);
         let has_output_ordering = self.has_output_ordering;
         let scan_concurrency = self.scan_concurrency;
 
@@ -370,17 +369,16 @@ impl FileOpener for VortexOpener {
                 if byte_range.start != 0 || byte_range.end != file.object_meta.size {
                     // Full-file scans already cover every natural split. Only translate the
                     // byte range back into row boundaries when DataFusion has trimmed the file.
-                    let natural_split_ranges = natural_split_ranges_for_file(
-                        natural_split_ranges.as_ref(),
+                    let natural_splits = natural_splits_for_file(
+                        natural_splits.as_ref(),
                         &file.object_meta.location,
                         &layout_reader,
+                        file.object_meta.size,
                     )?;
 
-                    let Some(row_range) = split_aligned_row_range(
-                        byte_range,
-                        file.object_meta.size,
-                        natural_split_ranges.as_ref(),
-                    ) else {
+                    let Some(row_range) =
+                        split_aligned_row_range(byte_range, natural_splits.as_ref())
+                    else {
                         return Ok(stream::empty().boxed());
                     };
 
@@ -482,38 +480,82 @@ impl FileOpener for VortexOpener {
     }
 }
 
-fn natural_split_ranges_for_file(
-    natural_split_ranges: &DashMap<Path, Arc<[Range<u64>]>>,
-    path: &Path,
-    layout_reader: &Arc<dyn LayoutReader>,
-) -> DFResult<Arc<[Range<u64>]>> {
-    if let Some(split_ranges) = natural_split_ranges.get(path) {
-        return Ok(Arc::clone(split_ranges.value()));
-    }
+#[derive(Debug)]
+pub(crate) struct NaturalSplits {
+    row_boundaries: Arc<[u64]>,
+    assignment_bytes: Box<[u64]>,
+}
 
-    let split_ranges = compute_natural_split_ranges(layout_reader.as_ref())?;
+impl NaturalSplits {
+    fn new(row_boundaries: Arc<[u64]>, total_size: u64) -> Self {
+        let row_count = row_boundaries.last().copied().unwrap_or_default();
+        let assignment_bytes = if row_count == 0 {
+            Box::default()
+        } else {
+            row_boundaries
+                .windows(2)
+                .enumerate()
+                .map(|(idx, boundaries)| {
+                    split_assignment_byte(
+                        idx,
+                        &(boundaries[0]..boundaries[1]),
+                        row_count,
+                        total_size,
+                    )
+                })
+                .collect()
+        };
 
-    match natural_split_ranges.entry(path.clone()) {
-        Entry::Occupied(entry) => Ok(Arc::clone(entry.get())),
-        Entry::Vacant(entry) => {
-            entry.insert(Arc::clone(&split_ranges));
-            Ok(split_ranges)
+        debug_assert!(assignment_bytes.is_sorted());
+        debug_assert_eq!(
+            assignment_bytes.len() + usize::from(!row_boundaries.is_empty()),
+            row_boundaries.len()
+        );
+
+        Self {
+            row_boundaries,
+            assignment_bytes,
         }
     }
 }
 
-fn compute_natural_split_ranges(layout_reader: &dyn LayoutReader) -> DFResult<Arc<[Range<u64>]>> {
+fn natural_splits_for_file(
+    natural_splits: &DashMap<Path, Arc<NaturalSplits>>,
+    path: &Path,
+    layout_reader: &Arc<dyn LayoutReader>,
+    total_size: u64,
+) -> DFResult<Arc<NaturalSplits>> {
+    if let Some(splits) = natural_splits.get(path) {
+        return Ok(Arc::clone(splits.value()));
+    }
+
+    // Compute while holding the entry so concurrent partitions opening the same file wait
+    // for the winner instead of all walking the layout tree; the redundant walks contend on
+    // the lazily-initialized layout children and dominate the cost of the computation itself.
+    match natural_splits.entry(path.clone()) {
+        Entry::Occupied(entry) => Ok(Arc::clone(entry.get())),
+        Entry::Vacant(entry) => {
+            let splits = compute_natural_splits(layout_reader.as_ref(), total_size)?;
+            entry.insert(Arc::clone(&splits));
+            Ok(splits)
+        }
+    }
+}
+
+fn compute_natural_splits(
+    layout_reader: &dyn LayoutReader,
+    total_size: u64,
+) -> DFResult<Arc<NaturalSplits>> {
     let row_count = layout_reader.row_count();
     let row_range = 0..row_count;
-    let split_points: Vec<_> = SplitBy::Layout
+    let row_boundaries = SplitBy::Layout
         .splits(layout_reader, &row_range, &[FieldMask::All])
-        .map_err(|e| exec_datafusion_err!("Failed to compute Vortex natural splits: {e}"))?
-        .into_iter()
-        .tuple_windows()
-        .map(|(s, e)| s..e)
-        .collect::<Vec<_>>();
+        .map_err(|e| exec_datafusion_err!("Failed to compute Vortex natural splits: {e}"))?;
 
-    Ok(split_points.into())
+    Ok(Arc::new(NaturalSplits::new(
+        row_boundaries.into(),
+        total_size,
+    )))
 }
 
 /// Translate a DataFusion byte range to the contiguous natural split ranges it owns.
@@ -521,33 +563,25 @@ fn compute_natural_split_ranges(layout_reader: &dyn LayoutReader) -> DFResult<Ar
 /// byte 0 so a tiny first byte range still claims the first rows.
 fn split_aligned_row_range(
     byte_range: Range<u64>,
-    total_size: u64,
-    split_ranges: &[Range<u64>],
+    natural_splits: &NaturalSplits,
 ) -> Option<Range<u64>> {
     if byte_range.start >= byte_range.end {
         return None;
     }
 
-    let row_count = split_ranges.last().map(|split| split.end)?;
-    if row_count == 0 {
+    let first_split = natural_splits
+        .assignment_bytes
+        .partition_point(|&assignment_byte| assignment_byte < byte_range.start);
+    let after_last_split = natural_splits
+        .assignment_bytes
+        .partition_point(|&assignment_byte| assignment_byte < byte_range.end);
+    if first_split == after_last_split {
         return None;
     }
 
-    let mut owned_splits = split_ranges
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, split_range)| {
-            let assignment_byte = split_assignment_byte(idx, split_range, row_count, total_size);
-            byte_range.contains(&assignment_byte).then_some(split_range)
-        });
-
-    let first_split = owned_splits.next()?;
-    let mut row_range = first_split.start..first_split.end;
-    for split_range in owned_splits {
-        row_range.end = split_range.end;
-    }
-
-    Some(row_range)
+    Some(
+        natural_splits.row_boundaries[first_split]..natural_splits.row_boundaries[after_last_split],
+    )
 }
 
 fn split_assignment_byte(
@@ -675,6 +709,15 @@ mod tests {
         }
     }
 
+    fn natural_splits(total_size: u64, split_ranges: &[Range<u64>]) -> NaturalSplits {
+        let mut row_boundaries = Vec::with_capacity(split_ranges.len() + 1);
+        if let Some(first) = split_ranges.first() {
+            row_boundaries.push(first.start);
+            row_boundaries.extend(split_ranges.iter().map(|range| range.end));
+        }
+        NaturalSplits::new(row_boundaries.into(), total_size)
+    }
+
     #[rstest]
     #[case(0..3, 10, vec![0..2, 2..5, 5..10], Some(0..2))]
     #[case(3..7, 10, vec![0..2, 2..5, 5..10], Some(2..5))]
@@ -688,7 +731,7 @@ mod tests {
         #[case] expected: Option<Range<u64>>,
     ) {
         assert_eq!(
-            split_aligned_row_range(byte_range, total_size, &split_ranges),
+            split_aligned_row_range(byte_range, &natural_splits(total_size, &split_ranges)),
             expected
         );
     }
@@ -697,10 +740,11 @@ mod tests {
     fn test_split_aligned_ranges_cover_splits_exactly_once() {
         let split_ranges = vec![0..1, 1..4, 4..10, 10..13];
         let byte_ranges = [0..4, 4..8, 8..12, 12..16];
+        let natural_splits = natural_splits(16, &split_ranges);
 
         let assigned = byte_ranges
             .into_iter()
-            .filter_map(|byte_range| split_aligned_row_range(byte_range, 16, &split_ranges))
+            .filter_map(|byte_range| split_aligned_row_range(byte_range, &natural_splits))
             .collect::<Vec<_>>();
 
         assert_eq!(assigned, vec![0..4, 4..10, 10..13]);
@@ -729,6 +773,15 @@ mod tests {
         for (left, right) in assigned.iter().tuple_windows() {
             assert_eq!(left.end, right.start);
         }
+    }
+
+    #[test]
+    fn test_split_aligned_row_range_keeps_colliding_assignments_together() {
+        let natural_splits = natural_splits(2, &[0..1, 1..2, 2..3, 3..4]);
+
+        assert_eq!(natural_splits.assignment_bytes.as_ref(), [0, 0, 1, 1]);
+        assert_eq!(split_aligned_row_range(0..1, &natural_splits), Some(0..2));
+        assert_eq!(split_aligned_row_range(1..2, &natural_splits), Some(2..4));
     }
 
     async fn write_arrow_to_vortex(
@@ -767,7 +820,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
-            natural_split_ranges: Default::default(),
+            natural_splits: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -1098,7 +1151,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
-            natural_split_ranges: Default::default(),
+            natural_splits: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -1185,7 +1238,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
-            natural_split_ranges: Default::default(),
+            natural_splits: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -1342,7 +1395,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
-            natural_split_ranges: Default::default(),
+            natural_splits: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -1402,7 +1455,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
-            natural_split_ranges: Default::default(),
+            natural_splits: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -1611,7 +1664,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
-            natural_split_ranges: Default::default(),
+            natural_splits: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
