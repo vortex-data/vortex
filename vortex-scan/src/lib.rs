@@ -141,8 +141,12 @@ pub struct ScanRequest {
     /// Whether the scan should preserve row order. If false, the scan may produce rows in any
     /// order, for example to enable parallel execution across partitions.
     pub ordered: bool,
-    /// Optional limit on the number of rows returned by scan. Limits are applied after all
-    /// filtering and row selection.
+    /// Optional limit on the number of rows returned, applied after filtering and row selection.
+    ///
+    /// For an unordered scan the limit is global: partitions share it, and each one trims its
+    /// selection mask before projection so that rows which cannot be returned are never decoded.
+    /// An ordered scan cannot share a budget whose reservation order is completion order, so each
+    /// partition applies the limit locally and the caller must trim the concatenated result.
     pub limit: Option<u64>,
 }
 
