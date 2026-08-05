@@ -214,7 +214,7 @@ where
     W: NativeDecimalType + CheckedMul,
 {
     fn new(result: DecimalDType, op: NumericOperator) -> VortexResult<Self> {
-        let one = cast_work_value::<W, i8>(1);
+        let one = <W as BigCast>::from(1_i8).vortex_expect("one fits every decimal working width");
         let (lhs_scale_factor, rhs_scale_factor) = if op == NumericOperator::Div {
             // Arrow scales the quotient by 10^(result_scale - lhs_scale + rhs_scale). Both
             // Vortex operands share a dtype, so this simplifies to 10^result_scale. A negative
@@ -241,8 +241,9 @@ fn decimal_scale_factor<W>(exp: u32) -> VortexResult<W>
 where
     W: NativeDecimalType + CheckedMul,
 {
-    let ten = cast_work_value::<W, i8>(10);
-    let mut factor = cast_work_value::<W, i8>(1);
+    let ten = <W as BigCast>::from(10_i8).vortex_expect("ten fits every decimal working width");
+    let mut factor =
+        <W as BigCast>::from(1_i8).vortex_expect("one fits every decimal working width");
     for _ in 0..exp {
         factor = factor.checked_mul(&ten).ok_or_else(|| {
             vortex_err!(
@@ -400,7 +401,10 @@ fn decimal_array_narrowed<W: NativeDecimalType>(
             .as_slice()
             .iter()
             .copied()
-            .map(cast_result_value::<W, O>)
+            .map(|value| {
+                <O as BigCast>::from(value)
+                    .vortex_expect("precision-checked decimal result must fit the output width")
+            })
             .collect();
         DecimalArray::new(narrowed, decimal_dtype, validity).into_array()
     })
@@ -434,18 +438,6 @@ where
             )
         })
     })
-}
-
-#[inline(always)]
-fn cast_work_value<W: NativeDecimalType, T: NativeDecimalType>(value: T) -> W {
-    <W as BigCast>::from(value)
-        .vortex_expect("valid decimal input must fit the arithmetic working width")
-}
-
-#[inline(always)]
-fn cast_result_value<W: NativeDecimalType, O: NativeDecimalType>(value: W) -> O {
-    <O as BigCast>::from(value)
-        .vortex_expect("precision-checked decimal result must fit the output width")
 }
 
 fn typed_constant<W: NativeDecimalType>(value: &DecimalValue) -> W {
