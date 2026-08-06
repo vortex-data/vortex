@@ -4,6 +4,7 @@
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -22,6 +23,91 @@ use crate::validity::Validity;
 
 // TODO(joe): this is pretty unoptimized but better than before. We want canonical using a builder
 // we also want to return a chunked array ideally.
+fn take_chunked_via_sort(
+    array: ArrayView<'_, Chunked>,
+    indices: &PrimitiveArray,
+    indices_mask: Mask,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let indices_values = indices.as_slice::<u64>();
+    let n = indices_values.len();
+    let mut pairs: Vec<(u64, usize)> = indices_values
+        .iter()
+        .enumerate()
+        .filter(|&(position, _)| indices_mask.value(position))
+        .map(|(position, &index)| (index, position))
+        .collect();
+    pairs.sort_unstable();
+
+    if let Some(&(index, _)) = pairs.last() {
+        let index = usize::try_from(index)?;
+        if index >= array.len() {
+            vortex_bail!(OutOfBounds: index, 0, array.len());
+        }
+    }
+
+    let chunk_offsets = array.chunk_offset_values();
+    let nchunks = array.nchunks();
+    let mut chunks = Vec::with_capacity(nchunks);
+    let mut final_take = BufferMut::<u64>::with_capacity(n);
+    final_take.push_n(0u64, n);
+    let mut cursor = 0usize;
+    let mut dedup_idx = 0u64;
+
+    for chunk_idx in 0..nchunks {
+        let chunk_start = chunk_offsets[chunk_idx];
+        let chunk_end = chunk_offsets[chunk_idx + 1];
+        let chunk_len = chunk_end - chunk_start;
+        let chunk_end_u64 = u64::try_from(chunk_end)?;
+        let range_end = cursor + pairs[cursor..].partition_point(|&(v, _)| v < chunk_end_u64);
+        let chunk_pairs = &pairs[cursor..range_end];
+
+        if !chunk_pairs.is_empty() {
+            let mut local_indices = Vec::new();
+            for (i, &(value, original_position)) in chunk_pairs.iter().enumerate() {
+                if cursor + i > 0 && value != pairs[cursor + i - 1].0 {
+                    dedup_idx += 1;
+                }
+                let local_index = usize::try_from(value)? - chunk_start;
+                if local_indices.last() != Some(&local_index) {
+                    local_indices.push(local_index);
+                }
+                final_take[original_position] = dedup_idx;
+            }
+
+            chunks.push(
+                array
+                    .chunk(chunk_idx)
+                    .filter(Mask::from_indices(chunk_len, local_indices))?,
+            );
+        }
+
+        cursor = range_end;
+    }
+
+    // SAFETY: every chunk came from a filter on a chunk with the same base dtype.
+    let flat = unsafe { ChunkedArray::new_unchecked(chunks, array.dtype().clone()) }
+        .into_array()
+        .execute::<Canonical>(ctx)?
+        .into_array();
+    let take_validity = Validity::from_mask(indices_mask, indices.dtype().nullability());
+    flat.take(PrimitiveArray::new(final_take.freeze(), take_validity).into_array())
+}
+
+fn valid_indices_are_monotonic(indices: &[u64], indices_mask: &Mask) -> bool {
+    let mut previous = None;
+    for (position, &index) in indices.iter().enumerate() {
+        if !indices_mask.value(position) {
+            continue;
+        }
+        if previous.is_some_and(|previous| index < previous) {
+            return false;
+        }
+        previous = Some(index);
+    }
+    true
+}
+
 fn take_chunked(
     array: ArrayView<'_, Chunked>,
     indices: &ArrayRef,
@@ -37,11 +123,22 @@ fn take_chunked(
         .execute_mask(indices.as_ref().len(), ctx)?;
     let indices_values = indices.as_slice::<u64>();
     let n = indices_values.len();
+    let chunk_offsets = array.chunk_offset_values();
+    let nchunks = array.nchunks();
+
+    // For a small unsorted fixed-size-list take over a small number of chunks, sorting has lower
+    // fixed overhead and lets the nested elements filter in source order. Larger, monotonic, and
+    // non-nested takes use bucketing.
+    if matches!(array.dtype(), DType::FixedSizeList(..))
+        && n <= 64
+        && nchunks <= 16
+        && !valid_indices_are_monotonic(indices_values, &indices_mask)
+    {
+        return take_chunked_via_sort(array, &indices, indices_mask, ctx);
+    }
 
     // Route each valid index into its source chunk. Within each bucket, preserve the request order
     // so the taken chunks can be assembled and then restored to the original cross-chunk order.
-    let chunk_offsets = array.chunk_offset_values();
-    let nchunks = array.nchunks();
     let mut buckets = vec![Vec::<(u64, usize)>::new(); nchunks];
     let mut monotonic = true;
     let mut last_index = None;
@@ -141,6 +238,7 @@ mod test {
     use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
+    use crate::arrays::FixedSizeListArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::arrays::chunked::ChunkedArrayExt;
@@ -299,6 +397,38 @@ mod test {
             PrimitiveArray::from_iter([3i32, 0, 2, 0, 3, 1, 2]),
             &mut ctx
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_take_small_shuffled_fixed_size_lists() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let first = FixedSizeListArray::new(
+            buffer![0i32, 1, 2, 3].into_array(),
+            2,
+            Validity::NonNullable,
+            2,
+        )
+        .into_array();
+        let second = FixedSizeListArray::new(
+            buffer![4i32, 5, 6, 7].into_array(),
+            2,
+            Validity::NonNullable,
+            2,
+        )
+        .into_array();
+        let dtype = first.dtype().clone();
+        let array = ChunkedArray::try_new(vec![first, second], dtype)?;
+
+        let result = array.take(buffer![3u64, 0, 2, 1, 3].into_array())?;
+        let expected = FixedSizeListArray::new(
+            buffer![6i32, 7, 0, 1, 4, 5, 2, 3, 6, 7].into_array(),
+            2,
+            Validity::NonNullable,
+            5,
+        );
+
+        assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
     }
 
