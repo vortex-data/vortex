@@ -581,32 +581,22 @@ fn trace_take_on_chunked() -> VortexResult<()> {
     insta::assert_snapshot!(traced.trace.to_string(), @"
     execute_until target=AnyCanonical root=vortex.dict(i32, len=4)
       iter 0 current=vortex.dict(i32, len=4) builder_active=false
-    execute_until target=AnyCanonical root=vortex.chunked(i32, len=3)
-      iter 0 current=vortex.chunked(i32, len=3) builder_active=false
-        builder start array=vortex.chunked(i32, len=3)
-        AppendChild slot=1 parent=vortex.chunked(i32, len=3) child=vortex.filter(i32, len=1)
-        builder append child=vortex.filter(i32, len=1)
-    execute_until target=AnyCanonical root=vortex.filter(i32, len=1)
-      iter 0 current=vortex.filter(i32, len=1) builder_active=false
-        Done array=vortex.primitive(i32, len=1)
-      iter 1 current=vortex.primitive(i32, len=1) builder_active=false
-      return output=vortex.primitive(i32, len=1)
-      iter 1 current=vortex.chunked(i32, len=3) builder_active=true
-        AppendChild slot=2 parent=vortex.chunked(i32, len=3) child=vortex.filter(i32, len=2)
-        builder append child=vortex.filter(i32, len=2)
-    execute_until target=AnyCanonical root=vortex.filter(i32, len=2)
-      iter 0 current=vortex.filter(i32, len=2) builder_active=false
-        Done array=vortex.primitive(i32, len=2)
-      iter 1 current=vortex.primitive(i32, len=2) builder_active=false
-      return output=vortex.primitive(i32, len=2)
-      iter 2 current=vortex.chunked(i32, len=3) builder_active=true
+    execute_until target=AnyCanonical root=vortex.chunked(i32, len=4)
+      iter 0 current=vortex.chunked(i32, len=4) builder_active=false
+        builder start array=vortex.chunked(i32, len=4)
+        AppendChild slot=1 parent=vortex.chunked(i32, len=4) child=vortex.dict(i32, len=1)
+        builder append child=vortex.dict(i32, len=1)
+      iter 1 current=vortex.chunked(i32, len=4) builder_active=true
+        AppendChild slot=2 parent=vortex.chunked(i32, len=4) child=vortex.dict(i32, len=3)
+        builder append child=vortex.dict(i32, len=3)
+      iter 2 current=vortex.chunked(i32, len=4) builder_active=true
         Done array=vortex.primitive(i32, len=0)
-        builder finish output=vortex.primitive(i32, len=3)
-      iter 3 current=vortex.primitive(i32, len=3) builder_active=false
-      return output=vortex.primitive(i32, len=3)
+        builder finish output=vortex.primitive(i32, len=4)
+      iter 3 current=vortex.primitive(i32, len=4) builder_active=false
+      return output=vortex.primitive(i32, len=4)
         child_execute_parent session[0]:execute_parent_fn slot=1 parent=vortex.dict(i32, len=4) child=vortex.chunked(i32, len=5) -> vortex.dict(i32, len=4)
       iter 1 current=vortex.dict(i32, len=4) builder_active=false
-        child_execute_parent session[0]:execute_parent_fn slot=1 parent=vortex.dict(i32, len=4) child=vortex.primitive(i32, len=3) -> vortex.primitive(i32, len=4)
+        child_execute_parent session[0]:execute_parent_fn slot=1 parent=vortex.dict(i32, len=4) child=vortex.primitive(i32, len=4) -> vortex.primitive(i32, len=4)
       iter 2 current=vortex.primitive(i32, len=4) builder_active=false
       return output=vortex.primitive(i32, len=4)
     ");
