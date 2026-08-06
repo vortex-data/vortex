@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Take on a canonical sparse union, swept over the variant count.
+//! Take on a canonical sparse union of integers, strings, and lists.
 //!
-//! Take gathers every sparse child, so a wider union costs more. The children mix encodings on
-//! purpose, because each one carries its own gather cost and a union of identical primitives
-//! understates the total. At this index count the per-child setup dominates the gather itself,
-//! and that setup is exactly what the variant count multiplies.
+//! Take gathers every sparse child, not only the selected one, so the cost is the sum over all
+//! three variants. The encodings differ on purpose: a primitive gather is close to a memcpy, a
+//! `VarBinView` gather copies views and leaves the data buffers alone, and a `ListView` gather
+//! rebuilds offsets and sizes over a shared element buffer. Nullable indices add a fill-null pass
+//! per child on top of that.
 
 #![expect(clippy::unwrap_used)]
 
@@ -39,20 +40,36 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 const ARRAY_SIZE: usize = 100_000;
 
-/// Held low so the widest variant case stays inside the sub-millisecond microbenchmark budget.
+/// Held low so that both cases stay inside the sub-millisecond microbenchmark budget. Per-child
+/// setup dominates the gather at this size, and that setup is paid once per variant.
 const TAKE_SIZE: usize = 128;
 
-/// One entry per pool variant, starting from a single-variant baseline that isolates the type IDs
-/// gather from the child gathers.
-const VARIANT_COUNTS: [usize; 3] = [1, 2, 3];
+fn integer_child(rng: &mut StdRng) -> ArrayRef {
+    (0..ARRAY_SIZE)
+        .map(|_| rng.random::<i64>())
+        .collect::<Buffer<i64>>()
+        .into_array()
+}
 
-/// A `List<i32>` of `ARRAY_SIZE` short lists over one shared element buffer.
+/// A `utf8` child mixing strings short enough to inline into a `VarBinView` view with longer ones
+/// that have to point into the data buffer.
+///
+/// A `VarBinView` view inlines up to 12 bytes. A child of uniformly short strings would gather
+/// without ever reading the data buffer, which is not what a real string column costs.
+fn string_child() -> ArrayRef {
+    VarBinViewArray::from_iter_str((0..ARRAY_SIZE).map(|i| match i % 4 {
+        0 => format!("s{i}"),
+        _ => format!("a considerably longer string value, number {i}"),
+    }))
+    .into_array()
+}
+
+/// A `list<i64>` child of variable-length lists over one shared element buffer.
+///
+/// The lengths vary on purpose. Equal-length lists are what `FixedSizeList` is for, and they would
+/// not exercise the offsets and sizes that a `ListView` gather has to rebuild.
 fn list_child(rng: &mut StdRng) -> ArrayRef {
-    const MAX_LIST_LEN: i32 = 8;
-
-    let sizes: Buffer<i32> = (0..ARRAY_SIZE)
-        .map(|_| rng.random_range(0..MAX_LIST_LEN))
-        .collect();
+    let sizes: Buffer<i32> = (0..ARRAY_SIZE).map(|_| rng.random_range(0..16)).collect();
     let offsets: Buffer<i32> = sizes
         .iter()
         .scan(0i32, |offset, size| {
@@ -64,8 +81,8 @@ fn list_child(rng: &mut StdRng) -> ArrayRef {
 
     let total = offsets.last().unwrap() + sizes.last().unwrap();
     let elements = (0..total)
-        .map(|_| rng.random::<i32>())
-        .collect::<Buffer<i32>>()
+        .map(|_| rng.random::<i64>())
+        .collect::<Buffer<i64>>()
         .into_array();
 
     ListViewArray::new(
@@ -77,38 +94,17 @@ fn list_child(rng: &mut StdRng) -> ArrayRef {
     .into_array()
 }
 
-/// The `index`th variant of the pool, as a name and an `ARRAY_SIZE`-row child.
-///
-/// The pool runs `i64`, `list<i32>`, and `utf8`, so widening the union adds a child that gathers
-/// differently rather than one more primitive gather.
-fn variant_child(index: usize, rng: &mut StdRng) -> (String, ArrayRef) {
-    let child = match index {
-        0 => (0..ARRAY_SIZE)
-            .map(|_| rng.random::<i64>())
-            .collect::<Buffer<i64>>()
-            .into_array(),
-        1 => list_child(rng),
-        _ => VarBinViewArray::from_iter_str((0..ARRAY_SIZE).map(|i| format!("value-{i}")))
-            .into_array(),
-    };
-
-    (format!("v{index}"), child)
-}
-
-/// A sparse union over the first `variant_count` pool entries, with type IDs cycling through them.
-fn union_array(variant_count: usize, rng: &mut StdRng) -> ArrayRef {
-    let (names, children): (Vec<String>, Vec<ArrayRef>) = (0..variant_count)
-        .map(|index| variant_child(index, rng))
-        .unzip();
-
+/// A sparse union whose rows cycle through an integer, a string, and a list.
+fn union_array(rng: &mut StdRng) -> ArrayRef {
+    let children = vec![integer_child(rng), string_child(), list_child(rng)];
     let variants = UnionVariants::new(
-        names.into_iter().collect(),
+        ["ints", "strings", "lists"].into(),
         children.iter().map(|child| child.dtype().clone()).collect(),
     )
     .unwrap();
 
     let type_ids = PrimitiveArray::from_iter(
-        (0..ARRAY_SIZE).map(|i| u8::try_from(i % variant_count).unwrap()),
+        (0..ARRAY_SIZE).map(|i| u8::try_from(i % children.len()).unwrap()),
     );
 
     UnionArray::new(type_ids.into_array(), variants, children).into_array()
@@ -126,10 +122,10 @@ fn bench_take(bencher: Bencher, array: ArrayRef, indices: ArrayRef) {
         });
 }
 
-#[divan::bench(args = VARIANT_COUNTS)]
-fn take_union(bencher: Bencher, variant_count: usize) {
+#[divan::bench]
+fn take_union(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
-    let array = union_array(variant_count, &mut rng);
+    let array = union_array(&mut rng);
 
     let indices = (0..TAKE_SIZE)
         .map(|_| rng.random_range(0..ARRAY_SIZE) as u64)
@@ -139,10 +135,10 @@ fn take_union(bencher: Bencher, variant_count: usize) {
     bench_take(bencher, array, indices);
 }
 
-#[divan::bench(args = VARIANT_COUNTS)]
-fn take_union_nullable_indices(bencher: Bencher, variant_count: usize) {
+#[divan::bench]
+fn take_union_nullable_indices(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
-    let array = union_array(variant_count, &mut rng);
+    let array = union_array(&mut rng);
 
     // Every tenth index is null, which produces an outer union null.
     let indices = PrimitiveArray::from_option_iter(
