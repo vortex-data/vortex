@@ -246,8 +246,8 @@ fn test_zstd_append_to_offset_builder() {
 }
 
 /// A slice decompresses whole frames, so the frames hold values on either side of the ones it
-/// requests. `push_buffer_and_adjusted_views` publishes the buffers it is handed as they are, so
-/// only the requested region may reach it — otherwise the finished array retains the whole frames.
+/// requests. `append_views_built_at` publishes the buffers it is handed as they are, so only the
+/// requested region may reach it — otherwise the finished array retains the whole frames.
 #[test]
 fn test_zstd_append_to_view_builder_keeps_only_the_sliced_bytes() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();

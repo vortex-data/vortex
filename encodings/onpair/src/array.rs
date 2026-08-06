@@ -54,7 +54,7 @@ use vortex_session::registry::CachedId;
 
 use crate::canonical::OnPairDecodePlan;
 use crate::canonical::canonicalize_onpair;
-use crate::canonical::onpair_decode_views;
+use crate::canonical::onpair_decode_bytes;
 use crate::decode::collect_widened;
 use crate::rules::RULES;
 
@@ -605,16 +605,20 @@ impl VTable for OnPair {
             vortex_bail!("append_to_builder for OnPair requires a variable-binary builder")
         };
 
-        let next_buffer_index = builder.completed_block_count() + u32::from(builder.in_progress());
-        let (buffers, views) = onpair_decode_views(array, next_buffer_index, ctx)?;
-        builder.push_buffer_and_adjusted_views(
-            &buffers,
-            &views,
-            array
-                .array()
-                .validity()?
-                .execute_mask(array.array().len(), ctx)?,
-        );
+        // Decode the whole code stream into a new buffer, which the builder adopts as a data
+        // buffer with views built over it in place.
+        let validity = array
+            .array()
+            .validity()?
+            .execute_mask(array.array().len(), ctx)?;
+        let (out_bytes, lengths) = onpair_decode_bytes(array, ctx)?;
+        match_each_integer_ptype!(lengths.ptype(), |P| {
+            builder.append_buffer_with_lengths(
+                out_bytes.freeze(),
+                lengths.as_slice::<P>(),
+                &validity,
+            )
+        });
         Ok(())
     }
 

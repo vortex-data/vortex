@@ -373,45 +373,44 @@ fn append_to_varbinview(
         return Ok(());
     }
 
-    // Build the views against the index the pushed buffers will land at, so the builder does not
-    // have to rebase them afterwards.
-    let next_buffer_index = builder.completed_block_count() + u32::from(builder.in_progress());
     // The decompressed frames cover whole frames and so can extend past the requested values on
     // either side. Reconstructing over just the requested region keeps the pushed buffers fully
-    // utilized, which is what `push_buffer_and_adjusted_views` requires: it hands them to the
-    // finished array as they are, without compacting them.
+    // utilized, which is what `append_views_built_at` requires: it hands them to the finished
+    // array as they are, without compacting them.
     let value_bytes = slice.bytes.slice(slice.value_byte_range()?);
-    let (buffers, valid_views) =
-        try_reconstruct_views(&value_bytes, next_buffer_index, MAX_BUFFER_LEN)?;
-    vortex_ensure!(
-        valid_views.len() == mask.true_count(),
-        "Corrupt zstd metadata: the decompressed frames hold {} values for the {} valid rows of \
-         the slice",
-        valid_views.len(),
-        mask.true_count()
-    );
+    // The values only reveal themselves while walking the length-prefixed frames, so the views
+    // are built inside the builder's numbering callback rather than from a lengths slice.
+    builder.append_views_built_at(&mask, |next_buffer_index| {
+        let (buffers, valid_views) =
+            try_reconstruct_views(&value_bytes, next_buffer_index, MAX_BUFFER_LEN)?;
+        vortex_ensure!(
+            valid_views.len() == mask.true_count(),
+            "Corrupt zstd metadata: the decompressed frames hold {} values for the {} valid rows \
+             of the slice",
+            valid_views.len(),
+            mask.true_count()
+        );
 
-    let views = match mask.bit_buffer() {
-        AllOr::All => valid_views,
-        AllOr::None => unreachable!("handled above"),
-        AllOr::Some(bits) => {
-            // Null rows carry an empty view, so scatter the stored values into their rows. Walking
-            // the set bits a word at a time avoids materializing the mask's indices, which the
-            // views are the only consumer of.
-            let mut views = BufferMut::<BinaryView>::zeroed(slice.n_rows);
-            let mut valid_row = 0;
-            bits.for_each_set_index(|index| {
-                // In bounds: `valid_views.len() == mask.true_count()` was checked above, and
-                // `index < slice.n_rows` because `bits` is the mask over those rows.
-                views[index] = valid_views[valid_row];
-                valid_row += 1;
-            });
-            views.freeze()
-        }
-    };
-
-    builder.push_buffer_and_adjusted_views(&buffers, &views, mask);
-    Ok(())
+        let views = match mask.bit_buffer() {
+            AllOr::All => valid_views,
+            AllOr::None => unreachable!("handled above"),
+            AllOr::Some(bits) => {
+                // Null rows carry an empty view, so scatter the stored values into their rows.
+                // Walking the set bits a word at a time avoids materializing the mask's indices,
+                // which the views are the only consumer of.
+                let mut views = BufferMut::<BinaryView>::zeroed(slice.n_rows);
+                let mut valid_row = 0;
+                bits.for_each_set_index(|index| {
+                    // In bounds: `valid_views.len() == mask.true_count()` was checked above, and
+                    // `index < slice.n_rows` because `bits` is the mask over those rows.
+                    views[index] = valid_views[valid_row];
+                    valid_row += 1;
+                });
+                views.freeze()
+            }
+        };
+        Ok((buffers, views))
+    })
 }
 
 #[derive(Clone, Debug)]

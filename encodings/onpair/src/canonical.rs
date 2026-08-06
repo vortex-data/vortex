@@ -17,12 +17,10 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_array::arrays::varbinview::build_views::BinaryView;
 use vortex_array::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use vortex_array::arrays::varbinview::build_views::build_views;
 use vortex_array::match_each_integer_ptype;
 use vortex_buffer::Buffer;
-use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -38,7 +36,15 @@ pub(super) fn canonicalize_onpair(
     array: ArrayView<'_, OnPair>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let (buffers, views) = onpair_decode_views(array, 0, ctx)?;
+    let (out_bytes, lengths) = onpair_decode_bytes(array, ctx)?;
+    let (buffers, views) = match_each_integer_ptype!(lengths.ptype(), |P| {
+        build_views(
+            0,
+            MAX_BUFFER_LEN,
+            out_bytes.freeze(),
+            lengths.as_slice::<P>(),
+        )
+    });
     let validity = array.array().validity()?;
     Ok(unsafe {
         VarBinViewArray::new_unchecked(views, Arc::from(buffers), array.dtype().clone(), validity)
@@ -143,20 +149,4 @@ pub(crate) fn onpair_decode_bytes(
     // SAFETY: `decode_into` initialised exactly `written` bytes.
     unsafe { out_bytes.set_len(written) };
     Ok((out_bytes, plan.lengths))
-}
-
-pub(crate) fn onpair_decode_views(
-    array: ArrayView<'_, OnPair>,
-    start_buf_index: u32,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<(Vec<ByteBuffer>, Buffer<BinaryView>)> {
-    let (out_bytes, lengths) = onpair_decode_bytes(array, ctx)?;
-    match_each_integer_ptype!(lengths.ptype(), |P| {
-        Ok(build_views(
-            start_buf_index,
-            MAX_BUFFER_LEN,
-            out_bytes,
-            lengths.as_slice::<P>(),
-        ))
-    })
 }
