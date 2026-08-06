@@ -31,6 +31,7 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::expr::Expression;
 use crate::expr::and;
+use crate::expr::display::ExprDisplay;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -107,10 +108,10 @@ impl ScalarFnVTable for Like {
     fn fmt_sql(
         &self,
         options: &Self::Options,
-        expr: &Expression,
+        expr: &dyn ExprDisplay,
         f: &mut Formatter<'_>,
     ) -> std::fmt::Result {
-        expr.child(0).fmt_sql(f)?;
+        Display::fmt(expr.display_child(0), f)?;
         if options.negated {
             write!(f, " not")?;
         }
@@ -119,7 +120,7 @@ impl ScalarFnVTable for Like {
         } else {
             write!(f, " like ")?;
         }
-        expr.child(1).fmt_sql(f)
+        Display::fmt(expr.display_child(1), f)
     }
 
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {

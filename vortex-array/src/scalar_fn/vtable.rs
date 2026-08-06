@@ -20,7 +20,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
 use crate::expr::Expression;
-use crate::expr::traversal::Node;
+use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::TypedScalarFnInstance;
@@ -67,20 +67,20 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     /// Returns the name of the nth child of the expr.
     fn child_name(&self, options: &Self::Options, child_idx: usize) -> ChildName;
 
-    /// Format this expression in a nice human-readable SQL-style format
+    /// Format an expression tree in a human-readable SQL-style format.
     ///
-    /// The implementation should recursively format child expressions by calling
-    /// `expr.child(i).fmt_sql(f)`.
+    /// The expression may be either an [`Expression`] or a
+    /// [`bound expression`](crate::expr::BoundExpression).
     fn fmt_sql(
         &self,
         options: &Self::Options,
-        expr: &Expression,
+        expr: &dyn ExprDisplay,
         f: &mut Formatter<'_>,
     ) -> fmt::Result {
         write!(f, "{}(", self.id())?;
-        let nchildren = expr.children_count();
-        for (i, child) in expr.children().iter().enumerate() {
-            child.fmt_sql(f)?;
+        let nchildren = expr.display_children_count();
+        for i in 0..nchildren {
+            Display::fmt(expr.display_child(i), f)?;
             if i + 1 < nchildren {
                 write!(f, ", ")?;
             }

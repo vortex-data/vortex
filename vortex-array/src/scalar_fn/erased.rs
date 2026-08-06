@@ -20,6 +20,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
 use crate::expr::Expression;
+use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ReduceCtx;
@@ -160,8 +161,12 @@ impl ScalarFnRef {
     // Expression-taking methods — used by expr/ module via pub(crate)
     // ------------------------------------------------------------------
 
-    /// Format this expression in SQL-style format.
-    pub(crate) fn fmt_sql(&self, expr: &Expression, f: &mut Formatter<'_>) -> std::fmt::Result {
+    /// Format an expression tree in SQL-style format.
+    pub(crate) fn fmt_sql(
+        &self,
+        expr: &dyn ExprDisplay,
+        f: &mut Formatter<'_>,
+    ) -> std::fmt::Result {
         self.0.fmt_sql(expr, f)
     }
 

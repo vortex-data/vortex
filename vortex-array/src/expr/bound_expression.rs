@@ -228,7 +228,10 @@ impl BoundExpression {
 
 impl Display for BoundExpression {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        Display::fmt(&self.unbind(), f)
+        match self.kind() {
+            BoundKind::Scalar { scalar_fn, .. } => scalar_fn.fmt_sql(self, f),
+            BoundKind::Root => f.write_str("$"),
+        }
     }
 }
 
@@ -333,9 +336,10 @@ mod tests {
     }
 
     #[test]
-    fn bound_tree_display_matches_unbound() -> VortexResult<()> {
+    fn bound_display_matches_unbound() -> VortexResult<()> {
         for expr in [root(), col("a"), eq(col("a"), lit(1_i32)), lit(true)] {
             let bound = expr.bind_scope(&scope())?;
+            assert_eq!(bound.to_string(), expr.to_string());
             assert_eq!(
                 bound.display_tree().to_string(),
                 expr.display_tree().to_string()

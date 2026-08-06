@@ -16,6 +16,38 @@ pub enum DisplayFormat {
     Tree,
 }
 
+/// Read-only expression-tree interface used by scalar functions for SQL-style formatting.
+///
+/// Both [`Expression`] and [`BoundExpression`] implement this interface, allowing scalar
+/// functions to format either representation without converting between them.
+pub trait ExprDisplay: Display {
+    /// Return the child at `index`.
+    fn display_child(&self, index: usize) -> &dyn ExprDisplay;
+
+    /// Return the number of children in this node.
+    fn display_children_count(&self) -> usize;
+}
+
+impl ExprDisplay for Expression {
+    fn display_child(&self, index: usize) -> &dyn ExprDisplay {
+        Expression::child(self, index)
+    }
+
+    fn display_children_count(&self) -> usize {
+        self.children().len()
+    }
+}
+
+impl ExprDisplay for BoundExpression {
+    fn display_child(&self, index: usize) -> &dyn ExprDisplay {
+        &self.children()[index]
+    }
+
+    fn display_children_count(&self) -> usize {
+        self.children().len()
+    }
+}
+
 trait DisplayTreeNode: Sized {
     fn tree_children(&self) -> &[Self];
 

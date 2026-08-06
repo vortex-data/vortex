@@ -24,6 +24,7 @@ use crate::arrays::struct_::StructArrayExt;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
+use crate::expr::display::ExprDisplay;
 use crate::expr::expression::Expression;
 use crate::expr::field::DisplayFieldNames;
 use crate::expr::get_item;
@@ -104,10 +105,10 @@ impl ScalarFnVTable for Select {
     fn fmt_sql(
         &self,
         selection: &FieldSelection,
-        expr: &Expression,
+        expr: &dyn ExprDisplay,
         f: &mut Formatter<'_>,
     ) -> std::fmt::Result {
-        expr.child(0).fmt_sql(f)?;
+        Display::fmt(expr.display_child(0), f)?;
         match selection {
             FieldSelection::Include(fields) => {
                 write!(f, "{{{}}}", DisplayFieldNames(fields))

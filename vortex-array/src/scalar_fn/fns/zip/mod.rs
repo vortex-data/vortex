@@ -3,6 +3,7 @@
 
 mod kernel;
 
+use std::fmt::Display;
 use std::fmt::Formatter;
 
 pub use kernel::*;
@@ -24,6 +25,7 @@ use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::expr::Expression;
+use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
@@ -80,15 +82,15 @@ impl ScalarFnVTable for Zip {
     fn fmt_sql(
         &self,
         _options: &Self::Options,
-        expr: &Expression,
+        expr: &dyn ExprDisplay,
         f: &mut Formatter<'_>,
     ) -> std::fmt::Result {
         write!(f, "zip(")?;
-        expr.child(0).fmt_sql(f)?;
+        Display::fmt(expr.display_child(0), f)?;
         write!(f, ", ")?;
-        expr.child(1).fmt_sql(f)?;
+        Display::fmt(expr.display_child(1), f)?;
         write!(f, ", ")?;
-        expr.child(2).fmt_sql(f)?;
+        Display::fmt(expr.display_child(2), f)?;
         write!(f, ")")
     }
 

@@ -11,7 +11,7 @@ use vortex_session::registry::CachedId;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
-use crate::expr::expression::Expression;
+use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
@@ -58,7 +58,7 @@ impl ScalarFnVTable for Root {
     fn fmt_sql(
         &self,
         _options: &Self::Options,
-        _expr: &Expression,
+        _expr: &dyn ExprDisplay,
         f: &mut Formatter<'_>,
     ) -> std::fmt::Result {
         write!(f, "$")

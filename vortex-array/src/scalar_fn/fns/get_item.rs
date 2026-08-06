@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
 use std::fmt::Formatter;
 
 use prost::Message;
@@ -20,6 +21,7 @@ use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::Nullability;
 use crate::expr::Expression;
+use crate::expr::display::ExprDisplay;
 use crate::expr::lit;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -78,10 +80,10 @@ impl ScalarFnVTable for GetItem {
     fn fmt_sql(
         &self,
         field_name: &FieldName,
-        expr: &Expression,
+        expr: &dyn ExprDisplay,
         f: &mut Formatter<'_>,
     ) -> std::fmt::Result {
-        expr.children()[0].fmt_sql(f)?;
+        Display::fmt(expr.display_child(0), f)?;
         write!(f, ".{}", field_name)
     }
 

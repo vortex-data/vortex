@@ -25,7 +25,7 @@ use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::Nullability;
-use crate::expr::Expression;
+use crate::expr::display::ExprDisplay;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -92,11 +92,11 @@ impl ScalarFnVTable for VariantGet {
     fn fmt_sql(
         &self,
         options: &Self::Options,
-        expr: &Expression,
+        expr: &dyn ExprDisplay,
         f: &mut Formatter<'_>,
     ) -> fmt::Result {
         write!(f, "variant_get(")?;
-        expr.child(0).fmt_sql(f)?;
+        Display::fmt(expr.display_child(0), f)?;
         let path = options.path().to_string();
         write!(f, ", \"{}\"", StringEscape(&path))?;
         if let Some(dtype) = options.dtype() {

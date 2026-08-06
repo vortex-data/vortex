@@ -35,6 +35,7 @@ use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::expr::Expression;
+use crate::expr::display::ExprDisplay;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -136,7 +137,7 @@ impl ScalarFnVTable for CaseWhen {
     fn fmt_sql(
         &self,
         options: &Self::Options,
-        expr: &Expression,
+        expr: &dyn ExprDisplay,
         f: &mut Formatter<'_>,
     ) -> fmt::Result {
         write!(f, "CASE")?;
@@ -144,13 +145,13 @@ impl ScalarFnVTable for CaseWhen {
             write!(
                 f,
                 " WHEN {} THEN {}",
-                expr.child(i * 2),
-                expr.child(i * 2 + 1)
+                expr.display_child(i * 2),
+                expr.display_child(i * 2 + 1)
             )?;
         }
         if options.has_else {
             let else_idx = options.num_when_then_pairs as usize * 2;
-            write!(f, " ELSE {}", expr.child(else_idx))?;
+            write!(f, " ELSE {}", expr.display_child(else_idx))?;
         }
         write!(f, " END")
     }

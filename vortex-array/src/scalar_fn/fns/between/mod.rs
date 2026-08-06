@@ -25,6 +25,7 @@ use crate::arrays::Primitive;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::DType::Bool;
+use crate::expr::display::ExprDisplay;
 use crate::expr::expression::Expression;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
@@ -224,7 +225,7 @@ impl ScalarFnVTable for Between {
     fn fmt_sql(
         &self,
         options: &Self::Options,
-        expr: &Expression,
+        expr: &dyn ExprDisplay,
         f: &mut Formatter<'_>,
     ) -> std::fmt::Result {
         let lower_op = if options.lower_strict.is_strict() {
@@ -240,11 +241,11 @@ impl ScalarFnVTable for Between {
         write!(
             f,
             "({} {} {} {} {})",
-            expr.child(1),
+            expr.display_child(1),
             lower_op,
-            expr.child(0),
+            expr.display_child(0),
             upper_op,
-            expr.child(2)
+            expr.display_child(2)
         )
     }
 

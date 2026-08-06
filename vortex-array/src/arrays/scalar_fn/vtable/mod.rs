@@ -38,6 +38,7 @@ use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
 use crate::expr::Expression;
+use crate::expr::display::ExprDisplay;
 use crate::matcher::Matcher;
 use crate::scalar_fn;
 use crate::scalar_fn::Arity;
@@ -309,7 +310,7 @@ impl scalar_fn::ScalarFnVTable for ArrayExpr {
     fn fmt_sql(
         &self,
         options: &Self::Options,
-        _expr: &Expression,
+        _expr: &dyn ExprDisplay,
         f: &mut Formatter<'_>,
     ) -> std::fmt::Result {
         write!(f, "{}", options.0.encoding_id())

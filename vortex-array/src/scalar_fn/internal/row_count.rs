@@ -11,7 +11,7 @@ use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::expr::Expression;
+use vortex_array::expr::display::ExprDisplay;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
@@ -64,7 +64,7 @@ impl ScalarFnVTable for RowCount {
     fn fmt_sql(
         &self,
         _options: &Self::Options,
-        _expr: &Expression,
+        _expr: &dyn ExprDisplay,
         f: &mut Formatter<'_>,
     ) -> std::fmt::Result {
         write!(f, "row_count()")
