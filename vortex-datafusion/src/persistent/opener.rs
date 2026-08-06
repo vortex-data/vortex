@@ -746,6 +746,7 @@ mod tests {
     #[case(1..8, 10, vec![0..1, 1..9, 9..10], Some(1..9))]
     #[case(1..4, 16, vec![0..1, 1..2, 2..3, 3..4], None)]
     #[case(0..1, 10, vec![0..2, 2..10], Some(0..2))]
+    #[case(0..2, 2, vec![], None)]
     fn test_split_aligned_row_range(
         #[case] byte_range: Range<u64>,
         #[case] total_size: u64,
@@ -795,6 +796,19 @@ mod tests {
         for (left, right) in assigned.iter().tuple_windows() {
             assert_eq!(left.end, right.start);
         }
+    }
+
+    #[rstest]
+    #[case(vec![], 10)]
+    #[case(vec![0], 10)]
+    #[case(vec![], 0)]
+    #[case(vec![0], 0)]
+    fn test_natural_splits_empty_file(#[case] row_boundaries: Vec<u64>, #[case] total_size: u64) {
+        let splits = NaturalSplits::new(row_boundaries.clone().into(), total_size);
+
+        assert!(splits.assignment_bytes.is_empty());
+        assert_eq!(splits.row_boundaries.as_ref(), row_boundaries.as_slice());
+        assert_eq!(split_aligned_row_range(0..u64::MAX, &splits), None);
     }
 
     #[test]

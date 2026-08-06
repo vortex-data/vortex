@@ -201,8 +201,12 @@ impl<A: 'static + Send> ScanBuilder<A> {
     /// can compute the boundaries once per file and share them across partitions.
     ///
     /// Takes precedence over [`with_split_by`](Self::with_split_by); boundaries outside the
-    /// scan's row range are clamped during execution.
+    /// scan's row range are clamped during execution. Boundaries must be strictly increasing.
     pub fn with_natural_splits(mut self, boundaries: Arc<[u64]>) -> Self {
+        debug_assert!(
+            boundaries.windows(2).all(|w| w[0] < w[1]),
+            "natural split boundaries must be strictly increasing"
+        );
         self.natural_splits = Some(boundaries);
         self
     }
