@@ -1,6 +1,6 @@
-==========================
+===========================
 OpenDAL (COS, OSS, GooseFS)
-==========================
+===========================
 
 Vortex can read from and write to Tencent Cloud COS, Alibaba Cloud OSS, and Tencent Cloud
 GooseFS through `OpenDAL <https://opendal.apache.org/>`_, which provides native service
