@@ -13,9 +13,10 @@
 //! closure. Implement `RowFn` when the function fits it, and `ScalarFnVTable` when it does not.
 //!
 //! [`RowFn`] is for a kernel whose value at a row is determined by that row alone, and which has to
-//! read every row anyway: `vortex.byte_length`, `vortex.tensor.l2_norm`,
-//! `vortex.tensor.inner_product`, `vortex.geo.distance`. Name the element types and write the row
-//! closure, and the rest is derived, including which rows get visited.
+//! read every row anyway: the arithmetic operators over primitive columns, `vortex.tensor.l2_norm`,
+//! `vortex.tensor.inner_product`, `vortex.tensor.cosine_similarity`, `vortex.geo.distance`,
+//! `vortex.geo.contains`. Name the element types and write the row closure, and the rest is
+//! derived, including which rows get visited.
 //!
 //! Its *input* side is open. [`InputElement::Elem`] is a GAT, so an element can hand the closure
 //! borrowed variable-length data (a byte-string element yielding `&[u8]`) or drill through a wrapper
@@ -63,6 +64,10 @@
 //! - **A row is not the natural unit of work.** `vortex.not` is one `!` per 64-bit word, in place
 //!   when the bit buffer is unshared, against 64 loop iterations and 64 bit writes, and its
 //!   encoding-aware fallback pushes the inversion down instead of canonicalizing.
+//! - **The row's value is cheaper to read than the row.** `vortex.byte_length` was tried as a row
+//!   function and measured 7.6x slower than its columnar implementation, because the length is a
+//!   field of the view and the row loop paid to resolve the bytes it never looked at. Being
+//!   row-determined is necessary but not sufficient.
 
 use vortex_session::registry::Id;
 

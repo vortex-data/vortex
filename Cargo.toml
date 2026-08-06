@@ -160,7 +160,13 @@ flatbuffers = "25.2.10"
 fsst-rs = "0.6.0"
 futures = { version = "0.3.31", default-features = false }
 fuzzy-matcher = "0.3"
-geo = "0.31.0"
+# `vortex-geo`'s `contains_route` transcribes geo's `impl_contains_from_relate!` dispatch table, so
+# any bump that moves a row silently changes containment verdicts — the tests stay green wherever
+# relate and the direct algorithm agree. Pinned exactly so that taking any new geo, patch releases
+# included, is a deliberate edit of this line that re-verifies the table; a caret requirement would
+# let `cargo update` (or automated lockfile maintenance) take 0.31.x with no diff to review. See
+# `vortex-geo/src/scalar_fn/contains.rs`.
+geo = "=0.31.0"
 geo-traits = "0.3.0"
 geo-types = "0.7.19"
 geoarrow = "0.8.0"

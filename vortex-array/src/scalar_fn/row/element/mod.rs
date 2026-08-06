@@ -96,10 +96,12 @@ pub trait InputElement: 'static {
     /// Decode `array` _without_ assuming every row is valid, or `Ok(None)` when this element
     /// cannot for this particular array.
     ///
-    /// An element with [`DENSE_SAFE`](Self::DENSE_SAFE) set may use the default, because its ordinary
-    /// decode already tolerates null payloads. Other elements may override this by writing an
-    /// arbitrary placeholder into null slots; the caller guarantees [`get`](Self::get) is never
-    /// called for such a row. It is what the branch-and-skip null strategy decodes with.
+    /// An element with [`DENSE_SAFE`](Self::DENSE_SAFE) set **should not** override this: its
+    /// ordinary decode already tolerates null payloads, so the default is already correct and an
+    /// override just restates it. Overriding is for an element that is *not* dense-safe but can
+    /// still write an arbitrary placeholder into null slots; the caller guarantees
+    /// [`get`](Self::get) is never called for such a row. It is what the branch-and-skip null
+    /// strategy decodes with.
     ///
     /// Return `Ok(None)` rather than an error when an array has no null-tolerant decode; the lifting
     /// falls back to the filter strategy.

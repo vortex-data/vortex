@@ -143,6 +143,7 @@ fn branch_propagates_real_errors() {
 /// strategy decodes ordinarily over the survivors.
 mod selection {
     use std::cell::Cell;
+    use std::cell::RefCell;
 
     use vortex_buffer::Buffer;
     use vortex_error::vortex_err;
@@ -382,6 +383,83 @@ mod selection {
         )?;
 
         assert_eq!(LAST_DECODE.get(), Some((false, 2)));
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(-3i64), None, Some(-5)]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    thread_local! {
+        /// Every `row_count` `reduce_encoded` was handed, in call order.
+        static REDUCE_ROW_COUNTS: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+    }
+
+    /// [`RefusingNegate`] with an encoding-aware rewrite that declines, recording the row count it
+    /// was offered.
+    #[derive(Clone)]
+    struct ProbingNegate;
+
+    impl RowFn for ProbingNegate {
+        type Options = EmptyOptions;
+
+        const ARG_NAMES: &'static [&'static str] = &["input"];
+
+        fn id(&self) -> ScalarFnId {
+            static ID: CachedId = CachedId::new("vortex.test.probing_negate");
+            *ID
+        }
+
+        fn dispatch<V: RowVisitor>(
+            &self,
+            _options: &Self::Options,
+            _args: &[DType],
+            visitor: V,
+        ) -> VortexResult<V::Out> {
+            visitor.visit_prepared_into::<(RefusesNullTolerant,), ElementSink<i64>, _, _>(
+                |_| (),
+                |&(), (value,), output| *output = -value,
+            )
+        }
+
+        fn reduce_encoded(
+            &self,
+            _options: &Self::Options,
+            args: &[ArrayRef],
+            _ctx: &mut ExecutionCtx,
+        ) -> VortexResult<Option<ArrayRef>> {
+            REDUCE_ROW_COUNTS.with_borrow_mut(|counts| counts.push(args[0].len()));
+            Ok(None)
+        }
+    }
+
+    /// A `reduce_encoded` rewrite must be sized from the arrays it was handed, which under the
+    /// filter strategy hold the surviving rows rather than the whole batch. This is the only
+    /// mixed-mask path where the two differ, so nothing else would catch a rewrite sized from a
+    /// length captured elsewhere.
+    ///
+    /// This also pins the double probe as deliberate. The first call sees the original arrays at
+    /// full length, and is the only one that does; the second sees filtered, canonical copies. An
+    /// "optimization" that skipped the first because the batch will end up filtering would take an
+    /// encoding-aware rewrite away from every function whose sink cannot skip rows.
+    #[test]
+    fn reduce_encoded_is_probed_before_and_after_filtering() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        REDUCE_ROW_COUNTS.with_borrow_mut(Vec::clear);
+
+        let result = apply(
+            ProbingNegate,
+            [PrimitiveArray::from_option_iter([Some(3i64), None, Some(5)]).into_array()],
+            &mut ctx,
+        )?;
+
+        assert_eq!(
+            REDUCE_ROW_COUNTS.with_borrow(|counts| counts.clone()),
+            vec![3, 2],
+            "expected an unfiltered probe at the batch length, then a filtered one at the \
+             surviving count",
+        );
         assert_arrays_eq!(
             result,
             PrimitiveArray::from_option_iter([Some(-3i64), None, Some(-5)]),

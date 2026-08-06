@@ -36,13 +36,6 @@ impl InputElement for bool {
         Ok(array.execute::<BoolArray>(ctx)?.into_bit_buffer())
     }
 
-    fn decode_null_tolerant(
-        array: ArrayRef,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Self::Column>> {
-        Self::decode(array, ctx).map(Some)
-    }
-
     fn get(column: &Self::Column, index: usize) -> bool {
         column.value(index)
     }

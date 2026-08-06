@@ -121,12 +121,23 @@ fn operand_ptype(args: &[DType]) -> VortexResult<PType> {
 }
 
 /// Visit at two `T` columns, applying `Op` per row into the sink that defers its overflow bit.
+///
+/// The const block enforces, at monomorphization time, the width rule stated on
+/// [`Failure`](super::primitive::Failure): evidence wider than the element would make the
+/// OR-reduction rather than the arithmetic decide how many rows fit in a vector.
 fn visit_checked<T, Op, V>(visitor: V) -> VortexResult<V::Out>
 where
     T: NativePType,
     Op: CheckedPrimitiveOp<T>,
     V: RowVisitor,
 {
+    const {
+        assert!(
+            size_of::<Op::Failure>() <= size_of::<T>(),
+            "failure evidence must be no wider than the value, or it bounds the vector width"
+        )
+    };
+
     visitor.visit_prepared_into::<(T, T), CheckedSink<T, Op>, _, _>(
         |_| (),
         |&(), (lhs, rhs), output| output.write(lhs, rhs),
@@ -145,9 +156,21 @@ where
 /// is what lets unsigned multiplication report its discarded high half instead of a comparison, and
 /// so stay vectorized.
 ///
+/// **The storage is deliberately uninitialized, not zeroed.** Substituting `BufferMut::zeroed` to
+/// make the sink safe was measured at **1.65 to 1.71x** the cost of allocate-and-fill, stable across
+/// two runs and every batch size from 8 KiB to 2 MiB, because `alloc_zeroed` does not avoid the
+/// write: below glibc's mmap threshold `calloc` recycles a dirty chunk and memsets it, and above it
+/// the first touch of each fresh page faults instead. The row loop overwrites every slot regardless,
+/// so that pass is pure duplicate work on the hottest kernel in the system. This is the case the
+/// repository's "avoid `unsafe` unless it is necessary" rule leaves room for: the safe spelling
+/// exists, and it costs a second pass over the output.
+///
 /// Rows are written into uninitialized storage, so this sink cannot finish a batch whose rows were
-/// not all visited and leaves [`OutputSink::SUPPORTS_SKIPPED_ROWS`] at `false`. Nothing is lost: a
-/// deferred-error kernel runs densely and retries valid rows only on its cold error path.
+/// not all visited, and leaves [`OutputSink::SUPPORTS_SKIPPED_ROWS`] at `false`. Nothing is lost:
+/// `SUPPORTS_SKIPPED_ROWS` is what makes branch-and-skip unavailable, which is the guard that keeps
+/// the uninitialized slots sound. Note this is _not_ implied by the dispatch policy alone: a
+/// deferred result still reaches the executor's valid-only policy whenever its arguments are not
+/// dense-safe, so the `false` here is load-bearing rather than a restatement.
 struct CheckedSink<T: NativePType, Op: CheckedPrimitiveOp<T>> {
     /// The result values, initialized one row at a time up to `row_count`.
     values: BufferMut<T>,
@@ -160,8 +183,7 @@ struct CheckedSink<T: NativePType, Op: CheckedPrimitiveOp<T>> {
     op: PhantomData<Op>,
 }
 
-/// The uninitialized output slots of a [`CheckedSink`], borrowed once for the row loop, together
-/// with the batch-wide failure reduction they contribute to.
+/// The uninitialized output slots of a [`CheckedSink`], borrowed once for the row loop.
 struct CheckedRows<'a, T: NativePType, Op: CheckedPrimitiveOp<T>> {
     values: &'a mut [MaybeUninit<T>],
     op: PhantomData<Op>,

@@ -143,6 +143,10 @@ pub(in crate::scalar_fn::row) fn batch_constant(array: &ArrayRef) -> Option<Arra
 /// visits with. Implemented for `()` and tuples of one through twelve elements. This trait is
 /// framework-only; add a new decode primitive by implementing [`InputElement`], then use it inside
 /// one of those tuples.
+///
+/// The arities past the widest function in tree are deliberate. This trait is **sealed**, so a
+/// downstream crate cannot add the one it needs, and an unused arity costs only its own macro
+/// expansion: no monomorphization happens until something instantiates it.
 pub trait ElementTuple: 'static + private::Sealed {
     /// The decoded column representations.
     type Columns;
@@ -198,7 +202,7 @@ pub trait ElementTuple: 'static + private::Sealed {
 
     /// Borrow every decoded column directly, or `None` when any argument is batch-constant.
     ///
-    /// This is selected once outside the hot loop. Keeping [`ArgColumn`] out of the resulting tuple
+    /// This is selected once outside the hot loop. Keeping `ArgColumn` out of the resulting tuple
     /// gives the optimizer ordinary contiguous column access without a per-row constant check.
     fn varying(columns: &Self::Columns) -> Option<Self::VaryingColumns<'_>>;
 

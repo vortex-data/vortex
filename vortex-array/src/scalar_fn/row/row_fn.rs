@@ -81,7 +81,8 @@ pub trait RowFn: 'static + Sized + Clone + Send + Sync {
     /// of a wrapper encoding, or handing back a child array whole. The result may be lazy and
     /// nullable, but its nulls **must** be a subset of the rows the lifting will mask, and it
     /// **must** have one row per row of `args`, which on the filter strategy is the _filtered_ count
-    /// rather than the original one.
+    /// rather than the original one. Size the result from `args`, which are filtered to match, and
+    /// never from a length captured elsewhere.
     ///
     /// Whether the arrays still carry their original encoding depends on the execution path.
     /// Dense execution always passes them through untouched. Valid-only execution does too when

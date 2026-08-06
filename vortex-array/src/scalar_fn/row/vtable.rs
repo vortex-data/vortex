@@ -267,7 +267,7 @@ pub(super) fn row_policy<F: RowFn>(
         .map(|plan| plan.policy)
 }
 
-/// Every [`RowFn`] is a [`ScalarFnVTable`], the row loop lifted by [`Batch`].
+/// Every [`RowFn`] is a [`ScalarFnVTable`], the row loop lifted by `Batch`.
 ///
 /// This impl is why a [`RowFn`] cannot also implement [`ScalarFnVTable`] itself: coherence forbids
 /// the second impl. Nothing in tree needs to, since everything a row function can vary lives on

@@ -4,6 +4,7 @@
 //! Shared helpers for the tensor scalar functions.
 
 use half::f16;
+use num_traits::Float;
 use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -61,6 +62,20 @@ pub fn unit_norm_tolerance(element_ptype: PType, dimensions: usize) -> f64 {
     let dimensions_root = (dimensions as f64).sqrt();
 
     SAFETY_FACTOR as f64 * machine_epsilon * dimensions_root
+}
+
+/// The L2 norm of one row: `sqrt(sum(v_i^2))`. A zero-length or all-zero row gives `0.0`.
+///
+/// Shared by `l2_norm` and by cosine similarity's hoisted constant norm. The accumulation order is
+/// part of the contract rather than an implementation detail: cosine's prepared and per-row arms
+/// must agree bit for bit, which only holds while both sum in this order. Keeping one copy is what
+/// stops the two drifting apart.
+pub(crate) fn l2_norm_row<T: Float + NativePType>(v: &[T]) -> T {
+    let mut sum_sq = T::zero();
+    for &x in v {
+        sum_sq = sum_sq + x * x;
+    }
+    sum_sq.sqrt()
 }
 
 /// Extracts the `(normalized, norms)` children of a [`Normalized`]-encoded array.

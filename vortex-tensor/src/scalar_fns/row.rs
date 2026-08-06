@@ -89,13 +89,6 @@ impl<T: Float + NativePType> InputElement for TensorRow<T> {
         })
     }
 
-    fn decode_null_tolerant(
-        array: ArrayRef,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Self::Column>> {
-        Self::decode(array, ctx).map(Some)
-    }
-
     fn get(column: &Self::Column, index: usize) -> &[T] {
         let start = index * column.stride;
         &column.elements.as_slice()[start..start + column.list_size]

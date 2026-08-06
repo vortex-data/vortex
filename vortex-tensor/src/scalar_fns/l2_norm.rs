@@ -3,7 +3,6 @@
 
 //! L2 norm expression for tensor-like types.
 
-use num_traits::Float;
 use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -13,7 +12,6 @@ use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayParts;
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::NativePType;
 use vortex_array::dtype::proto::dtype as pb;
 use vortex_array::match_each_float_ptype;
 use vortex_array::scalar_fn::ElementSink;
@@ -32,6 +30,7 @@ use crate::encodings::normalized::Normalized;
 use crate::scalar_fns::row::TensorRow;
 use crate::scalar_fns::row::tensor_element_ptype;
 use crate::utils::extract_normalized_children;
+use crate::utils::l2_norm_row;
 use crate::utils::validate_tensor_float_input;
 
 /// L2 norm (Euclidean norm) of a tensor or vector column.
@@ -147,15 +146,4 @@ impl ScalarFnArrayVTable for L2Norm {
             children: vec![child],
         })
     }
-}
-
-/// Computes the L2 norm (Euclidean norm) of a float slice.
-///
-/// Returns `sqrt(sum(v_i^2))`. A zero-length or all-zero input produces `0.0`.
-fn l2_norm_row<T: Float + NativePType>(v: &[T]) -> T {
-    let mut sum_sq = T::zero();
-    for &x in v {
-        sum_sq = sum_sq + x * x;
-    }
-    sum_sq.sqrt()
 }

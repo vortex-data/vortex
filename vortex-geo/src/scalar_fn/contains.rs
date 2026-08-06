@@ -154,6 +154,18 @@ enum ContainsRoute {
 /// different arithmetic). The relate rows below transcribe geo's `impl_contains_from_relate!`
 /// lists per container type; everything else, notably every `Point`/`MultiPoint` contained side
 /// and every `Point` container, is direct.
+///
+/// **This table is coupled to the geo version.** It transcribes a dispatch that geo is free to
+/// reshuffle in any release, and a wrong row is a silently wrong verdict rather than a build error.
+/// The workspace therefore pins `geo = "=0.31.0"`: taking any new geo, patch releases included, is
+/// a deliberate edit of that line, and the edit must re-verify this table against
+/// `impl_contains_from_relate!`.
+///
+/// `constant_operands_agree_with_columns` is the mechanical check, and it is **not** complete: it
+/// compares the prepared route against plain `a.contains(b)` only for the container types it has
+/// cases for. `routes_agree_with_geo_for_every_container` covers the rest, one representative
+/// pairing per container variant, and is the one to extend when geo grows a geometry type. Both
+/// stay green wherever relate and the direct algorithm agree, so neither replaces the pin.
 fn contains_route(a: &Geometry<f64>, b: &Geometry<f64>) -> ContainsRoute {
     use Geometry as G;
 
@@ -311,12 +323,19 @@ fn contains_row_prepared(operands: &ConstOperands, a: &Geometry<f64>, b: &Geomet
 
 #[cfg(test)]
 mod tests {
+    use geo::Contains;
+    use geo_types::Coord;
     use geo_types::Geometry;
+    use geo_types::GeometryCollection;
+    use geo_types::Line;
     use geo_types::LineString;
+    use geo_types::MultiLineString;
     use geo_types::MultiPoint;
     use geo_types::MultiPolygon;
     use geo_types::Point;
     use geo_types::Polygon;
+    use geo_types::Rect;
+    use geo_types::Triangle;
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::Canonical;
@@ -341,7 +360,10 @@ mod tests {
     use vortex_error::vortex_err;
     use wkb::writer::WriteOptions;
 
+    use super::ConstOperands;
     use super::GeoContains;
+    use super::PreparedOperand;
+    use super::contains_row_prepared;
     use crate::scalar_fn::row::probe::assert_prepared_agrees_with_columns;
     use crate::test_harness::linestring_column;
     use crate::test_harness::nullable_point_column;
@@ -732,6 +754,43 @@ mod tests {
         Geometry::MultiPoint(MultiPoint::from(coords))
     }
 
+    /// A two-point line segment geometry, the `Line` container variant.
+    fn line_geometry(start: (f64, f64), end: (f64, f64)) -> Geometry {
+        Geometry::Line(Line::new(
+            Coord {
+                x: start.0,
+                y: start.1,
+            },
+            Coord { x: end.0, y: end.1 },
+        ))
+    }
+
+    /// A multilinestring geometry over one linestring per entry of `parts`.
+    fn multilinestring(parts: Vec<Vec<(f64, f64)>>) -> Geometry {
+        Geometry::MultiLineString(MultiLineString::new(
+            parts.into_iter().map(LineString::from).collect(),
+        ))
+    }
+
+    /// A geometry collection wrapping `parts`.
+    fn collection(parts: Vec<Geometry>) -> Geometry {
+        Geometry::GeometryCollection(GeometryCollection::from(parts))
+    }
+
+    /// An axis-aligned rectangle geometry, the `Rect` container variant.
+    fn rect_geometry(x0: f64, y0: f64, x1: f64, y1: f64) -> Geometry {
+        Geometry::Rect(Rect::new(Coord { x: x0, y: y0 }, Coord { x: x1, y: y1 }))
+    }
+
+    /// A triangle geometry large enough to contain the small test polygons.
+    fn triangle_geometry() -> Geometry {
+        Geometry::Triangle(Triangle::new(
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 8.0, y: 0.0 },
+            Coord { x: 0.0, y: 8.0 },
+        ))
+    }
+
     /// A two-part multipolygon: `4x4` squares at the origin and at `(10, 10)`.
     fn two_part_multipolygon() -> Geometry {
         Geometry::MultiPolygon(MultiPolygon::new(vec![
@@ -740,10 +799,70 @@ mod tests {
         ]))
     }
 
+    /// Every container variant `contains_route` distinguishes, checked against plain
+    /// `a.contains(b)` in all four constant arrangements.
+    ///
+    /// Every case is a containment geo answers `true`, which the test asserts: a pairing that is
+    /// false regardless of route (a lower-dimensional container, say) also agrees regardless of
+    /// route, and pins nothing. A true case fails when the prepared substitution diverges from
+    /// geo — a table row whose relate phrasing disagrees with geo's dispatch on this input, or a
+    /// bounding-rect prescreen that wrongly rejects a contained row. It is **not** a version
+    /// tripwire: a geo release that reshuffles its dispatch stays green wherever relate and the
+    /// direct algorithm agree, which is why the workspace pins `geo` exactly.
+    ///
+    /// This is the table's own regression, and the one to extend when geo grows a geometry type:
+    /// `constant_operands_agree_with_columns` below goes through real arrays and so is the better
+    /// end-to-end check, but it only covers the container types it has cases for, and WKB decoding
+    /// limits which types those can be. The MultiPoint and Line containers route relate only for
+    /// contained types a MultiPoint or Line can rarely contain, so their true cases lean on
+    /// `GeometryCollection` membership and collinear `MultiLineString` parts respectively.
+    #[rstest]
+    #[case::point(point(1.0, 1.0), point(1.0, 1.0))]
+    #[case::line(line_geometry((0.0, 0.0), (4.0, 4.0)), point(2.0, 2.0))]
+    #[case::line_x_multilinestring(line_geometry((0.0, 0.0), (4.0, 4.0)), multilinestring(vec![vec![(1.0, 1.0), (2.0, 2.0)]]))]
+    #[case::linestring(line(vec![(0.0, 0.0), (4.0, 4.0)]), multipoint(vec![(1.0, 1.0), (2.0, 2.0)]))]
+    #[case::polygon(rect_polygon(0.0, 0.0, 8.0, 8.0).into(), rect_polygon(2.0, 2.0, 4.0, 4.0).into())]
+    #[case::multipoint(multipoint(vec![(0.0, 0.0), (2.0, 2.0), (4.0, 4.0)]), collection(vec![point(2.0, 2.0)]))]
+    #[case::multilinestring(multilinestring(vec![vec![(0.0, 0.0), (4.0, 4.0)]]), line(vec![(1.0, 1.0), (2.0, 2.0)]))]
+    #[case::multipolygon(two_part_multipolygon(), rect_polygon(1.0, 1.0, 3.0, 3.0).into())]
+    #[case::geometrycollection(collection(vec![rect_polygon(0.0, 0.0, 8.0, 8.0).into()]), rect_polygon(2.0, 2.0, 4.0, 4.0).into())]
+    #[case::rect(rect_geometry(0.0, 0.0, 8.0, 8.0), line(vec![(2.0, 2.0), (4.0, 4.0)]))]
+    #[case::triangle(triangle_geometry(), rect_polygon(1.0, 1.0, 2.0, 2.0).into())]
+    fn routes_agree_with_geo_for_every_container(#[case] a: Geometry, #[case] b: Geometry) {
+        let expected = a.contains(&b);
+        assert!(
+            expected,
+            "route cases must be containments geo answers true, or every route agrees vacuously",
+        );
+
+        let arrangements = [
+            (None, None),
+            (Some(PreparedOperand::new(&a)), None),
+            (None, Some(PreparedOperand::new(&b))),
+            (
+                Some(PreparedOperand::new(&a)),
+                Some(PreparedOperand::new(&b)),
+            ),
+        ];
+
+        for (index, (const_a, const_b)) in arrangements.into_iter().enumerate() {
+            let operands = ConstOperands {
+                a: const_a,
+                b: const_b,
+            };
+            assert_eq!(
+                contains_row_prepared(&operands, &a, &b),
+                expected,
+                "arrangement {index} disagrees with geo's own contains",
+            );
+        }
+    }
+
     /// Constant arrangements agree with expanded columns across the routes the prepared kernel
-    /// distinguishes: forward relate (polygon and linestring containers), reversed relate
-    /// (multipolygon containers), and the direct pairings (a point on either side, polygon over
-    /// multipoint), including boundary contact, crossing, disjoint and empty cases.
+    /// distinguishes: forward relate (polygon, linestring and multipoint containers), reversed
+    /// relate (multipolygon containers), and the direct pairings (a point on either side,
+    /// multipoint over multipoint, polygon over multipoint), including boundary contact,
+    /// crossing, disjoint and empty cases.
     #[rstest]
     #[case::polygon_nested_polygon(rect_polygon(0.0, 0.0, 8.0, 8.0).into(), rect_polygon(2.0, 2.0, 4.0, 4.0).into())]
     #[case::polygon_touching_from_inside(rect_polygon(0.0, 0.0, 8.0, 8.0).into(), rect_polygon(0.0, 2.0, 2.0, 4.0).into())]
@@ -760,6 +879,8 @@ mod tests {
     #[case::polygon_x_multipoint_inside(rect_polygon(0.0, 0.0, 4.0, 4.0).into(), multipoint(vec![(1.0, 1.0), (2.0, 2.0)]))]
     #[case::polygon_x_multipoint_on_boundary(rect_polygon(0.0, 0.0, 4.0, 4.0).into(), multipoint(vec![(0.0, 1.0), (0.0, 3.0)]))]
     #[case::linestring_x_multipoint_on_line(line(vec![(0.0, 0.0), (4.0, 4.0)]), multipoint(vec![(1.0, 1.0), (2.0, 2.0)]))]
+    #[case::multipoint_x_multipoint_subset(multipoint(vec![(0.0, 0.0), (2.0, 2.0), (4.0, 4.0)]), multipoint(vec![(2.0, 2.0)]))]
+    #[case::multipoint_x_linestring_between_points(multipoint(vec![(0.0, 0.0), (4.0, 4.0)]), line(vec![(1.0, 1.0), (2.0, 2.0)]))]
     #[case::multipolygon_x_polygon_in_one_part(two_part_multipolygon(), rect_polygon(1.0, 1.0, 3.0, 3.0).into())]
     #[case::multipolygon_x_polygon_straddling(two_part_multipolygon(), rect_polygon(3.0, 3.0, 11.0, 11.0).into())]
     #[case::multipolygon_x_polygon_disjoint(two_part_multipolygon(), rect_polygon(20.0, 20.0, 24.0, 24.0).into())]

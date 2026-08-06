@@ -278,6 +278,152 @@ The checks recorded for the final API state are:
 The generated-code comparison and native timing evidence are described above and in the final
 section of `STRICT_SCALAR_FN_RESEARCH.md`.
 
+## Review pass: what changed and what was deliberately left
+
+A review of the three parts (API, execution, implementations). **The author-facing API is
+unchanged**: every proposal that would have altered it was backed out, for the reasons below, and
+what landed is cleanup, corrected documentation, and test coverage. The emitted IR of every
+`visit_prepared_into` monomorph is identical to the pre-review commit.
+
+API:
+
+- `InputElement::decode_null_tolerant` overrides that only restated the default were deleted from
+  the primitive, bool and `TensorRow` elements. `GeometryRow`'s override is the only real one. The
+  doc now says a dense-safe element should *not* override.
+- `ElementTuple` now records why it carries arities past the widest function in tree: it is sealed,
+  so a downstream crate cannot add the one it needs, and an uninstantiated arity costs only its own
+  macro expansion.
+
+Execution:
+
+- `execute_filtered` and the forced-strategy test seam now share `resolve_validity`, so the mask
+  materialization and the all-true/all-false shortcuts cannot drift apart between them.
+- The dense-retry path's comment was wrong and is corrected. It filters unconditionally because
+  `execute_dense` is not handed the `branch` closure, **not** because a deferred sink cannot skip
+  rows: `ERRORS_ARE_DEFERRED` and `SUPPORTS_SKIPPED_ROWS` are independent consts and a sink may
+  legally set both.
+
+Implementations:
+
+- `l2_norm_row` had two copies, in `l2_norm.rs` and `cosine_similarity.rs`. Cosine's prepared and
+  per-row arms must agree bit for bit, which only holds while both accumulate in the same order, so
+  the duplicate was an invitation to break exactly the property the comments defend. One copy now
+  lives in `utils.rs` beside the other shared tensor helpers.
+- `CosineSimilarity::reduce_encoded` zips its three slices instead of indexing `0..len` three times
+  per row, and documents why it materializes where `InnerProduct::reduce_encoded` stays lazy (the
+  zero-norm guard is a conditional, not an arithmetic factor).
+- `IndexedSourceExt::map_checked_into` was deleted from vortex-compute. `CheckedSink` replaced the
+  split value/evidence pass it served, and it had no caller left.
+- `contains_route` and the workspace `geo` dependency both record that the table transcribes geo's
+  `impl_contains_from_relate!` and must be re-verified on a version bump. `geo` is pinned to
+  `=0.31.0`: a caret requirement would admit 0.31.x patches, which `cargo update` (or automated
+  lockfile maintenance) takes with no diff to review, and a patch is free to reshuffle the dispatch
+  without any API change. The agreement tests stay green wherever relate and the direct algorithm
+  agree, so the pin, not the suite, is what makes the coupling break only deliberately.
+
+Split out onto `develop` instead of landing here:
+
+- **The checked-arithmetic macro collapse.** `primitive.rs` on this branch and on `develop` both
+  carry four near-identical `CheckedArithmetic` bodies that differ only in `mul_failure`, so the
+  collapse into one `impl_checked_integer!` belongs on `develop` where every caller benefits. It is
+  on `claude/collapse-checked-arith-macros`. This branch's `primitive.rs` keeps its four bodies
+  until `develop` is merged, at which point the collapse arrives with it and the merge conflict is
+  a member deletion rather than two competing macro structures.
+- **The `mul_failure` kernel tests.** The exhaustive 8-bit sweep and the 64-bit probe grid already
+  exist on `develop` from vortex-data/vortex#9210 and arrive with the same merge.
+
+Deliberately **not** done:
+
+- **No `DeferredElementSink`.** `CheckedSink` exists largely because `ElementSink` cannot name an
+  error at `finish`. A framework sink combining an element output with a type-level message would
+  remove ~100 lines per function, but there is exactly one deferred-error function. Build it when a
+  second appears, rather than copying `CheckedSink`.
+- **No change to `reduce_encoded`'s probe semantics.** Hoisting the probe out of the strategy paths
+  and masking a full-length result looks like a simplification and is not one:
+  `normalized_readthrough_survives_null_rows` pins that a filtered input is no longer `Normalized`,
+  so which arrays reach `reduce_encoded` is load-bearing and differs per strategy.
+- **No PR split.** Recommended landing order, each step individually revertible and separately
+  benchmarkable: (1) API + lifting with dense/filter only; (2) branch-and-skip + adaptive selection
+  + its benchmarks; (3) `NumericBinary`; (4) tensor; (5) geo. The seam already supports this split
+  and no API changes between steps.
+
+### Three API changes proposed, and why none of them landed
+
+All three were implemented, run against the suite, and backed out. None prevents a bug, and this
+branch's open work is *settling* the API rather than churning it, so they belong in #9129 as
+questions decided alongside the rest of the surface:
+
+- **Should `reduce_encoded` take an explicit `row_count`?** The filtered-count requirement is real
+  and easy to miss, but `args` are filtered to match, so `args[0].len()` is already both the natural
+  thing to write and correct. The parameter is documentation, and it costs every implementor a
+  signature change. What survived is the test:
+  `reduce_encoded_is_probed_before_and_after_filtering` pins that the rewrite is offered the
+  original arrays at full length and then the filtered ones at the surviving count.
+- **Should `OutputSink::row_count_matches` become `rows_len`?** A length reads cleaner and lets the
+  executor name what it found. Against that, `row_count_matches` lets a sink fold in its own
+  invariants, which `SpreadSink` uses for its width check; narrowing it turns that into a panic.
+  Neither spelling prevents a bug.
+- **Should the nullary path go?** A function with no inputs has no validity to lift, which is the
+  lifting's whole job. But `RowFn` would still give it sink allocation and dtype derivation, so
+  `random()` or `now()` is not obviously better hand-written, and the path is ~70 lines and tested.
+
+Trimming `ElementTuple` to arity four was proposed on the same reasoning and backed out for a
+stronger one: the trait is sealed, so the arities are the only ones a downstream crate can ever
+have.
+
+### Two changes this pass made and then reverted
+
+Both were proposed, implemented, reviewed, and backed out on evidence. They are recorded because
+each is an attractive idea that a later reader will have again.
+
+**Making `CheckedSink` safe with `BufferMut::zeroed` costs 1.65 to 1.71x.** Replacing the
+`MaybeUninit` storage removes an `unsafe set_len` and reads as a clear win, and `ElementSink`'s own
+comment appears to bless it by routing a zeroable placeholder to `alloc_zeroed`. Measured, it is
+not: allocate-zeroed-then-fill against allocate-then-fill, interleaved in one process over `u64`
+outputs, ran **1.221x** slower at 8 KiB, **1.71x** at 64 KiB, **1.66x** at 512 KiB and **1.71x** at
+2 MiB, stable to within 2% across two runs. `alloc_zeroed` does not avoid the write: below glibc's
+mmap threshold `calloc` recycles a dirty chunk and memsets it, and above it every fresh page faults
+on first touch. The row loop overwrites every slot regardless, so this is a duplicated pass over
+the output of the hottest kernel in the system.
+
+Note the corollary, which is a real optimization nobody has taken: `ElementSink::with_capacity`
+pays exactly this on every batch, and only branch-and-skip ever reads a placeholder back. A sink
+that allocated uninitialized on the dense and filter paths would recover it.
+
+**Hoisting `OutputSink::SUPPORTS_SKIPPED_ROWS` into the plan is not sound as an optimization.**
+#9130 records "avoid probing `reduce_encoded` twice when branch execution is unsupported" as a
+follow-up. It reads as free, and is not, because the branch path probes `reduce_encoded` against
+the _original_ arrays before it consults the sink, and that is the only probe that ever sees them
+still encoded. Skipping the path early leaves such a function with only the filtered probe, whose
+canonical arrays match no encoding fast path. For a function whose reduction is _defined_ to answer
+differently from its row loop, which is exactly what `L2Norm` over `Normalized` is, that is a wrong
+answer rather than a slow one. Nothing in tree is reachable today only because every `ValidOnly`
+dispatch happens to use `ElementSink`. **#9130's follow-up should be struck, not implemented.**
+`reduce_encoded_is_probed_before_and_after_filtering` now pins the two probes and their row
+counts.
+
+### On measurement, and what the IR gate does and does not cover
+
+Wall-clock benchmarking of the row loops was attempted first and abandoned on evidence. Two runs of
+the *same* baseline binary, pinned with `taskset -c 2`, 100 samples, disagreed by up to 4x
+(`row_wrapping_add_nullable`: 198.8 us then 52.9 us median; `specialized_checked_add`: 185.5 us then
+34.4 us). The 4-vCPU shared VM drifts more within a session than any effect being measured, which is
+the same conclusion this branch already reached on a dedicated 7950X.
+
+The gate used instead is the emitted optimized IR of every `visit_prepared_into` monomorph in
+`vortex-array`, profiled by vector width, reduction count, overflow-intrinsic survival and bounds
+checks, then compared as a multiset before and after. Reproduce with:
+
+```bash
+RUSTFLAGS="--emit=llvm-ir -C codegen-units=1" cargo rustc -p vortex-array --release --lib
+```
+
+**Its blind spot is worth stating, because it nearly landed a regression.** The IR of a row loop
+cannot show an allocator call outside it, so the `BufferMut::zeroed` substitution above passed this
+gate cleanly while costing 1.7x. An allocation-strategy change needs its own targeted A/B, which is
+cheap to write and immune to the host drift above because both arms run interleaved in one process.
+Use the IR gate for loop shape and a focused microbenchmark for anything the loop does not contain.
+
 ## Remaining boundaries
 
 - Complete the required x86 production and forced-null-strategy benchmark run above before treating

@@ -37,6 +37,7 @@ use crate::scalar_fns::row::probe;
 use crate::scalar_fns::row::tensor_element_ptype;
 use crate::utils::BinaryTensorOpMetadata;
 use crate::utils::extract_normalized_children;
+use crate::utils::l2_norm_row;
 
 /// Cosine similarity between two columns.
 ///
@@ -172,16 +173,6 @@ struct ConstNorms<T> {
     rhs: Option<T>,
 }
 
-/// The L2 norm of one row, accumulating in the same order as [`cosine_similarity_row`] so a
-/// hoisted norm is bit-identical to the one computed per row.
-fn l2_norm_row<T: Float + NativePType>(v: &[T]) -> T {
-    let mut sum_sq = T::zero();
-    for &x in v {
-        sum_sq = sum_sq + x * x;
-    }
-    sum_sq.sqrt()
-}
-
 /// Computes the cosine similarity of one row, taking any hoisted norm from `norms` and computing
 /// the rest exactly as [`cosine_similarity_row`] does.
 ///
@@ -253,6 +244,13 @@ fn cosine_from_parts<T: Float>(dot: T, denom: T) -> T {
 /// Both sides are [`Normalized`]-encoded: the normalized children are authoritative, so their dot
 /// product is the cosine similarity, except that a row with a zero *stored* norm is a zero vector.
 ///
+/// Unlike [`InnerProduct::reduce_encoded`], which composes lazy `Mul` arrays over the norm columns,
+/// this executes and materializes. The zero-norm guard is a conditional per row rather than an
+/// arithmetic factor, so there is no lazy array that expresses it; the norm columns are one value
+/// per row rather than one per coordinate, so materializing them is cheap next to the decode this
+/// avoids.
+///
+/// [`InnerProduct::reduce_encoded`]: InnerProduct::reduce_encoded
 /// [`Normalized`]: crate::encodings::normalized::Normalized
 fn cosine_both_normalized(
     lhs: &ArrayRef,
@@ -273,12 +271,18 @@ fn cosine_both_normalized(
         let dots = dot.as_slice::<T>();
         let norms_l = norms_l.as_slice::<T>();
         let norms_r = norms_r.as_slice::<T>();
-        let buffer: Buffer<T> = (0..len)
-            .map(|i| {
-                if norms_l[i] == T::zero() || norms_r[i] == T::zero() {
+        // Zipped rather than indexed by `0..len`: one bounds check per iterator instead of three
+        // per row. A length disagreement between the children shortens the result, which the
+        // lifting reports against the batch row count rather than panicking mid-loop.
+        let buffer: Buffer<T> = dots
+            .iter()
+            .zip(norms_l)
+            .zip(norms_r)
+            .map(|((&dot, &norm_l), &norm_r)| {
+                if norm_l.is_zero() || norm_r.is_zero() {
                     T::zero()
                 } else {
-                    dots[i]
+                    dot
                 }
             })
             .collect();
@@ -311,12 +315,16 @@ fn cosine_one_normalized(
         let dots = dot.as_slice::<T>();
         let normalized_norms = normalized_norms.as_slice::<T>();
         let plain_norms = plain_norm.as_slice::<T>();
-        let buffer: Buffer<T> = (0..len)
-            .map(|i| {
-                if normalized_norms[i] == T::zero() || plain_norms[i] == T::zero() {
+        // Zipped for the same reason as [`cosine_both_normalized`].
+        let buffer: Buffer<T> = dots
+            .iter()
+            .zip(normalized_norms)
+            .zip(plain_norms)
+            .map(|((&dot, &stored_norm), &plain_norm)| {
+                if stored_norm.is_zero() || plain_norm.is_zero() {
                     T::zero()
                 } else {
-                    dots[i] / plain_norms[i]
+                    dot / plain_norm
                 }
             })
             .collect();

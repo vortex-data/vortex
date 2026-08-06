@@ -118,6 +118,18 @@ pub(super) enum RowPolicy {
 }
 
 impl RowPolicy {
+    /// The policy one concrete dispatch executes nullable rows under.
+    ///
+    /// Note what is deliberately **not** read here: [`OutputSink::SUPPORTS_SKIPPED_ROWS`]. Hoisting
+    /// it into the plan so that a non-skipping sink never enters the branch path looks like a free
+    /// win, and #9130 records it as one, but it is not: the branch path probes
+    /// [`reduce_encoded`](crate::scalar_fn::RowFn::reduce_encoded) against the _original_ arrays
+    /// before it ever consults the sink, and that is the only probe that sees them still encoded.
+    /// Skipping the path early would leave such a function with only the filtered probe, whose
+    /// canonical arrays match no encoding fast path. For a function whose reduction is defined to
+    /// answer differently from its row loop, that is a wrong answer rather than a slow one.
+    ///
+    /// [`OutputSink::SUPPORTS_SKIPPED_ROWS`]: crate::scalar_fn::OutputSink::SUPPORTS_SKIPPED_ROWS
     pub(super) const fn for_dispatch<A: ElementTuple, R: SinkResult>() -> Self {
         if A::DENSE_SAFE && !A::DECODE_FALLIBLE && !R::FALLIBLE {
             if R::DEFERRED {
@@ -131,6 +143,15 @@ impl RowPolicy {
             }
         }
     }
+}
+
+/// How far [`Batch::resolve_validity`] got before a mixed-mask strategy became necessary.
+enum ResolvedMask {
+    /// The batch was answered without one: every row valid, or every row null.
+    Decided(ArrayRef),
+
+    /// A mask with both set and unset bits, which a strategy must now execute.
+    Mixed(Mask),
 }
 
 /// One batch of inputs, with everything the lifting reads off them before the kernel runs.
@@ -313,6 +334,11 @@ impl<'a> Batch<'a> {
                     .clone()
                     .execute_mask(self.args.row_count(), ctx)?;
 
+                // The same shortcut pair as `resolve_validity`, with different outcomes: every
+                // row valid means some valid row genuinely failed, and no row valid means every
+                // failure was behind a null. An empty mask is both all-true and all-false, but
+                // cannot reach this arm: a zero-row loop accumulates no evidence, so a zero-row
+                // batch never reports a deferred error.
                 if valid.all_true() {
                     return Err(error);
                 }
@@ -320,6 +346,13 @@ impl<'a> Batch<'a> {
                     return Ok(self.all_null());
                 }
 
+                // Filtering unconditionally, rather than consulting `branch_beats_filter`. Not
+                // because branch-and-skip is unavailable in principle: `ERRORS_ARE_DEFERRED` and
+                // `SUPPORTS_SKIPPED_ROWS` are independent, and a sink may legally set both. It is
+                // that `execute_dense` is not handed the `branch` closure at all, so filtering is
+                // the only strategy reachable from here. This is the cold path, taken only after a
+                // batch has already reported an error, so the choice has not been worth plumbing
+                // for.
                 return self.filter_and_scatter(kernel, &valid, ctx);
             }
             RowExecution::DeferredError(error) => return Err(error),
@@ -335,6 +368,40 @@ impl<'a> Batch<'a> {
             // Handled by the guard above, before the kernel ran.
             Validity::AllInvalid => Ok(self.all_null()),
         }
+    }
+
+    /// Materialize the conjoined validity and resolve everything that does not need a mixed-mask
+    /// strategy, so that the production selector and the forced-strategy test seam cannot drift
+    /// apart on the shortcuts they share. The deferred-error retry in
+    /// [`execute_dense`](Self::execute_dense) repeats the same materialize-then-shortcut shape
+    /// with different outcomes — all-true is an error there, all-false is all-null — so it stays
+    /// open-coded, with its own note on why the ordering is safe.
+    fn resolve_validity(
+        &self,
+        kernel: &impl Fn(KernelArgs<'_>, &mut ExecutionCtx) -> VortexResult<RowExecution>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ResolvedMask> {
+        let valid = self
+            .validity
+            .clone()
+            .execute_mask(self.args.row_count(), ctx)?;
+
+        // Check all-true before all-false: an empty mask is both, and must not be treated as
+        // all-null (a zero-length non-nullable execution keeps its non-nullable dtype).
+        if valid.all_true() {
+            return self
+                .with_return_dtype(
+                    kernel(self.kernel_args(self.args, &self.inputs), ctx)?.into_result()?,
+                    self.args.row_count(),
+                )
+                .map(ResolvedMask::Decided);
+        }
+
+        if valid.all_false() {
+            return Ok(ResolvedMask::Decided(self.all_null()));
+        }
+
+        Ok(ResolvedMask::Mixed(valid))
     }
 
     /// Materialize the conjoined validity once, take the all-true and all-false shortcuts, and
@@ -363,23 +430,10 @@ impl<'a> Batch<'a> {
         filtered_decode_cost: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let valid = self
-            .validity
-            .clone()
-            .execute_mask(self.args.row_count(), ctx)?;
-
-        // Check all-true before all-false: an empty mask is both, and must not be treated as
-        // all-null (a zero-length non-nullable execution keeps its non-nullable dtype).
-        if valid.all_true() {
-            return self.with_return_dtype(
-                kernel(self.kernel_args(self.args, &self.inputs), ctx)?.into_result()?,
-                self.args.row_count(),
-            );
-        }
-
-        if valid.all_false() {
-            return Ok(self.all_null());
-        }
+        let valid = match self.resolve_validity(&kernel, ctx)? {
+            ResolvedMask::Decided(result) => return Ok(result),
+            ResolvedMask::Mixed(valid) => valid,
+        };
 
         if branch_beats_filter(filtered_decode_cost, &valid)
             && let Some(result) = self.execute_branched(branch, &valid, ctx)?
@@ -621,23 +675,10 @@ impl Batch<'_> {
         strategy: NullStrategy,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let valid = self
-            .validity
-            .clone()
-            .execute_mask(self.args.row_count(), ctx)?;
-
-        if valid.all_true() {
-            return self
-                .with_return_dtype(
-                    kernel(self.kernel_args(self.args, &self.inputs), ctx)?.into_result()?,
-                    self.args.row_count(),
-                )
-                .map(Some);
-        }
-
-        if valid.all_false() {
-            return Ok(Some(self.all_null()));
-        }
+        let valid = match self.resolve_validity(&kernel, ctx)? {
+            ResolvedMask::Decided(result) => return Ok(Some(result)),
+            ResolvedMask::Mixed(valid) => valid,
+        };
 
         match strategy {
             NullStrategy::Filter => self.filter_and_scatter(kernel, &valid, ctx).map(Some),

@@ -251,7 +251,7 @@ pub fn nullable_rect_column(boxes: Vec<Option<(f64, f64, f64, f64)>>) -> VortexR
     Ok(ExtensionArray::try_new(ext.erased(), storage)?.into_array())
 }
 
-/// Decode a [`Coordinate`] from an extension-typed point scalar (unwrapped to its coordinate
+/// Decode a `Coordinate` from an extension-typed point scalar (unwrapped to its coordinate
 /// storage) or a bare coordinate `Struct` scalar — used to read back a single point in assertions.
 pub fn coordinate_from_scalar(scalar: &Scalar) -> VortexResult<Coordinate> {
     match scalar.as_extension_opt() {
