@@ -31,9 +31,9 @@ fn execute_expr(
     row_count: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    // Root is not executable; a validity expression should never contain one.
+    // Only Expression::Scalar is executable
     let Some(scalar_fn) = expr.as_scalar() else {
-        vortex_bail!("Root expression cannot be executed in validity context");
+        vortex_bail!("Only Expression::Scalar is executable");
     };
 
     // Handle Literal expression - create a constant array
