@@ -28,7 +28,6 @@ use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::merge::Merge;
 use crate::scalar_fn::fns::not::Not;
 use crate::scalar_fn::fns::pack::Pack;
-use crate::scalar_fn::fns::root::Root;
 use crate::scalar_fn::fns::select::Select;
 use crate::scalar_fn::fns::stat::StatFn;
 use crate::scalar_fn::fns::variant_get::VariantGet;
@@ -77,7 +76,6 @@ impl Default for ScalarFnSession {
         this.register(Merge);
         this.register(Not);
         this.register(Pack);
-        this.register(Root);
         this.register(Select);
         this.register(StatFn);
         this.register(VariantGet);

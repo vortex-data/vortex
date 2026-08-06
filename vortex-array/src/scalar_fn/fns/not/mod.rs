@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn is_strict() {
-        assert!(not(root()).signature().is_strict());
+        assert!(not(root()).signature().is_some_and(|sig| sig.is_strict()));
     }
 
     #[test]

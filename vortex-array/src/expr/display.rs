@@ -11,7 +11,6 @@ use vortex_utils::tree::write_branch_tree;
 use crate::expr::BoundExpression;
 use crate::expr::BoundKind;
 use crate::expr::Expression;
-use crate::expr::root;
 use crate::scalar_fn::ChildName;
 
 pub enum DisplayFormat {
@@ -59,17 +58,29 @@ trait DisplayTreeNode: Sized {
     fn fmt_tree_node(&self, f: &mut Formatter<'_>) -> fmt::Result;
 }
 
+/// Tree-display label for the scope root.
+///
+/// Preserved verbatim from when `Root` was a scalar function, so that making it a variant does not
+/// change rendered output.
+const ROOT_DISPLAY: &str = "vortex.root()";
+
 impl DisplayTreeNode for Expression {
     fn tree_children(&self) -> &[Self] {
-        Expression::children(self).as_slice()
+        Expression::children(self)
     }
 
     fn tree_child_name(&self, index: usize) -> ChildName {
-        self.scalar_fn().signature().child_name(index)
+        match self {
+            Expression::Scalar { scalar_fn, .. } => scalar_fn.signature().child_name(index),
+            Expression::Root => unreachable!("the scope root has no children"),
+        }
     }
 
     fn fmt_tree_node(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        Display::fmt(self.scalar_fn(), f)
+        match self {
+            Expression::Scalar { scalar_fn, .. } => Display::fmt(scalar_fn, f),
+            Expression::Root => write!(f, "{ROOT_DISPLAY}"),
+        }
     }
 }
 
@@ -88,7 +99,7 @@ impl DisplayTreeNode for BoundExpression {
     fn fmt_tree_node(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self.kind() {
             BoundKind::Scalar { scalar_fn, .. } => Display::fmt(scalar_fn, f),
-            BoundKind::Root => Display::fmt(root().scalar_fn(), f),
+            BoundKind::Root => write!(f, "{ROOT_DISPLAY}"),
         }
     }
 }

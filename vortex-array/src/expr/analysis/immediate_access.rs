@@ -9,7 +9,6 @@ use crate::expr::BoundExpression;
 use crate::expr::Expression;
 use crate::expr::analysis::AnnotationFn;
 use crate::scalar_fn::fns::get_item::GetItem;
-use crate::scalar_fn::fns::root::Root;
 use crate::scalar_fn::fns::select::Select;
 
 /// Returns the "free fields" for this expression node.
@@ -42,7 +41,7 @@ pub fn make_free_field_annotator(
 ) -> impl AnnotationFn<Expression, Annotation = FieldName> {
     move |expr: &Expression| {
         if let Some(selection) = expr.as_opt::<Select>() {
-            if expr.child(0).is::<Root>() {
+            if expr.child(0).is_root() {
                 return selection
                     .normalize_to_included_fields(scope.names())
                     .vortex_expect("Select fields must be valid for scope")
@@ -50,10 +49,10 @@ pub fn make_free_field_annotator(
                     .collect();
             }
         } else if let Some(field_name) = expr.as_opt::<GetItem>() {
-            if expr.child(0).is::<Root>() {
+            if expr.child(0).is_root() {
                 return vec![field_name.clone()];
             }
-        } else if expr.is::<Root>() {
+        } else if expr.is_root() {
             return scope.names().iter().cloned().collect();
         }
 

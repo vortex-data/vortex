@@ -3,12 +3,12 @@
 
 use std::any::Any;
 use std::cell::RefCell;
-use std::ops::Deref;
 use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::dtype::DType;
@@ -19,7 +19,6 @@ use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ReduceNodeRef;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::SimplifyCtx;
-use crate::scalar_fn::fns::root::Root;
 
 impl Expression {
     /// Optimize the root expression node only, iterating to convergence.
@@ -37,6 +36,36 @@ impl Expression {
             .clone()
             .try_optimize(scope, &cache)?
             .unwrap_or_else(|| self.clone()))
+    }
+
+    /// Apply this node's own untyped simplification rule, if it has one.
+    ///
+    /// Non-scalar nodes carry no rules, so they never simplify.
+    fn simplify_untyped_node(&self) -> VortexResult<Option<Expression>> {
+        match self {
+            Expression::Scalar { scalar_fn, .. } => scalar_fn.simplify_untyped(self),
+            Expression::Root => Ok(None),
+        }
+    }
+
+    /// Apply this node's own type-aware simplification rule, if it has one.
+    fn simplify_node(&self, ctx: &dyn SimplifyCtx) -> VortexResult<Option<Expression>> {
+        match self {
+            Expression::Scalar { scalar_fn, .. } => scalar_fn.simplify(self, ctx),
+            Expression::Root => Ok(None),
+        }
+    }
+
+    /// Apply this node's own abstract reduction rule, if it has one.
+    fn reduce_node(
+        &self,
+        node: &dyn ReduceNode,
+        ctx: &dyn ReduceCtx,
+    ) -> VortexResult<Option<ReduceNodeRef>> {
+        match self {
+            Expression::Scalar { scalar_fn, .. } => scalar_fn.reduce(node, ctx),
+            Expression::Root => Ok(None),
+        }
     }
 
     /// Try to optimize the root expression node only, returning None if no optimizations applied.
@@ -64,14 +93,14 @@ impl Expression {
             let mut changed = false;
 
             // Try simplify_untyped
-            if let Some(simplified) = current.scalar_fn().simplify_untyped(&current)? {
+            if let Some(simplified) = current.simplify_untyped_node()? {
                 current = simplified;
                 changed = true;
                 any_optimizations = true;
             }
 
             // Try simplify (typed)
-            if let Some(simplified) = current.scalar_fn().simplify(&current, cache)? {
+            if let Some(simplified) = current.simplify_node(cache)? {
                 current = simplified;
                 changed = true;
                 any_optimizations = true;
@@ -82,7 +111,7 @@ impl Expression {
                 expression: current.clone(),
                 scope: scope.clone(),
             };
-            if let Some(reduced) = current.scalar_fn().reduce(&reduce_node, &reduce_ctx)? {
+            if let Some(reduced) = current.reduce_node(&reduce_node, &reduce_ctx)? {
                 let reduced_expr = reduced
                     .as_any()
                     .downcast_ref::<ExpressionReduceNode>()
@@ -198,20 +227,15 @@ impl Expression {
                     .collect();
 
                 let new_expr = expr.clone().with_children(new_children)?;
-                Ok(Some(
-                    new_expr
-                        .scalar_fn()
-                        .simplify_untyped(&new_expr)?
-                        .unwrap_or(new_expr),
-                ))
+                let simplified = new_expr.simplify_untyped_node()?;
+                Ok(Some(simplified.unwrap_or(new_expr)))
             } else {
-                expr.scalar_fn().simplify_untyped(expr)
+                expr.simplify_untyped_node()
             }
         }
 
         let simplified = self
-            .scalar_fn()
-            .simplify_untyped(self)?
+            .simplify_untyped_node()?
             .unwrap_or_else(|| self.clone());
 
         let simplified = inner(&simplified)?.unwrap_or(simplified);
@@ -229,7 +253,7 @@ struct SimplifyCache<'a> {
 impl SimplifyCtx for SimplifyCache<'_> {
     fn return_dtype(&self, expr: &Expression) -> VortexResult<DType> {
         // If the expression is "root", return the scope dtype
-        if expr.is::<Root>() {
+        if expr.is_root() {
             return Ok(self.scope.clone());
         }
 
@@ -243,7 +267,10 @@ impl SimplifyCtx for SimplifyCache<'_> {
             .iter()
             .map(|c| self.return_dtype(c))
             .try_collect()?;
-        let dtype = expr.deref().return_dtype(&input_dtypes)?;
+        let dtype = expr
+            .as_scalar()
+            .ok_or_else(|| vortex_err!("cannot type a non-scalar expression: {expr}"))?
+            .return_dtype(&input_dtypes)?;
         self.dtype_cache
             .borrow_mut()
             .insert(expr.clone(), dtype.clone());
@@ -267,7 +294,7 @@ impl ReduceNode for ExpressionReduceNode {
     }
 
     fn scalar_fn(&self) -> Option<&ScalarFnRef> {
-        Some(self.expression.scalar_fn())
+        self.expression.as_scalar()
     }
 
     fn child(&self, idx: usize) -> ReduceNodeRef {

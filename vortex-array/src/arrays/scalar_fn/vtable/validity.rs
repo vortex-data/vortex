@@ -21,7 +21,6 @@ use crate::legacy_session;
 use crate::scalar_fn::TypedScalarFnInstance;
 use crate::scalar_fn::VecExecutionArgs;
 use crate::scalar_fn::fns::literal::Literal;
-use crate::scalar_fn::fns::root::Root;
 use crate::validity::Validity;
 
 /// Execute an expression tree recursively.
@@ -32,10 +31,10 @@ fn execute_expr(
     row_count: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    // Handle Root expression - this should not happen in validity expressions
-    if expr.is::<Root>() {
+    // Root is not executable; a validity expression should never contain one.
+    let Some(scalar_fn) = expr.as_scalar() else {
         vortex_bail!("Root expression cannot be executed in validity context");
-    }
+    };
 
     // Handle Literal expression - create a constant array
     if expr.is::<Literal>() {
@@ -52,7 +51,7 @@ fn execute_expr(
 
     let args = VecExecutionArgs::new(inputs, row_count);
 
-    Ok(expr.scalar_fn().execute(&args, ctx)?.into_array())
+    Ok(scalar_fn.execute(&args, ctx)?.into_array())
 }
 
 impl ValidityVTable<ScalarFn> for ScalarFn {

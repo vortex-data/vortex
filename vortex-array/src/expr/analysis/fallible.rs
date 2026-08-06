@@ -8,7 +8,11 @@ use crate::expr::label_tree;
 pub fn label_is_fallible(expr: &Expression) -> BooleanLabels<'_> {
     label_tree(
         expr,
-        |expr| expr.signature().is_fallible(),
+        |expr| match expr {
+            Expression::Scalar { scalar_fn, .. } => scalar_fn.signature().is_fallible(),
+            // The scope itself cannot fail.
+            Expression::Root => false,
+        },
         |acc, &child| acc | child,
     )
 }

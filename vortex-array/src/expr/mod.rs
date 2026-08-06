@@ -161,16 +161,37 @@ fn split_inner(expr: &Expression, exprs: &mut Vec<Expression>) {
 pub struct ExactExpr(pub Expression);
 impl PartialEq for ExactExpr {
     fn eq(&self, other: &Self) -> bool {
-        self.0.scalar_fn() == other.0.scalar_fn()
-            && Arc::ptr_eq(self.0.children(), other.0.children())
+        match (&self.0, &other.0) {
+            (Expression::Root, Expression::Root) => true,
+            (
+                Expression::Scalar {
+                    scalar_fn: lhs_fn,
+                    children: lhs_children,
+                },
+                Expression::Scalar {
+                    scalar_fn: rhs_fn,
+                    children: rhs_children,
+                },
+            ) => lhs_fn == rhs_fn && Arc::ptr_eq(lhs_children, rhs_children),
+            _ => false,
+        }
     }
 }
 impl Eq for ExactExpr {}
 
 impl Hash for ExactExpr {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.scalar_fn().hash(state);
-        Arc::as_ptr(self.0.children()).hash(state);
+        match &self.0 {
+            Expression::Root => state.write_u8(0),
+            Expression::Scalar {
+                scalar_fn,
+                children,
+            } => {
+                state.write_u8(1);
+                scalar_fn.hash(state);
+                Arc::as_ptr(children).hash(state);
+            }
+        }
     }
 }
 
