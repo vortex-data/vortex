@@ -34,7 +34,7 @@ use crate::dtype::PType;
 use crate::match_each_varbin_builder;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-mod canonical;
+pub(crate) mod canonical;
 mod kernel;
 mod operations;
 mod validity;
