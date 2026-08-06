@@ -178,7 +178,7 @@ fn take_chunked(
     let nchunks = array.nchunks();
 
     // Strictly increasing non-nullable indices select every row at most once and in order, so the
-    // per-chunk filters concatenate straight into the result with no dedup or reorder take.
+    // per-chunk gathers concatenate straight into the result with no dedup or reorder take.
     if !indices.as_ref().dtype().is_nullable() && indices_values.is_sorted_by(|a, b| a < b) {
         return take_chunked_sorted(array, indices_values);
     }
@@ -267,8 +267,8 @@ fn take_chunked(
 }
 
 /// Take for strictly increasing, non-nullable indices: every row is selected at most once and in
-/// order, so the per-chunk filters concatenate directly into the result with no dedup or reorder
-/// take.
+/// order, so the per-chunk gathers concatenate directly into the result with no bucketing, dedup,
+/// or reorder take.
 fn take_chunked_sorted(
     array: ArrayView<'_, Chunked>,
     indices_values: &[u64],
@@ -277,7 +277,19 @@ fn take_chunked_sorted(
     let mut chunks = Vec::new();
     let mut cursor = 0usize;
 
-    for chunk_idx in 0..array.nchunks() {
+    // Skip straight to the chunk holding the first index instead of walking every leading chunk;
+    // `<=` steps past empty chunks sharing the same offset.
+    let first_chunk = match indices_values.first() {
+        Some(&first) => {
+            let first = usize::try_from(first)?;
+            chunk_offsets
+                .partition_point(|&offset| offset <= first)
+                .saturating_sub(1)
+        }
+        None => 0,
+    };
+
+    for chunk_idx in first_chunk..array.nchunks() {
         if cursor == indices_values.len() {
             break;
         }
@@ -287,12 +299,14 @@ fn take_chunked_sorted(
 
         let range_end = cursor + indices_values[cursor..].partition_point(|&v| v < chunk_end_u64);
         if range_end > cursor {
-            let mut local_indices = Vec::with_capacity(range_end - cursor);
+            let chunk_start_u64 = u64::try_from(chunk_start)?;
+            let mut local_indices = BufferMut::<u64>::with_capacity(range_end - cursor);
             for &val in &indices_values[cursor..range_end] {
-                local_indices.push(usize::try_from(val)? - chunk_start);
+                local_indices.push(val - chunk_start_u64);
             }
-            let filter_mask = Mask::from_indices(chunk_end - chunk_start, local_indices);
-            chunks.push(array.chunk(chunk_idx).filter(filter_mask)?);
+            let local_indices =
+                PrimitiveArray::new(local_indices.freeze(), Validity::NonNullable).into_array();
+            chunks.push(array.chunk(chunk_idx).take(local_indices)?);
         }
         cursor = range_end;
     }
@@ -305,7 +319,8 @@ fn take_chunked_sorted(
     if chunks.len() == 1 {
         return Ok(chunks.swap_remove(0));
     }
-    // SAFETY: every chunk is a filter of a chunk of `array`, which leaves the dtype unchanged.
+    // SAFETY: every chunk is a take of a chunk of `array` with non-nullable indices, which
+    // leaves the dtype unchanged.
     Ok(unsafe { ChunkedArray::new_unchecked(chunks, array.dtype().clone()) }.into_array())
 }
 
