@@ -18,7 +18,6 @@ use crate::expr::Expression;
 use crate::expr::display::DisplayTreeExpr;
 use crate::expr::scope::Scope;
 use crate::scalar_fn::ScalarFnRef;
-use crate::scalar_fn::fns::root::Root;
 
 /// An [`Expression`] that has been type-checked against a [`Scope`].
 ///
@@ -247,7 +246,7 @@ impl Expression {
 
     /// Bind this expression against an explicit [`Scope`].
     pub fn bind_scope(&self, scope: &Scope) -> VortexResult<BoundExpression> {
-        if self.is::<Root>() {
+        if self.is_root() {
             return Ok(BoundExpression::new_root(scope.root().clone()));
         }
 
@@ -256,7 +255,10 @@ impl Expression {
             .iter()
             .map(|child| child.bind_scope(scope))
             .try_collect()?;
-        BoundExpression::try_new(self.scalar_fn().clone(), children)
+        let scalar_fn = self
+            .as_scalar()
+            .vortex_expect("root was handled above, so this is a scalar node");
+        BoundExpression::try_new(scalar_fn.clone(), children)
     }
 }
 

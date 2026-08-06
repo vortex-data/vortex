@@ -11,7 +11,6 @@ use crate::expr::cast;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::Transformed;
 use crate::scalar_fn::fns::literal::Literal;
-use crate::scalar_fn::fns::root::Root;
 
 /// Rewrite an expression tree to insert casts where a scalar function's `coerce_args` demands
 /// a different type than what the child currently produces.
@@ -23,7 +22,7 @@ pub fn coerce_expression(expr: Expression, scope: &DType) -> VortexResult<Expres
     let scope = scope.clone();
     expr.transform_up(|node| {
         // Leaf nodes (Root, Literal) have no children to coerce.
-        if node.is::<Root>() || node.is::<Literal>() || node.children().is_empty() {
+        if node.is_root() || node.is::<Literal>() || node.children().is_empty() {
             return Ok(Transformed::no(node));
         }
 
@@ -35,7 +34,10 @@ pub fn coerce_expression(expr: Expression, scope: &DType) -> VortexResult<Expres
             .collect::<VortexResult<_>>()?;
 
         // Ask the scalar function what types it wants.
-        let coerced_dtypes = node.scalar_fn().coerce_args(&child_dtypes)?;
+        let Some(scalar_fn) = node.as_scalar() else {
+            return Ok(Transformed::no(node));
+        };
+        let coerced_dtypes = scalar_fn.coerce_args(&child_dtypes)?;
 
         // If nothing changed, skip.
         if child_dtypes == coerced_dtypes {

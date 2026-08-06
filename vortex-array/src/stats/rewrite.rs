@@ -135,10 +135,11 @@ fn rewrite(
         &StatsRewriteCtx<'_>,
     ) -> VortexResult<Option<Expression>>,
 ) -> VortexResult<Option<Expression>> {
-    let rules = ctx
-        .session()
-        .stats()
-        .rewrite_rules_for(expr.scalar_fn().id());
+    // The scope alone proves nothing about the rows it contains.
+    let Some(scalar_fn) = expr.as_scalar() else {
+        return Ok(None);
+    };
+    let rules = ctx.session().stats().rewrite_rules_for(scalar_fn.id());
     let Some(rules) = rules else {
         return Ok(None);
     };

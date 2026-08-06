@@ -17,7 +17,6 @@ pub use fold::FoldDownContext;
 pub use fold::FoldUp;
 pub use fold::NodeFolder;
 pub use fold::NodeFolderContext;
-use itertools::Itertools;
 pub use references::ReferenceCollector;
 pub use visitor::pre_order_visit_down;
 pub use visitor::pre_order_visit_up;
@@ -501,19 +500,14 @@ impl Node for Expression {
         &'a self,
         mut f: F,
     ) -> VortexResult<TraversalOrder> {
-        self.children().as_ref().apply_elements(&mut f)
+        self.children().apply_ref_elements(&mut f)
     }
 
     fn map_children<F: FnMut(Self) -> VortexResult<Transformed<Self>>>(
         self,
         f: F,
     ) -> VortexResult<Transformed<Self>> {
-        let transformed = self
-            .children()
-            .iter()
-            .cloned()
-            .collect_vec()
-            .map_elements(f)?;
+        let transformed = self.children().to_vec().map_elements(f)?;
 
         if transformed.changed {
             Ok(Transformed {
