@@ -21,6 +21,7 @@ use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::TypedScalarFnInstance;
+use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -95,7 +96,7 @@ fn convex_hull_array(
 
 /// Execute convex hull after shared unary shape and null dispatch.
 fn execute_convex_hull(
-    execution: Execution<1>,
+    execution: Execution<1, Validity>,
     output_dtype: &ExtDTypeRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
@@ -109,7 +110,10 @@ fn execute_convex_hull(
             )?;
             Ok(ConstantArray::new(output.execute_scalar(0, ctx)?, execution.len).into_array())
         }
-        [Operand::Column(array)] => convex_hull_array(array, &execution.valid, output_dtype, ctx),
+        [Operand::Column(array)] => {
+            let valid = execution.valid.execute_mask(execution.len, ctx)?;
+            convex_hull_array(array, &valid, output_dtype, ctx)
+        }
     }
 }
 
