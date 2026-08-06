@@ -184,7 +184,7 @@ fn collect_list(
 
 /// Execute the structural collect kernel after shared unary shape and null dispatch.
 fn execute_collect(
-    execution: Execution<1>,
+    execution: Execution<1, Validity>,
     output_dtype: &ExtDTypeRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
@@ -201,12 +201,15 @@ fn execute_collect(
             )?;
             Ok(ConstantArray::new(collected.execute_scalar(0, ctx)?, execution.len).into_array())
         }
-        [Operand::Column(array)] => collect_list(
-            array.execute::<ListViewArray>(ctx)?,
-            Validity::from_mask(execution.valid, output_dtype.nullability()),
-            output_dtype,
-            ctx,
-        ),
+        [Operand::Column(array)] => {
+            let valid = execution.valid.execute_mask(execution.len, ctx)?;
+            collect_list(
+                array.execute::<ListViewArray>(ctx)?,
+                Validity::from_mask(valid, output_dtype.nullability()),
+                output_dtype,
+                ctx,
+            )
+        }
     }
 }
 
