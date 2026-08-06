@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use rstest::rstest;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
@@ -242,49 +241,49 @@ fn slice_and_filter_preserve_sparse_alignment() -> VortexResult<()> {
 }
 
 /// A constant union canonicalizes into a sparse union whose selected child repeats the scalar's
-/// value and whose unselected children hold placeholders. The cases cover a non-nullable union, a
-/// nullable union that is present, and an outer null.
-#[rstest]
-#[case::non_nullable(
-    Scalar::union(variants().vortex_expect("valid Union variants"), 9, true.into(), Nullability::NonNullable)
-        .vortex_expect("valid Union scalar"),
-    DType::Primitive(PType::I32, Nullability::NonNullable),
-)]
-#[case::nullable_present(
-    Scalar::union(nullable_variants().vortex_expect("valid Union variants"), 5, 7i32.into(), Nullability::Nullable)
-        .vortex_expect("valid Union scalar"),
-    DType::Primitive(PType::I64, Nullability::Nullable),
-)]
-#[case::outer_null(
-    Scalar::null(DType::Union(variants().vortex_expect("valid Union variants"), Nullability::Nullable)),
-    DType::Primitive(PType::I32, Nullability::NonNullable),
-)]
-fn constant_union_canonicalizes_to_sparse_union(
-    #[case] scalar: Scalar,
-    #[case] placeholder_dtype: DType,
-) -> VortexResult<()> {
+/// value and whose unselected children hold placeholders.
+#[test]
+fn constant_union_canonicalizes_to_sparse_union() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
+    let i32_variant = DType::Primitive(PType::I32, Nullability::NonNullable);
+    let i64_variant = DType::Primitive(PType::I64, Nullability::Nullable);
 
-    let canonical = ConstantArray::new(scalar.clone(), 3)
-        .into_array()
-        .execute::<Canonical>(&mut ctx)?
-        .into_union();
+    // Each case pairs a constant scalar with the dtype of a variant it does not select.
+    let cases = [
+        (
+            Scalar::union(variants()?, 9, true.into(), Nullability::NonNullable)?,
+            i32_variant.clone(),
+        ),
+        (
+            Scalar::union(nullable_variants()?, 5, 7i32.into(), Nullability::Nullable)?,
+            i64_variant,
+        ),
+        (
+            Scalar::null(DType::Union(variants()?, Nullability::Nullable)),
+            i32_variant,
+        ),
+    ];
 
-    assert_eq!(canonical.dtype(), scalar.dtype());
+    for (scalar, unselected_dtype) in cases {
+        let canonical = ConstantArray::new(scalar.clone(), 3)
+            .into_array()
+            .execute::<Canonical>(&mut ctx)?
+            .into_union();
 
-    // An unselected child is only a placeholder, so it keeps the dtype the schema declares. That
-    // is a zero for a non-nullable variant and a null for a nullable one.
-    let unselected = canonical
-        .iter_children()
-        .find(|child| child.dtype() == &placeholder_dtype)
-        .ok_or_else(|| vortex_err!("No child with dtype {placeholder_dtype}"))?;
-    assert_eq!(
-        unselected.execute_scalar(0, &mut ctx)?,
-        Scalar::default_value(&placeholder_dtype)
-    );
+        assert_eq!(canonical.dtype(), scalar.dtype());
 
-    for index in 0..canonical.len() {
-        assert_eq!(canonical.execute_scalar(index, &mut ctx)?, scalar);
+        let unselected = canonical
+            .iter_children()
+            .find(|child| child.dtype() == &unselected_dtype)
+            .ok_or_else(|| vortex_err!("No child with dtype {unselected_dtype}"))?;
+        assert_eq!(
+            unselected.execute_scalar(0, &mut ctx)?,
+            Scalar::default_value(&unselected_dtype)
+        );
+
+        for index in 0..canonical.len() {
+            assert_eq!(canonical.execute_scalar(index, &mut ctx)?, scalar);
+        }
     }
 
     Ok(())

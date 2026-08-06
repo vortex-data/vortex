@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Take coverage for [`UnionArray`]: variant selection, outer nulls, and the empty source.
-
 use rstest::rstest;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -27,8 +25,7 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::scalar::Scalar;
 
-/// Take `indices` from `array`, asserting that the result reduced back to a union rather than
-/// staying a lazy dictionary.
+/// Take `indices`, asserting the result reduced back to a union instead of staying a dictionary.
 #[track_caller]
 fn take(array: &UnionArray, indices: ArrayRef) -> VortexResult<UnionArray> {
     Ok(array
@@ -39,53 +36,54 @@ fn take(array: &UnionArray, indices: ArrayRef) -> VortexResult<UnionArray> {
         .into_owned())
 }
 
-#[test]
-fn take_reorders_and_repeats_variant_selection() -> VortexResult<()> {
-    let taken = take(
-        &union_array()?,
-        PrimitiveArray::from_iter([2u64, 1, 0, 1]).into_array(),
-    )?;
+/// Assert that `array` holds exactly `expected`, row for row.
+#[track_caller]
+fn assert_rows(array: &UnionArray, expected: Vec<Scalar>) -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
 
-    assert_eq!(
-        taken.dtype(),
-        &DType::Union(variants()?, Nullability::NonNullable)
-    );
-    assert_eq!(
-        taken.execute_scalar(0, &mut ctx)?,
-        Scalar::union(variants()?, 5, 30i32.into(), Nullability::NonNullable)?
-    );
-    assert_eq!(
-        taken.execute_scalar(1, &mut ctx)?,
-        Scalar::union(variants()?, 9, true.into(), Nullability::NonNullable)?
-    );
-    assert_eq!(
-        taken.execute_scalar(2, &mut ctx)?,
-        Scalar::union(variants()?, 5, 10i32.into(), Nullability::NonNullable)?
-    );
-    assert_eq!(
-        taken.execute_scalar(3, &mut ctx)?,
-        Scalar::union(variants()?, 9, true.into(), Nullability::NonNullable)?
-    );
+    assert_eq!(array.len(), expected.len());
+    for (index, expected) in expected.into_iter().enumerate() {
+        assert_eq!(array.execute_scalar(index, &mut ctx)?, expected);
+    }
 
     Ok(())
 }
 
 #[test]
+fn take_reorders_and_repeats_variant_selection() -> VortexResult<()> {
+    let variants = variants()?;
+    let nullability = Nullability::NonNullable;
+
+    let taken = take(
+        &union_array()?,
+        PrimitiveArray::from_iter([2u64, 1, 0, 1]).into_array(),
+    )?;
+
+    assert_eq!(taken.dtype(), &DType::Union(variants.clone(), nullability));
+    assert_rows(
+        &taken,
+        vec![
+            Scalar::union(variants.clone(), 5, 30i32.into(), nullability)?, //
+            Scalar::union(variants.clone(), 9, true.into(), nullability)?,  //
+            Scalar::union(variants.clone(), 5, 10i32.into(), nullability)?, //
+            Scalar::union(variants, 9, true.into(), nullability)?,          //
+        ],
+    )
+}
+
+#[test]
 fn null_indices_become_outer_nulls_and_leave_children_alone() -> VortexResult<()> {
+    let variants = variants()?;
+    let nullability = Nullability::Nullable;
+
     let taken = take(
         &union_array()?,
         PrimitiveArray::from_option_iter([Some(1u64), None, Some(0)]).into_array(),
     )?;
-    let mut ctx = array_session().create_execution_ctx();
 
-    assert_eq!(
-        taken.dtype(),
-        &DType::Union(variants()?, Nullability::Nullable)
-    );
+    assert_eq!(taken.dtype(), &DType::Union(variants.clone(), nullability));
 
-    // A nullable index widens the union, but never the variants: the type IDs own the outer
-    // nullability and the sparse children keep the dtypes the schema declares.
+    // A nullable index widens the union but never its variants.
     assert_eq!(
         taken.child_by_name("number")?.dtype(),
         &DType::Primitive(PType::I32, Nullability::NonNullable)
@@ -95,90 +93,69 @@ fn null_indices_become_outer_nulls_and_leave_children_alone() -> VortexResult<()
         &DType::Bool(Nullability::NonNullable)
     );
 
-    assert_eq!(
-        taken.execute_scalar(0, &mut ctx)?,
-        Scalar::union(variants()?, 9, true.into(), Nullability::Nullable)?
-    );
-    assert_eq!(
-        taken.execute_scalar(1, &mut ctx)?,
-        Scalar::null(DType::Union(variants()?, Nullability::Nullable))
-    );
-    assert_eq!(
-        taken.execute_scalar(2, &mut ctx)?,
-        Scalar::union(variants()?, 5, 10i32.into(), Nullability::Nullable)?
-    );
-
-    Ok(())
+    assert_rows(
+        &taken,
+        vec![
+            Scalar::union(variants.clone(), 9, true.into(), nullability)?, //
+            Scalar::null(DType::Union(variants.clone(), nullability)),     //
+            Scalar::union(variants, 5, 10i32.into(), nullability)?,        //
+        ],
+    )
 }
 
 #[test]
 fn take_keeps_outer_and_inner_nulls_distinct() -> VortexResult<()> {
     let variants = nullable_variants()?;
+    let nullability = Nullability::Nullable;
 
     // Row 1 is an outer null and row 2 is a present union selecting a null child.
     let taken = take(
         &nullable_union_array()?,
         PrimitiveArray::from_iter([1u64, 2, 3]).into_array(),
     )?;
-    let mut ctx = array_session().create_execution_ctx();
 
-    assert_eq!(
-        taken.execute_scalar(0, &mut ctx)?,
-        Scalar::null(DType::Union(variants.clone(), Nullability::Nullable))
-    );
-    assert_eq!(
-        taken.execute_scalar(1, &mut ctx)?,
-        Scalar::union(
-            variants.clone(),
-            9,
-            Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable)),
-            Nullability::Nullable,
-        )?
-    );
-    assert_eq!(
-        taken.execute_scalar(2, &mut ctx)?,
-        Scalar::union(
-            variants,
-            9,
-            Scalar::primitive(40i64, Nullability::Nullable),
-            Nullability::Nullable,
-        )?
-    );
-
-    Ok(())
+    assert_rows(
+        &taken,
+        vec![
+            Scalar::null(DType::Union(variants.clone(), nullability)), //
+            Scalar::union(
+                variants.clone(),
+                9,
+                Scalar::null(DType::Primitive(PType::I64, nullability)),
+                nullability,
+            )?, //
+            Scalar::union(
+                variants,
+                9,
+                Scalar::primitive(40i64, nullability),
+                nullability,
+            )?, //
+        ],
+    )
 }
 
-/// An empty union has no row for its sparse children to point at, so an all-null gather must
-/// synthesize placeholders instead. `take` short-circuits an empty source into a constant before
-/// the union ever sees it, so cover that path and the union's own gather together.
+/// `take` short-circuits an empty source into a constant before the union sees it, so this covers
+/// that path and the union's own gather.
 #[test]
 fn take_from_empty_union_is_all_null() -> VortexResult<()> {
-    let empty = UnionArray::empty(variants()?, Nullability::Nullable).into_array();
+    let variants = variants()?;
+    let nullability = Nullability::Nullable;
+    let empty = UnionArray::empty(variants.clone(), nullability).into_array();
     let indices = PrimitiveArray::from_option_iter([None::<u64>, None]).into_array();
-    let mut ctx = array_session().create_execution_ctx();
 
     let via_take = empty
         .take(indices.clone())?
-        .execute::<Canonical>(&mut ctx)?
+        .execute::<Canonical>(&mut array_session().create_execution_ctx())?
         .into_union();
     let via_reduce = <Union as TakeReduce>::take(empty.as_::<Union>(), &indices)?
         .ok_or_else(|| vortex_err!("Union take must never decline"))?
         .as_::<Union>()
         .into_owned();
 
-    for taken in [via_take, via_reduce] {
-        assert_eq!(taken.len(), 2);
-        assert_eq!(
-            taken.dtype(),
-            &DType::Union(variants()?, Nullability::Nullable)
-        );
+    let expected = || vec![Scalar::null(DType::Union(variants.clone(), nullability)); 2];
 
-        for index in 0..taken.len() {
-            assert!(taken.execute_scalar(index, &mut ctx)?.is_null());
-        }
-    }
-
-    Ok(())
+    assert_rows(&via_take, expected())?;
+    assert_rows(&via_reduce, expected())
 }
 
 #[rstest]

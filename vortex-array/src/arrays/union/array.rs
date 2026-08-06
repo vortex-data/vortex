@@ -179,10 +179,8 @@ impl Array<Union> {
 
     /// Construct a `len`-row union in which every row holds `scalar`.
     ///
-    /// A sparse union keeps every child row-aligned even though at most one of them is selected,
-    /// so the unselected children are filled with their variant's default value: a null for a
-    /// nullable variant and a zero for a non-nullable one. An outer null `scalar` therefore
-    /// produces null type IDs and a placeholder for every child.
+    /// Unselected children are filled with their variant's default value, a null for a nullable
+    /// variant and a zero for a non-nullable one. An outer null `scalar` selects no child at all.
     ///
     /// # Errors
     ///
@@ -199,8 +197,6 @@ impl Array<Union> {
             None => Scalar::null(union_type_ids_dtype(nullability)),
         };
 
-        // The selected variant carries the scalar's value. Every other child is a placeholder that
-        // exists only to keep the sparse layout row-aligned.
         let selected = union.child_index().zip(union.child());
 
         let children = variants

@@ -15,19 +15,17 @@ use crate::arrays::union::UnionArraySlotsExt;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar::Scalar;
 
-/// Structural take for [`UnionArray`]: gathers the type IDs and every sparse child at `indices`.
+/// Gathers the type IDs and every sparse child at `indices`.
 ///
-/// A sparse union keeps every child row-aligned with the union, so a gather must visit all of them
-/// even though at most one is active per row. Take therefore costs `O(variants * indices)`.
-/// Reducing that cost requires the dense union encoding, not a different sparse gather.
+/// Sparse children are row-aligned with the union, so a gather must visit all of them. Take costs
+/// `O(variants * indices)`, which only the dense encoding fixes.
 ///
-/// The type IDs carry the union's validity, so gathering them with the original `indices` is what
-/// turns a null index into an outer union null. The children are gathered with the null indices
-/// filled in, which keeps each child's dtype exactly as the variant schema declares it.
+/// The type IDs carry the union's validity, so gathering them with the original `indices` turns a
+/// null index into an outer union null. The children are gathered with the nulls filled in, which
+/// keeps their declared variant dtypes.
 impl TakeReduce for Union {
     fn take(array: ArrayView<'_, Union>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        // An empty union has no row for a child to point at, so the only legal indices are all
-        // null and every output row is an outer union null.
+        // An empty union has no row to point at, so the indices must be all null.
         if array.is_empty() {
             return UnionArray::constant(&Scalar::null(array.dtype().as_nullable()), indices.len())
                 .map(UnionArray::into_array)
@@ -36,13 +34,8 @@ impl TakeReduce for Union {
 
         let type_ids = array.type_ids().take(indices.clone())?;
 
-        // Nullability is stripped so that the children keep their declared variant dtypes. The
-        // type IDs already record which rows are null.
-        //
-        // This stays a lazy node that every child then executes for itself, so the fill runs once
-        // per variant. `TakeReduce` has no `ExecutionCtx` to materialize it with, and the cost is
-        // proportional to the indices rather than to the data, so it is left alone. Non-nullable
-        // indices skip it entirely because `FillNull::simplify` returns its input unchanged.
+        // This stays a lazy node, so the fill runs once per child. `TakeReduce` has no
+        // `ExecutionCtx` to materialize it with, and the cost is per index rather than per element.
         let fill_scalar = Scalar::zero_value(&indices.dtype().as_nonnullable());
         let child_indices = indices.clone().fill_null(fill_scalar)?;
 

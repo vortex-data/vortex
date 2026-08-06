@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Take on a canonical sparse union.
+//! Take on a canonical sparse union, swept over the variant count.
 //!
-//! A sparse union keeps every child row-aligned with the union, so take gathers all of them and
-//! costs `O(variants * indices)`. The variant count is the axis worth measuring, so these
-//! benchmarks pin the array and index counts and sweep it. The nullable-indices case additionally
-//! pays for the fill-null pass that keeps the children off the union's outer nullability.
+//! Take gathers every sparse child, so cost is linear in the variant count. The nullable-indices
+//! case also pays for the fill-null pass.
 
 #![expect(clippy::unwrap_used)]
 
@@ -40,8 +38,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 const ARRAY_SIZE: usize = 100_000;
 
-/// The index count is held low so that the widest variant case stays inside the sub-millisecond
-/// budget for microbenchmarks. Cost is linear in it, so the variant sweep still reads the same.
+/// Held low so the widest variant case stays inside the sub-millisecond microbenchmark budget.
 const TAKE_SIZE: usize = 256;
 
 const VARIANT_COUNTS: [usize; 3] = [2, 4, 8];
@@ -92,7 +89,7 @@ fn take_union_nullable_indices(bencher: Bencher, variant_count: usize) {
     let mut rng = StdRng::seed_from_u64(0);
     let array = union_array(variant_count, &mut rng);
 
-    // Every tenth index is null, which is what turns a gathered row into an outer union null.
+    // Every tenth index is null, which produces an outer union null.
     let indices = PrimitiveArray::from_option_iter(
         (0..TAKE_SIZE).map(|i| (i % 10 != 0).then(|| rng.random_range(0..ARRAY_SIZE) as u64)),
     )
