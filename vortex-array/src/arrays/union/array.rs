@@ -14,12 +14,15 @@ use crate::array::ArrayParts;
 use crate::array::EmptyArrayData;
 use crate::array::TypedArrayRef;
 use crate::array_slots;
+use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::Union;
+use crate::arrays::union::union_type_ids_dtype;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::UnionVariants;
+use crate::scalar::Scalar;
 
 /// Slot layout of a canonical sparse union array.
 #[array_slots(Union)]
@@ -172,6 +175,52 @@ impl Array<Union> {
             type_ids,
             children,
         }
+    }
+
+    /// Construct a `len`-row union in which every row holds `scalar`.
+    ///
+    /// A sparse union keeps every child row-aligned even though at most one of them is selected,
+    /// so the unselected children are filled with their variant's default value: a null for a
+    /// nullable variant and a zero for a non-nullable one. An outer null `scalar` therefore
+    /// produces null type IDs and a placeholder for every child.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `scalar` does not have a union dtype.
+    pub fn constant(scalar: &Scalar, len: usize) -> VortexResult<Self> {
+        let union = scalar
+            .as_union_opt()
+            .ok_or_else(|| vortex_err!("Expected a union scalar, got {}", scalar.dtype()))?;
+        let variants = union.variants().clone();
+        let nullability = union.nullability();
+
+        let type_ids = match union.type_id() {
+            Some(type_id) => Scalar::primitive(type_id, nullability),
+            None => Scalar::null(union_type_ids_dtype(nullability)),
+        };
+
+        // The selected variant carries the scalar's value. Every other child is a placeholder that
+        // exists only to keep the sparse layout row-aligned.
+        let selected = union.child_index().zip(union.child());
+
+        let children = variants
+            .variants()
+            .enumerate()
+            .map(|(index, dtype)| {
+                let value = match &selected {
+                    Some((selected_index, child)) if *selected_index == index => child.clone(),
+                    _ => Scalar::default_value(&dtype),
+                };
+
+                ConstantArray::new(value, len).into_array()
+            })
+            .collect::<Vec<_>>();
+
+        Self::try_new(
+            ConstantArray::new(type_ids, len).into_array(),
+            variants,
+            children,
+        )
     }
 
     /// Create an empty array for a union dtype.

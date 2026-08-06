@@ -244,6 +244,10 @@ name = "take_struct"
 harness = false
 
 [[bench]]
+name = "take_union"
+harness = false
+
+[[bench]]
 name = "take_fsl"
 harness = false
 

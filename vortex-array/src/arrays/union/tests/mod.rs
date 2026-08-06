@@ -9,10 +9,12 @@ use vortex_mask::Mask;
 use vortex_session::registry::ReadContext;
 
 use crate::ArrayContext;
+use crate::Canonical;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::array_session;
 use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::Union;
 use crate::arrays::UnionArray;
@@ -26,6 +28,8 @@ use crate::scalar::Scalar;
 use crate::serde::SerializeOptions;
 use crate::serde::SerializedArray;
 use crate::validity::Validity;
+
+mod take;
 
 fn variants() -> VortexResult<UnionVariants> {
     UnionVariants::try_new(
@@ -230,6 +234,36 @@ fn slice_and_filter_preserve_sparse_alignment() -> VortexResult<()> {
         filtered.execute_scalar(1, &mut ctx)?,
         Scalar::union(variants()?, 5, 30i32.into(), Nullability::NonNullable,)?
     );
+
+    Ok(())
+}
+
+#[test]
+fn constant_union_canonicalizes_to_sparse_union() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let dtype = DType::Union(variants()?, Nullability::Nullable);
+
+    for scalar in [
+        Scalar::union(variants()?, 9, true.into(), Nullability::Nullable)?,
+        Scalar::null(dtype.clone()),
+    ] {
+        let canonical = ConstantArray::new(scalar.clone(), 3)
+            .into_array()
+            .execute::<Canonical>(&mut ctx)?
+            .into_union();
+
+        assert_eq!(canonical.dtype(), &dtype);
+
+        // The unselected variant is only a placeholder, so it keeps its declared dtype.
+        assert_eq!(
+            canonical.child_by_name("number")?.dtype(),
+            &DType::Primitive(PType::I32, Nullability::NonNullable)
+        );
+
+        for index in 0..canonical.len() {
+            assert_eq!(canonical.execute_scalar(index, &mut ctx)?, scalar);
+        }
+    }
 
     Ok(())
 }
