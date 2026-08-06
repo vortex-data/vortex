@@ -16,6 +16,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::Entry;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -241,7 +242,7 @@ impl VarBinViewBuilder {
             "Some buffers already exist",
         );
         self.views_builder.extend_trusted(views.iter().copied());
-        self.push_only_validity_mask(validity);
+        self.nulls.append_validity_mask(validity);
 
         debug_assert_eq!(self.nulls.len(), self.views_builder.len());
         Ok(())
@@ -328,10 +329,23 @@ impl VarBinViewBuilder {
         // they roll over into multiple buffers, and per-segment accounting is not worth the rare
         // >2GiB case.
         if self.compacts_buffers() && bytes.len() <= MAX_BUFFER_LEN {
-            let referenced: usize = (0..count)
-                .map(&len_at)
-                .filter(|len| *len > BinaryView::MAX_INLINED_SIZE)
-                .sum();
+            let referenced: usize = match validity.bit_buffer() {
+                AllOr::All => (0..count)
+                    .map(&len_at)
+                    .filter(|len| *len > BinaryView::MAX_INLINED_SIZE)
+                    .sum(),
+                AllOr::None => 0,
+                AllOr::Some(b) => {
+                    let mut sum = 0;
+                    b.for_each_set_index(|idx| {
+                        let len = len_at(idx);
+                        if len > BinaryView::MAX_INLINED_SIZE {
+                            sum += len;
+                        }
+                    });
+                    sum
+                }
+            };
             #[expect(clippy::cast_precision_loss)]
             if (referenced as f64) < self.compaction_threshold * (bytes.len() as f64) {
                 return self
@@ -357,7 +371,7 @@ impl VarBinViewBuilder {
             "Some buffers already exist",
         );
 
-        self.push_only_validity_mask(validity);
+        self.nulls.append_validity_mask(validity);
         debug_assert_eq!(self.nulls.len(), self.views_builder.len());
     }
 
@@ -405,7 +419,7 @@ impl VarBinViewBuilder {
             assert_eq!(pushed_index, buf_index, "Buffer already exists");
         }
 
-        self.push_only_validity_mask(validity);
+        self.nulls.append_validity_mask(validity);
         debug_assert_eq!(self.nulls.len(), self.views_builder.len());
     }
 
@@ -433,11 +447,6 @@ impl VarBinViewBuilder {
         }
     }
 
-    // Pushes a validity mask into the builder not affecting the views or buffers
-    fn push_only_validity_mask(&mut self, validity_mask: &Mask) {
-        self.nulls.append_validity_mask(validity_mask);
-    }
-
     pub(crate) fn append_varbinview_array(
         &mut self,
         array: &VarBinViewArray,
@@ -447,7 +456,7 @@ impl VarBinViewBuilder {
 
         let mask = array.varbinview_validity().execute_mask(array.len(), ctx)?;
 
-        self.push_only_validity_mask(&mask);
+        self.nulls.append_validity_mask(&mask);
 
         let view_adjustment =
             self.completed
