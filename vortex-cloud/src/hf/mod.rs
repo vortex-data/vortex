@@ -86,9 +86,9 @@ const REVISION_ESCAPES: &AsciiSet = &CONTROLS.add(b'/').add(b'%').add(b'?').add(
 
 /// Whether `scheme` is served by this module.
 ///
-/// Callers dispatching on a URL scheme should ask this rather than comparing against [`HF_SCHEME`]
-/// themselves, matching how [`crate::opendal::supports_scheme`] is used.
-pub fn supports_scheme(scheme: &str) -> bool {
+/// The registry dispatches on this rather than comparing against [`HF_SCHEME`] itself, matching
+/// how the OpenDAL module's `supports_scheme` is used.
+pub(crate) fn supports_scheme(scheme: &str) -> bool {
     scheme == HF_SCHEME
 }
 

@@ -89,8 +89,8 @@ def from_url(  # type: ignore[misc] # docstring in pyi file
     - `gs://bucket/path` -> [`GCSStore`][vortex.store.GCSStore]
     - `az://account/container/path` -> [`AzureStore`][vortex.store.AzureStore] (also
       supports `adl`, `azure`, `abfs`, `abfss`)
-    - `cos://bucket/path` -> OpenDAL-backed Tencent Cloud COS store (requires the
-      `opendal` feature; configure via environment variables such as
+    - `cos://bucket/path` -> OpenDAL-backed Tencent Cloud COS store (configure
+      via environment variables such as
       `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY` and `COS_ENDPOINT`)
     - `http://mydomain/path` -> [`HTTPStore`][vortex.store.HTTPStore]
     - `https://mydomain/path` -> [`HTTPStore`][vortex.store.HTTPStore]

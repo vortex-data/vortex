@@ -17,7 +17,7 @@ use vortex::cloud::hf::HfConfig;
 use vortex::cloud::hf::HfRepoType;
 use vortex::cloud::hf::make_hf_store;
 
-/// How the `token` argument was spelled.
+/// How the `token` argument was passed.
 ///
 /// Mirrors `huggingface_hub`'s own convention so that a caller can pass the same value through.
 #[derive(Debug, Clone, FromPyObject)]

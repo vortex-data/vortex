@@ -44,9 +44,7 @@ use crate::install_module;
 use crate::iter::PyArrayIterator;
 use crate::object_store::resolve::ResolvedStore;
 use crate::object_store::resolve::resolve_store;
-#[cfg(feature = "opendal")]
 use crate::opendal_store::CosStore;
-#[cfg(feature = "opendal")]
 use crate::opendal_store::GoosefsStore;
 use crate::session::session;
 
@@ -156,10 +154,8 @@ pub(crate) enum AnyVortexStore {
     /// Vortex's Hugging Face Hub store.
     Hf(HfStore),
     /// Vortex's OpenDAL-backed COS store.
-    #[cfg(feature = "opendal")]
     Cos(CosStore),
     /// Vortex's OpenDAL-backed GooseFS store.
-    #[cfg(feature = "opendal")]
     Goosefs(GoosefsStore),
 }
 
@@ -169,9 +165,7 @@ impl AnyVortexStore {
         match self {
             AnyVortexStore::Builtin(s) => s.into_inner(),
             AnyVortexStore::Hf(s) => s.to_arc(),
-            #[cfg(feature = "opendal")]
             AnyVortexStore::Cos(s) => s.to_arc(),
-            #[cfg(feature = "opendal")]
             AnyVortexStore::Goosefs(s) => s.to_arc(),
         }
     }
@@ -187,11 +181,9 @@ impl<'py> FromPyObject<'_, 'py> for AnyVortexStore {
         if let Ok(hf) = obj.extract::<HfStore>() {
             return Ok(AnyVortexStore::Hf(hf));
         }
-        #[cfg(feature = "opendal")]
         if let Ok(cos) = obj.extract::<CosStore>() {
             return Ok(AnyVortexStore::Cos(cos));
         }
-        #[cfg(feature = "opendal")]
         if let Ok(goosefs) = obj.extract::<GoosefsStore>() {
             return Ok(AnyVortexStore::Goosefs(goosefs));
         }

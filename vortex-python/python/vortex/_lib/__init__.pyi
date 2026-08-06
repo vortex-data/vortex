@@ -7,8 +7,6 @@ class CosStore:
     Construct it with explicit configuration and pass it to
     ``vortex.io.read_url(url, store=cos_store)`` /
     ``vortex.io.write(arrays, path, store=cos_store)``.
-
-    This class is only available when Vortex is built with the ``opendal`` feature.
     """
 
     def __init__(
@@ -28,8 +26,6 @@ class GoosefsStore:
     Construct it with explicit configuration and pass it to
     ``vortex.io.read_url(url, store=goosefs_store)`` /
     ``vortex.io.write(arrays, path, store=goosefs_store)``.
-
-    This class is only available when Vortex is built with the ``opendal`` feature.
     """
 
     def __init__(
