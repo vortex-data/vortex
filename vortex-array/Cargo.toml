@@ -228,6 +228,10 @@ name = "take_primitive"
 harness = false
 
 [[bench]]
+name = "take_chunked"
+harness = false
+
+[[bench]]
 name = "piecewise_sequence_take_primitive"
 harness = false
 

@@ -3,7 +3,7 @@
 
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
+use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -38,58 +38,69 @@ fn take_chunked(
     let indices_values = indices.as_slice::<u64>();
     let n = indices_values.len();
 
-    // 1. Sort (value, orig_pos) pairs so indices for the same chunk are contiguous.
-    //    Skip null indices — their final_take slots stay 0 and are masked null by validity.
-    let mut pairs: Vec<(u64, usize)> = indices_values
-        .iter()
-        .enumerate()
-        .filter(|&(i, _)| indices_mask.value(i))
-        .map(|(i, &v)| (v, i))
-        .collect();
-    pairs.sort_unstable();
-
-    // 2. Fused pass: walk sorted pairs against chunk boundaries.
-    //    - Dedup inline → build per-chunk filter masks
-    //    - Scatter final_take[orig_pos] = dedup_idx for every pair
+    // Route each valid index into its source chunk. Within each bucket, preserve the request order
+    // so the taken chunks can be assembled and then restored to the original cross-chunk order.
     let chunk_offsets = array.chunk_offset_values();
     let nchunks = array.nchunks();
-    let mut chunks = Vec::with_capacity(nchunks);
-    let mut final_take = BufferMut::<u64>::with_capacity(n);
-    final_take.push_n(0u64, n);
+    let mut buckets = vec![Vec::<(u64, usize)>::new(); nchunks];
+    let mut monotonic = true;
+    let mut last_index = None;
+    let mut sorted_chunk_idx = 0;
 
-    let mut cursor = 0usize;
-    let mut dedup_idx = 0u64;
-
-    for chunk_idx in 0..nchunks {
-        let chunk_start = chunk_offsets[chunk_idx];
-        let chunk_end = chunk_offsets[chunk_idx + 1];
-        let chunk_len = chunk_end - chunk_start;
-        let chunk_end_u64 = u64::try_from(chunk_end)?;
-
-        let range_end = cursor + pairs[cursor..].partition_point(|&(v, _)| v < chunk_end_u64);
-        let chunk_pairs = &pairs[cursor..range_end];
-
-        if !chunk_pairs.is_empty() {
-            let mut local_indices: Vec<usize> = Vec::new();
-            for (i, &(val, orig_pos)) in chunk_pairs.iter().enumerate() {
-                if cursor + i > 0 && val != pairs[cursor + i - 1].0 {
-                    dedup_idx += 1;
-                }
-                let local = usize::try_from(val)? - chunk_start;
-                if local_indices.last() != Some(&local) {
-                    local_indices.push(local);
-                }
-                final_take[orig_pos] = dedup_idx;
-            }
-
-            let filter_mask = Mask::from_indices(chunk_len, local_indices);
-            chunks.push(array.chunk(chunk_idx).filter(filter_mask)?);
+    for (original_position, &index) in indices_values.iter().enumerate() {
+        if !indices_mask.value(original_position) {
+            continue;
         }
 
-        cursor = range_end;
+        let index = usize::try_from(index)?;
+        if index >= array.len() {
+            vortex_bail!(OutOfBounds: index, 0, array.len());
+        }
+
+        let still_sorted = last_index.is_none_or(|last_index| index >= last_index);
+        let chunk_idx = if monotonic && still_sorted {
+            while chunk_offsets[sorted_chunk_idx + 1] <= index {
+                sorted_chunk_idx += 1;
+            }
+            sorted_chunk_idx
+        } else {
+            monotonic = false;
+            chunk_offsets.partition_point(|&offset| offset <= index) - 1
+        };
+        last_index = Some(index);
+
+        let local_index = u64::try_from(index - chunk_offsets[chunk_idx])?;
+        buckets[chunk_idx].push((local_index, original_position));
     }
 
-    // SAFETY: every chunk came from a filter on a chunk with the same base dtype,
+    let mut chunks = Vec::with_capacity(nchunks);
+    let mut final_take = (!monotonic || indices.dtype().is_nullable()).then(|| {
+        let mut final_take = BufferMut::<u64>::with_capacity(n);
+        final_take.push_n(0u64, n);
+        final_take
+    });
+    let mut grouped_position = 0u64;
+
+    for (chunk_idx, bucket) in buckets.into_iter().enumerate() {
+        if bucket.is_empty() {
+            continue;
+        }
+
+        let mut local_indices = BufferMut::<u64>::with_capacity(bucket.len());
+        for (local_index, original_position) in bucket {
+            local_indices.push(local_index);
+            if let Some(final_take) = &mut final_take {
+                final_take[original_position] = grouped_position;
+            }
+            grouped_position += 1;
+        }
+
+        let local_indices =
+            PrimitiveArray::new(local_indices.freeze(), Validity::NonNullable).into_array();
+        chunks.push(array.chunk(chunk_idx).take(local_indices)?);
+    }
+
+    // SAFETY: every chunk came from a take on a chunk with the same base dtype,
     // unioned with the index nullability.
     let flat = unsafe { ChunkedArray::new_unchecked(chunks, array.dtype().clone()) }
         .into_array()
@@ -97,15 +108,15 @@ fn take_chunked(
         .execute::<Canonical>(ctx)?
         .into_array();
 
-    // 4. Single take to restore original order and expand duplicates.
-    //    Carry the original index validity so null indices produce null outputs.
-    let take_validity = Validity::from_mask(
-        indices
-            .as_ref()
-            .validity()?
-            .execute_mask(indices.as_ref().len(), ctx)?,
-        indices.dtype().nullability(),
-    );
+    // Non-nullable monotonic indices are already in the same order as the assembled chunks, so no
+    // final reorder is needed.
+    let Some(final_take) = final_take else {
+        return Ok(flat);
+    };
+
+    // Restore original order. Carry the original index validity so null indices produce null
+    // outputs.
+    let take_validity = Validity::from_mask(indices_mask, indices.dtype().nullability());
     flat.take(PrimitiveArray::new(final_take.freeze(), take_validity).into_array())
 }
 
@@ -259,6 +270,33 @@ mod test {
         assert_arrays_eq!(
             result,
             PrimitiveArray::from_iter([8i32, 0, 5, 3, 2, 7, 1, 6, 4]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_take_shuffled_duplicates_with_empty_chunks() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let empty = PrimitiveArray::empty::<i32>(Nullability::NonNullable).into_array();
+        let arr = ChunkedArray::try_new(
+            vec![
+                empty.clone(),
+                buffer![0i32, 1].into_array(),
+                empty.clone(),
+                buffer![2i32, 3].into_array(),
+                empty,
+            ],
+            PrimitiveArray::empty::<i32>(Nullability::NonNullable)
+                .dtype()
+                .clone(),
+        )?;
+
+        let result = arr.take(buffer![3u64, 0, 2, 0, 3, 1, 2].into_array())?;
+
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_iter([3i32, 0, 2, 0, 3, 1, 2]),
             &mut ctx
         );
         Ok(())
