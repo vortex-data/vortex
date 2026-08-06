@@ -251,8 +251,8 @@ mod tests {
     fn test_is_null_is_not_strict() {
         assert!(
             !is_null(col("a"))
-                .signature()
-                .is_some_and(|sig| sig.is_strict())
+                .as_scalar()
+                .is_some_and(|f| f.signature().is_strict())
         );
     }
 }

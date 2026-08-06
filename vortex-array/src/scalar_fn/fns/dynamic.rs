@@ -301,7 +301,7 @@ mod tests {
             root(),
         );
 
-        assert!(!expr.signature().is_some_and(|sig| sig.is_strict()));
+        assert!(!expr.as_scalar().is_some_and(|f| f.signature().is_strict()));
     }
 
     #[test]

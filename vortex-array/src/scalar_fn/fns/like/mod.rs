@@ -724,8 +724,16 @@ mod tests {
     #[test]
     fn signature() {
         let like_expr = like(root(), lit("%test%"));
-        assert!(like_expr.signature().is_some_and(|sig| sig.is_strict()));
-        assert!(!like_expr.signature().is_some_and(|sig| sig.is_fallible()));
+        assert!(
+            like_expr
+                .as_scalar()
+                .is_some_and(|f| f.signature().is_strict())
+        );
+        assert!(
+            !like_expr
+                .as_scalar()
+                .is_some_and(|f| f.signature().is_fallible())
+        );
     }
 
     #[test]
