@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# TIMESTAMPTZ literals keep microsecond precision
+
+include ../setup.slt.no
+
+statement ok
+SET TimeZone = 'UTC';
+
+statement ok
+CREATE TABLE tz(t TIMESTAMPTZ);
+
+statement ok
+INSERT INTO tz VALUES ('2020-01-01 10:00:00+00'), ('2021-06-15 12:30:00+00');
+
+statement ok
+COPY tz TO '${WORK_DIR}/ctz.vortex';
+
+query I
+SELECT count(*) FROM tz WHERE t = TIMESTAMPTZ '2020-01-01 10:00:00+00';
+----
+1
+
+query I
+SELECT count(*) FROM '${WORK_DIR}/ctz.vortex' WHERE t = TIMESTAMPTZ '2020-01-01 10:00:00+00';
+----
+1
+
+query I
+SELECT count(*) FROM tz WHERE t > TIMESTAMPTZ '2020-06-01 00:00:00+00';
+----
+1
+
+query I
+SELECT count(*) FROM '${WORK_DIR}/ctz.vortex' WHERE t > TIMESTAMPTZ '2020-06-01 00:00:00+00';
+----
+1
+
+query PP
+SELECT min(t), max(t) FROM tz;
+----
+2020-01-01 10:00:00+00 2021-06-15 12:30:00+00
+
+query PP
+SELECT min(t), max(t) FROM '${WORK_DIR}/ctz.vortex';
+----
+2020-01-01 10:00:00+00 2021-06-15 12:30:00+00

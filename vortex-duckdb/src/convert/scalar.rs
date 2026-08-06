@@ -355,6 +355,16 @@ impl<'a> TryFrom<&'a ValueRef> for Scalar {
                     Some(ScalarValue::from(seconds)),
                 )?,
             )),
+            ExtractedValue::TimestampTz(micros) => Ok(Scalar::extension::<Timestamp>(
+                TimestampOptions {
+                    unit: TimeUnit::Microseconds,
+                    tz: Some("UTC".into()),
+                },
+                Scalar::try_new(
+                    DType::Primitive(I64, Nullable),
+                    Some(ScalarValue::from(micros)),
+                )?,
+            )),
             ExtractedValue::Decimal(precision, scale, value) => Ok(Scalar::decimal(
                 DecimalValue::I128(value),
                 DecimalDType::try_new(precision, scale)?,

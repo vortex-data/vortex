@@ -131,7 +131,7 @@ impl ValueRef {
             DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S => ExtractedValue::TimestampS(unsafe {
                 cpp::duckdb_get_timestamp_s(self.as_ptr()).seconds
             }),
-            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ => ExtractedValue::TimestampS(unsafe {
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ => ExtractedValue::TimestampTz(unsafe {
                 cpp::duckdb_get_timestamp_tz(self.as_ptr()).micros
             }),
             DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL => {
@@ -448,6 +448,8 @@ pub enum ExtractedValue {
     Timestamp(i64),
     TimestampMs(i64),
     TimestampS(i64),
+    /// UTC microseconds
+    TimestampTz(i64),
     Decimal(u8, i8, i128),
     List(Vec<Value>),
 }
