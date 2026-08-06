@@ -48,6 +48,90 @@ fn taken_offset_ptype(offsets_ptype: PType) -> PType {
     }
 }
 
+// "take" can have offsets which don't fit in 32 bits. "signed" is needed for
+// Arrow interoperability.
+enum Offsets {
+    U32 {
+        offsets: BufferMut<u32>,
+        signed: bool,
+    },
+    U64 {
+        offsets: BufferMut<u64>,
+        signed: bool,
+    },
+}
+
+impl Offsets {
+    fn with_capacity(offset_ptype: PType, capacity: usize) -> Self {
+        let signed = offset_ptype.is_signed_int();
+        match offset_ptype {
+            PType::U64 | PType::I64 => Self::U64 {
+                offsets: BufferMut::with_capacity(capacity),
+                signed,
+            },
+            _ => Self::U32 {
+                offsets: BufferMut::with_capacity(capacity),
+                signed,
+            },
+        }
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            Self::U32 { offsets, .. } => offsets.len(),
+            Self::U64 { offsets, .. } => offsets.len(),
+        }
+    }
+
+    fn push(&mut self, offset: usize) {
+        let (offsets, signed) = match self {
+            Self::U64 { offsets, .. } => {
+                offsets.push(offset as u64);
+                return;
+            }
+            Self::U32 { offsets, signed } => (offsets, *signed),
+        };
+        let max_narrow = if signed {
+            i32::MAX as usize
+        } else {
+            u32::MAX as usize
+        };
+        if offset <= max_narrow {
+            offsets.push(u32::try_from(offset).vortex_expect("offset fits u32"));
+            return;
+        }
+
+        // Copying the buffer may look scary but in fact it isn't.
+        // If we don't copy-and-widen, we need to know target width
+        // beforehand. This is approach taken in ListArray, where first pass
+        // iterates over offsets and determines target width, and second offset
+        // copies the offset to the buffer. Both have similar performance
+        // Note this happens only if 32-bit offset overflows which means array
+        // must hold >4GB of data which is quite rare.
+        let mut wide = BufferMut::<u64>::with_capacity(offsets.capacity() + 1);
+        wide.extend(offsets.iter().map(|&o| u64::from(o)));
+        wide.push(offset as u64);
+        *self = Self::U64 {
+            offsets: wide,
+            signed,
+        };
+    }
+
+    fn into_array(self) -> ArrayRef {
+        let (offsets, out_offset_ptype) = match self {
+            Self::U32 { offsets, signed } => (
+                PrimitiveArray::new(offsets.freeze(), Validity::NonNullable),
+                if signed { PType::I32 } else { PType::U32 },
+            ),
+            Self::U64 { offsets, signed } => (
+                PrimitiveArray::new(offsets.freeze(), Validity::NonNullable),
+                if signed { PType::I64 } else { PType::U64 },
+            ),
+        };
+        offsets.reinterpret_cast(out_offset_ptype).into_array()
+    }
+}
+
 impl TakeExecute for VarBin {
     fn take(
         array: ArrayView<'_, VarBin>,
@@ -86,7 +170,7 @@ impl TakeExecute for VarBin {
 
         let array = match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
             match offsets.ptype() {
-                PType::U8 => take::<I, u8, u32>(
+                PType::U8 => take::<I, u8>(
                     dtype,
                     offsets.as_slice::<u8>(),
                     data.as_slice(),
@@ -95,7 +179,7 @@ impl TakeExecute for VarBin {
                     indices_validity,
                     out_offset_ptype,
                 ),
-                PType::U16 => take::<I, u16, u32>(
+                PType::U16 => take::<I, u16>(
                     dtype,
                     offsets.as_slice::<u16>(),
                     data.as_slice(),
@@ -104,7 +188,7 @@ impl TakeExecute for VarBin {
                     indices_validity,
                     out_offset_ptype,
                 ),
-                PType::U32 => take::<I, u32, u32>(
+                PType::U32 => take::<I, u32>(
                     dtype,
                     offsets.as_slice::<u32>(),
                     data.as_slice(),
@@ -113,7 +197,7 @@ impl TakeExecute for VarBin {
                     indices_validity,
                     out_offset_ptype,
                 ),
-                PType::U64 => take::<I, u64, u64>(
+                PType::U64 => take::<I, u64>(
                     dtype,
                     offsets.as_slice::<u64>(),
                     data.as_slice(),
@@ -184,7 +268,7 @@ fn take_contiguous_ranges(
     }
 }
 
-fn take<Index: IntegerPType, Offset: IntegerPType, NewOffset: IntegerPType>(
+fn take<Index: IntegerPType, Offset: IntegerPType>(
     dtype: DType,
     offsets: &[Offset],
     data: &[u8],
@@ -194,7 +278,7 @@ fn take<Index: IntegerPType, Offset: IntegerPType, NewOffset: IntegerPType>(
     out_offset_ptype: PType,
 ) -> VortexResult<VarBinArray> {
     if !validity_mask.all_true() || !indices_validity_mask.all_true() {
-        return Ok(take_nullable::<Index, Offset, NewOffset>(
+        return Ok(take_nullable::<Index, Offset>(
             dtype,
             offsets,
             data,
@@ -205,9 +289,9 @@ fn take<Index: IntegerPType, Offset: IntegerPType, NewOffset: IntegerPType>(
         ));
     }
 
-    let mut new_offsets = BufferMut::<NewOffset>::with_capacity(indices.len() + 1);
-    new_offsets.push(NewOffset::zero());
-    let mut current_offset = NewOffset::zero();
+    let mut new_offsets = Offsets::with_capacity(out_offset_ptype, indices.len() + 1);
+    new_offsets.push(0);
+    let mut current_offset = 0usize;
 
     for &idx in indices {
         let idx = idx
@@ -216,11 +300,13 @@ fn take<Index: IntegerPType, Offset: IntegerPType, NewOffset: IntegerPType>(
         let start = offsets[idx];
         let stop = offsets[idx + 1];
 
-        current_offset += NewOffset::from(stop - start).vortex_expect("offset type overflow");
+        current_offset += (stop - start)
+            .to_usize()
+            .vortex_expect("Failed to cast offset to usize");
         new_offsets.push(current_offset);
     }
 
-    let mut new_data = ByteBufferMut::with_capacity(current_offset.as_());
+    let mut new_data = ByteBufferMut::with_capacity(current_offset);
 
     for idx in indices {
         let idx = idx
@@ -236,11 +322,7 @@ fn take<Index: IntegerPType, Offset: IntegerPType, NewOffset: IntegerPType>(
     }
 
     let array_validity = Validity::from(dtype.nullability());
-
-    // Built unsigned; reinterpret back to the signedness-preserving result offset type.
-    let new_offsets = PrimitiveArray::new(new_offsets.freeze(), Validity::NonNullable)
-        .reinterpret_cast(out_offset_ptype)
-        .into_array();
+    let new_offsets = new_offsets.into_array();
 
     // Safety:
     // All variants of VarBinArray are satisfied here.
@@ -291,7 +373,7 @@ where
     S: UnsignedPType,
 {
     match offsets.ptype() {
-        PType::U8 => gather_slices_constant_length::<S, u8, u32>(
+        PType::U8 => gather_slices_constant_length::<S, u8>(
             offsets.as_slice::<u8>(),
             data,
             starts.as_slice::<S>(),
@@ -299,7 +381,7 @@ where
             output_len,
             out_offset_ptype,
         ),
-        PType::U16 => gather_slices_constant_length::<S, u16, u32>(
+        PType::U16 => gather_slices_constant_length::<S, u16>(
             offsets.as_slice::<u16>(),
             data,
             starts.as_slice::<S>(),
@@ -307,7 +389,7 @@ where
             output_len,
             out_offset_ptype,
         ),
-        PType::U32 => gather_slices_constant_length::<S, u32, u32>(
+        PType::U32 => gather_slices_constant_length::<S, u32>(
             offsets.as_slice::<u32>(),
             data,
             starts.as_slice::<S>(),
@@ -315,7 +397,7 @@ where
             output_len,
             out_offset_ptype,
         ),
-        PType::U64 => gather_slices_constant_length::<S, u64, u64>(
+        PType::U64 => gather_slices_constant_length::<S, u64>(
             offsets.as_slice::<u64>(),
             data,
             starts.as_slice::<S>(),
@@ -383,7 +465,7 @@ where
     L: UnsignedPType,
 {
     match offsets.ptype() {
-        PType::U8 => gather_slices::<S, L, u8, u32>(
+        PType::U8 => gather_slices::<S, L, u8>(
             offsets.as_slice::<u8>(),
             data,
             starts.as_slice::<S>(),
@@ -391,7 +473,7 @@ where
             output_len,
             out_offset_ptype,
         ),
-        PType::U16 => gather_slices::<S, L, u16, u32>(
+        PType::U16 => gather_slices::<S, L, u16>(
             offsets.as_slice::<u16>(),
             data,
             starts.as_slice::<S>(),
@@ -399,7 +481,7 @@ where
             output_len,
             out_offset_ptype,
         ),
-        PType::U32 => gather_slices::<S, L, u32, u32>(
+        PType::U32 => gather_slices::<S, L, u32>(
             offsets.as_slice::<u32>(),
             data,
             starts.as_slice::<S>(),
@@ -407,7 +489,7 @@ where
             output_len,
             out_offset_ptype,
         ),
-        PType::U64 => gather_slices::<S, L, u64, u64>(
+        PType::U64 => gather_slices::<S, L, u64>(
             offsets.as_slice::<u64>(),
             data,
             starts.as_slice::<S>(),
@@ -419,7 +501,7 @@ where
     }
 }
 
-fn gather_slices_constant_length<S, Offset, NewOffset>(
+fn gather_slices_constant_length<S, Offset>(
     offsets: &[Offset],
     data: &[u8],
     starts: &[S],
@@ -430,7 +512,6 @@ fn gather_slices_constant_length<S, Offset, NewOffset>(
 where
     S: UnsignedPType,
     Offset: IntegerPType,
-    NewOffset: IntegerPType,
 {
     let computed_len = starts
         .len()
@@ -441,8 +522,8 @@ where
         "PiecewiseSequenceArray expanded length {computed_len} does not match declared length {output_len}"
     );
 
-    let mut new_offsets = BufferMut::<NewOffset>::with_capacity(output_len + 1);
-    new_offsets.push(NewOffset::zero());
+    let mut new_offsets = Offsets::with_capacity(out_offset_ptype, output_len + 1);
+    new_offsets.push(0);
     let mut output_bytes = 0usize;
 
     for start in starts {
@@ -468,7 +549,7 @@ where
             let output_offset = output_bytes.checked_add(relative).ok_or_else(|| {
                 vortex_err!("PiecewiseSequence VarBin output byte length overflow")
             })?;
-            new_offsets.push(new_offset_value::<NewOffset>(output_offset)?);
+            new_offsets.push(output_offset);
         }
 
         output_bytes = output_bytes
@@ -507,16 +588,14 @@ where
         new_data.len()
     );
 
-    let offsets = PrimitiveArray::new(new_offsets.freeze(), Validity::NonNullable)
-        .reinterpret_cast(out_offset_ptype)
-        .into_array();
+    let offsets = new_offsets.into_array();
     Ok(GatheredPiecewiseVarBin {
         offsets,
         data: new_data,
     })
 }
 
-fn gather_slices<S, L, Offset, NewOffset>(
+fn gather_slices<S, L, Offset>(
     offsets: &[Offset],
     data: &[u8],
     starts: &[S],
@@ -528,10 +607,9 @@ where
     S: UnsignedPType,
     L: UnsignedPType,
     Offset: IntegerPType,
-    NewOffset: IntegerPType,
 {
-    let mut new_offsets = BufferMut::<NewOffset>::with_capacity(output_len + 1);
-    new_offsets.push(NewOffset::zero());
+    let mut new_offsets = Offsets::with_capacity(out_offset_ptype, output_len + 1);
+    new_offsets.push(0);
     let mut output_bytes = 0usize;
 
     for (&start, &length) in starts.iter().zip_eq(lengths) {
@@ -558,7 +636,7 @@ where
             let output_offset = output_bytes.checked_add(relative).ok_or_else(|| {
                 vortex_err!("PiecewiseSequence VarBin output byte length overflow")
             })?;
-            new_offsets.push(new_offset_value::<NewOffset>(output_offset)?);
+            new_offsets.push(output_offset);
         }
 
         output_bytes = output_bytes
@@ -603,25 +681,14 @@ where
         new_data.len()
     );
 
-    let offsets = PrimitiveArray::new(new_offsets.freeze(), Validity::NonNullable)
-        .reinterpret_cast(out_offset_ptype)
-        .into_array();
+    let offsets = new_offsets.into_array();
     Ok(GatheredPiecewiseVarBin {
         offsets,
         data: new_data,
     })
 }
 
-fn new_offset_value<T: IntegerPType>(value: usize) -> VortexResult<T> {
-    T::from(value).ok_or_else(|| {
-        vortex_err!(
-            "PiecewiseSequence VarBin offset value {value} does not fit in {}",
-            T::PTYPE
-        )
-    })
-}
-
-fn take_nullable<Index: IntegerPType, Offset: IntegerPType, NewOffset: IntegerPType>(
+fn take_nullable<Index: IntegerPType, Offset: IntegerPType>(
     dtype: DType,
     offsets: &[Offset],
     data: &[u8],
@@ -630,9 +697,9 @@ fn take_nullable<Index: IntegerPType, Offset: IntegerPType, NewOffset: IntegerPT
     indices_validity: Mask,
     out_offset_ptype: PType,
 ) -> VarBinArray {
-    let mut new_offsets = BufferMut::<NewOffset>::with_capacity(indices.len() + 1);
-    new_offsets.push(NewOffset::zero());
-    let mut current_offset = NewOffset::zero();
+    let mut new_offsets = Offsets::with_capacity(out_offset_ptype, indices.len() + 1);
+    new_offsets.push(0);
+    let mut current_offset = 0usize;
 
     let mut validity_buffer = BitBufferMut::with_capacity(indices.len());
 
@@ -653,7 +720,9 @@ fn take_nullable<Index: IntegerPType, Offset: IntegerPType, NewOffset: IntegerPT
             validity_buffer.append(true);
             let start = offsets[data_idx_usize];
             let stop = offsets[data_idx_usize + 1];
-            current_offset += NewOffset::from(stop - start).vortex_expect("offset type overflow");
+            current_offset += (stop - start)
+                .to_usize()
+                .vortex_expect("Failed to cast offset to usize");
             new_offsets.push(current_offset);
             valid_indices.push(data_idx_usize);
         } else {
@@ -662,7 +731,7 @@ fn take_nullable<Index: IntegerPType, Offset: IntegerPType, NewOffset: IntegerPT
         }
     }
 
-    let mut new_data = ByteBufferMut::with_capacity(current_offset.as_());
+    let mut new_data = ByteBufferMut::with_capacity(current_offset);
 
     // Second pass: copy data for valid indices only
     for data_idx in valid_indices {
@@ -676,11 +745,7 @@ fn take_nullable<Index: IntegerPType, Offset: IntegerPType, NewOffset: IntegerPT
     }
 
     let array_validity = Validity::from(validity_buffer.freeze());
-
-    // Built unsigned; reinterpret back to the signedness-preserving result offset type.
-    let new_offsets = PrimitiveArray::new(new_offsets.freeze(), Validity::NonNullable)
-        .reinterpret_cast(out_offset_ptype)
-        .into_array();
+    let new_offsets = new_offsets.into_array();
 
     // Safety:
     // All variants of VarBinArray are satisfied here.
@@ -694,6 +759,7 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
@@ -705,6 +771,7 @@ mod tests {
     use crate::compute::conformance::take::test_take_conformance;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::validity::Validity;
 
     #[test]
@@ -766,6 +833,60 @@ mod tests {
 
         let expected = VarBinViewArray::from_iter(
             [Some(scream.clone()), Some(scream.clone()), Some(scream)],
+            DType::Utf8(Nullability::NonNullable),
+        );
+        assert_arrays_eq!(expected, taken, &mut ctx);
+    }
+
+    #[rstest]
+    #[case(PType::U32, u32::MAX as usize, PType::U32)]
+    #[case(PType::U32, u32::MAX as usize + 1, PType::U64)]
+    #[case(PType::I32, i32::MAX as usize, PType::I32)]
+    #[case(PType::I32, i32::MAX as usize + 1, PType::I64)]
+    #[case(PType::U64, 8, PType::U64)]
+    #[case(PType::I64, 8, PType::I64)]
+    fn test_offsets_widen(
+        #[case] out_offset_ptype: PType,
+        #[case] max_offset: usize,
+        #[case] expected: PType,
+    ) {
+        let mut sink = super::Offsets::with_capacity(out_offset_ptype, 2);
+        sink.push(0);
+        sink.push(max_offset);
+        assert_eq!(
+            PType::try_from(sink.into_array().dtype()).unwrap(),
+            expected
+        );
+    }
+
+    #[test]
+    fn test_offset_widen_values() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let big = u32::MAX as usize + 5;
+        let mut sink = super::Offsets::with_capacity(PType::U32, 3);
+        sink.push(0);
+        sink.push(7);
+        sink.push(big);
+
+        let array = sink.into_array().execute::<PrimitiveArray>(&mut ctx)?;
+        assert_eq!(array.as_slice::<u64>(), &[0, 7, big as u64]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_take_signed() {
+        let mut ctx = array_session().create_execution_ctx();
+        let array = VarBinArray::new(
+            buffer![0i32, 5, 10].into_array(),
+            ByteBuffer::copy_from(b"helloworld"),
+            DType::Utf8(Nullability::NonNullable),
+            Validity::NonNullable,
+        );
+
+        let taken = array.take(buffer![1u32, 0].into_array()).unwrap();
+
+        let expected = VarBinViewArray::from_iter(
+            [Some("world"), Some("hello")],
             DType::Utf8(Nullability::NonNullable),
         );
         assert_arrays_eq!(expected, taken, &mut ctx);
