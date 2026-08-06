@@ -4,7 +4,7 @@
 //! `ST_Distance(geom, const) <op> radius` pruning.
 
 use geo::Rect as GeoRect;
-use vortex_array::expr::BoundExpression as BoundExpr;
+use vortex_array::expr::BoundExpression;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::fns::binary::Binary;
@@ -42,9 +42,9 @@ impl StatsRewriteRule for GeoDistancePrune {
 
     fn falsify(
         &self,
-        expr: &BoundExpr,
+        expr: &BoundExpression,
         ctx: &StatsRewriteCtx<'_>,
-    ) -> VortexResult<Option<BoundExpr>> {
+    ) -> VortexResult<Option<BoundExpression>> {
         // Only the ordered comparisons prune today. `== r` could prune in the future (a chunk is
         // provably empty when `r` lies outside its box's [min, max] distance interval), it's just
         // not implemented. `!= r` cannot: pruning would need every row's distance to equal `r`,
@@ -94,11 +94,11 @@ impl StatsRewriteRule for GeoDistancePrune {
 ///
 /// A distance is always `>= 0`, which decides the degenerate radii up front.
 fn distance_prune_proof(
-    geom: &BoundExpr,
+    geom: &BoundExpression,
     query: GeoRect<f64>,
     op: Operator,
     radius: f64,
-) -> Option<BoundExpr> {
+) -> Option<BoundExpression> {
     // A distance is always non-negative, so degenerate radii resolve without touching the box.
     match op {
         // `<= r` / `< r` with a negative radius (or zero, for `<`) match nothing: prune every chunk.

@@ -3,7 +3,7 @@
 
 //! `ST_Intersects(geom, const)` pruning.
 
-use vortex_array::expr::BoundExpression as BoundExpr;
+use vortex_array::expr::BoundExpression;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::stats::rewrite::StatsRewriteCtx;
@@ -34,9 +34,9 @@ impl StatsRewriteRule for GeoIntersectsPrune {
 
     fn falsify(
         &self,
-        expr: &BoundExpr,
+        expr: &BoundExpression,
         ctx: &StatsRewriteCtx<'_>,
-    ) -> VortexResult<Option<BoundExpr>> {
+    ) -> VortexResult<Option<BoundExpression>> {
         let Some((geom, constant)) = geometry_and_constant(expr, ctx)? else {
             return Ok(None);
         };

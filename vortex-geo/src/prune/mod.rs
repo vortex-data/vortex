@@ -22,7 +22,7 @@ pub use intersects::GeoIntersectsPrune;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::EmptyOptions;
-use vortex_array::expr::BoundExpression as BoundExpr;
+use vortex_array::expr::BoundExpression;
 use vortex_array::expr::bound::binary;
 use vortex_array::expr::bound::case_when;
 use vortex_array::expr::bound::checked_add;
@@ -52,9 +52,9 @@ use crate::extension::single_geometry;
 /// An asymmetric predicate (e.g. a future contains) must recover which operand is the column
 /// itself instead of calling this.
 fn geometry_and_constant<'a>(
-    expr: &'a BoundExpr,
+    expr: &'a BoundExpression,
     ctx: &StatsRewriteCtx<'_>,
-) -> VortexResult<Option<(&'a BoundExpr, &'a Scalar)>> {
+) -> VortexResult<Option<(&'a BoundExpression, &'a Scalar)>> {
     // The predicate is symmetric, so the column (scope root) and the constant may be on either
     // side.
     let (lhs, rhs) = (expr.child(0), expr.child(1));
@@ -95,7 +95,7 @@ fn query_aabb(constant: &Scalar, ctx: &StatsRewriteCtx<'_>) -> VortexResult<Opti
 ///
 /// A chunk written without the statistic reads as null here; every proof built on top must let
 /// that null propagate to its root, where the zone map keeps the chunk.
-fn aabb_stat(geom: &BoundExpr) -> BoundExpr {
+fn aabb_stat(geom: &BoundExpression) -> BoundExpression {
     // `ext_storage` unwraps the native `geoarrow.box` stat value to its backing struct, so
     // proofs can `get_item` the coordinate fields.
     ext_storage(stat(geom.clone(), GeometryAabb.bind(EmptyOptions)))
@@ -105,12 +105,12 @@ fn aabb_stat(geom: &BoundExpr) -> BoundExpr {
 /// touch, positive iff they are strictly separated.
 ///
 /// Prunes "near" predicates: `min_dist_sq > r^2` proves every row is farther than `r`.
-fn min_dist_sq(aabb: &BoundExpr, query: GeoRect<f64>) -> BoundExpr {
+fn min_dist_sq(aabb: &BoundExpression, query: GeoRect<f64>) -> BoundExpression {
     let field = |name: &str| get_item(name, aabb.clone());
     // Per axis: gap = max(0, q_lo - aabb_hi, aabb_lo - q_hi), positive only when the intervals
     // are separated. The nearest two points of the boxes are one axis-gap apart per axis, so the
     // squared distance is gap_x^2 + gap_y^2 (squared throughout to avoid a sqrt).
-    let gap = |q_lo: f64, q_hi: f64, lo: BoundExpr, hi: BoundExpr| {
+    let gap = |q_lo: f64, q_hi: f64, lo: BoundExpression, hi: BoundExpression| {
         maximum(
             lit(0.0),
             maximum(
@@ -127,12 +127,12 @@ fn min_dist_sq(aabb: &BoundExpr, query: GeoRect<f64>) -> BoundExpr {
 /// Upper bound on every row's squared distance to the query AABB.
 ///
 /// Prunes "far" predicates: `max_dist_sq < r^2` proves every row is within `r`.
-fn max_dist_sq(aabb: &BoundExpr, query: GeoRect<f64>) -> BoundExpr {
+fn max_dist_sq(aabb: &BoundExpression, query: GeoRect<f64>) -> BoundExpression {
     let field = |name: &str| get_item(name, aabb.clone());
     // Per axis: span = max(q_hi, aabb_hi) - min(q_lo, aabb_lo), the farthest two points of the
     // boxes can be apart. The nullable AABB field is the second `maximum`/`minimum` argument so
     // that `case_when`'s else branch carries the nullability - a missing stat propagates null.
-    let span = |q_lo: f64, q_hi: f64, lo: BoundExpr, hi: BoundExpr| {
+    let span = |q_lo: f64, q_hi: f64, lo: BoundExpression, hi: BoundExpression| {
         binary(
             Operator::Sub,
             maximum(lit(q_hi), hi),
@@ -145,16 +145,16 @@ fn max_dist_sq(aabb: &BoundExpr, query: GeoRect<f64>) -> BoundExpr {
 }
 
 /// `e * e`.
-fn square(e: BoundExpr) -> BoundExpr {
+fn square(e: BoundExpression) -> BoundExpression {
     binary(Operator::Mul, e.clone(), e)
 }
 
 /// `max(a, b)`.
-fn maximum(a: BoundExpr, b: BoundExpr) -> BoundExpr {
+fn maximum(a: BoundExpression, b: BoundExpression) -> BoundExpression {
     case_when(gt(a.clone(), b.clone()), a, b)
 }
 
 /// `min(a, b)`.
-fn minimum(a: BoundExpr, b: BoundExpr) -> BoundExpr {
+fn minimum(a: BoundExpression, b: BoundExpression) -> BoundExpression {
     case_when(lt(a.clone(), b.clone()), a, b)
 }
