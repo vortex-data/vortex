@@ -38,6 +38,11 @@ impl TakeReduce for Union {
 
         // Nullability is stripped so that the children keep their declared variant dtypes. The
         // type IDs already record which rows are null.
+        //
+        // This stays a lazy node that every child then executes for itself, so the fill runs once
+        // per variant. `TakeReduce` has no `ExecutionCtx` to materialize it with, and the cost is
+        // proportional to the indices rather than to the data, so it is left alone. Non-nullable
+        // indices skip it entirely because `FillNull::simplify` returns its input unchanged.
         let fill_scalar = Scalar::zero_value(&indices.dtype().as_nonnullable());
         let child_indices = indices.clone().fill_null(fill_scalar)?;
 

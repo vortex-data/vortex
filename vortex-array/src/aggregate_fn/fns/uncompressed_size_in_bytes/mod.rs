@@ -242,15 +242,10 @@ pub(crate) fn constant_uncompressed_size_in_bytes(
         | DType::Map(..)
         | DType::FixedSizeList(..)
         | DType::Struct(..)
+        | DType::Union(..)
         | DType::Extension(_) => {
             let canonical = array.array().clone().execute::<Canonical>(ctx)?;
             return canonical_uncompressed_size_in_bytes(&canonical, ctx);
-        }
-        DType::Union(..) => {
-            todo!(
-                "TODO(connor)[Union]: support constant Union size accounting after constant Union \
-                 canonicalization defines inactive sparse-child placeholders"
-            )
         }
         DType::Variant(_) => {
             vortex_bail!("UncompressedSizeInBytes is not supported for Variant arrays")

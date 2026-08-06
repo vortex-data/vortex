@@ -39,8 +39,12 @@ fn main() {
 static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 const ARRAY_SIZE: usize = 100_000;
-const TAKE_SIZE: usize = 1_000;
-const VARIANT_COUNTS: [usize; 4] = [2, 4, 8, 16];
+
+/// The index count is held low so that the widest variant case stays inside the sub-millisecond
+/// budget for microbenchmarks. Cost is linear in it, so the variant sweep still reads the same.
+const TAKE_SIZE: usize = 256;
+
+const VARIANT_COUNTS: [usize; 3] = [2, 4, 8];
 
 /// A sparse union of `variant_count` `i64` variants whose type IDs cycle through every variant.
 fn union_array(variant_count: usize, rng: &mut StdRng) -> ArrayRef {

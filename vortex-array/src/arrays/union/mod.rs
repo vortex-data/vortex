@@ -11,8 +11,8 @@
 //! Type ID values are not validated during construction. Accessing a non-null row whose type ID
 //! is not declared by the union variants will panic.
 //!
-//! Slice, mask, and take are structural: each rewrites the type IDs and every child, so each costs
-//! `O(variants)` child operations.
+//! Mask only rewrites the type IDs, because outer nulls live there. Slice and take have to rewrite
+//! every child to keep them row-aligned, so each costs `O(variants)` child operations.
 
 use crate::dtype::DType;
 use crate::dtype::Nullability;

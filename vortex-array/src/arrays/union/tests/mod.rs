@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use rstest::rstest;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_session::registry::ReadContext;
 
@@ -12,6 +14,7 @@ use crate::ArrayContext;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
+use crate::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use crate::array_session;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
@@ -238,32 +241,64 @@ fn slice_and_filter_preserve_sparse_alignment() -> VortexResult<()> {
     Ok(())
 }
 
-#[test]
-fn constant_union_canonicalizes_to_sparse_union() -> VortexResult<()> {
+/// A constant union canonicalizes into a sparse union whose selected child repeats the scalar's
+/// value and whose unselected children hold placeholders. The cases cover a non-nullable union, a
+/// nullable union that is present, and an outer null.
+#[rstest]
+#[case::non_nullable(
+    Scalar::union(variants().vortex_expect("valid Union variants"), 9, true.into(), Nullability::NonNullable)
+        .vortex_expect("valid Union scalar"),
+    DType::Primitive(PType::I32, Nullability::NonNullable),
+)]
+#[case::nullable_present(
+    Scalar::union(nullable_variants().vortex_expect("valid Union variants"), 5, 7i32.into(), Nullability::Nullable)
+        .vortex_expect("valid Union scalar"),
+    DType::Primitive(PType::I64, Nullability::Nullable),
+)]
+#[case::outer_null(
+    Scalar::null(DType::Union(variants().vortex_expect("valid Union variants"), Nullability::Nullable)),
+    DType::Primitive(PType::I32, Nullability::NonNullable),
+)]
+fn constant_union_canonicalizes_to_sparse_union(
+    #[case] scalar: Scalar,
+    #[case] placeholder_dtype: DType,
+) -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
-    let dtype = DType::Union(variants()?, Nullability::Nullable);
 
-    for scalar in [
-        Scalar::union(variants()?, 9, true.into(), Nullability::Nullable)?,
-        Scalar::null(dtype.clone()),
-    ] {
-        let canonical = ConstantArray::new(scalar.clone(), 3)
-            .into_array()
-            .execute::<Canonical>(&mut ctx)?
-            .into_union();
+    let canonical = ConstantArray::new(scalar.clone(), 3)
+        .into_array()
+        .execute::<Canonical>(&mut ctx)?
+        .into_union();
 
-        assert_eq!(canonical.dtype(), &dtype);
+    assert_eq!(canonical.dtype(), scalar.dtype());
 
-        // The unselected variant is only a placeholder, so it keeps its declared dtype.
-        assert_eq!(
-            canonical.child_by_name("number")?.dtype(),
-            &DType::Primitive(PType::I32, Nullability::NonNullable)
-        );
+    // An unselected child is only a placeholder, so it keeps the dtype the schema declares. That
+    // is a zero for a non-nullable variant and a null for a nullable one.
+    let unselected = canonical
+        .iter_children()
+        .find(|child| child.dtype() == &placeholder_dtype)
+        .ok_or_else(|| vortex_err!("No child with dtype {placeholder_dtype}"))?;
+    assert_eq!(
+        unselected.execute_scalar(0, &mut ctx)?,
+        Scalar::default_value(&placeholder_dtype)
+    );
 
-        for index in 0..canonical.len() {
-            assert_eq!(canonical.execute_scalar(index, &mut ctx)?, scalar);
-        }
+    for index in 0..canonical.len() {
+        assert_eq!(canonical.execute_scalar(index, &mut ctx)?, scalar);
     }
+
+    Ok(())
+}
+
+#[test]
+fn constant_union_reports_uncompressed_size() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let scalar = Scalar::union(variants()?, 5, 10i32.into(), Nullability::NonNullable)?;
+
+    // Four `i32` rows plus four `bool` placeholder bits, rounded up to a byte.
+    let size = uncompressed_size_in_bytes(&ConstantArray::new(scalar, 4).into_array(), &mut ctx)?;
+
+    assert_eq!(size, 4 * 4 + 4 + 1);
 
     Ok(())
 }
