@@ -17,7 +17,6 @@ use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::Expression;
 use vortex_array::expr::analysis::referenced_field_paths;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorAdapter;
@@ -45,11 +44,6 @@ use crate::scan::repeated_scan::RepeatedScan;
 use crate::scan::split_by::SplitBy;
 use crate::scan::splits::Splits;
 use crate::scan::splits::attempt_split_ranges;
-
-/// Optimize `expr` against `scope`, then bind it into a typed expression tree.
-pub fn optimize_and_bind(expr: Expression, scope: &DType) -> VortexResult<BoundExpression> {
-    expr.optimize_recursive(scope)?.bind(scope)
-}
 
 /// Builder for scanning a [`LayoutReader`] into arrays, streams, iterators, or mapped outputs.
 ///

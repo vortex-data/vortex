@@ -16,7 +16,6 @@ use vortex::dtype::Nullability::NonNullable;
 use vortex::expr::col;
 use vortex::expr::pack;
 use vortex::file::OpenOptionsSessionExt;
-use vortex::layout::scan::scan_builder::optimize_and_bind;
 
 use crate::Format;
 use crate::IdempotentPath;
@@ -67,10 +66,9 @@ impl Dataset for TPCHLCommentChunked {
 
         let path = data_dir.join("lineitem.vortex");
         let file = SESSION.open_options().open_path(path).await?;
-        let projection = optimize_and_bind(
-            pack(vec![("l_comment", col("l_comment"))], NonNullable),
-            file.dtype(),
-        )?;
+        let projection = pack(vec![("l_comment", col("l_comment"))], NonNullable)
+            .optimize_recursive(file.dtype())?
+            .bind(file.dtype())?;
         let chunks: Vec<_> = file
             .scan()?
             .with_projection(projection)

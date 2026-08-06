@@ -41,7 +41,6 @@ use vortex_session::VortexSession;
 
 use crate::LayoutReaderRef;
 use crate::scan::scan_builder::ScanBuilder;
-use crate::scan::scan_builder::optimize_and_bind;
 
 /// An implementation of a [`DataSource`] that reads data from a [`LayoutReaderRef`].
 pub struct LayoutReaderDataSource {
@@ -116,10 +115,16 @@ impl DataSource for LayoutReaderDataSource {
         let total_rows = self.reader.row_count();
         let row_range = scan_request.row_range.unwrap_or(0..total_rows);
 
-        let projection = optimize_and_bind(scan_request.projection, self.reader.dtype())?;
+        let projection = scan_request
+            .projection
+            .optimize_recursive(self.reader.dtype())?
+            .bind(self.reader.dtype())?;
         let filter = scan_request
             .filter
-            .map(|expr| optimize_and_bind(expr, self.reader.dtype()))
+            .map(|expr| {
+                expr.optimize_recursive(self.reader.dtype())?
+                    .bind(self.reader.dtype())
+            })
             .transpose()?;
         let dtype = projection.dtype().clone();
 

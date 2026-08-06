@@ -6,7 +6,6 @@
 use itertools::Itertools;
 use libfuzzer_sys::Corpus;
 use libfuzzer_sys::fuzz_target;
-use vortex::layout::scan::scan_builder::optimize_and_bind;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -83,10 +82,17 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
         .open_options()
         .open_buffer(full_buff)
         .vortex_expect("open_buffer should succeed in fuzz test");
-    let projection = optimize_and_bind(projection_expr.unwrap_or_else(root), file.dtype())
+    let projection = projection_expr
+        .unwrap_or_else(root)
+        .optimize_recursive(file.dtype())
+        .and_then(|expr| expr.bind(file.dtype()))
         .vortex_expect("projection should bind in fuzz test");
     let filter = filter_expr
-        .map(|filter| optimize_and_bind(filter, file.dtype()))
+        .map(|filter| {
+            filter
+                .optimize_recursive(file.dtype())
+                .and_then(|expr| expr.bind(file.dtype()))
+        })
         .transpose()
         .vortex_expect("filter should bind in fuzz test");
     let mut output = file

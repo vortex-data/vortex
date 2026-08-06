@@ -62,7 +62,6 @@ use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutReaderRef;
 use crate::scan::scan_builder::ScanBuilder;
-use crate::scan::scan_builder::optimize_and_bind;
 
 /// Default concurrency for opening deferred readers.
 const DEFAULT_CONCURRENCY: usize = 8;
@@ -350,9 +349,9 @@ impl BoundScanRequest {
         } = request;
 
         Ok(Self {
-            projection: optimize_and_bind(projection, dtype)?,
+            projection: projection.optimize_recursive(dtype)?.bind(dtype)?,
             filter: filter
-                .map(|expr| optimize_and_bind(expr, dtype))
+                .map(|expr| expr.optimize_recursive(dtype)?.bind(dtype))
                 .transpose()
                 .map_err(Arc::new),
             row_range,

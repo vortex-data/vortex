@@ -18,7 +18,6 @@ use vortex::expr::root;
 use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
-use vortex::layout::scan::scan_builder::optimize_and_bind;
 use vortex_arrow::ToArrowType;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
@@ -72,7 +71,9 @@ impl Compressor for VortexCompressor {
         if let Some(cols) = read_projection(root_columns) {
             // Columns are named "0".."num_columns-1"; project the given subset.
             let names: FieldNames = cols.iter().map(|i| i.to_string()).collect();
-            let projection = optimize_and_bind(select(names, root()), &source_dtype)?;
+            let projection = select(names, root())
+                .optimize_recursive(&source_dtype)?
+                .bind(&source_dtype)?;
             scan = scan.with_projection(projection);
         }
         let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);

@@ -25,7 +25,6 @@ use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::scan_builder::ScanBuilder;
-use vortex::layout::scan::scan_builder::optimize_and_bind;
 use vortex::layout::scan::split_by::SplitBy;
 use vortex::layout::segments::MokaSegmentCache;
 use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
@@ -174,10 +173,17 @@ impl PyVortexFile {
 
         let reader = slf.py().detach(|| {
             let filter = expr
-                .map(|e| optimize_and_bind(e.into_inner(), vxf.dtype()))
+                .map(|e| {
+                    e.into_inner()
+                        .optimize_recursive(vxf.dtype())?
+                        .bind(vxf.dtype())
+                })
                 .transpose()?;
-            let projection =
-                optimize_and_bind(projection.map(|p| p.0).unwrap_or_else(root), vxf.dtype())?;
+            let projection = projection
+                .map(|p| p.0)
+                .unwrap_or_else(root)
+                .optimize_recursive(vxf.dtype())?
+                .bind(vxf.dtype())?;
             let mut builder = vxf
                 .scan()?
                 .with_some_filter(filter)
@@ -226,9 +232,12 @@ fn scan_builder(
     batch_size: Option<usize>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ScanBuilder<ArrayRef>> {
-    let projection = optimize_and_bind(projection.unwrap_or_else(root), vxf.dtype())?;
+    let projection = projection
+        .unwrap_or_else(root)
+        .optimize_recursive(vxf.dtype())?
+        .bind(vxf.dtype())?;
     let expr = expr
-        .map(|expr| optimize_and_bind(expr, vxf.dtype()))
+        .map(|expr| expr.optimize_recursive(vxf.dtype())?.bind(vxf.dtype()))
         .transpose()?;
     let mut builder = vxf
         .scan()?

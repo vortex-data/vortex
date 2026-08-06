@@ -87,7 +87,6 @@ use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::zoned::LegacyStats;
 use vortex_layout::layouts::zoned::Zoned;
 use vortex_layout::scan::scan_builder::ScanBuilder;
-use vortex_layout::scan::scan_builder::optimize_and_bind;
 use vortex_layout::scan::split_by::SplitBy;
 use vortex_layout::session::LayoutSession;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
@@ -117,7 +116,9 @@ fn strict_sorted(indices: Buffer<u64>) -> StrictSortedBuffer<u64> {
 }
 
 fn bind_scan_expr(file: &VortexFile, expr: Expression) -> BoundExpression {
-    optimize_and_bind(expr, file.dtype()).vortex_expect("scan expression should bind")
+    expr.optimize_recursive(file.dtype())
+        .and_then(|expr| expr.bind(file.dtype()))
+        .vortex_expect("scan expression should bind")
 }
 
 #[tokio::test]
@@ -1390,16 +1391,16 @@ async fn write_nullable_nested_struct() -> VortexResult<()> {
 #[tokio::test]
 async fn scan_empty_fields() -> VortexResult<()> {
     let array = (0..10000).collect::<PrimitiveArray>();
-    let projection = optimize_and_bind(
-        Pack.new_expr(
+    let projection = Pack
+        .new_expr(
             PackOptions {
                 names: Default::default(),
                 nullability: Nullability::Nullable,
             },
             [],
-        ),
-        array.dtype(),
-    )?;
+        )
+        .optimize_recursive(array.dtype())?
+        .bind(array.dtype())?;
 
     let result = round_trip(&array.clone().into_array(), |scan| {
         Ok(scan.with_projection(projection))
@@ -2227,7 +2228,9 @@ async fn timestamp_unit_mismatch() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let file = SESSION.open_options().open_buffer(buf)?;
-    let filter = optimize_and_bind(filter_expr, file.dtype())?;
+    let filter = filter_expr
+        .optimize_recursive(file.dtype())?
+        .bind(file.dtype())?;
     let mut stream = file.scan()?.with_filter(filter).into_array_stream()?;
     let result = stream.try_next().await;
 
@@ -2276,7 +2279,9 @@ async fn timestamp_unit_mismatch_errors_with_constant_children()
     );
 
     let file = SESSION.open_options().open_buffer(buf)?;
-    let filter = optimize_and_bind(filter_expr, file.dtype())?;
+    let filter = filter_expr
+        .optimize_recursive(file.dtype())?
+        .bind(file.dtype())?;
     let stream = file.scan()?.with_filter(filter).into_array_stream()?;
     let results = stream.try_collect::<Vec<_>>().await;
 
@@ -2781,7 +2786,9 @@ async fn repro_8166_binary_gt_all_ff_max() -> VortexResult<()> {
     );
 
     let file = SESSION.open_options().open_buffer(buf)?;
-    let filter = optimize_and_bind(filter, file.dtype())?;
+    let filter = filter
+        .optimize_recursive(file.dtype())?
+        .bind(file.dtype())?;
     let result = file
         .scan()?
         .with_filter(filter)

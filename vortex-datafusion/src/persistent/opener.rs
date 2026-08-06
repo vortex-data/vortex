@@ -46,7 +46,6 @@ use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::scan_builder::ScanBuilder;
-use vortex::layout::scan::scan_builder::optimize_and_bind;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
 use vortex::session::VortexSession;
@@ -300,8 +299,10 @@ impl FileOpener for VortexOpener {
 
             // The schema of the stream returned from the vortex scan.
             // We use a reference schema for types that don't roundtrip (Dictionary, Utf8, etc.).
-            let scan_projection =
-                optimize_and_bind(scan_projection, vxf.dtype()).map_err(|_e| {
+            let scan_projection = scan_projection
+                .optimize_recursive(vxf.dtype())
+                .and_then(|projection| projection.bind(vxf.dtype()))
+                .map_err(|_e| {
                     exec_datafusion_err!("Couldn't get the dtype for the underlying Vortex scan")
                 })?;
             let scan_dtype = scan_projection.dtype().clone();
@@ -392,7 +393,7 @@ impl FileOpener for VortexOpener {
                 })
                 .transpose()?;
             let filter = filter
-                .map(|filter| optimize_and_bind(filter, vxf.dtype()))
+                .map(|filter| filter.optimize_recursive(vxf.dtype())?.bind(vxf.dtype()))
                 .transpose()
                 .map_err(|e| exec_datafusion_err!("Couldn't bind Vortex scan filter: {e}"))?;
 

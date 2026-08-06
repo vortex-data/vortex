@@ -70,7 +70,6 @@
 //! use vortex::array::validity::Validity;
 //! use vortex::buffer::{ByteBufferMut, buffer};
 //! use vortex::file::{OpenOptionsSessionExt, WriteOptionsSessionExt};
-//! use vortex::layout::scan::scan_builder::optimize_and_bind;
 //! use vortex::session::VortexSession;
 //!
 //! # async fn example() -> vortex::error::VortexResult<()> {
@@ -86,7 +85,9 @@
 //! let file = session
 //!     .open_options()
 //!     .open_buffer(bytes)?;
-//! let filter = optimize_and_bind(gt(root(), lit(2u64)), file.dtype())?;
+//! let filter = gt(root(), lit(2u64))
+//!     .optimize_recursive(file.dtype())?
+//!     .bind(file.dtype())?;
 //! let filtered = file
 //!     .scan()?
 //!     .with_filter(filter)
@@ -360,7 +361,6 @@ mod test {
     use vortex_file::OpenOptionsSessionExt;
     use vortex_file::WriteOptionsSessionExt;
     use vortex_file::WriteStrategyBuilder;
-    use vortex_layout::scan::scan_builder::optimize_and_bind;
     use vortex_session::VortexSession;
 
     use crate as vortex;
@@ -443,7 +443,9 @@ mod test {
 
         // [read]
         let file = session.open_options().open_path(path.clone()).await?;
-        let filter = optimize_and_bind(gt(root(), lit(2u64)), file.dtype())?;
+        let filter = gt(root(), lit(2u64))
+            .optimize_recursive(file.dtype())?
+            .bind(file.dtype())?;
         let array = file
             .scan()?
             .with_filter(filter)
@@ -541,7 +543,9 @@ mod test {
 
         // Read the file back, but project down to just the "value" column.
         let file = session.open_options().open_path(path.clone()).await?;
-        let projection = optimize_and_bind(select(["value"], root()), file.dtype())?;
+        let projection = select(["value"], root())
+            .optimize_recursive(file.dtype())?
+            .bind(file.dtype())?;
         let projected = file
             .scan()?
             .with_projection(projection)
