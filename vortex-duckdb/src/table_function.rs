@@ -721,6 +721,10 @@ pub fn pushdown_projection_aggregates(
 
 /// Get column-wise statistics. Available only if we're reading a single file.
 pub fn statistics(bind_data: &TableFunctionBind, column_index: usize) -> Option<ColumnStatistics> {
+    // Aggregate output columns hold data we don't have in statistics
+    if !bind_data.aggregates.is_empty() {
+        return None;
+    }
     let children = bind_data.data_source.children();
     // Otherwise we'd have to open all files eagerly which is a performance
     // regression. Duckdb's Parquet reader only gets metadata for multiple
@@ -736,16 +740,16 @@ pub fn statistics(bind_data: &TableFunctionBind, column_index: usize) -> Option<
         Some(inner) => inner.file_stats().stats_sets(),
         None => return None,
     };
-    let source_id = if bind_data.aggregates.is_empty() {
-        column_index
-    } else {
-        match bind_data.aggregates[column_index] {
-            ColumnAggregate::Real { projection_id, .. } => projection_id.as_(),
-            ColumnAggregate::CountStar => return None,
-        }
-    };
-    let dtype = bind_data.column_fields[source_id].dtype.clone();
-    let stats_aggregate = ColumnStatisticsAggregate::new(&stats_sets[source_id]);
+    // Columns with pushed projection expression output expression results,
+    // and not column values
+    if bind_data.column_fields[column_index]
+        .projection_expr
+        .is_some()
+    {
+        return None;
+    }
+    let dtype = bind_data.column_fields[column_index].dtype.clone();
+    let stats_aggregate = ColumnStatisticsAggregate::new(&stats_sets[column_index]);
     Some(ColumnStatistics::from(&stats_aggregate, dtype))
 }
 
