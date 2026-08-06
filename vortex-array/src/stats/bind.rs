@@ -18,11 +18,10 @@ use vortex_error::VortexResult;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::dtype::DType;
 use crate::expr::BoundExpression;
+use crate::expr::bound::lit;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::Transformed;
 use crate::scalar::Scalar;
-use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::stat::StatFn;
 
 /// A target that can bind abstract statistics to concrete expressions.
@@ -88,7 +87,7 @@ fn bind_stat_fn(
 }
 
 fn null_expr(dtype: DType) -> VortexResult<BoundExpression> {
-    Literal.try_new_bound_expr(Scalar::null(dtype.as_nullable()), [])
+    Ok(lit(Scalar::null(dtype.as_nullable())))
 }
 
 #[cfg(test)]

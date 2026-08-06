@@ -21,14 +21,12 @@ use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
+use vortex_array::expr::bound::pack as bound_pack;
 use vortex_array::expr::direct_bound_annotations;
 use vortex_array::expr::label_bound_tree;
 use vortex_array::expr::root;
 use vortex_array::expr::transform::partition_bound_annotations;
 use vortex_array::optimizer::ArrayOptimizer;
-use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::scalar_fn::fns::pack::Pack;
-use vortex_array::scalar_fn::fns::pack::PackOptions;
 use vortex_array::scalar_fn::is_negative_cost;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
@@ -303,13 +301,7 @@ impl LayoutReader for DictReader {
         let values_eval = if let Some(inner) = expr_inner {
             // "outer" takes a struct field with PUSHDOWN_ANNOTATION name, so
             // pack inner with this name as well
-            let inner = BoundExpression::try_new(
-                Pack.bind(PackOptions {
-                    names: [PUSHDOWN_ANNOTATION].into(),
-                    nullability: Nullability::NonNullable,
-                }),
-                [inner],
-            )?;
+            let inner = bound_pack([(PUSHDOWN_ANNOTATION, inner)], Nullability::NonNullable);
 
             // We can't use values_eval as it uses values_array_uncanonical
             // which in turn gets populated from self.values. If
@@ -381,6 +373,7 @@ mod tests {
     use vortex_array::dtype::StructFields;
     use vortex_array::expr::BoundExpression;
     use vortex_array::expr::Expression;
+    use vortex_array::expr::bound::pack as bound_pack;
     use vortex_array::expr::byte_length;
     use vortex_array::expr::cast;
     use vortex_array::expr::eq;
@@ -390,9 +383,6 @@ mod tests {
     use vortex_array::expr::lit;
     use vortex_array::expr::pack;
     use vortex_array::expr::root;
-    use vortex_array::scalar_fn::ScalarFnVTableExt;
-    use vortex_array::scalar_fn::fns::pack::Pack;
-    use vortex_array::scalar_fn::fns::pack::PackOptions;
     use vortex_array::validity::Validity;
     use vortex_btrblocks::BtrBlocksCompressor;
     use vortex_error::VortexExpect;
@@ -765,13 +755,10 @@ mod tests {
         )
         .into_array();
 
-        let pushed_expr = Pack.try_new_bound_expr(
-            PackOptions {
-                names: [FieldName::from(PUSHDOWN_ANNOTATION)].into(),
-                nullability: Nullability::NonNullable,
-            },
-            [inner],
-        )?;
+        let pushed_expr = bound_pack(
+            [(FieldName::from(PUSHDOWN_ANNOTATION), inner)],
+            Nullability::NonNullable,
+        );
         let pushed = array.clone().apply_bound(&pushed_expr)?;
         let actual = pushed.apply_bound(&outer)?;
         let expected = array.apply(&original)?;

@@ -22,14 +22,12 @@ use crate::expr::analysis::Annotation;
 use crate::expr::analysis::AnnotationFn;
 use crate::expr::analysis::BoundAnnotations;
 use crate::expr::analysis::descendent_bound_annotations;
+use crate::expr::bound::get_item;
+use crate::expr::bound::pack;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::NodeRewriter;
 use crate::expr::traversal::Transformed;
 use crate::expr::traversal::TraversalOrder;
-use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::fns::get_item::GetItem;
-use crate::scalar_fn::fns::pack::Pack;
-use crate::scalar_fn::fns::pack::PackOptions;
 
 /// Partition an expression into sub-expressions that are uniquely associated with an annotation.
 /// A root expression is also returned that can be used to recombine the results of the partitions
@@ -75,12 +73,12 @@ where
 
     for (annotation, exprs) in collector.sub_expressions {
         // We pack all sub-expressions for the same annotation into a single expression.
-        let names = exprs
+        let names: FieldNames = exprs
             .iter()
             .enumerate()
             .map(|(idx, _)| PartitionCollector::field_name(&annotation, idx))
             .collect();
-        let expr = bound_pack(names, exprs)?;
+        let expr = pack(names.into_iter().zip(exprs), Nullability::NonNullable);
 
         partitions.push(expr);
         partition_annotations.push(annotation);
@@ -259,11 +257,11 @@ where
         let field_name = PartitionCollector::field_name(annotation, *offset);
         *offset += 1;
 
-        let partition = bound_get_item(
+        let partition = get_item(
             FieldName::from(annotation.clone()),
             BoundExpression::new_root(self.root_dtype.clone()),
-        )?;
-        let value = bound_get_item(field_name, partition)?;
+        );
+        let value = get_item(field_name, partition);
 
         Ok(Transformed {
             value,
@@ -271,20 +269,6 @@ where
             order: TraversalOrder::Skip,
         })
     }
-}
-
-fn bound_get_item(field_name: FieldName, child: BoundExpression) -> VortexResult<BoundExpression> {
-    BoundExpression::try_new(GetItem.bind(field_name), [child])
-}
-
-fn bound_pack(names: FieldNames, children: Vec<BoundExpression>) -> VortexResult<BoundExpression> {
-    BoundExpression::try_new(
-        Pack.bind(PackOptions {
-            names,
-            nullability: Nullability::NonNullable,
-        }),
-        children,
-    )
 }
 
 fn partition_root_dtype(names: &FieldNames, partitions: &[BoundExpression]) -> DType {

@@ -11,9 +11,9 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
+use vortex_array::expr::bound::lit;
 use vortex_array::expr::stats::Stat;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::fns::cast::Cast;
 use vortex_array::scalar_fn::fns::get_item::GetItem;
 use vortex_array::scalar_fn::fns::literal::Literal;
@@ -98,7 +98,7 @@ impl FileStatsBinder<'_> {
         let stat_dtype = stat.dtype(&field_dtype)?;
         let stat_scalar = Scalar::try_new(stat_dtype, Some(stat_value)).ok()?;
 
-        Literal.try_new_bound_expr(stat_scalar, []).ok()
+        Some(lit(stat_scalar))
     }
 }
 

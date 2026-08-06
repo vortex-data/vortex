@@ -22,22 +22,22 @@ pub use intersects::GeoIntersectsPrune;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::EmptyOptions;
-use vortex_array::dtype::FieldName;
 use vortex_array::expr::BoundExpression as BoundExpr;
+use vortex_array::expr::bound::binary;
+use vortex_array::expr::bound::case_when;
+use vortex_array::expr::bound::checked_add;
+use vortex_array::expr::bound::ext_storage;
+use vortex_array::expr::bound::get_item;
+use vortex_array::expr::bound::gt;
+use vortex_array::expr::bound::gt_eq;
+use vortex_array::expr::bound::lit;
+use vortex_array::expr::bound::lt;
+use vortex_array::expr::bound::lt_eq;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::EmptyOptions as ScalarEmptyOptions;
-use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::scalar_fn::fns::binary::Binary;
-use vortex_array::scalar_fn::fns::case_when::CaseWhen;
-use vortex_array::scalar_fn::fns::case_when::CaseWhenOptions;
-use vortex_array::scalar_fn::fns::ext_storage::ExtStorage;
-use vortex_array::scalar_fn::fns::get_item::GetItem;
 use vortex_array::scalar_fn::fns::literal::Literal;
 use vortex_array::scalar_fn::fns::operators::Operator;
-use vortex_array::scalar_fn::fns::stat::StatFn;
-use vortex_array::scalar_fn::fns::stat::StatOptions;
+use vortex_array::stats::bound::stat;
 use vortex_array::stats::rewrite::StatsRewriteCtx;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::aggregate_fn::GeometryAabb;
@@ -101,62 +101,6 @@ fn aabb_stat(geom: &BoundExpr) -> BoundExpr {
     ext_storage(stat(geom.clone(), GeometryAabb.bind(EmptyOptions)))
 }
 
-fn stat(expr: BoundExpr, aggregate_fn: vortex_array::aggregate_fn::AggregateFnRef) -> BoundExpr {
-    StatFn
-        .try_new_bound_expr(StatOptions::new(aggregate_fn), [expr])
-        .vortex_expect("geometry pruning only requests a supported aggregate")
-}
-
-fn ext_storage(input: BoundExpr) -> BoundExpr {
-    ExtStorage
-        .try_new_bound_expr(ScalarEmptyOptions, [input])
-        .vortex_expect("the geometry AABB aggregate returns an extension value")
-}
-
-fn get_item(field: impl Into<FieldName>, child: BoundExpr) -> BoundExpr {
-    GetItem
-        .try_new_bound_expr(field.into(), [child])
-        .vortex_expect("geometry AABB fields are fixed by its storage dtype")
-}
-
-fn lit(value: impl Into<Scalar>) -> BoundExpr {
-    Literal
-        .try_new_bound_expr(value.into(), [])
-        .vortex_expect("literal expressions are always well-typed")
-}
-
-fn case_when(condition: BoundExpr, then_value: BoundExpr, else_value: BoundExpr) -> BoundExpr {
-    CaseWhen
-        .try_new_bound_expr(
-            CaseWhenOptions {
-                num_when_then_pairs: 1,
-                has_else: true,
-            },
-            [condition, then_value, else_value],
-        )
-        .vortex_expect("geometry pruning case expressions have matching branch dtypes")
-}
-
-fn gt(lhs: BoundExpr, rhs: BoundExpr) -> BoundExpr {
-    binop(Operator::Gt, lhs, rhs)
-}
-
-fn gt_eq(lhs: BoundExpr, rhs: BoundExpr) -> BoundExpr {
-    binop(Operator::Gte, lhs, rhs)
-}
-
-fn lt(lhs: BoundExpr, rhs: BoundExpr) -> BoundExpr {
-    binop(Operator::Lt, lhs, rhs)
-}
-
-fn lt_eq(lhs: BoundExpr, rhs: BoundExpr) -> BoundExpr {
-    binop(Operator::Lte, lhs, rhs)
-}
-
-fn checked_add(lhs: BoundExpr, rhs: BoundExpr) -> BoundExpr {
-    binop(Operator::Add, lhs, rhs)
-}
-
 /// Lower bound on every row's squared distance to the query AABB: zero when the boxes overlap or
 /// touch, positive iff they are strictly separated.
 ///
@@ -170,8 +114,8 @@ fn min_dist_sq(aabb: &BoundExpr, query: GeoRect<f64>) -> BoundExpr {
         maximum(
             lit(0.0),
             maximum(
-                binop(Operator::Sub, lit(q_lo), hi),
-                binop(Operator::Sub, lo, lit(q_hi)),
+                binary(Operator::Sub, lit(q_lo), hi),
+                binary(Operator::Sub, lo, lit(q_hi)),
             ),
         )
     };
@@ -189,7 +133,7 @@ fn max_dist_sq(aabb: &BoundExpr, query: GeoRect<f64>) -> BoundExpr {
     // boxes can be apart. The nullable AABB field is the second `maximum`/`minimum` argument so
     // that `case_when`'s else branch carries the nullability - a missing stat propagates null.
     let span = |q_lo: f64, q_hi: f64, lo: BoundExpr, hi: BoundExpr| {
-        binop(
+        binary(
             Operator::Sub,
             maximum(lit(q_hi), hi),
             minimum(lit(q_lo), lo),
@@ -200,16 +144,9 @@ fn max_dist_sq(aabb: &BoundExpr, query: GeoRect<f64>) -> BoundExpr {
     checked_add(square(dx), square(dy))
 }
 
-/// `a <op> b`.
-fn binop(op: Operator, a: BoundExpr, b: BoundExpr) -> BoundExpr {
-    Binary
-        .try_new_bound_expr(op, [a, b])
-        .vortex_expect("binary expression")
-}
-
 /// `e * e`.
 fn square(e: BoundExpr) -> BoundExpr {
-    binop(Operator::Mul, e.clone(), e)
+    binary(Operator::Mul, e.clone(), e)
 }
 
 /// `max(a, b)`.

@@ -5,7 +5,6 @@ use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_utils::iter::ReduceBalancedIterExt;
 
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTableExt;
@@ -15,8 +14,20 @@ use crate::aggregate_fn::fns::all_non_null::AllNonNull;
 use crate::aggregate_fn::fns::all_null::AllNull;
 use crate::dtype::DType;
 use crate::expr::BoundExpression as BoundExpr;
+use crate::expr::bound::and;
+use crate::expr::bound::and_collect;
+use crate::expr::bound::binary;
+use crate::expr::bound::cast;
+use crate::expr::bound::dynamic_with_options;
+use crate::expr::bound::eq;
+use crate::expr::bound::gt;
+use crate::expr::bound::gt_eq;
+use crate::expr::bound::lit;
+use crate::expr::bound::lt;
+use crate::expr::bound::lt_eq;
+use crate::expr::bound::or;
+use crate::expr::bound::or_collect;
 use crate::expr::stats::Stat;
-use crate::scalar::Scalar;
 use crate::scalar::StringLike;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ScalarFnId;
@@ -36,8 +47,7 @@ use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::scalar_fn::internal::row_count::RowCount;
-use crate::stats::expr::StatFn;
-use crate::stats::expr::StatOptions;
+use crate::stats::bound::stat;
 use crate::stats::rewrite::StatsRewriteCtx;
 use crate::stats::rewrite::StatsRewriteRule;
 use crate::stats::session::StatsSession;
@@ -58,59 +68,6 @@ pub(crate) fn register_builtins(session: &StatsSession) {
     session.register_rewrite(ListContainsAllNonNanStatsRewrite);
     session.register_rewrite(DynamicComparisonNanCountStatsRewrite);
     session.register_rewrite(DynamicComparisonAllNonNanStatsRewrite);
-}
-
-fn binary(operator: Operator, lhs: BoundExpr, rhs: BoundExpr) -> BoundExpr {
-    Binary
-        .try_new_bound_expr(operator, [lhs, rhs])
-        .vortex_expect("stats rewrites must construct well-typed binary expressions")
-}
-
-fn and(lhs: BoundExpr, rhs: BoundExpr) -> BoundExpr {
-    binary(Operator::And, lhs, rhs)
-}
-
-fn or(lhs: BoundExpr, rhs: BoundExpr) -> BoundExpr {
-    binary(Operator::Or, lhs, rhs)
-}
-
-fn eq(lhs: BoundExpr, rhs: BoundExpr) -> BoundExpr {
-    binary(Operator::Eq, lhs, rhs)
-}
-
-fn gt(lhs: BoundExpr, rhs: BoundExpr) -> BoundExpr {
-    binary(Operator::Gt, lhs, rhs)
-}
-
-fn gt_eq(lhs: BoundExpr, rhs: BoundExpr) -> BoundExpr {
-    binary(Operator::Gte, lhs, rhs)
-}
-
-fn lt(lhs: BoundExpr, rhs: BoundExpr) -> BoundExpr {
-    binary(Operator::Lt, lhs, rhs)
-}
-
-fn lt_eq(lhs: BoundExpr, rhs: BoundExpr) -> BoundExpr {
-    binary(Operator::Lte, lhs, rhs)
-}
-
-fn and_collect(exprs: impl IntoIterator<Item = BoundExpr>) -> Option<BoundExpr> {
-    exprs.into_iter().reduce_balanced(and)
-}
-
-fn or_collect(exprs: impl IntoIterator<Item = BoundExpr>) -> Option<BoundExpr> {
-    exprs.into_iter().reduce_balanced(or)
-}
-
-fn lit(value: impl Into<Scalar>) -> BoundExpr {
-    Literal
-        .try_new_bound_expr(value.into(), [])
-        .vortex_expect("literal expressions are always well-typed")
-}
-
-fn cast(expr: BoundExpr, dtype: DType) -> BoundExpr {
-    Cast.try_new_bound_expr(dtype, [expr])
-        .vortex_expect("stats rewrites only preserve casts from a bound predicate")
 }
 
 fn row_count() -> BoundExpr {
@@ -541,16 +498,14 @@ fn dynamic_comparison_falsify<P: NonNanProof>(
         return Ok(None);
     };
 
-    let value_predicate = DynamicComparison
-        .try_new_bound_expr(
-            DynamicComparisonExpr {
-                operator,
-                rhs: Arc::clone(&dynamic.rhs),
-                default: !dynamic.default,
-            },
-            [lhs_stat],
-        )
-        .vortex_expect("a rewritten dynamic comparison preserves its bound input type");
+    let value_predicate = dynamic_with_options(
+        DynamicComparisonExpr {
+            operator,
+            rhs: Arc::clone(&dynamic.rhs),
+            default: !dynamic.default,
+        },
+        lhs_stat,
+    );
     with_non_nan_guards::<P>(ctx, [lhs], value_predicate)
 }
 
@@ -738,9 +693,7 @@ fn cast_stat(
 }
 
 fn stat_fn(expr: BoundExpr, aggregate_fn: AggregateFnRef) -> BoundExpr {
-    StatFn
-        .try_new_bound_expr(StatOptions::new(aggregate_fn), [expr])
-        .vortex_expect("stats rewrites only construct supported aggregate expressions")
+    stat(expr, aggregate_fn)
 }
 
 #[cfg(test)]
@@ -751,8 +704,6 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use super::StatFn;
-    use super::StatOptions;
     use crate::aggregate_fn::AggregateFnRef;
     use crate::aggregate_fn::AggregateFnVTableExt;
     use crate::aggregate_fn::EmptyOptions as AggregateEmptyOptions;
@@ -789,6 +740,8 @@ mod tests {
     use crate::scalar_fn::fns::dynamic::DynamicComparisonExpr;
     use crate::scalar_fn::fns::operators::CompareOperator;
     use crate::scalar_fn::internal::row_count::RowCount;
+    use crate::stats::expr::StatFn;
+    use crate::stats::expr::StatOptions;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
 
