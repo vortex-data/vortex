@@ -18,10 +18,7 @@ use crate::dtype::DType;
 use crate::expr::display::DisplayTreeExpr;
 use crate::expr::traversal::TraversalOrder;
 use crate::expr::traversal::pre_order_visit_down;
-use crate::scalar_fn::ScalarFnId;
-use crate::scalar_fn::ScalarFnOptions;
 use crate::scalar_fn::ScalarFnRef;
-use crate::scalar_fn::ScalarFnSignature;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::stats::rewrite::StatsRewriteCtx;
 
@@ -79,22 +76,6 @@ impl Expression {
             Self::Scalar { scalar_fn, .. } => Some(scalar_fn),
             Self::Root => None,
         }
-    }
-
-    /// Returns the id of this expression's scalar fn, or `None` for [`Expression::Root`].
-    pub fn scalar_fn_id(&self) -> Option<ScalarFnId> {
-        self.as_scalar().map(|sf| sf.id())
-    }
-
-    /// Signature information for this expression's scalar fn, or `None` for [`Expression::Root`].
-    pub fn signature(&self) -> Option<ScalarFnSignature<'_>> {
-        self.as_scalar().map(|sf| sf.signature())
-    }
-
-    /// The type-erased options for this expression's scalar fn, or `None` for
-    /// [`Expression::Root`].
-    pub fn options(&self) -> Option<ScalarFnOptions<'_>> {
-        self.as_scalar().map(|sf| sf.options())
     }
 
     /// Whether this expression's scalar fn is of the given vtable type.

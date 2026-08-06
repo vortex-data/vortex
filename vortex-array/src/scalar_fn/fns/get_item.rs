@@ -229,7 +229,11 @@ mod tests {
     fn get_item_by_name() {
         let st = test_array();
         let get_item = get_item("a", root());
-        assert!(get_item.signature().is_some_and(|sig| sig.is_strict()));
+        assert!(
+            get_item
+                .as_scalar()
+                .is_some_and(|f| f.signature().is_strict())
+        );
         let item = st.into_array().apply(&get_item).unwrap();
         assert_eq!(item.dtype(), &DType::from(PType::I32))
     }

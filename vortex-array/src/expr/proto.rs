@@ -154,7 +154,7 @@ mod tests {
 
         let expr = Expression::from_proto(&expr_proto, &session).unwrap();
         assert_eq!(
-            expr.scalar_fn_id().map(|id| id.as_ref().to_string()),
+            expr.as_scalar().map(|f| f.id().as_ref().to_string()),
             Some("vortex.test.foreign_scalar_fn".to_string())
         );
 
