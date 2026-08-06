@@ -34,10 +34,7 @@ impl TakeExecute for FSST {
                     .clone()
                     .union_nullability(indices.dtype().nullability()),
                 array.symbol_table(),
-                {
-                    let codes = array.codes();
-                    take_varbin(codes.as_view(), indices, ctx)?
-                },
+                take_varbin(array.codes().as_view(), indices, ctx)?,
                 array
                     .uncompressed_lengths()
                     .take(indices.clone())?

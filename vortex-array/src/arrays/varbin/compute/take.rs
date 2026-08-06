@@ -247,7 +247,6 @@ pub fn take_varbin(
         return Ok(taken);
     }
 
-    // TODO(joe): Be lazy with execute
     let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
     let data = array.bytes();
     let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
@@ -272,45 +271,17 @@ pub fn take_varbin(
     let indices = indices.reinterpret_cast(indices.ptype().to_unsigned());
 
     match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
-        match offsets.ptype() {
-            PType::U8 => take::<I, u8>(
+        match_each_unsigned_integer_ptype!(offsets.ptype(), |O| {
+            return take::<I, O>(
                 dtype,
-                offsets.as_slice::<u8>(),
+                offsets.as_slice::<O>(),
                 data.as_slice(),
                 indices.as_slice::<I>(),
                 array_validity,
                 indices_validity,
                 out_offset_ptype,
-            ),
-            PType::U16 => take::<I, u16>(
-                dtype,
-                offsets.as_slice::<u16>(),
-                data.as_slice(),
-                indices.as_slice::<I>(),
-                array_validity,
-                indices_validity,
-                out_offset_ptype,
-            ),
-            PType::U32 => take::<I, u32>(
-                dtype,
-                offsets.as_slice::<u32>(),
-                data.as_slice(),
-                indices.as_slice::<I>(),
-                array_validity,
-                indices_validity,
-                out_offset_ptype,
-            ),
-            PType::U64 => take::<I, u64>(
-                dtype,
-                offsets.as_slice::<u64>(),
-                data.as_slice(),
-                indices.as_slice::<I>(),
-                array_validity,
-                indices_validity,
-                out_offset_ptype,
-            ),
-            _ => unreachable!("invalid PType for offsets"),
-        }
+            );
+        })
     })
 }
 
