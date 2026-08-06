@@ -443,30 +443,33 @@ impl MutTypedStatsSetRef<'_, '_> {
             other.get_scalar_bound::<Sum>(),
         ) {
             (Some(m1), Some(m2)) => {
-                // If the combine sum is exact, then we can sum them.
-                if let Some(scalar_value) =
-                    m1.zip(m2).as_exact().and_then(|(s1, s2)| match s1.dtype() {
-                        DType::Primitive(..) => s1
-                            .as_primitive()
-                            .checked_add(&s2.as_primitive())
-                            .and_then(|pscalar| pscalar.pvalue().map(ScalarValue::Primitive)),
-                        // Add widens the result precision, so the merged sum is only exact as a
-                        // stat if it still fits the summands' own decimal type.
-                        DType::Decimal(decimal_dtype, _) => s1
-                            .as_decimal()
-                            .checked_binary_numeric(
-                                &s2.as_decimal(),
-                                crate::scalar::NumericOperator::Add,
-                            )
-                            .ok()
-                            .flatten()
-                            .and_then(|scalar| scalar.as_decimal().decimal_value())
-                            .filter(|value| value.fits_in_precision(*decimal_dtype))
-                            .map(ScalarValue::Decimal),
-                        _ => None,
-                    })
-                {
-                    self.set(Stat::Sum, Precision::Exact(scalar_value));
+                // If the combined sum is exact, then we can sum them.
+                let merged = m1.zip(m2).as_exact().and_then(|(s1, s2)| match s1.dtype() {
+                    DType::Primitive(..) => s1
+                        .as_primitive()
+                        .checked_add(&s2.as_primitive())
+                        .and_then(|pscalar| pscalar.pvalue().map(ScalarValue::Primitive)),
+                    // Add widens the result precision, so the merged sum is only exact as a
+                    // stat if it still fits the summands' own decimal type.
+                    DType::Decimal(decimal_dtype, _) => s1
+                        .as_decimal()
+                        .checked_binary_numeric(
+                            &s2.as_decimal(),
+                            crate::scalar::NumericOperator::Add,
+                        )
+                        .ok()
+                        .flatten()
+                        .and_then(|scalar| scalar.as_decimal().decimal_value())
+                        .filter(|value| value.fits_in_precision(*decimal_dtype))
+                        .map(ScalarValue::Decimal),
+                    _ => None,
+                });
+
+                match merged {
+                    Some(scalar_value) => self.set(Stat::Sum, Precision::Exact(scalar_value)),
+                    // An overflow, an inexact bound or a non-numeric dtype leaves the combined
+                    // sum unknown. Keeping this set's own sum would report a partial total.
+                    None => self.clear(Stat::Sum),
                 }
             }
             _ => self.clear(Stat::Sum),
@@ -565,13 +568,19 @@ mod test {
     use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
+    use crate::dtype::MAX_PRECISION;
+    use crate::dtype::NativeDecimalType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::i256;
     use crate::expr::stats::IsConstant;
     use crate::expr::stats::Precision;
     use crate::expr::stats::Stat;
     use crate::expr::stats::StatsProvider;
     use crate::expr::stats::StatsProviderExt;
+    use crate::scalar::DecimalValue;
+    use crate::scalar::ScalarValue;
     use crate::stats::StatsSet;
     use crate::stats::stats_set::Scalar;
 
@@ -629,6 +638,32 @@ mod test {
             ),
             Precision::exact(42)
         );
+    }
+
+    #[test]
+    fn merge_sums_overflow_clears() {
+        // A sum that cannot be combined exactly leaves the merged set with no Sum at all;
+        // retaining this set's own sum would report a partial total as the combined one.
+        let dtype = DType::Primitive(PType::I64, Nullability::NonNullable);
+        let merged = StatsSet::of(Stat::Sum, Precision::exact(i64::MAX))
+            .merge_ordered(&StatsSet::of(Stat::Sum, Precision::exact(i64::MAX)), &dtype);
+
+        assert!(merged.get(Stat::Sum).is_absent());
+    }
+
+    #[test]
+    fn merge_decimal_sums_out_of_precision_clears() {
+        // A decimal(70, 0) array's Sum stat is itself decimal(76, 0): `sum_decimal_dtype` adds
+        // ten digits of headroom but saturates at MAX_PRECISION, so at this input precision there
+        // is none left and two maximal sums cannot be combined exactly.
+        let dtype = DType::Decimal(DecimalDType::new(70, 0), Nullability::NonNullable);
+        let max = ScalarValue::Decimal(DecimalValue::I256(
+            <i256 as NativeDecimalType>::MAX_BY_PRECISION[usize::from(MAX_PRECISION)],
+        ));
+        let merged = StatsSet::of(Stat::Sum, Precision::exact(max.clone()))
+            .merge_ordered(&StatsSet::of(Stat::Sum, Precision::exact(max)), &dtype);
+
+        assert!(merged.get(Stat::Sum).is_absent());
     }
 
     #[test]
