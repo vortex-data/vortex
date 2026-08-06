@@ -36,6 +36,7 @@ use vortex::array::optimizer::ArrayOptimizer;
 use vortex::dtype::PType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::expr::Expression;
 use vortex::expr::stats::Precision;
 use vortex::file::v2::FileStatsLayoutReader;
@@ -45,6 +46,7 @@ use vortex::io::runtime::current::ThreadSafeIterator;
 use vortex::layout::scan::multi::MultiLayoutChild;
 use vortex::layout::scan::multi::MultiLayoutDataSource;
 use vortex::metrics::tracing::get_global_labels;
+use vortex::scalar::Scalar;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::operators::Operator;
 use vortex::scalar_fn::fns::pack::Pack;
@@ -61,6 +63,7 @@ use crate::convert::PushedAggregate;
 use crate::convert::try_from_bound_expression;
 use crate::convert::try_from_projection_aggregate;
 use crate::convert::try_from_projection_expression;
+use crate::cpp::DUCKDB_TYPE;
 use crate::duckdb::AggregateExpression;
 use crate::duckdb::AggregatePushdownInputRef;
 use crate::duckdb::BindInputRef;
@@ -68,6 +71,7 @@ use crate::duckdb::BindResultRef;
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::DuckdbStringMapRef;
 use crate::duckdb::ExpressionRef;
+use crate::duckdb::LogicalTypeRef;
 use crate::duckdb::TableInitInput;
 use crate::duckdb::Value;
 use crate::exporter::ArrayExporter;
@@ -447,6 +451,30 @@ fn convert_result(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Struc
     })
 }
 
+fn aggregate_output_value(scalar: Scalar, expected: &LogicalTypeRef) -> VortexResult<Value> {
+    let primitive_i128 = |scalar: &Scalar| -> VortexResult<Option<i128>> {
+        let primitive = scalar.as_primitive();
+        Ok(match primitive.ptype() {
+            PType::I64 => primitive.typed_value::<i64>().map(i128::from),
+            PType::U64 => primitive.typed_value::<u64>().map(i128::from),
+            other => vortex_bail!("expected {expected:?} output type, got {other}"),
+        })
+    };
+    match expected.as_type_id() {
+        DUCKDB_TYPE::DUCKDB_TYPE_HUGEINT => Ok(match primitive_i128(&scalar)? {
+            Some(value) => Value::new_hugeint(value),
+            None => Value::null(expected),
+        }),
+        DUCKDB_TYPE::DUCKDB_TYPE_BIGINT if scalar.dtype().is_unsigned_int() => {
+            Ok(match primitive_i128(&scalar)? {
+                Some(value) => Value::from(i64::try_from(value)?),
+                None => Value::null(expected),
+            })
+        }
+        _ => Value::try_from(scalar),
+    }
+}
+
 fn scan_aggregate(
     local_state: &mut TableFunctionLocal,
     global_state: &TableFunctionGlobal,
@@ -490,7 +518,8 @@ fn scan_aggregate(
                 let value = match aggregate {
                     ColumnAggregate::Real { .. } => {
                         let accum = accum_iter.next().vortex_expect("partial for real agg");
-                        Value::try_from(accum.finish()?)?
+                        let expected = chunk.get_vector_mut(idx).logical_type();
+                        aggregate_output_value(accum.finish()?, &expected)?
                     }
                     ColumnAggregate::CountStar => Value::from(row_count),
                 };

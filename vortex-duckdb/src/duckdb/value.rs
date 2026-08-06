@@ -192,6 +192,17 @@ impl Value {
         unsafe { Self::own(cpp::duckdb_vx_value_create_null(logical_type.as_ptr())) }
     }
 
+    pub fn new_hugeint(value: i128) -> Self {
+        let lower: u64 = value.as_();
+        let upper: i64 = (value >> 64).as_();
+        unsafe {
+            Self::own(cpp::duckdb_create_hugeint(cpp::duckdb_hugeint {
+                lower,
+                upper,
+            }))
+        }
+    }
+
     pub fn new_decimal(precision: u8, scale: i8, value: i128) -> Self {
         unsafe {
             Self::own(cpp::duckdb_create_decimal(cpp::duckdb_decimal {

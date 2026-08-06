@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Aggregate scans with pushed filters accumulate post-filter rows
+
+include ../setup.slt.no
+
+statement ok
+CREATE TABLE tf(i INTEGER, j INTEGER);
+
+statement ok
+INSERT INTO tf VALUES (1, 10), (2, 20), (3, 30), (NULL, 40);
+
+statement ok
+COPY tf TO '${WORK_DIR}/aggregate-with-filter.vortex';
+
+query IIIIR
+SELECT count(*), count(i), sum(i), max(j), avg(j) FROM tf WHERE i > 1;
+----
+2 2 5 30 25
+
+query IIIIR
+SELECT count(*), count(i), sum(i), max(j), avg(j) FROM '${WORK_DIR}/aggregate-with-filter.vortex' WHERE i > 1;
+----
+2 2 5 30 25
