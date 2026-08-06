@@ -14,8 +14,7 @@ pub fn label_strict(expr: &Expression) -> BooleanLabels<'_> {
         expr,
         |expr| match expr {
             Expression::Scalar { scalar_fn, .. } => scalar_fn.signature().is_strict(),
-            // A null scope row yields a null result, so the scope is strict. Note this is the
-            // opposite answer to fallibility above, which is why neither can be defaulted.
+            // Vacuously strict.
             Expression::Root => true,
         },
         |acc, &child| acc & child,

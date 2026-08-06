@@ -59,9 +59,6 @@ trait DisplayTreeNode: Sized {
 }
 
 /// Tree-display label for the scope root.
-///
-/// Preserved verbatim from when `Root` was a scalar function, so that making it a variant does not
-/// change rendered output.
 const ROOT_DISPLAY: &str = "vortex.root()";
 
 impl DisplayTreeNode for Expression {
