@@ -294,10 +294,10 @@ fn constant_union_reports_uncompressed_size() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let scalar = Scalar::union(variants()?, 5, 10i32.into(), Nullability::NonNullable)?;
 
-    // Four `i32` rows plus four `bool` placeholder bits, rounded up to a byte.
+    // Four `u8` type IDs, four `i32` rows, and four `bool` placeholder bits rounded up to a byte.
     let size = uncompressed_size_in_bytes(&ConstantArray::new(scalar, 4).into_array(), &mut ctx)?;
 
-    assert_eq!(size, 4 * 4 + 4 + 1);
+    assert_eq!(size, 4 + 4 * 4 + 1);
 
     Ok(())
 }

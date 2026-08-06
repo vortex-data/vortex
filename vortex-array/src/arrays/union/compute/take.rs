@@ -35,7 +35,8 @@ impl TakeReduce for Union {
         let type_ids = array.type_ids().take(indices.clone())?;
 
         // This stays a lazy node, so the fill runs once per child. `TakeReduce` has no
-        // `ExecutionCtx` to materialize it with, and the cost is per index rather than per element.
+        // `ExecutionCtx` to materialize it with, and the cost scales with the indices, not the
+        // data behind them.
         let fill_scalar = Scalar::zero_value(&indices.dtype().as_nonnullable());
         let child_indices = indices.clone().fill_null(fill_scalar)?;
 

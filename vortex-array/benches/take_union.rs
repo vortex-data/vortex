@@ -64,6 +64,18 @@ fn union_array(variant_count: usize, rng: &mut StdRng) -> ArrayRef {
     UnionArray::new(type_ids.into_array(), variants, children).into_array()
 }
 
+/// Take `indices` and execute the result, so that the child gathers actually run.
+fn bench_take(bencher: Bencher, array: ArrayRef, indices: ArrayRef) {
+    bencher
+        .with_inputs(|| (&array, &indices, SESSION.create_execution_ctx()))
+        .bench_refs(|(array, indices, ctx)| {
+            array
+                .take((*indices).clone())
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+        });
+}
+
 #[divan::bench(args = VARIANT_COUNTS)]
 fn take_union(bencher: Bencher, variant_count: usize) {
     let mut rng = StdRng::seed_from_u64(0);
@@ -74,14 +86,7 @@ fn take_union(bencher: Bencher, variant_count: usize) {
         .collect::<Buffer<u64>>()
         .into_array();
 
-    bencher
-        .with_inputs(|| (&array, &indices, SESSION.create_execution_ctx()))
-        .bench_refs(|(array, indices, ctx)| {
-            array
-                .take((*indices).clone())
-                .unwrap()
-                .execute::<RecursiveCanonical>(ctx)
-        });
+    bench_take(bencher, array, indices);
 }
 
 #[divan::bench(args = VARIANT_COUNTS)]
@@ -95,12 +100,5 @@ fn take_union_nullable_indices(bencher: Bencher, variant_count: usize) {
     )
     .into_array();
 
-    bencher
-        .with_inputs(|| (&array, &indices, SESSION.create_execution_ctx()))
-        .bench_refs(|(array, indices, ctx)| {
-            array
-                .take((*indices).clone())
-                .unwrap()
-                .execute::<RecursiveCanonical>(ctx)
-        });
+    bench_take(bencher, array, indices);
 }
