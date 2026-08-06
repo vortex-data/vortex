@@ -33,6 +33,7 @@ use vortex::array::arrays::StructArray;
 use vortex::array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::array::optimizer::ArrayOptimizer;
+use vortex::dtype::DType;
 use vortex::dtype::PType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -332,7 +333,11 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
     let iterator = RUNTIME.block_on_stream_thread_safe(|_handle| scan_driver_stream(stream, rx));
 
     let aggregates = bind_data.aggregates.clone();
-    let partials = build_partials(&aggregates, &bind_data.column_fields)?;
+    let partials = build_partials(
+        &aggregates,
+        &bind_data.column_fields,
+        bind_data.data_source.dtype(),
+    )?;
 
     Ok(TableFunctionGlobal {
         iterator,
@@ -381,9 +386,18 @@ impl Stream for ScanDriverStream {
     }
 }
 
+/// Dtype over which we accumulate
+fn aggregate_input_dtype(field: &DuckdbField, scope: &DType) -> VortexResult<DType> {
+    match &field.projection_expr {
+        None => Ok(field.dtype.clone()),
+        Some(expr) => expr.return_dtype(scope),
+    }
+}
+
 fn build_partials(
     aggregates: &[ColumnAggregate],
     fields: &[DuckdbField],
+    scope: &DType,
 ) -> VortexResult<Vec<Box<dyn DynAccumulator>>> {
     aggregates
         .iter()
@@ -393,7 +407,10 @@ fn build_partials(
                 aggregate,
             } => {
                 let projection_id: usize = projection_id.as_();
-                Some(aggregate.build(fields[projection_id].dtype.clone()))
+                Some(
+                    aggregate_input_dtype(&fields[projection_id], scope)
+                        .and_then(|dtype| aggregate.build(dtype)),
+                )
             }
             ColumnAggregate::CountStar => None,
         })
@@ -419,10 +436,14 @@ pub fn init_local(
         CURRENT_LABELSET.set(key, value);
     }
 
-    let partials = build_partials(&global.aggregates, &bind_data.column_fields)
-        // if aggregate initialization produced an error, it would error in
-        // init_global, see "partials" initialization there
-        .vortex_expect("local state aggregate initialization failed");
+    let partials = build_partials(
+        &global.aggregates,
+        &bind_data.column_fields,
+        bind_data.data_source.dtype(),
+    )
+    // if aggregate initialization produced an error, it would error in
+    // init_global, see "partials" initialization there
+    .vortex_expect("local state aggregate initialization failed");
 
     TableFunctionLocal {
         iterator: global.iterator.clone(),
@@ -715,7 +736,10 @@ pub fn pushdown_projection_aggregates(
         };
 
         let projection_id_usize: usize = projection_id.as_();
-        let dtype = &bind_data.column_fields[projection_id_usize].dtype;
+        let field = &bind_data.column_fields[projection_id_usize];
+        let Ok(dtype) = aggregate_input_dtype(field, bind_data.data_source.dtype()) else {
+            return Ok(false);
+        };
 
         // duckdb's min() returns nan only when every value is nan.
         // vortex's min() either ignores or counts nans.
@@ -724,12 +748,32 @@ pub fn pushdown_projection_aggregates(
             return Ok(false);
         }
 
-        // duckdb's sum() on i64/u64 extends to i128/u128 but vortex
-        // accumulators work on i64/u64 max.
-        if aggregate == PushedAggregate::Sum
+        let mean_or_sum = matches!(aggregate, PushedAggregate::Sum | PushedAggregate::Mean);
+
+        // duckdb's sum() and avg() on i64/u64 accumulate in i128/u128, vortex
+        // sum()/avg() work on i64/u64 max and overflow to null
+        if mean_or_sum
             && dtype.is_primitive()
             && matches!(dtype.as_ptype(), PType::I64 | PType::U64)
         {
+            return Ok(false);
+        }
+
+        // duckdb decimal sum() overflows to error, vortex sum overlows to NULL
+        // duckdb's avg() on decimals returns a double, vortex's mean stays
+        // decimal.
+        if mean_or_sum && matches!(dtype, DType::Decimal(..)) {
+            return Ok(false);
+        }
+
+        // vortex doesn't have list comparison
+        if matches!(aggregate, PushedAggregate::Min | PushedAggregate::Max)
+            && matches!(dtype, DType::List(..) | DType::FixedSizeList(..))
+        {
+            return Ok(false);
+        }
+
+        if aggregate.build(dtype).is_err() {
             return Ok(false);
         }
 

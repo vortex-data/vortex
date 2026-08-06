@@ -13,7 +13,7 @@ COPY (SELECT * FROM (VALUES (1),(2),(CAST(NULL AS BIGINT))) AS t(x)) TO '${WORK_
 query TT
 EXPLAIN SELECT avg(x) FROM '${WORK_DIR}/i-null.vortex';
 ----
-<!REGEX>:.*UNGROUPED_AGGREGATE.*
+<REGEX>:.*UNGROUPED_AGGREGATE.*
 
 query R
 SELECT avg(x) FROM '${WORK_DIR}/i-null.vortex';

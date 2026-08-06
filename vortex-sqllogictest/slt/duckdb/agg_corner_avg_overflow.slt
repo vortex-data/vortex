@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# avg(i64) whose sum overflows i64: duckdb computes it, vortex Mean
+# accumulates the numerator in i64 and returns NULL on overflow
+
+include ../setup.slt.no
+
+statement ok
+CREATE TABLE t1(i BIGINT);
+
+statement ok
+INSERT INTO t1 VALUES (9223372036854775807), (9223372036854775807);
+
+statement ok
+COPY t1 TO '${WORK_DIR}/c1.vortex';
+
+query R
+SELECT avg(i) FROM t1;
+----
+9223372036854776000
+
+query R
+SELECT avg(i) FROM '${WORK_DIR}/c1.vortex';
+----
+9223372036854776000
