@@ -7,6 +7,8 @@
 mod tests {
     use std::sync::Arc;
 
+    use vortex_error::VortexResult;
+
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -505,7 +507,7 @@ mod tests {
     }
 
     #[test]
-    fn test_list_cast_incompatible_element_types() {
+    fn test_list_cast_bool_and_primitive_elements_to_utf8() -> VortexResult<()> {
         // Create a list of integers.
         let int_list = Scalar::list(
             Arc::from(DType::Primitive(PType::I32, Nullability::NonNullable)),
@@ -513,12 +515,43 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        // Try to cast to list of strings - should fail.
-        let target = DType::List(
-            Arc::from(DType::Utf8(Nullability::NonNullable)),
+        let utf8_dtype = DType::Utf8(Nullability::NonNullable);
+        let target = DType::List(Arc::from(utf8_dtype.clone()), Nullability::NonNullable);
+        let casted = int_list.cast(&target)?;
+        let expected = Scalar::list(
+            utf8_dtype,
+            vec![Scalar::utf8("1", Nullability::NonNullable)],
             Nullability::NonNullable,
         );
-        assert!(int_list.cast(&target).is_err());
+
+        assert_eq!(casted, expected);
+
+        let bool_list = Scalar::list(
+            Arc::from(DType::Bool(Nullability::NonNullable)),
+            vec![
+                Scalar::bool(true, Nullability::NonNullable),
+                Scalar::bool(false, Nullability::NonNullable),
+            ],
+            Nullability::NonNullable,
+        );
+        let casted = bool_list.cast(&target)?;
+        let expected = Scalar::list(
+            DType::Utf8(Nullability::NonNullable),
+            vec![
+                Scalar::utf8("true", Nullability::NonNullable),
+                Scalar::utf8("false", Nullability::NonNullable),
+            ],
+            Nullability::NonNullable,
+        );
+
+        assert_eq!(casted, expected);
+
+        let unsupported_target = DType::List(
+            Arc::from(DType::Bool(Nullability::NonNullable)),
+            Nullability::NonNullable,
+        );
+        assert!(int_list.cast(&unsupported_target).is_err());
+        Ok(())
     }
 
     #[test]

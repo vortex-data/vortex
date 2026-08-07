@@ -9613,6 +9613,7 @@ dependencies = [
  "rstest",
  "rstest_reuse",
  "rustc-hash",
+ "ryu",
  "serde",
  "serde_json",
  "serde_test",

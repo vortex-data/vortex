@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Write;
+
 use num_traits::AsPrimitive;
 use num_traits::CheckedMul;
 use num_traits::NumCast;
@@ -24,6 +26,8 @@ use crate::arrays::DecimalArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::PrimitiveArrayExt;
+use crate::builders::ArrayBuilder;
+use crate::builders::VarBinViewBuilder;
 use crate::dtype::BigCast;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
@@ -85,10 +89,11 @@ impl CastKernel for Primitive {
         if let DType::Decimal(decimal_dtype, nullability) = dtype {
             return cast_to_decimal(array, *decimal_dtype, *nullability, ctx).map(Some);
         }
-        let DType::Primitive(new_ptype, new_nullability) = dtype else {
-            return Ok(None);
+        let (new_ptype, new_nullability) = match dtype {
+            DType::Primitive(new_ptype, new_nullability) => (*new_ptype, *new_nullability),
+            DType::Utf8(_) => return Ok(Some(cast_primitive_to_utf8(array, dtype, ctx)?)),
+            _ => return Ok(None),
         };
-        let (new_ptype, new_nullability) = (*new_ptype, *new_nullability);
         let src_ptype = array.ptype();
 
         let new_validity = array
@@ -616,13 +621,106 @@ fn cached_values_fit_in(array: ArrayView<'_, Primitive>, target_dtype: &DType) -
     Some(min.cast(target_dtype).is_ok() && max.cast(target_dtype).is_ok())
 }
 
+fn cast_primitive_to_utf8(
+    array: ArrayView<'_, Primitive>,
+    dtype: &DType,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let len = array.len();
+    let new_validity = array
+        .validity()?
+        .cast_nullability(dtype.nullability(), len, ctx)?;
+    let mask = new_validity.execute_mask(len, ctx)?;
+    let mut builder = VarBinViewBuilder::with_capacity(dtype.clone(), len);
+
+    // Arrow uses ryu for f32/f64 and Display for f16 and integer values.
+    match array.ptype() {
+        PType::F32 => append_float_values_to_utf8(&mut builder, array.as_slice::<f32>(), &mask),
+        PType::F64 => append_float_values_to_utf8(&mut builder, array.as_slice::<f64>(), &mask),
+        ptype => match_each_native_ptype!(ptype, |T| {
+            append_primitive_values_to_utf8(&mut builder, array.as_slice::<T>(), &mask)?;
+        }),
+    }
+
+    Ok(builder.finish_into_varbinview().into_array())
+}
+
+fn append_float_values_to_utf8<T: NativePType + ryu::Float>(
+    builder: &mut VarBinViewBuilder,
+    values: &[T],
+    mask: &Mask,
+) {
+    let mut formatter = ryu::Buffer::new();
+
+    match mask {
+        Mask::AllTrue(_) => {
+            for &value in values {
+                builder.append_value(formatter.format(value));
+            }
+        }
+        Mask::AllFalse(_) => builder.append_nulls(values.len()),
+        Mask::Values(validity) => {
+            for (&value, valid) in values.iter().zip(validity.bit_buffer().iter()) {
+                if valid {
+                    builder.append_value(formatter.format(value));
+                } else {
+                    builder.append_null();
+                }
+            }
+        }
+    }
+}
+
+fn append_primitive_values_to_utf8<T: NativePType>(
+    builder: &mut VarBinViewBuilder,
+    values: &[T],
+    mask: &Mask,
+) -> VortexResult<()> {
+    let mut scratch = String::with_capacity(32);
+
+    match mask {
+        Mask::AllTrue(_) => {
+            for &value in values {
+                append_primitive_value(builder, &mut scratch, value)?;
+            }
+        }
+        Mask::AllFalse(_) => builder.append_nulls(values.len()),
+        Mask::Values(validity) => {
+            for (&value, valid) in values.iter().zip(validity.bit_buffer().iter()) {
+                if valid {
+                    append_primitive_value(builder, &mut scratch, value)?;
+                } else {
+                    builder.append_null();
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn append_primitive_value<T: NativePType>(
+    builder: &mut VarBinViewBuilder,
+    scratch: &mut String,
+    value: T,
+) -> VortexResult<()> {
+    scratch.clear();
+    write!(scratch, "{value}")
+        .map_err(|_| vortex_err!("Failed to format {} value as Utf8", T::PTYPE))?;
+    builder.append_value(scratch.as_str());
+    Ok(())
+}
+
 #[cfg(test)]
 mod test {
+    use num_traits::NumCast;
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexError;
     use vortex_error::VortexResult;
+    use vortex_error::VortexResult as TestResult;
+    use vortex_error::vortex_err;
     use vortex_mask::Mask;
 
     use crate::ArrayRef;
@@ -631,6 +729,7 @@ mod test {
     use crate::array_session;
     use crate::arrays::DecimalArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
@@ -641,6 +740,7 @@ mod test {
     use crate::dtype::PType;
     use crate::dtype::i256;
     use crate::expr::stats::Stat;
+    use crate::match_each_native_ptype;
     use crate::validity::Validity;
 
     #[test]
@@ -1154,5 +1254,141 @@ mod test {
     #[case(buffer![42u32].into_array())]
     fn test_cast_primitive_conformance(#[case] array: ArrayRef) {
         test_cast_conformance(&array, &mut array_session().create_execution_ctx());
+    }
+
+    #[rstest]
+    #[case(PType::U8)]
+    #[case(PType::U16)]
+    #[case(PType::U32)]
+    #[case(PType::U64)]
+    #[case(PType::I8)]
+    #[case(PType::I16)]
+    #[case(PType::I32)]
+    #[case(PType::I64)]
+    #[case(PType::F16)]
+    #[case(PType::F32)]
+    #[case(PType::F64)]
+    fn cast_each_primitive_type_to_utf8(#[case] ptype: PType) -> TestResult<()> {
+        let array = match_each_native_ptype!(ptype, |T| {
+            let zero = <T as NumCast>::from(0u8)
+                .ok_or_else(|| vortex_err!("Cannot construct zero as {ptype}"))?;
+            let one = <T as NumCast>::from(1u8)
+                .ok_or_else(|| vortex_err!("Cannot construct one as {ptype}"))?;
+            let answer = <T as NumCast>::from(42u8)
+                .ok_or_else(|| vortex_err!("Cannot construct 42 as {ptype}"))?;
+            PrimitiveArray::from_iter([zero, one, answer]).into_array()
+        });
+        let actual = array.cast(DType::Utf8(Nullability::NonNullable))?;
+        let expected = if matches!(ptype, PType::F32 | PType::F64) {
+            VarBinViewArray::from_iter_str(["0.0", "1.0", "42.0"])
+        } else {
+            VarBinViewArray::from_iter_str(["0", "1", "42"])
+        };
+
+        assert_arrays_eq!(
+            actual,
+            expected,
+            &mut array_session().create_execution_ctx()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn cast_nullable_primitive_to_utf8() -> TestResult<()> {
+        let actual = PrimitiveArray::from_option_iter([Some(100i64), None, Some(-42)])
+            .into_array()
+            .cast(DType::Utf8(Nullability::Nullable))?;
+        let expected = VarBinViewArray::from_iter_nullable_str([Some("100"), None, Some("-42")]);
+
+        assert_arrays_eq!(
+            actual,
+            expected,
+            &mut array_session().create_execution_ctx()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn cast_all_null_primitive_to_utf8() -> TestResult<()> {
+        let actual = PrimitiveArray::from_option_iter([None::<i64>, None])
+            .into_array()
+            .cast(DType::Utf8(Nullability::Nullable))?;
+        let expected = VarBinViewArray::from_iter_nullable_str([None::<&str>, None]);
+
+        assert_arrays_eq!(
+            actual,
+            expected,
+            &mut array_session().create_execution_ctx()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn cast_nullable_primitive_with_null_to_non_nullable_utf8_fails() -> TestResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let result = PrimitiveArray::from_option_iter([Some(1i64), None])
+            .into_array()
+            .cast(DType::Utf8(Nullability::NonNullable))?
+            .execute::<crate::Canonical>(&mut ctx);
+
+        assert!(result.is_err(), "Expected error, got: {result:?}");
+        Ok(())
+    }
+
+    #[test]
+    fn cast_all_valid_nullable_primitive_to_non_nullable_utf8() -> TestResult<()> {
+        let actual = PrimitiveArray::from_option_iter([Some(1i64), Some(-42)])
+            .into_array()
+            .cast(DType::Utf8(Nullability::NonNullable))?;
+        let expected = VarBinViewArray::from_iter_str(["1", "-42"]);
+
+        assert_arrays_eq!(
+            actual,
+            expected,
+            &mut array_session().create_execution_ctx()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn cast_f64_to_utf8_matches_arrow_formatting() -> TestResult<()> {
+        let actual = buffer![
+            0.0f64,
+            -0.0,
+            1.5,
+            100.0,
+            1e20,
+            1e-20,
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY
+        ]
+        .into_array()
+        .cast(DType::Utf8(Nullability::NonNullable))?;
+        let expected = VarBinViewArray::from_iter_str([
+            "0.0", "-0.0", "1.5", "100.0", "1e20", "1e-20", "NaN", "inf", "-inf",
+        ]);
+
+        assert_arrays_eq!(
+            actual,
+            expected,
+            &mut array_session().create_execution_ctx()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn cast_primitive_to_binary_is_unsupported() {
+        let mut ctx = array_session().create_execution_ctx();
+        let result = buffer![1i64, 2, 3]
+            .into_array()
+            .cast(DType::Binary(Nullability::NonNullable))
+            .and_then(|array| {
+                array
+                    .execute::<crate::Canonical>(&mut ctx)
+                    .map(|canonical| canonical.into_array())
+            });
+
+        assert!(result.is_err(), "Expected error, got: {result:?}");
     }
 }

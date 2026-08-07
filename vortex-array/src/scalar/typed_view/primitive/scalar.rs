@@ -181,6 +181,17 @@ impl<'a> PrimitiveScalar<'a> {
                 *decimal_dtype,
                 *nullability,
             )),
+            DType::Utf8(nullability) => {
+                // Match Arrow's formatting: ryu for f32/f64, Display for f16 and integers.
+                let value = match self.ptype {
+                    PType::F32 => ryu::Buffer::new().format(pvalue.cast::<f32>()?).to_owned(),
+                    PType::F64 => ryu::Buffer::new().format(pvalue.cast::<f64>()?).to_owned(),
+                    ptype => {
+                        match_each_native_ptype!(ptype, |T| { pvalue.cast::<T>()?.to_string() })
+                    }
+                };
+                Ok(Scalar::utf8(value, *nullability))
+            }
             _ => vortex_bail!("Cannot cast primitive scalar to {dtype}"),
         }
     }

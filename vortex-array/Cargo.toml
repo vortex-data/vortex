@@ -53,6 +53,7 @@ regex-syntax = { workspace = true }
 rstest = { workspace = true, optional = true }
 rstest_reuse = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
+ryu = { workspace = true }
 serde = { workspace = true, optional = true, features = ["derive", "rc"] }
 simdutf8 = { workspace = true }
 smallvec = { workspace = true }

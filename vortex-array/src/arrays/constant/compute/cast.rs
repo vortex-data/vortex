@@ -23,6 +23,7 @@ impl CastReduce for Constant {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_error::VortexResult;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
@@ -33,6 +34,7 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
 
@@ -64,5 +66,43 @@ mod tests {
             scalar.as_decimal().decimal_value(),
             Some(DecimalValue::I128(4200))
         );
+    }
+
+    #[rstest]
+    #[case(
+        Scalar::from(true),
+        DType::Primitive(PType::I32, Nullability::NonNullable),
+        Scalar::primitive(1i32, Nullability::NonNullable)
+    )]
+    #[case(
+        Scalar::from(false),
+        DType::Utf8(Nullability::Nullable),
+        Scalar::utf8("false", Nullability::Nullable)
+    )]
+    #[case(
+        Scalar::from(-42i64),
+        DType::Utf8(Nullability::NonNullable),
+        Scalar::utf8("-42", Nullability::NonNullable)
+    )]
+    #[case(
+        Scalar::from(100.0f64),
+        DType::Utf8(Nullability::NonNullable),
+        Scalar::utf8("100.0", Nullability::NonNullable)
+    )]
+    #[case(
+        Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable)),
+        DType::Utf8(Nullability::Nullable),
+        Scalar::null(DType::Utf8(Nullability::Nullable))
+    )]
+    fn test_cast_bool_and_primitive_constants(
+        #[case] source: Scalar,
+        #[case] target: DType,
+        #[case] expected: Scalar,
+    ) -> VortexResult<()> {
+        let casted = ConstantArray::new(source, 5).into_array().cast(target)?;
+
+        assert_eq!(casted.len(), 5);
+        assert_eq!(casted.as_constant(), Some(expected));
+        Ok(())
     }
 }

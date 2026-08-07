@@ -5,6 +5,7 @@ use num_traits::One;
 use num_traits::Zero;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -14,6 +15,8 @@ use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::bool::BoolArrayExt;
+use crate::builders::ArrayBuilder;
+use crate::builders::VarBinViewBuilder;
 use crate::dtype::DType;
 use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::cast::CastKernel;
@@ -53,6 +56,36 @@ impl CastKernel for Bool {
             ));
         }
 
+        if let DType::Utf8(new_nullability) = dtype {
+            let len = array.len();
+            let new_validity = array
+                .validity()?
+                .cast_nullability(*new_nullability, len, ctx)?;
+            let mask = new_validity.execute_mask(len, ctx)?;
+            let bits = array.to_bit_buffer();
+            let mut builder = VarBinViewBuilder::with_capacity(dtype.clone(), len);
+
+            match &mask {
+                Mask::AllTrue(_) => {
+                    for value in bits.iter() {
+                        builder.append_value(if value { "true" } else { "false" });
+                    }
+                }
+                Mask::AllFalse(_) => builder.append_nulls(len),
+                Mask::Values(validity) => {
+                    for (value, valid) in bits.iter().zip(validity.bit_buffer().iter()) {
+                        if valid {
+                            builder.append_value(if value { "true" } else { "false" });
+                        } else {
+                            builder.append_null();
+                        }
+                    }
+                }
+            }
+
+            return Ok(Some(builder.finish_into_varbinview().into_array()));
+        }
+
         let DType::Primitive(new_ptype, new_nullability) = dtype else {
             return Ok(None);
         };
@@ -79,12 +112,15 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
+    use crate::arrays::VarBinViewArray;
+    use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
     use crate::dtype::DType;
@@ -114,6 +150,81 @@ mod tests {
             .into_array()
             .cast(DType::Bool(Nullability::NonNullable))
             .and_then(|a| a.execute::<Canonical>(&mut ctx).map(|c| c.into_array()));
+        assert!(result.is_err(), "Expected error, got: {result:?}");
+    }
+
+    #[test]
+    fn cast_bool_to_utf8() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let actual = BoolArray::from_iter([true, false, true])
+            .into_array()
+            .cast(DType::Utf8(Nullability::NonNullable))?;
+        let expected = VarBinViewArray::from_iter_str(["true", "false", "true"]);
+
+        assert_arrays_eq!(actual, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn cast_nullable_bool_to_utf8() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let actual = BoolArray::from_iter([Some(true), None, Some(false)])
+            .into_array()
+            .cast(DType::Utf8(Nullability::Nullable))?;
+        let expected = VarBinViewArray::from_iter_nullable_str([Some("true"), None, Some("false")]);
+
+        assert_arrays_eq!(actual, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn cast_all_null_bool_to_utf8() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let actual = BoolArray::from_iter([None, None])
+            .into_array()
+            .cast(DType::Utf8(Nullability::Nullable))?;
+        let expected = VarBinViewArray::from_iter_nullable_str([None::<&str>, None]);
+
+        assert_arrays_eq!(actual, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn cast_nullable_bool_with_null_to_non_nullable_utf8_fails() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = BoolArray::from_iter([Some(true), None])
+            .into_array()
+            .cast(DType::Utf8(Nullability::NonNullable))?
+            .execute::<Canonical>(&mut ctx);
+
+        assert!(result.is_err(), "Expected error, got: {result:?}");
+        Ok(())
+    }
+
+    #[test]
+    fn cast_all_valid_nullable_bool_to_non_nullable_utf8() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let actual = BoolArray::from_iter([Some(true), Some(false)])
+            .into_array()
+            .cast(DType::Utf8(Nullability::NonNullable))?;
+        let expected = VarBinViewArray::from_iter_str(["true", "false"]);
+
+        assert_arrays_eq!(actual, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn cast_bool_to_binary_is_unsupported() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = BoolArray::from_iter([true, false])
+            .into_array()
+            .cast(DType::Binary(Nullability::NonNullable))
+            .and_then(|array| {
+                array
+                    .execute::<Canonical>(&mut ctx)
+                    .map(|canonical| canonical.into_array())
+            });
+
         assert!(result.is_err(), "Expected error, got: {result:?}");
     }
 
