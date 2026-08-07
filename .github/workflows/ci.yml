@@ -126,14 +126,9 @@ jobs:
             pytest --benchmark-disable test/test_hf_datasets.py
         working-directory: vortex-python/
 
-      - name: Doctest - PyVortex
+      - name: Check Python documentation
         run: |
-          uv run --all-packages make doctest
-        working-directory: docs/
-
-      - name: Ensure docs build - PyVortex
-        run: |
-          uv run --all-packages make html
+          uv run --all-packages make check
         working-directory: docs/
 
       # Keep this last: setup-benchmark.sh confines everything except the wrapped

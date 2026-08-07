@@ -313,7 +313,7 @@ jobs:
             - After writing tests, post the COMPLETE test code inline
             - This ensures your work is visible and reviewable even if you hit the turn limit
             - Keep fixes minimal - only fix the specific bug
-            - Follow CLAUDE.md code style guidelines
+            - Follow `AGENTS.md` and any applicable nested `AGENTS.md` guidelines
             - **Use `--dev` flag** for faster builds: `cargo +nightly fuzz run --dev --sanitizer=none <target> <crash_file> -- -rss_limit_mb=0`
 
             ## Fixability Guidelines

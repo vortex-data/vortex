@@ -1,30 +1,22 @@
 # Vortex Documentation
 
-## Building
+Run documentation commands from the repository root through `docs/Makefile`.
 
-First, you must compile the vortex-python Rust code into a native library because the Python package
-inherits some of its doc strings from Rust docstrings:
+## Validate the documentation
 
-```
-cd ../vortex-python && uv run maturin develop
-```
-
-Build the Vortex docs:
-
-```
-uv run make html
+```bash
+uv run --all-packages make -C docs check
 ```
 
-## Development
+This is the canonical validation flow. It creates a clean Sphinx build, builds the HTML docs, and
+runs the doctests. `uv` installs the locked dependencies and builds the local `vortex-data` Python
+package through Maturin, so a separate `maturin develop` step is not required.
 
-Live-reloading (ish) build of the docs:
+## Live development
 
-```
-uv run make serve
+```bash
+make -C docs serve
 ```
 
-## Python Doctests
-
-```
-uv run make doctest
-```
+The `serve` target starts a live-reloading Sphinx server. Use focused targets such as `html` or
+`doctest` while iterating; run `make -C docs help` to list all targets, and finish with `check`.

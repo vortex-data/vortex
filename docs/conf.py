@@ -38,7 +38,7 @@ extensions = [
 
 templates_path = ["_templates"]
 html_show_sourcelink = False
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "README.md"]
+exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "README.md", "AGENTS.md"]
 
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),

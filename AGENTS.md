@@ -4,8 +4,6 @@ Guidance for Claude, Codex and other coding agents working in the Vortex reposit
 
 ## Task Routing
 
-- When asked to review a PR, especially via `/pr-review`, use the
-  `.agents/skills/pr-review` skill.
 - When asked a question about the PR or codebase, especially via `/query`, use the
   `.agents/skills/query` skill.
 - When asked to investigate a CI failure, especially via `/ci-failure-analysis`, use the
@@ -34,6 +32,14 @@ documentation in `docs/`, and benchmark tooling in `vortex-bench/` and `benchmar
   and execution integrations.
 - `vortex-python` contains Python bindings. RST-flavored project docs live in `docs/`.
 
+## Scoped Guidance
+
+Before changing files in a subtree, read the closest nested `AGENTS.md`. In particular:
+
+- `.github/AGENTS.md` covers workflows and other GitHub configuration.
+- `docs/AGENTS.md` covers Sphinx documentation.
+- `vortex-python/AGENTS.md` covers Python and PyO3 binding work.
+
 ## Build
 
 Prefer narrow crate builds while iterating:
@@ -57,39 +63,16 @@ Run tests for the crate or binding you touched before broader checks:
 cargo nextest run -p <crate-name>
 ```
 
-if cargo-nextest is not available you can install it with
+If cargo-nextest is not available, you can install it with:
+
 ```bash
 cargo install --locked cargo-nextest
 ```
 
-Examples:
+For Rust doc comments or crate documentation, run doctests for the affected crate:
 
 ```bash
-cargo nextest run -p vortex-array
-make -C docs doctest
-uv run --all-packages pytest vortex-python/test
-cargo test --doc
-```
-
-Run docs doctests from the docs directory with `make -C docs doctest` so the correct Sphinx
-Makefile target is used.
-
-If you touch documentation run doc tests via `cargo test --doc`.
-
-For Python binding changes under `vortex-python/`, run the narrow Python checks that match the
-files touched before broader test suites. Useful checks include:
-
-```bash
-python -m py_compile <changed-python-files>
-uv run --all-packages --reinstall-package vortex-data pytest <changed-python-tests>
-```
-
-If Python docstrings, `docs/api/python/`, or Sphinx configuration change, also run the docs checks
-from a clean Sphinx environment:
-
-```bash
-uv run --all-packages make -C docs clean html
-uv run --all-packages make -C docs clean doctest
+cargo test --doc -p <crate-name>
 ```
 
 ## Linting, Formatting, and Generated Files
@@ -99,16 +82,6 @@ only touch Markdown, agent configuration, comments outside Rust code, symlinks, 
 with no Rust/API behavior impact. For docs/config-only changes, validate formatting by inspection
 or with a targeted doc/config command, and verify symlink or path changes with `ls`, `find`, and
 `git status`.
-
-For Python binding changes under `vortex-python/`, run the relevant Python lint and type checks:
-
-```bash
-uv run basedpyright vortex-python
-uv run ruff check <changed-python-files>
-```
-
-If PyO3 Rust files in `vortex-python/src/` change, include `cargo +nightly fmt --check -p
-vortex-python`. Always finish Python binding work with `git diff --check`.
 
 For Rust code, public API, feature flag, or generated-file changes, run these before stopping:
 
@@ -121,9 +94,6 @@ Notes:
 
 - For `.github/` changes, follow `.github/AGENTS.md` and run
   `yamllint --strict -c .yamllint.yaml` on changed workflow files.
-- You can try
-  `cargo fix --lib --allow-dirty --allow-staged && cargo clippy --fix --lib --allow-dirty --allow-staged`
-  to fix minor Rust diagnostics automatically when working on Rust code.
 - If cargo fails with exactly `sccache: error: Operation not permitted`, rerun that command
   with `RUSTC_WRAPPER=` so rustc runs directly. Only do this for that exact error.
 
@@ -139,62 +109,16 @@ Notes:
 
 ## Rust Code Style
 
-- Prefer `impl AsRef<T>` to `&T` for public interfaces where practical, for example
-  `impl AsRef<Path>`.
-- Avoid `unsafe` unless it is necessary. Prefer zero-cost safe abstractions, or cheap
-  non-zero-cost safe abstractions, over hand-written unsafe code.
-- Every new public API definition must have a doc comment. Examples are useful but not required.
-- Use `vortex_err!` to create a `VortexError` with a format string.
-- Use `vortex_bail!` to create and immediately return a `VortexError` as a `VortexResult<T>`.
-- Keep imports at the top of the module. The only exception is a `#[cfg(test)]` test module,
-  where imports should be at the top of that module.
-- Prefer imports over qualified identifiers when the name is used repeatedly.
-- Avoid function-scoped imports unless required or unless fully qualifying both sides would be
-  exceptionally verbose.
+- Follow `STYLE.md` for Rust formatting, documentation, API, error-handling, import, and safety
+  conventions.
 - Only write comments that explain non-obvious logic or important context. Do not comment
   self-explanatory code.
 - Keep public APIs small and consistent with neighboring crates.
 
-## Performance: avoid hidden-cost accessors in hot loops
+## Performance
 
-The most common performance trap in this codebase is calling a *per-element accessor that
-hides non-trivial work* inside an `O(n)` loop, instead of doing the work once over the whole
-chunk. The call site looks like a cheap getter, but each call re-pays a cost that is constant
-(or amortizable) across the loop, making the loop `O(n · k)`.
-
-Watch for these accessors used inside `for i in 0..n { ... }`:
-
-| Per-element accessor (in a loop) | Hidden cost | Bulk replacement |
-| --- | --- | --- |
-| `Validity::is_valid(i)` / `is_null(i)` | for array-backed validity, **allocates an `ExecutionCtx` and runs a scalar lookup per call** | `validity.execute_mask(len, ctx)?` once, then `Mask::value(i)` |
-| `array.scalar_at(i)` / `array.execute_scalar(i, ctx)` | per-element execution through the compute stack | canonicalize once (`execute::<PrimitiveArray>` / `as_slice`) then index |
-| `BitBuffer::value(i)` / `Mask::value(i)` accumulated into a count | recomputes the byte address each call; defeats popcount | `true_count()`, `BitBuffer::count_range(start, end)`, `set_indices()` |
-| `BitIterator::next()` to accumulate a running rank/prefix count | bit-at-a-time | `count_range` over each gap (SIMD popcount) |
-| re-deriving a value inside the loop (e.g. `self.validity()?` each iteration) | re-runs the derivation `n` times | hoist it above the loop |
-
-Decide per site — bulk is not always the answer:
-
-- **Sequential / contiguous access** over an accessor that hides amortizable work → hoist and
-  go bulk (materialize once, then index or iterate the chunk).
-- **Gather over arbitrary indices** → you cannot amortize a per-element *decode*, but you can
-  still materialize the backing buffer once (e.g. `execute_mask`) and then do cheap `O(1)`
-  random reads, avoiding per-call context/allocation.
-- **The accessor is already genuinely `O(1)`** (e.g. reading an already-materialized `Mask`/
-  slice, or a native bitmap) → leave it; bulk would not help.
-
-Even after materializing into a `Mask`/`BitBuffer`, **do not loop with `value(i)` per
-element** to act on each set bit — the per-element branch dominates. Iterate a `u64` word
-at a time with all-set / all-unset fast paths: use [`BitBuffer::for_each_set_index`]. It
-beats `for i in 0..len { if buf.value(i) {..} }` by 2-45x (more at low density) and beats
-collecting `set_indices()` by ~2x at mid/high density, while self-adapting from sparse to
-dense — see `vortex-mask/benches/mask_iteration.rs`. Reach for the cached `indices()` /
-`slices()` representations when you need them more than once; otherwise `for_each_set_index`
-needs no materialization.
-
-When you touch such a loop, back the change with a benchmark (see
-`vortex-array/benches/validity_is_valid.rs` for the `is_valid` case,
-`vortex-mask/benches/valid_counts.rs` for the popcount case, and
-`vortex-mask/benches/mask_iteration.rs` for the per-element-vs-word-vs-sparse comparison).
+Avoid hidden-cost per-element accessors in hot loops, follow the performance guidance in
+`STYLE.md`, and benchmark changes to hot paths.
 
 ## Tests
 
@@ -225,8 +149,7 @@ Check new and modified lines against this list before finishing:
   intended semantics.
 - Silently reducing the scope of an approved plan when implementation is harder than expected.
 - Calling a hidden-cost per-element accessor (`Validity::is_valid`, `scalar_at`, `BitBuffer::
-  value` accumulation) inside a hot loop instead of materializing once — see
-  "Performance: avoid hidden-cost accessors in hot loops".
+  value` accumulation) inside a hot loop instead of materializing once.
 
 ## Summaries
 
