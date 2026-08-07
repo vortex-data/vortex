@@ -34,8 +34,8 @@ url = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "files"] }
 vortex-arrow = { workspace = true }
 vortex-cloud = { workspace = true, optional = true }
-vortex-spatial = { workspace = true }
 vortex-parquet-variant = { workspace = true }
+vortex-spatial = { workspace = true }
 
 [dev-dependencies]
 jni = { workspace = true, features = ["invocation"] }

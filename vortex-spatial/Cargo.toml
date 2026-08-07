@@ -39,8 +39,8 @@ divan = { workspace = true }
 mimalloc = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
-vortex-spatial = { path = ".", features = ["_test-harness"] }
 vortex-layout = { workspace = true }
+vortex-spatial = { path = ".", features = ["_test-harness"] }
 
 [[bench]]
 name = "envelope"
