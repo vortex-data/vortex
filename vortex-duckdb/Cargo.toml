@@ -40,6 +40,7 @@ tracing-subscriber = { workspace = true }
 url = { workspace = true }
 vortex = { workspace = true, features = [
     "files",
+    "hf",
     "tokio",
     "object_store",
     "object_store_registry",

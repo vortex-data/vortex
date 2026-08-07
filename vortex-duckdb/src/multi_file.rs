@@ -18,7 +18,6 @@ use vortex::io::filesystem::FileSystemRef;
 use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::multi::MultiLayoutDataSource;
-use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::RUNTIME;
 use crate::SESSION;
@@ -28,23 +27,34 @@ use crate::duckdb::ExtractedValue;
 /// Process-wide registry, so repeated scans against the same bucket share one client.
 static REGISTRY: LazyLock<Registry> = LazyLock::new(Registry::new);
 
-fn resolve_filesystem(base_url: &Url) -> VortexResult<FileSystemRef> {
+fn resolve_filesystem(glob_url: &Url) -> VortexResult<(FileSystemRef, String)> {
     // Compat makes us use tokio which is very bad for local reads on
     // high-core machines because reads go into blocking pool
-    if base_url.scheme() == "file" {
-        return Ok(Arc::new(ObjectStoreFileSystem::local(RUNTIME.handle())));
+    if glob_url.scheme() == "file" {
+        return Ok((
+            Arc::new(ObjectStoreFileSystem::local(RUNTIME.handle())),
+            glob_url.path().to_string(),
+        ));
     }
 
-    // `base_url` has its path cleared by the caller, so the resolved path is empty and only the
-    // store matters here. Going through the shared registry means DuckDB resolves the same set of
-    // schemes as the Python and Java bindings, including the OpenDAL-backed ones when the
-    // `opendal` feature is on.
-    let (object_store, _) = REGISTRY.resolve(base_url)?;
+    // The full URL goes through the shared registry, which reports the glob as a path *within*
+    // the store it returns. For most schemes the store is mounted at the URL authority, so the
+    // path is the whole URL path — but not for all of them: an `hf://` store is rooted at a
+    // repository and revision, which occupy path segments. Only the registry knows how deep the
+    // store is mounted, so globbing anything other than the path it reports would address the
+    // wrong keys. Going through the registry also means DuckDB resolves the same set of schemes
+    // as the Python and Java bindings, including the OpenDAL-backed ones when the `opendal`
+    // feature is on. The registry caches one client per store prefix, so repeated scans against
+    // the same bucket or repository share a client even though the filesystem wrapper is rebuilt.
+    let (object_store, path) = REGISTRY.resolve(glob_url)?;
 
-    Ok(Arc::new(ObjectStoreFileSystem::new(
-        Arc::new(Compat::new(object_store)),
-        RUNTIME.handle(),
-    )))
+    Ok((
+        Arc::new(ObjectStoreFileSystem::new(
+            Arc::new(Compat::new(object_store)),
+            RUNTIME.handle(),
+        )),
+        path.to_string(),
+    ))
 }
 
 /// Shared bind logic for both single-glob and multi-glob variants.
@@ -77,28 +87,16 @@ pub fn bind_multi_file_scan(input: &BindInputRef) -> VortexResult<MultiLayoutDat
         glob_urls.push(parse_uri_or_path(glob_str)?);
     }
 
-    // Cache filesystems by base URL to avoid resolving the same filesystem multiple times.
-    let mut fs_cache: HashMap<Url, FileSystemRef> = HashMap::new();
-    for glob_url in &glob_urls {
-        let mut base_url = glob_url.clone();
-        base_url.set_path("");
-        if !fs_cache.contains_key(&base_url) {
-            let fs = resolve_filesystem(&base_url)?;
-            fs_cache.insert(base_url, fs);
-        }
-    }
+    let resolved = glob_urls
+        .iter()
+        .map(resolve_filesystem)
+        .collect::<VortexResult<Vec<_>>>()?;
 
     RUNTIME.block_on(async {
         let mut builder = MultiFileDataSource::new(SESSION.clone());
 
-        for glob_url in &glob_urls {
-            let mut base_url = glob_url.clone();
-            base_url.set_path("");
-            let fs = fs_cache
-                .get(&base_url)
-                .map(Arc::clone)
-                .unwrap_or_else(|| unreachable!("fs should be cached for all base URLs"));
-            builder = builder.with_glob(glob_url.path(), Some(fs));
+        for (fs, glob) in resolved {
+            builder = builder.with_glob(&glob, Some(fs));
         }
 
         builder.build().await
