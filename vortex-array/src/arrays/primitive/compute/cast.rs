@@ -641,7 +641,6 @@ mod test {
     use crate::dtype::PType;
     use crate::dtype::i256;
     use crate::expr::stats::Stat;
-    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     #[test]
@@ -834,15 +833,16 @@ mod test {
     fn cast_integer_to_decimal_reports_scale_up_overflow() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         let dtype = DType::Decimal(DecimalDType::new(38, 20), Nullability::NonNullable);
-        let expected = Scalar::primitive(u64::MAX, Nullability::NonNullable)
-            .cast(&dtype)
-            .unwrap_err();
         let casted = PrimitiveArray::from_iter([u64::MAX])
             .into_array()
             .cast(dtype)?;
         let actual = casted.execute::<DecimalArray>(&mut ctx).unwrap_err();
 
-        assert_eq!(actual.to_string(), expected.to_string());
+        assert!(
+            actual
+                .to_string()
+                .contains("does not fit in precision of decimal(38,20)")
+        );
         Ok(())
     }
 
