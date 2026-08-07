@@ -106,3 +106,20 @@ fn cast_i64_to_decimal38_scale2(bencher: Bencher, n: usize) {
             .execute::<Canonical>(ctx)
         });
 }
+
+/// Common integer-to-decimal cast that rescales directly in its i32 output buffer.
+#[divan::bench(args = SIZES)]
+fn cast_i32_to_decimal9_scale2(bencher: Bencher, n: usize) {
+    let arr =
+        PrimitiveArray::from_iter((0..n).map(|value| i32::try_from(value).unwrap())).into_array();
+    bencher
+        .with_inputs(|| (arr.clone(), SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| {
+            a.cast(DType::Decimal(
+                DecimalDType::new(9, 2),
+                Nullability::NonNullable,
+            ))
+            .unwrap()
+            .execute::<Canonical>(ctx)
+        });
+}

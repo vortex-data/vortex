@@ -156,7 +156,7 @@ fn cast_integer_values_to_decimal<S, T>(
 ) -> VortexResult<ArrayRef>
 where
     S: IntegerPType + ToI256,
-    T: NativeDecimalType,
+    T: NativeDecimalType + CheckedMul,
 {
     let values = array.as_slice::<S>();
     let scale = decimal_dtype.scale();
@@ -165,35 +165,84 @@ where
             let value = <T as BigCast>::from(value)?;
             decimal_value_fits_precision(value, decimal_dtype).then_some(value)
         })
-    } else if scale < -19 {
-        // Primitive values are at most 20 decimal digits wide (`u64::MAX` is less than 10^20),
-        // so only zero can be exactly rescaled by 10^-20 or smaller.
+    } else if scale < 0 && scale.unsigned_abs() >= primitive_max_decimal_digits(array.ptype()) {
+        // The scale factor exceeds every source value, so only zero can be exactly rescaled.
         cast_primitive_to_decimal_buffer(values, valid_values, |value| {
             (value == S::default()).then_some(T::default())
         })
-    } else if decimal_dtype.precision() <= <i128 as NativeDecimalType>::MAX_PRECISION {
-        let scale_factor = decimal_scale_factor::<i128>(scale)?;
-        cast_rescaled_integer_values_to_decimal::<S, T, i128>(
+    } else if scale > 0 {
+        // The target physical type can hold both the scale factor and every valid result, so
+        // scale up directly in it.
+        let scale_factor = decimal_scale_factor::<T>(scale)?;
+        cast_scaled_up_integer_values_to_decimal::<S, T>(
             values,
             decimal_dtype,
             valid_values,
             scale_factor,
         )
     } else {
-        let scale_factor = decimal_scale_factor::<i256>(scale)?;
-        cast_rescaled_integer_values_to_decimal::<S, T, i256>(
-            values,
-            decimal_dtype,
-            valid_values,
-            scale_factor,
-        )
+        // Scaling down can shrink a value into a narrower target type, so first select the
+        // smallest signed carrier that can represent both the source and target.
+        let carrier_type = primitive_decimal_carrier_type(array.ptype()).max(T::DECIMAL_TYPE);
+        match_each_decimal_value_type!(carrier_type, |W| {
+            let scale_factor = decimal_scale_factor::<W>(scale)?;
+            cast_scaled_down_integer_values_to_decimal::<S, T, W>(
+                values,
+                decimal_dtype,
+                valid_values,
+                scale_factor,
+            )
+        })
     }
     .map_err(|idx| primitive_to_decimal_cast_error(values[idx], decimal_dtype))?;
 
     Ok(DecimalArray::new(buffer, decimal_dtype, validity).into_array())
 }
 
-fn cast_rescaled_integer_values_to_decimal<S, T, W>(
+fn primitive_decimal_carrier_type(ptype: PType) -> DecimalType {
+    match ptype {
+        PType::I8 => DecimalType::I8,
+        PType::U8 | PType::I16 => DecimalType::I16,
+        PType::U16 | PType::I32 => DecimalType::I32,
+        PType::U32 | PType::I64 => DecimalType::I64,
+        PType::U64 => DecimalType::I128,
+        PType::F16 | PType::F32 | PType::F64 => {
+            unreachable!("floating primitives are rejected before selecting a decimal carrier")
+        }
+    }
+}
+
+fn primitive_max_decimal_digits(ptype: PType) -> u8 {
+    match ptype {
+        PType::U8 | PType::I8 => 3,
+        PType::U16 | PType::I16 => 5,
+        PType::U32 | PType::I32 => 10,
+        PType::U64 => 20,
+        PType::I64 => 19,
+        PType::F16 | PType::F32 | PType::F64 => {
+            unreachable!("floating primitives are rejected before inspecting decimal digits")
+        }
+    }
+}
+
+fn cast_scaled_up_integer_values_to_decimal<S, T>(
+    values: &[S],
+    decimal_dtype: DecimalDType,
+    valid_values: &Mask,
+    scale_factor: T,
+) -> Result<Buffer<T>, usize>
+where
+    S: IntegerPType + ToI256,
+    T: NativeDecimalType + CheckedMul,
+{
+    cast_primitive_to_decimal_buffer(values, valid_values, |value| {
+        let value = <T as BigCast>::from(value)?;
+        let value = value.checked_mul(&scale_factor)?;
+        decimal_value_fits_precision(value, decimal_dtype).then_some(value)
+    })
+}
+
+fn cast_scaled_down_integer_values_to_decimal<S, T, W>(
     values: &[S],
     decimal_dtype: DecimalDType,
     valid_values: &Mask,
@@ -202,16 +251,11 @@ fn cast_rescaled_integer_values_to_decimal<S, T, W>(
 where
     S: IntegerPType + ToI256,
     T: NativeDecimalType,
-    W: NativeDecimalType + CheckedMul + std::ops::Div<Output = W> + std::ops::Rem<Output = W>,
+    W: NativeDecimalType + std::ops::Div<Output = W> + std::ops::Rem<Output = W>,
 {
-    let scale = decimal_dtype.scale();
     cast_primitive_to_decimal_buffer(values, valid_values, |value| {
         let value = <W as BigCast>::from(value)?;
-        let value = if scale > 0 {
-            value.checked_mul(&scale_factor)?
-        } else {
-            (value % scale_factor == W::default()).then_some(value / scale_factor)?
-        };
+        let value = (value % scale_factor == W::default()).then_some(value / scale_factor)?;
         let value = <T as BigCast>::from(value)?;
         decimal_value_fits_precision(value, decimal_dtype).then_some(value)
     })
@@ -595,6 +639,34 @@ mod test {
 
         assert_eq!(casted.values_type(), DecimalType::I128);
         assert_eq!(casted.buffer::<i128>().as_ref(), &[i128::from(u64::MAX)]);
+        Ok(())
+    }
+
+    #[test]
+    fn cast_u8_to_negative_scale_decimal() -> vortex_error::VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let decimal_dtype = DecimalDType::new(2, -2);
+        let casted = PrimitiveArray::from_iter([200u8])
+            .into_array()
+            .cast(DType::Decimal(decimal_dtype, Nullability::NonNullable))?
+            .execute::<DecimalArray>(&mut ctx)?;
+
+        assert_eq!(casted.values_type(), DecimalType::I8);
+        assert_eq!(casted.buffer::<i8>().as_ref(), &[2]);
+        Ok(())
+    }
+
+    #[test]
+    fn cast_u64_to_negative_scale_decimal() -> vortex_error::VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let decimal_dtype = DecimalDType::new(1, -19);
+        let casted = PrimitiveArray::from_iter([10_000_000_000_000_000_000u64])
+            .into_array()
+            .cast(DType::Decimal(decimal_dtype, Nullability::NonNullable))?
+            .execute::<DecimalArray>(&mut ctx)?;
+
+        assert_eq!(casted.values_type(), DecimalType::I8);
+        assert_eq!(casted.buffer::<i8>().as_ref(), &[1]);
         Ok(())
     }
 
