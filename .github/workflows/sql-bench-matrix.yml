@@ -178,6 +178,8 @@ jobs:
       - name: Setup Polar Signals
         if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
         uses: polarsignals/gh-actions-ps-profiling@68ae857e375a826606352016e5b90f01a2a7ff7a  # v0.8.1
+        # Profiling is observability only, so a flaky agent download must not fail the benchmark.
+        continue-on-error: true
         with:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
           labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};commit_sha=${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }};benchmark=${{ matrix.id }}"
