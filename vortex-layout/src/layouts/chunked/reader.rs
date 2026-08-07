@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::future;
+use std::iter::once;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::LazyLock;
@@ -10,6 +11,7 @@ use futures::FutureExt;
 use futures::TryStreamExt;
 use futures::future::BoxFuture;
 use futures::stream::FuturesOrdered;
+use once_cell::sync::OnceCell;
 use tracing::trace;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
@@ -40,6 +42,20 @@ pub struct ChunkedReader {
     layout: ChunkedLayout,
     name: Arc<str>,
     lazy_children: LazyReaderChildren,
+    /// Lazily computed classification of which chunks register no interior splits, letting
+    /// [`ChunkedReader::register_splits`] avoid materializing those chunks' readers.
+    chunk_skips: OnceCell<ChunkSkips>,
+}
+
+/// Which chunks of a chunked layout are known to register no interior splits.
+enum ChunkSkips {
+    /// Every chunk end is a split boundary and no chunk has interior splits (e.g. all-flat
+    /// chunks): splits come straight from the chunk offsets.
+    All,
+    /// No chunk can be skipped.
+    None,
+    /// Per-chunk answers.
+    Mixed(Box<[bool]>),
 }
 
 static UNKNOWN: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("chunked-child"));
@@ -52,38 +68,66 @@ impl ChunkedReader {
         session: &VortexSession,
         ctx: LayoutReaderContext,
     ) -> Self {
-        let nchildren = layout.nchildren();
-        let dtypes = vec![layout.dtype().clone(); nchildren];
-
-        // format!() has non-marginal overhead for short queries like random
-        // access benchmarks
-        let names = if cfg!(debug_assertions) {
-            (0..nchildren)
+        let lazy_children = if cfg!(debug_assertions) {
+            // format!() has non-marginal overhead for short queries like random
+            // access benchmarks
+            let nchildren = layout.nchildren();
+            let dtypes = vec![layout.dtype().clone(); nchildren];
+            let names = (0..nchildren)
                 .map(|idx| Arc::from(format!("{name}.[{idx}]")))
-                .collect()
+                .collect();
+            LazyReaderChildren::new(
+                Arc::clone(layout.children()),
+                dtypes,
+                names,
+                segment_source,
+                session.clone(),
+                ctx,
+            )
         } else {
-            vec![Arc::clone(&*UNKNOWN); nchildren]
+            LazyReaderChildren::new_uniform(
+                Arc::clone(layout.children()),
+                layout.dtype().clone(),
+                Arc::clone(&*UNKNOWN),
+                segment_source,
+                session.clone(),
+                ctx,
+            )
         };
-
-        let lazy_children = LazyReaderChildren::new(
-            Arc::clone(layout.children()),
-            dtypes,
-            names,
-            segment_source,
-            session.clone(),
-            ctx,
-        );
 
         Self {
             layout,
             name,
             lazy_children,
+            chunk_skips: OnceCell::new(),
         }
     }
 
     /// Return the [`LayoutReader`] for the given chunk.
     fn chunk_reader(&self, idx: usize) -> VortexResult<&LayoutReaderRef> {
         self.lazy_children.get(idx)
+    }
+
+    /// Classify which chunks are known to register no interior splits, without materializing
+    /// any chunk layouts or readers.
+    fn chunk_skips(&self) -> &ChunkSkips {
+        self.chunk_skips.get_or_init(|| {
+            let children = self.layout.children();
+            let nchildren = self.layout.nchildren();
+            if nchildren == 0 {
+                return ChunkSkips::None;
+            }
+            let skips = (0..nchildren)
+                .map(|idx| children.child_has_no_interior_splits(idx))
+                .collect::<Box<[bool]>>();
+            if skips.iter().all(|&skip| skip) {
+                ChunkSkips::All
+            } else if skips.iter().all(|&skip| !skip) {
+                ChunkSkips::None
+            } else {
+                ChunkSkips::Mixed(skips)
+            }
+        })
     }
 
     fn chunk_offset(&self, idx: usize) -> u64 {
@@ -185,24 +229,59 @@ impl LayoutReader for ChunkedReader {
             return Ok(());
         }
 
-        let iter = self.ranges(split_range.row_range());
+        let row_range = split_range.row_range();
+        let row_offset = split_range.row_offset();
+
+        // Fast path: no chunk has interior splits (e.g. all-flat chunks), so the splits are
+        // exactly the chunk-end boundaries — no chunk layouts or readers needed.
+        if matches!(self.chunk_skips(), ChunkSkips::All) {
+            let chunk_range = self.chunk_range(row_range);
+            if chunk_range.is_empty() {
+                return Ok(());
+            }
+            let offsets = &self.layout.chunk_offsets;
+            // The boundaries below are all bounded by the last one, so a single overflow check
+            // covers the whole batch.
+            let last = row_offset
+                .checked_add(offsets[chunk_range.end].min(row_range.end))
+                .vortex_expect("Chunked layout split offset overflow");
+            splits.reserve(chunk_range.len());
+            splits.extend_ascending(
+                offsets[chunk_range.start + 1..chunk_range.end]
+                    .iter()
+                    .map(|&offset| row_offset + offset)
+                    .chain(once(last)),
+            );
+            return Ok(());
+        }
+
+        let iter = self.ranges(row_range);
         splits.reserve(iter.size_hint().0);
 
         for (chunk_idx, chunk_start, child_range, _) in iter {
-            let child = self.chunk_reader(chunk_idx)?;
-            let child_row_offset = split_range
-                .row_offset()
-                .checked_add(chunk_start)
-                .vortex_expect("Chunked layout split offset overflow");
-            let child_split_range = SplitRange::try_new(child_row_offset, child_range)?;
+            let child_end = child_range.end;
 
-            child.register_splits(field_mask, &child_split_range, splits)?;
+            // Children without interior splits (e.g. flat) would only re-register this chunk's
+            // end boundary, so skip materializing a layout and reader for them.
+            let skip_child = match self.chunk_skips() {
+                ChunkSkips::All => true,
+                ChunkSkips::None => false,
+                ChunkSkips::Mixed(skips) => skips[chunk_idx],
+            };
+            if !skip_child {
+                let child = self.chunk_reader(chunk_idx)?;
+                let child_row_offset = row_offset
+                    .checked_add(chunk_start)
+                    .vortex_expect("Chunked layout split offset overflow");
+                let child_split_range = SplitRange::try_new(child_row_offset, child_range)?;
+
+                child.register_splits(field_mask, &child_split_range, splits)?;
+            }
 
             // Register the split indicating the end of this chunk
             splits.push(
-                split_range
-                    .row_offset()
-                    .checked_add(chunk_start + child_split_range.row_range().end)
+                row_offset
+                    .checked_add(chunk_start + child_end)
                     .vortex_expect("Chunked layout split offset overflow"),
             );
         }

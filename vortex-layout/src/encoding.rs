@@ -67,6 +67,12 @@ pub trait LayoutVTablePlugin: 'static + Send + Sync + Debug {
         children: &dyn LayoutChildren,
         build_ctx: &LayoutBuildContext<'_>,
     ) -> VortexResult<LayoutRef>;
+
+    /// Returns `true` if readers of this layout may register natural split boundaries strictly
+    /// inside their row range (see [`VTable::registers_interior_splits`]).
+    fn registers_interior_splits(&self) -> bool {
+        true
+    }
 }
 
 /// Backwards-compatible name for the object-safe layout-vtable plugin.
@@ -101,6 +107,10 @@ impl<V: VTable> LayoutVTablePlugin for V {
             build_ctx,
         )?
         .into_layout())
+    }
+
+    fn registers_interior_splits(&self) -> bool {
+        VTable::registers_interior_splits(self)
     }
 }
 

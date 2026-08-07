@@ -267,6 +267,12 @@ pub trait DynLayout: 'static + Send + Sync + Debug {
         session: &VortexSession,
         ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef>;
+
+    /// Returns `true` if readers of this layout may register natural split boundaries strictly
+    /// inside their row range (see [`crate::VTable::registers_interior_splits`]).
+    fn dyn_registers_interior_splits(&self) -> bool {
+        true
+    }
 }
 
 impl<V: VTable> DynLayout for Layout<V> {
@@ -322,6 +328,10 @@ impl<V: VTable> DynLayout for Layout<V> {
         ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef> {
         Layout::new_reader(self, name, segment_source, session, ctx)
+    }
+
+    fn dyn_registers_interior_splits(&self) -> bool {
+        self.vtable().registers_interior_splits()
     }
 }
 

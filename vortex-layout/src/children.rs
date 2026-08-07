@@ -4,6 +4,8 @@
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU32;
+use std::sync::atomic::Ordering;
 
 use flatbuffers::Follow;
 use itertools::Itertools;
@@ -35,6 +37,16 @@ pub trait LayoutChildren: 'static + Send + Sync {
     fn child_row_count(&self, idx: usize) -> u64;
 
     fn nchildren(&self) -> usize;
+
+    /// Returns `true` if the child at `idx` is known — without materializing it — to register no
+    /// split boundaries strictly inside its row range (see
+    /// [`VTable::registers_interior_splits`](crate::VTable::registers_interior_splits)).
+    ///
+    /// Implementations may conservatively return `false` when the answer would require
+    /// materializing the child.
+    fn child_has_no_interior_splits(&self, _idx: usize) -> bool {
+        false
+    }
 }
 
 impl Debug for dyn LayoutChildren {
@@ -60,6 +72,10 @@ impl LayoutChildren for Arc<dyn LayoutChildren> {
 
     fn nchildren(&self) -> usize {
         self.as_ref().nchildren()
+    }
+
+    fn child_has_no_interior_splits(&self, idx: usize) -> bool {
+        self.as_ref().child_has_no_interior_splits(idx)
     }
 }
 
@@ -102,6 +118,10 @@ impl LayoutChildren for OwnedLayoutChildren {
     fn nchildren(&self) -> usize {
         self.0.len()
     }
+
+    fn child_has_no_interior_splits(&self, idx: usize) -> bool {
+        !self.0[idx].dyn_registers_interior_splits()
+    }
 }
 
 #[derive(Clone)]
@@ -114,6 +134,10 @@ pub(crate) struct ViewedLayoutChildren {
     allow_unknown: bool,
     session: VortexSession,
     cache: Arc<[OnceCell<LayoutRef>]>,
+    /// Single-slot memo for [`LayoutChildren::child_has_no_interior_splits`]: children of one
+    /// layout node almost always share an encoding, so remember the last resolved flatbuffer
+    /// encoding tag and its answer. Packed as `tag | (answer << 16) | (valid << 17)`.
+    no_interior_splits_memo: Arc<AtomicU32>,
 }
 
 impl ViewedLayoutChildren {
@@ -146,6 +170,7 @@ impl ViewedLayoutChildren {
             allow_unknown,
             session,
             cache,
+            no_interior_splits_memo: Arc::new(AtomicU32::new(0)),
         }
     }
 
@@ -269,5 +294,39 @@ impl LayoutChildren for ViewedLayoutChildren {
 
     fn nchildren(&self) -> usize {
         self.cache.len()
+    }
+
+    fn child_has_no_interior_splits(&self, idx: usize) -> bool {
+        if idx >= self.nchildren() {
+            return false;
+        }
+        // Resolve the child's layout encoding from the flatbuffer tag alone, without
+        // deserializing the child layout. Unknown encodings conservatively report interior
+        // splits so callers fall back to materializing the child.
+        let encoding = self
+            .flatbuffer()
+            .children()
+            .unwrap_or_default()
+            .get(idx)
+            .encoding();
+
+        const MEMO_VALID: u32 = 1 << 17;
+        const MEMO_ANSWER: u32 = 1 << 16;
+        const MEMO_TAG: u32 = 0xFFFF;
+        let memo = self.no_interior_splits_memo.load(Ordering::Relaxed);
+        if memo & MEMO_VALID != 0 && memo & MEMO_TAG == u32::from(encoding) {
+            return memo & MEMO_ANSWER != 0;
+        }
+
+        let answer = self
+            .layout_read_ctx
+            .resolve(encoding)
+            .and_then(|encoding_id| self.layouts.get(&encoding_id))
+            .is_some_and(|encoding| !encoding.registers_interior_splits());
+        self.no_interior_splits_memo.store(
+            u32::from(encoding) | MEMO_VALID | if answer { MEMO_ANSWER } else { 0 },
+            Ordering::Relaxed,
+        );
+        answer
     }
 }
