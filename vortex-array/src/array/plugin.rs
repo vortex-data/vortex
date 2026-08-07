@@ -42,6 +42,16 @@ pub trait ArrayPlugin: 'static + Send + Sync {
     fn serialize(&self, array: &ArrayRef, session: &VortexSession)
     -> VortexResult<Option<Vec<u8>>>;
 
+    /// The serialized format id written to a file or stream for this array.
+    ///
+    /// Like [`serialize`](Self::serialize), this is only called for arrays whose encoding ID
+    /// matches this plugin. Defaults to the plugin [`id`](Self::id); a plugin owning more
+    /// than one serialized format overrides this to pick the format able to represent the
+    /// given array.
+    fn serialized_id(&self, _array: &ArrayRef) -> ArrayId {
+        self.id()
+    }
+
     /// Deserialize an array from serialized components.
     ///
     /// The returned array doesn't necessary have to match this plugin's encoding ID. This is
@@ -87,6 +97,10 @@ impl<V: VTable> ArrayPlugin for V {
             "Invoked for incorrect array ID"
         );
         V::serialize(array.as_::<V>(), session)
+    }
+
+    fn serialized_id(&self, array: &ArrayRef) -> ArrayId {
+        VTable::serialized_id(self, array.as_::<V>())
     }
 
     fn deserialize(

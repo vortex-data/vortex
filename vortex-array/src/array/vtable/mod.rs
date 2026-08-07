@@ -125,6 +125,16 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>>;
 
+    /// The serialized format id written for this array.
+    ///
+    /// Defaults to the encoding [`id`](Self::id). An encoding with more than one serialized
+    /// format overrides this to pick the format able to represent the given array. The
+    /// writer's permitted-encoding check applies to the returned id, so a newer format can be
+    /// gated by editions independently of the in-memory encoding that produces it.
+    fn serialized_id(&self, _array: ArrayView<'_, Self>) -> ArrayId {
+        self.id()
+    }
+
     /// Deserialize an array from serialized metadata, buffers, and children.
     ///
     /// The returned [`ArrayParts`] are still validated by the generic adapter.

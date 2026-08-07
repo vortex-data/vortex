@@ -12,6 +12,8 @@ mod bytebool;
 mod constant;
 mod datetimeparts;
 mod decimal_byte_parts;
+#[cfg(feature = "unstable_encodings")]
+mod decimal_byte_parts_v2;
 mod delta;
 mod dict;
 mod for_;
@@ -31,7 +33,8 @@ pub(crate) const N: usize = 1024;
 
 /// All per-encoding fixtures.
 pub fn fixtures() -> Vec<Box<dyn FlatLayoutFixture>> {
-    vec![
+    #[allow(unused_mut)]
+    let mut fixtures: Vec<Box<dyn FlatLayoutFixture>> = vec![
         Box::new(alp::AlpFixture),
         Box::new(alprd::AlprdFixture),
         Box::new(bitpacked::BitPackedFixture),
@@ -53,5 +56,10 @@ pub fn fixtures() -> Vec<Box<dyn FlatLayoutFixture>> {
         Box::new(zstd::ZstdFixture),
         Box::new(zigzag::ZigZagFixture),
         Box::new(constant::ConstantFixture),
-    ]
+    ];
+    #[cfg(feature = "unstable_encodings")]
+    fixtures.push(Box::new(
+        decimal_byte_parts_v2::DecimalBytePartsV2Fixture,
+    ));
+    fixtures
 }

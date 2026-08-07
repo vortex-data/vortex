@@ -19,10 +19,36 @@ mod tests {
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_array::dtype::DecimalDType;
+    use vortex_array::dtype::i256;
+    use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 
     use crate::DecimalByteParts;
     use crate::DecimalBytePartsArray;
+    use crate::decimal_byte_parts::testing::i128_parts;
+    use crate::decimal_byte_parts::testing::i256_of;
+    use crate::decimal_byte_parts::testing::i256_parts;
+
+    /// Values needing more than 64 bits, so the encoding carries lower parts.
+    fn wide_i128() -> Vec<i128> {
+        vec![
+            1 << 70,
+            -(1 << 70),
+            (1 << 64) - 1,
+            0,
+            99_999_999_999_999_999_999_999_999_999_999_999_999,
+        ]
+    }
+
+    fn wide_i256() -> Vec<i256> {
+        vec![
+            i256_of(1, 0),
+            i256_of(-1, 0),
+            i256_of(0, u128::MAX),
+            i256_of(1 << 64, 7),
+            i256_of(0, 0),
+        ]
+    }
 
     #[rstest]
     // Basic decimal byte parts arrays
@@ -70,6 +96,11 @@ mod tests {
         PrimitiveArray::from_iter((0..2000i64).map(|i| i * 1000000)).into_array(),
         DecimalDType::new(19, 6)
     ).unwrap())]
+    // Wide decimals carrying lower parts
+    #[case::decimal_i128_one_lower_part(i128_parts(wide_i128(), Validity::NonNullable))]
+    #[case::decimal_i128_nullable(i128_parts(wide_i128(), Validity::from_iter([true, false, true, true, false])))]
+    #[case::decimal_i256_three_lower_parts(i256_parts(wide_i256(), Validity::NonNullable))]
+    #[case::decimal_i256_nullable(i256_parts(wide_i256(), Validity::from_iter([false, true, true, false, true])))]
 
     fn test_decimal_byte_parts_consistency(#[case] array: DecimalBytePartsArray) {
         let ctx = &mut array_session().create_execution_ctx();
@@ -89,6 +120,8 @@ mod tests {
         buffer![-100i32, -200, 300, -400, 500].into_array(),
         DecimalDType::new(10, 2)
     ).unwrap())]
+    #[case::decimal_i128_one_lower_part(i128_parts(wide_i128(), Validity::NonNullable))]
+    #[case::decimal_i256_three_lower_parts(i256_parts(wide_i256(), Validity::NonNullable))]
     fn test_decimal_byte_parts_binary_numeric(#[case] array: DecimalBytePartsArray) {
         let ctx = &mut array_session().create_execution_ctx();
         test_binary_numeric_array(&array.into_array(), ctx);

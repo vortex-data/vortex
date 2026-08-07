@@ -23,6 +23,9 @@ use vortex_session::VortexSession;
 /// Initialize decimal-byte-parts encoding in the given session.
 pub fn initialize(session: &VortexSession) {
     session.arrays().register(DecimalByteParts);
+    // The v2 serialized format deserializes into the same in-memory encoding. Registration
+    // covers reading; writing it is gated by the editions enabled on the writer's session.
+    session.arrays().register(DecimalBytePartsV2);
     compute::kernel::initialize(session);
 
     session.aggregate_fns().register_aggregate_kernel(

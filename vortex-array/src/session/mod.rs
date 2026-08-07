@@ -123,6 +123,22 @@ pub trait ArraySessionExt: SessionExt {
 
         plugin.serialize(array, &self.session())
     }
+
+    /// Resolve the serialized format id an array will be written under.
+    ///
+    /// Most arrays serialize under their own encoding id, but a plugin may pick a different
+    /// format for arrays its original format cannot represent — see
+    /// [`ArrayPlugin::serialized_id`].
+    fn array_serialized_id(&self, array: &ArrayRef) -> VortexResult<Id> {
+        let Some(plugin) = self.arrays().registry.get(&array.encoding_id()) else {
+            vortex_bail!(
+                "Array {} is not registered for serializations",
+                array.encoding_id()
+            );
+        };
+
+        Ok(plugin.serialized_id(array))
+    }
 }
 
 impl<S: SessionExt> ArraySessionExt for S {}

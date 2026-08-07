@@ -44,6 +44,7 @@ use super::DEFAULT_CORE_EDITION;
 use super::DEFAULT_UNSTABLE_EDITION;
 use super::EDITION_DECLARATIONS;
 use super::UNSTABLE_2026_06_0;
+use super::UNSTABLE_2026_08_0;
 
 fn session() -> Result<EditionSession, EditionError> {
     let session = EditionSession::empty();
@@ -133,6 +134,21 @@ fn encodings_in_editions_unions_families() {
     assert!(both.iter().any(|id| id.as_str() == "fastlanes.delta"));
     assert!(both.iter().any(|id| id.as_str() == "vortex.onpair"));
     assert!(core_only.iter().all(|id| both.contains(id)));
+}
+
+/// The wide byte-parts serialized format joins the `unstable` family at 2026.08: absent from
+/// the June draft, present from August on.
+#[test]
+fn decimal_byte_parts_v2_joins_unstable_2026_08() {
+    let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
+    let in_edition = |edition| {
+        session
+            .encodings_in(edition)
+            .iter()
+            .any(|inclusion| inclusion.encoding_id.as_str() == "vortex.decimal_byte_parts_v2")
+    };
+    assert!(!in_edition(&UNSTABLE_2026_06_0));
+    assert!(in_edition(&UNSTABLE_2026_08_0));
 }
 
 #[test]
@@ -443,6 +459,111 @@ async fn configured_btrblocks_builder_uses_enabled_editions_in_either_order() ->
                 sequential_integers().into_array().to_array_stream(),
             )
             .await?;
+    }
+
+    Ok(())
+}
+
+/// Build a byte-parts array that must serialize under `vortex.decimal_byte_parts_v2`.
+fn wide_byte_parts_column() -> VortexResult<ArrayRef> {
+    use vortex_array::arrays::DecimalArray;
+    use vortex_array::dtype::DecimalDType;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+
+    use crate::encodings::decimal_byte_parts::DecimalByteParts;
+    use crate::encodings::decimal_byte_parts::split_decimal;
+
+    let decimal = DecimalArray::new(
+        (0..64i128)
+            .map(|i| (1i128 << 70) + i)
+            .collect::<Buffer<i128>>(),
+        DecimalDType::new(38, 2),
+        Validity::NonNullable,
+    );
+    let parts = split_decimal(&decimal)?;
+    let encoded = DecimalByteParts::try_new_with_lower_parts(
+        parts.msp,
+        parts.lower_parts,
+        decimal.decimal_dtype(),
+    )?
+    .into_array();
+    Ok(StructArray::from_fields(&[("wide", encoded)])?.into_array())
+}
+
+/// The wide byte-parts serialized format is gated by the editions enabled for writing.
+///
+/// The in-memory encoding is `vortex.decimal_byte_parts` either way; what the editions gate
+/// is the serialized format id. A flat (non-recompressing) strategy hands the multi-limb
+/// array straight to serialization, so the permitted-encoding check is the only thing
+/// between it and the file: without the `unstable` edition the write is refused, and with it
+/// the array round-trips back into the same in-memory encoding, lower parts intact.
+#[tokio::test]
+async fn decimal_byte_parts_v2_is_gated_by_the_unstable_edition() -> VortexResult<()> {
+    use crate::VortexSessionDefault;
+
+    let st = wide_byte_parts_column()?;
+    let session = VortexSession::default();
+    let mut buffer = ByteBufferMut::empty();
+    let result = session
+        .write_options()
+        .with_strategy(Arc::new(FlatLayoutStrategy::default()))
+        .write(&mut buffer, st.clone().to_array_stream())
+        .await;
+
+    #[cfg(not(feature = "unstable_encodings"))]
+    {
+        let _ = &st;
+        let error = match result {
+            Ok(_) => {
+                return Err(vortex_err!(
+                    "the v2 serialized format requires the unstable edition"
+                ));
+            }
+            Err(error) => error,
+        };
+        let message = error.to_string();
+        assert!(
+            message.contains("not permitted by ctx"),
+            "unexpected error: {message}"
+        );
+    }
+
+    #[cfg(feature = "unstable_encodings")]
+    {
+        use vortex_array::VortexSessionExecute;
+        use vortex_array::assert_arrays_eq;
+
+        use crate::encodings::decimal_byte_parts::DecimalByteParts;
+        use crate::encodings::decimal_byte_parts::DecimalBytePartsArraySlotsExt;
+
+        result?;
+        let read = session
+            .open_options()
+            .open_buffer(buffer)?
+            .scan()?
+            .into_array_stream()?
+            .read_all()
+            .await?;
+
+        let lower_part_counts: Vec<usize> = read
+            .depth_first_traversal()
+            .filter_map(|node| {
+                node.as_opt::<DecimalByteParts>()
+                    .map(|array| array.lower_parts().len())
+            })
+            .collect();
+        assert!(
+            !lower_part_counts.is_empty(),
+            "expected the v2 format to deserialize into vortex.decimal_byte_parts"
+        );
+        assert!(
+            lower_part_counts.iter().all(|count| *count > 0),
+            "lower parts must survive the round trip"
+        );
+
+        let mut ctx = session.create_execution_ctx();
+        assert_arrays_eq!(st, read, &mut ctx);
     }
 
     Ok(())

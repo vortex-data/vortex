@@ -191,12 +191,14 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> VortexResult<WIPOffset<fba::ArrayNode<'fb>>> {
-        let encoding_idx = self.ctx.intern(&self.array.encoding_id()).ok_or_else(|| {
-            vortex_err!(
-                "Array encoding {} not permitted by ctx",
-                self.array.encoding_id()
-            )
-        })?;
+        // The id written to the file is the plugin's serialized format id, which may differ
+        // from the in-memory encoding id. The permitted-encoding check applies to it: what is
+        // gated is the bytes a reader will meet, not the in-memory representation.
+        let serialized_id = self.session.array_serialized_id(self.array)?;
+        let encoding_idx = self
+            .ctx
+            .intern(&serialized_id)
+            .ok_or_else(|| vortex_err!("Array encoding {} not permitted by ctx", serialized_id))?;
 
         let metadata_bytes = self.session.array_serialize(self.array)?.ok_or_else(|| {
             vortex_err!(
