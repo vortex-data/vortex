@@ -301,12 +301,15 @@ where
     S: NativePType,
     T: NativeDecimalType,
 {
+    if matches!(valid_values, Mask::AllFalse(_)) {
+        return Ok(BufferMut::<T>::zeroed(values.len()).freeze());
+    }
+
     let mut buffer = BufferMut::<T>::with_capacity(values.len());
     match valid_values {
         Mask::AllTrue(_) => {
             values.try_map_into(&mut buffer.spare_capacity_mut()[..values.len()], &mut cast)?;
         }
-        Mask::AllFalse(_) => return Ok(BufferMut::<T>::zeroed(values.len()).freeze()),
         Mask::Values(mask) => {
             values.try_map_masked_into(
                 mask.bit_buffer(),
@@ -314,6 +317,7 @@ where
                 &mut cast,
             )?;
         }
+        Mask::AllFalse(_) => unreachable!("all-null values are handled before allocating"),
     }
     // SAFETY: the selected map kernel initialized every lane before returning Ok.
     unsafe { buffer.set_len(values.len()) };
@@ -681,6 +685,20 @@ mod test {
 
         assert_eq!(casted.values_type(), DecimalType::I256);
         assert_eq!(casted.buffer::<i256>().as_ref(), &[i256::from_i128(4_200)]);
+        Ok(())
+    }
+
+    #[test]
+    fn cast_all_null_integer_to_decimal() -> vortex_error::VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let decimal_dtype = DecimalDType::new(39, 2);
+        let casted = PrimitiveArray::new(buffer![i64::MAX, i64::MIN], Validity::AllInvalid)
+            .into_array()
+            .cast(DType::Decimal(decimal_dtype, Nullability::Nullable))?
+            .execute::<DecimalArray>(&mut ctx)?;
+
+        assert!(matches!(casted.validity(), Ok(Validity::AllInvalid)));
+        assert_eq!(casted.buffer::<i256>().as_ref(), &[i256::ZERO, i256::ZERO]);
         Ok(())
     }
 
