@@ -103,6 +103,12 @@ second serialized format:
   edition containing it is enabled.
 - Readers register one plugin for both IDs; both deserialize into the same in-memory encoding.
 
+Name revisions as a version chain on the same base name — `vortex.foo`, `vortex.foo_v2`,
+`vortex.foo_v3` — never as descriptively named variants. Each format then has at most one
+successor, so an encoding's serialized history reads as a list, not a tree: to know what a
+reader must support, you walk one chain, and there is never a fork where two live formats
+both claim to succeed the same frozen one.
+
 ### Example: multi-part decimals
 
 `vortex.decimal_byte_parts` froze into `core2025.05.0` representing each decimal value as a
@@ -113,12 +119,13 @@ a signed most-significant part plus up to three unsigned 64-bit lower parts. The
 
 - A single-part array still serializes as `vortex.decimal_byte_parts` with
   `lower_part_count = 0`, indistinguishable from files written before the change.
-- An array carrying lower parts serializes as `vortex.decimal_byte_parts_wide`, a new format
-  staged in a draft edition. A writer pinned to an edition without it cannot emit it; the
-  compressor consults the enabled editions and only produces multi-part arrays when the new
-  format is allowed, so the write-time check never fires as a surprise.
+- An array carrying lower parts serializes as `vortex.decimal_byte_parts_v2` — the next link
+  in the format's version chain — staged in a draft edition. A writer pinned to an edition
+  without it cannot emit it; the compressor consults the enabled editions and only produces
+  multi-part arrays when the new format is allowed, so the write-time check never fires as a
+  surprise.
 - A reader that supports the new format deserializes both IDs into the same in-memory
-  encoding. A reader that predates it fails on `vortex.decimal_byte_parts_wide` with an
+  encoding. A reader that predates it fails on `vortex.decimal_byte_parts_v2` with an
   unknown-encoding error pointing at the registry — the failure mode editions promise —
   rather than crashing inside a decoder that was never taught about lower parts.
 
