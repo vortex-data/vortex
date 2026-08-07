@@ -44,7 +44,7 @@ pub trait LayoutChildren: 'static + Send + Sync {
     ///
     /// Implementations may conservatively return `false` when the answer would require
     /// materializing the child.
-    fn child_has_no_interior_splits(&self, _idx: usize) -> bool {
+    fn child_divisibility(&self, _idx: usize) -> bool {
         false
     }
 }
@@ -74,8 +74,8 @@ impl LayoutChildren for Arc<dyn LayoutChildren> {
         self.as_ref().nchildren()
     }
 
-    fn child_has_no_interior_splits(&self, idx: usize) -> bool {
-        self.as_ref().child_has_no_interior_splits(idx)
+    fn child_divisibility(&self, idx: usize) -> bool {
+        self.as_ref().child_divisibility(idx)
     }
 }
 
@@ -119,7 +119,7 @@ impl LayoutChildren for OwnedLayoutChildren {
         self.0.len()
     }
 
-    fn child_has_no_interior_splits(&self, idx: usize) -> bool {
+    fn child_divisibility(&self, idx: usize) -> bool {
         !self.0[idx].dyn_registers_interior_splits()
     }
 }
@@ -296,7 +296,7 @@ impl LayoutChildren for ViewedLayoutChildren {
         self.cache.len()
     }
 
-    fn child_has_no_interior_splits(&self, idx: usize) -> bool {
+    fn child_divisibility(&self, idx: usize) -> bool {
         if idx >= self.nchildren() {
             return false;
         }

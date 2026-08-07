@@ -118,7 +118,7 @@ impl ChunkedReader {
                 return ChunkSkips::None;
             }
             let skips = (0..nchildren)
-                .map(|idx| children.child_has_no_interior_splits(idx))
+                .map(|idx| children.child_divisibility(idx))
                 .collect::<Box<[bool]>>();
             if skips.iter().all(|&skip| skip) {
                 ChunkSkips::All
