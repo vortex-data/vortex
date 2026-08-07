@@ -46,12 +46,13 @@ pub(super) fn execute(
     Ok(ExecutionResult::done(output))
 }
 
-enum PrimitiveSource<T> {
+/// Physical primitive values; nullness remains in the source array's validity.
+enum PrimitiveValues<T> {
     Buffer(Buffer<T>),
     Constant { value: T, len: usize },
 }
 
-impl<T: Copy> PrimitiveSource<T> {
+impl<T: Copy> PrimitiveValues<T> {
     fn len(&self) -> usize {
         match self {
             Self::Buffer(values) => values.len(),
@@ -72,7 +73,7 @@ fn gather_values<T: NativePType>(array: &Array<Interleave>) -> VortexResult<Buff
         .map(|i| {
             let value = array.value(i);
             if let Some(constant) = value.as_opt::<Constant>() {
-                PrimitiveSource::Constant {
+                PrimitiveValues::Constant {
                     value: constant
                         .scalar()
                         .as_primitive()
@@ -82,7 +83,7 @@ fn gather_values<T: NativePType>(array: &Array<Interleave>) -> VortexResult<Buff
                     len: value.len(),
                 }
             } else {
-                PrimitiveSource::Buffer(value.as_::<Primitive>().to_buffer::<T>())
+                PrimitiveValues::Buffer(value.as_::<Primitive>().to_buffer::<T>())
             }
         })
         .collect::<Vec<_>>();
@@ -95,7 +96,7 @@ fn gather_values<T: NativePType>(array: &Array<Interleave>) -> VortexResult<Buff
 }
 
 fn gather_rows<T, A>(
-    values: &[PrimitiveSource<T>],
+    values: &[PrimitiveValues<T>],
     branches: &[A],
     rows: ArrayView<'_, Primitive>,
 ) -> VortexResult<Buffer<T>>
@@ -109,7 +110,7 @@ where
 }
 
 fn gather<T, A, R>(
-    values: &[PrimitiveSource<T>],
+    values: &[PrimitiveValues<T>],
     branches: &[A],
     rows: &[R],
 ) -> VortexResult<Buffer<T>>
