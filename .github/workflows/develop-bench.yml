@@ -31,7 +31,53 @@ jobs:
           bash scripts/commit-json.sh > new-commit.json
           bash scripts/cat-s3.sh vortex-ci-benchmark-results commits.json new-commit.json
 
+  build:
+    timeout-minutes: 60
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=bench-dedicated/family=c6id.8xlarge/extras=s3-cache/tag=build-{1}', github.run_id, matrix.benchmark.id)
+          || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        benchmark:
+          - id: random-access-bench
+            build_args: "--features lance"
+          - id: compress-bench
+            build_args: "--features lance"
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
+      - name: Build binary
+        shell: bash
+        env:
+          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
+        run: |
+          cargo build --bin ${{ matrix.benchmark.id }} --profile release_debug ${{ matrix.benchmark.build_args }} --features unstable_encodings
+      - name: Pre-upload benchmark debuginfo to Polar Signals
+        uses: ./.github/actions/upload-parca-debuginfo
+        continue-on-error: true
+        with:
+          paths: |
+            target/release_debug/${{ matrix.benchmark.id }}
+          polarsignals-cloud-token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
+          project-id: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
+      - name: Upload benchmark binary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: ${{ matrix.benchmark.id }}-binary
+          path: target/release_debug/${{ matrix.benchmark.id }}
+
   bench:
+    needs: build
+    if: ${{ !cancelled() }}
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -57,11 +103,12 @@ jobs:
             v4_ingest: false
     steps:
       - uses: runs-on/action@v2
-        if: github.repository == 'vortex-data/vortex'
+        if: github.repository == 'vortex-data/vortex' && matrix.benchmark.id == 'string-bench'
         with:
           sccache: s3
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - uses: ./.github/actions/setup-rust
+        if: matrix.benchmark.id == 'string-bench'
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
@@ -72,6 +119,7 @@ jobs:
       - uses: ./.github/actions/system-info
 
       - name: Build binary
+        if: matrix.benchmark.id == 'string-bench'
         shell: bash
         env:
           RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
@@ -79,6 +127,7 @@ jobs:
           cargo build --bin ${{ matrix.benchmark.id }} --profile release_debug ${{ matrix.benchmark.build_args }} --features unstable_encodings
 
       - name: Pre-upload benchmark debuginfo to Polar Signals
+        if: matrix.benchmark.id == 'string-bench'
         uses: ./.github/actions/upload-parca-debuginfo
         continue-on-error: true
         with:
@@ -86,6 +135,18 @@ jobs:
             target/release_debug/${{ matrix.benchmark.id }}
           polarsignals-cloud-token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
           project-id: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
+
+      - name: Download benchmark binary
+        if: matrix.benchmark.id != 'string-bench'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
+        with:
+          name: ${{ matrix.benchmark.id }}-binary
+          path: target/release_debug/
+
+      - name: Make benchmark binary executable
+        if: matrix.benchmark.id != 'string-bench'
+        shell: bash
+        run: chmod +x target/release_debug/${{ matrix.benchmark.id }}
 
       - name: Setup Polar Signals
         uses: polarsignals/gh-actions-ps-profiling@68ae857e375a826606352016e5b90f01a2a7ff7a  # v0.8.1
