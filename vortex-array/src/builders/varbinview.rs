@@ -252,8 +252,9 @@ impl VarBinViewBuilder {
     ///
     /// The builder adopts `bytes` as a data buffer without copying it (splitting it only past the
     /// `u32` view-offset limit) and builds the views directly into its own storage, so the whole
-    /// append costs one view per row. Null rows must be zero-length entries of `lengths` — every
-    /// length is consumed either way, so the lengths must describe `bytes` exactly.
+    /// append costs one view per row. Every length is consumed, including those for null rows, so
+    /// the lengths must describe `bytes` exactly; bytes belonging to null rows are not retained
+    /// when compaction rewrites the buffer.
     ///
     /// When the builder is configured to compact buffers, the utilization is measured from the
     /// lengths alone — only values too long to inline reference the buffer — and a heap below
@@ -392,10 +393,12 @@ impl VarBinViewBuilder {
 
         let data = bytes.as_slice();
         let mut offset = 0usize;
-        for i in 0..count {
+        for (i, is_valid) in validity.iter().enumerate() {
             let len = len_at(i);
             let value = &data[offset..offset + len];
-            let view = if len > BinaryView::MAX_INLINED_SIZE {
+            let view = if !is_valid {
+                BinaryView::empty_view()
+            } else if len > BinaryView::MAX_INLINED_SIZE {
                 // In `u32` range: `referenced <= bytes.len() <= MAX_BUFFER_LEN` (checked by the
                 // caller), and `compact` never grows past `referenced`.
                 #[expect(clippy::cast_possible_truncation)]
@@ -1158,6 +1161,30 @@ mod tests {
             Some(LONG),
             Some("tiny"),
         ]);
+        assert_arrays_eq!(actual, expected, &mut ctx);
+    }
+
+    /// Rewriting an under-utilized heap must consume null values' spans without retaining their
+    /// bytes or producing views that reference them.
+    #[test]
+    fn test_append_buffer_with_lengths_compaction_skips_null_bytes() {
+        let mut ctx = array_session().create_execution_ctx();
+        let mut builder =
+            VarBinViewBuilder::with_compaction(DType::Utf8(Nullability::Nullable), 2, 1.0);
+
+        let heap = ByteBuffer::copy_from([LONG.as_bytes(), LONG.as_bytes()].concat());
+        let lengths = [u32::try_from(LONG.len()).unwrap(); 2];
+        builder.append_buffer_with_lengths(heap, &lengths, &Mask::from_iter([false, true]));
+
+        let actual = builder.finish_into_varbinview();
+        assert_eq!(actual.data_buffers().len(), 1);
+        assert_eq!(
+            actual.data_buffers()[0].len(),
+            LONG.len(),
+            "the compact buffer must omit bytes belonging to null rows"
+        );
+
+        let expected = <VarBinViewArray as FromIterator<_>>::from_iter([None::<&str>, Some(LONG)]);
         assert_arrays_eq!(actual, expected, &mut ctx);
     }
 
