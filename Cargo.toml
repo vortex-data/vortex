@@ -236,6 +236,7 @@ rstest = "0.26.1"
 rstest_reuse = "0.7.0"
 rustc-hash = "2.1.1"
 rustix = { version = "1.1", features = ["fs"] }
+ryu = "1.0.23"
 serde = "1.0.221"
 serde_json = "1.0.138"
 serde_test = "1.0.176"

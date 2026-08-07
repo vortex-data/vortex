@@ -6,6 +6,7 @@ use std::cmp::Ordering;
 use num_traits::CheckedSub;
 use rstest::rstest;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use super::pvalue::CoercePValue;
@@ -18,6 +19,7 @@ use crate::dtype::ToBytes;
 use crate::dtype::half::f16;
 use crate::scalar::PValue;
 use crate::scalar::PrimitiveScalar;
+use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 
 #[test]
@@ -163,6 +165,33 @@ fn test_primitive_cast(
             target_type
         );
     }
+}
+
+#[rstest]
+#[case(Scalar::primitive(42u8, Nullability::NonNullable), "42")]
+#[case(Scalar::primitive(-42i64, Nullability::NonNullable), "-42")]
+#[case(Scalar::primitive(f16::from_f32(42.0), Nullability::NonNullable), "42")]
+#[case(Scalar::primitive(100.0f32, Nullability::NonNullable), "100.0")]
+#[case(Scalar::primitive(-0.0f64, Nullability::NonNullable), "-0.0")]
+#[case(Scalar::primitive(f64::NAN, Nullability::NonNullable), "NaN")]
+#[case(Scalar::primitive(f64::INFINITY, Nullability::NonNullable), "inf")]
+#[case(Scalar::primitive(f64::NEG_INFINITY, Nullability::NonNullable), "-inf")]
+fn test_primitive_cast_to_utf8(#[case] scalar: Scalar, #[case] expected: &str) -> VortexResult<()> {
+    let actual = scalar.cast(&DType::Utf8(Nullability::Nullable))?;
+
+    assert_eq!(actual, Scalar::utf8(expected, Nullability::Nullable));
+    Ok(())
+}
+
+#[test]
+fn test_primitive_cast_to_binary_fails() {
+    let scalar = Scalar::primitive(42i64, Nullability::NonNullable);
+
+    assert!(
+        scalar
+            .cast(&DType::Binary(Nullability::NonNullable))
+            .is_err()
+    );
 }
 
 #[test]
