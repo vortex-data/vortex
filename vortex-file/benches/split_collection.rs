@@ -6,7 +6,9 @@
 //! The default write strategy produces `struct -> zoned -> chunked -> flat` per column, so
 //! split collection walks every chunk of every column. `cold` builds a fresh reader tree per
 //! iteration (as a first scan over a file would); `warm` reuses the reader tree so lazily
-//! cached child readers persist across iterations.
+//! cached child readers persist across iterations. `cold_misaligned` scans a file whose
+//! columns share no interior chunk boundaries, so the split set cannot be collapsed by run
+//! deduplication.
 
 #![expect(clippy::unwrap_used)]
 
@@ -19,7 +21,6 @@ use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldMask;
-use vortex_array::dtype::FieldPath;
 use vortex_array::session::ArraySessionExt;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
@@ -48,7 +49,7 @@ fn main() {
 const ROWS_PER_CHUNK: usize = 1024;
 
 /// (columns, chunks) configurations.
-const CONFIGS: &[(usize, usize)] = &[(1, 1024), (8, 256), (64, 256)];
+const CONFIGS: &[(usize, usize)] = &[(64, 256)];
 
 static RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
     tokio::runtime::Builder::new_current_thread()
@@ -135,7 +136,7 @@ static FILES: LazyLock<HashMap<(usize, usize), VortexFile>> = LazyLock::new(|| {
 
 /// (columns, average chunks per column) for the misaligned files. A single column cannot be
 /// misaligned, so only multi-column configs are used.
-const MISALIGNED_CONFIGS: &[(usize, usize)] = &[(8, 256), (64, 256)];
+const MISALIGNED_CONFIGS: &[(usize, usize)] = &[(64, 256)];
 
 /// Per-column repartition block length: all distinct, so no two columns share interior chunk
 /// boundaries. Mirrors real files where byte-size coalescing gives each column its own chunking.
@@ -253,34 +254,4 @@ fn cold_misaligned(bencher: Bencher, config: &(usize, usize)) {
     );
 
     bencher.bench(|| collect_splits(file));
-}
-
-/// Like `warm`, but over a file whose columns share no interior chunk boundaries.
-#[divan::bench(args = MISALIGNED_CONFIGS)]
-fn warm_misaligned(bencher: Bencher, config: &(usize, usize)) {
-    let file = &MISALIGNED_FILES[config];
-    let reader = file.layout_reader().unwrap();
-    let row_count = file.row_count();
-
-    bencher.bench(|| {
-        SplitBy::Layout
-            .splits(reader.as_ref(), &(0..row_count), &[FieldMask::All])
-            .unwrap()
-    });
-}
-
-/// Fresh reader tree per iteration and a narrow field mask: split collection should only pay
-/// for the projected column, not the full schema width.
-#[divan::bench(args = CONFIGS)]
-fn cold_single_column(bencher: Bencher, config: &(usize, usize)) {
-    let file = &FILES[config];
-    let mask = [FieldMask::Prefix(FieldPath::from(Field::from("col_0")))];
-    let row_count = file.row_count();
-
-    bencher.bench(|| {
-        let reader = file.layout_reader().unwrap();
-        SplitBy::Layout
-            .splits(reader.as_ref(), &(0..row_count), &mask)
-            .unwrap()
-    });
 }
