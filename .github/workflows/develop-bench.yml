@@ -7,16 +7,19 @@ on:
     branches: [develop]
 
 permissions:
-  id-token: write  # enables AWS-GitHub OIDC
-  actions: read
-  contents: write
+  contents: read
 
 jobs:
   commit-metadata:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write  # enables AWS-GitHub OIDC
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c  # v6
         with:
@@ -33,6 +36,9 @@ jobs:
 
   bench:
     timeout-minutes: 120
+    permissions:
+      contents: read
+      id-token: write  # enables AWS-GitHub OIDC
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=bench-dedicated/family=c6id.metal/extras=s3-cache/tag={1}', github.run_id, matrix.benchmark.id)
@@ -56,11 +62,13 @@ jobs:
             name: String Encoding
             v4_ingest: false
     steps:
-      - uses: runs-on/action@v2
+      - uses: runs-on/action@46910bf61b41721b0579f237e186afb35477007a  # v2
         if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -189,7 +197,15 @@ jobs:
 
   sql:
     uses: ./.github/workflows/sql-bench-matrix.yml
-    secrets: inherit
+    permissions:
+      contents: read
+      id-token: write  # enables AWS-GitHub OIDC
+    secrets:
+      POLAR_SIGNALS_API_KEY: ${{ secrets.POLAR_SIGNALS_API_KEY }}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+      OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
+      BENCH_REVALIDATE_TOKEN: ${{ secrets.BENCH_REVALIDATE_TOKEN }}
+      INCIDENT_IO_ALERT_TOKEN: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
     with:
       mode: "develop"
       matrix_preset: "develop"

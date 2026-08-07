@@ -17,6 +17,17 @@ on:
         required: false
         type: string
         default: "pr"
+    secrets:
+      POLAR_SIGNALS_API_KEY:
+        required: false
+      OTEL_EXPORTER_OTLP_ENDPOINT:
+        required: false
+      OTEL_EXPORTER_OTLP_HEADERS:
+        required: false
+      BENCH_REVALIDATE_TOKEN:
+        required: false
+      INCIDENT_IO_ALERT_TOKEN:
+        required: false
   workflow_dispatch:
     inputs:
       matrix_preset:
@@ -38,7 +49,12 @@ permissions:
 jobs:
   sql:
     uses: ./.github/workflows/sql-bench-matrix.yml
-    secrets: inherit
+    secrets:
+      POLAR_SIGNALS_API_KEY: ${{ secrets.POLAR_SIGNALS_API_KEY }}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+      OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
+      BENCH_REVALIDATE_TOKEN: ${{ secrets.BENCH_REVALIDATE_TOKEN }}
+      INCIDENT_IO_ALERT_TOKEN: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
     with:
       mode: "pr"
       matrix_preset: ${{ inputs.matrix_preset }}

@@ -14,6 +14,17 @@ on:
         required: false
         type: string
         default: c6id.metal
+    secrets:
+      POLAR_SIGNALS_API_KEY:
+        required: false
+      OTEL_EXPORTER_OTLP_ENDPOINT:
+        required: false
+      OTEL_EXPORTER_OTLP_HEADERS:
+        required: false
+      BENCH_REVALIDATE_TOKEN:
+        required: false
+      INCIDENT_IO_ALERT_TOKEN:
+        required: false
 
 jobs:
   resolve-matrix:
@@ -53,13 +64,14 @@ jobs:
           && format('runs-on={0}/runner=bench-dedicated/family={1}/tag=build{2}', github.run_id, inputs.machine_type, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     steps:
-      - uses: runs-on/action@v2
+      - uses: runs-on/action@46910bf61b41721b0579f237e186afb35477007a  # v2
         if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
         with:
           sccache: s3
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -67,10 +79,11 @@ jobs:
       - name: Build binaries
         shell: bash
         env:
-          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
+          RUSTFLAGS: -C target-cpu=native -C force-frame-pointers=yes
+          INPUTS_MODE: ${{ inputs.mode }}
         run: |
           packages=(--bin data-gen --bin datafusion-bench --bin duckdb-bench)
-          if [ "${{ inputs.mode }}" != "pr" ]; then
+          if [ "${INPUTS_MODE}" != "pr" ]; then
             packages+=(--bin lance-bench)
           fi
           cargo build "${packages[@]}" --profile release_debug --features unstable_encodings
@@ -114,13 +127,14 @@ jobs:
           && format('runs-on={0}/runner=bench-dedicated/family={1}/tag={2}{3}', github.run_id, inputs.machine_type, matrix.id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     steps:
-      - uses: runs-on/action@v2
+      - uses: runs-on/action@46910bf61b41721b0579f237e186afb35477007a  # v2
         if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
         with:
           sccache: s3
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -255,7 +269,7 @@ jobs:
 
       - name: Comment PR
         if: inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
-        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
+        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3.0.1
         with:
           file-path: comment.md
           # There is exactly one comment per comment-tag. If a comment with this tag already exists,
@@ -266,7 +280,7 @@ jobs:
 
       - name: Comment PR on failure
         if: failure() && inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
-        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
+        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3.0.1
         with:
           message: |
             # 🚨🚨🚨❌❌❌ SQL BENCHMARK FAILED ❌❌❌🚨🚨🚨

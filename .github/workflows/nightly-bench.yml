@@ -19,7 +19,12 @@ permissions:
 jobs:
   sql:
     uses: ./.github/workflows/sql-bench-matrix.yml
-    secrets: inherit
+    secrets:
+      POLAR_SIGNALS_API_KEY: ${{ secrets.POLAR_SIGNALS_API_KEY }}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+      OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
+      BENCH_REVALIDATE_TOKEN: ${{ secrets.BENCH_REVALIDATE_TOKEN }}
+      INCIDENT_IO_ALERT_TOKEN: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
     with:
       mode: "develop"
       machine_type: ${{ matrix.machine_type.instance_name }}

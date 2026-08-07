@@ -5,7 +5,12 @@ name: DuckDB R2 mirror
 # page and upload it to R2.
 # If it's a commit, build Duckdb from source and upload it to R2.
 on:
-  workflow_call: { }
+  workflow_call:
+    secrets:
+      DUCKDB_R2_ACCESS_KEY_ID:
+        required: false
+      DUCKDB_R2_SECRET_ACCESS_KEY:
+        required: false
 
 concurrency:
   group: duckdb-r2-${{ github.event.pull_request.number || github.ref }}
@@ -32,6 +37,8 @@ jobs:
       any_missing: ${{ steps.resolve.outputs.any_missing }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
       - name: Resolve version and check R2
         id: resolve
         run: sh scripts/duckdb-r2-resolve.sh
@@ -51,6 +58,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
 
       - name: Install build dependencies (Linux)
         if: needs.check.outputs.release != 'true' && runner.os == 'Linux'
@@ -72,12 +81,14 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.DUCKDB_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.DUCKDB_R2_SECRET_ACCESS_KEY }}
-          AWS_REGION: "us-east-1"
+          AWS_REGION: us-east-1
           AWS_ENDPOINT_URL: ${{ env.R2_ENDPOINT_URL }}
+          NEEDS_CHECK_OUTPUTS_REF_DIR: ${{ needs.check.outputs.ref_dir }}
+          MATRIX_ARCHIVE: ${{ matrix.archive }}
         run: |
           set -Eeuo pipefail
           python3 scripts/s3-upload.py \
             --bucket "$R2_BUCKET" \
-            --key "${{ needs.check.outputs.ref_dir }}/${{ matrix.archive }}" \
-            --body "${{ matrix.archive }}" \
+            --key "${NEEDS_CHECK_OUTPUTS_REF_DIR}/${MATRIX_ARCHIVE}" \
+            --body "${MATRIX_ARCHIVE}" \
             --checksum-algorithm CRC32

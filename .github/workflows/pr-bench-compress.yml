@@ -3,7 +3,10 @@
 name: PR Compression Benchmark
 
 on:
-  workflow_call: { }
+  workflow_call:
+    secrets:
+      POLAR_SIGNALS_API_KEY:
+        required: false
   workflow_dispatch: { }
 
 permissions:
@@ -14,7 +17,8 @@ permissions:
 jobs:
   bench:
     uses: ./.github/workflows/pr-bench-runner.yml
-    secrets: inherit
+    secrets:
+      POLAR_SIGNALS_API_KEY: ${{ secrets.POLAR_SIGNALS_API_KEY }}
     with:
       benchmark_id: compress-bench
       benchmark_name: Compression

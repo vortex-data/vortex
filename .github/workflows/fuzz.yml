@@ -63,7 +63,6 @@ jobs:
     uses: ./.github/workflows/fuzzer-fix-automation.yml
     with:
       issue_number: ${{ needs.report-io-fuzz-failures.outputs.issue_number }}
-    secrets: inherit
 
   # ============================================================================
   # Array Operations Fuzzer

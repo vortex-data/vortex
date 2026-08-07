@@ -21,6 +21,9 @@ on:
         required: false
         type: boolean
         default: false
+    secrets:
+      POLAR_SIGNALS_API_KEY:
+        required: false
 
 permissions:
   contents: read
@@ -35,13 +38,14 @@ jobs:
           && format('runs-on={0}/runner=bench-dedicated/family=c6id.metal/tag={1}{2}', github.run_id, inputs.benchmark_id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     steps:
-      - uses: runs-on/action@v2
+      - uses: runs-on/action@46910bf61b41721b0579f237e186afb35477007a  # v2
         if: github.event.pull_request.head.repo.fork == false
         with:
           sccache: s3
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -58,9 +62,10 @@ jobs:
       - name: Build binary
         shell: bash
         env:
-          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
+          RUSTFLAGS: -C target-cpu=native -C force-frame-pointers=yes
+          INPUTS_BENCHMARK_ID: ${{ inputs.benchmark_id }}
         run: |
-          cargo build --package ${{ inputs.benchmark_id }} --profile release_debug \
+          cargo build --package ${INPUTS_BENCHMARK_ID} --profile release_debug \
             --features ${{ inputs.with_lance && 'lance,' || '' }}unstable_encodings
 
       - name: Pre-upload benchmark debuginfo to Polar Signals
@@ -105,8 +110,9 @@ jobs:
           RUST_BACKTRACE: full
           VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+          INPUTS_BENCHMARK_ID: ${{ inputs.benchmark_id }}
         run: |
-          bash scripts/bench-taskset.sh target/release_debug/${{ inputs.benchmark_id }} -d gh-json -o results.json
+          bash scripts/bench-taskset.sh target/release_debug/${INPUTS_BENCHMARK_ID} -d gh-json -o results.json
 
       - name: Setup AWS CLI
         if: github.event.pull_request.head.repo.fork == false
@@ -128,20 +134,22 @@ jobs:
           python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/data.json.gz data.json.gz --no-sign-request
           gzip -d -c data.json.gz > base.json
 
-          uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json "${{ inputs.benchmark_name }}" \
+          uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json "${INPUTS_BENCHMARK_NAME}" \
             > comment.md
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
+        env:
+          INPUTS_BENCHMARK_NAME: ${{ inputs.benchmark_name }}
 
       - name: Comment PR
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
-        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
+        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3.0.1
         with:
           file-path: comment.md
           comment-tag: bench-pr-comment-${{ inputs.benchmark_id }}
 
       - name: Comment PR on failure
         if: failure() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
-        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
+        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3.0.1
         with:
           message: |
             # BENCHMARK FAILED

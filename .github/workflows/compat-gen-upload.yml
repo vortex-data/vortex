@@ -34,13 +34,14 @@ jobs:
     outputs:
       version: ${{ steps.detect.outputs.version }}
     steps:
-      - uses: runs-on/action@v2
+      - uses: runs-on/action@46910bf61b41721b0579f237e186afb35477007a  # v2
         if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
@@ -54,7 +55,7 @@ jobs:
       - name: Detect version
         id: detect
         run: |
-          GIT_REF="${{ inputs.git_ref }}"
+          GIT_REF="${INPUTS_GIT_REF}"
           if [ -n "$GIT_REF" ]; then
             TAG=$(git describe --tags --abbrev=0 "$GIT_REF")
           else
@@ -63,15 +64,19 @@ jobs:
           VERSION="${TAG#v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Detected version: $VERSION (from tag: $TAG)"
+        env:
+          INPUTS_GIT_REF: ${{ inputs.git_ref }}
 
       - name: Dry run publish
         run: |
-          GIT_REF="${{ inputs.git_ref }}"
+          GIT_REF="${INPUTS_GIT_REF}"
           CMD="uv run vortex-test/compat-gen/scripts/compat.py publish --dry-run"
           if [ -n "$GIT_REF" ]; then
             CMD="$CMD --git-ref $GIT_REF"
           fi
           $CMD
+        env:
+          INPUTS_GIT_REF: ${{ inputs.git_ref }}
 
   upload:
     needs: dry-run
@@ -86,13 +91,14 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: runs-on/action@v2
+      - uses: runs-on/action@46910bf61b41721b0579f237e186afb35477007a  # v2
         if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
@@ -105,9 +111,11 @@ jobs:
 
       - name: Upload fixtures for v${{ needs.dry-run.outputs.version }}
         run: |
-          GIT_REF="${{ inputs.git_ref }}"
+          GIT_REF="${INPUTS_GIT_REF}"
           CMD="uv run vortex-test/compat-gen/scripts/compat.py publish --yes"
           if [ -n "$GIT_REF" ]; then
             CMD="$CMD --git-ref $GIT_REF"
           fi
           $CMD
+        env:
+          INPUTS_GIT_REF: ${{ inputs.git_ref }}

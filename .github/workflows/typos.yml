@@ -20,5 +20,7 @@ jobs:
     steps:
       - name: Checkout Actions Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
       - name: Spell Check Repo
         uses: crate-ci/typos@37bb98842b0d8c4ffebdb75301a13db0267cef89  # v1.47.2

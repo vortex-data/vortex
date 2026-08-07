@@ -13,42 +13,67 @@ on:
     branches: ["develop"]
 
 permissions:
-  actions: write
   contents: read
-  pull-requests: write  # for label removal and PR comments
-  id-token: write  # enables AWS-GitHub OIDC
 
 jobs:
   remove-all-label:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: github.event.label.name == 'action/bench-all'
+    permissions:
+      pull-requests: write  # for label removal
     steps:
-      - uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0  # v1
+      - name: Remove benchmark label
         if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
-        with:
-          labels: action/bench-all
-          fail_on_error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: gh pr edit "$PR_NUMBER" --remove-label "action/bench-all"
 
   all-random-access-bench:
     needs: remove-all-label
     uses: ./.github/workflows/pr-bench-random-access.yml
-    secrets: inherit
+    permissions:
+      contents: read
+      pull-requests: write  # for PR comments
+      id-token: write  # enables AWS-GitHub OIDC
+    secrets:
+      POLAR_SIGNALS_API_KEY: ${{ secrets.POLAR_SIGNALS_API_KEY }}
 
   all-compression-bench:
     needs: remove-all-label
     uses: ./.github/workflows/pr-bench-compress.yml
-    secrets: inherit
+    permissions:
+      contents: read
+      pull-requests: write  # for PR comments
+      id-token: write  # enables AWS-GitHub OIDC
+    secrets:
+      POLAR_SIGNALS_API_KEY: ${{ secrets.POLAR_SIGNALS_API_KEY }}
 
   all-string-bench:
     needs: remove-all-label
     uses: ./.github/workflows/pr-bench-string.yml
-    secrets: inherit
+    permissions:
+      contents: read
+      pull-requests: write  # for PR comments
+      id-token: write  # enables AWS-GitHub OIDC
+    secrets:
+      POLAR_SIGNALS_API_KEY: ${{ secrets.POLAR_SIGNALS_API_KEY }}
 
   all-sql-bench:
     needs: remove-all-label
     uses: ./.github/workflows/pr-bench-sql.yml
-    secrets: inherit
+    permissions:
+      contents: read
+      pull-requests: write  # for PR comments
+      id-token: write  # enables AWS-GitHub OIDC
+    secrets:
+      POLAR_SIGNALS_API_KEY: ${{ secrets.POLAR_SIGNALS_API_KEY }}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+      OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
+      BENCH_REVALIDATE_TOKEN: ${{ secrets.BENCH_REVALIDATE_TOKEN }}
+      INCIDENT_IO_ALERT_TOKEN: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
     with:
       matrix_preset: "pr-all"
 
@@ -56,81 +81,127 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: github.event.label.name == 'action/bench-random-access'
+    permissions:
+      pull-requests: write  # for label removal
     steps:
-      - uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0  # v1
+      - name: Remove benchmark label
         if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
-        with:
-          labels: action/bench-random-access
-          fail_on_error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: gh pr edit "$PR_NUMBER" --remove-label "action/bench-random-access"
 
   random-access-bench:
     needs: remove-random-access-label
     uses: ./.github/workflows/pr-bench-random-access.yml
-    secrets: inherit
+    permissions:
+      contents: read
+      pull-requests: write  # for PR comments
+      id-token: write  # enables AWS-GitHub OIDC
+    secrets:
+      POLAR_SIGNALS_API_KEY: ${{ secrets.POLAR_SIGNALS_API_KEY }}
 
   remove-compress-label:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: github.event.label.name == 'action/bench-compress'
+    permissions:
+      pull-requests: write  # for label removal
     steps:
-      - uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0  # v1
+      - name: Remove benchmark label
         if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
-        with:
-          labels: action/bench-compress
-          fail_on_error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: gh pr edit "$PR_NUMBER" --remove-label "action/bench-compress"
 
   compression-bench:
     needs: remove-compress-label
     uses: ./.github/workflows/pr-bench-compress.yml
-    secrets: inherit
+    permissions:
+      contents: read
+      pull-requests: write  # for PR comments
+      id-token: write  # enables AWS-GitHub OIDC
+    secrets:
+      POLAR_SIGNALS_API_KEY: ${{ secrets.POLAR_SIGNALS_API_KEY }}
 
   remove-string-label:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: github.event.label.name == 'action/bench-string'
+    permissions:
+      pull-requests: write  # for label removal
     steps:
-      - uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0  # v1
+      - name: Remove benchmark label
         if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
-        with:
-          labels: action/bench-string
-          fail_on_error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: gh pr edit "$PR_NUMBER" --remove-label "action/bench-string"
 
   string-bench:
     needs: remove-string-label
     uses: ./.github/workflows/pr-bench-string.yml
-    secrets: inherit
+    permissions:
+      contents: read
+      pull-requests: write  # for PR comments
+      id-token: write  # enables AWS-GitHub OIDC
+    secrets:
+      POLAR_SIGNALS_API_KEY: ${{ secrets.POLAR_SIGNALS_API_KEY }}
 
   remove-gpu-compress-label:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: github.event.label.name == 'action/bench-gpu-compress'
+    permissions:
+      pull-requests: write  # for label removal
     steps:
-      - uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0  # v1
+      - name: Remove benchmark label
         if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
-        with:
-          labels: action/bench-gpu-compress
-          fail_on_error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: gh pr edit "$PR_NUMBER" --remove-label "action/bench-gpu-compress"
 
   gpu-compress-bench:
     needs: remove-gpu-compress-label
     uses: ./.github/workflows/pr-bench-gpu-compress.yml
-    secrets: inherit
+    permissions:
+      contents: read
+      pull-requests: write  # for PR comments
 
   remove-sql-label:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: github.event.label.name == 'action/bench-sql'
+    permissions:
+      pull-requests: write  # for label removal
     steps:
-      - uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0  # v1
+      - name: Remove benchmark label
         if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
-        with:
-          labels: action/bench-sql
-          fail_on_error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: gh pr edit "$PR_NUMBER" --remove-label "action/bench-sql"
 
   sql-bench:
     needs: remove-sql-label
     uses: ./.github/workflows/pr-bench-sql.yml
-    secrets: inherit
+    permissions:
+      contents: read
+      pull-requests: write  # for PR comments
+      id-token: write  # enables AWS-GitHub OIDC
+    secrets:
+      POLAR_SIGNALS_API_KEY: ${{ secrets.POLAR_SIGNALS_API_KEY }}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+      OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
+      BENCH_REVALIDATE_TOKEN: ${{ secrets.BENCH_REVALIDATE_TOKEN }}
+      INCIDENT_IO_ALERT_TOKEN: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
     with:
       matrix_preset: "pr"
 
@@ -138,16 +209,29 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: github.event.label.name == 'action/bench-sql-compact'
+    permissions:
+      pull-requests: write  # for label removal
     steps:
-      - uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0  # v1
+      - name: Remove benchmark label
         if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
-        with:
-          labels: action/bench-sql-compact
-          fail_on_error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: gh pr edit "$PR_NUMBER" --remove-label "action/bench-sql-compact"
 
   sql-compact-bench:
     needs: remove-sql-compact-label
     uses: ./.github/workflows/pr-bench-sql.yml
-    secrets: inherit
+    permissions:
+      contents: read
+      pull-requests: write  # for PR comments
+      id-token: write  # enables AWS-GitHub OIDC
+    secrets:
+      POLAR_SIGNALS_API_KEY: ${{ secrets.POLAR_SIGNALS_API_KEY }}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+      OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
+      BENCH_REVALIDATE_TOKEN: ${{ secrets.BENCH_REVALIDATE_TOKEN }}
+      INCIDENT_IO_ALERT_TOKEN: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
     with:
       matrix_preset: "pr-compact"

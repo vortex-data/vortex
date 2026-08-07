@@ -22,12 +22,13 @@ jobs:
     runs-on: >-
       runs-on=${{ github.run_id }}/family=g5/cpu=8/image=ubuntu24-gpu-x64/extras=s3-cache/tag=gpu-compress-bench
     steps:
-      - uses: runs-on/action@v2
+      - uses: runs-on/action@46910bf61b41721b0579f237e186afb35477007a  # v2
         with:
           sccache: s3
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -72,13 +73,13 @@ jobs:
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
       - name: Comment PR
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
-        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
+        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3.0.1
         with:
           file-path: comment.md
           comment-tag: bench-pr-comment-gpu-compress
       - name: Comment PR on failure
         if: failure() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
-        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
+        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3.0.1
         with:
           message: |
             # BENCHMARK FAILED

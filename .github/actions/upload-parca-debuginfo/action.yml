@@ -54,8 +54,6 @@ runs:
           chmod +x parca-debuginfo
         fi
 
-        echo "$PWD" >> "$GITHUB_PATH"
-
     - name: Upload benchmark binary debuginfo to Polar Signals
       shell: bash
       env:
@@ -84,7 +82,7 @@ runs:
           fi
 
           cmd=(
-            parca-debuginfo
+            "$RUNNER_TEMP/parca-debuginfo/parca-debuginfo"
             upload
             "--store-address=$STORE_ADDRESS"
             "--bearer-token-file=$token_file"

@@ -25,7 +25,7 @@ runs:
           esac
         fi
 
-        PROTOC_URL="https://github.com/protocolbuffers/protobuf/releases/download/v${{ inputs.protoc_version }}/protoc-${{ inputs.protoc_version }}-${PROTOC_ARCH}.zip"
+        PROTOC_URL="https://github.com/protocolbuffers/protobuf/releases/download/v${INPUTS_PROTOC_VERSION}/protoc-${INPUTS_PROTOC_VERSION}-${PROTOC_ARCH}.zip"
         wget -q -O /tmp/protoc.zip "$PROTOC_URL"
         unzip -o /tmp/protoc.zip -d /tmp/protoc
 
@@ -41,3 +41,5 @@ runs:
 
         rm -rf /tmp/protoc.zip /tmp/protoc
         protoc --version
+      env:
+        INPUTS_PROTOC_VERSION: ${{ inputs.protoc_version }}

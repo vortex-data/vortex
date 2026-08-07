@@ -106,4 +106,3 @@ jobs:
     uses: ./.github/workflows/fuzzer-fix-automation.yml
     with:
       issue_number: ${{ github.event.issue.number }}
-    secrets: inherit

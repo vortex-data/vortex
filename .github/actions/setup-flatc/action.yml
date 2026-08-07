@@ -11,6 +11,8 @@ runs:
       id: download-flatc
       shell: bash
       run: |
-        wget -O /tmp/flatc.zip "https://github.com/google/flatbuffers/releases/download/v${{ inputs.flatc_version }}/Linux.flatc.binary.clang++-18.zip"
+        wget -O /tmp/flatc.zip "https://github.com/google/flatbuffers/releases/download/v${INPUTS_FLATC_VERSION}/Linux.flatc.binary.clang++-18.zip"
         unzip /tmp/flatc.zip flatc
         mv flatc /usr/local/bin/
+      env:
+        INPUTS_FLATC_VERSION: ${{ inputs.flatc_version }}

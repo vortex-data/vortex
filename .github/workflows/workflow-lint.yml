@@ -1,0 +1,35 @@
+name: Workflow Lint
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
+on:
+  push:
+    branches: [develop]
+  pull_request: { }
+  workflow_dispatch: { }
+
+permissions: { }
+
+jobs:
+  validate-workflow-yaml:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      security-events: write  # Required for zizmor's usage of advanced security
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
+      - name: Validate YAML files
+        run: |
+          # Lint the workflows and yamllint's configuration file.
+          yamllint \
+            --strict \
+            -c .yamllint.yaml \
+            .github/
+      - name: Run zizmor 🌈
+        uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054  # v0.6.2
+        with:
+          min-severity: medium
+          min-confidence: medium

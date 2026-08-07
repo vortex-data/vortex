@@ -173,9 +173,12 @@ jobs:
     steps:
       - name: Comment with the refusal reason
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        env:
+          REFUSAL_REASON: ${{ needs.gate.outputs.reason }}
+          PULL_NUMBER: ${{ needs.gate.outputs.pull_number }}
         with:
           script: |
-            const reason = ${{ toJSON(needs.gate.outputs.reason) }};
+            const reason = process.env.REFUSAL_REASON;
             const messages = {
               fork_pr_refused: [
                 "Claude review automation is disabled for fork pull requests.",
@@ -207,10 +210,19 @@ jobs:
               ].join("\n"),
             };
 
+            if (!Object.hasOwn(messages, reason)) {
+              throw new Error(`Unexpected refusal reason: ${reason}`);
+            }
+
+            const pullNumber = Number(process.env.PULL_NUMBER);
+            if (!Number.isSafeInteger(pullNumber) || pullNumber <= 0) {
+              throw new Error(`Invalid pull request number: ${process.env.PULL_NUMBER}`);
+            }
+
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: Number(${{ needs.gate.outputs.pull_number }}),
+              issue_number: pullNumber,
               body: messages[reason],
             });
 

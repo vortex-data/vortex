@@ -71,12 +71,14 @@ jobs:
       first_crash_name: ${{ steps.check.outputs.first_crash_name }}
       artifact_url: ${{ steps.upload_artifacts.outputs.artifact-url }}
     steps:
-      - uses: runs-on/action@v2
+      - uses: runs-on/action@46910bf61b41721b0579f237e186afb35477007a  # v2
         if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-rust
         with:
@@ -85,7 +87,7 @@ jobs:
           enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
 
       - name: Install llvm
-        uses: aminya/setup-cpp@v1
+        uses: aminya/setup-cpp@1f17f92d6a52bfcb1a25348e2c526c2e5cbb1134  # v1.8.0
         with:
           compiler: llvm
 
@@ -119,26 +121,47 @@ jobs:
         run: |
           CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}"
           FEATURES_FLAG=""
-          if [ -n "${{ inputs.extra_features }}" ]; then
-            FEATURES_FLAG="--features ${{ inputs.extra_features }}"
+          if [ -n "${INPUTS_EXTRA_FEATURES}" ]; then
+            FEATURES_FLAG="--features ${INPUTS_EXTRA_FEATURES}"
           fi
           FORK_FLAG=""
           if [ "${{ inputs.jobs }}" -gt 1 ]; then
             FORK_FLAG="-fork=${{ inputs.jobs }}"
           fi
-          ${{ inputs.extra_env }} RUST_BACKTRACE=1 \
+          EXTRA_ENV=()
+          if [ -n "$INPUTS_EXTRA_ENV" ]; then
+            read -r -a EXTRA_ENV <<< "$INPUTS_EXTRA_ENV"
+          fi
+          for assignment in "${EXTRA_ENV[@]}"; do
+            if [[ ! "$assignment" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
+              echo "::error::Invalid extra_env assignment: $assignment"
+              exit 1
+            fi
+          done
+          env "${EXTRA_ENV[@]}" RUST_BACKTRACE=1 \
             cargo +$NIGHTLY_TOOLCHAIN fuzz run --release --debug-assertions \
             $FEATURES_FLAG \
-            ${{ inputs.fuzz_target }} "$CORPUS_DIR" -- \
+            "$INPUTS_FUZZ_TARGET" "$CORPUS_DIR" -- \
             $FORK_FLAG -max_total_time=${{ inputs.max_time }} -rss_limit_mb=0 \
             2>&1 | tee fuzz_output.log
         continue-on-error: true
+        env:
+          INPUTS_EXTRA_FEATURES: ${{ inputs.extra_features }}
+          INPUTS_EXTRA_ENV: ${{ inputs.extra_env }}
+          INPUTS_FUZZ_TARGET: ${{ inputs.fuzz_target }}
 
       - name: Check for crashes
         id: check
+        env:
+          FUZZ_OUTCOME: ${{ steps.fuzz.outcome }}
         run: |
           # Find actual crash files, not just the directory structure
           FIRST_CRASH=$(find fuzz/artifacts -type f \( -name "crash-*" -o -name "leak-*" -o -name "timeout-*" -o -name "oom-*" \) 2>/dev/null | head -1 || true)
+
+          if [ "$FUZZ_OUTCOME" != "success" ] && [ -z "$FIRST_CRASH" ]; then
+            echo "::error::Fuzzer failed without producing a crash artifact"
+            exit 1
+          fi
 
           if [ -n "$FIRST_CRASH" ]; then
             echo "crashes_found=true" >> $GITHUB_OUTPUT
@@ -162,15 +185,19 @@ jobs:
           # fuzz_output.log. Replay the crashing input in single-process mode to get
           # the full output for the crash reporting pipeline.
           FEATURES_FLAG=""
-          if [ -n "${{ inputs.extra_features }}" ]; then
-            FEATURES_FLAG="--features ${{ inputs.extra_features }}"
+          if [ -n "${INPUTS_EXTRA_FEATURES}" ]; then
+            FEATURES_FLAG="--features ${INPUTS_EXTRA_FEATURES}"
           fi
           RUST_BACKTRACE=1 \
             cargo +$NIGHTLY_TOOLCHAIN fuzz run --release --debug-assertions \
             $FEATURES_FLAG \
-            ${{ inputs.fuzz_target }} \
-            "${{ steps.check.outputs.first_crash }}" \
+            "$INPUTS_FUZZ_TARGET" \
+            "$STEPS_CHECK_OUTPUTS_FIRST_CRASH" \
             2>&1 | tee fuzz_output.log || true
+        env:
+          INPUTS_EXTRA_FEATURES: ${{ inputs.extra_features }}
+          INPUTS_FUZZ_TARGET: ${{ inputs.fuzz_target }}
+          STEPS_CHECK_OUTPUTS_FIRST_CRASH: ${{ steps.check.outputs.first_crash }}
 
       - name: Archive crash artifacts
         id: upload_artifacts
