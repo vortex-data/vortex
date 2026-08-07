@@ -68,10 +68,10 @@ pub trait LayoutVTablePlugin: 'static + Send + Sync + Debug {
         build_ctx: &LayoutBuildContext<'_>,
     ) -> VortexResult<LayoutRef>;
 
-    /// Returns `true` if this layout is divisible: its readers may register natural split
-    /// boundaries strictly inside their row range (see [`VTable::is_divisible`]).
-    fn is_divisible(&self) -> bool {
-        true
+    /// Returns `true` if this layout is indivisible: its readers never register natural split
+    /// boundaries strictly inside their row range (see [`VTable::is_indivisible`]).
+    fn is_indivisible(&self) -> bool {
+        false
     }
 }
 
@@ -109,8 +109,8 @@ impl<V: VTable> LayoutVTablePlugin for V {
         .into_layout())
     }
 
-    fn is_divisible(&self) -> bool {
-        VTable::is_divisible(self)
+    fn is_indivisible(&self) -> bool {
+        VTable::is_indivisible(self)
     }
 }
 

@@ -67,8 +67,8 @@ impl VTable for Flat {
 
     /// Flat readers only ever register the end of the requested range, so flat layouts are
     /// indivisible and split collection can skip materializing flat children.
-    fn is_divisible(&self) -> bool {
-        false
+    fn is_indivisible(&self) -> bool {
+        true
     }
 
     fn metadata(layout: &Layout<Self>) -> Self::Metadata {

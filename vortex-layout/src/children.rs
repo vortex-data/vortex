@@ -4,8 +4,6 @@
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::sync::Arc;
-use std::sync::atomic::AtomicU32;
-use std::sync::atomic::Ordering;
 
 use flatbuffers::Follow;
 use itertools::Itertools;
@@ -38,13 +36,14 @@ pub trait LayoutChildren: 'static + Send + Sync {
 
     fn nchildren(&self) -> usize;
 
-    /// Returns `true` if the child at `idx` is divisible: it may register split boundaries
-    /// strictly inside its row range (see [`VTable::is_divisible`](crate::VTable::is_divisible)).
+    /// Returns `true` if the child at `idx` is known — without materializing it — to be
+    /// indivisible: it registers no split boundaries strictly inside its row range (see
+    /// [`VTable::is_indivisible`](crate::VTable::is_indivisible)).
     ///
-    /// Implementations must conservatively return `true` when answering would require
+    /// Implementations must conservatively return `false` when answering would require
     /// materializing the child.
-    fn child_is_divisible(&self, _idx: usize) -> bool {
-        true
+    fn child_is_indivisible(&self, _idx: usize) -> bool {
+        false
     }
 }
 
@@ -73,8 +72,8 @@ impl LayoutChildren for Arc<dyn LayoutChildren> {
         self.as_ref().nchildren()
     }
 
-    fn child_is_divisible(&self, idx: usize) -> bool {
-        self.as_ref().child_is_divisible(idx)
+    fn child_is_indivisible(&self, idx: usize) -> bool {
+        self.as_ref().child_is_indivisible(idx)
     }
 }
 
@@ -118,8 +117,8 @@ impl LayoutChildren for OwnedLayoutChildren {
         self.0.len()
     }
 
-    fn child_is_divisible(&self, idx: usize) -> bool {
-        self.0[idx].dyn_is_divisible()
+    fn child_is_indivisible(&self, idx: usize) -> bool {
+        self.0[idx].dyn_is_indivisible()
     }
 }
 
@@ -133,7 +132,6 @@ pub(crate) struct ViewedLayoutChildren {
     allow_unknown: bool,
     session: VortexSession,
     cache: Arc<[OnceCell<LayoutRef>]>,
-    divisibility_memo: DivisibilityMemo,
 }
 
 impl ViewedLayoutChildren {
@@ -166,7 +164,6 @@ impl ViewedLayoutChildren {
             allow_unknown,
             session,
             cache,
-            divisibility_memo: DivisibilityMemo::empty(),
         }
     }
 
@@ -292,13 +289,13 @@ impl LayoutChildren for ViewedLayoutChildren {
         self.cache.len()
     }
 
-    fn child_is_divisible(&self, idx: usize) -> bool {
+    fn child_is_indivisible(&self, idx: usize) -> bool {
         if idx >= self.nchildren() {
-            return true;
+            return false;
         }
         // Resolve the child's layout encoding from the flatbuffer tag alone, without
-        // deserializing the child layout. Unknown encodings are conservatively divisible so
-        // callers fall back to materializing the child.
+        // deserializing the child layout. Unknown encodings are conservatively not indivisible
+        // so callers fall back to materializing the child.
         let encoding = self
             .flatbuffer()
             .children()
@@ -306,71 +303,12 @@ impl LayoutChildren for ViewedLayoutChildren {
             .get(idx)
             .encoding();
 
-        if let Some(answer) = self.divisibility_memo.get(encoding) {
-            return answer;
-        }
-
         let answer = self
             .layout_read_ctx
             .resolve(encoding)
             .and_then(|encoding_id| self.layouts.get(&encoding_id))
-            .is_none_or(|encoding| encoding.is_divisible());
-        self.divisibility_memo.set(encoding, answer);
+            .is_some_and(|encoding| encoding.is_indivisible());
+
         answer
-    }
-}
-
-/// Single-slot cache for [`ViewedLayoutChildren::child_is_divisible`] answers, keyed by the
-/// child's flatbuffer encoding tag and shared across clones of the owning
-/// [`ViewedLayoutChildren`].
-///
-/// Divisibility depends only on the child's layout encoding, and children of one layout node
-/// almost always share an encoding — so caching the answer for the last-seen tag turns the
-/// per-child read-context resolve and registry lookup into a single atomic load for all but the
-/// first child.
-///
-/// The tag, the answer, and a validity flag are packed into one `AtomicU32` so lookups and
-/// updates are each a single atomic operation, with no locking and no torn state between the key
-/// and its answer:
-///
-/// ```text
-/// bit:  17      16       15..0
-///       valid | answer | encoding tag
-/// ```
-///
-/// `Relaxed` ordering suffices throughout: this is purely a performance cache, and each packed
-/// word is internally consistent on its own. The worst a racing `get`/`set` can cause is a
-/// redundant recomputation.
-#[derive(Clone)]
-struct DivisibilityMemo(Arc<AtomicU32>);
-
-impl DivisibilityMemo {
-    /// Low 16 bits: the flatbuffer encoding tag the cached answer belongs to.
-    const TAG: u32 = 0xFFFF;
-    /// Bit 16: the cached answer for the stored tag.
-    const ANSWER: u32 = 1 << 16;
-    /// Bit 17: set once the memo holds an entry. Needed because the atomic starts at zero, which
-    /// would otherwise be indistinguishable from a cached `(tag 0, answer false)` entry.
-    const VALID: u32 = 1 << 17;
-
-    /// Create a memo holding no entry.
-    fn empty() -> Self {
-        Self(Arc::new(AtomicU32::new(0)))
-    }
-
-    /// Return the cached answer for `tag`, or `None` if the memo is empty or holds a different
-    /// tag.
-    fn get(&self, tag: u16) -> Option<bool> {
-        let memo = self.0.load(Ordering::Relaxed);
-        (memo & Self::VALID != 0 && memo & Self::TAG == u32::from(tag))
-            .then_some(memo & Self::ANSWER != 0)
-    }
-
-    /// Cache `answer` for `tag`, replacing any previous entry.
-    fn set(&self, tag: u16, answer: bool) {
-        self.0.store(
-            u32::from(tag) | Self::VALID | if answer { Self::ANSWER } else { 0 },
-            Ordering::Relaxed,
-        );
     }
 }
