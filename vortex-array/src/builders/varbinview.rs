@@ -20,6 +20,7 @@ use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::Entry;
 use vortex_utils::aliases::hash_map::HashMap;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -486,11 +487,9 @@ impl VarBinViewBuilder {
         debug_assert_eq!(self.nulls.len(), self.views_builder.len());
     }
 
-    /// The compacting arm of [`append_views_scattered`](Self::append_views_scattered): measures
-    /// each buffer's utilization from the fill view and the patch views, then adopts the buffers
-    /// through [`push_buffers_compacted`](Self::push_buffers_compacted). Validity is appended as
-    /// given — an invalid row keeps its view — so every scattered view counts as referenced,
-    /// which keeps a rewrite from stranding an invalid row's view.
+    /// The compacting arm of [`append_views_scattered`](Self::append_views_scattered): resolves
+    /// repeated patches with last-write-wins semantics, then measures each buffer from only the
+    /// distinct views in the final scatter. The fill is measured only if an unpatched row remains.
     fn append_views_scattered_compacted(
         &mut self,
         buffers: Vec<ByteBuffer>,
@@ -500,20 +499,54 @@ impl VarBinViewBuilder {
         validity: &Mask,
     ) {
         let patches = patches.collect::<Vec<_>>();
+        let mut patched_rows = HashSet::new();
+        let mut effective_patches = Vec::with_capacity(patches.len());
+        for (row, view) in patches.into_iter().rev() {
+            assert!(
+                row < len,
+                "Patch row {row} is out of bounds for length {len}"
+            );
+            if patched_rows.insert(row) {
+                effective_patches.push((row, view));
+            }
+        }
+        effective_patches.reverse();
+
+        let fill_used = patched_rows.len() < len;
+        let mut referenced = HashSet::new();
+        if fill_used {
+            referenced.insert(fill);
+        }
 
         let mut utilizations = unmeasured_utilizations(&buffers);
-        measure_view(&mut utilizations, &fill);
-        for (_, view) in &patches {
-            measure_view(&mut utilizations, view);
+        if fill_used {
+            measure_view(&mut utilizations, &fill);
+        }
+        for (_, view) in &effective_patches {
+            if referenced.insert(*view) {
+                measure_view(&mut utilizations, view);
+            }
         }
         let slots = self.push_buffers_compacted(buffers, &utilizations);
 
-        let fill = self.remap_view_compacted(fill, &slots);
+        let mut remapped = HashMap::new();
+        if fill_used {
+            remapped.insert(fill, self.remap_view_compacted(fill, &slots));
+        }
+        for (_, view) in &effective_patches {
+            if let Entry::Vacant(entry) = remapped.entry(*view) {
+                entry.insert(self.remap_view_compacted(*view, &slots));
+            }
+        }
+        let fill = if fill_used {
+            remapped[&fill]
+        } else {
+            BinaryView::empty_view()
+        };
         let start = self.views_builder.len();
         self.views_builder.push_n(fill, len);
-        for (row, view) in patches {
-            let view = self.remap_view_compacted(view, &slots);
-            self.views_builder[start + row] = view;
+        for (row, view) in effective_patches {
+            self.views_builder[start + row] = remapped[&view];
         }
 
         self.nulls.append_validity_mask(validity);
@@ -1783,6 +1816,50 @@ mod tests {
             None,
             Some(OTHER),
         ]);
+        assert_arrays_eq!(actual, expected, &mut ctx);
+    }
+
+    /// Compaction measures the last patch at each row and omits the fill when patches cover the
+    /// whole output, so overwritten patch bytes and unused fill bytes are both dropped.
+    #[test]
+    fn test_append_views_scattered_compaction_measures_final_scatter() {
+        use crate::arrays::varbinview::build_views::BinaryView;
+
+        const DEAD: &str = "an overwritten patch value far too long to inline";
+        const OTHER: &str = "another value far too long to inline";
+
+        let mut ctx = array_session().create_execution_ctx();
+        let patch_values =
+            <VarBinViewArray as FromIterator<_>>::from_iter([Some(DEAD), Some(LONG), Some(OTHER)]);
+        let mut buffers = patch_values
+            .data_buffers()
+            .iter()
+            .map(|buffer| buffer.as_host().clone())
+            .collect::<Vec<_>>();
+        let fill_bytes = ByteBuffer::copy_from("an unused fill value far too long to inline");
+        let fill = BinaryView::make_view(
+            fill_bytes.as_slice(),
+            u32::try_from(buffers.len()).unwrap(),
+            0,
+        );
+        buffers.push(fill_bytes);
+
+        let mut builder =
+            VarBinViewBuilder::with_compaction(DType::Utf8(Nullability::Nullable), 2, 1.0);
+        let views = patch_values.views();
+        builder.append_views_scattered(
+            buffers,
+            2,
+            fill,
+            [(0usize, views[0]), (0, views[1]), (1, views[2])].into_iter(),
+            &Mask::new_true(2),
+        );
+
+        let actual = builder.finish_into_varbinview();
+        assert_eq!(actual.data_buffers().len(), 1);
+        assert_eq!(actual.data_buffers()[0].len(), LONG.len() + OTHER.len());
+
+        let expected = <VarBinViewArray as FromIterator<_>>::from_iter([Some(LONG), Some(OTHER)]);
         assert_arrays_eq!(actual, expected, &mut ctx);
     }
 
