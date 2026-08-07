@@ -5,6 +5,9 @@ use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+use vortex_utils::tree::TreeDisplayAdapter;
+use vortex_utils::tree::write_branch_tree;
+
 use crate::expr::BoundExpression;
 use crate::expr::BoundKind;
 use crate::expr::Expression;
@@ -90,39 +93,38 @@ impl DisplayTreeNode for BoundExpression {
     }
 }
 
-struct NodeDisplay<'a, T>(&'a T);
+pub struct DisplayTreeExpr<'a, T: ?Sized = Expression>(pub &'a T);
 
-impl<T: DisplayTreeNode> Display for NodeDisplay<'_, T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        self.0.fmt_tree_node(f)
+impl<T: DisplayTreeNode> TreeDisplayAdapter for DisplayTreeExpr<'_, T> {
+    type Context = ();
+    type Node = T;
+
+    fn write_node(
+        &self,
+        node: &Self::Node,
+        _context: &Self::Context,
+        formatter: &mut Formatter<'_>,
+    ) -> fmt::Result {
+        node.fmt_tree_node(formatter)
+    }
+
+    fn visit_children(
+        &self,
+        node: &Self::Node,
+        visit: &mut dyn FnMut(&str, &Self::Node, bool) -> fmt::Result,
+    ) -> fmt::Result {
+        let children = node.tree_children();
+        for (index, child) in children.iter().enumerate() {
+            let child_name = node.tree_child_name(index);
+            visit(child_name.as_ref(), child, index + 1 == children.len())?;
+        }
+        Ok(())
     }
 }
 
-pub struct DisplayTreeExpr<'a, T: ?Sized = Expression>(pub &'a T);
-
 impl<T: DisplayTreeNode> Display for DisplayTreeExpr<'_, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        pub use termtree::Tree;
-        fn make_tree<T: DisplayTreeNode>(expr: &T) -> Tree<String> {
-            let child_trees = expr
-                .tree_children()
-                .iter()
-                .enumerate()
-                .map(|(index, child)| {
-                    let child_tree = make_tree(child);
-                    Tree::new(format!(
-                        "{}: {}",
-                        expr.tree_child_name(index),
-                        child_tree.root
-                    ))
-                    .with_leaves(child_tree.leaves)
-                })
-                .collect::<Vec<_>>();
-
-            Tree::new(NodeDisplay(expr).to_string()).with_leaves(child_trees)
-        }
-
-        write!(f, "{}", make_tree(self.0))
+        write_branch_tree(self, self.0, &mut (), f)
     }
 }
 

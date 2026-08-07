@@ -3,8 +3,10 @@
 
 use std::fmt;
 
+use vortex_utils::tree::TreeDisplayAdapter;
+use vortex_utils::tree::write_indented_tree;
+
 use crate::ArrayRef;
-use crate::arrays::Chunked;
 use crate::display::extractor::IndentedFormatter;
 use crate::display::extractor::TreeContext;
 use crate::display::extractor::TreeExtractor;
@@ -74,47 +76,50 @@ impl TreeDisplay {
         self.extractors.push(extractor);
         self
     }
+}
 
-    /// Recursively write a node and all its descendants directly to the formatter.
+impl TreeDisplayAdapter for TreeDisplay {
+    type Context = TreeContext;
+    type Node = ArrayRef;
+
     fn write_node(
         &self,
-        name: &str,
         array: &ArrayRef,
-        ctx: &mut TreeContext,
-        indent: &str,
+        ctx: &TreeContext,
         f: &mut fmt::Formatter<'_>,
     ) -> fmt::Result {
-        // Header line: "{indent}{name}:{annotations...}\n"
-        write!(f, "{indent}{name}:")?;
         for extractor in &self.extractors {
             extractor.write_header(array, ctx, f)?;
         }
-        writeln!(f)?;
+        Ok(())
+    }
 
-        // Detail lines
-        let child_indent = format!("{indent}  ");
-        {
-            let mut indented = IndentedFormatter::new(f, &child_indent);
-            for extractor in &self.extractors {
-                extractor.write_details(array, ctx, &mut indented)?;
-            }
+    fn write_details(
+        &self,
+        array: &ArrayRef,
+        ctx: &TreeContext,
+        f: &mut IndentedFormatter<'_, '_>,
+    ) -> fmt::Result {
+        for extractor in &self.extractors {
+            extractor.write_details(array, ctx, f)?;
         }
+        Ok(())
+    }
 
-        // Push context for children: chunked arrays reset the percentage root
-        let child_size = if array.is::<Chunked>() {
-            None
-        } else {
-            Some(array.nbytes())
-        };
-        ctx.push(child_size);
-
-        // Recurse into children
-        for (child_name, child) in array.children_names().into_iter().zip(array.children()) {
-            self.write_node(&child_name, &child, ctx, &child_indent, f)?;
+    fn visit_children(
+        &self,
+        array: &ArrayRef,
+        visit: &mut dyn FnMut(&str, &ArrayRef, bool) -> fmt::Result,
+    ) -> fmt::Result {
+        let mut children = array
+            .children_names()
+            .into_iter()
+            .zip(array.children())
+            .peekable();
+        while let Some((child_name, child)) = children.next() {
+            let is_last = children.peek().is_none();
+            visit(&child_name, &child, is_last)?;
         }
-
-        ctx.pop();
-
         Ok(())
     }
 }
@@ -122,6 +127,6 @@ impl TreeDisplay {
 impl fmt::Display for TreeDisplay {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut ctx = TreeContext::new();
-        self.write_node("root", &self.array, &mut ctx, "", f)
+        write_indented_tree(self, "root", &self.array, &mut ctx, f)
     }
 }
