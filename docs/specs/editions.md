@@ -62,6 +62,66 @@ edition; each encoding's registry entry records the edition it joined in. In the
 encoding may be *deprecated*, meaning writers stop emitting it — but readers keep decoding it
 indefinitely, so deprecation never invalidates existing files.
 
+Freezing an edition also freezes the *meaning* of each member: what a reader may assume about
+bytes written under that ID never changes afterwards. An incompatible extension of a member is
+a new serialized format with a new ID, not a mutation of the frozen one — see
+[Extending a frozen format](#extending-a-frozen-format).
+
+## Editions name serialized formats
+
+An edition member is a **serialized format**: the encoding ID written into the file, together
+with its metadata schema and the meaning of its buffers and children. The read-forever
+guarantee attaches to those bytes. The in-memory encoding that produced them is an
+implementation detail — it may evolve, gain capabilities, or be replaced entirely without
+touching any edition.
+
+The serialization plugin registry is the layer that maps between the two, in both directions:
+
+- **On read**, a serialized format may be deserialized into whichever in-memory encoding the
+  reader prefers. For example, a serialized `vortex.alp` array with interior patches is
+  deserialized as a `Patched` array wrapping a patch-free ALP array: the file bytes are frozen,
+  but the in-memory representation improved underneath them.
+- **On write**, the plugin chooses which serialized format to emit for a given array. Most
+  encodings have exactly one, so the serialized ID and the in-memory ID coincide — but nothing
+  requires this, and one in-memory encoding may own several serialized formats.
+
+Because the write-time edition check applies to the ID that is written into the file, an
+edition constrains exactly what it guarantees: the bytes a reader will meet.
+
+### Extending a frozen format
+
+A frozen format never changes meaning. If an in-memory encoding learns to represent something
+its serialized format cannot carry — even through a metadata field that was always present but
+constrained to one value — writing it under the old ID would break every reader the edition
+promised could read it. Such an extension is a **new serialized format with a new ID**, staged
+in a draft edition like any other new member. The in-memory encoding does not fork; it gains a
+second serialized format:
+
+- Arrays the old format can represent keep serializing under the old ID, byte-identical,
+  readable by every reader since the old edition froze.
+- Arrays only the new format can represent serialize under the new ID, writable only once an
+  edition containing it is enabled.
+- Readers register one plugin for both IDs; both deserialize into the same in-memory encoding.
+
+### Example: multi-part decimals
+
+`vortex.decimal_byte_parts` froze into `core2025.05.0` representing each decimal value as a
+single signed integer child. Its metadata reserves a `lower_part_count` field, but every
+reader of the frozen format requires it to be zero — so that field cannot be used to extend
+the format after the fact. Suppose the in-memory encoding grows support for wide decimals as
+a signed most-significant part plus up to three unsigned 64-bit lower parts. Then:
+
+- A single-part array still serializes as `vortex.decimal_byte_parts` with
+  `lower_part_count = 0`, indistinguishable from files written before the change.
+- An array carrying lower parts serializes as `vortex.decimal_byte_parts_wide`, a new format
+  staged in a draft edition. A writer pinned to an edition without it cannot emit it; the
+  compressor consults the enabled editions and only produces multi-part arrays when the new
+  format is allowed, so the write-time check never fires as a surprise.
+- A reader that supports the new format deserializes both IDs into the same in-memory
+  encoding. A reader that predates it fails on `vortex.decimal_byte_parts_wide` with an
+  unknown-encoding error pointing at the registry — the failure mode editions promise —
+  rather than crashing inside a decoder that was never taught about lower parts.
+
 ## Edition registry
 
 Coming soon..
