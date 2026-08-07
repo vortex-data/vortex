@@ -11,7 +11,7 @@ use crate::display::extractor::TreeExtractor;
 /// Extractor that adds a `metadata: ...` detail line.
 pub struct MetadataExtractor;
 
-impl TreeExtractor for MetadataExtractor {
+impl TreeExtractor<ArrayRef, TreeContext> for MetadataExtractor {
     fn write_details(
         &self,
         array: &ArrayRef,

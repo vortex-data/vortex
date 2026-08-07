@@ -74,6 +74,31 @@ impl<'a, 'b> IndentedFormatter<'a, 'b> {
     }
 }
 
+/// Contributes one composable dimension of information to tree nodes.
+pub trait TreeDisplayExtractor<N: ?Sized, C: TreeDisplayContext<N>>: Send + Sync {
+    /// Write space-prefixed annotations on the node's header line.
+    fn write_header(
+        &self,
+        node: &N,
+        context: &C,
+        formatter: &mut fmt::Formatter<'_>,
+    ) -> fmt::Result {
+        _ = (node, context, formatter);
+        Ok(())
+    }
+
+    /// Write detail lines beneath the node's header.
+    fn write_details(
+        &self,
+        node: &N,
+        context: &C,
+        formatter: &mut IndentedFormatter<'_, '_>,
+    ) -> fmt::Result {
+        _ = (node, context, formatter);
+        Ok(())
+    }
+}
+
 /// Adapts a domain-specific node and traversal context to the shared tree renderers.
 pub trait TreeDisplayAdapter {
     /// Node type traversed by this adapter.

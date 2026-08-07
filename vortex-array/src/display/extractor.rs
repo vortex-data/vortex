@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt;
-
 pub use vortex_utils::tree::IndentedFormatter;
 use vortex_utils::tree::TreeDisplayContext;
+pub use vortex_utils::tree::TreeDisplayExtractor as TreeExtractor;
 
 use crate::ArrayRef;
 use crate::arrays::Chunked;
@@ -42,39 +41,5 @@ impl TreeDisplayContext<ArrayRef> for TreeContext {
 
     fn pop_parent(&mut self, _parent: &ArrayRef) {
         self.ancestor_sizes.pop();
-    }
-}
-
-/// Trait for contributing display information to tree nodes.
-///
-/// Each extractor represents one "dimension" of display (e.g., nbytes, stats, metadata, buffers).
-/// Extractors are composable: you can combine any number of them via [`TreeDisplay::with`].
-///
-/// [`TreeDisplay::with`]: super::TreeDisplay::with
-pub trait TreeExtractor: Send + Sync {
-    /// Write header annotations (space-prefixed) to the formatter.
-    fn write_header(
-        &self,
-        array: &ArrayRef,
-        ctx: &TreeContext,
-        f: &mut fmt::Formatter<'_>,
-    ) -> fmt::Result {
-        let _ = (array, ctx, f);
-        Ok(())
-    }
-
-    /// Write detail lines below the header.
-    ///
-    /// Content written through `f` is automatically indented. Use
-    /// [`f.formatter()`](IndentedFormatter::formatter) to access the underlying
-    /// [`fmt::Formatter`] for formatting flags.
-    fn write_details(
-        &self,
-        array: &ArrayRef,
-        ctx: &TreeContext,
-        f: &mut IndentedFormatter<'_, '_>,
-    ) -> fmt::Result {
-        let _ = (array, ctx, f);
-        Ok(())
     }
 }

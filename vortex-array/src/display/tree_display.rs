@@ -39,7 +39,7 @@ use crate::display::extractors::StatsExtractor;
 /// ```
 pub struct TreeDisplay {
     array: ArrayRef,
-    extractors: Vec<Box<dyn TreeExtractor>>,
+    extractors: Vec<Box<dyn TreeExtractor<ArrayRef, TreeContext>>>,
 }
 
 impl TreeDisplay {
@@ -66,13 +66,13 @@ impl TreeDisplay {
     }
 
     /// Add an extractor to the display pipeline.
-    pub fn with<E: TreeExtractor + 'static>(mut self, extractor: E) -> Self {
+    pub fn with<E: TreeExtractor<ArrayRef, TreeContext> + 'static>(mut self, extractor: E) -> Self {
         self.extractors.push(Box::new(extractor));
         self
     }
 
     /// Add a pre-boxed extractor to the display pipeline.
-    pub fn with_boxed(mut self, extractor: Box<dyn TreeExtractor>) -> Self {
+    pub fn with_boxed(mut self, extractor: Box<dyn TreeExtractor<ArrayRef, TreeContext>>) -> Self {
         self.extractors.push(extractor);
         self
     }
