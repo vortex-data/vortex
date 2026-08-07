@@ -240,7 +240,11 @@ mod tests {
     #[test]
     fn rejects_non_geometry_dtype() -> VortexResult<()> {
         let primitive = DType::Primitive(PType::F64, Nullability::NonNullable);
-        assert!(SpatialArea.return_dtype(&EmptyOptions, &[primitive]).is_err());
+        assert!(
+            SpatialArea
+                .return_dtype(&EmptyOptions, &[primitive])
+                .is_err()
+        );
         Ok(())
     }
 }
