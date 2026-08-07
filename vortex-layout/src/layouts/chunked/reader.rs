@@ -115,8 +115,9 @@ impl ChunkedReader {
             let children = self.layout.children();
             let nchildren = self.layout.nchildren();
             if nchildren == 0 {
-                return ChunkSkips::None;
+                return ChunkSkips::All;
             }
+
             let skips = (0..nchildren)
                 .map(|idx| children.child_is_indivisible(idx))
                 .collect::<Box<[bool]>>();
@@ -258,12 +259,14 @@ impl LayoutReader for ChunkedReader {
         let iter = self.ranges(row_range);
         splits.reserve(iter.size_hint().0);
 
+        let chunk_skips = self.chunk_skips();
+
         for (chunk_idx, chunk_start, child_range, _) in iter {
             let child_end = child_range.end;
 
             // Children without interior splits (e.g. flat) would only re-register this chunk's
             // end boundary, so skip materializing a layout and reader for them.
-            let skip_child = match self.chunk_skips() {
+            let skip_child = match chunk_skips {
                 ChunkSkips::All => true,
                 ChunkSkips::None => false,
                 ChunkSkips::Mixed(skips) => skips[chunk_idx],
