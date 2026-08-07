@@ -20,7 +20,6 @@ use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::Entry;
 use vortex_utils::aliases::hash_map::HashMap;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -194,9 +193,9 @@ impl VarBinViewBuilder {
         self.completed.len()
     }
 
-    /// Whether this builder compacts the data buffers it is handed. The lengths-driven appends
-    /// and the gather/scatter appends use this to gate their utilization measurement; the
-    /// buffer-adopting escape hatches ([`append_views_built_at`](Self::append_views_built_at) and
+    /// Whether this builder compacts the data buffers it is handed. The lengths-driven and
+    /// gather appends use this to gate their utilization measurement; the buffer-adopting escape
+    /// hatches ([`append_views_built_at`](Self::append_views_built_at) and
     /// [`push_buffers`](Self::push_buffers)) always bypass it.
     fn compacts_buffers(&self) -> bool {
         self.compaction_threshold > 0.0
@@ -262,9 +261,9 @@ impl VarBinViewBuilder {
     ///
     /// Buffers are taken as they are, without utilization measurement; like
     /// [`append_views_built_at`](Self::append_views_built_at), this bypasses any compaction the
-    /// builder was configured for. A caller whose views may leave a buffer mostly unreferenced
-    /// must go through [`push_buffers_compacted`](Self::push_buffers_compacted) on a compacting
-    /// builder instead.
+    /// builder was configured for. Scattered appends deliberately have these semantics;
+    /// compacting paths that measure utilization use
+    /// [`push_buffers_compacted`](Self::push_buffers_compacted) instead.
     fn push_buffers(&mut self, buffers: impl IntoIterator<Item = ByteBuffer>) -> Vec<u32> {
         self.flush_in_progress();
         buffers
@@ -447,9 +446,9 @@ impl VarBinViewBuilder {
     /// fill rows cost one bulk view fill and each patch one view write, with no byte copy.
     /// Validity is appended exactly as given — invalid rows keep whichever view they got.
     ///
-    /// When the builder is configured to compact buffers, utilization is measured from the fill
-    /// view and the patch views and each buffer is adopted, sliced, or rewritten accordingly, so
-    /// callers never need a canonicalize-and-compact fallback.
+    /// This append deliberately adopts the supplied buffers as-is, even when the builder is
+    /// configured for compaction. Callers should use it only when retaining those buffers is
+    /// acceptable.
     ///
     /// # Panics
     ///
@@ -464,16 +463,6 @@ impl VarBinViewBuilder {
         validity: &Mask,
     ) {
         assert_eq!(validity.len(), len, "Must have one validity entry per row");
-        if self.compacts_buffers() {
-            return self.append_views_scattered_compacted(
-                buffers.into_iter().collect(),
-                len,
-                fill,
-                patches,
-                validity,
-            );
-        }
-
         let mapping = self.push_buffers(buffers);
 
         let start = self.views_builder.len();
@@ -481,72 +470,6 @@ impl VarBinViewBuilder {
         let scattered = &mut self.views_builder[start..];
         for (row, view) in patches {
             scattered[row] = remap_view(view, &mapping);
-        }
-
-        self.nulls.append_validity_mask(validity);
-        debug_assert_eq!(self.nulls.len(), self.views_builder.len());
-    }
-
-    /// The compacting arm of [`append_views_scattered`](Self::append_views_scattered): resolves
-    /// repeated patches with last-write-wins semantics, then measures each buffer from only the
-    /// distinct views in the final scatter. The fill is measured only if an unpatched row remains.
-    fn append_views_scattered_compacted(
-        &mut self,
-        buffers: Vec<ByteBuffer>,
-        len: usize,
-        fill: BinaryView,
-        patches: impl Iterator<Item = (usize, BinaryView)>,
-        validity: &Mask,
-    ) {
-        let patches = patches.collect::<Vec<_>>();
-        let mut patched_rows = HashSet::new();
-        let mut effective_patches = Vec::with_capacity(patches.len());
-        for (row, view) in patches.into_iter().rev() {
-            assert!(
-                row < len,
-                "Patch row {row} is out of bounds for length {len}"
-            );
-            if patched_rows.insert(row) {
-                effective_patches.push((row, view));
-            }
-        }
-        effective_patches.reverse();
-
-        let fill_used = patched_rows.len() < len;
-        let mut referenced = HashSet::new();
-        if fill_used {
-            referenced.insert(fill);
-        }
-
-        let mut utilizations = unmeasured_utilizations(&buffers);
-        if fill_used {
-            measure_view(&mut utilizations, &fill);
-        }
-        for (_, view) in &effective_patches {
-            if referenced.insert(*view) {
-                measure_view(&mut utilizations, view);
-            }
-        }
-        let slots = self.push_buffers_compacted(buffers, &utilizations);
-
-        let mut remapped = HashMap::new();
-        if fill_used {
-            remapped.insert(fill, self.remap_view_compacted(fill, &slots));
-        }
-        for (_, view) in &effective_patches {
-            if let Entry::Vacant(entry) = remapped.entry(*view) {
-                entry.insert(self.remap_view_compacted(*view, &slots));
-            }
-        }
-        let fill = if fill_used {
-            remapped[&fill]
-        } else {
-            BinaryView::empty_view()
-        };
-        let start = self.views_builder.len();
-        self.views_builder.push_n(fill, len);
-        for (row, view) in effective_patches {
-            self.views_builder[start + row] = remapped[&view];
         }
 
         self.nulls.append_validity_mask(validity);
@@ -1769,97 +1692,6 @@ mod tests {
         );
 
         let expected = <VarBinViewArray as FromIterator<_>>::from_iter([None::<&str>, None, None]);
-        assert_arrays_eq!(actual, expected, &mut ctx);
-    }
-
-    /// A compacting builder must measure the buffers a scatter hands it: a value no patch
-    /// references must not survive, while the fill and patch views are rebased onto the
-    /// rewritten copy.
-    #[test]
-    fn test_append_views_scattered_compacts_unreferenced_values() {
-        use crate::arrays::varbinview::build_views::BinaryView;
-
-        const DEAD: &str = "a dead value nobody patches in, far too long to inline";
-        const OTHER: &str = "another value far too long to inline";
-
-        let mut ctx = array_session().create_execution_ctx();
-        let patch_values =
-            <VarBinViewArray as FromIterator<_>>::from_iter([Some(LONG), Some(DEAD), Some(OTHER)]);
-        let buffers = patch_values
-            .data_buffers()
-            .iter()
-            .map(|buffer| buffer.as_host().clone())
-            .collect::<Vec<_>>();
-
-        let mut builder =
-            VarBinViewBuilder::with_compaction(DType::Utf8(Nullability::Nullable), 8, 1.0);
-        let views = patch_values.views();
-        builder.append_views_scattered(
-            buffers,
-            4,
-            BinaryView::make_view(b"fill", 0, 0),
-            [(1usize, views[0]), (3usize, views[2])].into_iter(),
-            &Mask::from_iter([true, true, false, true]),
-        );
-
-        let actual = builder.finish_into_varbinview();
-        assert_eq!(actual.data_buffers().len(), 1);
-        assert_eq!(
-            actual.data_buffers()[0].len(),
-            LONG.len() + OTHER.len(),
-            "the rewritten buffer must hold only the referenced values"
-        );
-
-        let expected = <VarBinViewArray as FromIterator<_>>::from_iter([
-            Some("fill"),
-            Some(LONG),
-            None,
-            Some(OTHER),
-        ]);
-        assert_arrays_eq!(actual, expected, &mut ctx);
-    }
-
-    /// Compaction measures the last patch at each row and omits the fill when patches cover the
-    /// whole output, so overwritten patch bytes and unused fill bytes are both dropped.
-    #[test]
-    fn test_append_views_scattered_compaction_measures_final_scatter() {
-        use crate::arrays::varbinview::build_views::BinaryView;
-
-        const DEAD: &str = "an overwritten patch value far too long to inline";
-        const OTHER: &str = "another value far too long to inline";
-
-        let mut ctx = array_session().create_execution_ctx();
-        let patch_values =
-            <VarBinViewArray as FromIterator<_>>::from_iter([Some(DEAD), Some(LONG), Some(OTHER)]);
-        let mut buffers = patch_values
-            .data_buffers()
-            .iter()
-            .map(|buffer| buffer.as_host().clone())
-            .collect::<Vec<_>>();
-        let fill_bytes = ByteBuffer::copy_from("an unused fill value far too long to inline");
-        let fill = BinaryView::make_view(
-            fill_bytes.as_slice(),
-            u32::try_from(buffers.len()).unwrap(),
-            0,
-        );
-        buffers.push(fill_bytes);
-
-        let mut builder =
-            VarBinViewBuilder::with_compaction(DType::Utf8(Nullability::Nullable), 2, 1.0);
-        let views = patch_values.views();
-        builder.append_views_scattered(
-            buffers,
-            2,
-            fill,
-            [(0usize, views[0]), (0, views[1]), (1, views[2])].into_iter(),
-            &Mask::new_true(2),
-        );
-
-        let actual = builder.finish_into_varbinview();
-        assert_eq!(actual.data_buffers().len(), 1);
-        assert_eq!(actual.data_buffers()[0].len(), LONG.len() + OTHER.len());
-
-        let expected = <VarBinViewArray as FromIterator<_>>::from_iter([Some(LONG), Some(OTHER)]);
         assert_arrays_eq!(actual, expected, &mut ctx);
     }
 

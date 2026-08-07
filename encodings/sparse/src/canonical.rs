@@ -157,12 +157,6 @@ pub(super) fn append_sparse_to_varbinview(
     };
 
     let views = parts.values.views();
-    // Null patch views may still reference their source buffers. Empty them while walking the
-    // patches so scatter compaction does not retain bytes that no output value can observe.
-    let patch_validity = parts
-        .values
-        .validity()?
-        .execute_mask(parts.values.len(), ctx)?;
     match_each_integer_ptype!(parts.indices.ptype(), |I| {
         let indices = parts.indices.as_slice::<I>();
         builder.append_views_scattered(
@@ -172,17 +166,7 @@ pub(super) fn append_sparse_to_varbinview(
             indices
                 .iter()
                 .zip(views.iter())
-                .zip(patch_validity.iter())
-                .map(|((row, view), is_valid)| {
-                    (
-                        AsPrimitive::<usize>::as_(*row),
-                        if is_valid {
-                            *view
-                        } else {
-                            BinaryView::empty_view()
-                        },
-                    )
-                }),
+                .map(|(row, view)| (AsPrimitive::<usize>::as_(*row), *view)),
             &validity,
         );
     });
@@ -2007,48 +1991,6 @@ mod test {
             candidate.append_to_builder(&mut varbin_builder, &mut ctx)?;
             assert_arrays_eq!(varbin_builder.finish_into_varbin(), expected, &mut ctx);
         }
-        Ok(())
-    }
-
-    /// Null patch views can reference real source bytes; the direct scatter empties those views
-    /// so compaction retains only bytes belonging to observable output values.
-    #[test]
-    fn test_sparse_append_to_compacting_view_builder_skips_null_patch_bytes() -> VortexResult<()> {
-        const NULL_BYTES: &str = "a null patch value that is far too long to inline";
-        const VALID_BYTES: &str = "a valid patch value that is far too long to inline";
-
-        let mut ctx = SESSION.create_execution_ctx();
-        let source = VarBinViewArray::from_iter_str([NULL_BYTES, VALID_BYTES]);
-        let patch_values = VarBinViewArray::try_new(
-            source.views().iter().copied().collect(),
-            Arc::from(
-                source
-                    .data_buffers()
-                    .iter()
-                    .map(|buffer| buffer.as_host().clone())
-                    .collect::<Vec<_>>(),
-            ),
-            DType::Utf8(Nullable),
-            Validity::from_mask(Mask::from_iter([false, true]), Nullable),
-        )?;
-        let array = Sparse::try_new(
-            buffer![0u16, 1].into_array(),
-            patch_values.into_array(),
-            2,
-            Scalar::from("an unused fill value far too long to inline".to_owned()).into_nullable(),
-        )?
-        .into_array();
-
-        let mut builder =
-            VarBinViewBuilder::with_compaction(array.dtype().clone(), array.len(), 1.0);
-        array.append_to_builder(&mut builder, &mut ctx)?;
-        let actual = builder.finish_into_varbinview();
-
-        assert_eq!(actual.data_buffers().len(), 1);
-        assert_eq!(actual.data_buffers()[0].len(), VALID_BYTES.len());
-        let expected =
-            <VarBinViewArray as FromIterator<_>>::from_iter([None::<&str>, Some(VALID_BYTES)]);
-        assert_arrays_eq!(actual, expected, &mut ctx);
         Ok(())
     }
 
