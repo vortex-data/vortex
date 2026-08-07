@@ -19,6 +19,7 @@ use crate::ArrayRef;
 use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
@@ -168,7 +169,7 @@ impl VTable for VarBinView {
 
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
         if !metadata.is_empty() {
             vortex_bail!(
@@ -218,6 +219,11 @@ impl VTable for VarBinView {
             .map(|b| b.as_host().clone())
             .collect::<Vec<_>>();
         let views = Buffer::<BinaryView>::from_byte_buffer(views_handle.clone().as_host().clone());
+        let views = VarBinViewData::replace_invalid_views(
+            views,
+            &validity,
+            &mut session.create_execution_ctx(),
+        )?;
 
         let data = VarBinViewData::try_new(
             views,

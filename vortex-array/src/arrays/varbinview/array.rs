@@ -19,6 +19,7 @@ use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::ArraySlots;
+use crate::ExecutionCtx;
 use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
@@ -185,6 +186,33 @@ impl VarBinViewData {
 
         // SAFETY: validate ensures all invariants are met.
         Ok(unsafe { Self::new_unchecked(views, buffers, dtype, validity) })
+    }
+
+    // Replace views at invalid (null) slots with empty views
+    pub(crate) fn replace_invalid_views(
+        views: Buffer<BinaryView>,
+        validity: &Validity,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Buffer<BinaryView>> {
+        let mask = validity.execute_mask(views.len(), ctx)?;
+        if mask.all_true() {
+            return Ok(views);
+        }
+        let empty = BinaryView::empty_view();
+        let Some(first) = views
+            .iter()
+            .zip(mask.iter())
+            .position(|(view, valid)| !valid && *view != empty)
+        else {
+            return Ok(views);
+        };
+        let mut views = views.into_mut();
+        for (view, valid) in views.iter_mut().zip(mask.iter()).skip(first) {
+            if !valid {
+                *view = empty;
+            }
+        }
+        Ok(views.freeze())
     }
 
     /// Constructs a new `VarBinViewArray`.
