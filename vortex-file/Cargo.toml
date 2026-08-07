@@ -61,6 +61,7 @@ vortex-zigzag = { workspace = true }
 vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]
+divan = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
@@ -70,6 +71,10 @@ vortex-scan = { workspace = true }
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "split_collection"
+harness = false
 
 [features]
 object_store = ["dep:object_store", "vortex-io/object_store", "tokio"]

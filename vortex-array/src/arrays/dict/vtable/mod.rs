@@ -46,6 +46,7 @@ use crate::arrays::dict::execute::take_canonical;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinBuilder;
+use crate::builders::VarBinViewBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::OffsetBuilderPType;
@@ -239,6 +240,12 @@ impl VTable for Dict {
             {
                 return result;
             }
+            if let CanonicalView::VarBinView(values) = values
+                && let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>()
+            {
+                let validity = array.validity()?.execute_mask(array.len(), ctx)?;
+                return append_dict_to_varbinview(codes, values, validity, builder);
+            }
             let canonical = take_canonical(values, codes, ctx)?.into_array();
             canonical.append_to_builder(builder, ctx)?;
             return Ok(());
@@ -260,6 +267,36 @@ impl VTable for Dict {
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
+}
+
+/// Gathers the dictionary values straight into `builder` as views.
+///
+/// The canonical route first takes the values to full logical length — allocating an intermediate
+/// views buffer proportional to the row count — and then `append_varbinview_array` walks all
+/// those views a second time to rebase their buffer indices onto the builder's. Gathering through
+/// the codes directly instead adopts the dictionary's buffers once (deduplicated across chunks
+/// sharing the dictionary, when the builder deduplicates) and writes each row's rebased view in a
+/// single pass, with no byte copy at all.
+fn append_dict_to_varbinview(
+    codes: ArrayView<'_, Primitive>,
+    values: ArrayView<'_, VarBinView>,
+    validity: Mask,
+    builder: &mut VarBinViewBuilder,
+) -> VortexResult<()> {
+    let views = values.views();
+    let buffers = values
+        .data_buffers()
+        .iter()
+        .map(|buffer| buffer.as_host().clone())
+        .collect::<Vec<_>>();
+
+    match_each_integer_ptype!(codes.ptype(), |C| {
+        let codes = codes.as_slice::<C>();
+        builder.append_views_gathered(buffers, views, &validity, |row| {
+            AsPrimitive::<usize>::as_(codes[row])
+        });
+    });
+    Ok(())
 }
 
 /// Gathers the dictionary values straight into `builder`.
@@ -341,6 +378,68 @@ mod tests {
             DType::Utf8(Nullable),
         );
         assert_arrays_eq!(builder.finish_into_varbin(), expected, &mut ctx);
+        Ok(())
+    }
+
+    /// The view-builder path gathers views through the codes without materializing the taken
+    /// array, so the result must still match the canonical take — including rows whose code is
+    /// null and rows whose dictionary value is null.
+    #[test]
+    fn append_to_view_builder_gathers_through_the_dictionary() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let dict = DictArray::try_new(
+            PrimitiveArray::from_option_iter([Some(0u32), Some(2), None, Some(1), Some(0)])
+                .into_array(),
+            VarBinViewArray::from_iter([Some(LONG), None, Some("short")], DType::Utf8(Nullable))
+                .into_array(),
+        )?;
+
+        let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullable), 8);
+        builder.append_value(LONG);
+        dict.append_to_builder(&mut builder, &mut ctx)?;
+
+        let expected = VarBinViewArray::from_iter(
+            [
+                Some(LONG),
+                Some(LONG),
+                Some("short"),
+                None,
+                None,
+                Some(LONG),
+            ],
+            DType::Utf8(Nullable),
+        );
+        assert_arrays_eq!(builder.finish_into_varbinview(), expected, &mut ctx);
+        Ok(())
+    }
+
+    /// Two chunks gathered through the same dictionary into a deduplicating builder must adopt
+    /// the dictionary's data buffers once.
+    #[test]
+    fn append_to_dedup_view_builder_adopts_the_dictionary_once() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let values = VarBinViewArray::from_iter([Some(LONG), Some("short")], DType::Utf8(Nullable));
+        assert_eq!(values.data_buffers().len(), 1);
+
+        let first = DictArray::try_new(
+            PrimitiveArray::from_option_iter([Some(0u32), Some(1)]).into_array(),
+            values.clone().into_array(),
+        )?;
+        let second = DictArray::try_new(
+            PrimitiveArray::from_option_iter([Some(1u32), Some(0)]).into_array(),
+            values.into_array(),
+        )?;
+
+        let mut builder = VarBinViewBuilder::with_buffer_deduplication(DType::Utf8(Nullable), 8);
+        first.append_to_builder(&mut builder, &mut ctx)?;
+        second.append_to_builder(&mut builder, &mut ctx)?;
+        assert_eq!(builder.completed_block_count(), 1);
+
+        let expected = VarBinViewArray::from_iter(
+            [Some(LONG), Some("short"), Some("short"), Some(LONG)],
+            DType::Utf8(Nullable),
+        );
+        assert_arrays_eq!(builder.finish_into_varbinview(), expected, &mut ctx);
         Ok(())
     }
 }
