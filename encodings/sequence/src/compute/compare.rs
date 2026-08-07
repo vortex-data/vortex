@@ -14,7 +14,7 @@ use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::binary::CompareKernel;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
-use vortex_buffer::BitBuffer;
+use vortex_buffer::BitBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -56,7 +56,9 @@ impl CompareKernel for Sequence {
         };
 
         if let Ok(set_idx) = set_idx {
-            let buffer = BitBuffer::from_iter((0..lhs.len()).map(|idx| idx == set_idx));
+            let mut buffer = BitBufferMut::new_unset(lhs.len());
+            buffer.set(set_idx);
+            let buffer = buffer.freeze();
             Ok(Some(BoolArray::new(buffer, validity).into_array()))
         } else {
             Ok(Some(

@@ -4,6 +4,7 @@
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::cast_possible_truncation)]
 
+use std::hint::black_box;
 use std::sync::LazyLock;
 
 use divan::Bencher;
@@ -40,6 +41,7 @@ use vortex::encodings::zigzag::zigzag_encode;
 use vortex::encodings::zstd::Zstd;
 use vortex::encodings::zstd::ZstdData;
 use vortex_array::VortexSessionExecute;
+use vortex_buffer::{BitBuffer, BitBufferMut};
 use vortex_error::VortexResult;
 use vortex_sequence::Sequence;
 use vortex_session::VortexSession;
@@ -55,6 +57,7 @@ fn main() {
 }
 
 const NUM_VALUES: u64 = 100_000;
+const SEQUENCE_COMPARE_LENGTHS: [usize; 3] = [1_000, 100_000, 1_000_000];
 
 // Helper function to conditionally add counter based on codspeed cfg
 fn with_byte_counter<'a, 'b>(bencher: Bencher<'a, 'b>, bytes: u64) -> Bencher<'a, 'b> {
@@ -270,6 +273,24 @@ fn bench_sequence_decompress_u32(bencher: Bencher) {
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
         .bench_refs(|(a, ctx)| canonicalize((**a).clone(), ctx));
+}
+
+#[divan::bench(args = SEQUENCE_COMPARE_LENGTHS)]
+fn bench_sequence_compare_match_from_iter(bencher: Bencher, len: usize) {
+    let set_idx = len / 2;
+    bencher.bench(|| {
+        black_box(BitBuffer::from_iter((0..len).map(|idx| idx == set_idx)));
+    });
+}
+
+#[divan::bench(args = SEQUENCE_COMPARE_LENGTHS)]
+fn bench_sequence_compare_match_single_set(bencher: Bencher, len: usize) {
+    let set_idx = len / 2;
+    bencher.bench(|| {
+        let mut buffer = BitBufferMut::new_unset(len);
+        buffer.set(set_idx);
+        black_box(buffer.freeze());
+    });
 }
 
 #[divan::bench(name = "alp_compress_f64")]
