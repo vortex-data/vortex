@@ -25,9 +25,10 @@ use crate::scalar_fn::fns::select::Select;
 ///
 /// # Annotation Rules
 ///
-/// - **[`Select`]**: Returns the included field names if the child is [`Root`].
-/// - **[`GetItem`] on [`Root`]**: Returns `[field_name]` if the child is [`Root`].
-/// - **[`Root`]**: Returns all field names from `scope` (conservative over-approximation).
+/// - **[`Select`]**: Returns the included field names if the child is [`Expression::Root`].
+/// - **[`GetItem`] on the root**: Returns `[field_name]` if the child is [`Expression::Root`].
+/// - **[`Expression::Root`]**: Returns all field names from `scope` (conservative
+///   over-approximation).
 /// - **Everything else**: Returns empty (annotations aggregate from children automatically).
 ///
 /// # Example
