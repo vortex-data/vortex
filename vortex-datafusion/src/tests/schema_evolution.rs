@@ -11,8 +11,12 @@ use arrow_schema::Fields;
 use arrow_schema::Schema;
 use datafusion::arrow::array::Array;
 use datafusion::arrow::array::ArrayRef as ArrowArrayRef;
+use datafusion::arrow::array::BooleanArray;
 use datafusion::arrow::array::DictionaryArray;
+use datafusion::arrow::array::Float64Array;
+use datafusion::arrow::array::Int64Array;
 use datafusion::arrow::array::RecordBatch;
+use datafusion::arrow::array::StringArray;
 use datafusion::arrow::array::StructArray;
 use datafusion::arrow::datatypes::UInt16Type;
 use datafusion::arrow::datatypes::UInt32Type;
@@ -162,6 +166,194 @@ async fn test_filter_schema_evolution_order(
             "+---+------+",
         ],
         &result
+    );
+
+    Ok(())
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_schema_evolution_type_widening_chain(
+    #[values(false, true)] projection_pushdown: bool,
+) -> anyhow::Result<()> {
+    let ctx = TestSessionContext::new(projection_pushdown);
+
+    let bool_batch = RecordBatch::try_from_iter([(
+        "value",
+        Arc::new(BooleanArray::from(vec![Some(true), Some(false), None])) as ArrowArrayRef,
+    )])?;
+    let int_batch = RecordBatch::try_from_iter([(
+        "value",
+        Arc::new(Int64Array::from(vec![Some(42), Some(-7), None])) as ArrowArrayRef,
+    )])?;
+    let float_batch = RecordBatch::try_from_iter([(
+        "value",
+        Arc::new(Float64Array::from(vec![Some(1.5), Some(-2.25), None])) as ArrowArrayRef,
+    )])?;
+    let utf8_batch = RecordBatch::try_from_iter([(
+        "value",
+        Arc::new(StringArray::from(vec![Some("alpha"), Some("beta"), None])) as ArrowArrayRef,
+    )])?;
+
+    ctx.write_arrow_batch("widening/int/bool.vortex", &bool_batch)
+        .await?;
+    ctx.write_arrow_batch("widening/int/int.vortex", &int_batch)
+        .await?;
+
+    let int_schema = Arc::new(Schema::new(vec![Field::new(
+        "value",
+        DataType::Int64,
+        true,
+    )]));
+    let int_provider = ctx
+        .table_provider("widening_int", "/widening/int/", Arc::clone(&int_schema))
+        .await?;
+    let int_table = ctx.session.read_table(int_provider)?;
+
+    assert_eq!(int_table.schema().as_arrow(), int_schema.as_ref());
+    assert_batches_sorted_eq!(
+        [
+            "+-------+",
+            "| value |",
+            "+-------+",
+            "|       |",
+            "|       |",
+            "| -7    |",
+            "| 0     |",
+            "| 1     |",
+            "| 42    |",
+            "+-------+",
+        ],
+        &int_table.clone().collect().await?
+    );
+    assert_batches_sorted_eq!(
+        [
+            "+-------+",
+            "| value |",
+            "+-------+",
+            "| 1     |",
+            "| 42    |",
+            "+-------+",
+        ],
+        &int_table
+            .filter(col("value").eq(lit(1_i64)).or(col("value").eq(lit(42_i64))),)?
+            .collect()
+            .await?
+    );
+
+    ctx.write_arrow_batch("widening/float/bool.vortex", &bool_batch)
+        .await?;
+    ctx.write_arrow_batch("widening/float/int.vortex", &int_batch)
+        .await?;
+    ctx.write_arrow_batch("widening/float/float.vortex", &float_batch)
+        .await?;
+
+    let float_schema = Arc::new(Schema::new(vec![Field::new(
+        "value",
+        DataType::Float64,
+        true,
+    )]));
+    let float_provider = ctx
+        .table_provider(
+            "widening_float",
+            "/widening/float/",
+            Arc::clone(&float_schema),
+        )
+        .await?;
+    let float_table = ctx.session.read_table(float_provider)?;
+
+    assert_eq!(float_table.schema().as_arrow(), float_schema.as_ref());
+    assert_batches_sorted_eq!(
+        [
+            "+-------+",
+            "| value |",
+            "+-------+",
+            "|       |",
+            "|       |",
+            "|       |",
+            "| -2.25 |",
+            "| -7.0  |",
+            "| 0.0   |",
+            "| 1.0   |",
+            "| 1.5   |",
+            "| 42.0  |",
+            "+-------+",
+        ],
+        &float_table.clone().collect().await?
+    );
+    assert_batches_sorted_eq!(
+        [
+            "+-------+",
+            "| value |",
+            "+-------+",
+            "| 1.5   |",
+            "| 42.0  |",
+            "+-------+",
+        ],
+        &float_table
+            .filter(
+                col("value")
+                    .eq(lit(1.5_f64))
+                    .or(col("value").eq(lit(42.0_f64))),
+            )?
+            .collect()
+            .await?
+    );
+
+    ctx.write_arrow_batch("widening/utf8/bool.vortex", &bool_batch)
+        .await?;
+    ctx.write_arrow_batch("widening/utf8/int.vortex", &int_batch)
+        .await?;
+    ctx.write_arrow_batch("widening/utf8/float.vortex", &float_batch)
+        .await?;
+    ctx.write_arrow_batch("widening/utf8/utf8.vortex", &utf8_batch)
+        .await?;
+
+    let utf8_schema = Arc::new(Schema::new(vec![Field::new("value", DataType::Utf8, true)]));
+    let utf8_provider = ctx
+        .table_provider("widening_utf8", "/widening/utf8/", Arc::clone(&utf8_schema))
+        .await?;
+    let utf8_table = ctx.session.read_table(utf8_provider)?;
+
+    assert_eq!(utf8_table.schema().as_arrow(), utf8_schema.as_ref());
+
+    let full_scan = utf8_table.clone().collect().await?;
+    assert_batches_sorted_eq!(
+        [
+            "+-------+",
+            "| value |",
+            "+-------+",
+            "|       |",
+            "|       |",
+            "|       |",
+            "|       |",
+            "| -2.25 |",
+            "| -7    |",
+            "| 1.5   |",
+            "| 42    |",
+            "| alpha |",
+            "| beta  |",
+            "| false |",
+            "| true  |",
+            "+-------+",
+        ],
+        &full_scan
+    );
+
+    let filtered_scan = utf8_table
+        .filter(col("value").eq(lit("true")).or(col("value").eq(lit("42"))))?
+        .collect()
+        .await?;
+    assert_batches_sorted_eq!(
+        [
+            "+-------+",
+            "| value |",
+            "+-------+",
+            "| 42    |",
+            "| true  |",
+            "+-------+",
+        ],
+        &filtered_scan
     );
 
     Ok(())

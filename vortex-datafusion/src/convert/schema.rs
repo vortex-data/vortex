@@ -80,6 +80,16 @@ fn calculate_physical_field_type(
         DataType::Utf8 | DataType::LargeUtf8 | DataType::Binary | DataType::LargeBinary => {
             if dtype.is_binary() || dtype.is_utf8() {
                 logical_type.clone()
+            } else if matches!(logical_type, DataType::Utf8 | DataType::LargeUtf8)
+                && (dtype.is_int() || dtype.is_float() || dtype.is_boolean())
+            {
+                // Preserve the file's physical type so the expression adapter can insert the
+                // cast to the unified logical string type.
+                arrow_session
+                    .to_arrow_field("", dtype)
+                    .map_err(|e| exec_datafusion_err!("Failed to convert dtype to arrow: {e}"))?
+                    .data_type()
+                    .clone()
             } else {
                 return Err(exec_datafusion_err!(
                     "Failed to convert dtype to arrow: Vortex DType is {dtype} which is not compatible with {logical_type}"
@@ -267,6 +277,7 @@ mod tests {
     use std::sync::Arc;
 
     use arrow_schema::Fields;
+    use rstest::rstest;
     use vortex::dtype::Nullability;
     use vortex::dtype::PType;
     use vortex::dtype::StructFields;
@@ -355,26 +366,83 @@ mod tests {
         assert_eq!(physical_schema.field(3).data_type(), &DataType::LargeBinary);
     }
 
-    #[test]
-    fn test_failing_conversion_incompatible_types() {
-        let logical_schema = Schema::new(vec![Field::new("col", DataType::Utf8, false)]);
-
+    #[rstest]
+    #[case(
+        DType::Primitive(PType::I32, Nullability::NonNullable),
+        DataType::Utf8,
+        DataType::Int32
+    )]
+    #[case(
+        DType::Primitive(PType::F64, Nullability::Nullable),
+        DataType::Utf8,
+        DataType::Float64
+    )]
+    #[case(
+        DType::Bool(Nullability::NonNullable),
+        DataType::Utf8,
+        DataType::Boolean
+    )]
+    #[case(
+        DType::Primitive(PType::I64, Nullability::Nullable),
+        DataType::LargeUtf8,
+        DataType::Int64
+    )]
+    fn test_bool_and_numeric_file_column_under_utf8_logical_type(
+        #[case] physical_dtype: DType,
+        #[case] logical_type: DataType,
+        #[case] expected_physical_type: DataType,
+    ) -> DFResult<()> {
+        let logical_schema = Schema::new(vec![Field::new("col", logical_type, true)]);
         let dtype = DType::Struct(
-            StructFields::from_iter([(
-                "col",
-                DType::Primitive(PType::I32, Nullability::NonNullable),
-            )]),
+            StructFields::from_iter([("col", physical_dtype)]),
+            Nullability::NonNullable,
+        );
+
+        let physical_schema =
+            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default())?;
+
+        assert_eq!(
+            physical_schema.field(0).data_type(),
+            &expected_physical_type
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(
+        DType::Primitive(PType::I32, Nullability::NonNullable),
+        DataType::Binary
+    )]
+    #[case(DType::Bool(Nullability::NonNullable), DataType::LargeBinary)]
+    #[case(
+        DType::List(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            Nullability::NonNullable,
+        ),
+        DataType::Utf8
+    )]
+    fn test_incompatible_file_column_under_string_or_binary_logical_type(
+        #[case] physical_dtype: DType,
+        #[case] logical_type: DataType,
+    ) {
+        let logical_schema = Schema::new(vec![Field::new("col", logical_type, false)]);
+        let dtype = DType::Struct(
+            StructFields::from_iter([("col", physical_dtype)]),
             Nullability::NonNullable,
         );
 
         let result = calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default());
+
         assert!(
             result
                 .unwrap_err()
                 .to_string()
                 .contains("not compatible with")
         );
+    }
 
+    #[test]
+    fn test_failing_conversion_incompatible_types() {
         // Test struct vs non-struct mismatch
         let logical_schema = Schema::new(vec![Field::new(
             "col",
