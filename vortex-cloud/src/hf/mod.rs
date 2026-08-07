@@ -8,7 +8,7 @@
 //! `resolve` prefix, carrying a bearer token when one is available, is the whole implementation.
 //! Reads therefore keep every [`object_store::ClientOptions`] setting a caller passes —
 //! connect/request timeouts, retries, proxy configuration, `allow_http` — unlike the OpenDAL-backed
-//! schemes in [`crate::opendal`], whose bridge owns its own HTTP client.
+//! schemes in the crate's `opendal` module, whose bridge owns its own HTTP client.
 //!
 //! # URL grammar
 //!
