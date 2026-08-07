@@ -132,6 +132,9 @@ pub(crate) struct ViewedLayoutChildren {
     allow_unknown: bool,
     session: VortexSession,
     cache: Arc<[OnceCell<LayoutRef>]>,
+    /// Per-child answers to [`LayoutChildren::child_is_indivisible`], precomputed at
+    /// construction from the flatbuffer encoding tags alone.
+    indivisible: Arc<[bool]>,
 }
 
 impl ViewedLayoutChildren {
@@ -150,11 +153,23 @@ impl ViewedLayoutChildren {
         session: VortexSession,
     ) -> Self {
         // SAFETY: guaranteed by caller
-        let nchildren = unsafe { fbl::Layout::follow(flatbuffer.as_ref(), flatbuffer_loc) }
+        let fb_children = unsafe { fbl::Layout::follow(flatbuffer.as_ref(), flatbuffer_loc) }
             .children()
-            .unwrap_or_default()
-            .len();
-        let cache = vec![OnceCell::new(); nchildren].into_boxed_slice().into();
+            .unwrap_or_default();
+        let cache = vec![OnceCell::new(); fb_children.len()]
+            .into_boxed_slice()
+            .into();
+        // Unknown encodings are conservatively not indivisible so callers fall back to
+        // materializing the child.
+        let indivisible = fb_children
+            .iter()
+            .map(|child| {
+                layout_read_ctx
+                    .resolve(child.encoding())
+                    .and_then(|encoding_id| layouts.get(&encoding_id))
+                    .is_some_and(|encoding| encoding.is_indivisible())
+            })
+            .collect::<Arc<[bool]>>();
         Self {
             flatbuffer,
             flatbuffer_loc,
@@ -164,6 +179,7 @@ impl ViewedLayoutChildren {
             allow_unknown,
             session,
             cache,
+            indivisible,
         }
     }
 
@@ -290,25 +306,6 @@ impl LayoutChildren for ViewedLayoutChildren {
     }
 
     fn child_is_indivisible(&self, idx: usize) -> bool {
-        if idx >= self.nchildren() {
-            return false;
-        }
-        // Resolve the child's layout encoding from the flatbuffer tag alone, without
-        // deserializing the child layout. Unknown encodings are conservatively not indivisible
-        // so callers fall back to materializing the child.
-        let encoding = self
-            .flatbuffer()
-            .children()
-            .unwrap_or_default()
-            .get(idx)
-            .encoding();
-
-        let answer = self
-            .layout_read_ctx
-            .resolve(encoding)
-            .and_then(|encoding_id| self.layouts.get(&encoding_id))
-            .is_some_and(|encoding| encoding.is_indivisible());
-
-        answer
+        self.indivisible.get(idx).copied().unwrap_or(false)
     }
 }
