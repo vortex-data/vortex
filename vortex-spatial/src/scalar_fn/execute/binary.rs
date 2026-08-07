@@ -12,7 +12,6 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -20,8 +19,7 @@ use vortex_mask::Mask;
 use super::Execution;
 use super::Operand;
 use super::geo_types::GeoTypesOutput;
-use super::geo_types::eval_column;
-use super::geo_types::eval_column_pair;
+use crate::extension::geometries;
 use crate::extension::single_geometry;
 
 /// Dispatch a binary strict geometry kernel over constants and columns.
@@ -85,7 +83,6 @@ where
             operands: [left, right],
             valid,
             len,
-            nullability: output_dtype.nullability(),
         },
         ctx,
     )
@@ -106,67 +103,61 @@ pub(crate) type BboxPrecheck<T> = fn(&Rect<f64>, &Rect<f64>) -> Option<T>;
 pub(crate) fn execute_binary_geo_types<T, F>(
     left: &ArrayRef,
     right: &ArrayRef,
+    output_dtype: DType,
     compute: F,
     bbox_precheck: Option<BboxPrecheck<T>>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef>
 where
-    T: GeoTypesOutput,
     F: Fn(&Geometry<f64>, &Geometry<f64>) -> T + Copy,
+    T: GeoTypesOutput,
 {
-    let nullability = Nullability::from(left.dtype().is_nullable() || right.dtype().is_nullable());
     dispatch_binary(
         left,
         right,
-        T::dtype(nullability),
+        output_dtype.clone(),
         |execution, ctx| match execution.operands {
             [Operand::Constant(left), Operand::Constant(right)] => {
                 let left = single_geometry(&left, ctx)?;
                 let right = single_geometry(&right, ctx)?;
-                Ok(ConstantArray::new(
-                    compute(&left, &right).into_scalar(execution.nullability),
-                    execution.len,
-                )
-                .into_array())
+                T::build_constant(compute(&left, &right), execution.len, &output_dtype, ctx)
             }
             [Operand::Constant(left), Operand::Column(right)] => {
                 let left = single_geometry(&left, ctx)?;
                 let prescreen = bbox_precheck.zip(left.bounding_rect());
-                eval_column(
-                    &right,
-                    &execution.valid,
-                    |right| {
+                let values = geometries(&right.filter(execution.valid.clone())?, ctx)?
+                    .iter()
+                    .map(|right| {
                         prescreen
                             .and_then(|(precheck, fixed)| precheck(&fixed, &right.bounding_rect()?))
                             .unwrap_or_else(|| compute(&left, right))
-                    },
-                    execution.nullability,
-                    ctx,
-                )
+                    })
+                    .collect();
+                T::build_array(execution.len, &execution.valid, values, &output_dtype, ctx)
             }
             [Operand::Column(left), Operand::Constant(right)] => {
                 let right = single_geometry(&right, ctx)?;
                 let prescreen = bbox_precheck.zip(right.bounding_rect());
-                eval_column(
-                    &left,
-                    &execution.valid,
-                    |left| {
+                let values = geometries(&left.filter(execution.valid.clone())?, ctx)?
+                    .iter()
+                    .map(|left| {
                         prescreen
                             .and_then(|(precheck, fixed)| precheck(&left.bounding_rect()?, &fixed))
                             .unwrap_or_else(|| compute(left, &right))
-                    },
-                    execution.nullability,
-                    ctx,
-                )
+                    })
+                    .collect();
+                T::build_array(execution.len, &execution.valid, values, &output_dtype, ctx)
             }
-            [Operand::Column(left), Operand::Column(right)] => eval_column_pair(
-                &left,
-                &right,
-                &execution.valid,
-                compute,
-                execution.nullability,
-                ctx,
-            ),
+            [Operand::Column(left), Operand::Column(right)] => {
+                let left = geometries(&left.filter(execution.valid.clone())?, ctx)?;
+                let right = geometries(&right.filter(execution.valid.clone())?, ctx)?;
+                let values = left
+                    .iter()
+                    .zip(&right)
+                    .map(|(left, right)| compute(left, right))
+                    .collect();
+                T::build_array(execution.len, &execution.valid, values, &output_dtype, ctx)
+            }
         },
         ctx,
     )
@@ -186,6 +177,7 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_error::VortexResult;
@@ -226,6 +218,7 @@ mod tests {
         let result = execute_binary_geo_types(
             &triangle,
             &probes,
+            DType::Bool(vortex_array::dtype::Nullability::NonNullable),
             counting_intersects(&exact_runs),
             Some(DISJOINT_PRECHECK),
             &mut ctx,
@@ -247,6 +240,7 @@ mod tests {
         let result = execute_binary_geo_types(
             &triangle,
             &probes,
+            DType::Bool(vortex_array::dtype::Nullability::Nullable),
             counting_intersects(&exact_runs),
             Some(DISJOINT_PRECHECK),
             &mut ctx,
@@ -277,6 +271,7 @@ mod tests {
         let result = execute_binary_geo_types(
             &probes,
             &triangle,
+            DType::Bool(vortex_array::dtype::Nullability::NonNullable),
             counted,
             Some(|left, right| (!left.contains(right)).then_some(false)),
             &mut ctx,
@@ -299,6 +294,7 @@ mod tests {
         let result = execute_binary_geo_types(
             &empty,
             &probes,
+            DType::Bool(vortex_array::dtype::Nullability::NonNullable),
             counting_intersects(&exact_runs),
             Some(DISJOINT_PRECHECK),
             &mut ctx,
@@ -324,9 +320,22 @@ mod tests {
         ])?;
         let exact = |left: &Geometry<f64>, right: &Geometry<f64>| left.intersects(right);
 
-        let with_precheck =
-            execute_binary_geo_types(&triangle, &probes, exact, Some(DISJOINT_PRECHECK), &mut ctx)?;
-        let exact_only = execute_binary_geo_types(&triangle, &probes, exact, None, &mut ctx)?;
+        let with_precheck = execute_binary_geo_types(
+            &triangle,
+            &probes,
+            DType::Bool(vortex_array::dtype::Nullability::Nullable),
+            exact,
+            Some(DISJOINT_PRECHECK),
+            &mut ctx,
+        )?;
+        let exact_only = execute_binary_geo_types(
+            &triangle,
+            &probes,
+            DType::Bool(vortex_array::dtype::Nullability::Nullable),
+            exact,
+            None,
+            &mut ctx,
+        )?;
 
         assert_arrays_eq!(with_precheck, exact_only, &mut ctx);
         Ok(())

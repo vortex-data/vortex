@@ -8,8 +8,6 @@ use geo_types::Geometry;
 use geo_types::MultiPolygon as GeoMultiPolygon;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -25,21 +23,15 @@ use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_mask::AllOr;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::extension::MultiPolygon;
 use crate::extension::Polygon;
 use crate::extension::SpatialMetadata;
-use crate::extension::build_multipolygon_array;
 use crate::extension::coordinate::Dimension;
-use crate::extension::geometries;
 use crate::extension::multipolygon_storage_dtype;
-use crate::extension::single_geometry;
-use crate::scalar_fn::execute::Execution;
-use crate::scalar_fn::execute::Operand;
-use crate::scalar_fn::execute::dispatch_binary;
+use crate::scalar_fn::execute::execute_binary_geo_types;
 
 /// Resolve CRS metadata shared by two polygon operands.
 fn intersection_metadata(
@@ -111,64 +103,6 @@ fn polygonal_intersection(left: &Geometry<f64>, right: &Geometry<f64>) -> GeoMul
     }
 }
 
-/// Execute intersection after shared binary shape and null dispatch.
-fn execute_intersection(
-    execution: Execution<2>,
-    output_dtype: &ExtDType<MultiPolygon>,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    let intersections: Vec<GeoMultiPolygon<f64>> = match &execution.operands {
-        [Operand::Constant(left), Operand::Constant(right)] => {
-            let intersection =
-                polygonal_intersection(&single_geometry(left, ctx)?, &single_geometry(right, ctx)?);
-            let one = build_multipolygon_array(
-                &[Some(intersection)],
-                output_dtype.metadata().clone(),
-                execution.nullability,
-            )?;
-            return Ok(ConstantArray::new(one.execute_scalar(0, ctx)?, execution.len).into_array());
-        }
-        [Operand::Constant(left), Operand::Column(right)] => {
-            let left = single_geometry(left, ctx)?;
-            geometries(&right.filter(execution.valid.clone())?, ctx)?
-                .iter()
-                .map(|right| polygonal_intersection(&left, right))
-                .collect()
-        }
-        [Operand::Column(left), Operand::Constant(right)] => {
-            let right = single_geometry(right, ctx)?;
-            geometries(&left.filter(execution.valid.clone())?, ctx)?
-                .iter()
-                .map(|left| polygonal_intersection(left, &right))
-                .collect()
-        }
-        [Operand::Column(left), Operand::Column(right)] => {
-            let left = geometries(&left.filter(execution.valid.clone())?, ctx)?;
-            let right = geometries(&right.filter(execution.valid.clone())?, ctx)?;
-            left.iter()
-                .zip(&right)
-                .map(|(left, right)| polygonal_intersection(left, right))
-                .collect()
-        }
-    };
-    let intersections = match execution.valid.indices() {
-        AllOr::All => intersections.into_iter().map(Some).collect(),
-        AllOr::None => vec![None; execution.len],
-        AllOr::Some(rows) => {
-            let mut output = vec![None; execution.len];
-            for (&row, intersection) in rows.iter().zip(intersections) {
-                output[row] = Some(intersection);
-            }
-            output
-        }
-    };
-    build_multipolygon_array(
-        &intersections,
-        output_dtype.metadata().clone(),
-        execution.nullability,
-    )
-}
-
 /// Compute the pairwise two-dimensional intersection of native `Polygon` or `MultiPolygon`
 /// operands as a native `MultiPolygon`. Disjoint and boundary-only intersections produce an
 /// empty `MultiPolygon`.
@@ -226,11 +160,12 @@ impl ScalarFnVTable for SpatialIntersection {
         let left = args.get(0)?;
         let right = args.get(1)?;
         let output_dtype = intersection_dtype(&[left.dtype().clone(), right.dtype().clone()])?;
-        dispatch_binary(
+        execute_binary_geo_types(
             &left,
             &right,
-            DType::Extension(output_dtype.clone().erased()),
-            |execution, ctx| execute_intersection(execution, &output_dtype, ctx),
+            DType::Extension(output_dtype.erased()),
+            polygonal_intersection,
+            None,
             ctx,
         )
     }

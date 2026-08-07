@@ -107,6 +107,9 @@ impl ScalarFnVTable for SpatialContains {
         execute_binary_geo_types(
             &a,
             &b,
+            DType::Bool(Nullability::from(
+                a.dtype().is_nullable() || b.dtype().is_nullable(),
+            )),
             |a, b| a.contains(b),
             Some(|ra, rb| (!ra.contains(rb)).then_some(false)),
             ctx,

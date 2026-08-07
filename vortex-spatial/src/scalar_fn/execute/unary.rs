@@ -44,7 +44,6 @@ where
                 operands: [Operand::Constant(constant.scalar().clone())],
                 valid: Validity::AllValid,
                 len,
-                nullability: output_dtype.nullability(),
             },
             ctx,
         );
@@ -59,7 +58,6 @@ where
             operands: [Operand::Column(array.clone())],
             valid,
             len,
-            nullability: output_dtype.nullability(),
         },
         ctx,
     )
@@ -72,6 +70,7 @@ where
 /// before broadcast; a column is decoded only for its valid rows.
 pub(crate) fn execute_unary_geo_types<T, F>(
     array: &ArrayRef,
+    output_dtype: DType,
     compute: F,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef>
@@ -79,22 +78,17 @@ where
     T: GeoTypesOutput,
     F: Fn(&Geometry<f64>) -> T,
 {
-    let nullability = array.dtype().nullability();
     dispatch_unary(
         array,
-        T::dtype(nullability),
+        output_dtype.clone(),
         |execution, ctx| match execution.operands {
             [Operand::Constant(scalar)] => {
                 let geometry = single_geometry(&scalar, ctx)?;
-                Ok(ConstantArray::new(
-                    compute(&geometry).into_scalar(execution.nullability),
-                    execution.len,
-                )
-                .into_array())
+                T::build_constant(compute(&geometry), execution.len, &output_dtype, ctx)
             }
             [Operand::Column(array)] => {
                 let valid = execution.valid.execute_mask(execution.len, ctx)?;
-                eval_column(&array, &valid, compute, execution.nullability, ctx)
+                eval_column(&array, &valid, compute, &output_dtype, ctx)
             }
         },
         ctx,

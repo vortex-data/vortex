@@ -7,87 +7,94 @@
 //! and return Vortex arrays; they do not expose `geo_types` values as scalar-function outputs.
 
 use geo_types::Geometry;
+use geo_types::MultiPolygon as GeoMultiPolygon;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
-use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
+use crate::extension::build_multipolygon_array;
 use crate::extension::geometries;
 
-/// A primitive result produced after kernel inputs are decoded to `geo_types`.
-pub(crate) trait GeoTypesOutput: Copy {
-    /// The Vortex dtype used to represent this output.
-    fn dtype(nullability: Nullability) -> DType;
-
-    /// Convert one computed value into a Vortex scalar for constant output.
-    fn into_scalar(self, nullability: Nullability) -> Scalar;
-
-    /// Scatter values computed for valid rows into a full-length output array.
+/// A Vortex representation for values produced by a `geo_types` kernel.
+pub(crate) trait GeoTypesOutput: Sized {
+    /// Build an array from values computed for rows selected by `valid`.
     fn build_array(
         len: usize,
         valid: &Mask,
         values: Vec<Self>,
-        nullability: Nullability,
-    ) -> ArrayRef;
+        output_dtype: &DType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef>;
+
+    /// Build a repeated result for two constant operands.
+    fn build_constant(
+        value: Self,
+        len: usize,
+        output_dtype: &DType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let one = Self::build_array(1, &Mask::new_true(1), vec![value], output_dtype, ctx)?;
+        Ok(ConstantArray::new(one.execute_scalar(0, ctx)?, len).into_array())
+    }
+}
+
+/// Scatter values computed for valid rows into a full-length nullable vector.
+pub(crate) fn scatter_valid<T>(len: usize, valid: &Mask, values: Vec<T>) -> Vec<Option<T>> {
+    match valid.indices() {
+        AllOr::All => values.into_iter().map(Some).collect(),
+        AllOr::None => (0..len).map(|_| None).collect(),
+        AllOr::Some(rows) => {
+            let mut output = (0..len).map(|_| None).collect::<Vec<Option<T>>>();
+            for (&row, value) in rows.iter().zip(values) {
+                output[row] = Some(value);
+            }
+            output
+        }
+    }
 }
 
 impl GeoTypesOutput for f64 {
-    fn dtype(nullability: Nullability) -> DType {
-        DType::Primitive(PType::F64, nullability)
-    }
-
-    fn into_scalar(self, nullability: Nullability) -> Scalar {
-        Scalar::primitive(self, nullability)
-    }
-
     fn build_array(
         len: usize,
         valid: &Mask,
         values: Vec<Self>,
-        nullability: Nullability,
-    ) -> ArrayRef {
-        let validity = Validity::from_mask(valid.clone(), nullability);
-        match valid.indices() {
+        output_dtype: &DType,
+        _: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let validity = Validity::from_mask(valid.clone(), output_dtype.nullability());
+        Ok(match valid.indices() {
             AllOr::All => PrimitiveArray::new(values, validity).into_array(),
-            AllOr::None => PrimitiveArray::new(vec![0.0f64; len], validity).into_array(),
+            AllOr::None => PrimitiveArray::new(vec![0.0; len], validity).into_array(),
             AllOr::Some(rows) => {
-                let mut data = vec![0.0f64; len];
+                let mut data = vec![0.0; len];
                 for (&row, value) in rows.iter().zip(values) {
                     data[row] = value;
                 }
                 PrimitiveArray::new(data, validity).into_array()
             }
-        }
+        })
     }
 }
 
 impl GeoTypesOutput for bool {
-    fn dtype(nullability: Nullability) -> DType {
-        DType::Bool(nullability)
-    }
-
-    fn into_scalar(self, nullability: Nullability) -> Scalar {
-        Scalar::bool(self, nullability)
-    }
-
     fn build_array(
         len: usize,
         valid: &Mask,
         values: Vec<Self>,
-        nullability: Nullability,
-    ) -> ArrayRef {
-        let validity = Validity::from_mask(valid.clone(), nullability);
-        match valid.indices() {
+        output_dtype: &DType,
+        _: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let validity = Validity::from_mask(valid.clone(), output_dtype.nullability());
+        Ok(match valid.indices() {
             AllOr::All => BoolArray::new(BitBuffer::from_iter(values), validity).into_array(),
             AllOr::None => BoolArray::new(BitBuffer::new_unset(len), validity).into_array(),
             AllOr::Some(rows) => {
@@ -97,7 +104,20 @@ impl GeoTypesOutput for bool {
                 }
                 BoolArray::new(BitBuffer::from_iter(data), validity).into_array()
             }
-        }
+        })
+    }
+}
+
+impl GeoTypesOutput for GeoMultiPolygon<f64> {
+    fn build_array(
+        len: usize,
+        valid: &Mask,
+        values: Vec<Self>,
+        output_dtype: &DType,
+        _: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let output_dtype = output_dtype.as_extension();
+        build_multipolygon_array(&scatter_valid(len, valid, values), output_dtype)
     }
 }
 
@@ -106,7 +126,7 @@ pub(super) fn eval_column<T, F>(
     column: &ArrayRef,
     valid: &Mask,
     compute: F,
-    nullability: Nullability,
+    output_dtype: &DType,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef>
 where
@@ -116,29 +136,5 @@ where
     let len = column.len();
     let decoded = geometries(&column.filter(valid.clone())?, ctx)?;
     let values = decoded.iter().map(compute).collect();
-    Ok(T::build_array(len, valid, values, nullability))
-}
-
-/// Evaluate a decoded kernel over rows where both geometry columns are valid.
-pub(super) fn eval_column_pair<T, F>(
-    left: &ArrayRef,
-    right: &ArrayRef,
-    valid: &Mask,
-    compute: F,
-    nullability: Nullability,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef>
-where
-    T: GeoTypesOutput,
-    F: Fn(&Geometry<f64>, &Geometry<f64>) -> T,
-{
-    let len = left.len();
-    let left = geometries(&left.filter(valid.clone())?, ctx)?;
-    let right = geometries(&right.filter(valid.clone())?, ctx)?;
-    let values = left
-        .iter()
-        .zip(&right)
-        .map(|(left, right)| compute(left, right))
-        .collect();
-    Ok(T::build_array(len, valid, values, nullability))
+    T::build_array(len, valid, values, output_dtype, ctx)
 }

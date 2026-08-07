@@ -105,6 +105,9 @@ impl ScalarFnVTable for SpatialIntersects {
         execute_binary_geo_types(
             &a,
             &b,
+            DType::Bool(Nullability::from(
+                a.dtype().is_nullable() || b.dtype().is_nullable(),
+            )),
             |x, y| x.intersects(y),
             Some(|ra, rb| (!ra.intersects(rb)).then_some(false)),
             ctx,

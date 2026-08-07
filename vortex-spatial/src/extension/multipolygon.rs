@@ -30,6 +30,7 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
+use vortex_array::dtype::extension::ExtDTypeRef;
 use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::scalar::ScalarValue;
@@ -122,22 +123,21 @@ fn multipolygon_type(spatial_metadata: &SpatialMetadata, dimension: Dimension) -
 /// Build a native 2-D [`MultiPolygon`] array from row-oriented `geo_types` multipolygons.
 pub(crate) fn build_multipolygon_array(
     multipolygons: &[Option<geo_types::MultiPolygon<f64>>],
-    metadata: SpatialMetadata,
-    nullability: Nullability,
+    ext_dtype: &ExtDTypeRef,
 ) -> VortexResult<ArrayRef> {
+    let nullability = ext_dtype.storage_dtype().nullability();
     let multipolygons = MultiPolygonBuilder::from_nullable_multi_polygons(
         multipolygons,
-        multipolygon_type(&metadata, Dimension::Xy),
+        multipolygon_type(ext_dtype.metadata::<MultiPolygon>(), Dimension::Xy),
     )
     .finish();
-    let storage_dtype = multipolygon_storage_dtype(Dimension::Xy, nullability);
+    let storage_dtype = ext_dtype.storage_dtype();
     let storage = ArrayRef::from_arrow(
         multipolygons.to_array_ref().as_ref(),
         nullability == Nullability::Nullable,
     )?
     .cast(storage_dtype.clone())?;
-    let ext_dtype = ExtDType::<MultiPolygon>::try_new(metadata, storage_dtype)?;
-    Ok(ExtensionArray::try_new(ext_dtype.erased(), storage)?.into_array())
+    Ok(ExtensionArray::try_new(ext_dtype.clone(), storage)?.into_array())
 }
 
 /// Decode storage to `geo_types` for the spatial scalar functions (CRS is irrelevant to planar ops).

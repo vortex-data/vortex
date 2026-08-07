@@ -97,7 +97,12 @@ impl ScalarFnVTable for SpatialArea {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let array = args.get(0)?;
-        execute_unary_geo_types(&array, Area::unsigned_area, ctx)
+        execute_unary_geo_types(
+            &array,
+            DType::Primitive(PType::F64, array.dtype().nullability()),
+            Area::unsigned_area,
+            ctx,
+        )
     }
 
     fn validity(
