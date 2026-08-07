@@ -65,5 +65,9 @@ harness = false
 [[bench]]
 name = "area"
 harness = false
+
+[[bench]]
+name = "length"
+harness = false
 [lints]
 workspace = true
