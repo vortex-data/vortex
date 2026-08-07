@@ -16,6 +16,8 @@ use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::expr::Expression;
+use crate::expr::lambda::Lambda;
+use crate::expr::variable::Variable;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::scalar_fn::EmptyOptions;
@@ -62,6 +64,23 @@ use crate::scalar_fn::fns::zip::Zip;
 /// This is commonly used as the starting point for field access and other operations.
 pub fn root() -> Expression {
     Expression::Root
+}
+
+/// Creates an expression referencing the value bound to `name` in the enclosing scope.
+///
+/// A variable has no dtype of its own; it is resolved when the expression is bound. Binding fails
+/// if no enclosing frame introduces the name.
+pub fn var(name: impl AsRef<str>) -> Expression {
+    Expression::Variable(Variable::new(name))
+}
+
+/// Creates a lambda binding `params` over `body`.
+///
+/// A lambda is not a value: its parameter dtypes are supplied by whatever applies it, so binding
+/// one requires [`Lambda::bind`] rather than
+/// [`bind_scope`](Expression::bind_scope).
+pub fn lambda(params: impl IntoIterator<Item = impl Into<Variable>>, body: Expression) -> Lambda {
+    Lambda::new(params, body)
 }
 
 /// Return whether the expression is a root expression.

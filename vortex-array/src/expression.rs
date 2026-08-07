@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -17,13 +17,22 @@ use crate::scalar_fn::fns::literal::Literal;
 impl ArrayRef {
     /// Apply a bound expression to this array, producing a new array in constant time.
     pub fn apply_bound(self, expr: &BoundExpression) -> VortexResult<ArrayRef> {
-        let BoundExpression::Scalar {
-            scalar_fn,
-            children,
-            ..
-        } = expr
-        else {
-            return Ok(self);
+        let (scalar_fn, children) = match expr {
+            // Root evaluates to the scope, which is this array.
+            BoundExpression::Root { .. } => return Ok(self),
+            // Execution has no variable environment, so a variable cannot be evaluated. It must be
+            // substituted by whatever bound it before the tree reaches the array layer.
+            BoundExpression::Variable { variable, .. } => vortex_bail!(
+                "cannot evaluate variable '{variable}': execution has no variable environment"
+            ),
+            BoundExpression::Lambda(lambda) => {
+                vortex_bail!("cannot evaluate a lambda ({lambda:?}); it must be applied first")
+            }
+            BoundExpression::Scalar {
+                scalar_fn,
+                children,
+                ..
+            } => (scalar_fn, children),
         };
 
         if let Some(scalar) = scalar_fn.as_opt::<Literal>() {
@@ -43,10 +52,17 @@ impl ArrayRef {
 
     /// Apply the expression to this array, producing a new array in constant time.
     pub fn apply(self, expr: &Expression) -> VortexResult<ArrayRef> {
-        // If the expression is a root, return self.
-        if expr.is_root() {
-            return Ok(self);
-        }
+        let scalar_fn = match expr {
+            // Root evaluates to the scope, which is this array.
+            Expression::Root => return Ok(self),
+            Expression::Variable(variable) => vortex_bail!(
+                "cannot evaluate variable '{variable}': execution has no variable environment"
+            ),
+            Expression::Lambda(lambda) => {
+                vortex_bail!("cannot evaluate a lambda ({lambda}); it must be applied first")
+            }
+            Expression::Scalar { scalar_fn, .. } => scalar_fn,
+        };
 
         // Manually convert literals to ConstantArray.
         if let Some(scalar) = expr.as_opt::<Literal>() {
@@ -59,11 +75,6 @@ impl ArrayRef {
             .iter()
             .map(|e| self.clone().apply(e))
             .try_collect()?;
-
-        // And wrap the scalar function up in an array.
-        let scalar_fn = expr
-            .as_scalar()
-            .vortex_expect("root and literal were handled above, so this is a scalar node");
         let array =
             ScalarFnArray::try_new_with_len(scalar_fn.clone(), children, self.len())?.into_array();
 

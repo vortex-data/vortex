@@ -293,7 +293,12 @@ fn partition_root_dtype(names: &FieldNames, partitions: &[BoundExpression]) -> D
             names.clone(),
             partitions
                 .iter()
-                .map(|partition| partition.dtype().clone())
+                .map(|partition| {
+                    partition
+                        .dtype()
+                        .cloned()
+                        .vortex_expect("a partition is always a value")
+                })
                 .collect(),
         ),
         Nullability::NonNullable,
@@ -468,7 +473,7 @@ mod tests {
 
         partitioned.replace_partitions(vec![replacement].into_boxed_slice())?;
 
-        assert_eq!(partitioned.root.dtype(), &field_dtype);
+        assert_eq!(partitioned.root.dtype(), Some(&field_dtype));
         Ok(())
     }
 }

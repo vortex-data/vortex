@@ -44,7 +44,7 @@ impl Expression {
     fn simplify_untyped_node(&self) -> VortexResult<Option<Expression>> {
         match self {
             Expression::Scalar { scalar_fn, .. } => scalar_fn.simplify_untyped(self),
-            Expression::Root => Ok(None),
+            Expression::Root | Expression::Variable { .. } | Expression::Lambda { .. } => Ok(None),
         }
     }
 
@@ -52,7 +52,7 @@ impl Expression {
     fn simplify_node(&self, ctx: &dyn SimplifyCtx) -> VortexResult<Option<Expression>> {
         match self {
             Expression::Scalar { scalar_fn, .. } => scalar_fn.simplify(self, ctx),
-            Expression::Root => Ok(None),
+            Expression::Root | Expression::Variable { .. } | Expression::Lambda { .. } => Ok(None),
         }
     }
 
@@ -64,7 +64,7 @@ impl Expression {
     ) -> VortexResult<Option<ReduceNodeRef>> {
         match self {
             Expression::Scalar { scalar_fn, .. } => scalar_fn.reduce(node, ctx),
-            Expression::Root => Ok(None),
+            Expression::Root | Expression::Variable { .. } | Expression::Lambda { .. } => Ok(None),
         }
     }
 

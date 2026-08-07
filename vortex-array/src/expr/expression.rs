@@ -11,13 +11,16 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
 use crate::dtype::DType;
 use crate::expr::display::DisplayTreeExpr;
+use crate::expr::lambda::Lambda;
 use crate::expr::traversal::TraversalOrder;
 use crate::expr::traversal::pre_order_visit_down;
+use crate::expr::variable::Variable;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::stats::rewrite::StatsRewriteCtx;
@@ -42,6 +45,18 @@ pub enum Expression {
     },
     /// The full scope of the expression evaluation.
     Root,
+    /// A reference to a name bound by an enclosing [`Expression::Lambda`].
+    ///
+    /// Like [`Expression::Root`], its dtype comes from the scope rather than from children, so it
+    /// is resolved during binding.
+    Variable(Variable),
+    /// A body evaluated under a frame binding `params`.
+    ///
+    /// A lambda is **not a value**: its parameter dtypes are determined by whatever applies it, so
+    /// it has no dtype of its own and cannot be bound by
+    /// [`bind_scope`](Expression::bind_scope). Use
+    /// [`Lambda::bind`], which takes the parameter types.
+    Lambda(Lambda),
 }
 
 impl Expression {
@@ -70,11 +85,27 @@ impl Expression {
         matches!(self, Self::Root)
     }
 
+    /// The variable this expression references, if it is a variable.
+    pub fn as_variable(&self) -> Option<&Variable> {
+        match self {
+            Self::Variable(variable) => Some(variable),
+            _ => None,
+        }
+    }
+
+    /// The lambda this expression holds, if it is one.
+    pub fn as_lambda(&self) -> Option<&Lambda> {
+        match self {
+            Self::Lambda(lambda) => Some(lambda),
+            _ => None,
+        }
+    }
+
     /// Returns the scalar fn for this expression, or `None` if it is not a scalar node.
     pub fn as_scalar(&self) -> Option<&ScalarFnRef> {
         match self {
             Self::Scalar { scalar_fn, .. } => Some(scalar_fn),
-            Self::Root => None,
+            Self::Root | Self::Variable(_) | Self::Lambda(_) => None,
         }
     }
 
@@ -99,10 +130,16 @@ impl Expression {
     }
 
     /// Returns the children of this expression.
+    /// Returns the sub-expressions of this node.
+    ///
+    /// A [`Expression::Lambda`] yields its body, so generic traversal reaches it — but only by
+    /// passing through the `Lambda` node, which is a scope boundary. A pass that is not
+    /// scope-aware must handle that variant rather than descending blindly.
     pub fn children(&self) -> &[Expression] {
         match self {
             Self::Scalar { children, .. } => children.as_slice(),
-            Self::Root => NO_CHILDREN,
+            Self::Lambda(lambda) => std::slice::from_ref(lambda.body_arc()),
+            Self::Root | Self::Variable(_) => NO_CHILDREN,
         }
     }
 
@@ -118,13 +155,24 @@ impl Expression {
     ) -> VortexResult<Self> {
         let children = Vec::from_iter(children);
         match &self {
-            Self::Root => {
+            Self::Root | Self::Variable(_) => {
                 vortex_ensure!(
                     children.is_empty(),
-                    "Expression arity mismatch: root expects 0 children but got {}",
+                    "Expression arity mismatch: {self} expects 0 children but got {}",
                     children.len()
                 );
-                Ok(Self::Root)
+                Ok(self.clone())
+            }
+            Self::Lambda(lambda) => {
+                vortex_ensure!(
+                    children.len() == 1,
+                    "Expression arity mismatch: a lambda expects 1 child but got {}",
+                    children.len()
+                );
+                Ok(Self::Lambda(Lambda::new(
+                    lambda.params().iter().cloned(),
+                    children.into_iter().next().vortex_expect("checked above"),
+                )))
             }
             Self::Scalar { scalar_fn, .. } => {
                 vortex_ensure!(
@@ -145,6 +193,14 @@ impl Expression {
     pub fn return_dtype(&self, scope: &DType) -> VortexResult<DType> {
         match self {
             Self::Root => Ok(scope.clone()),
+            // A variable resolves against a frame, which this entry point does not carry. Erroring
+            // keeps callers that only have a root dtype from silently mistyping a lambda body.
+            Self::Variable(variable) => vortex_bail!(
+                "variable '{variable}' can only be typed by binding against a scope with frames"
+            ),
+            Self::Lambda(_) => {
+                vortex_bail!("a lambda has no data type; use Lambda::bind to type its body")
+            }
             Self::Scalar {
                 scalar_fn,
                 children,
@@ -165,6 +221,11 @@ impl Expression {
         match self {
             // The scope is exactly as valid as itself.
             Self::Root => Ok(Self::Root),
+            // A variable is exactly as valid as whatever it is bound to.
+            Self::Variable(_) => Ok(self.clone()),
+            Self::Lambda(_) => {
+                vortex_bail!("a lambda has no validity; it is not a value")
+            }
             Self::Scalar { scalar_fn, .. } => scalar_fn.validity(self),
         }
     }
@@ -204,6 +265,8 @@ impl Expression {
     pub fn fmt_sql(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Root => write!(f, "$"),
+            Self::Variable(variable) => write!(f, "${variable}"),
+            Self::Lambda(lambda) => Display::fmt(lambda, f),
             Self::Scalar { scalar_fn, .. } => scalar_fn.fmt_sql(self, f),
         }
     }
@@ -289,6 +352,14 @@ impl Expression {
     }
 }
 
+/// `Root` stands in as the default so that a body can be moved out during the iterative [`Drop`]
+/// below. It is never observed by callers.
+impl Default for Expression {
+    fn default() -> Self {
+        Self::Root
+    }
+}
+
 /// The default display implementation for expressions uses the 'SQL'-style format.
 impl Display for Expression {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -299,19 +370,34 @@ impl Display for Expression {
 /// Iterative drop for expression to avoid stack overflows.
 impl Drop for Expression {
     fn drop(&mut self) {
-        let Self::Scalar { children, .. } = self else {
-            return;
-        };
-        let Some(children) = Arc::get_mut(children) else {
-            return;
-        };
+        let mut children_to_drop = Vec::new();
+        match self {
+            Self::Scalar { children, .. } => {
+                if let Some(children) = Arc::get_mut(children) {
+                    children_to_drop.append(children);
+                }
+            }
+            Self::Lambda(lambda) => {
+                if let Some(body) = lambda.take_unique_body() {
+                    children_to_drop.push(body);
+                }
+            }
+            Self::Root | Self::Variable(_) => return,
+        }
 
-        let mut children_to_drop = std::mem::take(children);
         while let Some(mut child) = children_to_drop.pop() {
-            if let Self::Scalar { children, .. } = &mut child
-                && let Some(expr_children) = Arc::get_mut(children)
-            {
-                children_to_drop.append(expr_children);
+            match &mut child {
+                Self::Scalar { children, .. } => {
+                    if let Some(expr_children) = Arc::get_mut(children) {
+                        children_to_drop.append(expr_children);
+                    }
+                }
+                Self::Lambda(lambda) => {
+                    if let Some(body) = lambda.take_unique_body() {
+                        children_to_drop.push(body);
+                    }
+                }
+                Self::Root | Self::Variable(_) => {}
             }
         }
     }

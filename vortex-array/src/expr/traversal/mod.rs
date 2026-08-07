@@ -584,14 +584,18 @@ impl Node for BoundExpression {
     fn iter_children<T>(&self, f: impl FnOnce(&mut dyn Iterator<Item = &Self>) -> T) -> T {
         match self {
             BoundExpression::Scalar { children, .. } => f(&mut children.iter()),
-            BoundExpression::Root { .. } => f(&mut std::iter::empty()),
+            BoundExpression::Lambda(lambda) => f(&mut std::iter::once(lambda.body())),
+            BoundExpression::Root { .. } | BoundExpression::Variable { .. } => {
+                f(&mut std::iter::empty())
+            }
         }
     }
 
     fn children_count(&self) -> usize {
         match self {
             BoundExpression::Scalar { children, .. } => children.len(),
-            BoundExpression::Root { .. } => 0,
+            BoundExpression::Lambda(_) => 1,
+            BoundExpression::Root { .. } | BoundExpression::Variable { .. } => 0,
         }
     }
 }

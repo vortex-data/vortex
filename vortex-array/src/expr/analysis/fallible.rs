@@ -10,8 +10,11 @@ pub fn label_is_fallible(expr: &Expression) -> BooleanLabels<'_> {
         expr,
         |expr| match expr {
             Expression::Scalar { scalar_fn, .. } => scalar_fn.signature().is_fallible(),
-            // The scope itself cannot fail.
-            Expression::Root => false,
+            // These add no fallibility of their own. Note this is the *self* label: a lambda's
+            // body is one of its children, so the folded label at a lambda node is the body's
+            // fallibility. A higher-order function therefore picks the body up through the
+            // ordinary fold instead of walking it by hand.
+            Expression::Root | Expression::Variable(_) | Expression::Lambda(_) => false,
         },
         |acc, &child| acc | child,
     )
@@ -80,5 +83,29 @@ mod tests {
         let labels = label_is_fallible(&expr);
         assert_eq!(labels.get(&child), Some(&false));
         assert_eq!(labels.get(&expr), Some(&false));
+    }
+}
+
+#[cfg(test)]
+mod lambda_tests {
+    use super::*;
+    use crate::expr::checked_add;
+    use crate::expr::lambda;
+    use crate::expr::lit;
+    use crate::expr::var;
+
+    /// A lambda contributes no fallibility of its own, but its body is one of its children, so the
+    /// label at the lambda node is the body's. That is what lets a future higher-order function
+    /// pick the body up through the ordinary fold rather than walking it by hand.
+    #[test]
+    fn a_lambdas_label_is_its_bodys_fallibility() {
+        let fallible = Expression::from(lambda(["x"], checked_add(var("x"), lit(1i32))));
+        assert_eq!(label_is_fallible(&fallible).get(&fallible), Some(&true));
+
+        let infallible = Expression::from(lambda(["x"], var("x")));
+        assert_eq!(
+            label_is_fallible(&infallible).get(&infallible),
+            Some(&false)
+        );
     }
 }

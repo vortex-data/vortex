@@ -3,6 +3,7 @@
 
 use itertools::Itertools;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
@@ -24,12 +25,24 @@ pub(crate) const ROOT_ID: &str = "vortex.root";
 
 impl ExprSerializeProtoExt for Expression {
     fn serialize_proto(&self) -> VortexResult<pb::Expr> {
-        let Some(scalar_fn) = self.as_scalar() else {
-            return Ok(pb::Expr {
-                id: ROOT_ID.to_string(),
-                children: vec![],
-                metadata: Some(vec![]),
-            });
+        let scalar_fn = match self {
+            Expression::Root => {
+                return Ok(pb::Expr {
+                    id: ROOT_ID.to_string(),
+                    children: vec![],
+                    metadata: Some(vec![]),
+                });
+            }
+            // There is no wire format for these yet. Rejecting is the only safe answer: falling
+            // through would serialize them as a root and silently drop the name, parameters and
+            // body.
+            Expression::Variable(variable) => {
+                vortex_bail!("variable '{variable}' is not serializable")
+            }
+            Expression::Lambda(lambda) => {
+                vortex_bail!("lambda ({lambda}) is not serializable")
+            }
+            Expression::Scalar { scalar_fn, .. } => scalar_fn,
         };
 
         let children = self
@@ -139,6 +152,23 @@ mod tests {
         let deser_expr = Expression::from_proto(&s_expr, &array_session()).unwrap();
 
         assert_eq!(&deser_expr, &expr);
+    }
+
+    /// Neither has a wire format yet, so serializing must fail rather than silently emitting a
+    /// root and losing the name, parameters and body.
+    #[test]
+    fn variables_and_lambdas_are_not_serializable() {
+        use crate::expr::lambda;
+        use crate::expr::var;
+
+        assert!(var("x").serialize_proto().is_err());
+        assert!(
+            Expression::from(lambda(["x"], var("x")))
+                .serialize_proto()
+                .is_err()
+        );
+        // Root still round-trips on its historical id.
+        assert_eq!(root().serialize_proto().unwrap().id, "vortex.root");
     }
 
     #[test]

@@ -210,7 +210,7 @@ impl ListReader {
     ) -> VortexResult<ArrayFuture> {
         // Crop to the smallest contiguous row range containing every selected list.
         let Some(selected_rows) = selected_row_range(&mask) else {
-            let empty = Canonical::empty(expr.dtype()).into_array();
+            let empty = Canonical::empty(expr.value_dtype()?).into_array();
             return Ok(async move { Ok(empty) }.boxed());
         };
 

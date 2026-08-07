@@ -66,7 +66,13 @@ pub fn make_bound_free_field_annotator(
 ) -> impl AnnotationFn<BoundExpression, Annotation = FieldName> {
     move |expr: &BoundExpression| {
         let Some(scalar_fn) = expr.as_scalar() else {
-            return scope.names().iter().cloned().collect();
+            // Only the scope root reads every field. A variable resolves against a frame, so it
+            // reads none of them, and saying otherwise would defeat column pruning.
+            return if expr.is_root() {
+                scope.names().iter().cloned().collect()
+            } else {
+                vec![]
+            };
         };
 
         if let Some(selection) = scalar_fn.as_opt::<Select>() {
@@ -84,5 +90,41 @@ pub fn make_bound_free_field_annotator(
         }
 
         vec![]
+    }
+}
+
+#[cfg(test)]
+mod variable_tests {
+    use vortex_error::VortexResult;
+
+    use super::*;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::expr::Scope;
+    use crate::expr::lambda;
+    use crate::expr::test_harness::struct_dtype;
+    use crate::expr::var;
+
+    /// Only the scope root reads every field. A variable resolves against a frame, so treating it
+    /// like a root would mark a lambda body as reading the whole struct and defeat column pruning.
+    #[test]
+    fn a_bound_variable_accesses_no_root_fields() -> VortexResult<()> {
+        let scope_dtype = struct_dtype();
+        let fields = scope_dtype
+            .as_struct_fields_opt()
+            .vortex_expect("test scope is a struct");
+
+        let bound = lambda(["x"], var("x")).bind(
+            &Scope::new(scope_dtype.clone()),
+            [DType::Primitive(PType::I32, Nullability::NonNullable)],
+        )?;
+
+        let annotator = make_bound_free_field_annotator(fields);
+        assert!(
+            annotator(bound.body()).is_empty(),
+            "a variable should read no root fields"
+        );
+        Ok(())
     }
 }

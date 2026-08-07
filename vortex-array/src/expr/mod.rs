@@ -62,18 +62,22 @@ pub(crate) mod expression;
 mod exprs;
 pub(crate) mod field;
 pub mod forms;
+pub mod lambda;
 mod optimize;
 pub mod proto;
 pub mod scope;
 pub mod stats;
 pub mod transform;
 pub mod traversal;
+pub mod variable;
 
 pub use analysis::*;
 pub use bound_expression::*;
 pub use expression::*;
 pub use exprs::*;
+pub use lambda::*;
 pub use scope::*;
+pub use variable::*;
 
 pub trait VortexExprExt {
     /// Accumulate all field references from this expression and its children in a set
@@ -116,6 +120,8 @@ impl PartialEq for ExactExpr {
     fn eq(&self, other: &Self) -> bool {
         match (&self.0, &other.0) {
             (Expression::Root, Expression::Root) => true,
+            (Expression::Variable(lhs), Expression::Variable(rhs)) => lhs == rhs,
+            (Expression::Lambda(lhs), Expression::Lambda(rhs)) => lhs == rhs,
             (
                 Expression::Scalar {
                     scalar_fn: lhs_fn,
@@ -136,6 +142,14 @@ impl Hash for ExactExpr {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match &self.0 {
             Expression::Root => state.write_u8(0),
+            Expression::Variable(variable) => {
+                state.write_u8(2);
+                variable.hash(state);
+            }
+            Expression::Lambda(lambda) => {
+                state.write_u8(3);
+                lambda.hash(state);
+            }
             Expression::Scalar {
                 scalar_fn,
                 children,

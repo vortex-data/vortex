@@ -5,6 +5,8 @@ use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+use itertools::Itertools;
+
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
 use crate::scalar_fn::ChildName;
@@ -65,7 +67,10 @@ impl DisplayTreeNode for Expression {
     fn tree_child_name(&self, index: usize) -> ChildName {
         match self {
             Expression::Scalar { scalar_fn, .. } => scalar_fn.signature().child_name(index),
-            Expression::Root => unreachable!("the scope root has no children"),
+            Expression::Lambda { .. } => ChildName::from("body"),
+            Expression::Root | Expression::Variable(_) => {
+                unreachable!("a leaf expression has no children")
+            }
         }
     }
 
@@ -73,6 +78,10 @@ impl DisplayTreeNode for Expression {
         match self {
             Expression::Scalar { scalar_fn, .. } => Display::fmt(scalar_fn, f),
             Expression::Root => write!(f, "{ROOT_DISPLAY}"),
+            Expression::Variable(variable) => write!(f, "${variable}"),
+            Expression::Lambda(lambda) => {
+                write!(f, "lambda({})", lambda.params().iter().join(", "))
+            }
         }
     }
 }
@@ -85,7 +94,10 @@ impl DisplayTreeNode for BoundExpression {
     fn tree_child_name(&self, index: usize) -> ChildName {
         match self {
             BoundExpression::Scalar { scalar_fn, .. } => scalar_fn.signature().child_name(index),
-            BoundExpression::Root { .. } => unreachable!("the scope root has no children"),
+            BoundExpression::Lambda(_) => ChildName::from("body"),
+            BoundExpression::Root { .. } | BoundExpression::Variable { .. } => {
+                unreachable!("a leaf bound node has no children")
+            }
         }
     }
 
@@ -93,6 +105,10 @@ impl DisplayTreeNode for BoundExpression {
         match self {
             BoundExpression::Scalar { scalar_fn, .. } => Display::fmt(scalar_fn, f),
             BoundExpression::Root { .. } => write!(f, "{ROOT_DISPLAY}"),
+            BoundExpression::Variable { variable, .. } => write!(f, "${variable}"),
+            BoundExpression::Lambda(lambda) => {
+                write!(f, "lambda({})", lambda.params().iter().join(", "))
+            }
         }
     }
 }

@@ -54,7 +54,7 @@ impl<P: Send + Sync + 'static> BoundPartitionedExprEval<P> for BoundPartitionedE
             .zip_eq(self.partitions.iter())
             .map(|(annotation, expr)| {
                 Ok::<_, VortexError>(
-                    if matches!(expr.dtype(), DType::Bool(Nullability::NonNullable)) {
+                    if matches!(expr.dtype(), Some(DType::Bool(Nullability::NonNullable))) {
                         // If the partition evaluates to a boolean, we can evaluate it as a mask which
                         // can often be more efficient since nulls are turned into `false` early on,
                         // and layouts can perform predicate pruning / indexing.
