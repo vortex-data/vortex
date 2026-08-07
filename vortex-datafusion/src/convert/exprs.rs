@@ -728,8 +728,13 @@ mod tests {
     use arrow_schema::Schema;
     use arrow_schema::TimeUnit as ArrowTimeUnit;
     use datafusion::arrow::array::AsArray;
+    use datafusion::arrow::array::BooleanArray;
+    use datafusion::arrow::array::Float64Array;
+    use datafusion::arrow::array::Int64Array;
+    use datafusion::arrow::array::RecordBatch;
     use datafusion::arrow::datatypes::Int32Type;
     use datafusion_common::ScalarValue;
+    use datafusion_common::assert_batches_eq;
     use datafusion_common::config::ConfigOptions;
     use datafusion_expr::Operator as DFOperator;
     use datafusion_expr::ScalarUDF;
@@ -1195,12 +1200,65 @@ mod tests {
             .show()
             .await?;
 
-        // This fails as it pushes string cast to the scan
+        // Exercise the fallback path with projection pushdown disabled.
         ctx.session
             .sql(r#"select cast(id as string) from 'example.vortex'"#)
             .await?
             .collect()
             .await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cast_to_string_with_projection_pushdown() -> anyhow::Result<()> {
+        let ctx = TestSessionContext::new(true);
+        let batch = RecordBatch::try_from_iter([
+            (
+                "bool_col",
+                Arc::new(BooleanArray::from(vec![Some(true), Some(false), None])) as _,
+            ),
+            (
+                "int_col",
+                Arc::new(Int64Array::from(vec![Some(42), Some(-7), None])) as _,
+            ),
+            (
+                "float_col",
+                Arc::new(Float64Array::from(vec![Some(1.5), Some(-2.25), None])) as _,
+            ),
+        ])?;
+        ctx.write_arrow_batch("files/cast_to_string.vortex", &batch)
+            .await?;
+        let provider = ctx
+            .table_provider("cast_to_string", "/files/", batch.schema())
+            .await?;
+        ctx.session.register_table("cast_to_string", provider)?;
+
+        let actual = ctx
+            .session
+            .sql(
+                "SELECT \
+                    CAST(bool_col AS STRING) AS b, \
+                    CAST(int_col AS STRING) AS i, \
+                    CAST(float_col AS STRING) AS f \
+                FROM cast_to_string",
+            )
+            .await?
+            .collect()
+            .await?;
+
+        assert_batches_eq!(
+            [
+                "+-------+----+-------+",
+                "| b     | i  | f     |",
+                "+-------+----+-------+",
+                "| true  | 42 | 1.5   |",
+                "| false | -7 | -2.25 |",
+                "|       |    |       |",
+                "+-------+----+-------+",
+            ],
+            &actual
+        );
 
         Ok(())
     }
