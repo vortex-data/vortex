@@ -62,17 +62,17 @@ impl CastKernel for Bool {
                 .validity()?
                 .cast_nullability(*new_nullability, len, ctx)?;
             let mask = new_validity.execute_mask(len, ctx)?;
-            let bits = array.to_bit_buffer();
             let mut builder = VarBinViewBuilder::with_capacity(dtype.clone(), len);
 
             match &mask {
                 Mask::AllTrue(_) => {
-                    for value in bits.iter() {
+                    for value in array.to_bit_buffer().iter() {
                         builder.append_value(if value { "true" } else { "false" });
                     }
                 }
                 Mask::AllFalse(_) => builder.append_nulls(len),
                 Mask::Values(validity) => {
+                    let bits = array.to_bit_buffer();
                     for (value, valid) in bits.iter().zip(validity.bit_buffer().iter()) {
                         if valid {
                             builder.append_value(if value { "true" } else { "false" });

@@ -362,11 +362,12 @@ mod test {
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexError;
-    use vortex_error::VortexResult as TestResult;
+    use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_mask::Mask;
 
     use crate::ArrayRef;
+    use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;
@@ -378,6 +379,7 @@ mod test {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::half::f16;
     use crate::match_each_native_ptype;
     use crate::validity::Validity;
 
@@ -523,7 +525,7 @@ mod test {
     /// Same-width integer cast where all values fit: should reinterpret the
     /// buffer without allocation (pointer identity).
     #[test]
-    fn cast_same_width_int_reinterprets_buffer() -> vortex_error::VortexResult<()> {
+    fn cast_same_width_int_reinterprets_buffer() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         let src = PrimitiveArray::from_iter([0u32, 10, 100]);
         let src_ptr = src.as_slice::<u32>().as_ptr();
@@ -556,7 +558,7 @@ mod test {
     /// All-null array cast between same-width types should succeed without
     /// touching the buffer contents.
     #[test]
-    fn cast_same_width_all_null() -> vortex_error::VortexResult<()> {
+    fn cast_same_width_all_null() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         let arr = PrimitiveArray::new(buffer![0xFFu8, 0xFF], Validity::AllInvalid);
         let casted = arr
@@ -571,7 +573,7 @@ mod test {
     /// Same-width integer cast with nullable values: out-of-range nulls should
     /// not prevent the cast from succeeding.
     #[test]
-    fn cast_same_width_int_nullable_with_out_of_range_nulls() -> vortex_error::VortexResult<()> {
+    fn cast_same_width_int_nullable_with_out_of_range_nulls() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         // The null position holds u32::MAX which doesn't fit in i32, but it's
         // masked as invalid so the cast should still succeed via reinterpret.
@@ -592,7 +594,7 @@ mod test {
     }
 
     #[test]
-    fn cast_u32_to_u8_with_out_of_range_nulls() -> vortex_error::VortexResult<()> {
+    fn cast_u32_to_u8_with_out_of_range_nulls() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         let arr = PrimitiveArray::new(
             buffer![1000u32, 10u32, 42u32],
@@ -642,7 +644,7 @@ mod test {
     #[case(PType::F16)]
     #[case(PType::F32)]
     #[case(PType::F64)]
-    fn cast_each_primitive_type_to_utf8(#[case] ptype: PType) -> TestResult<()> {
+    fn cast_each_primitive_type_to_utf8(#[case] ptype: PType) -> VortexResult<()> {
         let array = match_each_native_ptype!(ptype, |T| {
             let zero = <T as NumCast>::from(0u8)
                 .ok_or_else(|| vortex_err!("Cannot construct zero as {ptype}"))?;
@@ -668,7 +670,7 @@ mod test {
     }
 
     #[test]
-    fn cast_nullable_primitive_to_utf8() -> TestResult<()> {
+    fn cast_nullable_primitive_to_utf8() -> VortexResult<()> {
         let actual = PrimitiveArray::from_option_iter([Some(100i64), None, Some(-42)])
             .into_array()
             .cast(DType::Utf8(Nullability::Nullable))?;
@@ -683,7 +685,7 @@ mod test {
     }
 
     #[test]
-    fn cast_all_null_primitive_to_utf8() -> TestResult<()> {
+    fn cast_all_null_primitive_to_utf8() -> VortexResult<()> {
         let actual = PrimitiveArray::from_option_iter([None::<i64>, None])
             .into_array()
             .cast(DType::Utf8(Nullability::Nullable))?;
@@ -698,19 +700,19 @@ mod test {
     }
 
     #[test]
-    fn cast_nullable_primitive_with_null_to_non_nullable_utf8_fails() -> TestResult<()> {
+    fn cast_nullable_primitive_with_null_to_non_nullable_utf8_fails() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         let result = PrimitiveArray::from_option_iter([Some(1i64), None])
             .into_array()
             .cast(DType::Utf8(Nullability::NonNullable))?
-            .execute::<crate::Canonical>(&mut ctx);
+            .execute::<Canonical>(&mut ctx);
 
         assert!(result.is_err(), "Expected error, got: {result:?}");
         Ok(())
     }
 
     #[test]
-    fn cast_all_valid_nullable_primitive_to_non_nullable_utf8() -> TestResult<()> {
+    fn cast_all_valid_nullable_primitive_to_non_nullable_utf8() -> VortexResult<()> {
         let actual = PrimitiveArray::from_option_iter([Some(1i64), Some(-42)])
             .into_array()
             .cast(DType::Utf8(Nullability::NonNullable))?;
@@ -725,7 +727,7 @@ mod test {
     }
 
     #[test]
-    fn cast_f64_to_utf8_matches_arrow_formatting() -> TestResult<()> {
+    fn cast_f64_to_utf8_matches_arrow_formatting() -> VortexResult<()> {
         let actual = buffer![
             0.0f64,
             -0.0,
@@ -752,6 +754,27 @@ mod test {
     }
 
     #[test]
+    fn cast_f16_to_utf8_matches_arrow_formatting() -> VortexResult<()> {
+        let actual = buffer![
+            f16::from_f32(0.0),
+            f16::from_f32(-42.5),
+            f16::NAN,
+            f16::INFINITY,
+            f16::NEG_INFINITY
+        ]
+        .into_array()
+        .cast(DType::Utf8(Nullability::NonNullable))?;
+        let expected = VarBinViewArray::from_iter_str(["0", "-42.5", "NaN", "inf", "-inf"]);
+
+        assert_arrays_eq!(
+            actual,
+            expected,
+            &mut array_session().create_execution_ctx()
+        );
+        Ok(())
+    }
+
+    #[test]
     fn cast_primitive_to_binary_is_unsupported() {
         let mut ctx = array_session().create_execution_ctx();
         let result = buffer![1i64, 2, 3]
@@ -759,7 +782,7 @@ mod test {
             .cast(DType::Binary(Nullability::NonNullable))
             .and_then(|array| {
                 array
-                    .execute::<crate::Canonical>(&mut ctx)
+                    .execute::<Canonical>(&mut ctx)
                     .map(|canonical| canonical.into_array())
             });
 
