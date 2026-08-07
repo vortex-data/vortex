@@ -80,6 +80,14 @@ def render_report(
     pr_rows: list[dict[str, object]],
     benchmark_name: str,
 ) -> str:
+    head_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    base_rows = [row | {"commit_id": head_commit} for row in base_rows]
     base_path = tmp_path / "base.jsonl"
     pr_path = tmp_path / "pr.jsonl"
     base_path.write_text("".join(f"{json.dumps(row)}\n" for row in base_rows), encoding="utf-8")
@@ -136,7 +144,7 @@ def test_select_latest_baseline_rows_uses_latest_matching_benchmark_commit() -> 
         ]
     )
 
-    selected = compare.select_latest_baseline_rows(history, pr)
+    selected = compare.select_latest_baseline_rows(history, pr, {"base-old", "base-current"})
 
     assert set(selected["commit_id"]) == {"base-current"}
     assert len(selected) == 2
@@ -196,10 +204,59 @@ def test_read_latest_baseline_rows_streams_latest_matching_benchmark_commit(tmp_
         ]
     )
 
-    selected = compare.read_latest_baseline_rows(history_path, pr)
+    selected = compare.read_latest_baseline_rows(history_path, pr, {"base-old", "base-current"})
 
     assert set(selected["commit_id"]) == {"base-current"}
     assert len(selected) == 2
+
+
+def test_read_latest_baseline_rows_skips_commits_outside_git_tree(tmp_path: Path) -> None:
+    compare = load_compare_module()
+    history_path = tmp_path / "history.jsonl"
+    history_rows = [
+        stored_timing_row("base-reachable", "tpch_q01/datafusion:parquet", 100),
+        file_size_record_for(
+            "base-reachable",
+            100,
+            "tpch",
+            "1.0",
+            "vortex-file-compressed",
+            "part-0.vortex",
+        ),
+        stored_timing_row("base-off-tree", "tpch_q01/datafusion:parquet", 110),
+        file_size_record_for(
+            "base-off-tree",
+            120,
+            "tpch",
+            "1.0",
+            "vortex-file-compressed",
+            "part-0.vortex",
+        ),
+    ]
+    history_path.write_text(
+        "".join(f"{json.dumps(row)}\n" for row in history_rows),
+        encoding="utf-8",
+    )
+    pr = pd.DataFrame([stored_timing_row("pr", "tpch_q01/datafusion:parquet", 105)])
+
+    selected = compare.read_latest_baseline_rows(history_path, pr, {"base-reachable"})
+
+    assert set(selected["commit_id"]) == {"base-reachable"}
+    assert len(selected) == 2
+
+
+def test_read_latest_baseline_rows_returns_empty_without_reachable_match(tmp_path: Path) -> None:
+    compare = load_compare_module()
+    history_path = tmp_path / "history.jsonl"
+    history_path.write_text(
+        f"{json.dumps(stored_timing_row('base-off-tree', 'tpch_q01/datafusion:parquet', 100))}\n",
+        encoding="utf-8",
+    )
+    pr = pd.DataFrame([stored_timing_row("pr", "tpch_q01/datafusion:parquet", 105)])
+
+    selected = compare.read_latest_baseline_rows(history_path, pr, set())
+
+    assert selected.empty
 
 
 def test_read_latest_baseline_rows_uses_last_result_from_rerun(tmp_path: Path) -> None:
@@ -217,7 +274,7 @@ def test_read_latest_baseline_rows_uses_last_result_from_rerun(tmp_path: Path) -
     )
     pr = pd.DataFrame([stored_timing_row("pr", "tpch_q01/datafusion:parquet", 105)])
 
-    selected = compare.read_latest_baseline_rows(history_path, pr)
+    selected = compare.read_latest_baseline_rows(history_path, pr, {"base"})
 
     assert len(selected) == 1
     assert selected.iloc[0]["value"] == 110

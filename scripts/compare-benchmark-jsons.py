@@ -14,6 +14,7 @@
 import math
 import os
 import re
+import subprocess
 import sys
 from dataclasses import dataclass
 from io import StringIO
@@ -216,8 +217,24 @@ def read_jsonl_rows_for_commit(path: str, commit_id: str) -> pd.DataFrame:
     return pd.DataFrame(rows_by_identity.values())
 
 
-def read_latest_baseline_rows(path: str, pr: pd.DataFrame) -> pd.DataFrame:
-    """Read rows from the latest history commit matching the PR benchmark.
+def git_tree_commit_ids() -> set[str]:
+    """Return every commit reachable from the checked-out branch head."""
+
+    commits = subprocess.run(
+        ["git", "rev-list", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    return set(commits.splitlines())
+
+
+def read_latest_baseline_rows(
+    path: str,
+    pr: pd.DataFrame,
+    reachable_commit_ids: set[str],
+) -> pd.DataFrame:
+    """Read rows from the latest reachable commit matching the PR benchmark.
 
     A benchmark can be new to the PR workflow and therefore have no baseline
     yet. Return an empty frame with the PR schema in that case so the report
@@ -236,7 +253,7 @@ def read_latest_baseline_rows(path: str, pr: pd.DataFrame) -> pd.DataFrame:
             record = orjson.loads(line)
             if benchmark_identity(record) in pr_identities:
                 commit_id = record.get("commit_id")
-                if commit_id is not None:
+                if commit_id is not None and commit_id in reachable_commit_ids:
                     baseline_commit_id = commit_id
 
     if baseline_commit_id is None:
@@ -245,15 +262,24 @@ def read_latest_baseline_rows(path: str, pr: pd.DataFrame) -> pd.DataFrame:
     return read_jsonl_rows_for_commit(path, baseline_commit_id)
 
 
-def select_latest_baseline_rows(base: pd.DataFrame, pr: pd.DataFrame) -> pd.DataFrame:
-    """Select rows from the latest baseline commit containing this benchmark.
+def select_latest_baseline_rows(
+    base: pd.DataFrame,
+    pr: pd.DataFrame,
+    reachable_commit_ids: set[str],
+) -> pd.DataFrame:
+    """Select rows from the latest reachable commit containing this benchmark.
 
     The persisted benchmark history is append-only. A row only appears after
-    that benchmark job uploaded results, so the newest commit with matching row
-    identities is the latest successful baseline for the benchmark under test.
+    that benchmark job uploaded results, so the newest reachable commit with
+    matching row identities is the latest successful baseline for the benchmark
+    under test.
     """
 
     if base.empty or "commit_id" not in base.columns:
+        return base
+
+    base = base[base["commit_id"].isin(reachable_commit_ids)].copy()
+    if base.empty:
         return base
 
     commit_ids = base["commit_id"].dropna().unique()
@@ -961,7 +987,7 @@ def main() -> None:
 
     pr = pd.read_json(sys.argv[2], lines=True)
     title = format_title(benchmark_name, pr)
-    base = read_latest_baseline_rows(sys.argv[1], pr)
+    base = read_latest_baseline_rows(sys.argv[1], pr, git_tree_commit_ids())
 
     base_commit_ids = set(base["commit_id"].unique())
     pr_commit_id = set(pr["commit_id"].unique())
