@@ -38,14 +38,13 @@ pub trait LayoutChildren: 'static + Send + Sync {
 
     fn nchildren(&self) -> usize;
 
-    /// Returns `true` if the child at `idx` is known — without materializing it — to register no
-    /// split boundaries strictly inside its row range (see
-    /// [`VTable::registers_interior_splits`](crate::VTable::registers_interior_splits)).
+    /// Returns `true` if the child at `idx` is divisible: it may register split boundaries
+    /// strictly inside its row range (see [`VTable::is_divisible`](crate::VTable::is_divisible)).
     ///
-    /// Implementations may conservatively return `false` when the answer would require
+    /// Implementations must conservatively return `true` when answering would require
     /// materializing the child.
-    fn child_divisibility(&self, _idx: usize) -> bool {
-        false
+    fn child_is_divisible(&self, _idx: usize) -> bool {
+        true
     }
 }
 
@@ -74,8 +73,8 @@ impl LayoutChildren for Arc<dyn LayoutChildren> {
         self.as_ref().nchildren()
     }
 
-    fn child_divisibility(&self, idx: usize) -> bool {
-        self.as_ref().child_divisibility(idx)
+    fn child_is_divisible(&self, idx: usize) -> bool {
+        self.as_ref().child_is_divisible(idx)
     }
 }
 
@@ -119,8 +118,8 @@ impl LayoutChildren for OwnedLayoutChildren {
         self.0.len()
     }
 
-    fn child_divisibility(&self, idx: usize) -> bool {
-        !self.0[idx].dyn_registers_interior_splits()
+    fn child_is_divisible(&self, idx: usize) -> bool {
+        self.0[idx].dyn_is_divisible()
     }
 }
 
@@ -134,10 +133,7 @@ pub(crate) struct ViewedLayoutChildren {
     allow_unknown: bool,
     session: VortexSession,
     cache: Arc<[OnceCell<LayoutRef>]>,
-    /// Single-slot memo for [`LayoutChildren::child_has_no_interior_splits`]: children of one
-    /// layout node almost always share an encoding, so remember the last resolved flatbuffer
-    /// encoding tag and its answer. Packed as `tag | (answer << 16) | (valid << 17)`.
-    no_interior_splits_memo: Arc<AtomicU32>,
+    divisibility_memo: DivisibilityMemo,
 }
 
 impl ViewedLayoutChildren {
@@ -170,7 +166,7 @@ impl ViewedLayoutChildren {
             allow_unknown,
             session,
             cache,
-            no_interior_splits_memo: Arc::new(AtomicU32::new(0)),
+            divisibility_memo: DivisibilityMemo::empty(),
         }
     }
 
@@ -296,13 +292,13 @@ impl LayoutChildren for ViewedLayoutChildren {
         self.cache.len()
     }
 
-    fn child_divisibility(&self, idx: usize) -> bool {
+    fn child_is_divisible(&self, idx: usize) -> bool {
         if idx >= self.nchildren() {
-            return false;
+            return true;
         }
         // Resolve the child's layout encoding from the flatbuffer tag alone, without
-        // deserializing the child layout. Unknown encodings conservatively report interior
-        // splits so callers fall back to materializing the child.
+        // deserializing the child layout. Unknown encodings are conservatively divisible so
+        // callers fall back to materializing the child.
         let encoding = self
             .flatbuffer()
             .children()
@@ -310,23 +306,71 @@ impl LayoutChildren for ViewedLayoutChildren {
             .get(idx)
             .encoding();
 
-        const MEMO_VALID: u32 = 1 << 17;
-        const MEMO_ANSWER: u32 = 1 << 16;
-        const MEMO_TAG: u32 = 0xFFFF;
-        let memo = self.no_interior_splits_memo.load(Ordering::Relaxed);
-        if memo & MEMO_VALID != 0 && memo & MEMO_TAG == u32::from(encoding) {
-            return memo & MEMO_ANSWER != 0;
+        if let Some(answer) = self.divisibility_memo.get(encoding) {
+            return answer;
         }
 
         let answer = self
             .layout_read_ctx
             .resolve(encoding)
             .and_then(|encoding_id| self.layouts.get(&encoding_id))
-            .is_some_and(|encoding| !encoding.registers_interior_splits());
-        self.no_interior_splits_memo.store(
-            u32::from(encoding) | MEMO_VALID | if answer { MEMO_ANSWER } else { 0 },
+            .is_none_or(|encoding| encoding.is_divisible());
+        self.divisibility_memo.set(encoding, answer);
+        answer
+    }
+}
+
+/// Single-slot cache for [`ViewedLayoutChildren::child_is_divisible`] answers, keyed by the
+/// child's flatbuffer encoding tag and shared across clones of the owning
+/// [`ViewedLayoutChildren`].
+///
+/// Divisibility depends only on the child's layout encoding, and children of one layout node
+/// almost always share an encoding — so caching the answer for the last-seen tag turns the
+/// per-child read-context resolve and registry lookup into a single atomic load for all but the
+/// first child.
+///
+/// The tag, the answer, and a validity flag are packed into one `AtomicU32` so lookups and
+/// updates are each a single atomic operation, with no locking and no torn state between the key
+/// and its answer:
+///
+/// ```text
+/// bit:  17      16       15..0
+///       valid | answer | encoding tag
+/// ```
+///
+/// `Relaxed` ordering suffices throughout: this is purely a performance cache, and each packed
+/// word is internally consistent on its own. The worst a racing `get`/`set` can cause is a
+/// redundant recomputation.
+#[derive(Clone)]
+struct DivisibilityMemo(Arc<AtomicU32>);
+
+impl DivisibilityMemo {
+    /// Low 16 bits: the flatbuffer encoding tag the cached answer belongs to.
+    const TAG: u32 = 0xFFFF;
+    /// Bit 16: the cached answer for the stored tag.
+    const ANSWER: u32 = 1 << 16;
+    /// Bit 17: set once the memo holds an entry. Needed because the atomic starts at zero, which
+    /// would otherwise be indistinguishable from a cached `(tag 0, answer false)` entry.
+    const VALID: u32 = 1 << 17;
+
+    /// Create a memo holding no entry.
+    fn empty() -> Self {
+        Self(Arc::new(AtomicU32::new(0)))
+    }
+
+    /// Return the cached answer for `tag`, or `None` if the memo is empty or holds a different
+    /// tag.
+    fn get(&self, tag: u16) -> Option<bool> {
+        let memo = self.0.load(Ordering::Relaxed);
+        (memo & Self::VALID != 0 && memo & Self::TAG == u32::from(tag))
+            .then_some(memo & Self::ANSWER != 0)
+    }
+
+    /// Cache `answer` for `tag`, replacing any previous entry.
+    fn set(&self, tag: u16, answer: bool) {
+        self.0.store(
+            u32::from(tag) | Self::VALID | if answer { Self::ANSWER } else { 0 },
             Ordering::Relaxed,
         );
-        answer
     }
 }

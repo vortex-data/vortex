@@ -114,13 +114,13 @@ pub trait VTable: 'static + Clone + Send + Sync + Debug {
         ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef>;
 
-    /// Returns `true` if readers of this layout may register natural split boundaries strictly
-    /// inside their row range (see [`crate::LayoutReader::register_splits`]).
+    /// Returns `true` if this layout is divisible: its readers may register natural split
+    /// boundaries strictly inside their row range (see [`crate::LayoutReader::register_splits`]).
     ///
-    /// Layouts whose readers only ever push the end of the requested range — like flat — return
-    /// `false`, which lets parent layouts skip materializing the child entirely during split
-    /// collection.
-    fn registers_interior_splits(&self) -> bool {
+    /// Indivisible layouts — like flat, whose readers only ever push the end of the requested
+    /// range — return `false`, which lets parent layouts skip materializing the child entirely
+    /// during split collection.
+    fn is_divisible(&self) -> bool {
         true
     }
 }

@@ -108,8 +108,8 @@ impl ChunkedReader {
         self.lazy_children.get(idx)
     }
 
-    /// Classify which chunks are known to register no interior splits, without materializing
-    /// any chunk layouts or readers.
+    /// Classify which chunks are known to be indivisible, without materializing any chunk
+    /// layouts or readers.
     fn chunk_skips(&self) -> &ChunkSkips {
         self.chunk_skips.get_or_init(|| {
             let children = self.layout.children();
@@ -118,7 +118,7 @@ impl ChunkedReader {
                 return ChunkSkips::None;
             }
             let skips = (0..nchildren)
-                .map(|idx| children.child_divisibility(idx))
+                .map(|idx| !children.child_is_divisible(idx))
                 .collect::<Box<[bool]>>();
             if skips.iter().all(|&skip| skip) {
                 ChunkSkips::All

@@ -65,9 +65,9 @@ impl VTable for Flat {
         *ID
     }
 
-    /// Flat readers only ever register the end of the requested range, so split collection can
-    /// skip materializing flat children.
-    fn registers_interior_splits(&self) -> bool {
+    /// Flat readers only ever register the end of the requested range, so flat layouts are
+    /// indivisible and split collection can skip materializing flat children.
+    fn is_divisible(&self) -> bool {
         false
     }
 
