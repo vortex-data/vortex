@@ -156,6 +156,14 @@ Check new and modified lines against this list before finishing:
 When summarizing work, write valid Markdown that can be copied into GitHub. Include the checks
 you ran and call out any checks you could not run.
 
+## Branches
+
+When creating a branch on the user's behalf, prefix its name with the user's established branch
+prefix, not the agent's name (for example, do not use `codex/` or `claude/`). Infer the user's
+prefix from their existing branches when possible. Otherwise, use available identity context such
+as `whoami`, Git configuration, or other information the user has provided. If the evidence is
+ambiguous, ask the user instead of inventing a prefix.
+
 ## Commits
 
 All commits must be signed off by the committers in this form:
