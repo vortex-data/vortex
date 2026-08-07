@@ -53,7 +53,7 @@ use crate::scalar_fn::execute::Operand;
 use crate::scalar_fn::execute::dispatch_unary;
 
 /// Resolve the strict homogeneous `ST_Collect` overload for one list operand.
-fn collect_dtype(dtypes: &[DType]) -> VortexResult<DType> {
+fn collect_dtype(dtypes: &[DType]) -> VortexResult<ExtDTypeRef> {
     vortex_ensure!(
         dtypes.len() == 1,
         "spatial: collect requires exactly one list operand, got {}",
@@ -62,32 +62,35 @@ fn collect_dtype(dtypes: &[DType]) -> VortexResult<DType> {
     let DType::List(element_dtype, nullability) = &dtypes[0] else {
         vortex_bail!("spatial: collect operand {} is not a list", dtypes[0]);
     };
-    let Some(element) = element_dtype.as_extension_opt() else {
-        vortex_bail!(
-            "spatial: collect list element {} is not a native Point, LineString, or Polygon",
-            element_dtype
-        );
-    };
     // Multi-geometries cannot contain null components. Null list elements are ignored during
     // execution, so their storage is non-nullable in the result.
-    let storage = DType::List(
-        Arc::new(element.storage_dtype().as_nonnullable()),
-        *nullability,
-    );
-    let output = if element.is::<Point>() {
-        ExtDType::<MultiPoint>::try_new(element.metadata::<Point>().clone(), storage)?.erased()
-    } else if element.is::<LineString>() {
-        ExtDType::<MultiLineString>::try_new(element.metadata::<LineString>().clone(), storage)?
-            .erased()
-    } else if element.is::<Polygon>() {
-        ExtDType::<MultiPolygon>::try_new(element.metadata::<Polygon>().clone(), storage)?.erased()
-    } else {
-        vortex_bail!(
-            "spatial: collect list element {} is not a native Point, LineString, or Polygon",
-            element_dtype
-        );
+    let multi_storage = |element: &ExtDTypeRef| {
+        DType::List(
+            Arc::new(element.storage_dtype().as_nonnullable()),
+            *nullability,
+        )
     };
-    Ok(DType::Extension(output))
+    match element_dtype.as_extension_opt() {
+        Some(element) if element.is::<Point>() => Ok(ExtDType::<MultiPoint>::try_new(
+            element.metadata::<Point>().clone(),
+            multi_storage(element),
+        )?
+        .erased()),
+        Some(element) if element.is::<LineString>() => Ok(ExtDType::<MultiLineString>::try_new(
+            element.metadata::<LineString>().clone(),
+            multi_storage(element),
+        )?
+        .erased()),
+        Some(element) if element.is::<Polygon>() => Ok(ExtDType::<MultiPolygon>::try_new(
+            element.metadata::<Polygon>().clone(),
+            multi_storage(element),
+        )?
+        .erased()),
+        _ => vortex_bail!(
+            "spatial: collect list element {element_dtype} is not a native Point, LineString, \
+             or Polygon"
+        ),
+    }
 }
 
 /// Count valid elements in an exact list row without per-element mask lookups.
@@ -195,7 +198,7 @@ fn execute_collect(
                 .execute::<ListViewArray>(ctx)?;
             let collected = collect_list(
                 one,
-                Validity::from_mask(Mask::new_true(1), output_dtype.nullability()),
+                Validity::from_mask(Mask::new_true(1), execution.nullability),
                 output_dtype,
                 ctx,
             )?;
@@ -205,7 +208,7 @@ fn execute_collect(
             let valid = execution.valid.execute_mask(execution.len, ctx)?;
             collect_list(
                 array.execute::<ListViewArray>(ctx)?,
-                Validity::from_mask(valid, output_dtype.nullability()),
+                Validity::from_mask(valid, execution.nullability),
                 output_dtype,
                 ctx,
             )
@@ -258,7 +261,7 @@ impl ScalarFnVTable for SpatialCollect {
     }
 
     fn return_dtype(&self, _: &Self::Options, dtypes: &[DType]) -> VortexResult<DType> {
-        collect_dtype(dtypes)
+        Ok(DType::Extension(collect_dtype(dtypes)?))
     }
 
     fn execute(
@@ -269,11 +272,10 @@ impl ScalarFnVTable for SpatialCollect {
     ) -> VortexResult<ArrayRef> {
         let input = args.get(0)?;
         let output_dtype = collect_dtype(std::slice::from_ref(input.dtype()))?;
-        let output = output_dtype.as_extension().clone();
         dispatch_unary(
             &input,
-            output_dtype,
-            |execution, ctx| execute_collect(execution, &output, ctx),
+            DType::Extension(output_dtype.clone()),
+            |execution, ctx| execute_collect(execution, &output_dtype, ctx),
             ctx,
         )
     }
