@@ -158,45 +158,98 @@ where
     S: IntegerPType + ToI256,
     T: NativeDecimalType + CheckedMul,
 {
-    let values = array.as_slice::<S>();
     let scale = decimal_dtype.scale();
     let buffer = if scale == 0 {
-        cast_primitive_to_decimal_buffer(values, valid_values, |value| {
-            let value = <T as BigCast>::from(value)?;
-            decimal_value_fits_precision(value, decimal_dtype).then_some(value)
-        })
-    } else if scale < 0 && scale.unsigned_abs() >= primitive_max_decimal_digits(array.ptype()) {
-        // The scale factor exceeds every source value, so only zero can be exactly rescaled.
-        cast_primitive_to_decimal_buffer(values, valid_values, |value| {
-            (value == S::default()).then_some(T::default())
-        })
+        cast_unscaled_integer_values_to_decimal::<S, T>(array, decimal_dtype, valid_values)?
     } else if scale > 0 {
-        // The target physical type can hold both the scale factor and every valid result, so
-        // scale up directly in it.
-        let scale_factor = decimal_scale_factor::<T>(scale)?;
-        cast_scaled_up_integer_values_to_decimal::<S, T>(
+        cast_scaled_up_integer_values_to_decimal::<S, T>(array, decimal_dtype, valid_values)?
+    } else {
+        cast_scaled_down_integer_values_to_decimal::<S, T>(array, decimal_dtype, valid_values)?
+    };
+
+    Ok(DecimalArray::new(buffer, decimal_dtype, validity).into_array())
+}
+
+fn cast_unscaled_integer_values_to_decimal<S, T>(
+    array: ArrayView<'_, Primitive>,
+    decimal_dtype: DecimalDType,
+    valid_values: &Mask,
+) -> VortexResult<Buffer<T>>
+where
+    S: IntegerPType + ToI256,
+    T: NativeDecimalType,
+{
+    let values = array.as_slice::<S>();
+    cast_integer_values_to_decimal_buffer(values, decimal_dtype, valid_values, |value| {
+        let value = <T as BigCast>::from(value)?;
+        decimal_value_fits_precision(value, decimal_dtype).then_some(value)
+    })
+}
+
+fn cast_scaled_up_integer_values_to_decimal<S, T>(
+    array: ArrayView<'_, Primitive>,
+    decimal_dtype: DecimalDType,
+    valid_values: &Mask,
+) -> VortexResult<Buffer<T>>
+where
+    S: IntegerPType + ToI256,
+    T: NativeDecimalType + CheckedMul,
+{
+    let values = array.as_slice::<S>();
+    let scale_factor = decimal_scale_factor::<T>(decimal_dtype.scale())?;
+    cast_integer_values_to_decimal_buffer(values, decimal_dtype, valid_values, |value| {
+        let value = <T as BigCast>::from(value)?;
+        let value = value.checked_mul(&scale_factor)?;
+        decimal_value_fits_precision(value, decimal_dtype).then_some(value)
+    })
+}
+
+fn cast_scaled_down_integer_values_to_decimal<S, T>(
+    array: ArrayView<'_, Primitive>,
+    decimal_dtype: DecimalDType,
+    valid_values: &Mask,
+) -> VortexResult<Buffer<T>>
+where
+    S: IntegerPType + ToI256,
+    T: NativeDecimalType,
+{
+    let values = array.as_slice::<S>();
+    if decimal_dtype.scale().unsigned_abs() >= primitive_max_decimal_digits(array.ptype()) {
+        // The scale factor exceeds every source value, so only zero can be exactly rescaled.
+        return cast_integer_values_to_decimal_buffer(
             values,
             decimal_dtype,
             valid_values,
-            scale_factor,
-        )
-    } else {
-        // Scaling down can shrink a value into a narrower target type, so first select the
-        // smallest signed carrier that can represent both the source and target.
-        let carrier_type = primitive_decimal_carrier_type(array.ptype()).max(T::DECIMAL_TYPE);
-        match_each_decimal_value_type!(carrier_type, |W| {
-            let scale_factor = decimal_scale_factor::<W>(scale)?;
-            cast_scaled_down_integer_values_to_decimal::<S, T, W>(
-                values,
-                decimal_dtype,
-                valid_values,
-                scale_factor,
-            )
-        })
+            |value| (value == S::default()).then_some(T::default()),
+        );
     }
-    .map_err(|idx| primitive_to_decimal_cast_error(values[idx], decimal_dtype))?;
 
-    Ok(DecimalArray::new(buffer, decimal_dtype, validity).into_array())
+    // Scaling down can shrink a value into a narrower target type, so first select the smallest
+    // signed carrier that can represent both the source and target.
+    let carrier_type = primitive_decimal_carrier_type(array.ptype()).max(T::DECIMAL_TYPE);
+    match_each_decimal_value_type!(carrier_type, |W| {
+        let scale_factor = decimal_scale_factor::<W>(decimal_dtype.scale())?;
+        cast_integer_values_to_decimal_buffer(values, decimal_dtype, valid_values, |value| {
+            let value = <W as BigCast>::from(value)?;
+            let value = (value % scale_factor == W::default()).then_some(value / scale_factor)?;
+            let value = <T as BigCast>::from(value)?;
+            decimal_value_fits_precision(value, decimal_dtype).then_some(value)
+        })
+    })
+}
+
+fn cast_integer_values_to_decimal_buffer<S, T>(
+    values: &[S],
+    decimal_dtype: DecimalDType,
+    valid_values: &Mask,
+    cast: impl FnMut(S) -> Option<T>,
+) -> VortexResult<Buffer<T>>
+where
+    S: IntegerPType + ToI256,
+    T: NativeDecimalType,
+{
+    cast_primitive_to_decimal_buffer(values, valid_values, cast)
+        .map_err(|idx| primitive_to_decimal_cast_error(values[idx], decimal_dtype))
 }
 
 fn primitive_decimal_carrier_type(ptype: PType) -> DecimalType {
@@ -223,42 +276,6 @@ fn primitive_max_decimal_digits(ptype: PType) -> u8 {
             unreachable!("floating primitives are rejected before inspecting decimal digits")
         }
     }
-}
-
-fn cast_scaled_up_integer_values_to_decimal<S, T>(
-    values: &[S],
-    decimal_dtype: DecimalDType,
-    valid_values: &Mask,
-    scale_factor: T,
-) -> Result<Buffer<T>, usize>
-where
-    S: IntegerPType + ToI256,
-    T: NativeDecimalType + CheckedMul,
-{
-    cast_primitive_to_decimal_buffer(values, valid_values, |value| {
-        let value = <T as BigCast>::from(value)?;
-        let value = value.checked_mul(&scale_factor)?;
-        decimal_value_fits_precision(value, decimal_dtype).then_some(value)
-    })
-}
-
-fn cast_scaled_down_integer_values_to_decimal<S, T, W>(
-    values: &[S],
-    decimal_dtype: DecimalDType,
-    valid_values: &Mask,
-    scale_factor: W,
-) -> Result<Buffer<T>, usize>
-where
-    S: IntegerPType + ToI256,
-    T: NativeDecimalType,
-    W: NativeDecimalType + std::ops::Div<Output = W> + std::ops::Rem<Output = W>,
-{
-    cast_primitive_to_decimal_buffer(values, valid_values, |value| {
-        let value = <W as BigCast>::from(value)?;
-        let value = (value % scale_factor == W::default()).then_some(value / scale_factor)?;
-        let value = <T as BigCast>::from(value)?;
-        decimal_value_fits_precision(value, decimal_dtype).then_some(value)
-    })
 }
 
 fn decimal_scale_factor<T>(scale: i8) -> VortexResult<T>
@@ -324,7 +341,6 @@ where
     Ok(buffer.freeze())
 }
 
-#[cold]
 fn primitive_to_decimal_cast_error<S>(value: S, decimal_dtype: DecimalDType) -> VortexError
 where
     S: IntegerPType + ToI256,
