@@ -331,7 +331,7 @@ impl VarBinViewBuilder {
     /// index `view_at` returns for it.
     ///
     /// `buffers` — the data buffers the views reference, in the numbering the views use — are
-    /// adopted via [`push_buffers`](Self::push_buffers), and every gathered view is rebased onto
+    /// adopted through the builder's buffer storage, and every gathered view is rebased onto
     /// the indices they land at as it is written, so the whole append is one view per row with no
     /// byte copy and no intermediate array. `view_at` is only called for valid rows; null rows get
     /// an empty view.
@@ -442,7 +442,7 @@ impl VarBinViewBuilder {
     /// Appends `len` rows that are `fill` everywhere except at the given patch rows.
     ///
     /// `buffers` — the data buffers `fill` and the patch views reference, in the numbering they
-    /// use — are adopted via [`push_buffers`](Self::push_buffers) and the views are rebased onto
+    /// use — are adopted through the builder's buffer storage and the views are rebased onto
     /// the indices they land at. `patches` yields `(row, view)` pairs with rows below `len`; the
     /// fill rows cost one bulk view fill and each patch one view write, with no byte copy.
     /// Validity is appended exactly as given — invalid rows keep whichever view they got.
