@@ -19,13 +19,14 @@ from ._client import ClientConfig
 from ._cos import CosStore
 from ._gcs import GCSConfig, GCSCredential, GCSCredentialProvider, GCSStore
 from ._goosefs import GoosefsStore
+from ._hf import HfStore
 from ._http import HTTPStore
 from ._local import LocalStore
 from ._memory import MemoryStore
 from ._retry import BackoffConfig, RetryConfig
 
 ObjectStore: TypeAlias = (
-    AzureStore | CosStore | GoosefsStore | GCSStore | HTTPStore | S3Store | LocalStore | MemoryStore
+    AzureStore | CosStore | GoosefsStore | GCSStore | HfStore | HTTPStore | S3Store | LocalStore | MemoryStore
 )
 """All supported ObjectStore implementations."""
 
@@ -93,12 +94,12 @@ def from_url(  # type: ignore[misc] # docstring in pyi file
     - ``gs://bucket/path`` -> :class:`~vortex.store.GCSStore`
     - ``az://account/container/path`` -> :class:`~vortex.store.AzureStore` (also
       supports ``adl``, ``azure``, ``abfs``, ``abfss``)
-    - ``cos://bucket/path`` -> OpenDAL-backed Tencent Cloud COS store (requires the
-      ``opendal`` feature; configure via environment variables such as
+    - ``cos://bucket/path`` -> OpenDAL-backed Tencent Cloud COS store (configure
+      via environment variables such as
       ``TENCENTCLOUD_SECRET_ID`` / ``TENCENTCLOUD_SECRET_KEY`` and ``COS_ENDPOINT``)
     - ``goosefs://master-addr:port/path`` -> OpenDAL-backed Tencent Cloud GooseFS store
-      (requires the ``opendal`` feature; configure via environment variable
-      ``GOOSEFS_MASTER_ADDR`` or pass ``master_addr`` in properties)
+      (configure via environment variable ``GOOSEFS_MASTER_ADDR`` or pass
+      ``master_addr`` in properties)
     - ``http://mydomain/path`` -> :class:`~vortex.store.HTTPStore`
     - ``https://mydomain/path`` -> :class:`~vortex.store.HTTPStore`
 
@@ -160,6 +161,8 @@ __all__ = [
     "GCSStore",
     # HTTP
     "HTTPStore",
+    # Hugging Face Hub
+    "HfStore",
     # Local
     "LocalStore",
     "MemoryStore",

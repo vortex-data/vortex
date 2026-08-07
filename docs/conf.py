@@ -57,6 +57,13 @@ nitpick_ignore = [
     # classes are fully documented in `opendal.rst`; the private paths are intentionally not.
     ("py:class", "vortex.store._cos.CosStore"),
     ("py:class", "vortex.store._goosefs.GoosefsStore"),
+    # `vortex.store.CosStore` / `GoosefsStore` / `HfStore` are the native classes re-exported
+    # through private modules, so annotations resolve to their `vortex._lib` module paths. The
+    # public classes are fully documented in `opendal.rst` / `huggingface.rst`; the native paths
+    # are intentionally not.
+    ("py:class", "vortex._lib.CosStore"),
+    ("py:class", "vortex._lib.GoosefsStore"),
+    ("py:class", "vortex._lib.HfStore"),
 ]
 
 doctest_global_setup = "import pyarrow; import vortex; import vortex as vx; import random; random.seed(a=0)"

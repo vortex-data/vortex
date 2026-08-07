@@ -3,35 +3,11 @@
 
 """Tencent Cloud GooseFS object store, backed by OpenDAL.
 
-This store is only available when Vortex is built with the ``opendal`` feature.
-The class is re-exported from the native extension module; if the feature is
-not enabled, instantiating :class:`GoosefsStore` raises :class:`ImportError`.
+The class is re-exported from the native extension module.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    # `vortex._lib.__init__.pyi` declares `GoosefsStore` so type checkers see a real
-    # signature; the runtime branch below provides the same symbol when the
-    # `opendal` feature is enabled, and a placeholder that raises on
-    # instantiation when it is not.
-    from vortex._lib import GoosefsStore
-else:
-    try:
-        from vortex._lib import GoosefsStore as GoosefsStore
-    except ImportError:
-
-        class GoosefsStore:
-            """Placeholder; the real implementation requires the ``opendal`` feature."""
-
-            def __init__(self, *args: Any, **kwargs: Any) -> None:
-                raise ImportError(
-                    "GoosefsStore requires Vortex to be built with the 'opendal' feature; "
-                    + "build with `maturin build --features opendal` "
-                    + "or `maturin develop --features opendal`."
-                )
-
+from vortex._lib import GoosefsStore as GoosefsStore
 
 __all__ = ["GoosefsStore"]

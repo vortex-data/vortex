@@ -6,8 +6,8 @@ Vortex can read from and write to Tencent Cloud COS, Alibaba Cloud OSS, and Tenc
 GooseFS through `OpenDAL <https://opendal.apache.org/>`_, which provides native service
 support.
 
-These stores are available only when Vortex is built with the ``opendal`` feature
-(e.g. ``maturin develop --features opendal`` or ``cargo build -p vortex-jni --features opendal``).
+The Python bindings always include these stores. Other consumers opt in with the ``opendal``
+Cargo feature (e.g. ``cargo build -p vortex-jni --features opendal``).
 
 .. list-table::
    :header-rows: 1
@@ -39,9 +39,6 @@ These stores are available only when Vortex is built with the ``opendal`` featur
    :func:`vortex.io.read_url` / :func:`vortex.io.write` via the ``store=`` argument,
    exactly like the built-in S3/Azure/GCS stores.
 
-   The class is only available when Vortex is built with the ``opendal`` feature; on
-   a default build, instantiating it raises :class:`ImportError`.
-
    :param bucket: COS bucket name (e.g. ``"my-bucket"``).
    :param endpoint: COS endpoint (e.g. ``"https://cos.ap-guangzhou.myqcloud.com"``).
    :param secret_id: Optional Tencent Cloud secret id. Maps to the ``TENCENTCLOUD_SECRET_ID``
@@ -61,9 +58,6 @@ These stores are available only when Vortex is built with the ``opendal`` featur
    configuration and pass it to
    :func:`vortex.io.read_url` / :func:`vortex.io.write` via the ``store=`` argument,
    exactly like the built-in S3/Azure/GCS stores.
-
-   The class is only available when Vortex is built with the ``opendal`` feature; on
-   a default build, instantiating it raises :class:`ImportError`.
 
    :param master_addr: GooseFS master address(es). Single master:
        ``"10.0.0.1:9200"``. HA (comma-separated):

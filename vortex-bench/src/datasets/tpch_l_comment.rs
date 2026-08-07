@@ -66,9 +66,12 @@ impl Dataset for TPCHLCommentChunked {
 
         let path = data_dir.join("lineitem.vortex");
         let file = SESSION.open_options().open_path(path).await?;
+        let projection = pack(vec![("l_comment", col("l_comment"))], NonNullable)
+            .optimize_recursive(file.dtype())?
+            .bind(file.dtype())?;
         let chunks: Vec<_> = file
             .scan()?
-            .with_projection(pack(vec![("l_comment", col("l_comment"))], NonNullable))
+            .with_projection(projection)
             .map({
                 let ctx = ctx.clone();
                 move |a| {

@@ -16,9 +16,8 @@ import datasets as hf_datasets
 import pyarrow as pa
 import pytest
 import vortex.datasets as vx_datasets
-from huggingface_hub import hf_hub_url
 from typing_extensions import override
-from vortex.store import HTTPStore
+from vortex.store import HfStore
 
 import vortex as vx
 import vortex.expr as ve
@@ -422,7 +421,33 @@ class _FakeHfApi:
         return list(self.repo_files)
 
 
-def test_hub_streaming_resolves_to_urls_without_download(monkeypatch: pytest.MonkeyPatch):
+@pytest.mark.parametrize("token", [None, True])
+def test_hub_streaming_resolves_to_hf_uris_without_download(token: bool | None, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(vx_datasets, "HfApi", _FakeHfApi)
+
+    files, store = vx_datasets._resolve_data_files(  # pyright: ignore[reportPrivateUsage]
+        "org/name",
+        data_files=None,
+        split="train",
+        revision=None,
+        token=token,
+        cache_dir=None,
+        local_files_only=False,
+        streaming=True,
+    )
+
+    # Vortex resolves `hf://` itself, including the saved login that `token=True` asks for, so
+    # there is no store and no URL building here.
+    assert store is None
+    assert files == {
+        "train": [
+            "hf://datasets/org/name/data/validation.vortex",
+            "hf://datasets/org/name/train.vortex",
+        ]
+    }
+
+
+def test_hub_streaming_with_token_false_forces_anonymous_store(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(vx_datasets, "HfApi", _FakeHfApi)
 
     files, store = vx_datasets._resolve_data_files(  # pyright: ignore[reportPrivateUsage]
@@ -436,11 +461,10 @@ def test_hub_streaming_resolves_to_urls_without_download(monkeypatch: pytest.Mon
         streaming=True,
     )
 
-    assert store is None
-    expected = [
-        hf_hub_url("org/name", file, repo_type="dataset") for file in ["data/validation.vortex", "train.vortex"]
-    ]
-    assert files == {"train": expected}
+    # `token=False` must suppress the credentials Vortex would otherwise read from the environment,
+    # which an `hf://` URI cannot express, so it gets an anonymous store instead.
+    assert isinstance(store, HfStore)
+    assert files == {"train": ["data/validation.vortex", "train.vortex"]}
 
 
 def test_hub_streaming_with_token_uses_authenticated_store(monkeypatch: pytest.MonkeyPatch):
@@ -457,13 +481,10 @@ def test_hub_streaming_with_token_uses_authenticated_store(monkeypatch: pytest.M
         streaming=True,
     )
 
-    assert isinstance(store, HTTPStore)
-    assert files == {
-        "train": [
-            "datasets/org/name/resolve/main/data/validation.vortex",
-            "datasets/org/name/resolve/main/train.vortex",
-        ]
-    }
+    # An explicitly passed token cannot reach the Vortex reader, so this is the one path that still
+    # builds a store; the files are then paths within the repository.
+    assert isinstance(store, HfStore)
+    assert files == {"train": ["data/validation.vortex", "train.vortex"]}
 
 
 @pytest.mark.parametrize(
@@ -498,7 +519,7 @@ def test_hf_uri_streaming_resolves_file_and_directory(monkeypatch: pytest.Monkey
             data_files=None,
             split="train",
             revision=None,
-            token=False,
+            token=None,
             cache_dir=None,
             local_files_only=False,
             streaming=True,
@@ -506,14 +527,14 @@ def test_hf_uri_streaming_resolves_file_and_directory(monkeypatch: pytest.Monkey
 
     files, store = resolve("hf://datasets/org/name/train.vortex")
     assert store is None
-    assert files == {"train": [hf_hub_url("org/name", "train.vortex", repo_type="dataset")]}
+    assert files == {"train": ["hf://datasets/org/name/train.vortex"]}
 
     # A glob-free path naming a directory selects the default Vortex files beneath it.
     files, _store = resolve("hf://datasets/org/name/data")
-    assert files == {"train": [hf_hub_url("org/name", "data/validation.vortex", repo_type="dataset")]}
+    assert files == {"train": ["hf://datasets/org/name/data/validation.vortex"]}
 
 
-def test_hf_uri_slash_revision_uses_prefix_rooted_store(monkeypatch: pytest.MonkeyPatch):
+def test_hf_uri_slash_revision_stays_percent_encoded(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(vx_datasets, "HfApi", _FakeHfApi)
 
     files, store = vx_datasets._resolve_data_files(  # pyright: ignore[reportPrivateUsage]
@@ -521,17 +542,21 @@ def test_hf_uri_slash_revision_uses_prefix_rooted_store(monkeypatch: pytest.Monk
         data_files=None,
         split="train",
         revision=None,
-        token=False,
+        token=None,
         cache_dir=None,
         local_files_only=False,
         streaming=True,
     )
 
-    # The Hub only routes percent-encoded revisions, so the store is rooted at the encoded
-    # resolve prefix and the files are in-repo paths.
-    assert isinstance(store, HTTPStore)
-    assert store.url.endswith("/datasets/org/name/resolve/refs%2Fconvert%2Fparquet")
-    assert files == {"train": ["data/validation.vortex", "train.vortex"]}
+    # A revision containing `/` needs no store of its own any more: Vortex percent-encodes it when
+    # it builds the `resolve` URL, so it only has to survive round-tripping through the `hf://` URI.
+    assert store is None
+    assert files == {
+        "train": [
+            "hf://datasets/org/name@refs%2Fconvert%2Fparquet/data/validation.vortex",
+            "hf://datasets/org/name@refs%2Fconvert%2Fparquet/train.vortex",
+        ]
+    }
 
 
 def test_hf_uri_revision_conflict_raises():
@@ -575,3 +600,46 @@ def test_local_directory_in_data_files(tmp_path: Path):
 )
 def test_glob_match(pattern: str, path: str, expected: bool):
     assert vx_datasets._glob_match(path, pattern) is expected  # pyright: ignore[reportPrivateUsage]
+
+
+@pytest.mark.parametrize("repo_type", ["dataset", "datasets", "model", "space"])
+def test_hf_store_accepts_each_repo_type(repo_type: str):
+    assert isinstance(HfStore("org/name", repo_type=repo_type), HfStore)
+
+
+def test_hf_store_rejects_unknown_repo_type():
+    with pytest.raises(ValueError, match="repository type"):
+        _ = HfStore("org/name", repo_type="notarepo")
+
+
+@pytest.mark.parametrize("token", [None, True, False, "hf_explicit_token"])
+def test_hf_store_accepts_each_token_spelling(token: bool | str | None):
+    # `token` follows huggingface_hub's convention: None/True use the environment, False forces an
+    # anonymous read, and a string is used directly.
+    assert isinstance(HfStore("org/name", token=token), HfStore)
+
+
+def test_hf_store_rejects_unusable_token():
+    with pytest.raises(ValueError, match="token"):
+        _ = HfStore("org/name", token="bad\nvalue")
+
+
+def test_hf_store_reads_a_repository_relative_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # Point the store at a local server standing in for the Hub, so this exercises the real read
+    # path: HfStore is rooted at the repository revision and the path is relative to it.
+    monkeypatch.setenv("ALLOW_HTTP", "true")
+    rows: list[dict[str, object]] = [{"idx": i} for i in range(4)]
+    resolve_dir = tmp_path / "datasets" / "org" / "name" / "resolve" / "main"
+    resolve_dir.mkdir(parents=True)
+    write_vortex(resolve_dir / "train.vortex", rows)
+
+    handler = type("Handler", (_RangeRequestHandler,), {"directory": tmp_path})
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        endpoint = f"http://127.0.0.1:{server.server_address[1]}"
+        store = HfStore("org/name", endpoint=endpoint)
+        assert vx.open("train.vortex", store=store).to_arrow().read_all().to_pylist() == rows
+    finally:
+        server.shutdown()

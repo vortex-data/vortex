@@ -33,6 +33,7 @@ use vortex::array::arrays::StructArray;
 use vortex::array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::array::optimizer::ArrayOptimizer;
+use vortex::dtype::DType;
 use vortex::dtype::PType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -332,7 +333,11 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
     let iterator = RUNTIME.block_on_stream_thread_safe(|_handle| scan_driver_stream(stream, rx));
 
     let aggregates = bind_data.aggregates.clone();
-    let partials = build_partials(&aggregates, &bind_data.column_fields)?;
+    let partials = build_partials(
+        &aggregates,
+        &bind_data.column_fields,
+        bind_data.data_source.dtype(),
+    )?;
 
     Ok(TableFunctionGlobal {
         iterator,
@@ -381,9 +386,18 @@ impl Stream for ScanDriverStream {
     }
 }
 
+/// Dtype over which we accumulate
+fn aggregate_input_dtype(field: &DuckdbField, scope: &DType) -> VortexResult<DType> {
+    match &field.projection_expr {
+        None => Ok(field.dtype.clone()),
+        Some(expr) => expr.return_dtype(scope),
+    }
+}
+
 fn build_partials(
     aggregates: &[ColumnAggregate],
     fields: &[DuckdbField],
+    scope: &DType,
 ) -> VortexResult<Vec<Box<dyn DynAccumulator>>> {
     aggregates
         .iter()
@@ -393,7 +407,10 @@ fn build_partials(
                 aggregate,
             } => {
                 let projection_id: usize = projection_id.as_();
-                Some(aggregate.build(fields[projection_id].dtype.clone()))
+                Some(
+                    aggregate_input_dtype(&fields[projection_id], scope)
+                        .and_then(|dtype| aggregate.build(dtype)),
+                )
             }
             ColumnAggregate::CountStar => None,
         })
@@ -419,10 +436,14 @@ pub fn init_local(
         CURRENT_LABELSET.set(key, value);
     }
 
-    let partials = build_partials(&global.aggregates, &bind_data.column_fields)
-        // if aggregate initialization produced an error, it would error in
-        // init_global, see "partials" initialization there
-        .vortex_expect("local state aggregate initialization failed");
+    let partials = build_partials(
+        &global.aggregates,
+        &bind_data.column_fields,
+        bind_data.data_source.dtype(),
+    )
+    // if aggregate initialization produced an error, it would error in
+    // init_global, see "partials" initialization there
+    .vortex_expect("local state aggregate initialization failed");
 
     TableFunctionLocal {
         iterator: global.iterator.clone(),
@@ -688,6 +709,53 @@ pub fn pushdown_projection_expression(
     }
 }
 
+fn can_push_projection_aggregate(
+    aggregate: &PushedAggregate,
+    bind_data: &TableFunctionBind,
+    projection_id: u64,
+) -> bool {
+    let projection_id_usize: usize = projection_id.as_();
+    let field = &bind_data.column_fields[projection_id_usize];
+    let Ok(dtype) = aggregate_input_dtype(field, bind_data.data_source.dtype()) else {
+        return false;
+    };
+
+    // duckdb's min() returns nan only when every value is nan.
+    // vortex's min() either ignores or counts nans.
+    // See slt/duckdb/nan_aggregates.slt.
+    if *aggregate == PushedAggregate::Min && dtype.is_float() {
+        return false;
+    }
+
+    let mean_or_sum = matches!(aggregate, PushedAggregate::Sum | PushedAggregate::Mean);
+
+    // duckdb's sum() and avg() on i64/u64 accumulate in i128/u128, vortex
+    // sum()/avg() work on i64/u64 max and overflow to null
+    if mean_or_sum && dtype.is_primitive() && matches!(dtype.as_ptype(), PType::I64 | PType::U64) {
+        return false;
+    }
+
+    // duckdb decimal sum() overflows to error, vortex sum overflows to NULL
+    // duckdb's avg() on decimals returns a double, vortex's mean stays
+    // decimal.
+    if mean_or_sum && matches!(dtype, DType::Decimal(..)) {
+        return false;
+    }
+
+    // vortex doesn't have list comparison
+    if matches!(aggregate, PushedAggregate::Min | PushedAggregate::Max)
+        && matches!(dtype, DType::List(..) | DType::FixedSizeList(..))
+    {
+        return false;
+    }
+
+    if aggregate.build(dtype).is_err() {
+        return false;
+    }
+
+    true
+}
+
 /// Turn a scan into an aggregate scan. Input is N aggregations, possibly over
 /// same columns. If we return true, optimized pass expands output to N columns,
 /// e.g. min(x), max(x) turns into min(x0), max(x1), 2 columns in output.
@@ -701,44 +769,11 @@ pub fn pushdown_projection_aggregates(
 
     debug!(%len, "pushing down projection aggregates");
     for i in 0..len {
-        let AggregateExpression {
-            expr,
-            projection_id,
-        } = input.get(i);
-        if projection_id == COUNT_STAR_PROJ_IDX {
-            aggregates.push(ColumnAggregate::CountStar);
-            continue;
-        }
-        let Some(aggregate) = try_from_projection_aggregate(expr)? else {
-            debug!(%expr, %i, "failed to push down projection aggregate");
+        let Some(aggregate) = try_push_projection_aggregate(bind_data, input.get(i), i)? else {
             return Ok(false);
         };
-
-        let projection_id_usize: usize = projection_id.as_();
-        let dtype = &bind_data.column_fields[projection_id_usize].dtype;
-
-        // duckdb's min() returns nan only when every value is nan.
-        // vortex's min() either ignores or counts nans.
-        // See slt/duckdb/nan_aggregates.slt.
-        if aggregate == PushedAggregate::Min && dtype.is_float() {
-            return Ok(false);
-        }
-
-        // duckdb's sum() on i64/u64 extends to i128/u128 but vortex
-        // accumulators work on i64/u64 max.
-        if aggregate == PushedAggregate::Sum
-            && dtype.is_primitive()
-            && matches!(dtype.as_ptype(), PType::I64 | PType::U64)
-        {
-            return Ok(false);
-        }
-
-        debug!(%expr, %projection_id, %i, "pushed down projection aggregate");
-        aggregates.push(ColumnAggregate::Real {
-            projection_id,
-            aggregate,
-        });
-        has_non_count_star = true;
+        has_non_count_star |= matches!(aggregate, ColumnAggregate::Real { .. });
+        aggregates.push(aggregate);
     }
     // DuckDB computes just count(*) faster than us
     if !has_non_count_star {
@@ -746,6 +781,33 @@ pub fn pushdown_projection_aggregates(
     }
     bind_data.aggregates = aggregates;
     Ok(true)
+}
+
+fn try_push_projection_aggregate(
+    bind_data: &TableFunctionBind,
+    aggregate: AggregateExpression<'_>,
+    i: usize,
+) -> VortexResult<Option<ColumnAggregate>> {
+    let AggregateExpression {
+        expr,
+        projection_id,
+    } = aggregate;
+    if projection_id == COUNT_STAR_PROJ_IDX {
+        return Ok(Some(ColumnAggregate::CountStar));
+    }
+    let Some(aggregate) = try_from_projection_aggregate(expr)? else {
+        debug!(%expr, %i, "failed to push down projection aggregate");
+        return Ok(None);
+    };
+    if !can_push_projection_aggregate(&aggregate, bind_data, projection_id) {
+        debug!(%expr, %i, "failed to push down projection aggregate");
+        return Ok(None);
+    }
+    debug!(%expr, %projection_id, %i, "pushed down projection aggregate");
+    Ok(Some(ColumnAggregate::Real {
+        projection_id,
+        aggregate,
+    }))
 }
 
 /// Get column-wise statistics. Available only if we're reading a single file.

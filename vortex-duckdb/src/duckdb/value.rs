@@ -163,7 +163,7 @@ impl ValueRef {
                     .collect::<Vec<_>>(),
             ),
             // ...other types remain unimplemented..
-            other => vortex_panic!("Unsupported DuckDB value type {other:?}"),
+            other => ExtractedValue::Unsupported(other),
         }
     }
 }
@@ -463,6 +463,7 @@ pub enum ExtractedValue {
     TimestampTz(i64),
     Decimal(u8, i8, i128),
     List(Vec<Value>),
+    Unsupported(DUCKDB_TYPE),
 }
 
 #[cfg(test)]

@@ -388,6 +388,9 @@ impl<'a> TryFrom<&'a ValueRef> for Scalar {
                     vortex_bail!("List value must be a list or struct dtype")
                 }
             },
+            ExtractedValue::Unsupported(type_id) => {
+                vortex_bail!("Unsupported DuckDB value type {type_id:?}")
+            }
         }
     }
 }

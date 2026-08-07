@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Vortex minmax does not implement list comparison
+
+include ../setup.slt.no
+
+statement ok
+CREATE TABLE t6(l INTEGER[]);
+
+statement ok
+INSERT INTO t6 VALUES ([1,2]), ([3]);
+
+statement ok
+COPY t6 TO '${WORK_DIR}/c6.vortex';
+
+query ?
+SELECT min(l) FROM t6;
+----
+[1, 2]
+
+query ?
+SELECT min(l) FROM '${WORK_DIR}/c6.vortex';
+----
+[1, 2]

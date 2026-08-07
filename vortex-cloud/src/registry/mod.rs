@@ -10,8 +10,8 @@
 //!    various `Store::from_env` builders behave (see
 //!    <https://github.com/apache/arrow-rs-object-store/issues/529>);
 //! 2. schemes that `object_store` does not recognize natively — the OpenDAL-backed `cos://`,
-//!    `oss://`, and `goosefs://` — are served by the crate's `opendal` module under the matching
-//!    service feature.
+//!    `oss://`, and `goosefs://`, and the Hugging Face Hub's `hf://` — are served by the crate's
+//!    `opendal` and `hf` modules under the matching service feature.
 
 use std::sync::Arc;
 
@@ -102,7 +102,7 @@ enum EnvSource {
 
 impl EnvSource {
     /// Case-insensitive lookup of a single configuration variable.
-    #[cfg(any(feature = "cos", feature = "goosefs", feature = "oss"))]
+    #[cfg(any(feature = "cos", feature = "goosefs", feature = "hf", feature = "oss"))]
     fn lookup(&self, key: &str) -> Option<String> {
         match self {
             EnvSource::Process => std::env::var(key).ok(),
@@ -231,6 +231,18 @@ impl Registry {
                     self.env.lookup(key)
                 })?;
             return Ok((store, Path::from_url_path(to_resolve.path())?));
+        }
+
+        // The Hugging Face Hub is not recognized by `object_store` either. Unlike the OpenDAL
+        // schemes its store is not rooted at the URL authority — a repository and revision occupy
+        // path segments too — so it reports the in-repository path itself and the registry mounts
+        // the store as deep as that implies.
+        #[cfg(feature = "hf")]
+        if crate::hf::supports_scheme(to_resolve.scheme()) {
+            return Ok(crate::hf::make_hf_store_from_url_with_env(
+                to_resolve,
+                |key| self.env.lookup(key),
+            )?);
         }
 
         let (store, path) = parse_url_opts(to_resolve, self.env.normalized_vars())?;

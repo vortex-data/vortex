@@ -72,7 +72,54 @@ pub mod traversal;
 pub use analysis::*;
 pub use bound_expression::*;
 pub use expression::*;
-pub use exprs::*;
+pub use exprs::and;
+pub use exprs::and_collect;
+pub use exprs::between;
+pub use exprs::binary;
+pub use exprs::bound;
+pub use exprs::byte_length;
+pub use exprs::case_when;
+pub use exprs::case_when_no_else;
+pub use exprs::cast;
+pub use exprs::checked_add;
+pub use exprs::col;
+pub use exprs::dynamic;
+pub use exprs::dynamic_with_options;
+pub use exprs::eq;
+pub use exprs::ext_storage;
+pub use exprs::fill_null;
+pub use exprs::get_item;
+pub use exprs::gt;
+pub use exprs::gt_eq;
+pub use exprs::ilike;
+pub use exprs::is_not_null;
+pub use exprs::is_null;
+pub use exprs::is_root;
+pub use exprs::like;
+pub use exprs::list_contains;
+pub use exprs::list_length;
+pub use exprs::list_sum;
+pub use exprs::list_sum_opts;
+pub use exprs::lit;
+pub use exprs::lt;
+pub use exprs::lt_eq;
+pub use exprs::mask;
+pub use exprs::merge;
+pub use exprs::merge_opts;
+pub use exprs::nested_case_when;
+pub use exprs::not;
+pub use exprs::not_eq;
+pub use exprs::not_ilike;
+pub use exprs::not_like;
+pub use exprs::or;
+pub use exprs::or_collect;
+pub use exprs::pack;
+pub use exprs::root;
+pub use exprs::select;
+pub use exprs::select_exclude;
+pub use exprs::union_child_validities;
+pub use exprs::variant_get;
+pub use exprs::zip_expr;
 pub use scope::*;
 
 pub trait VortexExprExt {
@@ -167,6 +214,8 @@ mod tests {
     use crate::dtype::PType;
     use crate::dtype::StructFields;
     use crate::expr::and;
+    use crate::expr::bound;
+    use crate::expr::case_when;
     use crate::expr::col;
     use crate::expr::get_item;
     use crate::expr::gt;
@@ -213,6 +262,46 @@ mod tests {
         // Structurally identical expressions built separately are distinct keys.
         let rebuilt = ExactExpr(eq(get_item("col1", root()), lit(1)));
         assert_ne!(a, rebuilt);
+    }
+
+    #[test]
+    fn bound_constructors_preserve_order_and_types() -> vortex_error::VortexResult<()> {
+        let value_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let scope = DType::Struct(
+            StructFields::from_iter([("value", value_dtype.clone())]),
+            Nullability::NonNullable,
+        );
+
+        let root = bound::root(scope.clone());
+        let value = bound::get_item("value", root);
+        let literal = bound::lit(5i32);
+        let condition = bound::gt(value.clone(), literal.clone());
+        assert_eq!(condition.dtype(), &DType::Bool(Nullability::NonNullable));
+        assert_eq!(condition.children(), &[value.clone(), literal.clone()]);
+
+        let case = bound::case_when(condition.clone(), value.clone(), literal.clone());
+        assert_eq!(case.dtype(), &value_dtype);
+        assert_eq!(case.children(), &[condition.clone(), value, literal]);
+
+        let packed = bound::pack(
+            [("condition", condition.clone()), ("value", case.clone())],
+            Nullability::NonNullable,
+        );
+        assert_eq!(packed.children(), &[condition, case.clone()]);
+        assert_eq!(
+            packed.dtype(),
+            &DType::Struct(
+                StructFields::from_iter([
+                    ("condition", DType::Bool(Nullability::NonNullable)),
+                    ("value", value_dtype),
+                ]),
+                Nullability::NonNullable,
+            )
+        );
+
+        let unbound = case_when(gt(col("value"), lit(5i32)), col("value"), lit(5i32));
+        assert_eq!(unbound.bind(&scope)?, case);
+        Ok(())
     }
 
     #[test]

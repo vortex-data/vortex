@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# aggregate pushdown with reordered columns, count(*) between real
+# aggregates, and two aggregate scans in one query
+
+include ../setup.slt.no
+
+statement ok
+CREATE TABLE tp(a INTEGER, b INTEGER, c INTEGER);
+
+statement ok
+INSERT INTO tp VALUES (1, 10, 100), (2, 20, 200), (3, 30, 300);
+
+statement ok
+COPY tp TO '${WORK_DIR}/cp.vortex';
+
+query II
+SELECT max(c), min(a) FROM tp;
+----
+300 1
+
+query II
+SELECT max(c), min(a) FROM '${WORK_DIR}/cp.vortex';
+----
+300 1
+
+query III
+SELECT min(c), count(*), max(a) FROM tp;
+----
+100 3 3
+
+query III
+SELECT min(c), count(*), max(a) FROM '${WORK_DIR}/cp.vortex';
+----
+100 3 3
+
+query I
+SELECT sum(a) FROM '${WORK_DIR}/cp.vortex' UNION ALL SELECT min(c) FROM '${WORK_DIR}/cp.vortex' ORDER BY 1;
+----
+6
+100
+
+# DISTINCT and FILTER clauses must not be pushed down
+
+query II
+SELECT sum(DISTINCT a), count(a) FILTER (WHERE a > 1) FROM tp;
+----
+6 2
+
+query II
+SELECT sum(DISTINCT a), count(a) FILTER (WHERE a > 1) FROM '${WORK_DIR}/cp.vortex';
+----
+6 2

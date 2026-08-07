@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Vortex Accumulator doesn't support min/max for STRUCT
+
+include ../setup.slt.no
+
+statement ok
+CREATE TABLE t7(s STRUCT(a INTEGER));
+
+statement ok
+INSERT INTO t7 VALUES ({'a': 1}), ({'a': 2});
+
+statement ok
+COPY t7 TO '${WORK_DIR}/c7.vortex';
+
+query ?
+SELECT min(s) FROM t7;
+----
+{'a': 1}
+
+query ?
+SELECT min(s) FROM '${WORK_DIR}/c7.vortex';
+----
+{'a': 1}

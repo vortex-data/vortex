@@ -299,9 +299,13 @@ impl FileOpener for VortexOpener {
 
             // The schema of the stream returned from the vortex scan.
             // We use a reference schema for types that don't roundtrip (Dictionary, Utf8, etc.).
-            let scan_dtype = scan_projection.return_dtype(vxf.dtype()).map_err(|_e| {
-                exec_datafusion_err!("Couldn't get the dtype for the underlying Vortex scan")
-            })?;
+            let scan_projection = scan_projection
+                .optimize_recursive(vxf.dtype())
+                .and_then(|projection| projection.bind(vxf.dtype()))
+                .map_err(|_e| {
+                    exec_datafusion_err!("Couldn't get the dtype for the underlying Vortex scan")
+                })?;
+            let scan_dtype = scan_projection.dtype().clone();
 
             // When projection pushdown is enabled, the scan outputs the projected columns.
             // When disabled, the scan outputs raw columns and the projection is applied after.
@@ -388,6 +392,10 @@ impl FileOpener for VortexOpener {
                     make_vortex_predicate(expr_convertor.as_ref(), &pushed).transpose()
                 })
                 .transpose()?;
+            let filter = filter
+                .map(|filter| filter.optimize_recursive(vxf.dtype())?.bind(vxf.dtype()))
+                .transpose()
+                .map_err(|e| exec_datafusion_err!("Couldn't bind Vortex scan filter: {e}"))?;
 
             if let Some(limit) = limit
                 && filter.is_none()

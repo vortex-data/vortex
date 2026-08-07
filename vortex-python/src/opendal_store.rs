@@ -8,8 +8,6 @@
 //! of the built-in store classes (S3, Azure, ...). The store is constructed from the same
 //! configuration the `cos://` URL registry uses, but materialized eagerly so it
 //! can be handed around as a first-class value.
-//!
-//! This module is only compiled when the `opendal` feature is enabled.
 
 use std::sync::Arc;
 

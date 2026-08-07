@@ -8,7 +8,6 @@ use arrow_schema::Schema;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
-use pyo3_object_store::PyObjectStore;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
 use vortex::array::VortexSessionExecute;
@@ -40,6 +39,7 @@ use crate::dtype::PyDType;
 use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
 use crate::install_module;
+use crate::io::AnyVortexStore;
 use crate::iter::PyArrayIterator;
 use crate::object_store::resolve::ResolvedStore;
 use crate::object_store::resolve::resolve_store;
@@ -66,7 +66,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 pub fn open(
     py: Python,
     path: &str,
-    store: Option<PyObjectStore>,
+    store: Option<AnyVortexStore>,
     without_segment_cache: bool,
 ) -> PyVortexResult<PyVortexFile> {
     let vxf = py.detach(move || {
@@ -172,10 +172,22 @@ impl PyVortexFile {
             .map(Arc::new);
 
         let reader = slf.py().detach(|| {
+            let filter = expr
+                .map(|e| {
+                    e.into_inner()
+                        .optimize_recursive(vxf.dtype())?
+                        .bind(vxf.dtype())
+                })
+                .transpose()?;
+            let projection = projection
+                .map(|p| p.0)
+                .unwrap_or_else(root)
+                .optimize_recursive(vxf.dtype())?
+                .bind(vxf.dtype())?;
             let mut builder = vxf
                 .scan()?
-                .with_some_filter(expr.map(|e| e.into_inner()))
-                .with_projection(projection.map(|p| p.0).unwrap_or_else(root));
+                .with_some_filter(filter)
+                .with_projection(projection);
 
             if let Some(limit) = limit {
                 builder = builder.with_limit(limit);
@@ -220,10 +232,17 @@ fn scan_builder(
     batch_size: Option<usize>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ScanBuilder<ArrayRef>> {
+    let projection = projection
+        .unwrap_or_else(root)
+        .optimize_recursive(vxf.dtype())?
+        .bind(vxf.dtype())?;
+    let expr = expr
+        .map(|expr| expr.optimize_recursive(vxf.dtype())?.bind(vxf.dtype()))
+        .transpose()?;
     let mut builder = vxf
         .scan()?
         .with_some_filter(expr)
-        .with_projection(projection.unwrap_or_else(root));
+        .with_projection(projection);
 
     if let Some(limit) = limit {
         builder = builder.with_limit(limit);

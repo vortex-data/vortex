@@ -82,11 +82,15 @@
 //!     .write(&mut bytes, array.into_array().to_array_stream())
 //!     .await?;
 //!
-//! let filtered = session
+//! let file = session
 //!     .open_options()
-//!     .open_buffer(bytes)?
+//!     .open_buffer(bytes)?;
+//! let filter = gt(root(), lit(2u64))
+//!     .optimize_recursive(file.dtype())?
+//!     .bind(file.dtype())?;
+//! let filtered = file
 //!     .scan()?
-//!     .with_filter(gt(root(), lit(2u64)))
+//!     .with_filter(filter)
 //!     .into_array_stream()?
 //!     .read_all()
 //!     .await?;
@@ -438,12 +442,13 @@ mod test {
         // [write]
 
         // [read]
-        let array = session
-            .open_options()
-            .open_path(path.clone())
-            .await?
+        let file = session.open_options().open_path(path.clone()).await?;
+        let filter = gt(root(), lit(2u64))
+            .optimize_recursive(file.dtype())?
+            .bind(file.dtype())?;
+        let array = file
             .scan()?
-            .with_filter(gt(root(), lit(2u64)))
+            .with_filter(filter)
             .into_array_stream()?
             .read_all()
             .await?;
@@ -537,12 +542,13 @@ mod test {
             .await?;
 
         // Read the file back, but project down to just the "value" column.
-        let projected = session
-            .open_options()
-            .open_path(path.clone())
-            .await?
+        let file = session.open_options().open_path(path.clone()).await?;
+        let projection = select(["value"], root())
+            .optimize_recursive(file.dtype())?
+            .bind(file.dtype())?;
+        let projected = file
             .scan()?
-            .with_projection(select(["value"], root()))
+            .with_projection(projection)
             .into_array_stream()?
             .read_all()
             .await?;

@@ -12,13 +12,18 @@ use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_session::VortexSession;
 
 use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::expr::display::DisplayTreeExpr;
 use crate::expr::scope::Scope;
+use crate::expr::traversal::TraversalOrder;
+use crate::expr::traversal::pre_order_visit_down;
 use crate::scalar_fn::ScalarFnRef;
+use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::root::Root;
+use crate::stats::rewrite::StatsRewriteCtx;
 
 /// An [`Expression`] that has been type-checked against a [`Scope`].
 ///
@@ -171,6 +176,11 @@ impl BoundExpression {
         }
     }
 
+    /// Return the child at `index`.
+    pub fn child(&self, index: usize) -> &BoundExpression {
+        &self.children()[index]
+    }
+
     /// The scalar function for this node, or `None` if it is the scope root.
     pub fn as_scalar(&self) -> Option<&ScalarFnRef> {
         match &self.kind {
@@ -179,50 +189,57 @@ impl BoundExpression {
         }
     }
 
+    /// Return whether this node uses the given scalar-function vtable.
+    pub fn is<V: ScalarFnVTable>(&self) -> bool {
+        self.as_scalar().is_some_and(ScalarFnRef::is::<V>)
+    }
+
+    /// Return whether this expression tree contains a node using the given scalar-function vtable.
+    pub fn contains<V: ScalarFnVTable>(&self) -> VortexResult<bool> {
+        let mut contains = false;
+        pre_order_visit_down(self, |node| {
+            if node.is::<V>() {
+                contains = true;
+                return Ok(TraversalOrder::Stop);
+            }
+            Ok(TraversalOrder::Continue)
+        })?;
+        Ok(contains)
+    }
+
+    /// Return the typed scalar-function options when this node uses the given vtable.
+    pub fn as_opt<V: ScalarFnVTable>(&self) -> Option<&V::Options> {
+        self.as_scalar().and_then(ScalarFnRef::as_opt::<V>)
+    }
+
+    /// Return the typed scalar-function options for this node.
+    ///
+    /// # Panics
+    ///
+    /// Panics when this node is the scope root or uses a different scalar-function vtable.
+    pub fn as_<V: ScalarFnVTable>(&self) -> &V::Options {
+        self.as_opt::<V>()
+            .vortex_expect("Bound expression options type mismatch")
+    }
+
     /// Whether this node is the scope root.
     pub fn is_root(&self) -> bool {
         matches!(self.kind, BoundKind::Root)
     }
 
+    /// Return an expression that proves this predicate is definitely false from statistics.
+    pub fn falsify(&self, session: &VortexSession) -> VortexResult<Option<BoundExpression>> {
+        StatsRewriteCtx::new(session).falsify(self)
+    }
+
+    /// Return an expression that proves this predicate is definitely true from statistics.
+    pub fn satisfy(&self, session: &VortexSession) -> VortexResult<Option<BoundExpression>> {
+        StatsRewriteCtx::new(session).satisfy(self)
+    }
+
     /// Display the bound expression as a formatted tree structure.
     pub fn display_tree(&self) -> impl Display {
         DisplayTreeExpr(self)
-    }
-
-    /// Convert this bound tree back into its unbound logical representation.
-    ///
-    /// This rebuilds the expression iteratively; the bound representation does not retain a
-    /// second expression tree.
-    // TODO: This is temporary artifact of the migration from using `Expression`s to
-    // `BoundExpression`s
-    pub fn unbind(&self) -> Expression {
-        let mut pending = vec![(self, false)];
-        let mut expressions = Vec::new();
-
-        while let Some((node, visited)) = pending.pop() {
-            match node.kind() {
-                BoundKind::Root => expressions.push(crate::expr::root()),
-                BoundKind::Scalar {
-                    scalar_fn,
-                    children,
-                } if visited => {
-                    let child_start = expressions.len() - children.len();
-                    let child_expressions = expressions.split_off(child_start);
-                    expressions.push(
-                        Expression::try_new(scalar_fn.clone(), child_expressions)
-                            .vortex_expect("a bound expression always has valid arity"),
-                    );
-                }
-                BoundKind::Scalar { children, .. } => {
-                    pending.push((node, true));
-                    pending.extend(children.iter().rev().map(|child| (child, false)));
-                }
-            }
-        }
-
-        expressions
-            .pop()
-            .vortex_expect("binding always produces one expression root")
     }
 }
 
@@ -293,6 +310,7 @@ mod tests {
     use crate::expr::lit;
     use crate::expr::root;
     use crate::expr::test_harness::struct_dtype;
+    use crate::scalar_fn::fns::literal::Literal;
 
     fn scope() -> Scope {
         Scope::new(struct_dtype())
@@ -303,7 +321,7 @@ mod tests {
         let bound = root().bind_scope(&scope())?;
         assert!(bound.is_root());
         assert_eq!(bound.dtype(), &struct_dtype());
-        assert_eq!(bound.unbind(), root());
+        assert_eq!(bound, BoundExpression::new_root(struct_dtype()));
         Ok(())
     }
 
@@ -332,6 +350,14 @@ mod tests {
                 "disagreement for {expr}"
             );
         }
+        Ok(())
+    }
+
+    #[test]
+    fn contains_scalar_function() -> VortexResult<()> {
+        let bound = eq(col("a"), lit(1_i32)).bind_scope(&scope())?;
+        assert!(bound.contains::<Literal>()?);
+        assert!(!root().bind_scope(&scope())?.contains::<Literal>()?);
         Ok(())
     }
 
@@ -379,11 +405,7 @@ mod tests {
 
         assert_eq!(bound, independently_bound);
         assert_eq!(ExactBoundExpr(bound.clone()), ExactBoundExpr(bound.clone()));
-        assert_ne!(
-            ExactBoundExpr(bound.clone()),
-            ExactBoundExpr(independently_bound)
-        );
-        assert_eq!(bound.unbind(), expr);
+        assert_ne!(ExactBoundExpr(bound), ExactBoundExpr(independently_bound));
         Ok(())
     }
 

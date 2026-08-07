@@ -38,6 +38,8 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::PType::I32;
 use vortex_array::dtype::StructFields;
+use vortex_array::expr::BoundExpression;
+use vortex_array::expr::Expression;
 use vortex_array::expr::and;
 use vortex_array::expr::cast;
 use vortex_array::expr::col;
@@ -111,6 +113,12 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 
 fn strict_sorted(indices: Buffer<u64>) -> StrictSortedBuffer<u64> {
     StrictSortedBuffer::try_new(indices).expect("test indices should be strictly increasing")
+}
+
+fn bind_scan_expr(file: &VortexFile, expr: Expression) -> BoundExpression {
+    expr.optimize_recursive(file.dtype())
+        .and_then(|expr| expr.bind(file.dtype()))
+        .vortex_expect("scan expression should bind")
 }
 
 #[tokio::test]
@@ -320,7 +328,7 @@ async fn test_read_projection() {
     let array = file
         .scan()
         .unwrap()
-        .with_projection(select(["strings"], root()))
+        .with_projection(bind_scan_expr(&file, select(["strings"], root())))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -346,7 +354,7 @@ async fn test_read_projection() {
     let array = file
         .scan()
         .unwrap()
-        .with_projection(select(["numbers"], root()))
+        .with_projection(bind_scan_expr(&file, select(["numbers"], root())))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -517,18 +525,19 @@ async fn issue_5385_filter_casted_column() {
         .await
         .unwrap();
 
-    let result = SESSION
-        .open_options()
-        .open_buffer(buf)
-        .unwrap()
+    let file = SESSION.open_options().open_buffer(buf).unwrap();
+    let result = file
         .scan()
         .unwrap()
-        .with_filter(eq(
-            cast(
-                get_item("x", root()),
-                DType::Primitive(PType::U16, Nullability::NonNullable),
+        .with_filter(bind_scan_expr(
+            &file,
+            eq(
+                cast(
+                    get_item("x", root()),
+                    DType::Primitive(PType::U16, Nullability::NonNullable),
+                ),
+                lit(1u16),
             ),
-            lit(1u16),
         ))
         .into_array_stream()
         .unwrap()
@@ -569,13 +578,14 @@ async fn filter_string() {
         .await
         .unwrap();
 
-    let result: Vec<_> = SESSION
-        .open_options()
-        .open_buffer(buf)
-        .unwrap()
+    let file = SESSION.open_options().open_buffer(buf).unwrap();
+    let result: Vec<_> = file
         .scan()
         .unwrap()
-        .with_filter(eq(get_item("name", root()), lit("Joseph")))
+        .with_filter(bind_scan_expr(
+            &file,
+            eq(get_item("name", root()), lit("Joseph")),
+        ))
         .into_array_stream()
         .unwrap()
         .try_collect()
@@ -629,17 +639,18 @@ async fn filter_or() {
         .await
         .unwrap();
 
-    let result: Vec<_> = SESSION
-        .open_options()
-        .open_buffer(buf)
-        .unwrap()
+    let file = SESSION.open_options().open_buffer(buf).unwrap();
+    let result: Vec<_> = file
         .scan()
         .unwrap()
-        .with_filter(or(
-            eq(get_item("name", root()), lit("Angela")),
-            and(
-                gt_eq(get_item("age", root()), lit(20)),
-                lt_eq(get_item("age", root()), lit(30)),
+        .with_filter(bind_scan_expr(
+            &file,
+            or(
+                eq(get_item("name", root()), lit("Angela")),
+                and(
+                    gt_eq(get_item("age", root()), lit(20)),
+                    lt_eq(get_item("age", root()), lit(30)),
+                ),
             ),
         ))
         .into_array_stream()
@@ -697,15 +708,16 @@ async fn filter_and() {
         .await
         .unwrap();
 
-    let result: Vec<_> = SESSION
-        .open_options()
-        .open_buffer(buf)
-        .unwrap()
+    let file = SESSION.open_options().open_buffer(buf).unwrap();
+    let result: Vec<_> = file
         .scan()
         .unwrap()
-        .with_filter(and(
-            gt(get_item("age", root()), lit(21)),
-            lt_eq(get_item("age", root()), lit(33)),
+        .with_filter(bind_scan_expr(
+            &file,
+            and(
+                gt(get_item("age", root()), lit(21)),
+                lt_eq(get_item("age", root()), lit(33)),
+            ),
         ))
         .into_array_stream()
         .unwrap()
@@ -911,7 +923,10 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let actual_kept_array = file
         .scan()
         .unwrap()
-        .with_filter(gt(get_item("numbers", root()), lit(50_i16)))
+        .with_filter(bind_scan_expr(
+            &file,
+            gt(get_item("numbers", root()), lit(50_i16)),
+        ))
         .with_row_indices(strict_sorted(Buffer::empty()))
         .into_array_stream()
         .unwrap()
@@ -929,7 +944,10 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let actual_kept_array = file
         .scan()
         .unwrap()
-        .with_filter(gt(get_item("numbers", root()), lit(50_i16)))
+        .with_filter(bind_scan_expr(
+            &file,
+            gt(get_item("numbers", root()), lit(50_i16)),
+        ))
         .with_row_indices(strict_sorted(Buffer::from_iter(kept_indices)))
         .into_array_stream()
         .unwrap()
@@ -957,7 +975,10 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let actual_array = file
         .scan()
         .unwrap()
-        .with_filter(gt(get_item("numbers", root()), lit(50_i16)))
+        .with_filter(bind_scan_expr(
+            &file,
+            gt(get_item("numbers", root()), lit(50_i16)),
+        ))
         .with_row_indices(strict_sorted((0..500).collect::<Buffer<_>>()))
         .into_array_stream()
         .unwrap()
@@ -1019,7 +1040,10 @@ async fn filter_string_chunked() {
     let actual_array = file
         .scan()
         .unwrap()
-        .with_filter(eq(get_item("name", root()), lit("Joseph")))
+        .with_filter(bind_scan_expr(
+            &file,
+            eq(get_item("name", root()), lit("Joseph")),
+        ))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -1109,9 +1133,12 @@ async fn test_pruning_with_or() {
     let actual_array = file
         .scan()
         .unwrap()
-        .with_filter(or(
-            lt_eq(get_item("letter", root()), lit("J")),
-            lt(get_item("number", root()), lit(25)),
+        .with_filter(bind_scan_expr(
+            &file,
+            or(
+                lt_eq(get_item("letter", root()), lit("J")),
+                lt(get_item("number", root()), lit(25)),
+            ),
         ))
         .into_array_stream()
         .unwrap()
@@ -1184,7 +1211,10 @@ async fn test_repeated_projection() {
     let actual = file
         .scan()
         .unwrap()
-        .with_projection(select(["strings", "strings"], root()))
+        .with_projection(bind_scan_expr(
+            &file,
+            select(["strings", "strings"], root()),
+        ))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -1298,7 +1328,7 @@ async fn write_nullable_top_level_struct() {
 
 async fn round_trip(
     array: &ArrayRef,
-    f: impl Fn(ScanBuilder<ArrayRef>) -> VortexResult<ScanBuilder<ArrayRef>>,
+    f: impl FnOnce(ScanBuilder<ArrayRef>) -> VortexResult<ScanBuilder<ArrayRef>>,
 ) -> VortexResult<ArrayRef> {
     let mut writer = vec![];
     SESSION
@@ -1361,15 +1391,19 @@ async fn write_nullable_nested_struct() -> VortexResult<()> {
 #[tokio::test]
 async fn scan_empty_fields() -> VortexResult<()> {
     let array = (0..10000).collect::<PrimitiveArray>();
-
-    let result = round_trip(&array.clone().into_array(), |scan| {
-        Ok(scan.with_projection(Pack.new_expr(
+    let projection = Pack
+        .new_expr(
             PackOptions {
                 names: Default::default(),
                 nullability: Nullability::Nullable,
             },
             [],
-        )))
+        )
+        .optimize_recursive(array.dtype())?
+        .bind(array.dtype())?;
+
+    let result = round_trip(&array.clone().into_array(), |scan| {
+        Ok(scan.with_projection(projection))
     })
     .await?;
 
@@ -2193,13 +2227,11 @@ async fn timestamp_unit_mismatch() -> Result<(), Box<dyn std::error::Error>> {
         )),
     );
 
-    let mut stream = SESSION
-        .open_options()
-        .open_buffer(buf)?
-        .scan()?
-        .with_filter(filter_expr)
-        .into_array_stream()?;
-
+    let file = SESSION.open_options().open_buffer(buf)?;
+    let filter = filter_expr
+        .optimize_recursive(file.dtype())?
+        .bind(file.dtype())?;
+    let mut stream = file.scan()?.with_filter(filter).into_array_stream()?;
     let result = stream.try_next().await;
 
     assert!(result.is_err());
@@ -2246,13 +2278,11 @@ async fn timestamp_unit_mismatch_errors_with_constant_children()
         )),
     );
 
-    let stream = SESSION
-        .open_options()
-        .open_buffer(buf)?
-        .scan()?
-        .with_filter(filter_expr)
-        .into_array_stream()?;
-
+    let file = SESSION.open_options().open_buffer(buf)?;
+    let filter = filter_expr
+        .optimize_recursive(file.dtype())?
+        .bind(file.dtype())?;
+    let stream = file.scan()?.with_filter(filter).into_array_stream()?;
     let results = stream.try_collect::<Vec<_>>().await;
 
     assert!(
@@ -2345,7 +2375,7 @@ async fn test_large_flat_chunk_scan_subdivides_splits() -> VortexResult<()> {
     // A filtered scan crossing sub-split boundaries selects exactly the matching rows.
     let result = file
         .scan()?
-        .with_filter(gt(root(), lit(0i32)))
+        .with_filter(bind_scan_expr(&file, gt(root(), lit(0i32))))
         .into_array_stream()?
         .read_all()
         .await?;
@@ -2392,7 +2422,7 @@ async fn test_flat_chunk_scan_with_row_count_splits(
     let result = file
         .scan()?
         .with_split_by(SplitBy::RowCount(rows_per_split))
-        .with_filter(gt(root(), lit(0i32)))
+        .with_filter(bind_scan_expr(&file, gt(root(), lit(0i32))))
         .into_array_stream()?
         .read_all()
         .await?;
@@ -2755,9 +2785,11 @@ async fn repro_8166_binary_gt_all_ff_max() -> VortexResult<()> {
         )),
     );
 
-    let result = SESSION
-        .open_options()
-        .open_buffer(buf)?
+    let file = SESSION.open_options().open_buffer(buf)?;
+    let filter = filter
+        .optimize_recursive(file.dtype())?
+        .bind(file.dtype())?;
+    let result = file
         .scan()?
         .with_filter(filter)
         .into_array_stream()?

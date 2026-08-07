@@ -29,17 +29,17 @@ import vortex as vx
 from vortex.expr import Expr, and_
 from vortex.store import (
     AzureStore,
-    ClientConfig,
+    CosStore,
     GCSStore,
+    HfStore,
     HTTPStore,
     LocalStore,
     MemoryStore,
     S3Store,
 )
 
-# The stores `vx.open` accepts. This is narrower than `vortex.store.ObjectStore`, which also
-# covers the OpenDAL-backed `CosStore` that `vx.open` cannot read from.
-ObjectStore: TypeAlias = AzureStore | GCSStore | HTTPStore | LocalStore | MemoryStore | S3Store
+# The stores `vx.open` accepts.
+ObjectStore: TypeAlias = AzureStore | CosStore | GCSStore | HfStore | HTTPStore | LocalStore | MemoryStore | S3Store
 
 try:
     import datasets as hf_datasets
@@ -49,8 +49,7 @@ try:
         get_format_type_from_alias,
     )
     from datasets.table import InMemoryTable
-    from huggingface_hub import HfApi, get_token, hf_hub_url, snapshot_download
-    from huggingface_hub import constants as hf_hub_constants
+    from huggingface_hub import HfApi, snapshot_download
 except ImportError as e:  # pragma: no cover - exercised only without optional deps.
     raise ImportError("Install vortex-data[hf] to use vortex.datasets.") from e
 
@@ -99,9 +98,9 @@ def load_dataset(
     keeps Vortex in charge of reading and pushes column selection, Vortex expressions, and row
     limits into each Vortex scan before examples are yielded to Hugging Face Datasets transforms.
     Hub repositories are streamed directly with HTTP range requests instead of being downloaded;
-    private and gated repositories authenticate with ``token`` or the locally saved login. Pass
-    ``streaming=False`` to eagerly materialize an in-memory ``datasets.Dataset``, which downloads
-    Hub files first (as does ``local_files_only=True``).
+    private and gated repositories authenticate with ``token``, ``HF_TOKEN`` or the locally saved
+    login. Pass ``streaming=False`` to eagerly materialize an in-memory ``datasets.Dataset``, which
+    downloads Hub files first (as does ``local_files_only=True``).
     """
 
     split_to_files, store = _resolve_data_files(
@@ -846,12 +845,17 @@ def _resolve_hub_files(
 ) -> tuple[dict[str, list[str]], ObjectStore | None]:
     """Resolve Hub repository files to locations Vortex can stream without downloading them.
 
-    Anonymous reads use plain ``resolve`` URLs. When credentials are available (an explicit
-    ``token`` or the saved login) the reads must carry an authorization header, so the files are
-    returned as endpoint-relative paths together with an authenticated HTTP store. Revisions
-    containing ``/`` also require a store, rooted at the percent-encoded ``resolve`` prefix,
-    because the Hub only routes the encoded form and percent escapes cannot round-trip through
-    inferred object store paths.
+    Vortex reads ``hf://`` URIs itself — resolving the revision, percent-encoding it when it
+    contains ``/``, and authenticating from ``HF_TOKEN`` or the saved login — so for the default
+    ``token`` (and ``token=True``, which asks for exactly that saved login) the matched files are
+    returned as ``hf://`` URIs and need no store.
+
+    The two cases a URI cannot express go through an :class:`~vortex.store.HfStore` instead: a
+    ``token`` string, which the reader has no way to see, and ``token=False``, which must suppress
+    the credentials the reader would otherwise pick up from the environment.
+
+    The Hub serves no listing over the object-store protocol, so the patterns are expanded here
+    through the Hub API either way.
     """
     repo_files = HfApi(token=token).list_repo_files(repo_id, repo_type="dataset", revision=revision)
 
@@ -865,35 +869,18 @@ def _resolve_hub_files(
             )
         split_to_matches[split_name] = matches
 
-    headers = _hub_auth_headers(token)
-    client_options: ClientConfig | None = {"default_headers": headers} if headers else None
+    if token is False or isinstance(token, str):
+        # An HfStore is rooted at the repository and revision, so the files stay in-repository paths.
+        return split_to_matches, HfStore(repo_id, revision=revision, token=token)
 
-    if revision is not None and "/" in revision:
-        base = f"{hf_hub_constants.ENDPOINT}/datasets/{repo_id}/resolve/{quote(revision, safe='')}"
-        return split_to_matches, HTTPStore(base, client_options=client_options)
-
-    split_to_urls = {
-        name: [hf_hub_url(repo_id, file, repo_type="dataset", revision=revision) for file in files]
-        for name, files in split_to_matches.items()
-    }
-    if client_options is None:
-        return split_to_urls, None
-
-    endpoint = hf_hub_constants.ENDPOINT
+    prefix = f"hf://datasets/{repo_id}"
+    if revision is not None:
+        prefix = f"{prefix}@{quote(revision, safe='')}"
+    # The file paths become URI segments, so escape them (Vortex percent-decodes them back into the
+    # object key); `/` stays literal because it separates the segments.
     return {
-        name: [url.removeprefix(endpoint).lstrip("/") for url in urls] for name, urls in split_to_urls.items()
-    }, HTTPStore(endpoint, client_options=client_options)
-
-
-def _hub_auth_headers(token: bool | str | None) -> dict[str, str]:
-    """Authorization headers for Hub reads: the explicit token, or the saved login unless
-    ``token=False`` opts out. Empty when no credentials are available (anonymous access)."""
-    if token is False:
-        return {}
-    resolved = token if isinstance(token, str) else get_token()
-    if resolved is None:
-        return {}
-    return {"authorization": f"Bearer {resolved}"}
+        name: [f"{prefix}/{quote(file, safe='/')}" for file in files] for name, files in split_to_matches.items()
+    }, None
 
 
 def _is_url(path: str) -> bool:

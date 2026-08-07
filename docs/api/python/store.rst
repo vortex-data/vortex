@@ -11,6 +11,7 @@ Vortex arrays support reading and writing to many object storage systems:
    store/gcs
    store/azure
    store/http
+   store/huggingface
    store/local
    store/memory
    store/opendal
