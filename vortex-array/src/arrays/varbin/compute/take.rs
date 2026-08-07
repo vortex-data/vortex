@@ -272,7 +272,7 @@ pub fn take_varbin(
 
     match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
         match_each_unsigned_integer_ptype!(offsets.ptype(), |O| {
-            return take::<I, O>(
+            take::<I, O>(
                 dtype,
                 offsets.as_slice::<O>(),
                 data.as_slice(),
@@ -280,7 +280,7 @@ pub fn take_varbin(
                 array_validity,
                 indices_validity,
                 out_offset_ptype,
-            );
+            )
         })
     })
 }
