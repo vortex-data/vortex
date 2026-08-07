@@ -8,23 +8,23 @@ use vortex::array::arrays::extension::ExtensionArrayExt;
 use vortex::array::extension::datetime::AnyTemporal;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
-use vortex_geo::extension::LineString;
-use vortex_geo::extension::LineStringData;
-use vortex_geo::extension::MultiLineString;
-use vortex_geo::extension::MultiLineStringData;
-use vortex_geo::extension::MultiPoint;
-use vortex_geo::extension::MultiPointData;
-use vortex_geo::extension::MultiPolygon;
-use vortex_geo::extension::MultiPolygonData;
-use vortex_geo::extension::Point;
-use vortex_geo::extension::PointData;
-use vortex_geo::extension::Polygon;
-use vortex_geo::extension::PolygonData;
-use vortex_geo::extension::WellKnownBinary;
-use vortex_geo::extension::WellKnownBinaryData;
+use vortex_spatial::extension::LineString;
+use vortex_spatial::extension::LineStringData;
+use vortex_spatial::extension::MultiLineString;
+use vortex_spatial::extension::MultiLineStringData;
+use vortex_spatial::extension::MultiPoint;
+use vortex_spatial::extension::MultiPointData;
+use vortex_spatial::extension::MultiPolygon;
+use vortex_spatial::extension::MultiPolygonData;
+use vortex_spatial::extension::Point;
+use vortex_spatial::extension::PointData;
+use vortex_spatial::extension::Polygon;
+use vortex_spatial::extension::PolygonData;
+use vortex_spatial::extension::WellKnownBinary;
+use vortex_spatial::extension::WellKnownBinaryData;
 
 use crate::exporter::ColumnExporter;
-use crate::exporter::geo;
+use crate::exporter::spatial;
 use crate::exporter::temporal;
 
 pub(crate) fn new_exporter(
@@ -36,31 +36,31 @@ pub(crate) fn new_exporter(
     }
 
     if ext.ext_dtype().is::<WellKnownBinary>() {
-        return geo::new_wkb_exporter(WellKnownBinaryData::try_from(ext)?, ctx);
+        return spatial::new_wkb_exporter(WellKnownBinaryData::try_from(ext)?, ctx);
     }
 
     if ext.ext_dtype().is::<Point>() {
-        return geo::new_point_exporter(PointData::try_from(ext)?, ctx);
+        return spatial::new_point_exporter(PointData::try_from(ext)?, ctx);
     }
 
     if ext.ext_dtype().is::<LineString>() {
-        return geo::new_linestring_exporter(LineStringData::try_from(ext)?, ctx);
+        return spatial::new_linestring_exporter(LineStringData::try_from(ext)?, ctx);
     }
 
     if ext.ext_dtype().is::<MultiPoint>() {
-        return geo::new_multipoint_exporter(MultiPointData::try_from(ext)?, ctx);
+        return spatial::new_multipoint_exporter(MultiPointData::try_from(ext)?, ctx);
     }
 
     if ext.ext_dtype().is::<Polygon>() {
-        return geo::new_polygon_exporter(PolygonData::try_from(ext)?, ctx);
+        return spatial::new_polygon_exporter(PolygonData::try_from(ext)?, ctx);
     }
 
     if ext.ext_dtype().is::<MultiLineString>() {
-        return geo::new_multilinestring_exporter(MultiLineStringData::try_from(ext)?, ctx);
+        return spatial::new_multilinestring_exporter(MultiLineStringData::try_from(ext)?, ctx);
     }
 
     if ext.ext_dtype().is::<MultiPolygon>() {
-        return geo::new_multipolygon_exporter(MultiPolygonData::try_from(ext)?, ctx);
+        return spatial::new_multipolygon_exporter(MultiPolygonData::try_from(ext)?, ctx);
     }
 
     vortex_bail!("no non-temporal extension exporter")

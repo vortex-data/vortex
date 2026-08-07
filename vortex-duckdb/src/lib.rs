@@ -45,7 +45,7 @@ mod e2e_test;
 static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::default().with_handle(RUNTIME.handle());
-    vortex_geo::initialize(&session);
+    vortex_spatial::initialize(&session);
     session
 });
 

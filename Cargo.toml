@@ -69,7 +69,7 @@ members = [
     "benchmarks/duckdb-bench",
     "benchmarks/random-access-bench",
     "benchmarks/string-bench",
-    "vortex-geo",
+    "vortex-spatial",
 ]
 exclude = ["java/testfiles", "wasm-test"]
 resolver = "2"
@@ -310,7 +310,7 @@ vortex-fastlanes = { version = "0.1.0", path = "./encodings/fastlanes", default-
 vortex-file = { version = "0.1.0", path = "./vortex-file", default-features = false }
 vortex-flatbuffers = { version = "0.1.0", path = "./vortex-flatbuffers", default-features = false }
 vortex-fsst = { version = "0.1.0", path = "./encodings/fsst", default-features = false }
-vortex-geo = { version = "0.1.0", path = "./vortex-geo", default-features = false }
+vortex-spatial = { version = "0.1.0", path = "./vortex-spatial", default-features = false }
 vortex-io = { version = "0.1.0", path = "./vortex-io", default-features = false }
 vortex-ipc = { version = "0.1.0", path = "./vortex-ipc", default-features = false }
 vortex-json = { version = "0.1.0", path = "./vortex-json", default-features = false }

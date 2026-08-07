@@ -525,7 +525,7 @@ def build_statistical_analysis(df: pd.DataFrame, threshold_pct: int) -> dict[str
     }
 
 
-def calculate_geo_mean(df: pd.DataFrame) -> float:
+def calculate_geometric_mean(df: pd.DataFrame) -> float:
     """Geometric mean of positive ratios from a DataFrame ratio column."""
 
     valid_ratios = [r for r in df["ratio"] if r > 0 and not pd.isna(r)]
@@ -993,8 +993,8 @@ def main() -> None:
     vortex_df = headline_df[headline_df["file_format"].str.startswith("vortex")]
     parquet_df = headline_df[headline_df["file_format"].eq(CONTROL_FORMAT)]
 
-    vortex_geo_mean_ratio = calculate_geo_mean(vortex_df)
-    parquet_geo_mean_ratio = calculate_geo_mean(parquet_df)
+    vortex_geometric_mean_ratio = calculate_geometric_mean(vortex_df)
+    parquet_geometric_mean_ratio = calculate_geometric_mean(parquet_df)
 
     statistical_analysis = build_statistical_analysis(query_df, threshold_pct)
     verdict = build_verdict(statistical_analysis) if statistical_analysis is not None else None
@@ -1011,7 +1011,7 @@ def main() -> None:
 
     if len(vortex_df) > 0:
         vortex_performance = format_performance(
-            vortex_geo_mean_ratio,
+            vortex_geometric_mean_ratio,
             improvement_threshold,
             regression_threshold,
             "vortex",
@@ -1019,7 +1019,7 @@ def main() -> None:
         summary_fields.append(f"**Vortex (geomean)**: {vortex_performance}")
     if len(parquet_df) > 0:
         parquet_performance = format_performance(
-            parquet_geo_mean_ratio,
+            parquet_geometric_mean_ratio,
             improvement_threshold,
             regression_threshold,
             "parquet",
@@ -1053,7 +1053,7 @@ def main() -> None:
     for engine, file_format, unit in sorted(grouped_tables.groups.keys(), key=group_sort_key):
         group_df = grouped_tables.get_group((engine, file_format, unit)).sort_values("name")
         group_performance = format_performance(
-            calculate_geo_mean(group_df),
+            calculate_geometric_mean(group_df),
             improvement_threshold,
             regression_threshold,
             "group",

@@ -30,8 +30,8 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::extension::datetime::TimeUnit;
 use vortex::mask::Mask;
-use vortex_geo::extension::GeoMetadata;
-use vortex_geo::extension::WellKnownBinary;
+use vortex_spatial::extension::SpatialMetadata;
+use vortex_spatial::extension::WellKnownBinary;
 
 use crate::cpp::DUCKDB_TYPE;
 use crate::cpp::duckdb_date;
@@ -262,7 +262,7 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
                 vector_as_string_blob(vector, len, DType::Binary(Nullability::Nullable));
             let crs = logical_type.geometry_crs().map(|crs| crs.to_string());
             let wkb_type = ExtDType::<WellKnownBinary>::try_new(
-                GeoMetadata { crs },
+                SpatialMetadata { crs },
                 DType::Binary(Nullability::Nullable),
             )?
             .erased();
@@ -402,7 +402,7 @@ mod tests {
     use vortex::error::VortexExpect;
     use vortex::mask::Mask;
     use vortex_array::array_session;
-    use vortex_geo::extension::WellKnownBinaryData;
+    use vortex_spatial::extension::WellKnownBinaryData;
     use wkb::writer::WriteOptions;
     use wkb::writer::write_point;
 
@@ -1046,7 +1046,10 @@ mod tests {
             .into_owned();
         let wkb_data = WellKnownBinaryData::try_from(extension)?;
 
-        assert_eq!(wkb_data.geo_metadata().crs.as_deref(), Some("EPSG:4326"));
+        assert_eq!(
+            wkb_data.spatial_metadata().crs.as_deref(),
+            Some("EPSG:4326")
+        );
 
         let storage = wkb_data
             .wkb_values()

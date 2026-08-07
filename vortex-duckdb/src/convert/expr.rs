@@ -52,17 +52,17 @@ use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
 use vortex::scalar_fn::fns::literal::Literal;
 use vortex::scalar_fn::fns::operators::Operator;
-use vortex_geo::extension::LineString;
-use vortex_geo::extension::MultiLineString;
-use vortex_geo::extension::MultiPoint;
-use vortex_geo::extension::MultiPolygon;
-use vortex_geo::extension::Point;
-use vortex_geo::extension::Polygon;
-use vortex_geo::extension::WellKnownBinary;
-use vortex_geo::extension::native_geometry_scalar_from_wkb;
-use vortex_geo::scalar_fn::contains::GeoContains;
-use vortex_geo::scalar_fn::distance::GeoDistance;
-use vortex_geo::scalar_fn::intersects::GeoIntersects;
+use vortex_spatial::extension::LineString;
+use vortex_spatial::extension::MultiLineString;
+use vortex_spatial::extension::MultiPoint;
+use vortex_spatial::extension::MultiPolygon;
+use vortex_spatial::extension::Point;
+use vortex_spatial::extension::Polygon;
+use vortex_spatial::extension::WellKnownBinary;
+use vortex_spatial::extension::native_geometry_scalar_from_wkb;
+use vortex_spatial::scalar_fn::contains::SpatialContains;
+use vortex_spatial::scalar_fn::distance::SpatialDistance;
+use vortex_spatial::scalar_fn::intersects::SpatialIntersects;
 
 use crate::convert::dtype::FromLogicalType;
 use crate::cpp::DUCKDB_TYPE;
@@ -118,10 +118,10 @@ struct ConvertCtx<'a> {
     fields: Option<&'a [DuckdbField]>,
 }
 
-/// Whether `name` is a non-nullable native geometry column of the scan. The pushed geo kernels
-/// reject nullable operands and cannot evaluate `vortex.geo.wkb` columns, which also surface to
+/// Whether `name` is a non-nullable native geometry column of the scan. The pushed spatial kernels
+/// reject nullable operands and cannot evaluate `vortex.st.wkb` columns, which also surface to
 /// DuckDB as `GEOMETRY`.
-fn is_native_geo_column(fields: Option<&[DuckdbField]>, name: &str) -> bool {
+fn is_native_spatial_column(fields: Option<&[DuckdbField]>, name: &str) -> bool {
     fields
         .into_iter()
         .flatten()
@@ -139,9 +139,9 @@ fn is_native_geo_column(fields: Option<&[DuckdbField]>, name: &str) -> bool {
         })
 }
 
-/// Lower a geo operand: a `GEOMETRY` literal arrives as WKB, decoded once to its native type so the
-/// pushed `GeoDistance` stays native; a column must be native geometry. `None` skips the push.
-fn geo_operand(
+/// Lower a spatial operand: a `GEOMETRY` literal arrives as WKB, decoded once to its native type so the
+/// pushed `SpatialDistance` stays native; a column must be native geometry. `None` skips the push.
+fn spatial_operand(
     value: &duckdb::ExpressionRef,
     ctx: ConvertCtx<'_>,
 ) -> VortexResult<Option<Expression>> {
@@ -161,7 +161,7 @@ fn geo_operand(
             Ok(native_geometry_scalar_from_wkb(buf.as_slice())?.map(lit))
         }
         Some(BoundColumnRef(col_ref))
-            if is_native_geo_column(ctx.fields, col_ref.name.as_ref()) =>
+            if is_native_spatial_column(ctx.fields, col_ref.name.as_ref()) =>
         {
             try_from_expression_inner(value, ctx)
         }
@@ -169,72 +169,72 @@ fn geo_operand(
     }
 }
 
-/// Lower all geometry operands of a geo function. Returns `None`, skipping the push, when any
+/// Lower all geometry operands of a spatial function. Returns `None`, skipping the push, when any
 /// operand is neither a constant geometry nor a native geometry column.
-fn geo_operands(
+fn spatial_operands(
     children: &[&duckdb::ExpressionRef],
     ctx: ConvertCtx<'_>,
 ) -> VortexResult<Option<Vec<Expression>>> {
     children
         .iter()
-        .map(|child| geo_operand(child, ctx))
+        .map(|child| spatial_operand(child, ctx))
         .collect()
 }
 
-/// Lower geo UDFs to native Vortex geo ops so the work runs in the scan. `None` otherwise.
-fn try_from_geo_function(
+/// Lower spatial UDFs to native Vortex spatial operations so the work runs in the scan. `None` otherwise.
+fn try_from_spatial_function(
     name: &str,
     func: &BoundFunction,
     ctx: ConvertCtx<'_>,
 ) -> VortexResult<Option<Expression>> {
     let children: Vec<_> = func.children().collect();
     let expr = match name.to_ascii_lowercase().as_str() {
-        // Spatial's own st_dwithin folds the radius into bind data; the override
+        // DuckDB's spatial extension folds the radius of `ST_DWithin` into bind data; the override
         // (cpp/spatial_overrides.cpp) keeps it visible here as `children[2]`.
         "st_dwithin" => {
             if children.len() != 3 {
                 return Ok(None);
             }
-            let Some(operands) = geo_operands(&children[..2], ctx)? else {
+            let Some(operands) = spatial_operands(&children[..2], ctx)? else {
                 return Ok(None);
             };
             // A non-constant radius is left for DuckDB to evaluate.
             let Some(distance) = from_bound_f64(children[2])? else {
                 return Ok(None);
             };
-            let geo_distance = GeoDistance.new_expr(ScalarEmptyOptions, operands);
-            Binary.new_expr(Operator::Lte, [geo_distance, lit(distance)])
+            let spatial_distance = SpatialDistance.new_expr(ScalarEmptyOptions, operands);
+            Binary.new_expr(Operator::Lte, [spatial_distance, lit(distance)])
         }
         "st_distance" => {
             if children.len() != 2 {
                 return Ok(None);
             }
-            let Some(operands) = geo_operands(&children, ctx)? else {
+            let Some(operands) = spatial_operands(&children, ctx)? else {
                 return Ok(None);
             };
-            GeoDistance.new_expr(ScalarEmptyOptions, operands)
+            SpatialDistance.new_expr(ScalarEmptyOptions, operands)
         }
         "st_intersects" => {
             if children.len() != 2 {
                 return Ok(None);
             }
-            let Some(operands) = geo_operands(&children, ctx)? else {
+            let Some(operands) = spatial_operands(&children, ctx)? else {
                 return Ok(None);
             };
-            GeoIntersects.new_expr(ScalarEmptyOptions, operands)
+            SpatialIntersects.new_expr(ScalarEmptyOptions, operands)
         }
         containment @ ("st_contains" | "st_within") => {
             if children.len() != 2 {
                 return Ok(None);
             }
-            let Some(mut operands) = geo_operands(&children, ctx)? else {
+            let Some(mut operands) = spatial_operands(&children, ctx)? else {
                 return Ok(None);
             };
             // `st_within(a, b)` is `st_contains(b, a)`; both lower to the contains kernel.
             if containment == "st_within" {
                 operands.swap(0, 1);
             }
-            GeoContains.new_expr(ScalarEmptyOptions, operands)
+            SpatialContains.new_expr(ScalarEmptyOptions, operands)
         }
         _ => return Ok(None),
     };
@@ -330,8 +330,8 @@ fn try_from_bound_function(
                 return Ok(None);
             }
         }
-        // Geo UDFs are handled here; non-geo names return `None` inside.
-        name => return try_from_geo_function(name, func, ctx),
+        // Spatial UDFs are handled here; non-spatial names return `None` inside.
+        name => return try_from_spatial_function(name, func, ctx),
     };
 
     Ok(Some(expr))
@@ -354,7 +354,7 @@ pub(super) fn try_from_bound_expression_with_col_sub(
     value: &duckdb::ExpressionRef,
     col_sub: &Expression,
 ) -> VortexResult<Option<Expression>> {
-    // No fields: scan-time table filters never carry geo functions, because
+    // No fields: scan-time table filters never carry spatial functions, because
     // `can_push_expression` refuses them.
     try_from_expression_inner(
         value,
@@ -425,7 +425,7 @@ pub fn can_push_expression(value: &duckdb::ExpressionRef) -> bool {
                 || name == "strlen"
                 || name == "array_length"
                 || (matches!(name, "len" | "length") && is_supported_length_alias(&func))
-            // Geo functions are absent on purpose: they push only via
+            // Spatial functions are absent on purpose: they push only via
             // `pushdown_complex_filter`, which has the scan's fields to verify the geometry
             // columns are native.
         }

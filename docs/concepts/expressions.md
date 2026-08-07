@@ -12,7 +12,7 @@ such as whether the function is strict, and the actual logic for executing the f
 The built-in scalar functions can be found in the `vortex-array::expr` module, with additional use-case specific
 functions provided by integration and plugin crates.
 
-In the future, we plan to add full support for geospatial functions, date-time functions, and more.
+In the future, we plan to add full support for spatial functions, date-time functions, and more.
 
 ## Scalar Function Arrays
 

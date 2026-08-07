@@ -610,7 +610,7 @@ where
 /// whose result is null exactly when any operand is null.
 ///
 /// This is the `ScalarFnVTable::validity` for kernels that propagate nulls and never produce a
-/// null from non-null inputs (comparisons, arithmetic, most geo and tensor ops). Returning it lets
+/// null from non-null inputs (comparisons, arithmetic, most spatial and tensor operations). Returning it lets
 /// the planner derive the output's null mask without executing the kernel. Yields `None` when the
 /// expression has no children.
 pub fn union_child_validities(expression: &Expression) -> VortexResult<Option<Expression>> {

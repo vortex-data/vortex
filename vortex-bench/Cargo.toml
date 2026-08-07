@@ -28,7 +28,7 @@ vortex = { workspace = true, features = [
     "zstd",
 ] }
 vortex-arrow = { workspace = true }
-vortex-geo = { workspace = true }
+vortex-spatial = { workspace = true }
 vortex-tensor = { workspace = true } # TODO(connor): In the future, this might be inside vortex.
 
 anyhow = { workspace = true }

@@ -217,7 +217,7 @@ fn default_zoned_aggregate_fns(dtype: &DType, session: &VortexSession) -> Arc<[A
     aggregate_fns.push(NanCount.bind(EmptyOptions));
     aggregate_fns.push(NullCount.bind(EmptyOptions));
 
-    // Stats from geo extension types are discovered from the registry at runtime instead.
+    // Stats from spatial extension types are discovered from the registry at runtime instead.
     aggregate_fns.extend(session.aggregate_fns().zone_stat_defaults(dtype));
 
     aggregate_fns.into()
