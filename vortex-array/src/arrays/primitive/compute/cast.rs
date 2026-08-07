@@ -38,6 +38,7 @@ use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::ToI256;
+use crate::dtype::half::f16;
 use crate::dtype::i256;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
@@ -633,82 +634,78 @@ fn cast_primitive_to_utf8(
     let mask = new_validity.execute_mask(len, ctx)?;
     let mut builder = VarBinViewBuilder::with_capacity(dtype.clone(), len);
 
-    // Arrow uses ryu for f32/f64 and Display for f16 and integer values.
+    // Match Arrow's formatting: ryu for f32/f64, Display for f16, and itoa for integers
+    // (Arrow's lexical_core produces the same output as itoa/Display for integers).
     match array.ptype() {
-        PType::F32 => append_float_values_to_utf8(&mut builder, array.as_slice::<f32>(), &mask),
-        PType::F64 => append_float_values_to_utf8(&mut builder, array.as_slice::<f64>(), &mask),
-        ptype => match_each_native_ptype!(ptype, |T| {
-            append_primitive_values_to_utf8(&mut builder, array.as_slice::<T>(), &mask)?;
+        PType::F16 => {
+            let mut scratch = String::with_capacity(16);
+            append_values_to_utf8(
+                &mut builder,
+                array.as_slice::<f16>(),
+                &mask,
+                |builder, value| {
+                    scratch.clear();
+                    // Writing to a String is infallible.
+                    let _ = write!(scratch, "{value}");
+                    builder.append_value(scratch.as_str());
+                },
+            );
+        }
+        PType::F32 => {
+            let mut formatter = ryu::Buffer::new();
+            append_values_to_utf8(
+                &mut builder,
+                array.as_slice::<f32>(),
+                &mask,
+                |builder, value| builder.append_value(formatter.format(value)),
+            );
+        }
+        PType::F64 => {
+            let mut formatter = ryu::Buffer::new();
+            append_values_to_utf8(
+                &mut builder,
+                array.as_slice::<f64>(),
+                &mask,
+                |builder, value| builder.append_value(formatter.format(value)),
+            );
+        }
+        ptype => match_each_integer_ptype!(ptype, |T| {
+            let mut formatter = itoa::Buffer::new();
+            append_values_to_utf8(
+                &mut builder,
+                array.as_slice::<T>(),
+                &mask,
+                |builder, value| builder.append_value(formatter.format(value)),
+            );
         }),
     }
 
     Ok(builder.finish_into_varbinview().into_array())
 }
 
-fn append_float_values_to_utf8<T: NativePType + ryu::Float>(
+fn append_values_to_utf8<T: Copy>(
     builder: &mut VarBinViewBuilder,
     values: &[T],
     mask: &Mask,
+    mut append: impl FnMut(&mut VarBinViewBuilder, T),
 ) {
-    let mut formatter = ryu::Buffer::new();
-
     match mask {
         Mask::AllTrue(_) => {
             for &value in values {
-                builder.append_value(formatter.format(value));
+                append(builder, value);
             }
         }
         Mask::AllFalse(_) => builder.append_nulls(values.len()),
         Mask::Values(validity) => {
             for (&value, valid) in values.iter().zip(validity.bit_buffer().iter()) {
                 if valid {
-                    builder.append_value(formatter.format(value));
+                    append(builder, value);
                 } else {
                     builder.append_null();
                 }
             }
         }
     }
-}
-
-fn append_primitive_values_to_utf8<T: NativePType>(
-    builder: &mut VarBinViewBuilder,
-    values: &[T],
-    mask: &Mask,
-) -> VortexResult<()> {
-    let mut scratch = String::with_capacity(32);
-
-    match mask {
-        Mask::AllTrue(_) => {
-            for &value in values {
-                append_primitive_value(builder, &mut scratch, value)?;
-            }
-        }
-        Mask::AllFalse(_) => builder.append_nulls(values.len()),
-        Mask::Values(validity) => {
-            for (&value, valid) in values.iter().zip(validity.bit_buffer().iter()) {
-                if valid {
-                    append_primitive_value(builder, &mut scratch, value)?;
-                } else {
-                    builder.append_null();
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn append_primitive_value<T: NativePType>(
-    builder: &mut VarBinViewBuilder,
-    scratch: &mut String,
-    value: T,
-) -> VortexResult<()> {
-    scratch.clear();
-    write!(scratch, "{value}")
-        .map_err(|_| vortex_err!("Failed to format {} value as Utf8", T::PTYPE))?;
-    builder.append_value(scratch.as_str());
-    Ok(())
 }
 
 #[cfg(test)]

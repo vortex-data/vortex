@@ -9596,6 +9596,7 @@ dependencies = [
  "insta",
  "inventory",
  "itertools 0.14.0",
+ "itoa",
  "jiff",
  "memchr",
  "mimalloc",
