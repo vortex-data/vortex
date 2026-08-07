@@ -27,7 +27,6 @@ use crate::arrays::PiecewiseSequence;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
-use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::piecewise_sequence::constant_unsigned_usize;
@@ -35,7 +34,6 @@ use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::arrays::varbin::VarBinArrayExt;
 use crate::arrays::varbin::VarBinArraySlotsExt;
-use crate::arrays::varbin::vtable::canonical::varbin_to_canonical;
 use crate::arrays::varbinview::BinaryView;
 use crate::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use crate::dtype::DType;
@@ -155,9 +153,10 @@ impl TakeExecute for VarBin {
             offsets.as_slice::<O>().last().map_or(0usize, |&o| o.as_())
         });
 
+        // VarBinView can't hold this buffer, so we can't canonicalize and
+        // take() (take panics). Convert to VarBin
         if last_offset > MAX_BUFFER_LEN {
-            let view = varbin_to_canonical(array, ctx)?;
-            return VarBinView::take(view.as_view(), indices, ctx);
+            return Ok(Some(take_varbin(array, indices, ctx)?.into_array()));
         }
 
         let data = array.bytes().clone();
