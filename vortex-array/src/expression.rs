@@ -10,7 +10,6 @@ use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArray;
 use crate::expr::BoundExpression;
-use crate::expr::BoundKind;
 use crate::expr::Expression;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar_fn::fns::literal::Literal;
@@ -18,10 +17,11 @@ use crate::scalar_fn::fns::literal::Literal;
 impl ArrayRef {
     /// Apply a bound expression to this array, producing a new array in constant time.
     pub fn apply_bound(self, expr: &BoundExpression) -> VortexResult<ArrayRef> {
-        let BoundKind::Scalar {
+        let BoundExpression::Scalar {
             scalar_fn,
             children,
-        } = expr.kind()
+            ..
+        } = expr
         else {
             return Ok(self);
         };

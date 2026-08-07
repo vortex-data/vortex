@@ -24,7 +24,6 @@ use vortex_error::VortexResult;
 
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
-use crate::expr::bound_expression::BoundKind;
 use crate::expr::traversal::fold::NodeFolderContextWrapper;
 
 /// Signal to control a traversal's flow
@@ -534,7 +533,7 @@ impl Node for BoundExpression {
         &'a self,
         mut f: F,
     ) -> VortexResult<TraversalOrder> {
-        let BoundKind::Scalar { children, .. } = self.kind() else {
+        let BoundExpression::Scalar { children, .. } = self else {
             return Ok(TraversalOrder::Continue);
         };
 
@@ -552,7 +551,7 @@ impl Node for BoundExpression {
         self,
         mut f: F,
     ) -> VortexResult<Transformed<Self>> {
-        let BoundKind::Scalar { children, .. } = self.kind() else {
+        let BoundExpression::Scalar { children, .. } = &self else {
             return Ok(Transformed::no(self));
         };
 
@@ -583,16 +582,16 @@ impl Node for BoundExpression {
     }
 
     fn iter_children<T>(&self, f: impl FnOnce(&mut dyn Iterator<Item = &Self>) -> T) -> T {
-        match self.kind() {
-            BoundKind::Scalar { children, .. } => f(&mut children.iter()),
-            BoundKind::Root => f(&mut std::iter::empty()),
+        match self {
+            BoundExpression::Scalar { children, .. } => f(&mut children.iter()),
+            BoundExpression::Root { .. } => f(&mut std::iter::empty()),
         }
     }
 
     fn children_count(&self) -> usize {
-        match self.kind() {
-            BoundKind::Scalar { children, .. } => children.len(),
-            BoundKind::Root => 0,
+        match self {
+            BoundExpression::Scalar { children, .. } => children.len(),
+            BoundExpression::Root { .. } => 0,
         }
     }
 }
