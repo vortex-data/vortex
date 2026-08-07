@@ -106,7 +106,8 @@ fn valid_count(mask: &Mask, start: usize, end: usize) -> usize {
 ///
 /// The all-valid path reuses the geometry payload and list views. If geometry elements are null,
 /// DuckDB semantics require ignoring them; that path first makes the views exact, then compacts the
-/// payload and rebuilds the row views.
+/// payload and rebuilds the row views. Either way the output carries the input's zero-copy-to-list
+/// flag, so a downstream `ListArray` conversion does not re-gather the reused payload.
 fn collect_list(
     mut list: ListViewArray,
     validity: Validity,
@@ -125,6 +126,11 @@ fn collect_list(
             .execute_mask(list.elements().len(), ctx)?;
     }
 
+    // Both output paths keep the views exact: reuse forwards `offsets` and `sizes` untouched, and
+    // compaction rebuilds them as a running sum over the same element order. So the result is
+    // zero-copy to a `ListArray` exactly when `list` is, which `MakeExact` above has already
+    // ensured for every list that reaches compaction.
+    let zero_copy_to_list = list.is_zero_copy_to_list();
     let parts = list.into_data_parts();
     let elements = parts.elements.execute::<ExtensionArray>(ctx)?;
     let DType::List(target_element_storage, _) = output_dtype.storage_dtype() else {
@@ -181,7 +187,12 @@ fn collect_list(
         (parts.offsets, parts.sizes)
     };
 
-    let storage = ListViewArray::try_new(element_storage, offsets, sizes, validity)?.into_array();
+    let storage = ListViewArray::try_new(element_storage, offsets, sizes, validity)?;
+    // SAFETY: `zero_copy_to_list` describes views this function either forwarded unchanged or
+    // replaced with a gapless, non-overlapping running sum over the same elements. Forwarding it
+    // matters: `list_from_list_view` re-gathers the whole payload for a list view that reports
+    // `false`, undoing the storage reuse above one operator later.
+    let storage = unsafe { storage.with_zero_copy_to_list(zero_copy_to_list) }.into_array();
     Ok(ExtensionArray::try_new(output_dtype.clone(), storage)?.into_array())
 }
 
@@ -299,6 +310,7 @@ impl ScalarFnVTable for SpatialCollect {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::Columnar;
     use vortex_array::IntoArray;
@@ -379,6 +391,38 @@ mod tests {
             .execute::<ListViewArray>(&mut ctx)?;
 
         assert!(ArrayRef::ptr_eq(&point_storage, result_storage.elements()));
+        Ok(())
+    }
+
+    /// A list view that forgets it is zero-copy to a list makes the next
+    /// `list_from_list_view` re-gather the payload that collect just reused.
+    #[rstest]
+    #[case::reused_elements(false)]
+    #[case::compacted_elements(true)]
+    fn output_stays_zero_copy_to_list(#[case] null_elements: bool) -> VortexResult<()> {
+        let points = if null_elements {
+            nullable_point_column(vec![Some((0.0, 3.0)), None, Some((2.0, 5.0))])?
+        } else {
+            point_column(vec![0.0, 1.0, 2.0], vec![3.0, 4.0, 5.0])?
+        };
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let input = list(points, &[0, 2, 3])?;
+        assert!(
+            input
+                .clone()
+                .execute::<ListViewArray>(&mut ctx)?
+                .is_zero_copy_to_list(),
+            "a list column reaches collect as an exact list view"
+        );
+
+        let storage = SpatialCollect::try_new_array(input)?
+            .into_array()
+            .execute::<ExtensionArray>(&mut ctx)?
+            .storage_array()
+            .clone()
+            .execute::<ListViewArray>(&mut ctx)?;
+
+        assert!(storage.is_zero_copy_to_list());
         Ok(())
     }
 

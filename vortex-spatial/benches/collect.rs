@@ -25,6 +25,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_session::VortexSession;
 use vortex_spatial::scalar_fn::collect::SpatialCollect;
+use vortex_spatial::scalar_fn::envelope::SpatialEnvelope;
 use vortex_spatial::test_harness::linestring_column;
 use vortex_spatial::test_harness::nullable_point_column;
 use vortex_spatial::test_harness::point_column;
@@ -146,4 +147,31 @@ fn polygons(bencher: Bencher) {
 #[divan::bench]
 fn nullable_points(bencher: Bencher) {
     bench_collect(bencher, point_lists(true));
+}
+
+/// Collect feeding a consumer that converts the result to a `ListArray`.
+///
+/// The cases above stop at [`Canonical`], whose list form is a `ListViewArray`, so they cannot
+/// observe whether collect's output still reports itself as zero-copy to a list. `ST_Envelope`
+/// reaches that path through `flatten_row_offsets`, and re-gathers the whole payload when the
+/// flag is missing.
+fn envelope_of_collect(input: &ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
+    let collected = SpatialCollect::try_new_array(input.clone())
+        .unwrap()
+        .into_array();
+    SpatialEnvelope::try_new_array(collected)
+        .unwrap()
+        .into_array()
+        .execute::<Canonical>(ctx)
+        .unwrap()
+        .into_array()
+}
+
+#[divan::bench]
+fn envelope_of_collected_points(bencher: Bencher) {
+    let input = point_lists(false);
+    let mut ctx = SESSION.create_execution_ctx();
+    bencher
+        .counter(ItemsCount::new(ROWS))
+        .bench_local(|| envelope_of_collect(&input, &mut ctx));
 }
