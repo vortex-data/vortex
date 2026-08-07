@@ -40,6 +40,7 @@ use crate::expr::stats::StatsProvider;
 use crate::match_each_decimal_value_type;
 use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
+use crate::match_each_signed_integer_ptype;
 use crate::scalar::DecimalValue;
 use crate::scalar_fn::fns::cast::CastKernel;
 use crate::scalar_fn::fns::cast::CastReduce;
@@ -138,14 +139,86 @@ fn cast_to_decimal(
     let validity = source_validity
         .clone()
         .cast_nullability(nullability, array.len(), ctx)?;
-    let valid_values = source_validity.execute_mask(array.len(), ctx)?;
     let values_type = DecimalType::smallest_decimal_value_type(&decimal_dtype);
 
+    if decimal_dtype.scale() == 0
+        && signed_primitive_decimal_type(array.ptype()) == Some(values_type)
+    {
+        return match_each_signed_integer_ptype!(array.ptype(), |S| {
+            cast_unscaled_same_width_signed_integer_to_decimal::<S>(
+                array,
+                decimal_dtype,
+                validity,
+                &source_validity,
+                ctx,
+            )
+        });
+    }
+
+    let valid_values = source_validity.execute_mask(array.len(), ctx)?;
     match_each_integer_ptype!(array.ptype(), |S| {
         match_each_decimal_value_type!(values_type, |T| {
             cast_integer_values_to_decimal::<S, T>(array, decimal_dtype, validity, &valid_values)
         })
     })
+}
+
+fn cast_unscaled_same_width_signed_integer_to_decimal<S>(
+    array: ArrayView<'_, Primitive>,
+    decimal_dtype: DecimalDType,
+    validity: Validity,
+    source_validity: &Validity,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef>
+where
+    S: IntegerPType + NativeDecimalType + ToI256,
+{
+    let values = array.as_slice::<S>();
+    let target_dtype = DType::Decimal(decimal_dtype, Nullability::NonNullable);
+    if !cached_values_fit_in(array, &target_dtype).unwrap_or(false) {
+        let valid_values = source_validity.execute_mask(array.len(), ctx)?;
+        validate_unscaled_signed_integer_values_to_decimal(values, decimal_dtype, &valid_values)
+            .map_err(|idx| primitive_to_decimal_cast_error(values[idx], decimal_dtype))?;
+    }
+
+    // SAFETY: `S::DECIMAL_TYPE` has the same physical representation as the source ptype, and
+    // either exact min/max statistics or the validation above prove every valid value fits.
+    Ok(unsafe {
+        DecimalArray::new_unchecked_handle(
+            array.buffer_handle().clone(),
+            S::DECIMAL_TYPE,
+            decimal_dtype,
+            validity,
+        )
+        .into_array()
+    })
+}
+
+fn validate_unscaled_signed_integer_values_to_decimal<S>(
+    values: &[S],
+    decimal_dtype: DecimalDType,
+    valid_values: &Mask,
+) -> Result<(), usize>
+where
+    S: NativeDecimalType,
+{
+    let fits = |value| decimal_value_fits_precision(value, decimal_dtype);
+    match valid_values {
+        Mask::AllTrue(_) => values
+            .iter()
+            .position(|&value| !fits(value))
+            .map_or(Ok(()), Err),
+        Mask::AllFalse(_) => Ok(()),
+        Mask::Values(mask) => {
+            let mut first_failure = None;
+            mask.bit_buffer().for_each_set_index(|idx| {
+                if first_failure.is_none() && !fits(values[idx]) {
+                    first_failure = Some(idx);
+                }
+            });
+            first_failure.map_or(Ok(()), Err)
+        }
+    }
 }
 
 fn cast_integer_values_to_decimal<S, T>(
@@ -251,6 +324,20 @@ where
 {
     cast_primitive_to_decimal_buffer(values, valid_values, cast)
         .map_err(|idx| primitive_to_decimal_cast_error(values[idx], decimal_dtype))
+}
+
+/// Decimal physical type with the same representation, when `ptype` is signed.
+fn signed_primitive_decimal_type(ptype: PType) -> Option<DecimalType> {
+    match ptype {
+        PType::I8 => Some(DecimalType::I8),
+        PType::I16 => Some(DecimalType::I16),
+        PType::I32 => Some(DecimalType::I32),
+        PType::I64 => Some(DecimalType::I64),
+        PType::U8 | PType::U16 | PType::U32 | PType::U64 => None,
+        PType::F16 | PType::F32 | PType::F64 => {
+            unreachable!("floating primitives are rejected before selecting a decimal type")
+        }
+    }
 }
 
 /// The smallest signed decimal physical type that represents every `ptype` value.
@@ -553,6 +640,7 @@ mod test {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::i256;
+    use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
@@ -650,6 +738,81 @@ mod test {
         );
         assert_eq!(casted.values_type(), DecimalType::I32);
         assert_eq!(casted.buffer::<i32>().as_ref(), &[4_200, -700]);
+        Ok(())
+    }
+
+    #[test]
+    fn cast_same_width_signed_integer_to_decimal_reuses_buffer() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let source = PrimitiveArray::from_iter([42i32, -7]);
+        let source_ptr = source.as_slice::<i32>().as_ptr();
+        let casted = source
+            .into_array()
+            .cast(DType::Decimal(
+                DecimalDType::new(9, 0),
+                Nullability::NonNullable,
+            ))?
+            .execute::<DecimalArray>(&mut ctx)?;
+
+        assert_eq!(casted.buffer::<i32>().as_ptr(), source_ptr);
+        assert_eq!(casted.buffer::<i32>().as_ref(), &[42, -7]);
+        Ok(())
+    }
+
+    #[test]
+    fn cast_same_width_signed_integer_to_decimal_reuses_buffer_with_cached_bounds()
+    -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let source = PrimitiveArray::from_iter([42i32, -7]);
+        let source_ptr = source.as_slice::<i32>().as_ptr();
+        let source = source.into_array();
+        source
+            .statistics()
+            .compute_all(&[Stat::Min, Stat::Max], &mut ctx)?;
+        let casted = source
+            .cast(DType::Decimal(
+                DecimalDType::new(9, 0),
+                Nullability::NonNullable,
+            ))?
+            .execute::<DecimalArray>(&mut ctx)?;
+
+        assert_eq!(casted.buffer::<i32>().as_ptr(), source_ptr);
+        Ok(())
+    }
+
+    #[test]
+    fn cast_same_width_signed_integer_to_decimal_ignores_out_of_range_nulls() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let source = PrimitiveArray::new(buffer![i32::MAX, 42], Validity::from_iter([false, true]));
+        let source_ptr = source.as_slice::<i32>().as_ptr();
+        let casted = source
+            .into_array()
+            .cast(DType::Decimal(
+                DecimalDType::new(9, 0),
+                Nullability::Nullable,
+            ))?
+            .execute::<DecimalArray>(&mut ctx)?;
+
+        assert_eq!(casted.buffer::<i32>().as_ptr(), source_ptr);
+        assert_eq!(
+            casted.validity()?.execute_mask(casted.len(), &mut ctx)?,
+            Mask::from(BitBuffer::from(vec![false, true]))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn cast_same_width_signed_integer_to_decimal_checks_precision() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let casted = PrimitiveArray::from_iter([i32::MAX])
+            .into_array()
+            .cast(DType::Decimal(
+                DecimalDType::new(9, 0),
+                Nullability::NonNullable,
+            ))?;
+
+        let error = casted.execute::<DecimalArray>(&mut ctx).unwrap_err();
+        assert!(error.to_string().contains("does not fit in precision"));
         Ok(())
     }
 

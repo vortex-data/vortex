@@ -123,3 +123,20 @@ fn cast_i32_to_decimal9_scale2(bencher: Bencher, n: usize) {
             .execute::<Canonical>(ctx)
         });
 }
+
+/// Same-width scale-zero cast that validates then reuses the source values buffer.
+#[divan::bench(args = SIZES)]
+fn cast_i32_to_decimal9_scale0(bencher: Bencher, n: usize) {
+    let arr =
+        PrimitiveArray::from_iter((0..n).map(|value| i32::try_from(value).unwrap())).into_array();
+    bencher
+        .with_inputs(|| (arr.clone(), SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| {
+            a.cast(DType::Decimal(
+                DecimalDType::new(9, 0),
+                Nullability::NonNullable,
+            ))
+            .unwrap()
+            .execute::<Canonical>(ctx)
+        });
+}
