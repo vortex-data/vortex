@@ -90,6 +90,18 @@ cargo +nightly fmt --all
 cargo clippy --all-targets --all-features
 ```
 
+For changed C++ and CUDA source or header files covered by CI (`.cpp`, `.hpp`, `.cu`, `.cuh`, and
+`.h` files under `lang/cpp`, `vortex-cuda`, `vortex-duckdb`, and `vortex-ffi`), format with the
+repository's `.clang-format` configuration and verify the result:
+
+```bash
+clang-format --style=file -i <changed-files>
+clang-format --dry-run --Werror --style=file <changed-files>
+```
+
+Pass only the files you changed; CI excludes vendored or generated CUDA and Arrow headers from its
+repository-wide check.
+
 Notes:
 
 - For `.github/` changes, follow `.github/AGENTS.md` and run
