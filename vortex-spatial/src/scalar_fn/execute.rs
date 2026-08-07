@@ -3,18 +3,19 @@
 
 //! Shared execution for native geometry scalar functions.
 //!
-//! [`dispatch_unary`] and the binary dispatcher handle constant/column operands and strict null
+//! [`dispatch_unary`] and [`dispatch_binary`] handle constant/column operands and strict null
 //! propagation without prescribing how a kernel represents geometries or builds its output.
-//! Native columnar kernels such as `ST_Envelope` use the unary dispatcher directly.
+//! Native columnar kernels such as `ST_MakeLine` use these dispatchers directly.
 //!
-//! [`execute_binary_geo_types`] adapts row-oriented algorithms from the `geo` ecosystem. It decodes
-//! valid inputs into `geo_types::Geometry`; the final output is still a Vortex [`ArrayRef`], such
-//! as an `f64` or boolean array.
+//! [`execute_binary_geo_types`] is a convenience adapter for row-oriented algorithms from the
+//! `geo` ecosystem. It decodes valid inputs into `geo_types::Geometry`; the final output is still
+//! a Vortex [`ArrayRef`], such as an `f64` or boolean array.
 
 mod binary;
 mod geo_types;
 mod unary;
 
+pub(crate) use binary::dispatch_binary;
 pub(crate) use binary::execute_binary_geo_types;
 pub(crate) use unary::dispatch_unary;
 use vortex_array::ArrayRef;
