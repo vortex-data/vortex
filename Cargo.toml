@@ -409,9 +409,16 @@ debug = "full"
 inherits = "release"
 
 [profile.bench]
-codegen-units = 16
+# Benchmarks exist to attribute a change in measurement to a change in code, so they are built
+# whole-program. With `codegen-units = 16` and no LTO, adding unrelated code to a crate reshuffles
+# which functions share a codegen unit, which changes cross-unit inlining for functions whose
+# source did not change. That reports as a regression in code the branch never touched.
+#
+# `profile.release` deliberately keeps LTO off, because Vortex's performance must not depend on a
+# downstream crate enabling it. That argument is about shipped code and does not apply here.
+codegen-units = 1
 debug = "full"
-lto = false
+lto = true
 
 [profile.samply]
 inherits = "release"
