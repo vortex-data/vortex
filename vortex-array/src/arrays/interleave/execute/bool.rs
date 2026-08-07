@@ -7,10 +7,10 @@ use num_traits::AsPrimitive;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 
 use super::super::Interleave;
 use super::super::InterleaveArrayExt;
+use super::validate_selectors;
 use crate::array::Array;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
@@ -71,44 +71,16 @@ fn gather<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
     branches: &[A],
     rows: &[R],
 ) -> VortexResult<BitBufferMut> {
-    let len = validate_selectors(value_bits, branches, rows)?;
+    let len = validate_selectors(
+        value_bits.len(),
+        |branch| value_bits[branch].len(),
+        branches,
+        rows,
+    )?;
 
     // SAFETY: `validate_selectors` proved `branches.len() == rows.len() == len`, and for every
     // `i < len` that `branches[i] < value_bits.len()` and `rows[i] < value_bits[branches[i]].len()`.
     Ok(unsafe { gather_bits(len, value_bits, branches, rows) })
-}
-
-/// Validates the per-row selector bounds, returning the output length (`branches.len()`).
-///
-/// On success, `rows.len() == branches.len() == len` and, for every `i < len`,
-/// `branches[i] < value_bits.len()` and `rows[i] < value_bits[branches[i]].len()` — exactly the
-/// preconditions of [`gather_bits`]. Errors (rather than panics) on any out-of-bounds selector.
-fn validate_selectors<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
-    value_bits: &[BitBuffer],
-    branches: &[A],
-    rows: &[R],
-) -> VortexResult<usize> {
-    // The two selectors are validated to equal length at construction, which is the output length.
-    let len = branches.len();
-    vortex_ensure!(
-        rows.len() == len,
-        "interleave selectors differ in length: array_indices {len}, row_indices {}",
-        rows.len()
-    );
-
-    for i in 0..len {
-        let branch = branches[i].as_();
-        vortex_ensure!(
-            branch < value_bits.len(),
-            "interleave array index out of bounds"
-        );
-        vortex_ensure!(
-            rows[i].as_() < value_bits[branch].len(),
-            "interleave row index out of bounds"
-        );
-    }
-
-    Ok(len)
 }
 
 /// Gathers one bit per output from `bits[branches[i]]` at position `rows[i]`, packing 64 results per
