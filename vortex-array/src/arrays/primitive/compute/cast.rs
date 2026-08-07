@@ -160,41 +160,92 @@ where
 {
     let values = array.as_slice::<S>();
     let scale = decimal_dtype.scale();
-    let scale_factor = if scale == 0 {
-        i256::ONE
+    let buffer = if scale == 0 {
+        cast_primitive_to_decimal_buffer(values, valid_values, |value| {
+            let value = <T as BigCast>::from(value)?;
+            decimal_value_fits_precision(value, decimal_dtype).then_some(value)
+        })
+    } else if scale < -19 {
+        // Primitive values are at most 20 decimal digits wide (`u64::MAX` is less than 10^20),
+        // so only zero can be exactly rescaled by 10^-20 or smaller.
+        cast_primitive_to_decimal_buffer(values, valid_values, |value| {
+            (value == S::default()).then_some(T::default())
+        })
+    } else if decimal_dtype.precision() <= <i128 as NativeDecimalType>::MAX_PRECISION {
+        let scale_factor = decimal_scale_factor::<i128>(scale)?;
+        cast_rescaled_integer_values_to_decimal::<S, T, i128>(
+            values,
+            decimal_dtype,
+            valid_values,
+            scale_factor,
+        )
     } else {
-        let exponent = if scale > 0 {
-            scale as u32
-        } else {
-            (-(scale as i16)) as u32
-        };
-        i256::from_i128(10).checked_pow(exponent).ok_or_else(|| {
-            vortex_err!(
-                Compute: "Cannot cast primitive values to {}: scale factor overflows",
-                decimal_dtype
-            )
-        })?
-    };
-    let (min, max) = (
-        T::MIN_BY_PRECISION[decimal_dtype.precision() as usize],
-        T::MAX_BY_PRECISION[decimal_dtype.precision() as usize],
-    );
-
-    let buffer = cast_primitive_to_decimal_buffer(values, valid_values, |value| {
-        let value = <i256 as BigCast>::from(value)?;
-        let value = if scale > 0 {
-            value.checked_mul(&scale_factor)?
-        } else if scale < 0 {
-            (value % scale_factor == i256::ZERO).then_some(value / scale_factor)?
-        } else {
-            value
-        };
-        let value = <T as BigCast>::from(value)?;
-        (value >= min && value <= max).then_some(value)
-    })
+        let scale_factor = decimal_scale_factor::<i256>(scale)?;
+        cast_rescaled_integer_values_to_decimal::<S, T, i256>(
+            values,
+            decimal_dtype,
+            valid_values,
+            scale_factor,
+        )
+    }
     .map_err(|idx| primitive_to_decimal_cast_error(values[idx], decimal_dtype))?;
 
     Ok(DecimalArray::new(buffer, decimal_dtype, validity).into_array())
+}
+
+fn cast_rescaled_integer_values_to_decimal<S, T, W>(
+    values: &[S],
+    decimal_dtype: DecimalDType,
+    valid_values: &Mask,
+    scale_factor: W,
+) -> Result<Buffer<T>, usize>
+where
+    S: IntegerPType + ToI256,
+    T: NativeDecimalType,
+    W: NativeDecimalType + CheckedMul + std::ops::Div<Output = W> + std::ops::Rem<Output = W>,
+{
+    let scale = decimal_dtype.scale();
+    cast_primitive_to_decimal_buffer(values, valid_values, |value| {
+        let value = <W as BigCast>::from(value)?;
+        let value = if scale > 0 {
+            value.checked_mul(&scale_factor)?
+        } else {
+            (value % scale_factor == W::default()).then_some(value / scale_factor)?
+        };
+        let value = <T as BigCast>::from(value)?;
+        decimal_value_fits_precision(value, decimal_dtype).then_some(value)
+    })
+}
+
+fn decimal_scale_factor<T>(scale: i8) -> VortexResult<T>
+where
+    T: NativeDecimalType + CheckedMul,
+{
+    let exponent = if scale > 0 {
+        scale as u32
+    } else {
+        (-(scale as i16)) as u32
+    };
+    let ten = <T as BigCast>::from(10i8).ok_or_else(
+        || vortex_err!(Compute: "Cannot create decimal scale factor for scale {scale}"),
+    )?;
+    let mut factor = <T as BigCast>::from(1i8).ok_or_else(
+        || vortex_err!(Compute: "Cannot create decimal scale factor for scale {scale}"),
+    )?;
+    for _ in 0..exponent {
+        factor = factor.checked_mul(&ten).ok_or_else(
+            || vortex_err!(Compute: "Cannot create decimal scale factor for scale {scale}"),
+        )?;
+    }
+    Ok(factor)
+}
+
+fn decimal_value_fits_precision<T: NativeDecimalType>(
+    value: T,
+    decimal_dtype: DecimalDType,
+) -> bool {
+    let precision = decimal_dtype.precision() as usize;
+    value >= T::MIN_BY_PRECISION[precision] && value <= T::MAX_BY_PRECISION[precision]
 }
 
 fn cast_primitive_to_decimal_buffer<S, T>(
@@ -433,6 +484,7 @@ mod test {
     use crate::dtype::DecimalType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::i256;
     use crate::validity::Validity;
 
     #[test]
@@ -547,6 +599,20 @@ mod test {
     }
 
     #[test]
+    fn cast_integer_to_i256_decimal() -> vortex_error::VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let decimal_dtype = DecimalDType::new(39, 2);
+        let casted = PrimitiveArray::from_iter([42i64])
+            .into_array()
+            .cast(DType::Decimal(decimal_dtype, Nullability::NonNullable))?
+            .execute::<DecimalArray>(&mut ctx)?;
+
+        assert_eq!(casted.values_type(), DecimalType::I256);
+        assert_eq!(casted.buffer::<i256>().as_ref(), &[i256::from_i128(4_200)]);
+        Ok(())
+    }
+
+    #[test]
     fn cast_integer_to_negative_scale_decimal_requires_exact_rescale()
     -> vortex_error::VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
@@ -564,6 +630,19 @@ mod test {
             .execute::<DecimalArray>(&mut ctx)
             .unwrap_err();
         assert!(error.to_string().contains("would lose precision"));
+        Ok(())
+    }
+
+    #[test]
+    fn cast_zero_to_large_negative_scale_decimal() -> vortex_error::VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let decimal_dtype = DecimalDType::new(3, -128);
+        let casted = PrimitiveArray::from_iter([0i32])
+            .into_array()
+            .cast(DType::Decimal(decimal_dtype, Nullability::NonNullable))?
+            .execute::<DecimalArray>(&mut ctx)?;
+
+        assert_eq!(casted.buffer::<i16>().as_ref(), &[0]);
         Ok(())
     }
 

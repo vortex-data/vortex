@@ -14,6 +14,7 @@ use vortex_array::array_session;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::expr::stats::Stat;
@@ -85,5 +86,23 @@ fn cast_i32_to_u32(bencher: Bencher, n: usize) {
             a.cast(DType::Primitive(PType::U32, Nullability::Nullable))
                 .unwrap()
                 .execute::<Canonical>(ctx)
+        });
+}
+
+/// Integer-to-decimal cast at the largest precision that uses an i128 backing buffer. This
+/// exercises the common rescaling path without paying for i256 arithmetic per input value.
+#[divan::bench(args = SIZES)]
+fn cast_i64_to_decimal38_scale2(bencher: Bencher, n: usize) {
+    let arr =
+        PrimitiveArray::from_iter((0..n).map(|value| i64::try_from(value).unwrap())).into_array();
+    bencher
+        .with_inputs(|| (arr.clone(), SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| {
+            a.cast(DType::Decimal(
+                DecimalDType::new(38, 2),
+                Nullability::NonNullable,
+            ))
+            .unwrap()
+            .execute::<Canonical>(ctx)
         });
 }
