@@ -14,7 +14,6 @@ use super::checked::checked_lanes;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
@@ -25,6 +24,7 @@ use crate::dtype::half::f16;
 use crate::match_each_native_ptype;
 use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
+use crate::scalar_fn::fns::binary::primitive_operand::PrimitiveOperand;
 use crate::validity::Validity;
 
 struct CheckedAdd;
@@ -252,62 +252,6 @@ where
         ConstantArray::new(Some(value), len).into_array()
     } else {
         ConstantArray::new(value, len).into_array()
-    }
-}
-
-/// A primitive binary-operator operand: a materialized buffer, a non-null constant, or an
-/// all-null constant.
-pub(crate) enum PrimitiveOperand<T: NativePType> {
-    Array {
-        values: Buffer<T>,
-        validity: Validity,
-    },
-    Constant {
-        value: T,
-        len: usize,
-        validity: Validity,
-    },
-    Null(usize),
-}
-
-impl<T: NativePType> PrimitiveOperand<T> {
-    pub(crate) fn try_new(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        if let Some(constant) = array.as_opt::<Constant>() {
-            return Ok(
-                match constant.scalar().as_primitive().try_typed_value::<T>()? {
-                    Some(value) => Self::Constant {
-                        value,
-                        len: array.len(),
-                        validity: if constant.scalar().dtype().is_nullable() {
-                            Validity::AllValid
-                        } else {
-                            Validity::NonNullable
-                        },
-                    },
-                    None => Self::Null(array.len()),
-                },
-            );
-        }
-
-        let array = array.clone().execute::<PrimitiveArray>(ctx)?;
-        let validity = array.validity()?;
-        let values = array.into_buffer::<T>();
-        Ok(Self::Array { values, validity })
-    }
-
-    pub(crate) fn len(&self) -> usize {
-        match self {
-            Self::Array { values, .. } => values.len(),
-            Self::Constant { len, .. } | Self::Null(len) => *len,
-        }
-    }
-
-    pub(crate) fn validity(&self) -> Validity {
-        match self {
-            Self::Array { validity, .. } => validity.clone(),
-            Self::Constant { validity, .. } => validity.clone(),
-            Self::Null(_) => Validity::AllInvalid,
-        }
     }
 }
 
