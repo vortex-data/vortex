@@ -59,6 +59,10 @@ pub struct ZonedLayoutOptions {
     ///
     /// If unset, the writer chooses pruning aggregates from the input dtype.
     pub aggregate_fns: Option<Arc<[AggregateFnRef]>>,
+    /// Whether the default aggregate set includes Sum.
+    ///
+    /// This has no effect when `aggregate_fns` is set explicitly.
+    pub include_sum: bool,
     /// Number of chunks to compute aggregate partials in parallel.
     pub concurrency: NonZeroUsize,
 }
@@ -68,6 +72,7 @@ impl Default for ZonedLayoutOptions {
         Self {
             block_size: unsafe { NonZeroUsize::new_unchecked(8192) },
             aggregate_fns: None,
+            include_sum: true,
             concurrency: unsafe {
                 NonZeroUsize::new_unchecked(get_available_parallelism().unwrap_or(1))
             },
@@ -106,11 +111,9 @@ impl LayoutStrategy for ZonedStrategy {
         mut eof: SequencePointer,
         session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
-        let aggregate_fns = self
-            .options
-            .aggregate_fns
-            .clone()
-            .unwrap_or_else(|| default_zoned_aggregate_fns(stream.dtype(), session));
+        let aggregate_fns = self.options.aggregate_fns.clone().unwrap_or_else(|| {
+            default_zoned_aggregate_fns(stream.dtype(), session, self.options.include_sum)
+        });
         let compute_session = session.clone();
 
         let stats_accumulator = Arc::new(Mutex::new(AggregateStatsAccumulator::new(
@@ -192,7 +195,11 @@ impl LayoutStrategy for ZonedStrategy {
     }
 }
 
-fn default_zoned_aggregate_fns(dtype: &DType, session: &VortexSession) -> Arc<[AggregateFnRef]> {
+fn default_zoned_aggregate_fns(
+    dtype: &DType,
+    session: &VortexSession,
+    include_sum: bool,
+) -> Arc<[AggregateFnRef]> {
     let (max, min) = match dtype {
         DType::Utf8(_) | DType::Binary(_) => (
             BoundedMax.bind(BoundedMaxOptions {
@@ -209,9 +216,10 @@ fn default_zoned_aggregate_fns(dtype: &DType, session: &VortexSession) -> Arc<[A
     };
 
     let mut aggregate_fns = vec![max, min];
-    if Sum
-        .return_dtype(&SumAggregateOpts::skip_nans(), dtype)
-        .is_some()
+    if include_sum
+        && Sum
+            .return_dtype(&SumAggregateOpts::skip_nans(), dtype)
+            .is_some()
     {
         aggregate_fns.push(Sum.bind(SumAggregateOpts::skip_nans()));
     }
@@ -243,6 +251,7 @@ mod tests {
         let aggregate_fns = default_zoned_aggregate_fns(
             &DType::Utf8(Nullability::NonNullable),
             &vortex_array::array_session(),
+            true,
         );
 
         assert_eq!(
@@ -258,7 +267,7 @@ mod tests {
     #[test]
     fn default_aggregates_keep_fixed_width_min_max_exact() {
         let aggregate_fns =
-            default_zoned_aggregate_fns(&PType::I32.into(), &vortex_array::array_session());
+            default_zoned_aggregate_fns(&PType::I32.into(), &vortex_array::array_session(), true);
 
         assert!(aggregate_fns[0].is::<Max>());
         assert!(aggregate_fns[1].is::<Min>());
@@ -270,7 +279,20 @@ mod tests {
         let dtype = DType::Extension(
             Timestamp::new(TimeUnit::Microseconds, Nullability::Nullable).erased(),
         );
-        let aggregate_fns = default_zoned_aggregate_fns(&dtype, &vortex_array::array_session());
+        let aggregate_fns =
+            default_zoned_aggregate_fns(&dtype, &vortex_array::array_session(), true);
+
+        assert!(
+            aggregate_fns
+                .iter()
+                .all(|aggregate_fn| !aggregate_fn.is::<Sum>())
+        );
+    }
+
+    #[test]
+    fn default_aggregates_can_skip_sum() {
+        let aggregate_fns =
+            default_zoned_aggregate_fns(&PType::I32.into(), &vortex_array::array_session(), false);
 
         assert!(
             aggregate_fns

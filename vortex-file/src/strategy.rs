@@ -62,6 +62,7 @@ pub struct WriteStrategyBuilder {
     allow_encodings: Option<HashSet<ArrayId>>,
     flat_strategy: Option<Arc<dyn LayoutStrategy>>,
     probe_compressor: Option<Arc<dyn CompressorPlugin>>,
+    include_sum_zone_stats: bool,
     /// Whether to write list fields using [`ListLayoutStrategy`].
     ///
     /// [`ListLayoutStrategy`]: vortex_layout::layouts::list::writer::ListLayoutStrategy
@@ -80,6 +81,7 @@ impl Default for WriteStrategyBuilder {
             allow_encodings: None,
             flat_strategy: None,
             probe_compressor: None,
+            include_sum_zone_stats: true,
             use_list_layout: use_experimental_list_layout(),
         }
     }
@@ -170,6 +172,15 @@ impl WriteStrategyBuilder {
     /// Override the compressor used to probe whether a column is dict-eligible.
     pub fn with_probe_compressor<C: CompressorPlugin>(mut self, compressor: C) -> Self {
         self.probe_compressor = Some(Arc::new(compressor));
+        self
+    }
+
+    /// Configure whether zoned layouts include Sum in their default aggregate set.
+    ///
+    /// Disabling Sum can preserve write compatibility with readers whose Sum aggregate uses a
+    /// different partial-state representation.
+    pub fn with_sum_zone_stats(mut self, include: bool) -> Self {
+        self.include_sum_zone_stats = include;
         self
     }
 
@@ -267,6 +278,7 @@ impl WriteStrategyBuilder {
             compress_then_flat.clone(),
             ZonedLayoutOptions {
                 block_size: row_block_size,
+                include_sum: self.include_sum_zone_stats,
                 ..Default::default()
             },
         );
@@ -301,6 +313,7 @@ impl WriteStrategyBuilder {
                         compress_then_flat.clone(),
                         ZonedLayoutOptions {
                             block_size: row_block_size,
+                            include_sum: self.include_sum_zone_stats,
                             ..Default::default()
                         },
                     );
