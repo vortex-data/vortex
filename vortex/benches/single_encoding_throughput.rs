@@ -55,6 +55,7 @@ fn main() {
 }
 
 const NUM_VALUES: u64 = 100_000;
+
 // Helper function to conditionally add counter based on codspeed cfg
 fn with_byte_counter<'a, 'b>(bencher: Bencher<'a, 'b>, bytes: u64) -> Bencher<'a, 'b> {
     #[cfg(not(codspeed))]
