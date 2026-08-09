@@ -43,17 +43,20 @@ pub fn list_view_from_list(list: ListArray, ctx: &mut ExecutionCtx) -> VortexRes
     // function might not expect the output `ListViewArray` to have a bunch of leading and trailing
     // garbage data when they turn it back into a `ListArray`.
     let list = list.reset_offsets(false, ctx)?;
-    let list_offsets = list.offsets().clone();
+
+    // `reset_offsets` leaves a lazy subtraction in the offsets slot, which both the `sizes` below
+    // and the view's own offsets read. Execute it once here so that it does not run per reader.
+    let list_offsets = list.offsets().clone().execute::<PrimitiveArray>(ctx)?;
 
     // Create `sizes` array by computing differences between consecutive offsets.
     // We use the same `DType` for the sizes as the `offsets` array to ensure compatibility.
-    let sizes = match_each_integer_ptype!(list_offsets.dtype().as_ptype(), |O| {
-        build_sizes_from_offsets::<O>(&list, ctx)?
+    let sizes = match_each_integer_ptype!(list_offsets.ptype(), |O| {
+        build_sizes_from_offsets::<O>(&list_offsets)?
     });
 
     // We need to slice the `offsets` to remove the last element (`ListArray` has `n + 1` offsets).
     debug_assert_eq!(list_offsets.len(), list.len() + 1);
-    let adjusted_offsets = list_offsets.slice(0..list.len())?;
+    let adjusted_offsets = list_offsets.into_array().slice(0..list.len())?;
 
     // SAFETY: Since everything came from an existing valid `ListArray`, and the `sizes` were
     // derived from valid and in-order `offsets`, we know these fields are valid.
@@ -69,21 +72,18 @@ pub fn list_view_from_list(list: ListArray, ctx: &mut ExecutionCtx) -> VortexRes
     })
 }
 
-/// Builds a sizes array from a `ListArray` by computing differences between consecutive offsets.
-fn build_sizes_from_offsets<O: IntegerPType>(
-    list: &ListArray,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    let len = list.len();
+/// Builds a sizes array by computing differences between consecutive offsets.
+///
+/// `offsets` **must** be the `n + 1` sorted offsets of a non-empty `ListArray` of `n` rows.
+fn build_sizes_from_offsets<O: IntegerPType>(offsets: &PrimitiveArray) -> VortexResult<ArrayRef> {
+    let offsets_slice = offsets.as_slice::<O>();
+    debug_assert!(offsets_slice.is_sorted());
+
+    let len = offsets_slice.len() - 1;
     let mut sizes_builder = PrimitiveBuilder::<O>::with_capacity(Nullability::NonNullable, len);
 
     // Create `UninitRange` for direct memory access.
     let mut sizes_range = sizes_builder.uninit_range(len);
-
-    let offsets = list.offsets().clone().execute::<PrimitiveArray>(ctx)?;
-    let offsets_slice = offsets.as_slice::<O>();
-    debug_assert_eq!(len + 1, offsets_slice.len());
-    debug_assert!(offsets_slice.is_sorted());
 
     // Compute sizes as the difference between consecutive offsets.
     for i in 0..len {
@@ -101,13 +101,12 @@ fn build_sizes_from_offsets<O: IntegerPType>(
 
 // TODO(connor)[ListView]: Note that it is not exactly zero-copy because we have to add a single
 // offset at the end, but it is fast enough.
-/// Creates a `ListArray` from a `ListViewArray`. The resulting `ListArray` will not have any
-/// leading or trailing garbage data.
+/// Creates a `ListArray` from a `ListViewArray`.
 ///
-/// If `ListViewArray::is_zero_copy_to_list` is `true`, then this operation is fast
+/// The resulting `ListArray` will not have any leading or trailing garbage data.
 ///
-/// Otherwise, this function fall back to the (very) expensive path and will rebuild the
-/// `ListArray` from scratch.
+/// This operation is fast when `ListViewArray::is_zero_copy_to_list` is `true`. Otherwise it
+/// falls back to the (very) expensive path and rebuilds the `ListArray` from scratch.
 pub fn list_from_list_view(
     list_view: ListViewArray,
     ctx: &mut ExecutionCtx,
@@ -136,8 +135,9 @@ pub fn list_from_list_view(
 
 // TODO(connor)[ListView]: We can optimize this by always keeping extra memory in `ListViewArray`
 // offsets for an `n+1`th offset.
-/// Builds a `ListArray` offsets array from a `ListViewArray` by constructing `n+1` offsets.
-/// The last offset is computed as `last_offset + last_size`.
+/// Builds a `ListArray` offsets array from a `ListViewArray` by constructing `n + 1` offsets.
+///
+/// The last offset is computed as `last_offset + last_size`, and is zero for an empty array.
 ///
 /// # Safety
 ///
@@ -347,6 +347,24 @@ mod tests {
 
         // Verify data integrity.
         assert_arrays_eq!(list_array, list_view, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_list_to_listview_resets_nonzero_offsets() -> VortexResult<()> {
+        let elements = buffer![0i32, 1, 2, 3, 4].into_array();
+        let offsets = buffer![2u16, 4, 5].into_array();
+        let list = ListArray::try_new(elements, offsets, Validity::NonNullable)?;
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let list_view = list_view_from_list(list.clone(), &mut ctx)?;
+
+        assert_arrays_eq!(
+            buffer![0u16, 2].into_array(),
+            list_view.offsets().clone(),
+            &mut ctx
+        );
+        assert_arrays_eq!(list, list_view, &mut ctx);
         Ok(())
     }
 
