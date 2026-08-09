@@ -1,20 +1,10 @@
-name: Codspeed Benchmarking
+name: Codspeed RowFn Take Filter
 
-# Concurrency control:
-# - PRs: new commits on a feature branch will cancel in-progress (outdated) runs.
-# - Push to develop: every commit gets its own group, so baseline runs never cancel and never
-#   queue behind each other. Serialising them meant a burst of merges left later commits without
-#   a finished baseline, so CodSpeed fell back to an older comparison base and reported changes
-#   unrelated to the PR being tested.
-# - `workflow_dispatch`: groups by branch and queues if run on develop.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'push' && github.sha || '' }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 on:
-  push:
-    branches: [develop]
   pull_request: { }
-  workflow_dispatch: { }
 
 permissions:
   contents: read
@@ -22,47 +12,14 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  NIGHTLY_TOOLCHAIN: nightly-2026-02-05
 
 jobs:
-  changes:
-    name: "Detect CUDA changes"
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      pull-requests: read
-    outputs:
-      run-cuda-benchmarks: ${{ github.event_name != 'pull_request' || steps.filter.outputs.cuda == 'true' }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706  # v4
-        id: filter
-        if: github.event_name == 'pull_request'
-        with:
-          filters: |
-            cuda:
-              - "vortex-cuda/**"
-              # Only this workflow defines the CUDA benchmark jobs.
-              - ".github/workflows/codspeed.yml"
-
   bench-codspeed:
-    strategy:
-      matrix:
-        include:
-          - { shard: 1, name: "Core foundation", packages: "vortex-buffer vortex-error vortex-mask vortex-compute vortex-file" }
-          - { shard: 2, name: "Arrays", packages: "vortex-array", features: "--features _test-harness" }
-          - { shard: 3, name: "Main library", packages: "vortex" }
-          - { shard: 4, name: "Encodings 1", packages: "vortex-alp vortex-bytebool vortex-datetime-parts" }
-          - { shard: 5, name: "Encodings 2", packages: "vortex-decimal-byte-parts vortex-fastlanes vortex-fsst", features: "--features _test-harness" }
-          - { shard: 6, name: "Encodings 3", packages: "vortex-pco vortex-runend vortex-sequence" }
-          - { shard: 7, name: "Encodings 4", packages: "vortex-sparse vortex-zigzag vortex-zstd" }
-          - { shard: 8, name: "Storage formats & row encoding", packages: "vortex-flatbuffers vortex-proto vortex-btrblocks vortex-row" }
-          - { shard: 9, name: "Tensor & spatial", packages: "vortex-tensor vortex-spatial" }
-    name: "Benchmark with Codspeed (Shard #${{ matrix.shard }})"
+    name: "Benchmark take_filter with Codspeed"
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=bench-codspeed-{1}', github.run_id, matrix.shard)
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=bench-codspeed-take-filter', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -78,108 +35,15 @@ jobs:
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
         with:
           tool: cargo-codspeed
-      - name: Build benchmarks
+      - name: Build take_filter
         env:
           RUSTFLAGS: "-C target-feature=+avx2"
-        run: cargo codspeed build ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) --profile bench
-      - name: Run benchmarks
+        run: >-
+          cargo codspeed build --features _test-harness -p vortex-array
+          --bench take_filter --profile bench
+      - name: Run take_filter
         uses: CodSpeedHQ/action@0ca9cbbf4623b599a6c3ed4fc8a922942705d9f1  # v5
         with:
-          run: cargo codspeed run
+          run: cargo codspeed run --bench take_filter
           token: ${{ secrets.CODSPEED_TOKEN }}
           mode: "simulation"
-
-  # Getting a GPU box is slow, in the future we can build on a box without one and only run
-  # on GPU machines.
-  bench-codspeed-cuda-build:
-    needs: [changes]
-    if: >-
-      always() && github.repository == 'vortex-data/vortex' &&
-      needs.changes.outputs.run-cuda-benchmarks == 'true'
-    name: "Build Codspeed CUDA benchmarks"
-    timeout-minutes: 30
-    runs-on: >-
-      runs-on=${{ github.run_id }}/family=g5/cpu=8/image=ubuntu24-gpu-x64/extras=s3-cache/tag=bench-codspeed-cuda-build
-    steps:
-      - uses: runs-on/action@v2
-        with:
-          sccache: s3
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          enable-sccache: "true"
-      - name: Install Codspeed
-        uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
-        with:
-          tool: cargo-codspeed
-      - name: Build benchmarks
-        run: |
-          cargo codspeed build -m walltime \
-            --bench bitpacked_cuda \
-            --bench dynamic_dispatch_cuda \
-            --bench alp_cuda \
-            --bench date_time_parts_cuda \
-            --bench dict_cuda \
-            --bench fsst_cuda \
-            --bench runend_cuda \
-            --profile bench
-      - name: Package CUB shared library
-        run: |
-          find target/release/build -path '*/out/libvortex_cub.so' \
-            -exec cp {} target/codspeed/walltime/vortex-cuda/libvortex_cub.so \;
-          test -f target/codspeed/walltime/vortex-cuda/libvortex_cub.so
-      - name: Upload benchmark executables
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
-        with:
-          name: codspeed-cuda-benchmarks
-          path: target/codspeed/
-          retention-days: 1
-          if-no-files-found: error
-
-  bench-codspeed-cuda:
-    if: github.repository == 'vortex-data/vortex'
-    needs: [bench-codspeed-cuda-build]
-    strategy:
-      matrix:
-        include:
-          - { shard: 1, name: "Bitpacked", benches: "bitpacked_cuda" }
-          - { shard: 2, name: "Dynamic dispatch", benches: "dynamic_dispatch_cuda" }
-          - { shard: 3, name: "Standalone kernels", benches: "alp_cuda date_time_parts_cuda dict_cuda fsst_cuda runend_cuda" }
-    name: "Benchmark with Codspeed (CUDA Shard #${{ matrix.shard }} - ${{ matrix.name }})"
-    timeout-minutes: 30
-    runs-on: >-
-      runs-on=${{ github.run_id }}/family=g5/cpu=8/image=ubuntu24-gpu-x64/extras=s3-cache/tag=bench-codspeed-cuda-${{ matrix.shard }}
-    steps:
-      - uses: runs-on/action@v2
-        with:
-          sccache: s3
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          enable-sccache: "true"
-      - name: Display NVIDIA SMI details
-        run: |
-          nvidia-smi
-          nvidia-smi -L
-          nvidia-smi -q -d Memory
-      - name: Install Codspeed
-        uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
-        with:
-          tool: cargo-codspeed
-      - name: Download benchmark executables
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
-        with:
-          name: codspeed-cuda-benchmarks
-          path: target/codspeed
-      - name: Restore executable permissions
-        run: find target/codspeed -type f -exec chmod +x {} +
-      - name: Run benchmarks
-        uses: CodSpeedHQ/action@0ca9cbbf4623b599a6c3ed4fc8a922942705d9f1  # v5
-        env:
-          CARGO_MANIFEST_DIR: ${{ github.workspace }}/vortex-cuda
-        with:
-          run: cargo codspeed run $(printf -- '--bench %s ' ${{ matrix.benches }})
-          token: ${{ secrets.CODSPEED_TOKEN }}
-          mode: "walltime"
