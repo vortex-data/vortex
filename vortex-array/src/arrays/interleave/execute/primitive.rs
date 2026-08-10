@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 use super::super::Interleave;
 use super::super::InterleaveArrayExt;
 use super::validate_selectors;
+use crate::AnyColumnar;
 use crate::array::Array;
 use crate::array::ArrayView;
 use crate::arrays::Constant;
@@ -32,13 +33,11 @@ pub(super) fn execute(
     array = require_child!(array, array.array_indices(), 0 => Primitive);
     array = require_child!(array, array.row_indices(), 1 => Primitive);
     for i in 0..num_values {
-        if array.value(i).as_opt::<Constant>().is_none() {
-            array = require_child!(array, array.value(i), i + 2 => Primitive);
-        }
+        array = require_child!(array, array.value(i), i + 2 => AnyColumnar);
     }
 
     let validity = array.as_ref().validity()?;
-    let output = match_each_native_ptype!(array.value(0).dtype().as_ptype(), |T| {
+    let output = match_each_native_ptype!(array.dtype().as_ptype(), |T| {
         let values = gather_values::<T>(&array)?;
         VortexResult::Ok(PrimitiveArray::new(values, validity))
     })?;
@@ -49,27 +48,21 @@ pub(super) fn execute(
 /// Physical primitive values; nullness remains in the source array's validity.
 enum PrimitiveValues<T> {
     Buffer(Buffer<T>),
-    Constant { value: T, len: usize },
+    Constant(T),
 }
 
 impl<T: Copy> PrimitiveValues<T> {
-    fn len(&self) -> usize {
-        match self {
-            Self::Buffer(values) => values.len(),
-            Self::Constant { len, .. } => *len,
-        }
-    }
-
     /// Returns the physical value at `index` without bounds checking.
     ///
     /// # Safety
     ///
-    /// `index` must be less than [`Self::len`].
+    /// For [`Self::Buffer`], `index` must be less than the buffer length. [`Self::Constant`]
+    /// accepts any index because it has a single physical value.
     unsafe fn value_unchecked(&self, index: usize) -> T {
         match self {
             // SAFETY: the caller guarantees that `index` is in bounds.
             Self::Buffer(values) => *unsafe { values.get_unchecked(index) },
-            Self::Constant { value, .. } => *value,
+            Self::Constant(value) => *value,
         }
     }
 }
@@ -79,15 +72,14 @@ fn gather_values<T: NativePType>(array: &Array<Interleave>) -> VortexResult<Buff
         .map(|i| {
             let value = array.value(i);
             if let Some(constant) = value.as_opt::<Constant>() {
-                PrimitiveValues::Constant {
-                    value: constant
+                PrimitiveValues::Constant(
+                    constant
                         .scalar()
                         .as_primitive()
                         .typed_value::<T>()
                         // Validity carries nullness; a null constant's payload is never observed.
                         .unwrap_or_default(),
-                    len: value.len(),
-                }
+                )
             } else {
                 PrimitiveValues::Buffer(value.as_::<Primitive>().to_buffer::<T>())
             }
@@ -97,11 +89,12 @@ fn gather_values<T: NativePType>(array: &Array<Interleave>) -> VortexResult<Buff
     let rows = array.row_indices().as_::<Primitive>();
 
     match_each_unsigned_integer_ptype!(branches.ptype(), |A| {
-        gather_rows::<T, A>(&values, branches.as_slice::<A>(), rows)
+        gather_rows::<T, A>(array, &values, branches.as_slice::<A>(), rows)
     })
 }
 
 fn gather_rows<T, A>(
+    array: &Array<Interleave>,
     values: &[PrimitiveValues<T>],
     branches: &[A],
     rows: ArrayView<'_, Primitive>,
@@ -111,11 +104,12 @@ where
     A: AsPrimitive<usize>,
 {
     match_each_unsigned_integer_ptype!(rows.ptype(), |R| {
-        gather(values, branches, rows.as_slice::<R>())
+        gather(array, values, branches, rows.as_slice::<R>())
     })
 }
 
 fn gather<T, A, R>(
+    array: &Array<Interleave>,
     values: &[PrimitiveValues<T>],
     branches: &[A],
     rows: &[R],
@@ -125,10 +119,15 @@ where
     A: AsPrimitive<usize>,
     R: AsPrimitive<usize>,
 {
-    let len = validate_selectors(values.len(), |branch| values[branch].len(), branches, rows)?;
+    let len = validate_selectors(
+        values.len(),
+        |branch| array.value(branch).len(),
+        branches,
+        rows,
+    )?;
 
-    // SAFETY: `validate_selectors` proved `branches.len() == rows.len() == len`, and for every
-    // `i < len` that `branches[i] < values.len()` and `rows[i] < values[branches[i]].len()`.
+    // SAFETY: `validate_selectors` proved both selector lengths and every logical source bound.
+    // Each `Buffer` has the same length as its source array, while `Constant` ignores the row.
     Ok(unsafe { gather_unchecked(len, values, branches, rows) })
 }
 
@@ -137,7 +136,8 @@ where
 /// # Safety
 ///
 /// `branches` and `rows` must both contain at least `len` elements. For every `i < len`,
-/// `branches[i] < values.len()` and `rows[i] < values[branches[i]].len()`.
+/// `branches[i] < values.len()` and, when the selected value is a [`PrimitiveValues::Buffer`],
+/// `rows[i]` must be less than that buffer's length.
 unsafe fn gather_unchecked<T, A, R>(
     len: usize,
     values: &[PrimitiveValues<T>],
@@ -150,14 +150,16 @@ where
     R: AsPrimitive<usize>,
 {
     let mut output = BufferMut::with_capacity(len);
-    for i in 0..len {
-        // SAFETY: the caller guarantees `i` is in bounds for both selectors, and that the selected
-        // branch and row are in bounds for `values` and the selected physical value buffer.
-        output.push(unsafe {
-            values
-                .get_unchecked(branches.get_unchecked(i).as_())
-                .value_unchecked(rows.get_unchecked(i).as_())
-        });
+    for ((branch, row), slot) in branches.iter().zip(rows).zip(output.spare_capacity_mut()) {
+        let branch = (*branch).as_();
+        let row = (*row).as_();
+        // SAFETY: the caller guarantees that the selected branch and row are in bounds for
+        // `values` and the selected physical value buffer.
+        slot.write(unsafe { values.get_unchecked(branch).value_unchecked(row) });
     }
+
+    // SAFETY: the caller guarantees both selector slices have at least `len` elements, so the loop
+    // initialized exactly `len` output slots.
+    unsafe { output.set_len(len) };
     output.freeze()
 }

@@ -18,7 +18,6 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
 use super::Interleave;
-use super::InterleaveArrayExt;
 use crate::array::Array;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
@@ -28,15 +27,14 @@ pub(super) fn execute(
     array: Array<Interleave>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ExecutionResult> {
-    if array.value(0).dtype().is_boolean() {
+    if array.dtype().is_boolean() {
         bool::execute(array, ctx)
-    } else if array.value(0).dtype().is_primitive() {
+    } else if array.dtype().is_primitive() {
         primitive::execute(array, ctx)
     } else {
-        let value_dtype = array.value(0).dtype().clone();
         vortex_panic!(
             "interleave execution is not implemented for value dtype {}",
-            value_dtype
+            array.dtype()
         )
     }
 }
