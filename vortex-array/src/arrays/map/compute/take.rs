@@ -16,8 +16,10 @@ use crate::executor::ExecutionCtx;
 
 impl TakeReduce for Map {
     fn take(array: ArrayView<'_, Self>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        let Some(entries) =
-            <ListView as TakeReduce>::take(array.entries().as_::<ListView>(), indices)?
+        let Some(entries) = <ListView as TakeReduce>::take(
+            array.entries().as_::<ListView>().materialize_view(),
+            indices,
+        )?
         else {
             return Ok(None);
         };
@@ -32,8 +34,11 @@ impl TakeExecute for Map {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(entries) =
-            <ListView as TakeExecute>::take(array.entries().as_::<ListView>(), indices, ctx)?
+        let Some(entries) = <ListView as TakeExecute>::take(
+            array.entries().as_::<ListView>().materialize_view(),
+            indices,
+            ctx,
+        )?
         else {
             return Ok(None);
         };

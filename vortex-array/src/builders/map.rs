@@ -129,7 +129,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> MapBuilder<O, S> {
             "MapBuilder received a map array with the wrong dtype"
         );
         self.entries_builder
-            .append_listview_array(array.entries().as_::<ListView>(), ctx)
+            .append_listview_array(array.entries().as_::<ListView>().materialize_view(), ctx)
     }
 }
 
