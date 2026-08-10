@@ -81,7 +81,7 @@ jobs:
       - name: Build benchmarks
         env:
           RUSTFLAGS: "-C target-feature=+avx2"
-        run: cargo codspeed build ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) --profile bench
+        run: cargo codspeed build --locked ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) --profile bench
       - name: Run benchmarks
         uses: CodSpeedHQ/action@4296e51e7041e24dadb86d1d6e8b9320d223dbe8  # v5
         with:
@@ -115,7 +115,8 @@ jobs:
           tool: cargo-codspeed
       - name: Build benchmarks
         run: |
-          cargo codspeed build -m walltime \
+          cargo codspeed build --locked \
+            -m walltime \
             --bench bitpacked_cuda \
             --bench dynamic_dispatch_cuda \
             --bench alp_cuda \
