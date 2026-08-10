@@ -352,8 +352,7 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
                 .get(&ExactBoundExpr(expression.clone()))
                 .vortex_expect("Bound expression missing free-field annotations")
                 .clone();
-        let expanded_root = expanded_struct_root(child.dtype(), fields)?;
-        let expanded = expand_struct_root(expression.clone(), &expanded_root, fields)?;
+        let expanded = expand_struct_root(expression.clone(), fields)?;
         let partitioned =
             partition_bound(expanded.clone(), make_bound_free_field_annotator(fields))?;
 
@@ -469,14 +468,13 @@ fn expanded_struct_root(
 
 fn expand_struct_root(
     expression: BoundExpression,
-    expanded_root: &BoundExpression,
     fields: &StructFields,
 ) -> VortexResult<BoundExpression> {
     Ok(expression
         .transform_down(|node| {
             if node.is_root() {
                 return Ok(Transformed {
-                    value: expanded_root.clone(),
+                    value: expanded_struct_root(node.dtype(), fields)?,
                     changed: true,
                     order: TraversalOrder::Skip,
                 });
@@ -493,28 +491,23 @@ fn expand_struct_root(
                 return Ok(Transformed::no(node));
             }
 
-            if let Some(field_name) = scalar_fn.as_opt::<GetItem>() {
-                let index = fields.find(field_name).ok_or_else(|| {
-                    vortex_err!("Field {field_name} not found while expanding struct root")
-                })?;
+            if scalar_fn.is::<GetItem>() {
                 return Ok(Transformed {
-                    value: expanded_root.children()[index].clone(),
-                    changed: true,
+                    value: node,
+                    changed: false,
                     order: TraversalOrder::Skip,
                 });
             }
 
             if let Some(selection) = scalar_fn.as_opt::<Select>() {
                 let names = selection.normalize_to_included_fields(fields.names())?;
+                let root = node.children()[0].clone();
                 let children = names
                     .iter()
                     .map(|name| {
-                        let index = fields
-                            .find(name)
-                            .vortex_expect("normalized selection fields must exist in the root");
-                        expanded_root.children()[index].clone()
+                        BoundExpression::try_new(GetItem.bind(name.clone()), [root.clone()])
                     })
-                    .collect();
+                    .collect::<VortexResult<Vec<_>>>()?;
                 return Ok(Transformed {
                     value: bound_pack(names, children)?,
                     changed: true,
