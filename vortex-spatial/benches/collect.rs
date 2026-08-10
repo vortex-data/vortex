@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Microbenchmarks for native `ST_Collect` over homogeneous geometry lists.
+//! Microbenchmarks for the per-row scalar `ST_Collect` over homogeneous geometry lists.
 //!
-//! The cases cover each strict overload and the inner-null compaction path. They execute the
-//! result to its canonical representation so the full multi-geometry construction is measured.
+//! The benchmark inputs are already list-valued, modeling the output of a preceding `ARRAY_AGG` or
+//! `list` aggregate rather than measuring aggregation itself. The cases cover each strict overload
+//! and the inner-null compaction path. They execute the result to its canonical representation so
+//! the full multi-geometry construction is measured.
 //!
 //! Run with `cargo bench -p vortex-spatial --bench collect`.
 
@@ -113,8 +115,8 @@ fn polygon_lists() -> ArrayRef {
     geometry_lists(polygons, POLYGONS_PER_ROW)
 }
 
-fn collect(input: &ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
-    SpatialCollect::try_new_array(input.clone())
+fn collect_list_rows(geometry_lists: &ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
+    SpatialCollect::try_new_array(geometry_lists.clone())
         .unwrap()
         .into_array()
         .execute::<Canonical>(ctx)
@@ -122,11 +124,11 @@ fn collect(input: &ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
         .into_array()
 }
 
-fn bench_collect(bencher: Bencher, input: ArrayRef) {
+fn bench_collect(bencher: Bencher, geometry_lists: ArrayRef) {
     let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))
-        .bench_local(|| collect(&input, &mut ctx));
+        .bench_local(|| collect_list_rows(&geometry_lists, &mut ctx));
 }
 
 #[divan::bench]

@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! `ST_Collect`: collect homogeneous native geometries into their native multi-geometry type.
+//! Per-row scalar `ST_Collect` over homogeneous native geometry lists.
+//!
+//! Each input row is one `List<Point>`, `List<LineString>`, or `List<Polygon>` and produces one
+//! corresponding multi-geometry row. This function does not aggregate geometry values across
+//! rows; a SQL query that starts with individual geometry rows must first group them with an
+//! aggregate such as `ARRAY_AGG` or `list`.
 
 use std::sync::Arc;
 
@@ -102,36 +107,36 @@ fn valid_count(mask: &Mask, start: usize, end: usize) -> usize {
     }
 }
 
-/// Rewrap a homogeneous geometry list as its corresponding multi-geometry array.
+/// Rewrap each homogeneous geometry-list row as its corresponding multi-geometry row.
 ///
 /// The all-valid path reuses the geometry payload and list views. If geometry elements are null,
 /// DuckDB semantics require ignoring them; that path first makes the views exact, then compacts the
 /// payload and rebuilds the row views. Either way the output carries the input's zero-copy-to-list
 /// flag, so a downstream `ListArray` conversion does not re-gather the reused payload.
-fn collect_list(
-    mut list: ListViewArray,
+fn collect_list_rows(
+    mut lists: ListViewArray,
     validity: Validity,
     output_dtype: &ExtDTypeRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let mut element_valid = list
+    let mut element_valid = lists
         .elements()
         .validity()?
-        .execute_mask(list.elements().len(), ctx)?;
+        .execute_mask(lists.elements().len(), ctx)?;
     if !element_valid.all_true() {
-        list = list.rebuild(ListViewRebuildMode::MakeExact, ctx)?;
-        element_valid = list
+        lists = lists.rebuild(ListViewRebuildMode::MakeExact, ctx)?;
+        element_valid = lists
             .elements()
             .validity()?
-            .execute_mask(list.elements().len(), ctx)?;
+            .execute_mask(lists.elements().len(), ctx)?;
     }
 
     // Both output paths keep the views exact: reuse forwards `offsets` and `sizes` untouched, and
     // compaction rebuilds them as a running sum over the same element order. So the result is
-    // zero-copy to a `ListArray` exactly when `list` is, which `MakeExact` above has already
-    // ensured for every list that reaches compaction.
-    let zero_copy_to_list = list.is_zero_copy_to_list();
-    let parts = list.into_data_parts();
+    // zero-copy to a `ListArray` exactly when `lists` is, which `MakeExact` above has already
+    // ensured for every list array that reaches compaction.
+    let zero_copy_to_list = lists.is_zero_copy_to_list();
+    let parts = lists.into_data_parts();
     let elements = parts.elements.execute::<ExtensionArray>(ctx)?;
     let DType::List(target_element_storage, _) = output_dtype.storage_dtype() else {
         unreachable!("collect output storage is always a list")
@@ -196,29 +201,29 @@ fn collect_list(
     Ok(ExtensionArray::try_new(output_dtype.clone(), storage)?.into_array())
 }
 
-/// Execute the structural collect kernel after shared unary shape and null dispatch.
-fn execute_collect(
+/// Execute per-row list-to-multi-geometry conversion after shared unary shape and null dispatch.
+fn execute_collect_list_rows(
     execution: Execution<1, Validity>,
     output_dtype: &ExtDTypeRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     match execution.operands {
         [Operand::Constant(scalar)] => {
-            let one = ConstantArray::new(scalar, 1)
+            let one_list = ConstantArray::new(scalar, 1)
                 .into_array()
                 .execute::<ListViewArray>(ctx)?;
-            let collected = collect_list(
-                one,
+            let collected = collect_list_rows(
+                one_list,
                 Validity::from_mask(Mask::new_true(1), execution.nullability),
                 output_dtype,
                 ctx,
             )?;
             Ok(ConstantArray::new(collected.execute_scalar(0, ctx)?, execution.len).into_array())
         }
-        [Operand::Column(array)] => {
+        [Operand::Column(geometry_lists)] => {
             let valid = execution.valid.execute_mask(execution.len, ctx)?;
-            collect_list(
-                array.execute::<ListViewArray>(ctx)?,
+            collect_list_rows(
+                geometry_lists.execute::<ListViewArray>(ctx)?,
                 Validity::from_mask(valid, execution.nullability),
                 output_dtype,
                 ctx,
@@ -227,19 +232,21 @@ fn execute_collect(
     }
 }
 
-/// Collect a homogeneous list of native `Point`, `LineString`, or `Polygon` values into the
-/// corresponding `MultiPoint`, `MultiLineString`, or `MultiPolygon` value. Null geometry elements
-/// are ignored. Mixed geometry lists are rejected by the list element dtype rather than represented
-/// as a geometry union.
+/// Scalar `ST_Collect` over list-valued rows of native geometries.
+///
+/// Each input list row produces one `MultiPoint`, `MultiLineString`, or `MultiPolygon` row. This is
+/// distinct from an aggregate function: it does not combine geometry values from different rows.
+/// Null geometry elements are ignored. Mixed geometry lists are rejected by the list element dtype
+/// rather than represented as a geometry union.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct SpatialCollect;
 
 impl SpatialCollect {
-    /// A lazy `ScalarFnArray` collecting each list row into one native multi-geometry value.
-    pub fn try_new_array(array: ArrayRef) -> VortexResult<ScalarFnArray> {
+    /// Create a lazy scalar array that converts each geometry-list row to one multi-geometry row.
+    pub fn try_new_array(geometry_lists: ArrayRef) -> VortexResult<ScalarFnArray> {
         ScalarFnArray::try_new(
             TypedScalarFnInstance::new(SpatialCollect, EmptyOptions).erased(),
-            vec![array],
+            vec![geometry_lists],
         )
     }
 }
@@ -266,7 +273,7 @@ impl ScalarFnVTable for SpatialCollect {
 
     fn child_name(&self, _: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
-            0 => ChildName::from("geometries"),
+            0 => ChildName::from("geometry_list"),
             _ => unreachable!("collect has exactly one child"),
         }
     }
@@ -281,12 +288,12 @@ impl ScalarFnVTable for SpatialCollect {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let input = args.get(0)?;
-        let output_dtype = collect_dtype(std::slice::from_ref(input.dtype()))?;
+        let geometry_lists = args.get(0)?;
+        let output_dtype = collect_dtype(std::slice::from_ref(geometry_lists.dtype()))?;
         dispatch_unary(
-            &input,
+            &geometry_lists,
             DType::Extension(output_dtype.clone()),
-            |execution, ctx| execute_collect(execution, &output_dtype, ctx),
+            |execution, ctx| execute_collect_list_rows(execution, &output_dtype, ctx),
             ctx,
         )
     }
