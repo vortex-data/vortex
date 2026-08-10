@@ -38,9 +38,10 @@ pub struct EditionSession {
 struct Inner {
     /// Keyed by the display form of the edition id.
     editions: BTreeMap<String, Edition>,
-    /// Keyed by component kind and interned component id, because ids are only unique
-    /// within a kind. Ordered by kind, then by the id's string form.
-    inclusions: BTreeMap<(ComponentKind, Id), EditionInclusion>,
+    /// One map per component kind, each keyed by interned component id, because ids are
+    /// only unique within a kind. Resolving a kind scans that kind's map alone, never the
+    /// other kinds' entries. Ordered by kind, then by the id's string form.
+    inclusions: BTreeMap<ComponentKind, BTreeMap<Id, EditionInclusion>>,
 }
 
 /// Registry of enabled editions, keyed by interned edition family.
@@ -111,14 +112,14 @@ impl EditionSession {
     /// key, so an array encoding and a layout may share an id.
     pub fn declare_inclusion(&self, inclusion: EditionInclusion) -> Result<(), EditionError> {
         let mut inner = self.inner.write();
-        let key = (inclusion.kind, inclusion.component_id);
-        if inner.inclusions.contains_key(&key) {
+        let by_id = inner.inclusions.entry(inclusion.kind).or_default();
+        if by_id.contains_key(&inclusion.component_id) {
             return Err(EditionError::new(format!(
                 "duplicate edition inclusion for {} {}",
                 inclusion.kind, inclusion.component_id
             )));
         }
-        inner.inclusions.insert(key, inclusion);
+        by_id.insert(inclusion.component_id, inclusion);
         Ok(())
     }
 
@@ -151,21 +152,28 @@ impl EditionSession {
     /// Callers that resolve members against a registry want one kind at a time — use
     /// [`EditionSession::components_in`].
     pub fn members_in(&self, edition: &EditionId) -> Vec<EditionInclusion> {
-        // The map is keyed by (kind, component id), so the values are already sorted.
+        // Kinds are stored in separate maps, each already sorted by component id.
         self.inner
             .read()
             .inclusions
             .values()
+            .flat_map(|by_id| by_id.values())
             .filter(|inclusion| inclusion.since.is_at_or_before(edition))
             .copied()
             .collect()
     }
 
-    /// Compute an edition's members of one kind, sorted by component id.
+    /// Compute an edition's members of one kind, sorted by component id. Only that kind's
+    /// declarations are scanned.
     pub fn components_in(&self, edition: &EditionId, kind: ComponentKind) -> Vec<EditionInclusion> {
-        self.members_in(edition)
-            .into_iter()
-            .filter(|inclusion| inclusion.kind == kind)
+        let inner = self.inner.read();
+        let Some(by_id) = inner.inclusions.get(&kind) else {
+            return vec![];
+        };
+        by_id
+            .values()
+            .filter(|inclusion| inclusion.since.is_at_or_before(edition))
+            .copied()
             .collect()
     }
 
@@ -206,7 +214,7 @@ impl EditionSession {
         }
 
         let inner = self.inner.read();
-        for inclusion in inner.inclusions.values() {
+        for inclusion in inner.inclusions.values().flat_map(|by_id| by_id.values()) {
             inclusion.validate()?;
 
             let Some(edition) = inner.editions.get(&inclusion.since.to_string()) else {
