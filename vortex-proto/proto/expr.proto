@@ -32,14 +32,6 @@ message NumericalAggregateOpts {
   bool skip_nans = 1;
 }
 
-// Options for `vortex.sum`. The optional partial-shape marker distinguishes newly serialized
-// options from the historical `NumericalAggregateOpts` encoding, which used the same tag for
-// `skip_nans` but had no second field.
-message SumAggregateOpts {
-  bool skip_nans = 1;
-  optional bool struct_partial = 2;
-}
-
 // Options for `vortex.literal`
 message LiteralOpts {
   vortex.scalar.Scalar value = 1;
