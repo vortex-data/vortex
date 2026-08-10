@@ -3,10 +3,9 @@
 
 //! Microbenchmarks for the per-row scalar `ST_Collect` over homogeneous geometry lists.
 //!
-//! The benchmark inputs are already list-valued, modeling the output of a preceding `ARRAY_AGG` or
-//! `list` aggregate rather than measuring aggregation itself. The cases cover each strict overload
-//! and the inner-null compaction path. They execute the result to its canonical representation so
-//! the full multi-geometry construction is measured.
+//! Inputs are already list-valued, standing in for a preceding `ARRAY_AGG` rather than measuring
+//! the aggregate itself. The cases cover each overload plus the null-element path, and execute to
+//! canonical form so the whole multi-geometry construction is timed.
 //!
 //! Run with `cargo bench -p vortex-spatial --bench collect`.
 
@@ -153,10 +152,9 @@ fn nullable_points(bencher: Bencher) {
 
 /// Collect feeding a consumer that converts the result to a `ListArray`.
 ///
-/// The cases above stop at [`Canonical`], whose list form is a `ListViewArray`, so they cannot
-/// observe whether collect's output still reports itself as zero-copy to a list. `ST_Envelope`
-/// reaches that path through `flatten_row_offsets`, and re-gathers the whole payload when the
-/// flag is missing.
+/// The cases above stop at [`Canonical`], whose list form is a `ListViewArray`, so they cannot see
+/// whether the output still reports itself zero-copy to a list. `ST_Envelope` reaches that path via
+/// `flatten_row_offsets` and re-gathers the whole payload when the flag is missing.
 fn envelope_of_collect(input: &ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
     let collected = SpatialCollect::try_new_array(input.clone())
         .unwrap()

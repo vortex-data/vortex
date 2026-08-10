@@ -3,10 +3,10 @@
 
 //! Per-row scalar `ST_Collect` over homogeneous native geometry lists.
 //!
-//! Each input row is one `List<Point>`, `List<LineString>`, or `List<Polygon>` and produces one
-//! corresponding multi-geometry row. This function does not aggregate geometry values across
-//! rows; a SQL query that starts with individual geometry rows must first group them with an
-//! aggregate such as `ARRAY_AGG` or `list`.
+//! One `List<Point>`, `List<LineString>`, or `List<Polygon>` row in; one `MultiPoint`,
+//! `MultiLineString`, or `MultiPolygon` row out. This is not an aggregate: it never combines
+//! geometries from different rows, so a query over individual geometry rows must group them
+//! first with `ARRAY_AGG` or `list`.
 
 use std::sync::Arc;
 
@@ -38,6 +38,7 @@ use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -67,8 +68,7 @@ fn collect_dtype(dtypes: &[DType]) -> VortexResult<ExtDTypeRef> {
     let DType::List(element_dtype, nullability) = &dtypes[0] else {
         vortex_bail!("spatial: collect operand {} is not a list", dtypes[0]);
     };
-    // Multi-geometries cannot contain null components. Null list elements are ignored during
-    // execution, so their storage is non-nullable in the result.
+    // Execution ignores null list elements, so the result's element storage is non-nullable.
     let multi_storage = |element: &ExtDTypeRef| {
         DType::List(
             Arc::new(element.storage_dtype().as_nonnullable()),
@@ -98,111 +98,119 @@ fn collect_dtype(dtypes: &[DType]) -> VortexResult<ExtDTypeRef> {
     }
 }
 
-/// Count valid elements in an exact list row without per-element mask lookups.
-fn valid_count(mask: &Mask, start: usize, end: usize) -> usize {
-    match mask.bit_buffer() {
+/// Count valid elements in `start..end` with one range popcount, not per-element lookups.
+fn count_valid(element_mask: &Mask, start: usize, end: usize) -> usize {
+    match element_mask.bit_buffer() {
         AllOr::All => end - start,
         AllOr::None => 0,
         AllOr::Some(bits) => bits.count_range(start, end),
     }
 }
 
-/// Rewrap each homogeneous geometry-list row as its corresponding multi-geometry row.
+/// Re-address the rows once null elements are filtered out of the payload.
 ///
-/// The all-valid path reuses the geometry payload and list views. If geometry elements are null,
-/// DuckDB semantics require ignoring them; that path first makes the views exact, then compacts the
-/// payload and rebuilds the row views. Either way the output carries the input's zero-copy-to-list
-/// flag, so a downstream `ListArray` conversion does not re-gather the reused payload.
+/// Takes the `row_sizes` of an exact list view and the mask over its elements; returns the new
+/// `(offsets, sizes)`. The old offsets are redundant: `MakeExact` leaves the views a gapless
+/// in-order cover, so each row starts where the previous one ended. Neither running sum can
+/// exceed the element count.
+fn compact_row_views(
+    row_sizes: &ArrayRef,
+    element_mask: &Mask,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<(ArrayRef, ArrayRef)> {
+    let sizes = row_sizes
+        .cast(DType::Primitive(PType::U64, Nullability::NonNullable))?
+        .execute::<Buffer<u64>>(ctx)?;
+    let mut compact_offsets = BufferMut::<u64>::with_capacity(sizes.len());
+    let mut compact_sizes = BufferMut::<u64>::with_capacity(sizes.len());
+    let mut start = 0usize;
+    let mut offset = 0_u64;
+
+    for &size in sizes.iter() {
+        let end = usize::try_from(size)
+            .ok()
+            .and_then(|row_len| start.checked_add(row_len))
+            .filter(|end| *end <= element_mask.len())
+            .ok_or_else(|| {
+                vortex_err!(
+                    "spatial: collect row at element {start} exceeds the {} list elements",
+                    element_mask.len()
+                )
+            })?;
+        let valid = u64::try_from(count_valid(element_mask, start, end))
+            .map_err(|_| vortex_err!("spatial: collect valid element count exceeds u64"))?;
+        compact_offsets.push(offset);
+        compact_sizes.push(valid);
+        offset += valid;
+        start = end;
+    }
+    Ok((compact_offsets.into_array(), compact_sizes.into_array()))
+}
+
+/// Rewrap each geometry-list row as one multi-geometry row.
+///
+/// All-valid rows reuse the payload and views untouched. Null elements must be ignored (DuckDB
+/// semantics), so that path makes the views exact, filters the payload, and re-addresses the rows.
+/// Both paths forward the input's zero-copy-to-list flag.
 fn collect_list_rows(
     mut lists: ListViewArray,
     validity: Validity,
     output_dtype: &ExtDTypeRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let mut element_valid = lists
+    let mut element_mask = lists
         .elements()
         .validity()?
         .execute_mask(lists.elements().len(), ctx)?;
-    if !element_valid.all_true() {
+    if !element_mask.all_true() {
+        // Filtering addresses elements by position, so make the views exact first. `MakeExact`
+        // re-gathers the elements, so the mask must be taken again.
         lists = lists.rebuild(ListViewRebuildMode::MakeExact, ctx)?;
-        element_valid = lists
+        element_mask = lists
             .elements()
             .validity()?
             .execute_mask(lists.elements().len(), ctx)?;
     }
 
-    // Both output paths keep the views exact: reuse forwards `offsets` and `sizes` untouched, and
-    // compaction rebuilds them as a running sum over the same element order. So the result is
-    // zero-copy to a `ListArray` exactly when `lists` is, which `MakeExact` above has already
-    // ensured for every list array that reaches compaction.
+    // Both paths keep the views exact — one forwards them, the other rebuilds them as a running
+    // sum in the same element order — so the output is zero-copy to a `ListArray` whenever the
+    // input is.
     let zero_copy_to_list = lists.is_zero_copy_to_list();
     let parts = lists.into_data_parts();
     let elements = parts.elements.execute::<ExtensionArray>(ctx)?;
-    let DType::List(target_element_storage, _) = output_dtype.storage_dtype() else {
-        unreachable!("collect output storage is always a list")
-    };
-    let target_element_storage = target_element_storage.as_ref().clone();
 
-    let compact_elements = !element_valid.all_true();
-    let element_storage = if compact_elements {
-        elements
-            .storage_array()
-            .filter(element_valid.clone())?
-            .cast(target_element_storage)?
+    let (element_storage, offsets, sizes) = if element_mask.all_true() {
+        (elements.storage_array().clone(), parts.offsets, parts.sizes)
     } else {
-        elements.storage_array().cast(target_element_storage)?
+        let (offsets, sizes) = compact_row_views(&parts.sizes, &element_mask, ctx)?;
+        (
+            elements.storage_array().filter(element_mask)?,
+            offsets,
+            sizes,
+        )
     };
 
-    let (offsets, sizes) = if compact_elements {
-        let old_offsets = parts
-            .offsets
-            .cast(DType::Primitive(PType::U64, Nullability::NonNullable))?
-            .execute::<Buffer<u64>>(ctx)?;
-        let old_sizes = parts
-            .sizes
-            .cast(DType::Primitive(PType::U64, Nullability::NonNullable))?
-            .execute::<Buffer<u64>>(ctx)?;
-        let mut offsets = BufferMut::<u64>::with_capacity(old_offsets.len());
-        let mut sizes = BufferMut::<u64>::with_capacity(old_sizes.len());
-        let mut next_offset = 0_u64;
-
-        for (&old_offset, &old_size) in old_offsets.iter().zip(old_sizes.iter()) {
-            let start = usize::try_from(old_offset)
-                .map_err(|_| vortex_err!("spatial: collect element offset exceeds usize"))?;
-            let size = usize::try_from(old_size)
-                .map_err(|_| vortex_err!("spatial: collect element count exceeds usize"))?;
-            let end = start
-                .checked_add(size)
-                .ok_or_else(|| vortex_err!("spatial: collect element range overflows usize"))?;
-            vortex_ensure!(
-                end <= element_valid.len(),
-                "spatial: collect element range {start}..{end} exceeds element length {}",
-                element_valid.len()
-            );
-            let size = u64::try_from(valid_count(&element_valid, start, end))
-                .map_err(|_| vortex_err!("spatial: collect valid element count exceeds u64"))?;
-            offsets.push(next_offset);
-            sizes.push(size);
-            next_offset = next_offset
-                .checked_add(size)
-                .ok_or_else(|| vortex_err!("spatial: collect output offset exceeds u64"))?;
-        }
-        (offsets.into_array(), sizes.into_array())
-    } else {
-        (parts.offsets, parts.sizes)
-    };
-
-    let storage = ListViewArray::try_new(element_storage, offsets, sizes, validity)?;
-    // SAFETY: `zero_copy_to_list` describes views this function either forwarded unchanged or
-    // replaced with a gapless, non-overlapping running sum over the same elements. Forwarding it
-    // matters: `list_from_list_view` re-gathers the whole payload for a list view that reports
-    // `false`, undoing the storage reuse above one operator later.
+    let output_element_dtype = output_dtype
+        .storage_dtype()
+        .as_list_element_opt()
+        .vortex_expect("collect output storage is always a list")
+        .as_ref()
+        .clone();
+    let storage = ListViewArray::try_new(
+        element_storage.cast(output_element_dtype)?,
+        offsets,
+        sizes,
+        validity,
+    )?;
+    // SAFETY: the views were either forwarded unchanged or rebuilt as a gapless, non-overlapping
+    // running sum over the same elements, so the flag still holds. Forwarding it matters:
+    // `list_from_list_view` re-gathers the whole payload when it reads `false`.
     let storage = unsafe { storage.with_zero_copy_to_list(zero_copy_to_list) }.into_array();
     Ok(ExtensionArray::try_new(output_dtype.clone(), storage)?.into_array())
 }
 
-/// Execute per-row list-to-multi-geometry conversion after shared unary shape and null dispatch.
-fn execute_collect_list_rows(
+/// Apply [`collect_list_rows`] to a constant or column, after shared unary null dispatch.
+fn execute_collect(
     execution: Execution<1, Validity>,
     output_dtype: &ExtDTypeRef,
     ctx: &mut ExecutionCtx,
@@ -232,12 +240,11 @@ fn execute_collect_list_rows(
     }
 }
 
-/// Scalar `ST_Collect` over list-valued rows of native geometries.
+/// Scalar `ST_Collect`: one `List<Point>`, `List<LineString>`, or `List<Polygon>` row in, one
+/// `MultiPoint`, `MultiLineString`, or `MultiPolygon` row out.
 ///
-/// Each input list row produces one `MultiPoint`, `MultiLineString`, or `MultiPolygon` row. This is
-/// distinct from an aggregate function: it does not combine geometry values from different rows.
-/// Null geometry elements are ignored. Mixed geometry lists are rejected by the list element dtype
-/// rather than represented as a geometry union.
+/// Not an aggregate — it never combines rows. Null elements are ignored, and mixed geometry lists
+/// are rejected by the element dtype rather than widened to a union.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct SpatialCollect;
 
@@ -293,7 +300,7 @@ impl ScalarFnVTable for SpatialCollect {
         dispatch_unary(
             &geometry_lists,
             DType::Extension(output_dtype.clone()),
-            |execution, ctx| execute_collect_list_rows(execution, &output_dtype, ctx),
+            |execution, ctx| execute_collect(execution, &output_dtype, ctx),
             ctx,
         )
     }
@@ -366,16 +373,47 @@ mod tests {
         list_with_validity(elements, offsets, Validity::NonNullable)
     }
 
+    /// Assert that `ST_Collect` of `input` equals `expected`.
+    fn assert_collects(input: ArrayRef, expected: ArrayRef) -> VortexResult<()> {
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let result = SpatialCollect::try_new_array(input)?.into_array();
+
+        assert_arrays_eq!(result, expected, &mut ctx);
+        Ok(())
+    }
+
     #[test]
     fn collects_points_into_multipoints() -> VortexResult<()> {
         let points = point_column(vec![0.0, 1.0, 2.0], vec![3.0, 4.0, 5.0])?;
         let input = list(points, &[0, 2, 3])?;
         let expected = multipoint_column(vec![vec![(0.0, 3.0), (1.0, 4.0)], vec![(2.0, 5.0)]])?;
-        let result = SpatialCollect::try_new_array(input)?.into_array();
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
 
-        assert_arrays_eq!(result, expected, &mut ctx);
-        Ok(())
+        assert_collects(input, expected)
+    }
+
+    /// Out-of-order rows make the view non-exact. `compact_row_views` derives offsets from `sizes`
+    /// alone, which only holds after `MakeExact` reorders the elements.
+    #[test]
+    fn collects_out_of_order_list_views() -> VortexResult<()> {
+        let points = nullable_point_column(vec![
+            Some((0.0, 4.0)),
+            None,
+            Some((2.0, 6.0)),
+            Some((3.0, 7.0)),
+        ])?;
+        let views = ListViewArray::try_new(
+            points,
+            PrimitiveArray::from_iter([2u32, 0]).into_array(),
+            PrimitiveArray::from_iter([2u32, 2]).into_array(),
+            Validity::NonNullable,
+        )?;
+        assert!(
+            !views.is_zero_copy_to_list(),
+            "out-of-order row views are not zero-copy to a list"
+        );
+        let expected = multipoint_column(vec![vec![(2.0, 6.0), (3.0, 7.0)], vec![(0.0, 4.0)]])?;
+
+        assert_collects(views.into_array(), expected)
     }
 
     #[test]
@@ -443,11 +481,8 @@ mod tests {
             &[0, 2, 3],
         )?;
         let expected = multilinestring_column(vec![vec![line_a, line_b], vec![line_c]])?;
-        let result = SpatialCollect::try_new_array(input)?.into_array();
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
 
-        assert_arrays_eq!(result, expected, &mut ctx);
-        Ok(())
+        assert_collects(input, expected)
     }
 
     #[test]
@@ -464,11 +499,8 @@ mod tests {
             &[0, 2, 3],
         )?;
         let expected = multipolygon_column(vec![vec![polygon_a, polygon_b], vec![polygon_c]])?;
-        let result = SpatialCollect::try_new_array(input)?.into_array();
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
 
-        assert_arrays_eq!(result, expected, &mut ctx);
-        Ok(())
+        assert_collects(input, expected)
     }
 
     #[test]
@@ -502,22 +534,16 @@ mod tests {
         let points = nullable_point_column(vec![Some((0.0, 2.0)), None, Some((1.0, 3.0)), None])?;
         let input = list(points, &[0, 2, 4])?;
         let expected = multipoint_column(vec![vec![(0.0, 2.0)], vec![(1.0, 3.0)]])?;
-        let result = SpatialCollect::try_new_array(input)?.into_array();
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
 
-        assert_arrays_eq!(result, expected, &mut ctx);
-        Ok(())
+        assert_collects(input, expected)
     }
 
     #[test]
     fn all_null_geometry_elements_produce_empty_multi_geometry() -> VortexResult<()> {
         let input = list(nullable_point_column(vec![None, None])?, &[0, 2])?;
         let expected = multipoint_column(vec![vec![]])?;
-        let result = SpatialCollect::try_new_array(input)?.into_array();
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
 
-        assert_arrays_eq!(result, expected, &mut ctx);
-        Ok(())
+        assert_collects(input, expected)
     }
 
     #[test]
@@ -532,11 +558,8 @@ mod tests {
             Validity::from_iter([true, false]),
         )?
         .into_array();
-        let result = SpatialCollect::try_new_array(input)?.into_array();
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
 
-        assert_arrays_eq!(result, expected, &mut ctx);
-        Ok(())
+        assert_collects(input, expected)
     }
 
     #[test]
