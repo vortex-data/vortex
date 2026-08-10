@@ -157,14 +157,21 @@ mod tests {
 
     /// `object_store` offers no way to read a store's configuration back; the Debug output is
     /// the only observable.
+    ///
+    /// The properties use canonical `aws_*` spellings: a property overrides the environment by
+    /// exact key, and CI runners export `AWS_REGION`-style variables, so a short spelling
+    /// (`region`) would race its environment alias at the store builder.
     #[test]
     #[expect(clippy::use_debug)]
     fn test_s3_properties_reach_the_store() -> VortexResult<()> {
         let url = parse("s3://bucket/dir/data%20file.vortex")?;
         let properties = HashMap::from_iter([
-            ("region".to_string(), "eu-central-9".to_string()),
-            ("endpoint".to_string(), "http://localhost:9000".to_string()),
-            ("allow_http".to_string(), "true".to_string()),
+            ("aws_region".to_string(), "eu-central-9".to_string()),
+            (
+                "aws_endpoint".to_string(),
+                "http://localhost:9000".to_string(),
+            ),
+            ("aws_allow_http".to_string(), "true".to_string()),
         ]);
 
         let (store, path) = make_object_store(&url, &properties)?;
@@ -180,8 +187,8 @@ mod tests {
     #[test]
     fn test_stores_are_shared_per_property_set() -> VortexResult<()> {
         let url = parse("s3://bucket/key.vortex")?;
-        let a = HashMap::from_iter([("region".to_string(), "eu-central-9".to_string())]);
-        let b = HashMap::from_iter([("region".to_string(), "us-west-7".to_string())]);
+        let a = HashMap::from_iter([("aws_region".to_string(), "eu-central-9".to_string())]);
+        let b = HashMap::from_iter([("aws_region".to_string(), "us-west-7".to_string())]);
 
         let (store_a1, _) = make_object_store(&url, &a)?;
         let (store_a2, _) = make_object_store(&url, &a)?;
