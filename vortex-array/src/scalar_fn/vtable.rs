@@ -360,7 +360,8 @@ impl ReduceNode for ArrayReduceNode<'_> {
             Cow::Owned(array) => Cow::Owned(
                 array
                     .nth_child(idx)
-                    .vortex_expect("child idx out of bounds"),
+                    .vortex_expect("child idx out of bounds")
+                    .clone(),
             ),
         };
         Self { array }

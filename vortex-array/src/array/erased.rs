@@ -92,6 +92,7 @@ impl ArrayRef {
         &self.0.data
     }
 
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub(crate) fn inner(&self) -> &ArrayInner<dyn DynArrayData> {
         &self.0

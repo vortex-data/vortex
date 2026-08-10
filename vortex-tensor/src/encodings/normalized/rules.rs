@@ -4,6 +4,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+use vortex_array::ParentView;
 use vortex_array::arrays::Filter;
 use vortex_array::arrays::Slice;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
@@ -27,7 +28,7 @@ impl ArrayParentReduceRule<Normalized> for NormalizedSliceRule {
     fn reduce_parent(
         &self,
         array: ArrayView<'_, Normalized>,
-        parent: ArrayView<'_, Slice>,
+        parent: ParentView<'_, Slice>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         let range = parent.slice_range();
@@ -55,7 +56,7 @@ impl ArrayParentReduceRule<Normalized> for NormalizedFilterRule {
     fn reduce_parent(
         &self,
         array: ArrayView<'_, Normalized>,
-        parent: ArrayView<'_, Filter>,
+        parent: ParentView<'_, Filter>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         let mask = parent.filter_mask();

@@ -216,7 +216,7 @@ impl VTable for Dict {
 
         Ok(ExecutionResult::done(take_canonical(
             values.as_::<AnyCanonical>(),
-            codes.as_::<Primitive>(),
+            codes.as_::<Primitive>().materialize_view(),
             ctx,
         )?))
     }
@@ -236,7 +236,7 @@ impl VTable for Dict {
             if let CanonicalView::VarBinView(values) = values
                 && let Some(result) = match_each_varbin_builder!(builder, |builder| {
                     let validity = array.validity()?.execute_mask(array.len(), ctx)?;
-                    append_dict_to_varbin(codes, values, validity, builder)
+                    append_dict_to_varbin(codes, values.materialize_view(), validity, builder)
                 })
             {
                 return result;
@@ -245,7 +245,12 @@ impl VTable for Dict {
                 && let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>()
             {
                 let validity = array.validity()?.execute_mask(array.len(), ctx)?;
-                return append_dict_to_varbinview(codes, values, validity, builder);
+                return append_dict_to_varbinview(
+                    codes,
+                    values.materialize_view(),
+                    validity,
+                    builder,
+                );
             }
             let canonical = take_canonical(values, codes, ctx)?.into_array();
             canonical.append_to_builder(builder, ctx)?;

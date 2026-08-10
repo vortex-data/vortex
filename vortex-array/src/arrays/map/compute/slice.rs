@@ -18,8 +18,10 @@ use crate::executor::ExecutionCtx;
 
 impl SliceReduce for Map {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let Some(sliced_entries) =
-            <ListView as SliceReduce>::slice(array.entries().as_::<ListView>(), range)?
+        let Some(sliced_entries) = <ListView as SliceReduce>::slice(
+            array.entries().as_::<ListView>().materialize_view(),
+            range,
+        )?
         else {
             return Ok(None);
         };
