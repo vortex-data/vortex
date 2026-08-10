@@ -60,9 +60,15 @@ impl<T: Copy> PrimitiveValues<T> {
         }
     }
 
-    fn value(&self, index: usize) -> T {
+    /// Returns the physical value at `index` without bounds checking.
+    ///
+    /// # Safety
+    ///
+    /// `index` must be less than [`Self::len`].
+    unsafe fn value_unchecked(&self, index: usize) -> T {
         match self {
-            Self::Buffer(values) => values[index],
+            // SAFETY: the caller guarantees that `index` is in bounds.
+            Self::Buffer(values) => *unsafe { values.get_unchecked(index) },
             Self::Constant { value, .. } => *value,
         }
     }
@@ -120,9 +126,38 @@ where
     R: AsPrimitive<usize>,
 {
     let len = validate_selectors(values.len(), |branch| values[branch].len(), branches, rows)?;
+
+    // SAFETY: `validate_selectors` proved `branches.len() == rows.len() == len`, and for every
+    // `i < len` that `branches[i] < values.len()` and `rows[i] < values[branches[i]].len()`.
+    Ok(unsafe { gather_unchecked(len, values, branches, rows) })
+}
+
+/// Gathers one primitive value per output from `values[branches[i]]` at position `rows[i]`.
+///
+/// # Safety
+///
+/// `branches` and `rows` must both contain at least `len` elements. For every `i < len`,
+/// `branches[i] < values.len()` and `rows[i] < values[branches[i]].len()`.
+unsafe fn gather_unchecked<T, A, R>(
+    len: usize,
+    values: &[PrimitiveValues<T>],
+    branches: &[A],
+    rows: &[R],
+) -> Buffer<T>
+where
+    T: NativePType,
+    A: AsPrimitive<usize>,
+    R: AsPrimitive<usize>,
+{
     let mut output = BufferMut::with_capacity(len);
     for i in 0..len {
-        output.push(values[branches[i].as_()].value(rows[i].as_()));
+        // SAFETY: the caller guarantees `i` is in bounds for both selectors, and that the selected
+        // branch and row are in bounds for `values` and the selected physical value buffer.
+        output.push(unsafe {
+            values
+                .get_unchecked(branches.get_unchecked(i).as_())
+                .value_unchecked(rows.get_unchecked(i).as_())
+        });
     }
-    Ok(output.freeze())
+    output.freeze()
 }
