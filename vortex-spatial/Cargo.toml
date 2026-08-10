@@ -78,5 +78,9 @@ harness = false
 name = "intersection"
 harness = false
 
+[[bench]]
+name = "hilbert"
+harness = false
+
 [lints]
 workspace = true
