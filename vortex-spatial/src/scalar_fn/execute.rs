@@ -9,8 +9,7 @@
 //!
 //! [`execute_unary_geo_types`] and [`execute_binary_geo_types`] are convenience adapters for
 //! row-oriented algorithms from the `geo` ecosystem. They decode valid inputs into
-//! `geo_types::Geometry`; the final output is still a Vortex [`ArrayRef`], such as an `f64` or
-//! boolean array.
+//! `geo_types::Geometry`; the final output is built by a primitive or structural output builder.
 
 mod binary;
 mod geo_types;
@@ -21,7 +20,6 @@ pub(crate) use binary::execute_binary_geo_types;
 pub(crate) use unary::dispatch_unary;
 pub(crate) use unary::execute_unary_geo_types;
 use vortex_array::ArrayRef;
-use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
 use vortex_mask::Mask;
 
@@ -44,6 +42,4 @@ pub(crate) struct Execution<const N: usize, V = Mask> {
     pub(crate) valid: V,
     /// Number of output rows.
     pub(crate) len: usize,
-    /// Output nullability from the scalar function's return dtype.
-    pub(crate) nullability: Nullability,
 }

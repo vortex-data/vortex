@@ -13,9 +13,11 @@ use arrow_schema::Field;
 use arrow_schema::extension::ExtensionType;
 use geo_traits::to_geo::ToGeoGeometry;
 use geo_types::Geometry;
+use geoarrow::array::GeoArrowArray;
 use geoarrow::array::GeoArrowArrayAccessor;
 use geoarrow::array::IntoArrow;
 use geoarrow::array::MultiPolygonArray;
+use geoarrow::array::MultiPolygonBuilder;
 use geoarrow::datatypes::CoordType;
 use geoarrow::datatypes::MultiPolygonType;
 use prost::Message;
@@ -24,9 +26,11 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
+use vortex_array::dtype::extension::ExtDTypeRef;
 use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::scalar::ScalarValue;
@@ -114,6 +118,26 @@ static ARROW_MULTIPOLYGON: CachedId = CachedId::new(MultiPolygonType::NAME);
 /// The `geoarrow.multipolygon` type for `dimension`, with separated (struct) coordinates.
 fn multipolygon_type(spatial_metadata: &SpatialMetadata, dimension: Dimension) -> MultiPolygonType {
     MultiPolygonType::new(dimension.into(), geoarrow_metadata(spatial_metadata))
+}
+
+/// Build a native 2-D [`MultiPolygon`] array from row-oriented `geo_types` multipolygons.
+pub(crate) fn build_multipolygon_array(
+    multipolygons: &[Option<geo_types::MultiPolygon<f64>>],
+    ext_dtype: &ExtDTypeRef,
+) -> VortexResult<ArrayRef> {
+    let nullability = ext_dtype.storage_dtype().nullability();
+    let multipolygons = MultiPolygonBuilder::from_nullable_multi_polygons(
+        multipolygons,
+        multipolygon_type(ext_dtype.metadata::<MultiPolygon>(), Dimension::Xy),
+    )
+    .finish();
+    let storage_dtype = ext_dtype.storage_dtype();
+    let storage = ArrayRef::from_arrow(
+        multipolygons.to_array_ref().as_ref(),
+        nullability == Nullability::Nullable,
+    )?
+    .cast(storage_dtype.clone())?;
+    Ok(ExtensionArray::try_new(ext_dtype.clone(), storage)?.into_array())
 }
 
 /// Decode storage to `geo_types` for the spatial scalar functions (CRS is irrelevant to planar ops).

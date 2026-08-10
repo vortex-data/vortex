@@ -202,6 +202,7 @@ fn execute_collect(
     output_dtype: &ExtDTypeRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
+    let nullability = output_dtype.storage_dtype().nullability();
     match execution.operands {
         [Operand::Constant(scalar)] => {
             let one = ConstantArray::new(scalar, 1)
@@ -209,7 +210,7 @@ fn execute_collect(
                 .execute::<ListViewArray>(ctx)?;
             let collected = collect_list(
                 one,
-                Validity::from_mask(Mask::new_true(1), execution.nullability),
+                Validity::from_mask(Mask::new_true(1), nullability),
                 output_dtype,
                 ctx,
             )?;
@@ -219,7 +220,7 @@ fn execute_collect(
             let valid = execution.valid.execute_mask(execution.len, ctx)?;
             collect_list(
                 array.execute::<ListViewArray>(ctx)?,
-                Validity::from_mask(valid, execution.nullability),
+                Validity::from_mask(valid, nullability),
                 output_dtype,
                 ctx,
             )

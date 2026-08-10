@@ -103,7 +103,17 @@ impl ScalarFnVTable for SpatialDistance {
         let a = args.get(0)?;
         let b = args.get(1)?;
         // Distance is a value, not a verdict: no bounding-rect test can decide it.
-        execute_binary_geo_types(&a, &b, |x, y| Euclidean.distance(x, y), None, ctx)
+        execute_binary_geo_types(
+            &a,
+            &b,
+            DType::Primitive(
+                PType::F64,
+                Nullability::from(a.dtype().is_nullable() || b.dtype().is_nullable()),
+            ),
+            |x, y| Euclidean.distance(x, y),
+            None,
+            ctx,
+        )
     }
 
     fn validity(
