@@ -11,6 +11,7 @@ mod children;
 mod display;
 mod lower;
 mod optimize;
+pub mod optimizer;
 mod plans;
 mod typed;
 mod vtable;
