@@ -49,7 +49,7 @@ use vortex_array::session::ArraySession;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::test_harness::trace::Traced;
 use vortex_array::test_harness::trace::trace_op;
-use vortex_arrow::FromArrowArray;
+use vortex_arrow::ArrowSessionExt;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -122,7 +122,10 @@ fn lineitem() -> VortexResult<ArrayRef> {
         .with_batch_size(1 << 12)
         .next()
         .expect("at least one batch");
-    ArrayRef::from_arrow(&batch, false)
+    let schema = batch.schema();
+    trace_session()
+        .arrow()
+        .from_arrow_record_batch(batch, &schema)
 }
 
 fn compressed_lineitem() -> VortexResult<ArrayRef> {
