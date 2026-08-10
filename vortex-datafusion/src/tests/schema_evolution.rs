@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use arrow_array::record_batch;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Fields;
@@ -19,7 +20,6 @@ use datafusion::arrow::datatypes::UInt32Type;
 use datafusion::assert_batches_sorted_eq;
 use datafusion_common::assert_batches_eq;
 use datafusion_common::create_array;
-use datafusion_common::record_batch;
 use datafusion_expr::col;
 use datafusion_expr::lit;
 use datafusion_functions::expr_fn::get_field;

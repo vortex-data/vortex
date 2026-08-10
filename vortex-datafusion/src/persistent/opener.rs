@@ -101,7 +101,7 @@ pub(crate) struct VortexOpener {
     pub has_output_ordering: bool,
 
     pub expression_convertor: Arc<dyn ExpressionConvertor>,
-    pub file_metadata_cache: Option<Arc<dyn FileMetadataCache>>,
+    pub file_metadata_cache: Option<Arc<FileMetadataCache>>,
     /// Whether to enable expression pushdown into the underlying Vortex scan.
     pub projection_pushdown: bool,
     pub scan_concurrency: Option<usize>,
@@ -642,6 +642,7 @@ mod tests {
     use std::sync::Arc;
     use std::sync::LazyLock;
 
+    use arrow_array::record_batch;
     use arrow_schema::Field;
     use arrow_schema::Fields;
     use arrow_schema::SchemaRef;
@@ -655,14 +656,13 @@ mod tests {
     use datafusion::arrow::datatypes::UInt32Type;
     use datafusion::arrow::util::display::FormatOptions;
     use datafusion::arrow::util::pretty::pretty_format_batches_with_options;
-    use datafusion::common::record_batch;
     use datafusion::logical_expr::col;
     use datafusion::logical_expr::lit;
     use datafusion::physical_expr::planner::logical2physical;
     use datafusion::physical_expr_adapter::DefaultPhysicalExprAdapterFactory;
     use datafusion::scalar::ScalarValue;
     use datafusion_common::stats::Precision;
-    use datafusion_execution::cache::DefaultFilesMetadataCache;
+    use datafusion_execution::cache::default_cache::DefaultCache;
     use datafusion_expr::Operator;
     use datafusion_physical_expr::PhysicalExpr;
     use datafusion_physical_expr::expressions as df_expr;
@@ -885,10 +885,9 @@ mod tests {
         let mut file = PartitionedFile::new(file_path.to_string(), data_size);
         file.partition_values = vec![ScalarValue::Int32(Some(1))];
 
-        let table_schema = TableSchema::new(
-            Arc::clone(&file_schema),
-            vec![Arc::new(Field::new("part", DataType::Int32, false))],
-        );
+        let table_schema = TableSchema::builder(Arc::clone(&file_schema))
+            .with_table_partition_cols(vec![Arc::new(Field::new("part", DataType::Int32, false))])
+            .build();
 
         // filter matches partition value
         let filter = col("part").eq(lit(1));
@@ -941,16 +940,15 @@ mod tests {
                     .collect(),
             ),
         );
-        let table_schema = TableSchema::new(
-            file_schema,
-            vec![Arc::new(
+        let table_schema = TableSchema::builder(file_schema)
+            .with_table_partition_cols(vec![Arc::new(
                 Field::new("part", DataType::Int32, false).with_metadata(
                     [("partition".to_string(), "metadata".to_string())]
                         .into_iter()
                         .collect(),
                 ),
-            )],
-        );
+            )])
+            .build();
         let projection = ProjectionExprs::from_indices(&[0, 1], table_schema.table_schema());
         let expected_schema = Arc::new(projection.project_schema(table_schema.table_schema())?);
 
@@ -993,7 +991,7 @@ mod tests {
         let data_size = write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch).await?;
 
         let expected_schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, false)]));
-        let table_schema = TableSchema::from_file_schema(Arc::clone(&expected_schema));
+        let table_schema = TableSchema::from(Arc::clone(&expected_schema));
 
         for projection_pushdown in [false, true] {
             let mut opener = make_opener(Arc::clone(&object_store), table_schema.clone(), None);
@@ -1014,10 +1012,9 @@ mod tests {
     -> anyhow::Result<()> {
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
         let file_schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, false)]));
-        let table_schema = TableSchema::new(
-            Arc::clone(&file_schema),
-            vec![Arc::new(Field::new("part", DataType::Int32, false))],
-        );
+        let table_schema = TableSchema::builder(Arc::clone(&file_schema))
+            .with_table_partition_cols(vec![Arc::new(Field::new("part", DataType::Int32, false))])
+            .build();
 
         let partition_column = Arc::new(df_expr::Column::new("part", 1)) as PhysicalExprRef;
         let predicate = Arc::new(df_expr::BinaryExpr::new(
@@ -1063,11 +1060,7 @@ mod tests {
         statistics.column_statistics[0].null_count = Precision::Exact(0);
         let file = PartitionedFile::new(file_path, data_size).with_statistics(Arc::new(statistics));
 
-        let mut opener = make_opener(
-            object_store,
-            TableSchema::from_file_schema(batch.schema()),
-            None,
-        );
+        let mut opener = make_opener(object_store, TableSchema::from(batch.schema()), None);
         opener.file_pruning_predicate = Some(Arc::new(SnapshotErrorExpr));
         let df_metrics = opener.df_metrics.clone();
 
@@ -1101,7 +1094,7 @@ mod tests {
         let file =
             PartitionedFile::new_with_range(file_path.to_string(), file_size, 0, file_size as i64);
 
-        let table_schema = TableSchema::from_file_schema(Arc::clone(&file_schema));
+        let table_schema = TableSchema::from(Arc::clone(&file_schema));
 
         let opener = make_opener(object_store, table_schema, None);
         let stream = opener.open(file)?.await?;
@@ -1121,10 +1114,11 @@ mod tests {
             write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
 
         let file = PartitionedFile::new(file_path.to_string(), data_size);
-        let table_schema = TableSchema::from_file_schema(batch.schema());
+        let table_schema = TableSchema::from(batch.schema());
 
-        let cache: Arc<dyn FileMetadataCache> =
-            Arc::new(DefaultFilesMetadataCache::new(64 * 1024 * 1024));
+        let cache: Arc<FileMetadataCache> = Arc::new(
+            DefaultCache::<Path, CachedFileMetadataEntry>::new(64 * 1024 * 1024),
+        );
         let mut opener = make_opener(Arc::clone(&object_store), table_schema, None);
         opener.file_metadata_cache = Some(Arc::clone(&cache));
 
@@ -1174,7 +1168,7 @@ mod tests {
         };
 
         // Table schema has can accommodate both files
-        let table_schema = TableSchema::from_file_schema(Arc::new(Schema::new(vec![Field::new(
+        let table_schema = TableSchema::from(Arc::new(Schema::new(vec![Field::new(
             "a",
             DataType::Int32,
             true,
@@ -1277,7 +1271,7 @@ mod tests {
             filter: None,
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
-            table_schema: TableSchema::from_file_schema(Arc::clone(&table_schema)),
+            table_schema: TableSchema::from(Arc::clone(&table_schema)),
             limit: None,
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             df_metrics: ExecutionPlanMetricsSet::new(),
@@ -1341,7 +1335,7 @@ mod tests {
         let data_size = write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch).await?;
 
         // Table schema has an extra utf8 field.
-        let table_schema = TableSchema::from_file_schema(Arc::new(Schema::new(vec![Field::new(
+        let table_schema = TableSchema::from(Arc::new(Schema::new(vec![Field::new(
             "my_struct",
             DataType::Struct(Fields::from(vec![
                 Field::new(
@@ -1403,18 +1397,15 @@ mod tests {
 
         // Table schema has columns in DIFFERENT order: c, a, b
         // and different types that require casting (Utf8 -> Dictionary)
-        let table_schema = TableSchema::new(
-            Arc::new(Schema::new(vec![
-                Field::new("c", DataType::Int32, true),
-                Field::new("a", DataType::Int32, true),
-                Field::new(
-                    "b",
-                    DataType::Dictionary(Box::new(DataType::UInt32), Box::new(DataType::Utf8)),
-                    true,
-                ),
-            ])),
-            vec![],
-        );
+        let table_schema = TableSchema::from(Arc::new(Schema::new(vec![
+            Field::new("c", DataType::Int32, true),
+            Field::new("a", DataType::Int32, true),
+            Field::new(
+                "b",
+                DataType::Dictionary(Box::new(DataType::UInt32), Box::new(DataType::Utf8)),
+                true,
+            ),
+        ])));
 
         // Project columns [0, 2] from table schema, which should give us: c, b
         // Before the fix, the schema adapter would get confused about which fields
@@ -1494,7 +1485,7 @@ mod tests {
             filter: None,
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
-            table_schema: TableSchema::from_file_schema(schema),
+            table_schema: TableSchema::from(schema),
             limit: None,
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             df_metrics: ExecutionPlanMetricsSet::new(),
@@ -1674,7 +1665,7 @@ mod tests {
             write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
 
         let file_schema = batch.schema();
-        let table_schema = TableSchema::from_file_schema(Arc::clone(&file_schema));
+        let table_schema = TableSchema::from(Arc::clone(&file_schema));
 
         // Create a projection that includes an arithmetic expression: a + b * 2
         let col_a = df_expr::col("a", &file_schema)?;

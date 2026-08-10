@@ -546,7 +546,13 @@ impl FileFormat for VortexFormat {
                 })
                 .map(|f| f.vortex_expect("Failed to spawn infer_schema"))
             })
-            .buffer_unordered(state.config_options().execution.meta_fetch_concurrency)
+            .buffer_unordered(
+                state
+                    .config_options()
+                    .execution
+                    .meta_fetch_concurrency
+                    .get(),
+            )
             .try_collect::<Vec<_>>()
             .await
             .map_err(|e| DataFusionError::Execution(format!("Failed to infer schema: {e}")))?;
@@ -893,9 +899,7 @@ mod tests {
         format: &dyn FileFormat,
         calls: &ExpressionConvertorCalls,
     ) -> anyhow::Result<()> {
-        let source = format.file_source(TableSchema::from_file_schema(
-            expression_convertor_test_schema(),
-        ));
+        let source = format.file_source(TableSchema::from(expression_convertor_test_schema()));
         let result = source.try_pushdown_filters(
             vec![expression_convertor_test_filter()],
             &ConfigOptions::new(),
@@ -962,7 +966,7 @@ mod tests {
             ..Default::default()
         };
         let format = VortexFormat::new_with_options(VortexSession::default(), opts.clone());
-        let table_schema = TableSchema::from_file_schema(Arc::new(Schema::empty()));
+        let table_schema = TableSchema::from(Arc::new(Schema::empty()));
 
         let source = format.file_source(table_schema);
         let source = source
