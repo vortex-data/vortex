@@ -47,8 +47,10 @@ public final class VortexSessionCatalog extends DelegatingCatalogExtension {
      * Creates the table in the delegate session catalog, then returns it resolved through the Vortex connector when its
      * provider is {@code vortex}.
      *
-     * <p>The conversion matters for {@code CREATE TABLE ... AS SELECT}: Spark writes the query result into the table
-     * returned here, which must therefore support V2 writes.
+     * <p>Spark does not route table creation through this overload — {@link DelegatingCatalogExtension} sends the
+     * {@code Column[]} overload straight to the delegate, and that is the one both supported Spark versions call. It is
+     * kept because the delegate may return {@code null} on the normal path, which {@link #asVortexTableIfVortex} now
+     * tolerates; {@code CREATE TABLE ... AS SELECT} gets its Vortex table from {@link #loadTable} instead.
      */
     @SuppressWarnings("deprecation")
     @Override
@@ -60,11 +62,15 @@ public final class VortexSessionCatalog extends DelegatingCatalogExtension {
 
     /**
      * Rebuilds a session-catalog table as a Vortex DataSource V2 table when its provider is {@code vortex} and it has a
-     * location; returns every other table unchanged. The schema and partitioning stored in the catalog are used as-is,
-     * no file needs to be opened.
+     * location; returns every other table unchanged, and {@code null} for a {@code null} input. The schema and
+     * partitioning stored in the catalog are used as-is, no file needs to be opened.
      */
     @SuppressWarnings("deprecation")
     private static Table asVortexTableIfVortex(Table table) {
+        if (table == null) {
+            // V2SessionCatalog.createTable returns null on its normal path.
+            return null;
+        }
         Map<String, String> properties = table.properties();
         VortexDataSourceV2 provider = new VortexDataSourceV2();
         if (!provider.shortName().equalsIgnoreCase(properties.get(TableCatalog.PROP_PROVIDER))) {
