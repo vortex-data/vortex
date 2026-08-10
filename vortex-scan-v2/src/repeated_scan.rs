@@ -33,6 +33,7 @@ use crate::tasks::split_exec;
 pub struct RepeatedScan<A: 'static + Send> {
     execution: PlanExecutionContext,
     projection: PlanRef,
+    pruning: Option<PlanRef>,
     filter: Option<PlanRef>,
     ordered: bool,
     row_range: Option<Range<u64>>,
@@ -80,6 +81,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
     pub(crate) fn new(
         execution: PlanExecutionContext,
         projection: PlanRef,
+        pruning: Option<PlanRef>,
         filter: Option<PlanRef>,
         ordered: bool,
         row_range: Option<Range<u64>>,
@@ -93,6 +95,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         Self {
             execution,
             projection,
+            pruning,
             filter,
             ordered,
             row_range,
@@ -159,6 +162,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
 
         let ctx = Arc::new(TaskContext {
             execution: self.execution.clone(),
+            pruning: self.pruning.clone(),
             filter: self.filter.clone(),
             projection: self.projection.clone(),
             mapper: Arc::clone(&self.map_fn),

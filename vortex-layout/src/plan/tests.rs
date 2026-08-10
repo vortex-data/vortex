@@ -10,6 +10,9 @@ use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::max::Max;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
@@ -19,6 +22,7 @@ use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::Expression;
 use vortex_array::expr::and;
+use vortex_array::expr::bound::and as bound_and;
 use vortex_array::expr::checked_add;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
@@ -927,6 +931,122 @@ fn zoned_plan_exposes_data_and_zones() -> VortexResult<()> {
     root: vortex.plan.zoned(i32, rows=5)
       data: vortex.plan.segment_scan(i32, rows=5)
       zones: vortex.plan.segment_scan({}, rows=2)
+    ");
+    Ok(())
+}
+
+#[test]
+fn stats_expression_rewrites_to_zoned_pruning_plan() -> VortexResult<()> {
+    let dtype = primitive(PType::I32, Nullability::NonNullable);
+    let max = Max.bind(NumericalAggregateOpts::skip_nans());
+    let max_dtype = max
+        .state_dtype(&dtype)
+        .ok_or_else(|| vortex_err!("max does not support {dtype}"))?;
+    let zones_dtype = DType::Struct(
+        StructFields::from_iter([(max.to_string(), max_dtype.as_nullable())]),
+        Nullability::NonNullable,
+    );
+    let zone_len = NonZeroUsize::new(3).ok_or_else(|| vortex_err!("zone length is zero"))?;
+    let layout = ZonedLayout::try_new(
+        flat(5, dtype.clone(), 0),
+        flat(2, zones_dtype, 1),
+        zone_len,
+        vec![max].into(),
+    )?
+    .into_layout();
+    let session = vortex_array::array_session();
+    let filter = gt(root(), lit(5_i32));
+    let falsifier = filter
+        .bind(&dtype)?
+        .falsify(&session)?
+        .ok_or_else(|| vortex_err!("filter has no falsifier"))?;
+    let source = make_plan(layout)?;
+    let plan = EvalPlan::try_new(falsifier.clone(), source.clone())?.into_plan();
+
+    insta::assert_snapshot!(plan.display_tree(), @r"
+    root: vortex.plan.eval(bool?, rows=5) expr=(stat($, vortex.max()) <= 5i32)
+      child: vortex.plan.zoned(i32, rows=5)
+        data: vortex.plan.segment_scan(i32, rows=5)
+        zones: vortex.plan.segment_scan({vortex.max()=i32?}, rows=2)
+    ");
+
+    let optimized = optimize(plan)?;
+    insta::assert_snapshot!(optimized.display_tree(), @r"
+    root: vortex.plan.zoned(bool?, rows=5) prune=(stat($, vortex.max()) <= 5i32)
+      zones: vortex.plan.segment_scan({vortex.max()=i32?}, rows=2)
+    ");
+    let zoned = optimized
+        .as_opt::<Zoned>()
+        .ok_or_else(|| vortex_err!("optimized pruning plan is not zoned"))?;
+    assert!(zoned.is_pruning());
+    assert_eq!(zoned.pruning_expression(), Some(&falsifier));
+    assert!(zoned.data_plan()?.is_none());
+    assert_eq!(zoned.children().len(), 1);
+
+    let mixed_expression = bound_and(falsifier, gt(root(), lit(0_i32)).bind(&dtype)?);
+    let mixed = optimize(EvalPlan::try_new(mixed_expression, source)?.into_plan())?;
+    let mixed = mixed
+        .as_opt::<Eval>()
+        .ok_or_else(|| vortex_err!("expression with a data reference was pushed into zones"))?;
+    let mixed_child = mixed.child_plan()?;
+    assert!(mixed_child.is::<Zoned>());
+    assert!(
+        !mixed_child
+            .as_opt::<Zoned>()
+            .ok_or_else(|| vortex_err!("mixed expression child is not zoned"))?
+            .is_pruning()
+    );
+    Ok(())
+}
+
+#[test]
+fn pruning_expression_partitions_across_row_idx_and_zoned_struct_field() -> VortexResult<()> {
+    let value_dtype = primitive(PType::I32, Nullability::NonNullable);
+    let max = Max.bind(NumericalAggregateOpts::skip_nans());
+    let max_dtype = max
+        .state_dtype(&value_dtype)
+        .ok_or_else(|| vortex_err!("max does not support {value_dtype}"))?;
+    let zones_dtype = DType::Struct(
+        StructFields::from_iter([(max.to_string(), max_dtype.as_nullable())]),
+        Nullability::NonNullable,
+    );
+    let zone_len = NonZeroUsize::new(3).ok_or_else(|| vortex_err!("zone length is zero"))?;
+    let zoned = ZonedLayout::try_new(
+        flat(5, value_dtype.clone(), 0),
+        flat(2, zones_dtype, 1),
+        zone_len,
+        vec![max].into(),
+    )?
+    .into_layout();
+    let struct_dtype = DType::Struct(
+        StructFields::from_iter([("a", value_dtype.clone()), ("b", value_dtype.clone())]),
+        Nullability::NonNullable,
+    );
+    let layout = StructLayout::new(
+        5,
+        struct_dtype.clone(),
+        vec![zoned, flat(5, value_dtype, 2)],
+    )
+    .into_layout();
+    let source = RowIdxPlan::new(10, make_plan(layout)?).into_plan();
+    let session = vortex_array::array_session();
+    let filter = and(
+        gt(row_idx(), lit(11_u64)),
+        gt(get_item("a", root()), lit(5_i32)),
+    );
+    let falsifier = filter
+        .bind(&struct_dtype)?
+        .falsify(&session)?
+        .ok_or_else(|| vortex_err!("filter has no falsifier"))?;
+
+    let optimized = optimize(EvalPlan::try_new(falsifier, source)?.into_plan())?;
+    insta::assert_snapshot!(optimized.display_tree(), @r"
+    root: vortex.plan.eval(bool?, rows=5) expr=($.row_idx or $.child)
+      child: vortex.plan.row_idx_partition({row_idx=bool?, child=bool?}, rows=5)
+        row_idx: vortex.plan.eval(bool?, rows=5) expr=(stat($, vortex.max()) <= 11u64)
+          child: vortex.plan.row_idx_values(u64, rows=5)
+        child: vortex.plan.zoned(bool?, rows=5) prune=(stat($, vortex.max()) <= 5i32)
+          zones: vortex.plan.segment_scan({vortex.max()=i32?}, rows=2)
     ");
     Ok(())
 }

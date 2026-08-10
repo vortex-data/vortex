@@ -14,6 +14,7 @@ use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
+use vortex_array::expr::BoundExpression;
 use vortex_array::expr::Expression;
 use vortex_array::expr::root;
 use vortex_array::iter::ArrayIterator;
@@ -33,6 +34,8 @@ use vortex_layout::plan::EvalPlan;
 use vortex_layout::plan::PlanExecutionContext;
 use vortex_layout::plan::PlanRef;
 use vortex_layout::plan::RowIdxPlan;
+use vortex_layout::plan::RowIdxValues;
+use vortex_layout::plan::Zoned;
 use vortex_layout::plan::lower;
 use vortex_layout::plan::optimize;
 use vortex_layout::segments::SegmentSource;
@@ -253,50 +256,14 @@ impl<A: 'static + Send> ScanBuilder<A> {
             plan = %source.display_tree(),
             "planning expressions over the row-index-aware source"
         );
-        tracing::debug!(
-            target: "vortex_scan_v2::planner",
-            expression = %self.projection,
-            "optimizing the projection expression"
-        );
-        let projection = self
-            .projection
-            .optimize_recursive(source.dtype())?
-            .bind(source.dtype())?;
-        let projection: PlanRef = EvalPlan::try_new(projection, source.clone())?.into_plan();
-        let projection = optimize(projection)?;
-        tracing::debug!(
-            target: "vortex_scan_v2::planner",
-            plan = %projection.display_tree(),
-            "optimized the projection physical plan"
-        );
-
-        let filter = self
-            .filter
-            .map(|filter| -> VortexResult<PlanRef> {
-                tracing::debug!(
-                    target: "vortex_scan_v2::planner",
-                    expression = %filter,
-                    "optimizing the filter expression"
-                );
-                let filter = filter
-                    .optimize_recursive(source.dtype())?
-                    .bind(source.dtype())?;
-                let filter: PlanRef = EvalPlan::try_new(filter, source.clone())?.into_plan();
-                let filter = optimize(filter)?;
-                vortex_ensure!(
-                    filter.dtype().is_boolean(),
-                    "Filter plan must produce booleans"
-                );
-                Ok(filter)
-            })
-            .transpose()?;
-        if let Some(filter) = &filter {
-            tracing::debug!(
-                target: "vortex_scan_v2::planner",
-                plan = %filter.display_tree(),
-                "optimized the filter physical plan"
-            );
-        }
+        let projection = optimize_projection_plan(self.projection, &source)?;
+        let filter_expression = optimize_filter_expression(self.filter, &source)?;
+        let pruning = optimize_pruning_plan(
+            filter_expression.as_ref(),
+            &source,
+            self.execution.session(),
+        )?;
+        let filter = optimize_filter_plan(filter_expression.as_ref(), &source)?;
 
         let splits =
             if let Some(ranges) = attempt_split_ranges(&self.selection, self.row_range.as_ref()) {
@@ -308,6 +275,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
                     .unwrap_or_else(|| 0..self.base_plan.row_count());
                 let mut plans = vec![&projection];
                 plans.extend(filter.as_ref());
+                plans.extend(pruning.as_ref());
                 Splits::Natural(self.split_by.splits(&plans, &row_range)?)
             };
         match &splits {
@@ -328,6 +296,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
         Ok(RepeatedScan::new(
             self.execution,
             projection,
+            pruning,
             filter,
             self.ordered,
             self.row_range,
@@ -361,6 +330,133 @@ impl<A: 'static + Send> ScanBuilder<A> {
     ) -> VortexResult<impl Iterator<Item = VortexResult<A>> + 'static> {
         Ok(runtime.block_on_stream(self.into_stream()?))
     }
+}
+
+fn optimize_projection_plan(expression: Expression, source: &PlanRef) -> VortexResult<PlanRef> {
+    tracing::debug!(
+        target: "vortex_scan_v2::planner",
+        %expression,
+        "optimizing the projection expression"
+    );
+    let expression = expression
+        .optimize_recursive(source.dtype())?
+        .bind(source.dtype())?;
+    let projection = optimize(EvalPlan::try_new(expression, source.clone())?.into_plan())?;
+    tracing::debug!(
+        target: "vortex_scan_v2::planner",
+        plan = %projection.display_tree(),
+        "optimized the projection physical plan"
+    );
+    Ok(projection)
+}
+
+fn optimize_filter_expression(
+    filter: Option<Expression>,
+    source: &PlanRef,
+) -> VortexResult<Option<BoundExpression>> {
+    filter
+        .map(|expression| {
+            tracing::debug!(
+                target: "vortex_scan_v2::planner",
+                %expression,
+                "optimizing the filter expression"
+            );
+            expression
+                .optimize_recursive(source.dtype())?
+                .bind(source.dtype())
+        })
+        .transpose()
+}
+
+fn optimize_pruning_plan(
+    filter: Option<&BoundExpression>,
+    source: &PlanRef,
+    session: &VortexSession,
+) -> VortexResult<Option<PlanRef>> {
+    let Some(pruning) = build_pruning_plan(filter, source, session)? else {
+        return Ok(None);
+    };
+    if !uses_only_pruning_sources(&pruning)? {
+        tracing::debug!(
+            target: "vortex_scan_v2::planner",
+            plan = %pruning.display_tree(),
+            "discarding a pruning plan that still requires data values"
+        );
+        return Ok(None);
+    }
+    tracing::debug!(
+        target: "vortex_scan_v2::planner",
+        plan = %pruning.display_tree(),
+        "optimized the pruning physical plan"
+    );
+    Ok(Some(pruning))
+}
+
+fn build_pruning_plan(
+    filter: Option<&BoundExpression>,
+    source: &PlanRef,
+    session: &VortexSession,
+) -> VortexResult<Option<PlanRef>> {
+    let Some(filter) = filter else {
+        return Ok(None);
+    };
+    let Some(falsifier) = filter.falsify(session)? else {
+        tracing::debug!(
+            target: "vortex_scan_v2::planner",
+            expression = %filter,
+            "filter has no statistics falsifier"
+        );
+        return Ok(None);
+    };
+    tracing::debug!(
+        target: "vortex_scan_v2::planner",
+        expression = %falsifier,
+        "optimizing the pruning expression"
+    );
+    let pruning = optimize(EvalPlan::try_new(falsifier, source.clone())?.into_plan())?;
+    vortex_ensure!(
+        pruning.dtype().is_boolean(),
+        "Pruning plan must produce booleans"
+    );
+    Ok(Some(pruning))
+}
+
+fn optimize_filter_plan(
+    filter: Option<&BoundExpression>,
+    source: &PlanRef,
+) -> VortexResult<Option<PlanRef>> {
+    let Some(expression) = filter else {
+        return Ok(None);
+    };
+    let filter = optimize(EvalPlan::try_new(expression.clone(), source.clone())?.into_plan())?;
+    vortex_ensure!(
+        filter.dtype().is_boolean(),
+        "Filter plan must produce booleans"
+    );
+    tracing::debug!(
+        target: "vortex_scan_v2::planner",
+        plan = %filter.display_tree(),
+        "optimized the filter physical plan"
+    );
+    Ok(Some(filter))
+}
+
+fn uses_only_pruning_sources(plan: &PlanRef) -> VortexResult<bool> {
+    if let Some(zoned) = plan.as_opt::<Zoned>() {
+        return Ok(zoned.is_pruning());
+    }
+    if plan.is::<RowIdxValues>() {
+        return Ok(true);
+    }
+    if plan.children().is_empty() {
+        return Ok(false);
+    }
+    for child in plan.children().iter() {
+        if !uses_only_pruning_sources(&child?)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 enum LazyScanState<A: 'static + Send> {

@@ -10550,6 +10550,7 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "itertools 0.14.0",
+ "parking_lot",
  "tracing",
  "tracing-subscriber",
  "vortex-array",

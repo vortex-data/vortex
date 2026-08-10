@@ -358,7 +358,11 @@ impl ZonedLayout {
 }
 
 impl ZonedData {
-    fn aggregate_fns(&self) -> Arc<[AggregateFnRef]> {
+    pub(crate) fn zone_len(&self) -> usize {
+        self.zone_len
+    }
+
+    pub(crate) fn aggregate_fns(&self) -> Arc<[AggregateFnRef]> {
         match &self.zone_map_schema {
             ZoneMapSchema::LegacyStats(stats) => stats
                 .iter()

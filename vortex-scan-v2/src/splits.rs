@@ -65,7 +65,14 @@ fn collect_plan_splits(
     row_range: &Range<u64>,
     boundaries: &mut Vec<u64>,
 ) -> VortexResult<()> {
-    if plan.is::<Eval>() || plan.is::<RowIdx>() || plan.is::<Zoned>() {
+    if let Some(zoned) = plan.as_opt::<Zoned>() {
+        if let Some(data) = zoned.data_plan()? {
+            collect_plan_splits(&data, row_offset, row_range, boundaries)?;
+        }
+        return Ok(());
+    }
+
+    if plan.is::<Eval>() || plan.is::<RowIdx>() {
         if let Some(child) = plan.child(0)? {
             collect_plan_splits(&child, row_offset, row_range, boundaries)?;
         }

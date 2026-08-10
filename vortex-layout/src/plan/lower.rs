@@ -163,9 +163,18 @@ fn lazy_children(layout: LayoutRef, slots: Vec<usize>) -> PlanChildren {
 
 fn lower_zoned(layout: &LayoutRef) -> VortexResult<ZonedPlan> {
     // Zoned and legacy stats layouts share a child shape: transparent data, auxiliary zones.
+    let metadata = if let Some(layout) = layout.as_opt::<Zoned>() {
+        layout.data()
+    } else if let Some(layout) = layout.as_opt::<LegacyStats>() {
+        layout.data()
+    } else {
+        vortex_bail!("Zoned plan requires a zoned layout")
+    };
     Ok(ZonedPlan::from_children(
         layout.dtype().clone(),
         layout.row_count(),
         lazy_children(Arc::clone(layout), vec![0, 1]),
+        u64::try_from(metadata.zone_len())?,
+        metadata.aggregate_fns(),
     ))
 }
