@@ -133,8 +133,7 @@ impl EditionSession {
     pub fn current(&self, family: &str) -> Option<Edition> {
         self.editions()
             .into_iter()
-            .filter(|e| e.id.family == family && !e.is_draft())
-            .next_back()
+            .rfind(|e| e.id.family == family && !e.is_draft())
     }
 
     /// Compute the full encoding set of an edition: every declared inclusion of the

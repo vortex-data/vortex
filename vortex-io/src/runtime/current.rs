@@ -182,7 +182,6 @@ impl<T> ThreadSafeIterator<T> {
     }
 }
 
-#[expect(clippy::if_then_some_else_none)] // Clippy is wrong when if/else has await.
 #[cfg(test)]
 mod tests {
     use std::any::Any;
