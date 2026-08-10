@@ -347,7 +347,7 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
         }
 
         if let Some(literal) = df.downcast_ref::<df_expr::Literal>() {
-            let value = scalar_from_df(literal.value(), &self.session.arrow());
+            let value = scalar_from_df(literal.value(), &self.session);
             return Ok(lit(value));
         }
 
@@ -378,7 +378,7 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
                 .iter()
                 .map(|e| {
                     if let Some(lit) = e.downcast_ref::<df_expr::Literal>() {
-                        Ok(scalar_from_df(lit.value(), &self.session.arrow()))
+                        Ok(scalar_from_df(lit.value(), &self.session))
                     } else {
                         Err(exec_datafusion_err!("Failed to cast sub-expression"))
                     }

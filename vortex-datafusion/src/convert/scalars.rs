@@ -4,10 +4,12 @@
 use std::sync::Arc;
 
 use arrow_array::Array;
+use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::StructArray;
 use arrow_schema::Field;
 use arrow_schema::Fields;
 use datafusion_common::ScalarValue;
+use vortex::array::VortexSessionExecute;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
@@ -26,7 +28,8 @@ use vortex::extension::datetime::TemporalMetadata;
 use vortex::extension::datetime::TimeUnit;
 use vortex::scalar::DecimalValue;
 use vortex::scalar::Scalar;
-use vortex_arrow::ArrowSession;
+use vortex::session::VortexSession;
+use vortex_arrow::ArrowSessionExt;
 
 use crate::convert::TryToDataFusion;
 
@@ -182,9 +185,10 @@ impl TryToDataFusion<ScalarValue> for Scalar {
     }
 }
 
-/// Converts a DataFusion [`ScalarValue`] to a Vortex [`Scalar`], resolving Arrow types
-/// through the provided [`ArrowSession`].
-pub fn scalar_from_df(value: &ScalarValue, arrow: &ArrowSession) -> Scalar {
+/// Converts a DataFusion [`ScalarValue`] to a Vortex [`Scalar`], resolving Arrow types through
+/// `session`'s [`ArrowSession`](vortex_arrow::ArrowSession).
+pub fn scalar_from_df(value: &ScalarValue, session: &VortexSession) -> Scalar {
+    let arrow = session.arrow();
     match value {
         ScalarValue::Null => Scalar::null(DType::Null),
         ScalarValue::Boolean(b) => b
@@ -308,8 +312,8 @@ pub fn scalar_from_df(value: &ScalarValue, arrow: &ArrowSession) -> Scalar {
                 Scalar::null(DType::Decimal(decimal_dtype, nullable))
             }
         }
-        ScalarValue::Dictionary(_, v) => scalar_from_df(v.as_ref(), arrow),
-        ScalarValue::Struct(array) => struct_from_df(array, arrow),
+        ScalarValue::Dictionary(_, v) => scalar_from_df(v.as_ref(), session),
+        ScalarValue::Struct(array) => struct_from_df(array, session),
         _ => unimplemented!("Can't convert {value:?} value to a Vortex scalar"),
     }
 }
@@ -356,23 +360,31 @@ fn struct_to_df(scalar: &Scalar) -> VortexResult<ScalarValue> {
 }
 
 /// Converts a DataFusion `ScalarValue::Struct` (a one-row struct array) to a Vortex struct scalar.
-fn struct_from_df(array: &StructArray, arrow: &ArrowSession) -> Scalar {
+///
+/// The struct dtype comes from the Arrow `Fields`, so the children must be converted from those
+/// same fields. Going through `ScalarValue` instead would drop each field's `ARROW:extension:name`
+/// (and its declared nullability), yielding storage-typed children that
+/// [`Scalar::struct_`] rejects against an extension-typed struct dtype.
+fn struct_from_df(array: &StructArray, session: &VortexSession) -> Scalar {
+    let arrow = session.arrow();
     let dtype = arrow
         .from_arrow_datatype(array.data_type(), Nullability::Nullable)
         .vortex_expect("arrow data type to dtype");
     if array.is_null(0) {
         Scalar::null(dtype)
     } else {
+        let mut ctx = session.create_execution_ctx();
         let children = array
             .columns()
             .iter()
-            .map(|column| {
-                scalar_from_df(
-                    &ScalarValue::try_from_array(column.as_ref(), 0).unwrap_or_else(|e| {
+            .zip(array.fields().iter())
+            .map(|(column, field)| {
+                arrow
+                    .from_arrow_array(ArrowArrayRef::clone(column), field)
+                    .and_then(|column| column.execute_scalar(0, &mut ctx))
+                    .unwrap_or_else(|e| {
                         vortex_panic!("cannot convert struct field to a Vortex scalar: {e}")
-                    }),
-                    arrow,
-                )
+                    })
             })
             .collect::<Vec<_>>();
         Scalar::struct_(dtype, children)
@@ -384,6 +396,7 @@ mod tests {
     use datafusion_common::ScalarValue;
     use datafusion_common::arrow::datatypes::i256 as arrow_i256;
     use rstest::rstest;
+    use vortex::VortexSessionDefault;
     use vortex::buffer::ByteBuffer;
     use vortex::dtype::DType;
     use vortex::dtype::DecimalDType;
@@ -398,9 +411,9 @@ mod tests {
 
     use super::*;
 
-    /// Test shim: convert with a default `ArrowSession` passed explicitly.
+    /// Test shim: convert with a default `VortexSession` passed explicitly.
     fn from_df(value: &ScalarValue) -> Scalar {
-        scalar_from_df(value, &ArrowSession::default())
+        scalar_from_df(value, &VortexSession::default())
     }
 
     #[rstest]
@@ -784,6 +797,37 @@ mod tests {
             .into_inner()
             .into();
         assert_eq!(result_bytes, vec![1u8, 2, 3, 4, 5]);
+    }
+
+    /// A DataFusion struct whose child field carries Arrow extension metadata: the struct dtype
+    /// derived from the Arrow type keeps the extension, so the child scalars must keep it too or
+    /// `Scalar::struct_` rejects them.
+    #[test]
+    fn struct_from_df_preserves_extension_child() -> VortexResult<()> {
+        use arrow_array::FixedSizeBinaryArray;
+        use arrow_schema::DataType;
+        use arrow_schema::extension::Uuid as ArrowUuid;
+        use vortex::extension::uuid::Uuid;
+
+        let mut id_field = Field::new("id", DataType::FixedSizeBinary(16), false);
+        id_field.try_with_extension_type(ArrowUuid)?;
+        let ids = FixedSizeBinaryArray::try_from_iter([*b"0123456789abcdef"].into_iter())?;
+        let struct_array = StructArray::try_new(
+            Fields::from(vec![Arc::new(id_field)]),
+            vec![Arc::new(ids) as ArrowArrayRef],
+            None,
+        )?;
+
+        let scalar = from_df(&ScalarValue::Struct(Arc::new(struct_array)));
+        let DType::Struct(fields, _) = scalar.dtype() else {
+            panic!("expected a struct dtype, got {}", scalar.dtype());
+        };
+        let id_dtype = fields.field_by_index(0).vortex_expect("one field");
+        assert!(
+            id_dtype.as_extension().is::<Uuid>(),
+            "expected a Uuid extension field, got {id_dtype}"
+        );
+        Ok(())
     }
 
     #[test]
