@@ -48,7 +48,6 @@ try:
         _BaseExamplesIterable,
         get_format_type_from_alias,
     )
-    from datasets.table import InMemoryTable
     from huggingface_hub import HfApi, snapshot_download
 except ImportError as e:  # pragma: no cover - exercised only without optional deps.
     raise ImportError("Install vortex-data[hf] to use vortex.datasets.") from e
@@ -528,20 +527,9 @@ def _materialize_dataset(
     num_proc: int | None,
 ) -> hf_datasets.Dataset:
     features = _features_for_files(files, _normalize_columns(columns))
-    if filter is not None:
-        # vortex.Expr cannot be pickled, so it cannot pass through Dataset.from_generator's
-        # gen_kwargs (which Hugging Face hashes for the cache fingerprint). Read the filtered rows
-        # in-process and build an in-memory dataset from the resulting Arrow tables instead;
-        # cache_dir, keep_in_memory, and num_proc do not apply to this path.
-        return _materialize_filtered(
-            files,
-            columns=columns,
-            filter=filter,
-            limit=limit,
-            batch_size=batch_size,
-            split=split,
-            features=features,
-        )
+    # `vortex.Expr` is picklable (via its protobuf wire format), so a filter passes through
+    # `Dataset.from_generator`'s gen_kwargs -- which Hugging Face both hashes for the cache
+    # fingerprint and ships to `num_proc` worker processes -- like any other argument.
     gen_kwargs = {
         "files": list(files),
         # Keep `columns` a tuple (never a list): Hugging Face shards `num_proc` work across the
@@ -563,44 +551,6 @@ def _materialize_dataset(
         # A global row limit cannot be divided across processes without overshooting, so force
         # single-process generation whenever a limit is set.
         num_proc=None if limit is not None else num_proc,
-        split=hf_datasets.Split(split),
-    )
-
-
-def _materialize_filtered(
-    files: Sequence[str],
-    *,
-    columns: Sequence[str] | None,
-    filter: Expr | None,
-    limit: int | None,
-    batch_size: int | None,
-    split: str,
-    features: hf_datasets.Features,
-) -> hf_datasets.Dataset:
-    tables: list[pa.Table] = []
-    yielded = 0
-    for file_name in files:
-        if limit is not None and yielded >= limit:
-            break
-        for table in _scan_file_as_tables(
-            file_name,
-            columns=_normalize_columns(columns),
-            filter=filter,
-            limit=None if limit is None else limit - yielded,
-            batch_size=batch_size,
-        ):
-            if limit is not None and yielded + len(table) > limit:
-                table = table.slice(0, limit - yielded)
-            if len(table) == 0:
-                continue
-            tables.append(table)
-            yielded += len(table)
-            if limit is not None and yielded >= limit:
-                break
-    combined = pa.concat_tables(tables) if tables else features.arrow_schema.empty_table()
-    return hf_datasets.Dataset(
-        InMemoryTable(combined),
-        info=hf_datasets.DatasetInfo(features=features),
         split=hf_datasets.Split(split),
     )
 

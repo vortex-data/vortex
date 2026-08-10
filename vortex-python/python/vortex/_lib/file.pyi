@@ -3,6 +3,8 @@
 
 from typing import final
 
+from typing_extensions import override
+
 import polars as pl
 import pyarrow as pa
 
@@ -22,6 +24,10 @@ class VortexFile:
     def __len__(self) -> int: ...
     @property
     def dtype(self) -> DType: ...
+    @property
+    def path(self) -> str: ...
+    @override
+    def __reduce__(self) -> tuple[object, tuple[str, bool]]: ...
     def scan(
         self,
         projection: IntoProjection = None,

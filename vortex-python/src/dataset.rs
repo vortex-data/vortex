@@ -28,10 +28,10 @@ use vortex::layout::scan::split_by::SplitBy;
 use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_arrow::ArrowSessionExt;
 
-use crate::RUNTIME;
 use crate::arrays::PyArrayRef;
 use crate::arrow::IntoPyArrow;
 use crate::arrow::ToPyArrow;
+use crate::current_runtime;
 use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
 use crate::install_module;
@@ -85,7 +85,8 @@ pub fn read_array_from_reader(
         scan = scan.with_row_range(l..r);
     }
 
-    scan.into_array_iter(&*RUNTIME)?.read_all()
+    let runtime = current_runtime();
+    scan.into_array_iter(&runtime)?.read_all()
 }
 
 fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<Expression> {
@@ -212,8 +213,9 @@ impl PyVortexDataset {
             }
 
             let schema = Arc::new(session().arrow().to_arrow_schema(&scan.dtype()?)?);
+            let runtime = current_runtime();
             let reader: Box<dyn RecordBatchReader + Send> =
-                Box::new(scan.into_record_batch_reader(schema, &*RUNTIME)?);
+                Box::new(scan.into_record_batch_reader(schema, &runtime)?);
             VortexResult::Ok(reader)
         })?;
 
@@ -256,7 +258,8 @@ impl PyVortexDataset {
                 scan = scan.with_row_range(l..r);
             }
 
-            scan.into_array_iter(&*RUNTIME)?
+            let runtime = current_runtime();
+            scan.into_array_iter(&runtime)?
                 .map_ok(|array| array.len())
                 .process_results(|iter| iter.sum())
         })?;
@@ -290,5 +293,5 @@ pub fn dataset_from_url(
         None
     };
 
-    Ok(py.detach(move || RUNTIME.block_on(PyVortexDataset::from_url(url, store_arc)))?)
+    Ok(py.detach(move || current_runtime().block_on(PyVortexDataset::from_url(url, store_arc)))?)
 }

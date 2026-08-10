@@ -28,12 +28,12 @@ use vortex::io::runtime::BlockingRuntime;
 use vortex_arrow::ArrowSessionExt;
 
 use crate::PyVortex;
-use crate::RUNTIME;
 use crate::arrays::PyArray;
 use crate::arrays::PyArrayRef;
 use crate::arrow::FromPyArrow;
 use crate::classes::record_batch_reader_class;
 use crate::classes::table_class;
+use crate::current_runtime;
 use crate::dataset::PyVortexDataset;
 use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
@@ -137,7 +137,8 @@ pub fn read_url<'py>(
         None
     };
 
-    let dataset = py.detach(move || RUNTIME.block_on(PyVortexDataset::from_url(url, store_arc)))?;
+    let dataset =
+        py.detach(move || current_runtime().block_on(PyVortexDataset::from_url(url, store_arc)))?;
     dataset.to_array_inner(py, projection, row_filter, indices, row_range)
 }
 
@@ -248,7 +249,7 @@ pub fn write(
 ) -> PyVortexResult<()> {
     let session = session();
     py.detach(|| {
-        RUNTIME.block_on(async move {
+        current_runtime().block_on(async move {
             match resolve_store(path, store.map(|x| x.into_inner()))? {
                 ResolvedStore::ObjectStore(store, path) => {
                     let mut store = ObjectStoreWrite::new(store, &path).await?;
@@ -383,7 +384,7 @@ impl PyVortexWriteOptions {
                     .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact());
             }
             let strategy = strategy.build();
-            RUNTIME.block_on(async move {
+            current_runtime().block_on(async move {
                 match resolve_store(path, store.map(|x| x.into_inner()))? {
                     ResolvedStore::ObjectStore(store, path) => {
                         let mut store = ObjectStoreWrite::new(store, &path).await?;

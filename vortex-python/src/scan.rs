@@ -11,7 +11,7 @@ use vortex::error::VortexResult;
 use vortex::layout::scan::repeated_scan::RepeatedScan;
 use vortex::scalar::Scalar;
 
-use crate::RUNTIME;
+use crate::current_runtime;
 use crate::error::PyVortexResult;
 use crate::install_module;
 use crate::iter::PyArrayIterator;
@@ -52,8 +52,9 @@ impl PyRepeatedScan {
 
         let scan = Arc::clone(&slf.get().scan);
         slf.py().detach(move || {
+            let runtime = current_runtime();
             Ok(PyArrayIterator::new(Box::new(
-                scan.execute_array_iter(row_range, &*RUNTIME)?,
+                scan.execute_array_iter(row_range, &runtime)?,
             )))
         })
     }
@@ -71,7 +72,8 @@ impl PyRepeatedScan {
         let scan = Arc::clone(&slf.get().scan);
         let scalar = slf.py().detach(move || -> VortexResult<Option<Scalar>> {
             let session = session();
-            for batch in scan.execute_array_iter(Some(index..index + 1), &*RUNTIME)? {
+            let runtime = current_runtime();
+            for batch in scan.execute_array_iter(Some(index..index + 1), &runtime)? {
                 let array = batch?;
                 if array.is_empty() {
                     continue;
