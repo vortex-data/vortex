@@ -12,6 +12,8 @@ import org.apache.spark.sql.connector.catalog.TableChange;
 import org.apache.spark.sql.connector.expressions.Transform;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A path-based Spark catalog for querying Vortex files directly from SQL.
@@ -30,6 +32,8 @@ import org.apache.spark.sql.util.CaseInsensitiveStringMap;
  * vortex.`/path/to/data`}), and pushdown all behave identically. The catalog holds no state and supports no DDL.
  */
 public final class VortexCatalog implements TableCatalog {
+    private static final Logger log = LoggerFactory.getLogger(VortexCatalog.class);
+
     private static final String PATH_KEY = "path";
 
     private String name = "vortex";
@@ -85,8 +89,14 @@ public final class VortexCatalog implements TableCatalog {
             schema = provider.inferSchema(options);
             partitioning = provider.inferPartitioning(options);
         } catch (RuntimeException e) {
-            // Missing or unreadable paths surface as "table not found" to SQL users.
-            throw new NoSuchTableException(ident);
+            // Missing or unreadable paths surface as "table not found" to SQL users. NoSuchTableException
+            // has no cause-accepting constructor common to the supported Spark versions, so carry the
+            // original failure as a suppressed exception and log it: it names the offending path and
+            // distinguishes an empty directory from a credentials or unsupported-type error.
+            log.warn("Cannot load {} as a Vortex table, reporting it as not found", path, e);
+            NoSuchTableException notFound = new NoSuchTableException(ident);
+            notFound.addSuppressed(e);
+            throw notFound;
         }
         return provider.getTable(schema, partitioning, Map.of(PATH_KEY, path));
     }
