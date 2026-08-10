@@ -796,9 +796,12 @@ mod tests {
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::extension::Uuid as ArrowUuid;
+    use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
     use vortex_array::arrays::Dict;
+    use vortex_array::arrays::ListArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldName;
     use vortex_array::dtype::Nullability;
@@ -1061,6 +1064,75 @@ mod tests {
         assert_eq!(fsb.len(), 2);
         assert_eq!(fsb.value(0), b"0123456789abcdef");
         assert_eq!(fsb.value(1), b"fedcba9876543210");
+        Ok(())
+    }
+
+    /// Import an Arrow FixedSizeBinary UUID column as a Vortex extension array.
+    fn uuid_array(session: &ArrowSession) -> VortexResult<ArrayRef> {
+        let mut field = Field::new("id", DataType::FixedSizeBinary(16), false);
+        field.try_with_extension_type(ArrowUuid)?;
+        let arrow_array: ArrowArrayRef = Arc::new(FixedSizeBinaryArray::try_from_iter(
+            [*b"0123456789abcdef", *b"fedcba9876543210"].into_iter(),
+        )?);
+        session.from_arrow_array(arrow_array, &field)
+    }
+
+    /// Exporting a struct that contains an extension column with no target field must still route
+    /// the column through its export plugin *and* re-attach the Arrow extension metadata to the
+    /// inferred child field.
+    #[test]
+    fn execute_arrow_target_none_preserves_nested_uuid_metadata() -> VortexResult<()> {
+        let vortex_session = array_session();
+        let mut ctx = vortex_session.create_execution_ctx();
+        let session = vortex_session.arrow();
+
+        let uuids = uuid_array(&session)?;
+        let struct_array = StructArray::try_new(
+            FieldNames::from(["id"]),
+            vec![uuids],
+            2,
+            Validity::NonNullable,
+        )?
+        .into_array();
+
+        let exported = session.execute_arrow(struct_array, None, &mut ctx)?;
+        let DataType::Struct(fields) = exported.data_type() else {
+            panic!("expected Struct, got {:?}", exported.data_type());
+        };
+        assert_eq!(fields[0].data_type(), &DataType::FixedSizeBinary(16));
+        assert!(has_valid_extension_type::<ArrowUuid>(&fields[0]));
+
+        let uuids = exported.as_struct().column(0).as_fixed_size_binary();
+        assert_eq!(uuids.value(0), b"0123456789abcdef");
+        assert_eq!(uuids.value(1), b"fedcba9876543210");
+        Ok(())
+    }
+
+    /// Exporting a list of extension elements with no target field must infer an element field that
+    /// still carries the Arrow extension metadata.
+    #[test]
+    fn execute_arrow_target_none_preserves_list_element_uuid_metadata() -> VortexResult<()> {
+        let vortex_session = array_session();
+        let mut ctx = vortex_session.create_execution_ctx();
+        let session = vortex_session.arrow();
+
+        let list = ListArray::try_new(
+            uuid_array(&session)?,
+            PrimitiveArray::from_iter([0i32, 1, 2]).into_array(),
+            Validity::NonNullable,
+        )?
+        .into_array();
+
+        let exported = session.execute_arrow(list, None, &mut ctx)?;
+        let DataType::List(elem) = exported.data_type() else {
+            panic!("expected List, got {:?}", exported.data_type());
+        };
+        assert_eq!(elem.data_type(), &DataType::FixedSizeBinary(16));
+        assert!(has_valid_extension_type::<ArrowUuid>(elem));
+
+        let uuids = exported.as_list::<i32>().values().as_fixed_size_binary();
+        assert_eq!(uuids.value(0), b"0123456789abcdef");
+        assert_eq!(uuids.value(1), b"fedcba9876543210");
         Ok(())
     }
 
