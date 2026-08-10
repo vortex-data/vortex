@@ -98,6 +98,8 @@ pub fn deserialize_expr_proto(
 #[cfg(test)]
 mod tests {
     use prost::Message;
+    use rstest::rstest;
+    use vortex_error::VortexResult;
     use vortex_proto::expr as pb;
     use vortex_session::VortexSession;
 
@@ -106,11 +108,14 @@ mod tests {
     use crate::expr::Expression;
     use crate::expr::and;
     use crate::expr::between;
+    use crate::expr::byte_length;
     use crate::expr::eq;
     use crate::expr::get_item;
     use crate::expr::lit;
+    use crate::expr::mask;
     use crate::expr::or;
     use crate::expr::root;
+    use crate::expr::zip_expr;
     use crate::scalar_fn::fns::between::BetweenOptions;
     use crate::scalar_fn::fns::between::StrictComparison;
     use crate::scalar_fn::session::ScalarFnSession;
@@ -139,6 +144,20 @@ mod tests {
         let deser_expr = Expression::from_proto(&s_expr, &array_session()).unwrap();
 
         assert_eq!(&deser_expr, &expr);
+    }
+
+    /// `ByteLength`, `Mask` and `Zip` implement `serialize`/`deserialize` but were once missing from
+    /// `ScalarFnSession::default()`, so they serialized fine and then failed to deserialize with
+    /// "unknown expression id".
+    #[rstest]
+    #[case::byte_length(byte_length(root()))]
+    #[case::mask(mask(root(), lit(true)))]
+    #[case::zip(zip_expr(lit(true), root(), lit(0)))]
+    fn round_trips_through_proto(#[case] expr: Expression) -> VortexResult<()> {
+        let buf = expr.serialize_proto()?.encode_to_vec();
+        let decoded = pb::Expr::decode(buf.as_slice())?;
+        assert_eq!(Expression::from_proto(&decoded, &array_session())?, expr);
+        Ok(())
     }
 
     #[test]

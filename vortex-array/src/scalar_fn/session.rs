@@ -14,6 +14,7 @@ use crate::scalar_fn::ScalarFnPluginRef;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::between::Between;
 use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::byte_length::ByteLength;
 use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::ext_storage::ExtStorage;
 use crate::scalar_fn::fns::fill_null::FillNull;
@@ -25,12 +26,14 @@ use crate::scalar_fn::fns::list_contains::ListContains;
 use crate::scalar_fn::fns::list_length::ListLength;
 use crate::scalar_fn::fns::list_sum::ListSum;
 use crate::scalar_fn::fns::literal::Literal;
+use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::merge::Merge;
 use crate::scalar_fn::fns::not::Not;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::scalar_fn::fns::select::Select;
 use crate::scalar_fn::fns::stat::StatFn;
 use crate::scalar_fn::fns::variant_get::VariantGet;
+use crate::scalar_fn::fns::zip::Zip;
 
 /// Registry of scalar function vtables.
 pub type ScalarFnRegistry = ArcSwapMap<Id, ScalarFnPluginRef>;
@@ -62,6 +65,7 @@ impl Default for ScalarFnSession {
         // Register built-in expressions.
         this.register(Between);
         this.register(Binary);
+        this.register(ByteLength);
         this.register(Cast);
         this.register(ExtStorage);
         this.register(FillNull);
@@ -73,12 +77,14 @@ impl Default for ScalarFnSession {
         this.register(ListLength);
         this.register(ListSum);
         this.register(Literal);
+        this.register(Mask);
         this.register(Merge);
         this.register(Not);
         this.register(Pack);
         this.register(Select);
         this.register(StatFn);
         this.register(VariantGet);
+        this.register(Zip);
 
         this
     }

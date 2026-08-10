@@ -45,6 +45,7 @@ object_store = { workspace = true, features = [
     "http",
 ] }
 parking_lot = { workspace = true }
+prost = { workspace = true }
 pyo3 = { workspace = true, features = ["abi3", "abi3-py311"] }
 pyo3-bytes = { workspace = true }
 pyo3-log = { workspace = true }
