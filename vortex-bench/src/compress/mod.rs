@@ -129,6 +129,48 @@ pub trait Compressor: Send + Sync {
     /// Format implementations apply the fixed wide-table read projection when the input schema
     /// matches the projection benchmark.
     async fn decompress(&self, parquet_path: &Path) -> Result<Duration>;
+
+    /// Compress `parquet_path` `iterations` times, returning the compressed size and every
+    /// run's elapsed time.
+    ///
+    /// Implementations should decode the Parquet input **once** and reuse it across runs.
+    /// The decode has never been inside the timed region, so repeating it per iteration is
+    /// pure overhead — it does not affect the reported number, only how long the suite takes.
+    ///
+    /// The default keeps the old per-iteration decode, for formats that have not been ported.
+    async fn compress_runs(
+        &self,
+        parquet_path: &Path,
+        iterations: usize,
+    ) -> Result<(u64, Vec<Duration>)> {
+        let mut compressed_size = 0;
+        let mut runs = Vec::with_capacity(iterations);
+        for _ in 0..iterations {
+            let (size, elapsed) = self.compress(parquet_path).await?;
+            compressed_size = size;
+            runs.push(elapsed);
+        }
+        Ok((compressed_size, runs))
+    }
+
+    /// Decompress `parquet_path` `iterations` times, returning every run's elapsed time.
+    ///
+    /// Implementations should decode the Parquet input and compress it **once**, then
+    /// decompress the resulting bytes repeatedly. Neither the decode nor that compression is
+    /// inside the timed region, so both are pure overhead when repeated.
+    ///
+    /// The default keeps the old per-iteration behaviour.
+    async fn decompress_runs(
+        &self,
+        parquet_path: &Path,
+        iterations: usize,
+    ) -> Result<Vec<Duration>> {
+        let mut runs = Vec::with_capacity(iterations);
+        for _ in 0..iterations {
+            runs.push(self.decompress(parquet_path).await?);
+        }
+        Ok(runs)
+    }
 }
 
 /// Run a compression benchmark for the given compressor.
@@ -141,17 +183,8 @@ pub async fn benchmark_compress(
     bench_name: &str,
 ) -> Result<CompressResult> {
     let format = compressor.format();
-    let mut fastest = Duration::MAX;
-    let mut compressed_size = 0u64;
-    let mut all_runs = Vec::with_capacity(iterations);
-
-    for _ in 0..iterations {
-        let (size, elapsed) = compressor.compress(parquet_path).await?;
-
-        compressed_size = size;
-        fastest = fastest.min(elapsed);
-        all_runs.push(elapsed);
-    }
+    let (compressed_size, all_runs) = compressor.compress_runs(parquet_path, iterations).await?;
+    let fastest = all_runs.iter().copied().min().unwrap_or(Duration::MAX);
 
     let ratios = vec![CustomUnitMeasurement {
         name: format!("{} size/{bench_name}", format.name()),
@@ -185,15 +218,8 @@ pub async fn benchmark_decompress(
     bench_name: &str,
 ) -> Result<DecompressResult> {
     let format = compressor.format();
-    let mut fastest = Duration::MAX;
-    let mut all_runs = Vec::with_capacity(iterations);
-
-    for _ in 0..iterations {
-        let elapsed = compressor.decompress(parquet_path).await?;
-
-        fastest = fastest.min(elapsed);
-        all_runs.push(elapsed);
-    }
+    let all_runs = compressor.decompress_runs(parquet_path, iterations).await?;
+    let fastest = all_runs.iter().copied().min().unwrap_or(Duration::MAX);
 
     let timing = CompressionTimingMeasurement {
         name: format!("decompress time/{bench_name}"),

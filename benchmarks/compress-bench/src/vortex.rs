@@ -86,4 +86,74 @@ impl Compressor for VortexCompressor {
         }
         Ok(start.elapsed())
     }
+
+    async fn compress_runs(
+        &self,
+        parquet_path: &Path,
+        iterations: usize,
+    ) -> Result<(u64, Vec<Duration>)> {
+        // Decode once. `ArrayRef` is `Arc`-backed, so each run re-streams the same arrays
+        // rather than re-reading and re-canonicalizing the Parquet.
+        let uncompressed = parquet_to_vortex_chunks(parquet_path.to_path_buf())
+            .await?
+            .into_array();
+
+        let mut compressed_size = 0;
+        let mut runs = Vec::with_capacity(iterations);
+        for _ in 0..iterations {
+            let mut buf = Vec::new();
+            let start = Instant::now();
+            let mut cursor = Cursor::new(&mut buf);
+            SESSION
+                .write_options()
+                .write(&mut cursor, uncompressed.clone().to_array_stream())
+                .await?;
+            runs.push(start.elapsed());
+            compressed_size = buf.len() as u64;
+        }
+        Ok((compressed_size, runs))
+    }
+
+    async fn decompress_runs(
+        &self,
+        parquet_path: &Path,
+        iterations: usize,
+    ) -> Result<Vec<Duration>> {
+        // Decode and compress once; only the read back is timed, so repeating either per
+        // iteration would be invisible in the results and pure cost.
+        let uncompressed = parquet_to_vortex_chunks(parquet_path.to_path_buf()).await?;
+        let mut buf = Vec::new();
+        let mut cursor = Cursor::new(&mut buf);
+        SESSION
+            .write_options()
+            .write(&mut cursor, uncompressed.into_array().to_array_stream())
+            .await?;
+        let data = Bytes::from(buf);
+
+        let mut runs = Vec::with_capacity(iterations);
+        for _ in 0..iterations {
+            let start = Instant::now();
+            let mut scan = SESSION.open_options().open_buffer(data.clone())?.scan()?;
+            let source_dtype = scan.dtype()?;
+            let root_columns = source_dtype
+                .as_struct_fields_opt()
+                .map_or(0, |fields| fields.nfields());
+            if let Some(cols) = read_projection(root_columns) {
+                let names: FieldNames = cols.iter().map(|i| i.to_string()).collect();
+                let projection = select(names, root())
+                    .optimize_recursive(&source_dtype)?
+                    .bind(&source_dtype)?;
+                scan = scan.with_projection(projection);
+            }
+            let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
+
+            let stream = scan.into_record_batch_stream(schema)?;
+            pin_mut!(stream);
+            while let Some(batch) = stream.next().await {
+                let _batch = batch?;
+            }
+            runs.push(start.elapsed());
+        }
+        Ok(runs)
+    }
 }

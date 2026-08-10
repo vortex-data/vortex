@@ -85,6 +85,59 @@ impl Compressor for ParquetCompressor {
         parquet_decompress_read(buf)?;
         Ok(timer.elapsed())
     }
+
+    async fn compress_runs(
+        &self,
+        parquet_path: &Path,
+        iterations: usize,
+    ) -> anyhow::Result<(u64, Vec<Duration>)> {
+        // Read the input once. `RecordBatch` is `Arc`-backed, so cloning the batch list per
+        // run shares the same buffers instead of re-reading the file.
+        let file = File::open(parquet_path)?;
+        let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
+        let schema = Arc::clone(builder.schema());
+        let batches: Vec<RecordBatch> = builder.build()?.collect::<Result<Vec<_>, _>>()?;
+
+        let mut compressed_size = 0;
+        let mut runs = Vec::with_capacity(iterations);
+        for _ in 0..iterations {
+            let mut buf = Vec::new();
+            let start = Instant::now();
+            let size = parquet_compress_write(
+                batches.clone(),
+                Arc::clone(&schema),
+                self.compression,
+                &mut buf,
+            )?;
+            runs.push(start.elapsed());
+            compressed_size = size as u64;
+        }
+        Ok((compressed_size, runs))
+    }
+
+    async fn decompress_runs(
+        &self,
+        parquet_path: &Path,
+        iterations: usize,
+    ) -> anyhow::Result<Vec<Duration>> {
+        // Read and compress once; only the read back is timed.
+        let file = File::open(parquet_path)?;
+        let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
+        let schema = Arc::clone(builder.schema());
+        let batches: Vec<RecordBatch> = builder.build()?.collect::<Result<Vec<_>, _>>()?;
+
+        let mut buf = Vec::new();
+        parquet_compress_write(batches, schema, self.compression, &mut buf)?;
+        let buf = Bytes::from(buf);
+
+        let mut runs = Vec::with_capacity(iterations);
+        for _ in 0..iterations {
+            let timer = Instant::now();
+            parquet_decompress_read(buf.clone())?;
+            runs.push(timer.elapsed());
+        }
+        Ok(runs)
+    }
 }
 
 #[inline(never)]
