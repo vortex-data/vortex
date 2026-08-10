@@ -73,6 +73,14 @@ fn trace_compare_on_runend() -> VortexResult<()> {
       iter 0 current=vortex.runend(bool, len=9) builder_active=false
     execute_until target=AnyCanonical root=vortex.binary(bool, len=3)
       iter 0 current=vortex.binary(bool, len=3) builder_active=false
+    optimize root=vortex.slice(i32, len=1) session=false
+      reduce_parent static:SliceReduceAdaptor(Constant) slot=0 parent=vortex.slice(i32, len=1) child=vortex.constant(i32, len=3) -> vortex.constant(i32, len=1)
+      done output=vortex.constant(i32, len=1)
+    execute_until target=AnyCanonical root=vortex.constant(i32, len=1)
+      iter 0 current=vortex.constant(i32, len=1) builder_active=false
+        Done array=vortex.primitive(i32, len=1)
+      iter 1 current=vortex.primitive(i32, len=1) builder_active=false
+      return output=vortex.primitive(i32, len=1)
         Done array=vortex.bool(bool, len=3)
       iter 1 current=vortex.bool(bool, len=3) builder_active=false
       return output=vortex.bool(bool, len=3)

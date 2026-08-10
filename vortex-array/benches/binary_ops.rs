@@ -171,6 +171,14 @@ fn div_i64_nonnull(bencher: Bencher) {
 }
 
 #[divan::bench]
+fn div_i64_nullable(bencher: Bencher) {
+    let lhs = primitive_nullable(1_000_000, 7).into_array();
+    let rhs = primitive_nullable(17, 5).into_array();
+
+    bench_primitive(bencher, lhs, rhs, Operator::Div);
+}
+
+#[divan::bench]
 fn sub_i64_constant(bencher: Bencher) {
     let lhs = primitive_nonnull(0).into_array();
     let rhs = ConstantArray::new(37i64, LEN).into_array();

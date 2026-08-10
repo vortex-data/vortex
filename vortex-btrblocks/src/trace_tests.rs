@@ -206,6 +206,14 @@ fn trace_scan_compare_on_compressed_shipdate() -> VortexResult<()> {
         Done array=vortex.primitive(i32, len=4096)
       iter 1 current=vortex.primitive(i32, len=4096) builder_active=false
       return output=vortex.primitive(i32, len=4096)
+    optimize root=vortex.slice(i32, len=1) session=false
+      reduce_parent static:SliceReduceAdaptor(Constant) slot=0 parent=vortex.slice(i32, len=1) child=vortex.constant(i32, len=4096) -> vortex.constant(i32, len=1)
+      done output=vortex.constant(i32, len=1)
+    execute_until target=AnyCanonical root=vortex.constant(i32, len=1)
+      iter 0 current=vortex.constant(i32, len=1) builder_active=false
+        Done array=vortex.primitive(i32, len=1)
+      iter 1 current=vortex.primitive(i32, len=1) builder_active=false
+      return output=vortex.primitive(i32, len=1)
         Done array=vortex.bool(bool, len=4096)
       iter 2 current=vortex.bool(bool, len=4096) builder_active=false
       return output=vortex.bool(bool, len=4096)
@@ -264,6 +272,14 @@ fn trace_scan_compare_on_compressed_quantity() -> VortexResult<()> {
         Done array=vortex.primitive(i16, len=50)
       iter 1 current=vortex.primitive(i16, len=50) builder_active=false
       return output=vortex.primitive(i16, len=50)
+    optimize root=vortex.slice(i16, len=1) session=false
+      reduce_parent static:SliceReduceAdaptor(Constant) slot=0 parent=vortex.slice(i16, len=1) child=vortex.constant(i16, len=50) -> vortex.constant(i16, len=1)
+      done output=vortex.constant(i16, len=1)
+    execute_until target=AnyCanonical root=vortex.constant(i16, len=1)
+      iter 0 current=vortex.constant(i16, len=1) builder_active=false
+        Done array=vortex.primitive(i16, len=1)
+      iter 1 current=vortex.primitive(i16, len=1) builder_active=false
+      return output=vortex.primitive(i16, len=1)
         Done array=vortex.bool(bool, len=50)
       iter 6 current=vortex.bool(bool, len=50) stack_parent=vortex.dict(bool, len=4096) slot=1 builder_active=false
         pop_frame slot=1 output=vortex.dict(bool, len=4096)
