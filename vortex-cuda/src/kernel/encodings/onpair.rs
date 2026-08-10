@@ -26,13 +26,6 @@
 //! OnPair stores (u16 natively, u8 when the compressor narrowed the codes),
 //! so the code stream is decompressed on device and never widened.
 //!
-//! The pipeline's independent inputs — the three decompressed children and
-//! the staged dictionary — are produced concurrently on forked sibling
-//! streams ([`CudaExecutionCtx::fork`]); the parent stream is ordered behind
-//! the forks it consumes with events, never host syncs. The lengths stay on
-//! their fork so each output path's row-offsets scan overlaps the decode
-//! kernel.
-//!
 //! The heap size and window bounds come from the GPU; each output path builds
 //! its row offsets from the lengths child with [`i32_offsets_from_lengths`]
 //! on device and validates them against the window size before they index the
@@ -140,25 +133,22 @@ async fn decode_onpair(
         bytes,
         total_size,
         lengths,
-        lengths_ctx: mut row_offsets_ctx,
     } = decoded;
 
     // Fast path: the decoded window fits a single BinaryView backing buffer
     // (`MAX_BUFFER_LEN`, i32::MAX), so the per-row offsets fit Arrow's i32
     // range and build on device from the device-resident lengths — nothing
-    // touches the host. The scan runs on the fork that decoded the lengths,
-    // overlapping the decode kernel in flight on the parent stream.
+    // touches the host.
     if total_size <= MAX_BUFFER_LEN {
         let I32Offsets {
             buffer: row_offsets,
             total,
-        } = i32_offsets_from_lengths(lengths, &mut row_offsets_ctx).await?;
+        } = i32_offsets_from_lengths(lengths, ctx).await?;
         let row_total = u64::try_from(total)?;
         vortex_ensure!(
             row_total == total_size as u64,
             "OnPair codes decode to {total_size} bytes but uncompressed_lengths records {row_total}"
         );
-        ctx.wait_for(&row_offsets_ctx)?;
         let row_offsets_view = row_offsets.cuda_view::<i32>()?;
         let bytes_view = bytes.cuda_view::<u8>()?;
         let mut device_views = ctx.device_alloc::<i128>(num_rows)?;
@@ -193,12 +183,7 @@ async fn decode_onpair(
     let host_bytes = bytes.try_to_host()?.await?;
 
     let (buffers, views) = match_each_integer_ptype!(lengths.ptype(), |P| {
-        build_views(
-            0,
-            MAX_BUFFER_LEN,
-            host_bytes.into_mut(),
-            lengths.as_slice::<P>(),
-        )
+        build_views(0, MAX_BUFFER_LEN, host_bytes, lengths.as_slice::<P>())
     });
 
     Ok(Canonical::VarBinView(unsafe {
@@ -234,24 +219,19 @@ pub(crate) async fn decode_onpair_varbin(
         bytes,
         total_size,
         lengths,
-        lengths_ctx: mut row_offsets_ctx,
     } = decoded;
 
     // Build the Arrow i32 offsets from the lengths on device; this also
-    // rejects windows beyond Arrow's i32 offset range. The scan runs on the
-    // fork that decoded the lengths, overlapping the decode kernel in flight
-    // on the parent stream; the parent is then ordered behind it so callers
-    // see the offsets through `ctx`'s stream.
+    // rejects windows beyond Arrow's i32 offset range.
     let I32Offsets {
         buffer: offsets,
         total,
-    } = i32_offsets_from_lengths(lengths, &mut row_offsets_ctx).await?;
+    } = i32_offsets_from_lengths(lengths, ctx).await?;
     let row_total = u64::try_from(total)?;
     vortex_ensure!(
         row_total == total_size as u64,
         "OnPair codes decode to {total_size} bytes but uncompressed_lengths records {row_total}"
     );
-    ctx.wait_for(&row_offsets_ctx)?;
 
     Ok(DecodedVarBin {
         dtype,
@@ -269,15 +249,10 @@ struct OnPairDecoded {
     bytes: BufferHandle,
     /// Byte size of the window, computed on device.
     total_size: usize,
-    /// Per-row lengths, decoded on `lengths_ctx`'s sibling stream. The varbin
-    /// path and the canonical fast path build their row offsets from them on
-    /// device; only the host rollover path materialises them.
+    /// Per-row lengths. The varbin path and the canonical fast path build
+    /// their row offsets from them on device; only the host rollover path
+    /// materialises them.
     lengths: PrimitiveArray,
-    /// The forked context the lengths were decoded on. Output paths run the
-    /// row-offsets scan on it so the scan overlaps the decode kernel still in
-    /// flight on the parent stream, then order the parent behind it with
-    /// [`CudaExecutionCtx::wait_for`] before consuming the offsets.
-    lengths_ctx: CudaExecutionCtx,
 }
 
 /// Run the OnPair decode pipeline over the full token stream: stage the codes
@@ -314,41 +289,22 @@ async fn decode_onpair_bytes(
         return Ok(None);
     }
 
-    // The three children and the dictionary staging are mutually
-    // independent, so each runs on a forked sibling stream and the device
-    // work overlaps: the per-row lengths (consumed only by the output
-    // paths), the per-row code boundaries (the token window is resolved from
-    // them by a kernel, never by host scalar reads), the codes themselves
-    // (decoded on the parent stream, which runs the rest of the pipeline),
-    // and the split dictionary staging.
-    let mut lengths_ctx = ctx.fork()?;
-    let mut offsets_ctx = ctx.fork()?;
-    let mut dict_ctx = ctx.fork()?;
-    let (lengths, codes_offsets, codes, dict) = futures::try_join!(
-        decode_primitive_child(onpair.uncompressed_lengths().clone(), &mut lengths_ctx),
-        decode_primitive_child(onpair.codes_offsets().clone(), &mut offsets_ctx),
-        decode_primitive_child(onpair.codes().clone(), ctx),
-        stage_dict(onpair, &mut dict_ctx),
-    )?;
-    // The batch-offsets sweep reads the staged dictionary through raw CUB
-    // pointers (no cudarc guard) and the fused window kernel reads the
-    // decoded boundaries, so order the parent stream behind both forks;
-    // their kernel writes may still be in flight. The lengths deliberately
-    // stay unjoined on their fork: the output paths run the row-offsets scan
-    // there so it overlaps the decode kernel.
-    ctx.wait_for(&dict_ctx)?;
-    ctx.wait_for(&offsets_ctx)?;
+    // The three children and the dictionary staging all run on `ctx`'s
+    // stream: the per-row lengths (consumed only by the output paths), the
+    // per-row code boundaries (the token window is resolved from them by a
+    // kernel, never by host scalar reads), the codes themselves, and the
+    // split dictionary staging.
+    let lengths = decode_primitive_child(onpair.uncompressed_lengths().clone(), ctx).await?;
+    let codes_offsets = decode_primitive_child(onpair.codes_offsets().clone(), ctx).await?;
+    let codes = decode_primitive_child(onpair.codes().clone(), ctx).await?;
+    let dict = stage_dict(onpair, ctx).await?;
 
     // The kernels are instantiated for the two widths OnPair stores — u16
     // natively, u8 when the compressor narrowed the codes — so no widening
     // pass is needed.
     match codes.ptype() {
-        PType::U8 => {
-            decode_window::<u8>(codes, codes_offsets, lengths, lengths_ctx, dict, ctx).await
-        }
-        PType::U16 => {
-            decode_window::<u16>(codes, codes_offsets, lengths, lengths_ctx, dict, ctx).await
-        }
+        PType::U8 => decode_window::<u8>(codes, codes_offsets, lengths, dict, ctx).await,
+        PType::U16 => decode_window::<u16>(codes, codes_offsets, lengths, dict, ctx).await,
         other => vortex_bail!("OnPair codes must decompress to u8 or u16, got {other}"),
     }
 }
@@ -363,8 +319,7 @@ struct StagedDict {
 
 /// Stage the dictionary in the decode kernel's split layout: fixed 16-byte
 /// rows (`dict_padded`, the rare `len > 8` read), the first 8 bytes of every
-/// row (`dict_s8`, the common-case read), and the per-code lengths. Runs on a
-/// forked stream so the copies overlap the codes decompression.
+/// row (`dict_s8`, the common-case read), and the per-code lengths.
 async fn stage_dict(
     onpair: ArrayView<'_, OnPair>,
     ctx: &mut CudaExecutionCtx,
@@ -406,7 +361,6 @@ async fn decode_window<C>(
     codes: PrimitiveArray,
     codes_offsets: PrimitiveArray,
     lengths: PrimitiveArray,
-    lengths_ctx: CudaExecutionCtx,
     dict: StagedDict,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Option<OnPairDecoded>>
@@ -559,7 +513,6 @@ where
         bytes: BufferHandle::new_device(heap.slice(byte_start..byte_end)),
         total_size,
         lengths,
-        lengths_ctx,
     }))
 }
 

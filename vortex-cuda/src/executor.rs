@@ -13,7 +13,6 @@ use cudarc::driver::DeviceRepr;
 use cudarc::driver::LaunchArgs;
 use cudarc::driver::LaunchConfig;
 use cudarc::driver::ValidAsZeroBits;
-use cudarc::driver::sys::CUevent_flags;
 use futures::future::BoxFuture;
 use tracing::debug;
 use tracing::trace;
@@ -39,7 +38,6 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
-use vortex_array::VortexSessionExecute;
 
 use crate::CudaSession;
 use crate::ExportDeviceArray;
@@ -135,40 +133,6 @@ impl CudaExecutionCtx {
     pub fn with_dispatch_mode(mut self, dispatch_mode: CudaDispatchMode) -> Self {
         self.dispatch_mode = dispatch_mode;
         self
-    }
-
-    /// Forks this execution context onto a sibling stream from the session's
-    /// round-robin pool, so work on the two contexts can overlap on device.
-    ///
-    /// The fork gets a fresh CPU execution context and inherits this
-    /// context's launch strategy and dispatch mode. cudarc-tracked buffer
-    /// arguments are ordered across streams automatically; work that reads a
-    /// fork's output through raw device pointers (e.g. the CUB shims) must
-    /// first order this context behind it with [`wait_for`][Self::wait_for].
-    pub fn fork(&self) -> VortexResult<CudaExecutionCtx> {
-        Ok(Self {
-            stream: self.cuda_session.stream()?,
-            ctx: self.ctx.session().create_execution_ctx(),
-            cuda_session: self.cuda_session.clone(),
-            strategy: Arc::clone(&self.strategy),
-            dispatch_mode: self.dispatch_mode,
-        })
-    }
-
-    /// Orders this context's stream behind all work currently submitted to
-    /// `other`'s stream via a CUDA event, without blocking the host. A no-op
-    /// when both contexts share a stream.
-    pub fn wait_for(&self, other: &CudaExecutionCtx) -> VortexResult<()> {
-        if self.stream.cu_stream() == other.stream.cu_stream() {
-            return Ok(());
-        }
-        let event = other
-            .stream
-            .record_event(Some(CUevent_flags::CU_EVENT_DISABLE_TIMING))
-            .map_err(|e| vortex_err!("Failed to record CUDA fork event: {e}"))?;
-        self.stream
-            .wait(&event)
-            .map_err(|e| vortex_err!("Failed to wait on CUDA fork event: {e}"))
     }
 
     /// Perform an external kernel launch, with events created and logged via the configured
@@ -527,51 +491,5 @@ impl CudaArrayExt for ArrayRef {
         }
 
         self.execute(&mut ctx.ctx)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use cudarc::driver::CudaContext;
-    use cudarc::driver::PushKernelArg;
-
-    use super::*;
-
-    #[crate::test]
-    async fn test_fork_runs_on_sibling_stream_and_wait_for_orders_it() -> VortexResult<()> {
-        let context = CudaContext::new(0)
-            .map_err(|err| vortex_err!("failed to create CUDA context: {err}"))?;
-        let cuda_session = CudaSession::with_stream_pool_capacity(context, 2);
-        let session = vortex::array::array_session().with_some(cuda_session);
-        let ctx = CudaSession::create_execution_ctx(&session)?;
-
-        let mut fork = ctx.fork()?;
-        assert_ne!(ctx.stream().cu_stream(), fork.stream().cu_stream());
-
-        // Fill a buffer with a kernel enqueued on the forked stream.
-        let len = 1u64 << 20;
-        let mut values = fork.device_alloc::<u32>(usize::try_from(len)?)?;
-        let kernel = fork.load_function("constant_numeric", &[PType::U32])?;
-        let value = 7u32;
-        fork.launch_kernel(&kernel, usize::try_from(len)?, |args| {
-            args.arg(&mut values).arg(&value).arg(&len);
-        })?;
-
-        // Order the parent stream behind the fork, then read the fork's
-        // output through the parent stream.
-        ctx.wait_for(&fork)?;
-        let host = ctx
-            .stream()
-            .clone_dtoh(&values)
-            .map_err(|e| vortex_err!("Failed to copy fork output to host: {e}"))?;
-        assert!(host.iter().all(|v| *v == 7));
-        Ok(())
-    }
-
-    #[crate::test]
-    async fn test_wait_for_same_stream_is_noop() -> VortexResult<()> {
-        let ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
-        ctx.wait_for(&ctx)?;
-        Ok(())
     }
 }
