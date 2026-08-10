@@ -55,23 +55,19 @@ impl DuckClient {
         let dir = base_path.join(format.name());
         let db_path = dir.join("duckdb.db");
 
-        if format == Format::OnDiskDuckDB && data_url.scheme() != "file" {
-            anyhow::bail!("DuckDB format requires local data prepared by data-gen");
-        }
-
-        if format == Format::OnDiskDuckDB {
-            if !db_path.exists() {
-                anyhow::bail!(
-                    "prepared DuckDB database is missing at {}. Generate it with \
-                     `vx-bench prepare-data {} --formats-json '[\"duckdb\"]'` or \
-                     `cargo run --bin data-gen -- {} --formats duckdb` using the same --opt values.",
-                    db_path.display(),
-                    benchmark.dataset_name(),
-                    benchmark.dataset_name(),
-                );
-            }
-        } else {
+        if format != Format::OnDiskDuckDB {
             std::fs::create_dir_all(&dir)?;
+        } else if data_url.scheme() != "file" {
+            anyhow::bail!("DuckDB format requires local data prepared by data-gen");
+        } else if !db_path.exists() {
+            anyhow::bail!(
+                "prepared DuckDB database is missing at {}. Generate it with \
+                 `vx-bench prepare-data {} --formats-json '[\"duckdb\"]'` or \
+                 `cargo run --bin data-gen -- {} --formats duckdb` using the same --opt values.",
+                db_path.display(),
+                benchmark.dataset_name(),
+                benchmark.dataset_name(),
+            );
         }
 
         tracing::info!(db_path = %db_path.display(), "Opening DuckDB");
@@ -225,10 +221,8 @@ impl DuckClient {
             format => anyhow::bail!("Format {format} isn't supported for DuckDB"),
         };
 
-        let load_format = file_format;
-
         // Get the base URL for the format's data directory
-        let format_url = benchmark.format_path(load_format, benchmark.data_url())?;
+        let format_url = benchmark.format_path(file_format, benchmark.data_url())?;
         let base_dir = format_url.as_str();
         let base_dir = base_dir
             .strip_prefix("file://")
@@ -236,7 +230,7 @@ impl DuckClient {
             .trim_end_matches('/');
 
         let commands =
-            generate_duckdb_registration_sql(benchmark, base_dir, load_format, object_type);
+            generate_duckdb_registration_sql(benchmark, base_dir, file_format, object_type);
 
         for stmt in commands {
             self.execute_query(&stmt)?;

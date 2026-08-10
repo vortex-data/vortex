@@ -272,7 +272,7 @@ where
     let mut missing = Vec::new();
     for format in formats.iter().copied().unique() {
         let required_path = match format {
-            Format::Arrow | Format::Parquet => base_path.join(Format::Parquet.name()),
+            Format::Parquet => base_path.join(Format::Parquet.name()),
             Format::OnDiskVortex => base_path.join(Format::OnDiskVortex.name()),
             Format::VortexCompact => base_path.join(Format::VortexCompact.name()),
             Format::OnDiskDuckDB => base_path
