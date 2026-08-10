@@ -45,6 +45,8 @@ pub use plans::SegmentScanData;
 pub use plans::SegmentScanPlan;
 pub use plans::Take;
 pub use plans::TakePlan;
+pub use plans::Zoned;
+pub use plans::ZonedPlan;
 pub use typed::DynPlan;
 pub use typed::Plan;
 pub use typed::PlanParts;

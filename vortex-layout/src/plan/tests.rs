@@ -2,8 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
+use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -23,6 +25,8 @@ use vortex_session::registry::CachedId;
 use vortex_session::registry::ReadContext;
 
 use super::*;
+use crate::LayoutBuildContext;
+use crate::LayoutEncoding;
 use crate::LayoutRef;
 use crate::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
@@ -32,6 +36,8 @@ use crate::layouts::foreign::new_foreign_layout;
 use crate::layouts::list::ListLayout;
 use crate::layouts::row_idx::row_idx;
 use crate::layouts::struct_::StructLayout;
+use crate::layouts::zoned::LegacyStatsLayoutEncoding;
+use crate::layouts::zoned::ZonedLayout;
 use crate::segments::SegmentId;
 
 fn primitive(ptype: PType, nullability: Nullability) -> DType {
@@ -802,5 +808,63 @@ fn nullable_struct_keeps_expression_above_parent_validity() -> VortexResult<()> 
         .as_opt::<Eval>()
         .ok_or_else(|| vortex_err!("Nullable struct expression unexpectedly pushed down"))?;
     assert!(eval.child_plan()?.is::<Pack>());
+    Ok(())
+}
+
+#[test]
+fn zoned_plan_exposes_data_and_zones() -> VortexResult<()> {
+    let dtype = primitive(PType::I32, Nullability::NonNullable);
+    let zones_dtype = DType::Struct(StructFields::empty(), Nullability::NonNullable);
+    let zone_len = NonZeroUsize::new(3).ok_or_else(|| vortex_err!("zone length is zero"))?;
+    let aggregate_fns: Arc<[AggregateFnRef]> = Vec::new().into();
+    let layout = ZonedLayout::try_new(
+        flat(5, dtype, 0),
+        flat(2, zones_dtype, 1),
+        zone_len,
+        aggregate_fns,
+    )?
+    .into_layout();
+
+    let plan = make_plan(layout)?;
+    assert!(plan.is::<Zoned>());
+    insta::assert_snapshot!(plan.display_tree(), @"
+    root: vortex.plan.zoned(i32, rows=5)
+      data: vortex.plan.segment_scan(i32, rows=5)
+      zones: vortex.plan.segment_scan({}, rows=2)
+    ");
+    Ok(())
+}
+
+#[test]
+fn legacy_stats_layout_uses_zoned_plan() -> VortexResult<()> {
+    let dtype = primitive(PType::I32, Nullability::NonNullable);
+    let zones_dtype = DType::Struct(StructFields::empty(), Nullability::NonNullable);
+    let children = OwnedLayoutChildren::layout_children(vec![
+        flat(5, dtype.clone(), 0),
+        flat(2, zones_dtype, 1),
+    ]);
+    let session = vortex_array::array_session();
+    let read_ctx = ReadContext::new([]);
+    let build_ctx = LayoutBuildContext {
+        session: &session,
+        array_read_ctx: &read_ctx,
+    };
+    let layout = LayoutEncoding::build(
+        &LegacyStatsLayoutEncoding,
+        &dtype,
+        5,
+        &3_u32.to_le_bytes(),
+        Vec::new(),
+        children.as_ref(),
+        &build_ctx,
+    )?;
+
+    let plan = make_plan(layout)?;
+    assert!(plan.is::<Zoned>());
+    insta::assert_snapshot!(plan.display_tree(), @"
+    root: vortex.plan.zoned(i32, rows=5)
+      data: vortex.plan.segment_scan(i32, rows=5)
+      zones: vortex.plan.segment_scan({}, rows=2)
+    ");
     Ok(())
 }
