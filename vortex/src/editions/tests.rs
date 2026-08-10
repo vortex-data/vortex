@@ -16,10 +16,12 @@ use vortex_array::field_path;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_buffer::ByteBufferMut;
+use vortex_edition::ComponentKind;
 use vortex_edition::Edition;
 use vortex_edition::EditionDeclaration;
 use vortex_edition::EditionError;
 use vortex_edition::EditionId;
+use vortex_edition::EditionMember;
 use vortex_edition::EditionSession;
 use vortex_edition::EditionSessionExt;
 use vortex_edition::test_harness::validate_edition;
@@ -68,10 +70,10 @@ fn every_declared_edition_validates() -> Result<(), EditionError> {
 #[test]
 fn core_2026_07_encoding_set_is_pinned() {
     let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
-    let encodings = session.encodings_in(&CORE_2026_07_0);
+    let encodings = session.array_encodings_in(&CORE_2026_07_0);
     let ids: Vec<&str> = encodings
         .iter()
-        .map(|inclusion| inclusion.encoding_id.as_str())
+        .map(|inclusion| inclusion.component_id.as_str())
         .collect();
     assert_eq!(
         ids,
@@ -115,16 +117,16 @@ fn core_2026_07_encoding_set_is_pinned() {
 fn encodings_in_editions_unions_families() {
     let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
     let core_only: Vec<_> = session
-        .encodings_in(&CORE_2026_07_0)
+        .array_encodings_in(&CORE_2026_07_0)
         .into_iter()
-        .map(|inclusion| inclusion.encoding_id)
+        .map(|inclusion| inclusion.component_id)
         .collect();
     let mut both = core_only.clone();
     both.extend(
         session
-            .encodings_in(&UNSTABLE_2026_06_0)
+            .array_encodings_in(&UNSTABLE_2026_06_0)
             .into_iter()
-            .map(|inclusion| inclusion.encoding_id),
+            .map(|inclusion| inclusion.component_id),
     );
     both.sort_unstable();
     both.dedup();
@@ -138,12 +140,12 @@ fn encodings_in_editions_unions_families() {
 #[test]
 fn earlier_editions_are_subsets() {
     let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
-    let first = session.encodings_in(&CORE_2025_05_0);
-    let latest = session.encodings_in(&CORE_2026_08);
+    let first = session.array_encodings_in(&CORE_2025_05_0);
+    let latest = session.array_encodings_in(&CORE_2026_08);
     assert!(first.iter().all(|inclusion| {
         latest
             .iter()
-            .any(|latest| latest.encoding_id == inclusion.encoding_id)
+            .any(|latest| latest.component_id == inclusion.component_id)
     }));
     assert!(first.len() < latest.len());
 }
@@ -170,12 +172,30 @@ fn core_edition_ids_are_registered_array_encodings() {
 
     let session = VortexSession::default();
     let registry = session.arrays().registry().clone();
-    for inclusion in session.editions().encodings_in(&CORE_2026_08) {
+    for inclusion in session.editions().array_encodings_in(&CORE_2026_08) {
         assert!(
-            registry.contains_key(&inclusion.encoding_id),
+            registry.contains_key(&inclusion.component_id),
             "{} is declared in core but not registered as an array encoding",
-            inclusion.encoding_id
+            inclusion.component_id
         );
+    }
+}
+
+/// Every first-party member is an array encoding today. A member of another kind reaching a
+/// declaration without the resolver for that kind existing would be silently unenforced, so
+/// this pins the current coverage.
+#[test]
+fn first_party_declarations_only_add_array_encodings() {
+    for declaration in EDITION_DECLARATIONS {
+        for member in declaration.added {
+            assert_eq!(
+                member.kind,
+                ComponentKind::Array,
+                "{} declares a non-array member {:?}",
+                declaration.edition.id,
+                member.component
+            );
+        }
     }
 }
 
@@ -201,10 +221,10 @@ static WRITER_TEST_DECLARATION: EditionDeclaration = EditionDeclaration {
         min_vortex_version: None,
     },
     added: &[
-        &"vortex.chunked",
-        &"vortex.constant",
-        &"vortex.primitive",
-        &"vortex.struct",
+        EditionMember::array(&"vortex.chunked"),
+        EditionMember::array(&"vortex.constant"),
+        EditionMember::array(&"vortex.primitive"),
+        EditionMember::array(&"vortex.struct"),
     ],
 };
 
@@ -282,7 +302,7 @@ async fn assert_round_trip_encodings_are_enabled(
         .depth_first_traversal()
         .map(|array| array.encoding_id())
         .collect();
-    let allowed: HashSet<_> = session.enabled_encoding_ids().into_iter().collect();
+    let allowed: HashSet<_> = session.enabled_array_encoding_ids().into_iter().collect();
     let mut forbidden: Vec<_> = actual.difference(&allowed).map(|id| id.as_str()).collect();
     forbidden.sort_unstable();
     if !forbidden.is_empty() {
@@ -421,7 +441,7 @@ async fn default_writer_filters_compressor_to_enabled_editions() -> VortexResult
 #[tokio::test]
 async fn configured_btrblocks_builder_uses_enabled_editions_in_either_order() -> VortexResult<()> {
     let session = baseline_core_session()?;
-    let allowed: HashSet<_> = session.enabled_encoding_ids().into_iter().collect();
+    let allowed: HashSet<_> = session.enabled_array_encoding_ids().into_iter().collect();
     let strategies = [
         WriteStrategyBuilder::default()
             .with_btrblocks_builder(BtrBlocksCompressorBuilder::default())
@@ -451,7 +471,7 @@ async fn configured_btrblocks_builder_uses_enabled_editions_in_either_order() ->
 #[tokio::test]
 async fn opaque_compressor_cannot_write_outside_enabled_editions() -> VortexResult<()> {
     let session = baseline_core_session()?;
-    let allowed = session.enabled_encoding_ids().into_iter().collect();
+    let allowed = session.enabled_array_encoding_ids().into_iter().collect();
     let strategy = WriteStrategyBuilder::default()
         .with_compressor(BtrBlocksCompressorBuilder::default().build())
         .with_allow_encodings(allowed)

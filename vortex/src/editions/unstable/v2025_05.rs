@@ -6,6 +6,7 @@
 use vortex_edition::Edition;
 use vortex_edition::EditionDeclaration;
 use vortex_edition::EditionId;
+use vortex_edition::EditionMember;
 
 /// The May 2025 draft edition of the `unstable` family.
 pub const UNSTABLE_2025_05_0: EditionId = EditionId::new("unstable", 2025, 5, 0);
@@ -16,5 +17,5 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         id: UNSTABLE_2025_05_0,
         min_vortex_version: None,
     },
-    added: &[&"fastlanes.delta"],
+    added: &[EditionMember::array(&"fastlanes.delta")],
 };

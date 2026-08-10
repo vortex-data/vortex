@@ -4,6 +4,13 @@ Vortex defines an evergrowing set of serializable array encodings, once written 
 version of vortex.
 **Editions** are used to keep track of these encodings and talk about groups of encodings.
 
+Every member of an edition is recorded with a **component kind**, and today the only kind an edition declares is
+`array`: an edition names the array encodings that may appear in a written array. Ids are unique per kind, not
+globally, so a future layout named `vortex.flat` and an array encoding named `vortex.flat` are different members.
+Resolution is always per kind — the writer asks for the enabled *array encoding* ids — which is what lets other
+kinds (layouts, scalar functions, aggregate functions) join editions later without colliding with array encoding
+ids or silently widening what a writer may emit.
+
 The first edition, `core2025.05.0`, contains the stable encodings that could be written by Vortex
 `0.36.0`. This is the release from which the Vortex file format is considered stable. Later `core`
 editions add stable encodings released after that compatibility boundary.
@@ -56,11 +63,11 @@ encodings can read the files.
 
 ## How editions change
 
-A published edition is frozen — its encoding list never grows or shrinks. New encodings are
+A published edition is frozen — its member list never grows or shrinks. New encodings are
 staged in a **draft** edition and become guaranteed only when that draft is frozen as the next
-edition; each encoding's registry entry records the edition it joined in. In the future an
-encoding may be *deprecated*, meaning writers stop emitting it — but readers keep decoding it
-indefinitely, so deprecation never invalidates existing files.
+edition; each member's registry entry records the edition it joined in and its component kind.
+In the future an encoding may be *deprecated*, meaning writers stop emitting it — but readers
+keep decoding it indefinitely, so deprecation never invalidates existing files.
 
 ## Edition registry
 

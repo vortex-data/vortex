@@ -6,6 +6,7 @@
 use vortex_edition::Edition;
 use vortex_edition::EditionDeclaration;
 use vortex_edition::EditionId;
+use vortex_edition::EditionMember;
 
 /// The April 2026 draft edition of the `unstable` family.
 pub const UNSTABLE_2026_04_0: EditionId = EditionId::new("unstable", 2026, 4, 0);
@@ -17,11 +18,11 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         min_vortex_version: None,
     },
     added: &[
-        &"vortex.parquet.variant",
-        &"vortex.patched",
-        &"vortex.tensor.cosine_similarity",
-        &"vortex.tensor.inner_product",
-        &"vortex.tensor.normalized",
-        &"vortex.tensor.l2_norm",
+        EditionMember::array(&"vortex.parquet.variant"),
+        EditionMember::array(&"vortex.patched"),
+        EditionMember::array(&"vortex.tensor.cosine_similarity"),
+        EditionMember::array(&"vortex.tensor.inner_product"),
+        EditionMember::array(&"vortex.tensor.normalized"),
+        EditionMember::array(&"vortex.tensor.l2_norm"),
     ],
 };

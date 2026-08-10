@@ -8,6 +8,11 @@
 //! registers them with [`crate::editions::register_default_editions`] and then selects its write
 //! policy with [`crate::editions::enable_default_editions`].
 //!
+//! Every first-party member is an [`EditionMember::array`], i.e. an array encoding: editions
+//! cover the encodings of a written array. Memberships carry their [`ComponentKind`] so
+//! layouts, scalar functions, and aggregate functions can join editions later without
+//! colliding with array encoding ids.
+//!
 //! The default file writer resolves the session's enabled editions at write time. The
 //! facade enables the newest frozen `core` edition, [`crate::editions::CORE_2026_08`], and
 //! additionally enables the latest unstable edition when the `unstable_encodings` feature is
@@ -18,10 +23,12 @@ pub mod core;
 mod tests;
 pub mod unstable;
 
+pub use vortex_edition::ComponentKind;
 pub use vortex_edition::Edition;
 pub use vortex_edition::EditionDeclaration;
 pub use vortex_edition::EditionId;
 pub use vortex_edition::EditionInclusion;
+pub use vortex_edition::EditionMember;
 pub use vortex_edition::EditionSession;
 pub use vortex_edition::EditionSessionExt;
 pub use vortex_edition::EnabledEditions;

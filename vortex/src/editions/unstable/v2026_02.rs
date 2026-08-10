@@ -6,6 +6,7 @@
 use vortex_edition::Edition;
 use vortex_edition::EditionDeclaration;
 use vortex_edition::EditionId;
+use vortex_edition::EditionMember;
 
 /// The February 2026 draft edition of the `unstable` family.
 pub const UNSTABLE_2026_02_0: EditionId = EditionId::new("unstable", 2026, 2, 0);
@@ -16,5 +17,5 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         id: UNSTABLE_2026_02_0,
         min_vortex_version: None,
     },
-    added: &[&"vortex.zstd_buffers"],
+    added: &[EditionMember::array(&"vortex.zstd_buffers")],
 };

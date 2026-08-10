@@ -85,7 +85,7 @@ fn enable_all_registered_array_encodings(session: &VortexSession) {
         .read(|map| map.keys().copied().collect::<Vec<_>>());
     for id in ids {
         editions
-            .declare_inclusion(EditionInclusion::new(&id, BENCH_EDITION))
+            .declare_inclusion(EditionInclusion::array(&id, BENCH_EDITION))
             .unwrap();
     }
     session.enable_edition(BENCH_EDITION).unwrap();

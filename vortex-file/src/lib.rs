@@ -223,7 +223,7 @@ pub(crate) fn enable_all_registered_array_encodings(session: &VortexSession) {
         .read(|map| map.keys().copied().collect::<Vec<_>>());
     for id in ids {
         editions
-            .declare_inclusion(EditionInclusion::new(&id, TEST_EDITION))
+            .declare_inclusion(EditionInclusion::array(&id, TEST_EDITION))
             .map_err(|error| vortex_err!("{error}"))
             .vortex_expect("registered array encoding has one test-edition inclusion");
     }

@@ -91,7 +91,7 @@ impl VortexWriteOptions {
     /// Create a new [`VortexWriteOptions`] with the given session.
     pub fn new(session: VortexSession) -> Self {
         let strategy = WriteStrategyBuilder::default()
-            .with_allow_encodings(session.enabled_encoding_ids().into_iter().collect())
+            .with_allow_encodings(session.enabled_array_encoding_ids().into_iter().collect())
             .build();
         VortexWriteOptions {
             strategy,
@@ -348,7 +348,7 @@ fn new_array_context(session: &VortexSession) -> ArrayContext {
     // serialised array order is deterministic. The serialisation of arrays are done
     // parallel and with an empty context they can register their encodings to the context
     // in different order, changing the written bytes from run to run.
-    let enabled_encoding_ids = session.enabled_encoding_ids();
+    let enabled_encoding_ids = session.enabled_array_encoding_ids();
     ArrayContext::new(enabled_encoding_ids.iter().cloned().sorted().collect())
         // Only permit encodings known to the session.
         .with_allowed_ids(enabled_encoding_ids.into_iter().collect())
@@ -641,6 +641,7 @@ mod tests {
     use vortex_edition::Edition;
     use vortex_edition::EditionDeclaration;
     use vortex_edition::EditionId;
+    use vortex_edition::EditionMember;
     use vortex_edition::EditionSession;
     use vortex_edition::EditionSessionExt;
 
@@ -654,14 +655,14 @@ mod tests {
                 id: EDITION,
                 min_vortex_version: None,
             },
-            added: &[&"vortex.primitive"],
+            added: &[EditionMember::array(&"vortex.primitive")],
         };
 
         let session = array_session().with::<EditionSession>();
         session.register_edition(&DECLARATION)?;
         session.enable_edition(EDITION)?;
 
-        let enabled_encoding_ids = session.enabled_encoding_ids();
+        let enabled_encoding_ids = session.enabled_array_encoding_ids();
         let ctx = ArrayContext::new(enabled_encoding_ids.clone())
             .with_allowed_ids(enabled_encoding_ids.into_iter().collect());
         assert_eq!(ctx.to_ids(), [Primitive.id()]);

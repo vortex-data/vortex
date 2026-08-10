@@ -6,6 +6,7 @@
 use vortex_edition::Edition;
 use vortex_edition::EditionDeclaration;
 use vortex_edition::EditionId;
+use vortex_edition::EditionMember;
 
 /// The June 2026 draft edition of the `unstable` family.
 pub const UNSTABLE_2026_06_0: EditionId = EditionId::new("unstable", 2026, 6, 0);
@@ -16,5 +17,5 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         id: UNSTABLE_2026_06_0,
         min_vortex_version: None,
     },
-    added: &[&"vortex.onpair"],
+    added: &[EditionMember::array(&"vortex.onpair")],
 };

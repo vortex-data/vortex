@@ -6,6 +6,7 @@
 use vortex_edition::Edition;
 use vortex_edition::EditionDeclaration;
 use vortex_edition::EditionId;
+use vortex_edition::EditionMember;
 
 /// The July 2026 edition of the `core` family.
 pub const CORE_2026_07_0: EditionId = EditionId::new("core", 2026, 7, 0);
@@ -16,5 +17,5 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         id: CORE_2026_07_0,
         min_vortex_version: Some("0.65.0"),
     },
-    added: &[&"vortex.variant"],
+    added: &[EditionMember::array(&"vortex.variant")],
 };
