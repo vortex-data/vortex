@@ -76,13 +76,6 @@ impl StructListOfInts {
             self.num_columns, self.chunk_count, self.row_count
         )
     }
-}
-
-#[async_trait]
-impl Dataset for StructListOfInts {
-    fn name(&self) -> &str {
-        &self.name
-    }
 
     async fn to_vortex_array(&self, _ctx: &mut ExecutionCtx) -> Result<ArrayRef> {
         let names: FieldNames = (0..self.num_columns)
@@ -128,6 +121,13 @@ impl Dataset for StructListOfInts {
 
         let chunks = chunks?;
         Ok(ChunkedArray::from_iter(chunks).into_array())
+    }
+}
+
+#[async_trait]
+impl Dataset for StructListOfInts {
+    fn name(&self) -> &str {
+        &self.name
     }
 
     async fn to_parquet_path(&self) -> Result<PathBuf> {

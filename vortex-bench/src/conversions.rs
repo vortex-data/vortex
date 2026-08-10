@@ -43,6 +43,7 @@ use vortex::dtype::extension::ExtDType;
 use vortex::dtype::extension::ExtDTypeRef;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
+use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexWriteOptions;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
@@ -55,6 +56,7 @@ use vortex::utils::aliases::hash_set::HashSet;
 use vortex::utils::parallelism::get_available_parallelism;
 use vortex_arrow::FromArrowArray;
 use vortex_arrow::FromArrowType;
+use vortex_arrow::ToArrowType;
 use vortex_spatial::extension::SpatialMetadata;
 use vortex_spatial::extension::WellKnownBinary;
 use wkb::Endianness;
@@ -278,6 +280,88 @@ pub async fn convert_parquet_directory_to_vortex(
         .buffer_unordered(concurrency)
         .try_collect::<Vec<_>>()
         .await?;
+
+    Ok(())
+}
+
+/// Convert a single Vortex file to Parquet, streaming record batches so memory stays bounded.
+///
+/// This is the reverse of [`convert_parquet_file_to_vortex`], and makes Vortex-native suites
+/// able to serve a Parquet run. Note it is not a round-trip inverse: Vortex logical types with
+/// no Parquet equivalent are written as whatever [`vortex_arrow`] lowers them to, so a
+/// Parquet → Vortex → Parquet cycle can widen types.
+pub async fn convert_vortex_file_to_parquet(
+    vortex_path: &Path,
+    output_path: &Path,
+) -> anyhow::Result<()> {
+    let scan = SESSION
+        .open_options()
+        .open_path(vortex_path)
+        .await?
+        .scan()?;
+    let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
+
+    let mut writer =
+        AsyncArrowWriter::try_new(File::create(output_path).await?, Arc::clone(&schema), None)?;
+    let stream = scan.into_record_batch_stream(schema)?;
+    futures::pin_mut!(stream);
+    while let Some(batch) = stream.next().await {
+        writer.write(&batch?).await?;
+    }
+    writer.close().await?;
+    Ok(())
+}
+
+/// Convert every Vortex file in `<input_path>/vortex/` into `<input_path>/parquet/`.
+///
+/// The mirror of [`convert_parquet_directory_to_vortex`]: same per-file idempotency and same
+/// memory-derived concurrency limit.
+pub async fn convert_vortex_directory_to_parquet(input_path: &Path) -> anyhow::Result<()> {
+    let vortex_dir = input_path.join(Format::OnDiskVortex.name());
+    let parquet_dir = input_path.join(Format::Parquet.name());
+    create_dir_all(&parquet_dir).await?;
+
+    let vortex_inputs = fs::read_dir(&vortex_dir)?.collect::<std::io::Result<Vec<_>>>()?;
+    trace!(
+        "Found {} vortex files in {}",
+        vortex_inputs.len(),
+        vortex_dir.display()
+    );
+
+    let ext = Format::OnDiskVortex.ext();
+    let iter = vortex_inputs
+        .iter()
+        .filter(|entry| entry.path().extension().is_some_and(|e| e == ext));
+
+    let concurrency = calculate_concurrency();
+    futures::stream::iter(iter)
+        .map(|dir_entry| {
+            let vortex_file_path = dir_entry.path();
+            let filename = {
+                let mut temp = vortex_file_path.clone();
+                temp.set_extension("");
+                temp.file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default()
+            };
+            let output_path = parquet_dir.join(format!("{filename}.parquet"));
+
+            tokio::spawn(
+                async move {
+                    idempotent_async(output_path.as_path(), move |pq_file| async move {
+                        info!("Converting '{filename}' to Parquet");
+                        convert_vortex_file_to_parquet(&vortex_file_path, &pq_file).await
+                    })
+                    .await
+                }
+                .in_current_span(),
+            )
+        })
+        .buffer_unordered(concurrency)
+        .try_collect::<Vec<_>>()
+        .await?
+        .into_iter()
+        .collect::<anyhow::Result<Vec<_>>>()?;
 
     Ok(())
 }

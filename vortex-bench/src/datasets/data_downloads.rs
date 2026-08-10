@@ -162,6 +162,21 @@ static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(|| {
         .expect("failed to build shared benchmark HTTP client")
 });
 
+/// The shared HTTP client, for callers that must consume a response stream rather than land a
+/// file on disk. Prefer [`download_data`] or [`download_many`] whenever the bytes are wanted
+/// as a file: they add retries, progress reporting, and idempotency on top of this client.
+pub fn http_client() -> &'static Client {
+    &HTTP_CLIENT
+}
+
+/// Ceiling on concurrent downloads across the whole process.
+///
+/// Each [`download_many`] call runs its own AIMD controller, so without this cap `N`
+/// concurrent batches would ramp to `N * MAX_IN_FLIGHT` sockets with no shared backoff
+/// signal. Per-batch controllers still decide how far *each* batch ramps; this only bounds
+/// the total.
+static GLOBAL_IN_FLIGHT: LazyLock<Semaphore> = LazyLock::new(|| Semaphore::new(MAX_IN_FLIGHT));
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Progress-bar templates
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -498,6 +513,10 @@ async fn download_one(fname: PathBuf, url: &str, batch: Option<&BatchProgress>) 
         .unwrap_or("<download>")
         .to_owned();
     idempotent_async(&fname, async move |tmp_path| {
+        let _global = GLOBAL_IN_FLIGHT
+            .acquire()
+            .await
+            .expect("global download semaphore is never closed");
         retry_get(&HTTP_CLIENT, url, &tmp_path, &display_name, batch).await
     })
     .await

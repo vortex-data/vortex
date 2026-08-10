@@ -13,6 +13,7 @@ use crate::Benchmark;
 use crate::BenchmarkDataset;
 use crate::Format;
 use crate::IdempotentPath;
+use crate::SetupCtx;
 use crate::TableSpec;
 use crate::tpcds::duckdb::generate_tpcds;
 use crate::tpcds::tpcds_queries;
@@ -64,20 +65,25 @@ impl Benchmark for TpcDsBenchmark {
         Ok(tpcds_queries().collect())
     }
 
-    async fn generate_base_data(&self) -> Result<()> {
+    async fn setup(&self, ctx: &SetupCtx, format: Format) -> Result<()> {
         let base_data_dir = self
             .data_url
             .to_file_path()
             .map_err(|_| anyhow!("Invalid file URL: {}", self.data_url))?;
 
         info!(
-            "Generating TPC-DS data with scale factor {} for format {:?}",
+            "Generating TPC-DS data with scale factor {} for format {format:?}",
             self.scale_factor,
-            Format::Parquet
         );
 
         generate_tpcds(base_data_dir, self.scale_factor.clone())?;
 
+        for table in self.tables() {
+            ctx.emit(
+                table,
+                ctx.staging().join(format!("{table}.{}", format.ext())),
+            );
+        }
         Ok(())
     }
 

@@ -11,6 +11,7 @@ use crate::Benchmark;
 use crate::BenchmarkDataset;
 use crate::Format;
 use crate::IdempotentPath;
+use crate::SetupCtx;
 use crate::TableSpec;
 use crate::workspace_root;
 
@@ -122,15 +123,13 @@ impl Benchmark for StatPopGenBenchmark {
             .collect())
     }
 
-    async fn generate_base_data(&self) -> Result<()> {
-        if self.data_url.scheme() != "file" {
-            anyhow::bail!(
-                "Unsupported URL scheme '{}' - only 'file://' URLs are supported for local datasets",
-                self.data_url.scheme()
-            );
-        }
-
-        self.download_parquet().await?;
+    /// Streams the gnomAD VCF straight into Parquet — the source `.vcf.bgz` is hundreds of
+    /// gigabytes and we stop after `n_rows`, so it is never landed on disk. Vortex is then
+    /// derived from the Parquet this produces, like any other suite.
+    async fn setup(&self, ctx: &SetupCtx, _format: Format) -> Result<()> {
+        let parquet = ctx.staging().join(format!("{}.parquet", Self::FILE_NAME));
+        self.download_parquet(ctx.http(), &parquet).await?;
+        ctx.emit("statpopgen", parquet);
         Ok(())
     }
 

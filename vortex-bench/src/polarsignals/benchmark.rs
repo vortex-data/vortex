@@ -14,6 +14,7 @@ use crate::Benchmark;
 use crate::BenchmarkDataset;
 use crate::Format;
 use crate::IdempotentPath;
+use crate::SetupCtx;
 use crate::TableSpec;
 use crate::idempotent;
 use crate::workspace_root;
@@ -47,14 +48,6 @@ impl PolarSignalsBenchmark {
             n_rows,
         })
     }
-
-    fn parquet_path(&self) -> Result<std::path::PathBuf> {
-        self.data_url
-            .join("parquet/")?
-            .join(&format!("{FILE_NAME}.parquet"))?
-            .to_file_path()
-            .map_err(|_| anyhow::anyhow!("failed to convert data URL to filesystem path"))
-    }
 }
 
 #[async_trait::async_trait]
@@ -78,16 +71,9 @@ impl Benchmark for PolarSignalsBenchmark {
             .collect())
     }
 
-    async fn generate_base_data(&self) -> Result<()> {
-        if self.data_url.scheme() != "file" {
-            anyhow::bail!(
-                "unsupported URL scheme '{}' - only 'file://' URLs are supported",
-                self.data_url.scheme()
-            );
-        }
-
+    async fn setup(&self, ctx: &SetupCtx, _format: Format) -> Result<()> {
         let n_rows = self.n_rows;
-        let parquet_path = self.parquet_path()?;
+        let parquet_path = ctx.staging().join(format!("{FILE_NAME}.parquet"));
         idempotent(&parquet_path, |tmp_path| {
             tracing::info!(
                 n_rows,
@@ -96,6 +82,7 @@ impl Benchmark for PolarSignalsBenchmark {
             );
             generate_polarsignals_parquet(n_rows, tmp_path)
         })?;
+        ctx.emit(FILE_NAME, parquet_path);
         Ok(())
     }
 

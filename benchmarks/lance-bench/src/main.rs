@@ -24,6 +24,7 @@ use vortex_bench::Opts;
 use vortex_bench::create_benchmark;
 use vortex_bench::create_output_writer;
 use vortex_bench::display::DisplayFormat;
+use vortex_bench::prepare_data;
 use vortex_bench::runner::BenchmarkMode;
 use vortex_bench::runner::BenchmarkQueryResult;
 use vortex_bench::runner::SqlBenchmarkRunner;
@@ -93,8 +94,8 @@ async fn main() -> anyhow::Result<()> {
         args.exclude_queries.as_ref(),
     );
 
-    // Generate base Parquet data first
-    benchmark.generate_base_data().await?;
+    // Lance is derived from Parquet, so materialize that first.
+    prepare_data(&*benchmark, &[Format::Parquet]).await?;
 
     // Convert Parquet to Lance format
     generate_lance_data(&*benchmark).await?;

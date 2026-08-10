@@ -2,15 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fs;
-use std::path::PathBuf;
 
-use tracing::info;
 use url::Url;
 
 use crate::Benchmark;
 use crate::BenchmarkDataset;
+use crate::Format;
+use crate::SetupCtx;
 use crate::TableSpec;
-use crate::datasets::data_downloads::download_data;
 use crate::utils::file::resolve_data_url;
 use crate::workspace_root;
 
@@ -41,15 +40,7 @@ impl FinewebBenchmark {
     }
 }
 
-impl FinewebBenchmark {
-    fn parquet_path(&self) -> anyhow::Result<PathBuf> {
-        self.data_url
-            .join("parquet/")?
-            .join("sample.parquet")?
-            .to_file_path()
-            .map_err(|_| anyhow::anyhow!("Failed to convert data URL to filesystem path - ensure data_url uses 'file://' scheme"))
-    }
-}
+impl FinewebBenchmark {}
 
 #[async_trait::async_trait]
 impl Benchmark for FinewebBenchmark {
@@ -75,14 +66,10 @@ impl Benchmark for FinewebBenchmark {
             .collect())
     }
 
-    async fn generate_base_data(&self) -> anyhow::Result<()> {
-        if self.data_url.scheme() != "file" {
-            return Ok(());
-        }
-
-        let parquet = download_data(self.parquet_path()?, SAMPLE_URL).await?;
-        info!("fineweb base data generated in {}", parquet.display());
-
+    async fn setup(&self, ctx: &SetupCtx, _format: Format) -> anyhow::Result<()> {
+        let path = ctx.staging().join("sample.parquet");
+        ctx.download([(SAMPLE_URL, path.clone())]).await?;
+        ctx.emit("fineweb", path);
         Ok(())
     }
 

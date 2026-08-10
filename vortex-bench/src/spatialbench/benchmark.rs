@@ -12,6 +12,7 @@ use crate::Benchmark;
 use crate::BenchmarkDataset;
 use crate::Engine;
 use crate::Format;
+use crate::SetupCtx;
 use crate::TableSpec;
 use crate::spatialbench::datagen;
 use crate::spatialbench::datagen::Table;
@@ -80,10 +81,7 @@ impl Benchmark for SpatialBenchBenchmark {
             .collect())
     }
 
-    async fn generate_base_data(&self) -> anyhow::Result<()> {
-        if self.data_url.scheme() != "file" {
-            return Ok(());
-        }
+    async fn setup(&self, ctx: &SetupCtx, _format: Format) -> anyhow::Result<()> {
         let base_data_dir = self
             .data_url
             .to_file_path()
@@ -111,6 +109,11 @@ impl Benchmark for SpatialBenchBenchmark {
         ];
         datagen::spatially_sort_tables(&base_data_dir.join(Format::Parquet.name()), &derived_dirs)
             .await?;
+
+        for table in self.base_tables() {
+            let name = table.name();
+            ctx.emit(name, ctx.staging().join(format!("{name}.parquet")));
+        }
         Ok(())
     }
 

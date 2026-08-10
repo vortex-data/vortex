@@ -30,8 +30,7 @@ use crate::Format;
 use crate::IdempotentPath;
 // Re-export for use by clickbench_benchmark
 pub use crate::conversions::convert_parquet_directory_to_vortex;
-use crate::datasets::data_downloads::download_data;
-use crate::datasets::data_downloads::download_many;
+use crate::setup::SetupCtx;
 use crate::utils::file::temp_download_filepath;
 
 /// Benchmark and local data directory name for ClickBench sorted by event time.
@@ -211,30 +210,35 @@ impl Display for Flavor {
 }
 
 impl Flavor {
-    // TODO(joe): move these elsewhere.
-    pub async fn download(&self, basepath: impl AsRef<Path>) -> anyhow::Result<()> {
-        let basepath = basepath.as_ref();
-        match self {
+    /// Fetch this flavor's Parquet shards into `ctx.staging()`, returning their paths.
+    pub async fn download(&self, ctx: &SetupCtx) -> anyhow::Result<Vec<PathBuf>> {
+        let parquet_dir = ctx.staging();
+        let downloads: Vec<(String, PathBuf)> = match self {
             Flavor::Single => {
-                let output_path = basepath.join(Format::Parquet.name()).join("hits.parquet");
                 info!("Downloading single clickbench file");
-                let url = "https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_single/hits.parquet";
-                download_data(output_path, url).await?;
+                vec![(
+                    "https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_single/hits.parquet".to_owned(),
+                    parquet_dir.join("hits.parquet"),
+                )]
             }
             Flavor::Partitioned => {
                 // The clickbench-provided file is missing some higher-level type info, so we reprocess it
                 // to add that info, see https://github.com/ClickHouse/ClickBench/issues/7.
                 info!("Downloading 100 ClickBench parquet shards");
-                let parquet_dir = basepath.join(Format::Parquet.name());
-                let downloads = (0_u32..100).map(|idx| {
-                    let output_path = parquet_dir.join(format!("hits_{idx}.parquet"));
-                    let url = format!("https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_many/hits_{idx}.parquet");
-                    (output_path, url)
-                });
-                download_many(downloads).await?;
+                (0_u32..100)
+                    .map(|idx| {
+                        (
+                            format!("https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_many/hits_{idx}.parquet"),
+                            parquet_dir.join(format!("hits_{idx}.parquet")),
+                        )
+                    })
+                    .collect()
             }
-        }
-        Ok(())
+        };
+
+        let paths: Vec<PathBuf> = downloads.iter().map(|(_, p)| p.clone()).collect();
+        ctx.download(downloads).await?;
+        Ok(paths)
     }
 }
 
@@ -245,10 +249,13 @@ impl Flavor {
 /// pushdown has a visible job to do.
 pub async fn generate_sorted_clickbench(basepath: impl AsRef<Path>) -> anyhow::Result<()> {
     let basepath = basepath.as_ref();
-    let source_base = CLICKBENCH_PARTITIONED_NAME.to_data_path();
-    Flavor::Partitioned.download(&source_base).await?;
-
-    let source_parquet_dir = source_base.join(Format::Parquet.name());
+    // Sorted ClickBench is derived from the partitioned flavor's shards, so fetch those into
+    // the partitioned dataset's own cache directory first.
+    let source_parquet_dir = CLICKBENCH_PARTITIONED_NAME
+        .to_data_path()
+        .join(Format::Parquet.name());
+    let source_ctx = SetupCtx::new(&source_parquet_dir)?;
+    Flavor::Partitioned.download(&source_ctx).await?;
     let output_parquet_dir = basepath.join(Format::Parquet.name());
 
     if output_parquet_dir.exists() {

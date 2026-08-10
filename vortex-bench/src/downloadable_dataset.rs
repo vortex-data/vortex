@@ -2,20 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use async_trait::async_trait;
-use tokio::fs::File;
-use vortex::array::ArrayRef;
-use vortex::array::ExecutionCtx;
-use vortex::array::IntoArray;
-use vortex::array::stream::ArrayStreamExt;
-use vortex::file::OpenOptionsSessionExt;
-use vortex::file::WriteOptionsSessionExt;
 
 use crate::IdempotentPath;
-use crate::SESSION;
-use crate::conversions::parquet_to_vortex_chunks;
 use crate::datasets::Dataset;
 use crate::datasets::data_downloads::download_data;
-use crate::idempotent_async;
 
 /// Datasets which can be downloaded over HTTP in Parquet format.
 ///
@@ -58,35 +48,8 @@ impl Dataset for DownloadableDataset {
         }
     }
 
-    async fn to_vortex_array(&self, _ctx: &mut ExecutionCtx) -> anyhow::Result<ArrayRef> {
-        let parquet = self.to_parquet_path().await?;
-        let dir = format!("{}/", self.name()).to_data_path();
-        let vortex = dir.join(format!("{}.vortex", self.name()));
-
-        let data = parquet_to_vortex_chunks(parquet).await?;
-        idempotent_async(&vortex, async |path| -> anyhow::Result<()> {
-            SESSION
-                .write_options()
-                .write(
-                    &mut File::create(path)
-                        .await
-                        .map_err(|e| anyhow::anyhow!("Failed to create file: {}", e))?,
-                    data.into_array().to_array_stream(),
-                )
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to write vortex file: {}", e))?;
-            Ok(())
-        })
-        .await?;
-
-        Ok(SESSION
-            .open_options()
-            .open_path(vortex.as_path())
-            .await?
-            .scan()?
-            .into_array_stream()?
-            .read_all()
-            .await?)
+    async fn download(&self) -> anyhow::Result<()> {
+        self.to_parquet_path().await.map(|_| ())
     }
 
     async fn to_parquet_path(&self) -> anyhow::Result<PathBuf> {

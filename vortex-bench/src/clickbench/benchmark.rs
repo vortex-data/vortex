@@ -10,7 +10,9 @@ use url::Url;
 
 use crate::Benchmark;
 use crate::BenchmarkDataset;
+use crate::Format;
 use crate::IdempotentPath;
+use crate::SetupCtx;
 use crate::TableSpec;
 use crate::clickbench::*;
 use crate::utils::file::resolve_data_url;
@@ -84,14 +86,10 @@ impl Benchmark for ClickBenchBenchmark {
         read_clickbench_queries(self.queries_file.as_deref())
     }
 
-    async fn generate_base_data(&self) -> Result<()> {
-        if self.data_url.scheme() != "file" {
-            return Ok(());
+    async fn setup(&self, ctx: &SetupCtx, _format: Format) -> Result<()> {
+        for path in self.flavor.download(ctx).await? {
+            ctx.emit("hits", path);
         }
-
-        let basepath = clickbench_flavor(self.flavor).to_data_path();
-        self.flavor.download(basepath).await?;
-
         Ok(())
     }
 
@@ -135,12 +133,15 @@ impl Benchmark for ClickBenchSortedBenchmark {
             .collect())
     }
 
-    async fn generate_base_data(&self) -> Result<()> {
-        if self.data_url.scheme() != "file" {
-            return Ok(());
+    async fn setup(&self, ctx: &SetupCtx, _format: Format) -> Result<()> {
+        generate_sorted_clickbench(CLICKBENCH_SORTED_NAME.to_data_path()).await?;
+        for entry in fs::read_dir(ctx.staging())? {
+            let path = entry?.path();
+            if path.extension().is_some_and(|e| e == "parquet") {
+                ctx.emit("hits", path);
+            }
         }
-
-        generate_sorted_clickbench(CLICKBENCH_SORTED_NAME.to_data_path()).await
+        Ok(())
     }
 
     fn expected_row_counts(&self) -> Option<Vec<usize>> {
@@ -166,8 +167,4 @@ impl Benchmark for ClickBenchSortedBenchmark {
     fn table_specs(&self) -> Vec<TableSpec> {
         vec![TableSpec::new("hits", Some(HITS_SCHEMA.clone()))]
     }
-}
-
-fn clickbench_flavor(flavor: Flavor) -> String {
-    format!("clickbench_{flavor}")
 }

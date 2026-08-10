@@ -37,8 +37,8 @@ use vortex::error::VortexExpect;
 use crate::Benchmark;
 use crate::BenchmarkDataset;
 use crate::Format;
+use crate::SetupCtx;
 use crate::TableSpec;
-use crate::datasets::data_downloads::download_data;
 use crate::utils::file::resolve_data_url;
 
 /// Upstream `.duckdb` blob; pinned to the URL hard-coded into DuckDB's
@@ -113,10 +113,6 @@ impl AppianBenchmark {
                 "Failed to convert data URL to filesystem path - ensure data_url uses 'file://' scheme"
             ))
     }
-
-    fn parquet_dir(&self) -> anyhow::Result<PathBuf> {
-        Ok(self.base_dir()?.join(Format::Parquet.name()))
-    }
 }
 
 #[async_trait::async_trait]
@@ -129,13 +125,12 @@ impl Benchmark for AppianBenchmark {
         Ok(appian_queries().collect())
     }
 
-    async fn generate_base_data(&self) -> anyhow::Result<()> {
-        if self.data_url.scheme() != "file" {
-            return Ok(());
-        }
+    async fn setup(&self, ctx: &SetupCtx, _format: Format) -> anyhow::Result<()> {
+        let parquet_dir = ctx.staging().to_path_buf();
 
-        let parquet_dir = self.parquet_dir()?;
-        fs::create_dir_all(&parquet_dir)?;
+        for table in TABLES {
+            ctx.emit(*table, parquet_dir.join(format!("{table}.parquet")));
+        }
 
         // Idempotency: if every target Parquet is already in place, do nothing.
         if TABLES
@@ -152,7 +147,12 @@ impl Benchmark for AppianBenchmark {
 
         // Download the upstream `.duckdb` blob into the dataset cache directory.
         let blob_path = self.base_dir()?.join("appian_benchmark_data.duckdb");
-        let blob = download_data(blob_path, UPSTREAM_BLOB_URL).await?;
+        let blob = ctx
+            .download([(UPSTREAM_BLOB_URL, blob_path.clone())])
+            .await?
+            .into_iter()
+            .next()
+            .unwrap_or(blob_path);
 
         // DuckDB SQL can't use a query result as a projection list, so build per-table
         // lowercased projections in Rust, then run all nine `COPY`s in a single subprocess.

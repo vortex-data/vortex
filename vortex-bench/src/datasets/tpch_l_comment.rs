@@ -44,13 +44,8 @@ async fn ensure_tpch_parquet() -> Result<PathBuf> {
         .ok_or_else(|| anyhow::anyhow!("No lineitem parquet file found"))
 }
 
-#[async_trait]
-impl Dataset for TPCHLCommentChunked {
-    fn name(&self) -> &str {
-        "TPC-H l_comment chunked"
-    }
-
-    async fn to_vortex_array(&self, ctx: &mut ExecutionCtx) -> Result<ArrayRef> {
+impl TPCHLCommentChunked {
+    pub async fn to_vortex_array(&self, ctx: &mut ExecutionCtx) -> Result<ArrayRef> {
         let base_path = "tpch".to_data_path();
         let scale_factor_dir = base_path.join("1.0");
         let data_dir = scale_factor_dir.join(Format::OnDiskVortex.name());
@@ -86,6 +81,13 @@ impl Dataset for TPCHLCommentChunked {
 
         Ok(ChunkedArray::from_iter(chunks).into_array())
     }
+}
+
+#[async_trait]
+impl Dataset for TPCHLCommentChunked {
+    fn name(&self) -> &str {
+        "TPC-H l_comment chunked"
+    }
 
     async fn to_parquet_path(&self) -> Result<PathBuf> {
         ensure_tpch_parquet().await
@@ -94,16 +96,18 @@ impl Dataset for TPCHLCommentChunked {
 
 pub struct TPCHLCommentCanonical;
 
+impl TPCHLCommentCanonical {
+    pub async fn to_vortex_array(&self, ctx: &mut ExecutionCtx) -> Result<ArrayRef> {
+        let comments_chunked = TPCHLCommentChunked.to_vortex_array(ctx).await?;
+        let comments_canonical = comments_chunked.execute::<StructArray>(ctx)?.into_array();
+        Ok(ChunkedArray::from_iter([comments_canonical]).into_array())
+    }
+}
+
 #[async_trait]
 impl Dataset for TPCHLCommentCanonical {
     fn name(&self) -> &str {
         "TPC-H l_comment canonical"
-    }
-
-    async fn to_vortex_array(&self, ctx: &mut ExecutionCtx) -> Result<ArrayRef> {
-        let comments_chunked = TPCHLCommentChunked.to_vortex_array(ctx).await?;
-        let comments_canonical = comments_chunked.execute::<StructArray>(ctx)?.into_array();
-        Ok(ChunkedArray::from_iter([comments_canonical]).into_array())
     }
 
     async fn to_parquet_path(&self) -> Result<PathBuf> {

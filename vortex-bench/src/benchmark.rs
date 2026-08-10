@@ -12,6 +12,7 @@ use url::Url;
 use crate::BenchmarkDataset;
 use crate::Engine;
 use crate::Format;
+use crate::setup::SetupCtx;
 
 /// Specification for a table in a benchmark dataset.
 #[derive(Debug)]
@@ -41,17 +42,29 @@ pub trait Benchmark: Send + Sync {
         Vec::new()
     }
 
-    /// Generate or prepare base data for the benchmark (typically Parquet format).
-    /// This is the canonical source data that can be converted to other formats.
-    /// This should be idempotent - safe to call multiple times.
+    /// Formats this benchmark can materialize without help.
     ///
-    /// Format-specific benchmark binaries (like lance-bench, datafusion-bench, duckdb-bench) should
-    /// call this method to ensure base data exists, then perform their own format conversion.
-    async fn generate_base_data(&self) -> anyhow::Result<()>;
+    /// [`prepare_data`] derives the rest by converting between Parquet and Vortex, in either
+    /// direction. Listing only Parquet is the common case; suites that write Vortex straight
+    /// from a row generator list it too, so requesting Vortex skips a needless round trip
+    /// through Parquet on disk.
+    ///
+    /// [`prepare_data`]: crate::setup::prepare_data
+    fn native_formats(&self) -> &[Format] {
+        &[Format::Parquet]
+    }
 
-    /// Prepare benchmark- and format-specific data beyond the Parquet base that
-    /// [`Benchmark::generate_base_data`] produced. Called once per requested format, after the base
-    /// data exists. Default: nothing.
+    /// Materialize `format` into `ctx.staging()`, registering each produced file with
+    /// [`SetupCtx::emit`].
+    ///
+    /// Only called for formats listed in [`Benchmark::native_formats`]. Must be idempotent:
+    /// the staging directory persists across runs, so work already done should be skipped
+    /// rather than repeated.
+    async fn setup(&self, ctx: &SetupCtx, format: Format) -> anyhow::Result<()>;
+
+    /// Prepare benchmark- and format-specific data beyond what [`Benchmark::setup`] or the
+    /// Parquet-to-Vortex conversion produced. Called once per requested format, after that
+    /// format's data exists. Default: nothing.
     async fn prepare_format(&self, _format: Format, _base_path: &Path) -> anyhow::Result<()> {
         Ok(())
     }

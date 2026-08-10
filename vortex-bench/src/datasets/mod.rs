@@ -7,8 +7,6 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde::Serialize;
-use vortex::array::ArrayRef;
-use vortex::array::ExecutionCtx;
 
 use crate::clickbench::Flavor;
 
@@ -34,7 +32,7 @@ pub(crate) fn normalize_benchmark_runner_id(benchmark_runner: &str) -> String {
 }
 
 #[async_trait]
-pub trait Dataset {
+pub trait Dataset: Send + Sync {
     fn name(&self) -> &str;
 
     /// Map this dataset to the v3 `(dataset, dataset_variant)` pair emitted
@@ -48,7 +46,14 @@ pub trait Dataset {
         (self.name(), None)
     }
 
-    async fn to_vortex_array(&self, ctx: &mut ExecutionCtx) -> Result<ArrayRef>;
+    /// Fetch this dataset's remote inputs to local disk.
+    ///
+    /// Idempotent, so runners can `join_all` the downloads of every dataset up front and
+    /// the later [`Dataset::to_parquet_path`] call finds the files already present.
+    /// Datasets that generate their data locally use the no-op default.
+    async fn download(&self) -> Result<()> {
+        Ok(())
+    }
 
     /// Get the path to the parquet file for this dataset.
     ///

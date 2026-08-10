@@ -2,7 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
+use std::time::Instant;
 
 use clap::Parser;
 #[cfg(feature = "lance")]
@@ -14,7 +16,9 @@ use compress_bench::vortex::VortexCompressor;
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use regex::Regex;
+use tokio::sync::Semaphore;
 use vortex::utils::aliases::hash_map::HashMap;
+use vortex::utils::parallelism::get_available_parallelism;
 use vortex_bench::Engine;
 use vortex_bench::Format;
 use vortex_bench::LogFormat;
@@ -81,6 +85,10 @@ struct Args {
     ingest_output: Option<PathBuf>,
     #[arg(long)]
     tracing: bool,
+    /// Materialize every dataset's data, report the setup timing, and exit without
+    /// benchmarking. Use on a cold cache to measure download and conversion cost.
+    #[arg(long)]
+    setup_only: bool,
     /// Format for the primary stderr log sink. `text` is the default human-readable format;
     /// `json` emits one JSON object per event, suitable for piping into `jq`.
     #[arg(long, value_enum, default_value_t = LogFormat::Text)]
@@ -112,6 +120,7 @@ async fn main() -> anyhow::Result<()> {
         args.display_format,
         args.output_path,
         args.ingest_output,
+        args.setup_only,
     )
     .await
 }
@@ -155,13 +164,16 @@ async fn run_compress(
     display_format: DisplayFormat,
     output_path: Option<PathBuf>,
     ingest_output: Option<PathBuf>,
+    setup_only: bool,
 ) -> anyhow::Result<()> {
     let targets = formats
         .iter()
         .map(|f| Target::new(Engine::default(), *f))
         .collect_vec();
 
-    let structlistofints = [
+    // Leaked so the setup phase can `tokio::spawn` per dataset, which needs `'static`. The
+    // other datasets are already static (unit structs and a `LazyLock` registry).
+    let structlistofints: &'static [StructListOfInts; 6] = Box::leak(Box::new([
         StructListOfInts::new(100, 1000, 1),
         StructListOfInts::new(1000, 1000, 1),
         StructListOfInts::new(10000, 1000, 1),
@@ -176,7 +188,7 @@ async fn run_compress(
         //     10,
         //     Some(READ_PROJECTION_COLUMNS),
         // ),
-    ];
+    ]));
 
     // Add an existing benchmark name here only after its CUDA-compatible compression and
     // decompression kernels have been verified end to end.
@@ -186,8 +198,8 @@ async fn run_compress(
     )]
     let gpu_decompress_benchmarks = vec!["TPC-H l_comment canonical"];
 
-    let datasets: Vec<&dyn Dataset> = [
-        &TaxiData as &dyn Dataset,
+    let datasets: Vec<&'static dyn Dataset> = [
+        &TaxiData as &'static dyn Dataset,
         PBI_DATASETS.get(Arade),
         PBI_DATASETS.get(Bimbo),
         PBI_DATASETS.get(CMSprovider),
@@ -205,7 +217,7 @@ async fn run_compress(
         &DownloadableDataset::AirQuality,
     ]
     .into_iter()
-    .chain(structlistofints.iter().map(|d| d as &dyn Dataset))
+    .chain(structlistofints.iter().map(|d| d as &'static dyn Dataset))
     .filter(|d| {
         if gpu_decompress && !gpu_decompress_benchmarks.contains(&d.name()) {
             return false;
@@ -219,6 +231,12 @@ async fn run_compress(
         }
     })
     .collect();
+
+    let setup = prepare_datasets(&datasets).await?;
+    setup.report();
+    if setup_only {
+        return Ok(());
+    }
 
     let progress = ProgressBar::new((datasets.len() * formats.len() * ops.len()) as u64);
 
@@ -267,6 +285,88 @@ async fn run_compress(
             print_measurements_json(&mut writer, measurements.ratios, DOC_PATH)
         }
     }
+}
+
+/// Wall-clock cost of materializing every dataset, split by stage.
+struct SetupTiming {
+    download: Duration,
+    convert: Duration,
+    /// Per-dataset convert time, slowest first.
+    per_dataset: Vec<(String, Duration)>,
+    concurrency: usize,
+}
+
+impl SetupTiming {
+    fn total(&self) -> Duration {
+        self.download + self.convert
+    }
+
+    /// Log the phase breakdown. Setup is idempotent, so this is only meaningful on a cold
+    /// cache — a warm run reports near-zero and says nothing about the parallelism.
+    fn report(&self) {
+        tracing::info!(
+            "setup: {:.1}s total ({:.1}s download, {:.1}s convert at concurrency {})",
+            self.total().as_secs_f64(),
+            self.download.as_secs_f64(),
+            self.convert.as_secs_f64(),
+            self.concurrency,
+        );
+        let serial: Duration = self.per_dataset.iter().map(|(_, d)| *d).sum();
+        tracing::info!(
+            "setup: convert was {:.1}s of work across {} datasets, {:.1}x speedup from overlap",
+            serial.as_secs_f64(),
+            self.per_dataset.len(),
+            serial.as_secs_f64() / self.convert.as_secs_f64().max(f64::MIN_POSITIVE),
+        );
+        for (name, elapsed) in self.per_dataset.iter().take(5) {
+            tracing::info!("setup:   {name}: {:.1}s", elapsed.as_secs_f64());
+        }
+    }
+}
+
+/// Materialize every dataset's Parquet before any benchmark runs, in two stages.
+///
+/// Downloads go first and all at once: they are network bound, and the shared pool caps
+/// total in-flight requests. Conversion (bz2 decompress, CSV to Parquet, generation) is CPU
+/// and disk bound, so it is capped at the available parallelism instead — which under
+/// `scripts/bench-taskset.sh` is the pinned NUMA node's core count, not the whole machine.
+async fn prepare_datasets(datasets: &[&'static dyn Dataset]) -> anyhow::Result<SetupTiming> {
+    let started = Instant::now();
+    futures::future::try_join_all(datasets.iter().map(|d| d.download())).await?;
+    let download = started.elapsed();
+
+    let concurrency = get_available_parallelism().unwrap_or(1).max(1);
+    let permits = Arc::new(Semaphore::new(concurrency));
+    let started = Instant::now();
+
+    // `tokio::spawn`, not `buffer_unordered`: `to_parquet_path` does its generation and
+    // conversion work synchronously inside an async fn, so it never yields. Polled from a
+    // single task the futures would run strictly one after another — spawning puts each on
+    // its own runtime worker, and the semaphore keeps that bounded. This mirrors
+    // `convert_parquet_directory_to_vortex`.
+    let mut per_dataset: Vec<(String, Duration)> =
+        futures::future::try_join_all(datasets.iter().map(|d| {
+            let permits = Arc::clone(&permits);
+            let d = *d;
+            tokio::spawn(async move {
+                let _permit = permits.acquire().await?;
+                let started = Instant::now();
+                d.to_parquet_path().await?;
+                anyhow::Ok((d.name().to_owned(), started.elapsed()))
+            })
+        }))
+        .await?
+        .into_iter()
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let convert = started.elapsed();
+
+    per_dataset.sort_by_key(|(_, elapsed)| std::cmp::Reverse(*elapsed));
+    Ok(SetupTiming {
+        download,
+        convert,
+        per_dataset,
+        concurrency,
+    })
 }
 
 async fn run_benchmark_for_dataset(

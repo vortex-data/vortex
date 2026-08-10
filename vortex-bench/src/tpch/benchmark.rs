@@ -12,6 +12,7 @@ use crate::Benchmark;
 use crate::BenchmarkDataset;
 use crate::Format;
 use crate::IdempotentPath;
+use crate::SetupCtx;
 use crate::TableSpec;
 use crate::tpch::EXPECTED_ROW_COUNTS_SF1;
 use crate::tpch::EXPECTED_ROW_COUNTS_SF10;
@@ -83,20 +84,28 @@ impl Benchmark for TpcHBenchmark {
         Ok(tpch_queries().collect())
     }
 
-    async fn generate_base_data(&self) -> anyhow::Result<()> {
-        if self.data_url.scheme() != "file" {
-            return Ok(());
-        }
+    /// TPC-H writes Vortex straight from the row generator, so it never pays for a Parquet
+    /// round trip on disk when only Vortex is requested.
+    fn native_formats(&self) -> &[Format] {
+        &[Format::Parquet, Format::OnDiskVortex, Format::VortexCompact]
+    }
 
+    async fn setup(&self, ctx: &SetupCtx, format: Format) -> anyhow::Result<()> {
         let base_data_dir = self
             .data_url
             .to_file_path()
             .map_err(|_| anyhow::anyhow!("Invalid file URL: {}", self.data_url.as_str()))?;
 
-        let options = TpchGenOptions::new(self.scale_factor.clone(), base_data_dir);
-
+        let options =
+            TpchGenOptions::new(self.scale_factor.clone(), base_data_dir).with_format(format);
         tpchgen::generate_tpch_tables(options).await?;
 
+        for table in self.tables() {
+            ctx.emit(
+                table,
+                ctx.staging().join(format!("{table}.{}", format.ext())),
+            );
+        }
         Ok(())
     }
 

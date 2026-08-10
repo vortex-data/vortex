@@ -55,6 +55,7 @@ pub mod public_bi;
 pub mod random_access;
 pub mod realnest;
 pub mod runner;
+pub mod setup;
 pub mod spatialbench;
 pub mod statpopgen;
 pub mod tpcds;
@@ -69,6 +70,8 @@ pub use benchmark::TableSpec;
 pub use datasets::BenchmarkDataset;
 pub use output::BenchmarkOutput;
 pub use output::create_output_writer;
+pub use setup::SetupCtx;
+pub use setup::prepare_data;
 use vortex::VortexSessionDefault;
 pub use vortex::error::vortex_panic;
 use vortex::io::session::RuntimeSessionExt;
@@ -232,7 +235,7 @@ impl Display for Engine {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum CompactionStrategy {
     Compact,
     #[default]

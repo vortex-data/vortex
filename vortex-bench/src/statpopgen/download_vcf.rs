@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Context;
@@ -29,15 +30,24 @@ use crate::statpopgen::schema::schema_from_vcf_header;
 const ROW_GROUP_SIZE_IN_VARIANTS: u64 = 1024;
 
 impl StatPopGenBenchmark {
-    pub async fn download_parquet(&self) -> Result<()> {
+    /// Stream the gnomAD VCF into `parquet_output_path`, stopping after `self.n_rows`
+    /// records.
+    ///
+    /// The source is far too large to land on disk, so this consumes the response body
+    /// directly rather than going through the file-based download helpers. `client` is the
+    /// shared pooled client from [`crate::SetupCtx::http`].
+    pub async fn download_parquet(
+        &self,
+        client: &Client,
+        parquet_output_path: &Path,
+    ) -> Result<()> {
         let url = format!(
             "https://gnomad-public-us-east-1.s3.amazonaws.com/release/3.1.2/vcf/genomes/{}.vcf.bgz",
             StatPopGenBenchmark::FILE_NAME
         );
-        let parquet_output_path = self.parquet_path()?;
 
         idempotent_async(
-            &parquet_output_path,
+            parquet_output_path,
             async |parquet_output_path| -> Result<()> {
                 info!(
                     "Downloading first {} lines of gnomAD v3.1.2 HGDP-1kG chr21.",
@@ -45,7 +55,6 @@ impl StatPopGenBenchmark {
                 );
 
                 // Fetch the remote stream
-                let client = Client::new();
                 let response = client
                     .get(url)
                     .send()

@@ -25,13 +25,9 @@ use tokio::process::Command as TokioCommand;
 use tracing::info;
 use tracing::trace;
 use url::Url;
-use vortex::array::ArrayRef;
-use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
-use vortex::array::stream::ArrayStreamExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
-use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::utils::aliases::hash_map::HashMap;
 
@@ -40,6 +36,7 @@ use crate::BenchmarkDataset;
 use crate::Format;
 use crate::IdempotentPath;
 use crate::SESSION;
+use crate::SetupCtx;
 use crate::TableSpec;
 use crate::conversions::parquet_to_vortex_chunks;
 use crate::datasets::Dataset;
@@ -136,6 +133,221 @@ pub fn fetch_schemas_and_queries() -> anyhow::Result<PathBuf> {
     Ok(Path::new(env!("CARGO_MANIFEST_DIR")).join("public_bi"))
 }
 
+/// Every Public BI dataset and its tables, vendored from the upstream
+/// `benchmark/<dataset>/data-urls.txt` files.
+///
+/// Upstream stores one URL per table, but all 206 of them are
+/// `{DATA_URL_PREFIX}/{dataset}/{table}.csv.bz2`, so only the table names are
+/// recorded here and [`data_urls`] rebuilds the URL.
+///
+/// Derived from the Public BI benchmark (<https://github.com/cwida/public_bi_benchmark>),
+/// MIT licensed, Copyright (c) 2019 CWI Database Architectures Group. The underlying table
+/// dumps are anonymized Tableau Public workbooks and carry their own provenance.
+const DATASET_TABLES: &[(&str, &[&str])] = &[
+    ("Arade", &["Arade_1"]),
+    ("Bimbo", &["Bimbo_1"]),
+    ("CMSprovider", &["CMSprovider_1", "CMSprovider_2"]),
+    ("CityMaxCapita", &["CityMaxCapita_1"]),
+    (
+        "CommonGovernment",
+        &[
+            "CommonGovernment_10",
+            "CommonGovernment_11",
+            "CommonGovernment_12",
+            "CommonGovernment_13",
+            "CommonGovernment_1",
+            "CommonGovernment_2",
+            "CommonGovernment_3",
+            "CommonGovernment_4",
+            "CommonGovernment_5",
+            "CommonGovernment_6",
+            "CommonGovernment_7",
+            "CommonGovernment_8",
+            "CommonGovernment_9",
+        ],
+    ),
+    ("Corporations", &["Corporations_1"]),
+    ("Eixo", &["Eixo_1"]),
+    ("Euro2016", &["Euro2016_1"]),
+    ("Food", &["Food_1"]),
+    (
+        "Generico",
+        &[
+            "Generico_1",
+            "Generico_2",
+            "Generico_3",
+            "Generico_4",
+            "Generico_5",
+        ],
+    ),
+    ("HashTags", &["HashTags_1"]),
+    ("Hatred", &["Hatred_1"]),
+    ("IGlocations1", &["IGlocations1_1"]),
+    ("IGlocations2", &["IGlocations2_1", "IGlocations2_2"]),
+    ("IUBLibrary", &["IUBLibrary_1"]),
+    (
+        "MLB",
+        &[
+            "MLB_10", "MLB_11", "MLB_12", "MLB_13", "MLB_14", "MLB_15", "MLB_16", "MLB_17",
+            "MLB_18", "MLB_19", "MLB_1", "MLB_20", "MLB_21", "MLB_22", "MLB_23", "MLB_24",
+            "MLB_25", "MLB_26", "MLB_27", "MLB_28", "MLB_29", "MLB_2", "MLB_30", "MLB_31",
+            "MLB_32", "MLB_33", "MLB_34", "MLB_35", "MLB_36", "MLB_37", "MLB_38", "MLB_39",
+            "MLB_3", "MLB_40", "MLB_41", "MLB_42", "MLB_43", "MLB_44", "MLB_45", "MLB_46",
+            "MLB_47", "MLB_48", "MLB_49", "MLB_4", "MLB_50", "MLB_51", "MLB_52", "MLB_53",
+            "MLB_54", "MLB_55", "MLB_56", "MLB_57", "MLB_58", "MLB_59", "MLB_5", "MLB_60",
+            "MLB_61", "MLB_62", "MLB_63", "MLB_64", "MLB_65", "MLB_66", "MLB_67", "MLB_68",
+            "MLB_6", "MLB_7", "MLB_8", "MLB_9",
+        ],
+    ),
+    ("MedPayment1", &["MedPayment1_1"]),
+    ("MedPayment2", &["MedPayment2_1"]),
+    ("Medicare1", &["Medicare1_1", "Medicare1_2"]),
+    ("Medicare2", &["Medicare2_1", "Medicare2_2"]),
+    ("Medicare3", &["Medicare3_1"]),
+    ("Motos", &["Motos_1", "Motos_2"]),
+    ("MulheresMil", &["MulheresMil_1"]),
+    ("NYC", &["NYC_1", "NYC_2"]),
+    ("PanCreactomy1", &["PanCreactomy1_1"]),
+    ("PanCreactomy2", &["PanCreactomy2_1", "PanCreactomy2_2"]),
+    ("Physicians", &["Physicians_1"]),
+    (
+        "Provider",
+        &[
+            "Provider_1",
+            "Provider_2",
+            "Provider_3",
+            "Provider_4",
+            "Provider_5",
+            "Provider_6",
+            "Provider_7",
+            "Provider_8",
+        ],
+    ),
+    ("RealEstate1", &["RealEstate1_1", "RealEstate1_2"]),
+    (
+        "RealEstate2",
+        &[
+            "RealEstate2_1",
+            "RealEstate2_2",
+            "RealEstate2_3",
+            "RealEstate2_4",
+            "RealEstate2_5",
+            "RealEstate2_6",
+            "RealEstate2_7",
+        ],
+    ),
+    (
+        "Redfin1",
+        &["Redfin1_1", "Redfin1_2", "Redfin1_3", "Redfin1_4"],
+    ),
+    ("Redfin2", &["Redfin2_1", "Redfin2_2", "Redfin2_3"]),
+    ("Redfin3", &["Redfin3_1", "Redfin3_2"]),
+    ("Redfin4", &["Redfin4_1"]),
+    (
+        "Rentabilidad",
+        &[
+            "Rentabilidad_1",
+            "Rentabilidad_2",
+            "Rentabilidad_3",
+            "Rentabilidad_4",
+            "Rentabilidad_5",
+            "Rentabilidad_6",
+            "Rentabilidad_7",
+            "Rentabilidad_8",
+            "Rentabilidad_9",
+        ],
+    ),
+    ("Romance", &["Romance_1", "Romance_2"]),
+    (
+        "SalariesFrance",
+        &[
+            "SalariesFrance_10",
+            "SalariesFrance_11",
+            "SalariesFrance_12",
+            "SalariesFrance_13",
+            "SalariesFrance_1",
+            "SalariesFrance_2",
+            "SalariesFrance_3",
+            "SalariesFrance_4",
+            "SalariesFrance_5",
+            "SalariesFrance_6",
+            "SalariesFrance_7",
+            "SalariesFrance_8",
+            "SalariesFrance_9",
+        ],
+    ),
+    (
+        "TableroSistemaPenal",
+        &[
+            "TableroSistemaPenal_1",
+            "TableroSistemaPenal_2",
+            "TableroSistemaPenal_3",
+            "TableroSistemaPenal_4",
+            "TableroSistemaPenal_5",
+            "TableroSistemaPenal_6",
+            "TableroSistemaPenal_7",
+            "TableroSistemaPenal_8",
+        ],
+    ),
+    (
+        "Taxpayer",
+        &[
+            "Taxpayer_10",
+            "Taxpayer_1",
+            "Taxpayer_2",
+            "Taxpayer_3",
+            "Taxpayer_4",
+            "Taxpayer_5",
+            "Taxpayer_6",
+            "Taxpayer_7",
+            "Taxpayer_8",
+            "Taxpayer_9",
+        ],
+    ),
+    ("Telco", &["Telco_1"]),
+    (
+        "TrainsUK1",
+        &["TrainsUK1_1", "TrainsUK1_2", "TrainsUK1_3", "TrainsUK1_4"],
+    ),
+    ("TrainsUK2", &["TrainsUK2_1", "TrainsUK2_2"]),
+    ("USCensus", &["USCensus_1", "USCensus_2", "USCensus_3"]),
+    ("Uberlandia", &["Uberlandia_1"]),
+    ("Wins", &["Wins_1", "Wins_2", "Wins_3", "Wins_4"]),
+    (
+        "YaleLanguages",
+        &[
+            "YaleLanguages_1",
+            "YaleLanguages_2",
+            "YaleLanguages_3",
+            "YaleLanguages_4",
+            "YaleLanguages_5",
+        ],
+    ),
+];
+
+/// Bucket holding every Public BI table dump.
+const DATA_URL_PREFIX: &str = "https://pub-334c2a12c9bf46f3b8464a8718df8cae.r2.dev";
+
+/// `(table name, source URL)` for every table in `dataset`.
+///
+/// Vendored rather than parsed from the upstream `data-urls.txt` so the download list is
+/// known at compile time, and a fetch of the upstream repo cannot change what we download.
+fn data_urls(dataset: &str) -> anyhow::Result<Vec<(String, Url)>> {
+    let tables = DATASET_TABLES
+        .iter()
+        .find(|(name, _)| *name == dataset)
+        .map(|(_, tables)| *tables)
+        .ok_or_else(|| anyhow!("unknown Public BI dataset {dataset}"))?;
+
+    tables
+        .iter()
+        .map(|table| {
+            let url = Url::parse(&format!("{DATA_URL_PREFIX}/{dataset}/{table}.csv.bz2"))?;
+            Ok(((*table).to_owned(), url))
+        })
+        .collect()
+}
+
 #[derive(Debug)]
 pub struct PBIDatasets {
     benchmarks: HashMap<PBIDataset, PBIBenchmark>,
@@ -209,26 +421,18 @@ impl PBIBenchmark {
         Ok(queries)
     }
 
-    /// Return table name and Url pairs. Each Url is pointing to a csv.bz2 file for the table.
+    /// Table name and source URL pairs, from the vendored [`DATASET_TABLES`] listing.
     fn tables(&self) -> anyhow::Result<Vec<Table>> {
-        fs::read_to_string(self.base_path.join("data-urls.txt"))?
-            .lines()
-            .map(|url_str| {
-                let url = Url::parse(url_str)?;
-                let table_name = url
-                    .path_segments()
-                    .and_then(|mut path| path.next_back())
-                    .and_then(|filename| filename.strip_suffix(".csv.bz2"))
-                    .ok_or_else(|| anyhow!("invalid url {url}"))?;
-                let create_table_sql = self.table_sql(table_name)?;
+        data_urls(&self.name)?
+            .into_iter()
+            .map(|(name, data_url)| {
                 Ok(Table {
-                    create_table_sql,
-                    name: table_name.to_string(),
-                    data_url: url,
+                    create_table_sql: self.table_sql(&name)?,
+                    name,
+                    data_url,
                 })
             })
-            .collect::<anyhow::Result<Vec<Table>>>()
-            .map_err(|_| anyhow!("invalid urls in data-urls.txt"))
+            .collect()
     }
 
     fn table_sql(&self, table_name: &str) -> anyhow::Result<String> {
@@ -462,25 +666,8 @@ impl Dataset for PBIBenchmark {
         (&self.name, None)
     }
 
-    async fn to_vortex_array(&self, _ctx: &mut ExecutionCtx) -> anyhow::Result<ArrayRef> {
-        let dataset = self.dataset()?;
-        dataset.write_as_vortex().await?;
-        // reading only the first table, each table in a PBI benchmark
-        // has its own schema.
-        let path = dataset
-            .list_files(FileType::Vortex)
-            .first()
-            .ok_or_else(|| anyhow!("must have at least one table"))?
-            .clone();
-
-        Ok(SESSION
-            .open_options()
-            .open_path(path.as_path())
-            .await?
-            .scan()?
-            .into_array_stream()?
-            .read_all()
-            .await?)
+    async fn download(&self) -> anyhow::Result<()> {
+        self.dataset()?.download_bzips().await
     }
 
     async fn to_parquet_path(&self) -> anyhow::Result<PathBuf> {
@@ -538,9 +725,17 @@ impl Benchmark for PublicBiBenchmark {
         self.pbi_benchmark().queries()
     }
 
-    async fn generate_base_data(&self) -> anyhow::Result<()> {
+    async fn setup(&self, ctx: &SetupCtx, _format: Format) -> anyhow::Result<()> {
         let pbi_data = self.pbi_benchmark().dataset()?;
-        pbi_data.write_as_parquet().await
+        pbi_data.write_as_parquet().await?;
+        for (table, path) in pbi_data
+            .tables
+            .iter()
+            .zip(pbi_data.list_files(FileType::Parquet))
+        {
+            ctx.emit(&table.name, path);
+        }
+        Ok(())
     }
 
     fn dataset(&self) -> BenchmarkDataset {
@@ -608,5 +803,44 @@ mod tests {
             base_path: PathBuf::new(),
         };
         assert_eq!(bench.v3_dataset_dims(), ("CMSprovider", None));
+    }
+
+    /// Every `PBIDataset` variant must appear in the vendored listing, or `data_urls` fails
+    /// at runtime for that dataset.
+    #[test]
+    fn every_dataset_variant_has_vendored_tables() -> anyhow::Result<()> {
+        for dataset in PBIDataset::value_variants() {
+            let name = format!("{dataset:?}");
+            let urls =
+                data_urls(&name).with_context(|| format!("{name} missing from DATASET_TABLES"))?;
+            assert!(!urls.is_empty(), "{name} has no tables");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn data_urls_rebuild_the_upstream_layout() -> anyhow::Result<()> {
+        let urls = data_urls("Arade")?;
+        assert_eq!(urls.len(), 1);
+        assert_eq!(urls[0].0, "Arade_1");
+        assert_eq!(
+            urls[0].1.as_str(),
+            "https://pub-334c2a12c9bf46f3b8464a8718df8cae.r2.dev/Arade/Arade_1.csv.bz2",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn unknown_dataset_is_rejected() {
+        assert!(data_urls("NotADataset").is_err());
+    }
+
+    /// 206 tables across 46 datasets, matching the upstream `data-urls.txt` corpus this was
+    /// vendored from. A drift here means upstream added or removed a table dump.
+    #[test]
+    fn vendored_corpus_size_is_pinned() {
+        assert_eq!(DATASET_TABLES.len(), 46);
+        let tables: usize = DATASET_TABLES.iter().map(|(_, t)| t.len()).sum();
+        assert_eq!(tables, 206);
     }
 }

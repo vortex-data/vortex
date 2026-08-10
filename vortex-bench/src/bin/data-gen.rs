@@ -15,14 +15,13 @@ use tracing::info;
 use vortex::error::VortexExpect;
 use vortex_bench::Benchmark;
 use vortex_bench::BenchmarkArg;
-use vortex_bench::CompactionStrategy;
 use vortex_bench::Format;
 use vortex_bench::LogFormat;
 use vortex_bench::Opt;
 use vortex_bench::Opts;
-use vortex_bench::conversions::convert_parquet_directory_to_vortex;
 use vortex_bench::create_benchmark;
 use vortex_bench::generate_duckdb_registration_sql;
+use vortex_bench::prepare_data;
 use vortex_bench::setup_logging_and_tracing_with_format;
 
 #[derive(Parser)]
@@ -59,39 +58,21 @@ async fn main() -> anyhow::Result<()> {
 
     let benchmark = create_benchmark(args.benchmark, &opts)?;
 
-    // Generate base Parquet data - this is the source for all other formats
-    benchmark.generate_base_data().await?;
+    // Materialize every requested format: the benchmark produces the ones it can natively,
+    // and the rest are derived from Parquet.
+    prepare_data(&*benchmark, &args.formats).await?;
 
-    // Convert to other formats as needed (only for local file URLs)
-    if benchmark.data_url().scheme() == "file" {
+    if benchmark.data_url().scheme() == "file"
+        && args
+            .formats
+            .iter()
+            .any(|f| matches!(f, Format::OnDiskDuckDB))
+    {
         let base_path = benchmark
             .data_url()
             .to_file_path()
             .map_err(|_| anyhow::anyhow!("Invalid file URL: {}", benchmark.data_url()))?;
-
-        if args
-            .formats
-            .iter()
-            .any(|f| matches!(f, Format::OnDiskVortex))
-        {
-            convert_parquet_directory_to_vortex(&base_path, CompactionStrategy::Default).await?;
-        }
-
-        if args
-            .formats
-            .iter()
-            .any(|f| matches!(f, Format::VortexCompact))
-        {
-            convert_parquet_directory_to_vortex(&base_path, CompactionStrategy::Compact).await?;
-        }
-
-        if args
-            .formats
-            .iter()
-            .any(|f| matches!(f, Format::OnDiskDuckDB))
-        {
-            generate_duckdb(&base_path, &*benchmark)?;
-        }
+        generate_duckdb(&base_path, &*benchmark)?;
     }
 
     Ok(())

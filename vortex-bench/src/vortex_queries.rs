@@ -10,7 +10,6 @@ use std::process::Command;
 
 use anyhow::Context;
 use anyhow::Result;
-use anyhow::anyhow;
 use anyhow::bail;
 use glob::Pattern;
 use tracing::debug;
@@ -20,6 +19,7 @@ use vortex::error::VortexExpect;
 use crate::Benchmark;
 use crate::BenchmarkDataset;
 use crate::Format;
+use crate::SetupCtx;
 use crate::TableSpec;
 use crate::bench_dir;
 use crate::resolve_data_url;
@@ -114,14 +114,10 @@ impl Benchmark for VortexBenchmark {
             .collect()
     }
 
-    async fn generate_base_data(&self) -> Result<()> {
-        let data_dir = self
-            .data_url
-            .to_file_path()
-            .map_err(|_| anyhow!("Invalid file URL: {}", self.data_url.as_str()))?;
-        let parquet_dir = data_dir.join(Format::Parquet.name());
-        fs::create_dir_all(&parquet_dir)?;
+    async fn setup(&self, ctx: &SetupCtx, _format: Format) -> Result<()> {
+        let parquet_dir = ctx.staging().to_path_buf();
         let parquet_file = parquet_dir.join("test.parquet");
+        ctx.emit("test", parquet_file.clone());
 
         if parquet_file.exists() {
             debug!("Parquet data present in {}", parquet_dir.display());

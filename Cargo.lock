@@ -9721,6 +9721,7 @@ dependencies = [
  "sysinfo",
  "tabled",
  "target-lexicon",
+ "tempfile",
  "tokio",
  "tokio-stream",
  "tokio-util",

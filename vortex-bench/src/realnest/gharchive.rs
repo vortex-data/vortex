@@ -9,15 +9,15 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-use tokio::io::AsyncWriteExt;
 use tracing::info;
 use url::Url;
 
 use crate::Benchmark;
 use crate::BenchmarkDataset;
+use crate::Format;
+use crate::SetupCtx;
 use crate::TableSpec;
 use crate::idempotent;
-use crate::idempotent_async;
 use crate::utils::file::resolve_data_url;
 use crate::workspace_root;
 
@@ -47,18 +47,9 @@ impl GithubArchiveBenchmark {
 }
 
 impl GithubArchiveBenchmark {
-    fn json_path(&self) -> anyhow::Result<PathBuf> {
+    fn json_dir(&self) -> anyhow::Result<PathBuf> {
         self.data_url
             .join("json/")?
-            .join("events.json.gz")?
-            .to_file_path()
-            .map_err(|_| anyhow::anyhow!("Failed to convert data URL to filesystem path - ensure data_url uses 'file://' scheme"))
-    }
-
-    fn parquet_path(&self) -> anyhow::Result<PathBuf> {
-        self.data_url
-            .join("parquet/")?
-            .join("events.parquet")?
             .to_file_path()
             .map_err(|_| anyhow::anyhow!("Failed to convert data URL to filesystem path - ensure data_url uses 'file://' scheme"))
     }
@@ -88,38 +79,30 @@ impl Benchmark for GithubArchiveBenchmark {
             .collect())
     }
 
-    async fn generate_base_data(&self) -> anyhow::Result<()> {
-        if self.data_url.scheme() != "file" {
-            return Ok(());
-        }
+    async fn setup(&self, ctx: &SetupCtx, _format: Format) -> anyhow::Result<()> {
+        // One file per hour, fetched in parallel through the shared pool. Each lands
+        // separately so a failure re-fetches only the missing hours; DuckDB then reads the
+        // whole set through a glob.
+        let json_dir = self.json_dir()?;
+        fs::create_dir_all(&json_dir)?;
+        let downloads: Vec<(String, PathBuf)> = (0..=23)
+            .map(|hour| {
+                (
+                    raw_json_url(hour),
+                    json_dir.join(format!("2024-10-01-{hour}.json.gz")),
+                )
+            })
+            .collect();
+        info!(
+            "Downloading {} GithubArchive JSON source files",
+            downloads.len()
+        );
+        ctx.download(downloads).await?;
 
-        let json = idempotent_async(&self.json_path()?, |json_path| async move {
-            info!("Downloading GithubArchive JSON source files");
-            let mut w = tokio::fs::File::create(json_path).await?;
-            let client = reqwest::Client::new();
-            for hour in 0..=23 {
-                let url = raw_json_url(hour);
-                info!("Downloading archive {url}");
-                let response = client
-                    .get(url)
-                    .send()
-                    .await?
-                    .error_for_status()
-                    .map_err(|err| anyhow::anyhow!("error fetching gharchive data: {err}"))?;
+        let json_glob = json_dir.join("*.json.gz").display().to_string();
 
-                let body = response.bytes().await?;
-
-                w.write_all(&body).await?;
-                w.flush().await?;
-            }
-
-            Ok(())
-        })
-        .await?;
-
-        let json_path = json.display().to_string();
-
-        let parquet = idempotent(&self.parquet_path()?, move |parquet_path| {
+        let output_path = ctx.staging().join("events.parquet");
+        let parquet = idempotent(&output_path, move |parquet_path| {
             let parquet = parquet_path.display().to_string();
             info!(
                 "Converting GithubArchive JSON to Parquet with DuckDB @ {}",
@@ -129,7 +112,7 @@ impl Benchmark for GithubArchiveBenchmark {
                 .arg("-c")
                 .arg(format!(
                     "
-                    CREATE TABLE events AS select * from read_ndjson_auto('{json_path}', ignore_errors = true);
+                    CREATE TABLE events AS select * from read_ndjson_auto('{json_glob}', ignore_errors = true);
                     COPY events TO '{parquet}' (FORMAT parquet);
                     "
                 ))
@@ -144,6 +127,7 @@ impl Benchmark for GithubArchiveBenchmark {
         })?;
 
         info!("gharchive base data generated in {}", parquet.display());
+        ctx.emit("events", parquet);
 
         Ok(())
     }
