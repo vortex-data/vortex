@@ -112,7 +112,7 @@ fn take_non_empty_fsl(
     }
 
     if let Some(piecewise_indices) = indices.as_opt::<PiecewiseSequence>()
-        && let Some(taken) = take_piecewise_fsl(array, piecewise_indices, ctx)?
+        && let Some(taken) = take_piecewise_fsl(array, piecewise_indices.materialize_view(), ctx)?
     {
         return Ok(taken);
     }

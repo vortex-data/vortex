@@ -313,7 +313,7 @@ impl AggregateFnVTable for SumV2 {
         partials: ArrayRef,
     ) -> VortexResult<ArrayRef> {
         if let Some(partials) = partials.as_opt::<Struct>() {
-            return finalize_struct(partials);
+            return finalize_struct(partials.materialize_view());
         }
 
         let sum = partials.get_item(SUM_FIELD)?;

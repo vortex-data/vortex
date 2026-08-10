@@ -20,7 +20,7 @@ use crate::executor::ExecutionCtx;
 
 impl FilterReduce for Map {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
-        let entries = array.entries().as_::<ListView>();
+        let entries = array.entries().as_::<ListView>().materialize_view();
 
         // SAFETY: filtering row metadata keeps offsets and sizes paired, preserves the original
         // elements, and filters validity to the same output length. The zero-copy-to-list flag is

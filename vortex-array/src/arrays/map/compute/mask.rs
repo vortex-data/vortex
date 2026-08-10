@@ -18,8 +18,10 @@ impl MaskReduce for Map {
     const VALIDITY_IS_METADATA_ONLY: bool = true;
 
     fn mask(array: ArrayView<'_, Self>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        let Some(entries) =
-            <ListView as MaskReduce>::mask(array.entries().as_::<ListView>(), mask)?
+        let Some(entries) = <ListView as MaskReduce>::mask(
+            array.entries().as_::<ListView>().materialize_view(),
+            mask,
+        )?
         else {
             return Ok(None);
         };
