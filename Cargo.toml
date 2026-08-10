@@ -102,16 +102,16 @@ anyhow = "1.0.100"
 arbitrary = "1.3.2"
 arc-swap = "1.9"
 arcref = "0.2.0"
-arrow-arith = "58.3"
-arrow-array = "58.3"
-arrow-buffer = "58.3"
-arrow-cast = "58.3"
-arrow-data = "58.3"
-arrow-ipc = "58.3"
-arrow-row = "58.3"
-arrow-schema = "58.3"
-arrow-select = "58.3"
-arrow-string = "58.3"
+arrow-arith = "59.2"
+arrow-array = "59.2"
+arrow-buffer = "59.2"
+arrow-cast = "59.2"
+arrow-data = "59.2"
+arrow-ipc = "59.2"
+arrow-row = "59.2"
+arrow-schema = "59.2"
+arrow-select = "59.2"
+arrow-string = "59.2"
 async-executor = "1.14.0"
 async-fs = "2.2.0"
 async-lock = "3.4"
@@ -206,9 +206,9 @@ opentelemetry = "0.32.0"
 opentelemetry-otlp = "0.32.0"
 opentelemetry_sdk = "0.32.0"
 parking_lot = { version = "0.12.3", features = ["nightly"] }
-parquet = "58.3"
-parquet-variant = "58.3"
-parquet-variant-compute = "58.3"
+parquet = "59.2"
+parquet-variant = "59.2"
+parquet-variant-compute = "59.2"
 paste = "1.0.15"
 pco = "1.0.1"
 percent-encoding = "2.3.2"
@@ -276,9 +276,8 @@ tokio = { version = "1.52" }
 tokio-stream = "0.1.17"
 tokio-util = "0.7.17"
 vortex-array-macros = { version = "0.1.0", path = "./vortex-array-macros" }
-# Pull these into non-public crates to support DF 58
-tpchgen = { version = "2.0.2", git = "https://github.com/clflushopt/tpchgen-rs.git", rev = "438e9c2dbc25b2fff82c0efc08b3f13b5707874f" }
-tpchgen-arrow = { version = "2.0.2", git = "https://github.com/clflushopt/tpchgen-rs.git", rev = "438e9c2dbc25b2fff82c0efc08b3f13b5707874f" }
+tpchgen = "3.0.0"
+tpchgen-arrow = "3.0.0"
 tracing = { version = "0.1.41", default-features = false }
 tracing-perfetto = "0.1.5"
 tracing-subscriber = "0.3"
@@ -443,3 +442,43 @@ incremental = false
 # This improved build times significantly for default common cases that we use locally
 [profile.dev.package.vortex-fastlanes]
 debug = false
+
+[patch.crates-io]
+datafusion = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-catalog = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-catalog-listing = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-common = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-common-runtime = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-datasource = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-datasource-arrow = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-datasource-avro = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-datasource-csv = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-datasource-json = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-datasource-parquet = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-doc = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-execution = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-expr = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-expr-common = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-functions = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-functions-aggregate = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-functions-aggregate-common = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-functions-nested = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-functions-table = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-functions-window = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-functions-window-common = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-macros = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-optimizer = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-physical-expr = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-physical-expr-adapter = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-physical-expr-common = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-physical-optimizer = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-physical-plan = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-pruning = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-session = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-spark = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-sql = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+datafusion-sqllogictest = { git = "https://github.com/apache/datafusion", rev = "2bfdd4aea181525f5328781b29174d82be0c7fd4" }
+geoarrow = { version = "=0.8.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "855d2e138e54ce503c4488d5bb795ca1ea880d1f" }
+geoarrow-array = { version = "=0.8.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "855d2e138e54ce503c4488d5bb795ca1ea880d1f" }
+geoarrow-cast = { version = "=0.8.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "855d2e138e54ce503c4488d5bb795ca1ea880d1f" }
+geoarrow-schema = { version = "=0.8.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "855d2e138e54ce503c4488d5bb795ca1ea880d1f" }
