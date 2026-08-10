@@ -123,6 +123,9 @@ git submodule update --init --recursive
 uv sync --all-packages
 ```
 
+See the [development workflows](CONTRIBUTING.md#development-workflows) for Python binding and
+documentation development, including Maturin rebuilds, targeted tests, and documentation checks.
+
 ### Benchmarking
 
 Use `vx-bench` to run benchmarks comparing engines (DataFusion, DuckDB) and formats (Parquet, Vortex):

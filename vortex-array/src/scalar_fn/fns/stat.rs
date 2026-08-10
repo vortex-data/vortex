@@ -18,6 +18,7 @@ use crate::aggregate_fn::fns::all_nan::AllNan;
 use crate::aggregate_fn::fns::all_non_nan::AllNonNan;
 use crate::aggregate_fn::fns::all_non_null::AllNonNull;
 use crate::aggregate_fn::fns::all_null::AllNull;
+use crate::aggregate_fn::fns::sum::Sum;
 use crate::arrays::ConstantArray;
 use crate::dtype::DType;
 use crate::expr::display::ExprDisplay;
@@ -130,7 +131,13 @@ impl ScalarFnVTable for StatFn {
 }
 
 fn stat_dtype(aggregate_fn: &AggregateFnRef, input_dtype: &DType) -> VortexResult<DType> {
-    let Some(dtype) = aggregate_fn.state_dtype(input_dtype) else {
+    let dtype = if aggregate_fn.is::<Sum>() {
+        // Sum stats expose a scalar result even though canonical Sum state is a struct.
+        aggregate_fn.return_dtype(input_dtype)
+    } else {
+        aggregate_fn.state_dtype(input_dtype)
+    };
+    let Some(dtype) = dtype else {
         vortex_bail!(
             "Aggregate function {} does not support input dtype {}",
             aggregate_fn,

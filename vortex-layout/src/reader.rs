@@ -95,29 +95,94 @@ impl SplitRange {
 }
 
 /// A collection of root-coordinate row split points.
-pub struct RowSplits(Vec<u64>);
+///
+/// Boundaries arrive as non-descending runs, one per layout subtree walked; a descending push
+/// starts a new run. A run that exactly repeats the previous surviving run — common when sibling
+/// columns share chunk boundaries — is dropped as it completes, and the final sort is skipped
+/// when only a single run survives (the boundaries are then already ascending).
+pub struct RowSplits {
+    splits: Vec<u64>,
+    /// Start index of the run currently being appended.
+    run_start: usize,
+    /// Start index of the surviving run immediately before `run_start`.
+    prev_run_start: usize,
+}
 
 impl RowSplits {
     /// Add a row boundary to the split set.
     pub fn push(&mut self, row: u64) {
-        self.0.push(row);
+        if let Some(&last) = self.splits.last()
+            && row < last
+        {
+            self.close_run();
+        }
+        self.splits.push(row);
+    }
+
+    /// Close the current run: drop it if it exactly repeats the previous surviving run,
+    /// otherwise keep it and start a new run.
+    fn close_run(&mut self) {
+        if !self.drop_repeated_run() {
+            self.prev_run_start = self.run_start;
+            self.run_start = self.splits.len();
+        }
+    }
+
+    /// Drop the current run if it exactly repeats the run before it. Repeated runs contribute
+    /// nothing to the sorted-deduped boundary set.
+    fn drop_repeated_run(&mut self) -> bool {
+        if self.run_start > 0
+            && self.splits[self.prev_run_start..self.run_start] == self.splits[self.run_start..]
+        {
+            self.splits.truncate(self.run_start);
+            return true;
+        }
+        false
+    }
+
+    /// Extend with a batch of non-descending row boundaries.
+    ///
+    /// Only the first element is checked for a descent against the current run, so the caller
+    /// must ensure the batch itself is non-descending.
+    pub fn extend_ascending(&mut self, rows: impl IntoIterator<Item = u64>) {
+        let mut rows = rows.into_iter();
+        let Some(first) = rows.next() else {
+            return;
+        };
+        self.push(first);
+        self.splits.extend(rows);
+        debug_assert!(
+            self.splits[self.run_start..].is_sorted(),
+            "extend_ascending batch must be non-descending"
+        );
     }
 
     /// Reserve space for additional row boundaries.
     pub fn reserve(&mut self, additional: usize) {
-        self.0.reserve(additional);
+        self.splits.reserve(additional);
     }
 
     /// Create a new RowSplits with preallocated "capacity"
     pub(crate) fn new_capacity(capacity: usize) -> Self {
-        Self(Vec::with_capacity(capacity))
+        Self {
+            splits: Vec::with_capacity(capacity),
+            run_start: 0,
+            prev_run_start: 0,
+        }
     }
 
     pub(crate) fn into_sorted_deduped(mut self) -> Vec<u64> {
-        self.0.sort_unstable();
-        self.0.dedup();
-        self.0.shrink_to_fit();
-        self.0
+        let final_run_dropped = self.drop_repeated_run();
+        // Surviving runs always have a descent between them, so the boundaries are ascending
+        // iff a single run survived: no run before the final one (`prev_run_start == 0`) and
+        // the final one either is the first (`run_start == 0`) or was dropped.
+        let sorted = self.prev_run_start == 0 && (self.run_start == 0 || final_run_dropped);
+        if !sorted {
+            self.splits.sort_unstable();
+        }
+        self.splits.dedup();
+        self.splits.shrink_to_fit();
+        self.splits
     }
 }
 
@@ -215,11 +280,22 @@ impl ArrayFutureExt for ArrayFuture {
     }
 }
 
+/// Per-child metadata for [`LazyReaderChildren`].
+enum ChildMeta {
+    /// Every child shares one dtype and one debug name (e.g. chunked layouts), avoiding a
+    /// clone per child at construction.
+    Uniform { dtype: DType, name: Arc<str> },
+    /// Distinct dtype and name per child.
+    PerChild {
+        dtypes: Vec<DType>,
+        names: Vec<Arc<str>>,
+    },
+}
+
 /// Lazily constructs and caches child readers while preserving reader context.
 pub struct LazyReaderChildren {
     children: Arc<dyn LayoutChildren>,
-    dtypes: Vec<DType>,
-    names: Vec<Arc<str>>,
+    meta: ChildMeta,
     segment_source: Arc<dyn SegmentSource>,
     session: VortexSession,
     ctx: LayoutReaderContext,
@@ -239,12 +315,45 @@ impl LazyReaderChildren {
         session: VortexSession,
         ctx: LayoutReaderContext,
     ) -> Self {
+        Self::with_meta(
+            children,
+            ChildMeta::PerChild { dtypes, names },
+            segment_source,
+            session,
+            ctx,
+        )
+    }
+
+    /// Create a lazy child-reader cache where every child shares `dtype` and `name`.
+    pub fn new_uniform(
+        children: Arc<dyn LayoutChildren>,
+        dtype: DType,
+        name: Arc<str>,
+        segment_source: Arc<dyn SegmentSource>,
+        session: VortexSession,
+        ctx: LayoutReaderContext,
+    ) -> Self {
+        Self::with_meta(
+            children,
+            ChildMeta::Uniform { dtype, name },
+            segment_source,
+            session,
+            ctx,
+        )
+    }
+
+    fn with_meta(
+        children: Arc<dyn LayoutChildren>,
+        meta: ChildMeta,
+        segment_source: Arc<dyn SegmentSource>,
+        session: VortexSession,
+        ctx: LayoutReaderContext,
+    ) -> Self {
         let nchildren = children.nchildren();
         let cache = (0..nchildren).map(|_| OnceCell::new()).collect();
         Self {
             children,
-            dtypes,
-            names,
+            meta,
             segment_source,
             session,
             ctx,
@@ -259,14 +368,61 @@ impl LazyReaderChildren {
         }
 
         self.cache[idx].get_or_try_init(|| {
-            let dtype = &self.dtypes[idx];
+            let (dtype, name) = match &self.meta {
+                ChildMeta::Uniform { dtype, name } => (dtype, name),
+                ChildMeta::PerChild { dtypes, names } => (&dtypes[idx], &names[idx]),
+            };
             let child = self.children.child(idx, dtype)?;
             child.new_reader(
-                Arc::clone(&self.names[idx]),
+                Arc::clone(name),
                 Arc::clone(&self.segment_source),
                 &self.session,
                 &self.ctx,
             )
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::RowSplits;
+
+    /// The result must always equal the plain sort+dedup of every pushed value, regardless of
+    /// how pushes group into runs or which runs get dropped early.
+    #[rstest]
+    // Identical runs collapse (aligned columns).
+    #[case(vec![vec![0, 5, 10], vec![0, 5, 10], vec![0, 5, 10]])]
+    // Misaligned runs merge through the sort fallback.
+    #[case(vec![vec![0, 5, 10], vec![0, 3, 10]])]
+    // A run that is a strict prefix of its predecessor is not dropped.
+    #[case(vec![vec![0, 5, 10], vec![0, 5]])]
+    // A run extending its predecessor survives.
+    #[case(vec![vec![10, 20, 30], vec![10, 20, 30, 40]])]
+    // Repeated runs after a distinct run still collapse.
+    #[case(vec![vec![0, 5], vec![0, 3, 5], vec![0, 3, 5]])]
+    // Identical runs re-diverging.
+    #[case(vec![vec![0, 5], vec![0, 5], vec![0, 3]])]
+    // Single-element descending runs.
+    #[case(vec![vec![5], vec![3], vec![1]])]
+    // Adjacent duplicates within a run.
+    #[case(vec![vec![0, 5, 5, 10]])]
+    // Single run stays untouched.
+    #[case(vec![vec![0, 5, 10]])]
+    // No pushes at all.
+    #[case(vec![])]
+    fn into_sorted_deduped_matches_model(#[case] runs: Vec<Vec<u64>>) {
+        let mut splits = RowSplits::new_capacity(16);
+        let mut model = Vec::new();
+        for run in &runs {
+            for &row in run {
+                splits.push(row);
+                model.push(row);
+            }
+        }
+        model.sort_unstable();
+        model.dedup();
+        assert_eq!(splits.into_sorted_deduped(), model);
     }
 }

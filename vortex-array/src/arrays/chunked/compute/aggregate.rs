@@ -46,8 +46,8 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
     use crate::aggregate_fn::DynAccumulator;
-    use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::sum::Sum;
+    use crate::aggregate_fn::fns::sum::SumAggregateOpts;
     use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
@@ -59,11 +59,8 @@ mod tests {
 
     fn run_sum(batch: &crate::ArrayRef) -> VortexResult<Scalar> {
         let mut ctx = array_session().create_execution_ctx();
-        let mut acc = Accumulator::try_new(
-            Sum,
-            NumericalAggregateOpts::default(),
-            batch.dtype().clone(),
-        )?;
+        let mut acc =
+            Accumulator::try_new(Sum, SumAggregateOpts::default(), batch.dtype().clone())?;
         acc.accumulate(batch, &mut ctx)?;
         acc.finish()
     }
@@ -120,7 +117,7 @@ mod tests {
             DType::Primitive(PType::I32, Nullability::Nullable),
         )?;
         let result = run_sum(&chunked.into_array())?;
-        assert_eq!(result.as_primitive().typed_value::<i64>(), Some(0));
+        assert!(result.is_null());
         Ok(())
     }
 
@@ -158,7 +155,7 @@ mod tests {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let chunked = ChunkedArray::try_new(vec![], dtype)?;
         let result = run_sum(&chunked.into_array())?;
-        assert_eq!(result.as_primitive().typed_value::<i64>(), Some(0));
+        assert!(result.is_null());
         Ok(())
     }
 

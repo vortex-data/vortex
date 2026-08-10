@@ -19,6 +19,7 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
+use crate::expr::BoundExpression;
 use crate::expr::Expression;
 use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::ScalarFnId;
@@ -391,6 +392,15 @@ pub trait ScalarFnVTableExt: ScalarFnVTable {
         children: impl IntoIterator<Item = Expression>,
     ) -> VortexResult<Expression> {
         Expression::try_new(self.bind(options), children)
+    }
+
+    /// Try to create a bound expression with this vtable, the given options, and bound children.
+    fn try_new_bound_expr(
+        &self,
+        options: Self::Options,
+        children: impl IntoIterator<Item = BoundExpression>,
+    ) -> VortexResult<BoundExpression> {
+        BoundExpression::try_new(self.bind(options), children)
     }
 }
 impl<V: ScalarFnVTable> ScalarFnVTableExt for V {}

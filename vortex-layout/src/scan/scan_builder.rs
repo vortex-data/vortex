@@ -17,9 +17,7 @@ use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::Expression;
 use vortex_array::expr::analysis::referenced_field_paths;
-use vortex_array::expr::root;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorAdapter;
 use vortex_array::stats::StatsSet;
@@ -55,14 +53,13 @@ use crate::scan::splits::attempt_split_ranges;
 /// - [`with_selection`](Self::with_selection) applies a [`Selection`] inside that range.
 /// - [`with_filter`](Self::with_filter) evaluates an expression predicate during execution.
 ///
-/// Projection and filter expressions are optimized against the reader dtype during
-/// [`prepare`](Self::prepare). Work is divided by the configured [`SplitBy`] strategy or by
-/// explicit selection ranges.
+/// Projection and filter expressions must be bound against the reader dtype. Work is divided by
+/// the configured [`SplitBy`] strategy or by explicit selection ranges.
 pub struct ScanBuilder<A> {
     session: VortexSession,
     layout_reader: LayoutReaderRef,
-    projection: Expression,
-    filter: Option<Expression>,
+    projection: BoundExpression,
+    filter: Option<BoundExpression>,
     /// Whether the scan needs to return splits in the order they appear in the file.
     ordered: bool,
     /// Optionally read a subset of the rows in the file.
@@ -92,10 +89,11 @@ pub struct ScanBuilder<A> {
 impl ScanBuilder<ArrayRef> {
     /// Create a scan builder over `layout_reader` using `session` for runtime and execution state.
     pub fn new(session: VortexSession, layout_reader: Arc<dyn LayoutReader>) -> Self {
+        let projection = BoundExpression::new_root(layout_reader.dtype().clone());
         Self {
             session,
             layout_reader,
-            projection: root(),
+            projection,
             filter: None,
             ordered: true,
             row_range: None,
@@ -137,20 +135,20 @@ impl ScanBuilder<ArrayRef> {
 }
 
 impl<A: 'static + Send> ScanBuilder<A> {
-    /// Add a filter expression evaluated against the projected row ranges.
-    pub fn with_filter(mut self, filter: Expression) -> Self {
+    /// Add a filter expression bound against the reader dtype.
+    pub fn with_filter(mut self, filter: BoundExpression) -> Self {
         self.filter = Some(filter);
         self
     }
 
-    /// Add or clear the filter expression.
-    pub fn with_some_filter(mut self, filter: Option<Expression>) -> Self {
+    /// Add or clear a filter expression bound against the reader dtype.
+    pub fn with_some_filter(mut self, filter: Option<BoundExpression>) -> Self {
         self.filter = filter;
         self
     }
 
-    /// Set the projection expression for returned rows.
-    pub fn with_projection(mut self, projection: Expression) -> Self {
+    /// Set a projection expression bound against the reader dtype.
+    pub fn with_projection(mut self, projection: BoundExpression) -> Self {
         self.projection = projection;
         self
     }
@@ -219,14 +217,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
     /// them back via [`with_natural_splits`](Self::with_natural_splits) to skip the layout walk
     /// in `prepare`.
     pub fn full_file_splits(&self) -> VortexResult<Vec<u64>> {
-        let dtype = self.layout_reader.dtype();
-        let bound_projection = self.projection.optimize_recursive(dtype)?.bind(dtype)?;
-        let bound_filter = self
-            .filter
-            .as_ref()
-            .map(|f| f.optimize_recursive(dtype)?.bind(dtype))
-            .transpose()?;
-        let field_mask = referenced_field_masks(&bound_projection, bound_filter.as_ref())?;
+        let field_mask = referenced_field_masks(&self.projection, self.filter.as_ref())?;
         self.split_by.splits(
             self.layout_reader.as_ref(),
             &(0..self.layout_reader.row_count()),
@@ -273,7 +264,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
     /// The [`DType`] returned by the scan, after applying the projection.
     pub fn dtype(&self) -> VortexResult<DType> {
-        self.projection.return_dtype(self.layout_reader.dtype())
+        Ok(self.projection.dtype().clone())
     }
 
     /// The session used by the scan.
@@ -333,19 +324,8 @@ impl<A: 'static + Send> ScanBuilder<A> {
             ));
         }
 
-        // Normalize and simplify the expressions.
-        let projection = self.projection.optimize_recursive(layout_reader.dtype())?;
-
-        let filter = self
-            .filter
-            .map(|f| f.optimize_recursive(layout_reader.dtype()))
-            .transpose()?;
-
-        let bound_projection = projection.bind(layout_reader.dtype())?;
-        let bound_filter = filter
-            .as_ref()
-            .map(|expr| expr.bind(layout_reader.dtype()))
-            .transpose()?;
+        let bound_projection = self.projection;
+        let bound_filter = self.filter;
 
         // Compute the row splits of the scan.
         let splits =
@@ -539,6 +519,7 @@ mod test {
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
     use vortex_array::expr::BoundExpression;
+    use vortex_array::expr::ExactBoundExpr;
     use vortex_array::expr::eq;
     use vortex_array::expr::get_item;
     use vortex_array::expr::is_not_null;
@@ -576,6 +557,24 @@ mod test {
             ]),
             Nullability::NonNullable,
         )
+    }
+
+    #[test]
+    fn bound_setters_preserve_identity() -> VortexResult<()> {
+        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let projection = eq(root(), lit(1_i32)).bind(&dtype)?;
+        let filter = eq(root(), lit(2_i32)).bind(&dtype)?;
+        let expected_projection = ExactBoundExpr(projection.clone());
+        let expected_filter = ExactBoundExpr(filter.clone());
+        let reader = Arc::new(CountingLayoutReader::new(Arc::new(AtomicUsize::new(0))));
+
+        let builder = ScanBuilder::new(SCAN_SESSION.clone(), reader)
+            .with_projection(projection)
+            .with_filter(filter);
+
+        assert_eq!(ExactBoundExpr(builder.projection), expected_projection);
+        assert_eq!(builder.filter.map(ExactBoundExpr), Some(expected_filter));
+        Ok(())
     }
 
     #[test]

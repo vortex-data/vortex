@@ -5,3 +5,4 @@ pub(crate) mod rules;
 
 mod mask;
 mod slice;
+mod take;

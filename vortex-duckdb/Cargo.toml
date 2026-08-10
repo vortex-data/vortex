@@ -40,11 +40,12 @@ tracing-subscriber = { workspace = true }
 url = { workspace = true }
 vortex = { workspace = true, features = [
     "files",
+    "hf",
     "tokio",
     "object_store",
     "object_store_registry",
 ] }
-vortex-geo = { workspace = true }
+vortex-spatial = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }
 
 [features]

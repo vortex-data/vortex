@@ -267,6 +267,12 @@ pub trait DynLayout: 'static + Send + Sync + Debug {
         session: &VortexSession,
         ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef>;
+
+    /// Returns `true` if this layout is indivisible: its readers never register natural split
+    /// boundaries strictly inside their row range (see [`crate::VTable::is_indivisible`]).
+    fn dyn_is_indivisible(&self) -> bool {
+        false
+    }
 }
 
 impl<V: VTable> DynLayout for Layout<V> {
@@ -322,6 +328,10 @@ impl<V: VTable> DynLayout for Layout<V> {
         ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef> {
         Layout::new_reader(self, name, segment_source, session, ctx)
+    }
+
+    fn dyn_is_indivisible(&self) -> bool {
+        self.vtable().is_indivisible()
     }
 }
 

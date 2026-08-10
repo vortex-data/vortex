@@ -19,6 +19,7 @@ impl BitBufferMeta {
     ///
     /// Panics if `offset >= 8`. Use [`from_raw_offset`](Self::from_raw_offset) to normalize a
     /// larger offset.
+    #[inline]
     pub fn new(offset: usize, len: usize) -> Self {
         assert!(offset < 8, "BitBufferMeta offset must be < 8, got {offset}");
         Self { offset, len }
@@ -29,6 +30,7 @@ impl BitBufferMeta {
     ///
     /// Returns `(byte_offset, meta)` so the caller can slice its backing buffer by `byte_offset`
     /// and store the remaining sub-byte offset in `meta`.
+    #[inline]
     pub fn from_raw_offset(offset: usize, len: usize) -> (usize, Self) {
         (
             offset / 8,
@@ -44,6 +46,7 @@ impl BitBufferMeta {
     /// # Panics
     ///
     /// Panics if the range is out of bounds or its end precedes its start.
+    #[inline]
     pub fn slice(&self, range: impl RangeBounds<usize>) -> (usize, Self) {
         let start = match range.start_bound() {
             Bound::Included(&start) => start,

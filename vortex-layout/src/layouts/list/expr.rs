@@ -4,12 +4,10 @@
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::BoundExpression;
-use vortex_array::scalar_fn::EmptyOptions;
-use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_array::expr::bound::not;
 use vortex_array::scalar_fn::fns::is_not_null::IsNotNull;
 use vortex_array::scalar_fn::fns::is_null::IsNull;
 use vortex_array::scalar_fn::fns::list_length::ListLength;
-use vortex_array::scalar_fn::fns::not::Not;
 use vortex_error::VortexResult;
 
 /// The minimal set of list children an expression needs for evaluation.
@@ -84,10 +82,7 @@ fn rewrite_validity_expr_with_root(
         && expr.children().len() == 1
         && expr.children()[0].is_root()
     {
-        return BoundExpression::try_new(
-            Not.bind(EmptyOptions),
-            [BoundExpression::new_root(root_dtype.clone())],
-        );
+        return Ok(not(BoundExpression::new_root(root_dtype.clone())));
     }
     if expr.is_root() {
         return Ok(BoundExpression::new_root(root_dtype.clone()));

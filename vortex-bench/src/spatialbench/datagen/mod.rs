@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! SpatialBench data preparation. [`wkb`] generates the canonical WKB base tables; [`native`] derives
-//! native-geometry Vortex files from them for `points=native`. The [`table`] catalog is the single
-//! source of truth for the base tables both stages share.
+//! native-geometry Vortex files for the `vortex-spatial-native` format. The [`table`] catalog is
+//! the single source of truth for the base tables both stages share.
 
 pub mod native;
 pub mod spatial_sort;

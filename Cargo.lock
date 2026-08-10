@@ -9724,7 +9724,7 @@ dependencies = [
  "uuid",
  "vortex",
  "vortex-arrow",
- "vortex-geo",
+ "vortex-spatial",
  "vortex-tensor",
  "wkb",
 ]
@@ -10032,9 +10032,9 @@ dependencies = [
  "url",
  "vortex",
  "vortex-array",
- "vortex-geo",
  "vortex-runend",
  "vortex-sequence",
+ "vortex-spatial",
  "vortex-utils",
  "wkb",
  "zip",
@@ -10110,6 +10110,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
+ "codspeed-divan-compat",
  "flatbuffers",
  "futures",
  "itertools 0.14.0",
@@ -10207,32 +10208,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "vortex-geo"
-version = "0.1.0"
-dependencies = [
- "arrow-array 58.4.0",
- "arrow-schema 58.4.0",
- "codspeed-divan-compat",
- "geo",
- "geo-traits",
- "geo-types",
- "geoarrow",
- "geoarrow-cast",
- "mimalloc",
- "prost 0.14.4",
- "rstest",
- "vortex-array",
- "vortex-arrow",
- "vortex-buffer",
- "vortex-error",
- "vortex-geo",
- "vortex-layout",
- "vortex-mask",
- "vortex-session",
- "wkb",
-]
-
-[[package]]
 name = "vortex-io"
 version = "0.1.0"
 dependencies = [
@@ -10302,8 +10277,8 @@ dependencies = [
  "vortex",
  "vortex-arrow",
  "vortex-cloud",
- "vortex-geo",
  "vortex-parquet-variant",
+ "vortex-spatial",
 ]
 
 [[package]]
@@ -10602,6 +10577,32 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-session",
+]
+
+[[package]]
+name = "vortex-spatial"
+version = "0.1.0"
+dependencies = [
+ "arrow-array 58.4.0",
+ "arrow-schema 58.4.0",
+ "codspeed-divan-compat",
+ "geo",
+ "geo-traits",
+ "geo-types",
+ "geoarrow",
+ "geoarrow-cast",
+ "mimalloc",
+ "prost 0.14.4",
+ "rstest",
+ "vortex-array",
+ "vortex-arrow",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-layout",
+ "vortex-mask",
+ "vortex-session",
+ "vortex-spatial",
+ "wkb",
 ]
 
 [[package]]

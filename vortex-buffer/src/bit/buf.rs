@@ -95,6 +95,7 @@ impl BitBuffer {
     /// Create a new `BoolBuffer` backed by a [`ByteBuffer`] with `len` bits in view.
     ///
     /// Panics if the buffer is not large enough to hold `len` bits.
+    #[inline]
     pub fn new(buffer: ByteBuffer, len: usize) -> Self {
         assert!(
             buffer.len() * 8 >= len,
@@ -115,6 +116,7 @@ impl BitBuffer {
     /// the given `offset` (in bits).
     ///
     /// Panics if the buffer is not large enough to hold `len` bits after the offset.
+    #[inline]
     pub fn new_with_offset(buffer: ByteBuffer, len: usize, offset: usize) -> Self {
         assert!(
             len.saturating_add(offset) <= buffer.len().saturating_mul(8),
@@ -142,6 +144,7 @@ impl BitBuffer {
     }
 
     /// Create a new `BoolBuffer` of length `len` where all bits are set (true).
+    #[inline]
     pub fn new_set(len: usize) -> Self {
         let words = len.div_ceil(8);
         let buffer = buffer![0xFF; words];
@@ -154,6 +157,7 @@ impl BitBuffer {
     }
 
     /// Create a new `BoolBuffer` of length `len` where all bits are unset (false).
+    #[inline]
     pub fn new_unset(len: usize) -> Self {
         let words = len.div_ceil(8);
         let buffer = Buffer::zeroed(words);
@@ -171,11 +175,13 @@ impl BitBuffer {
     }
 
     /// Create a new empty `BitBuffer`.
+    #[inline]
     pub fn empty() -> Self {
         Self::new_set(0)
     }
 
     /// Create a new `BitBuffer` of length `len` where all bits are set to `value`.
+    #[inline]
     pub fn full(value: bool, len: usize) -> Self {
         if value {
             Self::new_set(len)
@@ -271,6 +277,7 @@ impl BitBuffer {
     }
 
     /// Clear all bits in the buffer, preserving existing capacity.
+    #[inline]
     pub fn clear(&mut self) {
         self.buffer.clear();
         self.len = 0;
@@ -345,6 +352,7 @@ impl BitBuffer {
     /// for `len` bits.
     ///
     /// Panics if the slice would extend beyond the end of the buffer.
+    #[inline]
     pub fn slice(&self, range: impl RangeBounds<usize>) -> Self {
         let (byte_offset, meta) = BitBufferMeta::new(self.offset, self.len).slice(range);
 
@@ -376,6 +384,7 @@ impl BitBuffer {
     }
 
     /// Access chunks of the buffer aligned to 8 byte boundary as [prefix, \<full chunks\>, suffix]
+    #[inline]
     pub fn unaligned_chunks(&self) -> UnalignedBitChunk<'_> {
         UnalignedBitChunk::new(self.buffer.as_slice(), self.offset, self.len)
     }
@@ -383,6 +392,7 @@ impl BitBuffer {
     /// Access chunks of the underlying buffer as 8 byte chunks with a final trailer
     ///
     /// If you're performing operations on a single buffer, prefer [BitBuffer::unaligned_chunks]
+    #[inline]
     pub fn chunks(&self) -> BitChunks<'_> {
         BitChunks::new(self.buffer.as_slice(), self.offset, self.len)
     }
@@ -413,6 +423,7 @@ impl BitBuffer {
     /// which logical bit position holds that rank.
     ///
     /// Returns `None` if `nth` is greater than or equal to the number of set bits.
+    #[inline]
     pub fn select(&self, nth: usize) -> Option<usize> {
         bit_select(self.buffer.as_slice(), self.offset, self.len, nth)
     }
@@ -424,16 +435,19 @@ impl BitBuffer {
     }
 
     /// Iterator over bits in the buffer
+    #[inline]
     pub fn iter(&self) -> BitIterator<'_> {
         BitIterator::new(self.buffer.as_slice(), self.offset, self.len)
     }
 
     /// Iterator over set indices of the underlying buffer
+    #[inline]
     pub fn set_indices(&self) -> BitIndexIterator<'_> {
         BitIndexIterator::new(self.buffer.as_slice(), self.offset, self.len)
     }
 
     /// Iterator over set slices of the underlying buffer
+    #[inline]
     pub fn set_slices(&self) -> BitSliceIterator<'_> {
         BitSliceIterator::new(self.buffer.as_slice(), self.offset, self.len)
     }
@@ -484,11 +498,13 @@ impl BitBuffer {
 
 impl BitBuffer {
     /// Returns the offset, len and underlying buffer.
+    #[inline]
     pub fn into_inner(self) -> (usize, usize, ByteBuffer) {
         (self.offset, self.len, self.buffer)
     }
 
     /// Attempt to convert this `BitBuffer` into a mutable version.
+    #[inline]
     pub fn try_into_mut(self) -> Result<BitBufferMut, Self> {
         match self.buffer.try_into_mut() {
             Ok(buffer) => Ok(BitBufferMut::from_buffer(buffer, self.offset, self.len)),
@@ -510,6 +526,7 @@ impl From<Vec<bool>> for BitBuffer {
 }
 
 impl FromIterator<bool> for BitBuffer {
+    #[inline]
     fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
         BitBufferMut::from_iter(iter).freeze()
     }

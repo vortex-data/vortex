@@ -9,11 +9,14 @@ use std::sync::Arc;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
+use vortex_utils::iter::ReduceBalancedIterExt;
 
 use crate::dtype::DType;
-use crate::expr::Expression;
-use crate::expr::or_collect;
+use crate::expr::BoundExpression;
 use crate::scalar_fn::ScalarFnId;
+use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::operators::Operator;
 use crate::stats::session::StatsSessionExt;
 
 mod builtins;
@@ -53,9 +56,9 @@ pub trait StatsRewriteRule: Debug + Send + Sync + 'static {
     /// Returns `Ok(None)` when this rule cannot construct a sound falsity proof for `expr`.
     fn falsify(
         &self,
-        expr: &Expression,
+        expr: &BoundExpression,
         ctx: &StatsRewriteCtx<'_>,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Option<BoundExpression>> {
         _ = expr;
         _ = ctx;
         Ok(None)
@@ -73,9 +76,9 @@ pub trait StatsRewriteRule: Debug + Send + Sync + 'static {
     /// Returns `Ok(None)` when this rule cannot construct a sound truth proof for `expr`.
     fn satisfy(
         &self,
-        expr: &Expression,
+        expr: &BoundExpression,
         ctx: &StatsRewriteCtx<'_>,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Option<BoundExpression>> {
         _ = expr;
         _ = ctx;
         Ok(None)
@@ -85,13 +88,12 @@ pub trait StatsRewriteRule: Debug + Send + Sync + 'static {
 /// Context passed to stats rewrite rules.
 pub struct StatsRewriteCtx<'a> {
     session: &'a VortexSession,
-    scope: &'a DType,
 }
 
 impl<'a> StatsRewriteCtx<'a> {
     /// Create a rewrite context for `session`.
-    pub fn new(session: &'a VortexSession, scope: &'a DType) -> Self {
-        Self { session, scope }
+    pub fn new(session: &'a VortexSession) -> Self {
+        Self { session }
     }
 
     /// Returns the session that owns the rewrite registry.
@@ -100,23 +102,23 @@ impl<'a> StatsRewriteCtx<'a> {
     }
 
     /// Return the dtype of `expr` within this rewrite scope.
-    pub fn return_dtype(&self, expr: &Expression) -> VortexResult<DType> {
-        expr.return_dtype(self.scope)
+    pub fn return_dtype(&self, expr: &BoundExpression) -> VortexResult<DType> {
+        Ok(expr.dtype().clone())
     }
 
     /// Rewrite `expr` into a stats-backed falsifier.
-    pub fn falsify(&self, expr: &Expression) -> VortexResult<Option<Expression>> {
+    pub fn falsify(&self, expr: &BoundExpression) -> VortexResult<Option<BoundExpression>> {
         self.ensure_predicate(expr)?;
         rewrite(expr, self, StatsRewriteRule::falsify)
     }
 
     /// Rewrite `expr` into a stats-backed satisfier.
-    pub fn satisfy(&self, expr: &Expression) -> VortexResult<Option<Expression>> {
+    pub fn satisfy(&self, expr: &BoundExpression) -> VortexResult<Option<BoundExpression>> {
         self.ensure_predicate(expr)?;
         rewrite(expr, self, StatsRewriteRule::satisfy)
     }
 
-    fn ensure_predicate(&self, expr: &Expression) -> VortexResult<()> {
+    fn ensure_predicate(&self, expr: &BoundExpression) -> VortexResult<()> {
         let dtype = self.return_dtype(expr)?;
         vortex_ensure!(
             matches!(dtype, DType::Bool(_)),
@@ -127,18 +129,18 @@ impl<'a> StatsRewriteCtx<'a> {
 }
 
 fn rewrite(
-    expr: &Expression,
+    expr: &BoundExpression,
     ctx: &StatsRewriteCtx<'_>,
     apply: fn(
         &dyn StatsRewriteRule,
-        &Expression,
+        &BoundExpression,
         &StatsRewriteCtx<'_>,
-    ) -> VortexResult<Option<Expression>>,
-) -> VortexResult<Option<Expression>> {
-    let rules = ctx
-        .session()
-        .stats()
-        .rewrite_rules_for(expr.scalar_fn().id());
+    ) -> VortexResult<Option<BoundExpression>>,
+) -> VortexResult<Option<BoundExpression>> {
+    let Some(scalar_fn) = expr.as_scalar() else {
+        return Ok(None);
+    };
+    let rules = ctx.session().stats().rewrite_rules_for(scalar_fn.id());
     let Some(rules) = rules else {
         return Ok(None);
     };
@@ -150,7 +152,9 @@ fn rewrite(
         }
     }
 
-    Ok(or_collect(rewrites))
+    rewrites
+        .into_iter()
+        .try_reduce_balanced(|lhs, rhs| Binary.try_new_bound_expr(Operator::Or, [lhs, rhs]))
 }
 
 #[cfg(test)]
@@ -162,7 +166,7 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::Expression;
+    use crate::expr::BoundExpression;
     use crate::expr::lit;
     use crate::expr::or;
     use crate::scalar_fn::ScalarFnId;
@@ -172,8 +176,8 @@ mod tests {
 
     #[derive(Debug)]
     struct StaticLiteralRule {
-        falsifier: Option<Expression>,
-        satisfier: Option<Expression>,
+        falsifier: Option<BoundExpression>,
+        satisfier: Option<BoundExpression>,
     }
 
     impl StatsRewriteRule for StaticLiteralRule {
@@ -183,17 +187,17 @@ mod tests {
 
         fn falsify(
             &self,
-            _expr: &Expression,
+            _expr: &BoundExpression,
             _ctx: &StatsRewriteCtx<'_>,
-        ) -> VortexResult<Option<Expression>> {
+        ) -> VortexResult<Option<BoundExpression>> {
             Ok(self.falsifier.clone())
         }
 
         fn satisfy(
             &self,
-            _expr: &Expression,
+            _expr: &BoundExpression,
             _ctx: &StatsRewriteCtx<'_>,
-        ) -> VortexResult<Option<Expression>> {
+        ) -> VortexResult<Option<BoundExpression>> {
             Ok(self.satisfier.clone())
         }
     }
@@ -203,17 +207,17 @@ mod tests {
         let session = crate::array_session();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         session.stats().register_rewrite(StaticLiteralRule {
-            falsifier: Some(lit(false)),
+            falsifier: Some(lit(false).bind(&dtype)?),
             satisfier: None,
         });
         session.stats().register_rewrite(StaticLiteralRule {
-            falsifier: Some(lit(true)),
+            falsifier: Some(lit(true).bind(&dtype)?),
             satisfier: None,
         });
 
         assert_eq!(
-            lit(true).falsify(&dtype, &session)?,
-            Some(or(lit(false), lit(true)))
+            lit(true).bind(&dtype)?.falsify(&session)?,
+            Some(or(lit(false), lit(true)).bind(&dtype)?)
         );
         Ok(())
     }
@@ -224,16 +228,16 @@ mod tests {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         session.stats().register_rewrite(StaticLiteralRule {
             falsifier: None,
-            satisfier: Some(lit(false)),
+            satisfier: Some(lit(false).bind(&dtype)?),
         });
         session.stats().register_rewrite(StaticLiteralRule {
             falsifier: None,
-            satisfier: Some(lit(true)),
+            satisfier: Some(lit(true).bind(&dtype)?),
         });
 
         assert_eq!(
-            lit(true).satisfy(&dtype, &session)?,
-            Some(or(lit(false), lit(true)))
+            lit(true).bind(&dtype)?.satisfy(&session)?,
+            Some(or(lit(false), lit(true)).bind(&dtype)?)
         );
         Ok(())
     }
@@ -243,17 +247,20 @@ mod tests {
         let session = crate::array_session();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
 
-        assert_eq!(lit(true).falsify(&dtype, &session)?, None);
-        assert_eq!(lit(true).satisfy(&dtype, &session)?, None);
+        let expr = lit(true).bind(&dtype)?;
+        assert_eq!(expr.falsify(&session)?, None);
+        assert_eq!(expr.satisfy(&session)?, None);
         Ok(())
     }
 
     #[test]
-    fn non_predicate_expression_errors() {
+    fn non_predicate_expression_errors() -> VortexResult<()> {
         let session = crate::array_session();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
 
-        assert!(lit(7).falsify(&dtype, &session).is_err());
-        assert!(lit(7).satisfy(&dtype, &session).is_err());
+        let expr = lit(7).bind(&dtype)?;
+        assert!(expr.falsify(&session).is_err());
+        assert!(expr.satisfy(&session).is_err());
+        Ok(())
     }
 }

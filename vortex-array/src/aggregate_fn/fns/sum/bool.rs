@@ -6,23 +6,22 @@ use std::ops::BitAnd;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
+use vortex_mask::Mask;
 
 use super::SumState;
 use super::checked_add_u64;
-use crate::ExecutionCtx;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
 
 pub(super) fn accumulate_bool(
     inner: &mut SumState,
     b: &BoolArray,
-    ctx: &mut ExecutionCtx,
+    mask: &Mask,
 ) -> VortexResult<bool> {
     let SumState::Unsigned(acc) = inner else {
         vortex_panic!("expected unsigned sum state for bool input");
     };
 
-    let mask = b.as_ref().validity()?.execute_mask(b.as_ref().len(), ctx)?;
     let true_count = match mask.bit_buffer() {
         AllOr::None => return Ok(false),
         AllOr::All => b.bit_buffer_view().true_count() as u64,
@@ -40,8 +39,8 @@ mod tests {
     use crate::aggregate_fn::Accumulator;
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::DynAccumulator;
-    use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::sum::Sum;
+    use crate::aggregate_fn::fns::sum::SumAggregateOpts;
     use crate::aggregate_fn::fns::sum::sum;
     use crate::array_session;
     use crate::arrays::BoolArray;
@@ -101,16 +100,16 @@ mod tests {
             &arr.into_array(),
             &mut array_session().create_execution_ctx(),
         )?;
-        assert_eq!(result.as_primitive().typed_value::<u64>(), Some(0));
+        assert!(result.is_null());
         Ok(())
     }
 
     #[test]
-    fn sum_bool_empty_produces_zero() -> VortexResult<()> {
+    fn sum_bool_empty_produces_null() -> VortexResult<()> {
         let dtype = DType::Bool(Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(Sum, NumericalAggregateOpts::default(), dtype)?;
+        let mut acc = Accumulator::try_new(Sum, SumAggregateOpts::default(), dtype)?;
         let result = acc.finish()?;
-        assert_eq!(result.as_primitive().typed_value::<u64>(), Some(0));
+        assert!(result.is_null());
         Ok(())
     }
 
@@ -118,7 +117,7 @@ mod tests {
     fn sum_bool_finish_resets_state() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         let dtype = DType::Bool(Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(Sum, NumericalAggregateOpts::default(), dtype)?;
+        let mut acc = Accumulator::try_new(Sum, SumAggregateOpts::default(), dtype)?;
 
         let batch1: BoolArray = [true, true, false].into_iter().collect();
         acc.accumulate(&batch1.into_array(), &mut ctx)?;
@@ -136,7 +135,7 @@ mod tests {
     fn sum_bool_return_dtype() -> VortexResult<()> {
         let dtype = Sum
             .return_dtype(
-                &NumericalAggregateOpts::default(),
+                &SumAggregateOpts::default(),
                 &DType::Bool(Nullability::NonNullable),
             )
             .unwrap();

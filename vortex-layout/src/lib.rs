@@ -11,9 +11,9 @@
 //! Most users enter this crate through file APIs, but extension authors implement [`VTable`] and
 //! [`LayoutStrategy`] to add new on-disk organizations.
 //!
-//! Scanning is built with [`scan::scan_builder::ScanBuilder`]. It accepts a projection expression,
-//! optional filter, optional row range, [`Selection`](vortex_scan::selection::Selection), split
-//! strategy, and task concurrency settings, then produces array streams or iterators.
+//! Scanning is built with [`scan::scan_builder::ScanBuilder`]. It accepts a bound projection,
+//! optional bound filter, optional row range, [`Selection`](vortex_scan::selection::Selection),
+//! split strategy, and task concurrency settings, then produces array streams or iterators.
 pub mod layouts;
 
 pub use children::*;

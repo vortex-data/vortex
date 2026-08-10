@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Native-geometry prep for `points=native`: decode a table's WKB geometry to native
-//! `vortex.geo.{point,polygon,multipolygon}` via `geoarrow_cast` (so Vortex never decodes WKB), then
+//! Native-geometry prep for `vortex-spatial-native`: decode a table's WKB geometry to native
+//! `vortex.st.{point,polygon,multipolygon}` via `geoarrow_cast` (so Vortex never decodes WKB), then
 //! write a Vortex file. A one-time cost; queries then see DuckDB `GEOMETRY` directly.
 
 use std::path::Path;
@@ -40,7 +40,7 @@ use super::table::Table;
 use crate::SESSION;
 use crate::utils::file::idempotent_async;
 
-fn geo_metadata() -> Arc<Metadata> {
+fn geoarrow_metadata() -> Arc<Metadata> {
     Arc::new(Metadata::new(Crs::default(), None))
 }
 
@@ -103,7 +103,7 @@ fn native_record_batch(batch: RecordBatch, table: Table) -> anyhow::Result<Recor
     for geom in table.geometry_columns() {
         let idx = schema.index_of(geom.name)?;
         let column = batch.column(idx).as_ref();
-        let wkb_type = WkbType::new(geo_metadata());
+        let wkb_type = WkbType::new(geoarrow_metadata());
 
         // Wrap the source WKB. SpatialBench tables emit `Binary`; the external `zone` parquet uses
         // `BinaryView`.
@@ -122,14 +122,14 @@ fn native_record_batch(batch: RecordBatch, table: Table) -> anyhow::Result<Recor
             GeometryKind::Point => cast(
                 wkb.as_ref(),
                 &GeoArrowType::Point(
-                    PointType::new(Dimension::XY, geo_metadata())
+                    PointType::new(Dimension::XY, geoarrow_metadata())
                         .with_coord_type(CoordType::Separated),
                 ),
             )?,
             GeometryKind::Polygon => cast(
                 wkb.as_ref(),
                 &GeoArrowType::Polygon(
-                    PolygonType::new(Dimension::XY, geo_metadata())
+                    PolygonType::new(Dimension::XY, geoarrow_metadata())
                         .with_coord_type(CoordType::Separated),
                 ),
             )?,
@@ -138,7 +138,7 @@ fn native_record_batch(batch: RecordBatch, table: Table) -> anyhow::Result<Recor
             GeometryKind::MultiPolygon => cast(
                 wkb.as_ref(),
                 &GeoArrowType::MultiPolygon(
-                    MultiPolygonType::new(Dimension::XY, geo_metadata())
+                    MultiPolygonType::new(Dimension::XY, geoarrow_metadata())
                         .with_coord_type(CoordType::Separated),
                 ),
             )?,

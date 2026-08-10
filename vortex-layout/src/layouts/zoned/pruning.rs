@@ -19,7 +19,7 @@ use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::Expression;
+use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::root;
 use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_error::SharedVortexResult;
@@ -34,11 +34,12 @@ use crate::LazyReaderChildren;
 use crate::VTable;
 use crate::layouts::zoned::ZonedData;
 use crate::layouts::zoned::zone_map::ZoneMap;
+use crate::layouts::zoned::zone_map::normalize_sum_partial_fields;
 
 type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
 pub(super) type SharedPruningResult =
     Shared<BoxFuture<'static, SharedVortexResult<Arc<PruningResult>>>>;
-type PredicateCache = Arc<OnceLock<Option<Expression>>>;
+type PredicateCache = Arc<OnceLock<Option<BoundExpression>>>;
 
 pub(super) struct PruningState {
     zone_count: usize,
@@ -48,9 +49,9 @@ pub(super) struct PruningState {
     aggregate_fns: Arc<[AggregateFnRef]>,
     lazy_children: Arc<LazyReaderChildren>,
     session: VortexSession,
-    pruning_result: LazyLock<DashMap<BoundExpression, Option<SharedPruningResult>>>,
+    pruning_result: LazyLock<DashMap<ExactBoundExpr, Option<SharedPruningResult>>>,
     zone_map: OnceLock<SharedZoneMap>,
-    pruning_predicates: LazyLock<Arc<DashMap<Expression, PredicateCache>>>,
+    pruning_predicates: LazyLock<Arc<DashMap<ExactBoundExpr, PredicateCache>>>,
 }
 
 impl PruningState {
@@ -79,14 +80,16 @@ impl PruningState {
     }
 
     pub(super) fn pruning_mask_future(&self, expr: BoundExpression) -> Option<SharedPruningResult> {
-        if let Some(result) = self.pruning_result.get(&expr) {
+        let key = ExactBoundExpr(expr.clone());
+
+        if let Some(result) = self.pruning_result.get(&key) {
             return result.value().clone();
         }
 
         self.pruning_result
-            .entry(expr.clone())
+            .entry(key)
             .or_insert_with(|| {
-                let expr = expr.unbind();
+                let dynamic_updates = DynamicExprUpdates::new(&expr);
                 match self.pruning_predicate(expr.clone()) {
                     None => {
                         trace!(%expr, "no pruning predicate");
@@ -95,7 +98,6 @@ impl PruningState {
                     Some(predicate) => {
                         trace!(%expr, ?predicate, "constructed pruning predicate");
                         let zone_map = self.zone_map();
-                        let dynamic_updates = DynamicExprUpdates::new(&expr);
                         let session = self.session.clone();
 
                         Some(
@@ -125,11 +127,13 @@ impl PruningState {
             .clone()
     }
 
-    fn pruning_predicate(&self, expr: Expression) -> Option<Expression> {
+    fn pruning_predicate(&self, expr: BoundExpression) -> Option<BoundExpression> {
+        let key = ExactBoundExpr(expr.clone());
+
         self.pruning_predicates
-            .entry(expr.clone())
+            .entry(key)
             .or_default()
-            .get_or_init(move || match expr.falsify(&self.dtype, &self.session) {
+            .get_or_init(move || match expr.falsify(&self.session) {
                 Ok(predicate) => predicate,
                 Err(error) => {
                     trace!(%expr, %error, "failed to construct stats rewrite predicate");
@@ -166,6 +170,7 @@ impl PruningState {
                 async move {
                     let mut ctx = session.create_execution_ctx();
                     let zones_array = zones_eval.await?.execute::<StructArray>(&mut ctx)?;
+                    let zones_array = normalize_sum_partial_fields(zones_array, &aggregate_fns)?;
                     // SAFETY: zoned layout validation checked that this zones child was
                     // written from the same column dtype and aggregate stats-table schema.
                     Ok(unsafe {
@@ -188,7 +193,7 @@ impl PruningState {
 
 pub(super) struct PruningResult {
     zone_map: ZoneMap,
-    predicate: Expression,
+    predicate: BoundExpression,
     dynamic_updates: Option<DynamicExprUpdates>,
     latest_result: RwLock<(u64, Mask)>,
     session: VortexSession,

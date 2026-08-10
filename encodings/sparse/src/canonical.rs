@@ -4,8 +4,11 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
+use num_traits::AsPrimitive;
 use num_traits::NumCast;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
@@ -31,6 +34,8 @@ use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::DecimalBuilder;
 use vortex_array::builders::FixedSizeListBuilder;
 use vortex_array::builders::ListViewBuilder;
+use vortex_array::builders::VarBinBuilder;
+use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
@@ -62,10 +67,197 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_mask::Mask;
 
 use crate::ConstantArray;
 use crate::Sparse;
+use crate::SparseExt;
 use crate::SparseParts;
+
+/// The pieces every string decode of a sparse array starts from: the offset-resolved patch
+/// indices and canonical patch values, plus the fill value's bytes (`None` for a null fill).
+struct SparseStringParts {
+    len: usize,
+    patches: Patches,
+    indices: PrimitiveArray,
+    values: VarBinViewArray,
+    fill: Option<ByteBuffer>,
+}
+
+impl SparseStringParts {
+    fn new(array: ArrayView<'_, Sparse>, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        let patches = array.resolved_patches()?;
+        let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
+        let values = patches
+            .values()
+            .clone()
+            .execute::<Canonical>(ctx)?
+            .into_varbinview();
+        let fill_scalar = array.data().fill_scalar();
+        let fill = match array.dtype() {
+            DType::Utf8(_) => fill_scalar
+                .as_utf8()
+                .value()
+                .cloned()
+                .map(BufferString::into_inner),
+            DType::Binary(_) => fill_scalar.as_binary().value().cloned(),
+            dtype => vortex_bail!("Sparse string decode of non-string dtype {dtype}"),
+        };
+        Ok(Self {
+            len: array.len(),
+            patches,
+            indices,
+            values,
+            fill,
+        })
+    }
+}
+
+/// Scatters the patch views over the fill value straight into `builder`.
+///
+/// The canonical route materializes the same scattered views buffer, wraps it in an array, and
+/// then `append_varbinview_array` walks all `len` views a second time to rebase their buffer
+/// indices onto the builder's. Scattering into the builder instead adopts the patch buffers once
+/// and costs one bulk view fill plus one view write per patch, with no byte copy.
+pub(super) fn append_sparse_to_varbinview(
+    array: ArrayView<'_, Sparse>,
+    builder: &mut VarBinViewBuilder,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    let parts = SparseStringParts::new(array, ctx)?;
+    let validity = sparse_validity(
+        &parts.patches,
+        array.data().fill_scalar(),
+        array.dtype().nullability(),
+        parts.len,
+        ctx,
+    )?
+    .execute_mask(parts.len, ctx)?;
+
+    let mut buffers = parts
+        .values
+        .data_buffers()
+        .iter()
+        .map(|buffer| buffer.as_host().clone())
+        .collect::<Vec<_>>();
+    // A fill value short enough to inline lives in its view; only a longer one needs its bytes
+    // adopted as a (tiny) data buffer.
+    let fill_view = match &parts.fill {
+        Some(bytes) if bytes.len() > BinaryView::MAX_INLINED_SIZE => {
+            buffers.push(bytes.clone());
+            BinaryView::make_view(
+                bytes.as_slice(),
+                u32::try_from(buffers.len() - 1).vortex_expect("too many buffers"),
+                0,
+            )
+        }
+        Some(bytes) => BinaryView::make_view(bytes.as_slice(), 0, 0),
+        None => BinaryView::make_view(&[], 0, 0),
+    };
+
+    let views = parts.values.views();
+    match_each_integer_ptype!(parts.indices.ptype(), |I| {
+        let indices = parts.indices.as_slice::<I>();
+        builder.append_views_scattered(
+            buffers,
+            parts.len,
+            fill_view,
+            indices
+                .iter()
+                .zip(views.iter())
+                .map(|(row, view)| (AsPrimitive::<usize>::as_(*row), *view)),
+            &validity,
+        );
+    });
+    Ok(())
+}
+
+/// Walks the rows in order, appending fill runs between the patches, straight into `builder`.
+///
+/// The canonical route materializes the scattered views array first; the fill-value copies per
+/// row are inherent to the offsets layout either way, so appending directly just skips that
+/// intermediate.
+pub(super) fn append_sparse_to_varbin<O: OffsetBuilderPType>(
+    array: ArrayView<'_, Sparse>,
+    builder: &mut VarBinBuilder<O>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()>
+where
+    usize: AsPrimitive<O>,
+{
+    let parts = SparseStringParts::new(array, ctx)?;
+    let patch_validity = parts
+        .values
+        .validity()?
+        .execute_mask(parts.values.len(), ctx)?;
+
+    let views = parts.values.views();
+    let buffers = parts
+        .values
+        .data_buffers()
+        .iter()
+        .map(|buffer| buffer.as_host().as_slice())
+        .collect::<Vec<_>>();
+
+    match_each_integer_ptype!(parts.indices.ptype(), |I| {
+        append_patch_walk_to_varbin(
+            builder,
+            parts.indices.as_slice::<I>(),
+            parts.len,
+            views,
+            &buffers,
+            &patch_validity,
+            parts.fill.as_ref(),
+        )
+    })
+}
+
+/// The typed patch walk behind [`append_sparse_to_varbin`].
+fn append_patch_walk_to_varbin<O: OffsetBuilderPType, I: NativePType + AsPrimitive<usize>>(
+    builder: &mut VarBinBuilder<O>,
+    indices: &[I],
+    len: usize,
+    views: &[BinaryView],
+    buffers: &[&[u8]],
+    patch_validity: &Mask,
+    fill: Option<&ByteBuffer>,
+) -> VortexResult<()>
+where
+    usize: AsPrimitive<O>,
+{
+    let fill_run = |builder: &mut VarBinBuilder<O>, n: usize| -> VortexResult<()> {
+        match fill {
+            Some(bytes) => builder.append_n_values(bytes, n),
+            None => {
+                builder.push_nulls(n);
+                Ok(())
+            }
+        }
+    };
+
+    let mut previous = 0usize;
+    for (patch, row) in indices.iter().enumerate() {
+        let row = AsPrimitive::<usize>::as_(*row);
+        // The canonical decode scatters the patches in order, so of duplicate indices the
+        // last one wins; skip a patch that the next one lands on top of.
+        if patch + 1 < indices.len() && AsPrimitive::<usize>::as_(indices[patch + 1]) == row {
+            continue;
+        }
+        vortex_ensure!(
+            previous <= row && row < len,
+            "Sparse patch indices must be ascending within the array length {len}"
+        );
+        fill_run(builder, row - previous)?;
+        if patch_validity.value(patch) {
+            builder.append_value(views[patch].bytes(buffers));
+        } else {
+            builder.push_null();
+        }
+        previous = row + 1;
+    }
+    fill_run(builder, len - previous)
+}
 
 fn sparse_validity(
     patches: &Patches,
@@ -571,16 +763,20 @@ fn execute_varbin_inner<I: IntegerPType>(
     let n_patch_buffers = values.data_buffers().len();
     let mut buffers = values.data_buffers().to_vec();
 
-    let fill = if let Some(buffer) = &fill_value {
-        buffers.push(BufferHandle::new_host(buffer.clone()));
-        BinaryView::make_view(
-            buffer.as_ref(),
-            u32::try_from(n_patch_buffers).vortex_expect("too many buffers"),
-            0,
-        )
-    } else {
+    let fill = match &fill_value {
+        // A fill value short enough to inline lives in its view; pushing its buffer would leave
+        // that buffer entirely unreferenced.
+        Some(buffer) if buffer.len() > BinaryView::MAX_INLINED_SIZE => {
+            buffers.push(BufferHandle::new_host(buffer.clone()));
+            BinaryView::make_view(
+                buffer.as_ref(),
+                u32::try_from(n_patch_buffers).vortex_expect("too many buffers"),
+                0,
+            )
+        }
+        Some(buffer) => BinaryView::make_view(buffer.as_ref(), 0, 0),
         // any <=12 character value will do
-        BinaryView::make_view(&[], 0, 0)
+        None => BinaryView::make_view(&[], 0, 0),
     };
 
     let mut views = buffer_mut![fill; len];
@@ -617,6 +813,8 @@ mod test {
     use vortex_array::arrays::listview::ListViewArrayExt;
     use vortex_array::arrays::listview::ListViewArraySlotsExt;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::builders::VarBinBuilder;
+    use vortex_array::builders::VarBinViewBuilder;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::FieldNames;
@@ -1759,6 +1957,70 @@ mod test {
         // The bug in the old implementation would have incorrectly used
         // offsets[sparse_index] for filling nulls, which would be wrong
         // when dealing with sliced arrays that have non-zero starting offsets.
+        Ok(())
+    }
+
+    /// Appending a sparse string array to either variable-binary builder must match its
+    /// canonical decode exactly — across long, short (inlinable), and null fill values, null
+    /// patch values, and a sliced array whose patch indices carry an offset.
+    #[rstest]
+    #[case::long_fill(Some("a fill value that is too long to inline"))]
+    #[case::short_fill(Some("123"))]
+    #[case::null_fill(None)]
+    fn test_sparse_append_to_string_builders(#[case] fill: Option<&str>) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let long = "a patch value that is far too long to inline";
+        let strings =
+            <VarBinViewArray as FromIterator<_>>::from_iter([Some(long), None, Some("tiny")])
+                .into_array();
+        let fill_scalar = match fill {
+            Some(value) => Scalar::from(value.to_owned()).into_nullable(),
+            None => Scalar::null(DType::Utf8(Nullable)),
+        };
+        let array = Sparse::try_new(buffer![1u16, 4, 8].into_array(), strings, 10, fill_scalar)?
+            .into_array();
+
+        for candidate in [array.clone(), array.slice(1..9)?] {
+            let expected = candidate.clone().execute::<VarBinViewArray>(&mut ctx)?;
+
+            let mut view_builder = VarBinViewBuilder::with_capacity(candidate.dtype().clone(), 4);
+            candidate.append_to_builder(&mut view_builder, &mut ctx)?;
+            assert_arrays_eq!(view_builder.finish_into_varbinview(), expected, &mut ctx);
+
+            let mut varbin_builder = VarBinBuilder::<i32>::new(candidate.dtype().clone());
+            candidate.append_to_builder(&mut varbin_builder, &mut ctx)?;
+            assert_arrays_eq!(varbin_builder.finish_into_varbin(), expected, &mut ctx);
+        }
+        Ok(())
+    }
+
+    /// A fill value short enough to inline lives in its views; the canonical decode must not
+    /// retain a data buffer nothing references.
+    #[test]
+    fn test_sparse_short_fill_pushes_no_buffer() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let strings = VarBinViewArray::from_iter_str(["hello", "goodbye"]);
+        assert!(strings.data_buffers().is_empty());
+
+        let array = Sparse::try_new(
+            buffer![1u16, 3].into_array(),
+            strings.into_array(),
+            6,
+            Scalar::from("123".to_owned()),
+        )?;
+
+        let actual = array
+            .as_array()
+            .clone()
+            .execute::<VarBinViewArray>(&mut ctx)?;
+        assert!(
+            actual.data_buffers().is_empty(),
+            "an inlinable fill value must not push an unreferenced buffer"
+        );
+
+        let expected =
+            VarBinViewArray::from_iter_str(["123", "hello", "123", "goodbye", "123", "123"]);
+        assert_arrays_eq!(actual, expected, &mut ctx);
         Ok(())
     }
 }

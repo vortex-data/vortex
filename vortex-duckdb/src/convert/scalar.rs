@@ -47,7 +47,7 @@ use vortex::scalar::PrimitiveScalar;
 use vortex::scalar::Scalar;
 use vortex::scalar::ScalarValue;
 use vortex::scalar::Utf8Scalar;
-use vortex_geo::extension::WellKnownBinary;
+use vortex_spatial::extension::WellKnownBinary;
 
 use crate::convert::dtype::FromLogicalType;
 use crate::duckdb::LogicalType;
@@ -409,8 +409,8 @@ mod tests {
     use vortex::extension::datetime::TimestampOptions;
     use vortex::scalar::Scalar;
     use vortex::scalar::ScalarValue;
-    use vortex_geo::extension::GeoMetadata;
-    use vortex_geo::extension::WellKnownBinary;
+    use vortex_spatial::extension::SpatialMetadata;
+    use vortex_spatial::extension::WellKnownBinary;
 
     use crate::convert::ToDuckDBScalar;
     use crate::cpp::DUCKDB_TYPE;
@@ -480,7 +480,7 @@ mod tests {
 
     fn wkb_scalar(crs: Option<&str>, bytes: &[u8]) -> Scalar {
         Scalar::extension::<WellKnownBinary>(
-            GeoMetadata {
+            SpatialMetadata {
                 crs: crs.map(str::to_string),
             },
             Scalar::binary(bytes.to_vec(), Nullability::Nullable),
@@ -531,7 +531,7 @@ mod tests {
     #[test]
     fn test_null_geometry_to_duckdb_scalar() {
         let dtype = ExtDType::<WellKnownBinary>::try_new(
-            GeoMetadata {
+            SpatialMetadata {
                 crs: Some("EPSG:4326".to_string()),
             },
             DType::Binary(Nullability::Nullable),

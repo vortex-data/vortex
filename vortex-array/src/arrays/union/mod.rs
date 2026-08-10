@@ -10,6 +10,9 @@
 //!
 //! Type ID values are not validated during construction. Accessing a non-null row whose type ID
 //! is not declared by the union variants will panic.
+//!
+//! Mask rewrites only the type IDs. Slice and take rewrite every child to keep them row-aligned,
+//! so each costs `O(variants)` child operations.
 
 use crate::dtype::DType;
 use crate::dtype::Nullability;

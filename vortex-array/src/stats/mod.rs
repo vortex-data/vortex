@@ -11,6 +11,7 @@ pub use expr::all_nan;
 pub use expr::all_non_nan;
 pub use expr::all_non_null;
 pub use expr::all_null;
+pub use expr::bound;
 pub use expr::min_max;
 pub use expr::nan_count;
 pub use expr::null_count;

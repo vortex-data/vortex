@@ -19,6 +19,7 @@ use crate::aggregate_fn::combined::CombinedOptions;
 use crate::aggregate_fn::combined::PairOptions;
 use crate::aggregate_fn::fns::count::Count;
 use crate::aggregate_fn::fns::sum::Sum;
+use crate::aggregate_fn::fns::sum::SumAggregateOpts;
 use crate::aggregate_fn::fns::sum::sum_decimal_dtype;
 use crate::arrays::ConstantArray;
 use crate::builtins::ArrayBuiltins;
@@ -40,7 +41,7 @@ pub fn mean(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
     let mut acc = Accumulator::try_new(
         Mean::combined(),
         PairOptions(
-            NumericalAggregateOpts::default(),
+            SumAggregateOpts::default(),
             NumericalAggregateOpts::default(),
         ),
         array.dtype().clone(),
@@ -319,7 +320,7 @@ mod tests {
         let keep_nans = NumericalAggregateOpts::include_nans();
         let mut acc = Accumulator::try_new(
             Mean::combined(),
-            PairOptions(keep_nans, keep_nans),
+            PairOptions(keep_nans.into(), keep_nans),
             array.dtype().clone(),
         )?;
         acc.accumulate(&array, &mut ctx)?;
@@ -411,7 +412,7 @@ mod tests {
         let mut acc = Accumulator::try_new(
             Mean::combined(),
             PairOptions(
-                NumericalAggregateOpts::default(),
+                SumAggregateOpts::default(),
                 NumericalAggregateOpts::default(),
             ),
             dtype,
@@ -446,7 +447,7 @@ mod tests {
             let mut acc = Accumulator::try_new(
                 Mean::combined(),
                 PairOptions(
-                    NumericalAggregateOpts::default(),
+                    SumAggregateOpts::default(),
                     NumericalAggregateOpts::default(),
                 ),
                 DType::Primitive(PType::F64, Nullability::Nullable),
@@ -474,7 +475,7 @@ mod tests {
         let mut acc = GroupedAccumulator::try_new(
             Mean::combined(),
             PairOptions(
-                NumericalAggregateOpts::default(),
+                SumAggregateOpts::default(),
                 NumericalAggregateOpts::default(),
             ),
             DType::Primitive(PType::F64, Nullability::Nullable),

@@ -544,6 +544,12 @@ impl Mask {
         assert!(end <= self.len());
         let len = end - start;
 
+        // Slicing the whole mask is the identity. `Self` is `Arc`-backed, so the clone is cheap
+        // and keeps the cached `indices`/`slices` representations that `from_buffer` would drop.
+        if len == self.len() {
+            return self.clone();
+        }
+
         match &self {
             Self::AllTrue(_) => Self::new_true(len),
             Self::AllFalse(_) => Self::new_false(len),

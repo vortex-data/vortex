@@ -102,6 +102,7 @@ pub struct BitBufferMut {
 
 impl BitBufferMut {
     /// Create new bit buffer from given byte buffer and logical bit length
+    #[inline]
     pub fn from_buffer(buffer: ByteBufferMut, offset: usize, len: usize) -> Self {
         assert!(
             len <= buffer.len() * 8,
@@ -125,6 +126,7 @@ impl BitBufferMut {
     }
 
     /// Create a new empty mutable bit buffer with requested capacity (in bits).
+    #[inline]
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             buffer: BufferMut::with_capacity(capacity.div_ceil(8)),
@@ -134,6 +136,7 @@ impl BitBufferMut {
     }
 
     /// Create a new mutable buffer with requested `len` and all bits set to `true`.
+    #[inline]
     pub fn new_set(len: usize) -> Self {
         Self {
             buffer: buffer_mut![0xFF; len.div_ceil(8)],
@@ -143,6 +146,7 @@ impl BitBufferMut {
     }
 
     /// Create a new mutable buffer with requested `len` and all bits set to `false`.
+    #[inline]
     pub fn new_unset(len: usize) -> Self {
         Self {
             buffer: BufferMut::zeroed(len.div_ceil(8)),
@@ -158,6 +162,7 @@ impl BitBufferMut {
     }
 
     /// Create a new mutable buffer with requested `len` and all bits set to `value`.
+    #[inline]
     pub fn full(value: bool, len: usize) -> Self {
         if value {
             Self::new_set(len)
@@ -247,11 +252,13 @@ impl BitBufferMut {
     }
 
     /// Return the underlying byte buffer.
+    #[inline]
     pub fn inner(&self) -> &ByteBufferMut {
         &self.buffer
     }
 
     /// Consumes the buffer and return the underlying byte buffer.
+    #[inline]
     pub fn into_inner(self) -> ByteBufferMut {
         self.buffer
     }
@@ -299,6 +306,7 @@ impl BitBufferMut {
     }
 
     /// Reserve additional bit capacity for the buffer.
+    #[inline]
     pub fn reserve(&mut self, additional: usize) {
         let required_bits = self.offset + self.len + additional;
         let required_bytes = required_bits.div_ceil(8); // Rounds up.
@@ -308,6 +316,7 @@ impl BitBufferMut {
     }
 
     /// Clears the bit buffer (but keeps any allocated memory).
+    #[inline]
     pub fn clear(&mut self) {
         // Also clear the byte buffer (not just `len`) so the "bits beyond len are zero"
         // invariant holds; `append_false` and `append_buffer` rely on it.
@@ -415,6 +424,7 @@ impl BitBufferMut {
     /// Truncate the buffer to the given length.
     ///
     /// If the given length is greater than the current length, this is a no-op.
+    #[inline]
     pub fn truncate(&mut self, len: usize) {
         if len > self.len {
             return;
@@ -609,16 +619,19 @@ impl BitBufferMut {
     }
 
     /// Freeze the buffer in its current state into an immutable `BoolBuffer`.
+    #[inline]
     pub fn freeze(self) -> BitBuffer {
         BitBuffer::new_with_offset(self.buffer.freeze(), self.len, self.offset)
     }
 
     /// Get the underlying bytes as a slice
+    #[inline]
     pub fn as_slice(&self) -> &[u8] {
         self.buffer.as_slice()
     }
 
     /// Get the underlying bytes as a mutable slice
+    #[inline]
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
         self.buffer.as_mut_slice()
     }

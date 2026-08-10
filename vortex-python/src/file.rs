@@ -172,10 +172,22 @@ impl PyVortexFile {
             .map(Arc::new);
 
         let reader = slf.py().detach(|| {
+            let filter = expr
+                .map(|e| {
+                    e.into_inner()
+                        .optimize_recursive(vxf.dtype())?
+                        .bind(vxf.dtype())
+                })
+                .transpose()?;
+            let projection = projection
+                .map(|p| p.0)
+                .unwrap_or_else(root)
+                .optimize_recursive(vxf.dtype())?
+                .bind(vxf.dtype())?;
             let mut builder = vxf
                 .scan()?
-                .with_some_filter(expr.map(|e| e.into_inner()))
-                .with_projection(projection.map(|p| p.0).unwrap_or_else(root));
+                .with_some_filter(filter)
+                .with_projection(projection);
 
             if let Some(limit) = limit {
                 builder = builder.with_limit(limit);
@@ -220,10 +232,17 @@ fn scan_builder(
     batch_size: Option<usize>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ScanBuilder<ArrayRef>> {
+    let projection = projection
+        .unwrap_or_else(root)
+        .optimize_recursive(vxf.dtype())?
+        .bind(vxf.dtype())?;
+    let expr = expr
+        .map(|expr| expr.optimize_recursive(vxf.dtype())?.bind(vxf.dtype()))
+        .transpose()?;
     let mut builder = vxf
         .scan()?
         .with_some_filter(expr)
-        .with_projection(projection.unwrap_or_else(root));
+        .with_projection(projection);
 
     if let Some(limit) = limit {
         builder = builder.with_limit(limit);

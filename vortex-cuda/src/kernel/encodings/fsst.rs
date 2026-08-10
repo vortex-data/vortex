@@ -386,12 +386,7 @@ where
     let host_bytes = host_bytes.slice(0..total_size);
 
     let (buffers, views) = match_each_integer_ptype!(lens.ptype(), |P| {
-        build_views(
-            0,
-            MAX_BUFFER_LEN,
-            host_bytes.into_mut(),
-            lens.as_slice::<P>(),
-        )
+        build_views(0, MAX_BUFFER_LEN, host_bytes, lens.as_slice::<P>())
     });
 
     Ok(Canonical::VarBinView(unsafe {

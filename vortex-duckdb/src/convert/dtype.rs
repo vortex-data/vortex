@@ -57,14 +57,14 @@ use vortex::extension::datetime::TemporalMetadata;
 use vortex::extension::datetime::Time;
 use vortex::extension::datetime::TimeUnit;
 use vortex::extension::datetime::Timestamp;
-use vortex_geo::extension::GeoMetadata;
-use vortex_geo::extension::LineString;
-use vortex_geo::extension::MultiLineString;
-use vortex_geo::extension::MultiPoint;
-use vortex_geo::extension::MultiPolygon;
-use vortex_geo::extension::Point;
-use vortex_geo::extension::Polygon;
-use vortex_geo::extension::WellKnownBinary;
+use vortex_spatial::extension::LineString;
+use vortex_spatial::extension::MultiLineString;
+use vortex_spatial::extension::MultiPoint;
+use vortex_spatial::extension::MultiPolygon;
+use vortex_spatial::extension::Point;
+use vortex_spatial::extension::Polygon;
+use vortex_spatial::extension::SpatialMetadata;
+use vortex_spatial::extension::WellKnownBinary;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::cpp::DUCKDB_TYPE;
@@ -173,7 +173,7 @@ impl FromLogicalType for DType {
                 let crs = logical_type.geometry_crs().map(|crs| crs.to_string());
                 DType::Extension(
                     ExtDType::<WellKnownBinary>::try_new(
-                        GeoMetadata { crs },
+                        SpatialMetadata { crs },
                         DType::Binary(nullability),
                     )?
                     .erased(),
@@ -255,7 +255,7 @@ impl TryFrom<&DType> for LogicalType {
                 }
 
                 // Native geometry types and WKB all surface to DuckDB as GEOMETRY so `ST_*` bind.
-                if let Some(geo) = ext_dtype
+                if let Some(spatial_metadata) = ext_dtype
                     .metadata_opt::<Point>()
                     .or_else(|| ext_dtype.metadata_opt::<LineString>())
                     .or_else(|| ext_dtype.metadata_opt::<MultiPoint>())
@@ -264,7 +264,7 @@ impl TryFrom<&DType> for LogicalType {
                     .or_else(|| ext_dtype.metadata_opt::<MultiPolygon>())
                     .or_else(|| ext_dtype.metadata_opt::<WellKnownBinary>())
                 {
-                    return LogicalType::geometry_type(geo.crs.as_deref());
+                    return LogicalType::geometry_type(spatial_metadata.crs.as_deref());
                 }
 
                 vortex_bail!("Unsupported extension type \"{}\"", ext_dtype.id());
@@ -384,8 +384,8 @@ mod tests {
     use vortex::extension::datetime::Time;
     use vortex::extension::datetime::Timestamp;
     use vortex::scalar::ScalarValue;
-    use vortex_geo::extension::GeoMetadata;
-    use vortex_geo::extension::WellKnownBinary;
+    use vortex_spatial::extension::SpatialMetadata;
+    use vortex_spatial::extension::WellKnownBinary;
 
     use crate::convert::dtype::FromLogicalType;
     use crate::cpp;
@@ -614,7 +614,7 @@ mod tests {
     fn test_geometry_roundtrip() -> VortexResult<()> {
         let vortex_geometry = DType::Extension(
             ExtDType::<WellKnownBinary>::try_new(
-                GeoMetadata {
+                SpatialMetadata {
                     crs: Some("EPSG:4326".to_string()),
                 },
                 DType::Binary(Nullability::NonNullable),

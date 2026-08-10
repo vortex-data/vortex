@@ -109,5 +109,10 @@ harness = false
 test = false
 
 [[bench]]
+name = "take_union"
+harness = false
+test = false
+
+[[bench]]
 name = "pipeline"
 harness = false

@@ -80,7 +80,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::default().with_tokio();
-    vortex_geo::initialize(&session);
+    vortex_spatial::initialize(&session);
     session
 });
 
@@ -149,9 +149,9 @@ pub enum Format {
     #[clap(name = "vortex-compact")]
     #[serde(rename = "vortex-compact")]
     VortexCompact,
-    #[clap(name = "vortex-geo-native")]
-    #[serde(rename = "vortex-geo-native")]
-    VortexNative,
+    #[clap(name = "vortex-spatial-native")]
+    #[serde(rename = "vortex-spatial-native")]
+    VortexSpatialNative,
     #[clap(name = "duckdb")]
     #[serde(rename = "duckdb")]
     OnDiskDuckDB,
@@ -190,7 +190,7 @@ impl Format {
             Format::Parquet => "parquet",
             Format::OnDiskVortex => "vortex-file-compressed",
             Format::VortexCompact => "vortex-compact",
-            Format::VortexNative => "vortex-geo-native",
+            Format::VortexSpatialNative => "vortex-spatial-native",
             Format::OnDiskDuckDB => "duckdb",
             Format::Lance => "lance",
         }
@@ -202,7 +202,7 @@ impl Format {
             Format::Parquet => "parquet",
             Format::OnDiskVortex => "vortex",
             Format::VortexCompact => "vortex",
-            Format::VortexNative => "vortex",
+            Format::VortexSpatialNative => "vortex",
             Format::OnDiskDuckDB => "duckdb",
             Format::Lance => "lance",
         }

@@ -273,7 +273,10 @@ impl<V: AggregateFnVTable> DynGroupedAccumulator for GroupedAccumulator<V> {
     }
 
     fn flush(&mut self) -> VortexResult<ArrayRef> {
-        let states = std::mem::take(&mut self.partials);
+        let mut states = std::mem::take(&mut self.partials);
+        if states.len() == 1 {
+            return Ok(states.pop().vortex_expect("checked one partial"));
+        }
         Ok(ChunkedArray::try_new(states, self.partial_dtype.clone())?.into_array())
     }
 

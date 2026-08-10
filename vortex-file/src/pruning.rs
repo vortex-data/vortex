@@ -10,9 +10,8 @@ use vortex_array::arrays::NullArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr::Expression;
-use vortex_array::expr::is_root;
-use vortex_array::expr::lit;
+use vortex_array::expr::BoundExpression;
+use vortex_array::expr::bound::lit;
 use vortex_array::expr::stats::Stat;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::cast::Cast;
@@ -27,30 +26,27 @@ use vortex_session::VortexSession;
 use crate::FileStatistics;
 
 pub(crate) fn can_prune_file_stats(
-    expr: &Expression,
-    dtype: &DType,
+    expr: &BoundExpression,
     row_count: u64,
     file_stats: &FileStatistics,
     struct_fields: &StructFields,
     session: &VortexSession,
 ) -> VortexResult<bool> {
-    let Some(pruning_expr) = expr.falsify(dtype, session)? else {
+    let Some(pruning_expr) = expr.falsify(session)? else {
         return Ok(false);
     };
 
     let binder = FileStatsBinder {
-        dtype,
         file_stats,
         struct_fields,
     };
     let pruning_expr = bind_stats(pruning_expr, &binder)?;
 
-    let simplified = pruning_expr.optimize_recursive(&DType::Null)?;
-    if let Some(result) = simplified.as_opt::<Literal>() {
+    if let Some(result) = pruning_expr.as_opt::<Literal>() {
         return Ok(result.as_bool().value() == Some(true));
     }
 
-    let pruning = NullArray::new(1).into_array().apply(&pruning_expr)?;
+    let pruning = NullArray::new(1).into_array().apply_bound(&pruning_expr)?;
     let row_count_replacement = ConstantArray::new(row_count, pruning.len()).into_array();
     let pruning = substitute_row_count(pruning, &row_count_replacement)?;
 
@@ -65,22 +61,17 @@ pub(crate) fn can_prune_file_stats(
 }
 
 struct FileStatsBinder<'a> {
-    dtype: &'a DType,
     file_stats: &'a FileStatistics,
     struct_fields: &'a StructFields,
 }
 
 impl StatBinder for FileStatsBinder<'_> {
-    fn scope(&self) -> &DType {
-        self.dtype
-    }
-
     fn bind_aggregate(
         &self,
-        input: &Expression,
+        input: &BoundExpression,
         aggregate_fn: &AggregateFnRef,
         _stat_dtype: &DType,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Option<BoundExpression>> {
         let Some(stat) = Stat::from_aggregate_fn(aggregate_fn) else {
             return Ok(None);
         };
@@ -92,7 +83,7 @@ impl StatBinder for FileStatsBinder<'_> {
 }
 
 impl FileStatsBinder<'_> {
-    fn stat_ref(&self, field_path: &FieldPath, stat: Stat) -> Option<Expression> {
+    fn stat_ref(&self, field_path: &FieldPath, stat: Stat) -> Option<BoundExpression> {
         // FileStats currently only holds top-level field statistics.
         if field_path.parts().len() != 1 {
             return None;
@@ -111,8 +102,8 @@ impl FileStatsBinder<'_> {
     }
 }
 
-fn direct_field_path(expr: &Expression) -> Option<FieldPath> {
-    if is_root(expr) {
+fn direct_field_path(expr: &BoundExpression) -> Option<FieldPath> {
+    if expr.is_root() {
         return Some(FieldPath::root());
     }
 

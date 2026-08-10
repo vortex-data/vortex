@@ -14,6 +14,7 @@
 import math
 import os
 import re
+import subprocess
 import sys
 from dataclasses import dataclass
 from io import StringIO
@@ -216,8 +217,24 @@ def read_jsonl_rows_for_commit(path: str, commit_id: str) -> pd.DataFrame:
     return pd.DataFrame(rows_by_identity.values())
 
 
-def read_latest_baseline_rows(path: str, pr: pd.DataFrame) -> pd.DataFrame:
-    """Read rows from the latest history commit matching the PR benchmark.
+def git_tree_commit_ids() -> set[str]:
+    """Return every commit reachable from the checked-out branch head."""
+
+    commits = subprocess.run(
+        ["git", "rev-list", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    return set(commits.splitlines())
+
+
+def read_latest_baseline_rows(
+    path: str,
+    pr: pd.DataFrame,
+    reachable_commit_ids: set[str],
+) -> pd.DataFrame:
+    """Read rows from the latest reachable commit matching the PR benchmark.
 
     A benchmark can be new to the PR workflow and therefore have no baseline
     yet. Return an empty frame with the PR schema in that case so the report
@@ -236,7 +253,7 @@ def read_latest_baseline_rows(path: str, pr: pd.DataFrame) -> pd.DataFrame:
             record = orjson.loads(line)
             if benchmark_identity(record) in pr_identities:
                 commit_id = record.get("commit_id")
-                if commit_id is not None:
+                if commit_id is not None and commit_id in reachable_commit_ids:
                     baseline_commit_id = commit_id
 
     if baseline_commit_id is None:
@@ -245,15 +262,24 @@ def read_latest_baseline_rows(path: str, pr: pd.DataFrame) -> pd.DataFrame:
     return read_jsonl_rows_for_commit(path, baseline_commit_id)
 
 
-def select_latest_baseline_rows(base: pd.DataFrame, pr: pd.DataFrame) -> pd.DataFrame:
-    """Select rows from the latest baseline commit containing this benchmark.
+def select_latest_baseline_rows(
+    base: pd.DataFrame,
+    pr: pd.DataFrame,
+    reachable_commit_ids: set[str],
+) -> pd.DataFrame:
+    """Select rows from the latest reachable commit containing this benchmark.
 
     The persisted benchmark history is append-only. A row only appears after
-    that benchmark job uploaded results, so the newest commit with matching row
-    identities is the latest successful baseline for the benchmark under test.
+    that benchmark job uploaded results, so the newest reachable commit with
+    matching row identities is the latest successful baseline for the benchmark
+    under test.
     """
 
     if base.empty or "commit_id" not in base.columns:
+        return base
+
+    base = base[base["commit_id"].isin(reachable_commit_ids)].copy()
+    if base.empty:
         return base
 
     commit_ids = base["commit_id"].dropna().unique()
@@ -525,7 +551,7 @@ def build_statistical_analysis(df: pd.DataFrame, threshold_pct: int) -> dict[str
     }
 
 
-def calculate_geo_mean(df: pd.DataFrame) -> float:
+def calculate_geometric_mean(df: pd.DataFrame) -> float:
     """Geometric mean of positive ratios from a DataFrame ratio column."""
 
     valid_ratios = [r for r in df["ratio"] if r > 0 and not pd.isna(r)]
@@ -961,7 +987,7 @@ def main() -> None:
 
     pr = pd.read_json(sys.argv[2], lines=True)
     title = format_title(benchmark_name, pr)
-    base = read_latest_baseline_rows(sys.argv[1], pr)
+    base = read_latest_baseline_rows(sys.argv[1], pr, git_tree_commit_ids())
 
     base_commit_ids = set(base["commit_id"].unique())
     pr_commit_id = set(pr["commit_id"].unique())
@@ -993,8 +1019,8 @@ def main() -> None:
     vortex_df = headline_df[headline_df["file_format"].str.startswith("vortex")]
     parquet_df = headline_df[headline_df["file_format"].eq(CONTROL_FORMAT)]
 
-    vortex_geo_mean_ratio = calculate_geo_mean(vortex_df)
-    parquet_geo_mean_ratio = calculate_geo_mean(parquet_df)
+    vortex_geometric_mean_ratio = calculate_geometric_mean(vortex_df)
+    parquet_geometric_mean_ratio = calculate_geometric_mean(parquet_df)
 
     statistical_analysis = build_statistical_analysis(query_df, threshold_pct)
     verdict = build_verdict(statistical_analysis) if statistical_analysis is not None else None
@@ -1011,7 +1037,7 @@ def main() -> None:
 
     if len(vortex_df) > 0:
         vortex_performance = format_performance(
-            vortex_geo_mean_ratio,
+            vortex_geometric_mean_ratio,
             improvement_threshold,
             regression_threshold,
             "vortex",
@@ -1019,7 +1045,7 @@ def main() -> None:
         summary_fields.append(f"**Vortex (geomean)**: {vortex_performance}")
     if len(parquet_df) > 0:
         parquet_performance = format_performance(
-            parquet_geo_mean_ratio,
+            parquet_geometric_mean_ratio,
             improvement_threshold,
             regression_threshold,
             "parquet",
@@ -1053,7 +1079,7 @@ def main() -> None:
     for engine, file_format, unit in sorted(grouped_tables.groups.keys(), key=group_sort_key):
         group_df = grouped_tables.get_group((engine, file_format, unit)).sort_values("name")
         group_performance = format_performance(
-            calculate_geo_mean(group_df),
+            calculate_geometric_mean(group_df),
             improvement_threshold,
             regression_threshold,
             "group",

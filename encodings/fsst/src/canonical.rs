@@ -12,11 +12,9 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::varbin::VarBinArrayExt;
-use vortex_array::arrays::varbinview::build_views::BinaryView;
 use vortex_array::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use vortex_array::arrays::varbinview::build_views::build_views;
 use vortex_array::match_each_integer_ptype;
-use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
@@ -30,7 +28,15 @@ pub(super) fn canonicalize_fsst(
     array: ArrayView<'_, FSST>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let (buffers, views) = fsst_decode_views(array, 0, ctx)?;
+    let (uncompressed_bytes, uncompressed_lens) = fsst_decode_bytes(array, ctx)?;
+    let (buffers, views) = match_each_integer_ptype!(uncompressed_lens.ptype(), |P| {
+        build_views(
+            0,
+            MAX_BUFFER_LEN,
+            uncompressed_bytes.freeze(),
+            uncompressed_lens.as_slice::<P>(),
+        )
+    });
     // SAFETY: FSST already validates the bytes for binary/UTF-8. We build views directly on
     //  top of them, so the view pointers will all be valid.
     Ok(unsafe {
@@ -120,22 +126,6 @@ pub(crate) fn fsst_decode_bytes(
     // SAFETY: `decode_into` initialized the first `len` bytes.
     unsafe { uncompressed_bytes.set_len(len) };
     Ok((uncompressed_bytes, plan.lengths))
-}
-
-pub(crate) fn fsst_decode_views(
-    fsst_array: ArrayView<'_, FSST>,
-    start_buf_index: u32,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<(Vec<ByteBuffer>, Buffer<BinaryView>)> {
-    let (uncompressed_bytes, uncompressed_lens_array) = fsst_decode_bytes(fsst_array, ctx)?;
-    match_each_integer_ptype!(uncompressed_lens_array.ptype(), |P| {
-        Ok(build_views(
-            start_buf_index,
-            MAX_BUFFER_LEN,
-            uncompressed_bytes,
-            uncompressed_lens_array.as_slice::<P>(),
-        ))
-    })
 }
 
 #[cfg(test)]

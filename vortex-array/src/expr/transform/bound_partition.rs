@@ -22,14 +22,12 @@ use crate::expr::analysis::Annotation;
 use crate::expr::analysis::AnnotationFn;
 use crate::expr::analysis::BoundAnnotations;
 use crate::expr::analysis::descendent_bound_annotations;
+use crate::expr::bound::get_item;
+use crate::expr::bound::pack;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::NodeRewriter;
 use crate::expr::traversal::Transformed;
 use crate::expr::traversal::TraversalOrder;
-use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::fns::get_item::GetItem;
-use crate::scalar_fn::fns::pack::Pack;
-use crate::scalar_fn::fns::pack::PackOptions;
 
 /// Partition an expression into sub-expressions that are uniquely associated with an annotation.
 /// A root expression is also returned that can be used to recombine the results of the partitions
@@ -75,12 +73,12 @@ where
 
     for (annotation, exprs) in collector.sub_expressions {
         // We pack all sub-expressions for the same annotation into a single expression.
-        let names = exprs
+        let names: FieldNames = exprs
             .iter()
             .enumerate()
             .map(|(idx, _)| PartitionCollector::field_name(&annotation, idx))
             .collect();
-        let expr = bound_pack(names, exprs)?;
+        let expr = pack(names.into_iter().zip(exprs), Nullability::NonNullable);
 
         partitions.push(expr);
         partition_annotations.push(annotation);
@@ -259,11 +257,11 @@ where
         let field_name = PartitionCollector::field_name(annotation, *offset);
         *offset += 1;
 
-        let partition = bound_get_item(
+        let partition = get_item(
             FieldName::from(annotation.clone()),
             BoundExpression::new_root(self.root_dtype.clone()),
-        )?;
-        let value = bound_get_item(field_name, partition)?;
+        );
+        let value = get_item(field_name, partition);
 
         Ok(Transformed {
             value,
@@ -271,20 +269,6 @@ where
             order: TraversalOrder::Skip,
         })
     }
-}
-
-fn bound_get_item(field_name: FieldName, child: BoundExpression) -> VortexResult<BoundExpression> {
-    BoundExpression::try_new(GetItem.bind(field_name), [child])
-}
-
-fn bound_pack(names: FieldNames, children: Vec<BoundExpression>) -> VortexResult<BoundExpression> {
-    BoundExpression::try_new(
-        Pack.bind(PackOptions {
-            names,
-            nullability: Nullability::NonNullable,
-        }),
-        children,
-    )
 }
 
 fn partition_root_dtype(names: &FieldNames, partitions: &[BoundExpression]) -> DType {
@@ -372,7 +356,7 @@ mod tests {
 
         // An un-expanded root expression is annotated by all fields, but since it is a single node
         assert_eq!(partitioned.partitions.len(), 0);
-        assert_eq!(partitioned.root.unbind(), root());
+        assert_eq!(partitioned.root, root().bind(&dtype).unwrap());
 
         // Instead, callers must expand the root expression themselves.
         let expr = replace_root_fields(expr, fields);
@@ -386,9 +370,13 @@ mod tests {
         let expr = get_item("y", get_item("a", root()));
 
         let partitioned = partition_by_field(expr.bind(&dtype).unwrap(), &dtype).unwrap();
+        let root_dtype =
+            partition_root_dtype(&partitioned.partition_names, &partitioned.partitions);
         assert_eq!(
-            partitioned.root.unbind(),
+            partitioned.root,
             get_item("a_0", get_item("a", root()))
+                .bind(&root_dtype)
+                .unwrap()
         );
     }
 
@@ -406,14 +394,16 @@ mod tests {
 
         let split_a = partitioned.find_partition(&"a".into()).unwrap();
         assert_eq!(
-            split_a.unbind(),
-            pack(
+            split_a,
+            &pack(
                 [
                     ("a_0", get_item("x", get_item("a", root()))),
                     ("a_1", get_item("y", get_item("a", root())))
                 ],
                 NonNullable
             )
+            .bind(&dtype)
+            .unwrap()
         );
     }
 
@@ -441,9 +431,11 @@ mod tests {
 
         let partitioned = partition_by_field(expr.bind(&dtype).unwrap(), &dtype).unwrap();
         let expected = merge([get_item("a_0", col("a")), get_item("b_0", col("b"))]);
+        let root_dtype =
+            partition_root_dtype(&partitioned.partition_names, &partitioned.partitions);
         assert_eq!(
-            partitioned.root.unbind(),
-            expected,
+            partitioned.root,
+            expected.bind(&root_dtype).unwrap(),
             "{} {}",
             partitioned.root,
             expected
@@ -453,11 +445,19 @@ mod tests {
 
         let part_a = partitioned.find_partition(&"a".into()).unwrap();
         let expected_a = pack([("a_0", col("a"))], NonNullable);
-        assert_eq!(part_a.unbind(), expected_a, "{part_a} {expected_a}");
+        assert_eq!(
+            part_a,
+            &expected_a.bind(&dtype).unwrap(),
+            "{part_a} {expected_a}"
+        );
 
         let part_b = partitioned.find_partition(&"b".into()).unwrap();
         let expected_b = pack([("b_0", pack([("b", col("b"))], NonNullable))], NonNullable);
-        assert_eq!(part_b.unbind(), expected_b, "{part_b} {expected_b}");
+        assert_eq!(
+            part_b,
+            &expected_b.bind(&dtype).unwrap(),
+            "{part_b} {expected_b}"
+        );
     }
 
     #[rstest]

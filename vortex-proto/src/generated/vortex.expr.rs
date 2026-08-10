@@ -26,6 +26,16 @@ pub struct NumericalAggregateOpts {
     #[prost(bool, tag = "1")]
     pub skip_nans: bool,
 }
+/// Options for `vortex.sum`. The optional partial-shape marker distinguishes newly serialized
+/// options from the historical `NumericalAggregateOpts` encoding, which used the same tag for
+/// `skip_nans` but had no second field.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SumAggregateOpts {
+    #[prost(bool, tag = "1")]
+    pub skip_nans: bool,
+    #[prost(bool, optional, tag = "2")]
+    pub struct_partial: ::core::option::Option<bool>,
+}
 /// Options for `vortex.literal`
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct LiteralOpts {

@@ -14,7 +14,6 @@ use super::checked::checked_lanes;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
@@ -25,6 +24,7 @@ use crate::dtype::half::f16;
 use crate::match_each_native_ptype;
 use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
+use crate::scalar_fn::fns::binary::primitive_operand::PrimitiveOperand;
 use crate::validity::Validity;
 
 struct CheckedAdd;
@@ -255,67 +255,12 @@ where
     }
 }
 
-/// A primitive binary-operator operand: a materialized buffer, a non-null constant, or an
-/// all-null constant.
-pub(crate) enum PrimitiveOperand<T: NativePType> {
-    Array {
-        values: Buffer<T>,
-        validity: Validity,
-    },
-    Constant {
-        value: T,
-        len: usize,
-        validity: Validity,
-    },
-    Null(usize),
-}
-
-impl<T: NativePType> PrimitiveOperand<T> {
-    pub(crate) fn try_new(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        if let Some(constant) = array.as_opt::<Constant>() {
-            return Ok(
-                match constant.scalar().as_primitive().try_typed_value::<T>()? {
-                    Some(value) => Self::Constant {
-                        value,
-                        len: array.len(),
-                        validity: if constant.scalar().dtype().is_nullable() {
-                            Validity::AllValid
-                        } else {
-                            Validity::NonNullable
-                        },
-                    },
-                    None => Self::Null(array.len()),
-                },
-            );
-        }
-
-        let array = array.clone().execute::<PrimitiveArray>(ctx)?;
-        let validity = array.validity()?;
-        let values = array.into_buffer::<T>();
-        Ok(Self::Array { values, validity })
-    }
-
-    pub(crate) fn len(&self) -> usize {
-        match self {
-            Self::Array { values, .. } => values.len(),
-            Self::Constant { len, .. } | Self::Null(len) => *len,
-        }
-    }
-
-    pub(crate) fn validity(&self) -> Validity {
-        match self {
-            Self::Array { validity, .. } => validity.clone(),
-            Self::Constant { validity, .. } => validity.clone(),
-            Self::Null(_) => Validity::AllInvalid,
-        }
-    }
-}
-
 trait CheckedArithmetic: NativePType {
     const DIV_CHECKS_IN_VALUE_LOOP: bool;
 
     /// How multiplication reports a failing lane, which is width-dependent in a way the other
-    /// operations are not. Each impl's `mul_failure` says why it chose what it chose.
+    /// operations are not. `impl_checked_unsigned!` and `impl_checked_signed!` say why each family
+    /// reports what it reports.
     type MulFailure: Failure;
 
     fn add_value(self, rhs: Self) -> Self;
@@ -329,12 +274,26 @@ trait CheckedArithmetic: NativePType {
     fn div_checked(self, rhs: Self) -> Option<Self>;
 }
 
-macro_rules! impl_checked_unsigned {
-    ($ty:ty,widening_mul: $wide:ty) => {
+/// The integer arithmetic every width shares, given the two things that actually differ between
+/// them: how multiplication reports a failing lane, and how add/sub/div detect one.
+///
+/// Only `mul_failure` genuinely varies per width, so it is the macro's parameter and everything
+/// else is written once. The `$mul_failure_ty` and body are supplied by the caller because the
+/// choice between a widened high half and a `bool` is exactly the vectorization decision described
+/// on [`Failure`].
+macro_rules! impl_checked_integer {
+    (
+        $ty:ty,
+        add_error: |$add_lhs:ident, $add_rhs:ident| $add_error:expr,
+        sub_error: |$sub_lhs:ident, $sub_rhs:ident| $sub_error:expr,
+        div_error: |$div_lhs:ident, $div_rhs:ident| $div_error:expr,
+        mul_failure: $(#[$mul_failure_attr:meta])* $mul_failure_ty:ty
+            = |$mf_lhs:ident, $mf_rhs:ident| $mul_failure:expr,
+    ) => {
         impl CheckedArithmetic for $ty {
             const DIV_CHECKS_IN_VALUE_LOOP: bool = true;
 
-            type MulFailure = $ty;
+            type MulFailure = $mul_failure_ty;
 
             #[inline(always)]
             fn add_value(self, rhs: Self) -> Self {
@@ -343,7 +302,8 @@ macro_rules! impl_checked_unsigned {
 
             #[inline(always)]
             fn add_error(self, rhs: Self) -> bool {
-                self > <$ty>::MAX - rhs
+                let ($add_lhs, $add_rhs) = (self, rhs);
+                $add_error
             }
 
             #[inline(always)]
@@ -353,7 +313,8 @@ macro_rules! impl_checked_unsigned {
 
             #[inline(always)]
             fn sub_error(self, rhs: Self) -> bool {
-                self < rhs
+                let ($sub_lhs, $sub_rhs) = (self, rhs);
+                $sub_error
             }
 
             #[inline(always)]
@@ -361,11 +322,11 @@ macro_rules! impl_checked_unsigned {
                 self.wrapping_mul(rhs)
             }
 
-            /// The bits the narrow product discards, which are non-zero exactly when the multiply
-            /// overflowed and cost none of the comparison LLVM folds into `umul.with.overflow`.
             #[inline(always)]
-            fn mul_failure(self, rhs: Self) -> $ty {
-                (((self as $wide) * (rhs as $wide)) >> <$ty>::BITS) as $ty
+            $(#[$mul_failure_attr])*
+            fn mul_failure(self, rhs: Self) -> $mul_failure_ty {
+                let ($mf_lhs, $mf_rhs) = (self, rhs);
+                $mul_failure
             }
 
             #[inline(always)]
@@ -375,63 +336,8 @@ macro_rules! impl_checked_unsigned {
 
             #[inline(always)]
             fn div_error(self, rhs: Self) -> bool {
-                rhs == 0
-            }
-
-            #[inline(always)]
-            fn div_checked(self, rhs: Self) -> Option<Self> {
-                self.checked_div(rhs)
-            }
-        }
-    };
-    ($ty:ty,overflowing_mul) => {
-        impl CheckedArithmetic for $ty {
-            const DIV_CHECKS_IN_VALUE_LOOP: bool = true;
-
-            type MulFailure = u64;
-
-            #[inline(always)]
-            fn add_value(self, rhs: Self) -> Self {
-                self.wrapping_add(rhs)
-            }
-
-            #[inline(always)]
-            fn add_error(self, rhs: Self) -> bool {
-                self > <$ty>::MAX - rhs
-            }
-
-            #[inline(always)]
-            fn sub_value(self, rhs: Self) -> Self {
-                self.wrapping_sub(rhs)
-            }
-
-            #[inline(always)]
-            fn sub_error(self, rhs: Self) -> bool {
-                self < rhs
-            }
-
-            #[inline(always)]
-            fn mul_value(self, rhs: Self) -> Self {
-                self.wrapping_mul(rhs)
-            }
-
-            /// As the narrower widths, but through `u128`, because this arm is the 64-bit width and
-            /// has no wider native type to widen into.
-            #[inline(always)]
-            fn mul_failure(self, rhs: Self) -> u64 {
-                const { assert!(<$ty>::BITS == 64) };
-
-                (((self as u128) * (rhs as u128)) >> 64) as u64
-            }
-
-            #[inline(always)]
-            fn div_value(self, rhs: Self) -> Self {
-                self / rhs
-            }
-
-            #[inline(always)]
-            fn div_error(self, rhs: Self) -> bool {
-                rhs == 0
+                let ($div_lhs, $div_rhs) = (self, rhs);
+                $div_error
             }
 
             #[inline(always)]
@@ -442,132 +348,68 @@ macro_rules! impl_checked_unsigned {
     };
 }
 
-macro_rules! impl_checked_signed {
-    ($ty:ty,widening_mul: $wide:ty) => {
-        impl CheckedArithmetic for $ty {
-            const DIV_CHECKS_IN_VALUE_LOOP: bool = true;
-
-            type MulFailure = bool;
-
-            #[inline(always)]
-            fn add_value(self, rhs: Self) -> Self {
-                self.wrapping_add(rhs)
-            }
-
-            #[inline(always)]
-            fn add_error(self, rhs: Self) -> bool {
-                let value = self.wrapping_add(rhs);
-                ((self ^ value) & (rhs ^ value)) < 0
-            }
-
-            #[inline(always)]
-            fn sub_value(self, rhs: Self) -> Self {
-                self.wrapping_sub(rhs)
-            }
-
-            #[inline(always)]
-            fn sub_error(self, rhs: Self) -> bool {
-                let value = self.wrapping_sub(rhs);
-                ((self ^ rhs) & (self ^ value)) < 0
-            }
-
-            #[inline(always)]
-            fn mul_value(self, rhs: Self) -> Self {
-                self.wrapping_mul(rhs)
-            }
-
-            /// A plain `bool`, because the two-sided range check is not the shape LLVM folds
-            /// into an overflow intrinsic, so these widths vectorize without reporting evidence.
-            #[inline(always)]
-            fn mul_failure(self, rhs: Self) -> bool {
-                let product = (self as $wide) * (rhs as $wide);
-
-                product < <$ty>::MIN as $wide || product > <$ty>::MAX as $wide
-            }
-
-            #[inline(always)]
-            fn div_value(self, rhs: Self) -> Self {
-                self / rhs
-            }
-
-            #[inline(always)]
-            fn div_error(self, rhs: Self) -> bool {
-                rhs == 0 || (self == <$ty>::MIN && rhs == -1)
-            }
-
-            #[inline(always)]
-            fn div_checked(self, rhs: Self) -> Option<Self> {
-                self.checked_div(rhs)
-            }
-        }
+/// The unsigned widths. `add`, `sub` and `div` are written once here, and `widening_mul` covers
+/// every width including the 64-bit one, which widens into `u128`: the discarded high half of the
+/// widened product is the failure evidence, and costs none of the comparison LLVM folds into
+/// `umul.with.overflow`.
+macro_rules! impl_checked_unsigned {
+    ($ty:ty, widening_mul: $wide:ty) => {
+        impl_checked_integer!(
+            $ty,
+            add_error: |lhs, rhs| lhs > <$ty>::MAX - rhs,
+            sub_error: |lhs, rhs| lhs < rhs,
+            div_error: |_lhs, rhs| rhs == 0,
+            mul_failure: $ty = |lhs, rhs| (((lhs as $wide) * (rhs as $wide)) >> <$ty>::BITS) as $ty,
+        );
     };
-    ($ty:ty,overflowing_mul) => {
-        impl CheckedArithmetic for $ty {
-            const DIV_CHECKS_IN_VALUE_LOOP: bool = true;
+}
 
-            type MulFailure = u64;
+/// The signed widths, on the same principle. `widening_mul` is the shorthand for the narrow widths,
+/// whose two-sided range check over a wider product is not the shape LLVM folds into an overflow
+/// intrinsic, so they vectorize while reporting a plain `bool`. The 64-bit width cannot: deriving a
+/// `bool` there costs the comparison that scalarizes the loop, so `high_half_mul` hands back the
+/// discarded high half as a word. Both arms derive every shift and bound from `$ty`, so
+/// instantiating one at a new width cannot silently keep another width's constants.
+macro_rules! impl_checked_signed {
+    ($ty:ty, widening_mul: $wide:ty) => {
+        impl_checked_signed!($ty, mul_failure: bool = |lhs, rhs| {
+            let product = (lhs as $wide) * (rhs as $wide);
+            product < <$ty>::MIN as $wide || product > <$ty>::MAX as $wide
+        });
+    };
+    // Zero exactly when the product fits: a signed multiply overflows iff the high half of the true
+    // product differs from the sign extension of the half that was kept, so the two XOR to zero on
+    // the lanes that fit. `tests::test_multiply_overflow_boundaries` pins the boundaries.
+    ($ty:ty, high_half_mul: $wide:ty => $failure:ty) => {
+        impl_checked_signed!($ty, mul_failure: #[expect(
+            clippy::cast_possible_truncation,
+            reason = "the truncated half is the result, and the discarded half is the evidence"
+        )] $failure = |lhs, rhs| {
+            let wide = (lhs as $wide) * (rhs as $wide);
+            let kept = wide as $ty;
+            let discarded = (wide >> <$ty>::BITS) as $ty;
 
-            #[inline(always)]
-            fn add_value(self, rhs: Self) -> Self {
-                self.wrapping_add(rhs)
-            }
-
-            #[inline(always)]
-            fn add_error(self, rhs: Self) -> bool {
-                let value = self.wrapping_add(rhs);
-                ((self ^ value) & (rhs ^ value)) < 0
-            }
-
-            #[inline(always)]
-            fn sub_value(self, rhs: Self) -> Self {
-                self.wrapping_sub(rhs)
-            }
-
-            #[inline(always)]
-            fn sub_error(self, rhs: Self) -> bool {
-                let value = self.wrapping_sub(rhs);
-                ((self ^ rhs) & (self ^ value)) < 0
-            }
-
-            #[inline(always)]
-            fn mul_value(self, rhs: Self) -> Self {
-                self.wrapping_mul(rhs)
-            }
-
-            /// A signed multiply overflows exactly when the discarded half of the true product
-            /// differs from the sign extension of the half that was kept, so the two XOR to zero
-            /// on the lanes that fit. `tests::test_i64_multiply_overflow_boundaries` pins the
-            /// boundaries this replaces `overflowing_mul` at.
-            #[inline(always)]
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "the truncated half is the result, and the discarded half is the evidence"
-            )]
-            fn mul_failure(self, rhs: Self) -> u64 {
-                const { assert!(<$ty>::BITS == 64) };
-
-                let wide = (self as i128) * (rhs as i128);
-                let kept = wide as i64;
-                let discarded = (wide >> 64) as i64;
-
-                (discarded ^ (kept >> 63)) as u64
-            }
-
-            #[inline(always)]
-            fn div_value(self, rhs: Self) -> Self {
-                self / rhs
-            }
-
-            #[inline(always)]
-            fn div_error(self, rhs: Self) -> bool {
-                rhs == 0 || (self == <$ty>::MIN && rhs == -1)
-            }
-
-            #[inline(always)]
-            fn div_checked(self, rhs: Self) -> Option<Self> {
-                self.checked_div(rhs)
-            }
-        }
+            (discarded ^ (kept >> (<$ty>::BITS - 1))) as $failure
+        });
+    };
+    (
+        $ty:ty,
+        mul_failure: $(#[$mul_failure_attr:meta])* $mul_failure_ty:ty
+            = |$l:ident, $r:ident| $mul_failure:expr
+    ) => {
+        impl_checked_integer!(
+            $ty,
+            add_error: |lhs, rhs| {
+                let value = lhs.wrapping_add(rhs);
+                ((lhs ^ value) & (rhs ^ value)) < 0
+            },
+            sub_error: |lhs, rhs| {
+                let value = lhs.wrapping_sub(rhs);
+                ((lhs ^ rhs) & (lhs ^ value)) < 0
+            },
+            div_error: |lhs, rhs| rhs == 0 || (lhs == <$ty>::MIN && rhs == -1),
+            mul_failure: $(#[$mul_failure_attr])* $mul_failure_ty = |$l, $r| $mul_failure,
+        );
     };
 }
 
@@ -631,11 +473,11 @@ macro_rules! impl_checked_float {
 impl_checked_unsigned!(u8, widening_mul: u16);
 impl_checked_unsigned!(u16, widening_mul: u32);
 impl_checked_unsigned!(u32, widening_mul: u64);
-impl_checked_unsigned!(u64, overflowing_mul);
+impl_checked_unsigned!(u64, widening_mul: u128);
 impl_checked_signed!(i8, widening_mul: i16);
 impl_checked_signed!(i16, widening_mul: i32);
 impl_checked_signed!(i32, widening_mul: i64);
-impl_checked_signed!(i64, overflowing_mul);
+impl_checked_signed!(i64, high_half_mul: i128 => u64);
 impl_checked_float!(f16, f32, f64);
 
 #[cfg(test)]

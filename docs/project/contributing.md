@@ -45,7 +45,9 @@ This section describes our expectations around disclosure, review, and accountab
 The repository has [Claude Code](https://docs.anthropic.com/en/docs/claude-code) configured as a
 GitHub Action. Users with write access to the repository can mention `@claude` in PR comments or
 issue comments to trigger AI-powered code reviews, request changes, or generate PRs. Configuration
-for Claude's behavior lives in `CLAUDE.md` at the repository root.
+for coding agents lives in the repository's
+[`AGENTS.md`](https://github.com/vortex-data/vortex/blob/develop/AGENTS.md), with reusable workflows
+under [`.agents/skills`](https://github.com/vortex-data/vortex/tree/develop/.agents/skills).
 
 ### Disclosure
 

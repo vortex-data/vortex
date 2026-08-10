@@ -21,14 +21,12 @@ use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
+use vortex_array::expr::bound::pack as bound_pack;
 use vortex_array::expr::direct_bound_annotations;
 use vortex_array::expr::label_bound_tree;
 use vortex_array::expr::root;
 use vortex_array::expr::transform::partition_bound_annotations;
 use vortex_array::optimizer::ArrayOptimizer;
-use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::scalar_fn::fns::pack::Pack;
-use vortex_array::scalar_fn::fns::pack::PackOptions;
 use vortex_array::scalar_fn::is_negative_cost;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
@@ -55,7 +53,7 @@ pub struct DictReader {
     /// Cached dict values array
     values_array: OnceLock<SharedArrayFuture>,
     /// Cache of expression evaluation results on the values array by expression
-    values_evals: DashMap<BoundExpression, SharedArrayFuture>,
+    values_evals: DashMap<ExactBoundExpr, SharedArrayFuture>,
 
     values: LayoutReaderRef,
     codes: LayoutReaderRef,
@@ -153,13 +151,15 @@ impl DictReader {
         // shouldn't.
         // TODO(joe): fixme
 
+        let key = ExactBoundExpr(expr.clone());
+
         // Check cache first with read-only lock
-        if let Some(fut) = self.values_evals.get(&expr) {
+        if let Some(fut) = self.values_evals.get(&key) {
             return fut.clone();
         }
 
         self.values_evals
-            .entry(expr.clone())
+            .entry(key)
             .or_insert_with(|| {
                 self.values_array_uncanonical()
                     .map(move |array| {
@@ -301,13 +301,7 @@ impl LayoutReader for DictReader {
         let values_eval = if let Some(inner) = expr_inner {
             // "outer" takes a struct field with PUSHDOWN_ANNOTATION name, so
             // pack inner with this name as well
-            let inner = BoundExpression::try_new(
-                Pack.bind(PackOptions {
-                    names: [PUSHDOWN_ANNOTATION].into(),
-                    nullability: Nullability::NonNullable,
-                }),
-                [inner],
-            )?;
+            let inner = bound_pack([(PUSHDOWN_ANNOTATION, inner)], Nullability::NonNullable);
 
             // We can't use values_eval as it uses values_array_uncanonical
             // which in turn gets populated from self.values. If
@@ -376,7 +370,10 @@ mod tests {
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
+    use vortex_array::expr::BoundExpression;
     use vortex_array::expr::Expression;
+    use vortex_array::expr::bound::pack as bound_pack;
     use vortex_array::expr::byte_length;
     use vortex_array::expr::cast;
     use vortex_array::expr::eq;
@@ -746,7 +743,11 @@ mod tests {
         get_item(format!("_{idx}"), get_item("", root()))
     }
 
-    fn test_apply(original: Expression, outer: Expression, inner: Expression) -> VortexResult<()> {
+    fn test_apply(
+        original: Expression,
+        outer: BoundExpression,
+        inner: BoundExpression,
+    ) -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         let array = VarBinArray::from_iter(
             [Some("abc"), Some("def"), None],
@@ -754,29 +755,36 @@ mod tests {
         )
         .into_array();
 
-        let pushed = array.clone().apply(&pack(
-            [(PUSHDOWN_ANNOTATION, inner)],
+        let pushed_expr = bound_pack(
+            [(FieldName::from(PUSHDOWN_ANNOTATION), inner)],
             Nullability::NonNullable,
-        ))?;
-        let actual = pushed.apply(&outer)?;
+        );
+        let pushed = array.clone().apply_bound(&pushed_expr)?;
+        let actual = pushed.apply_bound(&outer)?;
         let expected = array.apply(&original)?;
         assert_arrays_eq!(actual, expected, &mut ctx);
         Ok(())
     }
 
-    fn split_unbound(
+    fn split_bound(
         expr: Expression,
         dtype: &DType,
-    ) -> VortexResult<(Expression, Option<Expression>)> {
+    ) -> VortexResult<(BoundExpression, Option<BoundExpression>)> {
         let bound = expr.bind(dtype)?;
-        let (outer, inner) = split_expression_for_pushdown(&bound)?;
-        Ok((outer.unbind(), inner.map(|expr| expr.unbind())))
+        split_expression_for_pushdown(&bound)
+    }
+
+    fn pushed_scope(inner: &BoundExpression) -> DType {
+        DType::Struct(
+            StructFields::from_iter([(PUSHDOWN_ANNOTATION, inner.dtype().clone())]),
+            Nullability::NonNullable,
+        )
     }
 
     #[test]
     fn split_expr_root() {
-        let (outer, inner) = split_unbound(root(), &DType::Null).unwrap();
-        assert_eq!(outer, root());
+        let (outer, inner) = split_bound(root(), &DType::Null).unwrap();
+        assert_eq!(outer, root().bind(&DType::Null).unwrap());
         assert_eq!(inner, None);
     }
 
@@ -785,22 +793,27 @@ mod tests {
         // cast is fallible, thus not pushed
         let target = DType::Primitive(PType::I64, Nullability::Nullable);
         let expr = cast(byte_length(root()), target.clone());
-        let (outer, inner) = split_unbound(expr.clone(), &DType::Utf8(false.into()))?;
+        let dtype = DType::Utf8(false.into());
+        let (outer, inner) = split_bound(expr.clone(), &dtype)?;
         let inner = inner.unwrap();
         // [0] = cast([1], dtype)
         // [1] = byte_length(root)
-        assert_eq!(outer, cast(pushed_ref(0), target));
-        assert_eq!(inner, pushed_inner([byte_length(root())]));
+        assert_eq!(
+            outer,
+            cast(pushed_ref(0), target).bind(&pushed_scope(&inner))?
+        );
+        assert_eq!(inner, pushed_inner([byte_length(root())]).bind(&dtype)?);
         test_apply(expr, outer, inner)
     }
 
     #[test]
     fn split_expr_full_pushdown() -> VortexResult<()> {
         let expr = byte_length(root());
-        let (outer, inner) = split_unbound(expr.clone(), &DType::Utf8(false.into()))?;
+        let dtype = DType::Utf8(false.into());
+        let (outer, inner) = split_bound(expr.clone(), &dtype)?;
         let inner = inner.unwrap();
-        assert_eq!(outer, pushed_ref(0));
-        assert_eq!(inner, pushed_inner([byte_length(root())]));
+        assert_eq!(outer, pushed_ref(0).bind(&pushed_scope(&inner))?);
+        assert_eq!(inner, pushed_inner([byte_length(root())]).bind(&dtype)?);
         test_apply(expr, outer, inner)
     }
 
@@ -808,8 +821,9 @@ mod tests {
     fn split_expr_no_pushdown() {
         // like is fallible, thus not pushed. lit() does not reference root()
         let expr = like(root(), lit("abc"));
-        let (outer, inner) = split_unbound(expr.clone(), &DType::Utf8(true.into())).unwrap();
-        assert_eq!(outer, expr);
+        let dtype = DType::Utf8(true.into());
+        let (outer, inner) = split_bound(expr.clone(), &dtype).unwrap();
+        assert_eq!(outer, expr.bind(&dtype).unwrap());
         assert_eq!(inner, None);
     }
 }

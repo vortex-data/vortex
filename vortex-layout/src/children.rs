@@ -35,6 +35,16 @@ pub trait LayoutChildren: 'static + Send + Sync {
     fn child_row_count(&self, idx: usize) -> u64;
 
     fn nchildren(&self) -> usize;
+
+    /// Returns `true` if the child at `idx` is known — without materializing it — to be
+    /// indivisible: it registers no split boundaries strictly inside its row range (see
+    /// [`VTable::is_indivisible`](crate::VTable::is_indivisible)).
+    ///
+    /// Implementations must conservatively return `false` when answering would require
+    /// materializing the child.
+    fn child_is_indivisible(&self, _idx: usize) -> bool {
+        false
+    }
 }
 
 impl Debug for dyn LayoutChildren {
@@ -60,6 +70,10 @@ impl LayoutChildren for Arc<dyn LayoutChildren> {
 
     fn nchildren(&self) -> usize {
         self.as_ref().nchildren()
+    }
+
+    fn child_is_indivisible(&self, idx: usize) -> bool {
+        self.as_ref().child_is_indivisible(idx)
     }
 }
 
@@ -102,6 +116,10 @@ impl LayoutChildren for OwnedLayoutChildren {
     fn nchildren(&self) -> usize {
         self.0.len()
     }
+
+    fn child_is_indivisible(&self, idx: usize) -> bool {
+        self.0[idx].dyn_is_indivisible()
+    }
 }
 
 #[derive(Clone)]
@@ -114,6 +132,9 @@ pub(crate) struct ViewedLayoutChildren {
     allow_unknown: bool,
     session: VortexSession,
     cache: Arc<[OnceCell<LayoutRef>]>,
+    /// Per-child answers to [`LayoutChildren::child_is_indivisible`], precomputed at
+    /// construction from the flatbuffer encoding tags alone.
+    indivisible: Arc<[bool]>,
 }
 
 impl ViewedLayoutChildren {
@@ -132,11 +153,23 @@ impl ViewedLayoutChildren {
         session: VortexSession,
     ) -> Self {
         // SAFETY: guaranteed by caller
-        let nchildren = unsafe { fbl::Layout::follow(flatbuffer.as_ref(), flatbuffer_loc) }
+        let fb_children = unsafe { fbl::Layout::follow(flatbuffer.as_ref(), flatbuffer_loc) }
             .children()
-            .unwrap_or_default()
-            .len();
-        let cache = vec![OnceCell::new(); nchildren].into_boxed_slice().into();
+            .unwrap_or_default();
+        let cache = vec![OnceCell::new(); fb_children.len()]
+            .into_boxed_slice()
+            .into();
+        // Unknown encodings are conservatively not indivisible so callers fall back to
+        // materializing the child.
+        let indivisible = fb_children
+            .iter()
+            .map(|child| {
+                layout_read_ctx
+                    .resolve(child.encoding())
+                    .and_then(|encoding_id| layouts.get(&encoding_id))
+                    .is_some_and(|encoding| encoding.is_indivisible())
+            })
+            .collect::<Arc<[bool]>>();
         Self {
             flatbuffer,
             flatbuffer_loc,
@@ -146,6 +179,7 @@ impl ViewedLayoutChildren {
             allow_unknown,
             session,
             cache,
+            indivisible,
         }
     }
 
@@ -269,5 +303,9 @@ impl LayoutChildren for ViewedLayoutChildren {
 
     fn nchildren(&self) -> usize {
         self.cache.len()
+    }
+
+    fn child_is_indivisible(&self, idx: usize) -> bool {
+        self.indivisible.get(idx).copied().unwrap_or(false)
     }
 }

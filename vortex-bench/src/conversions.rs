@@ -55,8 +55,8 @@ use vortex::utils::aliases::hash_set::HashSet;
 use vortex::utils::parallelism::get_available_parallelism;
 use vortex_arrow::FromArrowArray;
 use vortex_arrow::FromArrowType;
-use vortex_geo::extension::GeoMetadata;
-use vortex_geo::extension::WellKnownBinary;
+use vortex_spatial::extension::SpatialMetadata;
+use vortex_spatial::extension::WellKnownBinary;
 use wkb::Endianness;
 use wkb::reader::read_wkb;
 use wkb::writer::WriteOptions;
@@ -144,10 +144,13 @@ pub async fn convert_parquet_file_to_vortex(
     let builder = ParquetRecordBatchStreamBuilder::new(file).await?;
 
     // GeoParquet geometry tagging.
-    let geo_columns = geoparquet_columns(builder.metadata());
-    let dtype = tag_geo_dtype(DType::from_arrow(builder.schema().as_ref()), &geo_columns)?;
+    let spatial_columns = geoparquet_columns(builder.metadata());
+    let dtype = tag_spatial_dtype(
+        DType::from_arrow(builder.schema().as_ref()),
+        &spatial_columns,
+    )?;
     let stream = parquet_to_vortex_stream(builder.build()?)
-        .map(move |chunk| chunk.and_then(|chunk| tag_geo_array(chunk, &geo_columns)));
+        .map(move |chunk| chunk.and_then(|chunk| tag_spatial_array(chunk, &spatial_columns)));
 
     let mut output_file = OpenOptions::new()
         .write(true)
@@ -301,7 +304,10 @@ pub async fn write_parquet_as_vortex(
 }
 
 /// Add GeoParquet `geo` file metadata to externally-sourced parquet we don't generate (e.g. SpatialBench `zone`).
-pub async fn add_geoparquet_metadata(parquet_path: &Path, geo_json: &str) -> anyhow::Result<()> {
+pub async fn add_geoparquet_metadata(
+    parquet_path: &Path,
+    geoparquet_json: &str,
+) -> anyhow::Result<()> {
     let builder = ParquetRecordBatchStreamBuilder::new(File::open(parquet_path).await?).await?;
     let already_tagged = builder
         .metadata()
@@ -320,7 +326,10 @@ pub async fn add_geoparquet_metadata(parquet_path: &Path, geo_json: &str) -> any
     while let Some(batch) = reader.try_next().await? {
         writer.write(&batch).await?;
     }
-    writer.append_key_value_metadata(KeyValue::new("geo".to_string(), Some(geo_json.to_string())));
+    writer.append_key_value_metadata(KeyValue::new(
+        "geo".to_string(),
+        Some(geoparquet_json.to_string()),
+    ));
     writer.close().await?;
     tokio::fs::rename(&tmp_path, parquet_path).await?;
     Ok(())
@@ -333,7 +342,7 @@ fn geoparquet_columns(metadata: &ParquetMetaData) -> HashSet<String> {
         .key_value_metadata()
         .and_then(|kvs| kvs.iter().find(|kv| kv.key == "geo"))
         .and_then(|kv| kv.value.as_deref())
-        .and_then(|geo| serde_json::from_str::<serde_json::Value>(geo).ok())
+        .and_then(|metadata| serde_json::from_str::<serde_json::Value>(metadata).ok())
         .and_then(|value| {
             value
                 .get("columns")
@@ -343,15 +352,18 @@ fn geoparquet_columns(metadata: &ParquetMetaData) -> HashSet<String> {
         .unwrap_or_default()
 }
 
-/// The erased `vortex.geo.wkb` extension dtype over a binary `storage` dtype.
+/// The erased `vortex.st.wkb` extension dtype over a binary `storage` dtype.
 fn wkb_ext_dtype(storage: &DType) -> VortexResult<ExtDTypeRef> {
-    Ok(ExtDType::<WellKnownBinary>::try_new(GeoMetadata { crs: None }, storage.clone())?.erased())
+    Ok(
+        ExtDType::<WellKnownBinary>::try_new(SpatialMetadata { crs: None }, storage.clone())?
+            .erased(),
+    )
 }
 
-/// Re-type the named binary columns of a struct `dtype` as `vortex.geo.wkb`, so the column
+/// Re-type the named binary columns of a struct `dtype` as `vortex.st.wkb`, so the column
 /// self-describes as geometry.
-fn tag_geo_dtype(dtype: DType, geo_columns: &HashSet<String>) -> VortexResult<DType> {
-    if geo_columns.is_empty() {
+fn tag_spatial_dtype(dtype: DType, spatial_columns: &HashSet<String>) -> VortexResult<DType> {
+    if spatial_columns.is_empty() {
         return Ok(dtype);
     }
     let DType::Struct(fields, nullability) = &dtype else {
@@ -362,7 +374,7 @@ fn tag_geo_dtype(dtype: DType, geo_columns: &HashSet<String>) -> VortexResult<DT
         .iter()
         .zip(fields.fields())
         .map(|(name, field)| {
-            if geo_columns.contains(name.as_ref()) && field.is_binary() {
+            if spatial_columns.contains(name.as_ref()) && field.is_binary() {
                 Ok(DType::Extension(wkb_ext_dtype(&field)?))
             } else {
                 Ok(field)
@@ -375,10 +387,10 @@ fn tag_geo_dtype(dtype: DType, geo_columns: &HashSet<String>) -> VortexResult<DT
     ))
 }
 
-/// Wrap the named binary columns of a struct `chunk` as `vortex.geo.wkb` extension arrays, storing
+/// Wrap the named binary columns of a struct `chunk` as `vortex.st.wkb` extension arrays, storing
 /// their WKB little-endian.
-fn tag_geo_array(chunk: ArrayRef, geo_columns: &HashSet<String>) -> VortexResult<ArrayRef> {
-    if geo_columns.is_empty() {
+fn tag_spatial_array(chunk: ArrayRef, spatial_columns: &HashSet<String>) -> VortexResult<ArrayRef> {
+    if spatial_columns.is_empty() {
         return Ok(chunk);
     }
     let Some(struct_array) = chunk.as_opt::<Struct>() else {
@@ -390,7 +402,7 @@ fn tag_geo_array(chunk: ArrayRef, geo_columns: &HashSet<String>) -> VortexResult
     let mut ctx = SESSION.create_execution_ctx();
     let mut tagged = Vec::with_capacity(names.len());
     for (name, field) in names.iter().zip(struct_array.iter_unmasked_fields()) {
-        if geo_columns.contains(name.as_ref()) && field.dtype().is_binary() {
+        if spatial_columns.contains(name.as_ref()) && field.dtype().is_binary() {
             let ext = wkb_ext_dtype(field.dtype())?;
             let little_endian = wkb_field_to_little_endian(field, &mut ctx)?;
             tagged.push(ExtensionArray::try_new(ext, little_endian)?.into_array());

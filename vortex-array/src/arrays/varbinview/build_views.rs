@@ -6,7 +6,6 @@ use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
-use vortex_buffer::ByteBufferMut;
 
 pub use crate::arrays::varbinview::BinaryView;
 use crate::dtype::NativePType;
@@ -26,25 +25,107 @@ pub const MAX_BUFFER_LEN: usize = i32::MAX as usize;
 
 /// Split a large buffer of input `bytes` holding string data into `VarBinView` buffers and views.
 ///
+/// The values must be laid end-to-end in `bytes`, one per entry of `lens`, describing the whole
+/// buffer exactly. The returned buffers are zero-copy slices of `bytes`, numbered sequentially
+/// from `start_buf_index`.
+///
 /// `max_buffer_len` must not exceed [`MAX_BUFFER_LEN`], since every view offset is stored in a
 /// `u32` and offsets are bounded by `max_buffer_len`.
+///
+/// # Panics
+///
+/// Panics if the lengths do not describe `bytes` exactly, or if a single value exceeds
+/// `max_buffer_len`.
 pub fn build_views<P: NativePType + AsPrimitive<usize>>(
     start_buf_index: u32,
     max_buffer_len: usize,
-    bytes: ByteBufferMut,
+    bytes: ByteBuffer,
     lens: &[P],
 ) -> (Vec<ByteBuffer>, Buffer<BinaryView>) {
+    let mut views = BufferMut::with_capacity(lens.len());
+    let buffers = extend_views(
+        &mut views,
+        start_buf_index,
+        max_buffer_len,
+        &bytes,
+        lens.len(),
+        |i| lens[i].as_(),
+    );
+    (buffers, views.freeze())
+}
+
+/// [`build_views`] for values described by an offsets buffer instead of lengths.
+///
+/// `offsets` are absolute positions into `bytes` — the layout a `VarBinArray` stores — so there
+/// is one more offset than there are values, and the values need not start at the beginning of
+/// `bytes`: only `offsets[0]..offsets[last]` is referenced, and the returned buffers are zero-copy
+/// slices of that range.
+///
+/// # Panics
+///
+/// Panics if `offsets` is empty, not monotonically non-decreasing within `bytes`, or if a single
+/// value exceeds `max_buffer_len`.
+pub fn build_views_from_offsets<P: NativePType + AsPrimitive<usize>>(
+    start_buf_index: u32,
+    max_buffer_len: usize,
+    bytes: ByteBuffer,
+    offsets: &[P],
+) -> (Vec<ByteBuffer>, Buffer<BinaryView>) {
+    assert!(!offsets.is_empty(), "offsets must hold at least one entry");
+    let first: usize = offsets[0].as_();
+    let last: usize = offsets[offsets.len() - 1].as_();
+    let bytes = bytes.slice(first..last);
+
+    let count = offsets.len() - 1;
+    let mut views = BufferMut::with_capacity(count);
+    // Wrapping keeps corrupt non-monotonic offsets from panicking on the subtraction itself; the
+    // wrapped length then fails the in-bounds slicing (or `max_buffer_len`) checks in the loop.
+    let buffers = extend_views(
+        &mut views,
+        start_buf_index,
+        max_buffer_len,
+        &bytes,
+        count,
+        |i| {
+            AsPrimitive::<usize>::as_(offsets[i + 1])
+                .wrapping_sub(AsPrimitive::<usize>::as_(offsets[i]))
+        },
+    );
+    (buffers, views.freeze())
+}
+
+/// Appends one view per value straight into `views`, splitting `bytes` into buffers.
+///
+/// This is the core behind [`build_views`]: it writes into an existing views buffer so that a
+/// [`VarBinViewBuilder`](crate::builders::VarBinViewBuilder) can build views directly into its
+/// storage without an intermediate allocation. `len_at(i)` is the byte length of value `i`, and
+/// the `count` lengths must describe `bytes` exactly. The returned buffers are zero-copy slices
+/// of `bytes`, numbered sequentially from `start_buf_index`.
+pub(crate) fn extend_views(
+    views: &mut BufferMut<BinaryView>,
+    start_buf_index: u32,
+    max_buffer_len: usize,
+    bytes: &ByteBuffer,
+    count: usize,
+    len_at: impl Fn(usize) -> usize,
+) -> Vec<ByteBuffer> {
     assert!(
         max_buffer_len <= MAX_BUFFER_LEN,
         "max_buffer_len cannot exceed MAX_BUFFER_LEN, offsets must fit in u32"
     );
 
     if bytes.len() <= max_buffer_len {
-        // Common case: the whole decoded heap fits within a single buffer, so no rollover can occur
-        // (`bytes.len()` is the total decoded size and therefore an upper bound on every offset).
-        build_views_single_buffer(start_buf_index, bytes, lens)
+        // Common case: the whole decoded heap fits within a single buffer, so no rollover can
+        // occur (`bytes.len()` is the total decoded size and therefore an upper bound on every
+        // offset).
+        extend_views_single_buffer(views, start_buf_index, bytes, count, len_at);
+        if bytes.is_empty() {
+            Vec::new()
+        } else {
+            vec![bytes.clone()]
+        }
     } else {
-        build_views_rolling(start_buf_index, max_buffer_len, bytes, lens)
+        extend_views_rolling(views, start_buf_index, max_buffer_len, bytes, count, len_at)
     }
 }
 
@@ -54,12 +135,15 @@ pub fn build_views<P: NativePType + AsPrimitive<usize>>(
 /// reference views inline, avoiding the out-of-line `BinaryView::make_view` call for the common
 /// long-string case. Every offset is bounded by `bytes.len()`, which the caller has guaranteed is
 /// at most [`MAX_BUFFER_LEN`], so the `usize -> u32` conversions cannot truncate.
-fn build_views_single_buffer<P: NativePType + AsPrimitive<usize>>(
-    start_buf_index: u32,
-    bytes: ByteBufferMut,
-    lens: &[P],
-) -> (Vec<ByteBuffer>, Buffer<BinaryView>) {
-    let mut views = BufferMut::<BinaryView>::with_capacity(lens.len());
+fn extend_views_single_buffer(
+    views: &mut BufferMut<BinaryView>,
+    buf_index: u32,
+    bytes: &ByteBuffer,
+    count: usize,
+    len_at: impl Fn(usize) -> usize,
+) {
+    views.reserve(count);
+    let base = views.len();
 
     let data = bytes.as_slice();
     let mut offset = 0usize;
@@ -68,72 +152,77 @@ fn build_views_single_buffer<P: NativePType + AsPrimitive<usize>>(
     // loop-invariant, so it reloads and rewrites the output cursor through the stack each
     // iteration. Writing into the spare slice keeps the cursor in a register and the length is
     // set once after the loop.
-    let spare = views.spare_capacity_mut();
-    for (slot, &len) in spare.iter_mut().zip(lens) {
-        let len = len.as_();
+    let spare = &mut views.spare_capacity_mut()[..count];
+    for (i, slot) in spare.iter_mut().enumerate() {
+        let len = len_at(i);
         let value = &data[offset..offset + len];
         let view = if len > BinaryView::MAX_INLINED_SIZE {
             let mut prefix = [0u8; 4];
             prefix.copy_from_slice(&value[..4]);
-            BinaryView::new_ref(len.as_(), prefix, start_buf_index, offset.as_())
+            BinaryView::new_ref(len.as_(), prefix, buf_index, offset.as_())
         } else {
-            BinaryView::make_view(value, start_buf_index, offset.as_())
+            BinaryView::make_view(value, buf_index, offset.as_())
         };
         slot.write(view);
         offset += len;
     }
-    // SAFETY: the loop initialized exactly `lens.len()` contiguous views (`spare` has at least
-    //  `lens.len()` slots, and `zip` stops at the shorter operand).
-    unsafe { views.set_len(lens.len()) };
-
-    let buffers = if bytes.is_empty() {
-        Vec::new()
-    } else {
-        vec![bytes.freeze()]
-    };
-    (buffers, views.freeze())
+    assert_eq!(
+        offset,
+        data.len(),
+        "value lengths must describe the byte heap exactly"
+    );
+    // SAFETY: the loop initialized exactly `count` contiguous views (`spare` has at least
+    //  `count` slots).
+    unsafe { views.set_len(base + count) };
 }
 
 /// Build views when the heap exceeds `max_buffer_len` and must be split across multiple buffers.
 ///
 /// The buffer is rolled over every `max_buffer_len` bytes so that no view offset overflows the
-/// `u32` offset field.
-fn build_views_rolling<P: NativePType + AsPrimitive<usize>>(
+/// `u32` offset field. Each output buffer is a zero-copy slice of `bytes`.
+fn extend_views_rolling(
+    views: &mut BufferMut<BinaryView>,
     start_buf_index: u32,
     max_buffer_len: usize,
-    mut bytes: ByteBufferMut,
-    lens: &[P],
-) -> (Vec<ByteBuffer>, Buffer<BinaryView>) {
-    let mut views = BufferMut::<BinaryView>::with_capacity(lens.len());
+    bytes: &ByteBuffer,
+    count: usize,
+    len_at: impl Fn(usize) -> usize,
+) -> Vec<ByteBuffer> {
+    views.reserve(count);
     let mut buffers = Vec::new();
     let mut buf_index = start_buf_index;
 
-    let mut offset = 0;
-    for &len in lens {
-        let len = len.as_();
+    let data = bytes.as_slice();
+    // The absolute start of the current segment, and the offset of the next value within it.
+    let mut segment_start = 0usize;
+    let mut offset = 0usize;
+    for i in 0..count {
+        let len = len_at(i);
         assert!(len <= max_buffer_len, "values cannot exceed max_buffer_len");
 
-        if (offset + len) > max_buffer_len {
+        if offset + len > max_buffer_len {
             // Roll the buffer every 2GiB, to avoid overflowing VarBinView offset field
-            let rest = bytes.split_off(offset);
-
-            buffers.push(bytes.freeze());
+            buffers.push(bytes.slice(segment_start..segment_start + offset));
             buf_index += 1;
+            segment_start += offset;
             offset = 0;
-
-            bytes = rest;
         }
-        let view = BinaryView::make_view(&bytes[offset..][..len], buf_index, offset.as_());
-        // SAFETY: we reserved the right capacity beforehand
-        unsafe { views.push_unchecked(view) };
+        let start = segment_start + offset;
+        let view = BinaryView::make_view(&data[start..start + len], buf_index, offset.as_());
+        views.push(view);
         offset += len;
     }
+    assert_eq!(
+        segment_start + offset,
+        data.len(),
+        "value lengths must describe the byte heap exactly"
+    );
 
-    if !bytes.is_empty() {
-        buffers.push(bytes.freeze());
+    if segment_start < data.len() {
+        buffers.push(bytes.slice(segment_start..data.len()));
     }
 
-    (buffers, views.freeze())
+    buffers
 }
 
 #[cfg(test)]
@@ -145,17 +234,18 @@ mod tests {
     use crate::arrays::varbinview::BinaryView;
     use crate::arrays::varbinview::build_views::MAX_BUFFER_LEN;
     use crate::arrays::varbinview::build_views::build_views;
+    use crate::arrays::varbinview::build_views::build_views_from_offsets;
 
     /// Concatenate `values` into a single byte heap and return it alongside the per-element lengths,
     /// matching the `(bytes, lens)` inputs that `build_views` consumes.
-    fn flatten(values: &[&[u8]]) -> (ByteBufferMut, Vec<u32>) {
+    fn flatten(values: &[&[u8]]) -> (ByteBuffer, Vec<u32>) {
         let mut bytes = ByteBufferMut::empty();
         let mut lens = Vec::with_capacity(values.len());
         for v in values {
             bytes.extend_from_slice(v);
             lens.push(u32::try_from(v.len()).unwrap());
         }
-        (bytes, lens)
+        (bytes.freeze(), lens)
     }
 
     /// Reconstruct the logical value behind each view by dereferencing it through the output
@@ -206,7 +296,7 @@ mod tests {
             assert!(buffers.is_empty(), "empty heap must not allocate a buffer");
         } else {
             assert_eq!(buffers.len(), 1, "whole heap must stay in one buffer");
-            // The fast path freezes the input heap unchanged.
+            // The fast path adopts the input heap unchanged.
             let concatenated: Vec<u8> = values.concat();
             assert_eq!(buffers[0].as_slice(), concatenated.as_slice());
         }
@@ -218,6 +308,37 @@ mod tests {
 
         let expected: Vec<Vec<u8>> = values.iter().map(|v| v.to_vec()).collect();
         assert_eq!(reconstruct(&buffers, &views, start_buf_index), expected);
+    }
+
+    /// The output buffers must be zero-copy slices of the input heap, on both paths — a copy here
+    /// silently doubles the memory cost of every decode that feeds views.
+    #[test]
+    fn output_buffers_are_zero_copy() {
+        let values: &[&[u8]] = &[
+            b"first long reference value",
+            b"tiny",
+            b"second long reference value!!",
+            b"third looooong reference value",
+        ];
+        let (bytes, lens) = flatten(values);
+        let base = bytes.as_ptr();
+
+        // Fast path: the single output buffer is the input buffer.
+        let (buffers, _views) = build_views(0, bytes.len() + 1, bytes.clone(), &lens);
+        assert_eq!(buffers.len(), 1);
+        assert_eq!(buffers[0].as_ptr(), base, "fast path must not copy");
+
+        // Rolling path: every output buffer points into the input allocation.
+        let longest = values.iter().map(|v| v.len()).max().unwrap();
+        let (buffers, _views) = build_views(0, longest, bytes, &lens);
+        assert!(buffers.len() > 1);
+        let mut expected_ptr = base;
+        for buffer in &buffers {
+            assert_eq!(buffer.as_ptr(), expected_ptr, "rolling path must not copy");
+            // SAFETY: the buffers partition the input heap, so the next one starts where
+            // this one ends, still within (or one past) the original allocation.
+            expected_ptr = unsafe { expected_ptr.add(buffer.len()) };
+        }
     }
 
     /// Offsets and sizes are written into the `u32` `Ref` fields via `as_` truncation, so we must
@@ -314,7 +435,7 @@ mod tests {
     #[test]
     fn fast_path_empty_input() {
         let lens: Vec<u32> = Vec::new();
-        let (buffers, views) = build_views(0, 1024, ByteBufferMut::empty(), &lens);
+        let (buffers, views) = build_views(0, 1024, ByteBuffer::empty(), &lens);
         assert!(buffers.is_empty());
         assert!(views.is_empty());
     }
@@ -334,6 +455,41 @@ mod tests {
             BinaryView::make_view(b"", 0, 36),
         ];
         assert_eq!(views.as_slice(), &expected);
+    }
+
+    /// The offsets-driven variant must agree with the lengths-driven one, reference only the
+    /// `offsets[0]..offsets[last]` range, and stay zero-copy — it exists so a `VarBinArray` heap
+    /// can feed views without materializing a lengths buffer or copying its bytes.
+    #[test]
+    fn from_offsets_matches_lengths_and_is_zero_copy() {
+        // A heap with a prefix and suffix outside the offsets range, as a sliced VarBin has.
+        let heap = ByteBuffer::copy_from(b"..a long value that is referenced!tiny..".as_slice());
+        let offsets: Vec<u32> = vec![2, 34, 38];
+
+        let (buffers, views) = build_views_from_offsets(5, MAX_BUFFER_LEN, heap.clone(), &offsets);
+
+        assert_eq!(buffers.len(), 1);
+        // Zero-copy: the buffer points at offset 2 of the original allocation.
+        // SAFETY: offset 2 is in bounds of the 40-byte heap.
+        assert_eq!(buffers[0].as_ptr(), unsafe { heap.as_ptr().add(2) });
+        assert_eq!(buffers[0].len(), 36);
+
+        assert_eq!(
+            reconstruct(&buffers, &views, 5),
+            vec![
+                b"a long value that is referenced!".to_vec(),
+                b"tiny".to_vec()
+            ]
+        );
+    }
+
+    /// Lengths that do not cover the heap exactly are a caller bug and must be rejected rather
+    /// than silently emitting views over a partially-covered buffer.
+    #[test]
+    #[should_panic(expected = "value lengths must describe the byte heap exactly")]
+    fn short_lengths_panic() {
+        let (bytes, _) = flatten(&[b"a long value that is referenced", b"tiny"]);
+        build_views(0, MAX_BUFFER_LEN, bytes, &[31u32]);
     }
 
     // TODO(someone): ideally CI would run this in release mode as well, since debug builds make the
@@ -380,7 +536,7 @@ mod tests {
         }
 
         let lens = vec![u32::try_from(STRING_LEN).unwrap(); N];
-        let (buffers, views) = build_views(0, MAX_BUFFER_LEN, bytes, &lens);
+        let (buffers, views) = build_views(0, MAX_BUFFER_LEN, bytes.freeze(), &lens);
 
         assert_eq!(views.len(), N);
         assert!(
@@ -419,7 +575,7 @@ mod tests {
         // In real code, this would all fit in one buffer, but to unit test the splitting logic
         // we split buffers at length 26, which should result in two buffers for the output array.
         let raw_data =
-            ByteBufferMut::copy_from("aaaaaaaaaaaaabbbbbbbbbbbbbcccccccccccccddddddddddddd");
+            ByteBuffer::copy_from("aaaaaaaaaaaaabbbbbbbbbbbbbcccccccccccccddddddddddddd");
         let lens = vec![13u8; 4];
 
         let (buffers, views) = build_views(0, 26, raw_data, &lens);
@@ -446,11 +602,6 @@ mod tests {
     #[test]
     #[should_panic(expected = "max_buffer_len cannot exceed MAX_BUFFER_LEN")]
     fn test_max_buffer_len_too_large_panics() {
-        build_views(
-            0,
-            MAX_BUFFER_LEN + 1,
-            ByteBufferMut::copy_from("abc"),
-            &[3u32],
-        );
+        build_views(0, MAX_BUFFER_LEN + 1, ByteBuffer::copy_from("abc"), &[3u32]);
     }
 }

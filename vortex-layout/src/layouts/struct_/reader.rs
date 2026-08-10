@@ -17,11 +17,12 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::FieldName;
-use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
+use vortex_array::expr::bound::get_item;
+use vortex_array::expr::bound::pack;
 use vortex_array::expr::make_bound_free_field_annotator;
 use vortex_array::expr::root;
 use vortex_array::expr::transform::BoundPartitionedExpr;
@@ -29,11 +30,9 @@ use vortex_array::expr::transform::partition_bound;
 use vortex_array::expr::traversal::NodeExt;
 use vortex_array::expr::traversal::Transformed;
 use vortex_array::expr::traversal::TraversalOrder;
-use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::fns::get_item::GetItem;
 use vortex_array::scalar_fn::fns::merge::Merge;
 use vortex_array::scalar_fn::fns::pack::Pack;
-use vortex_array::scalar_fn::fns::pack::PackOptions;
 use vortex_array::scalar_fn::fns::select::Select;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -243,9 +242,12 @@ fn expanded_struct_root(
     let children = fields
         .names()
         .iter()
-        .map(|name| BoundExpression::try_new(GetItem.bind(name.clone()), [root.clone()]))
-        .try_collect()?;
-    bound_pack(fields.names().clone(), children)
+        .map(|name| get_item(name.clone(), root.clone()))
+        .collect::<Vec<_>>();
+    Ok(pack(
+        fields.names().iter().cloned().zip(children),
+        Nullability::NonNullable,
+    ))
 }
 
 fn expand_struct_root(
@@ -287,7 +289,7 @@ fn expand_struct_root(
 
             if let Some(selection) = scalar_fn.as_opt::<Select>() {
                 let names = selection.normalize_to_included_fields(fields.names())?;
-                let children = names
+                let children: Vec<_> = names
                     .iter()
                     .map(|name| {
                         let idx = fields.find(name).vortex_expect(
@@ -297,7 +299,7 @@ fn expand_struct_root(
                     })
                     .collect();
                 return Ok(Transformed {
-                    value: bound_pack(names, children)?,
+                    value: pack(names.into_iter().zip(children), Nullability::NonNullable),
                     changed: true,
                     order: TraversalOrder::Skip,
                 });
@@ -332,16 +334,6 @@ fn step_into_struct_field(
             }
         })?
         .into_inner())
-}
-
-fn bound_pack(names: FieldNames, children: Vec<BoundExpression>) -> VortexResult<BoundExpression> {
-    BoundExpression::try_new(
-        Pack.bind(PackOptions {
-            names,
-            nullability: Nullability::NonNullable,
-        }),
-        children,
-    )
 }
 
 fn is_pack_or_merge(expr: &BoundExpression) -> bool {
@@ -379,9 +371,6 @@ impl LayoutReader for StructReader {
         split_range: &SplitRange,
         splits: &mut RowSplits,
     ) -> VortexResult<()> {
-        // In the case of an empty struct, we need to register the end split.
-        splits.push(split_range.root_row_range().end);
-
         // Register splits for the validity child, if there is one
         if let Some(validity_ref) = self.validity()? {
             validity_ref.register_splits(field_mask, split_range, splits)?;
@@ -390,7 +379,13 @@ impl LayoutReader for StructReader {
         self.layout.matching_fields(field_mask, |mask, idx| {
             self.field_reader_by_index(idx)?
                 .register_splits(&[mask], split_range, splits)
-        })
+        })?;
+
+        // In the case of an empty struct, we need to register the end split. Pushed last so it
+        // extends the final field's ascending run rather than starting a run of its own.
+        splits.push(split_range.root_row_range().end);
+
+        Ok(())
     }
 
     fn pruning_evaluation(

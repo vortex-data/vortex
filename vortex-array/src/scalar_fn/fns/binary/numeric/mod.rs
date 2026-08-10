@@ -13,7 +13,6 @@ mod primitive;
 mod tests;
 
 use decimal::execute_numeric_decimal;
-pub(crate) use primitive::PrimitiveOperand;
 use primitive::execute_numeric_primitive;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
