@@ -181,9 +181,8 @@ fn core_edition_ids_are_registered_array_encodings() {
     }
 }
 
-/// Every first-party member is an array encoding today. A member of another kind reaching a
-/// declaration without the resolver for that kind existing would be silently unenforced, so
-/// this pins the current coverage.
+/// Only array encodings are enforced at write time, so a member of another kind in a
+/// first-party declaration would be silently unenforced.
 #[test]
 fn first_party_declarations_only_add_array_encodings() {
     for declaration in EDITION_DECLARATIONS {
@@ -191,9 +190,8 @@ fn first_party_declarations_only_add_array_encodings() {
             assert_eq!(
                 member.kind,
                 ComponentKind::Array,
-                "{} declares a non-array member {:?}",
-                declaration.edition.id,
-                member.component
+                "in {}",
+                declaration.edition.id
             );
         }
     }

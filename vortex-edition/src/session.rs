@@ -88,8 +88,9 @@ impl EditionSession {
     pub fn declare(&self, declaration: &EditionDeclaration) -> Result<(), EditionError> {
         self.declare_edition(declaration.edition)?;
         for member in declaration.added {
-            self.declare_inclusion(EditionInclusion::from_member(
-                member,
+            self.declare_inclusion(EditionInclusion::new(
+                member.kind,
+                member.component,
                 declaration.edition.id,
             ))?;
         }
@@ -145,26 +146,9 @@ impl EditionSession {
             .next_back()
     }
 
-    /// Compute the full member set of an edition, across every [`ComponentKind`]: every
-    /// declared inclusion of the edition's family whose `since` is at or before it, sorted
-    /// by kind and then by component id.
-    ///
-    /// Callers that resolve members against a registry want one kind at a time — use
-    /// [`EditionSession::components_in`].
-    pub fn members_in(&self, edition: &EditionId) -> Vec<EditionInclusion> {
-        // Kinds are stored in separate maps, each already sorted by component id.
-        self.inner
-            .read()
-            .inclusions
-            .values()
-            .flat_map(|by_id| by_id.values())
-            .filter(|inclusion| inclusion.since.is_at_or_before(edition))
-            .copied()
-            .collect()
-    }
-
-    /// Compute an edition's members of one kind, sorted by component id. Only that kind's
-    /// declarations are scanned.
+    /// Compute an edition's members of one kind: every declared inclusion of that kind in
+    /// the edition's family whose `since` is at or before it, sorted by component id. Only
+    /// that kind's declarations are scanned.
     pub fn components_in(&self, edition: &EditionId, kind: ComponentKind) -> Vec<EditionInclusion> {
         let inner = self.inner.read();
         let Some(by_id) = inner.inclusions.get(&kind) else {

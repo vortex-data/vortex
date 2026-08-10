@@ -18,16 +18,16 @@ editions is the earliest version of vortex required to read that file.
 
 ## What an edition contains
 
-Every member of an edition is recorded with a **component kind**. Today the only kind any edition declares is
-`array`, so an edition is exactly the set of array encodings that may appear in a file written against it: the
-unknown-encoding error below names an array encoding, and the write-time check covers array encodings.
+Every member of an edition is recorded with a **component kind**, either `array` or `layout`. Today every declared
+member is an `array`, so an edition is exactly the set of array encodings that may appear in a file written against
+it: the unknown-encoding error below names an array encoding, and the write-time check covers array encodings.
 
-The kind is recorded because ids are unique only within a kind — a future layout named `vortex.flat` and an array
-encoding named `vortex.flat` would be different members — and because membership is resolved one kind at a time.
-The writer asks for the enabled *array encoding* ids and never sees members of another kind. That is what lets
-layouts, scalar functions, and aggregate functions join editions later without colliding with array encoding ids
-or silently widening what a writer may emit. Until a kind has both declared members and a component enforcing
-them, an edition says nothing about that kind.
+The kind is recorded because ids are unique only within a kind — a layout named `vortex.flat` and an array encoding
+named `vortex.flat` would be different members — and because membership is resolved one kind at a time: the writer
+asks for the enabled *array encoding* ids and never sees members of another kind. That is what lets `layout`, and
+later kinds such as scalar and aggregate functions, join editions without colliding with array encoding ids or
+silently widening what a writer may emit. Until a kind has both declared members and a component enforcing them,
+an edition says nothing about that kind.
 
 ## Resolving an unknown-encoding error
 

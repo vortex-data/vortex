@@ -61,13 +61,13 @@ fn editions_pass_the_test_harness() -> Result<(), crate::EditionError> {
 fn membership_is_transitive() {
     let editions = session();
 
-    let first = editions.members_in(&FIRST);
+    let first = editions.array_encodings_in(&FIRST);
     let ids: Vec<&str> = first.iter().map(|i| i.component_id.as_str()).collect();
     assert_eq!(ids, ["test.alpha", "test.beta"]);
 
     // Members of the first edition are members of the second by inheritance, with their
     // `since` still recording the edition they actually joined in.
-    let second = editions.members_in(&SECOND);
+    let second = editions.array_encodings_in(&SECOND);
     let ids: Vec<&str> = second.iter().map(|i| i.component_id.as_str()).collect();
     assert_eq!(ids, ["test.alpha", "test.beta", "test.gamma"]);
     assert!(
@@ -89,9 +89,9 @@ fn membership_is_transitive() {
     // never crosses families.
     assert!(first.iter().all(|i| i.since == FIRST));
     let third = EditionId::new("test", 2026, 10, 0);
-    assert_eq!(editions.members_in(&third).len(), 3);
+    assert_eq!(editions.array_encodings_in(&third).len(), 3);
     let other = EditionId::new("other", 2026, 10, 0);
-    assert!(editions.members_in(&other).is_empty());
+    assert!(editions.array_encodings_in(&other).is_empty());
 }
 
 #[test]
@@ -281,7 +281,8 @@ fn edition_id_display() {
 }
 
 #[test]
-fn members_carry_their_component_kind() -> Result<(), crate::EditionError> {
+fn kinds_are_resolved_independently() -> Result<(), crate::EditionError> {
+    // `test.alpha` is declared under both kinds: same id, two distinct members.
     static MIXED: EditionDeclaration = EditionDeclaration {
         edition: Edition {
             id: FIRST,
@@ -290,50 +291,7 @@ fn members_carry_their_component_kind() -> Result<(), crate::EditionError> {
         added: &[
             EditionMember::array(&"test.alpha"),
             EditionMember::layout(&"test.alpha"),
-            EditionMember::aggregate_fn(&"test.sum"),
-            EditionMember::scalar_fn(&"test.add"),
-        ],
-    };
-
-    let editions = EditionSession::empty();
-    editions.declare(&MIXED)?;
-    editions.validate()?;
-
-    // The same id under two kinds is two distinct members, and each keeps its kind.
-    let members = editions.members_in(&FIRST);
-    assert_eq!(members.len(), 4);
-    let alphas: Vec<ComponentKind> = members
-        .iter()
-        .filter(|i| i.component_id.as_str() == "test.alpha")
-        .map(|i| i.kind)
-        .collect();
-    assert_eq!(alphas, [ComponentKind::Array, ComponentKind::Layout]);
-
-    // Kinds are resolved one at a time, so a layout never reaches the array registry.
-    let arrays = editions.components_in(&FIRST, ComponentKind::Array);
-    assert_eq!(arrays.len(), 1);
-    assert_eq!(arrays[0].component_id.as_str(), "test.alpha");
-
-    // A duplicate within one kind is still an error.
-    assert!(
-        editions
-            .declare_inclusion(EditionInclusion::array("test.alpha", FIRST))
-            .is_err()
-    );
-    Ok(())
-}
-
-#[test]
-fn enabled_ids_are_resolved_per_kind() -> Result<(), crate::EditionError> {
-    static MIXED: EditionDeclaration = EditionDeclaration {
-        edition: Edition {
-            id: FIRST,
-            min_vortex_version: None,
-        },
-        added: &[
-            EditionMember::array(&"test.alpha"),
             EditionMember::layout(&"test.flat"),
-            EditionMember::aggregate_fn(&"test.sum"),
         ],
     };
 
@@ -348,19 +306,17 @@ fn enabled_ids_are_resolved_per_kind() -> Result<(), crate::EditionError> {
             .map(|id| id.to_string())
             .collect::<Vec<_>>()
     };
+    // A layout never reaches the array registry, and what a writer may emit is the arrays.
     assert_eq!(ids(ComponentKind::Array), ["test.alpha"]);
-    assert_eq!(ids(ComponentKind::Layout), ["test.flat"]);
-    assert_eq!(ids(ComponentKind::AggregateFn), ["test.sum"]);
-    assert!(ids(ComponentKind::ScalarFn).is_empty());
+    assert_eq!(ids(ComponentKind::Layout), ["test.alpha", "test.flat"]);
+    assert_eq!(session.enabled_array_encoding_ids().len(), 1);
 
-    // What a writer may emit is the array set alone.
-    assert_eq!(
+    // A duplicate within one kind is still an error.
+    assert!(
         session
-            .enabled_array_encoding_ids()
-            .iter()
-            .map(|id| id.as_str())
-            .collect::<Vec<_>>(),
-        ["test.alpha"]
+            .editions()
+            .declare_inclusion(EditionInclusion::array("test.alpha", FIRST))
+            .is_err()
     );
     Ok(())
 }

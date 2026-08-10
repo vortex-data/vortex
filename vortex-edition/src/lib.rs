@@ -11,18 +11,14 @@
 //! later edition of the same family*. Any crate can register declarations into a session,
 //! so inclusions can live next to the component they describe.
 //!
-//! Every membership is typed by a [`ComponentKind`], because ids are only unique within a
-//! kind: today editions cover [`ComponentKind::Array`] encodings, and the kind is what lets
-//! layouts, scalar functions, and aggregate functions join editions later without their ids
-//! colliding with array encoding ids. Read paths ask for one kind at a time — the file
-//! writer resolves [`EditionSessionExt::enabled_array_encoding_ids`], never an untyped id
-//! set.
+//! Every membership is typed by a [`ComponentKind`], and members are resolved one kind at a
+//! time: the file writer asks for [`EditionSessionExt::enabled_array_encoding_ids`], never
+//! an untyped id set.
 //!
 //! An edition is a **draft** until its [`Edition::min_vortex_version`] is recorded —
 //! recording it is the act of freezing. The per-edition member sets are computed from the
-//! registered declarations by [`EditionSession::members_in`] (or, filtered to one kind, by
-//! [`EditionSession::components_in`]), and correctness is enforced by unit tests:
-//! [`EditionSession::validate`] checks a whole registry, and
+//! registered declarations by [`EditionSession::components_in`], and correctness is enforced
+//! by unit tests: [`EditionSession::validate`] checks a whole registry, and
 //! [`test_harness::validate_edition`] validates one edition's constraints — call it once in
 //! the `#[cfg(test)]` module of each edition definition.
 //!
@@ -122,43 +118,28 @@ impl Display for EditionId {
 /// Ids are unique per kind, not globally: a layout named `vortex.flat` and an array encoding
 /// named `vortex.flat` are different members. Every membership records its kind, so callers
 /// resolve one kind at a time — the file writer takes the [`ComponentKind::Array`] ids and
-/// never sees the rest.
-///
-/// Editions cover array encodings today; the other kinds name the session registries an
-/// edition may grow to cover.
+/// never sees the rest. Other kinds (scalar and aggregate functions) can be added the same
+/// way once something declares and enforces them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ComponentKind {
     /// An array encoding, e.g. `vortex.alp`, registered in the session's array registry.
     Array,
     /// A layout encoding, e.g. `vortex.flat`, registered in the session's layout registry.
     Layout,
-    /// A scalar function, registered in the session's scalar function registry.
-    ScalarFn,
-    /// An aggregate function, registered in the session's aggregate function registry.
-    AggregateFn,
-}
-
-impl ComponentKind {
-    /// The kind's name as it reads in diagnostics, e.g. `array encoding`.
-    pub const fn as_str(&self) -> &'static str {
-        match self {
-            Self::Array => "array encoding",
-            Self::Layout => "layout",
-            Self::ScalarFn => "scalar function",
-            Self::AggregateFn => "aggregate function",
-        }
-    }
 }
 
 impl Display for ComponentKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
+        f.write_str(match self {
+            Self::Array => "array encoding",
+            Self::Layout => "layout",
+        })
     }
 }
 
 /// An edition: a named set of components with a read-compatibility guarantee, registered with
 /// [`EditionSession::declare_edition`]. The set itself is computed from the registered
-/// [`EditionInclusion`]s by [`EditionSession::members_in`].
+/// [`EditionInclusion`]s by [`EditionSession::components_in`].
 #[derive(Clone, Copy, Debug)]
 pub struct Edition {
     /// The edition identifier. Also carries the freeze date: `core2026.07.0` freezes in
@@ -184,8 +165,8 @@ impl Edition {
 /// same family. Registered with [`EditionSession::declare_inclusion`].
 #[derive(Clone, Copy, Debug)]
 pub struct EditionInclusion {
-    /// What the membership covers: an array encoding, a layout, a function. Ids are unique
-    /// per kind, so this is part of the member's identity, not a label.
+    /// What the membership covers. Ids are unique per kind, so this is part of the
+    /// member's identity, not a label.
     pub kind: ComponentKind,
     /// The interned component id, e.g. `vortex.alp`.
     pub component_id: Id,
@@ -243,29 +224,20 @@ pub struct EditionMember {
 }
 
 impl EditionMember {
-    /// A member of the given kind.
-    pub const fn new(kind: ComponentKind, component: &'static dyn AsComponentId) -> Self {
-        Self { kind, component }
-    }
-
     /// An array encoding member, e.g. `vortex.alp`.
     pub const fn array(component: &'static dyn AsComponentId) -> Self {
-        Self::new(ComponentKind::Array, component)
+        Self {
+            kind: ComponentKind::Array,
+            component,
+        }
     }
 
     /// A layout member, e.g. `vortex.flat`.
     pub const fn layout(component: &'static dyn AsComponentId) -> Self {
-        Self::new(ComponentKind::Layout, component)
-    }
-
-    /// A scalar function member.
-    pub const fn scalar_fn(component: &'static dyn AsComponentId) -> Self {
-        Self::new(ComponentKind::ScalarFn, component)
-    }
-
-    /// An aggregate function member.
-    pub const fn aggregate_fn(component: &'static dyn AsComponentId) -> Self {
-        Self::new(ComponentKind::AggregateFn, component)
+        Self {
+            kind: ComponentKind::Layout,
+            component,
+        }
     }
 }
 
@@ -301,11 +273,6 @@ impl EditionInclusion {
     /// same family.
     pub fn array<C: AsComponentId + ?Sized>(encoding: &C, since: EditionId) -> Self {
         Self::new(ComponentKind::Array, encoding, since)
-    }
-
-    /// Declare the membership described by `member`.
-    pub fn from_member(member: &EditionMember, since: EditionId) -> Self {
-        Self::new(member.kind, member.component, since)
     }
 
     /// Validate the declaration's form: a lowercase `namespace.name` component id and, if
