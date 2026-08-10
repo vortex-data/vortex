@@ -648,21 +648,27 @@ pub(crate) fn map_from_arrow_parts(
     Ok(MapArray::try_new(map_dtype, entries)?.into_array())
 }
 
+/// Conversion of an Arrow map array into a Vortex `Map` array.
+pub fn from_arrow_map(array: &ArrowMapArray, nullable: bool) -> VortexResult<ArrayRef> {
+    let DataType::Map(_, keys_sorted) = array.data_type() else {
+        vortex_panic!("Invalid data type for MapArray: {}", array.data_type());
+    };
+    let entries = from_arrow_struct(array.entries(), false)?;
+    map_from_arrow_parts(
+        entries,
+        array.offsets(),
+        array.nulls(),
+        *keys_sorted,
+        nullable,
+    )
+}
+
 impl FromArrowArray<&ArrowMapArray> for ArrayRef {
     fn from_arrow(array: &ArrowMapArray, nullable: bool) -> VortexResult<Self> {
-        let DataType::Map(_, keys_sorted) = array.data_type() else {
-            vortex_panic!("Invalid data type for MapArray: {}", array.data_type());
-        };
-        let entries = Self::from_arrow(array.entries(), false)?;
-        map_from_arrow_parts(
-            entries,
-            array.offsets(),
-            array.nulls(),
-            *keys_sorted,
-            nullable,
-        )
+        from_arrow_map(array, nullable)
     }
 }
+
 /// Conversion of an Arrow null array into a Vortex `Null` array.
 pub fn from_arrow_null(value: &ArrowNullArray, nullable: bool) -> VortexResult<ArrayRef> {
     vortex_ensure!(
@@ -748,6 +754,7 @@ pub fn from_arrow_dyn(array: &dyn ArrowArray, nullable: bool) -> VortexResult<Ar
         DataType::FixedSizeList(..) => {
             from_arrow_fixed_size_list(array.as_fixed_size_list(), nullable)
         }
+        DataType::Map(..) => from_arrow_map(array.as_map(), nullable),
         DataType::Null => from_arrow_null(as_null_array(array), nullable),
         DataType::Timestamp(u, _) => match u {
             ArrowTimeUnit::Second => {
@@ -906,6 +913,8 @@ mod tests {
     use arrow_array::builder::Int32Builder;
     use arrow_array::builder::LargeListBuilder;
     use arrow_array::builder::ListBuilder;
+    use arrow_array::builder::MapBuilder as ArrowMapBuilder;
+    use arrow_array::builder::StringBuilder;
     use arrow_array::builder::StringViewBuilder;
     use arrow_array::new_null_array;
     use arrow_array::types::ArrowPrimitiveType;
@@ -937,9 +946,12 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::extension::datetime::Timestamp;
+    use vortex_error::VortexResult;
 
     use crate::FromArrowArray as _;
     use crate::IntoVortexArray as _;
+    use crate::convert::from_arrow_batch;
+    use crate::convert::from_arrow_dyn;
 
     #[rstest]
     #[case::i8(
@@ -1724,6 +1736,40 @@ mod tests {
             1,
         );
         ArrayRef::from_arrow(null_struct_array_with_non_nullable_field.as_ref(), true).unwrap();
+    }
+
+    #[test]
+    fn dyn_dispatch_imports_map() -> VortexResult<()> {
+        let mut builder = ArrowMapBuilder::new(None, StringBuilder::new(), Int32Builder::new());
+        builder.keys().append_value("joe");
+        builder.values().append_value(1);
+        builder.append(true)?;
+        builder.append(false)?;
+        let arrow = builder.finish();
+
+        let expected = DType::map(
+            DType::Utf8(Nullability::NonNullable),
+            DType::Primitive(PType::I32, Nullability::Nullable),
+            false,
+            Nullability::Nullable,
+        )?;
+
+        // Dispatching on the Arrow data type must cover maps...
+        assert_eq!(from_arrow_dyn(&arrow, true)?.dtype(), &expected);
+
+        // ...including maps reached by recursing into a container.
+        let batch = RecordBatch::try_from_iter_with_nullable([(
+            "maps",
+            Arc::new(arrow) as Arc<dyn ArrowArray>,
+            true,
+        )])?;
+        let imported = from_arrow_batch(&batch, false)?;
+        assert_eq!(
+            imported.as_::<Struct>().unmasked_field(0).dtype(),
+            &expected
+        );
+
+        Ok(())
     }
 
     #[test]

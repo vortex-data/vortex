@@ -144,20 +144,20 @@ where
 /// This is useful for compute functions that delegate to Arrow using [Datum],
 /// which will return a scalar (length 1 Arrow array) if the input array is constant.
 ///
+/// The array is imported through the [`ArrowSession`](crate::ArrowSession) of `ctx`, so nested
+/// extension fields reach their registered import plugins.
+///
 /// # Error
 ///
 /// The provided array must have length `len` or `1`.
-#[allow(deprecated)]
-pub fn from_arrow_columnar<A>(
-    array: A,
+pub fn from_arrow_columnar(
+    array: &dyn ArrowArray,
     len: usize,
     nullable: bool,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef>
-where
-    ArrayRef: FromArrowArray<A>,
-{
-    let array = ArrayRef::from_arrow(array, nullable)?;
+) -> VortexResult<ArrayRef> {
+    let session = ctx.session().clone();
+    let array = session.arrow().from_arrow_array_nullable(array, nullable)?;
     if array.len() == len {
         return Ok(array);
     }
