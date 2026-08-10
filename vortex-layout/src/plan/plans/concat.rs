@@ -6,16 +6,22 @@ use std::sync::Arc;
 
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
+use vortex_array::expr::ExactBoundExpr;
+use vortex_array::expr::label_bound_tree;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::registry::CachedId;
 
+use crate::layouts::row_idx::RowIdx as RowIdxFn;
+use crate::plan::Eval;
+use crate::plan::EvalPlan;
 use crate::plan::Plan;
 use crate::plan::PlanChildren;
 use crate::plan::PlanId;
 use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
+use crate::plan::optimizer::PlanParentReduceRule;
 
 /// Concatenates its children row-wise.
 #[derive(Clone, Debug)]
@@ -138,5 +144,47 @@ impl PlanVTable for Concat {
 
     fn child_name(_plan: &Plan<Self>, index: usize) -> Cow<'_, str> {
         Cow::Owned(format!("chunks[{index}]"))
+    }
+}
+
+/// Pushes an expression into every chunk of a [`Concat`].
+#[derive(Debug)]
+pub(crate) struct ExpressionConcatRule;
+
+impl PlanParentReduceRule<Concat> for ExpressionConcatRule {
+    type Parent = Eval;
+
+    fn reduce_parent(
+        &self,
+        child: &Plan<Concat>,
+        parent: &Plan<Eval>,
+        _child_idx: usize,
+    ) -> VortexResult<Option<PlanRef>> {
+        let expression = parent.expression();
+        // Row-index expressions are relative to the whole row domain, so they cannot be evaluated
+        // chunk by chunk.
+        let references_row_idx = label_bound_tree(
+            expression,
+            |node| {
+                node.as_scalar()
+                    .is_some_and(|scalar_fn| scalar_fn.is::<RowIdxFn>())
+            },
+            |acc, &child| acc | child,
+        )
+        .get(&ExactBoundExpr(expression.clone()))
+        .copied()
+        .unwrap_or(false);
+        if references_row_idx {
+            return Ok(None);
+        }
+
+        let chunks = child
+            .children()
+            .iter()
+            .map(|chunk| Ok(EvalPlan::try_new(expression.clone(), chunk?)?.into_plan()))
+            .collect::<VortexResult<Vec<_>>>()?;
+        Ok(Some(
+            ConcatPlan::try_new(expression.dtype().clone(), chunks)?.into_plan(),
+        ))
     }
 }
