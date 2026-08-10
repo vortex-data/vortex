@@ -2,17 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::cell::RefCell;
 use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
-use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::dtype::DType;
 use crate::expr::Expression;
+use crate::expr::Scope;
 use crate::expr::transform::match_between::find_between;
 use crate::scalar_fn::ReduceCtx;
 use crate::scalar_fn::ReduceNode;
@@ -27,14 +25,12 @@ impl Expression {
     /// 1. `simplify_untyped` - type-independent simplifications
     /// 2. `simplify` - type-aware simplifications
     /// 3. `reduce` - abstract reduction rules via `ReduceNode`/`ReduceCtx`
-    pub fn optimize(&self, scope: &DType) -> VortexResult<Expression> {
-        let cache = SimplifyCache {
-            scope,
-            dtype_cache: RefCell::new(HashMap::new()),
-        };
+    pub fn optimize(&self, scope: impl Into<Scope>) -> VortexResult<Expression> {
+        let scope = scope.into();
+        let ctx = ScopedSimplifyCtx(scope.clone());
         Ok(self
             .clone()
-            .try_optimize(scope, &cache)?
+            .try_optimize(&scope, &ctx)?
             .unwrap_or_else(|| self.clone()))
     }
 
@@ -71,8 +67,8 @@ impl Expression {
     /// Try to optimize the root expression node only, returning None if no optimizations applied.
     fn try_optimize(
         &self,
-        scope: &DType,
-        cache: &SimplifyCache<'_>,
+        scope: &Scope,
+        ctx: &ScopedSimplifyCtx,
     ) -> VortexResult<Option<Expression>> {
         let reduce_ctx = ExpressionReduceCtx {
             scope: scope.clone(),
@@ -100,7 +96,7 @@ impl Expression {
             }
 
             // Try simplify (typed)
-            if let Some(simplified) = current.simplify_node(cache)? {
+            if let Some(simplified) = current.simplify_node(ctx)? {
                 current = simplified;
                 changed = true;
                 any_optimizations = true;
@@ -138,7 +134,7 @@ impl Expression {
     /// Optimize the entire expression tree recursively.
     ///
     /// Optimizes children first (bottom-up), then optimizes the root.
-    pub fn optimize_recursive(&self, scope: &DType) -> VortexResult<Expression> {
+    pub fn optimize_recursive(&self, scope: impl Into<Scope>) -> VortexResult<Expression> {
         Ok(self
             .clone()
             .try_optimize_recursive(scope)?
@@ -146,12 +142,13 @@ impl Expression {
     }
 
     /// Try to optimize the entire expression tree recursively.
-    pub fn try_optimize_recursive(&self, scope: &DType) -> VortexResult<Option<Expression>> {
-        let cache = SimplifyCache {
-            scope,
-            dtype_cache: RefCell::new(HashMap::new()),
-        };
-        let result = self.try_optimize_recursive_inner(scope, &cache)?;
+    pub fn try_optimize_recursive(
+        &self,
+        scope: impl Into<Scope>,
+    ) -> VortexResult<Option<Expression>> {
+        let scope = scope.into();
+        let ctx = ScopedSimplifyCtx(scope.clone());
+        let result = self.try_optimize_recursive_inner(&scope, &ctx)?;
 
         // Apply the between optimization once at the top level only.
         // TODO(ngates): remove the "between" optimization, or rewrite it to not always convert
@@ -161,21 +158,22 @@ impl Expression {
 
     fn try_optimize_recursive_inner(
         &self,
-        scope: &DType,
-        cache: &SimplifyCache<'_>,
+        scope: &Scope,
+        ctx: &ScopedSimplifyCtx,
     ) -> VortexResult<Option<Expression>> {
         let mut current = self.clone();
         let mut any_optimizations = false;
 
-        // A lambda's body types against a parameter frame that this pass does not carry, so
-        // descending would try to resolve a variable against the root dtype and fail. Leave it to
-        // whoever binds the lambda and knows the parameter types.
+        // A lambda's parameter dtypes come from whoever applies it, and an unbound tree records no
+        // applier, so there is no frame to push here. Descending would leave the body's variables
+        // unresolvable. A higher-order function knows the parameter types and can push a frame, at
+        // which point this becomes a `push_frame` rather than a bail-out.
         if self.as_lambda().is_some() {
             return Ok(None);
         }
 
         // First optimize the root
-        if let Some(optimized) = current.clone().try_optimize(scope, cache)? {
+        if let Some(optimized) = current.clone().try_optimize(scope, ctx)? {
             current = optimized;
             any_optimizations = true;
         }
@@ -184,7 +182,7 @@ impl Expression {
         let mut new_children = Vec::with_capacity(current.children().len());
         let mut any_child_optimized = false;
         for child in current.children().iter() {
-            if let Some(optimized) = child.try_optimize_recursive_inner(scope, cache)? {
+            if let Some(optimized) = child.try_optimize_recursive_inner(scope, ctx)? {
                 new_children.push(optimized);
                 any_child_optimized = true;
             } else {
@@ -197,7 +195,7 @@ impl Expression {
             any_optimizations = true;
 
             // After updating children, try to optimize root again
-            if let Some(optimized) = current.clone().try_optimize(scope, cache)? {
+            if let Some(optimized) = current.clone().try_optimize(scope, ctx)? {
                 current = optimized;
             }
         }
@@ -252,43 +250,21 @@ impl Expression {
     }
 }
 
-struct SimplifyCache<'a> {
-    scope: &'a DType,
-    dtype_cache: RefCell<HashMap<Expression, DType>>,
-}
+/// Types expressions for the simplification rules.
+///
+/// `Expression::return_dtype` resolves `Root` and any `Variable` against the scope, so this is a
+/// thin adapter rather than a second typing implementation.
+struct ScopedSimplifyCtx(Scope);
 
-impl SimplifyCtx for SimplifyCache<'_> {
+impl SimplifyCtx for ScopedSimplifyCtx {
     fn return_dtype(&self, expr: &Expression) -> VortexResult<DType> {
-        // If the expression is "root", return the scope dtype
-        if expr.is_root() {
-            return Ok(self.scope.clone());
-        }
-
-        if let Some(dtype) = self.dtype_cache.borrow().get(expr) {
-            return Ok(dtype.clone());
-        }
-
-        // Otherwise, compute dtype from children
-        let input_dtypes: Vec<_> = expr
-            .children()
-            .iter()
-            .map(|c| self.return_dtype(c))
-            .try_collect()?;
-        let dtype = expr
-            .as_scalar()
-            .ok_or_else(|| vortex_err!("cannot type a non-scalar expression: {expr}"))?
-            .return_dtype(&input_dtypes)?;
-        self.dtype_cache
-            .borrow_mut()
-            .insert(expr.clone(), dtype.clone());
-
-        Ok(dtype)
+        expr.return_dtype(&self.0)
     }
 }
 
 struct ExpressionReduceNode {
     expression: Expression,
-    scope: DType,
+    scope: Scope,
 }
 
 impl ReduceNode for ExpressionReduceNode {
@@ -317,7 +293,7 @@ impl ReduceNode for ExpressionReduceNode {
 }
 
 struct ExpressionReduceCtx {
-    scope: DType,
+    scope: Scope,
 }
 impl ReduceCtx for ExpressionReduceCtx {
     fn new_node(
@@ -420,7 +396,12 @@ mod tests {
 mod lambda_tests {
     use vortex_error::VortexResult;
 
+    use crate::dtype::DType;
+    use crate::dtype::Nullability::NonNullable;
+    use crate::dtype::PType;
     use crate::expr::Expression;
+    use crate::expr::Frame;
+    use crate::expr::Scope;
     use crate::expr::col;
     use crate::expr::fill_null;
     use crate::expr::lambda;
@@ -433,7 +414,7 @@ mod lambda_tests {
     #[test]
     fn a_lambda_is_an_optimization_boundary() -> VortexResult<()> {
         let expr = Expression::from(lambda(["x"], fill_null(var("x"), lit(0_i32))));
-        assert_eq!(expr.clone().optimize_recursive(&struct_dtype())?, expr);
+        assert_eq!(expr.clone().optimize_recursive(struct_dtype())?, expr);
         Ok(())
     }
 
@@ -441,21 +422,54 @@ mod lambda_tests {
     /// which is a rewrite the optimizer actually performs.
     #[test]
     fn optimization_still_applies_outside_a_lambda() -> VortexResult<()> {
-        use crate::dtype::DType;
-        use crate::dtype::Nullability;
-        use crate::dtype::PType;
         use crate::expr::cast;
         use crate::expr::lt_eq;
 
         let expr = lt_eq(
             col("a"),
-            cast(
-                lit(3_i32),
-                DType::Primitive(PType::I64, Nullability::NonNullable),
-            ),
+            cast(lit(3_i32), DType::Primitive(PType::I64, NonNullable)),
         );
-        let optimized = expr.optimize_recursive(&struct_dtype())?;
+        let optimized = expr.optimize_recursive(struct_dtype())?;
         assert_ne!(optimized, expr, "casting a literal should fold");
         Ok(())
+    }
+
+    /// A caller that supplies a frame — a higher-order function, or a partitioning pass that builds
+    /// its own environment — can resolve variables, so the optimizer types straight through them.
+    #[test]
+    fn a_variable_bound_by_a_frame_optimizes() -> VortexResult<()> {
+        use crate::expr::cast;
+        use crate::expr::lt_eq;
+
+        let scope = Scope::new(struct_dtype()).push_frame(Frame::try_new([(
+            "v".into(),
+            DType::Primitive(PType::I64, NonNullable),
+        )])?);
+
+        let expr = lt_eq(
+            var("v"),
+            cast(lit(3_i32), DType::Primitive(PType::I64, NonNullable)),
+        );
+        let optimized = expr.optimize_recursive(&scope)?;
+
+        assert_ne!(optimized, expr, "casting a literal should still fold");
+        assert_eq!(
+            optimized.return_dtype(&scope)?,
+            DType::Bool(NonNullable),
+            "the variable must resolve against the frame"
+        );
+        Ok(())
+    }
+
+    /// The same expression with no frame has nothing to resolve against, so it fails rather than
+    /// silently typing the variable against the root dtype.
+    #[test]
+    fn a_variable_with_no_frame_is_rejected() {
+        let expr = fill_null(var("v"), lit(0_i32));
+        let err = expr.optimize_recursive(struct_dtype()).unwrap_err();
+        assert!(
+            err.to_string().contains("unbound variable 'v'"),
+            "unexpected error: {err}"
+        );
     }
 }

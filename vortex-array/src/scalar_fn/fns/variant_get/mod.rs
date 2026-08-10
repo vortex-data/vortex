@@ -575,7 +575,7 @@ mod tests {
     fn variant_get_return_dtype_is_nullable_variant_without_requested_dtype() {
         let expr = variant_get(root(), VariantPath::field("data"), None);
         let dtype = expr
-            .return_dtype(&DType::Variant(Nullability::NonNullable))
+            .return_dtype(DType::Variant(Nullability::NonNullable))
             .unwrap();
 
         assert_eq!(dtype, DType::Variant(Nullability::Nullable));
@@ -586,7 +586,7 @@ mod tests {
         let requested = DType::Primitive(PType::I64, Nullability::NonNullable);
         let expr = variant_get(root(), VariantPath::field("data"), Some(requested));
         let dtype = expr
-            .return_dtype(&DType::Variant(Nullability::NonNullable))
+            .return_dtype(DType::Variant(Nullability::NonNullable))
             .unwrap();
 
         assert_eq!(dtype, DType::Primitive(PType::I64, Nullability::Nullable));
@@ -596,7 +596,7 @@ mod tests {
     fn variant_get_rejects_non_variant_input() {
         let expr = variant_get(root(), VariantPath::field("data"), None);
         let err = expr
-            .return_dtype(&DType::Utf8(Nullability::NonNullable))
+            .return_dtype(DType::Utf8(Nullability::NonNullable))
             .unwrap_err();
 
         assert!(err.to_string().contains("VariantGet input must be Variant"));

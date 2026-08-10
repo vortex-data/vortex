@@ -295,7 +295,7 @@ mod tests {
             lit(3i32),
             DType::Primitive(PType::F64, Nullability::NonNullable),
         );
-        let optimized = expr.optimize(&test_harness::struct_dtype())?;
+        let optimized = expr.optimize(test_harness::struct_dtype())?;
 
         let scalar = optimized
             .as_opt::<Literal>()
@@ -315,7 +315,7 @@ mod tests {
             lit(decimal),
             DType::Primitive(PType::F64, Nullability::NonNullable),
         );
-        let optimized = expr.optimize(&test_harness::struct_dtype())?;
+        let optimized = expr.optimize(test_harness::struct_dtype())?;
 
         let scalar = optimized
             .as_opt::<Literal>()
@@ -337,7 +337,7 @@ mod tests {
             ))),
             target.clone(),
         );
-        let optimized = expr.optimize(&test_harness::struct_dtype())?;
+        let optimized = expr.optimize(test_harness::struct_dtype())?;
 
         assert!(optimized.as_opt::<Literal>().is_none());
         assert_eq!(optimized.as_opt::<Cast>(), Some(&target));

@@ -1304,7 +1304,7 @@ mod tests {
     fn test_simplify_coalesce_is_null_rewrites_to_fill_null() -> VortexResult<()> {
         // CASE WHEN is_null(x) THEN 0 ELSE x END  ==>  fill_null(x, 0)
         let expr = case_when(is_null(col("x")), lit(0i64), col("x"));
-        let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x"]))?;
+        let optimized = expr.optimize_recursive(nullable_i64_scope(&["x"]))?;
         assert!(
             optimized.to_string().starts_with("vortex.fill_null"),
             "expected fill_null, got {optimized}"
@@ -1316,7 +1316,7 @@ mod tests {
     fn test_simplify_coalesce_is_not_null_rewrites_to_fill_null() -> VortexResult<()> {
         // CASE WHEN is_not_null(x) THEN x ELSE 0 END  ==>  fill_null(x, 0)
         let expr = case_when(is_not_null(col("x")), col("x"), lit(0i64));
-        let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x"]))?;
+        let optimized = expr.optimize_recursive(nullable_i64_scope(&["x"]))?;
         assert!(
             optimized.to_string().starts_with("vortex.fill_null"),
             "expected fill_null, got {optimized}"
@@ -1328,7 +1328,7 @@ mod tests {
     fn test_simplify_does_not_fire_when_operands_differ() -> VortexResult<()> {
         // The is_null operand (x) and the ELSE (y) are different columns: not a COALESCE.
         let expr = case_when(is_null(col("x")), lit(0i64), col("y"));
-        let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x", "y"]))?;
+        let optimized = expr.optimize_recursive(nullable_i64_scope(&["x", "y"]))?;
         let s = optimized.to_string();
         assert!(s.contains("CASE"), "expected CASE WHEN to remain, got {s}");
         assert!(!s.contains("fill_null"), "must not rewrite, got {s}");
@@ -1340,7 +1340,7 @@ mod tests {
         // COALESCE(x, c) with a *column* fill: fill_null cannot consume a non-constant
         // fill value, so the rewrite must not fire.
         let expr = case_when(is_null(col("x")), col("c"), col("x"));
-        let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x", "c"]))?;
+        let optimized = expr.optimize_recursive(nullable_i64_scope(&["x", "c"]))?;
         let s = optimized.to_string();
         assert!(s.contains("CASE"), "expected CASE WHEN to remain, got {s}");
         assert!(!s.contains("fill_null"), "must not rewrite, got {s}");
@@ -1363,7 +1363,7 @@ mod tests {
             case_when(is_null(col("x")), null_fill(), col("x")),
             case_when(is_not_null(col("x")), col("x"), null_fill()),
         ] {
-            let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x"]))?;
+            let optimized = expr.optimize_recursive(nullable_i64_scope(&["x"]))?;
             assert_eq!(
                 optimized.to_string(),
                 "$.x",
@@ -1401,7 +1401,7 @@ mod tests {
     #[test]
     fn test_simplify_does_not_fire_without_else() -> VortexResult<()> {
         let expr = case_when_no_else(is_null(col("x")), lit(0i64));
-        let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x"]))?;
+        let optimized = expr.optimize_recursive(nullable_i64_scope(&["x"]))?;
         assert!(
             !optimized.to_string().contains("fill_null"),
             "must not rewrite a no-ELSE case_when, got {optimized}"
@@ -1418,7 +1418,7 @@ mod tests {
             ],
             Some(col("x")),
         );
-        let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x"]))?;
+        let optimized = expr.optimize_recursive(nullable_i64_scope(&["x"]))?;
         assert!(
             !optimized.to_string().contains("fill_null"),
             "must not rewrite a multi-pair case_when, got {optimized}"

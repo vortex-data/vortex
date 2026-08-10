@@ -290,7 +290,7 @@ mod tests {
         let get_item_expr = get_item("b", pack_expr);
 
         let result = get_item_expr
-            .optimize_recursive(&DType::Struct(StructFields::empty(), NonNullable))
+            .optimize_recursive(DType::Struct(StructFields::empty(), NonNullable))
             .unwrap();
 
         assert_eq!(result, lit(2));

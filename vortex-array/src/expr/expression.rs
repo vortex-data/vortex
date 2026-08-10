@@ -13,9 +13,11 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::dtype::DType;
+use crate::expr::Scope;
 use crate::expr::display::DisplayTreeExpr;
 use crate::expr::lambda::Lambda;
 use crate::expr::traversal::TraversalOrder;
@@ -189,15 +191,27 @@ impl Expression {
         }
     }
 
-    /// Computes the return dtype of this expression given the input dtype.
-    pub fn return_dtype(&self, scope: &DType) -> VortexResult<DType> {
+    /// Computes the return dtype of this expression in the given scope.
+    ///
+    /// A bare [`DType`] converts to a [`Scope`] that binds no frames, so a caller holding only a
+    /// root dtype can pass it directly. Such a scope resolves no variables, which is what keeps a
+    /// lambda body from being silently typed against the root dtype.
+    pub fn return_dtype(&self, scope: impl Into<Scope>) -> VortexResult<DType> {
+        self.return_dtype_in(&scope.into())
+    }
+
+    fn return_dtype_in(&self, scope: &Scope) -> VortexResult<DType> {
         match self {
-            Self::Root => Ok(scope.clone()),
-            // A variable resolves against a frame, which this entry point does not carry. Erroring
-            // keeps callers that only have a root dtype from silently mistyping a lambda body.
-            Self::Variable(variable) => vortex_bail!(
-                "variable '{variable}' can only be typed by binding against a scope with frames"
-            ),
+            Self::Root => Ok(scope.root().clone()),
+            Self::Variable(variable) => scope
+                .resolve(variable)
+                .map(|(dtype, _)| dtype.clone())
+                .ok_or_else(|| {
+                    vortex_err!(
+                        "unbound variable '{variable}'; the scope binds {} frame(s)",
+                        scope.depth()
+                    )
+                }),
             Self::Lambda(_) => {
                 vortex_bail!("a lambda has no data type; use Lambda::bind to type its body")
             }
@@ -207,7 +221,7 @@ impl Expression {
             } => {
                 let dtypes: Vec<_> = children
                     .iter()
-                    .map(|c| c.return_dtype(scope))
+                    .map(|c| c.return_dtype_in(scope))
                     .try_collect()?;
                 scalar_fn.return_dtype(&dtypes)
             }

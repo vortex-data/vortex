@@ -16,6 +16,7 @@ use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
 use crate::expr::Expression;
+use crate::expr::Scope;
 use crate::expr::analysis::Annotation;
 use crate::expr::analysis::AnnotationFn;
 use crate::expr::analysis::Annotations;
@@ -41,7 +42,7 @@ use crate::expr::traversal::TraversalOrder;
 /// See <https://github.com/vortex-data/vortex/issues/1907>.
 pub fn partition<A: AnnotationFn>(
     expr: Expression,
-    scope: &DType,
+    scope: impl Into<Scope>,
     annotate_fn: A,
 ) -> VortexResult<PartitionedExpr<A::Annotation>>
 where
@@ -50,12 +51,12 @@ where
 {
     // Annotate each expression with the annotations that any of its descendent expressions have.
     let annotations = descendent_annotations(&expr, annotate_fn);
-    partition_annotations(expr.clone(), scope, annotations)
+    partition_annotations(expr.clone(), scope.into(), annotations)
 }
 
 pub fn partition_annotations<A>(
     expr: Expression,
-    scope: &DType,
+    scope: impl Into<Scope>,
     annotations: Annotations<A>,
 ) -> VortexResult<PartitionedExpr<A>>
 where
@@ -64,6 +65,7 @@ where
 {
     // Now we split the original expression into sub-expressions based on the annotations, and
     // generate a root expression to re-assemble the results.
+    let scope = scope.into();
     let mut splitter = StructFieldExpressionSplitter::<A>::new(&annotations);
     let root = expr.rewrite(&mut splitter)?.value;
 
@@ -83,8 +85,8 @@ where
             Nullability::NonNullable,
         );
 
-        let expr = expr.optimize_recursive(scope)?;
-        let expr_dtype = expr.return_dtype(scope)?;
+        let expr = expr.optimize_recursive(&scope)?;
+        let expr_dtype = expr.return_dtype(&scope)?;
 
         partitions.push(expr);
         partition_annotations.push(annotation);

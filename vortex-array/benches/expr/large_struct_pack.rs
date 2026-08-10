@@ -40,5 +40,5 @@ fn pack_return_dtype(bencher: Bencher, num_fields: usize) {
     // return_dtype should be fast, it is assumed cheap in some expression simplifiers
     bencher
         .with_inputs(|| (&pack_expr, &dtype))
-        .bench_refs(|(pack_expr, dtype)| pack_expr.return_dtype(dtype).unwrap());
+        .bench_refs(|(pack_expr, dtype)| pack_expr.return_dtype(*dtype).unwrap());
 }

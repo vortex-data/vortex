@@ -166,7 +166,7 @@ mod tests {
     fn row_count_helper_dtype() {
         let expr = RowCount.new_expr(EmptyOptions, []);
         assert_eq!(
-            expr.return_dtype(&DType::Primitive(PType::I32, Nullability::Nullable))
+            expr.return_dtype(DType::Primitive(PType::I32, Nullability::Nullable))
                 .unwrap(),
             DType::Primitive(PType::U64, Nullability::NonNullable),
         );

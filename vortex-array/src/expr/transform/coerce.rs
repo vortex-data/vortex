@@ -7,6 +7,7 @@ use vortex_error::VortexResult;
 
 use crate::dtype::DType;
 use crate::expr::Expression;
+use crate::expr::Scope;
 use crate::expr::cast;
 use crate::expr::traversal::Transformed;
 use crate::scalar_fn::fns::literal::Literal;
@@ -16,12 +17,12 @@ use crate::scalar_fn::fns::literal::Literal;
 ///
 /// The rewrite is bottom-up: children are coerced first, then each parent node checks whether
 /// its children match the coerced argument types.
-pub fn coerce_expression(expr: Expression, scope: &DType) -> VortexResult<Expression> {
-    // A lambda is a coercion boundary. Its body types against a parameter frame that this pass
-    // does not carry, so descending into one would try to type a variable against the root dtype
-    // and fail. Leave it for whoever binds the lambda and knows the parameter types. Recursing
-    // explicitly rather than using `transform_up` is what makes skipping the body possible.
-    fn coerce_node(node: Expression, scope: &DType) -> VortexResult<Transformed<Expression>> {
+pub fn coerce_expression(expr: Expression, scope: impl Into<Scope>) -> VortexResult<Expression> {
+    // A lambda is a coercion boundary. Its parameter dtypes come from whoever applies it, which an
+    // unbound tree does not record, so there is no frame to push and the body's variables would not
+    // resolve. Recursing explicitly rather than using `transform_up` is what makes skipping the
+    // body possible.
+    fn coerce_node(node: Expression, scope: &Scope) -> VortexResult<Transformed<Expression>> {
         if node.as_lambda().is_some() {
             return Ok(Transformed::no(node));
         }
@@ -49,7 +50,7 @@ pub fn coerce_expression(expr: Expression, scope: &DType) -> VortexResult<Expres
         })
     }
 
-    fn coerce_one(node: Expression, scope: &DType) -> VortexResult<Transformed<Expression>> {
+    fn coerce_one(node: Expression, scope: &Scope) -> VortexResult<Transformed<Expression>> {
         {
             // Leaf nodes (Root, Literal) have no children to coerce.
             if node.is_root() || node.is::<Literal>() || node.children().is_empty() {
@@ -95,7 +96,7 @@ pub fn coerce_expression(expr: Expression, scope: &DType) -> VortexResult<Expres
         }
     }
 
-    coerce_node(expr, scope).map(Transformed::into_inner)
+    coerce_node(expr, &scope.into()).map(Transformed::into_inner)
 }
 
 #[cfg(test)]
@@ -256,13 +257,22 @@ mod lambda_tests {
     use vortex_error::VortexResult;
 
     use super::*;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability::NonNullable;
+    use crate::dtype::PType;
     use crate::expr::Expression;
+    use crate::expr::Frame;
+    use crate::expr::Scope;
     use crate::expr::checked_add;
     use crate::expr::col;
     use crate::expr::lambda;
     use crate::expr::lit;
     use crate::expr::test_harness::struct_dtype;
     use crate::expr::var;
+    use crate::scalar_fn::ScalarFnVTableExt;
+    use crate::scalar_fn::fns::binary::Binary;
+    use crate::scalar_fn::fns::cast::Cast;
+    use crate::scalar_fn::fns::operators::Operator;
 
     /// A lambda body types against a parameter frame, which this pass does not carry. Descending
     /// into one would try to type the variable against the root dtype and fail, so a lambda is a
@@ -270,7 +280,7 @@ mod lambda_tests {
     #[test]
     fn a_lambda_is_a_coercion_boundary() -> VortexResult<()> {
         let l = Expression::from(lambda(["x"], checked_add(var("x"), lit(1i32))));
-        assert_eq!(coerce_expression(l.clone(), &struct_dtype())?, l);
+        assert_eq!(coerce_expression(l.clone(), struct_dtype())?, l);
         Ok(())
     }
 
@@ -282,7 +292,7 @@ mod lambda_tests {
 
         // Already well-typed, so nothing should be coerced.
         let expr = checked_add(col("a"), lit(1i32));
-        let coerced = coerce_expression(expr.clone(), &struct_dtype())?;
+        let coerced = coerce_expression(expr.clone(), struct_dtype())?;
 
         assert_eq!(coerced, expr);
         assert_eq!(
@@ -297,11 +307,44 @@ mod lambda_tests {
     #[test]
     fn coercion_still_applies_outside_a_lambda() -> VortexResult<()> {
         let expr = checked_add(col("a"), lit(1i64));
-        let coerced = coerce_expression(expr.clone(), &struct_dtype())?;
+        let coerced = coerce_expression(expr.clone(), struct_dtype())?;
         assert_ne!(
             coerced, expr,
             "an i32 column against an i64 literal should coerce"
         );
         Ok(())
+    }
+
+    /// A frame supplies the parameter dtypes that a bare root dtype cannot, so a variable is
+    /// typeable here even though the tree is unbound.
+    #[test]
+    fn a_variable_bound_by_a_frame_is_coerced() -> VortexResult<()> {
+        let scope = Scope::new(struct_dtype()).push_frame(Frame::try_new([
+            ("a".into(), DType::Primitive(PType::I32, NonNullable)),
+            ("b".into(), DType::Primitive(PType::I64, NonNullable)),
+        ])?);
+
+        let expr = Binary.new_expr(Operator::Lt, [var("a"), var("b")]);
+        let coerced = coerce_expression(expr, &scope)?;
+
+        assert!(coerced.child(0).is::<Cast>());
+        assert_eq!(
+            coerced.child(0).return_dtype(&scope)?,
+            DType::Primitive(PType::I64, NonNullable)
+        );
+        assert!(!coerced.child(1).is::<Cast>());
+        Ok(())
+    }
+
+    /// Without a frame there is nothing to resolve against, so the pass fails rather than
+    /// mistyping the variable against the root dtype.
+    #[test]
+    fn a_variable_with_no_frame_is_rejected() {
+        let expr = Binary.new_expr(Operator::Lt, [var("a"), lit(1i64)]);
+        let err = coerce_expression(expr, struct_dtype()).unwrap_err();
+        assert!(
+            err.to_string().contains("unbound variable 'a'"),
+            "unexpected error: {err}"
+        );
     }
 }

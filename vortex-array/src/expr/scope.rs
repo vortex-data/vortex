@@ -105,6 +105,18 @@ impl From<DType> for Scope {
     }
 }
 
+impl From<&DType> for Scope {
+    fn from(root: &DType) -> Self {
+        Self::new(root.clone())
+    }
+}
+
+impl From<&Scope> for Scope {
+    fn from(scope: &Scope) -> Self {
+        scope.clone()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use vortex_error::VortexResult;

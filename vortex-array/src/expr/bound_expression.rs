@@ -562,7 +562,7 @@ mod tests {
         for expr in [root(), col("a"), eq(col("a"), lit(1_i32)), lit(true)] {
             assert_eq!(
                 expr.bind(&struct_dtype())?.dtype(),
-                Some(&expr.return_dtype(&struct_dtype())?),
+                Some(&expr.return_dtype(struct_dtype())?),
                 "disagreement for {expr}"
             );
         }
