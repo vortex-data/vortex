@@ -20,10 +20,12 @@ use super::Eval;
 use super::Pack;
 use super::PlanRef;
 use super::Take;
+use super::Zoned;
 use super::plans::EvalIdentityRule;
 use super::plans::ExpressionConcatRule;
 use super::plans::ExpressionPackRule;
 use super::plans::ExpressionTakeRule;
+use super::plans::ExpressionZonedRule;
 
 static EVAL_IDENTITY_RULE: PlanReduceRuleAdapter<Eval, EvalIdentityRule> =
     PlanReduceRuleAdapter::new(EvalIdentityRule);
@@ -36,11 +38,14 @@ static EXPRESSION_TAKE_RULE: PlanParentReduceRuleAdapter<Take, ExpressionTakeRul
     PlanParentReduceRuleAdapter::new(ExpressionTakeRule);
 static EXPRESSION_PACK_RULE: PlanParentReduceRuleAdapter<Pack, ExpressionPackRule> =
     PlanParentReduceRuleAdapter::new(ExpressionPackRule);
+static EXPRESSION_ZONED_RULE: PlanParentReduceRuleAdapter<Zoned, ExpressionZonedRule> =
+    PlanParentReduceRuleAdapter::new(ExpressionZonedRule);
 
 static PARENT_RULES: PlanParentRuleSet = PlanParentRuleSet::new(&[
     &EXPRESSION_CONCAT_RULE,
     &EXPRESSION_TAKE_RULE,
     &EXPRESSION_PACK_RULE,
+    &EXPRESSION_ZONED_RULE,
 ]);
 
 /// Attempts a static rewrite for `plan`.
