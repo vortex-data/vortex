@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Generic bottom-up optimization over physical plans.
+//! Plan optimization.
+//!
+//! Optimization is driven top-down from [`Eval`] nodes, which apply the static parent-reduction
+//! rules in [`crate::plan::optimizer`] as they become applicable. Operators without a rule simply
+//! optimize their children.
 
 use vortex_error::VortexResult;
 
@@ -10,26 +14,14 @@ use crate::plan::PlanRef;
 
 /// Optimizes `plan`, preserving its dtype and row domain.
 pub fn optimize(plan: PlanRef) -> VortexResult<PlanRef> {
-    let mut children = Vec::with_capacity(plan.child_count());
-    let mut changed = false;
-    for child in plan.children().iter() {
-        let child = child?;
-        let optimized = optimize(child.clone())?;
-        changed |= !PlanRef::ptr_eq(&child, &optimized);
-        children.push(optimized);
+    if let Some(eval) = plan.as_opt::<Eval>() {
+        return eval.optimize_top_down(None);
     }
 
-    let plan = if changed {
-        plan.with_children(children)?
-    } else {
-        plan
-    };
-
-    let Some(eval) = plan.as_opt::<Eval>() else {
-        return Ok(plan);
-    };
-    if eval.expression().is_root() {
-        return eval.child_plan();
-    }
-    Ok(plan)
+    let children = plan
+        .children()
+        .iter()
+        .map(|child| optimize(child?))
+        .collect::<VortexResult<Vec<_>>>()?;
+    plan.with_children(children)
 }

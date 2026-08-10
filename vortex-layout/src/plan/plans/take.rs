@@ -5,9 +5,13 @@ use std::borrow::Cow;
 
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
+use vortex_array::expr::ExactBoundExpr;
+use vortex_array::expr::label_bound_tree;
 use vortex_error::VortexResult;
 use vortex_session::registry::CachedId;
 
+use crate::plan::Eval;
+use crate::plan::EvalPlan;
 use crate::plan::Plan;
 use crate::plan::PlanChildren;
 use crate::plan::PlanId;
@@ -15,6 +19,7 @@ use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
 use crate::plan::check_child_count;
+use crate::plan::optimizer::PlanParentReduceRule;
 
 const CODES: usize = 0;
 const VALUES: usize = 1;
@@ -111,5 +116,49 @@ impl PlanVTable for Take {
             VALUES => Cow::Borrowed("values"),
             _ => Cow::Owned(format!("child[{index}]")),
         }
+    }
+}
+
+/// Pushes a strict, infallible boolean expression onto the dictionary values of a [`Take`].
+#[derive(Debug)]
+pub(crate) struct ExpressionTakeRule;
+
+impl PlanParentReduceRule<Take> for ExpressionTakeRule {
+    type Parent = Eval;
+
+    fn reduce_parent(
+        &self,
+        child: &Plan<Take>,
+        parent: &Plan<Eval>,
+        _child_idx: usize,
+    ) -> VortexResult<Option<PlanRef>> {
+        let expression = parent.expression();
+        if !expression.dtype().is_boolean() {
+            return Ok(None);
+        }
+        // Evaluating over values rather than codes is only sound when the expression reads the
+        // root, is strict, and cannot fail: otherwise per-row behaviour is not preserved.
+        let labels = label_bound_tree(
+            expression,
+            |node| match node.as_scalar() {
+                Some(scalar_fn) => (
+                    false,
+                    scalar_fn.signature().is_strict(),
+                    scalar_fn.signature().is_fallible(),
+                ),
+                None => (true, true, false),
+            },
+            |acc, &child| (acc.0 | child.0, acc.1 & child.1, acc.2 | child.2),
+        );
+        let (references_root, is_strict, is_fallible) = labels
+            .get(&ExactBoundExpr(expression.clone()))
+            .copied()
+            .unwrap_or((false, false, true));
+        if !references_root || !is_strict || is_fallible {
+            return Ok(None);
+        }
+
+        let values = EvalPlan::try_new(expression.clone(), child.values()?)?.into_plan();
+        Ok(Some(TakePlan::new(child.codes()?, values).into_plan()))
     }
 }

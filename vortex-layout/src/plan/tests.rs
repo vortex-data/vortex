@@ -8,7 +8,14 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
+use vortex_array::expr::Expression;
+use vortex_array::expr::and;
+use vortex_array::expr::checked_add;
 use vortex_array::expr::get_item;
+use vortex_array::expr::gt;
+use vortex_array::expr::is_null;
+use vortex_array::expr::lit;
+use vortex_array::expr::pack;
 use vortex_array::expr::root;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -48,6 +55,13 @@ fn unsupported(row_count: u64, dtype: DType) -> LayoutRef {
 
 fn make_plan(layout: LayoutRef) -> VortexResult<PlanRef> {
     lower(&layout)
+}
+
+fn make_eval(expression: Expression, child: PlanRef) -> VortexResult<EvalPlan> {
+    let expression = expression
+        .optimize_recursive(child.dtype())?
+        .bind(child.dtype())?;
+    EvalPlan::try_new(expression, child)
 }
 
 fn child_of(plan: &PlanRef, index: usize) -> VortexResult<PlanRef> {
@@ -491,5 +505,302 @@ fn row_idx_plan_preserves_row_index_expressions() -> VortexResult<()> {
     assert_eq!(expression.expression(), &bound_expression);
     assert!(expression.child_plan()?.is::<RowIdx>());
     assert_eq!(expression.row_count(), 3);
+    Ok(())
+}
+
+#[test]
+fn empty_projection_prunes_row_idx_child_fields() -> VortexResult<()> {
+    let value_dtype = primitive(PType::I32, Nullability::NonNullable);
+    let layout = StructLayout::new(
+        3,
+        DType::Struct(
+            StructFields::from_iter([("a", value_dtype.clone()), ("b", value_dtype.clone())]),
+            Nullability::NonNullable,
+        ),
+        vec![flat(3, value_dtype.clone(), 0), flat(3, value_dtype, 1)],
+    )
+    .into_layout();
+    let projection = pack(
+        std::iter::empty::<(&str, Expression)>(),
+        Nullability::NonNullable,
+    );
+    let plan = make_eval(
+        projection,
+        RowIdxPlan::new(0, make_plan(layout)?).into_plan(),
+    )?
+    .into_plan();
+
+    let optimized = optimize(plan)?;
+    let projection = optimized
+        .as_opt::<Eval>()
+        .ok_or_else(|| vortex_err!("optimized plan has no projection expression"))?;
+    let child = projection.child_plan()?;
+    let empty_struct = child
+        .as_opt::<Pack>()
+        .ok_or_else(|| vortex_err!("empty projection did not prune the RowIdx child"))?;
+
+    assert_eq!(empty_struct.nfields(), 0);
+    assert_eq!(empty_struct.children().len(), 0);
+    Ok(())
+}
+
+#[test]
+fn chunked_plan_preserves_global_row_index_expressions() -> VortexResult<()> {
+    let dtype = primitive(PType::I32, Nullability::NonNullable);
+    let layout = ChunkedLayout::new(
+        3,
+        dtype.clone(),
+        OwnedLayoutChildren::layout_children(vec![flat(1, dtype.clone(), 0), flat(2, dtype, 1)]),
+    )
+    .into_layout();
+    let child = make_plan(layout)?;
+    let bound_expression = row_idx().bind(child.dtype())?;
+    let plan = optimize(EvalPlan::try_new(bound_expression.clone(), child)?.into_plan())?;
+    let expression = plan
+        .as_opt::<Eval>()
+        .ok_or_else(|| vortex_err!("Row-index expression unexpectedly pushed into chunks"))?;
+
+    assert_eq!(expression.expression(), &bound_expression);
+    assert!(expression.child_plan()?.is::<Concat>());
+    Ok(())
+}
+
+#[test]
+fn expression_pushes_through_struct_field_and_dictionary_values() -> VortexResult<()> {
+    let value_dtype = primitive(PType::I32, Nullability::NonNullable);
+    let codes_dtype = primitive(PType::U8, Nullability::NonNullable);
+    let dictionary =
+        DictLayout::new(flat(2, value_dtype.clone(), 0), flat(3, codes_dtype, 1)).into_layout();
+    let layout = StructLayout::new(
+        3,
+        DType::Struct(
+            StructFields::from_iter([("a", value_dtype.clone()), ("b", value_dtype.clone())]),
+            Nullability::NonNullable,
+        ),
+        vec![dictionary, flat(3, value_dtype, 2)],
+    )
+    .into_layout();
+    let plan = make_eval(gt(get_item("a", root()), lit(5_i32)), make_plan(layout)?)?.into_plan();
+
+    insta::assert_snapshot!(plan.display_tree(), @"
+    root: vortex.plan.eval(bool, rows=3) expr=($.a > 5i32)
+      child: vortex.plan.pack({a=i32, b=i32}, rows=3)
+        a: vortex.plan.take(i32, rows=3)
+          codes: vortex.plan.segment_scan(u8, rows=3)
+          values: vortex.plan.segment_scan(i32, rows=2)
+        b: vortex.plan.segment_scan(i32, rows=3)
+    ");
+
+    let optimized = optimize(plan)?;
+    insta::assert_snapshot!(optimized.display_tree(), @"
+    root: vortex.plan.take(bool, rows=3)
+      codes: vortex.plan.segment_scan(u8, rows=3)
+      values: vortex.plan.eval(bool, rows=2) expr=($ > 5i32)
+        child: vortex.plan.segment_scan(i32, rows=2)
+    ");
+    Ok(())
+}
+
+#[test]
+fn expression_pushes_through_struct_field_with_heterogeneous_chunks() -> VortexResult<()> {
+    let value_dtype = primitive(PType::I32, Nullability::NonNullable);
+    let dictionary = DictLayout::new(
+        flat(2, value_dtype.clone(), 0),
+        flat(3, primitive(PType::U8, Nullability::NonNullable), 1),
+    )
+    .into_layout();
+    let chunks = ChunkedLayout::new(
+        5,
+        value_dtype.clone(),
+        OwnedLayoutChildren::layout_children(vec![dictionary, flat(2, value_dtype.clone(), 2)]),
+    )
+    .into_layout();
+    let layout = StructLayout::new(
+        5,
+        DType::Struct(
+            StructFields::from_iter([("a", value_dtype.clone()), ("b", value_dtype.clone())]),
+            Nullability::NonNullable,
+        ),
+        vec![chunks, flat(5, value_dtype, 3)],
+    )
+    .into_layout();
+    let plan = make_eval(gt(get_item("a", root()), lit(5_i32)), make_plan(layout)?)?.into_plan();
+
+    insta::assert_snapshot!(plan.display_tree(), @"
+    root: vortex.plan.eval(bool, rows=5) expr=($.a > 5i32)
+      child: vortex.plan.pack({a=i32, b=i32}, rows=5)
+        a: vortex.plan.concat(i32, rows=5)
+          chunks[0]: vortex.plan.take(i32, rows=3)
+            codes: vortex.plan.segment_scan(u8, rows=3)
+            values: vortex.plan.segment_scan(i32, rows=2)
+          chunks[1]: vortex.plan.segment_scan(i32, rows=2)
+        b: vortex.plan.segment_scan(i32, rows=5)
+    ");
+
+    let optimized = optimize(plan)?;
+    insta::assert_snapshot!(optimized.display_tree(), @"
+    root: vortex.plan.concat(bool, rows=5)
+      chunks[0]: vortex.plan.take(bool, rows=3)
+        codes: vortex.plan.segment_scan(u8, rows=3)
+        values: vortex.plan.eval(bool, rows=2) expr=($ > 5i32)
+          child: vortex.plan.segment_scan(i32, rows=2)
+      chunks[1]: vortex.plan.eval(bool, rows=2) expr=($ > 5i32)
+        child: vortex.plan.segment_scan(i32, rows=2)
+    ");
+    Ok(())
+}
+
+#[test]
+fn multi_field_struct_expression_pushes_into_each_field() -> VortexResult<()> {
+    let value_dtype = primitive(PType::I32, Nullability::NonNullable);
+    let dictionary = DictLayout::new(
+        flat(2, value_dtype.clone(), 0),
+        flat(3, primitive(PType::U8, Nullability::NonNullable), 1),
+    )
+    .into_layout();
+    let layout = StructLayout::new(
+        3,
+        DType::Struct(
+            StructFields::from_iter([
+                ("a", value_dtype.clone()),
+                ("b", value_dtype.clone()),
+                ("c", value_dtype.clone()),
+            ]),
+            Nullability::NonNullable,
+        ),
+        vec![
+            dictionary,
+            flat(3, value_dtype.clone(), 2),
+            flat(3, value_dtype, 3),
+        ],
+    )
+    .into_layout();
+    let expression = and(
+        gt(get_item("a", root()), lit(5_i32)),
+        gt(get_item("b", root()), lit(7_i32)),
+    );
+    let plan = make_eval(expression, make_plan(layout)?)?.into_plan();
+
+    insta::assert_snapshot!(plan.display_tree(), @"
+    root: vortex.plan.eval(bool, rows=3) expr=(($.a > 5i32) and ($.b > 7i32))
+      child: vortex.plan.pack({a=i32, b=i32, c=i32}, rows=3)
+        a: vortex.plan.take(i32, rows=3)
+          codes: vortex.plan.segment_scan(u8, rows=3)
+          values: vortex.plan.segment_scan(i32, rows=2)
+        b: vortex.plan.segment_scan(i32, rows=3)
+        c: vortex.plan.segment_scan(i32, rows=3)
+    ");
+
+    let optimized = optimize(plan)?;
+    insta::assert_snapshot!(optimized.display_tree(), @"
+    root: vortex.plan.eval(bool, rows=3) expr=($.a and $.b)
+      child: vortex.plan.pack({a=bool, b=bool}, rows=3)
+        a: vortex.plan.take(bool, rows=3)
+          codes: vortex.plan.segment_scan(u8, rows=3)
+          values: vortex.plan.eval(bool, rows=2) expr=($ > 5i32)
+            child: vortex.plan.segment_scan(i32, rows=2)
+        b: vortex.plan.eval(bool, rows=3) expr=($ > 7i32)
+          child: vortex.plan.segment_scan(i32, rows=3)
+    ");
+    assert_eq!(
+        optimized.display_tree().to_string(),
+        optimize(optimized.clone())?.display_tree().to_string()
+    );
+    Ok(())
+}
+
+#[test]
+fn multi_field_struct_expression_keeps_cross_field_refinement() -> VortexResult<()> {
+    let value_dtype = primitive(PType::I32, Nullability::NonNullable);
+    let dictionary = DictLayout::new(
+        flat(2, value_dtype.clone(), 0),
+        flat(3, primitive(PType::U8, Nullability::NonNullable), 1),
+    )
+    .into_layout();
+    let layout = StructLayout::new(
+        3,
+        DType::Struct(
+            StructFields::from_iter([
+                ("a", value_dtype.clone()),
+                ("b", value_dtype.clone()),
+                ("c", value_dtype.clone()),
+            ]),
+            Nullability::NonNullable,
+        ),
+        vec![
+            dictionary,
+            flat(3, value_dtype.clone(), 2),
+            flat(3, value_dtype, 3),
+        ],
+    )
+    .into_layout();
+    let expression = gt(
+        checked_add(get_item("a", root()), get_item("b", root())),
+        lit(10_i32),
+    );
+    let plan = make_eval(expression, make_plan(layout)?)?.into_plan();
+
+    let optimized = optimize(plan)?;
+    insta::assert_snapshot!(optimized.display_tree(), @"
+    root: vortex.plan.eval(bool, rows=3) expr=(($.a + $.b) > 10i32)
+      child: vortex.plan.pack({a=i32, b=i32}, rows=3)
+        a: vortex.plan.take(i32, rows=3)
+          codes: vortex.plan.segment_scan(u8, rows=3)
+          values: vortex.plan.segment_scan(i32, rows=2)
+        b: vortex.plan.segment_scan(i32, rows=3)
+    ");
+    assert_eq!(
+        optimized.display_tree().to_string(),
+        optimize(optimized.clone())?.display_tree().to_string()
+    );
+    Ok(())
+}
+
+#[test]
+fn dictionary_pushdown_rejects_unsafe_expressions() -> VortexResult<()> {
+    let value_dtype = primitive(PType::I32, Nullability::NonNullable);
+    let dictionary = DictLayout::new(
+        flat(2, value_dtype, 0),
+        flat(3, primitive(PType::U8, Nullability::NonNullable), 1),
+    )
+    .into_layout();
+
+    for expression in [
+        lit(false),
+        is_null(root()),
+        gt(checked_add(root(), lit(1_i32)), lit(5_i32)),
+    ] {
+        let plan = make_eval(expression.clone(), make_plan(Arc::clone(&dictionary))?)?.into_plan();
+        let optimized = optimize(plan)?;
+        let eval = optimized.as_opt::<Eval>().ok_or_else(|| {
+            vortex_err!("Expression unexpectedly pushed into dictionary: {expression}")
+        })?;
+        assert!(eval.child_plan()?.is::<Take>());
+    }
+    Ok(())
+}
+
+#[test]
+fn nullable_struct_keeps_expression_above_parent_validity() -> VortexResult<()> {
+    let field_dtype = primitive(PType::I32, Nullability::NonNullable);
+    let layout = StructLayout::new(
+        3,
+        DType::Struct(
+            StructFields::from_iter([("a", field_dtype.clone())]),
+            Nullability::Nullable,
+        ),
+        vec![
+            flat(3, DType::Bool(Nullability::NonNullable), 0),
+            flat(3, field_dtype, 1),
+        ],
+    )
+    .into_layout();
+    let plan = make_eval(gt(get_item("a", root()), lit(5_i32)), make_plan(layout)?)?.into_plan();
+
+    let optimized = optimize(plan)?;
+    let eval = optimized
+        .as_opt::<Eval>()
+        .ok_or_else(|| vortex_err!("Nullable struct expression unexpectedly pushed down"))?;
+    assert!(eval.child_plan()?.is::<Pack>());
     Ok(())
 }
