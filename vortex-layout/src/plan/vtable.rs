@@ -4,13 +4,18 @@
 use std::borrow::Cow;
 use std::fmt;
 use std::fmt::Debug;
+use std::ops::Range;
 
 use vortex_array::DeserializeMetadata;
+use vortex_array::MaskFuture;
 use vortex_array::SerializeMetadata;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_session::registry::Id;
 
+use crate::plan::PlanArrayFuture;
 use crate::plan::PlanChildren;
+use crate::plan::PlanExecutionContext;
 use crate::plan::typed::Plan;
 
 /// A unique identifier for a plan operator.
@@ -61,6 +66,23 @@ pub trait PlanVTable: 'static + Clone + Sized + Send + Sync + Debug {
     ) -> VortexResult<()> {
         let _ = (plan, children, data);
         Ok(())
+    }
+
+    /// Executes this operator over `row_range`, returning the values selected by `mask`.
+    ///
+    /// The row range is expressed in this plan's row domain. The returned array has one row for
+    /// every true value in `mask`.
+    fn execute(
+        plan: &Plan<Self>,
+        ctx: &PlanExecutionContext,
+        row_range: &Range<u64>,
+        mask: MaskFuture,
+    ) -> VortexResult<PlanArrayFuture> {
+        drop((ctx, row_range, mask));
+        vortex_bail!(
+            "Plan execution is not implemented for '{}'",
+            plan.vtable().id()
+        )
     }
 
     /// Returns the display name of the child at `index`.

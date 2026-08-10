@@ -10545,6 +10545,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-scan-v2"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "itertools 0.14.0",
+ "tracing",
+ "tracing-subscriber",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-file",
+ "vortex-io",
+ "vortex-layout",
+ "vortex-mask",
+ "vortex-scan",
+ "vortex-session",
+ "vortex-utils",
+]
+
+[[package]]
 name = "vortex-sequence"
 version = "0.1.0"
 dependencies = [

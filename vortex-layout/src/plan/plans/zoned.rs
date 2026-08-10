@@ -2,14 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
+use std::ops::Range;
 
 use vortex_array::EmptyMetadata;
+use vortex_array::MaskFuture;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_session::registry::CachedId;
 
 use crate::plan::Plan;
+use crate::plan::PlanArrayFuture;
 use crate::plan::PlanChildren;
+use crate::plan::PlanExecutionContext;
 use crate::plan::PlanId;
 use crate::plan::PlanParts;
 use crate::plan::PlanRef;
@@ -85,6 +89,15 @@ impl PlanVTable for Zoned {
             vortex_error::vortex_bail!("Zoned data child shape does not match the plan output");
         }
         Ok(())
+    }
+
+    fn execute(
+        plan: &Plan<Self>,
+        ctx: &PlanExecutionContext,
+        row_range: &Range<u64>,
+        mask: MaskFuture,
+    ) -> VortexResult<PlanArrayFuture> {
+        plan.data_plan()?.execute(ctx, row_range, mask)
     }
 
     fn child_name(_plan: &Plan<Self>, index: usize) -> Cow<'_, str> {

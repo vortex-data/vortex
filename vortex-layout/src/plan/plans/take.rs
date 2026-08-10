@@ -2,18 +2,27 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
+use std::ops::Range;
 
+use futures::FutureExt;
+use futures::try_join;
 use vortex_array::EmptyMetadata;
+use vortex_array::IntoArray;
+use vortex_array::MaskFuture;
+use vortex_array::arrays::DictArray;
 use vortex_array::dtype::DType;
 use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::label_bound_tree;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_error::VortexResult;
 use vortex_session::registry::CachedId;
 
 use crate::plan::Eval;
 use crate::plan::EvalPlan;
 use crate::plan::Plan;
+use crate::plan::PlanArrayFuture;
 use crate::plan::PlanChildren;
+use crate::plan::PlanExecutionContext;
 use crate::plan::PlanId;
 use crate::plan::PlanParts;
 use crate::plan::PlanRef;
@@ -28,6 +37,14 @@ const VALUES: usize = 1;
 #[derive(Clone, Debug)]
 pub struct Take;
 
+/// Whether every dictionary value is referenced by at least one code.
+///
+/// Lowering carries this over from the dictionary layout, since the operator does not hold one.
+#[derive(Clone, Debug)]
+pub struct TakeData {
+    all_values_referenced: bool,
+}
+
 /// A plan that indexes one child by another.
 pub type TakePlan = Plan<Take>;
 
@@ -41,6 +58,7 @@ impl TakePlan {
     pub(crate) unsafe fn from_children_unchecked(
         dtype: DType,
         row_count: u64,
+        all_values_referenced: bool,
         children: PlanChildren,
     ) -> Self {
         PlanParts {
@@ -48,7 +66,9 @@ impl TakePlan {
             dtype,
             row_count,
             children,
-            data: (),
+            data: TakeData {
+                all_values_referenced,
+            },
         }
         .into_typed()
     }
@@ -57,12 +77,33 @@ impl TakePlan {
     ///
     /// The row domain is that of `codes`, and the output dtype is that of `values`.
     pub fn new(codes: PlanRef, values: PlanRef) -> Self {
+        Self::new_with_all_values_referenced(codes, values, false)
+    }
+
+    /// Creates a take that records whether every value is referenced by some code.
+    pub fn new_with_all_values_referenced(
+        codes: PlanRef,
+        values: PlanRef,
+        all_values_referenced: bool,
+    ) -> Self {
         let dtype = values
             .dtype()
             .union_nullability(codes.dtype().nullability());
         let row_count = codes.row_count();
         // SAFETY: Parent metadata is derived from the ordered children immediately above.
-        unsafe { Self::from_children_unchecked(dtype, row_count, vec![codes, values].into()) }
+        unsafe {
+            Self::from_children_unchecked(
+                dtype,
+                row_count,
+                all_values_referenced,
+                vec![codes, values].into(),
+            )
+        }
+    }
+
+    /// Returns whether every value is referenced by at least one code.
+    pub fn all_values_referenced(&self) -> bool {
+        self.data().all_values_referenced
     }
 
     /// Returns the plan producing indices.
@@ -77,7 +118,7 @@ impl TakePlan {
 }
 
 impl PlanVTable for Take {
-    type PlanData = ();
+    type PlanData = TakeData;
     type Metadata = EmptyMetadata;
 
     fn id(&self) -> PlanId {
@@ -108,6 +149,37 @@ impl PlanVTable for Take {
             vortex_error::vortex_bail!("Take child shape does not match the plan output");
         }
         Ok(())
+    }
+
+    fn execute(
+        plan: &Plan<Self>,
+        ctx: &PlanExecutionContext,
+        row_range: &Range<u64>,
+        mask: MaskFuture,
+    ) -> VortexResult<PlanArrayFuture> {
+        let codes_plan = plan.codes()?;
+        let values_plan = plan.values()?;
+        let codes = codes_plan.execute(ctx, row_range, mask)?;
+        let values_len = usize::try_from(values_plan.row_count())?;
+        let values = values_plan.execute(
+            ctx,
+            &(0..values_plan.row_count()),
+            MaskFuture::new_true(values_len),
+        )?;
+        let all_values_referenced = plan.all_values_referenced();
+
+        Ok(async move {
+            let (codes, values) = try_join!(codes, values)?;
+            // SAFETY: lowering from a dict layout guarantees integer codes and matching dtypes.
+            let dictionary = unsafe {
+                DictArray::new_unchecked(codes, values)
+                    .set_all_values_referenced(all_values_referenced)
+            }
+            .into_array()
+            .optimize()?;
+            Ok(dictionary)
+        }
+        .boxed())
     }
 
     fn child_name(_plan: &Plan<Self>, index: usize) -> Cow<'_, str> {

@@ -2,8 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
+use std::ops::Range;
 
+use futures::FutureExt;
+use futures::try_join;
 use vortex_array::EmptyMetadata;
+use vortex_array::IntoArray;
+use vortex_array::MaskFuture;
+use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
@@ -22,6 +28,7 @@ use vortex_array::scalar_fn::fns::get_item::GetItem;
 use vortex_array::scalar_fn::fns::pack::Pack as PackFn;
 use vortex_array::scalar_fn::fns::pack::PackOptions;
 use vortex_array::scalar_fn::fns::select::Select;
+use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -32,7 +39,9 @@ use vortex_session::registry::CachedId;
 use crate::plan::Eval;
 use crate::plan::EvalPlan;
 use crate::plan::Plan;
+use crate::plan::PlanArrayFuture;
 use crate::plan::PlanChildren;
+use crate::plan::PlanExecutionContext;
 use crate::plan::PlanId;
 use crate::plan::PlanParts;
 use crate::plan::PlanRef;
@@ -192,6 +201,51 @@ impl PlanVTable for Pack {
             validate_validity_child(plan.row_count(), &validity)?;
         }
         Ok(())
+    }
+
+    fn execute(
+        plan: &Plan<Self>,
+        ctx: &PlanExecutionContext,
+        row_range: &Range<u64>,
+        mask: MaskFuture,
+    ) -> VortexResult<PlanArrayFuture> {
+        vortex_ensure!(
+            row_range.start <= row_range.end && row_range.end <= plan.row_count(),
+            "Pack row range {:?} is outside 0..{}",
+            row_range,
+            plan.row_count()
+        );
+        vortex_ensure!(
+            mask.len() == usize::try_from(row_range.end - row_range.start)?,
+            "Pack mask length mismatch"
+        );
+        let names = plan.fields().names().clone();
+        let field_count = plan.nfields();
+        let mut field_futures = Vec::with_capacity(field_count);
+        for index in 0..field_count {
+            let child = field_plan(plan, index)?;
+            field_futures.push(child.execute(ctx, row_range, mask.clone())?);
+        }
+        let validity = plan
+            .validity()?
+            .map(|validity| validity.execute(ctx, row_range, mask.clone()))
+            .transpose()?;
+        let output_mask = mask;
+
+        Ok(async move {
+            let fields = futures::future::try_join_all(field_futures);
+            let validity = async move {
+                match validity {
+                    Some(validity) => validity.await.map(Some),
+                    None => Ok(None),
+                }
+            };
+            let (fields, validity) = try_join!(fields, validity)?;
+            let len = output_mask.await?.true_count();
+            let validity = validity.map_or(Validity::NonNullable, Validity::Array);
+            Ok(StructArray::try_new(names, fields, len, validity)?.into_array())
+        }
+        .boxed())
     }
 
     fn child_name(plan: &Plan<Self>, index: usize) -> Cow<'_, str> {

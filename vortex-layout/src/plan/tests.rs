@@ -5,7 +5,14 @@ use std::fmt;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
+use vortex_array::ArrayContext;
+use vortex_array::IntoArray;
+use vortex_array::MaskFuture;
+use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -21,6 +28,8 @@ use vortex_array::expr::pack;
 use vortex_array::expr::root;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_io::runtime::single::block_on;
+use vortex_io::session::RuntimeSessionExt;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::ReadContext;
 
@@ -28,10 +37,12 @@ use super::*;
 use crate::LayoutBuildContext;
 use crate::LayoutEncoding;
 use crate::LayoutRef;
+use crate::LayoutStrategy;
 use crate::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::dict::DictLayout;
 use crate::layouts::flat::FlatLayout;
+use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::layouts::foreign::new_foreign_layout;
 use crate::layouts::list::ListLayout;
 use crate::layouts::row_idx::row_idx;
@@ -39,6 +50,9 @@ use crate::layouts::struct_::StructLayout;
 use crate::layouts::zoned::LegacyStatsLayoutEncoding;
 use crate::layouts::zoned::ZonedLayout;
 use crate::segments::SegmentId;
+use crate::segments::TestSegments;
+use crate::sequence::SequenceId;
+use crate::sequence::SequentialArrayStreamExt;
 
 fn primitive(ptype: PType, nullability: Nullability) -> DType {
     DType::Primitive(ptype, nullability)
@@ -499,18 +513,100 @@ fn list_plan_display_handles_optional_validity() -> VortexResult<()> {
 }
 
 #[test]
-fn row_idx_plan_preserves_row_index_expressions() -> VortexResult<()> {
+fn row_idx_only_expression_uses_generated_values_plan() -> VortexResult<()> {
     let layout = flat(3, primitive(PType::I32, Nullability::NonNullable), 0);
-    let plan = RowIdxPlan::new(10, make_plan(layout)?).into_plan();
-    let bound_expression = row_idx().bind(plan.dtype())?;
-    let plan = optimize(EvalPlan::try_new(bound_expression.clone(), plan)?.into_plan())?;
-    let expression = plan
-        .as_opt::<Eval>()
-        .ok_or_else(|| vortex_err!("optimized plan is not an expression plan"))?;
+    let plan = make_eval(
+        row_idx(),
+        RowIdxPlan::new(10, make_plan(layout)?).into_plan(),
+    )?
+    .into_plan();
 
-    assert_eq!(expression.expression(), &bound_expression);
-    assert!(expression.child_plan()?.is::<RowIdx>());
-    assert_eq!(expression.row_count(), 3);
+    insta::assert_snapshot!(plan.display_tree(), @"
+    root: vortex.plan.eval(u64, rows=3) expr=#row_idx
+      child: vortex.plan.row_idx(i32, rows=3)
+        child: vortex.plan.segment_scan(i32, rows=3)
+    ");
+
+    let optimized = optimize(plan)?;
+    insta::assert_snapshot!(optimized.display_tree(), @"root: vortex.plan.row_idx_values(u64, rows=3)");
+    let values = optimized
+        .as_opt::<RowIdxValues>()
+        .ok_or_else(|| vortex_err!("optimized plan does not generate row-index values"))?;
+    assert_eq!(values.row_offset(), 10);
+    Ok(())
+}
+
+#[test]
+fn expression_partitions_across_row_idx_and_struct() -> VortexResult<()> {
+    let value_dtype = primitive(PType::I32, Nullability::NonNullable);
+    let dictionary = DictLayout::new(
+        flat(2, value_dtype.clone(), 0),
+        flat(3, primitive(PType::U8, Nullability::NonNullable), 1),
+    )
+    .into_layout();
+    let layout = StructLayout::new(
+        3,
+        DType::Struct(
+            StructFields::from_iter([("a", value_dtype.clone()), ("b", value_dtype.clone())]),
+            Nullability::NonNullable,
+        ),
+        vec![dictionary, flat(3, value_dtype, 2)],
+    )
+    .into_layout();
+    let expression = and(
+        gt(row_idx(), lit(11_u64)),
+        and(
+            gt(get_item("a", root()), lit(5_i32)),
+            gt(get_item("b", root()), lit(7_i32)),
+        ),
+    );
+    let plan = make_eval(
+        expression,
+        RowIdxPlan::new(10, make_plan(layout)?).into_plan(),
+    )?
+    .into_plan();
+
+    insta::assert_snapshot!(plan.display_tree(), @"
+    root: vortex.plan.eval(bool, rows=3) expr=(((#row_idx > 11u64) and ($.a > 5i32)) and ($.b > 7i32))
+      child: vortex.plan.row_idx({a=i32, b=i32}, rows=3)
+        child: vortex.plan.pack({a=i32, b=i32}, rows=3)
+          a: vortex.plan.take(i32, rows=3)
+            codes: vortex.plan.segment_scan(u8, rows=3)
+            values: vortex.plan.segment_scan(i32, rows=2)
+          b: vortex.plan.segment_scan(i32, rows=3)
+    ");
+
+    let optimized = optimize(plan)?;
+    insta::assert_snapshot!(optimized.display_tree(), @"
+    root: vortex.plan.eval(bool, rows=3) expr=(($.row_idx and $.child.child_0) and $.child.child_1)
+      child: vortex.plan.row_idx_partition({row_idx=bool, child={child_0=bool, child_1=bool}}, rows=3)
+        row_idx: vortex.plan.eval(bool, rows=3) expr=($ > 11u64)
+          child: vortex.plan.row_idx_values(u64, rows=3)
+        child: vortex.plan.eval({child_0=bool, child_1=bool}, rows=3) expr=pack(child_0: $.a, child_1: $.b)
+          child: vortex.plan.pack({a=bool, b=bool}, rows=3)
+            a: vortex.plan.take(bool, rows=3)
+              codes: vortex.plan.segment_scan(u8, rows=3)
+              values: vortex.plan.eval(bool, rows=2) expr=($ > 5i32)
+                child: vortex.plan.segment_scan(i32, rows=2)
+            b: vortex.plan.eval(bool, rows=3) expr=($ > 7i32)
+              child: vortex.plan.segment_scan(i32, rows=3)
+    ");
+    let residual = optimized
+        .as_opt::<Eval>()
+        .ok_or_else(|| vortex_err!("optimized plan has no residual expression"))?;
+    let partition_plan = residual.child_plan()?;
+    let partitions = partition_plan
+        .as_opt::<RowIdxPartition>()
+        .ok_or_else(|| vortex_err!("optimized plan has no row-index partitions"))?;
+    let row_idx_plan = partitions.row_idx_plan()?;
+    let row_idx_expression = row_idx_plan
+        .as_opt::<Eval>()
+        .ok_or_else(|| vortex_err!("row-index partition has no expression"))?;
+    let row_idx_values = row_idx_expression.child_plan()?;
+    let values = row_idx_values
+        .as_opt::<RowIdxValues>()
+        .ok_or_else(|| vortex_err!("row-index partition has no generated values"))?;
+    assert_eq!(values.row_offset(), 10);
     Ok(())
 }
 
@@ -867,4 +963,69 @@ fn legacy_stats_layout_uses_zoned_plan() -> VortexResult<()> {
       zones: vortex.plan.segment_scan({}, rows=2)
     ");
     Ok(())
+}
+
+#[test]
+fn multi_field_struct_expression_does_not_read_unused_fields() -> VortexResult<()> {
+    block_on(|handle| async move {
+        let session = crate::test::new_session().with_handle(handle);
+        let segments = Arc::new(TestSegments::default());
+        let strategy = FlatLayoutStrategy::default();
+
+        let (a_sequence, a_eof) = SequenceId::root().split();
+        let a = strategy
+            .write_stream(
+                ArrayContext::empty().into(),
+                Arc::<TestSegments>::clone(&segments),
+                PrimitiveArray::from_iter([1_i32, 6, 8])
+                    .into_array()
+                    .to_array_stream()
+                    .sequenced(a_sequence),
+                a_eof,
+                &session,
+            )
+            .await?;
+        let (b_sequence, b_eof) = SequenceId::root().split();
+        let b = strategy
+            .write_stream(
+                ArrayContext::empty().into(),
+                Arc::<TestSegments>::clone(&segments),
+                PrimitiveArray::from_iter([10_i32, 8, 9])
+                    .into_array()
+                    .to_array_stream()
+                    .sequenced(b_sequence),
+                b_eof,
+                &session,
+            )
+            .await?;
+
+        let value_dtype = primitive(PType::I32, Nullability::NonNullable);
+        let layout = StructLayout::new(
+            3,
+            DType::Struct(
+                StructFields::from_iter([
+                    ("a", value_dtype.clone()),
+                    ("b", value_dtype.clone()),
+                    ("c", value_dtype.clone()),
+                ]),
+                Nullability::NonNullable,
+            ),
+            vec![a, b, flat(3, value_dtype, 2)],
+        )
+        .into_layout();
+        let expression = and(
+            gt(get_item("a", root()), lit(5_i32)),
+            gt(get_item("b", root()), lit(7_i32)),
+        );
+        let optimized = optimize(make_eval(expression, make_plan(layout)?)?.into_plan())?;
+        let execution = PlanExecutionContext::new(segments, session.clone());
+
+        let actual = optimized
+            .execute(&execution, &(0..3), MaskFuture::new_true(3))?
+            .await?;
+        let expected = BoolArray::from_iter([false, true, true]).into_array();
+
+        assert_arrays_eq!(actual, expected, &mut session.create_execution_ctx());
+        Ok(())
+    })
 }

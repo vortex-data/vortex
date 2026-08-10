@@ -2,18 +2,35 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
+use std::ops::Range;
 use std::sync::Arc;
 
+use futures::FutureExt;
+use futures::try_join;
+use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::EmptyMetadata;
+use vortex_array::IntoArray;
+use vortex_array::MaskFuture;
+use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::ListArray;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::validity::Validity;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 
 use crate::plan::Plan;
+use crate::plan::PlanArrayFuture;
 use crate::plan::PlanChildren;
+use crate::plan::PlanExecutionContext;
 use crate::plan::PlanId;
 use crate::plan::PlanParts;
 use crate::plan::PlanRef;
@@ -116,6 +133,75 @@ impl PlanVTable for ListPack {
         validate_children(plan.dtype(), plan.row_count(), children)
     }
 
+    fn execute(
+        plan: &Plan<Self>,
+        ctx: &PlanExecutionContext,
+        row_range: &Range<u64>,
+        mask: MaskFuture,
+    ) -> VortexResult<PlanArrayFuture> {
+        vortex_ensure!(
+            row_range.start <= row_range.end && row_range.end <= plan.row_count(),
+            "ListPack row range {:?} is outside 0..{}",
+            row_range,
+            plan.row_count()
+        );
+        let row_count = usize::try_from(row_range.end - row_range.start)?;
+        vortex_ensure!(mask.len() == row_count, "ListPack mask length mismatch");
+
+        let offsets_range = row_range.start
+            ..row_range
+                .end
+                .checked_add(1)
+                .ok_or_else(|| vortex_err!("List offsets range overflow"))?;
+        let offsets = plan.offsets()?.execute(
+            ctx,
+            &offsets_range,
+            MaskFuture::new_true(row_count.saturating_add(1)),
+        )?;
+        let validity = plan
+            .validity()?
+            .map(|validity| validity.execute(ctx, row_range, MaskFuture::new_true(row_count)))
+            .transpose()?;
+        let elements = plan.elements()?;
+        let execution = ctx.clone();
+        let dtype = plan.dtype().clone();
+        let nullability = dtype.nullability();
+
+        Ok(async move {
+            let (offsets, mask) = try_join!(offsets, mask)?;
+            if mask.all_false() {
+                return Ok(Canonical::empty(&dtype).into_array());
+            }
+
+            let elements_range = elements_range_from_offsets(&offsets, execution.session())?;
+            let elements_count = usize::try_from(elements_range.end - elements_range.start)?;
+            let elements = elements
+                .execute(
+                    &execution,
+                    &elements_range,
+                    MaskFuture::new_true(elements_count),
+                )?
+                .await?;
+            let validity = match validity {
+                Some(validity) => Some(validity.await?),
+                None => None,
+            };
+            let offsets = rebase_offsets(offsets, elements_range.start)?;
+            // SAFETY: lowering from a list layout guarantees compatible elements and monotonically
+            // increasing offsets. Rebasing preserves the represented list lengths.
+            let list = unsafe {
+                ListArray::new_unchecked(elements, offsets, create_validity(validity, nullability))
+            }
+            .into_array();
+            if mask.all_true() {
+                Ok(list)
+            } else {
+                list.filter(mask)
+            }
+        }
+        .boxed())
+    }
+
     fn child_name(_plan: &Plan<Self>, index: usize) -> Cow<'_, str> {
         match index {
             ELEMENTS => Cow::Borrowed("elements"),
@@ -187,4 +273,43 @@ fn validate_children(dtype: &DType, row_count: u64, children: &PlanChildren) -> 
         }
     }
     Ok(())
+}
+
+fn elements_range_from_offsets(
+    offsets: &ArrayRef,
+    session: &vortex_session::VortexSession,
+) -> VortexResult<Range<u64>> {
+    if offsets.is_empty() {
+        return Ok(0..0);
+    }
+    let mut ctx = session.create_execution_ctx();
+    let start = offsets
+        .execute_scalar(0, &mut ctx)?
+        .as_primitive()
+        .as_::<u64>()
+        .vortex_expect("offset value must fit in u64");
+    let end = offsets
+        .execute_scalar(offsets.len() - 1, &mut ctx)?
+        .as_primitive()
+        .as_::<u64>()
+        .vortex_expect("offset value must fit in u64");
+    Ok(start..end)
+}
+
+fn rebase_offsets(offsets: ArrayRef, first: u64) -> VortexResult<ArrayRef> {
+    if first == 0 {
+        return Ok(offsets);
+    }
+    let constant = ConstantArray::new(first, offsets.len())
+        .into_array()
+        .cast(offsets.dtype().clone())?;
+    offsets.binary(constant, Operator::Sub)
+}
+
+fn create_validity(validity: Option<ArrayRef>, nullability: Nullability) -> Validity {
+    match validity {
+        Some(validity) => Validity::Array(validity),
+        None if nullability.is_nullable() => Validity::AllValid,
+        None => Validity::NonNullable,
+    }
 }

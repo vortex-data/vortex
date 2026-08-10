@@ -23,6 +23,7 @@ members = [
     "vortex-btrblocks",
     "vortex-layout",
     "vortex-scan",
+    "vortex-scan-v2",
     "vortex-file",
     "vortex-ipc",
     "vortex",
@@ -323,6 +324,7 @@ vortex-proto = { version = "0.1.0", path = "./vortex-proto", default-features = 
 vortex-row = { version = "0.1.0", path = "./vortex-row", default-features = false }
 vortex-runend = { version = "0.1.0", path = "./encodings/runend", default-features = false }
 vortex-scan = { version = "0.1.0", path = "./vortex-scan", default-features = false }
+vortex-scan-v2 = { version = "0.1.0", path = "./vortex-scan-v2", default-features = false }
 vortex-sequence = { version = "0.1.0", path = "encodings/sequence", default-features = false }
 vortex-session = { version = "0.1.0", path = "./vortex-session", default-features = false }
 vortex-sparse = { version = "0.1.0", path = "./encodings/sparse", default-features = false }

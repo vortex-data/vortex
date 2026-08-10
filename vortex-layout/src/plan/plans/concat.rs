@@ -2,21 +2,35 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
+use std::future;
+use std::ops::Range;
 use std::sync::Arc;
 
+use futures::FutureExt;
+use futures::TryStreamExt;
+use futures::stream::FuturesOrdered;
+use vortex_array::Canonical;
 use vortex_array::EmptyMetadata;
+use vortex_array::IntoArray;
+use vortex_array::MaskFuture;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::dtype::DType;
 use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::label_bound_tree;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 
 use crate::layouts::row_idx::RowIdx as RowIdxFn;
 use crate::plan::Eval;
 use crate::plan::EvalPlan;
 use crate::plan::Plan;
+use crate::plan::PlanArrayFuture;
 use crate::plan::PlanChildren;
+use crate::plan::PlanExecutionContext;
 use crate::plan::PlanId;
 use crate::plan::PlanParts;
 use crate::plan::PlanRef;
@@ -140,6 +154,57 @@ impl PlanVTable for Concat {
         }
         data.row_offsets = row_offsets.into();
         Ok(())
+    }
+
+    fn execute(
+        plan: &Plan<Self>,
+        ctx: &PlanExecutionContext,
+        row_range: &Range<u64>,
+        mask: MaskFuture,
+    ) -> VortexResult<PlanArrayFuture> {
+        vortex_ensure!(
+            row_range.start <= row_range.end && row_range.end <= plan.row_count(),
+            "Concat row range {:?} is outside 0..{}",
+            row_range,
+            plan.row_count()
+        );
+        vortex_ensure!(
+            mask.len() == usize::try_from(row_range.end - row_range.start)?,
+            "Concat mask length mismatch"
+        );
+        if row_range.is_empty() {
+            let empty = Canonical::empty(plan.dtype()).into_array();
+            return Ok(future::ready(Ok(empty)).boxed());
+        }
+
+        let mut chunk_futures = Vec::new();
+        for (chunk, &chunk_offset) in plan.children().iter().zip(plan.row_offsets()) {
+            let chunk = chunk?;
+            let chunk_end = chunk_offset
+                .checked_add(chunk.row_count())
+                .ok_or_else(|| vortex_err!("Chunk row offset overflow"))?;
+            let start = row_range.start.max(chunk_offset);
+            let end = row_range.end.min(chunk_end);
+            if start < end {
+                let child_range = start - chunk_offset..end - chunk_offset;
+                let mask_range = usize::try_from(start - row_range.start)?
+                    ..usize::try_from(end - row_range.start)?;
+                chunk_futures.push(chunk.execute(ctx, &child_range, mask.slice(mask_range))?);
+            }
+        }
+
+        Ok(async move {
+            let chunks: Vec<_> = FuturesOrdered::from_iter(chunk_futures)
+                .try_collect()
+                .await?;
+            vortex_ensure!(!chunks.is_empty(), "Non-empty row range selected no chunks");
+            if chunks.len() == 1 {
+                return Ok(chunks.into_iter().next().vortex_expect("one chunk"));
+            }
+            let dtype = chunks[0].dtype().clone();
+            Ok(ChunkedArray::try_new(chunks, dtype)?.into_array())
+        }
+        .boxed())
     }
 
     fn child_name(_plan: &Plan<Self>, index: usize) -> Cow<'_, str> {
