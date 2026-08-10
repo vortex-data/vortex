@@ -24,6 +24,7 @@ use crate::prune::SpatialIntersectsPrune;
 use crate::scalar_fn::area::SpatialArea;
 use crate::scalar_fn::collect::SpatialCollect;
 use crate::scalar_fn::contains::SpatialContains;
+use crate::scalar_fn::convex_hull::SpatialConvexHull;
 use crate::scalar_fn::distance::SpatialDistance;
 use crate::scalar_fn::envelope::SpatialEnvelope;
 use crate::scalar_fn::intersects::SpatialIntersects;
@@ -69,6 +70,7 @@ pub fn initialize(session: &VortexSession) {
     // Register the geometry scalar functions.
     session.scalar_fns().register(SpatialArea);
     session.scalar_fns().register(SpatialCollect);
+    session.scalar_fns().register(SpatialConvexHull);
     session.scalar_fns().register(SpatialEnvelope);
     session.scalar_fns().register(SpatialContains);
     session.scalar_fns().register(SpatialDistance);
