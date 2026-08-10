@@ -17,7 +17,8 @@ use crate::scalar_fn::InputElement;
 use crate::scalar_fn::OutputElement;
 use crate::validity::Validity;
 
-impl<T: NativePType> InputElement for T {
+// SAFETY: the varying view is a native slice, and its reported length is the slice length.
+unsafe impl<T: NativePType> InputElement for T {
     type Column = Buffer<T>;
     type Varying<'a> = &'a [T];
     type Elem<'a> = T;

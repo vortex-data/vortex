@@ -15,7 +15,8 @@ use crate::scalar_fn::InputElement;
 use crate::scalar_fn::OutputElement;
 use crate::validity::Validity;
 
-impl InputElement for bool {
+// SAFETY: the varying view is a bit buffer, and its reported length is the buffer length.
+unsafe impl InputElement for bool {
     type Column = BitBuffer;
     type Varying<'a> = &'a BitBuffer;
     type Elem<'a> = bool;

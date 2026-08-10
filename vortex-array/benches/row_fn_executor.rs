@@ -19,7 +19,6 @@ use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::DeferredError;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::OutputSink;
 use vortex_array::scalar_fn::RowFn;
@@ -136,7 +135,7 @@ impl OutputSink for I64Sink {
         &mut rows[index]
     }
 
-    fn finish(self, _error: DeferredError) -> VortexResult<ArrayRef> {
+    unsafe fn finish(self) -> VortexResult<ArrayRef> {
         Ok(PrimitiveArray::new(self.0.freeze(), Validity::NonNullable).into_array())
     }
 }

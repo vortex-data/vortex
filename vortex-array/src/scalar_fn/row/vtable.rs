@@ -90,6 +90,7 @@ impl<F: RowFn> ScalarFnVTable for F {
 
         let batch = prepare_batch(self, options, args)?;
         batch.execute(
+            |args, ctx| self.reduce_encoded(options, args.arrays, ctx),
             |args, ctx| execute_rows(self, options, args, ctx),
             |args, valid, ctx| try_execute_rows_unfiltered(self, options, args, valid, ctx),
             ctx,
@@ -120,12 +121,6 @@ fn execute_rows<F: RowFn>(
     args: KernelArgs<'_>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<RowExecution> {
-    if !args.arrays.is_empty()
-        && let Some(reduced) = function.reduce_encoded(options, args.arrays, ctx)?
-    {
-        return Ok(RowExecution::Output(reduced));
-    }
-
     let execution = BorrowedExecutionArgs::new(args.arrays, args.row_count);
 
     function.dispatch(
@@ -143,12 +138,6 @@ fn try_execute_rows_unfiltered<F: RowFn>(
     valid: &Mask,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<RowExecution>> {
-    // Try the encoding-aware path before filtering changes the inputs. The caller masks its
-    // full-length result with `valid` before returning it.
-    if let Some(reduced) = function.reduce_encoded(options, args.arrays, ctx)? {
-        return Ok(Some(RowExecution::Output(reduced)));
-    }
-
     let execution = BorrowedExecutionArgs::new(args.arrays, args.row_count);
 
     function.dispatch(

@@ -15,7 +15,6 @@ pub use element::OutputElement;
 pub(super) use element::batch_constant;
 
 mod result;
-pub use result::DeferredError;
 pub use result::SinkResult;
 
 mod sink;

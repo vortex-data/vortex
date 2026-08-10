@@ -23,7 +23,14 @@ pub use tuple::IndexedElementTuple;
 pub use tuple::batch_constant;
 
 /// An element type that can be read row-wise out of an input column.
-pub trait InputElement: 'static {
+///
+/// # Safety
+///
+/// For every view returned by [`varying`](Self::varying), every index below
+/// [`varying_len`](Self::varying_len) **must** satisfy the safety contract of
+/// [`get_varying_unchecked`](Self::get_varying_unchecked). Shared execution relies on this proof to
+/// perform unchecked reads after one pre-loop length check.
+pub unsafe trait InputElement: 'static {
     /// The decoded column representation supporting `O(1)` row access.
     type Column;
 

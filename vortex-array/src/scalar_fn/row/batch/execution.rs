@@ -4,6 +4,7 @@
 //! Null propagation, constant folding, and strategy execution for one columnar batch.
 
 use smallvec::SmallVec;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -80,9 +81,19 @@ impl Batch {
         args: &dyn ExecutionArgs,
         plan: impl FnOnce(&[DType]) -> VortexResult<BatchPlan>,
     ) -> VortexResult<Self> {
+        let row_count = args.row_count();
         let inputs: SmallVec<[ArrayRef; 4]> = (0..args.num_inputs())
             .map(|index| args.get(index))
             .collect::<VortexResult<_>>()?;
+
+        for (index, input) in inputs.iter().enumerate() {
+            vortex_ensure_eq!(
+                input.len(),
+                row_count,
+                "the {id} input {index} must have {row_count} rows, got {}",
+                input.len(),
+            );
+        }
 
         let arg_dtypes: SmallVec<[DType; 4]> =
             inputs.iter().map(|input| input.dtype().clone()).collect();
@@ -96,7 +107,7 @@ impl Batch {
 
         Ok(Self {
             id,
-            row_count: args.row_count(),
+            row_count,
             inputs,
             arg_dtypes,
             validity,
@@ -109,10 +120,13 @@ impl Batch {
     /// Add null propagation, constant folding, and strategy selection around `kernel`.
     ///
     /// The kernel may ignore input validity. It receives valid-only rows when required, and its
-    /// output **must** match the planned dtype up to nullability. `try_unfiltered` receives the
-    /// original inputs plus a mixed validity mask. `Ok(None)` selects filter-and-scatter.
+    /// output **must** match the planned dtype up to nullability. `reduce` receives the original
+    /// inputs exactly once, before the generic all-constant broadcast, so a function-owned encoded
+    /// implementation takes precedence. `try_unfiltered` receives the originals plus a mixed
+    /// validity mask; `Ok(None)` selects filter-and-scatter.
     pub fn execute(
         &self,
+        reduce: impl FnOnce(KernelArgs<'_>, &mut ExecutionCtx) -> VortexResult<Option<RowExecution>>,
         kernel: impl Fn(KernelArgs<'_>, &mut ExecutionCtx) -> VortexResult<RowExecution>,
         try_unfiltered: impl FnOnce(
             KernelArgs<'_>,
@@ -121,14 +135,26 @@ impl Batch {
         ) -> VortexResult<Option<RowExecution>>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        // Strictness: any null-constant input forces an all-null result without evaluating the
-        // kernel.
-        if self
-            .inputs
-            .iter()
-            .any(|input| input.as_constant().is_some_and(|scalar| scalar.is_null()))
+        // Strictness: an all-null batch has no observable row work. Keep the literal-constant
+        // check explicit alongside the conjoined validity invariant.
+        if matches!(self.validity, Validity::AllInvalid)
+            || self
+                .inputs
+                .iter()
+                .any(|input| input.as_constant().is_some_and(|scalar| scalar.is_null()))
         {
             return Ok(self.all_null());
+        }
+
+        // The function-owned encoded path takes precedence over the generic all-constant
+        // broadcast and sees the original inputs before slicing or filtering changes them.
+        if let Some(execution) = reduce(self.kernel_args(&self.inputs, self.row_count), ctx)? {
+            match execution {
+                RowExecution::Output(values) => return self.finalize_reduced(values),
+                RowExecution::DeferredError(error) => {
+                    return self.resolve_reduced_error(error, kernel, try_unfiltered, ctx);
+                }
+            }
         }
 
         // All inputs constant, and their conjoined validity proves every row non-null. This sees
@@ -183,11 +209,6 @@ impl Batch {
         retry_deferred_error: bool,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        // Every row is null, so the kernel has nothing to contribute.
-        if matches!(self.validity, Validity::AllInvalid) {
-            return Ok(self.all_null());
-        }
-
         let values = match kernel(self.kernel_args(&self.inputs, self.row_count), ctx)? {
             RowExecution::Output(values) => values,
             RowExecution::DeferredError(error) if retry_deferred_error => {
@@ -321,6 +342,46 @@ impl Batch {
     /// An all-null result of the function's declared return dtype.
     fn all_null(&self) -> ArrayRef {
         ConstantArray::new(Scalar::null(self.result_dtype.clone()), self.row_count).into_array()
+    }
+
+    /// Reconcile an encoding-aware result and apply the batch's strict input validity.
+    fn finalize_reduced(&self, values: ArrayRef) -> VortexResult<ArrayRef> {
+        match self.validity.clone() {
+            Validity::NonNullable | Validity::AllValid => {
+                self.finalize_output(values, self.row_count)
+            }
+            Validity::Array(valid) => self.finalize_output(values.mask(valid)?, self.row_count),
+            // Handled before the encoding-aware hook runs.
+            Validity::AllInvalid => Ok(self.all_null()),
+        }
+    }
+
+    /// Resolve deferred evidence from the encoded path by executing only observable rows.
+    fn resolve_reduced_error(
+        &self,
+        error: VortexError,
+        kernel: impl Fn(KernelArgs<'_>, &mut ExecutionCtx) -> VortexResult<RowExecution>,
+        try_unfiltered: impl FnOnce(
+            KernelArgs<'_>,
+            &Mask,
+            &mut ExecutionCtx,
+        ) -> VortexResult<Option<RowExecution>>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let valid = self.validity.clone().execute_mask(self.row_count, ctx)?;
+
+        if valid.all_true() {
+            return Err(error);
+        }
+        if valid.all_false() {
+            return Ok(self.all_null());
+        }
+
+        if let Some(result) = self.try_execute_unfiltered(try_unfiltered, &valid, ctx)? {
+            return Ok(result);
+        }
+
+        self.filter_and_scatter(kernel, &valid, ctx)
     }
 
     /// Pair an input view with this batch's planning metadata.

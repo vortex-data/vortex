@@ -75,7 +75,7 @@ impl<F: RowFn> RowVisitor for PlanRows<'_, F> {
         Sink: OutputSink,
         ApplyResult: SinkResult<WriteToken = Sink::WriteToken>,
     {
-        const { assert_sink_visit_contract::<F, Args, Sink, ApplyResult>() };
+        const { assert_sink_visit_contract::<F, Args, ApplyResult>() };
 
         Ok(BatchPlan {
             output_dtype: validate_sink_visit::<Args, Sink>(self.dtypes)?,

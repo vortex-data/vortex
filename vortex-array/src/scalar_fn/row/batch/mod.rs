@@ -20,3 +20,6 @@ pub(super) use execution::finalize_kernel_output;
 mod policy;
 pub(super) use policy::BatchPlan;
 pub(super) use policy::RowPolicy;
+
+#[cfg(test)]
+mod tests;

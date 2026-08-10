@@ -15,6 +15,7 @@ use super::visitor::RowVisitor;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
+use crate::scalar_fn::RowExecution;
 use crate::scalar_fn::ScalarFnId;
 
 /// A scalar function computed one row at a time.
@@ -68,8 +69,15 @@ pub trait RowFn: 'static + Sized + Clone + Send + Sync {
 
     /// Try an encoding-aware implementation before decoding the inputs into row elements.
     ///
-    /// `None` continues to the dispatched row loop. `Some(output)` skips that loop. The output can
-    /// remain encoded or lazy. Filter-and-scatter execution can pass compacted inputs.
+    /// `None` continues to the dispatched row loop. [`Output`](RowExecution::Output) skips that
+    /// loop and may remain encoded or lazy. [`DeferredError`](RowExecution::DeferredError) reruns
+    /// only valid rows when null payloads may have caused the failure. For non-nullary functions,
+    /// batch execution calls this hook at most once with the original, unfiltered arrays; slices
+    /// and compacted retries do not reach it.
+    ///
+    /// Like a dense row closure, this hook must be total over every stored payload, including
+    /// payloads behind null rows. An `Err` is immediately user-visible and is never suppressed or
+    /// retried through the row layer.
     ///
     /// # Requirements
     ///
@@ -83,7 +91,7 @@ pub trait RowFn: 'static + Sized + Clone + Send + Sync {
         options: &Self::Options,
         args: &[ArrayRef],
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
+    ) -> VortexResult<Option<RowExecution>> {
         _ = (options, args, ctx);
         Ok(None)
     }

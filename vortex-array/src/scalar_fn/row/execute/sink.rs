@@ -13,7 +13,6 @@ use super::RowExecution;
 use super::ensure_decoded_lengths;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
-use crate::scalar_fn::DeferredError;
 use crate::scalar_fn::ElementTuple;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::OutputSink;
@@ -74,8 +73,7 @@ where
         }
     }
 
-    // Immediate failures returned above. Only reduced, deferred failure evidence reaches finish.
-    finish_sink(sink, DeferredError::new(ApplyResult::occurred(accumulated)))
+    finish_sink(sink)
 }
 
 /// Run a prepared sink over only the rows set in `valid`, or decline when the sink cannot skip.
@@ -92,11 +90,11 @@ where
     Sink: OutputSink,
     ApplyResult: SinkResult<WriteToken = Sink::WriteToken>,
 {
-    // Batch execution needs a full-length result before applying the validity mask. Decline when
-    // the sink cannot leave legal placeholders in positions this loop skips.
-    if !Sink::SUPPORTS_SKIPPED_ROWS {
+    // Decline before input decoding or sink allocation when this sink cannot initialize rows that
+    // the mask skips. The capability and the operation are the same function pointer.
+    let Some(initialize_skipped_rows) = Sink::SKIPPED_ROWS_INITIALIZER else {
         return Ok(None);
-    }
+    };
 
     // Null-tolerant decoding exposes values behind nulls without filtering the inputs first. An
     // element representation may decline when it cannot provide those values safely.
@@ -129,7 +127,7 @@ where
 
         // The loop writes only valid indices, but the sink still finishes a full-length output.
         // Initialize placeholders now; batch execution masks them before the result escapes.
-        Sink::initialize_skipped_rows(&mut rows);
+        initialize_skipped_rows(&mut rows);
 
         // Mask traversal is callback-based and cannot return a `VortexResult`. Record the first
         // immediate error, turn later callbacks into no-ops, and return before finishing the sink.
@@ -163,21 +161,15 @@ where
         }
     }
 
-    // Immediate failures returned above. Only reduced, deferred failure evidence reaches finish.
-    finish_sink(sink, DeferredError::new(ApplyResult::occurred(accumulated))).map(Some)
+    finish_sink(sink).map(Some)
 }
 
-/// Classify a sink error as retryable only when row accumulation recorded a deferred failure.
-///
-/// The sink contract requires [`OutputSink::finish`] to surface recorded failure evidence. Without
-/// that evidence, its error is structural and retrying over a different set of rows cannot help.
-fn finish_sink<S: OutputSink>(
-    sink: S,
-    deferred_error: DeferredError,
-) -> VortexResult<RowExecution> {
-    match sink.finish(deferred_error) {
-        Ok(output) => Ok(RowExecution::Output(output)),
-        Err(error) if deferred_error.occurred() => Ok(RowExecution::DeferredError(error)),
-        Err(error) => Err(error),
-    }
+fn finish_sink<S: OutputSink>(sink: S) -> VortexResult<RowExecution> {
+    // SAFETY: callers reach this helper only after every completed callback returned the sink's
+    // write token. Skipped-row traversal also ran the sink's initializer before visiting its mask.
+    // The sink contract defines how that evidence establishes initialization of its row storage.
+    unsafe { sink.finish() }.map(RowExecution::Output)
 }
+
+#[cfg(test)]
+mod tests;

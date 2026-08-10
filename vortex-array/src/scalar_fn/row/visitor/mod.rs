@@ -85,8 +85,6 @@ pub trait RowVisitor: private::Sealed + Sized {
     ///   [`RowFn::ARG_NAMES`](crate::scalar_fn::RowFn::ARG_NAMES).
     /// - [`RowFn::FALLIBLE`](crate::scalar_fn::RowFn::FALLIBLE) **must** be `true` when decoding
     ///   `Args` or computing the result can fail.
-    /// - [`OutputSink::ERRORS_ARE_DEFERRED`] **must** match [`SinkResult::DEFERRED`] for the
-    ///   selected `Sink` and `ApplyResult`.
     fn visit_into<Args, Sink, ApplyResult>(
         self,
         apply: impl Fn(Args::Elems<'_>, Sink::Row<'_>) -> ApplyResult,

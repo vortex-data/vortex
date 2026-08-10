@@ -54,25 +54,16 @@ where
 }
 
 /// Assert that a sink visit obeys the input, fallibility, and deferred-error contracts.
-pub(super) const fn assert_sink_visit_contract<Function, Args, Sink, ApplyResult>()
+pub(super) const fn assert_sink_visit_contract<Function, Args, ApplyResult>()
 where
     Function: RowFn,
     Args: ElementTuple,
-    Sink: OutputSink,
     ApplyResult: SinkResult,
 {
     assert_input_visit_contract::<Function, Args>();
     assert!(
         !ApplyResult::FALLIBLE || Function::FALLIBLE,
         "RowFn::FALLIBLE must be true when a row result can fail",
-    );
-    assert!(
-        !ApplyResult::DEFERRED || Function::FALLIBLE,
-        "RowFn::FALLIBLE must be true when a row result defers failure evidence",
-    );
-    assert!(
-        Sink::ERRORS_ARE_DEFERRED == ApplyResult::DEFERRED,
-        "OutputSink::ERRORS_ARE_DEFERRED must match SinkResult::DEFERRED",
     );
 }
 

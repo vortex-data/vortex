@@ -38,6 +38,7 @@ use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
+use vortex_array::scalar_fn::RowExecution;
 use vortex_array::scalar_fn::RowFn;
 use vortex_array::scalar_fn::RowVisitor;
 use vortex_array::scalar_fn::ScalarFnId;
@@ -100,8 +101,8 @@ impl RowFn for LazyDouble {
         _options: &Self::Options,
         args: &[ArrayRef],
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        doubled(&args[0], ctx).map(Some)
+    ) -> VortexResult<Option<RowExecution>> {
+        doubled(&args[0], ctx).map(|output| Some(RowExecution::Output(output)))
     }
 }
 

@@ -9,7 +9,6 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::dtype::DType;
-use crate::scalar_fn::DeferredError;
 use crate::scalar_fn::OutputElement;
 
 /// A column allocated once per batch that a row closure writes into, one row at a time.
@@ -19,21 +18,8 @@ use crate::scalar_fn::OutputElement;
 ///
 /// Rows arrive in increasing index order. Ordinary execution visits `0..row_count` exactly once;
 /// skip-invalid execution can omit invalid rows when
-/// [`SUPPORTS_SKIPPED_ROWS`](Self::SUPPORTS_SKIPPED_ROWS) is `true`.
+/// [`SKIPPED_ROWS_INITIALIZER`](Self::SKIPPED_ROWS_INITIALIZER) is present.
 pub trait OutputSink: 'static + Sized {
-    /// Whether this sink accepts [`DeferredError`] from its row closure instead of requiring a
-    /// per-row [`VortexResult`].
-    ///
-    /// A supporting sink must return an error from [`finish`](Self::finish) when its deferred error
-    /// argument occurred.
-    const ERRORS_ARE_DEFERRED: bool = false;
-
-    /// Whether this sink can finish a full-length output when some rows were never visited.
-    ///
-    /// A supporting sink must use [`initialize_skipped_rows`](Self::initialize_skipped_rows) to
-    /// leave a legal arbitrary value at every skipped row. Batch execution masks those values.
-    const SUPPORTS_SKIPPED_ROWS: bool = false;
-
     /// A loop-local view of all output rows.
     ///
     /// Borrowed once before execution so the sink's buffer descriptor and shape become loop
@@ -41,6 +27,14 @@ pub trait OutputSink: 'static + Sized {
     type Rows<'a>
     where
         Self: 'a;
+
+    /// The operation that initializes every output position before skip-invalid execution.
+    ///
+    /// `None` declines skip-invalid execution before input decoding or sink allocation. A present
+    /// initializer **must** leave a legal arbitrary value in every row. Encoding support as the
+    /// initializer's presence prevents a separate capability flag from disagreeing with a no-op
+    /// method.
+    const SKIPPED_ROWS_INITIALIZER: Option<for<'a> fn(&mut Self::Rows<'a>)> = None;
 
     /// The place a row closure writes one row through, borrowed from the sink.
     type Row<'a>
@@ -74,19 +68,18 @@ pub trait OutputSink: 'static + Sized {
     /// optimizer the output bounds it needs to remove the bounds check hidden in each row accessor.
     fn row_count_matches(rows: &Self::Rows<'_>, row_count: usize) -> bool;
 
-    /// Initialize output positions that skip-invalid execution can omit.
-    ///
-    /// Called only when [`SUPPORTS_SKIPPED_ROWS`](Self::SUPPORTS_SKIPPED_ROWS) is `true`. The
-    /// default is for sinks whose allocation already contains legal values.
-    fn initialize_skipped_rows(_rows: &mut Self::Rows<'_>) {}
-
     /// Hand out the place to write row `index`. Must be `O(1)`: it is called in the row loop.
     fn row<'a>(rows: &'a mut Self::Rows<'_>, index: usize) -> Self::Row<'a>;
 
     /// Finish into the built column, whose dtype **must** be this sink's
-    /// [`sink_dtype`](Self::sink_dtype). Called once per batch with whether any deferred row error
-    /// occurred.
-    fn finish(self, error: DeferredError) -> VortexResult<ArrayRef>;
+    /// [`sink_dtype`](Self::sink_dtype). Called once per batch.
+    ///
+    /// # Safety
+    ///
+    /// The executor must have completed every row callback successfully, and each callback must
+    /// have returned this sink's [`WriteToken`](Self::WriteToken). When skipped rows are allowed,
+    /// [`SKIPPED_ROWS_INITIALIZER`](Self::SKIPPED_ROWS_INITIALIZER) must have run before traversal.
+    unsafe fn finish(self) -> VortexResult<ArrayRef>;
 }
 
 /// Proof that one uninitialized element row was initialized.
@@ -128,9 +121,14 @@ pub struct UninitElementSink<T> {
 }
 
 impl<T: OutputElement + Copy + Default> OutputSink for UninitElementSink<T> {
-    const SUPPORTS_SKIPPED_ROWS: bool = true;
-
     type Rows<'a> = &'a mut [MaybeUninit<T>];
+
+    const SKIPPED_ROWS_INITIALIZER: Option<for<'a> fn(&mut Self::Rows<'a>)> = Some(|rows| {
+        for row in rows.iter_mut() {
+            row.write(T::default());
+        }
+    });
+
     type Row<'a> = &'a mut MaybeUninit<T>;
     type WriteToken = InitializedElement;
 
@@ -153,21 +151,13 @@ impl<T: OutputElement + Copy + Default> OutputSink for UninitElementSink<T> {
         rows.len() == row_count
     }
 
-    fn initialize_skipped_rows(rows: &mut Self::Rows<'_>) {
-        for row in rows.iter_mut() {
-            row.write(T::default());
-        }
-    }
-
     fn row<'a>(rows: &'a mut Self::Rows<'_>, index: usize) -> Self::Row<'a> {
         &mut rows[index]
     }
 
-    fn finish(mut self, _error: DeferredError) -> VortexResult<ArrayRef> {
-        // SAFETY: the `WriteToken` equality requires each successful dense callback to return an
-        // `InitializedElement`. Its unsafe constructor requires initialization of that callback's
-        // row. Skip-invalid execution initializes every row before overwriting valid ones.
-        // `with_capacity` reserved every slot in `0..row_count`.
+    unsafe fn finish(mut self) -> VortexResult<ArrayRef> {
+        // SAFETY: the caller guarantees every slot in `0..row_count` was initialized, and
+        // `with_capacity` reserved every slot in that range.
         unsafe { self.values.set_len(self.row_count) };
 
         Ok(T::build(self.values))
