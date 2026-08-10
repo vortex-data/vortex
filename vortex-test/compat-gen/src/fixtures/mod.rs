@@ -11,6 +11,8 @@ use vortex::array::ArrayRef;
 use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::file::WriteStrategyBuilder;
 use vortex_array::ExecutionCtx;
+use vortex_arrow::ArrowSession;
+use vortex_arrow::ArrowSessionExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -64,7 +66,7 @@ pub trait DatasetFixture {
     fn description(&self) -> &str;
 
     /// Build the dataset as a chunked array. Must be deterministic.
-    fn build(&self) -> VortexResult<ArrayRef>;
+    fn build(&self, arrow: &ArrowSession) -> VortexResult<ArrayRef>;
 }
 
 // ---------------------------------------------------------------------------
@@ -132,8 +134,8 @@ impl Fixture for DatasetFixtureAdapter {
         self.inner.description()
     }
 
-    fn write(&self, dir: &Path, _ctx: &mut ExecutionCtx) -> VortexResult<Vec<FixtureEntry>> {
-        let array = self.inner.build()?;
+    fn write(&self, dir: &Path, ctx: &mut ExecutionCtx) -> VortexResult<Vec<FixtureEntry>> {
+        let array = self.inner.build(&ctx.session().arrow())?;
         let path = dir.join(self.name());
         if self.compact {
             let strategy = WriteStrategyBuilder::default()

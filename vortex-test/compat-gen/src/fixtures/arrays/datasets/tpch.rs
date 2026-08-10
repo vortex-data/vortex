@@ -15,9 +15,11 @@ use crate::fixtures::DatasetFixture;
 
 const SCALE_FACTOR: f64 = 0.01;
 
-fn collect_batches_as_vortex(iter: impl RecordBatchIterator) -> VortexResult<ArrayRef> {
+fn collect_batches_as_vortex(
+    iter: impl RecordBatchIterator,
+    arrow: &ArrowSession,
+) -> VortexResult<ArrayRef> {
     let batches: Vec<RecordBatch> = iter.collect();
-    let arrow = ArrowSession::default();
     Ok(ChunkedArray::from_iter(
         batches
             .into_iter()
@@ -41,10 +43,10 @@ impl DatasetFixture for TpchLineitemFixture {
         "TPC-H lineitem table at scale factor 0.01 with decimals, dates, and strings"
     }
 
-    fn build(&self) -> VortexResult<ArrayRef> {
+    fn build(&self, arrow: &ArrowSession) -> VortexResult<ArrayRef> {
         let generator = LineItemGenerator::new(SCALE_FACTOR, 1, 1);
         let arrow_iter = tpchgen_arrow::LineItemArrow::new(generator).with_batch_size(65_536);
-        collect_batches_as_vortex(arrow_iter)
+        collect_batches_as_vortex(arrow_iter, arrow)
     }
 }
 
@@ -59,10 +61,10 @@ impl DatasetFixture for TpchOrdersFixture {
         "TPC-H orders table at scale factor 0.01 with decimals, dates, and strings"
     }
 
-    fn build(&self) -> VortexResult<ArrayRef> {
+    fn build(&self, arrow: &ArrowSession) -> VortexResult<ArrayRef> {
         let generator = OrderGenerator::new(SCALE_FACTOR, 1, 1);
         let arrow_iter = tpchgen_arrow::OrderArrow::new(generator).with_batch_size(65_536);
-        collect_batches_as_vortex(arrow_iter)
+        collect_batches_as_vortex(arrow_iter, arrow)
     }
 }
 

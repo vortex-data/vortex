@@ -179,7 +179,7 @@ impl DatasetFixture for ClickBenchHits5kFixture {
         "5000 rows (5x1000 from random offsets) of ClickBench hits dataset with wide schema of primitives and strings"
     }
 
-    fn build(&self) -> VortexResult<ArrayRef> {
+    fn build(&self, arrow: &ArrowSession) -> VortexResult<ArrayRef> {
         let path = cached_clickbench_parquet()?;
         let file_bytes = fs::read(&path)
             .map_err(|e| vortex_err!("failed to read cached parquet at {}: {e}", path.display()))?;
@@ -195,7 +195,6 @@ impl DatasetFixture for ClickBenchHits5kFixture {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| vortex_err!("failed to read parquet batches: {e}"))?;
 
-        let arrow = ArrowSession::default();
         Ok(ChunkedArray::from_iter(
             batches
                 .into_iter()
