@@ -23,6 +23,7 @@ internals/session
 internals/async-runtime
 internals/vtables
 internals/execution
+internals/scan-planning
 internals/stats-pruning
 internals/io
 internals/serialization
