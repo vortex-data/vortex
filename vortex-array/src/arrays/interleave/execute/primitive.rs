@@ -6,14 +6,15 @@
 use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_buffer::buffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 
 use super::super::Interleave;
 use super::super::InterleaveArrayExt;
-use super::validate_selectors;
 use crate::AnyColumnar;
 use crate::array::Array;
-use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
@@ -45,43 +46,37 @@ pub(super) fn execute(
     Ok(ExecutionResult::done(output))
 }
 
-/// Physical primitive values; nullness remains in the source array's validity.
-enum PrimitiveValues<T> {
-    Buffer(Buffer<T>),
-    Constant(T),
-}
-
-impl<T: Copy> PrimitiveValues<T> {
-    /// Returns the physical value at `index` without bounds checking.
-    ///
-    /// # Safety
-    ///
-    /// For [`Self::Buffer`], `index` must be less than the buffer length. [`Self::Constant`]
-    /// accepts any index because it has a single physical value.
-    unsafe fn value_unchecked(&self, index: usize) -> T {
-        match self {
-            // SAFETY: the caller guarantees that `index` is in bounds.
-            Self::Buffer(values) => *unsafe { values.get_unchecked(index) },
-            Self::Constant(value) => *value,
-        }
-    }
+/// Physical storage for one primitive source array.
+struct PrimitiveSource<T> {
+    data: Buffer<T>,
+    len: usize,
+    // Maps logical rows to `data`: zero for constants and identity for decoded buffers.
+    row_mask: usize,
 }
 
 fn gather_values<T: NativePType>(array: &Array<Interleave>) -> VortexResult<Buffer<T>> {
     let values = (0..array.num_values())
         .map(|i| {
             let value = array.value(i);
+            let len = value.len();
             if let Some(constant) = value.as_opt::<Constant>() {
-                PrimitiveValues::Constant(
-                    constant
-                        .scalar()
-                        .as_primitive()
-                        .typed_value::<T>()
-                        // Validity carries nullness; a null constant's payload is never observed.
-                        .unwrap_or_default(),
-                )
+                // Validity carries nullness; a null constant's payload is never observed.
+                let payload = constant
+                    .scalar()
+                    .as_primitive()
+                    .typed_value::<T>()
+                    .unwrap_or_default();
+                PrimitiveSource {
+                    data: buffer![payload],
+                    len,
+                    row_mask: 0,
+                }
             } else {
-                PrimitiveValues::Buffer(value.as_::<Primitive>().to_buffer::<T>())
+                PrimitiveSource {
+                    data: value.as_::<Primitive>().to_buffer::<T>(),
+                    len,
+                    row_mask: usize::MAX,
+                }
             }
         })
         .collect::<Vec<_>>();
@@ -89,28 +84,14 @@ fn gather_values<T: NativePType>(array: &Array<Interleave>) -> VortexResult<Buff
     let rows = array.row_indices().as_::<Primitive>();
 
     match_each_unsigned_integer_ptype!(branches.ptype(), |A| {
-        gather_rows::<T, A>(array, &values, branches.as_slice::<A>(), rows)
-    })
-}
-
-fn gather_rows<T, A>(
-    array: &Array<Interleave>,
-    values: &[PrimitiveValues<T>],
-    branches: &[A],
-    rows: ArrayView<'_, Primitive>,
-) -> VortexResult<Buffer<T>>
-where
-    T: NativePType,
-    A: AsPrimitive<usize>,
-{
-    match_each_unsigned_integer_ptype!(rows.ptype(), |R| {
-        gather(array, values, branches, rows.as_slice::<R>())
+        match_each_unsigned_integer_ptype!(rows.ptype(), |R| {
+            gather(&values, branches.as_slice::<A>(), rows.as_slice::<R>())
+        })
     })
 }
 
 fn gather<T, A, R>(
-    array: &Array<Interleave>,
-    values: &[PrimitiveValues<T>],
+    values: &[PrimitiveSource<T>],
     branches: &[A],
     rows: &[R],
 ) -> VortexResult<Buffer<T>>
@@ -119,47 +100,39 @@ where
     A: AsPrimitive<usize>,
     R: AsPrimitive<usize>,
 {
-    let len = validate_selectors(
-        values.len(),
-        |branch| array.value(branch).len(),
-        branches,
-        rows,
-    )?;
+    // `zip` truncates to the shorter input.
+    vortex_ensure!(
+        rows.len() == branches.len(),
+        "interleave selectors differ in length: array_indices {}, row_indices {}",
+        branches.len(),
+        rows.len()
+    );
 
-    // SAFETY: `validate_selectors` proved both selector lengths and every logical source bound.
-    // Each `Buffer` has the same length as its source array, while `Constant` ignores the row.
-    Ok(unsafe { gather_unchecked(len, values, branches, rows) })
+    let output =
+        BufferMut::try_from_trusted_len_iter(branches.iter().zip(rows).map(|(branch, row)| {
+            let Some(source) = values.get((*branch).as_()) else {
+                vortex_bail!("interleave array index out of bounds");
+            };
+            let row = (*row).as_();
+            vortex_ensure!(row < source.len, "interleave row index out of bounds");
+            Ok(source.data[row & source.row_mask])
+        }))?;
+    Ok(output.freeze())
 }
 
-/// Gathers one primitive value per output from `values[branches[i]]` at position `rows[i]`.
-///
-/// # Safety
-///
-/// `branches` and `rows` must both contain at least `len` elements. For every `i < len`,
-/// `branches[i] < values.len()` and, when the selected value is a [`PrimitiveValues::Buffer`],
-/// `rows[i]` must be less than that buffer's length.
-unsafe fn gather_unchecked<T, A, R>(
-    len: usize,
-    values: &[PrimitiveValues<T>],
-    branches: &[A],
-    rows: &[R],
-) -> Buffer<T>
-where
-    T: NativePType,
-    A: AsPrimitive<usize>,
-    R: AsPrimitive<usize>,
-{
-    let mut output = BufferMut::with_capacity(len);
-    for ((branch, row), slot) in branches.iter().zip(rows).zip(output.spare_capacity_mut()) {
-        let branch = (*branch).as_();
-        let row = (*row).as_();
-        // SAFETY: the caller guarantees that the selected branch and row are in bounds for
-        // `values` and the selected physical value buffer.
-        slot.write(unsafe { values.get_unchecked(branch).value_unchecked(row) });
-    }
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    // SAFETY: the caller guarantees both selector slices have at least `len` elements, so the loop
-    // initialized exactly `len` output slots.
-    unsafe { output.set_len(len) };
-    output.freeze()
+    #[test]
+    fn rejects_out_of_bounds_selectors() {
+        let values = [PrimitiveSource {
+            data: buffer![1u32],
+            len: 1,
+            row_mask: 0,
+        }];
+
+        assert!(gather(&values, &[1u8], &[0u8]).is_err());
+        assert!(gather(&values, &[0u8], &[1u8]).is_err());
+    }
 }
