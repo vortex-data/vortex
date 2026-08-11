@@ -147,7 +147,7 @@ impl State {
         trace!(?event, "Received ReadEvent");
         match event {
             ReadEvent::Request(req) => {
-                if req.callback.is_closed() {
+                if req.callback.is_canceled() {
                     trace!(?req, "ReadRequest dropped before registration");
                     return;
                 }
@@ -156,7 +156,7 @@ impl State {
             }
             ReadEvent::Polled(req_id) => {
                 if let Some(req) = self.requests.remove(&req_id) {
-                    if req.callback.is_closed() {
+                    if req.callback.is_canceled() {
                         self.requests_by_offset.remove(&(req.offset, req_id));
                         trace!(?req, "ReadRequest dropped before poll");
                     } else {
@@ -203,7 +203,7 @@ impl State {
     fn next_uncoalesced(&mut self) -> Option<ReadRequest> {
         while let Some((req_id, req)) = self.polled_requests.pop_first() {
             self.requests_by_offset.remove(&(req.offset, req_id));
-            if req.callback.is_closed() {
+            if req.callback.is_canceled() {
                 trace!("Dropping canceled request");
                 continue;
             }
@@ -261,7 +261,7 @@ impl State {
                     .vortex_expect("Missing request in requests_by_offset");
 
                 // Skip any cancelled requests
-                if req.callback.is_closed() {
+                if req.callback.is_canceled() {
                     if ids_to_remove.insert(req_id) {
                         keys_to_remove.push((req_offset, req_id));
                     }
@@ -337,6 +337,7 @@ impl State {
 mod tests {
     use futures::StreamExt;
     use futures::channel::mpsc;
+    use futures::channel::oneshot;
     use futures::stream;
     use vortex_array::buffer::BufferHandle;
     use vortex_buffer::Alignment;

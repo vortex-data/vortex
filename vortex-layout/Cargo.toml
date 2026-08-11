@@ -29,7 +29,6 @@ itertools = { workspace = true }
 kanal = { workspace = true }
 moka = { workspace = true, features = ["future"] }
 once_cell = { workspace = true, features = ["parking_lot"] }
-oneshot = { workspace = true }
 parking_lot = { workspace = true }
 paste = { workspace = true }
 pin-project-lite = { workspace = true }

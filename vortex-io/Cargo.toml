@@ -26,7 +26,6 @@ futures = { workspace = true, features = ["std", "executor"] }
 glob = { workspace = true }
 kanal = { workspace = true }
 object_store = { workspace = true, optional = true, features = ["fs"] }
-oneshot = { workspace = true }
 parking_lot = { workspace = true }
 pin-project-lite = { workspace = true }
 tokio = { workspace = true, features = [

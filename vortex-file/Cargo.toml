@@ -26,7 +26,6 @@ itertools = { workspace = true }
 kanal = { workspace = true }
 moka = { workspace = true, features = ["sync"] }
 object_store = { workspace = true, optional = true }
-oneshot.workspace = true
 parking_lot = { workspace = true }
 pin-project-lite = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }

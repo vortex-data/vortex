@@ -13,6 +13,7 @@ use futures::FutureExt;
 use futures::Stream;
 use futures::StreamExt;
 use futures::TryStreamExt;
+use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use futures::pin_mut;
 use futures::stream::BoxStream;

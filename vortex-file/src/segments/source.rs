@@ -15,6 +15,7 @@ use futures::FutureExt;
 use futures::Stream;
 use futures::StreamExt;
 use futures::channel::mpsc;
+use futures::channel::oneshot;
 use futures::future;
 use futures::future::BoxFuture;
 use futures::future::Shared;
@@ -394,7 +395,7 @@ impl SegmentSource for FileSegmentSource {
 
         let fut = ReadFuture {
             id,
-            recv: recv.into_future(),
+            recv,
             polled: false,
             finished: false,
             events: self.events.clone(),
@@ -413,7 +414,7 @@ impl SegmentSource for FileSegmentSource {
 /// If dropped, the read request will be canceled where possible.
 struct ReadFuture {
     id: usize,
-    recv: oneshot::AsyncReceiver<VortexResult<BufferHandle>>,
+    recv: oneshot::Receiver<VortexResult<BufferHandle>>,
     polled: bool,
     finished: bool,
     events: mpsc::UnboundedSender<ReadEvent>,

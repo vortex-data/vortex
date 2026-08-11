@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use futures::Stream;
 use futures::StreamExt;
+use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use futures::stream::LocalBoxStream;
 use parking_lot::Mutex;
@@ -236,7 +237,7 @@ struct LazyAbortHandle {
 impl AbortHandle for LazyAbortHandle {
     fn abort(self: Box<Self>) {
         // Aborting a smol::Task is done by dropping it.
-        if let Ok(task) = self.task.lock().try_recv() {
+        if let Ok(Some(task)) = self.task.lock().try_recv() {
             task.abort()
         }
     }
