@@ -18,27 +18,31 @@ editions is the earliest version of vortex required to read that file.
 
 ## What an edition contains
 
-Every member of an edition is recorded with a **component kind**: `array`, `layout`, or `aggregate`. Today every
-first-party declaration is an `array`, so an edition is in practice the set of array encodings that may appear in a
-file written against it, and the unknown-encoding error below names an array encoding.
+Every member of an edition is recorded with a **component kind**: `array`, `layout`, or `aggregate`. The kind is
+recorded because ids are unique only within a kind — a layout named `vortex.flat` and an array encoding named
+`vortex.flat` are different members — and because membership is resolved one kind at a time. The writer holds a
+separate id set per kind and enforces each where that kind is written:
 
-The kind is recorded because ids are unique only within a kind — a layout named `vortex.flat` and an array encoding
-named `vortex.flat` are different members — and because membership is resolved one kind at a time. The writer holds
-three separate id sets and enforces each where that kind is written:
+| Kind | Written | Enforced at |
+| --- | --- | --- |
+| `array` | every serialized array | array serialization context |
+| `layout` | the footer's layout tree | layout serialization context |
+| `aggregate` | zone maps in zoned layouts | the layout writer context |
 
-| Kind | Written | Enforced at | A member outside the edition |
-| --- | --- | --- | --- |
-| `array` | every serialized array | array serialization context | fails the write |
-| `layout` | the footer's layout tree | layout serialization context | fails the write |
-| `aggregate` | zone maps in zoned layouts | the layout writer context | is dropped from the zone map |
+**Writing a component outside the enabled editions fails the write, for every kind.** A zone map is only an
+optimization, so a forbidden aggregate could in principle be dropped instead — but a file that silently prunes
+worse than the writer was configured for is a bug you find in a benchmark six months later, not an error you can
+act on. Violations surface at write time or not at all.
 
-Aggregates are dropped rather than rejected because a zone map is an optimization: a reader that does not recognize
-an aggregate skips the zone map and scans the data, so omitting one costs pruning, not correctness. An array or a
-layout cannot be dropped without losing data, so those fail the write instead.
+Aggregates are checked against the set the write would actually record: an aggregate that a column's dtype cannot
+hold is not written, so it is not a violation either.
 
 **A kind with no declared members is unrestricted.** An edition that declares no layouts makes no promise about
 layouts, so the writer leaves them alone rather than forbidding all of them; declaring the first member of a kind is
-what arms its filter. Adding kinds later (scalar functions, say) works the same way.
+what arms its filter. `core2026.08.0` declares the aggregates the default writer records in zone maps — `min`,
+`max`, `bounded_min`, `bounded_max`, `sum`, `nan_count`, `null_count` — so that filter is armed by default. A
+session that registers components outside `core`, such as the spatial extension types, enables its own edition
+family alongside `core`, and the writer may emit the union.
 
 ## Resolving an unknown-encoding error
 

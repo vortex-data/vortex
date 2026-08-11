@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The August 2026 core edition adding the canonical Map encoding.
+//! The August 2026 core edition adding the canonical Map encoding and the zone map aggregates.
 
 use vortex_edition::Edition;
 use vortex_edition::EditionDeclaration;
@@ -11,11 +11,24 @@ use vortex_edition::EditionMember;
 /// The August 2026 core edition containing canonical Map arrays.
 pub const CORE_2026_08: EditionId = EditionId::new("core", 2026, 8, 0);
 
-/// The declaration of [`CORE_2026_08`] and the encodings that join the family at it.
+/// The declaration of [`CORE_2026_08`] and the components that join the family at it.
+///
+/// The aggregates are the set the default writer records in zone maps. Declaring them arms the
+/// writer's aggregate filter, so a strategy asking for an aggregate outside this set fails the
+/// write instead of producing zone maps an older reader would have to skip.
 pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: CORE_2026_08,
         min_vortex_version: Some("0.84.0"),
     },
-    added: &[EditionMember::array(&"vortex.map")],
+    added: &[
+        EditionMember::array(&"vortex.map"),
+        EditionMember::aggregate(&"vortex.bounded_max"),
+        EditionMember::aggregate(&"vortex.bounded_min"),
+        EditionMember::aggregate(&"vortex.max"),
+        EditionMember::aggregate(&"vortex.min"),
+        EditionMember::aggregate(&"vortex.nan_count"),
+        EditionMember::aggregate(&"vortex.null_count"),
+        EditionMember::aggregate(&"vortex.sum"),
+    ],
 };

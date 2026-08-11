@@ -29,6 +29,7 @@ use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::dtype::DType;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
@@ -110,20 +111,22 @@ impl LayoutStrategy for ZonedStrategy {
             .aggregate_fns
             .clone()
             .unwrap_or_else(|| default_zoned_aggregate_fns(stream.dtype(), session));
-        // Zone maps are an optimization, so an aggregate the context forbids is dropped
-        // rather than failing the write; the zones child is built from what survives.
-        let aggregate_fns: Arc<[AggregateFnRef]> = aggregate_fns
-            .iter()
-            .filter(|aggregate_fn| ctx.allows_aggregate(&aggregate_fn.id()))
-            .cloned()
-            .collect();
         let compute_session = session.clone();
 
         let stats_accumulator = Arc::new(Mutex::new(AggregateStatsAccumulator::new(
             stream.dtype(),
             &aggregate_fns,
         )));
+        // The accumulator has dropped the aggregates this dtype cannot hold, leaving the ones
+        // this write would record. An aggregate the context forbids fails the write, like a
+        // forbidden array or layout: dropping it silently would leave a file that prunes worse
+        // than the caller asked for, with nothing in the output saying so.
         let aggregate_fns = stats_accumulator.lock().aggregate_fns();
+        for aggregate_fn in aggregate_fns.iter() {
+            if !ctx.allows_aggregate(&aggregate_fn.id()) {
+                vortex_bail!("Aggregate {} not permitted by ctx", aggregate_fn.id());
+            }
+        }
 
         let stream_dtype = stream.dtype().clone();
         let concurrency = self.options.concurrency.get();
@@ -261,9 +264,9 @@ mod tests {
     use crate::sequence::SequentialArrayStreamExt;
     use crate::session::LayoutSession;
 
-    /// Write three zones of primitives through `ctx` and return the aggregates the zoned
-    /// layout ended up recording.
-    fn written_aggregates(ctx: LayoutWriterContext) -> Vec<String> {
+    /// Write three zones of primitives through `ctx`, returning the aggregates the zoned
+    /// layout recorded.
+    fn write_zones(ctx: LayoutWriterContext) -> VortexResult<Vec<String>> {
         let strategy = ZonedStrategy::new(
             ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
             FlatLayoutStrategy::default(),
@@ -296,30 +299,43 @@ mod tests {
                     &session,
                 )
                 .await
-        })
-        .vortex_expect("writing the zoned layout");
+        })?;
 
-        layout
+        Ok(layout
             .as_::<Zoned>()
             .aggregate_fns()
             .iter()
             .map(|aggregate_fn| aggregate_fn.id().to_string())
-            .collect()
+            .collect())
     }
 
     #[test]
-    fn unrestricted_context_writes_the_default_aggregates() {
-        let written = written_aggregates(LayoutWriterContext::new(ArrayContext::empty()));
+    fn unrestricted_context_writes_the_default_aggregates() -> VortexResult<()> {
+        let written = write_zones(LayoutWriterContext::new(ArrayContext::empty()))?;
         assert!(written.contains(&Min.id().to_string()));
         assert!(written.contains(&Sum.id().to_string()));
         assert!(written.len() > 1);
+        Ok(())
     }
 
     #[test]
-    fn forbidden_aggregates_are_dropped_from_the_zone_map() {
+    fn a_permitted_set_covering_the_defaults_writes_them() -> VortexResult<()> {
+        let ctx = LayoutWriterContext::new(ArrayContext::empty()).with_allowed_aggregates(
+            HashSet::from_iter([Min.id(), Max.id(), Sum.id(), NanCount.id(), NullCount.id()]),
+        );
+        assert!(write_zones(ctx)?.contains(&Max.id().to_string()));
+        Ok(())
+    }
+
+    #[test]
+    fn a_forbidden_aggregate_fails_the_write() {
         let ctx = LayoutWriterContext::new(ArrayContext::empty())
             .with_allowed_aggregates(HashSet::from_iter([Min.id()]));
-        assert_eq!(written_aggregates(ctx), [Min.id().to_string()]);
+        let error = write_zones(ctx).expect_err("the default aggregates are not all permitted");
+        assert!(
+            error.to_string().contains("not permitted by ctx"),
+            "unexpected error: {error}"
+        );
     }
 
     #[test]

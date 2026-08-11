@@ -96,11 +96,10 @@ impl LayoutWriterContext {
 
     /// Restrict the aggregate functions this write may record, e.g. in a zone map.
     ///
-    /// Aggregates are an optimization: a reader that does not recognize one skips the zone map
-    /// and scans the data instead. Writers therefore *drop* aggregates outside `allowed`
-    /// rather than failing, unlike the array and layout contexts, whose members cannot be
-    /// dropped without losing data. The id set is a plain set of ids — callers that source it
-    /// from editions resolve it themselves.
+    /// A write that would record an aggregate outside `allowed` fails, matching the array and
+    /// layout contexts: a silently thinner zone map is a file that prunes worse than the
+    /// caller asked for, with nothing in the output saying so. The id set is a plain set of
+    /// ids — callers that source it from editions resolve it themselves.
     pub fn with_allowed_aggregates(mut self, allowed: HashSet<AggregateFnId>) -> Self {
         self.allowed_aggregates = Some(Arc::new(allowed));
         self

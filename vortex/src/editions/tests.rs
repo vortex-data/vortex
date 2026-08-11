@@ -7,6 +7,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::array_session;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
@@ -187,20 +188,85 @@ fn core_edition_ids_are_registered_array_encodings() {
     }
 }
 
-/// Only array encodings are enforced at write time, so a member of another kind in a
-/// first-party declaration would be silently unenforced.
+/// A declared aggregate that no longer resolves would fail every write that records it, since
+/// aggregates outside the enabled editions are rejected rather than dropped.
 #[test]
-fn first_party_declarations_only_add_array_encodings() {
-    for declaration in EDITION_DECLARATIONS {
-        for member in declaration.added {
-            assert_eq!(
-                member.kind,
-                ComponentKind::Array,
-                "in {}",
-                declaration.edition.id
-            );
-        }
+fn core_aggregate_ids_are_registered_aggregate_fns() {
+    use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
+
+    use crate::VortexSessionDefault;
+
+    let session = VortexSession::default();
+    let declared = session
+        .editions()
+        .components_in(&CORE_2026_08, ComponentKind::Aggregate);
+    assert!(
+        declared
+            .iter()
+            .any(|inclusion| inclusion.component_id.as_str() == "vortex.min")
+    );
+    for inclusion in declared {
+        assert!(
+            session
+                .aggregate_fns()
+                .find_plugin(&inclusion.component_id)
+                .is_some(),
+            "{} is declared in core but not registered as an aggregate function",
+            inclusion.component_id
+        );
     }
+}
+
+/// The default session enables an edition declaring aggregates, which arms the writer's
+/// aggregate filter. The declared set must therefore cover every aggregate the default zone
+/// maps record, for every dtype, or ordinary writes fail.
+#[tokio::test]
+async fn default_session_writes_every_default_zone_aggregate() -> VortexResult<()> {
+    use crate::VortexSessionDefault;
+
+    let session = VortexSession::default();
+    // Strings take the bounded min/max branch of the default aggregates, integers the plain
+    // min/max/sum branch, so one file exercises both.
+    let strings = || {
+        vortex_array::arrays::VarBinViewArray::from_iter_str((0..4096).map(|i| format!("row-{i}")))
+            .into_array()
+    };
+    let array = StructArray::from_fields(&[
+        ("numbers", sequential_integers().into_array()),
+        (
+            "strings",
+            ChunkedArray::from_iter((0..16).map(|_| strings())).into_array(),
+        ),
+    ])?
+    .into_array();
+
+    let mut buffer = ByteBufferMut::empty();
+    session
+        .write_options()
+        .write(&mut buffer, array.to_array_stream())
+        .await?;
+
+    // The write succeeding is not enough: a file with no zone maps at all would also succeed.
+    // Every zone map names its aggregates in the stats table's field names.
+    let file = session.open_options().open_buffer(buffer)?;
+    let mut zone_stat_names = Vec::new();
+    let mut stack = vec![file.footer().layout().to_layout()];
+    while let Some(layout) = stack.pop() {
+        let children = layout.children()?;
+        if layout.encoding_id().as_str() == "vortex.zoned"
+            && let Some(DType::Struct(fields, _)) = children.get(1).map(|zones| zones.dtype())
+        {
+            zone_stat_names.extend(fields.names().iter().map(|name| name.to_string()));
+        }
+        stack.extend(children);
+    }
+    for aggregate in ["vortex.min", "vortex.max", "vortex.bounded_min"] {
+        assert!(
+            zone_stat_names.iter().any(|name| name.contains(aggregate)),
+            "no {aggregate} zone stat in {zone_stat_names:?}"
+        );
+    }
+    Ok(())
 }
 
 fn baseline_core_session() -> VortexResult<VortexSession> {

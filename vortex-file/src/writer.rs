@@ -68,9 +68,9 @@ use crate::segments::writer::BufferedSegmentSink;
 /// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink
 /// that implements [`VortexWrite`].
 ///
-/// All write strategies are restricted to the components in the session's enabled editions: arrays
-/// and layouts outside them fail the write, and aggregates outside them are dropped from zone maps.
-/// A kind the editions declare nothing of is left unrestricted.
+/// All write strategies are restricted to the components in the session's enabled editions: an array,
+/// layout, or zone-map aggregate outside them fails the write. A kind the editions declare nothing of
+/// is left unrestricted.
 ///
 /// Construct with [`WriteOptionsSessionExt::write_options`] for normal use so the writer inherits
 /// the session's runtime, array registry, and memory configuration.
