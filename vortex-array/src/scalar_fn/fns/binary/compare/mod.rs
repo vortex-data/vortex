@@ -214,10 +214,10 @@ fn compare_arrays(
         DType::Primitive(..) => primitive::compare_primitive(lhs, rhs, op, nullability, ctx),
         DType::Decimal(..) => decimal::compare_decimal(lhs, rhs, op, nullability, ctx),
         DType::Utf8(_) | DType::Binary(_) => bytes::compare_bytes(lhs, rhs, op, nullability, ctx),
-        DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) => {
+        DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) | DType::Map(..) => {
             nested::compare_nested(lhs, rhs, op, nullability, ctx)
         }
-        DType::Map(..) | DType::Union(..) | DType::Variant(_) | DType::Extension(_) => {
+        DType::Union(..) | DType::Variant(_) | DType::Extension(_) => {
             vortex_bail!("compare is not supported for dtype {}", lhs.dtype())
         }
     }

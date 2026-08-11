@@ -43,6 +43,20 @@ repository root, create or update the development environment with:
 uv sync --all-packages
 ```
 
+### Rust toolchain and MSRV
+
+Workspace declares a Minimum Supported Rust Version through `rust-version`
+in the root `Cargo.toml`, which the `Rust (MSRV)` CI job verifies by building
+the publishable crates with exactly that toolchain:
+
+```bash
+cargo hack --rust-version --no-dev-deps --ignore-private check --all-features
+```
+
+Read the [Rust version compatibility policy](README.md#rust-version-compatibility-policy) before
+changing `rust-version`; when the MSRV job fails, the usual fix is in the code or the dependency
+update, not the MSRV.
+
 ### Python bindings
 
 `vortex-data` is a mixed Python and Rust package. `uv` manages its Python environment, and

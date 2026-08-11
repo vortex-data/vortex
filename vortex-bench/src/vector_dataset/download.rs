@@ -102,11 +102,7 @@ pub async fn download(ds: VectorDataset, layout: TrainLayout) -> Result<DatasetP
     let train_targets = paths::train_files(ds, layout, spec.num_files());
     debug_assert_eq!(urls.len(), train_targets.len());
 
-    let train_downloads: Vec<(PathBuf, String)> = train_targets
-        .iter()
-        .cloned()
-        .zip(urls.into_iter())
-        .collect();
+    let train_downloads: Vec<(PathBuf, String)> = train_targets.iter().cloned().zip(urls).collect();
     download_many(train_downloads)
         .await
         .with_context(|| format!("download train shards for {}", ds.name()))?;

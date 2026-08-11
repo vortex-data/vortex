@@ -38,7 +38,6 @@ use vortex_arrow::ArrowImportVTable;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::FromArrowArray;
-use vortex_arrow::FromArrowType;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -236,7 +235,11 @@ impl ArrowImportVTable for MultiPoint {
     /// Import a `geoarrow.multipoint` field as the [`MultiPoint`] dtype (matched by GeoArrow name).
     /// Accepts the full `MultiPointType`, or a metadata-less literal (name only), inferring the
     /// dimension from the coordinate field names.
-    fn from_arrow_field(&self, field: &Field) -> VortexResult<Option<DType>> {
+    fn from_arrow_field(
+        &self,
+        field: &Field,
+        session: &ArrowSession,
+    ) -> VortexResult<Option<DType>> {
         let (dimension, metadata) =
             if let Ok(multipoint_meta) = field.try_extension_type::<MultiPointType>() {
                 vortex_ensure!(
@@ -252,7 +255,9 @@ impl ArrowImportVTable for MultiPoint {
                 if field.extension_type_name() != Some(MultiPointType::NAME) {
                     return Ok(None);
                 }
-                let DType::List(coords, _) = DType::from_arrow(field) else {
+                let Ok(DType::List(coords, _)) =
+                    session.from_arrow_datatype(field.data_type(), field.is_nullable().into())
+                else {
                     return Ok(None);
                 };
                 let DType::Struct(fields, _) = coords.as_ref() else {

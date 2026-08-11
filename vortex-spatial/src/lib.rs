@@ -24,10 +24,13 @@ use crate::extension::Rect;
 use crate::extension::WellKnownBinary;
 use crate::prune::SpatialDistancePrune;
 use crate::prune::SpatialIntersectsPrune;
+use crate::scalar_fn::area::SpatialArea;
 use crate::scalar_fn::contains::SpatialContains;
 use crate::scalar_fn::distance::SpatialDistance;
 use crate::scalar_fn::envelope::SpatialEnvelope;
 use crate::scalar_fn::intersects::SpatialIntersects;
+use crate::scalar_fn::length::SpatialLength;
+use crate::scalar_fn::make_line::SpatialMakeLine;
 
 pub mod aggregate_fn;
 pub mod editions;
@@ -68,10 +71,13 @@ pub fn initialize(session: &VortexSession) {
     session.arrow().register_importer(Arc::new(Rect));
 
     // Register the geometry scalar functions.
+    session.scalar_fns().register(SpatialArea);
     session.scalar_fns().register(SpatialEnvelope);
     session.scalar_fns().register(SpatialContains);
     session.scalar_fns().register(SpatialDistance);
     session.scalar_fns().register(SpatialIntersects);
+    session.scalar_fns().register(SpatialMakeLine);
+    session.scalar_fns().register(SpatialLength);
 
     // The axis-aligned bounding-box (AABB) aggregate; self-declares as a per-chunk zone stat for
     // geometry columns.

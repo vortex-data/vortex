@@ -3,8 +3,11 @@
 
 //! Geometry scalar functions over the native geometry extension types.
 
+pub mod area;
 pub mod contains;
 pub mod distance;
 pub mod envelope;
 mod execute;
 pub mod intersects;
+pub mod length;
+pub mod make_line;

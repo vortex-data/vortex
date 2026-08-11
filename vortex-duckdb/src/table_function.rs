@@ -827,10 +827,11 @@ pub fn statistics(bind_data: &TableFunctionBind, column_index: usize) -> Option<
     let MultiLayoutChild::Opened { reader, .. } = &children[0] else {
         return None;
     };
-    let stats_sets = match reader.as_any().downcast_ref::<FileStatsLayoutReader>() {
-        Some(inner) => inner.file_stats().stats_sets(),
-        None => return None,
-    };
+    let stats_sets = reader
+        .as_any()
+        .downcast_ref::<FileStatsLayoutReader>()?
+        .file_stats()
+        .stats_sets();
     // Columns with pushed projection expression output expression results,
     // and not column values
     if bind_data.column_fields[column_index]

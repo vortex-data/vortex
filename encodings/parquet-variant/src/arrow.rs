@@ -242,7 +242,11 @@ impl ArrowImportVTable for ParquetVariant {
         *ARROW_PARQUET_VARIANT
     }
 
-    fn from_arrow_field(&self, field: &Field) -> VortexResult<Option<DType>> {
+    fn from_arrow_field(
+        &self,
+        field: &Field,
+        _session: &ArrowSession,
+    ) -> VortexResult<Option<DType>> {
         if field
             .metadata()
             .get(EXTENSION_TYPE_NAME_KEY)

@@ -290,6 +290,27 @@ jobs:
           enable-sccache: "true"
       - run: cargo minimal-versions check --direct --workspace --ignore-private
 
+  rust-msrv:
+    name: "Rust (MSRV)"
+    timeout-minutes: 30
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-msrv', github.run_id)
+          || 'ubuntu-latest' }}
+    env:
+      RUSTFLAGS: "-A warnings"
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: "true"
+      - name: Check publishable crates against the MSRV
+        run: cargo hack --rust-version --no-dev-deps --ignore-private check --profile ci --all-features
+
   rust-lint:
     name: "Rust (lint)"
     needs: duckdb-ready

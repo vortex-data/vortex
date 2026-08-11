@@ -72,6 +72,21 @@ impl Dimension {
             Dimension::Xyzm => &["x", "y", "z", "m"],
         }
     }
+
+    /// Promote two coordinate dimensions to the smallest dimension that represents both.
+    ///
+    /// Missing `z`/`m` ordinates are materialized as zero when values are converted to this
+    /// dimension, matching DuckDB Spatial's `ST_MakeLine` promotion.
+    pub(crate) fn promote(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Xyzm, _) | (_, Self::Xyzm) | (Self::Xyz, Self::Xym) | (Self::Xym, Self::Xyz) => {
+                Self::Xyzm
+            }
+            (Self::Xyz, _) | (_, Self::Xyz) => Self::Xyz,
+            (Self::Xym, _) | (_, Self::Xym) => Self::Xym,
+            (Self::Xy, Self::Xy) => Self::Xy,
+        }
+    }
 }
 
 impl From<GeoArrowDimension> for Dimension {

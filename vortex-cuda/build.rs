@@ -74,12 +74,11 @@ fn main() {
                 .is_some_and(|n| n.starts_with("bit_unpack_"));
 
             match path.extension().and_then(|e| e.to_str()) {
-                Some("cuh") | Some("h") => {
+                Some("cuh") | Some("h") if !is_generated => {
                     // Only watch hand-written .cuh/.h files, not generated ones
                     // (generated files are rebuilt when cuda_kernel_generator changes)
-                    if !is_generated {
-                        println!("cargo:rerun-if-changed={}", path.display());
-                    }
+
+                    println!("cargo:rerun-if-changed={}", path.display());
                 }
                 Some("cu") => {
                     // Only watch hand-written .cu files, not generated ones

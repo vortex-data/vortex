@@ -180,7 +180,7 @@ impl LayoutStrategy for StructStrategy {
             while let Some(result) = columns_vec_stream.next().await {
                 match result {
                     Ok(columns) => {
-                        for (tx, column) in column_streams_tx.iter().zip_eq(columns.into_iter()) {
+                        for (tx, column) in column_streams_tx.iter().zip_eq(columns) {
                             if tx.send(Ok(column)).await.is_err() {
                                 vortex_bail!(
                                     "struct column writer finished before all chunks were sent"

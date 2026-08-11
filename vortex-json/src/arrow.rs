@@ -107,7 +107,11 @@ impl ArrowImportVTable for Json {
         *ARROW_JSON
     }
 
-    fn from_arrow_field(&self, field: &Field) -> VortexResult<Option<DType>> {
+    fn from_arrow_field(
+        &self,
+        field: &Field,
+        _session: &ArrowSession,
+    ) -> VortexResult<Option<DType>> {
         if !has_valid_json_extension(field) {
             return Ok(None);
         }

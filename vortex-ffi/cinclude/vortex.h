@@ -944,14 +944,19 @@ const vx_dtype *vx_dtype_fixed_size_list_element(const vx_dtype *dtype);
 uint32_t vx_dtype_fixed_size_list_size(const vx_dtype *dtype);
 
 /**
- * Convert a dtype to ArrowSchema.
+ * Convert a dtype to ArrowSchema, resolving extension types through `session`'s Arrow
+ * conversion registry.
  * You can use the dtype after conversion
  * On success, returns 0. On error, sets err and returns 1.
  */
-int vx_dtype_to_arrow_schema(const vx_dtype *dtype, FFI_ArrowSchema *schema, vx_error **err);
+int vx_dtype_to_arrow_schema(const vx_session *session,
+                             const vx_dtype *dtype,
+                             FFI_ArrowSchema *schema,
+                             vx_error **err);
 
 /**
- * Create a Vortex dtype from an Arrow C Data Interface schema.
+ * Create a Vortex dtype from an Arrow C Data Interface schema, resolving extension types
+ * through `session`'s Arrow conversion registry.
  *
  * `schema` must point to a valid `ArrowSchema` describing a struct (record-batch) schema. It is
  * *consumed*: its `release` callback is invoked by this function and the caller must not use or
@@ -960,7 +965,8 @@ int vx_dtype_to_arrow_schema(const vx_dtype *dtype, FFI_ArrowSchema *schema, vx_
  *
  * On error, returns NULL and sets `err`.
  */
-const vx_dtype *vx_dtype_from_arrow_schema(FFI_ArrowSchema *schema, vx_error **err);
+const vx_dtype *
+vx_dtype_from_arrow_schema(const vx_session *session, FFI_ArrowSchema *schema, vx_error **err);
 
 /**
  * Free a vx_error

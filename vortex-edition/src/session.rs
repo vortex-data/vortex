@@ -142,8 +142,7 @@ impl EditionSession {
     pub fn current(&self, family: &str) -> Option<Edition> {
         self.editions()
             .into_iter()
-            .filter(|e| e.id.family == family && !e.is_draft())
-            .next_back()
+            .rfind(|e| e.id.family == family && !e.is_draft())
     }
 
     /// Compute an edition's members of one kind: every declared inclusion of that kind in

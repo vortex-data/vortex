@@ -218,7 +218,7 @@ mod tests {
 
         assert_eq!(data.read_ptr(), data.as_ptr());
         assert_eq!(data.bytes_init(), 11);
-        assert_eq!(data.as_slice(), b"hello world");
+        assert_eq!(data, b"hello world");
     }
 
     #[test]
@@ -226,7 +226,7 @@ mod tests {
         let data: &'static [u8] = b"";
 
         assert_eq!(data.bytes_init(), 0);
-        assert_eq!(data.as_slice(), b"");
+        assert_eq!(data, b"");
     }
 
     #[rstest]

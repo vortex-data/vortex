@@ -49,7 +49,7 @@ impl TpcHBenchmark {
                 Url::from_directory_path(&data_dir_with_sf).map_err(|_| {
                     anyhow::anyhow!(
                         "Failed to create URL from directory path: {:?}",
-                        &data_dir_with_sf
+                        data_dir_with_sf
                     )
                 })
             }

@@ -6,7 +6,6 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
-use arrow_schema::Field;
 use arrow_schema::FieldRef;
 use parquet_variant::VariantPath as PqVariantPath;
 use parquet_variant::VariantPathElement as PqVariantPathElement;
@@ -44,9 +43,8 @@ use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::fns::variant_get::VariantGet;
 use vortex_array::scalar_fn::fns::variant_get::VariantPath;
 use vortex_array::scalar_fn::fns::variant_get::VariantPathElement;
+use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
-use vortex_arrow::FromArrowArray;
-use vortex_arrow::ToArrowType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
@@ -110,16 +108,23 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetKernel {
 
         let arrow_variant = array.to_arrow(ctx)?;
         let arrow_input: ArrowArrayRef = Arc::new(arrow_variant.into_inner());
+        let session = ctx.session().clone();
+        let as_type = to_arrow_as_type(parent.options.dtype(), &session.arrow())?;
         let get_options =
             GetOptions::new_with_path(to_parquet_variant_path(parent.options.path())?)
-                .with_as_type(to_arrow_as_type(parent.options.dtype())?);
+                .with_as_type(as_type.clone());
 
         let arrow_output = arrow_variant_get(&arrow_input, get_options)?;
         let output = if parent.options.dtype().is_none_or(DType::is_variant) {
             let arrow_variant_output = ArrowVariantArray::try_new(arrow_output.as_ref())?;
             ParquetVariant::from_arrow_variant_nullable(&arrow_variant_output)?
         } else {
-            ArrayRef::from_arrow(arrow_output.as_ref(), true)?
+            // Import through the same `as_type` field the cast targeted, so an extension target
+            // dtype comes back as that extension rather than as its bare storage type.
+            let as_type = as_type.ok_or_else(|| {
+                vortex_err!("a non-variant target dtype must produce an as_type field")
+            })?;
+            session.arrow().from_arrow_array(arrow_output, &as_type)?
         };
 
         vortex_ensure_eq!(
@@ -208,17 +213,20 @@ pub(crate) fn to_parquet_variant_path(path: &VariantPath) -> VortexResult<PqVari
         .map(PqVariantPath::new)
 }
 
-#[expect(
-    deprecated,
-    reason = "TODO(aduffy): figure out what to do with Parquet Variant"
-)]
-fn to_arrow_as_type(dtype: Option<&DType>) -> VortexResult<Option<FieldRef>> {
+/// The Arrow field `variant_get` should cast to for a requested Vortex `dtype`.
+///
+/// Built as a [`Field`](arrow_schema::Field) rather than a bare `DataType` so an extension target
+/// keeps its `ARROW:extension:name`; the result is nullable because an absent path yields null.
+fn to_arrow_as_type(
+    dtype: Option<&DType>,
+    session: &ArrowSession,
+) -> VortexResult<Option<FieldRef>> {
     match dtype {
-        Some(dtype) if !dtype.is_variant() => Ok(Some(Arc::new(Field::new(
-            "variant_get",
-            dtype.to_arrow_dtype()?,
-            true,
-        )))),
+        Some(dtype) if !dtype.is_variant() => Ok(Some(Arc::new(
+            session
+                .to_arrow_field("variant_get", dtype)?
+                .with_nullable(true),
+        ))),
         Some(_) | None => Ok(None),
     }
 }
@@ -318,6 +326,7 @@ mod tests {
     use vortex_array::scalar_fn::fns::variant_get::VariantPath;
     use vortex_array::scalar_fn::fns::variant_get::VariantPathElement;
     use vortex_array::validity::Validity;
+    use vortex_arrow::ArrowSessionExt;
     use vortex_arrow::FromArrowArray;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
@@ -326,6 +335,7 @@ mod tests {
     use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
+    use super::to_arrow_as_type;
     use crate::ParquetVariant;
     use crate::ParquetVariantArraySlotsExt;
 
@@ -334,6 +344,69 @@ mod tests {
         crate::initialize(&session);
         session
     });
+
+    /// `variant_get`'s cast target must be a `Field` carrying `ARROW:extension:name`, so an
+    /// extension target dtype survives both the cast and the import back into Vortex. A bare
+    /// `DataType` would silently degrade the target to its storage type.
+    #[test]
+    fn to_arrow_as_type_keeps_extension_metadata() -> VortexResult<()> {
+        use arrow_schema::extension::ExtensionType;
+        use arrow_schema::extension::Uuid as ArrowUuid;
+        use vortex_array::dtype::extension::ExtDType;
+        use vortex_array::extension::uuid::Uuid;
+        use vortex_array::extension::uuid::UuidMetadata;
+
+        let storage = VortexDType::FixedSizeList(
+            Arc::new(VortexDType::Primitive(PType::U8, Nullability::NonNullable)),
+            16,
+            Nullability::NonNullable,
+        );
+        let uuid = VortexDType::Extension(
+            ExtDType::try_with_vtable(Uuid, UuidMetadata::default(), storage)?.erased(),
+        );
+
+        let arrow = SESSION.arrow();
+        let as_type = to_arrow_as_type(Some(&uuid), &arrow)?
+            .ok_or_else(|| vortex_err!("expected an as_type field"))?;
+
+        assert_eq!(as_type.data_type(), &DataType::FixedSizeBinary(16));
+        assert_eq!(as_type.extension_type_name(), Some(ArrowUuid::NAME));
+        // An absent path yields null, so the cast target must stay nullable.
+        assert!(as_type.is_nullable());
+
+        // And the field round-trips back to the extension dtype the caller asked for.
+        assert_eq!(arrow.from_arrow_field(&as_type)?, uuid.as_nullable());
+        Ok(())
+    }
+
+    /// A non-extension target stays a plain nullable field.
+    #[test]
+    fn to_arrow_as_type_plain_dtype() -> VortexResult<()> {
+        let arrow = SESSION.arrow();
+        let as_type = to_arrow_as_type(
+            Some(&VortexDType::Primitive(
+                PType::I32,
+                Nullability::NonNullable,
+            )),
+            &arrow,
+        )?
+        .ok_or_else(|| vortex_err!("expected an as_type field"))?;
+        assert_eq!(as_type.data_type(), &DataType::Int32);
+        assert_eq!(as_type.extension_type_name(), None);
+        assert!(as_type.is_nullable());
+        Ok(())
+    }
+
+    /// Variant (and absent) targets ask for no cast at all.
+    #[test]
+    fn to_arrow_as_type_variant_targets_are_none() -> VortexResult<()> {
+        let arrow = SESSION.arrow();
+        assert!(
+            to_arrow_as_type(Some(&VortexDType::Variant(Nullability::Nullable)), &arrow)?.is_none()
+        );
+        assert!(to_arrow_as_type(None, &arrow)?.is_none());
+        Ok(())
+    }
 
     fn make_unshredded_array() -> VortexResult<ArrayRef> {
         let mut builder = VariantArrayBuilder::new(4);

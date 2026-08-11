@@ -192,9 +192,6 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
         vectorSchemaRoot.setRowCount(batchRows.size());
 
         // Export via Arrow C Data Interface and write to Vortex
-        for (FieldVector vector : vectorSchemaRoot.getFieldVectors()) {
-            bytesWritten += vector.getBufferSize();
-        }
         try (ArrowArray arrowArray = ArrowArray.allocateNew(allocator);
                 ArrowSchema arrowSchema = ArrowSchema.allocateNew(allocator)) {
             Data.exportVectorSchemaRoot(allocator, vectorSchemaRoot, null, arrowArray, arrowSchema);
@@ -327,10 +324,10 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
                     writeBatch();
                 }
 
-                // Close the Vortex writer to finalize the file
+                // Finalize the file; the summary carries its physical size
                 if (vortexWriter != null) {
                     try {
-                        vortexWriter.close();
+                        bytesWritten = vortexWriter.finish().fileSize();
                     } finally {
                         vortexWriter = null; // Always null out the reference
                     }

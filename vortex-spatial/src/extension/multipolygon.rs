@@ -37,7 +37,6 @@ use vortex_arrow::ArrowImportVTable;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::FromArrowArray;
-use vortex_arrow::FromArrowType;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -245,7 +244,11 @@ impl ArrowImportVTable for MultiPolygon {
 
     /// Import a `geoarrow.multipolygon` field (matched by GeoArrow name). Accepts the full
     /// `MultiPolygonType`, or a metadata-less literal (name only), inferring the dimension.
-    fn from_arrow_field(&self, field: &Field) -> VortexResult<Option<DType>> {
+    fn from_arrow_field(
+        &self,
+        field: &Field,
+        session: &ArrowSession,
+    ) -> VortexResult<Option<DType>> {
         let (dimension, metadata) =
             if let Ok(multipolygon_meta) = field.try_extension_type::<MultiPolygonType>() {
                 vortex_ensure!(
@@ -263,7 +266,9 @@ impl ArrowImportVTable for MultiPolygon {
                 if field.extension_type_name() != Some(MultiPolygonType::NAME) {
                     return Ok(None);
                 }
-                let DType::List(polygon, _) = DType::from_arrow(field) else {
+                let Ok(DType::List(polygon, _)) =
+                    session.from_arrow_datatype(field.data_type(), field.is_nullable().into())
+                else {
                     return Ok(None);
                 };
                 let DType::List(ring, _) = polygon.as_ref() else {
