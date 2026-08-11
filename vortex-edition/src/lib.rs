@@ -153,19 +153,9 @@ pub struct EditionInclusion {
 /// Implemented for raw id strings (`"vortex.alp"`) and interned [`Id`]s here; encoding
 /// vtables implement it where they are defined, so a declaration can name the vtable
 /// (`&Primitive`) instead of spelling its id.
-///
-/// Pairing an encoding with a release records the evidence that the release can read it:
-/// `&("vortex.alp", "0.36.0")` declares the same membership as `&"vortex.alp"` and
-/// additionally sets [`EditionInclusion::required_vortex_release`].
 pub trait AsEncodingId: Debug + Send + Sync {
     /// The interned encoding id.
     fn encoding_id(&self) -> Id;
-
-    /// The earliest Vortex release able to read and execute the encoding, when the evidence
-    /// has been recorded. Naming an encoding on its own leaves this unrecorded.
-    fn required_vortex_release(&self) -> Option<&'static str> {
-        None
-    }
 }
 
 impl AsEncodingId for str {
@@ -192,18 +182,6 @@ impl AsEncodingId for &'static str {
     }
 }
 
-// Pairing any encoding name with a release records the evidence alongside the membership:
-// `&("vortex.alp", "0.36.0")`, or `&(&Primitive, "0.36.0")` when naming the vtable.
-impl<E: AsEncodingId + ?Sized> AsEncodingId for (&'static E, &'static str) {
-    fn encoding_id(&self) -> Id {
-        self.0.encoding_id()
-    }
-
-    fn required_vortex_release(&self) -> Option<&'static str> {
-        Some(self.1)
-    }
-}
-
 /// Declares an edition together with the encodings that join the family at it, in one
 /// block. Registered with [`EditionSession::declare`], which derives each encoding's
 /// membership (`since` = the declared edition) from the block structure.
@@ -212,22 +190,18 @@ pub struct EditionDeclaration {
     /// The edition being declared.
     pub edition: Edition,
     /// The encodings that join the family at this edition, named by id string or by
-    /// vtable, optionally paired with the release that first read them
-    /// (`&("vortex.alp", "0.36.0")`). Members of earlier editions are inherited and never
-    /// restated.
+    /// vtable. Members of earlier editions are inherited and never restated.
     pub added: &'static [&'static dyn AsEncodingId],
 }
 
 impl EditionInclusion {
     /// Declare that an encoding is a member of `since` and every later edition of the same
-    /// family. The encoding can be named by id string or by vtable, and carries its
-    /// [`EditionInclusion::required_vortex_release`] when named as a
-    /// `(encoding, release)` pair.
+    /// family. The encoding can be named by id string or by vtable.
     pub fn new<E: AsEncodingId + ?Sized>(encoding: &E, since: EditionId) -> Self {
         Self {
             encoding_id: encoding.encoding_id(),
             since,
-            required_vortex_release: encoding.required_vortex_release(),
+            required_vortex_release: None,
         }
     }
 

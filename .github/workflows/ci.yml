@@ -752,14 +752,12 @@ jobs:
         run: |
           cargo run --profile ci -p xtask -- generate-fbs
           cargo run --profile ci -p xtask -- generate-proto
+      - name: "regenerate the edition records"
+        run: |
+          cargo run --profile ci -p xtask -- generate-editions
       - name: "regenerate FFI header file"
         run: |
           cargo +$NIGHTLY_TOOLCHAIN build --profile ci -p vortex-ffi
-      - name: "regenerate the edition records"
-        env:
-          UPDATE_EDITION_RECORDS: "1"
-        run: |
-          cargo test --profile ci -p vortex --lib editions::records
       - name: "Make sure no files changed after regenerating"
         run: |
           git status --porcelain

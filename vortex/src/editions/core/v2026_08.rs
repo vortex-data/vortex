@@ -16,5 +16,5 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         id: CORE_2026_08,
         min_vortex_version: Some("0.84.0"),
     },
-    added: &[&("vortex.map", "0.84.0")],
+    added: &[&"vortex.map"],
 };

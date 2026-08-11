@@ -10,12 +10,6 @@ edit it in the same diff.
 A newly added record must also be newer than every edition already recorded for its family:
 editions are only ever added going forward.
 
-The one part of a frozen record that may still move is the `required_vortex_release` table.
-It holds an upper bound recorded from the release current when the edition froze, refined as
-compat-fixture evidence narrows it; it stays under the edition's own immutable
-`min_vortex_version`, so refining it breaks no published guarantee. Entries may be added or
-refined, never dropped.
-
 Usage:
     python3 check_edition_records.py --base origin/develop
 """
@@ -41,14 +35,10 @@ RECORD_NAME = re.compile(
 # A record carries this exactly when the edition it records is frozen.
 FROZEN_MARKER = "min_vortex_version"
 
-# The table a frozen record may still gain or refine entries in.
-EVIDENCE_TABLE = "required_vortex_release"
-
 REMEDY = (
     "A frozen edition is immutable. To add encodings, declare a NEW edition in\n"
     "  vortex/src/editions/<family>/ and regenerate the records with\n"
-    "  `UPDATE_EDITION_RECORDS=1 cargo test -p vortex --lib editions::records`.\n"
-    f"In a frozen record only `{EVIDENCE_TABLE}` may gain or refine entries."
+    "  `cargo run -p xtask -- generate-editions`."
 )
 
 
@@ -120,32 +110,21 @@ def recorded_at(base: str) -> dict[str, tuple[int, int, int]]:
 
 
 def check_modification(before: dict[str, Any], path: str) -> list[str]:
-    """A frozen record may only gain or refine evidence entries."""
+    """A frozen record may not change at all; name the fields that did."""
     name = Path(path).name
     after = parse_record(Path(path).read_text(), path)
 
-    fixed_before = {key: value for key, value in before.items() if key != EVIDENCE_TABLE}
-    fixed_after = {key: value for key, value in after.items() if key != EVIDENCE_TABLE}
-    if fixed_before != fixed_after:
-        changed = sorted(
-            key
-            for key in fixed_before.keys() | fixed_after.keys()
-            if fixed_before.get(key) != fixed_after.get(key)
-        )
-        if FROZEN_MARKER in changed and FROZEN_MARKER not in after:
-            return [
-                f"unfreezes {name}; an edition that recorded a {FROZEN_MARKER} carries a "
-                "read-forever guarantee and may never return to draft"
-            ]
-        return [f"modifies the frozen record {name}: {', '.join(changed)}"]
-
-    dropped = sorted(before.get(EVIDENCE_TABLE, {}).keys() - after.get(EVIDENCE_TABLE, {}).keys())
-    if dropped:
+    changed = sorted(
+        key for key in before.keys() | after.keys() if before.get(key) != after.get(key)
+    )
+    if not changed:
+        return []
+    if FROZEN_MARKER in changed and FROZEN_MARKER not in after:
         return [
-            f"drops the recorded {EVIDENCE_TABLE} of {', '.join(dropped)} from {name}; "
-            "recorded evidence is only ever added or refined"
+            f"unfreezes {name}; an edition that recorded a {FROZEN_MARKER} carries a "
+            "read-forever guarantee and may never return to draft"
         ]
-    return []
+    return [f"modifies the frozen record {name}: {', '.join(changed)}"]
 
 
 def check(base: str) -> list[str]:

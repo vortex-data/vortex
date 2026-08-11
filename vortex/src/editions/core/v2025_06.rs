@@ -16,9 +16,5 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         id: CORE_2025_06_0,
         min_vortex_version: Some("0.40.0"),
     },
-    added: &[
-        &("vortex.pco", "0.40.0"),
-        &("vortex.sequence", "0.40.0"),
-        &("vortex.zstd", "0.40.0"),
-    ],
+    added: &[&"vortex.pco", &"vortex.sequence", &"vortex.zstd"],
 };

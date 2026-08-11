@@ -17,9 +17,9 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         min_vortex_version: Some("0.54.0"),
     },
     added: &[
-        &("fastlanes.rle", "0.54.0"),
-        &("vortex.fixed_size_list", "0.54.0"),
-        &("vortex.listview", "0.54.0"),
-        &("vortex.masked", "0.54.0"),
+        &"fastlanes.rle",
+        &"vortex.fixed_size_list",
+        &"vortex.listview",
+        &"vortex.masked",
     ],
 };
