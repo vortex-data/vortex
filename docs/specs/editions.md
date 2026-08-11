@@ -18,16 +18,27 @@ editions is the earliest version of vortex required to read that file.
 
 ## What an edition contains
 
-Every member of an edition is recorded with a **component kind**, either `array` or `layout`. Today every declared
-member is an `array`, so an edition is exactly the set of array encodings that may appear in a file written against
-it: the unknown-encoding error below names an array encoding, and the write-time check covers array encodings.
+Every member of an edition is recorded with a **component kind**: `array`, `layout`, or `aggregate`. Today every
+first-party declaration is an `array`, so an edition is in practice the set of array encodings that may appear in a
+file written against it, and the unknown-encoding error below names an array encoding.
 
 The kind is recorded because ids are unique only within a kind — a layout named `vortex.flat` and an array encoding
-named `vortex.flat` would be different members — and because membership is resolved one kind at a time: the writer
-asks for the enabled *array encoding* ids and never sees members of another kind. That is what lets `layout`, and
-later kinds such as scalar and aggregate functions, join editions without colliding with array encoding ids or
-silently widening what a writer may emit. Until a kind has both declared members and a component enforcing them,
-an edition says nothing about that kind.
+named `vortex.flat` are different members — and because membership is resolved one kind at a time. The writer holds
+three separate id sets and enforces each where that kind is written:
+
+| Kind | Written | Enforced at | A member outside the edition |
+| --- | --- | --- | --- |
+| `array` | every serialized array | array serialization context | fails the write |
+| `layout` | the footer's layout tree | layout serialization context | fails the write |
+| `aggregate` | zone maps in zoned layouts | the layout writer context | is dropped from the zone map |
+
+Aggregates are dropped rather than rejected because a zone map is an optimization: a reader that does not recognize
+an aggregate skips the zone map and scans the data, so omitting one costs pruning, not correctness. An array or a
+layout cannot be dropped without losing data, so those fail the write instead.
+
+**A kind with no declared members is unrestricted.** An edition that declares no layouts makes no promise about
+layouts, so the writer leaves them alone rather than forbidding all of them; declaring the first member of a kind is
+what arms its filter. Adding kinds later (scalar functions, say) works the same way.
 
 ## Resolving an unknown-encoding error
 
@@ -72,6 +83,8 @@ encodings can read the files.
 A published edition is frozen — its member list never grows or shrinks. New members are
 staged in a **draft** edition and become guaranteed only when that draft is frozen as the next
 edition; each member's registry entry records its component kind and the edition it joined in.
+Declaring the first member of a kind arms that kind's write-time filter, so a kind gains
+enforcement at the edition that first declares one.
 In the future an encoding may be *deprecated*, meaning writers stop emitting it — but readers
 keep decoding it indefinitely, so deprecation never invalidates existing files.
 

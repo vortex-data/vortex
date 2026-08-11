@@ -203,7 +203,7 @@ impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
         // Dictionary-encode the layout ID
         let encoding = self.ctx.intern(&self.layout.encoding_id()).ok_or_else(|| {
             vortex_err!(
-                "Failed to intern layout encoding ID: {}",
+                "Layout encoding {} not permitted by ctx",
                 self.layout.encoding_id()
             )
         })?;

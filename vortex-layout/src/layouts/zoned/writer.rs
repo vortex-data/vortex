@@ -110,6 +110,13 @@ impl LayoutStrategy for ZonedStrategy {
             .aggregate_fns
             .clone()
             .unwrap_or_else(|| default_zoned_aggregate_fns(stream.dtype(), session));
+        // Zone maps are an optimization, so an aggregate the context forbids is dropped
+        // rather than failing the write; the zones child is built from what survives.
+        let aggregate_fns: Arc<[AggregateFnRef]> = aggregate_fns
+            .iter()
+            .filter(|aggregate_fn| ctx.allows_aggregate(&aggregate_fn.id()))
+            .cloned()
+            .collect();
         let compute_session = session.clone();
 
         let stats_accumulator = Arc::new(Mutex::new(AggregateStatsAccumulator::new(
@@ -225,17 +232,95 @@ fn default_zoned_aggregate_fns(dtype: &DType, session: &VortexSession) -> Arc<[A
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::ArrayContext;
+    use vortex_array::IntoArray;
     use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
     use vortex_array::aggregate_fn::fns::bounded_min::BoundedMin;
     use vortex_array::aggregate_fn::fns::max::Max;
     use vortex_array::aggregate_fn::fns::min::Min;
     use vortex_array::aggregate_fn::fns::sum::Sum;
+    use vortex_array::arrays::ChunkedArray;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::extension::datetime::Timestamp;
+    use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
+    use vortex_io::runtime::Handle;
+    use vortex_io::runtime::single::block_on;
+    use vortex_io::session::RuntimeSession;
+    use vortex_io::session::RuntimeSessionExt;
+    use vortex_utils::aliases::hash_set::HashSet;
 
     use super::*;
+    use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
+    use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::layouts::zoned::Zoned;
+    use crate::segments::TestSegments;
+    use crate::sequence::SequenceId;
+    use crate::sequence::SequentialArrayStreamExt;
+    use crate::session::LayoutSession;
+
+    /// Write three zones of primitives through `ctx` and return the aggregates the zoned
+    /// layout ended up recording.
+    fn written_aggregates(ctx: LayoutWriterContext) -> Vec<String> {
+        let strategy = ZonedStrategy::new(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            FlatLayoutStrategy::default(),
+            ZonedLayoutOptions {
+                block_size: NonZeroUsize::new(3).vortex_expect("non zero"),
+                ..Default::default()
+            },
+        );
+        let (ptr, eof) = SequenceId::root().split();
+        let stream = ChunkedArray::from_iter([
+            buffer![1, 2, 3].into_array(),
+            buffer![4, 5, 6].into_array(),
+            buffer![7, 8, 9].into_array(),
+        ])
+        .into_array()
+        .to_array_stream()
+        .sequenced(ptr);
+
+        let layout = block_on(|handle: Handle| async move {
+            let session = vortex_array::array_session()
+                .with::<LayoutSession>()
+                .with::<RuntimeSession>()
+                .with_handle(handle);
+            strategy
+                .write_stream(
+                    ctx,
+                    Arc::new(TestSegments::default()),
+                    stream,
+                    eof,
+                    &session,
+                )
+                .await
+        })
+        .vortex_expect("writing the zoned layout");
+
+        layout
+            .as_::<Zoned>()
+            .aggregate_fns()
+            .iter()
+            .map(|aggregate_fn| aggregate_fn.id().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn unrestricted_context_writes_the_default_aggregates() {
+        let written = written_aggregates(LayoutWriterContext::new(ArrayContext::empty()));
+        assert!(written.contains(&Min.id().to_string()));
+        assert!(written.contains(&Sum.id().to_string()));
+        assert!(written.len() > 1);
+    }
+
+    #[test]
+    fn forbidden_aggregates_are_dropped_from_the_zone_map() {
+        let ctx = LayoutWriterContext::new(ArrayContext::empty())
+            .with_allowed_aggregates(HashSet::from_iter([Min.id()]));
+        assert_eq!(written_aggregates(ctx), [Min.id().to_string()]);
+    }
 
     #[test]
     fn default_aggregates_bound_variable_length_min_max() {

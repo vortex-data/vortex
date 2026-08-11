@@ -9,7 +9,9 @@
 //! policy with [`crate::editions::enable_default_editions`].
 //!
 //! Every first-party member is an [`EditionMember::array`], i.e. an array encoding a written
-//! array may use; [`ComponentKind`] is what a member of another kind would carry.
+//! array may use. Declaring a member of another [`ComponentKind`] arms the writer's filter for
+//! that kind: layouts outside the edition fail the write, aggregates outside it are dropped
+//! from zone maps.
 //!
 //! The default file writer resolves the session's enabled editions at write time. The
 //! facade enables the newest frozen `core` edition, [`crate::editions::CORE_2026_08`], and

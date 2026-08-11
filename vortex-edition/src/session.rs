@@ -161,11 +161,6 @@ impl EditionSession {
             .collect()
     }
 
-    /// Compute an edition's array encodings: the encodings a writer targeting it may emit.
-    pub fn array_encodings_in(&self, edition: &EditionId) -> Vec<EditionInclusion> {
-        self.components_in(edition, ComponentKind::Array)
-    }
-
     /// Validate all registered declarations. Errors on inclusions referencing undeclared
     /// editions, editions out of chronological order within a family (unversioned drafts
     /// must be newest), malformed version strings, and members requiring a release newer
@@ -282,13 +277,13 @@ pub trait EditionSessionExt: SessionExt {
         Ok(())
     }
 
-    /// Resolve the ids of one [`ComponentKind`] across all enabled editions.
+    /// Resolve the ids of one [`ComponentKind`] across all enabled editions: what a writer
+    /// may emit for that kind.
     ///
-    /// Ids are only unique within a kind, so this never mixes kinds: resolving against the
-    /// array registry means passing [`ComponentKind::Array`].
-    ///
-    /// When the enabled-editions variable is absent or no editions are enabled, this returns an
-    /// empty vector and therefore permits no edition components.
+    /// Ids are only unique within a kind, so this never mixes kinds. An empty result means
+    /// the enabled editions declare nothing of this kind, which is not the same as
+    /// forbidding everything — see [`crate::EditionSession::components_in`] and the
+    /// writer's policy for how an undeclared kind is treated.
     fn enabled_component_ids(&self, kind: ComponentKind) -> Vec<Id> {
         let Some(enabled) = self.get_opt::<EnabledEditions>() else {
             return vec![];
@@ -303,11 +298,6 @@ pub trait EditionSessionExt: SessionExt {
         ids.sort_unstable();
         ids.dedup();
         ids
-    }
-
-    /// Resolve the array encodings in all enabled editions: the ids a file writer may emit.
-    fn enabled_array_encoding_ids(&self) -> Vec<Id> {
-        self.enabled_component_ids(ComponentKind::Array)
     }
 }
 

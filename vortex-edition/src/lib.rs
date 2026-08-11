@@ -12,8 +12,9 @@
 //! so inclusions can live next to the component they describe.
 //!
 //! Every membership is typed by a [`ComponentKind`], and members are resolved one kind at a
-//! time: the file writer asks for [`EditionSessionExt::enabled_array_encoding_ids`], never
-//! an untyped id set.
+//! time with [`EditionSessionExt::enabled_component_ids`]: the file writer restricts the
+//! arrays, layouts, and aggregates it writes from three separate id sets, never one untyped
+//! set.
 //!
 //! An edition is a **draft** until its [`Edition::min_vortex_version`] is recorded —
 //! recording it is the act of freezing. The per-edition member sets are computed from the
@@ -115,24 +116,27 @@ impl Display for EditionId {
 
 /// The kind of component an edition membership covers.
 ///
-/// Ids are unique per kind, not globally: a layout named `vortex.flat` and an array encoding
-/// named `vortex.flat` are different members. Every membership records its kind, so callers
-/// resolve one kind at a time — the file writer takes the [`ComponentKind::Array`] ids and
-/// never sees the rest. Other kinds (scalar and aggregate functions) can be added the same
-/// way once something declares and enforces them.
+/// Ids are unique per kind, not globally: a layout named `vortex.flat` and an array named
+/// `vortex.flat` are different members. Every membership records its kind, and the writer
+/// resolves one kind at a time, so the set restricting written arrays never restricts
+/// written layouts. Further kinds (scalar functions, say) can be added the same way.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ComponentKind {
     /// An array encoding, e.g. `vortex.alp`, registered in the session's array registry.
     Array,
     /// A layout encoding, e.g. `vortex.flat`, registered in the session's layout registry.
     Layout,
+    /// An aggregate function, e.g. `vortex.min`, written into zone maps and registered in
+    /// the session's aggregate function registry.
+    Aggregate,
 }
 
 impl Display for ComponentKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            Self::Array => "array encoding",
+            Self::Array => "array",
             Self::Layout => "layout",
+            Self::Aggregate => "aggregate",
         })
     }
 }
@@ -236,6 +240,14 @@ impl EditionMember {
     pub const fn layout(component: &'static dyn AsComponentId) -> Self {
         Self {
             kind: ComponentKind::Layout,
+            component,
+        }
+    }
+
+    /// An aggregate function member, e.g. `vortex.min`.
+    pub const fn aggregate(component: &'static dyn AsComponentId) -> Self {
+        Self {
+            kind: ComponentKind::Aggregate,
             component,
         }
     }

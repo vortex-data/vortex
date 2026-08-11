@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayId;
+use vortex_array::aggregate_fn::AggregateFnId;
 use vortex_array::normalize::NormalizeOptions;
 use vortex_array::normalize::Operation;
 use vortex_error::VortexResult;
@@ -79,6 +80,7 @@ impl Drop for BufferedBytesReservation {
 #[derive(Clone)]
 pub struct LayoutWriterContext {
     array_ctx: ArrayContext,
+    allowed_aggregates: Option<Arc<HashSet<AggregateFnId>>>,
     buffered_bytes: BufferedBytesTracker,
 }
 
@@ -87,8 +89,29 @@ impl LayoutWriterContext {
     pub fn new(array_ctx: ArrayContext) -> Self {
         Self {
             array_ctx,
+            allowed_aggregates: None,
             buffered_bytes: BufferedBytesTracker::new(),
         }
+    }
+
+    /// Restrict the aggregate functions this write may record, e.g. in a zone map.
+    ///
+    /// Aggregates are an optimization: a reader that does not recognize one skips the zone map
+    /// and scans the data instead. Writers therefore *drop* aggregates outside `allowed`
+    /// rather than failing, unlike the array and layout contexts, whose members cannot be
+    /// dropped without losing data. The id set is a plain set of ids — callers that source it
+    /// from editions resolve it themselves.
+    pub fn with_allowed_aggregates(mut self, allowed: HashSet<AggregateFnId>) -> Self {
+        self.allowed_aggregates = Some(Arc::new(allowed));
+        self
+    }
+
+    /// Returns whether `aggregate` may be recorded by this write. Unrestricted contexts
+    /// permit every aggregate.
+    pub fn allows_aggregate(&self, aggregate: &AggregateFnId) -> bool {
+        self.allowed_aggregates
+            .as_ref()
+            .is_none_or(|allowed| allowed.contains(aggregate))
     }
 
     /// Replaces the buffered bytes tracker, so callers can observe the counter from outside the

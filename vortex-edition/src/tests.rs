@@ -61,13 +61,13 @@ fn editions_pass_the_test_harness() -> Result<(), crate::EditionError> {
 fn membership_is_transitive() {
     let editions = session();
 
-    let first = editions.array_encodings_in(&FIRST);
+    let first = editions.components_in(&FIRST, ComponentKind::Array);
     let ids: Vec<&str> = first.iter().map(|i| i.component_id.as_str()).collect();
     assert_eq!(ids, ["test.alpha", "test.beta"]);
 
     // Members of the first edition are members of the second by inheritance, with their
     // `since` still recording the edition they actually joined in.
-    let second = editions.array_encodings_in(&SECOND);
+    let second = editions.components_in(&SECOND, ComponentKind::Array);
     let ids: Vec<&str> = second.iter().map(|i| i.component_id.as_str()).collect();
     assert_eq!(ids, ["test.alpha", "test.beta", "test.gamma"]);
     assert!(
@@ -89,9 +89,16 @@ fn membership_is_transitive() {
     // never crosses families.
     assert!(first.iter().all(|i| i.since == FIRST));
     let third = EditionId::new("test", 2026, 10, 0);
-    assert_eq!(editions.array_encodings_in(&third).len(), 3);
+    assert_eq!(
+        editions.components_in(&third, ComponentKind::Array).len(),
+        3
+    );
     let other = EditionId::new("other", 2026, 10, 0);
-    assert!(editions.array_encodings_in(&other).is_empty());
+    assert!(
+        editions
+            .components_in(&other, ComponentKind::Array)
+            .is_empty()
+    );
 }
 
 #[test]
@@ -139,12 +146,16 @@ fn registered_and_enabled_editions_are_separate() -> Result<(), crate::EditionEr
         session.register_edition(declaration)?;
     }
 
-    assert!(session.enabled_array_encoding_ids().is_empty());
+    assert!(
+        session
+            .enabled_component_ids(ComponentKind::Array)
+            .is_empty()
+    );
     session.enable_edition(FIRST)?;
     assert_eq!(session.enabled_editions().editions(), [FIRST]);
     assert_eq!(
         session
-            .enabled_array_encoding_ids()
+            .enabled_component_ids(ComponentKind::Array)
             .iter()
             .map(|id| id.as_str())
             .collect::<Vec<_>>(),
@@ -153,13 +164,13 @@ fn registered_and_enabled_editions_are_separate() -> Result<(), crate::EditionEr
 
     session.enable_edition(SECOND)?;
     assert_eq!(session.enabled_editions().editions(), [SECOND]);
-    assert_eq!(session.enabled_array_encoding_ids().len(), 3);
+    assert_eq!(session.enabled_component_ids(ComponentKind::Array).len(), 3);
 
     // Selecting an older edition in the same family replaces the newer one and removes
     // encodings that joined after it.
     session.enable_edition(FIRST)?;
     assert_eq!(session.enabled_editions().editions(), [FIRST]);
-    let enabled = session.enabled_array_encoding_ids();
+    let enabled = session.enabled_component_ids(ComponentKind::Array);
     assert_eq!(enabled.len(), 2);
     assert!(enabled.iter().all(|id| id.as_str() != "test.gamma"));
     Ok(())
@@ -192,7 +203,7 @@ fn enabled_editions_are_independent_across_families() -> Result<(), crate::Editi
     let mut enabled = session.enabled_editions().editions();
     enabled.sort_unstable();
     assert_eq!(enabled, [OTHER, FIRST]);
-    assert_eq!(session.enabled_array_encoding_ids().len(), 3);
+    assert_eq!(session.enabled_component_ids(ComponentKind::Array).len(), 3);
     Ok(())
 }
 
@@ -309,7 +320,7 @@ fn kinds_are_resolved_independently() -> Result<(), crate::EditionError> {
     // A layout never reaches the array registry, and what a writer may emit is the arrays.
     assert_eq!(ids(ComponentKind::Array), ["test.alpha"]);
     assert_eq!(ids(ComponentKind::Layout), ["test.alpha", "test.flat"]);
-    assert_eq!(session.enabled_array_encoding_ids().len(), 1);
+    assert_eq!(session.enabled_component_ids(ComponentKind::Array).len(), 1);
 
     // A duplicate within one kind is still an error.
     assert!(

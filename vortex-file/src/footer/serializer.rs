@@ -32,6 +32,7 @@ pub struct FooterSerializer {
     metadata: HashMap<String, ByteBuffer>,
     exclude_dtype: bool,
     offset: u64,
+    layout_ctx: LayoutContext,
 }
 
 impl FooterSerializer {
@@ -41,7 +42,18 @@ impl FooterSerializer {
             metadata: HashMap::default(),
             exclude_dtype: false,
             offset: 0,
+            layout_ctx: LayoutContext::default(),
         }
+    }
+
+    /// Serialize layouts through `layout_ctx`.
+    ///
+    /// Every layout written to the file is interned here, so a context restricted with
+    /// [`LayoutContext::with_allowed_ids`] fails the write rather than emitting a layout
+    /// outside the permitted set. The default context permits any layout.
+    pub fn with_layout_context(mut self, layout_ctx: LayoutContext) -> Self {
+        self.layout_ctx = layout_ctx;
+        self
     }
 
     /// Update the offset used to generate absolute segment locations.
@@ -125,7 +137,7 @@ impl FooterSerializer {
 
         // TODO(ngates): we should separate the read/write side of Context since the write side
         //  doesn't need to look anything up in the registry.
-        let layout_ctx = LayoutContext::default();
+        let layout_ctx = self.layout_ctx.clone();
 
         let (buffer, layout_segment) = write_flatbuffer(
             &mut self.offset,
