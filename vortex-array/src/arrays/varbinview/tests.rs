@@ -102,9 +102,15 @@ pub fn deserialize_null_views() -> VortexResult<()> {
     let dtype = DType::Utf8(Nullability::Nullable);
     let buffer = BitBuffer::from_iter([true, false]);
     let validity = Validity::from_bit_buffer(buffer, Nullability::Nullable);
-    let array = VarBinViewArray::try_new(views.clone(), buffers, dtype.clone(), validity)?;
-
     let session = array_session();
+    let array = VarBinViewArray::try_new(
+        views.clone(),
+        buffers,
+        dtype.clone(),
+        validity,
+        &mut session.create_execution_ctx(),
+    )?;
+
     let array_ctx = ArrayContext::empty();
     let serialized =
         array

@@ -147,8 +147,9 @@ impl VarBinViewData {
         buffers: Arc<[ByteBuffer]>,
         dtype: DType,
         validity: Validity,
+        ctx: &mut ExecutionCtx,
     ) -> Self {
-        Self::try_new(views, buffers, dtype, validity)
+        Self::try_new(views, buffers, dtype, validity, ctx)
             .vortex_expect("VarBinViewArray construction failed")
     }
 
@@ -181,7 +182,9 @@ impl VarBinViewData {
         buffers: Arc<[ByteBuffer]>,
         dtype: DType,
         validity: Validity,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
+        let views = Self::replace_invalid_views(views, &validity, ctx)?;
         Self::validate(&views, &buffers, &dtype, &validity)?;
 
         // SAFETY: validate ensures all invariants are met.
@@ -700,8 +703,9 @@ impl Array<VarBinView> {
         buffers: Arc<[ByteBuffer]>,
         dtype: DType,
         validity: Validity,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
-        let data = VarBinViewData::try_new(views, buffers, dtype.clone(), validity.clone())?;
+        let data = VarBinViewData::try_new(views, buffers, dtype.clone(), validity.clone(), ctx)?;
         let slots = VarBinViewData::make_slots(&validity, data.len());
         Ok(Self::from_prevalidated_data(dtype, data, slots))
     }

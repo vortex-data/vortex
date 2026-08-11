@@ -219,17 +219,13 @@ impl VTable for VarBinView {
             .map(|b| b.as_host().clone())
             .collect::<Vec<_>>();
         let views = Buffer::<BinaryView>::from_byte_buffer(views_handle.clone().as_host().clone());
-        let views = VarBinViewData::replace_invalid_views(
-            views,
-            &validity,
-            &mut session.create_execution_ctx(),
-        )?;
 
         let data = VarBinViewData::try_new(
             views,
             Arc::from(data_buffers),
             dtype.clone(),
             validity.clone(),
+            &mut session.create_execution_ctx(),
         )?;
         let slots = VarBinViewData::make_slots(&validity, len);
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
