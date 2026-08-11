@@ -42,6 +42,10 @@ use tracing::Instrument;
 use vortex::array::VortexSessionExecute;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
+use vortex::expr::BoundExpression;
+use vortex::expr::Expression;
+use vortex::expr::root;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
@@ -50,6 +54,7 @@ use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
+use vortex_scan_v2::ScanBuilder as PlanScanBuilder;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
 
@@ -327,40 +332,6 @@ impl FileOpener for VortexOpener {
                 .try_map_exprs(|expr| reassign_expr_columns(expr, &stream_schema))?;
             let projector = leftover_projection.make_projector(&stream_schema)?;
 
-            // We share our layout readers with others partitions in the scan, so we can only need to read each layout in each file once.
-            let layout_reader = match layout_readers.entry(file.object_meta.location.clone()) {
-                Entry::Occupied(mut occupied_entry) => {
-                    if let Some(reader) = occupied_entry.get().upgrade() {
-                        tracing::trace!("reusing layout reader for {}", occupied_entry.key());
-                        reader
-                    } else {
-                        tracing::trace!("creating layout reader for {}", occupied_entry.key());
-                        let reader = vxf.layout_reader().map_err(|e| {
-                            DataFusionError::Execution(format!(
-                                "Failed to create layout reader: {e}"
-                            ))
-                        })?;
-                        occupied_entry.insert(Arc::downgrade(&reader));
-                        reader
-                    }
-                }
-                Entry::Vacant(vacant_entry) => {
-                    tracing::trace!("creating layout reader for {}", vacant_entry.key());
-                    let reader = vxf.layout_reader().map_err(|e| {
-                        DataFusionError::Execution(format!("Failed to create layout reader: {e}"))
-                    })?;
-                    vacant_entry.insert(Arc::downgrade(&reader));
-
-                    reader
-                }
-            };
-
-            let mut scan_builder = ScanBuilder::new(session.clone(), Arc::clone(&layout_reader));
-
-            if let Some(vortex_plan) = file.extensions.get::<VortexAccessPlan>() {
-                scan_builder = vortex_plan.apply_to_builder(scan_builder);
-            }
-
             let filter = filter
                 .and_then(|f| {
                     // Verify that all filters we've accepted from DataFusion get pushed down.
@@ -396,76 +367,174 @@ impl FileOpener for VortexOpener {
                 .map(|filter| filter.optimize_recursive(vxf.dtype())?.bind(vxf.dtype()))
                 .transpose()
                 .map_err(|e| exec_datafusion_err!("Couldn't bind Vortex scan filter: {e}"))?;
-
-            if let Some(limit) = limit
-                && filter.is_none()
-            {
-                scan_builder = scan_builder.with_limit(limit);
-            }
-
-            if let Some(concurrency) = scan_concurrency {
-                scan_builder = scan_builder.with_concurrency(concurrency);
-            }
-
-            // Set before the byte-range translation below, which computes natural splits for
-            // the fields the scan's projection and filter reference.
-            scan_builder = scan_builder
-                .with_projection(scan_projection)
-                .with_some_filter(filter);
-
-            if let Some(file_range) = file.range {
-                let byte_range = Range {
-                    start: u64::try_from(file_range.start)
-                        .map_err(|_| exec_datafusion_err!("Vortex file range start is negative"))?,
-                    end: u64::try_from(file_range.end)
-                        .map_err(|_| exec_datafusion_err!("Vortex file range end is negative"))?,
-                };
-                if byte_range.start != 0 || byte_range.end != file.object_meta.size {
-                    // Full-file scans already cover every natural split. Only translate the
-                    // byte range back into row boundaries when DataFusion has trimmed the file.
-                    let natural_splits = natural_splits_for_file(
-                        natural_splits.as_ref(),
-                        &file.object_meta.location,
-                        &scan_builder,
-                        file.object_meta.size,
-                    )?;
-
-                    let Some(row_range) =
-                        split_aligned_row_range(byte_range, natural_splits.as_ref())
-                    else {
-                        return Ok(stream::empty().boxed());
-                    };
-
-                    scan_builder = scan_builder
-                        .with_row_range(row_range)
-                        // Hand the shared full-file boundaries back to the scan so prepare()
-                        // skips its own layout walk.
-                        .with_natural_splits(Arc::clone(&natural_splits.row_boundaries));
-                }
-            }
-
             let stream_target_field = Field::new_struct("", stream_schema.fields().clone(), false);
-            let stream = scan_builder
-                .with_metrics_registry(metrics_registry)
-                .with_ordered(has_output_ordering)
-                .map(move |chunk| {
-                    let mut ctx = session.create_execution_ctx();
-                    let arrow_session = ctx.session().clone();
-                    let arrow = arrow_session.arrow().execute_arrow(
-                        chunk,
-                        Some(&stream_target_field),
-                        &mut ctx,
-                    )?;
-                    Ok(RecordBatch::from(arrow.as_struct().clone()))
-                })
-                .into_stream()
-                .map_err(|e| exec_datafusion_err!("Failed to create Vortex stream: {e}"))?
-                .map_err(move |e: VortexError| {
-                    DataFusionError::External(Box::new(e.with_context(format!(
-                        "Failed to read Vortex file: {}",
-                        file.object_meta.location
-                    ))))
-                })
+            let stream = if std::env::var("VORTEX_USE_PLAN_V2").as_deref() == Ok("1") {
+                if file.extensions.get::<VortexAccessPlan>().is_some() {
+                    return Err(exec_datafusion_err!(
+                        "plan-v2 scans do not support VortexAccessPlan"
+                    ));
+                }
+                if let Some(file_range) = file.range.as_ref() {
+                    let start = u64::try_from(file_range.start)
+                        .map_err(|_| exec_datafusion_err!("Vortex file range start is negative"))?;
+                    let end = u64::try_from(file_range.end)
+                        .map_err(|_| exec_datafusion_err!("Vortex file range end is negative"))?;
+                    if start != 0 || end != file.object_meta.size {
+                        return Err(exec_datafusion_err!(
+                            "plan-v2 scans require DataFusion file-scan repartitioning to be disabled"
+                        ));
+                    }
+                }
+
+                let mut scan_builder = PlanScanBuilder::try_new(
+                    vxf.footer().layout(),
+                    vxf.segment_source(),
+                    session.clone(),
+                )
+                .map_err(|error| DataFusionError::External(Box::new(error)))?
+                .with_projection(
+                    unbind(&scan_projection)
+                        .map_err(|error| DataFusionError::External(Box::new(error)))?,
+                )
+                .with_some_filter(
+                    filter
+                        .as_ref()
+                        .map(unbind)
+                        .transpose()
+                        .map_err(|error| DataFusionError::External(Box::new(error)))?,
+                );
+                if let Some(limit) = limit
+                    && filter.is_none()
+                {
+                    scan_builder = scan_builder.with_limit(limit);
+                }
+                if let Some(concurrency) = scan_concurrency {
+                    scan_builder = scan_builder.with_concurrency(concurrency);
+                }
+
+                let location = file.object_meta.location.clone();
+                let session = session.clone();
+                scan_builder
+                    .with_ordered(has_output_ordering)
+                    .map(move |chunk| {
+                        let mut ctx = session.create_execution_ctx();
+                        let arrow_session = ctx.session().clone();
+                        let arrow = arrow_session.arrow().execute_arrow(
+                            chunk,
+                            Some(&stream_target_field),
+                            &mut ctx,
+                        )?;
+                        Ok(RecordBatch::from(arrow.as_struct().clone()))
+                    })
+                    .into_stream()
+                    .map_err(|e| exec_datafusion_err!("Failed to create plan-v2 stream: {e}"))?
+                    .map_err(move |e: VortexError| {
+                        DataFusionError::External(Box::new(e.with_context(format!(
+                            "Failed to read Vortex file with plan v2: {location}"
+                        ))))
+                    })
+                    .boxed()
+            } else {
+                // Share layout readers between partitions so each file's layout is read once.
+                let layout_reader = match layout_readers.entry(file.object_meta.location.clone()) {
+                    Entry::Occupied(mut occupied_entry) => {
+                        if let Some(reader) = occupied_entry.get().upgrade() {
+                            tracing::trace!("reusing layout reader for {}", occupied_entry.key());
+                            reader
+                        } else {
+                            tracing::trace!("creating layout reader for {}", occupied_entry.key());
+                            let reader = vxf.layout_reader().map_err(|e| {
+                                DataFusionError::Execution(format!(
+                                    "Failed to create layout reader: {e}"
+                                ))
+                            })?;
+                            occupied_entry.insert(Arc::downgrade(&reader));
+                            reader
+                        }
+                    }
+                    Entry::Vacant(vacant_entry) => {
+                        tracing::trace!("creating layout reader for {}", vacant_entry.key());
+                        let reader = vxf.layout_reader().map_err(|e| {
+                            DataFusionError::Execution(format!(
+                                "Failed to create layout reader: {e}"
+                            ))
+                        })?;
+                        vacant_entry.insert(Arc::downgrade(&reader));
+                        reader
+                    }
+                };
+
+                let mut scan_builder =
+                    ScanBuilder::new(session.clone(), Arc::clone(&layout_reader));
+                if let Some(vortex_plan) = file.extensions.get::<VortexAccessPlan>() {
+                    scan_builder = vortex_plan.apply_to_builder(scan_builder);
+                }
+                if let Some(limit) = limit
+                    && filter.is_none()
+                {
+                    scan_builder = scan_builder.with_limit(limit);
+                }
+                if let Some(concurrency) = scan_concurrency {
+                    scan_builder = scan_builder.with_concurrency(concurrency);
+                }
+
+                // Set before translating byte ranges because natural splits depend on the fields
+                // referenced by the projection and filter.
+                scan_builder = scan_builder
+                    .with_projection(scan_projection)
+                    .with_some_filter(filter);
+                if let Some(file_range) = file.range {
+                    let byte_range = Range {
+                        start: u64::try_from(file_range.start).map_err(|_| {
+                            exec_datafusion_err!("Vortex file range start is negative")
+                        })?,
+                        end: u64::try_from(file_range.end).map_err(|_| {
+                            exec_datafusion_err!("Vortex file range end is negative")
+                        })?,
+                    };
+                    if byte_range.start != 0 || byte_range.end != file.object_meta.size {
+                        let natural_splits = natural_splits_for_file(
+                            natural_splits.as_ref(),
+                            &file.object_meta.location,
+                            &scan_builder,
+                            file.object_meta.size,
+                        )?;
+                        let Some(row_range) =
+                            split_aligned_row_range(byte_range, natural_splits.as_ref())
+                        else {
+                            return Ok(stream::empty().boxed());
+                        };
+                        scan_builder = scan_builder
+                            .with_row_range(row_range)
+                            .with_natural_splits(Arc::clone(&natural_splits.row_boundaries));
+                    }
+                }
+
+                let location = file.object_meta.location.clone();
+                let session = session.clone();
+                scan_builder
+                    .with_metrics_registry(metrics_registry)
+                    .with_ordered(has_output_ordering)
+                    .map(move |chunk| {
+                        let mut ctx = session.create_execution_ctx();
+                        let arrow_session = ctx.session().clone();
+                        let arrow = arrow_session.arrow().execute_arrow(
+                            chunk,
+                            Some(&stream_target_field),
+                            &mut ctx,
+                        )?;
+                        Ok(RecordBatch::from(arrow.as_struct().clone()))
+                    })
+                    .into_stream()
+                    .map_err(|e| exec_datafusion_err!("Failed to create Vortex stream: {e}"))?
+                    .map_err(move |e: VortexError| {
+                        DataFusionError::External(Box::new(e.with_context(format!(
+                            "Failed to read Vortex file: {location}"
+                        ))))
+                    })
+                    .boxed()
+            };
+            let stream = stream
                 .map(move |batch| {
                     let batch = if projector.projection().as_ref().is_empty() {
                         batch
@@ -492,6 +561,23 @@ impl FileOpener for VortexOpener {
         .in_current_span()
         .boxed())
     }
+}
+
+fn unbind(expression: &BoundExpression) -> VortexResult<Expression> {
+    if expression.is_root() {
+        return Ok(root());
+    }
+    Expression::try_new(
+        expression
+            .as_scalar()
+            .vortex_expect("non-root bound expression must have a scalar function")
+            .clone(),
+        expression
+            .children()
+            .iter()
+            .map(unbind)
+            .collect::<VortexResult<Vec<_>>>()?,
+    )
 }
 
 /// A file's natural split boundaries plus the precomputed byte each split is assigned to,

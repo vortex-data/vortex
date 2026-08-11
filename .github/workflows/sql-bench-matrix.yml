@@ -103,6 +103,8 @@ jobs:
     env:
       VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
       FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+      VORTEX_USE_PLAN_V2: "1"
+      DATAFUSION_OPTIMIZER_REPARTITION_FILE_SCANS: "false"
       # Makes python output nicer
       COLUMNS: 120
     strategy:
