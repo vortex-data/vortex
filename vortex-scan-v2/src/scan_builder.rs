@@ -38,6 +38,7 @@ use vortex_layout::plan::RowIdxValues;
 use vortex_layout::plan::Zoned;
 use vortex_layout::plan::lower;
 use vortex_layout::plan::optimize;
+use vortex_layout::scan::FilterExpr;
 use vortex_layout::segments::SegmentSource;
 use vortex_scan::selection::Selection;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
@@ -45,6 +46,8 @@ use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::RepeatedScan;
+use crate::filter::FilterMode;
+use crate::filter::FilterPlan;
 use crate::splits::SplitBy;
 use crate::splits::Splits;
 use crate::splits::attempt_split_ranges;
@@ -55,6 +58,7 @@ pub struct ScanBuilder<A> {
     base_plan: PlanRef,
     projection: Expression,
     filter: Option<Expression>,
+    filter_mode: FilterMode,
     ordered: bool,
     row_range: Option<Range<u64>>,
     selection: Selection,
@@ -96,6 +100,7 @@ impl ScanBuilder<ArrayRef> {
             base_plan,
             projection: root(),
             filter: None,
+            filter_mode: FilterMode::default(),
             ordered: true,
             row_range: None,
             selection: Selection::default(),
@@ -137,6 +142,12 @@ impl<A: 'static + Send> ScanBuilder<A> {
     /// Sets or clears the filter expression.
     pub fn with_some_filter(mut self, filter: Option<Expression>) -> Self {
         self.filter = filter;
+        self
+    }
+
+    /// Configures whether filter conjunctions execute in parallel or as an adaptive chain.
+    pub fn with_filter_mode(mut self, filter_mode: FilterMode) -> Self {
+        self.filter_mode = filter_mode;
         self
     }
 
@@ -232,6 +243,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             base_plan: self.base_plan,
             projection: self.projection,
             filter: self.filter,
+            filter_mode: self.filter_mode,
             ordered: self.ordered,
             row_range: self.row_range,
             selection: self.selection,
@@ -263,7 +275,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             &source,
             self.execution.session(),
         )?;
-        let filter = optimize_filter_plan(filter_expression.as_ref(), &source)?;
+        let filter = optimize_filter_plan(filter_expression.as_ref(), &source, self.filter_mode)?;
 
         let splits =
             if let Some(ranges) = attempt_split_ranges(&self.selection, self.row_range.as_ref()) {
@@ -274,7 +286,9 @@ impl<A: 'static + Send> ScanBuilder<A> {
                     .clone()
                     .unwrap_or_else(|| 0..self.base_plan.row_count());
                 let mut plans = vec![&projection];
-                plans.extend(filter.as_ref());
+                if let Some(filter) = &filter {
+                    plans.extend(filter.plans());
+                }
                 plans.extend(pruning.as_ref());
                 Splits::Natural(self.split_by.splits(&plans, &row_range)?)
             };
@@ -424,21 +438,52 @@ fn build_pruning_plan(
 fn optimize_filter_plan(
     filter: Option<&BoundExpression>,
     source: &PlanRef,
-) -> VortexResult<Option<PlanRef>> {
+    mode: FilterMode,
+) -> VortexResult<Option<FilterPlan>> {
     let Some(expression) = filter else {
         return Ok(None);
     };
-    let filter = optimize(EvalPlan::try_new(expression.clone(), source.clone())?.into_plan())?;
-    vortex_ensure!(
-        filter.dtype().is_boolean(),
-        "Filter plan must produce booleans"
-    );
-    tracing::debug!(
-        target: "vortex_scan_v2::planner",
-        plan = %filter.display_tree(),
-        "optimized the filter physical plan"
-    );
-    Ok(Some(filter))
+    match mode {
+        FilterMode::Parallel => {
+            let filter =
+                optimize(EvalPlan::try_new(expression.clone(), source.clone())?.into_plan())?;
+            vortex_ensure!(
+                filter.dtype().is_boolean(),
+                "Filter plan must produce booleans"
+            );
+            tracing::debug!(
+                target: "vortex_scan_v2::planner",
+                plan = %filter.display_tree(),
+                "optimized the parallel filter physical plan"
+            );
+            Ok(Some(FilterPlan::parallel(filter)))
+        }
+        FilterMode::Adaptive => {
+            let filter = FilterExpr::new(expression.clone());
+            let plans = filter
+                .conjuncts()
+                .iter()
+                .enumerate()
+                .map(|(index, expression)| {
+                    let plan = optimize(
+                        EvalPlan::try_new(expression.clone(), source.clone())?.into_plan(),
+                    )?;
+                    vortex_ensure!(
+                        plan.dtype().is_boolean(),
+                        "Filter conjunct plan must produce booleans"
+                    );
+                    tracing::debug!(
+                        target: "vortex_scan_v2::planner",
+                        conjunct = index,
+                        plan = %plan.display_tree(),
+                        "optimized an adaptive filter conjunct plan"
+                    );
+                    Ok(plan)
+                })
+                .collect::<VortexResult<Vec<_>>>()?;
+            Ok(Some(FilterPlan::adaptive(filter, plans)))
+        }
+    }
 }
 
 fn uses_only_pruning_sources(plan: &PlanRef) -> VortexResult<bool> {

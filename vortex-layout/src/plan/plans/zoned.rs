@@ -35,6 +35,7 @@ use vortex_session::registry::CachedId;
 
 use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::plan::Eval;
+use crate::plan::EvalPlan;
 use crate::plan::Plan;
 use crate::plan::PlanArrayFuture;
 use crate::plan::PlanChildren;
@@ -223,6 +224,26 @@ impl ZonedPlan {
         ))
     }
 
+    fn with_data_expression(&self, expression: BoundExpression) -> VortexResult<Option<Self>> {
+        let Some(data_plan) = self.data_plan()? else {
+            return Ok(None);
+        };
+        Ok(Some(
+            PlanParts {
+                vtable: Zoned,
+                dtype: expression.dtype().clone(),
+                row_count: self.row_count(),
+                children: vec![
+                    EvalPlan::try_new(expression, data_plan)?.into_plan(),
+                    self.zones_plan()?,
+                ]
+                .into(),
+                data: self.data().clone(),
+            }
+            .into_typed(),
+        ))
+    }
+
     fn execute_pruning(
         &self,
         ctx: &PlanExecutionContext,
@@ -380,7 +401,6 @@ impl PlanVTable for Zoned {
         if data_plan.dtype() != plan.dtype() || data_plan.row_count() != plan.row_count() {
             vortex_error::vortex_bail!("Zoned data child shape does not match the plan output");
         }
-        data.column_dtype = plan.dtype().clone();
         Ok(())
     }
 
@@ -414,7 +434,7 @@ impl PlanVTable for Zoned {
     }
 }
 
-/// Rewrites an abstract statistic expression over a zoned plan into its pruning state.
+/// Pushes data expressions through a zoned plan and rewrites statistic expressions into pruning.
 #[derive(Debug)]
 pub(crate) struct ExpressionZonedRule;
 
@@ -444,12 +464,17 @@ impl PlanParentReduceRule<Zoned> for ExpressionZonedRule {
             contains_root |= expression.is_root();
             Ok(Transformed::no(expression))
         })?;
-        if !parent.dtype().is_boolean() || !contains_stat || contains_root {
-            return Ok(None);
+        if contains_stat {
+            if !parent.dtype().is_boolean() || contains_root {
+                return Ok(None);
+            }
+            return Ok(child
+                .with_pruning(parent.expression().clone())?
+                .map(Plan::into_plan));
         }
 
         Ok(child
-            .with_pruning(parent.expression().clone())?
+            .with_data_expression(parent.expression().clone())?
             .map(Plan::into_plan))
     }
 }

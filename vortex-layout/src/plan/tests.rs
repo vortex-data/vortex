@@ -1004,6 +1004,37 @@ fn zoned_plan_exposes_data_and_zones() -> VortexResult<()> {
 }
 
 #[test]
+fn data_expression_pushes_through_zoned_and_preserves_zones() -> VortexResult<()> {
+    let dtype = primitive(PType::I32, Nullability::NonNullable);
+    let zones_dtype = DType::Struct(StructFields::empty(), Nullability::NonNullable);
+    let zone_len = NonZeroUsize::new(3).ok_or_else(|| vortex_err!("zone length is zero"))?;
+    let aggregate_fns: Arc<[AggregateFnRef]> = Vec::new().into();
+    let layout = ZonedLayout::try_new(
+        flat(5, dtype.clone(), 0),
+        flat(2, zones_dtype, 1),
+        zone_len,
+        aggregate_fns,
+    )?
+    .into_layout();
+    let source = make_plan(layout)?;
+    let expression = gt(root(), lit(5_i32)).bind(&dtype)?;
+
+    let optimized = optimize(EvalPlan::try_new(expression, source)?.into_plan())?;
+    insta::assert_snapshot!(optimized.display_tree(), @r"
+    root: vortex.plan.zoned(bool, rows=5)
+      data: vortex.plan.eval(bool, rows=5) expr=($ > 5i32)
+        child: vortex.plan.segment_scan(i32, rows=5)
+      zones: vortex.plan.segment_scan({}, rows=2)
+    ");
+    let optimized_zoned = optimized
+        .as_opt::<Zoned>()
+        .ok_or_else(|| vortex_err!("optimized plan is not zoned"))?;
+    assert!(!optimized_zoned.is_pruning());
+    assert_eq!(optimized_zoned.zones_plan()?.row_count(), 2);
+    Ok(())
+}
+
+#[test]
 fn stats_expression_rewrites_to_zoned_pruning_plan() -> VortexResult<()> {
     let dtype = primitive(PType::I32, Nullability::NonNullable);
     let max = Max.bind(NumericalAggregateOpts::skip_nans());

@@ -54,6 +54,7 @@ use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
+use vortex_scan_v2::FilterMode;
 use vortex_scan_v2::ScanBuilder as PlanScanBuilder;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
@@ -386,6 +387,13 @@ impl FileOpener for VortexOpener {
                     }
                 }
 
+                let filter_mode = if std::env::var("VORTEX_PLAN_V2_FILTER_MODE").as_deref()
+                    == Ok("adaptive")
+                {
+                    FilterMode::Adaptive
+                } else {
+                    FilterMode::Parallel
+                };
                 let mut scan_builder = PlanScanBuilder::try_new(
                     vxf.footer().layout(),
                     vxf.segment_source(),
@@ -402,7 +410,8 @@ impl FileOpener for VortexOpener {
                         .map(unbind)
                         .transpose()
                         .map_err(|error| DataFusionError::External(Box::new(error)))?,
-                );
+                )
+                .with_filter_mode(filter_mode);
                 if let Some(limit) = limit
                     && filter.is_none()
                 {

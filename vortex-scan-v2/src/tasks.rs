@@ -14,6 +14,8 @@ use vortex_layout::plan::PlanRef;
 use vortex_mask::Mask;
 use vortex_scan::row_mask::RowMask;
 
+use crate::filter::FilterPlan;
+
 pub(crate) type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 
 pub(crate) fn split_exec<A: 'static + Send>(
@@ -78,18 +80,7 @@ pub(crate) fn split_exec<A: 'static + Send>(
         }
 
         let filter_mask = if let Some(filter) = &ctx.filter {
-            let predicate = filter.execute(
-                &ctx.execution,
-                &row_range,
-                MaskFuture::ready(row_mask.clone()),
-            )?;
-            let session = ctx.execution.session().clone();
-            MaskFuture::new(row_mask.len(), async move {
-                let predicate = predicate.await?;
-                let mut execution = session.create_execution_ctx();
-                let predicate: Mask = predicate.null_as_false().execute(&mut execution)?;
-                Ok(row_mask.intersect_by_rank(&predicate))
-            })
+            filter.execute(&ctx.execution, &row_range, row_mask)?
         } else {
             MaskFuture::ready(row_mask)
         };
@@ -126,7 +117,7 @@ pub(crate) fn split_exec<A: 'static + Send>(
 pub(crate) struct TaskContext<A> {
     pub(crate) execution: PlanExecutionContext,
     pub(crate) pruning: Option<PlanRef>,
-    pub(crate) filter: Option<PlanRef>,
+    pub(crate) filter: Option<FilterPlan>,
     pub(crate) projection: PlanRef,
     pub(crate) mapper: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
 }
