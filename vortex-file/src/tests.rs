@@ -94,6 +94,7 @@ use vortex_io::std_file::FileWrite;
 use vortex_layout::DynLayout;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::buffered::BufferedStrategy;
+use vortex_layout::layouts::cdc::ContentDefinedChunkingOptions;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::struct_::StructStrategy;
@@ -3016,5 +3017,60 @@ async fn repro_8166_binary_gt_all_ff_max() -> VortexResult<()> {
         .execute::<StructArray>(&mut ctx)?;
 
     assert_eq!(result.len(), 1);
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_content_defined_chunking_roundtrip() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+
+    // Enough rows to produce several content-defined chunks per column.
+    let len = 100_000usize;
+    let mix = |i: usize| {
+        let mut z = (i as u64).wrapping_add(0x9E37_79B9_7F4A_7C15);
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z ^ (z >> 27)
+    };
+    let ids = PrimitiveArray::from_iter((0..len).map(|i| i as u64));
+    let values = PrimitiveArray::from_iter((0..len).map(|i| f64::from_bits(mix(i) | (1023 << 52))));
+    let names = VarBinViewArray::from_iter_str((0..len).map(|i| format!("user-{}", mix(i) % 1000)));
+    let st = StructArray::from_fields(&[
+        ("id", ids.into_array()),
+        ("value", values.into_array()),
+        ("name", names.into_array()),
+    ])?;
+    let expected = st.clone();
+
+    let strategy = crate::strategy::WriteStrategyBuilder::default()
+        .with_content_defined_chunking(ContentDefinedChunkingOptions {
+            min_chunk_bytes: 32 * 1024,
+            max_chunk_bytes: 128 * 1024,
+            boundary_mask_bits: 16,
+        })
+        .build();
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .with_strategy(strategy)
+        .write(&mut buf, st.into_array().to_array_stream())
+        .await?;
+
+    let file = SESSION.open_options().open_buffer(buf)?;
+    let actual = file
+        .scan()?
+        .into_array_stream()?
+        .read_all()
+        .await?
+        .execute::<StructArray>(&mut ctx)?;
+
+    assert_eq!(actual.len(), len);
+    for (field, expected_field) in actual
+        .iter_unmasked_fields()
+        .zip(expected.iter_unmasked_fields())
+    {
+        assert_arrays_eq!(field.clone(), expected_field.clone(), &mut ctx);
+    }
     Ok(())
 }

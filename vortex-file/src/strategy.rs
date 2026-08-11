@@ -13,6 +13,8 @@ use vortex_btrblocks::schemes::integer::IntDictScheme;
 use vortex_error::VortexExpect;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::buffered::BufferedStrategy;
+use vortex_layout::layouts::cdc::CdcRepartitionStrategy;
+use vortex_layout::layouts::cdc::ContentDefinedChunkingOptions;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::collect::CollectStrategy;
 use vortex_layout::layouts::compressed::CompressingStrategy;
@@ -63,6 +65,7 @@ pub struct WriteStrategyBuilder {
     ///
     /// [`ListLayoutStrategy`]: vortex_layout::layouts::list::writer::ListLayoutStrategy
     use_list_layout: bool,
+    content_defined_chunking: Option<ContentDefinedChunkingOptions>,
 }
 
 impl WriteStrategyBuilder {
@@ -79,6 +82,7 @@ impl WriteStrategyBuilder {
             flat_strategy: None,
             probe_compressor: None,
             use_list_layout: use_experimental_list_layout(),
+            content_defined_chunking: None,
         }
     }
 
@@ -108,6 +112,23 @@ impl WriteStrategyBuilder {
     /// [`ListLayoutStrategy`]: vortex_layout::layouts::list::writer::ListLayoutStrategy
     pub fn with_list_layout(mut self) -> Self {
         self.use_list_layout = true;
+        self
+    }
+
+    /// Partition columns at content-defined boundaries instead of fixed row counts.
+    ///
+    /// **Note**: this is an unstable and experimental write mode that trades read
+    /// optimizations for deduplication-friendly output. Boundaries are chosen by a rolling
+    /// hash over the column's values (see
+    /// [`CdcRepartitionStrategy`]), so files written from
+    /// edited versions of the same data stay mostly byte-identical and deduplicate well on
+    /// content-addressed stores such as Hugging Face Xet, which chunk files with the same
+    /// GEAR rolling hash. Files written this way contain no zone maps (zones require
+    /// fixed-size blocks) and no cross-chunk dictionary layer (dictionary state shared
+    /// across chunks would couple a chunk's bytes to data outside it); BtrBlocks' per-chunk
+    /// dictionary schemes still apply.
+    pub fn with_content_defined_chunking(mut self, options: ContentDefinedChunkingOptions) -> Self {
+        self.content_defined_chunking = Some(options);
         self
     }
 
@@ -167,6 +188,37 @@ impl WriteStrategyBuilder {
         };
 
         let compressor = self.compressor;
+
+        // Experimental: repartition columns at content-defined boundaries so files written from
+        // edited versions of the same data deduplicate well on content-addressed stores. This
+        // pipeline intentionally omits the zoned statistics layer (zones require fixed-size
+        // blocks) and the cross-chunk dictionary layer (a chunk's bytes must depend only on the
+        // chunk's own content); the full BtrBlocks compressor, including its per-chunk dictionary
+        // schemes, still runs on every chunk.
+        if let Some(cdc_options) = self.content_defined_chunking {
+            let data_compressor: Arc<dyn CompressorPlugin> = match &compressor {
+                CompressorConfig::BtrBlocks(builder) => Arc::new(builder.clone().build()),
+                CompressorConfig::Opaque(compressor) => Arc::clone(compressor),
+            };
+            // No BufferedStrategy here: it regroups chunks by accumulated byte counts, so an
+            // edit anywhere shifts the physical interleaving of every later segment. Keeping
+            // segment order a pure function of sequence ids keeps unchanged regions of two file
+            // versions byte-identical, at the cost of a larger reorder window while writing.
+            let chunked = ChunkedLayoutStrategy::new(Arc::clone(&flat));
+            let compressing = CompressingStrategy::new(chunked, data_compressor);
+            let cdc = CdcRepartitionStrategy::new(compressing, cdc_options);
+
+            let stats_compressor: Arc<dyn CompressorPlugin> = match compressor {
+                CompressorConfig::BtrBlocks(builder) => Arc::new(builder.build()),
+                CompressorConfig::Opaque(compressor) => compressor,
+            };
+            let compress_then_flat = CompressingStrategy::new(flat, stats_compressor);
+            let validity_strategy = CollectStrategy::new(compress_then_flat);
+
+            let table_strategy = TableStrategy::new(Arc::new(validity_strategy), Arc::new(cdc))
+                .with_field_writers(self.field_writers);
+            return Arc::new(table_strategy);
+        }
 
         // 7. for each chunk create a flat layout
         let chunked = ChunkedLayoutStrategy::new(Arc::clone(&flat));
