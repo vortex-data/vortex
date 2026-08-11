@@ -36,15 +36,16 @@ use vortex_error::vortex_err;
 
 use crate::executor::validity::to_arrow_null_buffer;
 
-/// Stops execution before an encoding appends data to the offset builder.
+/// Matches byte arrays that should directly append to a `VarBinBuilder`.
 ///
-/// Some encodings provide a specialized `append_to_builder` implementation. They append without
-/// first creating a canonical `VarBinView`. The default implementation creates a canonical array
-/// first. The matcher continues execution for operators that can produce an array with a faster
-/// export path.
-struct ArrowByteExportable;
+/// Lazy operators must run before export.
+/// `execute_until` removes them before this matcher accepts the array.
+/// The exporter then calls `append_to_builder`.
+/// A specialized implementation decodes directly into the builder.
+/// This avoids an intermediate canonical `VarBinView`.
+struct ShouldDirectlyAppend;
 
-impl Matcher for ArrowByteExportable {
+impl Matcher for ShouldDirectlyAppend {
     type Match<'a> = &'a ArrayRef;
 
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
@@ -79,7 +80,7 @@ where
     let target_is_utf8 = matches!(T::DATA_TYPE, DataType::Utf8 | DataType::LargeUtf8);
     let validate_utf8 = target_is_utf8 && !source_is_utf8;
 
-    let array = array.execute_until::<ArrowByteExportable>(ctx)?;
+    let array = array.execute_until::<ShouldDirectlyAppend>(ctx)?;
 
     // If the Vortex array is in VarBin format, we can directly convert it.
     if let Some(array) = array.as_opt::<VarBin>() {
