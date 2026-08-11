@@ -45,6 +45,8 @@ jobs:
             build_args: "--features lance"
           - id: compress-bench
             build_args: "--features lance"
+          - id: string-bench
+            build_args: ""
     steps:
       - uses: runs-on/action@v2
         if: github.repository == 'vortex-data/vortex'
@@ -102,49 +104,20 @@ jobs:
             name: String Encoding
             v4_ingest: false
     steps:
-      - uses: runs-on/action@v2
-        if: github.repository == 'vortex-data/vortex' && matrix.benchmark.id == 'string-bench'
-        with:
-          sccache: s3
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - uses: ./.github/actions/setup-rust
-        if: matrix.benchmark.id == 'string-bench'
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
 
       - name: Install DuckDB
         uses: ./.github/actions/setup-duckdb
 
       - uses: ./.github/actions/system-info
 
-      - name: Build binary
-        if: matrix.benchmark.id == 'string-bench'
-        shell: bash
-        env:
-          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
-        run: |
-          cargo build --bin ${{ matrix.benchmark.id }} --profile release_debug ${{ matrix.benchmark.build_args }} --features unstable_encodings
-
-      - name: Pre-upload benchmark debuginfo to Polar Signals
-        if: matrix.benchmark.id == 'string-bench'
-        uses: ./.github/actions/upload-parca-debuginfo
-        continue-on-error: true
-        with:
-          paths: |
-            target/release_debug/${{ matrix.benchmark.id }}
-          polarsignals-cloud-token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
-          project-id: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
-
       - name: Download benchmark binary
-        if: matrix.benchmark.id != 'string-bench'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
         with:
           name: ${{ matrix.benchmark.id }}-binary
           path: target/release_debug/
 
       - name: Make benchmark binary executable
-        if: matrix.benchmark.id != 'string-bench'
         shell: bash
         run: chmod +x target/release_debug/${{ matrix.benchmark.id }}
 
