@@ -16,8 +16,10 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
-use vortex_array::arrays::Chunked;
-use vortex_array::arrays::Constant;
+use vortex_array::arrays::Dict;
+use vortex_array::arrays::Filter;
+use vortex_array::arrays::ScalarFn;
+use vortex_array::arrays::Slice;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::varbin::VarBinArraySlotsExt;
 use vortex_array::builders::VarBinBuilder;
@@ -34,18 +36,23 @@ use vortex_error::vortex_err;
 
 use crate::executor::validity::to_arrow_null_buffer;
 
-/// Matches the encodings [`to_arrow_byte_array`] requires for export.
+/// Stops execution before an encoding appends data to the offset builder.
 ///
-/// `Chunked` and `Constant` are matched to stop execution before it destroys them: they have
-/// specialized `append_to_builder` impls (chunk-wise append, scalar repeat) that the builder
-/// fallback exploits.
+/// Some encodings provide a specialized `append_to_builder` implementation. They append without
+/// first creating a canonical `VarBinView`. The default implementation creates a canonical array
+/// first. The matcher continues execution for operators that can produce an array with a faster
+/// export path.
 struct ArrowByteExportable;
 
 impl Matcher for ArrowByteExportable {
     type Match<'a> = &'a ArrayRef;
 
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        (array.is::<VarBin>() || array.is::<Chunked>() || array.is::<Constant>()).then_some(array)
+        (!array.is::<Dict>()
+            && !array.is::<Filter>()
+            && !array.is::<ScalarFn>()
+            && !array.is::<Slice>())
+        .then_some(array)
     }
 }
 

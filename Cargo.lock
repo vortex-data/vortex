@@ -9524,6 +9524,7 @@ dependencies = [
  "arrow-array 58.4.0",
  "codspeed-divan-compat",
  "fastlanes",
+ "futures",
  "mimalloc",
  "parquet 58.4.0",
  "rand 0.10.2",
