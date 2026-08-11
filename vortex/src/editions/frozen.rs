@@ -18,11 +18,14 @@
 //! UPDATE_FROZEN_EDITIONS=1 cargo test -p vortex --lib editions::frozen
 //! ```
 //!
-//! Only facts that are frozen by freezing are recorded. In particular
-//! [`vortex_edition::EditionInclusion::required_vortex_release`] is not: it is backfilled
-//! from compat-fixture evidence long after an edition freezes, and pinning it here would put
-//! that legitimate backfill in conflict with the append-only rule.
+//! [`vortex_edition::EditionInclusion::required_vortex_release`] is recorded in its own
+//! table rather than beside each encoding, because it is the one fact here that is not fixed
+//! at freeze time: it is backfilled from compat-fixture evidence as that evidence appears.
+//! Keeping it in a table of its own makes a backfill purely an added line, so the record
+//! stays append-only in the literal sense and CI can allow the fill-in while still rejecting
+//! a change to a release that was already recorded.
 
+use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::env;
 use std::fs;
@@ -83,6 +86,14 @@ fn record(session: &EditionSession, edition: &Edition, min_vortex_version: &str)
         .filter(|inclusion| inclusion.since == edition.id)
         .map(|inclusion| inclusion.encoding_id.as_str())
         .collect();
+    let releases: BTreeMap<&str, &str> = inclusions
+        .iter()
+        .filter_map(|inclusion| {
+            inclusion
+                .required_vortex_release
+                .map(|release| (inclusion.encoding_id.as_str(), release))
+        })
+        .collect();
 
     let list = |ids: &BTreeSet<&str>| -> Vec<String> {
         ids.iter().map(|id| format!("    \"{id}\",")).collect()
@@ -108,7 +119,22 @@ fn record(session: &EditionSession, edition: &Edition, min_vortex_version: &str)
         "encodings = [".to_string(),
     ]);
     lines.extend(list(&members));
-    lines.extend(["]".to_string(), String::new()]);
+    lines.extend([
+        "]".to_string(),
+        String::new(),
+        "# The earliest Vortex release able to read each encoding, recorded from evidence as"
+            .to_string(),
+        "# that evidence appears. Unlike the rest of this file it is filled in after the"
+            .to_string(),
+        "# edition freezes, so entries are only ever added, never changed.".to_string(),
+        "[required_vortex_release]".to_string(),
+    ]);
+    lines.extend(
+        releases
+            .iter()
+            .map(|(id, release)| format!("\"{id}\" = \"{release}\"")),
+    );
+    lines.push(String::new());
     lines.join("\n")
 }
 
@@ -171,7 +197,8 @@ fn records_match_the_frozen_editions() -> anyhow::Result<()> {
                 "the record of frozen edition {} no longer matches its declaration.\n\
                  A frozen edition's encodings are fixed forever: declare a new edition \
                  instead of changing this one.\n\
-                 If the edition is genuinely new, regenerate with `{REGENERATE}`.\n\
+                 If you froze a new edition or recorded a required_vortex_release, \
+                 regenerate with `{REGENERATE}`.\n\
                  Record: {}",
                 edition.id,
                 path.display(),

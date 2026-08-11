@@ -45,3 +45,8 @@ encodings = [
     "vortex.zigzag",
     "vortex.zstd",
 ]
+
+# The earliest Vortex release able to read each encoding, recorded from evidence as
+# that evidence appears. Unlike the rest of this file it is filled in after the
+# edition freezes, so entries are only ever added, never changed.
+[required_vortex_release]

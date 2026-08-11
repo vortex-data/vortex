@@ -5,6 +5,10 @@ A frozen edition carries a read-forever guarantee, so its record may never chang
 legal edit to the directory is adding a file for a newly frozen edition, and that edition must
 be newer than every edition already recorded for its family.
 
+The one exception is `required_vortex_release`, which is backfilled from compat-fixture
+evidence after an edition freezes. An existing record may gain entries in that table, but
+never change or lose one, and never change anything else.
+
 Usage:
     python3 check_frozen_editions.py --base origin/develop
 """
@@ -15,7 +19,9 @@ import argparse
 import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
+from typing import Any
 
 RECORD_DIR = "vortex/editions"
 
@@ -25,12 +31,14 @@ RECORD_NAME = re.compile(
     r"^(?P<family>[a-z]+)(?P<year>\d{4})\.(?P<month>\d{2})\.(?P<version>\d+)\.toml$"
 )
 
-EDITION_FIELD = re.compile(r'^edition = "(?P<edition>[^"]+)"$', re.MULTILINE)
+# The table a frozen record may gain entries in. Everything else is fixed at freeze time.
+BACKFILL_TABLE = "required_vortex_release"
 
 REMEDY = (
     "A frozen edition is immutable. To add encodings, declare a NEW edition in\n"
     "  vortex/src/editions/<family>/ and regenerate the records with\n"
-    "  `UPDATE_FROZEN_EDITIONS=1 cargo test -p vortex --lib editions::frozen`."
+    "  `UPDATE_FROZEN_EDITIONS=1 cargo test -p vortex --lib editions::frozen`.\n"
+    f"Only `{BACKFILL_TABLE}` may gain entries in a record that already exists."
 )
 
 
@@ -90,6 +98,46 @@ def recorded_at(base: str) -> dict[str, tuple[int, int, int]]:
     return newest
 
 
+def parse_record(text: str, path: str) -> dict[str, Any]:
+    try:
+        return tomllib.loads(text)
+    except tomllib.TOMLDecodeError as error:
+        sys.exit(f"{path} is not valid TOML: {error}")
+
+
+def check_modification(base: str, path: str) -> list[str]:
+    """A modified record is legal only when it purely gains backfill entries."""
+    name = Path(path).name
+    before = parse_record(git("show", f"{base}:{path}"), f"{path} at {base[:12]}")
+    after = parse_record(Path(path).read_text(), path)
+
+    frozen_before = {key: value for key, value in before.items() if key != BACKFILL_TABLE}
+    frozen_after = {key: value for key, value in after.items() if key != BACKFILL_TABLE}
+    if frozen_before != frozen_after:
+        changed = sorted(
+            key
+            for key in frozen_before.keys() | frozen_after.keys()
+            if frozen_before.get(key) != frozen_after.get(key)
+        )
+        return [f"modifies the frozen record {name}: {', '.join(changed)}"]
+
+    releases_before = before.get(BACKFILL_TABLE, {})
+    releases_after = after.get(BACKFILL_TABLE, {})
+    errors = []
+    for encoding, release in sorted(releases_before.items()):
+        if encoding not in releases_after:
+            errors.append(
+                f"drops the recorded {BACKFILL_TABLE} of {encoding} from {name}",
+            )
+        elif releases_after[encoding] != release:
+            errors.append(
+                f"changes the {BACKFILL_TABLE} of {encoding} in {name} from {release!r} "
+                f"to {releases_after[encoding]!r}; a recorded release is evidence and never "
+                "changes"
+            )
+    return errors
+
+
 def check(base: str) -> list[str]:
     errors: list[str] = []
     added: list[str] = []
@@ -97,9 +145,13 @@ def check(base: str) -> list[str]:
     for status, paths in changed_records(base):
         if status == "A":
             added.extend(paths)
-            continue
-        verb = {"M": "modifies", "D": "deletes", "R": "renames", "C": "copies", "T": "retypes"}
-        errors.append(f"{verb.get(status[0], 'changes')} the frozen record {' -> '.join(paths)}")
+        elif status == "M":
+            errors.extend(check_modification(base, paths[0]))
+        else:
+            verb = {"D": "deletes", "R": "renames", "C": "copies", "T": "retypes"}
+            errors.append(
+                f"{verb.get(status[0], 'changes')} the frozen record {' -> '.join(paths)}"
+            )
 
     newest = recorded_at(base)
     for path in sorted(added):
@@ -115,13 +167,12 @@ def check(base: str) -> list[str]:
             )
 
         # The file name is the edition's identity, so it has to agree with the content.
-        text = Path(path).read_text()
-        match = EDITION_FIELD.search(text)
-        if match is None:
+        edition = parse_record(Path(path).read_text(), path).get("edition")
+        if edition is None:
             errors.append(f"adds {name}, which has no `edition` field")
-        elif match["edition"] != name.removesuffix(".toml"):
+        elif edition != name.removesuffix(".toml"):
             errors.append(
-                f"adds {name}, which records edition {match['edition']!r}; the file name "
+                f"adds {name}, which records edition {edition!r}; the file name "
                 "must be the edition id"
             )
 
