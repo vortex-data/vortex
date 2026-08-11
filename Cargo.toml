@@ -92,8 +92,6 @@ keywords = ["vortex"]
 license = "Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/spiraldb/vortex"
-# Minimum Supported Rust Version. See the Rust version compatibility policy in README.md
-# before changing this: https://github.com/vortex-data/vortex#rust-version-compatibility-policy
 rust-version = "1.95"
 version = "0.1.0"
 
