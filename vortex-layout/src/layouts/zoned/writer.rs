@@ -25,7 +25,6 @@ use vortex_array::aggregate_fn::fns::min::Min;
 use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::aggregate_fn::fns::null_count::NullCount;
 use vortex_array::aggregate_fn::fns::sum::Sum;
-use vortex_array::aggregate_fn::fns::sum::SumAggregateOpts;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::dtype::DType;
 use vortex_error::VortexError;
@@ -210,10 +209,10 @@ fn default_zoned_aggregate_fns(dtype: &DType, session: &VortexSession) -> Arc<[A
 
     let mut aggregate_fns = vec![max, min];
     if Sum
-        .return_dtype(&SumAggregateOpts::skip_nans(), dtype)
+        .return_dtype(&NumericalAggregateOpts::skip_nans(), dtype)
         .is_some()
     {
-        aggregate_fns.push(Sum.bind(SumAggregateOpts::skip_nans()));
+        aggregate_fns.push(Sum.bind(NumericalAggregateOpts::skip_nans()));
     }
     aggregate_fns.push(NanCount.bind(EmptyOptions));
     aggregate_fns.push(NullCount.bind(EmptyOptions));

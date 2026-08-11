@@ -7,11 +7,11 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
-use vortex_mask::Mask;
 
 use super::SumState;
 use super::checked_add_i64;
 use super::checked_add_u64;
+use crate::ExecutionCtx;
 use crate::arrays::PrimitiveArray;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
@@ -24,9 +24,10 @@ const SUM_CHUNK: usize = 1 << 16;
 pub(super) fn accumulate_primitive(
     inner: &mut SumState,
     p: &PrimitiveArray,
-    mask: &Mask,
+    ctx: &mut ExecutionCtx,
     skip_nans: bool,
 ) -> VortexResult<bool> {
+    let mask = p.as_ref().validity()?.execute_mask(p.as_ref().len(), ctx)?;
     match mask.slices() {
         AllOr::None => Ok(false),
         AllOr::All => accumulate_primitive_all(inner, p, skip_nans),
@@ -182,13 +183,12 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
-    use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
     use crate::aggregate_fn::DynAccumulator;
+    use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::sum::Sum;
-    use crate::aggregate_fn::fns::sum::SumAggregateOpts;
     use crate::aggregate_fn::fns::sum::sum;
     use crate::array_session;
     use crate::arrays::ConstantArray;
@@ -260,7 +260,7 @@ mod tests {
     fn sum_all_null() -> VortexResult<()> {
         let arr = PrimitiveArray::from_option_iter([None::<i32>, None, None]).into_array();
         let result = sum(&arr, &mut array_session().create_execution_ctx())?;
-        assert!(result.is_null());
+        assert_eq!(result.as_primitive().typed_value::<i64>(), Some(0));
         Ok(())
     }
 
@@ -268,7 +268,7 @@ mod tests {
     fn sum_all_invalid_float() -> VortexResult<()> {
         let arr = PrimitiveArray::from_option_iter::<f32, _>([None, None, None]).into_array();
         let result = sum(&arr, &mut array_session().create_execution_ctx())?;
-        assert_eq!(result, Scalar::null(DType::Primitive(PType::F64, Nullable)));
+        assert_eq!(result, Scalar::primitive(0f64, Nullable));
         Ok(())
     }
 
@@ -289,20 +289,20 @@ mod tests {
     }
 
     #[test]
-    fn sum_empty_produces_null() -> VortexResult<()> {
+    fn sum_empty_produces_zero() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(Sum, SumAggregateOpts::default(), dtype)?;
+        let mut acc = Accumulator::try_new(Sum, NumericalAggregateOpts::default(), dtype)?;
         let result = acc.finish()?;
-        assert!(result.is_null());
+        assert_eq!(result.as_primitive().typed_value::<i64>(), Some(0));
         Ok(())
     }
 
     #[test]
-    fn sum_empty_f64_produces_null() -> VortexResult<()> {
+    fn sum_empty_f64_produces_zero() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(Sum, SumAggregateOpts::default(), dtype)?;
+        let mut acc = Accumulator::try_new(Sum, NumericalAggregateOpts::default(), dtype)?;
         let result = acc.finish()?;
-        assert!(result.is_null());
+        assert_eq!(result.as_primitive().typed_value::<f64>(), Some(0.0));
         Ok(())
     }
 
@@ -345,8 +345,11 @@ mod tests {
         Ok(())
     }
 
-    /// Sum an array with explicit [`SumAggregateOpts`] (test-only helper).
-    fn sum_with_options(arr: &ArrayRef, options: SumAggregateOpts) -> VortexResult<Scalar> {
+    /// Sum an array with explicit [`NumericalAggregateOpts`] (test-only helper).
+    fn sum_with_options(
+        arr: &crate::ArrayRef,
+        options: NumericalAggregateOpts,
+    ) -> VortexResult<Scalar> {
         let mut acc = Accumulator::try_new(Sum, options, arr.dtype().clone())?;
         acc.accumulate(arr, &mut array_session().create_execution_ctx())?;
         acc.finish()
@@ -356,7 +359,7 @@ mod tests {
     fn sum_f64_with_nan_not_skipping() -> VortexResult<()> {
         let arr =
             PrimitiveArray::new(buffer![1.0f64, f64::NAN, 2.0], Validity::NonNullable).into_array();
-        let result = sum_with_options(&arr, SumAggregateOpts::include_nans())?;
+        let result = sum_with_options(&arr, NumericalAggregateOpts::include_nans())?;
         assert!(result.as_primitive().typed_value::<f64>().unwrap().is_nan());
         Ok(())
     }
@@ -365,7 +368,7 @@ mod tests {
     fn sum_f64_without_nan_not_skipping() -> VortexResult<()> {
         let arr =
             PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0], Validity::NonNullable).into_array();
-        let result = sum_with_options(&arr, SumAggregateOpts::include_nans())?;
+        let result = sum_with_options(&arr, NumericalAggregateOpts::include_nans())?;
         assert_eq!(result.as_primitive().typed_value::<f64>(), Some(6.0));
         Ok(())
     }
@@ -378,7 +381,7 @@ mod tests {
             PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0], Validity::NonNullable).into_array();
         arr.statistics()
             .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(1u64)));
-        let result = sum_with_options(&arr, SumAggregateOpts::include_nans())?;
+        let result = sum_with_options(&arr, NumericalAggregateOpts::include_nans())?;
         assert!(result.as_primitive().typed_value::<f64>().unwrap().is_nan());
         Ok(())
     }
@@ -392,7 +395,7 @@ mod tests {
             .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(0u64)));
         arr.statistics()
             .set(Stat::Sum, Precision::Exact(ScalarValue::from(42.0f64)));
-        let result = sum_with_options(&arr, SumAggregateOpts::include_nans())?;
+        let result = sum_with_options(&arr, NumericalAggregateOpts::include_nans())?;
         assert_eq!(result.as_primitive().typed_value::<f64>(), Some(42.0));
         Ok(())
     }
@@ -401,10 +404,10 @@ mod tests {
     fn sum_constant_nan() -> VortexResult<()> {
         let arr = ConstantArray::new(f64::NAN, 4).into_array();
         // NaN constants are skipped by default and poison the sum otherwise.
-        let result = sum_with_options(&arr, SumAggregateOpts::default())?;
+        let result = sum_with_options(&arr, NumericalAggregateOpts::default())?;
         assert_eq!(result.as_primitive().typed_value::<f64>(), Some(0.0));
 
-        let result = sum_with_options(&arr, SumAggregateOpts::include_nans())?;
+        let result = sum_with_options(&arr, NumericalAggregateOpts::include_nans())?;
         assert!(result.as_primitive().typed_value::<f64>().unwrap().is_nan());
         Ok(())
     }
@@ -422,7 +425,7 @@ mod tests {
 
         let mut acc = Accumulator::try_new(
             Sum,
-            SumAggregateOpts::default(),
+            NumericalAggregateOpts::default(),
             DType::Primitive(PType::F64, Nullability::NonNullable),
         )?;
         acc.accumulate(&batch, &mut array_session().create_execution_ctx())?;
@@ -441,7 +444,7 @@ mod tests {
     #[test]
     fn sum_checked_overflow_is_saturated() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I64, Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(Sum, SumAggregateOpts::default(), dtype)?;
+        let mut acc = Accumulator::try_new(Sum, NumericalAggregateOpts::default(), dtype)?;
         assert!(!acc.is_saturated());
 
         let batch =

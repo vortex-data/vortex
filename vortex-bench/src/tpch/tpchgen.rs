@@ -33,11 +33,10 @@ use tpchgen_arrow::RecordBatchIterator;
 use tracing::info;
 use vortex::array::ArrayRef;
 use vortex::array::stream::ArrayStreamAdapter;
-use vortex::dtype::DType;
 use vortex::error::VortexExpect;
 use vortex::file::WriteOptionsSessionExt;
+use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::FromArrowArray;
-use vortex_arrow::FromArrowType;
 
 use crate::CompactionStrategy;
 use crate::Format;
@@ -338,7 +337,7 @@ impl VortexWriter {
     ) -> Result<Self> {
         // Increase buffer size to avoid backpressure issues
         let (sender, receiver) = mpsc::channel(2);
-        let dtype = DType::from_arrow(schema);
+        let dtype = SESSION.arrow().from_arrow_schema(schema.as_ref())?;
         let file_path = path;
         let write_task = Some(tokio::spawn(async move {
             let stream = ArrayStreamAdapter::new(dtype, ReceiverStream::new(receiver));

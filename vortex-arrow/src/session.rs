@@ -27,9 +27,15 @@ use std::sync::Arc;
 use arrow_array::Array as _;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::RecordBatch;
+use arrow_array::RunArray;
 use arrow_array::make_array;
+use arrow_array::types::Int16Type;
+use arrow_array::types::Int32Type;
+use arrow_array::types::Int64Type;
+use arrow_array::types::RunEndIndexType;
 use arrow_schema::DataType;
 use arrow_schema::Field;
+use arrow_schema::FieldRef;
 use arrow_schema::Fields;
 use arrow_schema::Schema;
 use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
@@ -39,6 +45,7 @@ use tracing::trace;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::DictArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
@@ -46,6 +53,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
+use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
 use vortex_array::dtype::extension::ExtId;
@@ -55,6 +63,7 @@ use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_session::ArcSwapMap;
 use vortex_session::SessionExt;
 use vortex_session::SessionGuard;
@@ -66,9 +75,10 @@ use crate::IntoVortexArray;
 use crate::convert::map_from_arrow_parts;
 use crate::convert::nulls;
 use crate::convert::remove_nulls;
-use crate::dtype::TryFromArrowType;
+use crate::dtype::from_arrow_data_type;
 use crate::dtype::to_data_type_naive;
 use crate::executor::execute_arrow_naive;
+use crate::run_end_import::run_end_from_arrow;
 
 /// Outcome of a successful call to [`ArrowExportVTable::execute_arrow`].
 ///
@@ -140,8 +150,16 @@ pub trait ArrowImportVTable: 'static + Send + Sync + Debug {
 
     /// Build the Vortex [`DType`] that corresponds to `field` (which carries this plugin's
     /// Arrow extension metadata).
+    ///
+    /// `session` is provided so plugins can resolve nested or storage fields through the
+    /// plugin-aware conversion (e.g. [`ArrowSession::from_arrow_datatype`]) instead of the
+    /// naive Arrow → Vortex mapping.
     #[allow(clippy::wrong_self_convention)]
-    fn from_arrow_field(&self, field: &Field) -> VortexResult<Option<DType>>;
+    fn from_arrow_field(
+        &self,
+        field: &Field,
+        session: &ArrowSession,
+    ) -> VortexResult<Option<DType>>;
 
     /// Convert an Arrow array into a Vortex array of `dtype`.
     ///
@@ -327,25 +345,55 @@ impl ArrowSession {
         Ok(Schema::new(fields))
     }
 
+    /// Returns the Arrow [`DataType`] that best corresponds to the given Vortex [`DType`],
+    /// dispatching [`DType::Extension`]s through registered export plugins.
+    ///
+    /// Note that a bare [`DataType`] cannot carry `ARROW:extension:name` metadata; use
+    /// [`Self::to_arrow_field`] when extension identity must survive the roundtrip.
+    pub fn to_arrow_datatype(&self, dtype: &DType) -> VortexResult<DataType> {
+        Ok(self.to_arrow_field("", dtype)?.data_type().clone())
+    }
+
     /// Build the Vortex [`DType`] for an Arrow [`Field`].
     ///
     /// Plugins registered against the field's Arrow extension name are tried in
     /// registration order; the first plugin to return `Some(dtype)` wins. If none
-    /// match (or all return `None`), recurses into container types ([`DataType::List`]
-    /// family, [`DataType::FixedSizeList`], [`DataType::Struct`]) so extension metadata
-    /// on nested element/struct fields is preserved. Leaf types use the canonical
-    /// Arrow → Vortex mapping via [`DType::try_from_arrow`].
+    /// match (or all return `None`), the builtin `arrow.parquet.variant` extension maps
+    /// to [`DType::Variant`], and any other field converts through
+    /// [`Self::from_arrow_datatype`] so extension metadata on nested element/struct
+    /// fields is preserved.
     #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
     pub fn from_arrow_field(&self, field: &Field) -> VortexResult<DType> {
         if let Some(name) = field.metadata().get(EXTENSION_TYPE_NAME_KEY) {
             for plugin in self.importers(&Id::new(name)).iter() {
-                if let Some(dtype) = plugin.from_arrow_field(field)? {
+                if let Some(dtype) = plugin.from_arrow_field(field, self)? {
                     return Ok(dtype);
                 }
             }
+            // Parquet Variant is understood even without a registered importer plugin.
+            if name == "arrow.parquet.variant" {
+                return Ok(DType::Variant(field.is_nullable().into()));
+            }
         }
-        let nullability: Nullability = field.is_nullable().into();
-        Ok(match field.data_type() {
+        self.from_arrow_datatype(field.data_type(), field.is_nullable().into())
+    }
+
+    /// Build the Vortex [`DType`] for an Arrow [`DataType`].
+    ///
+    /// Recurses into container types ([`DataType::List`] family, [`DataType::FixedSizeList`],
+    /// [`DataType::Struct`], [`DataType::Map`], [`DataType::RunEndEncoded`]) via
+    /// [`Self::from_arrow_field`] so extension metadata on nested fields dispatches through
+    /// registered import plugins. Leaf types use the canonical Arrow → Vortex mapping.
+    ///
+    /// [`DataType::Dictionary`] is a partial exception: Arrow models its values as a bare
+    /// [`DataType`] rather than a [`Field`], so the values themselves cannot carry an extension
+    /// name. Fields nested *inside* that data type still do, and are dispatched normally.
+    pub fn from_arrow_datatype(
+        &self,
+        data_type: &DataType,
+        nullability: Nullability,
+    ) -> VortexResult<DType> {
+        Ok(match data_type {
             DataType::List(elem)
             | DataType::LargeList(elem)
             | DataType::ListView(elem)
@@ -383,34 +431,35 @@ impl ArrowSession {
                     nullability,
                 )?
             }
-            DataType::Struct(fields) => {
-                let entries = fields
-                    .iter()
-                    .map(|f| {
-                        self.from_arrow_field(f)
-                            .map(|dt| (FieldName::from(f.name().as_str()), dt))
-                    })
-                    .collect::<VortexResult<Vec<_>>>()?;
-                DType::Struct(StructFields::from_iter(entries), nullability)
+            DataType::Struct(fields) => DType::Struct(self.from_arrow_fields(fields)?, nullability),
+            DataType::Dictionary(_, value_type) => {
+                self.from_arrow_datatype(value_type.as_ref(), nullability)?
             }
-            _ => DType::try_from_arrow(field)?,
+            DataType::RunEndEncoded(_, value_field) => {
+                self.from_arrow_field(&run_end_values_field(value_field, nullability))?
+            }
+            _ => from_arrow_data_type(data_type, nullability)?,
         })
+    }
+
+    /// Build Vortex [`StructFields`] for Arrow [`Fields`], dispatching each field through
+    /// [`Self::from_arrow_field`].
+    pub fn from_arrow_fields(&self, fields: &Fields) -> VortexResult<StructFields> {
+        fields
+            .iter()
+            .map(|f| {
+                self.from_arrow_field(f)
+                    .map(|dt| (FieldName::from(f.name().as_str()), dt))
+            })
+            .collect::<VortexResult<StructFields>>()
     }
 
     /// Build the Vortex [`DType`] for an Arrow [`Schema`], dispatching extension fields
     /// through registered import plugins. The result is a top-level non-nullable struct
     /// matching the schema's fields.
     pub fn from_arrow_schema(&self, schema: &Schema) -> VortexResult<DType> {
-        let entries = schema
-            .fields()
-            .iter()
-            .map(|f| {
-                self.from_arrow_field(f)
-                    .map(|dt| (FieldName::from(f.name().as_str()), dt))
-            })
-            .collect::<VortexResult<Vec<_>>>()?;
         Ok(DType::Struct(
-            StructFields::from_iter(entries),
+            self.from_arrow_fields(schema.fields())?,
             Nullability::NonNullable,
         ))
     }
@@ -633,9 +682,71 @@ impl ArrowSession {
                     field.is_nullable(),
                 )
             }
+            DataType::RunEndEncoded(ends_field, values_field) => {
+                let values_field = run_end_values_field(values_field, field.is_nullable().into());
+                match ends_field.data_type() {
+                    DataType::Int16 => self.run_end_from_arrow::<Int16Type>(&array, &values_field),
+                    DataType::Int32 => self.run_end_from_arrow::<Int32Type>(&array, &values_field),
+                    DataType::Int64 => self.run_end_from_arrow::<Int64Type>(&array, &values_field),
+                    ends_dt => vortex_bail!(
+                        "Arrow run-end array run ends must be Int16, Int32 or Int64, got {ends_dt}"
+                    ),
+                }
+            }
+            DataType::Dictionary(_, values_type) => {
+                let dict = array.as_any_dictionary();
+                let values_field = dictionary_values_field(values_type, field.is_nullable());
+                let values =
+                    self.from_arrow_array(ArrowArrayRef::clone(dict.values()), &values_field)?;
+                let codes = dict.keys();
+                let codes = ArrayRef::from_arrow(codes, codes.is_nullable())?;
+                // SAFETY: arrow-rs enforces the dictionary invariants on construction, so the
+                // codes are in-bounds for the values.
+                Ok(unsafe { DictArray::new_unchecked(codes, values) }.into_array())
+            }
             _ => ArrayRef::from_arrow(array.as_ref(), field.is_nullable()),
         }
     }
+
+    /// Decode an Arrow run-end array, recursing into its values so extension metadata on the
+    /// values field reaches its importer.
+    #[allow(clippy::wrong_self_convention)]
+    fn run_end_from_arrow<R: RunEndIndexType>(
+        &self,
+        array: &ArrowArrayRef,
+        values_field: &Field,
+    ) -> VortexResult<ArrayRef>
+    where
+        R::Native: NativePType,
+    {
+        let run_array = array
+            .as_any()
+            .downcast_ref::<RunArray<R>>()
+            .ok_or_else(|| vortex_err!("expected an Arrow RunArray, got {}", array.data_type()))?;
+        let values =
+            self.from_arrow_array(ArrowArrayRef::clone(run_array.values()), values_field)?;
+        run_end_from_arrow(run_array, values)
+    }
+}
+
+/// The values field of an Arrow [`DataType::RunEndEncoded`], re-stamped with the run-end array's
+/// own nullability.
+fn run_end_values_field(values_field: &FieldRef, nullability: Nullability) -> Field {
+    values_field
+        .as_ref()
+        .clone()
+        .with_nullable(nullability.into())
+}
+
+/// A synthetic field for the values of an Arrow [`DataType::Dictionary`], carrying the dictionary
+/// array's own nullability.
+///
+/// Arrow models dictionary values as a bare [`DataType`], so there is no field metadata to carry
+/// an extension name for the values themselves. Fields *nested inside* that data type (list
+/// elements, struct fields, map entries) do keep their metadata, so wrapping the values in a field
+/// is enough to route them back through the plugin-aware conversion.
+fn dictionary_values_field(values_type: &DataType, nullable: bool) -> Field {
+    Field::new("", values_type.clone(), nullable)
 }
 
 // NOTE(aduffy): We should remove this once we bump Arrow to 0.59.0. This is replicating the
@@ -675,13 +786,22 @@ impl<S: SessionExt> ArrowSessionExt for S {
 mod tests {
     use std::sync::Arc;
 
+    use arrow_array::DictionaryArray;
     use arrow_array::FixedSizeBinaryArray;
+    use arrow_array::Int32Array;
+    use arrow_array::ListArray as ArrowListArray;
+    use arrow_array::StringArray;
     use arrow_array::cast::AsArray;
+    use arrow_buffer::OffsetBuffer;
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::extension::Uuid as ArrowUuid;
+    use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
+    use vortex_array::arrays::Dict;
+    use vortex_array::arrays::ListArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldName;
     use vortex_array::dtype::Nullability;
@@ -850,6 +970,78 @@ mod tests {
     }
 
     #[test]
+    fn to_arrow_datatype_dispatches_plugins() -> VortexResult<()> {
+        let session = ArrowSession::default();
+        assert_eq!(
+            session.to_arrow_datatype(&uuid_dtype(false))?,
+            DataType::FixedSizeBinary(16)
+        );
+        assert_eq!(
+            session.to_arrow_datatype(&DType::Utf8(Nullability::Nullable))?,
+            DataType::Utf8View
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn from_arrow_datatype_recurses_into_nested_extension_fields() -> VortexResult<()> {
+        let session = ArrowSession::default();
+        let mut elem = Field::new("item", DataType::FixedSizeBinary(16), false);
+        elem.try_with_extension_type(ArrowUuid)?;
+        let data_type = DataType::List(Arc::new(elem));
+
+        let dtype = session.from_arrow_datatype(&data_type, Nullability::Nullable)?;
+        let DType::List(inner_dt, Nullability::Nullable) = dtype else {
+            panic!("expected nullable List dtype, got {dtype}");
+        };
+        assert!(
+            matches!(inner_dt.as_ref(), DType::Extension(ext) if ext.id() == Uuid.id()),
+            "expected Uuid extension element, got {inner_dt}",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn from_arrow_fields_matches_schema_conversion() -> VortexResult<()> {
+        let session = ArrowSession::default();
+        let fields = Fields::from(vec![
+            Field::new("a", DataType::Int32, false),
+            Field::new("b", DataType::Utf8View, true),
+        ]);
+        let struct_fields = session.from_arrow_fields(&fields)?;
+        let schema_dtype = session.from_arrow_schema(&Schema::new(fields))?;
+        assert_eq!(
+            schema_dtype,
+            DType::Struct(struct_fields, Nullability::NonNullable)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn from_arrow_field_maps_variant_without_importer() -> VortexResult<()> {
+        let session = ArrowSession::default();
+        let storage = DataType::Struct(
+            vec![
+                Field::new("metadata", DataType::BinaryView, false),
+                Field::new("value", DataType::BinaryView, true),
+            ]
+            .into(),
+        );
+        let field = Field::new("v", storage, true).with_metadata(
+            [(
+                "ARROW:extension:name".to_string(),
+                "arrow.parquet.variant".to_string(),
+            )]
+            .into(),
+        );
+        assert_eq!(
+            session.from_arrow_field(&field)?,
+            DType::Variant(Nullability::Nullable)
+        );
+        Ok(())
+    }
+
+    #[test]
     fn execute_arrow_target_none_preserves_top_level_uuid_metadata() -> VortexResult<()> {
         let vortex_session = array_session();
         let mut ctx = vortex_session.create_execution_ctx();
@@ -872,6 +1064,203 @@ mod tests {
         assert_eq!(fsb.len(), 2);
         assert_eq!(fsb.value(0), b"0123456789abcdef");
         assert_eq!(fsb.value(1), b"fedcba9876543210");
+        Ok(())
+    }
+
+    /// Import an Arrow FixedSizeBinary UUID column as a Vortex extension array.
+    fn uuid_array(session: &ArrowSession) -> VortexResult<ArrayRef> {
+        let mut field = Field::new("id", DataType::FixedSizeBinary(16), false);
+        field.try_with_extension_type(ArrowUuid)?;
+        let arrow_array: ArrowArrayRef = Arc::new(FixedSizeBinaryArray::try_from_iter(
+            [*b"0123456789abcdef", *b"fedcba9876543210"].into_iter(),
+        )?);
+        session.from_arrow_array(arrow_array, &field)
+    }
+
+    /// Exporting a struct that contains an extension column with no target field must still route
+    /// the column through its export plugin *and* re-attach the Arrow extension metadata to the
+    /// inferred child field.
+    #[test]
+    fn execute_arrow_target_none_preserves_nested_uuid_metadata() -> VortexResult<()> {
+        let vortex_session = array_session();
+        let mut ctx = vortex_session.create_execution_ctx();
+        let session = vortex_session.arrow();
+
+        let uuids = uuid_array(&session)?;
+        let struct_array = StructArray::try_new(
+            FieldNames::from(["id"]),
+            vec![uuids],
+            2,
+            Validity::NonNullable,
+        )?
+        .into_array();
+
+        let exported = session.execute_arrow(struct_array, None, &mut ctx)?;
+        let DataType::Struct(fields) = exported.data_type() else {
+            panic!("expected Struct, got {:?}", exported.data_type());
+        };
+        assert_eq!(fields[0].data_type(), &DataType::FixedSizeBinary(16));
+        assert!(has_valid_extension_type::<ArrowUuid>(&fields[0]));
+
+        let uuids = exported.as_struct().column(0).as_fixed_size_binary();
+        assert_eq!(uuids.value(0), b"0123456789abcdef");
+        assert_eq!(uuids.value(1), b"fedcba9876543210");
+        Ok(())
+    }
+
+    /// Exporting a list of extension elements with no target field must infer an element field that
+    /// still carries the Arrow extension metadata.
+    #[test]
+    fn execute_arrow_target_none_preserves_list_element_uuid_metadata() -> VortexResult<()> {
+        let vortex_session = array_session();
+        let mut ctx = vortex_session.create_execution_ctx();
+        let session = vortex_session.arrow();
+
+        let list = ListArray::try_new(
+            uuid_array(&session)?,
+            PrimitiveArray::from_iter([0i32, 1, 2]).into_array(),
+            Validity::NonNullable,
+        )?
+        .into_array();
+
+        let exported = session.execute_arrow(list, None, &mut ctx)?;
+        let DataType::List(elem) = exported.data_type() else {
+            panic!("expected List, got {:?}", exported.data_type());
+        };
+        assert_eq!(elem.data_type(), &DataType::FixedSizeBinary(16));
+        assert!(has_valid_extension_type::<ArrowUuid>(elem));
+
+        let uuids = exported.as_list::<i32>().values().as_fixed_size_binary();
+        assert_eq!(uuids.value(0), b"0123456789abcdef");
+        assert_eq!(uuids.value(1), b"fedcba9876543210");
+        Ok(())
+    }
+
+    /// An Arrow run-end array whose values field carries extension metadata must import as that
+    /// extension, through both the dtype and the array conversion.
+    #[test]
+    fn run_end_recurses_into_extension_values() -> VortexResult<()> {
+        let vortex_session = array_session();
+        let mut ctx = vortex_session.create_execution_ctx();
+        let session = vortex_session.arrow();
+
+        let mut values_field = Field::new("values", DataType::FixedSizeBinary(16), false);
+        values_field.try_with_extension_type(ArrowUuid)?;
+        let field = Field::new(
+            "id",
+            DataType::RunEndEncoded(
+                Arc::new(Field::new("run_ends", DataType::Int32, false)),
+                Arc::new(values_field),
+            ),
+            false,
+        );
+
+        let dtype = session.from_arrow_field(&field)?;
+        assert!(
+            dtype.as_extension().is::<Uuid>(),
+            "expected a Uuid extension dtype, got {dtype}"
+        );
+
+        let values = FixedSizeBinaryArray::try_from_iter(
+            [*b"0123456789abcdef", *b"fedcba9876543210"].into_iter(),
+        )?;
+        let run_array: ArrowArrayRef = Arc::new(RunArray::<Int32Type>::try_new(
+            &Int32Array::from(vec![2i32, 5]),
+            &values,
+        )?);
+
+        let vortex_array = session.from_arrow_array(run_array, &field)?;
+        assert_eq!(vortex_array.len(), 5);
+        // The array conversion must agree with the dtype conversion.
+        assert_eq!(vortex_array.dtype(), &dtype);
+
+        // And the values must round-trip back out through the export plugin.
+        let exported = session.execute_arrow(vortex_array, Some(&field), &mut ctx)?;
+        assert_eq!(exported.len(), 5);
+        let ree = exported
+            .as_any()
+            .downcast_ref::<RunArray<Int32Type>>()
+            .ok_or_else(|| {
+                vortex_err!(
+                    "expected an Int32 run-end array, got {}",
+                    exported.data_type()
+                )
+            })?;
+        let values = ree.values().as_fixed_size_binary();
+        assert_eq!(values.value(0), b"0123456789abcdef");
+        assert_eq!(values.value(1), b"fedcba9876543210");
+        Ok(())
+    }
+
+    /// An Arrow dictionary array cannot carry extension metadata on the values themselves, but
+    /// fields nested inside the values data type can. Both the dtype and the array conversion
+    /// must dispatch those through their importer, and must agree with each other.
+    #[test]
+    fn dictionary_recurses_into_nested_extension_values() -> VortexResult<()> {
+        let session = ArrowSession::default();
+
+        let mut elem = Field::new("item", DataType::FixedSizeBinary(16), false);
+        elem.try_with_extension_type(ArrowUuid)?;
+
+        let uuids = FixedSizeBinaryArray::try_from_iter(
+            [*b"0123456789abcdef", *b"fedcba9876543210"].into_iter(),
+        )?;
+        let values = ArrowListArray::try_new(
+            Arc::new(elem),
+            OffsetBuffer::new(vec![0, 1, 2].into()),
+            Arc::new(uuids),
+            None,
+        )?;
+        let dict: ArrowArrayRef = Arc::new(DictionaryArray::<Int32Type>::try_new(
+            Int32Array::from(vec![0, 1, 0]),
+            Arc::new(values),
+        )?);
+        let field = Field::new("ids", dict.data_type().clone(), false);
+
+        let dtype = session.from_arrow_field(&field)?;
+        let DType::List(elem_dt, _) = &dtype else {
+            panic!("expected a List dtype, got {dtype}");
+        };
+        assert!(
+            elem_dt.as_extension().is::<Uuid>(),
+            "expected a Uuid extension element, got {elem_dt}"
+        );
+
+        let array = session.from_arrow_array(dict, &field)?;
+        assert_eq!(array.len(), 3);
+        // The array conversion must agree with the dtype conversion.
+        assert_eq!(array.dtype(), &dtype);
+
+        // Arrow's dictionary values data type does carry the nested element field, so the
+        // extension survives the export as well.
+        let mut ctx = array_session().create_execution_ctx();
+        let exported = session.execute_arrow(array, Some(&field), &mut ctx)?;
+        assert_eq!(exported.data_type(), field.data_type());
+        let values = exported.as_any_dictionary().values().as_list::<i32>();
+        let uuids = values.values().as_fixed_size_binary();
+        assert_eq!(uuids.value(0), b"0123456789abcdef");
+        assert_eq!(uuids.value(1), b"fedcba9876543210");
+        Ok(())
+    }
+
+    /// A plain Arrow dictionary imports as a Vortex `Dict` array over the dictionary values,
+    /// matching the dtype the schema conversion reports.
+    #[test]
+    fn dictionary_imports_as_dict_encoding() -> VortexResult<()> {
+        let session = ArrowSession::default();
+        let dict: ArrowArrayRef = Arc::new(DictionaryArray::<Int32Type>::try_new(
+            Int32Array::from(vec![0, 1, 0, 1]),
+            Arc::new(StringArray::from(vec!["a", "b"])),
+        )?);
+        let field = Field::new("s", dict.data_type().clone(), false);
+
+        let dtype = session.from_arrow_field(&field)?;
+        assert_eq!(dtype, DType::Utf8(Nullability::NonNullable));
+
+        let array = session.from_arrow_array(dict, &field)?;
+        assert!(array.is::<Dict>(), "expected a Dict encoding, got {array}");
+        assert_eq!(array.dtype(), &dtype);
+        assert_eq!(array.len(), 4);
         Ok(())
     }
 }

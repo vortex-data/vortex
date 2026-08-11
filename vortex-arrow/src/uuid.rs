@@ -104,7 +104,11 @@ impl ArrowImportVTable for Uuid {
         *ARROW_UUID
     }
 
-    fn from_arrow_field(&self, field: &Field) -> VortexResult<Option<DType>> {
+    fn from_arrow_field(
+        &self,
+        field: &Field,
+        _session: &ArrowSession,
+    ) -> VortexResult<Option<DType>> {
         if !has_valid_extension_type::<ArrowUuid>(field) {
             return Ok(None);
         }

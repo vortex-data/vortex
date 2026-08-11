@@ -43,7 +43,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
-use crate::dtype::to_data_type_naive;
 use crate::executor::bool::to_arrow_bool;
 use crate::executor::byte::to_arrow_byte_array;
 use crate::executor::byte_view::to_arrow_byte_view;
@@ -133,7 +132,7 @@ pub(crate) fn execute_arrow_naive(
 
     let resolved_type: DataType = match data_type {
         Some(dt) => dt.clone(),
-        None => infer_nearest_arrow_type(&array)?,
+        None => infer_nearest_arrow_type(&array, ctx)?,
     };
 
     let arrow = match &resolved_type {
@@ -215,11 +214,11 @@ pub(crate) fn execute_arrow_naive(
 
 /// Determine the preferred (cheapest) Arrow type for an array.
 ///
-/// For most arrays, this returns the canonical Arrow type from `dtype.to_arrow_dtype()`.
+/// For most arrays, this returns the canonical Arrow type for the array's dtype.
 /// However, some encodings have cheaper Arrow representations:
 /// - `VarBinArray`: Uses `Utf8`/`Binary` (offset-based) instead of `Utf8View`/`BinaryView`
 /// - `ListArray`: Uses `List` instead of `ListView`
-fn infer_nearest_arrow_type(array: &ArrayRef) -> VortexResult<DataType> {
+fn infer_nearest_arrow_type(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<DataType> {
     // VarBinArray: use offset-based Binary/Utf8 instead of View types
     if let Some(varbin) = array.as_opt::<VarBin>() {
         let offsets_ptype = PType::try_from(varbin.offsets().dtype())?;
@@ -238,12 +237,13 @@ fn infer_nearest_arrow_type(array: &ArrayRef) -> VortexResult<DataType> {
     if let Some(list) = array.as_opt::<List>() {
         let offsets_ptype = PType::try_from(list.offsets().dtype())?;
         let use_large = matches!(offsets_ptype, PType::I64 | PType::U64);
-        // Recursively get the preferred type for elements
-        let elem_dtype = infer_nearest_arrow_type(list.elements())?;
-        let field = FieldRef::new(Field::new_list_field(
-            elem_dtype,
-            list.elements().dtype().is_nullable(),
-        ));
+        // Recursively get the preferred field for elements, so extension elements keep the
+        // `ARROW:extension:name` metadata their export plugin assigns.
+        let field = FieldRef::new(infer_nearest_arrow_field(
+            list.elements(),
+            Field::LIST_FIELD_DEFAULT_NAME,
+            ctx,
+        )?);
 
         return Ok(if use_large {
             DataType::LargeList(field)
@@ -252,8 +252,32 @@ fn infer_nearest_arrow_type(array: &ArrayRef) -> VortexResult<DataType> {
         });
     }
 
-    // Everything else: use canonical dtype conversion
-    to_data_type_naive(array.dtype())
+    // Everything else: defer to the session's canonical conversion, which additionally resolves
+    // extension dtypes (including ones nested inside containers) through their export plugins.
+    Ok(infer_nearest_arrow_field(array, "", ctx)?
+        .data_type()
+        .clone())
+}
+
+/// Determine the preferred (cheapest) Arrow [`Field`] for an array.
+///
+/// Unlike [`infer_nearest_arrow_type`] this preserves the Field-level `ARROW:extension:name`
+/// metadata that export plugins assign, which a bare [`DataType`] cannot carry.
+pub(crate) fn infer_nearest_arrow_field(
+    array: &ArrayRef,
+    name: &str,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Field> {
+    // Only the encodings with a cheaper-than-canonical Arrow type need the inference; every other
+    // dtype goes through the session, which is the only thing that knows how to map extensions.
+    if array.is::<VarBin>() || array.is::<List>() {
+        let data_type = infer_nearest_arrow_type(array, ctx)?;
+        return Ok(Field::new(name, data_type, array.dtype().is_nullable()));
+    }
+    ctx.session()
+        .clone()
+        .arrow()
+        .to_arrow_field(name, array.dtype())
 }
 
 #[cfg(test)]

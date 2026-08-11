@@ -463,6 +463,7 @@ mod tests {
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
+    use crate::dtype::PType;
 
     /// Reference (oracle) implementation of the interleave spec, used only to validate the optimized
     /// [execute](super::execute) path. It is intentionally simple and slow: it pulls each output
@@ -719,17 +720,55 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "only implemented for boolean values")]
-    fn non_boolean_value_execution_panics() {
-        // Execution dispatches on the value type: primitive values have no kernel yet.
-        let v0 = PrimitiveArray::from_iter([1u32]).into_array();
-        let v1 = PrimitiveArray::from_iter([2u32]).into_array();
-        let array_indices = PrimitiveArray::from_iter([0u32, 1]).into_array();
-        let row_indices = PrimitiveArray::from_iter([0u32, 0]).into_array();
-        let interleaved = InterleaveArray::try_new(vec![v0, v1], array_indices, row_indices)
-            .vortex_expect("primitive values should construct")
-            .into_array();
+    fn executes_primitive_values() -> VortexResult<()> {
+        let v0 = PrimitiveArray::from_iter([1.0f64, 2.0]).into_array();
+        let v1 = PrimitiveArray::from_option_iter([Some(10.0f64), None]).into_array();
+        let array_indices = PrimitiveArray::from_iter([0u8, 1, 0, 1]).into_array();
+        let row_indices = PrimitiveArray::from_iter([0u32, 0, 1, 1]).into_array();
+        let interleaved =
+            InterleaveArray::try_new(vec![v0, v1], array_indices, row_indices)?.into_array();
+        let expected =
+            PrimitiveArray::from_option_iter([Some(1.0f64), Some(10.0), Some(2.0), None])
+                .into_array();
         let mut ctx = array_session().create_execution_ctx();
-        interleaved.execute::<Canonical>(&mut ctx).ok();
+        assert_arrays_eq!(interleaved, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn executes_primitive_constant_values() -> VortexResult<()> {
+        let constant = ConstantArray::new(1.0f64, 2).into_array();
+        let column = PrimitiveArray::from_iter([10.0f64, 20.0]).into_array();
+        let array_indices = PrimitiveArray::from_iter([0u8, 1, 0, 1]).into_array();
+        let row_indices = PrimitiveArray::from_iter([0u32, 0, 1, 1]).into_array();
+        let interleaved =
+            InterleaveArray::try_new(vec![constant, column], array_indices, row_indices)?
+                .into_array();
+        let expected = PrimitiveArray::from_iter([1.0f64, 10.0, 1.0, 20.0]).into_array();
+        let mut ctx = array_session().create_execution_ctx();
+
+        assert_arrays_eq!(interleaved, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn executes_null_primitive_constant_values() -> VortexResult<()> {
+        let constant = ConstantArray::new(
+            Scalar::null(DType::Primitive(PType::F64, Nullability::Nullable)),
+            2,
+        )
+        .into_array();
+        let column = PrimitiveArray::from_iter([10.0f64, 20.0]).into_array();
+        let array_indices = PrimitiveArray::from_iter([0u8, 1, 0, 1]).into_array();
+        let row_indices = PrimitiveArray::from_iter([0u32, 0, 1, 1]).into_array();
+        let interleaved =
+            InterleaveArray::try_new(vec![constant, column], array_indices, row_indices)?
+                .into_array();
+        let expected =
+            PrimitiveArray::from_option_iter([None, Some(10.0f64), None, Some(20.0)]).into_array();
+        let mut ctx = array_session().create_execution_ctx();
+
+        assert_arrays_eq!(interleaved, expected, &mut ctx);
+        Ok(())
     }
 }

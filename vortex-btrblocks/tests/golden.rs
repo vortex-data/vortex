@@ -65,7 +65,7 @@ const N: usize = 16_384;
 /// [`NbytesExtractor`]: vortex_array::display::NbytesExtractor
 struct ExactNbytesExtractor;
 
-impl TreeExtractor for ExactNbytesExtractor {
+impl TreeExtractor<ArrayRef, TreeContext> for ExactNbytesExtractor {
     fn write_header(
         &self,
         array: &ArrayRef,

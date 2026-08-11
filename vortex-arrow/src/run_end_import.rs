@@ -1,62 +1,69 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use arrow_array::Array as _;
 use arrow_array::RunArray;
 use arrow_array::types::RunEndIndexType;
+use arrow_buffer::ArrowNativeType;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::NativePType;
-use vortex_array::legacy_session;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
-use vortex_runend::RunEndData;
-use vortex_runend::ops::find_physical_index;
-use vortex_runend::ops::find_slice_end_index;
+use vortex_error::vortex_ensure;
+use vortex_runend::RunEnd;
 
-use crate::FromArrowArray;
-
-impl<R: RunEndIndexType> FromArrowArray<&RunArray<R>> for RunEndData
+/// Build a Vortex run-end array from an Arrow [`RunArray`] and its already-converted `values`.
+///
+/// The caller converts `values` separately (rather than this function calling
+/// [`crate::FromArrowArray`] on `array.values()`) so that extension metadata on the Arrow values
+/// field dispatches through the session's registered import plugins.
+pub(crate) fn run_end_from_arrow<R: RunEndIndexType>(
+    array: &RunArray<R>,
+    values: ArrayRef,
+) -> VortexResult<ArrayRef>
 where
     R::Native: NativePType,
 {
-    #[allow(clippy::disallowed_methods)]
-    fn from_arrow(array: &RunArray<R>, nullable: bool) -> VortexResult<Self> {
-        let offset = array.run_ends().offset();
-        let len = array.run_ends().len();
-        let ends_buf =
-            Buffer::<R::Native>::from_arrow_scalar_buffer(array.run_ends().inner().clone());
-        let ends = PrimitiveArray::new(ends_buf, Validity::NonNullable)
-            .reinterpret_cast(R::Native::PTYPE.to_unsigned());
-        let values = ArrayRef::from_arrow(array.values().as_ref(), nullable)?;
-
-        let ends_array = PrimitiveArray::from_buffer_handle(
-            ends.buffer_handle().clone(),
-            ends.ptype(),
-            ends.validity()?,
-        )
+    let ends_buf = Buffer::<R::Native>::from_arrow_scalar_buffer(array.run_ends().inner().clone());
+    let ends = PrimitiveArray::new(ends_buf, Validity::NonNullable)
+        .reinterpret_cast(R::Native::PTYPE.to_unsigned())
         .into_array();
-        let mut ctx = legacy_session().create_execution_ctx();
 
-        let (ends_slice, values_slice) = if offset == 0 && len == array.run_ends().max_value() {
-            (ends_array, values)
-        } else {
-            let slice_begin = find_physical_index(&ends_array, offset, &mut ctx)?;
-            let slice_end = find_slice_end_index(&ends_array, offset + len, &mut ctx)?;
+    vortex_ensure!(
+        ends.len() == values.len(),
+        "Arrow run-end array has {} run ends but {} values",
+        ends.len(),
+        values.len()
+    );
 
-            (
-                ends_array.slice(slice_begin..slice_end)?,
-                values.slice(slice_begin..slice_end)?,
-            )
-        };
+    // Arrow slices a RunArray by adjusting the logical offset/length while keeping the full
+    // children, so trim the runs outside the logical range. The run ends are sorted, so this is
+    // a binary search over the Arrow buffer, avoiding the `ExecutionCtx` the equivalent Vortex
+    // search would need.
+    let (ends, values, offset) = if array.is_empty() {
+        (ends.slice(0..0)?, values.slice(0..0)?, 0)
+    } else {
+        let offset = array.run_ends().offset();
+        let run_ends = array.run_ends().values();
+        let first = run_ends.partition_point(|end| end.as_usize() <= offset);
+        let last = run_ends.partition_point(|end| end.as_usize() < offset + array.len());
+        (
+            ends.slice(first..last + 1)?,
+            values.slice(first..last + 1)?,
+            offset,
+        )
+    };
 
-        // SAFETY: arrow-rs enforces the RunEndArray invariants, we inherit their guarantees.
-        RunEndData::validate_parts(&ends_slice, &values_slice, offset, len, &mut ctx)?;
-        Ok(unsafe { RunEndData::new_unchecked(offset) })
-    }
+    // SAFETY: `RunEndData::validate_parts` requires unsigned, strictly increasing run ends of the
+    // same length as the values, covering `offset..offset + length`. arrow-rs guarantees strictly
+    // increasing positive run ends (so the reinterpret_cast above preserves both value and order)
+    // covering the logical range, the length equality is checked above, and the trim keeps only
+    // runs that intersect that range.
+    Ok(unsafe { RunEnd::new_unchecked(ends, values, offset, array.len()) }.into_array())
 }
 
 #[cfg(test)]
@@ -79,24 +86,17 @@ mod tests {
     use vortex_array::IntoArray as _;
     use vortex_array::VortexSessionExecute as _;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::primitive::PrimitiveArrayExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::NativePType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::validity::Validity;
-    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_runend::RunEnd;
-    use vortex_runend::RunEndArray;
-    use vortex_runend::ops::find_physical_index;
-    use vortex_runend::ops::find_slice_end_index;
     use vortex_session::VortexSession;
 
     use crate::ArrowSessionExt;
-    use crate::FromArrowArray;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = vortex_array::array_session();
@@ -104,41 +104,18 @@ mod tests {
         session
     });
 
+    /// Decode through the session import path, which is what production callers use.
     fn decode_run_array<R: RunEndIndexType>(
         array: &RunArray<R>,
         nullable: bool,
-    ) -> VortexResult<RunEndArray>
+    ) -> VortexResult<ArrayRef>
     where
         R::Native: NativePType,
     {
-        let offset = array.run_ends().offset();
-        let len = array.run_ends().len();
-        let ends_buf =
-            Buffer::<R::Native>::from_arrow_scalar_buffer(array.run_ends().inner().clone());
-        let ends = PrimitiveArray::new(ends_buf, Validity::NonNullable)
-            .reinterpret_cast(R::Native::PTYPE.to_unsigned());
-        let values = ArrayRef::from_arrow(array.values().as_ref(), nullable)?;
-
-        let ends_array = PrimitiveArray::from_buffer_handle(
-            ends.buffer_handle().clone(),
-            ends.ptype(),
-            ends.validity()?,
-        )
-        .into_array();
-        let mut ctx = SESSION.create_execution_ctx();
-        let (ends_slice, values_slice) = if offset == 0 && len == array.run_ends().max_value() {
-            (ends_array, values)
-        } else {
-            let slice_begin = find_physical_index(&ends_array, offset, &mut ctx)?;
-            let slice_end = find_slice_end_index(&ends_array, offset + len, &mut ctx)?;
-
-            (
-                ends_array.slice(slice_begin..slice_end)?,
-                values.slice(slice_begin..slice_end)?,
-            )
-        };
-
-        RunEnd::try_new_offset_length(ends_slice, values_slice, offset, array.len(), &mut ctx)
+        let field = Field::new("", array.data_type().clone(), nullable);
+        SESSION
+            .arrow()
+            .from_arrow_array(Arc::new(array.clone()), &field)
     }
 
     #[test]

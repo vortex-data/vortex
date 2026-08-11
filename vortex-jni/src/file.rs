@@ -16,7 +16,6 @@ use jni::objects::JObjectArray;
 use jni::objects::JString;
 use jni::sys::jlong;
 use jni::sys::jobject;
-use object_store::path::Path;
 use vortex::buffer::ByteBuffer;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
@@ -159,11 +158,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFiles_readMetadata(
         let url = parse_uri_or_path(&uri)?;
         let properties = extract_properties(env, &options)?;
 
-        let fs = object_store_fs(&url, &properties, session.handle())?;
-        // `FileSystem` keys are literal, already-decoded paths, so decode as `listFiles` does.
-        let path = Path::from_url_path(url.path())
-            .map_err(|_| vortex_err!("cannot parse uri as object_store Path"))?
-            .to_string();
+        let (fs, path) = object_store_fs(&url, &properties, session.handle())?;
         let source = RUNTIME.block_on(async { fs.open_read(&path).await })?;
 
         let segments = read_metadata_segments(session, source, &path, None)?;
@@ -226,11 +221,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFiles_listFiles(
 
         let properties = extract_properties(env, &options)?;
 
-        let fs = object_store_fs(&url, &properties, session.handle())?;
-        let prefix = Path::from_url_path(url.path())
-            .map_err(|_| vortex_err!("cannot parse root_path as object_store Path"))?;
+        let (fs, prefix) = object_store_fs(&url, &properties, session.handle())?;
 
-        let mut stream = fs.list(prefix.as_ref());
+        let mut stream = fs.list(&prefix);
 
         let paths_vec = RUNTIME.block_on(async move {
             let mut paths = Vec::new();
@@ -287,7 +280,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFiles_delete(
 
         let properties = extract_properties(env, &options)?;
 
-        let fs = object_store_fs(&store_url, &properties, session.handle())?;
+        let (fs, _path) = object_store_fs(&store_url, &properties, session.handle())?;
 
         RUNTIME.block_on(async {
             for uri in delete_uris {

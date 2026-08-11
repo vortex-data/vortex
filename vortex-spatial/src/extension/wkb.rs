@@ -255,7 +255,11 @@ impl ArrowImportVTable for WellKnownBinary {
         *ARROW_WKB
     }
 
-    fn from_arrow_field(&self, field: &Field) -> VortexResult<Option<DType>> {
+    fn from_arrow_field(
+        &self,
+        field: &Field,
+        _session: &ArrowSession,
+    ) -> VortexResult<Option<DType>> {
         let Ok(wkb_meta) = field.try_extension_type::<WkbType>() else {
             return Ok(None);
         };

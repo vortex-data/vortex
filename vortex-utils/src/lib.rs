@@ -11,3 +11,4 @@ pub mod debug_with;
 pub mod dyn_traits;
 pub mod iter;
 pub mod parallelism;
+pub mod tree;
