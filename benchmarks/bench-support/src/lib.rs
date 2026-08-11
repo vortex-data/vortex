@@ -5,8 +5,12 @@
 //!
 //! CodSpeed's sharded job measures simulated instruction counts on x86-64. That says little
 //! about a hand-written SIMD kernel and nothing at all about Arm. [`isa`] marks a benchmark
-//! as belonging to one instruction set, which routes it to a walltime CI leg running on that
-//! architecture's silicon.
+//! as belonging to one instruction set, which routes it to the CI leg that builds with that
+//! instruction set enabled and measures walltime on silicon that has it.
+//!
+//! One leg per instruction set, so what a leg measures is what its name says: an AVX-512
+//! benchmark is compiled `+avx512f,+avx512bw` and run on an AVX-512 machine, not compiled
+//! for AVX2 and steered into an AVX-512 kernel at runtime.
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
@@ -15,38 +19,50 @@ use syn::Ident;
 use syn::ItemFn;
 use syn::parse_macro_input;
 
-/// The architecture leg an instruction set belongs to.
-struct Leg {
-    /// Variant tag, matched against `VORTEX_BENCH_VARIANT`.
-    variant: &'static str,
-    /// `target_arch` the instruction set exists on.
+/// An instruction set, and so a CI leg: one build, one walltime run.
+struct Isa {
+    /// Leg tag, matched against `VORTEX_BENCH_VARIANT` and used to qualify benchmark names.
+    /// Every tag here needs a matching entry in `.github/workflows/codspeed.yml`.
+    tag: &'static str,
+    /// The `target_arch` this instruction set exists on.
     target_arch: &'static str,
 }
 
-const X86: Leg = Leg {
-    variant: "x86",
-    target_arch: "x86_64",
-};
-const ARM: Leg = Leg {
-    variant: "arm",
-    target_arch: "aarch64",
-};
+const ISAS: &[Isa] = &[
+    Isa {
+        tag: "sse2",
+        target_arch: "x86_64",
+    },
+    Isa {
+        tag: "avx2",
+        target_arch: "x86_64",
+    },
+    Isa {
+        tag: "avx512",
+        target_arch: "x86_64",
+    },
+    Isa {
+        tag: "neon",
+        target_arch: "aarch64",
+    },
+    Isa {
+        tag: "sve",
+        target_arch: "aarch64",
+    },
+];
 
-/// Resolve an instruction set to the legs that measure it.
+/// Resolve the argument of `#[isa(..)]` to the legs that measure the benchmark.
 ///
-/// `any` is the arch-neutral case: a scalar baseline or a shipped entry point, measured on
-/// every leg so each architecture has something to compare its kernels against. Everything
-/// else names one instruction set and so implies exactly one architecture.
-fn legs_for(isa: &str) -> Option<Vec<Leg>> {
-    match isa {
-        "sse2" | "avx2" | "avx512" => Some(vec![X86]),
-        "neon" | "sve" => Some(vec![ARM]),
-        "any" => Some(vec![X86, ARM]),
-        _ => None,
+/// `any` is the arch-neutral case — a scalar baseline, or a shipped entry point — measured on
+/// every leg, so each build has something of its own to compare its kernels against.
+fn legs_for(isa: &str) -> Option<Vec<&'static Isa>> {
+    if isa == "any" {
+        return Some(ISAS.iter().collect());
     }
+    ISAS.iter().find(|leg| leg.tag == isa).map(|leg| vec![leg])
 }
 
-/// Measure this benchmark on the CI leg for the given instruction set.
+/// Measure this benchmark on the CI leg that builds for the given instruction set.
 ///
 /// Must sit *above* `#[divan::bench]`, whose arguments it fills in: the benchmark's name is
 /// qualified with the leg that produced it, and `ignore` is set so the benchmark is skipped
@@ -58,10 +74,10 @@ fn legs_for(isa: &str) -> Option<Vec<Leg>> {
 /// fn words_gather_avx2(bencher: Bencher, len: usize) { /* ... */ }
 /// ```
 ///
-/// Accepts `sse2`, `avx2`, `avx512`, `neon`, `sve`, and `any` for benchmarks that are not tied
-/// to an instruction set. The `#[cfg(target_arch = ...)]` is implied — an `avx2` benchmark cannot
-/// compile for Arm, so writing that out would only create a chance for it to disagree with
-/// the tag.
+/// Accepts `sse2`, `avx2`, `avx512`, `neon`, `sve`, and `any` for benchmarks that are not
+/// tied to an instruction set. The `#[cfg(target_arch = ...)]` is implied — an `avx2`
+/// benchmark cannot compile for Arm, so writing that out would only create a chance for it
+/// to disagree with the tag.
 ///
 /// An untagged benchmark is untouched: it keeps running on the simulation shards under its
 /// own name, which is the right home for anything that is not architecture-specific.
@@ -71,11 +87,14 @@ pub fn isa(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut function = parse_macro_input!(item as ItemFn);
 
     let Some(legs) = legs_for(&isa.to_string()) else {
+        let known = ISAS
+            .iter()
+            .map(|leg| leg.tag)
+            .collect::<Vec<_>>()
+            .join(", ");
         return syn::Error::new(
             isa.span(),
-            format!(
-                "unknown instruction set `{isa}`; expected one of sse2, avx2, avx512, neon, sve, any"
-            ),
+            format!("unknown instruction set `{isa}`; expected one of {known}, any"),
         )
         .to_compile_error()
         .into();
@@ -124,10 +143,12 @@ pub fn isa(attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 
     // `env!` rather than reading the environment during expansion: rustc records it as a
-    // dependency of the crate, so changing the variant rebuilds the benchmark.
+    // dependency of the crate, so changing legs rebuilds the benchmarks.
     let name = function.sig.ident.to_string();
-    let variants = legs.iter().map(|leg| leg.variant);
-    let arches = legs.iter().map(|leg| leg.target_arch);
+    let tags = legs.iter().map(|leg| leg.tag);
+
+    let mut arches: Vec<&str> = legs.iter().map(|leg| leg.target_arch).collect();
+    arches.dedup();
 
     let separator = if existing.is_empty() {
         quote!()
@@ -140,8 +161,8 @@ pub fn isa(attr: TokenStream, item: TokenStream) -> TokenStream {
             #existing #separator
             name = concat!(env!("VORTEX_BENCH_PREFIX"), #name),
             ignore = {
-                let variant = env!("VORTEX_BENCH_VARIANT");
-                !(variant == "local" #(|| variant == #variants)*)
+                let leg = env!("VORTEX_BENCH_VARIANT");
+                !(leg == "local" #(|| leg == #tags)*)
             },
         )
     };

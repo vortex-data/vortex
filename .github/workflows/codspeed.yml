@@ -33,7 +33,7 @@ jobs:
       pull-requests: read
     outputs:
       run-cuda-benchmarks: ${{ github.event_name != 'pull_request' || steps.filter.outputs.cuda == 'true' }}
-      run-arch-benchmarks: ${{ github.event_name != 'pull_request' || steps.filter.outputs.arch == 'true' }}
+      run-isa-benchmarks: ${{ github.event_name != 'pull_request' || steps.filter.outputs.isa == 'true' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d  # v4
@@ -45,9 +45,9 @@ jobs:
               - "vortex-cuda/**"
               # Only this workflow defines the CUDA benchmark jobs.
               - ".github/workflows/codspeed.yml"
-            arch:
-              # Sources of the benchmarks the per-architecture legs measure. Keep in sync
-              # with the `benches` entries in the bench-codspeed-arch matrix below.
+            isa:
+              # Sources of the benchmarks the per-instruction-set legs measure. Keep in sync
+              # with the `benches` entries in the bench-codspeed-isa matrix below.
               - "vortex-buffer/**"
               - "benchmarks/bench-support/**"
               - ".github/workflows/codspeed.yml"
@@ -100,40 +100,66 @@ jobs:
           token: ${{ secrets.CODSPEED_TOKEN }}
           mode: "simulation"
 
-  # Walltime measurements on real silicon, one leg per CPU architecture.
+  # Walltime measurements on real silicon, one leg per instruction set.
   #
   # The sharded job above measures simulated instruction counts on x86-64 only, which says
   # nothing about how a hand-written SIMD kernel performs, and nothing at all about Arm. A
-  # benchmark opts in by naming its instruction set with `#[isa(..)]`; the instruction sets
-  # of one architecture share that architecture's leg and are selected at runtime, so adding
-  # an AVX-512 benchmark needs no new leg here. VORTEX_BENCH_VARIANT selects the benchmarks
-  # for the leg and VORTEX_BENCH_PREFIX qualifies their names, so the two legs don't collide
-  # over the `#[isa(any)]` baselines they share.
-  bench-codspeed-arch:
+  # benchmark opts in by naming its instruction set with `#[isa(..)]`; each one is built with
+  # that instruction set enabled and run on silicon that has it, so a leg measures what its
+  # name says. VORTEX_BENCH_VARIANT selects the benchmarks for the leg and VORTEX_BENCH_PREFIX
+  # qualifies their names, so legs don't collide over the `#[isa(any)]` baselines they share.
+  #
+  # Each `isa` here must match a tag in `vortex_bench_support`'s ISA table, and each `runner`
+  # must name a machine that actually implements the instruction set: the build enables it
+  # globally, so surrounding code may use it and will fault on a machine that lacks it.
+  bench-codspeed-isa:
     needs: [changes]
     if: >-
       always() && github.repository == 'vortex-data/vortex' &&
-      needs.changes.outputs.run-arch-benchmarks == 'true'
+      needs.changes.outputs.run-isa-benchmarks == 'true'
     strategy:
       fail-fast: false
       matrix:
         include:
-          - leg: x86
+          # x86-64 baseline. `+sse2` is redundant — the target guarantees it — but spelled
+          # out so a leg's flags always say what it measures.
+          - isa: sse2
+            runner: amd64-medium
+            image: ubuntu24-full-x64-pre-v2
+            rustflags: "-C target-feature=+sse2"
+            packages: "vortex-buffer"
+            benches: "collect_bool"
+          - isa: avx2
             runner: amd64-medium
             image: ubuntu24-full-x64-pre-v2
             rustflags: "-C target-feature=+avx2"
             packages: "vortex-buffer"
             benches: "collect_bool"
-          - leg: arm
+          # Needs an AVX-512 capable runner.
+          - isa: avx512
+            runner: amd64-medium
+            image: ubuntu24-full-x64-pre-v2
+            rustflags: "-C target-feature=+avx512f,+avx512bw"
+            packages: "vortex-buffer"
+            benches: "collect_bool"
+          # aarch64 baseline. `+neon` is likewise redundant on this target.
+          - isa: neon
             runner: arm64-medium
             image: ubuntu24-full-arm64-pre-v2
             rustflags: "-C target-feature=+neon"
             packages: "vortex-buffer"
             benches: "collect_bool"
-    name: "Benchmark with Codspeed (${{ matrix.leg }})"
+          # Needs an SVE capable runner (Graviton3 or newer).
+          - isa: sve
+            runner: arm64-medium
+            image: ubuntu24-full-arm64-pre-v2
+            rustflags: "-C target-feature=+sve"
+            packages: "vortex-buffer"
+            benches: "collect_bool"
+    name: "Benchmark with Codspeed (${{ matrix.isa }})"
     timeout-minutes: 30
     runs-on: >-
-      runs-on=${{ github.run_id }}/runner=${{ matrix.runner }}/image=${{ matrix.image }}/extras=s3-cache/tag=bench-codspeed-arch-${{ matrix.leg }}
+      runs-on=${{ github.run_id }}/runner=${{ matrix.runner }}/image=${{ matrix.image }}/extras=s3-cache/tag=bench-codspeed-isa-${{ matrix.isa }}
     steps:
       - uses: runs-on/action@v2
         with:
@@ -150,8 +176,8 @@ jobs:
       - name: Build benchmarks
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
-          VORTEX_BENCH_VARIANT: ${{ matrix.leg }}
-          VORTEX_BENCH_PREFIX: "${{ matrix.leg }}::"
+          VORTEX_BENCH_VARIANT: ${{ matrix.isa }}
+          VORTEX_BENCH_PREFIX: "${{ matrix.isa }}::"
         run: |
           cargo codspeed build --locked -m walltime --profile bench \
             $(printf -- '-p %s ' ${{ matrix.packages }}) \

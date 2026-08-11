@@ -14,10 +14,10 @@
 //!   boolean-gather predicate and a `u32` comparison predicate.
 //!
 //! The `words_gather_*` benchmarks carry a `#[isa]` tag, which sends them to the walltime CI
-//! leg for that instruction set's architecture — the only place NEON is measured at all.
-//! Instruction counts say little about a SIMD kernel, so the simulation shards stick to the
-//! untagged shipped entry points. The historical bit-at-a-time baselines are for local A/B
-//! runs and compile out of every CodSpeed build.
+//! leg built for that instruction set — the only place NEON is measured at all. Instruction
+//! counts say little about a SIMD kernel, so the simulation shards stick to the untagged
+//! shipped entry points. The historical bit-at-a-time baselines are for local A/B runs and
+//! compile out of every CodSpeed build.
 //!
 //! A plain `cargo bench` ignores all of it and runs everything on the host.
 
