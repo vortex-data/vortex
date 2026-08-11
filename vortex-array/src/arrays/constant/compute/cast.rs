@@ -34,7 +34,6 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
-    use crate::dtype::PType;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
 
@@ -70,11 +69,6 @@ mod tests {
 
     #[rstest]
     #[case(
-        Scalar::from(true),
-        DType::Primitive(PType::I32, Nullability::NonNullable),
-        Scalar::primitive(1i32, Nullability::NonNullable)
-    )]
-    #[case(
         Scalar::from(false),
         DType::Utf8(Nullability::Nullable),
         Scalar::utf8("false", Nullability::Nullable)
@@ -84,7 +78,7 @@ mod tests {
         DType::Utf8(Nullability::NonNullable),
         Scalar::utf8("-42", Nullability::NonNullable)
     )]
-    fn test_cast_bool_and_primitive_constants(
+    fn test_cast_bool_and_primitive_constants_to_utf8(
         #[case] source: Scalar,
         #[case] target: DType,
         #[case] expected: Scalar,

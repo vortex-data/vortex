@@ -7,14 +7,11 @@ use std::cmp::Ordering;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
-use num_traits::One;
-use num_traits::Zero;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::dtype::DType;
-use crate::match_each_native_ptype;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 
@@ -90,9 +87,6 @@ impl<'a> BoolScalar<'a> {
 
         match dtype {
             DType::Bool(nullability) => Ok(Scalar::bool(value, *nullability)),
-            DType::Primitive(ptype, nullability) => Ok(match_each_native_ptype!(*ptype, |T| {
-                Scalar::primitive(if value { T::one() } else { T::zero() }, *nullability)
-            })),
             DType::Utf8(nullability) => Ok(Scalar::utf8(
                 if value { "true" } else { "false" },
                 *nullability,
@@ -211,20 +205,10 @@ mod test {
     }
 
     #[test]
-    fn test_bool_cast_to_primitive_and_utf8() -> VortexResult<()> {
-        use crate::dtype::PType;
-
+    fn test_bool_cast_to_utf8() -> VortexResult<()> {
         let true_scalar = Scalar::bool(true, NonNullable);
         let false_scalar = Scalar::bool(false, NonNullable);
 
-        assert_eq!(
-            true_scalar.cast(&DType::Primitive(PType::I32, NonNullable))?,
-            Scalar::primitive(1i32, NonNullable)
-        );
-        assert_eq!(
-            false_scalar.cast(&DType::Primitive(PType::F64, Nullable))?,
-            Scalar::primitive(0.0f64, Nullable)
-        );
         assert_eq!(
             true_scalar.cast(&DType::Utf8(NonNullable))?,
             Scalar::utf8("true", NonNullable)
