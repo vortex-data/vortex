@@ -13,18 +13,16 @@
 //! - `collect_bool_*` / `from_bool_slice`: the public entry points end to end, with a
 //!   boolean-gather predicate and a `u32` comparison predicate.
 //!
-//! What CI measures is set per benchmark with [`ignore_unless_variant!`], see
-//! `vortex_bench_support` for the variant list. The simulation shards track only the shipped
-//! entry points, because instruction counts for the SIMD kernels say little about how they
-//! perform on real silicon. The walltime `x86_64` and `aarch64` legs track the whole
-//! `words_gather_*` family, which is the only place NEON is measured at all. The historical
-//! bit-at-a-time baselines exist for local A/B runs and compile out of every CodSpeed build.
+//! The `words_gather_*` benchmarks carry a `#[isa]` tag, which sends them to the walltime CI
+//! leg for that instruction set's architecture — the only place NEON is measured at all.
+//! Instruction counts say little about a SIMD kernel, so the simulation shards stick to the
+//! untagged shipped entry points. The historical bit-at-a-time baselines are for local A/B
+//! runs and compile out of every CodSpeed build.
 //!
 //! A plain `cargo bench` ignores all of it and runs everything on the host.
 
 use divan::Bencher;
-use vortex_bench_support::ignore_unless_variant;
-use vortex_bench_support::variant_name;
+use vortex_bench_support::isa;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::collect_bool_word_scalar;
 #[cfg(not(codspeed))]
@@ -105,11 +103,8 @@ fn bench_words_gather(
         .bench_refs(|words| collect(words, len, &bools));
 }
 
-#[divan::bench(
-    args = INPUT_SIZE,
-    name = variant_name!("words_gather_dispatch"),
-    ignore = ignore_unless_variant!(x86_64, aarch64),
-)]
+#[isa(any)]
+#[divan::bench(args = INPUT_SIZE)]
 fn words_gather_dispatch(bencher: Bencher, len: usize) {
     bench_words_gather(bencher, len, |words, len, bools| {
         // SAFETY: `collect_bool_words` invokes the predicate with indices `0..len` only.
@@ -117,11 +112,8 @@ fn words_gather_dispatch(bencher: Bencher, len: usize) {
     });
 }
 
-#[divan::bench(
-    args = INPUT_SIZE,
-    name = variant_name!("words_gather_scalar"),
-    ignore = ignore_unless_variant!(x86_64, aarch64),
-)]
+#[isa(any)]
+#[divan::bench(args = INPUT_SIZE)]
 fn words_gather_scalar(bencher: Bencher, len: usize) {
     bench_words_gather(bencher, len, |words, len, bools| {
         // SAFETY: `collect_bool_words_old` invokes the predicate with indices `0..len` only.
@@ -129,12 +121,8 @@ fn words_gather_scalar(bencher: Bencher, len: usize) {
     });
 }
 
-#[cfg(target_arch = "x86_64")]
-#[divan::bench(
-    args = INPUT_SIZE,
-    name = variant_name!("words_gather_sse2"),
-    ignore = ignore_unless_variant!(x86_64),
-)]
+#[isa(sse2)]
+#[divan::bench(args = INPUT_SIZE)]
 fn words_gather_sse2(bencher: Bencher, len: usize) {
     bench_words_gather(bencher, len, |words, len, bools| {
         // SAFETY: SSE2 is part of the x86-64 baseline; indices passed are `0..len`.
@@ -142,12 +130,8 @@ fn words_gather_sse2(bencher: Bencher, len: usize) {
     });
 }
 
-#[cfg(target_arch = "x86_64")]
-#[divan::bench(
-    args = INPUT_SIZE,
-    name = variant_name!("words_gather_avx2"),
-    ignore = ignore_unless_variant!(x86_64),
-)]
+#[isa(avx2)]
+#[divan::bench(args = INPUT_SIZE)]
 fn words_gather_avx2(bencher: Bencher, len: usize) {
     if !is_x86_feature_detected!("avx2") {
         return;
@@ -158,12 +142,8 @@ fn words_gather_avx2(bencher: Bencher, len: usize) {
     });
 }
 
-#[cfg(target_arch = "x86_64")]
-#[divan::bench(
-    args = INPUT_SIZE,
-    name = variant_name!("words_gather_avx512"),
-    ignore = ignore_unless_variant!(x86_64),
-)]
+#[isa(avx512)]
+#[divan::bench(args = INPUT_SIZE)]
 fn words_gather_avx512(bencher: Bencher, len: usize) {
     if !(is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512bw")) {
         return;
@@ -174,12 +154,8 @@ fn words_gather_avx512(bencher: Bencher, len: usize) {
     });
 }
 
-#[cfg(target_arch = "aarch64")]
-#[divan::bench(
-    args = INPUT_SIZE,
-    name = variant_name!("words_gather_neon"),
-    ignore = ignore_unless_variant!(aarch64),
-)]
+#[isa(neon)]
+#[divan::bench(args = INPUT_SIZE)]
 fn words_gather_neon(bencher: Bencher, len: usize) {
     bench_words_gather(bencher, len, |words, len, bools| {
         // SAFETY: NEON is part of the aarch64 baseline; indices passed are `0..len`.
@@ -211,11 +187,7 @@ fn from_bool_slice_old_scalar(bencher: Bencher, len: usize) {
         .bench_refs(|words| collect_bool_words_old(words, len, |i| bools[i]));
 }
 
-#[divan::bench(
-    args = INPUT_SIZE,
-    name = variant_name!("from_bool_slice"),
-    ignore = ignore_unless_variant!(simulation, x86_64, aarch64),
-)]
+#[divan::bench(args = INPUT_SIZE)]
 fn from_bool_slice(bencher: Bencher, len: usize) {
     let bools = make_bools(len);
     bencher.bench(|| vortex_buffer::BitBufferMut::from(bools.as_slice()));
@@ -230,11 +202,7 @@ fn collect_bool_u32_gt_old_scalar(bencher: Bencher, len: usize) {
         .bench_refs(|words| collect_bool_words_old(words, len, |i| values[i] > u32::MAX / 2));
 }
 
-#[divan::bench(
-    args = INPUT_SIZE,
-    name = variant_name!("collect_bool_u32_gt"),
-    ignore = ignore_unless_variant!(simulation, x86_64, aarch64),
-)]
+#[divan::bench(args = INPUT_SIZE)]
 fn collect_bool_u32_gt(bencher: Bencher, len: usize) {
     let values = make_u32s(len);
     bencher.bench(|| BitBuffer::collect_bool(len, |i| values[i] > u32::MAX / 2));

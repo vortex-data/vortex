@@ -18,9 +18,9 @@ timeout = 3600
 # Environment variables for PyO3. Ensures reproducible builds and avoids spurious recompilations.
 [env]
 PYO3_ENVIRONMENT_SIGNATURE = { value = "cpython-3.11-64bit", force = true }
-# Benchmark variant defaults, read at compile time by `vortex-bench-support`. Neither is
-# forced, so a CI leg that exports its own values wins. Under `local` every benchmark runs,
-# whatever variants it is tagged with, and the empty prefix leaves benchmark names bare.
+# Benchmark leg defaults, read at compile time by the code `vortex-bench-support`'s `#[isa]`
+# generates. Neither is forced, so a CI leg that exports its own values wins. Under `local`
+# every benchmark runs, whatever it is tagged with, and the empty prefix leaves names bare.
 VORTEX_BENCH_VARIANT = "local"
 VORTEX_BENCH_PREFIX = ""
 

@@ -1,118 +1,154 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Shared support code for Vortex benchmark binaries.
+//! Instruction-set gating for Vortex benchmarks.
 //!
-//! # Benchmark variants
-//!
-//! A *variant* names the build a benchmark binary was produced for. A benchmark that only
-//! makes sense under one CPU architecture, or that is too noisy for one instrument but not
-//! another, declares the variants it should be measured under; everywhere else it is skipped
-//! rather than compiled out, so a single bench source covers every leg.
-//!
-//! | Variant | Where it runs | Instrument |
-//! |---|---|---|
-//! | `local` | a plain `cargo bench` on a developer machine | divan walltime |
-//! | `simulation` | the sharded `bench-codspeed` CI job | CodSpeed simulation |
-//! | `x86_64` | the `bench-codspeed-arch` x86-64 leg, built with `+avx2` | CodSpeed walltime |
-//! | `aarch64` | the `bench-codspeed-arch` aarch64 leg, built with `+neon` | CodSpeed walltime |
-//!
-//! Two compile-time environment variables carry the variant, both defaulted in
-//! `.cargo/config.toml` so a plain `cargo bench` needs no setup:
-//!
-//! * `VORTEX_BENCH_VARIANT` — the active variant tag, read by [`ignore_unless_variant!`].
-//!   Defaults to `local`, under which *every* benchmark runs, whatever it is tagged with.
-//! * `VORTEX_BENCH_PREFIX` — prepended to benchmark names by [`variant_name!`]. Empty by
-//!   default, so local and simulation runs keep bare names (and, for CodSpeed, their
-//!   existing measurement history); only the walltime legs set it, to `<variant>::`.
-//!
-//! The prefix is what makes it safe for one benchmark to run on more than one leg: an
-//! architecture-neutral baseline measured on both the x86-64 and aarch64 legs reports as
-//! `x86_64::words_gather_scalar` and `aarch64::words_gather_scalar`, instead of two
-//! different machines fighting over one name.
-//!
-//! # Example
-//!
-//! ```ignore
-//! use vortex_bench_support::ignore_unless_variant;
-//! use vortex_bench_support::variant_name;
-//!
-//! // Runs locally, on the simulation shards, and on both walltime legs.
-//! #[divan::bench(
-//!     name = variant_name!("from_bool_slice"),
-//!     ignore = ignore_unless_variant!(simulation, x86_64, aarch64),
-//! )]
-//! fn from_bool_slice(bencher: divan::Bencher) { /* ... */ }
-//!
-//! // NEON only: compiled out elsewhere by `cfg`, and skipped on the aarch64 machine
-//! // whenever that machine is running some other leg.
-//! #[cfg(target_arch = "aarch64")]
-//! #[divan::bench(
-//!     name = variant_name!("words_gather_neon"),
-//!     ignore = ignore_unless_variant!(aarch64),
-//! )]
-//! fn words_gather_neon(bencher: divan::Bencher) { /* ... */ }
-//! ```
-//!
-//! # Adding a variant
-//!
-//! Add an arm to [`variant_tag!`] and a matching leg to `.github/workflows/codspeed.yml`.
-//! Benchmarks name variants by identifier, not by string, so a tag that does not exist
-//! fails to compile instead of silently never running.
+//! CodSpeed's sharded job measures simulated instruction counts on x86-64. That says little
+//! about a hand-written SIMD kernel and nothing at all about Arm. [`isa`] marks a benchmark
+//! as belonging to one instruction set, which routes it to a walltime CI leg running on that
+//! architecture's silicon.
 
-/// Map a benchmark variant identifier to its string tag.
-///
-/// This is the list of variants that exist. An unknown identifier is a compile error, so a
-/// typo in an [`ignore_unless_variant!`] tag cannot silently turn into a benchmark that
-/// never runs anywhere. A benchmark behind `#[cfg(target_arch = ...)]` is only checked when
-/// building for that architecture, which for a NEON-only benchmark means the aarch64 CI leg
-/// rather than a developer's x86-64 machine.
-#[macro_export]
-macro_rules! variant_tag {
-    (local) => {
-        "local"
-    };
-    (simulation) => {
-        "simulation"
-    };
-    (x86_64) => {
-        "x86_64"
-    };
-    (aarch64) => {
-        "aarch64"
-    };
-    ($unknown:ident) => {
-        compile_error!(concat!(
-            "unknown benchmark variant `",
-            stringify!($unknown),
-            "`; add it to `vortex_bench_support::variant_tag!` and give it a CI leg",
-        ))
-    };
+use proc_macro::TokenStream;
+use proc_macro2::TokenStream as TokenStream2;
+use quote::quote;
+use syn::Ident;
+use syn::ItemFn;
+use syn::parse_macro_input;
+
+/// The architecture leg an instruction set belongs to.
+struct Leg {
+    /// Variant tag, matched against `VORTEX_BENCH_VARIANT`.
+    variant: &'static str,
+    /// `target_arch` the instruction set exists on.
+    target_arch: &'static str,
 }
 
-/// Qualify a benchmark name with the active variant's prefix.
+const X86: Leg = Leg {
+    variant: "x86",
+    target_arch: "x86_64",
+};
+const ARM: Leg = Leg {
+    variant: "arm",
+    target_arch: "aarch64",
+};
+
+/// Resolve an instruction set to the legs that measure it.
 ///
-/// Expands to a string literal, so it is usable as `#[divan::bench(name = ...)]`. The prefix
-/// comes from the compile-time `VORTEX_BENCH_PREFIX` and is empty unless the build sets it,
-/// leaving local and CodSpeed simulation names untouched.
-#[macro_export]
-macro_rules! variant_name {
-    ($name:literal) => {
-        concat!(env!("VORTEX_BENCH_PREFIX"), $name)
-    };
+/// `any` is the arch-neutral case: a scalar baseline or a shipped entry point, measured on
+/// every leg so each architecture has something to compare its kernels against. Everything
+/// else names one instruction set and so implies exactly one architecture.
+fn legs_for(isa: &str) -> Option<Vec<Leg>> {
+    match isa {
+        "sse2" | "avx2" | "avx512" => Some(vec![X86]),
+        "neon" | "sve" => Some(vec![ARM]),
+        "any" => Some(vec![X86, ARM]),
+        _ => None,
+    }
 }
 
-/// Skip this benchmark unless the active variant is one of the listed ones.
+/// Measure this benchmark on the CI leg for the given instruction set.
 ///
-/// Expands to a `bool` for `#[divan::bench(ignore = ...)]`. `local` — the default outside
-/// CI — always runs, so a developer never has to know which tags a benchmark carries.
+/// Must sit *above* `#[divan::bench]`, whose arguments it fills in: the benchmark's name is
+/// qualified with the leg that produced it, and `ignore` is set so the benchmark is skipped
+/// on every other leg. A plain `cargo bench` runs it regardless.
 ///
-/// The check is an OR-chain of `==` rather than a `matches!`, because [`variant_tag!`]
-/// expands to a string literal, which is not valid in pattern position.
-#[macro_export]
-macro_rules! ignore_unless_variant {
-    ($($variant:ident),+ $(,)?) => {{
-        let active = env!("VORTEX_BENCH_VARIANT");
-        !(active == $crate::variant_tag!(local) $(|| active == $crate::variant_tag!($variant))+)
-    }};
+/// ```ignore
+/// #[isa(avx2)]
+/// #[divan::bench(args = INPUT_SIZE)]
+/// fn words_gather_avx2(bencher: Bencher, len: usize) { /* ... */ }
+/// ```
+///
+/// Accepts `sse2`, `avx2`, `avx512`, `neon`, `sve`, and `any` for benchmarks that are not tied
+/// to an instruction set. The `#[cfg(target_arch = ...)]` is implied — an `avx2` benchmark cannot
+/// compile for Arm, so writing that out would only create a chance for it to disagree with
+/// the tag.
+///
+/// An untagged benchmark is untouched: it keeps running on the simulation shards under its
+/// own name, which is the right home for anything that is not architecture-specific.
+#[proc_macro_attribute]
+pub fn isa(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let isa = parse_macro_input!(attr as Ident);
+    let mut function = parse_macro_input!(item as ItemFn);
+
+    let Some(legs) = legs_for(&isa.to_string()) else {
+        return syn::Error::new(
+            isa.span(),
+            format!(
+                "unknown instruction set `{isa}`; expected one of sse2, avx2, avx512, neon, sve, any"
+            ),
+        )
+        .to_compile_error()
+        .into();
+    };
+
+    let Some(bench) = function.attrs.iter_mut().find(|attr| {
+        attr.path()
+            .segments
+            .last()
+            .is_some_and(|s| s.ident == "bench")
+    }) else {
+        return syn::Error::new(
+            isa.span(),
+            "`#[isa]` must be written directly above the `#[divan::bench]` attribute it applies to",
+        )
+        .to_compile_error()
+        .into();
+    };
+
+    let existing: TokenStream2 = match &bench.meta {
+        syn::Meta::Path(_) => TokenStream2::new(),
+        syn::Meta::List(list) => list.tokens.clone(),
+        syn::Meta::NameValue(value) => {
+            return syn::Error::new_spanned(
+                value,
+                "expected `#[divan::bench]` or `#[divan::bench(..)]`",
+            )
+            .to_compile_error()
+            .into();
+        }
+    };
+
+    for reserved in ["name", "ignore"] {
+        if existing
+            .clone()
+            .into_iter()
+            .any(|token| matches!(&token, proc_macro2::TokenTree::Ident(i) if i == reserved))
+        {
+            return syn::Error::new_spanned(
+                &existing,
+                format!("`{reserved}` is set by `#[isa]`; remove it from `#[divan::bench]`"),
+            )
+            .to_compile_error()
+            .into();
+        }
+    }
+
+    // `env!` rather than reading the environment during expansion: rustc records it as a
+    // dependency of the crate, so changing the variant rebuilds the benchmark.
+    let name = function.sig.ident.to_string();
+    let variants = legs.iter().map(|leg| leg.variant);
+    let arches = legs.iter().map(|leg| leg.target_arch);
+
+    let separator = if existing.is_empty() {
+        quote!()
+    } else {
+        quote!(,)
+    };
+    let bench_path = bench.path().clone();
+    bench.meta = syn::parse_quote! {
+        #bench_path(
+            #existing #separator
+            name = concat!(env!("VORTEX_BENCH_PREFIX"), #name),
+            ignore = {
+                let variant = env!("VORTEX_BENCH_VARIANT");
+                !(variant == "local" #(|| variant == #variants)*)
+            },
+        )
+    };
+
+    quote! {
+        #[cfg(any(#(target_arch = #arches),*))]
+        #function
+    }
+    .into()
 }

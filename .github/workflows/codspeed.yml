@@ -88,9 +88,9 @@ jobs:
       - name: Build benchmarks
         env:
           RUSTFLAGS: "-C target-feature=+avx2"
-          # Benchmarks gated with `ignore_unless_variant!` run their `simulation`-tagged
-          # subset here. The name prefix stays empty, so names measured before variants
-          # existed keep their CodSpeed history; only the walltime legs qualify names.
+          # Benchmarks carrying an `#[isa(..)]` tag belong to a walltime leg below and are
+          # skipped here. Untagged ones run as they always have, under bare names, so this
+          # job's CodSpeed history is unaffected.
           VORTEX_BENCH_VARIANT: simulation
         run: cargo codspeed build --locked ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) --profile bench
       - name: Run benchmarks
@@ -103,11 +103,12 @@ jobs:
   # Walltime measurements on real silicon, one leg per CPU architecture.
   #
   # The sharded job above measures simulated instruction counts on x86-64 only, which says
-  # nothing about how a hand-written SIMD kernel performs, and nothing at all about aarch64.
-  # Each leg here builds with its own target features and sets VORTEX_BENCH_VARIANT, which
-  # selects the benchmarks tagged for that architecture, and VORTEX_BENCH_PREFIX, which
-  # qualifies their names so the two legs don't collide over the architecture-neutral
-  # baselines they share.
+  # nothing about how a hand-written SIMD kernel performs, and nothing at all about Arm. A
+  # benchmark opts in by naming its instruction set with `#[isa(..)]`; the instruction sets
+  # of one architecture share that architecture's leg and are selected at runtime, so adding
+  # an AVX-512 benchmark needs no new leg here. VORTEX_BENCH_VARIANT selects the benchmarks
+  # for the leg and VORTEX_BENCH_PREFIX qualifies their names, so the two legs don't collide
+  # over the `#[isa(any)]` baselines they share.
   bench-codspeed-arch:
     needs: [changes]
     if: >-
@@ -117,13 +118,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - leg: x86_64
+          - leg: x86
             runner: amd64-medium
             image: ubuntu24-full-x64-pre-v2
             rustflags: "-C target-feature=+avx2"
             packages: "vortex-buffer"
             benches: "collect_bool"
-          - leg: aarch64
+          - leg: arm
             runner: arm64-medium
             image: ubuntu24-full-arm64-pre-v2
             rustflags: "-C target-feature=+neon"
