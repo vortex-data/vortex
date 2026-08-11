@@ -60,6 +60,12 @@ typedef struct ArrowArray FFI_ArrowArray;
 typedef struct ArrowArrayStream FFI_ArrowArrayStream;
 #endif
 
+// Number of uint8_t words holding view's elements
+#define vx_bool_view_words(X) (((X).elements + (X).bit_offset + 7) / 8)
+// I'th element (bit) in view, LSB-first. Already accounts for bit_offset
+#define vx_bool_view_nth(X, I)                                                                               \
+    ((((X).ptr[((I) + (X).bit_offset) / 8] & (1 << (((I) + (X).bit_offset) % 8))) != 0))
+
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -476,6 +482,38 @@ typedef struct {
 } vx_validity;
 
 /**
+ * Readonly view over bitpacked booleans.
+ *
+ * "elements" is the number of bits/elements. Use vx_bool_view_words(view) to
+ * get the number of uint8_t words.
+ * Bits are laid out LSB-first.
+ *
+ * "bit_offset" is in [0; 8) and lets a view start at a non-byte-aligned bit.
+ * Use vx_bool_view_nth(view, index) macro to read a single element.
+ *
+ * Example:
+ * "view" holds 6 boolean elements, bit_offset=2, first 5 elements are "true",
+ * last is "false".
+ *
+ * uint8_t word = 0b01111100;
+ * vx_bool_view view = {&word, 6, 2};
+ */
+typedef struct {
+    /**
+     * Element 0 is bit "bit_offset" of "ptr".
+     */
+    const uint8_t *ptr;
+    /**
+     * Number of elements represented by "ptr".
+     */
+    size_t elements;
+    /**
+     * Bit offset of element 0 within the first byte of "ptr".
+     */
+    size_t bit_offset;
+} vx_bool_view;
+
+/**
  * A non owning view over a byte range.
  */
 typedef struct {
@@ -691,6 +729,25 @@ const vx_array *vx_array_new_primitive(vx_ptype ptype,
                                        vx_error **error);
 
 /**
+ * Create a new Bool array from vx_bool_view.
+ *
+ * Example:
+ *
+ * a Bool array with 9 elements, first 8 are "true", last is "false".
+ *
+ * const vx_error* error = NULL;
+ * vx_validity validity = {};
+ * validity.type = VX_VALIDITY_NON_NULLABLE;
+ *
+ * uint8_t words[2] = {0xff, 0}; // 11111111 00000000
+ * vx_bool_view view = {words, 9, 0};
+ *
+ * const vx_array* array = vx_array_new_bool(&view, &validity, &error);
+ * vx_array_free(array);
+ */
+const vx_array *vx_array_new_bool(const vx_bool_view *view, const vx_validity *validity, vx_error **error);
+
+/**
  * Create a Vortex array by importing an Arrow array via the Arrow C Data Interface.
  *
  * `array` and `schema` together describe a single Arrow array (the standard Arrow C Data
@@ -775,15 +832,25 @@ const vx_array *vx_array_canonicalize(const vx_session *session, const vx_array 
 const void *vx_array_data_ptr_primitive(const vx_array *array, vx_error **error_out);
 
 /**
- * Return a pointer to the bitpacked buffer of a canonical Bool array.
- * Pointer is valid as long as "array" is valid.
- *
- * Writes bit offset of the first element into "bit_offset_out".
- * "bit_offset_out" must not be NULL.
+ * Return vx_bool_view for a canonical Bool array.
+ * View is valid as long as "array" is valid.
  *
  * Errors if array is not a canonical Bool.
+ *
+ * Example:
+ *
+ * vx_validity validity = {};
+ * validity.type = VX_VALIDITY_NON_NULLABLE;
+ *
+ * uint8_t words[2] = {0xff, 0}; // 11111111 00000000
+ * vx_bool_view view = {words, 9, 0};
+ *
+ * const vx_array* array = vx_array_new_bool(&view, &validity, &error);
+ * vx_bool_view other = vx_array_data_ptr_bool(array, &error);
+ *
+ * vx_array_free(array);
  */
-const void *vx_array_data_ptr_bool(const vx_array *array, size_t *bit_offset_out, vx_error **error_out);
+vx_bool_view vx_array_data_ptr_bool(const vx_array *array, vx_error **error_out);
 
 /**
  * Apply the expression to the array, wrapping it with a ScalarFnArray.

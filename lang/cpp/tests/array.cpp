@@ -170,6 +170,46 @@ TEST_CASE("Slice", "[array]") {
     REQUIRE_THROWS_AS(a.slice(2, 100), VortexException);
 }
 
+TEST_CASE("Bool array", "[array]") {
+    Session session;
+
+    constexpr size_t ELEMENTS = 9;
+    std::array<bool, ELEMENTS> data = {true, false, true, true, false, true, true, false, true};
+    std::vector<uint8_t> bitpacked(2);
+    for (size_t i = 0; i < ELEMENTS; ++i) {
+        if (data[i]) {
+            bitpacked[i / 8] |= 1 << (i % 8);
+        }
+    }
+
+    BoolView bool_view = {bitpacked, ELEMENTS};
+    Array array = Array::bool_array(bool_view);
+    REQUIRE(array.size() == data.size());
+    REQUIRE(array.has_dtype(DataTypeVariant::Bool));
+    REQUIRE_FALSE(array.nullable());
+
+    auto view = array.bools(session);
+    BoolView values = view.values();
+    for (size_t i = 0; i < values.elements(); ++i) {
+        REQUIRE(values[i] == data[i]);
+    }
+
+    array = array.slice(3, array.size());
+    view = array.bools(session);
+    values = view.values();
+
+    Array roundtrip = Array::bool_array(values);
+    REQUIRE(roundtrip.size() == view.size());
+    REQUIRE_FALSE(roundtrip.nullable());
+
+    auto roundtrip_view = roundtrip.bools(session);
+    BoolView roundtrip_values = roundtrip_view.values();
+    for (size_t i = 0; i < view.size(); ++i) {
+        REQUIRE(roundtrip_values[i] == values[i]);
+        REQUIRE(roundtrip_values[i] == data[i + 3]);
+    }
+}
+
 TEST_CASE("Error with a code", "[array]") {
     std::vector<int16_t> data = {0};
     Array a = Array::primitive<int16_t>(data);

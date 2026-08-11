@@ -78,11 +78,10 @@ bool ValidityBits::is_null(size_t index) const {
     if (all_invalid_) {
         return true;
     }
-    if (bits_ == nullptr) {
+    if (owner_ == nullptr) {
         return false;
     }
-    const size_t bit = bit_offset_ + index;
-    return (bits_[bit / 8] >> (bit % 8) & 1) == 0;
+    return view_[index];
 }
 
 ValidityBits::ValidityBits(const Session &session, const vx_array *canonical) {
@@ -106,29 +105,27 @@ ValidityBits::ValidityBits(const Session &session, const vx_array *canonical) {
     vx_array_free(raw.array);
     throw_on_error(error);
 
-    bits_ = static_cast<const uint8_t *>(vx_array_data_ptr_bool(owner_, &bit_offset_, &error));
+    vx_bool_view view = vx_array_data_ptr_bool(owner_, &error);
     if (error != nullptr) {
         vx_array_free(owner_);
     }
     throw_on_error(error);
+    view_.bit_offset = view.bit_offset;
+    view_.bytes = {view.ptr, view.elements};
 }
 
 ValidityBits::ValidityBits(ValidityBits &&other) noexcept
-    : owner_(other.owner_), bits_(other.bits_), bit_offset_(other.bit_offset_),
-      all_invalid_(other.all_invalid_) {
+    : owner_(other.owner_), view_(std::move(other.view_)), all_invalid_(other.all_invalid_) {
     other.owner_ = nullptr;
-    other.bits_ = nullptr;
 }
 
 ValidityBits &ValidityBits::operator=(ValidityBits &&other) noexcept {
     if (this != &other) {
         vx_array_free(owner_);
         owner_ = other.owner_;
-        bits_ = other.bits_;
-        bit_offset_ = other.bit_offset_;
+        view_ = std::move(other.view_);
         all_invalid_ = other.all_invalid_;
         other.owner_ = nullptr;
-        other.bits_ = nullptr;
     }
     return *this;
 }
@@ -175,6 +172,22 @@ Array Array::primitive_raw(vx_ptype ptype, const void *data, size_t len, const V
 
     vx_error *error = nullptr;
     const vx_array *out = vx_array_new_primitive(ptype, data, len, &raw, &error);
+    throw_on_error(error);
+    return Access::adopt<Array>(out);
+}
+
+Array Array::bool_array(const BoolView &view, const Validity &validity) {
+    std::optional<Array> keep_alive;
+    vx_validity raw {};
+    raw.type = static_cast<vx_validity_type>(validity.type());
+    if (validity.type() == ValidityType::FromArray) {
+        keep_alive = validity.array();
+        raw.array = Access::c_ptr(*keep_alive);
+    }
+
+    vx_error *error = nullptr;
+    vx_bool_view bool_view {view.bytes.data(), view.elements(), view.bit_offset};
+    const vx_array *out = vx_array_new_bool(&bool_view, &raw, &error);
     throw_on_error(error);
     return Access::adopt<Array>(out);
 }
@@ -333,13 +346,11 @@ Scalar Array::scalar_at(const Session &session, size_t index) const {
     return Access::adopt<Scalar>(scalar);
 }
 
-bool PrimitiveView<bool>::value(size_t i) const {
-    if (i >= size_) {
-        throw VortexException("index " + std::to_string(i) + " out of bounds for view of size " +
-                                  std::to_string(size_),
-                              ErrorCode::OutOfBounds);
-    }
-    return vx_array_get_bool(Access::c_ptr(canonical_), i);
+BoolView PrimitiveView<bool>::values() const {
+    vx_error *error = nullptr;
+    const vx_bool_view view = vx_array_data_ptr_bool(Access::c_ptr(canonical_), &error);
+    throw_on_error(error);
+    return {{view.ptr, vx_bool_view_len(view)}, view.bit_offset};
 }
 
 std::string_view StringView::operator[](size_t i) const {
