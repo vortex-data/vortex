@@ -754,10 +754,10 @@ mod tests {
                         coalesced_operations = counter.value();
                     }
                 }
-                MetricValue::Histogram(histogram) => {
-                    if metric.name() == "io.requests.coalesced.num_coalesced" {
-                        coalesced_histogram_count = histogram.count();
-                    }
+                MetricValue::Histogram(histogram)
+                    if metric.name() == "io.requests.coalesced.num_coalesced" =>
+                {
+                    coalesced_histogram_count = histogram.count();
                 }
                 _ => {}
             }
