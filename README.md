@@ -126,6 +126,10 @@ uv sync --all-packages
 See the [development workflows](CONTRIBUTING.md#development-workflows) for Python binding and
 documentation development, including Maturin rebuilds, targeted tests, and documentation checks.
 
+`rust-toolchain.toml` pins the toolchain used for development and CI, and is kept on the latest
+stable release. Building Vortex as a dependency only requires a toolchain that satisfies the
+[Rust version compatibility policy](#rust-version-compatibility-policy).
+
 ### Benchmarking
 
 Use `vx-bench` to run benchmarks comparing engines (DataFusion, DuckDB) and formats (Parquet, Vortex):
@@ -153,6 +157,44 @@ static GLOBAL_ALLOC: MiMalloc = MiMalloc;
 ```
 
 ## Project Information
+
+### Rust Version Compatibility Policy
+
+Rust ships a stable minor release every six weeks. Releases are tracked at
+[Rust Versions](https://releases.rs) and identified by a `major.minor.patch` version string such
+as `1.97.1`.
+
+**The policy: Vortex supports the four most recent stable minor releases.** Writing the latest
+stable release as `1.N`, that means `1.N`, `1.N-1`, `1.N-2`, and `1.N-3` all build Vortex, so the
+Minimum Supported Rust Version (MSRV) declared in `Cargo.toml` must be **no newer than `1.N-3`**,
+three minor releases older than the latest stable release. Only the minor version is constrained;
+patch releases are never a factor.
+
+An MSRV *older* than `1.N-3` is always acceptable — supporting extra releases cannot break the
+guarantee. An MSRV *newer* than `1.N-3` does not meet the policy. For example, once `1.98` is the
+latest stable release:
+
+| Declared MSRV | Status |
+| --- | --- |
+| `1.94` or older | Acceptable — supports more releases than required |
+| `1.95` | Exactly on policy |
+| `1.96` or newer | Does not meet the policy |
+
+The MSRV is raised in occasional deliberate steps rather than on every Rust release, so it drifts
+relative to that bound and may briefly sit one or two releases ahead of it right after a bump. That
+is tolerated and self-corrects as subsequent Rust releases ship: an MSRV of `1.95` is one release
+ahead while `1.97` is the latest stable, and is exactly on policy once `1.98` is out.
+
+How the policy is applied:
+
+- The MSRV is declared once, as `rust-version` in the root `Cargo.toml`, and inherited by every
+  crate in the workspace. That value, not this document, is the source of truth.
+- The toolchain pinned in `rust-toolchain.toml` tracks the latest stable release and is independent
+  of the MSRV. It is what contributors and most CI jobs build with.
+- CI enforces the declared MSRV in the `Rust (MSRV)` job, which builds the publishable crates with
+  exactly that toolchain. When it fails, the first choices are to express the code without the
+  newer Rust feature, or to hold back the dependency update that raised the requirement. Raising
+  `rust-version` is a last resort.
 
 ### License
 

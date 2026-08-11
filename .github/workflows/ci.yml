@@ -290,6 +290,35 @@ jobs:
           enable-sccache: "true"
       - run: cargo minimal-versions check --direct --workspace --ignore-private
 
+  rust-msrv:
+    name: "Rust (MSRV)"
+    timeout-minutes: 30
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-msrv', github.run_id)
+          || 'ubuntu-latest' }}
+    env:
+      # MSRV is about the language and dependency floor; lints are enforced by the Rust lint jobs.
+      RUSTFLAGS: "-A warnings"
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: "true"
+      # `--rust-version` reads `rust-version` from each package and runs the check on exactly that
+      # toolchain, installing it through rustup if it is missing.
+      #
+      # If this fails, prefer expressing the code without the newer Rust feature, or holding back
+      # the dependency update that raised the requirement, over bumping `rust-version`. See the
+      # Rust version compatibility policy:
+      # https://github.com/vortex-data/vortex#rust-version-compatibility-policy
+      - name: Check publishable crates against the MSRV
+        run: cargo hack --rust-version --no-dev-deps --ignore-private check --profile ci --all-features
+
   rust-lint:
     name: "Rust (lint)"
     needs: duckdb-ready

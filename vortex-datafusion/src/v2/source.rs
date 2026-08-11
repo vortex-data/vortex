@@ -362,7 +362,7 @@ impl fmt::Debug for VortexDataSource {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("VortexScanSource")
             .field("schema", &self.leftover_schema)
-            .field("projection", &format!("{}", &self.projected_projection))
+            .field("projection", &format!("{}", self.projected_projection))
             .field("filter", &self.filter.as_ref().map(|e| format!("{}", e)))
             .field("limit", &self.limit)
             .finish()

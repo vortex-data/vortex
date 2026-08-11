@@ -145,7 +145,7 @@ fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyRes
             if names != dtype.names() {
                 return Err(PyValueError::new_err(format!(
                     "Dictionary field names {:?} do not match target dtype names {:?}",
-                    &names,
+                    names,
                     dtype.names()
                 )));
             }
