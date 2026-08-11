@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use once_cell::sync::OnceCell;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::plan::PlanRef;
@@ -72,23 +71,6 @@ impl PlanChildren {
     /// Materializes all children into an eager vector.
     pub fn to_vec(&self) -> VortexResult<Vec<PlanRef>> {
         self.iter().collect()
-    }
-
-    /// Returns a child collection with one slot replaced.
-    pub fn with_child(&self, index: usize, child: PlanRef) -> VortexResult<Self> {
-        if index >= self.len() {
-            vortex_bail!("Plan child index out of bounds: {index} of {}", self.len());
-        }
-
-        let source = self.clone();
-        Ok(Self::lazy(source.len(), move |child_index| {
-            if child_index == index {
-                return Ok(child.clone());
-            }
-            source
-                .get(child_index)?
-                .ok_or_else(|| vortex_err!("Plan child {child_index} is absent"))
-        }))
     }
 }
 

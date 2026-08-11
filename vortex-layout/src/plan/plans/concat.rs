@@ -31,7 +31,13 @@ pub struct ConcatData {
 pub type ConcatPlan = Plan<Concat>;
 
 impl ConcatPlan {
-    pub(crate) fn from_children(
+    /// Creates a concatenation from potentially unresolved children without validation.
+    ///
+    /// # Safety
+    ///
+    /// Every child must have `dtype`; `row_offsets` must contain the cumulative row offset of
+    /// every child; and the sum of all child row counts must equal `row_count` without overflow.
+    pub(crate) unsafe fn from_children_unchecked(
         dtype: DType,
         row_count: u64,
         row_offsets: Arc<[u64]>,
@@ -61,14 +67,14 @@ impl ConcatPlan {
                 );
             }
             row_offsets.push(row_count);
-            row_count += child.row_count();
+            row_count = row_count
+                .checked_add(child.row_count())
+                .ok_or_else(|| vortex_error::vortex_err!("Concat row count overflow"))?;
         }
-        Ok(Self::from_children(
-            dtype,
-            row_count,
-            row_offsets.into(),
-            children.into(),
-        ))
+        // SAFETY: Child dtypes and the checked cumulative row metadata were validated above.
+        Ok(unsafe {
+            Self::from_children_unchecked(dtype, row_count, row_offsets.into(), children.into())
+        })
     }
 
     /// Returns the first row of each child within this plan's row domain.

@@ -95,11 +95,6 @@ impl PlanRef {
         self.dyn_plan().dyn_with_children(self, children.into())
     }
 
-    /// Rebuilds this plan with one child replaced, preserving laziness in all other slots.
-    pub fn with_child(&self, index: usize, child: PlanRef) -> VortexResult<PlanRef> {
-        self.with_children(self.children().with_child(index, child)?)
-    }
-
     /// Returns the display name of the child at `index`.
     pub fn child_name(&self, index: usize) -> Cow<'_, str> {
         self.dyn_plan().dyn_child_name(self, index)

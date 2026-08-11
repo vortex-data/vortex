@@ -77,12 +77,16 @@ fn lower_chunked(layout: &ChunkedLayout) -> VortexResult<ConcatPlan> {
             .checked_add(layout.child_row_count(index))
             .ok_or_else(|| vortex_err!("Chunked row count overflow"))?;
     }
-    Ok(ConcatPlan::from_children(
-        layout.dtype().clone(),
-        layout.row_count(),
-        row_offsets.into(),
-        lazy_children(layout.to_layout(), (0..layout.nchildren()).collect()),
-    ))
+    // SAFETY: Chunked layout construction validates that every child has the parent dtype and
+    // that their row counts sum to the parent; offsets were computed with checked addition above.
+    Ok(unsafe {
+        ConcatPlan::from_children_unchecked(
+            layout.dtype().clone(),
+            layout.row_count(),
+            row_offsets.into(),
+            lazy_children(layout.to_layout(), (0..layout.nchildren()).collect()),
+        )
+    })
 }
 
 fn lower_struct(layout: &StructLayout) -> VortexResult<PackPlan> {
@@ -93,22 +97,30 @@ fn lower_struct(layout: &StructLayout) -> VortexResult<PackPlan> {
     if layout.dtype().is_nullable() {
         slots.push(0);
     }
-    Ok(PackPlan::from_children(
-        fields,
-        layout.dtype().nullability(),
-        layout.row_count(),
-        lazy_children(layout.to_layout(), slots),
-    ))
+    // SAFETY: Struct layout construction validates child count and row counts, and its logical
+    // slot schema defines every field dtype plus the optional non-nullable boolean validity dtype.
+    Ok(unsafe {
+        PackPlan::from_children_unchecked(
+            fields,
+            layout.dtype().nullability(),
+            layout.row_count(),
+            lazy_children(layout.to_layout(), slots),
+        )
+    })
 }
 
 fn lower_dict(layout: &DictLayout) -> VortexResult<TakePlan> {
     // Dict serialization stores values before codes; the plan order is deliberately codes,
     // values because that is the optimizer-facing logical shape.
-    Ok(TakePlan::from_children(
-        layout.dtype().clone(),
-        layout.row_count(),
-        lazy_children(layout.to_layout(), vec![1, 0]),
-    ))
+    // SAFETY: Dict layout construction validates its values and codes slots. The plan reorders
+    // those slots to [codes, values] while preserving the derived output dtype and row domain.
+    Ok(unsafe {
+        TakePlan::from_children_unchecked(
+            layout.dtype().clone(),
+            layout.row_count(),
+            lazy_children(layout.to_layout(), vec![1, 0]),
+        )
+    })
 }
 
 fn lower_list(layout: &ListLayout) -> VortexResult<ListPackPlan> {
@@ -116,11 +128,15 @@ fn lower_list(layout: &ListLayout) -> VortexResult<ListPackPlan> {
     if layout.dtype().is_nullable() {
         slots.push(VALIDITY_CHILD_INDEX);
     }
-    Ok(ListPackPlan::from_children(
-        layout.dtype().clone(),
-        layout.row_count(),
-        lazy_children(layout.to_layout(), slots),
-    ))
+    // SAFETY: List layout construction validates its element, offsets, and optional validity
+    // child shapes before this plan preserves them in the same logical order.
+    Ok(unsafe {
+        ListPackPlan::from_children_unchecked(
+            layout.dtype().clone(),
+            layout.row_count(),
+            lazy_children(layout.to_layout(), slots),
+        )
+    })
 }
 
 fn lazy_children(layout: LayoutRef, slots: Vec<usize>) -> PlanChildren {

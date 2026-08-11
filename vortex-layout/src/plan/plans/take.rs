@@ -4,6 +4,7 @@
 use std::borrow::Cow;
 
 use vortex_array::EmptyMetadata;
+use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_session::registry::CachedId;
 
@@ -26,8 +27,14 @@ pub struct Take;
 pub type TakePlan = Plan<Take>;
 
 impl TakePlan {
-    pub(crate) fn from_children(
-        dtype: vortex_array::dtype::DType,
+    /// Creates a take from potentially unresolved children without validation.
+    ///
+    /// # Safety
+    ///
+    /// `children` must be `[codes, values]`; `codes` must have `row_count` rows; and `dtype` must
+    /// be the values dtype unioned with the codes nullability.
+    pub(crate) unsafe fn from_children_unchecked(
+        dtype: DType,
         row_count: u64,
         children: PlanChildren,
     ) -> Self {
@@ -45,11 +52,12 @@ impl TakePlan {
     ///
     /// The row domain is that of `codes`, and the output dtype is that of `values`.
     pub fn new(codes: PlanRef, values: PlanRef) -> Self {
-        Self::from_children(
-            values.dtype().clone(),
-            codes.row_count(),
-            vec![codes, values].into(),
-        )
+        let dtype = values
+            .dtype()
+            .union_nullability(codes.dtype().nullability());
+        let row_count = codes.row_count();
+        // SAFETY: Parent metadata is derived from the ordered children immediately above.
+        unsafe { Self::from_children_unchecked(dtype, row_count, vec![codes, values].into()) }
     }
 
     /// Returns the plan producing indices.
@@ -88,7 +96,10 @@ impl PlanVTable for Take {
         let values = children
             .get(VALUES)?
             .ok_or_else(|| vortex_error::vortex_err!("Take values child is absent"))?;
-        if codes.row_count() != plan.row_count() || values.dtype() != plan.dtype() {
+        let dtype = values
+            .dtype()
+            .union_nullability(codes.dtype().nullability());
+        if codes.row_count() != plan.row_count() || &dtype != plan.dtype() {
             vortex_error::vortex_bail!("Take child shape does not match the plan output");
         }
         Ok(())

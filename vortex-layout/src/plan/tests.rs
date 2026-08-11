@@ -284,10 +284,27 @@ fn with_children_replaces_children_in_order() -> VortexResult<()> {
 }
 
 #[test]
+fn eval_try_new_validates_expression_root_dtype() -> VortexResult<()> {
+    let expression = root().bind(&primitive(PType::I32, Nullability::NonNullable))?;
+    let child = make_plan(flat(3, primitive(PType::I64, Nullability::NonNullable), 0))?;
+
+    let error = EvalPlan::try_new(expression, child)
+        .err()
+        .ok_or_else(|| vortex_err!("mismatched Eval root dtype unexpectedly succeeded"))?;
+    assert!(
+        error
+            .to_string()
+            .contains("Eval expression is not bound to child dtype i64"),
+        "unexpected error: {error}"
+    );
+    Ok(())
+}
+
+#[test]
 fn optimize_drops_identity_expressions() -> VortexResult<()> {
     let child = make_plan(flat(3, primitive(PType::I32, Nullability::NonNullable), 0))?;
     let expression = root().bind(child.dtype())?;
-    let plan: PlanRef = EvalPlan::new(expression, child).into_plan();
+    let plan: PlanRef = EvalPlan::try_new(expression, child)?.into_plan();
 
     assert!(optimize(plan)?.is::<SegmentScan>());
     Ok(())
@@ -307,7 +324,7 @@ fn optimize_rewrites_nested_children() -> VortexResult<()> {
     // Wrap the first chunk in an identity expression, which optimization should remove without
     // any chunked-specific rule.
     let chunk = child_of(&chunked, 0)?;
-    let identity: PlanRef = EvalPlan::new(root().bind(chunk.dtype())?, chunk).into_plan();
+    let identity: PlanRef = EvalPlan::try_new(root().bind(chunk.dtype())?, chunk)?.into_plan();
     let wrapped = chunked.with_children(vec![identity, child_of(&chunked, 1)?])?;
 
     let optimized = optimize(wrapped)?;
@@ -331,7 +348,7 @@ fn plan_display_matches_array_tree_display_shape() -> VortexResult<()> {
     .into_layout();
     let child = make_plan(layout)?;
     let expression = get_item("a", root()).bind(child.dtype())?;
-    let plan = EvalPlan::new(expression, child);
+    let plan = EvalPlan::try_new(expression, child)?;
 
     assert_eq!(plan.to_string(), "vortex.plan.eval(i32, rows=3) expr=$.a");
     let plan: PlanRef = plan.into_plan();
@@ -466,7 +483,7 @@ fn row_idx_plan_preserves_row_index_expressions() -> VortexResult<()> {
     let layout = flat(3, primitive(PType::I32, Nullability::NonNullable), 0);
     let plan = RowIdxPlan::new(10, make_plan(layout)?).into_plan();
     let bound_expression = row_idx().bind(plan.dtype())?;
-    let plan = optimize(EvalPlan::new(bound_expression.clone(), plan).into_plan())?;
+    let plan = optimize(EvalPlan::try_new(bound_expression.clone(), plan)?.into_plan())?;
     let expression = plan
         .as_opt::<Eval>()
         .ok_or_else(|| vortex_err!("optimized plan is not an expression plan"))?;

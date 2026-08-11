@@ -9,6 +9,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 
 use crate::plan::Plan;
@@ -34,7 +35,18 @@ pub struct ListPackData;
 pub type ListPackPlan = Plan<ListPack>;
 
 impl ListPackPlan {
-    pub(crate) fn from_children(dtype: DType, row_count: u64, children: PlanChildren) -> Self {
+    /// Creates a list assembly from potentially unresolved children without validation.
+    ///
+    /// # Safety
+    ///
+    /// `dtype` must be a list whose element dtype matches the elements child. The offsets child
+    /// must be a non-nullable integer with `row_count + 1` rows. A non-nullable boolean validity
+    /// child with `row_count` rows must be present exactly when `dtype` is nullable.
+    pub(crate) unsafe fn from_children_unchecked(
+        dtype: DType,
+        row_count: u64,
+        children: PlanChildren,
+    ) -> Self {
         PlanParts {
             vtable: ListPack,
             dtype,
@@ -56,15 +68,14 @@ impl ListPackPlan {
         offsets: PlanRef,
         validity: Option<PlanRef>,
     ) -> VortexResult<Self> {
-        if validity.is_some() != (nullability == Nullability::Nullable) {
-            vortex_bail!(
-                "ListPack validity child must be present exactly when the list is nullable"
-            );
-        }
         let dtype = DType::List(Arc::new(elements.dtype().clone()), nullability);
         let mut children = vec![elements, offsets];
         children.extend(validity);
-        Ok(Self::from_children(dtype, row_count, children.into()))
+        let children = PlanChildren::from(children);
+        validate_children(&dtype, row_count, &children)?;
+
+        // SAFETY: All child shape invariants were validated above.
+        Ok(unsafe { Self::from_children_unchecked(dtype, row_count, children) })
     }
 
     /// Returns the plan producing list elements.
@@ -102,14 +113,7 @@ impl PlanVTable for ListPack {
         children: &PlanChildren,
         _data: &mut Self::PlanData,
     ) -> VortexResult<()> {
-        if children.len() != plan.children().len() {
-            vortex_bail!(
-                "ListPack expects {} children but got {}",
-                plan.children().len(),
-                children.len()
-            );
-        }
-        Ok(())
+        validate_children(plan.dtype(), plan.row_count(), children)
     }
 
     fn child_name(_plan: &Plan<Self>, index: usize) -> Cow<'_, str> {
@@ -120,4 +124,67 @@ impl PlanVTable for ListPack {
             _ => Cow::Owned(format!("child[{index}]")),
         }
     }
+}
+
+fn validate_children(dtype: &DType, row_count: u64, children: &PlanChildren) -> VortexResult<()> {
+    let elements_dtype = dtype
+        .as_list_element_opt()
+        .ok_or_else(|| vortex_err!("ListPack output dtype must be a list, got {dtype}"))?;
+    let expected_children = 2 + usize::from(dtype.is_nullable());
+    if children.len() != expected_children {
+        vortex_bail!(
+            "ListPack expects {expected_children} children but got {}",
+            children.len()
+        );
+    }
+
+    let elements = children
+        .get(ELEMENTS)?
+        .ok_or_else(|| vortex_err!("ListPack elements child is absent"))?;
+    if elements.dtype() != elements_dtype.as_ref() {
+        vortex_bail!(
+            "ListPack elements child has dtype {} but the list element dtype is {}",
+            elements.dtype(),
+            elements_dtype
+        );
+    }
+
+    let offsets = children
+        .get(OFFSETS)?
+        .ok_or_else(|| vortex_err!("ListPack offsets child is absent"))?;
+    if !offsets.dtype().is_int() || offsets.dtype().is_nullable() {
+        vortex_bail!(
+            "ListPack offsets child must have a non-nullable integer dtype, got {}",
+            offsets.dtype()
+        );
+    }
+    let offsets_row_count = row_count
+        .checked_add(1)
+        .ok_or_else(|| vortex_err!("ListPack offsets row count overflow"))?;
+    if offsets.row_count() != offsets_row_count {
+        vortex_bail!(
+            "ListPack offsets child has {} rows but must have {offsets_row_count}",
+            offsets.row_count()
+        );
+    }
+
+    if dtype.is_nullable() {
+        let validity = children
+            .get(VALIDITY)?
+            .ok_or_else(|| vortex_err!("ListPack validity child is absent"))?;
+        let validity_dtype = DType::Bool(Nullability::NonNullable);
+        if validity.dtype() != &validity_dtype {
+            vortex_bail!(
+                "ListPack validity child has dtype {} but must have dtype {validity_dtype}",
+                validity.dtype()
+            );
+        }
+        if validity.row_count() != row_count {
+            vortex_bail!(
+                "ListPack validity child has {} rows but the plan has {row_count}",
+                validity.row_count()
+            );
+        }
+    }
+    Ok(())
 }

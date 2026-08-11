@@ -227,6 +227,22 @@ impl BoundExpression {
         matches!(self.kind, BoundKind::Root)
     }
 
+    /// Return whether every scope root in this expression has `dtype`.
+    ///
+    /// Expressions without a scope root, such as literals, match every dtype.
+    pub fn is_root_bound_to(&self, dtype: &DType) -> bool {
+        let mut is_bound_to = true;
+        pre_order_visit_down(self, |node| {
+            if node.is_root() && node.dtype() != dtype {
+                is_bound_to = false;
+                return Ok(TraversalOrder::Stop);
+            }
+            Ok(TraversalOrder::Continue)
+        })
+        .vortex_expect("bound expression traversal cannot not fail");
+        is_bound_to
+    }
+
     /// Return an expression that proves this predicate is definitely false from statistics.
     pub fn falsify(&self, session: &VortexSession) -> VortexResult<Option<BoundExpression>> {
         StatsRewriteCtx::new(session).falsify(self)
@@ -358,6 +374,20 @@ mod tests {
         let bound = eq(col("a"), lit(1_i32)).bind_scope(&scope())?;
         assert!(bound.contains::<Literal>()?);
         assert!(!root().bind_scope(&scope())?.contains::<Literal>()?);
+        Ok(())
+    }
+
+    #[test]
+    fn bound_to_checks_every_root() -> VortexResult<()> {
+        let dtype = struct_dtype();
+        let bound = eq(col("a"), col("a")).bind(&dtype)?;
+        assert!(bound.is_root_bound_to(&dtype));
+        assert!(!bound.is_root_bound_to(&DType::Bool(Nullability::NonNullable)));
+        assert!(
+            lit(true)
+                .bind(&dtype)?
+                .is_root_bound_to(&DType::Bool(Nullability::NonNullable))
+        );
         Ok(())
     }
 

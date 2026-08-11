@@ -10,6 +10,7 @@ use vortex_array::dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 
 use crate::plan::Plan;
@@ -31,7 +32,14 @@ pub struct PackData;
 pub type PackPlan = Plan<Pack>;
 
 impl PackPlan {
-    pub(crate) fn from_children(
+    /// Creates a struct assembly from potentially unresolved children without validation.
+    ///
+    /// # Safety
+    ///
+    /// `children` must contain one child per field, followed by a non-nullable boolean validity
+    /// child exactly when `nullability` is nullable. Every child must have `row_count` rows, and
+    /// every field child must have its corresponding field dtype.
+    pub(crate) unsafe fn from_children_unchecked(
         fields: StructFields,
         nullability: Nullability,
         row_count: u64,
@@ -49,7 +57,9 @@ impl PackPlan {
 
     /// Creates a struct assembly from `fields` and one child per field.
     ///
-    /// `validity` is required exactly when `nullability` is [`Nullability::Nullable`].
+    /// Each field child must have the corresponding field dtype and `row_count` rows. `validity`
+    /// is required exactly when `nullability` is [`Nullability::Nullable`] and must produce
+    /// non-nullable booleans with `row_count` rows.
     pub fn try_new(
         fields: StructFields,
         nullability: Nullability,
@@ -68,14 +78,40 @@ impl PackPlan {
             vortex_bail!("Pack validity child must be present exactly when the struct is nullable");
         }
 
+        for (index, (field_dtype, field_plan)) in
+            fields.fields().zip(field_plans.iter()).enumerate()
+        {
+            validate_field_child(index, &field_dtype, row_count, field_plan)?;
+        }
+        if let Some(validity) = validity.as_ref() {
+            validate_validity_child(row_count, validity)?;
+        }
+
+        // SAFETY: The child count, presence, dtypes, and row counts were validated above.
+        Ok(unsafe { Self::new_unchecked(fields, nullability, row_count, field_plans, validity) })
+    }
+
+    /// Creates a struct assembly without validating its children.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that:
+    ///
+    /// - `field_plans` contains exactly one child per field, in field order;
+    /// - every field child has the corresponding field dtype and `row_count` rows; and
+    /// - `validity` is present exactly when the struct is nullable and, when present, produces
+    ///   non-nullable booleans with `row_count` rows.
+    pub unsafe fn new_unchecked(
+        fields: StructFields,
+        nullability: Nullability,
+        row_count: u64,
+        field_plans: Vec<PlanRef>,
+        validity: Option<PlanRef>,
+    ) -> Self {
         let mut children = field_plans;
         children.extend(validity);
-        Ok(Self::from_children(
-            fields,
-            nullability,
-            row_count,
-            children.into(),
-        ))
+        // SAFETY: The caller guarantees the same child invariants required by this constructor.
+        unsafe { Self::from_children_unchecked(fields, nullability, row_count, children.into()) }
     }
 
     /// Returns the struct fields assembled by this plan.
@@ -115,23 +151,76 @@ impl PlanVTable for Pack {
         children: &PlanChildren,
         _data: &mut Self::PlanData,
     ) -> VortexResult<()> {
-        if children.len() != plan.children().len() {
+        let expected_children = plan.nfields() + usize::from(plan.dtype().is_nullable());
+        if children.len() != expected_children {
             vortex_bail!(
-                "Pack expects {} children but got {}",
-                plan.children().len(),
+                "Pack expects {expected_children} children but got {}",
                 children.len()
             );
+        }
+
+        for (index, field_dtype) in plan.fields().fields().enumerate() {
+            let child = children
+                .get(index)?
+                .ok_or_else(|| vortex_err!("Pack field child {index} is absent"))?;
+            validate_field_child(index, &field_dtype, plan.row_count(), &child)?;
+        }
+        if plan.dtype().is_nullable() {
+            let validity = children
+                .get(plan.nfields())?
+                .ok_or_else(|| vortex_err!("Pack validity child is absent"))?;
+            validate_validity_child(plan.row_count(), &validity)?;
         }
         Ok(())
     }
 
     fn child_name(plan: &Plan<Self>, index: usize) -> Cow<'_, str> {
+        assert!(
+            index < plan.children().len(),
+            "Pack child index out of bounds: {index} of {}",
+            plan.children().len()
+        );
         if let Some(name) = plan.fields().field_name(index) {
             return Cow::Borrowed(name.as_ref());
         }
-        if index == plan.fields().nfields() {
-            return Cow::Borrowed("validity");
-        }
-        Cow::Owned(format!("child[{index}]"))
+        Cow::Borrowed("validity")
     }
+}
+
+fn validate_field_child(
+    index: usize,
+    expected_dtype: &DType,
+    expected_row_count: u64,
+    child: &PlanRef,
+) -> VortexResult<()> {
+    if child.dtype() != expected_dtype {
+        vortex_bail!(
+            "Pack field child {index} has dtype {} but the field has dtype {expected_dtype}",
+            child.dtype()
+        );
+    }
+    if child.row_count() != expected_row_count {
+        vortex_bail!(
+            "Pack field child {index} has {} rows but the plan has {expected_row_count}",
+            child.row_count()
+        );
+    }
+    Ok(())
+}
+
+fn validate_validity_child(expected_row_count: u64, child: &PlanRef) -> VortexResult<()> {
+    let expected_dtype = DType::Bool(Nullability::NonNullable);
+    if child.dtype() != &expected_dtype {
+        vortex_bail!(
+            "Pack validity child has dtype {} but must have dtype {expected_dtype}",
+            child.dtype()
+        );
+    }
+    if child.row_count() != expected_row_count {
+        vortex_bail!(
+            "Pack validity child has {} rows but the plan has {expected_row_count}",
+            child.row_count()
+        );
+    }
+    Ok(())
 }

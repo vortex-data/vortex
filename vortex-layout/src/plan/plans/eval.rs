@@ -7,6 +7,7 @@ use std::fmt;
 use vortex_array::EmptyMetadata;
 use vortex_array::expr::BoundExpression;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_session::registry::CachedId;
 
 use crate::plan::Plan;
@@ -32,7 +33,19 @@ pub type EvalPlan = Plan<Eval>;
 
 impl EvalPlan {
     /// Creates an evaluation of `expression`, which must be bound to the child's dtype.
-    pub fn new(expression: BoundExpression, child: PlanRef) -> Self {
+    pub fn try_new(expression: BoundExpression, child: PlanRef) -> VortexResult<Self> {
+        validate_expression_child(&expression, &child)?;
+
+        // SAFETY: The expression root dtype was validated against the child dtype above.
+        Ok(unsafe { Self::new_unchecked(expression, child) })
+    }
+
+    /// Creates an evaluation without validating the expression's root dtype.
+    ///
+    /// # Safety
+    ///
+    /// Every scope root in `expression` must have the same dtype as `child`.
+    pub unsafe fn new_unchecked(expression: BoundExpression, child: PlanRef) -> Self {
         PlanParts {
             vtable: Eval,
             dtype: expression.dtype().clone(),
@@ -81,6 +94,7 @@ impl PlanVTable for Eval {
         let child = children
             .get(0)?
             .ok_or_else(|| vortex_error::vortex_err!("Eval child is absent"))?;
+        validate_expression_child(plan.expression(), &child)?;
         if child.row_count() != plan.row_count() {
             vortex_error::vortex_bail!(
                 "Eval child has {} rows but the plan has {}",
@@ -98,4 +112,14 @@ impl PlanVTable for Eval {
             Cow::Owned(format!("child[{index}]"))
         }
     }
+}
+
+fn validate_expression_child(expression: &BoundExpression, child: &PlanRef) -> VortexResult<()> {
+    if !expression.is_root_bound_to(child.dtype()) {
+        vortex_bail!(
+            "Eval expression is not bound to child dtype {}",
+            child.dtype()
+        );
+    }
+    Ok(())
 }
