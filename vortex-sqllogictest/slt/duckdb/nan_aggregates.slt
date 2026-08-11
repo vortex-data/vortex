@@ -123,7 +123,7 @@ COPY (
 query IRR
 SELECT count(x), sum(x), max(x) FROM '${WORK_DIR}/all-null.vortex';
 ----
-0 NULL NULL
+0 0 NULL
 
 query R
 SELECT min(x) FROM '${WORK_DIR}/all-null.vortex';

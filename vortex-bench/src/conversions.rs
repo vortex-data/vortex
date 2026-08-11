@@ -53,8 +53,8 @@ use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex::session::VortexSession;
 use vortex::utils::aliases::hash_set::HashSet;
 use vortex::utils::parallelism::get_available_parallelism;
+use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::FromArrowArray;
-use vortex_arrow::FromArrowType;
 use vortex_spatial::extension::SpatialMetadata;
 use vortex_spatial::extension::WellKnownBinary;
 use wkb::Endianness;
@@ -146,7 +146,9 @@ pub async fn convert_parquet_file_to_vortex(
     // GeoParquet geometry tagging.
     let spatial_columns = geoparquet_columns(builder.metadata());
     let dtype = tag_spatial_dtype(
-        DType::from_arrow(builder.schema().as_ref()),
+        SESSION
+            .arrow()
+            .from_arrow_schema(builder.schema().as_ref())?,
         &spatial_columns,
     )?;
     let stream = parquet_to_vortex_stream(builder.build()?)

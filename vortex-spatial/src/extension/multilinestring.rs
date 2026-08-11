@@ -38,7 +38,6 @@ use vortex_arrow::ArrowImportVTable;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::FromArrowArray;
-use vortex_arrow::FromArrowType;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -249,7 +248,11 @@ impl ArrowImportVTable for MultiLineString {
 
     /// Import a `geoarrow.multilinestring` field (matched by GeoArrow name). Accepts the full
     /// `MultiLineStringType`, or a metadata-less literal (name only), inferring the dimension.
-    fn from_arrow_field(&self, field: &Field) -> VortexResult<Option<DType>> {
+    fn from_arrow_field(
+        &self,
+        field: &Field,
+        session: &ArrowSession,
+    ) -> VortexResult<Option<DType>> {
         let (dimension, metadata) =
             if let Ok(multilinestring_meta) = field.try_extension_type::<MultiLineStringType>() {
                 vortex_ensure!(
@@ -267,7 +270,9 @@ impl ArrowImportVTable for MultiLineString {
                 if field.extension_type_name() != Some(MultiLineStringType::NAME) {
                     return Ok(None);
                 }
-                let DType::List(line, _) = DType::from_arrow(field) else {
+                let Ok(DType::List(line, _)) =
+                    session.from_arrow_datatype(field.data_type(), field.is_nullable().into())
+                else {
                     return Ok(None);
                 };
                 let DType::List(coords, _) = line.as_ref() else {

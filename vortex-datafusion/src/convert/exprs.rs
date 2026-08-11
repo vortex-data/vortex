@@ -48,7 +48,7 @@ use vortex::scalar_fn::fns::operators::Operator;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 
-use crate::convert::FromDataFusion;
+use crate::convert::scalar_from_df;
 
 /// Result of splitting a projection into Vortex expressions and leftover DataFusion projections.
 pub struct ProcessedProjection {
@@ -347,7 +347,7 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
         }
 
         if let Some(literal) = df.downcast_ref::<df_expr::Literal>() {
-            let value = Scalar::from_df(literal.value());
+            let value = scalar_from_df(literal.value(), &self.session);
             return Ok(lit(value));
         }
 
@@ -378,7 +378,7 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
                 .iter()
                 .map(|e| {
                     if let Some(lit) = e.downcast_ref::<df_expr::Literal>() {
-                        Ok(Scalar::from_df(lit.value()))
+                        Ok(scalar_from_df(lit.value(), &self.session))
                     } else {
                         Err(exec_datafusion_err!("Failed to cast sub-expression"))
                     }

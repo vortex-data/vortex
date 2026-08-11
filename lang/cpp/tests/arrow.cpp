@@ -23,8 +23,9 @@ namespace {
 using enum vortex::PType;
 
 TEST_CASE("dtype to ArrowSchema", "[arrow]") {
+    Session session;
     DataType d = sample_dtype();
-    ArrowSchema schema = d.to_arrow();
+    ArrowSchema schema = d.to_arrow(session);
 
     nanoarrow::UniqueSchema unique_schema;
     ArrowSchemaMove(&schema, unique_schema.get());
@@ -41,7 +42,8 @@ TEST_CASE("dtype from ArrowSchema", "[arrow]") {
 
     ArrowSchema raw = {};
     ArrowSchemaMove(schema.get(), &raw);
-    DataType d = DataType::from_arrow(&raw);
+    Session session;
+    DataType d = DataType::from_arrow(session, &raw);
     REQUIRE(d.variant() == DataTypeVariant::Struct);
     const std::vector<StructField> fields = d.fields();
     REQUIRE(fields.size() == 1);

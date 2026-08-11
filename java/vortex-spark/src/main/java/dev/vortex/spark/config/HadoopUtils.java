@@ -35,6 +35,11 @@ public final class HadoopUtils {
                         qualified = "https://" + qualified;
                     }
                     properties.setEndpoint(qualified);
+                    // object_store rejects plain-HTTP endpoints (LocalStack, MinIO, S3Mock)
+                    // unless explicitly allowed.
+                    if (qualified.startsWith("http://")) {
+                        properties.setAllowHttp(true);
+                    }
                     break;
                 case FS_S3A_ENDPOINT_REGION:
                     properties.setRegion(entry.getValue());

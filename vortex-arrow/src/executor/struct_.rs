@@ -21,14 +21,13 @@ use vortex_array::arrays::struct_::StructDataParts;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
-use vortex_array::dtype::StructFields;
 use vortex_array::matcher::Matcher;
 use vortex_array::scalar_fn::fns::pack::Pack;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::ArrowArrayExecutor;
-use crate::dtype::FromArrowType;
+use crate::executor::infer_nearest_arrow_field;
 use crate::executor::validity::to_arrow_null_buffer;
 use crate::session::ArrowSessionExt;
 
@@ -106,7 +105,7 @@ pub(super) fn to_arrow_struct(
 
     // Otherwise, we fall back to executing to a StructArray.
     let array = if let Some(fields) = target_fields {
-        let vx_fields = StructFields::from_arrow(fields);
+        let vx_fields = ctx.session().arrow().from_arrow_fields(fields)?;
         // We apply a cast to ensure we push down casting where possible into the struct fields.
         array.cast(DType::Struct(
             vx_fields,
@@ -177,26 +176,27 @@ fn create_from_fields(
             }))
         }
         Err(names) => {
-            // No target fields specified - use preferred types for each child
+            // No target fields specified - use preferred types for each child. The inferred field
+            // is what carries any `ARROW:extension:name` metadata, which the executed array's bare
+            // `DataType` cannot, so build the child fields from it rather than from the array.
             let mut arrow_arrays = Vec::with_capacity(vortex_fields.len());
-            for vx_field in vortex_fields.iter() {
+            let mut arrow_fields = Vec::with_capacity(vortex_fields.len());
+            for (name, vx_field) in names.iter().zip_eq(vortex_fields.iter()) {
+                let inferred = infer_nearest_arrow_field(vx_field, name.as_ref(), ctx)?;
                 let arrow_array = vx_field.clone().execute_arrow(None, ctx)?;
+                // The executed array is authoritative for the physical type; only the metadata is
+                // taken from the inferred field.
+                arrow_fields.push(Arc::new(
+                    Field::new(
+                        name.as_ref(),
+                        arrow_array.data_type().clone(),
+                        vx_field.dtype().is_nullable(),
+                    )
+                    .with_metadata(inferred.metadata().clone()),
+                ));
                 arrow_arrays.push(arrow_array);
             }
-
-            // Build the Arrow fields from the resulting arrays
-            let arrow_fields: Fields = names
-                .iter()
-                .zip_eq(arrow_arrays.iter())
-                .zip_eq(vortex_fields.iter().map(|f| f.dtype().is_nullable()))
-                .map(|((name, arr), vx_nullable)| {
-                    Arc::new(Field::new(
-                        name.as_ref(),
-                        arr.data_type().clone(),
-                        vx_nullable,
-                    ))
-                })
-                .collect();
+            let arrow_fields = Fields::from(arrow_fields);
 
             Ok(Arc::new(unsafe {
                 ArrowStructArray::new_unchecked_with_length(

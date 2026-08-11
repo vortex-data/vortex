@@ -11,11 +11,10 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_error::VortexResult;
 
-use crate::dtype::FromArrowType;
+use crate::dtype::from_arrow_data_type;
 use crate::null_buffer::to_null_buffer;
 
 /// Convert a canonical VarBinViewArray directly to Arrow.
@@ -59,7 +58,7 @@ pub(super) fn to_arrow_byte_view<T: ByteViewType>(
     // We do this in case the vortex array is Utf8, and we want Binary or vice versa. By casting
     // first, we may push this down through the Vortex array tree. We choose nullable to be most
     // flexible since there's no prescribed nullability in Arrow types.
-    let array = array.cast(DType::from_arrow((&T::DATA_TYPE, Nullability::Nullable)))?;
+    let array = array.cast(from_arrow_data_type(&T::DATA_TYPE, Nullability::Nullable)?)?;
 
     let array = array.execute::<ArrayRef>(ctx)?;
     let varbinview = array.execute::<VarBinViewArray>(ctx)?;

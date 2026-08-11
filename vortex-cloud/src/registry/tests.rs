@@ -14,7 +14,7 @@ use super::Registry;
 /// A registry whose S3 configuration comes from a fixed map rather than the process environment,
 /// so these tests neither read nor mutate global state.
 fn registry() -> Registry {
-    Registry::with_env([("AWS_REGION".to_string(), "us-east-3".to_string())])
+    Registry::with_vars([("AWS_REGION".to_string(), "us-east-3".to_string())])
 }
 
 /// A percent-encoded segment (as HuggingFace dataset URLs use for `refs/convert/parquet`) decodes

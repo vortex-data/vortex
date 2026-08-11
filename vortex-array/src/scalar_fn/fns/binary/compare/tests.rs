@@ -7,6 +7,7 @@ use rstest::rstest;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -24,6 +25,8 @@ use crate::arrays::StructArray;
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinViewArray;
 use crate::assert_arrays_eq;
+use crate::builders::ArrayBuilder;
+use crate::builders::MapBuilder;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
@@ -670,4 +673,190 @@ fn binary_compare() {
 
     let result = execute_compare_test(lhs, rhs, Operator::Eq);
     assert_arrays_eq!(result, BoolArray::from_iter([false, false, true]), &mut ctx);
+}
+
+/// A `map(i32, utf8?)` dtype that makes no sortedness assertion.
+fn map_dtype(nullability: Nullability) -> VortexResult<DType> {
+    DType::map(
+        DType::Primitive(PType::I32, Nullability::NonNullable),
+        DType::Utf8(Nullability::Nullable),
+        false,
+        nullability,
+    )
+}
+
+type MapRow = Vec<(i32, Option<&'static str>)>;
+
+fn map_scalar(nullability: Nullability, entries: MapRow) -> VortexResult<Scalar> {
+    Scalar::try_map(
+        map_dtype(nullability)?,
+        entries.into_iter().map(|(key, value)| {
+            (
+                Scalar::primitive(key, Nullability::NonNullable),
+                match value {
+                    Some(value) => Scalar::utf8(value, Nullability::Nullable),
+                    None => Scalar::null(DType::Utf8(Nullability::Nullable)),
+                },
+            )
+        }),
+    )
+}
+
+fn map_array(
+    nullability: Nullability,
+    rows: impl IntoIterator<Item = Option<MapRow>>,
+) -> VortexResult<ArrayRef> {
+    let rows = rows.into_iter().collect::<Vec<_>>();
+    let dtype = map_dtype(nullability)?;
+    let map_dtype = dtype.as_map_opt().vortex_expect("map dtype").clone();
+    let mut builder = MapBuilder::<u64, u64>::with_capacity(map_dtype, nullability, rows.len());
+    for row in rows {
+        let scalar = match row {
+            Some(entries) => map_scalar(nullability, entries)?,
+            None => Scalar::null(dtype.clone()),
+        };
+        builder.append_scalar(&scalar)?;
+    }
+    Ok(builder.finish_into_map().into_array())
+}
+
+/// Maps compare as the ordered sequence of their `{key, value}` entries: entry-wise first, then
+/// by entry count. A null map value orders before every non-null one.
+#[rstest]
+#[case(Operator::Eq, [true, false, false, false, true])]
+#[case(Operator::NotEq, [false, true, true, true, false])]
+#[case(Operator::Lt, [false, true, false, false, false])]
+#[case(Operator::Lte, [true, true, false, false, true])]
+#[case(Operator::Gt, [false, false, true, true, false])]
+#[case(Operator::Gte, [true, false, true, true, true])]
+fn map_compare_all_operators(
+    #[case] op: Operator,
+    #[case] expected: [bool; 5],
+) -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let lhs = map_array(
+        Nullability::NonNullable,
+        [
+            // Identical entries.
+            Some(vec![(1, Some("a")), (2, Some("b"))]),
+            // A strict prefix of the right-hand row, so it orders first.
+            Some(vec![(1, Some("a"))]),
+            // Keys break the tie before values do.
+            Some(vec![(2, Some("a"))]),
+            // A null map value orders before a non-null one.
+            Some(vec![(1, Some("a"))]),
+            // Two empty maps.
+            Some(vec![]),
+        ],
+    )?;
+    let rhs = map_array(
+        Nullability::NonNullable,
+        [
+            Some(vec![(1, Some("a")), (2, Some("b"))]),
+            Some(vec![(1, Some("a")), (2, Some("b"))]),
+            Some(vec![(1, Some("z"))]),
+            Some(vec![(1, None)]),
+            Some(vec![]),
+        ],
+    )?;
+
+    let result = execute_compare_test(lhs, rhs, op);
+    assert_arrays_eq!(result, BoolArray::from_iter(expected), &mut ctx);
+
+    Ok(())
+}
+
+/// Only top-level nulls make a map comparison null; an empty map is not a null map.
+#[test]
+fn map_compare_nulls() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let lhs = map_array(
+        Nullability::Nullable,
+        [None, None, Some(vec![]), Some(vec![(1, Some("a"))])],
+    )?;
+    let rhs = map_array(
+        Nullability::Nullable,
+        [None, Some(vec![]), Some(vec![]), Some(vec![(1, Some("a"))])],
+    )?;
+
+    let result = execute_compare_test(lhs, rhs, Operator::Eq)
+        .execute::<BoolArray>(&mut ctx)
+        .vortex_expect("bool array");
+    let expected = BoolArray::from_iter([None, None, Some(true), Some(true)]);
+    assert_arrays_eq!(result, expected, &mut ctx);
+
+    Ok(())
+}
+
+/// A map array compared against a constant map, and two constant maps compared through
+/// [`scalar_cmp`], agree with the row-wise kernel.
+#[test]
+fn map_constant_compare() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let array = map_array(
+        Nullability::NonNullable,
+        [
+            Some(vec![(1, Some("a"))]),
+            Some(vec![(1, Some("a")), (2, Some("b"))]),
+            Some(vec![(9, Some("a"))]),
+        ],
+    )?;
+    let needle = map_scalar(Nullability::NonNullable, vec![(1, Some("a"))])?;
+    let constant = ConstantArray::new(needle.clone(), array.len()).into_array();
+
+    let result = execute_compare_test(array.clone(), constant.clone(), Operator::Eq);
+    assert_arrays_eq!(result, BoolArray::from_iter([true, false, false]), &mut ctx);
+
+    let result = execute_compare_test(array, constant, Operator::Lt);
+    assert_arrays_eq!(
+        result,
+        BoolArray::from_iter([false, false, false]),
+        &mut ctx
+    );
+
+    // Constant-vs-constant folds through `scalar_cmp`.
+    let bigger = map_scalar(
+        Nullability::NonNullable,
+        vec![(1, Some("a")), (2, Some("b"))],
+    )?;
+    assert_eq!(
+        scalar_cmp(&needle, &bigger, CompareOperator::Lt)?,
+        Scalar::bool(true, Nullability::NonNullable)
+    );
+    assert_eq!(
+        scalar_cmp(&needle, &needle, CompareOperator::Eq)?,
+        Scalar::bool(true, Nullability::NonNullable)
+    );
+
+    Ok(())
+}
+
+/// Maps nested inside another nested type compare through the same row comparator tree.
+#[test]
+fn struct_of_map_compare() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let lhs = StructArray::from_fields(&[(
+        "m",
+        map_array(
+            Nullability::NonNullable,
+            [Some(vec![(1, Some("a"))]), Some(vec![(1, Some("a"))])],
+        )?,
+    )])?
+    .into_array();
+    let rhs = StructArray::from_fields(&[(
+        "m",
+        map_array(
+            Nullability::NonNullable,
+            [Some(vec![(1, Some("a"))]), Some(vec![(1, Some("b"))])],
+        )?,
+    )])?
+    .into_array();
+
+    let result = execute_compare_test(lhs.clone(), rhs.clone(), Operator::Eq);
+    assert_arrays_eq!(result, BoolArray::from_iter([true, false]), &mut ctx);
+
+    let result = execute_compare_test(lhs, rhs, Operator::Lt);
+    assert_arrays_eq!(result, BoolArray::from_iter([false, true]), &mut ctx);
+
+    Ok(())
 }

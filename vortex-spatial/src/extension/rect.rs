@@ -45,7 +45,6 @@ use vortex_arrow::ArrowImportVTable;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::FromArrowArray;
-use vortex_arrow::FromArrowType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -280,7 +279,11 @@ impl ArrowImportVTable for Rect {
     /// Import a `geoarrow.box` field as the [`Rect`] dtype. Keyed off the standard GeoArrow name,
     /// so any producer resolves here. Accepts the full `BoxType` extension, or — for a
     /// metadata-less literal — the name alone, inferring the dimension from the field names.
-    fn from_arrow_field(&self, field: &Field) -> VortexResult<Option<DType>> {
+    fn from_arrow_field(
+        &self,
+        field: &Field,
+        session: &ArrowSession,
+    ) -> VortexResult<Option<DType>> {
         let (dimension, metadata) = if let Ok(box_meta) = field.try_extension_type::<BoxType>() {
             (
                 box_meta.dimension().into(),
@@ -292,7 +295,9 @@ impl ArrowImportVTable for Rect {
             }
             // Infer from field names, not the strict `box_dimension` check: a literal's fields may
             // be nullable, which that check rejects.
-            let DType::Struct(fields, _) = DType::from_arrow(field) else {
+            let Ok(DType::Struct(fields, _)) =
+                session.from_arrow_datatype(field.data_type(), field.is_nullable().into())
+            else {
                 return Ok(None);
             };
             let Some(dimension) = box_dimension_from_names(fields.names()) else {

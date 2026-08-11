@@ -18,7 +18,6 @@ use vortex::aggregate_fn::fns::max::Max;
 use vortex::aggregate_fn::fns::mean::Mean;
 use vortex::aggregate_fn::fns::min::Min;
 use vortex::aggregate_fn::fns::sum::Sum;
-use vortex::aggregate_fn::fns::sum::SumAggregateOpts;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
@@ -534,14 +533,10 @@ impl PushedAggregate {
         Ok(match self {
             Self::Min => Box::new(Accumulator::try_new(Min, opts, dtype)?),
             Self::Max => Box::new(Accumulator::try_new(Max, opts, dtype)?),
-            Self::Sum => Box::new(Accumulator::try_new(
-                Sum,
-                SumAggregateOpts::from(opts),
-                dtype,
-            )?),
+            Self::Sum => Box::new(Accumulator::try_new(Sum, opts, dtype)?),
             Self::Mean => Box::new(Accumulator::try_new(
                 Mean::combined(),
-                PairOptions(opts.into(), opts),
+                PairOptions(opts, opts),
                 dtype,
             )?),
             Self::First => Box::new(Accumulator::try_new(First, AggregateEmptyOptions, dtype)?),

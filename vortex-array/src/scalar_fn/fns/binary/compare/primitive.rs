@@ -18,10 +18,10 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::binary::PrimitiveOperand;
 use crate::scalar_fn::fns::binary::compare::collect_bits;
 use crate::scalar_fn::fns::binary::compare::collect_zip_bits;
 use crate::scalar_fn::fns::binary::compare::compare_validity;
+use crate::scalar_fn::fns::binary::primitive_operand::PrimitiveOperand;
 use crate::scalar_fn::fns::operators::CompareOperator;
 
 /// Compare two primitive arrays of the same [`PType`].

@@ -27,6 +27,7 @@ use vortex_runend::RunEndArrayExt;
 use vortex_runend::RunEndArraySlotsExt;
 
 use crate::ArrowArrayExecutor;
+use crate::session::ArrowSessionExt;
 
 /// Matches the encodings [`to_arrow_run_end`] requires for export.
 struct ArrowRunEndExportable;
@@ -57,12 +58,25 @@ pub(super) fn to_arrow_run_end(
     };
 
     // Fallback: canonicalize to flat Arrow, then cast to REE.
-    let flat = array.execute_arrow(Some(values_type.data_type()), ctx)?;
+    let flat = export_values(array, values_type, ctx)?;
     let ree_type = DataType::RunEndEncoded(
         Arc::new(Field::new("run_ends", ends_type.clone(), false)),
         Arc::new(values_type.clone()),
     );
     arrow_cast::cast(&flat, &ree_type).map_err(VortexError::from)
+}
+
+/// Export the values of a run-end array through the session, so extension metadata on the target
+/// values field dispatches to its export plugin instead of the naive Arrow mapping.
+fn export_values(
+    values: ArrayRef,
+    values_type: &Field,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrowArrayRef> {
+    ctx.session()
+        .clone()
+        .arrow()
+        .execute_arrow(values, Some(values_type), ctx)
 }
 
 fn run_end_to_arrow(
@@ -75,10 +89,7 @@ fn run_end_to_arrow(
     let offset = array.offset();
 
     let arrow_ends = array.ends().clone().execute_arrow(Some(ends_type), ctx)?;
-    let arrow_values = array
-        .values()
-        .clone()
-        .execute_arrow(Some(values_type.data_type()), ctx)?;
+    let arrow_values = export_values(array.values().clone(), values_type, ctx)?;
 
     match ends_type {
         DataType::Int16 => build_run_array::<Int16Type>(&arrow_ends, &arrow_values, offset, length),
@@ -146,9 +157,11 @@ fn constant_to_run_end(
         return Ok(new_null_array(&ree_type, len));
     }
 
-    let values = ConstantArray::new(scalar.clone(), 1)
-        .into_array()
-        .execute_arrow(Some(values_type.data_type()), ctx)?;
+    let values = export_values(
+        ConstantArray::new(scalar.clone(), 1).into_array(),
+        values_type,
+        ctx,
+    )?;
 
     match ends_type {
         DataType::Int16 => build_constant_run_array::<Int16Type>(len, &values),

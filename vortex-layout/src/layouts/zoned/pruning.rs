@@ -34,7 +34,6 @@ use crate::LazyReaderChildren;
 use crate::VTable;
 use crate::layouts::zoned::ZonedData;
 use crate::layouts::zoned::zone_map::ZoneMap;
-use crate::layouts::zoned::zone_map::normalize_sum_partial_fields;
 
 type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
 pub(super) type SharedPruningResult =
@@ -170,7 +169,6 @@ impl PruningState {
                 async move {
                     let mut ctx = session.create_execution_ctx();
                     let zones_array = zones_eval.await?.execute::<StructArray>(&mut ctx)?;
-                    let zones_array = normalize_sum_partial_fields(zones_array, &aggregate_fns)?;
                     // SAFETY: zoned layout validation checked that this zones child was
                     // written from the same column dtype and aggregate stats-table schema.
                     Ok(unsafe {

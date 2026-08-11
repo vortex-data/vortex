@@ -17,7 +17,7 @@ pub struct BufferExtractor {
     pub show_percent: bool,
 }
 
-impl TreeExtractor for BufferExtractor {
+impl TreeExtractor<ArrayRef, TreeContext> for BufferExtractor {
     fn write_details(
         &self,
         array: &ArrayRef,
