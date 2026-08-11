@@ -8,7 +8,8 @@ record was frozen is read from the base revision, so a change cannot unfreeze an
 edit it in the same diff.
 
 A newly added record must also be newer than every edition already recorded for its family:
-editions are only ever added going forward.
+editions are only ever added going forward. Records are grouped by family, so
+`vortex/editions/core/core2025.05.0.toml` must sit under the family its name declares.
 
 Usage:
     python3 check_edition_records.py --base origin/develop
@@ -26,8 +27,8 @@ from typing import Any
 
 RECORD_DIR = "vortex/editions"
 
-# `core2026.08.0.toml`: the file name is the edition id, so the record's identity is visible
-# in the diff without reading the file.
+# `core/core2026.08.0.toml`: the file name is the edition id and its directory is the family,
+# so a record's identity is visible in the diff without reading the file.
 RECORD_NAME = re.compile(
     r"^(?P<family>[a-z]+)(?P<year>\d{4})\.(?P<month>\d{2})\.(?P<version>\d+)\.toml$"
 )
@@ -79,7 +80,8 @@ def parse_name(name: str) -> tuple[str, tuple[int, int, int]]:
     if match is None:
         sys.exit(
             f"{RECORD_DIR}/{name} is not a valid record name.\n"
-            "Records are named after the edition they record, e.g. `core2026.08.0.toml`."
+            "Records are named after the edition they record, e.g. "
+            "`core/core2026.08.0.toml`."
         )
     return match["family"], (int(match["year"]), int(match["month"]), int(match["version"]))
 
@@ -161,6 +163,15 @@ def check(base: str) -> list[str]:
             errors.append(
                 f"adds {name}, which is not newer than the {family} edition already "
                 f"recorded ({family}{recorded}). Editions may only be added going forward."
+            )
+
+        # A record's family decides which chronology it extends, so the directory it sits
+        # in has to agree with the family its name declares.
+        directory = Path(path).parent.name
+        if directory != family:
+            errors.append(
+                f"adds {name} under {directory}/, but it records a {family} edition; "
+                "records are grouped by family"
             )
 
         # The file name is the edition's identity, so it has to agree with the content.

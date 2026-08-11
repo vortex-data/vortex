@@ -5,6 +5,8 @@
 //!
 //! Every declared edition gets one TOML file recording what it contains: the identifier, the
 //! minimum Vortex version whose reader supports it once frozen, and its full encoding set.
+//! Records are grouped by family — `vortex/editions/core/core2025.05.0.toml` — mirroring the
+//! declarations in `vortex/src/editions`, since families version independently.
 //!
 //! A record's mutability follows its edition. A draft is still being assembled, so its record
 //! changes with it. Freezing — recording a `min_vortex_version` — turns the record into a
@@ -88,20 +90,33 @@ fn record(session: &EditionSession, edition: &Edition) -> String {
     lines.join("\n")
 }
 
-/// The `*.toml` file names present in the record directory.
+/// The records present on disk, as `family/edition.toml` paths relative to the record
+/// directory. A record filed under the wrong family reads as a stray, which is what it is.
 fn existing_records(dir: &Path) -> anyhow::Result<BTreeSet<String>> {
-    let mut names = BTreeSet::new();
-    for entry in fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))? {
-        let path = entry?.path();
-        if path
-            .extension()
-            .is_some_and(|extension| extension == "toml")
-            && let Some(name) = path.file_name().and_then(|name| name.to_str())
+    let mut records = BTreeSet::new();
+    if !dir.exists() {
+        return Ok(records);
+    }
+    for family in fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))? {
+        let family = family?.path();
+        if !family.is_dir() {
+            continue;
+        }
+        for entry in
+            fs::read_dir(&family).with_context(|| format!("reading {}", family.display()))?
         {
-            names.insert(name.to_string());
+            let path = entry?.path();
+            if path
+                .extension()
+                .is_some_and(|extension| extension == "toml")
+                && let Ok(relative) = path.strip_prefix(dir)
+                && let Some(relative) = relative.to_str()
+            {
+                records.insert(relative.to_string());
+            }
         }
     }
-    Ok(names)
+    Ok(records)
 }
 
 /// A record carries a `min_vortex_version` exactly when the edition it records is frozen.
@@ -127,8 +142,11 @@ pub fn generate_editions() -> anyhow::Result<()> {
 
     let mut expected = BTreeSet::new();
     for edition in session.editions() {
-        let path = dir.join(format!("{}.toml", edition.id));
-        expected.insert(format!("{}.toml", edition.id));
+        let relative = format!("{}/{}.toml", edition.id.family, edition.id);
+        let path = dir.join(&relative);
+        expected.insert(relative);
+        fs::create_dir_all(dir.join(edition.id.family))
+            .with_context(|| format!("creating the {} record directory", edition.id.family))?;
 
         // Freezing is permanent, and the record on disk is the only memory of it. Refusing
         // here means unfreezing cannot be laundered through the exporter.
