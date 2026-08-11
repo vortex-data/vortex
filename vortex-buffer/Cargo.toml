@@ -40,6 +40,7 @@ workspace = true
 divan = { workspace = true }
 num-traits = { workspace = true }
 rstest = { workspace = true }
+vortex-bench-support = { workspace = true }
 
 [[bench]]
 name = "vortex_buffer"

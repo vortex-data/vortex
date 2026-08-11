@@ -9739,6 +9739,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-bench-support"
+version = "0.1.0"
+
+[[package]]
 name = "vortex-btrblocks"
 version = "0.1.0"
 dependencies = [
@@ -9789,6 +9793,7 @@ dependencies = [
  "serde",
  "simdutf8",
  "tracing",
+ "vortex-bench-support",
  "vortex-error",
 ]
 
