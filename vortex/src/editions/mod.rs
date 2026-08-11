@@ -20,7 +20,7 @@
 pub mod core;
 pub mod preview;
 #[cfg(test)]
-mod frozen;
+mod records;
 #[cfg(test)]
 mod tests;
 

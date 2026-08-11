@@ -1,16 +1,23 @@
 #!/usr/bin/env python3
-"""Check that the frozen edition records under `vortex/editions` are append-only.
+"""Check that frozen edition records under `vortex/editions` never change.
 
-A frozen edition carries a read-forever guarantee, so its record may never change: the only
-legal edit to the directory is adding a file for a newly frozen edition, and that edition must
-be newer than every edition already recorded for its family.
+A record's mutability follows its edition. A draft is still being assembled, so its record may
+change, be renamed, or be dropped. Freezing -- recording a `min_vortex_version` -- turns the
+record into a read-forever contract, and from then on it may never change again. Whether a
+record was frozen is read from the base revision, so a change cannot unfreeze an edition and
+edit it in the same diff.
 
-The one exception is `required_vortex_release`, which is backfilled from compat-fixture
-evidence after an edition freezes. An existing record may gain entries in that table, but
-never change or lose one, and never change anything else.
+A newly added record must also be newer than every edition already recorded for its family:
+editions are only ever added going forward.
+
+The one part of a frozen record that may still move is the `required_vortex_release` table.
+It holds an upper bound recorded from the release current when the edition froze, refined as
+compat-fixture evidence narrows it; it stays under the edition's own immutable
+`min_vortex_version`, so refining it breaks no published guarantee. Entries may be added or
+refined, never dropped.
 
 Usage:
-    python3 check_frozen_editions.py --base origin/develop
+    python3 check_edition_records.py --base origin/develop
 """
 
 from __future__ import annotations
@@ -31,14 +38,17 @@ RECORD_NAME = re.compile(
     r"^(?P<family>[a-z]+)(?P<year>\d{4})\.(?P<month>\d{2})\.(?P<version>\d+)\.toml$"
 )
 
-# The table a frozen record may gain entries in. Everything else is fixed at freeze time.
-BACKFILL_TABLE = "required_vortex_release"
+# A record carries this exactly when the edition it records is frozen.
+FROZEN_MARKER = "min_vortex_version"
+
+# The table a frozen record may still gain or refine entries in.
+EVIDENCE_TABLE = "required_vortex_release"
 
 REMEDY = (
     "A frozen edition is immutable. To add encodings, declare a NEW edition in\n"
     "  vortex/src/editions/<family>/ and regenerate the records with\n"
-    "  `UPDATE_FROZEN_EDITIONS=1 cargo test -p vortex --lib editions::frozen`.\n"
-    f"Only `{BACKFILL_TABLE}` may gain entries in a record that already exists."
+    "  `UPDATE_EDITION_RECORDS=1 cargo test -p vortex --lib editions::records`.\n"
+    f"In a frozen record only `{EVIDENCE_TABLE}` may gain or refine entries."
 )
 
 
@@ -60,6 +70,17 @@ def merge_base(base: str) -> str:
             "The checkout is probably too shallow; this check needs `fetch-depth: 0`."
         )
     return result.stdout.strip()
+
+
+def parse_record(text: str, path: str) -> dict[str, Any]:
+    try:
+        return tomllib.loads(text)
+    except tomllib.TOMLDecodeError as error:
+        sys.exit(f"{path} is not valid TOML: {error}")
+
+
+def record_at(base: str, path: str) -> dict[str, Any]:
+    return parse_record(git("show", f"{base}:{path}"), f"{path} at {base[:12]}")
 
 
 def parse_name(name: str) -> tuple[str, tuple[int, int, int]]:
@@ -98,44 +119,33 @@ def recorded_at(base: str) -> dict[str, tuple[int, int, int]]:
     return newest
 
 
-def parse_record(text: str, path: str) -> dict[str, Any]:
-    try:
-        return tomllib.loads(text)
-    except tomllib.TOMLDecodeError as error:
-        sys.exit(f"{path} is not valid TOML: {error}")
-
-
-def check_modification(base: str, path: str) -> list[str]:
-    """A modified record is legal only when it purely gains backfill entries."""
+def check_modification(before: dict[str, Any], path: str) -> list[str]:
+    """A frozen record may only gain or refine evidence entries."""
     name = Path(path).name
-    before = parse_record(git("show", f"{base}:{path}"), f"{path} at {base[:12]}")
     after = parse_record(Path(path).read_text(), path)
 
-    frozen_before = {key: value for key, value in before.items() if key != BACKFILL_TABLE}
-    frozen_after = {key: value for key, value in after.items() if key != BACKFILL_TABLE}
-    if frozen_before != frozen_after:
+    fixed_before = {key: value for key, value in before.items() if key != EVIDENCE_TABLE}
+    fixed_after = {key: value for key, value in after.items() if key != EVIDENCE_TABLE}
+    if fixed_before != fixed_after:
         changed = sorted(
             key
-            for key in frozen_before.keys() | frozen_after.keys()
-            if frozen_before.get(key) != frozen_after.get(key)
+            for key in fixed_before.keys() | fixed_after.keys()
+            if fixed_before.get(key) != fixed_after.get(key)
         )
+        if FROZEN_MARKER in changed and FROZEN_MARKER not in after:
+            return [
+                f"unfreezes {name}; an edition that recorded a {FROZEN_MARKER} carries a "
+                "read-forever guarantee and may never return to draft"
+            ]
         return [f"modifies the frozen record {name}: {', '.join(changed)}"]
 
-    releases_before = before.get(BACKFILL_TABLE, {})
-    releases_after = after.get(BACKFILL_TABLE, {})
-    errors = []
-    for encoding, release in sorted(releases_before.items()):
-        if encoding not in releases_after:
-            errors.append(
-                f"drops the recorded {BACKFILL_TABLE} of {encoding} from {name}",
-            )
-        elif releases_after[encoding] != release:
-            errors.append(
-                f"changes the {BACKFILL_TABLE} of {encoding} in {name} from {release!r} "
-                f"to {releases_after[encoding]!r}; a recorded release is evidence and never "
-                "changes"
-            )
-    return errors
+    dropped = sorted(before.get(EVIDENCE_TABLE, {}).keys() - after.get(EVIDENCE_TABLE, {}).keys())
+    if dropped:
+        return [
+            f"drops the recorded {EVIDENCE_TABLE} of {', '.join(dropped)} from {name}; "
+            "recorded evidence is only ever added or refined"
+        ]
+    return []
 
 
 def check(base: str) -> list[str]:
@@ -144,9 +154,17 @@ def check(base: str) -> list[str]:
 
     for status, paths in changed_records(base):
         if status == "A":
-            added.extend(paths)
-        elif status == "M":
-            errors.extend(check_modification(base, paths[0]))
+            added.append(paths[0])
+            continue
+
+        # Frozen-ness comes from the base revision, so a diff cannot unfreeze an edition and
+        # then edit it. A draft's record is free to change, move, or go away with the draft.
+        before = record_at(base, paths[0])
+        if FROZEN_MARKER not in before:
+            continue
+
+        if status == "M":
+            errors.extend(check_modification(before, paths[0]))
         else:
             verb = {"D": "deletes", "R": "renames", "C": "copies", "T": "retypes"}
             errors.append(
@@ -191,10 +209,10 @@ def main() -> int:
     base = merge_base(args.base)
     errors = check(base)
     if not errors:
-        print(f"{RECORD_DIR} is append-only against {args.base} ({base[:12]}).")
+        print(f"{RECORD_DIR} preserves every frozen record against {args.base} ({base[:12]}).")
         return 0
 
-    print(f"This change breaks the frozen edition records in {RECORD_DIR}:\n", file=sys.stderr)
+    print(f"This change breaks the edition records in {RECORD_DIR}:\n", file=sys.stderr)
     for error in errors:
         print(f"  - it {error}", file=sys.stderr)
     print(f"\n{REMEDY}", file=sys.stderr)

@@ -6,7 +6,6 @@
 use vortex_edition::Edition;
 use vortex_edition::EditionDeclaration;
 use vortex_edition::EditionId;
-use vortex_edition::EditionMember;
 
 /// The June 2025 edition of the `core` family.
 pub const CORE_2025_06_0: EditionId = EditionId::new("core", 2025, 6, 0);
@@ -18,8 +17,8 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         min_vortex_version: Some("0.40.0"),
     },
     added: &[
-        EditionMember::array(&"vortex.pco"),
-        EditionMember::array(&"vortex.sequence"),
-        EditionMember::array(&"vortex.zstd"),
+        &("vortex.pco", "0.40.0"),
+        &("vortex.sequence", "0.40.0"),
+        &("vortex.zstd", "0.40.0"),
     ],
 };
