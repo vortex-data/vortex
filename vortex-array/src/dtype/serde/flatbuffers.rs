@@ -21,6 +21,7 @@ use vortex_session::VortexSession;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::FieldDType;
+use crate::dtype::FieldNames;
 use crate::dtype::MapDType;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
@@ -69,7 +70,7 @@ impl StructFields {
         buffer: FlatBuffer,
         session: VortexSession,
     ) -> VortexResult<Self> {
-        let names = fb_struct
+        let names: FieldNames = fb_struct
             .names()
             .ok_or_else(|| vortex_err!("failed to parse struct names from flatbuffer"))?
             .iter()
@@ -87,6 +88,14 @@ impl StructFields {
                 ))
             })
             .collect::<Vec<_>>();
+
+        if names.len() != dtypes.len() {
+            vortex_bail!(
+                "length mismatch between struct names ({}) and dtypes ({})",
+                names.len(),
+                dtypes.len()
+            );
+        }
 
         Ok(StructFields::from_fields(names, dtypes))
     }
@@ -568,6 +577,9 @@ mod test {
     use crate::dtype::nullability::Nullability;
     use crate::dtype::serde::flatbuffers::ViewedDType;
     use crate::dtype::test::SESSION;
+    use flatbuffers::FlatBufferBuilder;
+    use vortex_buffer::ByteBuffer;
+    use vortex_flatbuffers::WriteFlatBuffer;
 
     fn roundtrip_dtype(dtype: DType) {
         let bytes = dtype.write_flatbuffer_bytes().unwrap();
@@ -740,6 +752,48 @@ mod test {
         let viewed = DType::try_from(view).unwrap();
         assert_eq!(eager, viewed);
         assert_eq!(viewed, eager);
+    }
+
+    #[test]
+    fn test_struct_malformed_flatbuffer() {
+        let mut fbb = FlatBufferBuilder::new();
+        let names = fbb.create_vector::<flatbuffers::WIPOffset<&str>>(&[]);
+        let dtype_offsets = (0..3)
+            .map(|_| {
+                DType::Primitive(PType::I32, Nullability::NonNullable)
+                    .write_flatbuffer(&mut fbb)
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        let dtypes = fbb.create_vector(&dtype_offsets);
+
+        let struct_table = fb::Struct_::create(
+            &mut fbb,
+            &fb::Struct_Args {
+                names: Some(names),
+                dtypes: Some(dtypes),
+                nullable: false,
+            },
+        );
+
+        let dtype = fb::DType::create(
+            &mut fbb,
+            &fb::DTypeArgs {
+                type_type: fb::Type::Struct_,
+                type_: Some(struct_table.as_union_value()),
+            },
+        );
+        fbb.finish_minimal(dtype);
+        let (vec, start) = fbb.collapse();
+        let end = vec.len();
+        let buffer = FlatBuffer::align_from(ByteBuffer::from(vec).slice(start..end));
+
+        let root_fb = root::<fb::DType>(&buffer).unwrap();
+        let view = ViewedDType::from_fb_loc(root_fb._tab.loc(), buffer, SESSION.clone());
+
+        let result = DType::try_from(view);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("length mismatch"));
     }
 
     /// A malformed flatbuffer (here, `dtypes.len() != type_ids.len()`) must round-trip
