@@ -129,7 +129,7 @@ fn ArrowExportVTable_to_arrow_field(bencher: Bencher) {
         .bench_values(|dtype| SESSION.arrow().to_arrow_field("", &dtype).unwrap())
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum StringEncoding {
     Offset,
     View,
@@ -138,36 +138,16 @@ enum StringEncoding {
     Zstd,
 }
 
-impl Display for StringEncoding {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::Offset => "offset",
-            Self::View => "view",
-            Self::Fsst => "fsst",
-            Self::OnPair => "onpair",
-            Self::Zstd => "zstd",
-        })
-    }
-}
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum StringStructure {
     Flat,
     Dict,
     Chunked,
 }
 
-impl Display for StringStructure {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::Flat => "flat",
-            Self::Dict => "dict",
-            Self::Chunked => "chunked",
-        })
-    }
-}
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum StringOperator {
     Identity,
     Filter,
@@ -177,20 +157,8 @@ enum StringOperator {
     Zip,
 }
 
-impl Display for StringOperator {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::Identity => "identity",
-            Self::Filter => "filter",
-            Self::Take => "take",
-            Self::Slice => "slice",
-            Self::Mask => "mask",
-            Self::Zip => "zip",
-        })
-    }
-}
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum StringValidity {
     NonNullable,
     Nullable,
@@ -205,16 +173,7 @@ impl StringValidity {
     }
 }
 
-impl Display for StringValidity {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::NonNullable => "nonnull",
-            Self::Nullable => "nullable",
-        })
-    }
-}
-
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct StringCase {
     encoding: StringEncoding,
     structure: StringStructure,
@@ -226,13 +185,13 @@ impl Display for StringCase {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{}/{}/{}/{}",
+            "{:?}/{:?}/{:?}/{:?}",
             self.encoding, self.structure, self.operator, self.validity
         )
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum ArrowStringLayout {
     Offset,
     View,
