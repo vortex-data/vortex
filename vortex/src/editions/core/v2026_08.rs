@@ -16,6 +16,10 @@ pub const CORE_2026_08: EditionId = EditionId::new("core", 2026, 8, 0);
 /// The aggregates are the set the default writer records in zone maps. Declaring them arms the
 /// writer's aggregate filter, so a strategy asking for an aggregate outside this set fails the
 /// write instead of producing zone maps an older reader would have to skip.
+///
+/// `vortex.sum` is deliberately not a member: zone maps prune, a zone sum does not, and its
+/// null-on-empty semantics were changed and reverted within a single week. The writer no longer
+/// records it, so the two stay consistent.
 pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: CORE_2026_08,
@@ -29,6 +33,5 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         EditionMember::aggregate(&"vortex.min"),
         EditionMember::aggregate(&"vortex.nan_count"),
         EditionMember::aggregate(&"vortex.null_count"),
-        EditionMember::aggregate(&"vortex.sum"),
     ],
 };

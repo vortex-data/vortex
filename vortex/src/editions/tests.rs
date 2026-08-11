@@ -226,7 +226,7 @@ async fn default_session_writes_every_default_zone_aggregate() -> VortexResult<(
 
     let session = VortexSession::default();
     // Strings take the bounded min/max branch of the default aggregates, integers the plain
-    // min/max/sum branch, so one file exercises both.
+    // min/max branch, so one file exercises both.
     let strings = || {
         vortex_array::arrays::VarBinViewArray::from_iter_str((0..4096).map(|i| format!("row-{i}")))
             .into_array()

@@ -40,7 +40,9 @@ hold is not written, so it is not a violation either.
 **A kind with no declared members is unrestricted.** An edition that declares no layouts makes no promise about
 layouts, so the writer leaves them alone rather than forbidding all of them; declaring the first member of a kind is
 what arms its filter. `core2026.08.0` declares the aggregates the default writer records in zone maps — `min`,
-`max`, `bounded_min`, `bounded_max`, `sum`, `nan_count`, `null_count` — so that filter is armed by default. A
+`max`, `bounded_min`, `bounded_max`, `nan_count`, `null_count` — so that filter is armed by default. `sum` is not
+among them: a zone sum prunes nothing, so the writer records none. File-level statistics still carry a sum, which
+this filter does not govern. A
 session that registers components outside `core`, such as the spatial extension types, enables its own edition
 family alongside `core`, and the writer may emit the union.
 

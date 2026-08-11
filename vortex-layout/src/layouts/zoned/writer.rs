@@ -12,7 +12,6 @@ use parking_lot::Mutex;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
-use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::EmptyOptions;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
@@ -24,7 +23,6 @@ use vortex_array::aggregate_fn::fns::max::Max;
 use vortex_array::aggregate_fn::fns::min::Min;
 use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::aggregate_fn::fns::null_count::NullCount;
-use vortex_array::aggregate_fn::fns::sum::Sum;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::dtype::DType;
 use vortex_error::VortexError;
@@ -217,15 +215,16 @@ fn default_zoned_aggregate_fns(dtype: &DType, session: &VortexSession) -> Arc<[A
         ),
     };
 
-    let mut aggregate_fns = vec![max, min];
-    if Sum
-        .return_dtype(&NumericalAggregateOpts::skip_nans(), dtype)
-        .is_some()
-    {
-        aggregate_fns.push(Sum.bind(NumericalAggregateOpts::skip_nans()));
-    }
-    aggregate_fns.push(NanCount.bind(EmptyOptions));
-    aggregate_fns.push(NullCount.bind(EmptyOptions));
+    // Sum is deliberately absent: zone maps exist to prune, and a zone sum prunes nothing.
+    // Its semantics are also unsettled - null-on-empty was changed in #9113 and reverted in
+    // #9324 - so it is not a stat to record in every zone of every file, let alone freeze
+    // into an edition. File-level statistics still record `Stat::Sum` via `PRUNING_STATS`.
+    let mut aggregate_fns = vec![
+        max,
+        min,
+        NanCount.bind(EmptyOptions),
+        NullCount.bind(EmptyOptions),
+    ];
 
     // Stats from spatial extension types are discovered from the registry at runtime instead.
     aggregate_fns.extend(session.aggregate_fns().zone_stat_defaults(dtype));
@@ -235,8 +234,10 @@ fn default_zoned_aggregate_fns(dtype: &DType, session: &VortexSession) -> Arc<[A
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
+    use vortex_array::aggregate_fn::AggregateFnVTable;
     use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
     use vortex_array::aggregate_fn::fns::bounded_min::BoundedMin;
     use vortex_array::aggregate_fn::fns::max::Max;
@@ -313,15 +314,18 @@ mod tests {
     fn unrestricted_context_writes_the_default_aggregates() -> VortexResult<()> {
         let written = write_zones(LayoutWriterContext::new(ArrayContext::empty()))?;
         assert!(written.contains(&Min.id().to_string()));
-        assert!(written.contains(&Sum.id().to_string()));
-        assert!(written.len() > 1);
+        assert!(written.contains(&Max.id().to_string()));
+        assert!(
+            !written.contains(&Sum.id().to_string()),
+            "wrote {written:?}"
+        );
         Ok(())
     }
 
     #[test]
     fn a_permitted_set_covering_the_defaults_writes_them() -> VortexResult<()> {
         let ctx = LayoutWriterContext::new(ArrayContext::empty()).with_allowed_aggregates(
-            HashSet::from_iter([Min.id(), Max.id(), Sum.id(), NanCount.id(), NullCount.id()]),
+            HashSet::from_iter([Min.id(), Max.id(), NanCount.id(), NullCount.id()]),
         );
         assert!(write_zones(ctx)?.contains(&Max.id().to_string()));
         Ok(())
@@ -362,14 +366,16 @@ mod tests {
 
         assert!(aggregate_fns[0].is::<Max>());
         assert!(aggregate_fns[1].is::<Min>());
-        assert!(aggregate_fns[2].is::<Sum>());
+        assert!(aggregate_fns[2].is::<NanCount>());
     }
 
-    #[test]
-    fn default_aggregates_skip_sum_for_non_summable_dtype() {
-        let dtype = DType::Extension(
-            Timestamp::new(TimeUnit::Microseconds, Nullability::Nullable).erased(),
-        );
+    /// Zone maps never carry a sum, whether or not the dtype could hold one.
+    #[rstest]
+    #[case::summable(PType::I32.into())]
+    #[case::not_summable(DType::Extension(
+        Timestamp::new(TimeUnit::Microseconds, Nullability::Nullable).erased(),
+    ))]
+    fn default_aggregates_never_record_sum(#[case] dtype: DType) {
         let aggregate_fns = default_zoned_aggregate_fns(&dtype, &vortex_array::array_session());
 
         assert!(
