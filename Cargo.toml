@@ -72,7 +72,7 @@ members = [
     "vortex-spatial",
 ]
 exclude = ["java/testfiles", "wasm-test"]
-resolver = "2"
+resolver = "3"
 
 [workspace.package]
 authors = ["Vortex Authors <hello@vortex.dev>"]
