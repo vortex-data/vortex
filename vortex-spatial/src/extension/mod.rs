@@ -208,7 +208,7 @@ pub fn native_geometry_scalar_from_wkb(
     let to_storage = |target: &GeoArrowType| -> VortexResult<ArrayRef> {
         let native =
             cast(&wkb, target).map_err(|e| vortex_err!("failed to cast WKB literal: {e}"))?;
-        session.from_arrow_array_nullable(native.to_array_ref().as_ref(), false)
+        session.from_arrow_array(native.to_array_ref(), false)
     };
 
     let scalar = match Wkb::try_from_bytes(bytes)?.geometry_type() {
@@ -312,7 +312,7 @@ pub(crate) fn geoarrow_to_wkb(
         GeoArrowType::WkbView(WkbType::new(geoarrow_metadata(&SpatialMetadata::default())));
     let wkb = cast(geoarrow_array, &wkb_type)
         .map_err(|e| vortex_err!("failed to cast geometry to WKB: {e}"))?;
-    session.from_arrow_array_nullable(wkb.to_array_ref().as_ref(), false)
+    session.from_arrow_array(wkb.to_array_ref(), false)
 }
 
 /// Recover [`SpatialMetadata`] from GeoArrow metadata.

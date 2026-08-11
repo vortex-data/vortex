@@ -16,7 +16,6 @@ use arrow_array::PrimitiveArray as ArrowPrimitiveArray;
 use arrow_array::StringArray;
 use arrow_array::StringViewArray;
 use arrow_array::StructArray as ArrowStructArray;
-use arrow_array::cast::AsArray;
 use arrow_array::types::Int32Type;
 use arrow_array::types::Int64Type;
 use arrow_array::types::UInt64Type;
@@ -116,7 +115,7 @@ fn roundtrip_struct() {
         None,
     ]));
 
-    let arrow_struct = ArrowStructArray::new(
+    let arrow_struct = Arc::new(ArrowStructArray::new(
         vec![
             Arc::new(Field::new("name", DataType::Utf8View, true)),
             Arc::new(Field::new("age", DataType::Int32, true)),
@@ -124,17 +123,17 @@ fn roundtrip_struct() {
         .into(),
         vec![names, ages],
         nulls.finish(),
-    );
+    )) as ArrowArrayRef;
 
     let vortex_struct = SESSION
         .arrow()
-        .from_arrow_array_nullable(&arrow_struct, true)
+        .from_arrow_array(Arc::clone(&arrow_struct), true)
         .unwrap();
     let vortex_struct = SESSION
         .arrow()
         .execute_arrow(vortex_struct, None, &mut ctx)
         .unwrap();
-    assert_eq!(&arrow_struct, vortex_struct.as_struct());
+    assert_eq!(&arrow_struct, &vortex_struct);
 }
 
 #[test]
@@ -146,18 +145,18 @@ fn roundtrip_list() {
         Some("Mikhail"),
     ]));
 
-    let arrow_list = ArrowListArray::new(
+    let arrow_list = Arc::new(ArrowListArray::new(
         Arc::new(Field::new_list_field(DataType::Utf8, true)),
         OffsetBuffer::from_lengths(vec![0, 2, 1]),
         names,
         None,
-    );
+    )) as ArrowArrayRef;
     let list_data_type = arrow_list.data_type();
     let list_field = Field::new(String::new(), list_data_type.clone(), true);
 
     let vortex_list = SESSION
         .arrow()
-        .from_arrow_array_nullable(&arrow_list, true)
+        .from_arrow_array(Arc::clone(&arrow_list), true)
         .unwrap();
 
     let rt_arrow_list = SESSION
@@ -165,8 +164,5 @@ fn roundtrip_list() {
         .execute_arrow(vortex_list, Some(&list_field), &mut ctx)
         .unwrap();
 
-    assert_eq!(
-        (Arc::new(arrow_list.clone()) as ArrowArrayRef).as_ref(),
-        rt_arrow_list.as_ref()
-    );
+    assert_eq!(&arrow_list, &rt_arrow_list);
 }

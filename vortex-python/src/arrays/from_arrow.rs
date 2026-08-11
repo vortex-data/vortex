@@ -37,7 +37,7 @@ pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> PyVortexResult<PyArra
         let is_nullable = arrow_array.is_nullable();
         let enc_array = session()
             .arrow()
-            .from_arrow_array_nullable(arrow_array.as_ref(), is_nullable)?;
+            .from_arrow_array(arrow_array, is_nullable)?;
         Ok(PyArrayRef::from(enc_array))
     } else if obj.is_instance(chunked_array)? {
         let chunks: Vec<Bound<PyAny>> = obj.getattr(intern!(py, "chunks"))?.extract()?;
@@ -47,7 +47,7 @@ pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> PyVortexResult<PyArra
                 let arrow_array = ArrowArrayData::from_pyarrow(&a.as_borrowed()).map(make_array)?;
                 session()
                     .arrow()
-                    .from_arrow_array_nullable(arrow_array.as_ref(), false)
+                    .from_arrow_array(arrow_array, false)
                     .map_err(PyVortexError::from)
             })
             .collect::<PyVortexResult<Vec<_>>>()?;

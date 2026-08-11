@@ -151,13 +151,13 @@ where
 ///
 /// The provided array must have length `len` or `1`.
 pub fn from_arrow_columnar(
-    array: &dyn ArrowArray,
+    array: ArrowArrayRef,
     len: usize,
     nullable: bool,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let session = ctx.session().clone();
-    let array = session.arrow().from_arrow_array_nullable(array, nullable)?;
+    let array = session.arrow().from_arrow_array(array, nullable)?;
     if array.len() == len {
         return Ok(array);
     }

@@ -157,7 +157,7 @@ mod tests {
         // Convert to Vortex
         SCAN_SESSION
             .arrow()
-            .from_arrow_array_nullable(&struct_array, true)
+            .from_arrow_array(Arc::new(struct_array), true)
     }
 
     fn create_arrow_schema() -> Arc<Schema> {

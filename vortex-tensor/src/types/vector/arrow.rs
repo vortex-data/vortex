@@ -162,8 +162,7 @@ impl ArrowImportVTable for Vector {
             return Ok(ArrowImport::Unsupported(array));
         }
 
-        let storage =
-            session.from_arrow_array_nullable(array.as_ref() as &dyn Array, dtype.is_nullable())?;
+        let storage = session.from_arrow_array(array, dtype.is_nullable())?;
         Ok(ArrowImport::Imported(
             ExtensionArray::try_new(dtype.clone(), storage)?.into_array(),
         ))

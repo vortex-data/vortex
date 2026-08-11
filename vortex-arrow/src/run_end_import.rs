@@ -112,10 +112,9 @@ mod tests {
     where
         R::Native: NativePType,
     {
-        let field = Field::new("", array.data_type().clone(), nullable);
         SESSION
             .arrow()
-            .from_arrow_array(Arc::new(array.clone()), &field)
+            .from_arrow_array(Arc::new(array.clone()), nullable)
     }
 
     #[test]

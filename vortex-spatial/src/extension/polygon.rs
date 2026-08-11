@@ -306,7 +306,7 @@ impl ArrowImportVTable for Polygon {
             return Ok(ArrowImport::Unsupported(array));
         }
 
-        let storage = session.from_arrow_array_nullable(array.as_ref(), field.is_nullable())?;
+        let storage = session.from_arrow_array(array, field.is_nullable())?;
         Ok(ArrowImport::Imported(
             ExtensionArray::try_new(ext_dtype.clone(), storage)?.into_array(),
         ))

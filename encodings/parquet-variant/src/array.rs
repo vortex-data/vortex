@@ -137,16 +137,16 @@ impl ParquetVariant {
                 Validity::NonNullable
             });
         let metadata = session
-            .from_arrow_array_nullable(arrow_variant.metadata_field() as &dyn ArrowArray, false)?;
+            .from_arrow_array(ArrowArrayRef::clone(arrow_variant.metadata_field()), false)?;
 
         let value = arrow_variant
             .value_field()
-            .map(|v| session.from_arrow_array_nullable(v as &dyn ArrowArray, value_nullable))
+            .map(|v| session.from_arrow_array(ArrowArrayRef::clone(v), value_nullable))
             .transpose()?;
 
         let typed_value = arrow_variant
             .typed_value_field()
-            .map(|tv| session.from_arrow_array_nullable(tv.as_ref(), typed_value_nullable))
+            .map(|tv| session.from_arrow_array(ArrowArrayRef::clone(tv), typed_value_nullable))
             .transpose()?;
         ParquetVariant::try_new(validity, metadata, value, typed_value).map(IntoArray::into_array)
     }

@@ -841,13 +841,13 @@ mod tests {
 
         let metadata = SESSION
             .arrow()
-            .from_arrow_array_nullable(arrow_variant.metadata_field() as &dyn ArrowArray, false)?;
+            .from_arrow_array(ArrowArrayRef::clone(arrow_variant.metadata_field()), false)?;
         let value = arrow_variant
             .value_field()
             .map(|value| {
                 SESSION
                     .arrow()
-                    .from_arrow_array_nullable(value as &dyn ArrowArray, value_nullable)
+                    .from_arrow_array(ArrowArrayRef::clone(value), value_nullable)
             })
             .transpose()?;
         let typed_value = arrow_variant
@@ -855,7 +855,7 @@ mod tests {
             .map(|typed_value| {
                 SESSION
                     .arrow()
-                    .from_arrow_array_nullable(typed_value.as_ref(), typed_value_nullable)
+                    .from_arrow_array(ArrowArrayRef::clone(typed_value), typed_value_nullable)
             })
             .transpose()?;
 
