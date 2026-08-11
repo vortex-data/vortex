@@ -70,55 +70,6 @@ fn every_declared_edition_validates() -> Result<(), EditionError> {
     Ok(())
 }
 
-/// The full encoding set of the newest frozen `core` edition. This set is frozen: the only
-/// way it may change is by declaring a *new* edition, so a failure here means a frozen
-/// declaration was edited.
-#[test]
-fn core_2026_08_1_encoding_set_is_pinned() {
-    let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
-    let encodings = session.components_in(&CORE_2026_08_1, ComponentKind::Array);
-    let ids: Vec<&str> = encodings
-        .iter()
-        .map(|inclusion| inclusion.component_id.as_str())
-        .collect();
-    assert_eq!(
-        ids,
-        [
-            "fastlanes.bitpacked",
-            "fastlanes.for",
-            "fastlanes.rle",
-            "vortex.alp",
-            "vortex.alprd",
-            "vortex.bool",
-            "vortex.bytebool",
-            "vortex.chunked",
-            "vortex.constant",
-            "vortex.datetimeparts",
-            "vortex.decimal",
-            "vortex.decimal_byte_parts",
-            "vortex.dict",
-            "vortex.ext",
-            "vortex.fixed_size_list",
-            "vortex.fsst",
-            "vortex.list",
-            "vortex.listview",
-            "vortex.masked",
-            "vortex.null",
-            "vortex.onpair",
-            "vortex.pco",
-            "vortex.primitive",
-            "vortex.runend",
-            "vortex.sequence",
-            "vortex.sparse",
-            "vortex.struct",
-            "vortex.varbin",
-            "vortex.varbinview",
-            "vortex.zigzag",
-            "vortex.zstd",
-        ]
-    );
-}
-
 #[test]
 fn core_2026_08_1_dtype_set_is_pinned() {
     let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));

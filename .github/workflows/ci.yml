@@ -64,6 +64,20 @@ jobs:
             -c .yamllint.yaml \
             .github/
 
+  frozen-editions:
+    name: "Frozen editions are append-only"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          # The check compares against the merge base, so it needs real history.
+          fetch-depth: 0
+      - name: Check frozen edition records
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || 'HEAD^' }}"
+          python3 .github/scripts/check_frozen_editions.py --base "$BASE"
+
   python-lint:
     name: "Python (lint)"
     runs-on: >-
@@ -741,6 +755,11 @@ jobs:
       - name: "regenerate FFI header file"
         run: |
           cargo +$NIGHTLY_TOOLCHAIN build --profile ci -p vortex-ffi
+      - name: "regenerate the frozen edition records"
+        env:
+          UPDATE_FROZEN_EDITIONS: "1"
+        run: |
+          cargo test --profile ci -p vortex --lib editions::frozen
       - name: "Make sure no files changed after regenerating"
         run: |
           git status --porcelain

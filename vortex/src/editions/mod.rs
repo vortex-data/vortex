@@ -20,6 +20,8 @@
 pub mod core;
 pub mod preview;
 #[cfg(test)]
+mod frozen;
+#[cfg(test)]
 mod tests;
 
 pub use vortex_edition::ComponentKind;
