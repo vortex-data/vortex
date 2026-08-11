@@ -160,14 +160,10 @@ static GLOBAL_ALLOC: MiMalloc = MiMalloc;
 
 ### Rust Version Compatibility Policy
 
-Rust ships a stable minor release every six weeks. Releases are tracked at
-[Rust Versions](https://releases.rs) and identified by a `major.minor.patch` version string such
-as `1.97.1`.
-
 **The policy: Vortex supports the four most recent stable minor releases.** Writing the latest
 stable release as `1.N`, that means `1.N`, `1.N-1`, `1.N-2`, and `1.N-3` all build Vortex, so the
-Minimum Supported Rust Version (MSRV) declared in `Cargo.toml` must be **no newer than `1.N-3`**,
 three minor releases older than the latest stable release. Only the minor version is constrained;
+Minimum Supported Rust Version (MSRV) declared in `Cargo.toml` must be **no newer than `1.N-3`**,
 patch releases are never a factor.
 
 An MSRV *older* than `1.N-3` is always acceptable — supporting extra releases cannot break the
@@ -181,9 +177,7 @@ latest stable release:
 | `1.96` or newer | Does not meet the policy |
 
 The MSRV is raised in occasional deliberate steps rather than on every Rust release, so it drifts
-relative to that bound and may briefly sit one or two releases ahead of it right after a bump. That
-is tolerated and self-corrects as subsequent Rust releases ship: an MSRV of `1.95` is one release
-ahead while `1.97` is the latest stable, and is exactly on policy once `1.98` is out.
+relative to that bound.
 
 How the policy is applied:
 
