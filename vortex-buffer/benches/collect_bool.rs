@@ -103,7 +103,7 @@ fn bench_words_gather(
         .bench_refs(|words| collect(words, len, &bools));
 }
 
-#[isa(any)]
+#[isa(all)]
 #[divan::bench(args = INPUT_SIZE)]
 fn words_gather_dispatch(bencher: Bencher, len: usize) {
     bench_words_gather(bencher, len, |words, len, bools| {
@@ -112,7 +112,7 @@ fn words_gather_dispatch(bencher: Bencher, len: usize) {
     });
 }
 
-#[isa(any)]
+#[isa(all)]
 #[divan::bench(args = INPUT_SIZE)]
 fn words_gather_scalar(bencher: Bencher, len: usize) {
     bench_words_gather(bencher, len, |words, len, bools| {
@@ -121,7 +121,8 @@ fn words_gather_scalar(bencher: Bencher, len: usize) {
     });
 }
 
-#[isa(sse2)]
+#[cfg(target_arch = "x86_64")]
+#[cfg(not(codspeed))]
 #[divan::bench(args = INPUT_SIZE)]
 fn words_gather_sse2(bencher: Bencher, len: usize) {
     bench_words_gather(bencher, len, |words, len, bools| {

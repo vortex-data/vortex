@@ -11,6 +11,9 @@
 //! One leg per instruction set, so what a leg measures is what its name says: an AVX-512
 //! benchmark is compiled `+avx512f,+avx512bw` and run on an AVX-512 machine, not compiled
 //! for AVX2 and steered into an AVX-512 kernel at runtime.
+//!
+//! Simulation stays the default. Only a benchmark that names an instruction set leaves the
+//! sharded job, so this costs nothing for the benchmarks that have no reason to care.
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
@@ -30,10 +33,6 @@ struct Isa {
 
 const ISAS: &[Isa] = &[
     Isa {
-        tag: "sse2",
-        target_arch: "x86_64",
-    },
-    Isa {
         tag: "avx2",
         target_arch: "x86_64",
     },
@@ -45,18 +44,14 @@ const ISAS: &[Isa] = &[
         tag: "neon",
         target_arch: "aarch64",
     },
-    Isa {
-        tag: "sve",
-        target_arch: "aarch64",
-    },
 ];
 
 /// Resolve the argument of `#[isa(..)]` to the legs that measure the benchmark.
 ///
-/// `any` is the arch-neutral case — a scalar baseline, or a shipped entry point — measured on
+/// `all` is the arch-neutral case — a scalar baseline, or a shipped entry point — measured on
 /// every leg, so each build has something of its own to compare its kernels against.
 fn legs_for(isa: &str) -> Option<Vec<&'static Isa>> {
-    if isa == "any" {
+    if isa == "all" {
         return Some(ISAS.iter().collect());
     }
     ISAS.iter().find(|leg| leg.tag == isa).map(|leg| vec![leg])
@@ -74,13 +69,14 @@ fn legs_for(isa: &str) -> Option<Vec<&'static Isa>> {
 /// fn words_gather_avx2(bencher: Bencher, len: usize) { /* ... */ }
 /// ```
 ///
-/// Accepts `sse2`, `avx2`, `avx512`, `neon`, `sve`, and `any` for benchmarks that are not
-/// tied to an instruction set. The `#[cfg(target_arch = ...)]` is implied — an `avx2`
-/// benchmark cannot compile for Arm, so writing that out would only create a chance for it
-/// to disagree with the tag.
+/// Accepts `avx2`, `avx512`, `neon`, and `all` for benchmarks that are not tied to an
+/// instruction set. The `#[cfg(target_arch = ...)]` is implied — an `avx2` benchmark cannot
+/// compile for Arm, so writing that out would only create a chance for it to disagree with
+/// the tag.
 ///
-/// An untagged benchmark is untouched: it keeps running on the simulation shards under its
-/// own name, which is the right home for anything that is not architecture-specific.
+/// Simulation is the default: an untagged benchmark is untouched and keeps running on the
+/// sharded CodSpeed job under its own name, which is the right home for anything that is
+/// not specific to an instruction set.
 #[proc_macro_attribute]
 pub fn isa(attr: TokenStream, item: TokenStream) -> TokenStream {
     let isa = parse_macro_input!(attr as Ident);
@@ -94,7 +90,7 @@ pub fn isa(attr: TokenStream, item: TokenStream) -> TokenStream {
             .join(", ");
         return syn::Error::new(
             isa.span(),
-            format!("unknown instruction set `{isa}`; expected one of {known}, any"),
+            format!("unknown instruction set `{isa}`; expected one of {known}, all"),
         )
         .to_compile_error()
         .into();
