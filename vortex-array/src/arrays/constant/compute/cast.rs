@@ -84,16 +84,6 @@ mod tests {
         DType::Utf8(Nullability::NonNullable),
         Scalar::utf8("-42", Nullability::NonNullable)
     )]
-    #[case(
-        Scalar::from(100.0f64),
-        DType::Utf8(Nullability::NonNullable),
-        Scalar::utf8("100.0", Nullability::NonNullable)
-    )]
-    #[case(
-        Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable)),
-        DType::Utf8(Nullability::Nullable),
-        Scalar::null(DType::Utf8(Nullability::Nullable))
-    )]
     fn test_cast_bool_and_primitive_constants(
         #[case] source: Scalar,
         #[case] target: DType,

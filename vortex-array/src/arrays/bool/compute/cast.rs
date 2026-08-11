@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use num_traits::One;
 use num_traits::Zero;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -14,9 +15,9 @@ use crate::array::ArrayView;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::VarBinViewArray;
 use crate::arrays::bool::BoolArrayExt;
-use crate::builders::ArrayBuilder;
-use crate::builders::VarBinViewBuilder;
+use crate::arrays::varbinview::BinaryView;
 use crate::dtype::DType;
 use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::cast::CastKernel;
@@ -61,29 +62,33 @@ impl CastKernel for Bool {
             let new_validity = array
                 .validity()?
                 .cast_nullability(*new_nullability, len, ctx)?;
-            let mask = new_validity.execute_mask(len, ctx)?;
-            let mut builder = VarBinViewBuilder::with_capacity(dtype.clone(), len);
 
-            match &mask {
-                Mask::AllTrue(_) => {
-                    for value in array.to_bit_buffer().iter() {
-                        builder.append_value(if value { "true" } else { "false" });
-                    }
-                }
-                Mask::AllFalse(_) => builder.append_nulls(len),
-                Mask::Values(validity) => {
-                    let bits = array.to_bit_buffer();
-                    for (value, valid) in bits.iter().zip(validity.bit_buffer().iter()) {
-                        if valid {
-                            builder.append_value(if value { "true" } else { "false" });
-                        } else {
-                            builder.append_null();
-                        }
-                    }
-                }
-            }
+            let values = array.to_bit_buffer();
+            let true_view = BinaryView::new_inlined(b"true");
+            let false_view = BinaryView::new_inlined(b"false");
+            let true_count = values.true_count();
 
-            return Ok(Some(builder.finish_into_varbinview().into_array()));
+            let views = if true_count <= len - true_count {
+                let mut views = BufferMut::full(false_view, len);
+                values.for_each_set_index(|index| views[index] = true_view);
+                views
+            } else {
+                let mut views = BufferMut::full(true_view, len);
+                (!&values).for_each_set_index(|index| views[index] = false_view);
+                views
+            };
+
+            // SAFETY: every view is one of two known-valid inlined UTF-8 strings, no view
+            // references an external buffer, and cast_nullability returns matching validity.
+            return Ok(Some(unsafe {
+                VarBinViewArray::new_unchecked(
+                    views.freeze(),
+                    Arc::from([]),
+                    dtype.clone(),
+                    new_validity,
+                )
+                .into_array()
+            }));
         }
 
         let DType::Primitive(new_ptype, new_nullability) = dtype else {

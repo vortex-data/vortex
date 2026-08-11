@@ -634,53 +634,80 @@ fn cast_primitive_to_utf8(
     let mask = new_validity.execute_mask(len, ctx)?;
     let mut builder = VarBinViewBuilder::with_capacity(dtype.clone(), len);
 
-    // Match Arrow's formatting: ryu for f32/f64, Display for f16, and itoa for integers
-    // (Arrow's lexical_core produces the same output as itoa/Display for integers).
-    match array.ptype() {
-        PType::F16 => {
-            let mut scratch = String::with_capacity(16);
-            append_values_to_utf8(
-                &mut builder,
-                array.as_slice::<f16>(),
-                &mask,
-                |builder, value| {
-                    scratch.clear();
-                    // Writing to a String is infallible.
-                    let _ = write!(scratch, "{value}");
-                    builder.append_value(scratch.as_str());
-                },
-            );
+    match_each_native_ptype!(
+        array.ptype(),
+        integral: |T| {
+            append_integer_values_to_utf8::<T>(&mut builder, array.as_slice::<T>(), &mask)
+        },
+        floating: |T| {
+            append_float_values_to_utf8::<T>(&mut builder, array.as_slice::<T>(), &mask)
         }
-        PType::F32 => {
-            let mut formatter = ryu::Buffer::new();
-            append_values_to_utf8(
-                &mut builder,
-                array.as_slice::<f32>(),
-                &mask,
-                |builder, value| builder.append_value(formatter.format(value)),
-            );
-        }
-        PType::F64 => {
-            let mut formatter = ryu::Buffer::new();
-            append_values_to_utf8(
-                &mut builder,
-                array.as_slice::<f64>(),
-                &mask,
-                |builder, value| builder.append_value(formatter.format(value)),
-            );
-        }
-        ptype => match_each_integer_ptype!(ptype, |T| {
-            let mut formatter = itoa::Buffer::new();
-            append_values_to_utf8(
-                &mut builder,
-                array.as_slice::<T>(),
-                &mask,
-                |builder, value| builder.append_value(formatter.format(value)),
-            );
-        }),
-    }
+    );
 
     Ok(builder.finish_into_varbinview().into_array())
+}
+
+fn append_integer_values_to_utf8<T>(builder: &mut VarBinViewBuilder, values: &[T], mask: &Mask)
+where
+    T: NativePType + itoa::Integer,
+{
+    let mut formatter = itoa::Buffer::new();
+    append_values_to_utf8(builder, values, mask, |builder, value| {
+        builder.append_value(formatter.format(value));
+    });
+}
+
+trait FloatToUtf8: NativePType {
+    type Formatter;
+
+    fn formatter() -> Self::Formatter;
+
+    fn format(self, formatter: &mut Self::Formatter) -> &str;
+}
+
+impl FloatToUtf8 for f16 {
+    type Formatter = String;
+
+    fn formatter() -> Self::Formatter {
+        String::with_capacity(16)
+    }
+
+    fn format(self, formatter: &mut Self::Formatter) -> &str {
+        formatter.clear();
+        // Writing to a String is infallible.
+        let _ = write!(formatter, "{self}");
+        formatter.as_str()
+    }
+}
+
+macro_rules! impl_float_to_utf8 {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl FloatToUtf8 for $ty {
+                type Formatter = ryu::Buffer;
+
+                fn formatter() -> Self::Formatter {
+                    ryu::Buffer::new()
+                }
+
+                fn format(self, formatter: &mut Self::Formatter) -> &str {
+                    formatter.format(self)
+                }
+            }
+        )+
+    };
+}
+
+impl_float_to_utf8!(f32, f64);
+
+fn append_float_values_to_utf8<T>(builder: &mut VarBinViewBuilder, values: &[T], mask: &Mask)
+where
+    T: FloatToUtf8,
+{
+    let mut formatter = T::formatter();
+    append_values_to_utf8(builder, values, mask, |builder, value| {
+        builder.append_value(value.format(&mut formatter));
+    });
 }
 
 fn append_values_to_utf8<T: Copy>(
