@@ -3,9 +3,9 @@
 
 //! The August 2026 core edition adding the canonical Map encoding.
 
-use vortex_edition::Edition;
-use vortex_edition::EditionDeclaration;
-use vortex_edition::EditionId;
+use crate::Edition;
+use crate::EditionDeclaration;
+use crate::EditionId;
 
 /// The August 2026 core edition containing canonical Map arrays.
 pub const CORE_2026_08: EditionId = EditionId::new("core", 2026, 8, 0);

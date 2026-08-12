@@ -22,6 +22,7 @@
 //! and enables them on the default session. See the published spec at
 //! <https://docs.vortex.dev/specs/editions.html>.
 
+pub mod declarations;
 mod session;
 pub mod test_harness;
 #[cfg(test)]
@@ -33,6 +34,7 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+pub use declarations::EDITION_DECLARATIONS;
 pub use session::EditionSession;
 pub use session::EditionSessionExt;
 pub use session::EnabledEditions;

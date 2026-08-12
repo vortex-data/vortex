@@ -3,9 +3,9 @@
 
 //! The `core` edition adding stable encodings released through October 2025.
 
-use vortex_edition::Edition;
-use vortex_edition::EditionDeclaration;
-use vortex_edition::EditionId;
+use crate::Edition;
+use crate::EditionDeclaration;
+use crate::EditionId;
 
 /// The October 2025 edition of the `core` family.
 pub const CORE_2025_10_0: EditionId = EditionId::new("core", 2025, 10, 0);

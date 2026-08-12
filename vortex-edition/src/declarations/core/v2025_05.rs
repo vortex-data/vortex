@@ -3,9 +3,9 @@
 
 //! The baseline `core` edition: stable encodings writable by Vortex 0.36.0.
 
-use vortex_edition::Edition;
-use vortex_edition::EditionDeclaration;
-use vortex_edition::EditionId;
+use crate::Edition;
+use crate::EditionDeclaration;
+use crate::EditionId;
 
 /// The first edition of the `core` family, matching the first stable Vortex file release.
 pub const CORE_2025_05_0: EditionId = EditionId::new("core", 2025, 5, 0);
