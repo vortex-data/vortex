@@ -747,7 +747,7 @@ jobs:
       - name: "check frozen edition records never change"
         # Independent of the regeneration above: a stale record must not mask a frozen one
         # being edited, nor the other way round.
-        if: '!cancelled()'
+        if: "!cancelled()"
         run: |
           BASE="${{ github.event.pull_request.base.sha || 'HEAD^' }}"
           cargo run --profile ci -p xtask -- check-editions --base "$BASE"
