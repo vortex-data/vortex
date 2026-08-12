@@ -201,48 +201,6 @@ impl Expression {
             Ok(None)
         }
     }
-
-    /// Simplify the expression, returning a potentially new expression.
-    ///
-    /// Deprecated: Use [`Expression::optimize_recursive`] instead, which iterates to convergence.
-    #[deprecated(note = "Use Expression::optimize_recursive instead")]
-    pub fn simplify(&self, scope: &DType) -> VortexResult<Expression> {
-        self.optimize_recursive(scope)
-    }
-
-    /// Simplify the expression without type information.
-    ///
-    /// Deprecated: Use [`Expression::optimize_recursive`] instead.
-    #[deprecated(note = "Use Expression::optimize_recursive instead")]
-    pub fn simplify_untyped(&self) -> VortexResult<Expression> {
-        // For backwards compat, do a single bottom-up pass of untyped simplification
-        fn inner(expr: &Expression) -> VortexResult<Option<Expression>> {
-            let children: Vec<_> = expr.children().iter().map(inner).try_collect()?;
-
-            if children.iter().any(|c| c.is_some()) {
-                let new_children: Vec<_> = children
-                    .into_iter()
-                    .zip(expr.children().iter())
-                    .map(|(new_c, old_c)| new_c.unwrap_or_else(|| old_c.clone()))
-                    .collect();
-
-                let new_expr = expr.clone().with_children(new_children)?;
-                let simplified = new_expr.simplify_untyped_node()?;
-                Ok(Some(simplified.unwrap_or(new_expr)))
-            } else {
-                expr.simplify_untyped_node()
-            }
-        }
-
-        let simplified = self
-            .simplify_untyped_node()?
-            .unwrap_or_else(|| self.clone());
-
-        let simplified = inner(&simplified)?.unwrap_or(simplified);
-        let simplified = find_between(simplified);
-
-        Ok(simplified)
-    }
 }
 
 struct SimplifyCache<'a> {
