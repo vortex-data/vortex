@@ -565,8 +565,11 @@ impl TryFrom<fb::PType> for PType {
 mod test {
     use std::sync::Arc;
 
+    use flatbuffers::FlatBufferBuilder;
     use flatbuffers::root;
+    use vortex_buffer::ByteBuffer;
     use vortex_flatbuffers::FlatBuffer;
+    use vortex_flatbuffers::WriteFlatBuffer;
     use vortex_flatbuffers::WriteFlatBufferExt;
 
     use crate::dtype::DType;
@@ -577,9 +580,6 @@ mod test {
     use crate::dtype::nullability::Nullability;
     use crate::dtype::serde::flatbuffers::ViewedDType;
     use crate::dtype::test::SESSION;
-    use flatbuffers::FlatBufferBuilder;
-    use vortex_buffer::ByteBuffer;
-    use vortex_flatbuffers::WriteFlatBuffer;
 
     fn roundtrip_dtype(dtype: DType) {
         let bytes = dtype.write_flatbuffer_bytes().unwrap();
