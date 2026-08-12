@@ -15,8 +15,11 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
+use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::arrays::{ScalarFn, ScalarFnArray};
+use crate::IntoArray;
+use crate::arrays::ScalarFn;
+use crate::arrays::ScalarFnArray;
 use crate::dtype::DType;
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
@@ -24,7 +27,6 @@ use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::TypedScalarFnInstance;
-use crate::{ArrayRef, IntoArray};
 
 /// This trait defines the interface for scalar function vtables, including methods for
 /// serialization, deserialization, validation, child naming, return type computation,
