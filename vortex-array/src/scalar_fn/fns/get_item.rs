@@ -120,11 +120,7 @@ impl ScalarFnVTable for GetItem {
         }
     }
 
-    fn reduce<T: ReduceNode>(
-        &self,
-        field_name: &FieldName,
-        node: &T,
-    ) -> VortexResult<Option<T>> {
+    fn reduce<T: ReduceNode>(&self, field_name: &FieldName, node: &T) -> VortexResult<Option<T>> {
         let child = node.child(0);
         if let Some(child_fn) = child.scalar_fn()
             && let Some(pack) = child_fn.as_opt::<Pack>()

@@ -173,11 +173,7 @@ impl ScalarFnVTable for Merge {
         )
     }
 
-    fn reduce<T: ReduceNode>(
-        &self,
-        options: &Self::Options,
-        node: &T,
-    ) -> VortexResult<Option<T>> {
+    fn reduce<T: ReduceNode>(&self, options: &Self::Options, node: &T) -> VortexResult<Option<T>> {
         let mut names = Vec::with_capacity(node.child_count() * 2);
         let mut children = Vec::with_capacity(node.child_count() * 2);
         let mut duplicate_names = HashSet::<_>::new();

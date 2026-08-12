@@ -355,7 +355,9 @@ impl ReduceNode for ArrayReduceNode<'_> {
     }
 
     fn scalar_fn(&self) -> Option<&ScalarFnRef> {
-        self.array.as_opt::<ScalarFn>().map(|a| a.data().scalar_fn())
+        self.array
+            .as_opt::<ScalarFn>()
+            .map(|a| a.data().scalar_fn())
     }
 
     fn child(&self, idx: usize) -> Self {
@@ -382,10 +384,7 @@ impl ReduceNode for ArrayReduceNode<'_> {
     fn new_node(&self, scalar_fn: ScalarFnRef, children: &[Self]) -> VortexResult<Self> {
         let array = crate::arrays::ScalarFnArray::try_new_with_len(
             scalar_fn,
-            children
-                .iter()
-                .map(|c| c.array.as_ref().clone())
-                .collect(),
+            children.iter().map(|c| c.array.as_ref().clone()).collect(),
             self.array.len(),
         )?;
         Ok(Self {

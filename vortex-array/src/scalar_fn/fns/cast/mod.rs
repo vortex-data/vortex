@@ -142,11 +142,7 @@ impl ScalarFnVTable for Cast {
         }
     }
 
-    fn reduce<T: ReduceNode>(
-        &self,
-        target_dtype: &DType,
-        node: &T,
-    ) -> VortexResult<Option<T>> {
+    fn reduce<T: ReduceNode>(&self, target_dtype: &DType, node: &T) -> VortexResult<Option<T>> {
         // Collapse node if child is already the target type
         let child = node.child(0);
         if &child.node_dtype()? == target_dtype {
