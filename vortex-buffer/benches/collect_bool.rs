@@ -13,11 +13,15 @@
 //! - `collect_bool_*` / `from_bool_slice`: the public entry points end to end, with a
 //!   boolean-gather predicate and a `u32` comparison predicate.
 //!
-//! The `words_gather_*` benchmarks carry a `#[isa]` tag, which sends them to the walltime CI
-//! leg built for that instruction set — the only place NEON is measured at all. Instruction
-//! counts say little about a SIMD kernel, so the simulation shards stick to the untagged
-//! shipped entry points. The historical bit-at-a-time baselines are for local A/B runs and
-//! compile out of every CodSpeed build.
+//! `words_gather_dispatch` and `words_gather_scalar` carry `#[isa]`, so they are measured on
+//! every walltime instruction-set leg rather than in simulation. Both are written once and
+//! compiled differently per leg: the shipped entry point picks its pack kernel through
+//! `cfg(target_feature)`, and how well the scalar loop auto-vectorizes depends on the build.
+//! Comparing them across legs is the point.
+//!
+//! The hand-written per-kernel benchmarks are not tagged. Each one only exists for a single
+//! instruction set and cannot run on the other legs, so they stay out of CodSpeed entirely
+//! and remain local A/B tools, as do the historical bit-at-a-time baselines.
 //!
 //! A plain `cargo bench` ignores all of it and runs everything on the host.
 
@@ -103,7 +107,7 @@ fn bench_words_gather(
         .bench_refs(|words| collect(words, len, &bools));
 }
 
-#[isa(all)]
+#[isa]
 #[divan::bench(args = INPUT_SIZE)]
 fn words_gather_dispatch(bencher: Bencher, len: usize) {
     bench_words_gather(bencher, len, |words, len, bools| {
@@ -112,7 +116,7 @@ fn words_gather_dispatch(bencher: Bencher, len: usize) {
     });
 }
 
-#[isa(all)]
+#[isa]
 #[divan::bench(args = INPUT_SIZE)]
 fn words_gather_scalar(bencher: Bencher, len: usize) {
     bench_words_gather(bencher, len, |words, len, bools| {
@@ -131,7 +135,8 @@ fn words_gather_sse2(bencher: Bencher, len: usize) {
     });
 }
 
-#[isa(avx2)]
+#[cfg(target_arch = "x86_64")]
+#[cfg(not(codspeed))]
 #[divan::bench(args = INPUT_SIZE)]
 fn words_gather_avx2(bencher: Bencher, len: usize) {
     if !is_x86_feature_detected!("avx2") {
@@ -143,7 +148,8 @@ fn words_gather_avx2(bencher: Bencher, len: usize) {
     });
 }
 
-#[isa(avx512)]
+#[cfg(target_arch = "x86_64")]
+#[cfg(not(codspeed))]
 #[divan::bench(args = INPUT_SIZE)]
 fn words_gather_avx512(bencher: Bencher, len: usize) {
     if !(is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512bw")) {
@@ -155,7 +161,8 @@ fn words_gather_avx512(bencher: Bencher, len: usize) {
     });
 }
 
-#[isa(neon)]
+#[cfg(target_arch = "aarch64")]
+#[cfg(not(codspeed))]
 #[divan::bench(args = INPUT_SIZE)]
 fn words_gather_neon(bencher: Bencher, len: usize) {
     bench_words_gather(bencher, len, |words, len, bools| {

@@ -165,16 +165,18 @@ jobs:
       # spawns processes that would otherwise be pinned to the housekeeping CPUs.
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
-      # The trailing filter is what keeps a leg to its own benchmarks. Unlike a simulation
-      # build, a walltime one does not set `--cfg codspeed`, so benchmarks excluded from
-      # CodSpeed that way are compiled in here and divan would measure them — under bare
-      # names, which every leg would then upload to the same series. `#[isa]` puts the leg
-      # tag in the name of every benchmark it owns, so filtering on it selects exactly
-      # those; the per-leg `ignore` still applies on top.
+      # The trailing filter is what keeps a leg to the tagged benchmarks. Unlike a simulation
+      # build, a walltime one does not set `--cfg codspeed`, so benchmarks kept out of
+      # CodSpeed that way are compiled in here and divan would otherwise measure them.
+      #
+      # divan matches the filter's `::`-separated components against the benchmark path's,
+      # so this selects paths of the form `<bench target>::<isa>::<name>`. That middle
+      # component only exists because `#[isa]` puts it there: an untagged benchmark has one
+      # component fewer and cannot match, whatever it is called.
       - name: Run benchmarks
         uses: CodSpeedHQ/action@4296e51e7041e24dadb86d1d6e8b9320d223dbe8  # v5
         with:
-          run: bash scripts/bench-taskset.sh cargo codspeed run -- '${{ matrix.isa }}::'
+          run: bash scripts/bench-taskset.sh cargo codspeed run -- '.*::${{ matrix.isa }}::'
           token: ${{ secrets.CODSPEED_TOKEN }}
           mode: "walltime"
 
