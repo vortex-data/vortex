@@ -15,6 +15,7 @@ use crate::runtime::BlockingRuntime;
 use crate::runtime::Executor;
 use crate::runtime::Handle;
 pub use crate::runtime::pool::CurrentThreadWorkerPool;
+use crate::runtime::smol::SmolExecutor;
 
 /// A current thread runtime allows callers to much more explicitly drive Vortex futures than with
 /// a Tokio runtime.
@@ -31,7 +32,7 @@ pub use crate::runtime::pool::CurrentThreadWorkerPool;
 /// with the desired number of worker threads that will drive work on behalf of the runtime.
 #[derive(Clone, Default)]
 pub struct CurrentThreadRuntime {
-    executor: Arc<smol::Executor<'static>>,
+    executor: Arc<SmolExecutor>,
 }
 
 impl CurrentThreadRuntime {
@@ -72,7 +73,7 @@ impl CurrentThreadRuntime {
         // ready item without every one of them having to become an executor.
         let capacity = get_available_parallelism().unwrap_or(1).max(1);
         let (result_tx, result_rx) = kanal::bounded_async(capacity);
-        let driver = self.executor.spawn(async move {
+        let driver = self.executor.async_executor().spawn(async move {
             futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {
                 // If all receivers are dropped, we stop driving the stream.
@@ -120,7 +121,7 @@ impl BlockingRuntime for CurrentThreadRuntime {
 
 /// An iterator that wraps up a stream to drive it using the current thread execution.
 pub struct CurrentThreadIterator<'a, T> {
-    executor: Arc<smol::Executor<'static>>,
+    executor: Arc<SmolExecutor>,
     stream: BoxStream<'a, T>,
 }
 
@@ -134,7 +135,7 @@ impl<T> Iterator for CurrentThreadIterator<'_, T> {
 
 /// An iterator that drives a stream from multiple threads.
 pub struct ThreadSafeIterator<T> {
-    executor: Arc<smol::Executor<'static>>,
+    executor: Arc<SmolExecutor>,
     results: kanal::AsyncReceiver<T>,
     /// Handle to the task driving the stream. Once the stream ends, the first consumer to
     /// observe it joins the task so a panic raised while driving the stream is re-raised rather

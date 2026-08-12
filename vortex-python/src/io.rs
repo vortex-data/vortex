@@ -5,7 +5,6 @@ use std::sync::Arc;
 
 use arrow_array::RecordBatchReader;
 use arrow_array::ffi_stream::ArrowArrayStreamReader;
-use async_fs::File;
 use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -25,6 +24,7 @@ use vortex::file::WriteStrategyBuilder;
 use vortex::io::VortexWrite;
 use vortex::io::object_store::ObjectStoreWrite;
 use vortex::io::runtime::BlockingRuntime;
+use vortex::io::std_file::FileWrite;
 use vortex_arrow::ArrowSessionExt;
 
 use crate::PyVortex;
@@ -261,7 +261,7 @@ pub fn write(
                     VortexResult::Ok(())
                 }
                 ResolvedStore::Path(path) => {
-                    let mut w = File::create(path).await?;
+                    let mut w = FileWrite::create(path, current_runtime().handle()).await?;
                     session
                         .write_options()
                         .write(&mut w, iter.into_inner().into_array_stream())
@@ -397,7 +397,7 @@ impl PyVortexWriteOptions {
                         VortexResult::Ok(())
                     }
                     ResolvedStore::Path(path) => {
-                        let mut w = File::create(path).await?;
+                        let mut w = FileWrite::create(path, current_runtime().handle()).await?;
                         session
                             .write_options()
                             .with_strategy(strategy)

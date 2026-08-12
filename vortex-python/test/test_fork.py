@@ -77,6 +77,34 @@ SCENARIOS: dict[str, str] = {
         assert in_fork(child) == ROWS
         print("OK")
     """,
+    # Reaching the blocking-pool limit in the parent must not prevent a fresh pool from starting in
+    # the child. The old process-global `blocking` executor could never recover from this state.
+    "read_after_saturated_blocking_pool": """
+        import os
+        os.environ["BLOCKING_MAX_THREADS"] = "1"
+        assert len(vx.open(PATH).scan().read_all()) == ROWS
+
+        def child():
+            return len(vx.open(PATH).scan().read_all())
+
+        assert in_fork(child) == ROWS
+        print("OK")
+    """,
+    # Local writes use the runtime-owned blocking pool too; otherwise async-fs would retain the
+    # same process-global fork hazard after the read path was fixed.
+    "write_after_parent_write": """
+        import pyarrow as pa
+        values = vx.array(pa.array([{"value": i} for i in range(10)]))
+        vx.io.write(values, f"{PATH}.parent-write")
+
+        def child():
+            child_path = f"{PATH}.child-write"
+            vx.io.write(values, child_path)
+            return len(vx.open(child_path))
+
+        assert in_fork(child) == 10
+        print("OK")
+    """,
     # The child must end up with real worker threads, not the parent's phantom handles.
     "child_has_live_workers": """
         assert len(vx.open(PATH).scan().read_all()) == ROWS

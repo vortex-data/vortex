@@ -33,7 +33,6 @@ tui = ["dep:tokio", "dep:vortex-tui"]
 arrow-array = { workspace = true }
 arrow-data = { workspace = true }
 arrow-schema = { workspace = true }
-async-fs = { workspace = true }
 bytes = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }

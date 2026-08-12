@@ -16,6 +16,8 @@ use futures::future::BoxFuture;
 
 mod blocking;
 pub use blocking::*;
+#[cfg(not(target_arch = "wasm32"))]
+mod blocking_pool;
 mod handle;
 pub use handle::*;
 
