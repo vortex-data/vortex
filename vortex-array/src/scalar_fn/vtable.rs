@@ -15,9 +15,8 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
-use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::arrays::ScalarFn;
+use crate::arrays::{ScalarFn, ScalarFnArray};
 use crate::dtype::DType;
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
@@ -25,6 +24,7 @@ use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::TypedScalarFnInstance;
+use crate::{ArrayRef, IntoArray};
 
 /// This trait defines the interface for scalar function vtables, including methods for
 /// serialization, deserialization, validation, child naming, return type computation,
@@ -382,13 +382,13 @@ impl ReduceNode for ArrayReduceNode<'_> {
     }
 
     fn new_node(&self, scalar_fn: ScalarFnRef, children: &[Self]) -> VortexResult<Self> {
-        let array = crate::arrays::ScalarFnArray::try_new_with_len(
+        let array = ScalarFnArray::try_new_with_len(
             scalar_fn,
             children.iter().map(|c| c.array.as_ref().clone()).collect(),
             self.array.len(),
         )?;
         Ok(Self {
-            array: Cow::Owned(crate::IntoArray::into_array(array)),
+            array: Cow::Owned(array.into_array()),
         })
     }
 }
