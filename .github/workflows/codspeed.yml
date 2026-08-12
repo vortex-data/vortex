@@ -193,6 +193,13 @@ jobs:
       # component fewer and cannot match, whatever it is called.
       - name: Run benchmarks
         uses: CodSpeedHQ/action@4296e51e7041e24dadb86d1d6e8b9320d223dbe8  # v5
+        env:
+          # divan's default of 100 samples leaves these benchmarks too noisy to compare
+          # across runs: the same commit measured twice varied by up to 2.2x on the 1,024
+          # element cases and ~50-70% on the 65,536 element ones. At 1,000 samples the same
+          # experiment stays within ~6-10%, and the suite still runs in seconds, so the extra
+          # sampling is close to free next to the minute-plus spent building it.
+          DIVAN_SAMPLE_COUNT: "1000"
         with:
           run: bash scripts/bench-taskset.sh cargo codspeed run -- '.*::${{ matrix.isa }}::'
           token: ${{ secrets.CODSPEED_TOKEN }}
