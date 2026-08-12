@@ -4,19 +4,12 @@
 use std::cmp::max;
 use std::fmt::Formatter;
 use std::fmt::{self};
-use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
-use std::task::Context;
-use std::task::Poll;
 
 use custom_labels::CURRENT_LABELSET;
-use futures::FutureExt;
-use futures::Stream;
-use futures::StreamExt;
-use futures::future::BoxFuture;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use parking_lot::Mutex;
@@ -26,41 +19,25 @@ use vortex::aggregate_fn::DynAccumulator;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
-use vortex::array::VortexSessionExecute as _;
 use vortex::array::arrays::ScalarFn;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::scalar_fn::ScalarFnArrayExt;
-use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::array::optimizer::ArrayOptimizer;
 use vortex::dtype::DType;
 use vortex::dtype::PType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
-use vortex::expr::stats::Precision;
-use vortex::extension::uuid::Uuid;
-use vortex::file::v2::FileStatsLayoutReader;
-use vortex::io::kanal_ext::KanalExt as _;
-use vortex::io::runtime::BlockingRuntime as _;
-use vortex::io::runtime::current::ThreadSafeIterator;
-use vortex::layout::scan::multi::MultiLayoutChild;
-use vortex::layout::scan::multi::MultiLayoutDataSource;
 use vortex::metrics::tracing::get_global_labels;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::operators::Operator;
 use vortex::scalar_fn::fns::pack::Pack;
-use vortex::scan::DataSource;
-use vortex::scan::ScanRequest;
 use vortex_utils::aliases::hash_map::HashMap;
-use vortex_utils::parallelism::get_available_parallelism;
 
-use crate::RUNTIME;
-use crate::SESSION;
-use crate::column_statistics::ColumnStatistics;
-use crate::column_statistics::ColumnStatisticsAggregate;
 use crate::convert::PushedAggregate;
 use crate::convert::try_from_bound_expression;
 use crate::convert::try_from_projection_aggregate;
@@ -68,19 +45,18 @@ use crate::convert::try_from_projection_expression;
 use crate::cpp::DUCKDB_TYPE;
 use crate::duckdb::AggregateExpression;
 use crate::duckdb::AggregatePushdownInputRef;
-use crate::duckdb::BindInputRef;
 use crate::duckdb::BindResultRef;
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::DuckdbStringMapRef;
 use crate::duckdb::ExpressionRef;
+use crate::duckdb::LogicalType;
 use crate::duckdb::LogicalTypeRef;
 use crate::duckdb::TableInitInput;
 use crate::duckdb::Value;
 use crate::exporter::ArrayExporter;
-use crate::exporter::ConversionCache;
-use crate::multi_file::bind_multi_file_scan;
+use crate::file_reader::FileReader;
+use crate::file_reader::ScanPruning;
 use crate::projection::DuckdbField;
-use crate::projection::Filter;
 use crate::projection::Projection;
 use crate::projection::extract_schema_from_dtype;
 
@@ -88,28 +64,32 @@ use crate::projection::extract_schema_from_dtype;
 pub const COUNT_STAR_PROJ_IDX: u64 = u64::MAX;
 
 pub struct TableFunctionBind {
-    data_source: Arc<MultiLayoutDataSource>,
-    filter_exprs: Vec<Expression>,
-    column_fields: Vec<DuckdbField>,
+    pub(crate) dtype: DType,
+    first_file_row_count: u64,
+    pub(crate) filter_exprs: Vec<Expression>,
+    pub(crate) column_fields: Vec<DuckdbField>,
     // There exists at least one non-optional table filter or at least one
     // complex filter is pushed down.
-    has_non_optional_filter: AtomicBool,
+    pub(crate) has_non_optional_filter: AtomicBool,
     // Non-empty iff this scan is aggregate
     aggregates: Vec<ColumnAggregate>,
+    aggregate_outputs: Vec<(String, LogicalType)>,
 }
 assert_impl_all!(TableFunctionBind: Send, Clone);
 
 impl Clone for TableFunctionBind {
     fn clone(&self) -> Self {
         Self {
-            data_source: Arc::clone(&self.data_source),
-            // filter_exprs are consumed once in `init_global`.
+            dtype: self.dtype.clone(),
+            first_file_row_count: self.first_file_row_count,
+            // Cloning happens only for late materialization refetch
             filter_exprs: vec![],
             column_fields: self.column_fields.clone(),
             has_non_optional_filter: AtomicBool::new(
                 self.has_non_optional_filter.load(Ordering::Relaxed),
             ),
             aggregates: self.aggregates.clone(),
+            aggregate_outputs: self.aggregate_outputs.clone(),
         }
     }
 }
@@ -136,43 +116,27 @@ impl<'a> TableInitInput<'a> {
     }
 }
 
-type ScanItem = VortexResult<(ArrayRef, Arc<ConversionCache>)>;
-type DataSourceIterator = ThreadSafeIterator<ScanItem>;
-
 pub struct TableFunctionGlobal {
-    iterator: DataSourceIterator,
-    batch_id: AtomicU64,
-    bytes_total: Arc<AtomicU64>,
-    bytes_read: AtomicU64,
-    file_index_column_pos: Option<usize>,
-    file_row_number_column_pos: Option<usize>,
-
-    // Following 4 fields are used only in aggregate scans.
-    /// ArrayRef's scanned but not aggregated in "partials".
-    /// 0 means all arrays have been aggregated but output is not written.
-    /// u64::MAX means arrays have been aggregated and we've written output row
-    pending: Arc<AtomicU64>,
-    aggregates: Vec<ColumnAggregate>,
+    pub(crate) pruning: Option<ScanPruning>,
+    pub(crate) bound_projection: BoundExpression,
+    // Following fields are used only in aggregate scans.
+    /// Splits that are not merged into global partials
+    /// 0 means everything started is merged.
+    /// u64::MAX means output row is written.
+    pub(crate) pending: Arc<AtomicU64>,
+    pub(crate) aggregates: Vec<ColumnAggregate>,
+    pub(crate) aggregate_positions: Vec<usize>,
     // Accumulated partials
-    partials: Mutex<Vec<Box<dyn DynAccumulator>>>,
-    row_count: AtomicU64,
+    pub(crate) partials: Mutex<Vec<Box<dyn DynAccumulator>>>,
+    pub(crate) row_count: AtomicU64,
 }
 assert_impl_all!(TableFunctionGlobal: Send, Sync);
 
 /// Per-thread scan state
 pub struct TableFunctionLocal {
-    iterator: DataSourceIterator,
-    exporter: Option<ArrayExporter>,
-    partition_index: u64,
-    file_index: usize,
+    pub(crate) exporter: Option<ArrayExporter>,
     // Aggregate scan accumulated partials. Empty for non-aggregate scan
-    partials: Vec<Box<dyn DynAccumulator>>,
-}
-
-pub struct PartitionData {
-    pub partition_index: u64,
-    pub file_index_column_pos: Option<usize>,
-    pub file_index: usize,
+    pub(crate) partials: Vec<Box<dyn DynAccumulator>>,
 }
 
 #[derive(Clone)]
@@ -186,8 +150,6 @@ pub(crate) enum ColumnAggregate {
 
 #[derive(Debug)]
 pub enum Cardinality {
-    /// Unknown number of rows
-    Unknown,
     /// The exact number of rows.
     Exact(u64),
     /// An estimate of the number of rows.
@@ -197,194 +159,102 @@ pub enum Cardinality {
 // Called for every new query. For example, if there is a VIEW over *.vortex,
 // and after a query another file is added matching the glob, for second query
 // bind() will be called again.
-pub fn bind(input: &BindInputRef, result: &mut BindResultRef) -> VortexResult<TableFunctionBind> {
-    let data_source = bind_multi_file_scan(input)?;
-    let column_fields = extract_schema_from_dtype(data_source.dtype())?;
-    for fields in &column_fields {
-        result.add_result_column(&fields.name, &fields.logical_type);
-    }
+pub fn bind(first_file: &FileReader) -> VortexResult<TableFunctionBind> {
+    let dtype = first_file.dtype.clone();
+    let column_fields = extract_schema_from_dtype(&dtype)?;
     Ok(TableFunctionBind {
-        data_source: Arc::new(data_source),
+        dtype,
+        first_file_row_count: first_file.row_count,
         filter_exprs: vec![],
         column_fields,
         has_non_optional_filter: AtomicBool::new(false),
         aggregates: vec![],
+        aggregate_outputs: vec![],
     })
+}
+
+pub fn bind_schema(bind_data: &TableFunctionBind, result: &mut BindResultRef) {
+    if !bind_data.aggregate_outputs.is_empty() {
+        for (name, logical_type) in &bind_data.aggregate_outputs {
+            result.add_result_column(name, logical_type);
+        }
+        return;
+    }
+    for field in &bind_data.column_fields {
+        result.add_result_column(&field.name, &field.logical_type);
+    }
+}
+
+pub fn finalize_scan(global: &TableFunctionGlobal, chunk: &mut DataChunkRef) -> VortexResult<bool> {
+    if global.aggregates.is_empty() {
+        return Ok(false);
+    }
+    // 0 means every produced array has been accumulated, u64::MAX means output is
+    // written. is_err() covers "still accumulating" and "already emitted"
+    if global
+        .pending
+        .compare_exchange(0, u64::MAX, Ordering::AcqRel, Ordering::Relaxed)
+        .is_err()
+    {
+        return Ok(false);
+    }
+
+    let mut accumulators = global.partials.lock();
+    let row_count = global.row_count.load(Ordering::Acquire) as i64;
+    let mut accum_iter = accumulators.iter_mut();
+    for (idx, aggregate) in global.aggregates.iter().enumerate() {
+        let value = match aggregate {
+            ColumnAggregate::Real { .. } => {
+                let accum = accum_iter.next().vortex_expect("partial for real agg");
+                let expected = chunk.get_vector_mut(idx).logical_type();
+                aggregate_output_value(accum.finish()?, &expected)?
+            }
+            ColumnAggregate::CountStar => Value::from(row_count),
+        };
+        chunk.get_vector_mut(idx).reference_value(&value);
+    }
+    chunk.set_len(1);
+    Ok(true)
 }
 
 pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlobal> {
-    debug!(input=?init_input, "table function global input");
-
     let bind_data = init_input.bind_data();
-    let column_ids = init_input.column_ids();
-    let projection_ids = init_input.projection_ids();
 
-    let Projection {
-        projection,
-        file_index_column_pos,
-        file_row_number_column_pos,
-    } = if bind_data.aggregates.is_empty() {
-        Projection::new(projection_ids, column_ids, &bind_data.column_fields)
+    let partials = build_partials(
+        &bind_data.aggregates,
+        &bind_data.column_fields,
+        &bind_data.dtype,
+    )?;
+
+    let pruning = ScanPruning::new(bind_data, init_input.column_ids(), init_input.input.filters)?;
+
+    let mut seen = HashMap::with_capacity(bind_data.aggregates.len());
+    let mut aggregate_positions = Vec::with_capacity(bind_data.aggregates.len());
+    for aggregate in &bind_data.aggregates {
+        let ColumnAggregate::Real { projection_id, .. } = aggregate else {
+            continue;
+        };
+        let len = seen.len();
+        let pos = *seen.entry(*projection_id).or_insert(len);
+        aggregate_positions.push(pos);
+    }
+
+    let Projection(projection) = if bind_data.aggregates.is_empty() {
+        Projection::new(init_input.column_ids(), &bind_data.column_fields)
     } else {
         Projection::new_aggregate(&bind_data.aggregates, &bind_data.column_fields)
     };
-
-    let Filter {
-        filter,
-        row_selection,
-        row_range,
-        file_selection,
-        file_range,
-        has_non_optional_filter,
-    } = Filter::new(
-        init_input.table_filter_set(),
-        column_ids,
-        &bind_data.column_fields,
-        &bind_data.filter_exprs,
-        bind_data.data_source.dtype(),
-    )?;
-
-    if has_non_optional_filter {
-        init_input
-            .bind_data()
-            .has_non_optional_filter
-            .store(true, Ordering::Relaxed);
-    }
-
-    debug!(
-        %projection,
-        filter = filter
-            .as_ref()
-            .map_or_else(|| "true".to_string(), |f| f.to_string()),
-        ?row_selection,
-        ?row_range,
-        ?file_selection,
-        ?file_range,
-        "table function scan input"
-    );
-
-    let request = ScanRequest {
-        projection,
-        filter,
-        ordered: file_row_number_column_pos.is_some(),
-        selection: row_selection,
-        row_range,
-        partition_selection: file_selection,
-        partition_range: file_range,
-        limit: None,
-    };
-
-    let scan = RUNTIME.block_on(bind_data.data_source.scan(request))?;
-
-    let num_workers = get_available_parallelism().unwrap_or(1);
-
-    // We create an async bounded channel so that all thread-local workers can pull the next
-    // available array chunk regardless of which partition it came from.
-    let (tx, rx) = kanal::bounded_async(num_workers * 2);
-
-    let pending = Arc::new(AtomicU64::new(0));
-    let pending_producer = Arc::clone(&pending);
-
-    // We drive one partition per worker thread. Each partition is driven as a spawned task
-    // that pushes array chunks into the shared channel as they are produced. This spawning
-    // allows all worker threads to drive the polling of all partitions, and then return the
-    // first available array chunk.
-    let stream = scan
-        .partitions()
-        .map(move |partition| {
-            let tx = tx.clone();
-            let pending = Arc::clone(&pending_producer);
-            RUNTIME.handle().spawn(async move {
-                let partition = match partition {
-                    Ok(partition) => partition,
-                    Err(e) => {
-                        let _ = tx.send(Err(e)).await;
-                        return;
-                    }
-                };
-
-                let cache = Arc::new(ConversionCache {
-                    file_index: partition.index(),
-                    ..Default::default()
-                });
-
-                let mut stream = match partition.execute() {
-                    Ok(s) => s,
-                    Err(e) => {
-                        let _ = tx.send(Err(e)).await;
-                        return;
-                    }
-                };
-                while let Some(item) = stream.next().await {
-                    pending.fetch_add(1, Ordering::Relaxed);
-                    if tx
-                        .send(item.map(|a| (a, Arc::clone(&cache))))
-                        .await
-                        .is_err()
-                    {
-                        // Exit early if the receiver has been dropped, which happens when the
-                        // scan is complete or if an error has occurred in another partition.
-                        return;
-                    }
-                }
-            })
-        })
-        .buffer_unordered(num_workers);
-
-    let iterator = RUNTIME.block_on_stream_thread_safe(|_handle| scan_driver_stream(stream, rx));
-
-    let aggregates = bind_data.aggregates.clone();
-    let partials = build_partials(
-        &aggregates,
-        &bind_data.column_fields,
-        bind_data.data_source.dtype(),
-    )?;
+    let bound_projection = optimize_and_bind(projection, &bind_data.dtype)?;
 
     Ok(TableFunctionGlobal {
-        iterator,
-        batch_id: AtomicU64::new(0),
-        bytes_total: Arc::new(AtomicU64::new(0)),
-        bytes_read: AtomicU64::new(0),
-        file_index_column_pos,
-        file_row_number_column_pos,
-        pending,
-        aggregates,
+        pruning,
+        aggregate_positions,
+        bound_projection,
+        pending: Arc::new(AtomicU64::new(0)),
+        aggregates: bind_data.aggregates.clone(),
         partials: Mutex::new(partials),
         row_count: AtomicU64::new(0),
     })
-}
-
-fn scan_driver_stream<S>(stream: S, rx: kanal::AsyncReceiver<ScanItem>) -> ScanDriverStream
-where
-    S: Stream<Item = ()> + Send + 'static,
-{
-    ScanDriverStream {
-        driver: Some(stream.collect::<()>().boxed()),
-        rx: rx.into_stream().boxed(),
-    }
-}
-
-struct ScanDriverStream {
-    driver: Option<BoxFuture<'static, ()>>,
-    rx: futures::stream::BoxStream<'static, ScanItem>,
-}
-
-impl Stream for ScanDriverStream {
-    type Item = ScanItem;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.get_mut();
-        if let Some(driver) = this.driver.as_mut()
-            && driver.as_mut().poll(cx).is_ready()
-        {
-            this.driver = None;
-        }
-
-        match this.rx.as_mut().poll_next(cx) {
-            Poll::Ready(None) if this.driver.is_some() => Poll::Pending,
-            poll => poll,
-        }
-    }
 }
 
 /// Dtype over which we accumulate
@@ -440,22 +310,23 @@ pub fn init_local(
     let partials = build_partials(
         &global.aggregates,
         &bind_data.column_fields,
-        bind_data.data_source.dtype(),
+        &bind_data.dtype,
     )
     // if aggregate initialization produced an error, it would error in
     // init_global, see "partials" initialization there
     .vortex_expect("local state aggregate initialization failed");
 
     TableFunctionLocal {
-        iterator: global.iterator.clone(),
         exporter: None,
-        partition_index: 0,
-        file_index: 0,
         partials,
     }
 }
 
-fn convert_result(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<StructArray> {
+pub(crate) fn optimize_and_bind(expr: Expression, dtype: &DType) -> VortexResult<BoundExpression> {
+    expr.optimize_recursive(dtype)?.bind(dtype)
+}
+
+pub(crate) fn convert_result(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<StructArray> {
     let array_result = array.optimize_recursive(ctx.session())?;
     Ok(if let Some(array) = array_result.as_opt::<Struct>() {
         array.into_owned()
@@ -497,157 +368,6 @@ fn aggregate_output_value(scalar: Scalar, expected: &LogicalTypeRef) -> VortexRe
     }
 }
 
-fn scan_aggregate(
-    local_state: &mut TableFunctionLocal,
-    global_state: &TableFunctionGlobal,
-    chunk: &mut DataChunkRef,
-) -> VortexResult<()> {
-    let aggregates_len = global_state.aggregates.len();
-    // seen[k] = output column for requested column k.
-    // If min(x), max(x), avg(y) are requested, seen = { 0: 0, 1: 1}
-    let mut seen: HashMap<u64, usize> = HashMap::with_capacity(aggregates_len);
-    // positions[k] = column id for accumulator k
-    // If min(x), max(x), avg(y) are requested, positions = [0, 0, 1]
-    let mut positions: Vec<usize> = Vec::with_capacity(aggregates_len);
-
-    for aggregate in &global_state.aggregates {
-        let ColumnAggregate::Real { projection_id, .. } = aggregate else {
-            continue;
-        };
-        let len = seen.len();
-        let pos = seen.entry_ref(projection_id).or_insert(len);
-        positions.push(*pos);
-    }
-    let has_count_star = local_state.partials.len() < aggregates_len;
-
-    let mut ctx = SESSION.create_execution_ctx();
-    loop {
-        let Some(result) = local_state.iterator.next() else {
-            // 0 means we're the last thread, u64::MAX means output is written.
-            // is_err() means CAS didn't succeed
-            if global_state
-                .pending
-                .compare_exchange(0, u64::MAX, Ordering::AcqRel, Ordering::Relaxed)
-                .is_err()
-            {
-                return Ok(());
-            }
-
-            let mut accumulators = global_state.partials.lock();
-            let row_count = global_state.row_count.load(Ordering::Acquire) as i64;
-            let mut accum_iter = accumulators.iter_mut();
-            for (idx, aggregate) in global_state.aggregates.iter().enumerate() {
-                let value = match aggregate {
-                    ColumnAggregate::Real { .. } => {
-                        let accum = accum_iter.next().vortex_expect("partial for real agg");
-                        let expected = chunk.get_vector_mut(idx).logical_type();
-                        aggregate_output_value(accum.finish()?, &expected)?
-                    }
-                    ColumnAggregate::CountStar => Value::from(row_count),
-                };
-                chunk.get_vector_mut(idx).reference_value(&value);
-            }
-            chunk.set_len(1);
-            return Ok(());
-        };
-        let array = convert_result(result?.0, &mut ctx)?;
-
-        for (i, partial) in positions.iter().zip(local_state.partials.iter_mut()) {
-            partial.accumulate(array.unmasked_field(*i), &mut ctx)?;
-        }
-
-        {
-            let mut partials = global_state.partials.lock();
-            for (global, local) in partials.iter_mut().zip(&mut local_state.partials) {
-                global.combine_partials(local.flush()?)?;
-            }
-        }
-
-        if has_count_star {
-            global_state
-                .row_count
-                .fetch_add(array.len() as u64, Ordering::Relaxed);
-        }
-        global_state.pending.fetch_sub(1, Ordering::Release);
-    }
-}
-
-pub fn scan(
-    local_state: &mut TableFunctionLocal,
-    global_state: &TableFunctionGlobal,
-    chunk: &mut DataChunkRef,
-) -> VortexResult<()> {
-    if !local_state.partials.is_empty() {
-        return scan_aggregate(local_state, global_state, chunk);
-    }
-
-    loop {
-        if local_state.exporter.is_none() {
-            let mut ctx = SESSION.create_execution_ctx();
-            let Some(result) = local_state.iterator.next() else {
-                return Ok(());
-            };
-            let (array_result, conversion_cache) = result?;
-            local_state.file_index = conversion_cache.file_index;
-            let array_result = convert_result(array_result, &mut ctx)?;
-
-            local_state.exporter = Some(ArrayExporter::try_new(
-                &array_result,
-                &conversion_cache,
-                ctx,
-            )?);
-            // Relaxed since there is no intra-instruction ordering required.
-            local_state.partition_index = global_state.batch_id.fetch_add(1, Ordering::Relaxed);
-        }
-
-        let exporter = local_state
-            .exporter
-            .as_mut()
-            .vortex_expect("error: exporter missing");
-        let has_more_data = exporter.export(
-            chunk,
-            global_state.file_index_column_pos,
-            global_state.file_row_number_column_pos,
-        )?;
-
-        global_state
-            .bytes_read
-            .fetch_add(chunk.len(), Ordering::Relaxed);
-
-        if !has_more_data {
-            // This exporter is fully consumed.
-            local_state.exporter = None;
-            local_state.partition_index = 0;
-        } else {
-            break;
-        }
-    }
-
-    assert!(!chunk.is_empty());
-
-    if let Some(pos) = global_state.file_index_column_pos {
-        chunk
-            .get_vector_mut(pos)
-            .reference_value(&Value::from(local_state.file_index as u64));
-    }
-
-    Ok(())
-}
-
-/// Scan progress as a percentage (0.0–100.0).
-pub fn table_scan_progress(global_state: &TableFunctionGlobal) -> f64 {
-    progress(&global_state.bytes_read, &global_state.bytes_total)
-}
-
-/// Table filter pushdown is used for two tasks in duckdb:
-///
-/// 1. Prune files based on filename or hive partitioning, see Parquet
-///    filter pushdown. We don't use this because we do own file-level pruning
-///    in FileStatsLayoutReader, and we don't support hive partitioning yet.
-/// 2. Avoid reading unused file data. Filter expressions are pushed to Vortex,
-///    converted to Vortex expressions and used during the scan.
-///    Duckdb pushes a subset of expressions i.e. equality operators, and also
-///    expressions which return true in pushdown_expression.
 pub fn pushdown_complex_filter(
     bind_data: &mut TableFunctionBind,
     expr: &ExpressionRef,
@@ -704,7 +424,13 @@ pub fn pushdown_projection_expression(
         }
         Some(vx_expr) => {
             debug!(%expr, "pushed down expression");
-            bind_data.column_fields[projection_id].projection_expr = Some(vx_expr);
+            let Ok(out_dtype) = vx_expr.return_dtype(&bind_data.dtype) else {
+                return Ok(false);
+            };
+            let field = &mut bind_data.column_fields[projection_id];
+            field.logical_type = expr.return_type().to_owned();
+            field.dtype = out_dtype;
+            field.projection_expr = Some(vx_expr);
             Ok(true)
         }
     }
@@ -717,7 +443,7 @@ fn can_push_projection_aggregate(
 ) -> bool {
     let projection_id_usize: usize = projection_id.as_();
     let field = &bind_data.column_fields[projection_id_usize];
-    let Ok(dtype) = aggregate_input_dtype(field, bind_data.data_source.dtype()) else {
+    let Ok(dtype) = aggregate_input_dtype(field, &bind_data.dtype) else {
         return false;
     };
 
@@ -773,13 +499,24 @@ pub fn pushdown_projection_aggregates(
 ) -> VortexResult<bool> {
     let len = input.len();
     let mut aggregates = Vec::with_capacity(len);
+    let mut outputs = Vec::with_capacity(len);
     let mut has_non_count_star = false;
 
     debug!(%len, "pushing down projection aggregates");
     for i in 0..len {
-        let Some(aggregate) = try_push_projection_aggregate(bind_data, input.get(i), i)? else {
+        let expression = input.get(i);
+        let output_type = expression.expr.return_type().to_owned();
+        let Some(aggregate) = try_push_projection_aggregate(bind_data, expression, i)? else {
             return Ok(false);
         };
+        let name = match &aggregate {
+            ColumnAggregate::CountStar => "count_star()".to_string(),
+            ColumnAggregate::Real { projection_id, .. } => {
+                let id: usize = projection_id.as_();
+                bind_data.column_fields[id].name.clone()
+            }
+        };
+        outputs.push((name, output_type));
         has_non_count_star |= matches!(aggregate, ColumnAggregate::Real { .. });
         aggregates.push(aggregate);
     }
@@ -788,6 +525,7 @@ pub fn pushdown_projection_aggregates(
         return Ok(false);
     }
     bind_data.aggregates = aggregates;
+    bind_data.aggregate_outputs = outputs;
     Ok(true)
 }
 
@@ -818,41 +556,6 @@ fn try_push_projection_aggregate(
     }))
 }
 
-/// Get column-wise statistics. Available only if we're reading a single file.
-pub fn statistics(bind_data: &TableFunctionBind, column_index: usize) -> Option<ColumnStatistics> {
-    // Aggregate output columns hold data we don't have in statistics
-    if !bind_data.aggregates.is_empty() {
-        return None;
-    }
-    let children = bind_data.data_source.children();
-    // Otherwise we'd have to open all files eagerly which is a performance
-    // regression. Duckdb's Parquet reader only gets metadata for multiple
-    // files with a UNION BY NAME and we don't support it (yet)
-    // See duckdb/common/multi_file/multi_file_function.hpp#L691
-    if children.len() != 1 {
-        return None;
-    }
-    let MultiLayoutChild::Opened { reader, .. } = &children[0] else {
-        return None;
-    };
-    let stats_sets = reader
-        .as_any()
-        .downcast_ref::<FileStatsLayoutReader>()?
-        .file_stats()
-        .stats_sets();
-    // Columns with pushed projection expression output expression results,
-    // and not column values
-    if bind_data.column_fields[column_index]
-        .projection_expr
-        .is_some()
-    {
-        return None;
-    }
-    let dtype = bind_data.column_fields[column_index].dtype.clone();
-    let stats_aggregate = ColumnStatisticsAggregate::new(&stats_sets[column_index]);
-    Some(ColumnStatistics::from(&stats_aggregate, dtype))
-}
-
 /// Duckdb requires post-filter cardinality estimates, otherwise join planner
 /// may flip join sides which is a huge regression for some queries i.e. 1000x
 /// for tpcds 85.
@@ -863,45 +566,24 @@ pub fn statistics(bind_data: &TableFunctionBind, column_index: usize) -> Option<
 /// duckdb uses is a 0.2 filter if there is any non-optional filter. We mimic it
 /// here.
 const DEFAULT_SELECTIVITY: f64 = 0.2;
-pub fn cardinality(bind_data: &TableFunctionBind) -> Cardinality {
+pub fn cardinality(bind_data: &TableFunctionBind, file_count: u64) -> Cardinality {
     // If we're doing an aggregate scan, we don't change output cardinality to
     // 1 as we want duckdb to do our aggregation in parallel. That may look
     // counterintuitive in the plan, though.
     let has_non_optional_filter = bind_data.has_non_optional_filter.load(Ordering::Relaxed);
-    match bind_data.data_source.row_count() {
-        Precision::Exact(v) => {
-            if !has_non_optional_filter {
-                return Cardinality::Exact(v);
-            }
-            let post_cardinality = v as f64 * DEFAULT_SELECTIVITY;
-            let post_cardinality: u64 = post_cardinality.as_();
-            Cardinality::Estimate(max(1, post_cardinality))
-        }
-        Precision::Inexact(v) => {
-            if !has_non_optional_filter {
-                return Cardinality::Estimate(v);
-            }
-            let post_cardinality = v as f64 * DEFAULT_SELECTIVITY;
-            let post_cardinality: u64 = post_cardinality.as_();
-            Cardinality::Estimate(max(1, post_cardinality))
-        }
-        Precision::Absent => Cardinality::Unknown,
+    let total = bind_data
+        .first_file_row_count
+        .saturating_mul(max(file_count, 1));
+    if !has_non_optional_filter {
+        return if file_count <= 1 {
+            Cardinality::Exact(total)
+        } else {
+            Cardinality::Estimate(total)
+        };
     }
-}
-
-/// Duckdb requests this function after exporting the chunk. We answer with
-/// partition_index we have exported as well as information about constant
-/// columns in this partition. As data is partitioned by array exporters, in
-/// each partition ~ exported array file_index is constant.
-pub fn get_partition_data(
-    global_init_data: &TableFunctionGlobal,
-    local_init_data: &mut TableFunctionLocal,
-) -> PartitionData {
-    PartitionData {
-        partition_index: local_init_data.partition_index,
-        file_index_column_pos: global_init_data.file_index_column_pos,
-        file_index: local_init_data.file_index,
-    }
+    let post_cardinality = total as f64 * DEFAULT_SELECTIVITY;
+    let post_cardinality: u64 = post_cardinality.as_();
+    Cardinality::Estimate(max(1, post_cardinality))
 }
 
 pub fn to_string(bind_data: &TableFunctionBind, map: &mut DuckdbStringMapRef) {
@@ -947,59 +629,5 @@ pub fn to_string(bind_data: &TableFunctionBind, map: &mut DuckdbStringMapRef) {
         .join("\n");
     if !projections.is_empty() {
         map.push("SELECT projections", &projections);
-    }
-}
-
-fn progress(bytes_read: &AtomicU64, bytes_total: &AtomicU64) -> f64 {
-    let read = bytes_read.load(Ordering::Relaxed);
-    let mut total = bytes_total.load(Ordering::Relaxed);
-    total += (total == 0) as u64;
-    read as f64 / total as f64 * 100.
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::atomic::AtomicU64;
-    use std::sync::atomic::Ordering::Relaxed;
-    use std::task::Poll;
-
-    use crate::RUNTIME;
-    use crate::table_function::progress;
-    use crate::table_function::scan_driver_stream;
-
-    #[test]
-    fn test_table_scan_progress() {
-        let bytes_total = AtomicU64::new(100);
-        let bytes_read = AtomicU64::new(0);
-
-        assert_eq!(progress(&bytes_read, &bytes_total), 0.0);
-
-        bytes_read.fetch_add(100, Relaxed);
-        assert_eq!(progress(&bytes_read, &bytes_total), 100.);
-
-        bytes_total.fetch_add(100, Relaxed);
-        assert!((progress(&bytes_read, &bytes_total) - 50.).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn scan_driver_panic_propagates_through_iterator() {
-        let (tx, rx) = kanal::bounded_async(1);
-        let _tx = tx;
-        let stream = futures::stream::poll_fn(|_| -> Poll<Option<()>> {
-            panic!("duckdb scan driver panic");
-        });
-
-        let mut iter =
-            RUNTIME.block_on_stream_thread_safe(|_handle| scan_driver_stream(stream, rx));
-        let panic = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| iter.next())) {
-            Ok(_) => panic!("driver panic must propagate through iterator"),
-            Err(panic) => panic,
-        };
-        let message = panic
-            .downcast_ref::<&'static str>()
-            .copied()
-            .or_else(|| panic.downcast_ref::<String>().map(String::as_str))
-            .unwrap_or("<unknown panic>");
-        assert!(message.contains("duckdb scan driver panic"));
     }
 }

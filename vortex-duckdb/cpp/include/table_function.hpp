@@ -30,4 +30,3 @@ struct TableFunctionUngroupedAggregateInput {
 };
 
 bool aggregate_pushdown(ClientContext &context, const TableFunctionUngroupedAggregateInput &input);
-
