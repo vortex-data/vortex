@@ -178,6 +178,19 @@ selected editions, the write fails.
   function outside the selected editions fails the write. With `allow_unknown`, readers disable a zone map whose
   aggregate function they do not recognize; ignoring a zone map only reduces pruning and does not affect correctness.
 
+## The `unstable` family
+
+Alongside `core` there is an `unstable` family, holding encodings that are still being
+evaluated. It is the exception to everything above: every `unstable` edition is a permanent
+draft, so the family never freezes and carries no read-compatibility guarantee at all. A file
+written with these encodings is readable only by a build that knows them, and a future release
+may stop supporting one.
+
+Because of that, the writer only emits them when you opt in — the default session enables the
+newest `unstable` edition solely when the `unstable_encodings` cargo feature is selected.
+Encodings graduate by being declared in a new `core` edition, which is where they pick up the
+read-forever guarantee.
+
 ## Edition registry
 
 Registry entries list the edition in which each component first appeared. Later editions in the same family inherit all
