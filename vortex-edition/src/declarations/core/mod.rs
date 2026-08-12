@@ -6,6 +6,17 @@
 //! One module per edition, each declaring the edition and the components that join the
 //! family at it; members of earlier editions are inherited and never restated.
 
+use crate::EditionFamily;
+
+/// The `core` family: what the default writer may emit.
+pub static FAMILY: EditionFamily = EditionFamily {
+    name: "core",
+    doc: "The encodings the default file writer emits. Every core edition freezes, and a \
+frozen edition carries a read-forever guarantee: a file written with it stays readable by \
+every later Vortex release. New encodings join by being declared in a new edition; an \
+edition that has frozen never changes again.",
+};
+
 pub mod v2025_05;
 pub mod v2025_06;
 pub mod v2025_10;

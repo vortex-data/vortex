@@ -15,6 +15,10 @@ pub mod core;
 pub mod unstable;
 
 use crate::EditionDeclaration;
+use crate::EditionFamily;
+
+/// The first-party edition families. Every family must be declared before its editions.
+pub static EDITION_FAMILIES: &[&EditionFamily] = &[&core::FAMILY, &unstable::FAMILY];
 
 /// The first-party Vortex edition declarations.
 pub static EDITION_DECLARATIONS: &[&EditionDeclaration] = &[

@@ -18,8 +18,10 @@
 mod tests;
 
 pub use vortex_edition::EDITION_DECLARATIONS;
+pub use vortex_edition::EDITION_FAMILIES;
 pub use vortex_edition::Edition;
 pub use vortex_edition::EditionDeclaration;
+pub use vortex_edition::EditionFamily;
 pub use vortex_edition::EditionId;
 pub use vortex_edition::EditionInclusion;
 pub use vortex_edition::EditionSession;
@@ -47,8 +49,16 @@ pub const DEFAULT_CORE_EDITION: EditionId = CORE_2026_08;
 /// `unstable_encodings` feature is selected.
 pub const DEFAULT_UNSTABLE_EDITION: EditionId = UNSTABLE_2026_06_0;
 
-/// Register the Vortex edition declarations with the session's [`EditionSession`].
+/// Register the Vortex edition families and declarations with the session's
+/// [`EditionSession`].
 pub fn register_default_editions(session: &VortexSession) {
+    for family in EDITION_FAMILIES {
+        session
+            .editions()
+            .declare_family(family)
+            .map_err(|e| vortex_err!("{e}"))
+            .vortex_expect("edition families are valid");
+    }
     for declaration in EDITION_DECLARATIONS {
         session
             .register_edition(declaration)

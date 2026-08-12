@@ -6,6 +6,18 @@
 //! One module per draft edition, each declaring the encodings that join the family at it.
 //! Members of earlier editions are inherited and never restated.
 
+use crate::EditionFamily;
+
+/// The `unstable` family: opt-in encodings with no compatibility guarantee.
+pub static FAMILY: EditionFamily = EditionFamily {
+    name: "unstable",
+    doc: "Opt-in encodings that are still being evaluated. Every unstable edition stays a \
+draft, so the family never freezes and carries no compatibility guarantee: a file written \
+with these encodings is readable only by a build that knows them, and a later release may \
+stop supporting one. The writer emits them only when the `unstable_encodings` feature is \
+selected. An encoding graduates by joining a core edition.",
+};
+
 pub mod v2025_05;
 pub mod v2026_02;
 pub mod v2026_04;

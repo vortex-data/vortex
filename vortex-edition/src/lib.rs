@@ -35,6 +35,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 pub use declarations::EDITION_DECLARATIONS;
+pub use declarations::EDITION_FAMILIES;
 pub use session::EditionSession;
 pub use session::EditionSessionExt;
 pub use session::EnabledEditions;
@@ -108,6 +109,41 @@ impl Display for EditionId {
             "{}{}.{:02}.{}",
             self.family, self.year, self.month, self.version
         )
+    }
+}
+
+/// A family of editions: an independently versioned, additive group of encodings, registered
+/// with [`EditionSession::declare_family`].
+///
+/// Every [`EditionId`] names one. Declaring the family is what makes the name real:
+/// [`EditionSession::validate`] rejects an edition whose family was never declared, so a typo
+/// cannot quietly mint a family of one.
+#[derive(Clone, Copy, Debug)]
+pub struct EditionFamily {
+    /// The family name, matching the [`EditionId::family`] of its editions, e.g. `core`.
+    pub name: &'static str,
+    /// What the family is for. Exported into the family's record, so a few sentences at
+    /// most: the long form belongs in the published spec.
+    pub doc: &'static str,
+}
+
+impl EditionFamily {
+    /// Validate the family's form: a non-empty lowercase name and a non-empty doc. Checked
+    /// for every declared family by [`EditionSession::validate`].
+    pub fn validate(&self) -> Result<(), EditionError> {
+        if self.name.is_empty() || !self.name.chars().all(|c| c.is_ascii_lowercase()) {
+            return Err(EditionError::new(format!(
+                "edition family {:?} must have a non-empty lowercase name, e.g. `core`",
+                self.name
+            )));
+        }
+        if self.doc.trim().is_empty() {
+            return Err(EditionError::new(format!(
+                "edition family {} must document what it is for",
+                self.name
+            )));
+        }
+        Ok(())
     }
 }
 

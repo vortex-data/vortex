@@ -18,6 +18,7 @@ use crate::ComponentKind;
 use crate::Edition;
 use crate::EditionDeclaration;
 use crate::EditionError;
+use crate::EditionFamily;
 use crate::EditionId;
 use crate::EditionInclusion;
 use crate::parse_release;
@@ -36,6 +37,8 @@ pub struct EditionSession {
 
 #[derive(Debug, Default)]
 struct Inner {
+    /// Keyed by family name.
+    families: BTreeMap<String, EditionFamily>,
     /// Keyed by the display form of the edition id.
     editions: BTreeMap<String, Edition>,
     /// One map per component kind, each keyed by interned component id, because ids are
@@ -95,6 +98,31 @@ impl EditionSession {
             ))?;
         }
         Ok(())
+    }
+
+    /// Declare an edition family. Errors if a family with the same name is already
+    /// declared. Every family must be declared before [`EditionSession::validate`] will
+    /// accept editions belonging to it.
+    pub fn declare_family(&self, family: &EditionFamily) -> Result<(), EditionError> {
+        let mut inner = self.inner.write();
+        if inner.families.contains_key(family.name) {
+            return Err(EditionError::new(format!(
+                "duplicate edition family {}",
+                family.name
+            )));
+        }
+        inner.families.insert(family.name.to_string(), *family);
+        Ok(())
+    }
+
+    /// All declared families, sorted by name.
+    pub fn families(&self) -> Vec<EditionFamily> {
+        self.inner.read().families.values().copied().collect()
+    }
+
+    /// Find a declared family by name.
+    pub fn find_family(&self, name: &str) -> Option<EditionFamily> {
+        self.inner.read().families.get(name).copied()
     }
 
     /// Declare an edition. Errors if an edition with the same id is already declared.
@@ -160,15 +188,26 @@ impl EditionSession {
             .collect()
     }
 
-    /// Validate all registered declarations. Errors on inclusions referencing undeclared
-    /// editions, editions out of chronological order within a family (unversioned drafts
+    /// Validate all registered declarations. Errors on editions in undeclared families,
+    /// inclusions referencing undeclared editions, editions out of chronological order within a family (unversioned drafts
     /// must be newest), malformed version strings, and members requiring a release newer
     /// than their edition declares.
     pub fn validate(&self) -> Result<(), EditionError> {
         let editions = self.editions();
 
+        for family in self.families() {
+            family.validate()?;
+        }
+
         for edition in &editions {
             edition.id.validate()?;
+            if self.find_family(edition.id.family).is_none() {
+                return Err(EditionError::new(format!(
+                    "edition {} belongs to undeclared family {}; declare the family before \
+                     its editions",
+                    edition.id, edition.id.family,
+                )));
+            }
             if let Some(version) = edition.min_vortex_version
                 && parse_release(version).is_none()
             {

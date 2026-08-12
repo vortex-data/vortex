@@ -5,11 +5,22 @@ use vortex_session::VortexSession;
 
 use crate::Edition;
 use crate::EditionDeclaration;
+use crate::EditionFamily;
 use crate::EditionId;
 use crate::EditionInclusion;
 use crate::EditionSession;
 use crate::EditionSessionExt;
 use crate::EnabledEditions;
+
+static TEST_FAMILY: EditionFamily = EditionFamily {
+    name: "test",
+    doc: "A family used by the unit tests.",
+};
+
+static OTHER_FAMILY: EditionFamily = EditionFamily {
+    name: "other",
+    doc: "A second family, for checking that families stay independent.",
+};
 
 const FIRST: EditionId = EditionId::new("test", 2026, 1, 0);
 const SECOND: EditionId = EditionId::new("test", 2026, 7, 0);
@@ -33,6 +44,9 @@ static DECLARATIONS: &[EditionDeclaration] = &[
 
 fn session() -> EditionSession {
     let editions = EditionSession::empty();
+    editions
+        .declare_family(&TEST_FAMILY)
+        .unwrap_or_else(|e| panic!("declaring the test family: {e}"));
     for declaration in DECLARATIONS {
         editions
             .declare(declaration)
@@ -98,6 +112,7 @@ fn drafts_and_current() {
 
     // Freezing the first edition makes it current; the second stays a draft.
     let editions = EditionSession::empty();
+    editions.declare_family(&TEST_FAMILY).unwrap();
     editions
         .declare_edition(Edition {
             id: FIRST,
@@ -179,8 +194,11 @@ fn enabled_editions_are_independent_across_families() -> Result<(), crate::Editi
     };
 
     let session = VortexSession::empty().with::<EditionSession>();
+    session.editions().declare_family(&TEST_FAMILY)?;
+    session.editions().declare_family(&OTHER_FAMILY)?;
     session.register_edition(&DECLARATIONS[0])?;
     session.register_edition(&OTHER_DECLARATION)?;
+    session.editions().validate()?;
     session.enable_edition(FIRST)?;
     session.enable_edition(OTHER)?;
 
@@ -273,4 +291,32 @@ fn edition_ids_order_within_family_only() {
 #[test]
 fn edition_id_display() {
     assert_eq!(FIRST.to_string(), "test2026.01.0");
+}
+
+#[test]
+fn families_must_be_declared_before_their_editions() -> Result<(), crate::EditionError> {
+    // An edition whose family was never declared: the name would otherwise be whatever the
+    // declaration happened to spell, and a typo would mint a family of one.
+    let editions = EditionSession::empty();
+    editions.declare(&DECLARATIONS[0])?;
+    assert!(editions.validate().is_err());
+
+    editions.declare_family(&TEST_FAMILY)?;
+    editions.validate()?;
+
+    // Declaring the same family twice is an error, as it is for editions.
+    assert!(editions.declare_family(&TEST_FAMILY).is_err());
+    Ok(())
+}
+
+#[test]
+fn families_must_document_themselves() {
+    let editions = EditionSession::empty();
+    editions
+        .declare_family(&EditionFamily {
+            name: "undocumented",
+            doc: "  ",
+        })
+        .unwrap();
+    assert!(editions.validate().is_err());
 }

@@ -13,7 +13,8 @@ edit it in the same diff.
 
 A newly added record must also be newer than every edition already recorded for its family:
 editions are only ever added going forward. Records are grouped by family, so
-`vortex/editions/core/core2025.05.0.toml` must sit under the family its name declares.
+`vortex/editions/core/core2025.05.0.toml` must sit under the family its name declares. The
+`family.toml` beside them documents the family rather than pinning a contract, so it is exempt.
 
 Both revisions are read straight out of the object database, so the check sees committed
 state only and never the working tree.
@@ -44,6 +45,10 @@ RECORD_NAME = re.compile(
 
 # A record carries this exactly when the edition it records is frozen.
 FROZEN_MARKER = "min_vortex_version"
+
+# Beside each family's editions sits a record of the family itself. That one is documentation
+# rather than a contract, so it stays editable and these rules leave it alone.
+FAMILY_FILE = "family.toml"
 
 # Every way a record can change other than being added. Renames and copies carry an old path
 # and a new one; the rest carry one.
@@ -86,7 +91,7 @@ def record_paths(commit: pygit2.Commit) -> Iterator[str]:
             path = f"{prefix}/{entry.name}"
             if isinstance(entry, pygit2.Tree):
                 yield from walk(entry, path)
-            elif entry.name.endswith(".toml"):
+            elif entry.name.endswith(".toml") and entry.name != FAMILY_FILE:
                 yield path
 
     try:
@@ -187,6 +192,8 @@ def check(base: pygit2.Commit, head: pygit2.Commit) -> list[str]:
         delta = patch.delta
         old_path, new_path = delta.old_file.path, delta.new_file.path
         if not under_record_dir(old_path, new_path):
+            continue
+        if PurePosixPath(new_path).name == FAMILY_FILE:
             continue
 
         if delta.status == DeltaStatus.ADDED:
