@@ -120,10 +120,16 @@ jobs:
             family: c7i.metal-24xl
             image: ubuntu24-full-x64-pre-v2
             rustflags: "-C target-feature=+avx2"
+          # Every AVX-512 extension Sapphire Rapids implements, not just the two the current
+          # `cfg(target_feature)` gates test for. Those gates decide which kernel the code
+          # under test selects, but the rest of the build — anything the compiler
+          # auto-vectorizes, the scalar baselines included — sees the whole feature set, and
+          # a two-feature build is not what anything ships on.
           - isa: avx512
             family: c7i.metal-24xl
             image: ubuntu24-full-x64-pre-v2
-            rustflags: "-C target-feature=+avx512f,+avx512bw"
+            rustflags: >-
+              -C target-feature=+avx512f,+avx512bw,+avx512cd,+avx512dq,+avx512vl,+avx512ifma,+avx512vbmi,+avx512vbmi2,+avx512vnni,+avx512bitalg,+avx512vpopcntdq,+avx512bf16,+avx512fp16
           # Graviton3, the cheapest current-generation Arm metal. Graviton2 (c6g.metal) is
           # cheaper still but predates SVE, so it cannot host a future SVE leg.
           - isa: neon

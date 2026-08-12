@@ -1,21 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Instruction-set gating for Vortex benchmarks.
+//! Support for benchmarks measured once per CPU instruction set.
 //!
-//! CodSpeed's sharded job measures simulated instruction counts on one x86-64 build. That
-//! says little about code whose machine code depends on the instruction set it was compiled
-//! for, and nothing at all about Arm. [`isa`] moves a benchmark off that job and onto the
-//! walltime legs, which build the same source once per instruction set — `+avx2`, `+avx512`,
-//! `+neon` — and measure each on silicon that implements it.
-//!
-//! Simulation is the default. An untagged benchmark is untouched and keeps running on the
-//! sharded job under its own name, which is where anything not sensitive to the instruction
-//! set belongs.
-//!
-//! The legs themselves live in `.github/workflows/codspeed.yml` and nowhere else. A tagged
-//! benchmark runs on every leg in that matrix, so adding one is a workflow change with no
-//! counterpart here.
+//! One attribute, [`isa`]. Which instruction sets exist, what each is built with, and where
+//! it runs are all in `.github/workflows/codspeed.yml`.
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
