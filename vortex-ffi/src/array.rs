@@ -997,8 +997,6 @@ mod tests {
         assert!(!vx.is_null());
 
         unsafe {
-            let session = vx_session_new();
-
             assert!(vx_array_has_dtype(vx, vx_dtype_variant::DTYPE_STRUCT));
             assert_eq!(vx_array_len(vx), 3);
             assert!(!vx_array_is_nullable(vx));
