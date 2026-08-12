@@ -171,6 +171,7 @@ geo-types = "0.7.19"
 geoarrow = "0.8.0"
 geoarrow-cast = "0.8.0"
 get_dir = "0.5.0"
+git2 = { version = "0.21", default-features = false }
 glob = "0.3.2"
 goldenfile = "1"
 half = { version = "2.7.1", features = ["std", "num-traits"] }
@@ -242,7 +243,6 @@ rstest = "0.26.1"
 rstest_reuse = "0.7.0"
 rustc-hash = "2.1.1"
 rustix = { version = "1.1", features = ["fs"] }
-git2 = { version = "0.20", default-features = false }
 serde = "1.0.221"
 serde_json = "1.0.138"
 serde_test = "1.0.176"
@@ -277,9 +277,9 @@ thiserror = "2.0.3"
 tokio = { version = "1.52" }
 tokio-stream = "0.1.17"
 tokio-util = "0.7.17"
+toml = "0.9"
 tpchgen = "3.0.0"
 tpchgen-arrow = "3.0.0"
-toml = "0.9"
 tracing = { version = "0.1.41", default-features = false }
 tracing-perfetto = "0.1.5"
 tracing-subscriber = "0.3"

@@ -105,7 +105,7 @@ fn newest_recorded(
 
     let mut malformed = None;
     records.walk(TreeWalkMode::PreOrder, |_, entry| {
-        let Some(name) = entry.name() else {
+        let Ok(name) = entry.name() else {
             return TreeWalkResult::Ok;
         };
         if !name.ends_with(".toml") || name == FAMILY_FILE {
