@@ -13,20 +13,19 @@
 //! - `collect_bool_*` / `from_bool_slice`: the public entry points end to end, with a
 //!   boolean-gather predicate and a `u32` comparison predicate.
 //!
-//! `words_gather_dispatch` and `words_gather_scalar` carry `#[isa]`, so they are measured on
-//! every walltime instruction-set leg rather than in simulation. Both are written once and
-//! compiled differently per leg: the shipped entry point picks its pack kernel through
-//! `cfg(target_feature)`, and how well the scalar loop auto-vectorizes depends on the build.
-//! Comparing them across legs is the point.
+//! `words_gather_dispatch` and `words_gather_scalar` carry `#[cpu_features]`, so they are
+//! measured on every walltime CPU-feature leg rather than in simulation. Both are written
+//! once and compiled differently per leg: the shipped entry point picks its pack kernel
+//! through `cfg(target_feature)`, and how well the scalar loop auto-vectorizes depends on
+//! the build. Comparing them across legs is the point.
 //!
-//! The hand-written per-kernel benchmarks are not tagged. Each one only exists for a single
-//! instruction set and cannot run on the other legs, so they stay out of CodSpeed entirely
-//! and remain local A/B tools, as do the historical bit-at-a-time baselines.
+//! The hand-written per-kernel benchmarks are not tagged. Each one needs an instruction set
+//! extension the other legs do not build for, so they stay out of CodSpeed entirely and
+//! remain local A/B tools, as do the historical bit-at-a-time baselines.
 //!
 //! A plain `cargo bench` ignores all of it and runs everything on the host.
 
 use divan::Bencher;
-use vortex_bench_support::isa;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::collect_bool_word_scalar;
 #[cfg(not(codspeed))]
@@ -107,7 +106,7 @@ fn bench_words_gather(
         .bench_refs(|words| collect(words, len, &bools));
 }
 
-#[isa]
+#[vortex_bench_support::cpu_features]
 #[divan::bench(args = INPUT_SIZE)]
 fn words_gather_dispatch(bencher: Bencher, len: usize) {
     bench_words_gather(bencher, len, |words, len, bools| {
@@ -116,7 +115,7 @@ fn words_gather_dispatch(bencher: Bencher, len: usize) {
     });
 }
 
-#[isa]
+#[vortex_bench_support::cpu_features]
 #[divan::bench(args = INPUT_SIZE)]
 fn words_gather_scalar(bencher: Bencher, len: usize) {
     bench_words_gather(bencher, len, |words, len, bools| {

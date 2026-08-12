@@ -18,14 +18,14 @@ timeout = 3600
 # Environment variables for PyO3. Ensures reproducible builds and avoids spurious recompilations.
 [env]
 PYO3_ENVIRONMENT_SIGNATURE = { value = "cpython-3.11-64bit", force = true }
-# Read by benchmarks marked `#[isa]` (see the `vortex-bench-support` crate), which expands to
-# code reading both with `env!`. VORTEX_BENCH_VARIANT names the run: the benchmark is skipped
-# when it is "simulation", and runs otherwise. VORTEX_BENCH_PREFIX is prepended to the
-# benchmark's name, so a CI leg can label the numbers it produced.
+# Read by benchmarks marked `#[cpu_features]` (see the `vortex-bench-support` crate), which
+# expands to code reading both with `env!`. VORTEX_BENCH_VARIANT names the run: the benchmark
+# is skipped when it is "simulation", and runs otherwise. VORTEX_BENCH_PREFIX is prepended to
+# the benchmark's name, so a CI leg can label the numbers it produced.
 #
-# The values below are the ones a plain `cargo bench` wants: nothing skipped, names left bare.
-# The per-instruction-set jobs in `.github/workflows/codspeed.yml` set their own. Neither is
-# `force`d, so the value those jobs export wins over the one here.
+# The values below are what a plain `cargo bench` wants: nothing skipped, names left bare. The
+# per-feature-set jobs in `.github/workflows/codspeed.yml` set their own. Neither is `force`d,
+# so the value those jobs export wins over the one here.
 VORTEX_BENCH_VARIANT = "local"
 VORTEX_BENCH_PREFIX = ""
 

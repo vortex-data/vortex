@@ -81,7 +81,7 @@ jobs:
       - name: Build benchmarks
         env:
           RUSTFLAGS: "-C target-feature=+avx2"
-          # Benchmarks carrying an `#[isa(..)]` tag belong to a walltime leg below and are
+          # Benchmarks carrying `#[cpu_features]` belong to a walltime leg below and are
           # skipped here. Untagged ones run as they always have, under bare names, so this
           # job's CodSpeed history is unaffected.
           VORTEX_BENCH_VARIANT: simulation
@@ -93,21 +93,21 @@ jobs:
           token: ${{ secrets.CODSPEED_TOKEN }}
           mode: "simulation"
 
-  # Walltime measurements on real silicon, one leg per instruction set.
+  # Walltime measurements on real silicon, one leg per CPU feature set.
   #
   # The sharded job above measures simulated instruction counts on one x86-64 build. That
-  # says nothing about code whose machine code depends on the instruction set it was compiled
-  # for, and nothing at all about Arm. A benchmark opts in with `#[isa]` and is then built
-  # and measured once per leg here. VORTEX_BENCH_VARIANT takes those benchmarks out of the
-  # sharded job and VORTEX_BENCH_PREFIX qualifies their names, so each leg reports its own
-  # series rather than the legs fighting over a shared one.
+  # says nothing about code whose machine code depends on the features it was compiled for,
+  # and nothing at all about Arm. A benchmark opts in with `#[cpu_features]` and is then
+  # built and measured once per leg here. VORTEX_BENCH_VARIANT takes those benchmarks out of
+  # the sharded job and VORTEX_BENCH_PREFIX qualifies their names, so each leg reports its
+  # own series rather than the legs fighting over a shared one.
   #
-  # This matrix is the only place the legs are named — `#[isa]` carries no leg list, so
-  # adding one is a change here alone. Each `family` must implement its instruction set: the
-  # build enables it globally, so surrounding code may use it and will fault on a machine
-  # that lacks it. These are metal instances, as the other walltime benchmark jobs use, so
-  # measurements are not taken through a hypervisor.
-  bench-codspeed-isa:
+  # This matrix is the only place the legs are named — the attribute carries no leg list, so
+  # adding one is a change here alone. Each `family` must implement the features its leg
+  # enables: they are enabled globally, so surrounding code may use them and will fault on a
+  # machine that lacks them. These are metal instances, as the other walltime benchmark jobs
+  # use, so measurements are not taken through a hypervisor.
+  bench-codspeed-cpu-features:
     if: github.repository == 'vortex-data/vortex'
     strategy:
       fail-fast: false
@@ -116,7 +116,7 @@ jobs:
           # avx2 and avx512 share a family so the only difference between the two series is
           # the build flags, not the silicon. c7i.metal-24xl is the smaller of the two c7i
           # metal sizes: current-generation Sapphire Rapids, and AVX-512 capable.
-          - isa: avx2
+          - features: avx2
             family: c7i.metal-24xl
             image: ubuntu24-full-x64-pre-v2
             rustflags: "-C target-feature=+avx2"
@@ -125,21 +125,21 @@ jobs:
           # under test selects, but the rest of the build — anything the compiler
           # auto-vectorizes, the scalar baselines included — sees the whole feature set, and
           # a two-feature build is not what anything ships on.
-          - isa: avx512
+          - features: avx512
             family: c7i.metal-24xl
             image: ubuntu24-full-x64-pre-v2
             rustflags: >-
               -C target-feature=+avx512f,+avx512bw,+avx512cd,+avx512dq,+avx512vl,+avx512ifma,+avx512vbmi,+avx512vbmi2,+avx512vnni,+avx512bitalg,+avx512vpopcntdq,+avx512bf16,+avx512fp16
           # Graviton3, the cheapest current-generation Arm metal. Graviton2 (c6g.metal) is
           # cheaper still but predates SVE, so it cannot host a future SVE leg.
-          - isa: neon
+          - features: neon
             family: c7g.metal
             image: ubuntu24-full-arm64-pre-v2
             rustflags: "-C target-feature=+neon"
-    name: "Benchmark with Codspeed (${{ matrix.isa }})"
+    name: "Benchmark with Codspeed (${{ matrix.features }})"
     timeout-minutes: 60
     runs-on: >-
-      runs-on=${{ github.run_id }}/runner=bench-dedicated/family=${{ matrix.family }}/image=${{ matrix.image }}/disk=large/extras=s3-cache/tag=bench-codspeed-isa-${{ matrix.isa }}
+      runs-on=${{ github.run_id }}/runner=bench-dedicated/family=${{ matrix.family }}/image=${{ matrix.image }}/disk=large/extras=s3-cache/tag=bench-codspeed-cpu-features-${{ matrix.features }}
     steps:
       - uses: runs-on/action@v2
         with:
@@ -154,7 +154,7 @@ jobs:
         with:
           tool: cargo-codspeed
       # Which packages to build is derived from the source rather than listed here, so a
-      # crate that adds an `#[isa]` benchmark is picked up without editing this workflow.
+      # crate that adds an `#[cpu_features]` benchmark is picked up without editing this workflow.
       # Building the whole workspace would do the same, but links every bench binary in it
       # — with debuginfo, from the bench profile — to measure only the tagged ones.
       - name: Select packages with tagged benchmarks
@@ -170,17 +170,17 @@ jobs:
               for package in meta["packages"]
               for target in package["targets"]
               if "bench" in target["kind"]
-              and "#[isa]" in pathlib.Path(target["src_path"]).read_text()
+              and "cpu_features]" in pathlib.Path(target["src_path"]).read_text()
           )
           if not tagged:
-              raise SystemExit("no benchmark carries `#[isa]`; this job has nothing to measure")
+              raise SystemExit("no benchmark carries `#[cpu_features]`; this job has nothing to measure")
           print("packages=" + " ".join(f"-p {name}" for name in dict.fromkeys(tagged)))
           EOF
       - name: Build benchmarks
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
-          VORTEX_BENCH_VARIANT: ${{ matrix.isa }}
-          VORTEX_BENCH_PREFIX: "${{ matrix.isa }}::"
+          VORTEX_BENCH_VARIANT: ${{ matrix.features }}
+          VORTEX_BENCH_PREFIX: "${{ matrix.features }}::"
         run: |
           cargo codspeed build --locked -m walltime --profile bench \
             ${{ steps.select.outputs.packages }}
@@ -194,8 +194,8 @@ jobs:
       # CodSpeed that way are compiled in here and divan would otherwise measure them.
       #
       # divan matches the filter's `::`-separated components against the benchmark path's,
-      # so this selects paths of the form `<bench target>::<isa>::<name>`. That middle
-      # component only exists because `#[isa]` puts it there: an untagged benchmark has one
+      # so this selects paths of the form `<bench target>::<features>::<name>`. That middle
+      # component only exists because `#[cpu_features]` puts it there: an untagged benchmark has one
       # component fewer and cannot match, whatever it is called.
       - name: Run benchmarks
         uses: CodSpeedHQ/action@4296e51e7041e24dadb86d1d6e8b9320d223dbe8  # v5
@@ -207,7 +207,7 @@ jobs:
           # sampling is close to free next to the minute-plus spent building it.
           DIVAN_SAMPLE_COUNT: "1000"
         with:
-          run: bash scripts/bench-taskset.sh cargo codspeed run -- '.*::${{ matrix.isa }}::'
+          run: bash scripts/bench-taskset.sh cargo codspeed run -- '.*::${{ matrix.features }}::'
           token: ${{ secrets.CODSPEED_TOKEN }}
           mode: "walltime"
 
