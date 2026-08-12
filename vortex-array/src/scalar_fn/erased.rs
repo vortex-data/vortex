@@ -23,9 +23,8 @@ use crate::expr::Expression;
 use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
-use crate::scalar_fn::ReduceCtx;
-use crate::scalar_fn::ReduceNode;
-use crate::scalar_fn::ReduceNodeRef;
+use crate::scalar_fn::ArrayReduceNode;
+use crate::scalar_fn::ExpressionReduceNode;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
@@ -148,13 +147,20 @@ impl ScalarFnRef {
         self.0.execute(args, ctx)
     }
 
-    /// Perform abstract reduction on this scalar function node.
-    pub fn reduce(
+    /// Perform abstract reduction on this scalar function node in an expression tree.
+    pub fn reduce_expression<'a>(
         &self,
-        node: &dyn ReduceNode,
-        ctx: &dyn ReduceCtx,
-    ) -> VortexResult<Option<ReduceNodeRef>> {
-        self.0.reduce(node, ctx)
+        node: &ExpressionReduceNode<'a>,
+    ) -> VortexResult<Option<ExpressionReduceNode<'a>>> {
+        self.0.reduce_expression(node)
+    }
+
+    /// Perform abstract reduction on this scalar function node in an array tree.
+    pub fn reduce_array<'a>(
+        &self,
+        node: &ArrayReduceNode<'a>,
+    ) -> VortexResult<Option<ArrayReduceNode<'a>>> {
+        self.0.reduce_array(node)
     }
 
     // ------------------------------------------------------------------

@@ -40,9 +40,7 @@ use crate::expr::lit;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
-use crate::scalar_fn::ReduceCtx;
 use crate::scalar_fn::ReduceNode;
-use crate::scalar_fn::ReduceNodeRef;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::literal::Literal;
@@ -144,12 +142,11 @@ impl ScalarFnVTable for Cast {
         }
     }
 
-    fn reduce(
+    fn reduce<T: ReduceNode>(
         &self,
         target_dtype: &DType,
-        node: &dyn ReduceNode,
-        _ctx: &dyn ReduceCtx,
-    ) -> VortexResult<Option<ReduceNodeRef>> {
+        node: &T,
+    ) -> VortexResult<Option<T>> {
         // Collapse node if child is already the target type
         let child = node.child(0);
         if &child.node_dtype()? == target_dtype {

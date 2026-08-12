@@ -180,6 +180,11 @@ path = "benches/expr/optimize_bench.rs"
 harness = false
 
 [[bench]]
+name = "expr_optimize_predicate"
+path = "benches/expr/optimize_predicate.rs"
+harness = false
+
+[[bench]]
 name = "chunked_dict_builder"
 harness = false
 required-features = ["_test-harness"]

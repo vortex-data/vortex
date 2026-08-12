@@ -28,9 +28,8 @@ use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
-use crate::scalar_fn::ReduceCtx;
-use crate::scalar_fn::ReduceNode;
-use crate::scalar_fn::ReduceNodeRef;
+use crate::scalar_fn::ArrayReduceNode;
+use crate::scalar_fn::ExpressionReduceNode;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
@@ -83,11 +82,14 @@ pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
     fn execute(&self, args: &dyn ExecutionArgs, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
     fn return_dtype(&self, arg_types: &[DType]) -> VortexResult<DType>;
     fn coerce_args(&self, arg_types: &[DType]) -> VortexResult<Vec<DType>>;
-    fn reduce(
+    fn reduce_expression<'a>(
         &self,
-        node: &dyn ReduceNode,
-        ctx: &dyn ReduceCtx,
-    ) -> VortexResult<Option<ReduceNodeRef>>;
+        node: &ExpressionReduceNode<'a>,
+    ) -> VortexResult<Option<ExpressionReduceNode<'a>>>;
+    fn reduce_array<'a>(
+        &self,
+        node: &ArrayReduceNode<'a>,
+    ) -> VortexResult<Option<ArrayReduceNode<'a>>>;
     fn arity(&self) -> Arity;
     fn child_name(&self, child_idx: usize) -> ChildName;
     fn is_strict(&self) -> bool;
@@ -169,12 +171,18 @@ impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
         V::coerce_args(&self.vtable, &self.options, arg_types)
     }
 
-    fn reduce(
+    fn reduce_expression<'a>(
         &self,
-        node: &dyn ReduceNode,
-        ctx: &dyn ReduceCtx,
-    ) -> VortexResult<Option<ReduceNodeRef>> {
-        V::reduce(&self.vtable, &self.options, node, ctx)
+        node: &ExpressionReduceNode<'a>,
+    ) -> VortexResult<Option<ExpressionReduceNode<'a>>> {
+        V::reduce(&self.vtable, &self.options, node)
+    }
+
+    fn reduce_array<'a>(
+        &self,
+        node: &ArrayReduceNode<'a>,
+    ) -> VortexResult<Option<ArrayReduceNode<'a>>> {
+        V::reduce(&self.vtable, &self.options, node)
     }
 
     fn arity(&self) -> Arity {
