@@ -136,5 +136,5 @@ LogicalGet *GetChildGet(const LogicalAggregate &agg) {
         return nullptr;
     }
     LogicalGet &get = op->Cast<LogicalGet>();
-    return get.function.bind == duckdb_vx_table_function_bind ? &get : nullptr;
+    return is_vortex_scan(get.function) ? &get : nullptr;
 }

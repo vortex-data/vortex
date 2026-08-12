@@ -29,9 +29,9 @@ use crate::table_function::ColumnAggregate;
 // See MultiFileReader for constants
 
 /// "file_index" virtual column
-static FILE_INDEX_COLUMN_IDX: u64 = 9223372036854775810;
+pub(crate) static FILE_INDEX_COLUMN_IDX: u64 = 9223372036854775810;
 /// "file_row_number" virtual column
-static FILE_ROW_NUMBER_COLUMN_IDX: u64 = 9223372036854775809;
+pub(crate) static FILE_ROW_NUMBER_COLUMN_IDX: u64 = 9223372036854775809;
 
 /// See duckdb/src/common/constants.cpp
 fn is_virtual_column(id: u64) -> bool {
@@ -48,46 +48,19 @@ pub struct DuckdbField {
     pub projection_expr: Option<Expression>,
 }
 
-pub struct Projection {
-    pub projection: Expression,
-    pub file_index_column_pos: Option<usize>,
-    pub file_row_number_column_pos: Option<usize>,
-}
+pub struct Projection(pub Expression);
 
 impl Projection {
-    pub fn new(
-        projection_ids: Option<&[u64]>,
-        column_ids: &[u64],
-        column_fields: &[DuckdbField],
-    ) -> Self {
-        // If projection ids are empty, use column_ids.
-        // See duckdb/src/planner/operator/logical_get.cpp#L168
-        let (ids, has_projection_ids) = match projection_ids {
-            Some(ids) => (ids, true),
-            None => (column_ids, false),
-        };
-
-        let mut file_index_column_pos = None;
-        let mut file_row_number_column_pos = None;
+    pub fn new(column_ids: &[u64], column_fields: &[DuckdbField]) -> Self {
+        let mut has_file_row_number = false;
         let mut is_star = true;
         let mut real_column_count = 0;
         let mut projected_col_count = 0;
 
         // DuckDB uses u64 as column indices but Rust uses usize
-        for (column_pos, &column_id) in ids.iter().enumerate() {
-            let column_id = if has_projection_ids {
-                let column_id: usize = column_id.as_();
-                column_ids[column_id]
-            } else {
-                column_id
-            };
-
-            if column_id == FILE_INDEX_COLUMN_IDX {
-                file_index_column_pos = Some(column_pos);
-                continue;
-            }
+        for &column_id in column_ids {
             if column_id == FILE_ROW_NUMBER_COLUMN_IDX {
-                file_row_number_column_pos = Some(column_pos);
+                has_file_row_number = true;
                 continue;
             }
             if is_virtual_column(column_id) {
@@ -112,7 +85,6 @@ impl Projection {
         // 5 columns total.
         is_star &= real_column_count == column_fields.len() as u64;
 
-        let has_file_row_number = file_row_number_column_pos.is_some();
         if is_star {
             let projection = if has_file_row_number {
                 // row_idx will be moved to correct position in scan(), prepend here
@@ -121,21 +93,17 @@ impl Projection {
             } else {
                 root()
             };
-            return Projection {
-                projection,
-                file_index_column_pos,
-                file_row_number_column_pos,
-            };
+            return Projection(projection);
         }
 
         let has_columns_with_expr = projected_col_count > 0;
         let (mut all_exprs, mut named_fields) = if has_columns_with_expr {
-            let all = Vec::with_capacity(ids.len() + has_file_row_number as usize);
+            let all = Vec::with_capacity(column_ids.len() + has_file_row_number as usize);
             let named = Vec::new();
             (all, named)
         } else {
             let all = Vec::new();
-            let named = Vec::with_capacity(ids.len());
+            let named = Vec::with_capacity(column_ids.len());
             (all, named)
         };
 
@@ -144,13 +112,7 @@ impl Projection {
             all_exprs.push(("file_row_number", row_idx()));
         }
 
-        for &column_id in ids {
-            let column_id = if has_projection_ids {
-                let column_id: usize = column_id.as_();
-                column_ids[column_id]
-            } else {
-                column_id
-            };
+        for &column_id in column_ids {
             if is_virtual_column(column_id) {
                 continue;
             }
@@ -183,11 +145,7 @@ impl Projection {
             select(named_fields, root())
         };
 
-        Self {
-            projection,
-            file_index_column_pos,
-            file_row_number_column_pos,
-        }
+        Self(projection)
     }
 
     // Create a projection for aggregate scan
@@ -219,11 +177,7 @@ impl Projection {
             let names = exprs.into_iter().map(|(name, _)| name).collect::<Vec<_>>();
             select(names, root())
         };
-        Projection {
-            projection,
-            file_index_column_pos: None,
-            file_row_number_column_pos: None,
-        }
+        Projection(projection)
     }
 }
 
@@ -358,36 +312,28 @@ mod tests {
             },
         ];
 
-        assert_eq!(Projection::new(None, &ids, &fields).projection, root());
+        assert_eq!(Projection::new(&ids, &fields).0, root());
 
         let ids = [FILE_ROW_NUMBER_COLUMN_IDX, 0, 1, FILE_INDEX_COLUMN_IDX, 2];
-        let exprs = Projection::new(None, &ids, &fields);
+        let exprs = Projection::new(&ids, &fields);
         let row_idx_struct = pack([("file_row_number", row_idx())], false.into());
         let root_with_virtual_cols = merge([row_idx_struct, root()]);
 
-        assert_eq!(exprs.projection, root_with_virtual_cols);
-        assert_eq!(exprs.file_index_column_pos, Some(3));
-        assert_eq!(exprs.file_row_number_column_pos, Some(0));
-
-        // projections can't be set in SELECT *.
-        assert_ne!(
-            Projection::new(Some(&[0, 1]), &ids, &fields).projection,
-            root()
-        );
+        assert_eq!(exprs.0, root_with_virtual_cols);
 
         let ids = [0, 1];
-        assert_ne!(Projection::new(None, &ids, &fields).projection, root());
+        assert_ne!(Projection::new(&ids, &fields).0, root());
 
         let ids = [0, 2, 2];
-        assert_ne!(Projection::new(None, &ids, &fields).projection, root());
+        assert_ne!(Projection::new(&ids, &fields).0, root());
 
         let ids = [2, 1, 0];
-        assert_ne!(Projection::new(None, &ids, &fields).projection, root());
+        assert_ne!(Projection::new(&ids, &fields).0, root());
 
         // If any column has a projection expression, we can't use SELECT *
         fields[0].projection_expr = Some(lit(true));
         let ids = [0, 1, 2];
-        assert_ne!(Projection::new(None, &ids, &fields).projection, root());
+        assert_ne!(Projection::new(&ids, &fields).0, root());
     }
 
     #[test]
