@@ -33,7 +33,6 @@ jobs:
       pull-requests: read
     outputs:
       run-cuda-benchmarks: ${{ github.event_name != 'pull_request' || steps.filter.outputs.cuda == 'true' }}
-      run-isa-benchmarks: ${{ github.event_name != 'pull_request' || steps.filter.outputs.isa == 'true' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d  # v4
@@ -44,12 +43,6 @@ jobs:
             cuda:
               - "vortex-cuda/**"
               # Only this workflow defines the CUDA benchmark jobs.
-              - ".github/workflows/codspeed.yml"
-            isa:
-              # Sources of the benchmarks the per-instruction-set legs measure. Keep in sync
-              # with the `benches` entries in the bench-codspeed-isa matrix below.
-              - "vortex-buffer/**"
-              - "benchmarks/bench-support/**"
               - ".github/workflows/codspeed.yml"
 
   bench-codspeed:
@@ -115,10 +108,7 @@ jobs:
   # are metal instances, as the other walltime benchmark jobs use, so measurements are not
   # taken through a hypervisor.
   bench-codspeed-isa:
-    needs: [changes]
-    if: >-
-      always() && github.repository == 'vortex-data/vortex' &&
-      needs.changes.outputs.run-isa-benchmarks == 'true'
+    if: github.repository == 'vortex-data/vortex'
     strategy:
       fail-fast: false
       matrix:
@@ -130,24 +120,18 @@ jobs:
             family: c7i.metal-24xl
             image: ubuntu24-full-x64-pre-v2
             rustflags: "-C target-feature=+avx2"
-            packages: "vortex-buffer"
-            benches: "collect_bool"
           - isa: avx512
             family: c7i.metal-24xl
             image: ubuntu24-full-x64-pre-v2
             rustflags: "-C target-feature=+avx512f,+avx512bw"
-            packages: "vortex-buffer"
-            benches: "collect_bool"
           # Graviton3, the cheapest current-generation Arm metal. Graviton2 (c6g.metal) is
           # cheaper still but predates SVE, so it cannot host a future SVE leg.
           - isa: neon
             family: c7g.metal
             image: ubuntu24-full-arm64-pre-v2
             rustflags: "-C target-feature=+neon"
-            packages: "vortex-buffer"
-            benches: "collect_bool"
     name: "Benchmark with Codspeed (${{ matrix.isa }})"
-    timeout-minutes: 30
+    timeout-minutes: 60
     runs-on: >-
       runs-on=${{ github.run_id }}/runner=bench-dedicated/family=${{ matrix.family }}/image=${{ matrix.image }}/extras=s3-cache/tag=bench-codspeed-isa-${{ matrix.isa }}
     steps:
@@ -168,10 +152,14 @@ jobs:
           RUSTFLAGS: ${{ matrix.rustflags }}
           VORTEX_BENCH_VARIANT: ${{ matrix.isa }}
           VORTEX_BENCH_PREFIX: "${{ matrix.isa }}::"
+        # Every benchmark in the workspace, so a crate that adds an `#[isa]` benchmark is
+        # picked up without editing this matrix. The filter on the run step is what keeps
+        # the leg to the tagged ones, so building more costs build time and nothing else.
+        # vortex-cuda needs a CUDA toolchain and vortex-duckdb a DuckDB build; neither is
+        # present here, and the sharded job leaves them out for the same reason.
         run: |
           cargo codspeed build --locked -m walltime --profile bench \
-            $(printf -- '-p %s ' ${{ matrix.packages }}) \
-            $(printf -- '--bench %s ' ${{ matrix.benches }})
+            --workspace --exclude vortex-cuda --exclude vortex-duckdb
       # Pinning clocks and reserving CPUs only pays off for walltime measurements, so this
       # runs here but not in the simulation job. It must come after setup, which itself
       # spawns processes that would otherwise be pinned to the housekeeping CPUs.
