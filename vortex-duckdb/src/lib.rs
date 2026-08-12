@@ -30,7 +30,7 @@ mod convert;
 pub mod duckdb;
 mod exporter;
 mod ffi;
-mod multi_file;
+mod file_reader;
 mod projection;
 mod table_function;
 
