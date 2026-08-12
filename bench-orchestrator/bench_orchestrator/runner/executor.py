@@ -48,13 +48,14 @@ class BenchmarkExecutor:
             benchmark.value,
             "--display-format",
             "gh-json",
-            "--iterations",
-            str(iterations),
             "--hide-progress-bar",
         ]
 
         if self.backend in {Engine.DATAFUSION, Engine.DUCKDB}:
             cmd.extend(["--formats", ",".join(fmt.value for fmt in formats)])
+        else:
+            # datafusion-bench and duckdb-bench run single query per process
+            cmd.extend(["--iterations", str(iterations)])
         if self.backend == Engine.DUCKDB:
             cmd.append("--delete-duckdb-database")
 
@@ -87,6 +88,30 @@ class BenchmarkExecutor:
             cmd.append("--reuse")
 
         return cmd
+
+    def list_queries(
+        self,
+        benchmark: Benchmark,
+        queries: list[int] | None = None,
+        exclude_queries: list[int] | None = None,
+    ) -> list[int]:
+        """Return query indices this benchmark selects"""
+        cmd = [str(self.binary_path), benchmark.value, "--print-queries"]
+        if queries:
+            cmd.extend(["--queries", ",".join(map(str, queries))])
+        if exclude_queries:
+            cmd.extend(["--exclude-queries", ",".join(map(str, exclude_queries))])
+
+        if self.verbose:
+            console.print(f"[dim]$ {' '.join(cmd)}[/dim]")
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Failed to list queries for {self.backend.value} {benchmark.value}: {result.stderr.strip()}"
+            )
+
+        return [int(line) for line in result.stdout.split() if line.strip()]
 
     def run(
         self,

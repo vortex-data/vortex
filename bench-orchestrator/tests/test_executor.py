@@ -19,18 +19,34 @@ def test_build_command_adds_duckdb_cleanup_flag() -> None:
         options={"scale-factor": "1.0"},
     )
 
-    assert cmd[:5] == [
+    assert cmd[:4] == [
         "/tmp/duckdb-bench",
         "tpch",
         "--display-format",
         "gh-json",
-        "--iterations",
     ]
+    assert "--iterations" not in cmd
     assert "--formats" in cmd
     assert "parquet,vortex" in cmd
     assert "--delete-duckdb-database" in cmd
     assert "--opt" in cmd
     assert "scale-factor=1.0" in cmd
+
+
+def test_build_command_omits_iterations_for_datafusion_backend() -> None:
+    executor = BenchmarkExecutor(Path("/tmp/datafusion-bench"), Engine.DATAFUSION)
+
+    cmd = executor.build_command(benchmark=Benchmark.TPCH, formats=[Format.PARQUET])
+
+    assert "--iterations" not in cmd
+
+
+def test_build_command_keeps_iterations_for_lance_backend() -> None:
+    executor = BenchmarkExecutor(Path("/tmp/lance-bench"), Engine.LANCE)
+
+    cmd = executor.build_command(benchmark=Benchmark.TPCH, formats=[Format.LANCE], iterations=7)
+
+    assert cmd[cmd.index("--iterations") + 1] == "7"
 
 
 def test_build_command_serializes_vortex_spatial_native_format() -> None:

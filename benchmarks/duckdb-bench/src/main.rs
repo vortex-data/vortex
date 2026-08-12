@@ -38,9 +38,6 @@ struct Args {
     #[arg(value_enum)]
     benchmark: BenchmarkArg,
 
-    #[arg(short, long, default_value_t = 5)]
-    iterations: usize,
-
     #[arg(short, long)]
     threads: Option<usize>,
 
@@ -88,6 +85,10 @@ struct Args {
     #[arg(long, default_value_t = false)]
     explain: bool,
 
+    /// Print the selected query indices, one per line, and exit
+    #[arg(long, default_value_t = false)]
+    print_queries: bool,
+
     #[arg(
         long,
         default_value_t = false,
@@ -110,6 +111,13 @@ fn main() -> anyhow::Result<()> {
         args.queries.as_ref(),
         args.exclude_queries.as_ref(),
     );
+
+    if args.print_queries {
+        for (query_idx, _) in &filtered_queries {
+            println!("{query_idx}");
+        }
+        return Ok(());
+    }
 
     if args.formats.is_empty() {
         anyhow::bail!("provide a format with --formats");
@@ -173,9 +181,7 @@ fn main() -> anyhow::Result<()> {
     let mode = if args.explain {
         BenchmarkMode::Explain
     } else {
-        BenchmarkMode::Run {
-            iterations: args.iterations,
-        }
+        BenchmarkMode::Run { iterations: 1 }
     };
 
     runner.run_all(

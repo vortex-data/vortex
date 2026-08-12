@@ -189,6 +189,69 @@ def write_result_line(line: str, store_writer, compatibility_file) -> None:
         compatibility_file.flush()
 
 
+def _median_ns(values: list[int]) -> int:
+    ordered = sorted(values)
+    count = len(ordered)
+    mid = count // 2
+    if count % 2 == 1:
+        return ordered[mid]
+    return (ordered[mid - 1] + ordered[mid]) // 2
+
+
+def merge_gh_json_runs(runs: list[list[str]]) -> list[str]:
+    """Collapse per-process gh-json timing for one query/format into a single record"""
+    timing: dict | None = None
+    others: list[str] = []
+    for lines in runs:
+        for line in lines:
+            line = line.strip()
+            if not line.startswith("{"):
+                continue
+            record = json.loads(line)
+            if record.get("all_runtimes") is None:
+                others.append(line)
+            elif timing is None:
+                timing = record
+            else:
+                timing["all_runtimes"].extend(record["all_runtimes"])
+
+    if timing is None:
+        return others
+    timing["value"] = _median_ns(timing["all_runtimes"])
+    return [json.dumps(timing), *others]
+
+
+def merge_ingest_records(paths: list[Path]) -> list[dict]:
+    """Collapse the per-process ingest records for one query/format into a single record."""
+    timing: dict | None = None
+    others: list[dict] = []
+    for path in paths:
+        with path.open(encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                record = json.loads(line)
+                if record.get("all_runtimes_ns") is None:
+                    others.append(record)
+                elif timing is None:
+                    timing = record
+                else:
+                    timing["all_runtimes_ns"].extend(record["all_runtimes_ns"])
+
+    if timing is None:
+        return others
+    timing["value_ns"] = _median_ns(timing["all_runtimes_ns"])
+    return [timing, *others]
+
+
+def write_ingest_records(path: Path, records: list[dict]) -> None:
+    """Write merged ingest records as JSONL."""
+    with path.open("w", encoding="utf-8") as handle:
+        for record in records:
+            handle.write(json.dumps(record) + "\n")
+
+
 @app.command("prepare-data")
 def prepare_data(
     benchmark: Annotated[Benchmark, typer.Argument(help="Benchmark suite to prepare data for")],
@@ -379,37 +442,73 @@ def run(
             run_idx = 0
             for backend, backend_targets in backend_groups.items():
                 executor = BenchmarkExecutor(binary_paths[backend], backend, verbose=verbose)
+                per_query = backend in {Engine.DUCKDB, Engine.DATAFUSION}
                 for target in backend_targets:
-                    part_ingest_output = backend_ingest_output_path(ingest_temp_dir, run_idx, backend)
-                    run_idx += 1
-
-                    drop_os_caches()
-
                     try:
-                        results = executor.run(
-                            benchmark=benchmark,
-                            formats=[target.format],
-                            queries=query_list,
-                            exclude_queries=exclude_list,
-                            iterations=iterations,
-                            options=bench_opts,
-                            track_memory=track_memory,
-                            samply=samply,
-                            sample_rate=sample_rate,
-                            tracing=tracing,
-                            runner=runner,
-                            ingest_output=part_ingest_output,
-                            on_result=lambda line, store_writer=ctx.write_raw_json, compatibility=compatibility_file: (
-                                write_result_line(
-                                    line,
-                                    store_writer,
-                                    compatibility,
-                                )
-                            ),
-                        )
-                        if part_ingest_output is not None:
-                            ingest_output_parts.append(part_ingest_output)
-                        console.print(f"[green]{target}: {len(results)} results[/green]")
+                        if per_query:
+                            query_ids = executor.list_queries(benchmark, query_list, exclude_list)
+                            for query_id in query_ids:
+                                drop_os_caches()
+
+                                gh_runs: list[list[str]] = []
+                                ingest_parts: list[Path] = []
+                                for _ in range(iterations):
+                                    part = backend_ingest_output_path(ingest_temp_dir, run_idx, backend)
+                                    run_idx += 1
+                                    gh_runs.append(
+                                        executor.run(
+                                            benchmark=benchmark,
+                                            formats=[target.format],
+                                            queries=[query_id],
+                                            iterations=1,
+                                            options=bench_opts,
+                                            track_memory=track_memory,
+                                            samply=samply,
+                                            sample_rate=sample_rate,
+                                            tracing=tracing,
+                                            runner=runner,
+                                            ingest_output=part,
+                                        )
+                                    )
+                                    if part is not None:
+                                        ingest_parts.append(part)
+
+                                for line in merge_gh_json_runs(gh_runs):
+                                    write_result_line(line, ctx.write_raw_json, compatibility_file)
+
+                                if ingest_temp_dir is not None and ingest_parts:
+                                    merged_part = ingest_temp_dir / f"merged-{run_idx:04d}-{backend.value}.jsonl"
+                                    write_ingest_records(merged_part, merge_ingest_records(ingest_parts))
+                                    ingest_output_parts.append(merged_part)
+
+                            console.print(f"[green]{target}: {len(query_ids)} queries[/green]")
+                        else:
+                            part_ingest_output = backend_ingest_output_path(ingest_temp_dir, run_idx, backend)
+                            run_idx += 1
+
+                            drop_os_caches()
+
+                            def stream(line: str) -> None:
+                                write_result_line(line, ctx.write_raw_json, compatibility_file)
+
+                            results = executor.run(
+                                benchmark=benchmark,
+                                formats=[target.format],
+                                queries=query_list,
+                                exclude_queries=exclude_list,
+                                iterations=iterations,
+                                options=bench_opts,
+                                track_memory=track_memory,
+                                samply=samply,
+                                sample_rate=sample_rate,
+                                tracing=tracing,
+                                runner=runner,
+                                ingest_output=part_ingest_output,
+                                on_result=stream,
+                            )
+                            if part_ingest_output is not None:
+                                ingest_output_parts.append(part_ingest_output)
+                            console.print(f"[green]{target}: {len(results)} results[/green]")
                     except RuntimeError as exc:
                         ctx.metadata.partial = True
                         if strict_failures:

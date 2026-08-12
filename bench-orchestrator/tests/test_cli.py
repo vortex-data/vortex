@@ -74,9 +74,9 @@ def test_run_writes_compatibility_results_output(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(cli_module, "ResultStore", lambda: run_store)
     monkeypatch.setattr(cli_module.BenchmarkBuilder, "get_binary_path", lambda self, backend: binary_path)
     monkeypatch.setattr(cli_module, "drop_os_caches", lambda: None)
+    monkeypatch.setattr(BenchmarkExecutor, "list_queries", lambda self, *args, **kwargs: [1])
 
     def fake_run(self, **kwargs):
-        kwargs["on_result"](sample_line)
         return [sample_line]
 
     monkeypatch.setattr(BenchmarkExecutor, "run", fake_run)
@@ -89,6 +89,8 @@ def test_run_writes_compatibility_results_output(tmp_path, monkeypatch) -> None:
             "--targets-json",
             '[{"engine":"datafusion","format":"parquet"}]',
             "--no-build",
+            "--iterations",
+            "1",
             "--output",
             str(output_path),
         ],
@@ -121,6 +123,7 @@ def test_run_combines_ingest_output_per_backend(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(cli_module, "ResultStore", lambda: run_store)
     monkeypatch.setattr(cli_module.BenchmarkBuilder, "get_binary_path", lambda self, backend: binary_paths[backend])
     monkeypatch.setattr(cli_module, "drop_os_caches", lambda: None)
+    monkeypatch.setattr(BenchmarkExecutor, "list_queries", lambda self, *args, **kwargs: [1])
 
     seen_backend_paths = []
 
@@ -128,7 +131,8 @@ def test_run_combines_ingest_output_per_backend(tmp_path, monkeypatch) -> None:
         backend_output = kwargs["ingest_output"]
         assert backend_output is not None
         assert backend_output != output_path
-        backend_output.write_text(f"{self.backend.value}-ingest\n", encoding="utf-8")
+        record = {"kind": "query_measurement", "engine": self.backend.value, "value_ns": 10, "all_runtimes_ns": [10]}
+        backend_output.write_text(json.dumps(record) + "\n", encoding="utf-8")
         seen_backend_paths.append(backend_output)
         return []
 
@@ -142,12 +146,15 @@ def test_run_combines_ingest_output_per_backend(tmp_path, monkeypatch) -> None:
             "--targets-json",
             '[{"engine":"datafusion","format":"parquet"},{"engine":"duckdb","format":"parquet"}]',
             "--no-build",
+            "--iterations",
+            "1",
             "--ingest-jsonl",
             str(output_path),
         ],
     )
 
     assert result.exit_code == 0
-    assert output_path.read_text(encoding="utf-8") == "datafusion-ingest\nduckdb-ingest\n"
+    engines = [json.loads(line)["engine"] for line in output_path.read_text(encoding="utf-8").splitlines()]
+    assert engines == ["datafusion", "duckdb"]
     assert len(seen_backend_paths) == 2
     assert seen_backend_paths[0] != seen_backend_paths[1]
