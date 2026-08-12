@@ -354,6 +354,48 @@ fn extract(archive: &Path, dest: &Path) {
     zip::ZipArchive::new(file).unwrap().extract(dest).unwrap();
 }
 
+fn git_apply(repo_dir: &Path, patch: &Path, args: &[&str]) -> bool {
+    let output = Command::new("git")
+        .current_dir(repo_dir)
+        .args(["apply", "-p1"])
+        .args(args)
+        .arg(patch)
+        .output();
+    match output {
+        Ok(out) => out.status.success(),
+        Err(e) => {
+            println!("cargo:error=git is required to patch DuckDB sources: {e}");
+            exit(1);
+        }
+    }
+}
+
+fn apply_source_patches(crate_dir: &Path, repo_dir: &Path) {
+    let mut patches: Vec<PathBuf> = fs::read_dir(crate_dir.join("patches"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "diff"))
+        .collect();
+    patches.sort();
+
+    for patch in patches {
+        // A successful reverse dry-run means the patch is already applied.
+        if git_apply(repo_dir, &patch, &["--check", "--reverse"]) {
+            continue;
+        }
+        if !git_apply(repo_dir, &patch, &[]) {
+            println!(
+                "cargo:error=Failed to apply {} to {}; delete that directory to re-extract \
+                DuckDB sources",
+                patch.display(),
+                repo_dir.display()
+            );
+            exit(1);
+        }
+        println!("cargo:info=Applied {}", patch.display());
+    }
+}
+
 /// Download DuckDB library archive from R2 and extract it.
 /// Return false if archive is not available or download failed
 fn download_prebuilt(version: &DuckDBVersion, library_dir: &Path, target: &str) -> bool {
@@ -578,6 +620,7 @@ fn cbindgen_rust2c(crate_dir: &Path) {
 
 fn main() {
     println!("cargo:rerun-if-changed=cpp/include");
+    println!("cargo:rerun-if-changed=patches");
     println!("cargo:rerun-if-env-changed=VX_DUCKDB_DEBUG");
     println!("cargo:rerun-if-env-changed=VX_DUCKDB_SAN");
     println!("cargo:rerun-if-env-changed=CARGO_HTTP_TIMEOUT");
@@ -657,6 +700,8 @@ fn main() {
         fs::remove_file(&source_archive_path).unwrap();
         fs::write(&extract_marker, version.to_string()).unwrap();
     }
+
+    apply_source_patches(&crate_dir, &inner_dir);
 
     drop(fs::remove_file(&duckdb_dir));
     drop(fs::remove_dir_all(&duckdb_dir));
