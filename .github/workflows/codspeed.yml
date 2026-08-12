@@ -93,20 +93,7 @@ jobs:
           token: ${{ secrets.CODSPEED_TOKEN }}
           mode: "simulation"
 
-  # Walltime measurements on real silicon, one leg per CPU feature set.
-  #
-  # The sharded job above measures simulated instruction counts on one x86-64 build. That
-  # says nothing about code whose machine code depends on the features it was compiled for,
-  # and nothing at all about Arm. A benchmark opts in with `#[cpu_features]` and is then
-  # built and measured once per leg here. VORTEX_BENCH_VARIANT takes those benchmarks out of
-  # the sharded job and VORTEX_BENCH_PREFIX qualifies their names, so each leg reports its
-  # own series rather than the legs fighting over a shared one.
-  #
-  # This matrix is the only place the legs are named — the attribute carries no leg list, so
-  # adding one is a change here alone. Each `family` must implement the features its leg
-  # enables: they are enabled globally, so surrounding code may use them and will fault on a
-  # machine that lacks them. These are metal instances, as the other walltime benchmark jobs
-  # use, so measurements are not taken through a hypervisor.
+  # Walltime on metal for benchmarks marked `#[cpu_features]`, one leg per feature set. A leg's `family` must implement the features it enables, which are enabled globally.
   bench-codspeed-cpu-features:
     if: github.repository == 'vortex-data/vortex'
     strategy:
