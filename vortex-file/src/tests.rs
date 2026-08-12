@@ -3072,5 +3072,16 @@ async fn test_content_defined_chunking_roundtrip() -> VortexResult<()> {
     {
         assert_arrays_eq!(field.clone(), expected_field.clone(), &mut ctx);
     }
+
+    // Zone maps are written over fixed row blocks even though the data chunks are
+    // content-defined: a pruning filter over the sorted id column must still read correctly.
+    let filter = gt_eq(get_item("id", root()), lit(len as u64 - 1000));
+    let filtered = file
+        .scan()?
+        .with_filter(bind_scan_expr(&file, filter))
+        .into_array_stream()?
+        .read_all()
+        .await?;
+    assert_eq!(filtered.len(), 1000);
     Ok(())
 }
