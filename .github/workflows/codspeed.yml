@@ -95,18 +95,18 @@ jobs:
 
   # Walltime measurements on real silicon, one leg per instruction set.
   #
-  # The sharded job above measures simulated instruction counts on x86-64 only, which says
-  # nothing about how a hand-written SIMD kernel performs, and nothing at all about Arm. A
-  # benchmark opts in by naming its instruction set with `#[isa(..)]`; each one is built with
-  # that instruction set enabled and run on silicon that has it, so a leg measures what its
-  # name says. VORTEX_BENCH_VARIANT selects the benchmarks for the leg and VORTEX_BENCH_PREFIX
-  # qualifies their names, so legs don't collide over the `#[isa(all)]` baselines they share.
+  # The sharded job above measures simulated instruction counts on one x86-64 build. That
+  # says nothing about code whose machine code depends on the instruction set it was compiled
+  # for, and nothing at all about Arm. A benchmark opts in with `#[isa]` and is then built
+  # and measured once per leg here. VORTEX_BENCH_VARIANT takes those benchmarks out of the
+  # sharded job and VORTEX_BENCH_PREFIX qualifies their names, so each leg reports its own
+  # series rather than the legs fighting over a shared one.
   #
-  # Each `isa` here must match a tag in `vortex_bench_support`'s ISA table, and each `family`
-  # must name a machine that actually implements the instruction set: the build enables it
-  # globally, so surrounding code may use it and will fault on a machine that lacks it. These
-  # are metal instances, as the other walltime benchmark jobs use, so measurements are not
-  # taken through a hypervisor.
+  # This matrix is the only place the legs are named — `#[isa]` carries no leg list, so
+  # adding one is a change here alone. Each `family` must implement its instruction set: the
+  # build enables it globally, so surrounding code may use it and will fault on a machine
+  # that lacks it. These are metal instances, as the other walltime benchmark jobs use, so
+  # measurements are not taken through a hypervisor.
   bench-codspeed-isa:
     if: github.repository == 'vortex-data/vortex'
     strategy:
@@ -133,7 +133,7 @@ jobs:
     name: "Benchmark with Codspeed (${{ matrix.isa }})"
     timeout-minutes: 60
     runs-on: >-
-      runs-on=${{ github.run_id }}/runner=bench-dedicated/family=${{ matrix.family }}/image=${{ matrix.image }}/extras=s3-cache/tag=bench-codspeed-isa-${{ matrix.isa }}
+      runs-on=${{ github.run_id }}/runner=bench-dedicated/family=${{ matrix.family }}/image=${{ matrix.image }}/disk=large/extras=s3-cache/tag=bench-codspeed-isa-${{ matrix.isa }}
     steps:
       - uses: runs-on/action@v2
         with:
@@ -147,19 +147,37 @@ jobs:
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
         with:
           tool: cargo-codspeed
+      # Which packages to build is derived from the source rather than listed here, so a
+      # crate that adds an `#[isa]` benchmark is picked up without editing this workflow.
+      # Building the whole workspace would do the same, but links every bench binary in it
+      # — with debuginfo, from the bench profile — to measure only the tagged ones.
+      - name: Select packages with tagged benchmarks
+        id: select
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_OUTPUT"
+          import json, pathlib, subprocess
+
+          meta = json.loads(subprocess.check_output(
+              ["cargo", "metadata", "--no-deps", "--format-version", "1"]))
+          tagged = sorted(
+              package["name"]
+              for package in meta["packages"]
+              for target in package["targets"]
+              if "bench" in target["kind"]
+              and "#[isa]" in pathlib.Path(target["src_path"]).read_text()
+          )
+          if not tagged:
+              raise SystemExit("no benchmark carries `#[isa]`; this job has nothing to measure")
+          print("packages=" + " ".join(f"-p {name}" for name in dict.fromkeys(tagged)))
+          EOF
       - name: Build benchmarks
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
           VORTEX_BENCH_VARIANT: ${{ matrix.isa }}
           VORTEX_BENCH_PREFIX: "${{ matrix.isa }}::"
-        # Every benchmark in the workspace, so a crate that adds an `#[isa]` benchmark is
-        # picked up without editing this matrix. The filter on the run step is what keeps
-        # the leg to the tagged ones, so building more costs build time and nothing else.
-        # vortex-cuda needs a CUDA toolchain and vortex-duckdb a DuckDB build; neither is
-        # present here, and the sharded job leaves them out for the same reason.
         run: |
           cargo codspeed build --locked -m walltime --profile bench \
-            --workspace --exclude vortex-cuda --exclude vortex-duckdb
+            ${{ steps.select.outputs.packages }}
       # Pinning clocks and reserving CPUs only pays off for walltime measurements, so this
       # runs here but not in the simulation job. It must come after setup, which itself
       # spawns processes that would otherwise be pinned to the housekeeping CPUs.
