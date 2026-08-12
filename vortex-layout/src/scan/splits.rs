@@ -38,13 +38,19 @@ pub fn attempt_split_ranges(
         return None;
     };
 
-    // TODO(connor): We can be smarter here, as the row range is more restrictive than the
-    // selection.
-    if row_range.is_some() {
-        return None;
-    }
-
     let indices = buffer.as_slice();
+    let indices = if let Some(row_range) = row_range {
+        if row_range.is_empty() {
+            return Some(Vec::new());
+        }
+
+        let start = indices.partition_point(|&index| index < row_range.start);
+        let end = indices.partition_point(|&index| index < row_range.end);
+        &indices[start..end]
+    } else {
+        indices
+    };
+
     if indices.is_empty() {
         return Some(Vec::new());
     }
@@ -85,4 +91,50 @@ pub fn attempt_split_ranges(
     ranges.push(curr_start..curr_end);
 
     Some(ranges)
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::Buffer;
+    use vortex_error::VortexExpect;
+    use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
+
+    use super::*;
+
+    fn include(indices: impl IntoIterator<Item = u64>) -> Selection {
+        Selection::IncludeByIndex(
+            StrictSortedBuffer::try_new(Buffer::from_iter(indices))
+                .vortex_expect("test indices must be strictly sorted"),
+        )
+    }
+
+    #[test]
+    fn split_ranges_intersect_row_range() {
+        let ranges = attempt_split_ranges(&include([1, 3, 5, 7, 9]), Some(&(3..9)))
+            .vortex_expect("sparse split planning should apply");
+
+        assert_eq!(ranges.len(), 1);
+        assert_eq!(ranges[0], 3..8);
+    }
+
+    #[test]
+    fn split_ranges_empty_intersection() {
+        assert_eq!(
+            attempt_split_ranges(&include([1, 3, 5]), Some(&(6..9))),
+            Some(Vec::new())
+        );
+    }
+
+    #[test]
+    fn restrictive_row_range_enables_sparse_splits() {
+        let indices = (0..MAX_RANGE_SIZE).chain([MAX_RANGE_SIZE + MIN_GAP_BETWEEN_RANGES]);
+        let ranges = attempt_split_ranges(&include(indices), Some(&(MAX_RANGE_SIZE..u64::MAX)))
+            .vortex_expect("the row range should make sparse split planning applicable");
+
+        assert_eq!(ranges.len(), 1);
+        assert_eq!(
+            ranges[0],
+            MAX_RANGE_SIZE + MIN_GAP_BETWEEN_RANGES..MAX_RANGE_SIZE + MIN_GAP_BETWEEN_RANGES + 1
+        );
+    }
 }
