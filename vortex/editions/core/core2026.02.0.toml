@@ -4,16 +4,13 @@
 # contains never changes again. Freezing a new edition adds a new file to this directory;
 # editing or deleting a frozen one is rejected by CI.
 
-edition = "core2025.10.0"
+edition = "core2026.02.0"
 family = "core"
-min_vortex_version = "0.55.0"
+min_vortex_version = "0.60.0"
 
 # The encodings that join the family at this edition.
 added = [
-    "fastlanes.rle",
-    "vortex.fixed_size_list",
-    "vortex.listview",
-    "vortex.masked",
+    "vortex.map",
 ]
 
 # The edition's full membership: the encodings above, plus every member of earlier
@@ -37,6 +34,7 @@ encodings = [
     "vortex.fsst",
     "vortex.list",
     "vortex.listview",
+    "vortex.map",
     "vortex.masked",
     "vortex.null",
     "vortex.pco",
@@ -47,6 +45,7 @@ encodings = [
     "vortex.struct",
     "vortex.varbin",
     "vortex.varbinview",
+    "vortex.variant",
     "vortex.zigzag",
     "vortex.zstd",
 ]
