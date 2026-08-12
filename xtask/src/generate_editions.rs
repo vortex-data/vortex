@@ -41,7 +41,10 @@ const DRAFT_NOTE: &str = "\
 # this file may never change again.";
 
 /// The file recording what a family is, beside that family's editions.
-const FAMILY_FILE: &str = "family.toml";
+pub const FAMILY_FILE: &str = "family.toml";
+
+/// The edition records, relative to the repository root.
+pub const RECORD_DIR: &str = "vortex/editions";
 
 /// Render a family's record: its name and what it is for. Unlike an edition record this is
 /// documentation, not a contract, so it stays editable.
@@ -167,7 +170,9 @@ fn records_a_frozen_edition(contents: &str) -> bool {
 }
 
 pub fn generate_editions() -> anyhow::Result<()> {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vortex/editions");
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join(RECORD_DIR);
     fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
 
     let session = EditionSession::empty();

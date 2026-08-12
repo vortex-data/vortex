@@ -242,6 +242,7 @@ rstest = "0.26.1"
 rstest_reuse = "0.7.0"
 rustc-hash = "2.1.1"
 rustix = { version = "1.1", features = ["fs"] }
+git2 = { version = "0.20", default-features = false }
 serde = "1.0.221"
 serde_json = "1.0.138"
 serde_test = "1.0.176"
@@ -278,6 +279,7 @@ tokio-stream = "0.1.17"
 tokio-util = "0.7.17"
 tpchgen = "3.0.0"
 tpchgen-arrow = "3.0.0"
+toml = "0.9"
 tracing = { version = "0.1.41", default-features = false }
 tracing-perfetto = "0.1.5"
 tracing-subscriber = "0.3"

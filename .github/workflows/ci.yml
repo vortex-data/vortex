@@ -64,24 +64,6 @@ jobs:
             -c .yamllint.yaml \
             .github/
 
-  edition-records:
-    name: "Frozen edition records never change"
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-        with:
-          # The check compares against the merge base, so it needs real history.
-          fetch-depth: 0
-      - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
-        with:
-          sync: false
-      - name: Check edition records
-        run: |
-          BASE="${{ github.event.pull_request.base.sha || 'HEAD^' }}"
-          uv run --script .github/scripts/check_edition_records.py --base "$BASE"
-
   python-lint:
     name: "Python (lint)"
     runs-on: >-
@@ -747,6 +729,9 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          # check-editions compares against the merge base, so it needs real history.
+          fetch-depth: 0
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: "true"
@@ -759,6 +744,10 @@ jobs:
       - name: "regenerate the edition records"
         run: |
           cargo run --profile ci -p xtask -- generate-editions
+      - name: "check frozen edition records never change"
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || 'HEAD^' }}"
+          cargo run --profile ci -p xtask -- check-editions --base "$BASE"
       - name: "regenerate FFI header file"
         run: |
           cargo +$NIGHTLY_TOOLCHAIN build --profile ci -p vortex-ffi
