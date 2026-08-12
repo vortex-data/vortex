@@ -22,6 +22,7 @@ use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_array::validity::Validity;
+use vortex_arrow::ArrowSessionExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -91,6 +92,7 @@ fn convex_hull_array(
         &polygons,
         output_dtype.metadata::<Polygon>().clone(),
         output_dtype.nullability(),
+        &ctx.session().arrow(),
     )
 }
 
@@ -107,6 +109,7 @@ fn execute_convex_hull(
                 &[Some(hull)],
                 output_dtype.metadata::<Polygon>().clone(),
                 output_dtype.nullability(),
+                &ctx.session().arrow(),
             )?;
             Ok(ConstantArray::new(output.execute_scalar(0, ctx)?, execution.len).into_array())
         }

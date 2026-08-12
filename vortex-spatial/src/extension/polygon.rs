@@ -120,16 +120,18 @@ pub(crate) fn build_polygon_array(
     polygons: &[Option<geo_types::Polygon<f64>>],
     metadata: SpatialMetadata,
     nullability: Nullability,
+    session: &ArrowSession,
 ) -> VortexResult<ArrayRef> {
     let polygons =
         PolygonBuilder::from_nullable_polygons(polygons, polygon_type(&metadata, Dimension::Xy))
             .finish();
     let storage_dtype = polygon_storage_dtype(Dimension::Xy, nullability);
-    let storage = ArrayRef::from_arrow(
-        polygons.to_array_ref().as_ref(),
-        nullability == Nullability::Nullable,
-    )?
-    .cast(storage_dtype.clone())?;
+    let storage = session
+        .from_arrow_array(
+            polygons.to_array_ref(),
+            nullability == Nullability::Nullable,
+        )?
+        .cast(storage_dtype.clone())?;
     let ext_dtype = ExtDType::<Polygon>::try_new(metadata, storage_dtype)?;
     Ok(ExtensionArray::try_new(ext_dtype.erased(), storage)?.into_array())
 }
