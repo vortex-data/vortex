@@ -3,10 +3,9 @@
 
 from typing import final
 
-from typing_extensions import override
-
 import polars as pl
 import pyarrow as pa
+from typing_extensions import override
 
 from vortex.type_aliases import IntoProjection
 
