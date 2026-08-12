@@ -6,6 +6,8 @@
 # where ordering is correct but uses an explicit fence and not relaxed load
 race:oneshot-*/src/channel.rs
 race:oneshot-*/src/lib.rs
+race:kanal-*/src/lib.rs
+race:kanal-*/src/signal.rs
 
 # https://github.com/google/sanitizers/issues/1415
 # crossbeam-epoch's epoch-based reclamation synchronizes through SeqCst fences,
