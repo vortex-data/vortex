@@ -137,6 +137,8 @@ pub struct TableFunctionLocal {
     pub(crate) exporter: Option<ArrayExporter>,
     // Aggregate scan accumulated partials. Empty for non-aggregate scan
     pub(crate) partials: Vec<Box<dyn DynAccumulator>>,
+    // Current file processed is read till end
+    pub(crate) exhausted: bool,
 }
 
 #[derive(Clone)]
@@ -319,6 +321,7 @@ pub fn init_local(
     TableFunctionLocal {
         exporter: None,
         partials,
+        exhausted: false,
     }
 }
 

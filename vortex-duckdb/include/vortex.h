@@ -89,7 +89,7 @@ duckdb_vx_data duckdb_table_function_file_start_scan(const void *bind_data,
                                                      duckdb_vx_table_filter_set filters,
                                                      duckdb_vx_error *error_out);
 
-extern bool duckdb_table_function_file_has_work(const void *file_scan_data);
+extern bool duckdb_table_function_file_has_work(const void *local_init_data);
 
 extern
 void duckdb_table_function_file_scan(const void *file_scan_data,

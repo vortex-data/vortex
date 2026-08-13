@@ -211,10 +211,10 @@ void VortexBaseReader::PrepareReader(ClientContext &, GlobalTableFunctionState &
 
 bool VortexBaseReader::TryInitializeScan(ClientContext &,
                                          GlobalTableFunctionState &,
-                                         LocalTableFunctionState &) {
-    // false if file is exhausted
-    D_ASSERT(ffi_file_scan != nullptr); // scan already started in PrepareReader
-    return duckdb_table_function_file_has_work(ffi_file_scan->DataPtr());
+                                         LocalTableFunctionState &state) {
+    const VortexLocalState &local = state.Cast<VortexLocalState>();
+    void *const ffi_local = local.ffi_local_state->DataPtr();
+    return duckdb_table_function_file_has_work(ffi_local);
 }
 
 AsyncResult VortexBaseReader::Scan(ClientContext &,

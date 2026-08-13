@@ -4,7 +4,6 @@
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::LazyLock;
-use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
@@ -83,10 +82,6 @@ pub struct FileReader {
     pub(crate) dtype: DType,
     pub(crate) row_count: u64,
     file_index: u64,
-
-    exhausted: AtomicBool,
-
-    scan: Option<FileScan>,
 }
 
 pub struct FileScan {
@@ -110,7 +105,6 @@ async fn open_reader(file_path: String, file_index: u64) -> VortexResult<FileRea
         row_count: reader.row_count(),
         reader,
         file_index,
-        exhausted: AtomicBool::new(false),
     })
 }
 
@@ -313,8 +307,8 @@ pub fn file_start_scan(
     })
 }
 
-pub fn file_has_work(reader: &FileReader) -> bool {
-    !reader.exhausted.load(Ordering::Acquire)
+pub fn file_has_work(local: &TableFunctionLocal) -> bool {
+    !local.exhausted
 }
 
 fn file_scan_aggregate(
@@ -328,7 +322,7 @@ fn file_scan_aggregate(
     let mut rows = 0u64;
     loop {
         let Ok(item) = RUNTIME.block_on(scan.receiver.recv()) else {
-            scan.exhausted.store(true, Ordering::Release);
+            local.exhausted = true;
             break;
         };
         let (array, _cache) = item?;
@@ -375,7 +369,7 @@ pub fn file_scan(
     loop {
         if local.exporter.is_none() {
             let Ok(item) = RUNTIME.block_on(scan.receiver.recv()) else {
-                scan.exhausted.store(true, Ordering::Release);
+                local.exhausted = true;
                 return Ok(());
             };
             let (array, cache) = item?;
@@ -406,7 +400,7 @@ pub fn file_scan(
     Ok(())
 }
 
-pub fn file_progress(scan: &FileScan) -> f64 {
+pub fn file_progress(reader: &FileScan) -> f64 {
     if scan.total_splits == 0 {
         return 100.0;
     }
