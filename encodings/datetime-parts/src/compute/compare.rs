@@ -229,14 +229,15 @@ fn compare_dtp(
 mod test {
     use rstest::rstest;
     use vortex_array::ArrayRef;
-    use vortex_array::Canonical;
     use vortex_array::ExecutionCtx;
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::fns::sum::sum;
     use vortex_array::array_session;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::IntegerPType;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::extension::datetime::Timestamp;
@@ -478,8 +479,13 @@ mod test {
 
     /// A null lhs value stays null, even when the constant is outside the range of the narrowed
     /// days storage type.
-    #[test]
-    fn compare_date_time_parts_null_out_of_range_days_constant() -> VortexResult<()> {
+    #[rstest]
+    #[case(Validity::AllInvalid, [None, None])]
+    #[case(Validity::from_iter([false, true]), [None, Some(true)])]
+    fn compare_date_time_parts_null_out_of_range_days_constant(
+        #[case] days_validity: Validity,
+        #[case] expected: [Option<bool>; 2],
+    ) -> VortexResult<()> {
         let session = array_session();
         crate::initialize(&session);
         let mut ctx = session.create_execution_ctx();
@@ -491,20 +497,17 @@ mod test {
             },
             (-86_400_000i64).into(),
         );
-        let rhs = ConstantArray::new(timestamp, 1).into_array();
+        let rhs = ConstantArray::new(timestamp, 2).into_array();
         let lhs = DateTimeParts::try_new(
             rhs.dtype().with_nullability(Nullability::Nullable),
-            PrimitiveArray::new(buffer![20_677u16], Validity::AllInvalid).into_array(),
-            buffer![0u16].into_array(),
-            buffer![0u16].into_array(),
+            PrimitiveArray::new(buffer![20_677u16, 20_678u16], days_validity).into_array(),
+            buffer![0u16, 0u16].into_array(),
+            buffer![0u16, 0u16].into_array(),
         )?
         .into_array();
 
-        let gt = lhs
-            .binary(rhs, Operator::Gt)?
-            .execute::<Canonical>(&mut ctx)?
-            .into_array();
-        assert_eq!(gt.invalid_count(&mut ctx)?, 1);
+        let gt = lhs.binary(rhs, Operator::Gt)?;
+        assert_arrays_eq!(gt, BoolArray::from_iter(expected), &mut ctx);
         Ok(())
     }
 }
