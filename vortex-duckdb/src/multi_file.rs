@@ -2,12 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
-use std::sync::LazyLock;
 
 use itertools::Itertools;
 use object_store::registry::ObjectStoreRegistry;
 use url::Url;
-use vortex::cloud::Registry;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
@@ -19,13 +17,11 @@ use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::multi::MultiLayoutDataSource;
 
+use crate::REGISTRY;
 use crate::RUNTIME;
 use crate::SESSION;
 use crate::duckdb::BindInputRef;
 use crate::duckdb::ExtractedValue;
-
-/// Process-wide registry, so repeated scans against the same bucket share one client.
-static REGISTRY: LazyLock<Registry> = LazyLock::new(Registry::new);
 
 fn resolve_filesystem(glob_url: &Url) -> VortexResult<(FileSystemRef, String)> {
     // Compat makes us use tokio which is very bad for local reads on

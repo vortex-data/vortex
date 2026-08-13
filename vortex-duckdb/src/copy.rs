@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use async_fs::OpenOptions;
 use futures::SinkExt;
 use futures::TryStreamExt;
 use futures::channel::mpsc;
 use futures::channel::mpsc::Sender;
+use object_store::ObjectStore;
+use object_store::registry::ObjectStoreRegistry;
 use parking_lot::Mutex;
 use static_assertions::assert_impl_all;
 use vortex::array::ArrayRef;
@@ -20,11 +24,16 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteSummary;
+use vortex::file::multi::parse_uri_or_path;
+use vortex::io::VortexWrite;
+use vortex::io::compat::Compat;
+use vortex::io::object_store::ObjectStoreWrite;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::Task;
 use vortex::io::runtime::current::CurrentThreadWorkerPool;
 use vortex::io::session::RuntimeSessionExt;
 
+use crate::REGISTRY;
 use crate::RUNTIME;
 use crate::SESSION;
 use crate::convert::FromLogicalType;
@@ -119,15 +128,35 @@ pub fn copy_to_initialize_global(
 
     let handle = SESSION.handle();
 
-    let write_task = handle.spawn(async move {
-        let writer = OpenOptions::new()
-            .write(true)
-            .truncate(true)
-            .create(true)
-            .open(file_path)
-            .await?;
-        SESSION.write_options().write(writer, array_stream).await
-    });
+    let url = parse_uri_or_path(&file_path)?;
+    let write_task = if url.scheme() == "file" {
+        handle.spawn(async move {
+            let mut writer = OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .create(true)
+                .open(file_path)
+                .await?;
+            let summary = SESSION
+                .write_options()
+                .write(&mut writer, array_stream)
+                .await?;
+            writer.shutdown().await?;
+            Ok(summary)
+        })
+    } else {
+        let (object_store, path) = REGISTRY.resolve(&url)?;
+        let object_store = Arc::new(Compat::new(object_store)) as Arc<dyn ObjectStore>;
+        handle.spawn(async move {
+            let mut writer = ObjectStoreWrite::new(object_store, &path).await?;
+            let summary = SESSION
+                .write_options()
+                .write(&mut writer, array_stream)
+                .await?;
+            writer.shutdown().await?;
+            Ok(summary)
+        })
+    };
 
     let worker_pool = RUNTIME.new_pool();
     worker_pool.set_workers_to_available_parallelism();

@@ -11,6 +11,7 @@ use std::sync::LazyLock;
 use std::sync::OnceLock;
 
 use vortex::VortexSessionDefault;
+use vortex::cloud::Registry;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::io::runtime::BlockingRuntime;
@@ -43,6 +44,8 @@ mod e2e_test;
 
 // A global runtime for Vortex operations within DuckDB.
 static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
+/// Process-wide registry, so repeated scans against the same bucket share one client.
+static REGISTRY: LazyLock<Registry> = LazyLock::new(Registry::new);
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::default().with_handle(RUNTIME.handle());
     vortex_spatial::initialize(&session);
