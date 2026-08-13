@@ -47,6 +47,7 @@ use crate::encodings::normalized::Normalized;
 use crate::matcher::AnyTensor;
 use crate::utils::extract_flat_elements;
 use crate::utils::extract_normalized_children;
+use crate::utils::reattach_validity;
 use crate::utils::validate_tensor_float_input;
 
 /// L2 norm (Euclidean norm) of a tensor or vector column.
@@ -131,8 +132,12 @@ impl ScalarFnVTable for L2Norm {
         // L2Norm over a `Normalized`-encoded column is defined to read back the authoritative stored
         // norms. Callers of lossy encodings opt into that storage semantics instead of forcing a
         // decode-and-recompute path here.
+        //
+        // The stored norms are non-nullable, because nulls live on the `Normalized` array itself, so
+        // a nullable input needs its null map reattached to reach `norm_dtype`.
         if input_ref.is::<Normalized>() {
             let (_, norms) = extract_normalized_children(&input_ref);
+            let norms = reattach_validity(norms, input_ref.validity()?)?;
             vortex_ensure_eq!(norms.dtype(), &norm_dtype);
             return Ok(norms);
         }
@@ -275,6 +280,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
 
+    use crate::encodings::normalized::Normalized;
     use crate::scalar_fns::l2_norm::L2Norm;
     use crate::tests::SESSION;
     use crate::types::vector::Vector;
@@ -405,6 +411,29 @@ mod tests {
             constant.dtype(),
             &DType::Primitive(PType::F64, Nullability::Nullable)
         );
+        Ok(())
+    }
+
+    #[test]
+    fn reads_through_a_nullable_normalized_column() -> VortexResult<()> {
+        let normalized = vector_array(2, &[0.6f64, 0.8, 1.0, 0.0])?;
+        let norms = PrimitiveArray::from_iter([5.0f64, 1.0]).into_array();
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let validity = Validity::from_iter([true, false]);
+        let input = Normalized::try_new(normalized, norms, validity, &mut ctx)?.into_array();
+
+        let result = ScalarFnArray::try_new(L2Norm::new().erased(), vec![input])?.into_array();
+        let prim: PrimitiveArray = result.execute(&mut ctx)?;
+
+        assert_eq!(
+            prim.dtype(),
+            &DType::Primitive(PType::F64, Nullability::Nullable)
+        );
+        assert!(prim.is_valid(0, &mut ctx)?);
+        assert!(!prim.is_valid(1, &mut ctx)?);
+        assert_close(&[prim.as_slice::<f64>()[0]], &[5.0]);
+
         Ok(())
     }
 

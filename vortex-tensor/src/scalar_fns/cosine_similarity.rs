@@ -117,7 +117,7 @@ impl ScalarFnVTable for CosineSimilarity {
         let len = args.row_count();
 
         // If either side is a constant tensor-like extension array, eagerly normalize the single
-        // stored row and re-encode it as an `Normalized` whose children are both `ConstantArray`s.
+        // stored row and re-encode it as a `Normalized` whose children are both `ConstantArray`s.
         // The `Normalized` fast path below then picks it up.
         if let Some(normalized_array) = try_build_constant_normalized(&lhs_ref, len, ctx)? {
             lhs_ref = normalized_array.into_array();
@@ -580,14 +580,15 @@ mod tests {
     }
 
     #[test]
-    fn both_normalized_null_norms() -> VortexResult<()> {
-        // Row 0: valid, row 1: null (via nullable norms on rhs).
+    fn both_normalized_null_rows() -> VortexResult<()> {
+        // Row 0 is valid. Row 1 is null through the rhs validity.
         let mut ctx = SESSION.create_execution_ctx();
         let lhs = normalized_array(&[2], &[0.6, 0.8, 1.0, 0.0], &[5.0, 1.0], &mut ctx)?;
 
         let normalized_r = tensor_array(&[2], &[0.6, 0.8, 1.0, 0.0])?;
-        let norms_r = PrimitiveArray::from_option_iter([Some(5.0f64), None]).into_array();
-        let rhs = Normalized::try_new(normalized_r, norms_r, &mut ctx)?.into_array();
+        let norms_r = PrimitiveArray::from_iter([5.0f64, 1.0]).into_array();
+        let validity = Validity::from_iter([true, false]);
+        let rhs = Normalized::try_new(normalized_r, norms_r, validity, &mut ctx)?.into_array();
 
         let scalar_fn = CosineSimilarity::new().erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs])?;
@@ -610,13 +611,17 @@ mod tests {
         // Intentionally violates the unit-norm invariant by pairing a nonzero normalized row
         // with a stored norm of `0.0`, mimicking lossy storage.
         // SAFETY: The children are structurally valid.
-        let lhs = unsafe { Normalized::new_unchecked(normalized_l, norms_l) }.into_array();
+        let lhs =
+            unsafe { Normalized::new_unchecked(normalized_l, norms_l, Validity::NonNullable) }
+                .into_array();
 
         let normalized_r = tensor_array(&[2], &[0.6, 0.8])?;
         let norms_r = PrimitiveArray::from_iter([0.0f64]).into_array();
         // Same as above for the rhs operand.
         // SAFETY: The children are structurally valid.
-        let rhs = unsafe { Normalized::new_unchecked(normalized_r, norms_r) }.into_array();
+        let rhs =
+            unsafe { Normalized::new_unchecked(normalized_r, norms_r, Validity::NonNullable) }
+                .into_array();
 
         // `dot(normalized_l, normalized_r) = 1.0`, but the authoritative stored norms are both
         // `0.0`, so cosine similarity must be `0.0`.
@@ -635,7 +640,9 @@ mod tests {
         // Intentionally pairs a nonzero normalized row with a stored norm of `0.0`, mimicking
         // lossy storage where the stored norm is authoritative.
         // SAFETY: The children are structurally valid.
-        let normalized_array = unsafe { Normalized::new_unchecked(normalized, norms) }.into_array();
+        let normalized_array =
+            unsafe { Normalized::new_unchecked(normalized, norms, Validity::NonNullable) }
+                .into_array();
 
         let plain = tensor_array(&[2], &[1.0, 0.0])?;
 

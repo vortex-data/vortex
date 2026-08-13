@@ -25,33 +25,31 @@ use vortex_error::VortexResult;
 
 use crate::matcher::AnyTensor;
 use crate::utils::extract_flat_elements;
-use crate::utils::unit_norm_tolerance;
+use crate::utils::reattach_validity;
 
 /// Reconstructs the original tensor column by scaling each normalized row by its stored norm.
 ///
-/// `dtype` is the parent [`NormalizedArray`]'s dtype, so the reconstructed column carries the
-/// unioned nullability of both children.
+/// `dtype` is the parent [`NormalizedArray`]'s dtype and `validity` its null map. Both children are
+/// non-nullable, so the reconstructed column carries the parent's nullability rather than either
+/// child's.
 ///
 /// [`NormalizedArray`]: crate::encodings::normalized::NormalizedArray
 pub(super) fn denormalize(
     normalized: &ArrayRef,
     norms: &ArrayRef,
-    row_count: usize,
+    validity: Validity,
     dtype: DType,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let validity = normalized.validity()?.and(norms.validity()?)?;
-
     // Constant norms let us scale the whole backing buffer at once, or skip the multiply entirely
-    // when every norm is already 1. The nullability guard keeps us on the general path when the
-    // constant is a non-null value inside a nullable column, since the fast path cannot widen the
-    // normalized child's dtype to match the parent's.
+    // when every norm is exactly 1.
     if let Some(constant) = norms.as_opt::<Constant>()
         && constant.scalar().value().is_some()
-        && normalized.dtype() == &dtype
     {
         return denormalize_constant_norms(normalized, constant.scalar(), dtype, validity, ctx);
     }
+
+    let row_count = normalized.len();
 
     let normalized: ExtensionArray = normalized.clone().execute(ctx)?;
     let norms: PrimitiveArray = norms.clone().execute(ctx)?;
@@ -76,9 +74,9 @@ pub(super) fn denormalize(
 
 /// Scales every row by the same stored norm.
 ///
-/// Two things make this cheaper than the general path: a norm of `1.0` is the identity, so the
-/// normalized child is already the answer; and otherwise the scale factor applies uniformly to the
-/// flat backing buffer, so it becomes one lazy multiply over the elements array instead of a
+/// Two things make this cheaper than the general path: a norm of exactly `1.0` is the identity, so
+/// the normalized child is already the answer; and otherwise the scale factor applies uniformly to
+/// the flat backing buffer, so it becomes one lazy multiply over the elements array instead of a
 /// per-row loop.
 fn denormalize_constant_norms(
     normalized: &ArrayRef,
@@ -87,17 +85,19 @@ fn denormalize_constant_norms(
     validity: Validity,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let tensor_flat_size = tensor_flat_size(normalized.dtype());
-    let error = norm
+    let norm_value = norm
         .value()
         .vortex_expect("the caller only takes this path for a non-null constant norm")
         .as_primitive()
         .as_f64()
-        .vortex_expect("norms are validated to be a float column, so the scalar fits in f64")
-        - 1.0f64;
+        .vortex_expect("norms are validated to be a float column, so the scalar fits in f64");
 
-    if error.abs() < unit_norm_tolerance(norm.dtype().as_ptype(), tensor_flat_size) {
-        return Ok(normalized.clone());
+    // Only an exact `1.0` is the identity. Skipping the multiply for a near-unit norm
+    // would leave this path disagreeing with the general one in the last bits, and `scalar_at`
+    // routes every row through here, so a per-row read would answer differently than a bulk decode
+    // of the same column.
+    if norm_value == 1.0 {
+        return reattach_validity(normalized.clone(), validity);
     }
 
     let normalized: ExtensionArray = normalized.clone().execute(ctx)?;
@@ -106,8 +106,8 @@ fn denormalize_constant_norms(
     let scale = ConstantArray::new(norm.clone(), storage.elements().len()).into_array();
     let elements = storage.elements().clone().binary(scale, Operator::Mul)?;
 
-    // SAFETY: Only the element values changed; the list size, validity, and row count are carried
-    // over from the storage array we just executed.
+    // SAFETY: Only the element values changed; the list size and row count are carried over from
+    // the storage array we just executed, and the validity is the parent's.
     let storage = unsafe {
         FixedSizeListArray::new_unchecked(elements, storage.list_size(), validity, storage.len())
     };

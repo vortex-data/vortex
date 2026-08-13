@@ -17,6 +17,7 @@ use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
@@ -40,6 +41,7 @@ use crate::encodings::normalized::Normalized;
 use crate::encodings::normalized::NormalizedArray;
 use crate::encodings::normalized::NormalizedArraySlotsExt;
 use crate::encodings::normalized::NormalizedSlots;
+use crate::encodings::normalized::array::DATA_CHILDREN;
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::l2_norm::L2Norm;
 use crate::utils::extract_constant_flat_row;
@@ -56,19 +58,24 @@ impl Scheme for NormalizedScheme {
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
-        matches!(
-            canonical,
-            Canonical::Extension(ext) if ext.ext_dtype().is::<AnyTensor>()
-        )
+        let Canonical::Extension(ext) = canonical else {
+            return false;
+        };
+
+        // `AlwaysUse` prevents later schemes from seeing a claimed array, so match only the float
+        // tensor dtypes accepted by `compress`.
+        ext.ext_dtype()
+            .metadata_opt::<AnyTensor>()
+            .is_some_and(|tensor| tensor.element_ptype().is_float())
     }
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
         vec![Normalized.id()]
     }
 
-    /// Children: normalized=0, norms=1.
     fn num_children(&self) -> usize {
-        NormalizedSlots::COUNT
+        // The compressor passes the optional validity slot through unchanged.
+        DATA_CHILDREN
     }
 
     fn expected_compression_ratio(
@@ -106,38 +113,45 @@ impl Scheme for NormalizedScheme {
             exec_ctx,
         )?;
 
-        // SAFETY: Cascading preserves the split's child lengths and dtypes.
-        Ok(unsafe { Normalized::new_unchecked(normalized, norms) }.into_array())
+        let validity = normalized_array.validity()?;
+
+        // SAFETY: Cascading preserves the split's child lengths and dtypes, and the validity is
+        // carried over from the split unchanged.
+        Ok(unsafe { Normalized::new_unchecked(normalized, norms, validity) }.into_array())
     }
 }
 
 /// Splits a tensor-like column into its exact [`Normalized`] representation.
 ///
-/// # Normalized child
+/// # Children
 ///
-/// The normalized child is always **non-nullable**. Every non-null row with a positive L2 norm is
-/// divided by its norm to produce a unit-norm row.
+/// Both children are **non-nullable**. Every non-null row with a positive L2 norm is divided by its
+/// norm to produce a unit-norm row.
 ///
-/// Rows that are null in the original input are **zeroed out** in the normalized output. Null rows
-/// may carry undefined physical storage values, and we do not want that garbage propagating into
-/// downstream lossy encodings of the normalized child.
+/// Rows that are null in the original input are **zeroed out** in both children. Null rows can
+/// contain undefined physical values. Zeroing prevents those values from reaching downstream lossy
+/// encodings or read-through operators that consume the norms buffer densely.
 ///
 /// # Nullability
 ///
-/// Nullability is tracked entirely by the norms child, which inherits the input's nulls through
-/// [`L2Norm`]'s validity propagation. The [`Normalized`] array's validity is the `and` of both
-/// children, so an all-valid normalized child plus a nullable norms child reproduces the input's
-/// validity exactly.
+/// The input's nulls move onto the [`Normalized`] array's own validity, which it takes from
+/// [`L2Norm`]'s validity propagation. Because the children carry no nulls of their own, that
+/// validity is the reconstructed column's validity exactly.
 ///
 /// Because this computes exact norms first and then divides by them, the returned `normalized`
-/// child satisfies the strict unit-norm invariant.
+/// child satisfies the strict unit-norm invariant, and zeroing null rows satisfies both directions
+/// of the zero-norm rule.
+///
+/// # Errors
+///
+/// Returns an error if `input` is not a float tensor column or if execution fails.
 pub fn normalize(input: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<NormalizedArray> {
     let row_count = input.len();
     let tensor_match = validate_tensor_float_input(input.dtype())?;
     let tensor_flat_size = tensor_match.list_size() as usize;
 
     // Constant fast path: if the input is a constant-backed extension, normalize the single stored
-    // row once and return an `Normalized` whose children are both `ConstantArray`s.
+    // row once and return a `Normalized` whose children are both `ConstantArray`s.
     if let Some(wrapped) = try_build_constant_normalized(&input, row_count, ctx)? {
         return Ok(wrapped);
     }
@@ -145,31 +159,49 @@ pub fn normalize(input: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Normal
     let norms_array: ArrayRef = L2Norm
         .try_new_array(row_count, EmptyOptions, [input.clone()])?
         .execute(ctx)?;
-    let primitive_norms: PrimitiveArray = norms_array.clone().execute(ctx)?;
-    let norms_validity = primitive_norms.validity()?;
+
+    // Canonicalize before reading the validity so the norms are computed once. Taking the validity
+    // off the unexecuted array instead leaves the norms to be evaluated again below, which costs
+    // the whole `L2Norm` pass a second time and grows with the tensor width.
+    let primitive_norms: PrimitiveArray = norms_array.execute(ctx)?;
+
+    // `L2Norm` propagates the input's validity, so this is the column's null map.
+    let validity = primitive_norms.validity()?;
+
+    // Filling the nulls with zero moves them off the child and leaves the row loop below a single
+    // rule to follow: a zero norm means a zeroed row. A column with no nulls has nothing to fill,
+    // and `fill_null` still charges it a cast, so skip it there.
+    let norms: PrimitiveArray = if validity.nullability().is_nullable() {
+        let element_dtype =
+            DType::Primitive(tensor_match.element_ptype(), Nullability::NonNullable);
+
+        primitive_norms
+            .into_array()
+            .fill_null(Scalar::zero_value(&element_dtype))?
+            .execute(ctx)?
+    } else {
+        primitive_norms
+    };
 
     let input: ExtensionArray = input.execute(ctx)?;
     let normalized_dtype = input.dtype().as_nonnullable();
     let flat = extract_flat_elements(input.storage_array(), tensor_flat_size, ctx)?;
 
-    // Resolve validity to a mask once rather than probing it per row (each `Validity::is_valid`
-    // executes a scalar for array-backed validity).
-    let norms_valid = norms_validity.execute_mask(row_count, ctx)?;
-
     let normalized = match_each_float_ptype!(flat.ptype(), |T| {
-        let norm_values = primitive_norms.as_slice::<T>();
+        let norm_values = norms.as_slice::<T>();
 
         let total_elements = row_count * tensor_flat_size;
         let mut elements = BufferMut::<T>::with_capacity(total_elements);
         for i in 0..row_count {
-            let is_valid = norms_valid.value(i);
             let norm = norm_values[i];
 
+            // A null row arrives here with a filled zero norm, so its coordinates are zeroed
+            // alongside the genuine zero vectors rather than carrying whatever the masked-out
+            // storage happened to hold.
+            //
             // SAFETY: We allocated `row_count * tensor_flat_size` capacity and push exactly
             // `tensor_flat_size` elements per row.
-
-            // Null rows must be explicitly zeroed out.
-            if !is_valid || norm == T::zero() {
+            if norm.is_zero() {
                 unsafe { elements.push_n_unchecked(T::zero(), tensor_flat_size) };
             } else {
                 for &x in flat.row::<T>(i) {
@@ -178,8 +210,6 @@ pub fn normalize(input: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Normal
             }
         }
 
-        // Since Normalized's validity is the `and` of its child validities, the normalized child can
-        // be non-nullable.
         build_normalized(
             normalized_dtype,
             tensor_flat_size,
@@ -188,11 +218,12 @@ pub fn normalize(input: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Normal
         )
     })?;
 
-    // SAFETY: The normalized rows, norms ptype, and child lengths come directly from this split.
-    Ok(unsafe { Normalized::new_unchecked(normalized, norms_array) })
+    // SAFETY: This split creates non-nullable children with matching lengths and element ptypes.
+    // The captured validity describes the same input rows.
+    Ok(unsafe { Normalized::new_unchecked(normalized, norms.into_array(), validity) })
 }
 
-/// Attempts to build an [`NormalizedArray`] whose two children are both [`ConstantArray`]s by
+/// Attempts to build a [`NormalizedArray`] whose two children are both [`ConstantArray`]s by
 /// eagerly normalizing `input`'s single stored row.
 ///
 /// Returns `Ok(None)` when `input` is not a tensor-like extension array whose storage is a
@@ -217,17 +248,18 @@ pub(crate) fn try_build_constant_normalized(
         return Ok(None);
     }
 
-    // The caller is expected to have already validated that `input` is an `AnyTensor` extension
-    // dtype.
+    // The caller has already validated that `input` is an `AnyTensor` extension dtype.
     let tensor_match = input
         .dtype()
         .as_extension()
         .metadata_opt::<AnyTensor>()
         .vortex_expect("caller validated input has AnyTensor metadata");
     let list_size = tensor_match.list_size() as usize;
-    let original_nullability = input.dtype().nullability();
-    let ext_dtype = input.dtype().as_extension().clone();
-    let storage_fsl_nullability = storage.dtype().nullability();
+
+    // A non-null constant scalar represents valid rows. The dtype still determines whether the
+    // column can contain nulls.
+    let validity = Validity::from(input.dtype().nullability());
+    let normalized_ext_dtype = input.dtype().as_nonnullable().as_extension().clone();
 
     // Materialize just the single stored row; this does not expand the constant to the full column
     // length.
@@ -245,7 +277,7 @@ pub(crate) fn try_build_constant_normalized(
         // Zero-norm rows must be stored as all-zeros so the unit-norm-or-zero invariant holds.
         // This mirrors the per-row logic in `normalize`.
         let element_dtype = DType::Primitive(T::PTYPE, Nullability::NonNullable);
-        let children: Vec<Scalar> = if norm_t == T::zero() {
+        let children: Vec<Scalar> = if norm_t.is_zero() {
             (0..list_size)
                 .map(|_| Scalar::zero_value(&element_dtype))
                 .collect()
@@ -255,20 +287,21 @@ pub(crate) fn try_build_constant_normalized(
                 .collect()
         };
 
-        // The rebuilt FSL scalar preserves the original storage FSL's nullability so the resulting
-        // `ExtensionArray::new` call accepts the same extension dtype.
-        let fsl_scalar = Scalar::fixed_size_list(element_dtype, children, storage_fsl_nullability);
-        let norms_scalar = Scalar::primitive(norm_t, original_nullability);
+        // Both scalars are non-nullable, matching the non-nullable extension dtype the normalized
+        // child is rebuilt under.
+        let fsl_scalar = Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable);
+        let norms_scalar = Scalar::primitive(norm_t, Nullability::NonNullable);
         (fsl_scalar, norms_scalar)
     });
 
     let normalized_storage = ConstantArray::new(normalized_fsl_scalar, len).into_array();
-    let normalized = ExtensionArray::new(ext_dtype, normalized_storage).into_array();
+    let normalized = ExtensionArray::new(normalized_ext_dtype, normalized_storage).into_array();
     let norms = ConstantArray::new(norms_scalar, len).into_array();
 
-    // SAFETY: The constant children have matching lengths and element ptypes.
+    // SAFETY: Both constants use `len`, are non-nullable, and have the input element ptype. The
+    // validity comes from the same input column.
     Ok(Some(unsafe {
-        Normalized::new_unchecked(normalized, norms)
+        Normalized::new_unchecked(normalized, norms, validity)
     }))
 }
 
