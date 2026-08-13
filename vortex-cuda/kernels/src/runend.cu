@@ -127,6 +127,45 @@ __device__ void runend_decode_kernel(const EndsT *const __restrict ends,
     }
 }
 
+// Expands run-end encoded validity bits into a packed output bitmap.
+//
+// Mirrors `runend_decode_kernel`, but each thread owns one complete output byte so that
+// threads never race on bits within the same byte. Runs are located with a global binary
+// search per element rather than the shared-memory cache: validity expansion runs once per
+// array and is not the decode hot path.
+template <typename EndsT>
+__device__ void runend_bool_kernel(const EndsT *const __restrict ends,
+                                   uint64_t num_runs,
+                                   const uint8_t *const __restrict values,
+                                   uint64_t values_bit_offset,
+                                   uint64_t offset,
+                                   uint64_t output_len,
+                                   uint8_t *const __restrict output) {
+    const uint64_t output_bytes = (output_len + 7) / 8;
+    const uint32_t elements_per_block = blockDim.x * ELEMENTS_PER_THREAD;
+    const uint64_t block_start = static_cast<uint64_t>(blockIdx.x) * elements_per_block;
+    const uint64_t block_end = min(block_start + elements_per_block, output_bytes);
+
+    for (uint64_t byte_idx = block_start + threadIdx.x; byte_idx < block_end; byte_idx += blockDim.x) {
+        const uint64_t row_start = byte_idx * 8;
+        uint8_t packed = 0;
+#pragma unroll
+        for (uint32_t bit = 0; bit < 8; ++bit) {
+            const uint64_t row = row_start + bit;
+            if (row < output_len) {
+                uint64_t run_idx = upper_bound(ends, num_runs, row + offset);
+                if (run_idx >= num_runs) {
+                    run_idx = num_runs - 1;
+                }
+                const uint64_t value_idx = values_bit_offset + run_idx;
+                const uint8_t value = (values[value_idx / 8] >> (value_idx % 8)) & 1;
+                packed |= static_cast<uint8_t>(value << bit);
+            }
+        }
+        output[byte_idx] = packed;
+    }
+}
+
 #define GENERATE_RUNEND_KERNEL(value_suffix, ValueType, ends_suffix, EndsType)                               \
     extern "C" __global__ void runend_##value_suffix##_##ends_suffix(                                        \
         const EndsType *const __restrict ends,                                                               \
@@ -155,3 +194,21 @@ GENERATE_RUNEND_KERNELS_FOR_VALUE(i64, int64_t)
 GENERATE_RUNEND_KERNELS_FOR_VALUE(f16, __half)
 GENERATE_RUNEND_KERNELS_FOR_VALUE(f32, float)
 GENERATE_RUNEND_KERNELS_FOR_VALUE(f64, double)
+
+#define GENERATE_RUNEND_BOOL_KERNEL(ends_suffix, EndsType)                                                   \
+    extern "C" __global__ void runend_bool_##ends_suffix(const EndsType *const __restrict ends,              \
+                                                         uint64_t num_runs,                                  \
+                                                         const uint8_t *const __restrict values,             \
+                                                         uint64_t values_bit_offset,                         \
+                                                         uint64_t offset,                                    \
+                                                         uint64_t output_len,                                \
+                                                         uint8_t *const __restrict output) {                 \
+        runend_bool_kernel<EndsType>(ends, num_runs, values, values_bit_offset, offset, output_len, output); \
+    }
+
+// Validity bitmaps use a different physical layout and launch unit, but dispatch over the
+// same run-end index types.
+GENERATE_RUNEND_BOOL_KERNEL(u8, uint8_t)
+GENERATE_RUNEND_BOOL_KERNEL(u16, uint16_t)
+GENERATE_RUNEND_BOOL_KERNEL(u32, uint32_t)
+GENERATE_RUNEND_BOOL_KERNEL(u64, uint64_t)
