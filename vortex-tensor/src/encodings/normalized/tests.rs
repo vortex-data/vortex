@@ -56,7 +56,6 @@ fn eval_normalized(
     normalized_array.into_array().execute(&mut ctx)
 }
 
-/// Captures dtype, row validity, and visible values without depending on the physical encoding.
 fn tensor_snapshot(array: ArrayRef) -> VortexResult<(DType, Vec<bool>, Vec<Option<f64>>)> {
     let mut ctx = SESSION.create_execution_ctx();
     let ext: ExtensionArray = array.execute(&mut ctx)?;
@@ -205,8 +204,6 @@ fn validity_comes_from_the_stored_null_map() -> VortexResult<()> {
 
 #[test]
 fn constant_unit_norms_decode_to_the_normalized_child() -> VortexResult<()> {
-    // Every stored norm is exactly 1.0, so the fast path must short-circuit and return the
-    // normalized child unchanged.
     let normalized = vector_array(3, &[1.0, 0.0, 0.0, 0.0, 1.0, 0.0])?;
     let norms = constant_f64_norms(1.0, 2);
 
@@ -217,9 +214,7 @@ fn constant_unit_norms_decode_to_the_normalized_child() -> VortexResult<()> {
 
 #[test]
 fn constant_near_unit_norms_are_still_multiplied() -> VortexResult<()> {
-    // Only an exact 1.0 is the identity. A norm that merely differs from 1.0 by less than the
-    // unit-norm tolerance must still be applied, so that a per-row `scalar_at` cannot answer
-    // differently than a bulk decode of the same column.
+    // A near-unit norm must still be applied so `scalar_at` agrees with bulk decoding.
     let near_unit = 1.0f64 + 2.0 * f64::EPSILON;
     let normalized = vector_array(3, &[1.0, 0.0, 0.0, 0.0, 1.0, 0.0])?;
     let norms = constant_f64_norms(near_unit, 2);
@@ -248,8 +243,6 @@ fn constant_nonunit_norms_scale_vectors() -> VortexResult<()> {
 
 #[test]
 fn constant_nonunit_norms_scale_fixed_shape_tensors() -> VortexResult<()> {
-    // The constant-scaling fast path must also cover multi-dimensional tensors, where the backing
-    // elements buffer spans more than one slot per row.
     let normalized = tensor_array(&[2, 2], &[0.5, 0.5, 0.5, 0.5, 1.0, 0.0, 0.0, 0.0])?;
     let norms = constant_f64_norms(4.0, 2);
 
@@ -263,7 +256,6 @@ fn constant_nonunit_norms_scale_fixed_shape_tensors() -> VortexResult<()> {
 #[case::unit_norm(1.0)]
 #[case::non_unit_norm(5.0)]
 fn nullable_constant_norms_decode_to_the_nullable_dtype(#[case] norm: f64) -> VortexResult<()> {
-    // The identity and bulk-multiply paths restore validity through different code paths.
     let normalized = vector_array(2, &[0.6f64, 0.8, 1.0, 0.0])?;
     let norms = constant_f64_norms(norm, 2);
 
@@ -361,8 +353,7 @@ fn rejects_a_validity_of_the_wrong_length() -> VortexResult<()> {
     vector_array(2, &[1.0f64, 0.0, 0.0, 0.0]).expect("valid vector array"),
     PrimitiveArray::from_iter([0.0f64, 0.0]).into_array(),
 )]
-// The mirror image of the case above: it decodes to `[0.0, 0.0]` while `L2Norm` reads the stored
-// `5.0` straight back, so the split is not lossless.
+// A zero row with a nonzero stored norm decodes differently from `L2Norm`.
 #[case::zero_row_with_nonzero_norm(
     vector_array(2, &[0.0f64, 0.0]).expect("valid vector array"),
     PrimitiveArray::from_iter([5.0f64]).into_array(),
@@ -444,8 +435,7 @@ fn normalize_round_trips(#[case] input: ArrayRef) -> VortexResult<()> {
 
 #[test]
 fn normalize_keeps_constant_input_children_constant() -> VortexResult<()> {
-    // The constant fast path must leave both children constant, which is what lets cosine
-    // similarity and inner product short-circuit against a literal query vector.
+    // Constant children enable the scalar-function fast paths.
     let input = Vector::constant_array(&[3.0, 4.0], 16)?;
     let mut ctx = SESSION.create_execution_ctx();
     let normalized_array = normalize(input, &mut ctx)?;
@@ -520,8 +510,6 @@ fn normalize_moves_input_nulls_onto_the_array() -> VortexResult<()> {
     assert!(!mask.value(1));
     assert!(mask.value(2));
 
-    // Both children are zeroed at the null row rather than carrying whatever the masked-out storage
-    // happened to hold, so no garbage reaches a downstream lossy encoding.
     let norms: PrimitiveArray = normalized_array.norms().clone().execute(&mut ctx)?;
     assert_close(&norms.as_slice::<f64>()[1..2], &[0.0]);
 

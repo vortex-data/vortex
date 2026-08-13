@@ -3,14 +3,8 @@
 
 //! Baseline throughput for encoding and decoding `Normalized` tensor columns.
 //!
-//! The arms vary vector width and input nullability. Their names are intended to remain stable
-//! across implementation changes so CodSpeed can compare them against `develop`.
-//!
-//! Rows are derived from a fixed element budget rather than fixed per arm, so widening a vector
-//! trades rows for elements instead of multiplying the work. See [`ELEMENTS`].
-//!
-//! Narrow vectors expose the per-row encoding cost. Wide vectors emphasize the per-element
-//! division cost.
+//! The arms keep the element count fixed while varying vector width and nullability. Their stable
+//! names let CodSpeed compare implementation changes against `develop`.
 
 #![expect(clippy::unwrap_used)]
 

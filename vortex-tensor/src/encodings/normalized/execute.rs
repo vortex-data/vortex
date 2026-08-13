@@ -27,13 +27,7 @@ use crate::matcher::AnyTensor;
 use crate::utils::extract_flat_elements;
 use crate::utils::reattach_validity;
 
-/// Reconstructs the original tensor column by scaling each normalized row by its stored norm.
-///
-/// `dtype` is the parent [`NormalizedArray`]'s dtype and `validity` its null map. Both children are
-/// non-nullable, so the reconstructed column carries the parent's nullability rather than either
-/// child's.
-///
-/// [`NormalizedArray`]: crate::encodings::normalized::NormalizedArray
+/// Reconstructs the tensor column and attaches the parent validity.
 pub(super) fn denormalize(
     normalized: &ArrayRef,
     norms: &ArrayRef,
@@ -72,12 +66,7 @@ pub(super) fn denormalize(
     })
 }
 
-/// Scales every row by the same stored norm.
-///
-/// Two things make this cheaper than the general path: a norm of exactly `1.0` is the identity, so
-/// the normalized child is already the answer; and otherwise the scale factor applies uniformly to
-/// the flat backing buffer, so it becomes one lazy multiply over the elements array instead of a
-/// per-row loop.
+/// Scales a constant-norm column without a per-row loop.
 fn denormalize_constant_norms(
     normalized: &ArrayRef,
     norm: &Scalar,
@@ -92,10 +81,7 @@ fn denormalize_constant_norms(
         .as_f64()
         .vortex_expect("norms are validated to be a float column, so the scalar fits in f64");
 
-    // Only an exact `1.0` is the identity. Skipping the multiply for a near-unit norm
-    // would leave this path disagreeing with the general one in the last bits, and `scalar_at`
-    // routes every row through here, so a per-row read would answer differently than a bulk decode
-    // of the same column.
+    // A near-unit norm must still be multiplied, or `scalar_at` can disagree with bulk decoding.
     if norm_value == 1.0 {
         return reattach_validity(normalized.clone(), validity);
     }

@@ -42,51 +42,36 @@ pub type NormalizedArray = Array<Normalized>;
 
 /// The norm-split encoding for tensor-like columns.
 ///
-/// Row `i` decodes to `normalized[i] * norms[i]`, which is exactly the original tensor row when
-/// `normalized[i]` is unit-norm. The encoding covers both logical tensor dtypes reachable through
-/// [`AnyTensor`]: [`Vector`] and [`FixedShapeTensor`].
+/// Row `i` decodes to `normalized[i] * norms[i]`. The encoding supports [`Vector`] and
+/// [`FixedShapeTensor`] columns with float elements.
 ///
 /// # Invariants
 ///
-/// Every [`NormalizedArray`] structurally guarantees, via [`VTable::validate`]:
+/// Every [`NormalizedArray`] has three slots.
 ///
-/// - The `normalized` child is a non-nullable tensor-like extension array with a float element
-///   type. Its dtype is the array's own dtype with nullability stripped.
-/// - The `norms` child is a non-nullable primitive column whose ptype equals the tensor element
-///   ptype.
-/// - Both children have the array's length.
-/// - The optional `validity` slot is a non-nullable boolean column of the array's length. It can
-///   only be present when the array's dtype is nullable. A missing slot represents either
-///   non-nullable or nullable-all-valid data, as determined by the parent dtype.
+/// - `normalized` is a non-nullable float tensor with the parent dtype's shape.
+/// - `norms` is a non-nullable primitive column with the tensor element ptype.
+/// - `validity` optionally contains the parent validity as a non-nullable boolean column.
 ///
-/// Nulls therefore live on the array itself rather than in either child, which is what keeps the
-/// two children free to be reshaped independently: neither the decode path nor the read-through
-/// operators ever have to widen a child's dtype to match the parent's.
+/// Both data children have the array's length and element ptype. A missing validity slot means
+/// either non-nullable or nullable-all-valid data, as determined by the parent dtype.
 ///
-/// On top of that, [`try_new`](Self::try_new) enforces the semantic invariants that make the split
-/// lossless:
+/// [`try_new`](Self::try_new) also enforces the invariants that make the split lossless:
 ///
-/// - Every row of `normalized` has L2 norm `1.0` or `0.0`, within the tolerance implied by the
-///   element precision.
-/// - Every stored norm is non-negative.
-/// - A stored norm of `0.0` is paired with an all-zero normalized row, and an all-zero normalized
-///   row is paired with a stored norm of `0.0`.
+/// - Each normalized row has L2 norm `1.0` or `0.0`, within the tolerance for its precision and
+///   width.
+/// - Each stored norm is non-negative.
+/// - A stored norm is zero exactly when its normalized row is all zeros.
 ///
-/// Those checks run over every row, including rows the `validity` marks null. [`normalize`] zeroes
-/// both children at null positions, which satisfies them, so callers building a nullable column
-/// should go through `normalize` rather than pairing raw children with a mask.
+/// These checks include null rows. [`normalize`] zeroes both children at null positions.
 ///
 /// # Lossy normalized children
 ///
-/// [`new_unchecked`](Self::new_unchecked) deliberately skips the semantic scan so that
-/// `normalized` may be an _approximation_ of the unit-norm direction, such as a quantized child.
-/// The stored norms stay authoritative in that case, and the read-through rules in
-/// [`L2Norm`], [`InnerProduct`], and [`CosineSimilarity`] are defined against the stored children
-/// rather than against decoded coordinates. Those operators may therefore return slightly
-/// different answers than fully decoding both operands and recomputing. That difference is the
-/// storage contract, not a separate lossy-compute mode.
+/// [`new_unchecked`](Self::new_unchecked) permits an approximate normalized child, such as a
+/// quantized direction. The stored norms remain authoritative. [`L2Norm`], [`InnerProduct`], and
+/// [`CosineSimilarity`] therefore operate on the stored children and can differ slightly from
+/// decoding and recomputing.
 ///
-/// [`AnyTensor`]: crate::matcher::AnyTensor
 /// [`Vector`]: crate::vector::Vector
 /// [`FixedShapeTensor`]: crate::fixed_shape_tensor::FixedShapeTensor
 /// [`normalize`]: crate::encodings::normalized::normalize
@@ -99,28 +84,23 @@ pub struct Normalized;
 /// The slots of a [`NormalizedArray`].
 #[array_slots(Normalized)]
 pub struct NormalizedSlots {
-    /// The unit-norm (or zero) direction of each row, as a non-nullable tensor-like extension
-    /// array.
+    /// The non-nullable tensor-like direction of each row.
     #[slot(0)]
     pub normalized: ArrayRef,
 
-    /// The authoritative L2 norm of each row, as a non-nullable primitive float column.
+    /// The non-nullable primitive L2 norm of each row.
     #[slot(1)]
     pub norms: ArrayRef,
 
-    /// The array's optional validity mask.
-    ///
-    /// Both children are non-nullable, so this is the column's only record of which rows are null.
+    /// The optional non-nullable boolean validity mask.
     #[slot(2)]
     pub validity: Option<ArrayRef>,
 }
 
-/// The number of required data slots: `normalized` and `norms`.
 pub(super) const DATA_CHILDREN: usize = NormalizedSlots::COUNT - 1;
 
 impl Normalized {
-    /// Builds a [`NormalizedArray`], validating that `normalized` really is row-wise L2-normalized
-    /// against `norms`.
+    /// Builds an exact [`NormalizedArray`] after validating its semantic invariants.
     ///
     /// This is the constructor for exact norm splits. It scans both children, so it costs
     /// `O(len * list_size)`.
@@ -135,7 +115,6 @@ impl Normalized {
         validity: Validity,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<NormalizedArray> {
-        // The semantic scan relies on the structural length and dtype invariants.
         let array = Array::try_from_parts(normalized_parts(normalized, norms, validity))?;
         validate_normalized_rows(array.normalized(), Some(array.norms()), ctx)?;
 
@@ -296,7 +275,6 @@ impl VTable for Normalized {
 
 impl ValidityVTable<Normalized> for Normalized {
     fn validity(array: ArrayView<'_, Normalized>) -> VortexResult<Validity> {
-        // Both children are non-nullable, so the slot is the column's complete null information.
         Ok(child_to_validity(
             array.slots_view().validity,
             array.dtype().nullability(),

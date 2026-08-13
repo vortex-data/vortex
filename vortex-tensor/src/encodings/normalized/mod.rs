@@ -1,29 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The [`Normalized`] encoding: a norm-split physical layout for tensor-like columns.
+//! The [`Normalized`] encoding stores tensor directions separately from their L2 norms.
 //!
-//! A [`Normalized`] array stores a tensor or vector column as two non-nullable children and an
-//! optional validity slot:
+//! [`Normalized`] defines the physical layout and its invariants. Use [`normalize`] to create an
+//! exact split. [`L2Norm`], [`InnerProduct`], and [`CosineSimilarity`] can operate on the split
+//! without decoding it first.
 //!
-//! - The `normalized` child is a tensor-like column whose rows are unit-norm or zero.
-//! - The `norms` child is a primitive float column that holds the authoritative L2 norm of each
-//!   row.
-//! - The `validity` slot is the optional column validity mask.
-//!
-//! The logical value of row `i` is `normalized[i] * norms[i]`, so canonicalizing the array
-//! reconstructs the original tensor column. Splitting magnitude away from direction is what makes
-//! the coordinates cheap to compress further: a unit-norm child has a bounded, well-conditioned
-//! value range, and quantizing it only perturbs direction while the exact magnitude survives in
-//! `norms`.
-//!
-//! Keeping nulls on the array rather than in either child means neither the decode path nor the
-//! read-through operators have to widen a child's dtype to reach the parent's, and it leaves both
-//! children free to be reshaped independently.
-//!
-//! Because the split is physical rather than logical, [`L2Norm`], [`InnerProduct`], and
-//! [`CosineSimilarity`] can read straight through it instead of decoding first.
-//!
+//! [`normalize`]: crate::encodings::normalized::normalize
 //! [`L2Norm`]: crate::scalar_fns::l2_norm::L2Norm
 //! [`InnerProduct`]: crate::scalar_fns::inner_product::InnerProduct
 //! [`CosineSimilarity`]: crate::scalar_fns::cosine_similarity::CosineSimilarity

@@ -80,12 +80,7 @@ pub fn extract_normalized_children(array: &ArrayRef) -> (ArrayRef, ArrayRef) {
     )
 }
 
-/// Applies `validity` to a non-nullable array.
-///
-/// A non-nullable validity returns the input unchanged because [`MaskedArray::try_new`] always
-/// widens its child's dtype to nullable.
-///
-/// [`Normalized`]: crate::encodings::normalized::Normalized
+/// Applies nullable validity without widening a non-nullable result unnecessarily.
 pub(crate) fn reattach_validity(array: ArrayRef, validity: Validity) -> VortexResult<ArrayRef> {
     match validity {
         Validity::NonNullable => Ok(array),
@@ -385,9 +380,7 @@ pub mod test_helpers {
         ConstantArray::new(ext_scalar, len).into_array()
     }
 
-    /// Creates a non-nullable [`Normalized`] array from pre-normalized tensor elements and norms.
-    ///
-    /// Returns an error unless the elements and norms satisfy the [`Normalized`] invariants.
+    /// Builds a checked, non-nullable [`Normalized`] test array.
     pub fn normalized_array<T: NativePType>(
         shape: &[usize],
         normalized_elements: &[T],

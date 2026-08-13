@@ -469,7 +469,6 @@ mod tests {
 
     #[test]
     fn both_normalized_null_rows() -> VortexResult<()> {
-        // Row 0 is valid. Row 1 is null through the lhs validity.
         let normalized_l = tensor_array(&[2], &[0.6, 0.8, 1.0, 0.0])?;
         let norms_l = PrimitiveArray::from_iter([5.0f64, 1.0]).into_array();
         let mut ctx = SESSION.create_execution_ctx();

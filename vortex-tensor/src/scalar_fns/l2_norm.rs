@@ -129,12 +129,8 @@ impl ScalarFnVTable for L2Norm {
 
         let norm_dtype = DType::Primitive(element_ptype, ext.nullability());
 
-        // L2Norm over a `Normalized`-encoded column is defined to read back the authoritative stored
-        // norms. Callers of lossy encodings opt into that storage semantics instead of forcing a
-        // decode-and-recompute path here.
-        //
-        // The stored norms are non-nullable, because nulls live on the `Normalized` array itself, so
-        // a nullable input needs its null map reattached to reach `norm_dtype`.
+        // Stored norms are authoritative. Reattach the parent validity because the child is
+        // non-nullable.
         if input_ref.is::<Normalized>() {
             let (_, norms) = extract_normalized_children(&input_ref);
             let norms = reattach_validity(norms, input_ref.validity()?)?;

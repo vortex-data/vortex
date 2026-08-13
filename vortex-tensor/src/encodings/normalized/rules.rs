@@ -18,11 +18,6 @@ pub(super) const RULES: ParentRuleSet<Normalized> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&NormalizedFilterRule),
 ]);
 
-/// Pushes a slice into the encoded slots.
-///
-/// The norm split is row-wise, so any row subset of a [`Normalized`] array is itself a valid
-/// [`Normalized`] array. Rewriting the slice as two child slices keeps the column encoded instead of
-/// canonicalizing it just to throw most of the rows away.
 #[derive(Debug)]
 struct NormalizedSliceRule;
 
@@ -37,7 +32,7 @@ impl ArrayParentReduceRule<Normalized> for NormalizedSliceRule {
     ) -> VortexResult<Option<ArrayRef>> {
         let range = parent.slice_range();
 
-        // SAFETY: Slicing both children and the validity preserves their structure.
+        // SAFETY: Slicing every slot with the same range preserves their dtypes and lengths.
         Ok(Some(
             unsafe {
                 Normalized::new_unchecked(
@@ -51,11 +46,6 @@ impl ArrayParentReduceRule<Normalized> for NormalizedSliceRule {
     }
 }
 
-/// Pushes a filter into the encoded slots.
-///
-/// Same row-wise argument as [`NormalizedSliceRule`]. Unlike the generic scalar-function push-down,
-/// this always fires: both children are physically per-row, so filtering them is strictly less
-/// work than reconstructing the tensor column and filtering that.
 #[derive(Debug)]
 struct NormalizedFilterRule;
 
@@ -70,8 +60,7 @@ impl ArrayParentReduceRule<Normalized> for NormalizedFilterRule {
     ) -> VortexResult<Option<ArrayRef>> {
         let mask = parent.filter_mask();
 
-        // SAFETY: Filtering both children and the validity with the same mask preserves their
-        // structure.
+        // SAFETY: Filtering every slot with the same mask preserves their dtypes and lengths.
         Ok(Some(
             unsafe {
                 Normalized::new_unchecked(

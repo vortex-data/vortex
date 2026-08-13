@@ -23,11 +23,7 @@ use crate::utils::validate_tensor_float_input;
 
 /// Validates the structural invariants of a [`Normalized`] array's slots.
 ///
-/// These are the cheap, dtype-and-length checks that every [`NormalizedArray`] upholds, whichever
-/// constructor built it. They run on construction and on deserialization.
-///
 /// [`Normalized`]: crate::encodings::normalized::Normalized
-/// [`NormalizedArray`]: crate::encodings::normalized::NormalizedArray
 pub(super) fn validate_normalized_children(
     normalized: &ArrayRef,
     norms: &ArrayRef,
@@ -51,7 +47,6 @@ pub(super) fn validate_normalized_children(
     let tensor_match = validate_tensor_float_input(normalized.dtype())?;
     let element_ptype = tensor_match.element_ptype();
 
-    // The parent validity is the only null record, so both data children are non-nullable.
     vortex_ensure_eq!(
         *normalized.dtype(),
         dtype.as_nonnullable(),
@@ -92,23 +87,11 @@ pub(super) fn validate_normalized_children(
     Ok(())
 }
 
-/// Validates that `normalized` and (when supplied) the matching `norms` jointly satisfy the
-/// semantic [`Normalized`] invariants:
+/// Validates the semantic invariants documented by [`Normalized`].
 ///
-/// - Every row of `normalized` has L2 norm `1.0` or `0.0`, within the tolerance implied by the
-///   element precision.
-/// - When `norms` is supplied, every stored norm is non-negative, and a row is the zero vector in
-///   `normalized` exactly when its stored norm is `0.0`.
-///
-/// The second invariant is symmetric. Checking only one direction would accept
-/// `normalized = [0.0, 0.0]` paired with `norms = [5.0]`, which decodes to `[0.0, 0.0]` while
-/// [`L2Norm`] reads the stored `5.0` straight back, which is precisely the split that
-/// [`Normalized::try_new`] promises is lossless.
-///
-/// This scans every row, so it costs `O(len * list_size)`, which is why it is a separate step
-/// rather than part of the encoding's structural validation. Rows a caller intends to be null are
-/// scanned too; [`normalize`] zeroes both children at null positions, which satisfies both
-/// directions of the zero-norm rule.
+/// The zero relationship is checked in both directions. Otherwise, a zero row with a nonzero
+/// stored norm would decode differently from [`L2Norm`]. This `O(len * list_size)` scan includes
+/// rows that the parent might mark null.
 ///
 /// # Errors
 ///
@@ -116,8 +99,6 @@ pub(super) fn validate_normalized_children(
 /// semantic invariants.
 ///
 /// [`Normalized`]: crate::encodings::normalized::Normalized
-/// [`Normalized::try_new`]: crate::encodings::normalized::Normalized::try_new
-/// [`normalize`]: crate::encodings::normalized::normalize
 /// [`L2Norm`]: crate::scalar_fns::l2_norm::L2Norm
 pub fn validate_normalized_rows(
     normalized: &ArrayRef,
@@ -172,8 +153,7 @@ pub fn validate_normalized_rows(
                     .iter()
                     .fold((0.0f64, true), |(sum_sq, is_zero), x| {
                         let value = ToPrimitive::to_f64(x).unwrap_or(f64::NAN);
-                        // Zero detection is exact because the unit-norm tolerance can exceed each
-                        // coordinate of a dense f16 unit vector.
+                        // A valid dense f16 unit vector can have every coordinate below tolerance.
                         (sum_sq + value * value, is_zero && x.is_zero())
                     });
             let row_norm = row_norm_sq.sqrt();

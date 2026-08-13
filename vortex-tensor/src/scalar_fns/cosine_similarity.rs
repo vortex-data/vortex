@@ -116,9 +116,7 @@ impl ScalarFnVTable for CosineSimilarity {
         let mut rhs_ref = args.get(1)?;
         let len = args.row_count();
 
-        // If either side is a constant tensor-like extension array, eagerly normalize the single
-        // stored row and re-encode it as a `Normalized` whose children are both `ConstantArray`s.
-        // The `Normalized` fast path below then picks it up.
+        // Normalize extension-level constants so the encoded fast path can use them.
         if let Some(normalized_array) = try_build_constant_normalized(&lhs_ref, len, ctx)? {
             lhs_ref = normalized_array.into_array();
         }
@@ -581,7 +579,6 @@ mod tests {
 
     #[test]
     fn both_normalized_null_rows() -> VortexResult<()> {
-        // Row 0 is valid. Row 1 is null through the rhs validity.
         let mut ctx = SESSION.create_execution_ctx();
         let lhs = normalized_array(&[2], &[0.6, 0.8, 1.0, 0.0], &[5.0, 1.0], &mut ctx)?;
 
