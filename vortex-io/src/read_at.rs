@@ -69,7 +69,10 @@ impl CoalesceConfig {
 
     /// Configuration appropriate for local filesystem access.
     pub const fn file() -> Self {
-        Self::new(1 << 20, 4 << 20) // 1MB distance, 4MB max
+        // Local random reads are cheap enough that reading gaps between segments costs more than
+        // issuing another operation. Adjacent and overlapping requests still coalesce, while the
+        // 4 MiB cap preserves useful batching for scans.
+        Self::new(0, 4 << 20)
     }
 
     /// Configuration appropriate for object storage (S3, GCS, etc.).
@@ -439,7 +442,7 @@ mod tests {
     #[test]
     fn test_coalesce_config_file() {
         let config = CoalesceConfig::file();
-        assert_eq!(config.distance, 1 << 20); // 1MB
+        assert_eq!(config.distance, 0);
         assert_eq!(config.max_size, 4 << 20); // 4MB
     }
 

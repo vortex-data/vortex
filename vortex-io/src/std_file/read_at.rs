@@ -125,6 +125,19 @@ impl VortexReadAt for FileReadAt {
         let handle = self.handle.clone();
         let allocator = Arc::clone(&self.allocator);
         async move {
+            #[cfg(target_os = "linux")]
+            if let Some(submission) = super::uring::try_admit(length) {
+                let buffer = allocator.allocate(length, alignment)?;
+                if buffer.is_empty() {
+                    return Ok(BufferHandle::new_host(buffer.freeze()));
+                }
+                let receive = submission.read_at(Arc::clone(&file), offset, buffer);
+                let buffer = receive.into_future().await.map_err(|_| {
+                    io::Error::new(io::ErrorKind::BrokenPipe, "io_uring completion dropped")
+                })??;
+                return Ok(BufferHandle::new_host(buffer.freeze()));
+            }
+
             handle
                 .spawn_blocking(move || {
                     let mut buffer = allocator.allocate(length, alignment)?;

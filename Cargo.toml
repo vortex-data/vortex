@@ -168,6 +168,7 @@ geoarrow = "0.8.0"
 geoarrow-cast = "0.8.0"
 get_dir = "0.5.0"
 glob = "0.3.2"
+io-uring = "0.7.13"
 goldenfile = "1"
 half = { version = "2.7.1", features = ["std", "num-traits"] }
 hashbrown = "0.17.1"
