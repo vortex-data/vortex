@@ -27,11 +27,19 @@ mod tests;
 
 pub use array::*;
 pub use compress::*;
+use vortex_array::VTable;
 use vortex_array::session::ArraySessionExt;
+use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ByteArrayExporter;
 use vortex_session::VortexSession;
 
 /// Initialize FSST encoding in the given session.
 pub fn initialize(session: &VortexSession) {
     session.arrays().register(FSST);
     kernel::initialize(session);
+    // FSST decompresses straight into a `VarBinBuilder`, so Arrow's offsets-based string and
+    // binary types are cheaper to reach from here than from a canonical `VarBinView`.
+    session
+        .arrow()
+        .register_exporter(ByteArrayExporter::for_encoding(FSST.id()));
 }

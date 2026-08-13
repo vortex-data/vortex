@@ -30,11 +30,19 @@ pub use onpair::Error as OnPairError;
 pub use onpair::MAX_TOKEN_SIZE;
 pub use onpair::MaxDictBits;
 pub use onpair::Threshold;
+use vortex_array::VTable;
 use vortex_array::session::ArraySessionExt;
+use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ByteArrayExporter;
 use vortex_session::VortexSession;
 
 /// Initialize OnPair encoding in the given session.
 pub fn initialize(session: &VortexSession) {
     session.arrays().register(OnPair);
     kernel::initialize(session);
+    // OnPair decodes straight into a `VarBinBuilder`, so Arrow's offsets-based string and binary
+    // types are cheaper to reach from here than from a canonical `VarBinView`.
+    session
+        .arrow()
+        .register_exporter(ByteArrayExporter::for_encoding(OnPair.id()));
 }

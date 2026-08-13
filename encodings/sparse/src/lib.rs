@@ -47,6 +47,8 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
+use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ByteArrayExporter;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
@@ -119,6 +121,13 @@ pub fn initialize(session: &VortexSession) {
         Some(NanCount.id()),
         &compute::nan_count::SparseNanCountKernel,
     );
+
+    // A sparse array fills a `VarBinBuilder` by interleaving its patches with its fill value, so
+    // Arrow's offsets-based string and binary types are cheaper to reach from here than from a
+    // canonical `VarBinView`.
+    session
+        .arrow()
+        .register_exporter(ByteArrayExporter::for_encoding(Sparse.id()));
 }
 
 /// A [`Sparse`]-encoded Vortex array.

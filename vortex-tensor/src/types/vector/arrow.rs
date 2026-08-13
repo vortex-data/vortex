@@ -24,6 +24,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_arrow::ArrowExport;
+use vortex_arrow::ArrowExportKey;
 use vortex_arrow::ArrowExportOptions;
 use vortex_arrow::ArrowExportVTable;
 use vortex_arrow::ArrowImport;
@@ -61,12 +62,8 @@ fn is_supported_float(data_type: &DataType) -> bool {
 }
 
 impl ArrowExportVTable for Vector {
-    fn arrow_ext_id(&self) -> Id {
-        *ARROW_VECTOR
-    }
-
-    fn vortex_id(&self) -> Id {
-        Vector.id()
+    fn export_key(&self) -> ArrowExportKey {
+        ArrowExportKey::arrow_extension(*ARROW_VECTOR, Vector.id())
     }
 
     fn to_arrow_field(
@@ -92,10 +89,13 @@ impl ArrowExportVTable for Vector {
     fn execute_arrow(
         &self,
         array: ArrayRef,
-        target: &Field,
+        target: Option<&Field>,
         options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport> {
+        let Some(target) = target else {
+            return Ok(ArrowExport::Unsupported(array));
+        };
         if !array
             .dtype()
             .as_extension_opt()
@@ -365,7 +365,7 @@ mod tests {
         let result = <Vector as ArrowExportVTable>::execute_arrow(
             &Vector,
             primitive.clone(),
-            &target,
+            Some(&target),
             &ArrowExportOptions::default(),
             &mut ctx,
         )?;

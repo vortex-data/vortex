@@ -34,10 +34,10 @@ use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_runend::RunEnd;
 use vortex_session::registry::CachedId;
-use vortex_session::registry::Id;
 
 use super::*;
 use crate::ArrowExport;
+use crate::ArrowExportKey;
 use crate::ArrowExportVTable;
 use crate::ArrowSession;
 use crate::ArrowSessionExt;
@@ -87,12 +87,8 @@ struct PluginOption(Arc<AtomicU32>);
 static TEST_OPTION_ID: CachedId = CachedId::new("test.options");
 
 impl ArrowExportVTable for Plugin {
-    fn arrow_ext_id(&self) -> Id {
-        *TEST_OPTION_ID
-    }
-
-    fn vortex_id(&self) -> Id {
-        *TEST_OPTION_ID
+    fn export_key(&self) -> ArrowExportKey {
+        ArrowExportKey::arrow_extension(*TEST_OPTION_ID, *TEST_OPTION_ID)
     }
 
     fn to_arrow_field(
@@ -107,7 +103,7 @@ impl ArrowExportVTable for Plugin {
     fn execute_arrow(
         &self,
         array: ArrayRef,
-        _target: &Field,
+        _target: Option<&Field>,
         options: &ArrowExportOptions,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport> {

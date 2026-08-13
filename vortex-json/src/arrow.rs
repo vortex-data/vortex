@@ -17,6 +17,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_arrow::ArrowExport;
+use vortex_arrow::ArrowExportKey;
 use vortex_arrow::ArrowExportOptions;
 use vortex_arrow::ArrowExportVTable;
 use vortex_arrow::ArrowImport;
@@ -40,12 +41,8 @@ fn has_valid_json_extension(field: &Field) -> bool {
 }
 
 impl ArrowExportVTable for Json {
-    fn arrow_ext_id(&self) -> Id {
-        *ARROW_JSON
-    }
-
-    fn vortex_id(&self) -> Id {
-        Json.id()
+    fn export_key(&self) -> ArrowExportKey {
+        ArrowExportKey::arrow_extension(*ARROW_JSON, Json.id())
     }
 
     fn to_arrow_field(
@@ -71,10 +68,13 @@ impl ArrowExportVTable for Json {
     fn execute_arrow(
         &self,
         array: ArrayRef,
-        target: &Field,
+        target: Option<&Field>,
         options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport> {
+        let Some(target) = target else {
+            return Ok(ArrowExport::Unsupported(array));
+        };
         let is_json = array
             .dtype()
             .as_extension_opt()

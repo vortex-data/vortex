@@ -58,21 +58,33 @@ where
     T::Offset: OffsetBuilderPType,
     usize: AsPrimitive<T::Offset>,
 {
-    if !matches!(array.dtype(), DType::Utf8(_) | DType::Binary(_)) {
-        vortex_bail!(
-            "Cannot convert Vortex array with dtype {} to Arrow byte array type {}",
-            array.dtype(),
-            T::DATA_TYPE
-        );
-    }
+    check_byte_dtype::<T>(&array)?;
+    let array = array.execute_until::<ArrowByteExportable>(ctx)?;
+    export_byte_array::<T>(array, ctx)
+}
+
+/// Convert a Vortex array into an Arrow GenericBinaryArray without executing it any further.
+///
+/// A `VarBin` array already has the Arrow layout, so its buffers are handed over as they are;
+/// anything else appends itself into a `VarBinBuilder` whose offsets already match `T`. That
+/// append is why an encoding is worth stopping at: it fills the builder through whatever fast path
+/// the encoding has, rather than being executed to a canonical `VarBinView` this would then have
+/// to re-lay out.
+pub(crate) fn export_byte_array<T: ByteArrayType>(
+    array: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrowArrayRef>
+where
+    T::Offset: OffsetBuilderPType,
+    usize: AsPrimitive<T::Offset>,
+{
+    check_byte_dtype::<T>(&array)?;
 
     // A logical dtype mismatch changes nothing about the physical export except that a `Binary`
     // source exported to `Utf8` has to have its bytes validated.
     let source_is_utf8 = matches!(array.dtype(), DType::Utf8(_));
     let target_is_utf8 = matches!(T::DATA_TYPE, DataType::Utf8 | DataType::LargeUtf8);
     let validate_utf8 = target_is_utf8 && !source_is_utf8;
-
-    let array = array.execute_until::<ArrowByteExportable>(ctx)?;
 
     // If the Vortex array is in VarBin format, we can directly convert it.
     if let Some(array) = array.as_opt::<VarBin>() {
@@ -88,6 +100,18 @@ where
     );
     array.append_to_builder(&mut builder, ctx)?;
     varbin_to_byte_array::<T>(builder.finish_into_varbin().as_view(), validate_utf8, ctx)
+}
+
+/// Whether an array's values can be exported to the Arrow byte array type `T` at all.
+fn check_byte_dtype<T: ByteArrayType>(array: &ArrayRef) -> VortexResult<()> {
+    if !matches!(array.dtype(), DType::Utf8(_) | DType::Binary(_)) {
+        vortex_bail!(
+            "Cannot convert Vortex array with dtype {} to Arrow byte array type {}",
+            array.dtype(),
+            T::DATA_TYPE
+        );
+    }
+    Ok(())
 }
 
 /// Convert a Vortex VarBinArray into an Arrow GenericBinaryArray.

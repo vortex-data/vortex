@@ -24,6 +24,7 @@ use vortex_array::legacy_session;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
+mod byte_export;
 pub mod convert;
 mod datum;
 pub mod dtype;
@@ -35,6 +36,7 @@ mod run_end_import;
 mod scalar;
 mod session;
 
+pub use byte_export::ByteArrayExporter;
 pub use convert::IntoVortexArray;
 pub use convert::nulls;
 pub use datum::*;
@@ -54,9 +56,10 @@ pub use session::*;
 
 /// Register vortex-arrow's session extensions into `session`.
 ///
-/// This eagerly registers the [`ArrowSession`], which is otherwise created lazily on first use.
+/// This eagerly materializes the [`ArrowSession`], which is otherwise created lazily on first use.
+/// Calling it after plugins have already accessed the Arrow session preserves their registrations.
 pub fn initialize(session: &VortexSession) {
-    session.register(ArrowSession::default());
+    drop(session.arrow());
 }
 
 /// Construct a Vortex array from an Arrow array (or other Arrow container) of type `A`.

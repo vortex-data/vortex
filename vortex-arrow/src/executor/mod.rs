@@ -7,7 +7,7 @@
 )]
 
 pub mod bool;
-mod byte;
+pub(crate) mod byte;
 pub mod byte_view;
 mod decimal;
 mod dictionary;

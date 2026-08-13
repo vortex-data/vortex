@@ -30,6 +30,7 @@ use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_arrow::ArrowExport;
+use vortex_arrow::ArrowExportKey;
 use vortex_arrow::ArrowExportOptions;
 use vortex_arrow::ArrowExportVTable;
 use vortex_arrow::ArrowImport;
@@ -152,12 +153,8 @@ pub(crate) fn point_geometries(
 }
 
 impl ArrowExportVTable for Point {
-    fn arrow_ext_id(&self) -> Id {
-        *ARROW_POINT
-    }
-
-    fn vortex_id(&self) -> Id {
-        self.id()
+    fn export_key(&self) -> ArrowExportKey {
+        ArrowExportKey::arrow_extension(*ARROW_POINT, self.id())
     }
 
     fn to_arrow_field(
@@ -179,10 +176,13 @@ impl ArrowExportVTable for Point {
     fn execute_arrow(
         &self,
         array: ArrayRef,
-        target: &Field,
+        target: Option<&Field>,
         options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport> {
+        let Some(target) = target else {
+            return Ok(ArrowExport::Unsupported(array));
+        };
         let is_point = array
             .dtype()
             .as_extension_opt()

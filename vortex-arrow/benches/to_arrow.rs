@@ -33,7 +33,6 @@ use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
-use vortex_array::session::ArraySessionExt;
 #[expect(
     deprecated,
     reason = "benchmark comparing deprecated method with new one"
@@ -61,7 +60,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = array_session();
     vortex_fsst::initialize(&session);
     vortex_onpair::initialize(&session);
-    session.arrays().register(Zstd);
+    vortex_zstd::initialize(&session);
     session
 });
 

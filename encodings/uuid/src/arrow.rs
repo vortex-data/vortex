@@ -33,6 +33,7 @@ use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::validity::Validity;
 use vortex_arrow::ArrowExport;
+use vortex_arrow::ArrowExportKey;
 use vortex_arrow::ArrowExportOptions;
 use vortex_arrow::ArrowExportVTable;
 use vortex_arrow::ArrowImport;
@@ -57,12 +58,8 @@ const UUID_BYTE_LEN: i32 = 16;
 static ARROW_UUID: CachedId = CachedId::new(ArrowUuid::NAME);
 
 impl ArrowExportVTable for Uuid {
-    fn arrow_ext_id(&self) -> Id {
-        *ARROW_UUID
-    }
-
-    fn vortex_id(&self) -> Id {
-        Uuid.id()
+    fn export_key(&self) -> ArrowExportKey {
+        ArrowExportKey::arrow_extension(*ARROW_UUID, Uuid.id())
     }
 
     // Encode all of these.
@@ -86,7 +83,7 @@ impl ArrowExportVTable for Uuid {
     fn execute_arrow(
         &self,
         array: ArrayRef,
-        _target: &Field,
+        _target: Option<&Field>,
         options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport> {

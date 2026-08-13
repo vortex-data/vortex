@@ -15,15 +15,16 @@
 //! array session:
 //!
 //! ```rust
-//! use vortex_array::session::ArraySessionExt;
-//!
 //! let session = vortex_array::array_session();
-//! session.arrays().register(vortex_zstd::Zstd);
+//! vortex_zstd::initialize(&session);
 //! ```
 
 pub use array::*;
+use vortex_array::VTable;
 use vortex_array::dtype::proto::dtype as pb;
 use vortex_array::session::ArraySessionExt;
+use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ByteArrayExporter;
 use vortex_edition::EditionSessionExt;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -47,6 +48,11 @@ mod test;
 pub fn initialize(session: &VortexSession) {
     session.arrays().register(Zstd);
     session.arrays().register(ZstdBuffers);
+    // Decompressing a frame writes straight into a `VarBinBuilder`, so Arrow's offsets-based
+    // string and binary types are cheaper to reach from here than from a canonical `VarBinView`.
+    session
+        .arrow()
+        .register_exporter(ByteArrayExporter::for_encoding(Zstd.id()));
     if session.editions().find(&editions::ZSTD_2026_02).is_none() {
         session
             .editions()

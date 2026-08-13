@@ -20,6 +20,7 @@ itertools = { workspace = true }
 num-traits = { workspace = true }
 prost = { workspace = true }
 vortex-array = { workspace = true }
+vortex-arrow = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
@@ -31,7 +32,6 @@ itertools = { workspace = true }
 mimalloc = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
-vortex-arrow = { workspace = true }
 
 [[bench]]
 name = "sparse_canonical"
