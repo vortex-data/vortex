@@ -54,7 +54,7 @@ use crate::duckdb::LogicalTypeRef;
 use crate::duckdb::TableInitInput;
 use crate::duckdb::Value;
 use crate::exporter::ArrayExporter;
-use crate::file_reader::FileReader;
+use crate::file_reader::File;
 use crate::file_reader::ScanPruning;
 use crate::projection::DuckdbField;
 use crate::projection::Projection;
@@ -161,7 +161,7 @@ pub enum Cardinality {
 // Called for every new query. For example, if there is a VIEW over *.vortex,
 // and after a query another file is added matching the glob, for second query
 // bind() will be called again.
-pub fn bind(first_file: &FileReader) -> VortexResult<TableFunctionBind> {
+pub fn bind(first_file: &File) -> VortexResult<TableFunctionBind> {
     let dtype = first_file.dtype.clone();
     let column_fields = extract_schema_from_dtype(&dtype)?;
     Ok(TableFunctionBind {

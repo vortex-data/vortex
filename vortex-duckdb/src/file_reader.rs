@@ -77,30 +77,30 @@ fn resolve_filesystem(url: &Url) -> VortexResult<(FileSystemRef, String)> {
 
 type ScanItem = VortexResult<(ArrayRef, Arc<ConversionCache>)>;
 
-pub struct FileReader {
+pub struct File {
     reader: LayoutReaderRef,
     pub(crate) dtype: DType,
     pub(crate) row_count: u64,
     file_index: u64,
+
+    rows_read: AtomicU64,
 }
 
 pub struct FileScan {
     receiver: AsyncReceiver<ScanItem>,
-    total_splits: u64,
-    delivered: AtomicU64,
     file_row_number_column_pos: Option<usize>,
     file_index_column_pos: Option<usize>,
     aggregate_positions: Vec<usize>,
     _driver: Task<()>,
 }
 
-async fn open_reader(file_path: String, file_index: u64) -> VortexResult<FileReader> {
+async fn open_reader(file_path: String, file_index: u64) -> VortexResult<File> {
     let url = parse_uri_or_path(&file_path)?;
     let (fs, path) = resolve_filesystem(&url)?;
     let source = fs.open_read(&path).await?;
     let vortex_file = open_cached(&SESSION, source, &path, None, &|options| options).await?;
     let reader = vortex_file.layout_reader()?;
-    Ok(FileReader {
+    Ok(File {
         dtype: reader.dtype().clone(),
         row_count: reader.row_count(),
         reader,
@@ -108,18 +108,18 @@ async fn open_reader(file_path: String, file_index: u64) -> VortexResult<FileRea
     })
 }
 
-pub fn file_open(file_path: &str, file_index: u64) -> VortexResult<FileReader> {
+pub fn reader_open(file_path: &str, file_index: u64) -> VortexResult<File> {
     RUNTIME.block_on(open_reader(file_path.to_owned(), file_index))
 }
 
-pub fn file_schema(file: &FileReader, result: &mut BindResultRef) -> VortexResult<()> {
+pub fn file_schema(file: &File, result: &mut BindResultRef) -> VortexResult<()> {
     for field in extract_schema_from_dtype(&file.dtype)? {
         result.add_result_column(&field.name, &field.logical_type);
     }
     Ok(())
 }
 
-pub fn file_statistics(file: &FileReader, column_name: &str) -> Option<ColumnStatistics> {
+pub fn file_statistics(file: &File, column_name: &str) -> Option<ColumnStatistics> {
     let stats_reader = file
         .reader
         .as_any()
@@ -192,7 +192,7 @@ impl ScanPruning {
     }
 }
 
-pub fn file_should_skip(global: &TableFunctionGlobal, file: &FileReader) -> VortexResult<bool> {
+pub fn file_should_skip(global: &TableFunctionGlobal, file: &File) -> VortexResult<bool> {
     let Some(pruning) = global.pruning.as_ref() else {
         return Ok(false);
     };
@@ -228,7 +228,7 @@ const FILE_CHANNEL_CAPACITY: usize = 16;
 pub fn file_start_scan(
     bind: &TableFunctionBind,
     global: &TableFunctionGlobal,
-    file: &FileReader,
+    file: &File,
     column_ids: &[u64],
     filters: cpp::duckdb_vx_table_filter_set,
 ) -> VortexResult<FileScan> {
@@ -305,10 +305,6 @@ pub fn file_start_scan(
         aggregate_positions: global.aggregate_positions.clone(),
         _driver: driver,
     })
-}
-
-pub fn file_has_work(local: &TableFunctionLocal) -> bool {
-    !local.exhausted
 }
 
 fn file_scan_aggregate(
@@ -400,10 +396,11 @@ pub fn file_scan(
     Ok(())
 }
 
-pub fn file_progress(reader: &FileScan) -> f64 {
-    if scan.total_splits == 0 {
-        return 100.0;
-    }
-    let delivered = scan.delivered.load(Ordering::Relaxed) as f64;
-    100.0 * delivered / scan.total_splits as f64
+pub fn reader_try_initialize_scan(local: &TableFunctionLocal) -> bool {
+    !local.exhausted
+}
+
+pub fn get_progress_in_file(file: &File) -> f64 {
+    let read = file.rows_read.load(Ordering::Relaxed) as f64;
+    100.0 * read / file.row_count as f64
 }

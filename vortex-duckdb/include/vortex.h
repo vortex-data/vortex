@@ -59,10 +59,10 @@ void duckdb_table_function_bind_schema(const void *bind_data,
                                        duckdb_vx_tfunc_bind_result schema_result);
 
 extern
-duckdb_vx_data duckdb_table_function_file_open(const char *file_path,
-                                               size_t file_path_len,
-                                               uint64_t file_index,
-                                               duckdb_vx_error *error_out);
+duckdb_vx_data duckdb_reader_open(const char *file_path,
+                                  size_t file_path_len,
+                                  uint64_t file_index,
+                                  duckdb_vx_error *error);
 
 extern
 void duckdb_table_function_file_schema(const void *file,
@@ -70,40 +70,40 @@ void duckdb_table_function_file_schema(const void *file,
                                        duckdb_vx_error *error_out);
 
 extern
-bool duckdb_table_function_file_statistics(const void *file,
-                                           const char *column_name,
-                                           size_t column_name_len,
-                                           duckdb_column_statistics *stats_out);
+bool duckdb_reader_get_statistics(const void *file,
+                                  const char *column_name,
+                                  size_t column_name_len,
+                                  duckdb_column_statistics *stats_out);
 
 extern
-bool duckdb_table_function_file_should_skip(const void *global_init_data,
-                                            const void *file,
-                                            duckdb_vx_error *error_out);
+bool duckdb_reader_initialize(const void *global_init_data,
+                              const void *file,
+                              duckdb_vx_error *error_out);
 
 extern
-duckdb_vx_data duckdb_table_function_file_start_scan(const void *bind_data,
-                                                     void *global_init_data,
-                                                     const void *file,
-                                                     const uint64_t *column_ids,
-                                                     size_t column_ids_count,
-                                                     duckdb_vx_table_filter_set filters,
-                                                     duckdb_vx_error *error_out);
+void duckdb_reader_prepare_scan(const void *bind_data,
+                                const void *global_init_data,
+                                void *file,
+                                const uint64_t *column_ids,
+                                size_t column_ids_count,
+                                duckdb_vx_table_filter_set filters,
+                                duckdb_vx_error *error_out);
 
-extern bool duckdb_table_function_file_has_work(const void *local_init_data);
-
-extern
-void duckdb_table_function_file_scan(const void *file_scan_data,
-                                     void *global_init_data,
-                                     void *local_init_data,
-                                     duckdb_data_chunk output,
-                                     duckdb_vx_error *error_out);
-
-extern double duckdb_table_function_file_progress(const void *file_scan_data);
+extern bool duckdb_reader_try_initialize_scan(const void *local_init_data);
 
 extern
-bool duckdb_table_function_finalize_scan(void *global_init_data,
-                                         duckdb_data_chunk output,
-                                         duckdb_vx_error *error_out);
+void duckdb_reader_scan(const void *file,
+                        const void *global_state,
+                        void *local_state,
+                        duckdb_data_chunk output,
+                        duckdb_vx_error *error);
+
+extern double duckdb_reader_get_progress_in_file(const void *file);
+
+extern
+bool duckdb_reader_finalize_scan(const void *global_init_data,
+                                 duckdb_data_chunk output,
+                                 duckdb_vx_error *error);
 
 extern duckdb_vx_data duckdb_table_function_bind_data_clone(const void *bind_data);
 

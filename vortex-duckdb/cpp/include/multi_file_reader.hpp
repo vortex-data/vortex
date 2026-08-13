@@ -24,7 +24,7 @@ struct VortexGlobalState final : GlobalTableFunctionState {
     VortexGlobalState() = default;
     ~VortexGlobalState() override = default;
 
-    void *ffi_bind_data = nullptr; // needed for local state partial accumulation
+    const void *ffi_bind_data = nullptr; // needed for local state partial accumulation
     unique_ptr<CData> ffi_global_state;
 };
 
@@ -126,7 +126,6 @@ struct VortexReaderInterface final : MultiFileReaderInterface {
     }
 
     void GetVirtualColumns(ClientContext &, MultiFileBindData &, virtual_column_map_t &result) override;
-
     bool FinalizeScan(ClientContext &, GlobalTableFunctionState &gstate, DataChunk &output) override;
 };
 
@@ -136,27 +135,21 @@ struct VortexBaseReader final : BaseFileReader {
     }
 
     unique_ptr<CData> ffi_file;
-    unique_ptr<CData> ffi_file_scan;
     vector<column_t> virtual_ids;
 
-    inline void AddVirtualColumn(column_t virtual_column_id) override {
-        virtual_ids.push_back(virtual_column_id);
+    inline void AddVirtualColumn(column_t id) override {
+        virtual_ids.push_back(id);
     }
-
-    /**
-     * Start the scan early for file.
-     *
-     * Called after VortexMultiFileReader::InitializeReader is file is not
-     * skipped. Called under file-local lock.
-     */
-    void PrepareReader(ClientContext &context, GlobalTableFunctionState &state) override;
 
     // Called under global lock. Returns false when file is exhausted.
     bool TryInitializeScan(ClientContext &context,
                            GlobalTableFunctionState &gstate,
                            LocalTableFunctionState &lstate) override;
 
-    AsyncResult Scan(ClientContext &context,
+    // Called without lock if TryInitializeScan succeeds
+    void PrepareScan(ClientContext &, GlobalTableFunctionState &gstate, LocalTableFunctionState &) override;
+
+    AsyncResult Scan(ClientContext &,
                      GlobalTableFunctionState &global_state,
                      LocalTableFunctionState &local_state,
                      DataChunk &chunk) override;
@@ -164,7 +157,7 @@ struct VortexBaseReader final : BaseFileReader {
     inline void FinishFile(ClientContext &, GlobalTableFunctionState &) override {
     }
 
-    double GetProgressInFile(ClientContext &context) override;
+    double GetProgressInFile(ClientContext &) override;
 
     unique_ptr<BaseStatistics> GetStatistics(ClientContext &context, const string &name) override;
 

@@ -45,7 +45,7 @@ VortexMultiFileReader::InitializeReader(MultiFileReaderData &reader_data,
     duckdb_vx_error error = nullptr;
     void *const ffi_global_state = global.ffi_global_state->DataPtr();
     void *const ffi_file = reader.ffi_file->DataPtr();
-    const bool skip = duckdb_table_function_file_should_skip(ffi_global_state, ffi_file, &error);
+    const bool skip = duckdb_reader_initialize(ffi_global_state, ffi_file, &error);
     if (error) {
         throw InvalidInputException(IntoErrString(error));
     }
@@ -56,10 +56,11 @@ void VortexReaderInterface::BindReader(ClientContext &,
                                        vector<LogicalType> &,
                                        vector<string> &,
                                        MultiFileBindData &bind_data) {
-    auto &bind = bind_data.bind_data->Cast<VortexBindData>();
-    VortexBaseReader &initial_reader = bind_data.initial_reader->Cast<VortexBaseReader>();
+    VortexBindData &bind = bind_data.bind_data->Cast<VortexBindData>();
+    const VortexBaseReader &initial_reader = bind_data.initial_reader->Cast<VortexBaseReader>();
+
     duckdb_vx_error error = nullptr;
-    void *const ffi_file = initial_reader.ffi_file->DataPtr();
+    const void *const ffi_file = initial_reader.ffi_file->DataPtr();
     duckdb_vx_data ffi_bind_data = duckdb_table_function_bind(ffi_file, &error);
     if (error) {
         throw BinderException(IntoErrString(error));
@@ -118,8 +119,7 @@ VortexReaderInterface::InitializeLocalState(ExecutionContext &, GlobalTableFunct
 
 static shared_ptr<BaseFileReader> OpenReader(const OpenFileInfo &file, idx_t file_idx) {
     duckdb_vx_error error = nullptr;
-    duckdb_vx_data ffi_file =
-        duckdb_table_function_file_open(file.path.c_str(), file.path.size(), file_idx, &error);
+    duckdb_vx_data ffi_file = duckdb_reader_open(file.path.c_str(), file.path.size(), file_idx, &error);
     if (error) {
         throw IOException(IntoErrString(error));
     }
@@ -172,21 +172,17 @@ unique_ptr<NodeStatistics> VortexReaderInterface::GetCardinality(const MultiFile
     return out;
 }
 
-void VortexBaseReader::PrepareReader(ClientContext &, GlobalTableFunctionState &state) {
-    /*
-     * Start the scan early. Default MultiFileReader model is "1 split per
-     * worker". This works poorly for queries on multiple files, think
-     * clickbench. What we do here is we launch prefetch/decode for the file
-     * before reader has been bound. This means by the time a worker starts
-     * processing next file, next file' splits are already decoded.
-     *
-     * Another performance consideration is that TryInitializeScan is called
-     * under global lock and PrepareReader is called under file-local lock.
-     *
-     * With duckdb 2.0 this code will migrate to readahead queue.
-     */
-    VortexGlobalState &global = state.Cast<VortexGlobalState>();
+bool VortexBaseReader::TryInitializeScan(ClientContext &,
+                                         GlobalTableFunctionState &,
+                                         LocalTableFunctionState &state) {
+    const VortexLocalState &local = state.Cast<VortexLocalState>();
+    void *const ffi_local = local.ffi_local_state->DataPtr();
+    return duckdb_reader_try_initialize_scan(ffi_local);
+}
 
+void VortexBaseReader::PrepareScan(ClientContext &,
+                                   GlobalTableFunctionState &global_state,
+                                   LocalTableFunctionState &) {
     const idx_t real_columns = columns.size() - virtual_ids.size();
     vector<idx_t> local_column_ids(column_ids.size());
     for (idx_t i = 0; i < column_ids.size(); i++) {
@@ -194,50 +190,40 @@ void VortexBaseReader::PrepareReader(ClientContext &, GlobalTableFunctionState &
         local_column_ids[i] = local_id < real_columns ? local_id : virtual_ids[local_id - real_columns];
     }
 
-    duckdb_vx_error error_out = nullptr;
-    duckdb_vx_data ffi_scan =
-        duckdb_table_function_file_start_scan(global.ffi_bind_data,
-                                              global.ffi_global_state->DataPtr(),
-                                              ffi_file->DataPtr(),
-                                              local_column_ids.data(),
-                                              local_column_ids.size(),
-                                              reinterpret_cast<duckdb_vx_table_filter_set>(filters.get()),
-                                              &error_out);
-    if (error_out) {
-        throw InvalidInputException(IntoErrString(error_out));
-    }
-    ffi_file_scan = unique_ptr<CData>(reinterpret_cast<CData *>(ffi_scan));
-}
+    VortexGlobalState &global = global_state.Cast<VortexGlobalState>();
 
-bool VortexBaseReader::TryInitializeScan(ClientContext &,
-                                         GlobalTableFunctionState &,
-                                         LocalTableFunctionState &state) {
-    const VortexLocalState &local = state.Cast<VortexLocalState>();
-    void *const ffi_local = local.ffi_local_state->DataPtr();
-    return duckdb_table_function_file_has_work(ffi_local);
+    duckdb_vx_error error = nullptr;
+    const void *const ffi_bind = global.ffi_bind_data;
+    const void *const ffi_global = global.ffi_global_state->DataPtr();
+    auto ffi_filters = reinterpret_cast<duckdb_vx_table_filter_set>(filters.get());
+    duckdb_reader_prepare_scan(ffi_bind,
+                               ffi_global,
+                               ffi_file->DataPtr(),
+                               local_column_ids.data(),
+                               local_column_ids.size(),
+                               ffi_filters,
+                               &error);
+    if (error) {
+        throw InvalidInputException(IntoErrString(error));
+    }
 }
 
 AsyncResult VortexBaseReader::Scan(ClientContext &,
                                    GlobalTableFunctionState &global_state,
                                    LocalTableFunctionState &local_state,
                                    DataChunk &chunk) {
-    auto &local = local_state.Cast<VortexLocalState>();
+    VortexGlobalState &global = global_state.Cast<VortexGlobalState>();
+    VortexLocalState &local = local_state.Cast<VortexLocalState>();
 
+    duckdb_vx_error error = nullptr;
     duckdb_data_chunk ffi_chunk = reinterpret_cast<duckdb_data_chunk>(&chunk);
-    duckdb_vx_error error_out = nullptr;
-    duckdb_table_function_file_scan(ffi_file_scan->DataPtr(),
-                                    global_state.Cast<VortexGlobalState>().ffi_global_state->DataPtr(),
-                                    local.ffi_local_state->DataPtr(),
-                                    ffi_chunk,
-                                    &error_out);
-    if (error_out) {
-        throw InvalidInputException(IntoErrString(error_out));
+    void *const ffi_global = global.ffi_global_state->DataPtr();
+    void *const ffi_local = local.ffi_local_state->DataPtr();
+    duckdb_reader_scan(ffi_file->DataPtr(), ffi_global, ffi_local, ffi_chunk, &error);
+    if (error) {
+        throw InvalidInputException(IntoErrString(error));
     }
-
-    if (chunk.size() == 0) {
-        return SourceResultType::FINISHED;
-    }
-    return SourceResultType::HAVE_MORE_OUTPUT;
+    return chunk.size() == 0 ? SourceResultType::FINISHED : SourceResultType::HAVE_MORE_OUTPUT;
 }
 
 void VortexReaderInterface::GetVirtualColumns(ClientContext &,
@@ -249,15 +235,16 @@ void VortexReaderInterface::GetVirtualColumns(ClientContext &,
 }
 
 bool VortexReaderInterface::FinalizeScan(ClientContext &,
-                                         GlobalTableFunctionState &gstate,
+                                         GlobalTableFunctionState &global_state,
                                          DataChunk &output) {
-    auto &global = gstate.Cast<VortexGlobalState>();
+    const VortexGlobalState &global = global_state.Cast<VortexGlobalState>();
+
+    duckdb_vx_error error = nullptr;
     duckdb_data_chunk ffi_chunk = reinterpret_cast<duckdb_data_chunk>(&output);
-    duckdb_vx_error error_out = nullptr;
-    const bool filled =
-        duckdb_table_function_finalize_scan(global.ffi_global_state->DataPtr(), ffi_chunk, &error_out);
-    if (error_out) {
-        throw InvalidInputException(IntoErrString(error_out));
+    const void *const ffi_global = global.ffi_global_state->DataPtr();
+    const bool filled = duckdb_reader_finalize_scan(ffi_global, ffi_chunk, &error);
+    if (error) {
+        throw InvalidInputException(IntoErrString(error));
     }
     return filled;
 }
@@ -312,51 +299,50 @@ static unique_ptr<BaseStatistics> base_stats(duckdb_column_statistics &stats, Lo
 
 unique_ptr<BaseStatistics> VortexBaseReader::GetStatistics(ClientContext &, const string &name) {
     duckdb_column_statistics statistics = {};
-    if (!duckdb_table_function_file_statistics(ffi_file->DataPtr(), name.c_str(), name.size(), &statistics)) {
+    if (!duckdb_reader_get_statistics(ffi_file->DataPtr(), name.c_str(), name.size(), &statistics)) {
         return nullptr;
     }
-    for (const auto &column : columns) {
-        if (column.name != name) {
-            continue;
-        }
-        const LogicalType &type = column.type;
-        switch (type.id()) {
-        case LogicalTypeId::BOOLEAN:
-        case LogicalTypeId::TINYINT:
-        case LogicalTypeId::SMALLINT:
-        case LogicalTypeId::INTEGER:
-        case LogicalTypeId::BIGINT:
-        case LogicalTypeId::FLOAT:
-        case LogicalTypeId::DOUBLE:
-        case LogicalTypeId::UTINYINT:
-        case LogicalTypeId::USMALLINT:
-        case LogicalTypeId::UINTEGER:
-        case LogicalTypeId::UBIGINT:
-        case LogicalTypeId::UHUGEINT:
-        case LogicalTypeId::HUGEINT: {
-            return numeric_stats(statistics, type);
-        }
-        case LogicalTypeId::VARCHAR:
-        case LogicalTypeId::BLOB: {
-            return string_stats(statistics, type);
-        }
-        case LogicalTypeId::STRUCT: {
-            // TODO(myrrc)
-            // Duckdb's has_null has a different semantics for structs.
-            // If we propagate our has_null, this breaks Duckdb optimizer.
-            // You can reproduce it in struct.slt test in vortex-sqllogictests:
-            return {};
-        }
-        default:
-            return base_stats(statistics, type);
-        }
+
+    auto name_matches = [&](const MultiFileColumnDefinition &column) {
+        return column.name == name;
+    };
+    const auto column_it = std::find_if(columns.begin(), columns.end(), name_matches);
+    D_ASSERT(column_it != columns.end());
+    const MultiFileColumnDefinition &column = *column_it;
+
+    const LogicalType &type = column.type;
+    switch (type.id()) {
+    case LogicalTypeId::BOOLEAN:
+    case LogicalTypeId::TINYINT:
+    case LogicalTypeId::SMALLINT:
+    case LogicalTypeId::INTEGER:
+    case LogicalTypeId::BIGINT:
+    case LogicalTypeId::FLOAT:
+    case LogicalTypeId::DOUBLE:
+    case LogicalTypeId::UTINYINT:
+    case LogicalTypeId::USMALLINT:
+    case LogicalTypeId::UINTEGER:
+    case LogicalTypeId::UBIGINT:
+    case LogicalTypeId::UHUGEINT:
+    case LogicalTypeId::HUGEINT: {
+        return numeric_stats(statistics, type);
     }
-    return nullptr;
+    case LogicalTypeId::VARCHAR:
+    case LogicalTypeId::BLOB: {
+        return string_stats(statistics, type);
+    }
+    case LogicalTypeId::STRUCT: {
+        // TODO(myrrc)
+        // Duckdb's has_null has a different semantics for structs.
+        // If we propagate our has_null, this breaks Duckdb optimizer.
+        // You can reproduce it in struct.slt test in vortex-sqllogictests:
+        return {};
+    }
+    default:
+        return base_stats(statistics, type);
+    }
 }
 
 double VortexBaseReader::GetProgressInFile(ClientContext &) {
-    if (!ffi_file_scan) {
-        return 0.0;
-    }
-    return duckdb_table_function_file_progress(ffi_file_scan->DataPtr());
+    return duckdb_reader_get_progress_in_file(ffi_file->DataPtr());
 }
