@@ -65,11 +65,6 @@ duckdb_vx_data duckdb_reader_open(const char *file_path,
                                   duckdb_vx_error *error);
 
 extern
-void duckdb_table_function_file_schema(const void *file,
-                                       duckdb_vx_tfunc_bind_result schema_result,
-                                       duckdb_vx_error *error_out);
-
-extern
 bool duckdb_reader_get_statistics(const void *file,
                                   const char *column_name,
                                   size_t column_name_len,
@@ -87,7 +82,7 @@ void duckdb_reader_prepare_scan(const void *bind_data,
                                 const uint64_t *column_ids,
                                 size_t column_ids_count,
                                 duckdb_vx_table_filter_set filters,
-                                duckdb_vx_error *error_out);
+                                duckdb_vx_error *error);
 
 extern bool duckdb_reader_try_initialize_scan(const void *local_init_data);
 

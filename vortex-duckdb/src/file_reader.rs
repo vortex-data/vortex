@@ -18,6 +18,7 @@ use vortex::cloud::Registry;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
+use vortex::error::vortex_panic;
 use vortex::expr::BoundExpression;
 use vortex::file::multi::open_cached;
 use vortex::file::multi::parse_uri_or_path;
@@ -37,7 +38,6 @@ use crate::SESSION;
 use crate::column_statistics::ColumnStatistics;
 use crate::column_statistics::ColumnStatisticsAggregate;
 use crate::cpp;
-use crate::duckdb::BindResultRef;
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::TableFilterSet;
 use crate::exporter::ArrayExporter;
@@ -45,7 +45,6 @@ use crate::exporter::ConversionCache;
 use crate::projection::FILE_INDEX_COLUMN_IDX;
 use crate::projection::FILE_ROW_NUMBER_COLUMN_IDX;
 use crate::projection::Filter;
-use crate::projection::extract_schema_from_dtype;
 use crate::table_function::TableFunctionBind;
 use crate::table_function::TableFunctionGlobal;
 use crate::table_function::TableFunctionLocal;
@@ -77,16 +76,7 @@ fn resolve_filesystem(url: &Url) -> VortexResult<(FileSystemRef, String)> {
 
 type ScanItem = VortexResult<(ArrayRef, Arc<ConversionCache>)>;
 
-pub struct File {
-    reader: LayoutReaderRef,
-    pub(crate) dtype: DType,
-    pub(crate) row_count: u64,
-    file_index: u64,
-
-    rows_read: AtomicU64,
-}
-
-pub struct FileScan {
+pub struct Scan {
     receiver: AsyncReceiver<ScanItem>,
     file_row_number_column_pos: Option<usize>,
     file_index_column_pos: Option<usize>,
@@ -94,29 +84,34 @@ pub struct FileScan {
     _driver: Task<()>,
 }
 
+pub struct File {
+    reader: LayoutReaderRef,
+    pub(crate) dtype: DType,
+    pub(crate) row_count: u64,
+    file_index: u64,
+
+    rows_read: AtomicU64,
+    scan: Option<Scan>,
+}
+
 async fn open_reader(file_path: String, file_index: u64) -> VortexResult<File> {
     let url = parse_uri_or_path(&file_path)?;
     let (fs, path) = resolve_filesystem(&url)?;
-    let source = fs.open_read(&path).await?;
-    let vortex_file = open_cached(&SESSION, source, &path, None, &|options| options).await?;
-    let reader = vortex_file.layout_reader()?;
+    let file = fs.open_read(&path).await?;
+    let file = open_cached(&SESSION, file, &path, None, &|options| options).await?;
+    let reader = file.layout_reader()?;
     Ok(File {
         dtype: reader.dtype().clone(),
         row_count: reader.row_count(),
         reader,
         file_index,
+        rows_read: AtomicU64::new(0),
+        scan: None,
     })
 }
 
 pub fn reader_open(file_path: &str, file_index: u64) -> VortexResult<File> {
     RUNTIME.block_on(open_reader(file_path.to_owned(), file_index))
-}
-
-pub fn file_schema(file: &File, result: &mut BindResultRef) -> VortexResult<()> {
-    for field in extract_schema_from_dtype(&file.dtype)? {
-        result.add_result_column(&field.name, &field.logical_type);
-    }
-    Ok(())
 }
 
 pub fn file_statistics(file: &File, column_name: &str) -> Option<ColumnStatistics> {
@@ -139,7 +134,7 @@ pub fn file_statistics(file: &File, column_name: &str) -> Option<ColumnStatistic
     Some(ColumnStatistics::from(&stats_aggregate, dtype))
 }
 
-pub struct ScanPruning {
+pub struct Pruning {
     filter: Option<BoundExpression>,
     file_selection: Selection,
     file_range: Option<Range<u64>>,
@@ -164,7 +159,7 @@ fn convert_filter(
     )
 }
 
-impl ScanPruning {
+impl Pruning {
     pub fn new(
         bind: &TableFunctionBind,
         column_ids: &[u64],
@@ -225,13 +220,13 @@ pub fn file_should_skip(global: &TableFunctionGlobal, file: &File) -> VortexResu
 
 const FILE_CHANNEL_CAPACITY: usize = 16;
 
-pub fn file_start_scan(
+pub fn prepare_scan(
     bind: &TableFunctionBind,
     global: &TableFunctionGlobal,
-    file: &File,
+    file: &mut File,
     column_ids: &[u64],
     filters: cpp::duckdb_vx_table_filter_set,
-) -> VortexResult<FileScan> {
+) -> VortexResult<()> {
     let file_row_number_column_pos = column_ids
         .iter()
         .position(|&id| id == FILE_ROW_NUMBER_COLUMN_IDX);
@@ -255,7 +250,7 @@ pub fn file_start_scan(
         .transpose()?;
 
     let mut builder = ScanBuilder::new(SESSION.clone(), Arc::clone(&file.reader))
-        .with_projection(global.bound_projection.clone())
+        .with_projection(global.projection.clone())
         .with_some_filter(filter)
         .with_ordered(file_row_number_column_pos.is_some())
         .with_selection(row_selection);
@@ -268,7 +263,6 @@ pub fn file_start_scan(
         .into_iter()
         .map(|task| RUNTIME.handle().spawn(task))
         .collect::<Vec<_>>();
-    let total_splits = handles.len() as u64;
 
     let cache = Arc::new(ConversionCache::default());
 
@@ -296,19 +290,18 @@ pub fn file_start_scan(
         }
     });
 
-    Ok(FileScan {
+    file.scan = Some(Scan {
         receiver,
-        total_splits,
-        delivered: AtomicU64::new(0),
         file_row_number_column_pos,
         file_index_column_pos,
         aggregate_positions: global.aggregate_positions.clone(),
         _driver: driver,
-    })
+    });
+    Ok(())
 }
 
 fn file_scan_aggregate(
-    scan: &FileScan,
+    file: &File,
     global: &TableFunctionGlobal,
     local: &mut TableFunctionLocal,
 ) -> VortexResult<()> {
@@ -316,13 +309,16 @@ fn file_scan_aggregate(
     let has_count_star = local.partials.len() < global.aggregates.len();
     let mut accumulated = 0u64;
     let mut rows = 0u64;
+
+    let Some(scan) = file.scan.as_ref() else {
+        vortex_panic!("No file scan");
+    };
     loop {
         let Ok(item) = RUNTIME.block_on(scan.receiver.recv()) else {
             local.exhausted = true;
             break;
         };
         let (array, _cache) = item?;
-        scan.delivered.fetch_add(1, Ordering::Relaxed);
         let array = convert_result(array, &mut ctx)?;
 
         for (position, partial) in scan
@@ -332,7 +328,10 @@ fn file_scan_aggregate(
         {
             partial.accumulate(array.unmasked_field(*position), &mut ctx)?;
         }
-        rows += array.len() as u64;
+
+        let len = array.len() as u64;
+        rows += len;
+        file.rows_read.fetch_add(len, Ordering::Relaxed);
         accumulated += 1;
     }
 
@@ -354,14 +353,17 @@ fn file_scan_aggregate(
 }
 
 pub fn file_scan(
-    scan: &FileScan,
+    file: &File,
     global: &TableFunctionGlobal,
     local: &mut TableFunctionLocal,
     output: &mut DataChunkRef,
 ) -> VortexResult<()> {
     if !local.partials.is_empty() {
-        return file_scan_aggregate(scan, global, local);
+        return file_scan_aggregate(file, global, local);
     }
+    let Some(scan) = file.scan.as_ref() else {
+        vortex_panic!("No file scan");
+    };
     loop {
         if local.exporter.is_none() {
             let Ok(item) = RUNTIME.block_on(scan.receiver.recv()) else {
@@ -369,10 +371,11 @@ pub fn file_scan(
                 return Ok(());
             };
             let (array, cache) = item?;
-            scan.delivered.fetch_add(1, Ordering::Relaxed);
 
             let mut ctx = SESSION.create_execution_ctx();
             let array = convert_result(array, &mut ctx)?;
+            file.rows_read
+                .fetch_add(array.len() as u64, Ordering::Relaxed);
             local.exporter = Some(ArrayExporter::try_new(&array, &cache, ctx)?);
         }
 
@@ -396,7 +399,7 @@ pub fn file_scan(
     Ok(())
 }
 
-pub fn reader_try_initialize_scan(local: &TableFunctionLocal) -> bool {
+pub fn try_initialize_scan(local: &TableFunctionLocal) -> bool {
     !local.exhausted
 }
 

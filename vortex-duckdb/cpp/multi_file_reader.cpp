@@ -57,6 +57,7 @@ void VortexReaderInterface::BindReader(ClientContext &,
                                        vector<string> &,
                                        MultiFileBindData &bind_data) {
     VortexBindData &bind = bind_data.bind_data->Cast<VortexBindData>();
+    D_ASSERT(bind_data.initial_reader != nullptr);
     const VortexBaseReader &initial_reader = bind_data.initial_reader->Cast<VortexBaseReader>();
 
     duckdb_vx_error error = nullptr;
@@ -126,7 +127,6 @@ static shared_ptr<BaseFileReader> OpenReader(const OpenFileInfo &file, idx_t fil
     return make_shared_ptr<VortexBaseReader>(file, unique_ptr<CData>(reinterpret_cast<CData *>(ffi_file)));
 }
 
-// open file, read schema
 shared_ptr<BaseFileReader> VortexReaderInterface::CreateReader(ClientContext &,
                                                                GlobalTableFunctionState &,
                                                                const OpenFileInfo &file,
@@ -139,21 +139,7 @@ shared_ptr<BaseFileReader> VortexReaderInterface::CreateReader(ClientContext &,
                                                                const OpenFileInfo &file,
                                                                BaseFileReaderOptions &,
                                                                const MultiFileOptions &) {
-    auto reader = OpenReader(file, 0);
-
-    vector<LogicalType> types;
-    vector<string> names;
-    VortexBindResult schema = {types, names};
-    duckdb_vx_error error_out = nullptr;
-    duckdb_table_function_file_schema(reader->Cast<VortexBaseReader>().ffi_file->DataPtr(),
-                                      reinterpret_cast<duckdb_vx_tfunc_bind_result>(&schema),
-                                      &error_out);
-    if (error_out) {
-        throw IOException(IntoErrString(error_out));
-    }
-    reader->Cast<VortexBaseReader>().columns =
-        MultiFileColumnDefinition::ColumnsFromNamesAndTypes(names, types);
-    return reader;
+    return OpenReader(file, 0);
 }
 
 unique_ptr<NodeStatistics> VortexReaderInterface::GetCardinality(const MultiFileBindData &data,

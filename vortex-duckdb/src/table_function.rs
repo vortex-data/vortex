@@ -55,7 +55,7 @@ use crate::duckdb::TableInitInput;
 use crate::duckdb::Value;
 use crate::exporter::ArrayExporter;
 use crate::file_reader::File;
-use crate::file_reader::ScanPruning;
+use crate::file_reader::Pruning;
 use crate::projection::DuckdbField;
 use crate::projection::Projection;
 use crate::projection::extract_schema_from_dtype;
@@ -117,8 +117,8 @@ impl<'a> TableInitInput<'a> {
 }
 
 pub struct TableFunctionGlobal {
-    pub(crate) pruning: Option<ScanPruning>,
-    pub(crate) bound_projection: BoundExpression,
+    pub(crate) pruning: Option<Pruning>,
+    pub(crate) projection: BoundExpression,
     // Following fields are used only in aggregate scans.
     /// Splits that are not merged into global partials
     /// 0 means everything started is merged.
@@ -228,7 +228,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
         &bind_data.dtype,
     )?;
 
-    let pruning = ScanPruning::new(bind_data, init_input.column_ids(), init_input.input.filters)?;
+    let pruning = Pruning::new(bind_data, init_input.column_ids(), init_input.input.filters)?;
 
     let mut seen = HashMap::with_capacity(bind_data.aggregates.len());
     let mut aggregate_positions = Vec::with_capacity(bind_data.aggregates.len());
@@ -251,7 +251,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
     Ok(TableFunctionGlobal {
         pruning,
         aggregate_positions,
-        bound_projection,
+        projection: bound_projection,
         pending: Arc::new(AtomicU64::new(0)),
         aggregates: bind_data.aggregates.clone(),
         partials: Mutex::new(partials),
