@@ -76,18 +76,21 @@ fn resolve_filesystem(url: &Url) -> VortexResult<(FileSystemRef, String)> {
     ))
 }
 
+type ScanItem = VortexResult<(ArrayRef, Arc<ConversionCache>)>;
+
 pub struct FileReader {
     reader: LayoutReaderRef,
     pub(crate) dtype: DType,
     pub(crate) row_count: u64,
     file_index: u64,
-}
 
-type ScanItem = VortexResult<(ArrayRef, Arc<ConversionCache>)>;
+    exhausted: AtomicBool,
+
+    scan: Option<FileScan>,
+}
 
 pub struct FileScan {
     receiver: AsyncReceiver<ScanItem>,
-    exhausted: AtomicBool,
     total_splits: u64,
     delivered: AtomicU64,
     file_row_number_column_pos: Option<usize>,
@@ -107,6 +110,7 @@ async fn open_reader(file_path: String, file_index: u64) -> VortexResult<FileRea
         row_count: reader.row_count(),
         reader,
         file_index,
+        exhausted: AtomicBool::new(false),
     })
 }
 
@@ -300,7 +304,6 @@ pub fn file_start_scan(
 
     Ok(FileScan {
         receiver,
-        exhausted: AtomicBool::new(false),
         total_splits,
         delivered: AtomicU64::new(0),
         file_row_number_column_pos,
@@ -310,8 +313,8 @@ pub fn file_start_scan(
     })
 }
 
-pub fn file_has_work(scan: &FileScan) -> bool {
-    !scan.exhausted.load(Ordering::Acquire)
+pub fn file_has_work(reader: &FileReader) -> bool {
+    !reader.exhausted.load(Ordering::Acquire)
 }
 
 fn file_scan_aggregate(

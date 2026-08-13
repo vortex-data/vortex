@@ -7,11 +7,13 @@
 #include "vortex_duckdb.h"
 #include "vortex.h"
 
+// TODO (myrrc) remove NDEBUG in release builds
+
 unique_ptr<FunctionData> VortexBindData::Copy() const {
     auto result = make_uniq<VortexBindData>();
     if (ffi_bind_data) {
-        const auto copied = duckdb_table_function_bind_data_clone(ffi_bind_data->DataPtr());
-        result->ffi_bind_data = unique_ptr<CData>(reinterpret_cast<CData *>(copied));
+        const duckdb_vx_data copy = duckdb_table_function_bind_data_clone(ffi_bind_data->DataPtr());
+        result->ffi_bind_data = unique_ptr<CData>(reinterpret_cast<CData *>(copy));
     }
     return result;
 }
@@ -23,74 +25,44 @@ bool VortexBindData::Equals(const FunctionData &other_base) const {
 
 ReaderInitializeType
 VortexMultiFileReader::InitializeReader(MultiFileReaderData &reader_data,
-                                        const MultiFileBindData &bind_data,
+                                        const MultiFileBindData &,
                                         const vector<MultiFileColumnDefinition> &global_columns,
-                                        const vector<ColumnIndex> &global_column_ids,
-                                        optional_ptr<TableFilterSet> table_filters,
-                                        ClientContext &context,
+                                        const vector<ColumnIndex> &,
+                                        optional_ptr<TableFilterSet>,
+                                        ClientContext &,
                                         MultiFileGlobalState &gstate) {
-    if (gstate.global_state) {
-        auto &reader = reader_data.reader->Cast<VortexBaseReader>();
-        duckdb_vx_error error_out = nullptr;
-        const bool skip = duckdb_table_function_file_should_skip(
-            gstate.global_state->Cast<VortexGlobalState>().ffi_global_state->DataPtr(),
-            reader.ffi_file->DataPtr(),
-            &error_out);
-        if (error_out) {
-            throw InvalidInputException(IntoErrString(error_out));
-        }
-        if (skip) {
-            return ReaderInitializeType::SKIP_READING_FILE;
-        }
-    }
+    D_ASSERT(gstate.global_state != nullptr);
 
-    reader_data.reader->columns = global_columns;
+    // TODO(myrrc): call MultiFileReader::InitializeReader and exit early once
+    // we support hive partitioning and/or UNION BY NAME
 
-    auto init = MultiFileReader::InitializeReader(reader_data,
-                                                  bind_data,
-                                                  global_columns,
-                                                  global_column_ids,
-                                                  table_filters,
-                                                  context,
-                                                  gstate);
-    /*
-     * Start the scan early. Default MultiFileReader model is "1 split per
-     * worker". This works poorly for queries on multiple files, think
-     * clickbench. What we do here is we launch prefetch/decode for the file
-     * before reader has been bound. This means by the time a worker starts
-     * processing next file, next file' splits are already decoded.
-     *
-     * Another performance degradation if we don't start the scan here is that
-     * TryInitializeScan is called under global lock, while InitializeReader is
-     * called under a file-local lock.
-     *
-     * With duckdb 2.0 this code will migrate to readahead queue.
-     */
-    if (init != ReaderInitializeType::SKIP_READING_FILE && gstate.global_state) {
-        reader_data.reader->Cast<VortexBaseReader>().StartScan(*gstate.global_state);
+    // projection expression pushdown and aggregate pushdown may have
+    // changed columns, update them in our reader
+    VortexBaseReader &reader = reader_data.reader->Cast<VortexBaseReader>();
+    reader.columns = global_columns;
+
+    VortexGlobalState &global = gstate.global_state->Cast<VortexGlobalState>();
+    duckdb_vx_error error = nullptr;
+    void *const ffi_global_state = global.ffi_global_state->DataPtr();
+    void *const ffi_file = reader.ffi_file->DataPtr();
+    const bool skip = duckdb_table_function_file_should_skip(ffi_global_state, ffi_file, &error);
+    if (error) {
+        throw InvalidInputException(IntoErrString(error));
     }
-    return init;
+    return skip ? ReaderInitializeType::SKIP_READING_FILE : ReaderInitializeType::INITIALIZED;
 }
 
-void VortexReaderInterface::BindReader(ClientContext &context,
-                                       vector<LogicalType> &return_types,
-                                       vector<string> &names,
+void VortexReaderInterface::BindReader(ClientContext &,
+                                       vector<LogicalType> &,
+                                       vector<string> &,
                                        MultiFileBindData &bind_data) {
     auto &bind = bind_data.bind_data->Cast<VortexBindData>();
-    BaseFileReaderOptions options;
-    bind_data.reader_bind = bind_data.multi_file_reader->BindReader(context,
-                                                                    return_types,
-                                                                    names,
-                                                                    *bind_data.file_list,
-                                                                    bind_data,
-                                                                    options,
-                                                                    bind_data.file_options);
-
-    auto &initial_reader = bind_data.initial_reader->Cast<VortexBaseReader>();
-    duckdb_vx_error error_out = nullptr;
-    duckdb_vx_data ffi_bind_data = duckdb_table_function_bind(initial_reader.ffi_file->DataPtr(), &error_out);
-    if (error_out) {
-        throw BinderException(IntoErrString(error_out));
+    VortexBaseReader &initial_reader = bind_data.initial_reader->Cast<VortexBaseReader>();
+    duckdb_vx_error error = nullptr;
+    void *const ffi_file = initial_reader.ffi_file->DataPtr();
+    duckdb_vx_data ffi_bind_data = duckdb_table_function_bind(ffi_file, &error);
+    if (error) {
+        throw BinderException(IntoErrString(error));
     }
     bind.ffi_bind_data = unique_ptr<CData>(reinterpret_cast<CData *>(ffi_bind_data));
 }
@@ -145,15 +117,16 @@ VortexReaderInterface::InitializeLocalState(ExecutionContext &, GlobalTableFunct
 }
 
 static shared_ptr<BaseFileReader> OpenReader(const OpenFileInfo &file, idx_t file_idx) {
-    duckdb_vx_error error_out = nullptr;
+    duckdb_vx_error error = nullptr;
     duckdb_vx_data ffi_file =
-        duckdb_table_function_file_open(file.path.c_str(), file.path.size(), file_idx, &error_out);
-    if (error_out) {
-        throw IOException(IntoErrString(error_out));
+        duckdb_table_function_file_open(file.path.c_str(), file.path.size(), file_idx, &error);
+    if (error) {
+        throw IOException(IntoErrString(error));
     }
     return make_shared_ptr<VortexBaseReader>(file, unique_ptr<CData>(reinterpret_cast<CData *>(ffi_file)));
 }
 
+// open file, read schema
 shared_ptr<BaseFileReader> VortexReaderInterface::CreateReader(ClientContext &,
                                                                GlobalTableFunctionState &,
                                                                const OpenFileInfo &file,
@@ -183,9 +156,10 @@ shared_ptr<BaseFileReader> VortexReaderInterface::CreateReader(ClientContext &,
     return reader;
 }
 
-unique_ptr<NodeStatistics> VortexReaderInterface::GetCardinality(const MultiFileBindData &bind_data,
+unique_ptr<NodeStatistics> VortexReaderInterface::GetCardinality(const MultiFileBindData &data,
                                                                  idx_t file_count) {
-    const void *const ffi_bind = bind_data.bind_data->Cast<VortexBindData>().ffi_bind_data->DataPtr();
+    const VortexBindData &bind_data = data.bind_data->Cast<VortexBindData>();
+    const void *const ffi_bind = bind_data.ffi_bind_data->DataPtr();
 
     duckdb_vx_node_statistics stats = {};
     duckdb_table_function_cardinality(ffi_bind, file_count, &stats);
@@ -198,19 +172,26 @@ unique_ptr<NodeStatistics> VortexReaderInterface::GetCardinality(const MultiFile
     return out;
 }
 
-void VortexBaseReader::StartScan(GlobalTableFunctionState &gstate) {
-    if (ffi_file_scan) {
-        return;
-    }
-    auto &global = gstate.Cast<VortexGlobalState>();
+void VortexBaseReader::PrepareReader(ClientContext &, GlobalTableFunctionState &state) {
+    /*
+     * Start the scan early. Default MultiFileReader model is "1 split per
+     * worker". This works poorly for queries on multiple files, think
+     * clickbench. What we do here is we launch prefetch/decode for the file
+     * before reader has been bound. This means by the time a worker starts
+     * processing next file, next file' splits are already decoded.
+     *
+     * Another performance consideration is that TryInitializeScan is called
+     * under global lock and PrepareReader is called under file-local lock.
+     *
+     * With duckdb 2.0 this code will migrate to readahead queue.
+     */
+    VortexGlobalState &global = state.Cast<VortexGlobalState>();
 
     const idx_t real_columns = columns.size() - virtual_ids.size();
-    vector<idx_t> local_column_ids;
-    local_column_ids.reserve(column_ids.size());
+    vector<idx_t> local_column_ids(column_ids.size());
     for (idx_t i = 0; i < column_ids.size(); i++) {
         const idx_t local_id = column_ids[MultiFileLocalIndex(i)];
-        local_column_ids.push_back(local_id >= real_columns ? virtual_ids[local_id - real_columns]
-                                                            : local_id);
+        local_column_ids[i] = local_id < real_columns ? local_id : virtual_ids[local_id - real_columns];
     }
 
     duckdb_vx_error error_out = nullptr;
@@ -229,9 +210,10 @@ void VortexBaseReader::StartScan(GlobalTableFunctionState &gstate) {
 }
 
 bool VortexBaseReader::TryInitializeScan(ClientContext &,
-                                         GlobalTableFunctionState &gstate,
+                                         GlobalTableFunctionState &,
                                          LocalTableFunctionState &) {
-    StartScan(gstate);
+    // false if file is exhausted
+    D_ASSERT(ffi_file_scan != nullptr); // scan already started in PrepareReader
     return duckdb_table_function_file_has_work(ffi_file_scan->DataPtr());
 }
 

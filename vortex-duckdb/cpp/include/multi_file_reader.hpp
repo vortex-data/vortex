@@ -38,7 +38,12 @@ struct VortexMultiFileReader final : MultiFileReader {
         return make_uniq<VortexMultiFileReader>();
     }
 
-    // Prune reader if file statistics prove false for "table_filters"
+    /*
+     * Called after InitializeGlobalState but before TryInitializeScan under
+     * file-local lock. Used to avoid opening the file for scanning if footer
+     * statistics prove false for pushed filter or file index is not present in
+     * file selection.
+     */
     ReaderInitializeType InitializeReader(MultiFileReaderData &reader_data,
                                           const MultiFileBindData &bind_data,
                                           const vector<MultiFileColumnDefinition> &global_columns,
@@ -81,8 +86,8 @@ struct VortexReaderInterface final : MultiFileReaderInterface {
     }
 
     void BindReader(ClientContext &,
-                    vector<LogicalType> &return_types,
-                    vector<string> &names,
+                    vector<LogicalType> &,
+                    vector<string> &,
                     MultiFileBindData &bind_data) override;
 
     unique_ptr<GlobalTableFunctionState> InitializeGlobalState(ClientContext &context,
@@ -138,9 +143,15 @@ struct VortexBaseReader final : BaseFileReader {
         virtual_ids.push_back(virtual_column_id);
     }
 
-    void StartScan(GlobalTableFunctionState &gstate);
+    /**
+     * Start the scan early for file.
+     *
+     * Called after VortexMultiFileReader::InitializeReader is file is not
+     * skipped. Called under file-local lock.
+     */
+    void PrepareReader(ClientContext &context, GlobalTableFunctionState &state) override;
 
-    // Returns false when file is exhausted
+    // Called under global lock. Returns false when file is exhausted.
     bool TryInitializeScan(ClientContext &context,
                            GlobalTableFunctionState &gstate,
                            LocalTableFunctionState &lstate) override;

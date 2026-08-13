@@ -290,11 +290,11 @@ pub unsafe extern "C-unwind" fn duckdb_table_function_file_start_scan(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn duckdb_table_function_file_has_work(
-    file_scan_data: *const c_void,
+    file_reader: *const c_void,
 ) -> bool {
-    let scan = unsafe { file_scan_data.cast::<FileScan>().as_ref() }
-        .vortex_expect("file_scan null pointer");
-    file_has_work(scan)
+    let reader = unsafe { file_reader.cast::<FileReader>().as_ref() }
+        .vortex_expect("file_reader null pointer");
+    file_has_work(reader)
 }
 
 #[unsafe(no_mangle)]
