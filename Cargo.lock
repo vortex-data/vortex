@@ -10127,6 +10127,7 @@ dependencies = [
 name = "vortex-file"
 version = "0.1.0"
 dependencies = [
+ "async-stream",
  "async-trait",
  "bytes",
  "codspeed-divan-compat",

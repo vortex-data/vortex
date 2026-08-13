@@ -30,13 +30,14 @@ pin_project! {
     /// an ordering of `(has_been_polled, insertion_order)`, skipping any canceled requests, and
     /// then coalescing with other nearby requests within the configured `window`.
     ///
-    /// The output of this stream is expected to be buffered by the desired I/O concurrency, and
-    /// driven to completion.
+    /// The output contains up to `batch_size` immediately eligible physical requests. A poll never
+    /// waits to fill a batch.
     pub(crate) struct IoRequestStream<S> {
         #[pin]
         events: S,
         inner_done: bool,
         coalesce_window: Option<CoalesceConfig>,
+        batch_size: usize,
         state: State,
     }
 }
@@ -48,15 +49,18 @@ impl<S> IoRequestStream<S> {
         events: S,
         coalesce_window: Option<CoalesceConfig>,
         coalesced_buffer_alignment: Alignment,
+        batch_size: usize,
         metrics: RequestMetrics,
     ) -> Self
     where
         S: Stream<Item = ReadEvent> + Unpin + Send + 'static,
     {
+        assert!(batch_size > 0, "I/O request batch size must be non-zero");
         IoRequestStream {
             events,
             inner_done: false,
             coalesce_window,
+            batch_size,
             state: State::new(metrics, coalesced_buffer_alignment),
         }
     }
@@ -66,7 +70,7 @@ impl<S> Stream for IoRequestStream<S>
 where
     S: Stream<Item = ReadEvent> + Unpin + Send + 'static,
 {
-    type Item = IoRequest;
+    type Item = Vec<IoRequest>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
@@ -87,9 +91,16 @@ where
             }
         }
 
-        // Try to get a coalesced request
-        if let Some(coalesced) = this.state.next(this.coalesce_window.as_ref()) {
-            return Poll::Ready(Some(coalesced));
+        // Return up to batch_size requests that are eligible now. Do not wait to fill the batch.
+        let mut batch = Vec::with_capacity(*this.batch_size);
+        while batch.len() < *this.batch_size {
+            let Some(request) = this.state.next(this.coalesce_window.as_ref()) else {
+                break;
+            };
+            batch.push(request);
+        }
+        if !batch.is_empty() {
+            return Poll::Ready(Some(batch));
         }
 
         // If the inner stream is done, and we have no more _polled_ requests, we're done
@@ -326,10 +337,12 @@ impl State {
 #[cfg(test)]
 mod tests {
     use futures::StreamExt;
+    use futures::channel::mpsc;
     use futures::stream;
     use vortex_array::buffer::BufferHandle;
     use vortex_buffer::Alignment;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_panic;
     use vortex_metrics::DefaultMetricsRegistry;
     use vortex_metrics::MetricValue;
     use vortex_metrics::MetricsRegistry;
@@ -374,9 +387,10 @@ mod tests {
             event_stream,
             coalesce_window,
             coalesced_buffer_alignment,
+            1024,
             metrics,
         );
-        io_stream.collect().await
+        io_stream.concat().await
     }
 
     #[tokio::test]
@@ -413,6 +427,65 @@ mod tests {
         // Should be in insertion order, not poll order!
         let offsets: Vec<u64> = outputs.iter().map(|req| req.offset()).collect();
         assert_eq!(offsets, vec![0, 100, 200]); // req1, req2, req3
+    }
+
+    #[tokio::test]
+    async fn test_bounded_request_batches() {
+        let mut events = Vec::new();
+        let mut receivers = Vec::new();
+        for id in 0..5 {
+            let (request, recv) = create_request(id, id as u64 * 10, 10);
+            events.push(ReadEvent::Request(request));
+            events.push(ReadEvent::Polled(id));
+            receivers.push(recv);
+        }
+
+        let metrics_registry = DefaultMetricsRegistry::default();
+        let metrics = RequestMetrics::new(&metrics_registry, vec![]);
+        let batches =
+            IoRequestStream::new(stream::iter(events), None, Alignment::none(), 2, metrics)
+                .collect::<Vec<_>>()
+                .await;
+
+        assert_eq!(receivers.len(), 5);
+        assert_eq!(batches.iter().map(Vec::len).collect::<Vec<_>>(), [2, 2, 1]);
+        assert_eq!(
+            batches
+                .into_iter()
+                .flatten()
+                .map(|request| request.offset())
+                .collect::<Vec<_>>(),
+            [0, 10, 20, 30, 40]
+        );
+    }
+
+    #[test]
+    fn test_partial_batch_emits_without_waiting_for_more_events() {
+        let (sender, receiver) = mpsc::unbounded();
+        let (request, _recv) = create_request(1, 0, 10);
+        assert!(sender.unbounded_send(ReadEvent::Request(request)).is_ok());
+        assert!(sender.unbounded_send(ReadEvent::Polled(1)).is_ok());
+
+        let metrics_registry = DefaultMetricsRegistry::default();
+        let metrics = RequestMetrics::new(&metrics_registry, vec![]);
+        let mut batches = Box::pin(IoRequestStream::new(
+            receiver,
+            None,
+            Alignment::none(),
+            32,
+            metrics,
+        ));
+
+        // Keep `sender` alive: the input is pending, not finished, and the partial batch must still
+        // be returned by the current poll rather than waiting for 31 more requests.
+        let waker = futures::task::noop_waker();
+        let mut context = Context::from_waker(&waker);
+        let Poll::Ready(Some(batch)) = batches.as_mut().poll_next(&mut context) else {
+            vortex_panic!("partial batch was not emitted by the current poll");
+        };
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch[0].offset(), 0);
+        drop(sender);
     }
 
     #[tokio::test]
@@ -734,10 +807,11 @@ mod tests {
                 max_size: 1024,
             }),
             Alignment::none(),
+            1024,
             metrics,
         );
 
-        let outputs: Vec<IoRequest> = io_stream.collect().await;
+        let outputs: Vec<IoRequest> = io_stream.concat().await;
         assert_eq!(outputs.len(), 2);
 
         let snapshot = metrics_registry.snapshot();
@@ -788,9 +862,9 @@ mod tests {
         let metrics_registry = DefaultMetricsRegistry::default();
         let metrics = RequestMetrics::new(&metrics_registry, vec![]);
         // No coalescing window - should be individual requests
-        let io_stream = IoRequestStream::new(event_stream, None, Alignment::none(), metrics);
+        let io_stream = IoRequestStream::new(event_stream, None, Alignment::none(), 1024, metrics);
 
-        let outputs: Vec<IoRequest> = io_stream.collect().await;
+        let outputs: Vec<IoRequest> = io_stream.concat().await;
         assert_eq!(outputs.len(), 2);
 
         // Check metrics
