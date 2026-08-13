@@ -16,6 +16,8 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_mask::AllOr;
+use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::ArraySlots;
@@ -122,6 +124,26 @@ pub struct VarBinViewDataParts {
     pub validity: Validity,
 }
 
+// Walk invalid (null) runs of "mask" as [start, end) ranges
+fn for_each_invalid_range(mask: &Mask, len: usize, mut f: impl FnMut(usize, usize)) {
+    match mask.bit_buffer() {
+        AllOr::All => {}
+        AllOr::None => f(0, len),
+        AllOr::Some(buffer) => {
+            let mut prev = 0;
+            for (start, end) in buffer.set_slices() {
+                if start > prev {
+                    f(prev, start);
+                }
+                prev = end;
+            }
+            if prev < len {
+                f(prev, len);
+            }
+        }
+    }
+}
+
 impl VarBinViewData {
     fn dtype_parts(dtype: &DType) -> VortexResult<(bool, Nullability)> {
         match dtype {
@@ -201,20 +223,27 @@ impl VarBinViewData {
         if mask.all_true() {
             return Ok(views);
         }
+        let len = views.len();
         let empty = BinaryView::empty_view();
-        let Some(first) = views
-            .iter()
-            .zip(mask.iter())
-            .position(|(view, valid)| !valid && *view != empty)
-        else {
-            return Ok(views);
-        };
-        let mut views = views.into_mut();
-        for (view, valid) in views.iter_mut().zip(mask.iter()).skip(first) {
-            if !valid {
-                *view = empty;
+
+        let mut views = match views.try_into_mut() {
+            Ok(views) => views,
+            Err(views) => {
+                let mut needs_replace = false;
+                for_each_invalid_range(&mask, len, |start, end| {
+                    if !needs_replace && views[start..end].iter().any(|view| *view != empty) {
+                        needs_replace = true;
+                    }
+                });
+                if !needs_replace {
+                    return Ok(views);
+                }
+                views.into_mut()
             }
-        }
+        };
+
+        let slice = views.as_mut_slice();
+        for_each_invalid_range(&mask, len, |start, end| slice[start..end].fill(empty));
         Ok(views.freeze())
     }
 
