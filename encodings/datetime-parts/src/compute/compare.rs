@@ -14,6 +14,7 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::binary::CompareKernel;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 
 use crate::array::DateTimeParts;
@@ -196,10 +197,30 @@ fn compare_dtp(
                 CompareOperator::Lt | CompareOperator::Lte => all_lhs_smaller,
                 CompareOperator::Gt | CompareOperator::Gte => !all_lhs_smaller,
             };
-            Ok(
-                ConstantArray::new(Scalar::bool(constant_value, nullability), lhs.len())
-                    .into_array(),
-            )
+            // If there are nulls in lhs, we need to propagate them
+            let validity = match nullability {
+                Nullability::NonNullable => Validity::NonNullable,
+                // lhs may be non-nullable while rhs contributes the nullability.
+                Nullability::Nullable => match lhs.validity()? {
+                    Validity::NonNullable => Validity::AllValid,
+                    validity => validity,
+                },
+            };
+            Ok(match validity {
+                Validity::NonNullable | Validity::AllValid => {
+                    ConstantArray::new(Scalar::bool(constant_value, nullability), lhs.len())
+                        .into_array()
+                }
+                Validity::AllInvalid => {
+                    ConstantArray::new(Scalar::null(DType::Bool(nullability)), lhs.len())
+                        .into_array()
+                }
+                Validity::Array(validity_array) => {
+                    ConstantArray::new(Scalar::bool(constant_value, nullability), lhs.len())
+                        .into_array()
+                        .mask(validity_array)?
+                }
+            })
         }
     }
 }
@@ -208,6 +229,7 @@ fn compare_dtp(
 mod test {
     use rstest::rstest;
     use vortex_array::ArrayRef;
+    use vortex_array::Canonical;
     use vortex_array::ExecutionCtx;
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::fns::sum::sum;
@@ -451,6 +473,38 @@ mod test {
 
         let gt = lhs.binary(rhs, Operator::Gt)?;
         assert_eq!(true_count(&gt, &mut ctx), 1);
+        Ok(())
+    }
+
+    /// A null lhs value stays null, even when the constant is outside the range of the narrowed
+    /// days storage type.
+    #[test]
+    fn compare_date_time_parts_null_out_of_range_days_constant() -> VortexResult<()> {
+        let session = array_session();
+        crate::initialize(&session);
+        let mut ctx = session.create_execution_ctx();
+        // 1969-12-31, a day of `-1`: below the minimum of an unsigned days array.
+        let timestamp = Scalar::extension::<Timestamp>(
+            TimestampOptions {
+                unit: TimeUnit::Milliseconds,
+                tz: None,
+            },
+            (-86_400_000i64).into(),
+        );
+        let rhs = ConstantArray::new(timestamp, 1).into_array();
+        let lhs = DateTimeParts::try_new(
+            rhs.dtype().with_nullability(Nullability::Nullable),
+            PrimitiveArray::new(buffer![20_677u16], Validity::AllInvalid).into_array(),
+            buffer![0u16].into_array(),
+            buffer![0u16].into_array(),
+        )?
+        .into_array();
+
+        let gt = lhs
+            .binary(rhs, Operator::Gt)?
+            .execute::<Canonical>(&mut ctx)?
+            .into_array();
+        assert_eq!(gt.invalid_count(&mut ctx)?, 1);
         Ok(())
     }
 }
