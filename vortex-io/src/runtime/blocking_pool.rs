@@ -8,9 +8,11 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use kanal::Receiver;
-use kanal::Sender;
-use kanal::unbounded;
+use crossbeam_channel::Receiver;
+use crossbeam_channel::RecvTimeoutError;
+use crossbeam_channel::Sender;
+use crossbeam_channel::TryRecvError;
+use crossbeam_channel::unbounded;
 use parking_lot::Mutex;
 use vortex_error::vortex_panic;
 
@@ -50,6 +52,7 @@ impl BlockingPool {
 
     pub(crate) fn spawn(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
         let cancelled = Arc::new(AtomicBool::new(false));
+        let mut state = self.state.lock();
         if self
             .sender
             .send(Job {
@@ -60,16 +63,15 @@ impl BlockingPool {
         {
             vortex_panic!("cannot spawn blocking work on a shut down runtime");
         }
-        self.grow();
+        state.queued_job_count += 1;
+        if state.queued_job_count > state.idle_thread_count {
+            self.grow(&mut state);
+        }
         Box::new(BlockingAbortHandle { cancelled })
     }
 
-    fn grow(&self) {
-        let mut state = self.state.lock();
-        // An unbounded kanal send hands work directly to a waiting receiver. A queued job therefore
-        // means every existing worker is busy (or transitioning out of an idle wait), so add one
-        // worker for this submission while capacity remains.
-        if self.sender.is_empty() || state.thread_count >= self.thread_limit {
+    fn grow(&self, state: &mut PoolState) {
+        if state.thread_count >= self.thread_limit {
             return;
         }
         state.thread_count += 1;
@@ -86,15 +88,13 @@ impl BlockingPool {
     }
 }
 
-impl Drop for BlockingPool {
-    fn drop(&mut self) {
-        drop(self.sender.close());
-    }
-}
-
 #[derive(Default)]
 struct PoolState {
+    // All three counters are updated while holding the pool mutex. Keeping queued work and idle
+    // capacity in the same state makes thread growth independent of channel timing.
     thread_count: usize,
+    idle_thread_count: usize,
+    queued_job_count: usize,
 }
 
 struct Job {
@@ -122,27 +122,63 @@ impl AbortHandle for BlockingAbortHandle {
 
 fn worker_loop(receiver: Receiver<Job>, state: Arc<Mutex<PoolState>>) {
     loop {
+        let mut pool_state = state.lock();
+        match receiver.try_recv() {
+            Ok(job) => {
+                pool_state.queued_job_count -= 1;
+                drop(pool_state);
+                run_job(job);
+                continue;
+            }
+            Err(TryRecvError::Disconnected) => {
+                pool_state.thread_count -= 1;
+                return;
+            }
+            Err(TryRecvError::Empty) => {
+                pool_state.idle_thread_count += 1;
+            }
+        }
+        drop(pool_state);
+
         match receiver.recv_timeout(KEEP_ALIVE) {
             Ok(job) => {
-                // `Handle::spawn_blocking` catches task panics so they can be propagated to the
-                // caller. Keep this boundary too, so an unexpected panic does not corrupt the
-                // worker counts and permanently reduce the pool's capacity.
-                drop(catch_unwind(AssertUnwindSafe(|| job.run())));
+                let mut pool_state = state.lock();
+                pool_state.idle_thread_count -= 1;
+                pool_state.queued_job_count -= 1;
+                drop(pool_state);
+                run_job(job);
             }
-            Err(kanal::ReceiveErrorTimeout::Timeout) => {
-                let mut state = state.lock();
-                if receiver.is_empty() {
-                    state.thread_count -= 1;
-                    return;
+            Err(RecvTimeoutError::Timeout) => {
+                let mut pool_state = state.lock();
+                match receiver.try_recv() {
+                    Ok(job) => {
+                        pool_state.idle_thread_count -= 1;
+                        pool_state.queued_job_count -= 1;
+                        drop(pool_state);
+                        run_job(job);
+                    }
+                    Err(TryRecvError::Empty | TryRecvError::Disconnected) => {
+                        pool_state.idle_thread_count -= 1;
+                        pool_state.thread_count -= 1;
+                        return;
+                    }
                 }
             }
-            Err(kanal::ReceiveErrorTimeout::Closed | kanal::ReceiveErrorTimeout::SendClosed) => {
-                let mut state = state.lock();
-                state.thread_count -= 1;
+            Err(RecvTimeoutError::Disconnected) => {
+                let mut pool_state = state.lock();
+                pool_state.idle_thread_count -= 1;
+                pool_state.thread_count -= 1;
                 return;
             }
         }
     }
+}
+
+fn run_job(job: Job) {
+    // `Handle::spawn_blocking` catches task panics so they can be propagated to the caller. Keep
+    // this boundary too, so an unexpected panic does not corrupt the worker counts and permanently
+    // reduce the pool's capacity.
+    drop(catch_unwind(AssertUnwindSafe(|| job.run())));
 }
 
 fn max_threads() -> usize {
@@ -157,6 +193,7 @@ fn max_threads() -> usize {
 mod tests {
     use std::sync::Barrier;
     use std::sync::mpsc;
+    use std::time::Instant;
 
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
@@ -231,6 +268,45 @@ mod tests {
                 .map_err(|error| vortex_err!("blocking job did not start: {error}"))?;
         }
         barrier.wait();
+        Ok(())
+    }
+
+    #[test]
+    fn test_reuses_idle_worker() -> VortexResult<()> {
+        let pool = BlockingPool::new(2);
+        let (first_send, first_recv) = mpsc::sync_channel(1);
+        drop(pool.spawn(Box::new(move || {
+            let _ = first_send.send(std::thread::current().id());
+        })));
+        let first_thread = first_recv
+            .recv_timeout(Duration::from_secs(5))
+            .map_err(|error| vortex_err!("first blocking job did not finish: {error}"))?;
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while pool.state.lock().idle_thread_count != 1 {
+            if Instant::now() >= deadline {
+                return Err(vortex_err!("blocking worker did not become idle"));
+            }
+            std::thread::yield_now();
+        }
+
+        let (started_send, started_recv) = mpsc::sync_channel(1);
+        let (release_send, release_recv) = mpsc::sync_channel(1);
+        drop(pool.spawn(Box::new(move || {
+            let _ = started_send.send(std::thread::current().id());
+            let _ = release_recv.recv();
+        })));
+        let second_thread = started_recv
+            .recv_timeout(Duration::from_secs(5))
+            .map_err(|error| vortex_err!("second blocking job did not finish: {error}"))?;
+
+        assert_eq!(first_thread, second_thread);
+        let state = pool.state.lock();
+        assert_eq!(state.thread_count, 1);
+        assert_eq!(state.idle_thread_count, 0);
+        assert_eq!(state.queued_job_count, 0);
+        drop(state);
+        let _ = release_send.send(());
         Ok(())
     }
 }

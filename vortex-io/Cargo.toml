@@ -21,6 +21,7 @@ async-fs = { workspace = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
+crossbeam-channel = { workspace = true }
 futures = { workspace = true, features = ["std", "executor"] }
 glob = { workspace = true }
 kanal = { workspace = true }

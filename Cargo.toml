@@ -129,6 +129,7 @@ cfg-if = "1.0.1"
 chrono = "0.4.44"
 clap = "4.5"
 criterion = { package = "codspeed-criterion-compat-walltime", version = "5.0.0" }
+crossbeam-channel = "0.5.16"
 crossterm = "0.29"
 cudarc = { version = "0.19.0", features = [
     # The NSight Compute version available on lambda.ai hosts does not inject a symbol for

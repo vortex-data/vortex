@@ -10235,6 +10235,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "bytes",
+ "crossbeam-channel",
  "custom-labels",
  "futures",
  "glob",
