@@ -175,6 +175,7 @@ impl BtrBlocksCompressorBuilder {
             float::ALPRDScheme.id(),
             float::FloatRLEScheme.id(),
             float::NullDominatedSparseScheme.id(),
+            string::NullDominatedSparseScheme.id(),
             string::StringDictScheme.id(),
             binary::BinaryDictScheme.id(),
         ];
@@ -268,6 +269,22 @@ mod tests {
                 .iter()
                 .any(|s| s.id() == float::ALPRDScheme.id())
         );
+    }
+
+    /// `vortex.sparse` has no CUDA decode kernel, so no sparse scheme may survive this preset.
+    #[test]
+    fn cuda_compatible_excludes_every_sparse_scheme() {
+        let builder = BtrBlocksCompressorBuilder::default().only_cuda_compatible();
+        for excluded in [
+            integer::SparseScheme.id(),
+            float::NullDominatedSparseScheme.id(),
+            string::NullDominatedSparseScheme.id(),
+        ] {
+            assert!(
+                !builder.schemes.iter().any(|s| s.id() == excluded),
+                "{excluded} should be excluded"
+            );
+        }
     }
 
     #[test]
