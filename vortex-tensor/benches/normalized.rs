@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Baseline throughput for decoding the `Normalized` encoding over tensor columns.
+//! Baseline throughput for encoding and decoding `Normalized` tensor columns.
 //!
 //! The arms vary vector width and input nullability. Their names are intended to remain stable
 //! across implementation changes so CodSpeed can compare them against `develop`.
 //!
 //! Rows are derived from a fixed element budget rather than fixed per arm, so widening a vector
 //! trades rows for elements instead of multiplying the work. See [`ELEMENTS`].
+//!
+//! Narrow vectors expose the per-row encoding cost. Wide vectors emphasize the per-element
+//! division cost.
 
 #![expect(clippy::unwrap_used)]
 
@@ -24,10 +27,11 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_tensor::encodings::normalized::Normalized;
+use vortex_tensor::encodings::normalized::normalize;
 use vortex_tensor::vector::Vector;
 
-// Decoding allocates the output inside the timed region, so use the vendored allocator instead
-// of measuring glibc differences between CodSpeed runner images.
+// Both directions allocate their output inside the timed region, so use the vendored allocator
+// instead of measuring glibc differences between CodSpeed runner images.
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
@@ -56,12 +60,32 @@ fn normalized_vectors(width: usize) -> ArrayRef {
     Vector::try_new_vector_array(storage).unwrap()
 }
 
+fn plain_vectors(width: usize) -> ArrayRef {
+    let rows = ELEMENTS / width;
+    // Keep every row nonzero so encoding always takes the division path.
+    let elements: Buffer<f64> = (0..rows)
+        .flat_map(|row| (0..width).map(move |i| (row + 1) as f64 * (i + 1) as f64))
+        .collect();
+    let storage = FixedSizeListArray::new(
+        elements.into_array(),
+        u32::try_from(width).unwrap(),
+        Validity::NonNullable,
+        rows,
+    )
+    .into_array();
+    Vector::try_new_vector_array(storage).unwrap()
+}
+
+fn sparse_nulls(width: usize) -> Validity {
+    Validity::from_iter((0..ELEMENTS / width).map(|i| !i.is_multiple_of(8)))
+}
+
 fn norms(rows: usize) -> ArrayRef {
     let values: Buffer<f64> = (0..rows).map(|i| 1.0 + ((i % 13) as f64) / 13.0).collect();
     PrimitiveArray::new(values, Validity::NonNullable).into_array()
 }
 
-fn bench_normalized(bencher: Bencher, normalized: ArrayRef) {
+fn bench_decode(bencher: Bencher, normalized: ArrayRef, validity: Validity) {
     let session = vortex_array::array_session();
     let rows = normalized.len();
     let norms = norms(rows);
@@ -69,7 +93,13 @@ fn bench_normalized(bencher: Bencher, normalized: ArrayRef) {
         .counter(ItemsCount::new(rows))
         .with_inputs(|| {
             let mut ctx = session.create_execution_ctx();
-            let array = Normalized::try_new(normalized.clone(), norms.clone(), &mut ctx).unwrap();
+            let array = Normalized::try_new(
+                normalized.clone(),
+                norms.clone(),
+                validity.clone(),
+                &mut ctx,
+            )
+            .unwrap();
             (array, ctx)
         })
         .bench_values(|(array, mut ctx)| {
@@ -80,16 +110,35 @@ fn bench_normalized(bencher: Bencher, normalized: ArrayRef) {
         });
 }
 
+fn bench_encode(bencher: Bencher, input: ArrayRef) {
+    let session = vortex_array::array_session();
+    let rows = input.len();
+    bencher
+        .counter(ItemsCount::new(rows))
+        .with_inputs(|| (input.clone(), session.create_execution_ctx()))
+        .bench_values(|(input, mut ctx)| normalize(input, &mut ctx).unwrap());
+}
+
 #[divan::bench(args = WIDTHS)]
 fn non_nullable(bencher: Bencher, width: usize) {
-    bench_normalized(bencher, normalized_vectors(width));
+    bench_decode(bencher, normalized_vectors(width), Validity::NonNullable);
 }
 
 #[divan::bench(args = WIDTHS)]
 fn nullable(bencher: Bencher, width: usize) {
-    let validity = Validity::from_iter((0..ELEMENTS / width).map(|i| i % 8 != 0));
-    let normalized = MaskedArray::try_new(normalized_vectors(width), validity)
+    bench_decode(bencher, normalized_vectors(width), sparse_nulls(width));
+}
+
+#[divan::bench(args = WIDTHS)]
+fn encode_non_nullable(bencher: Bencher, width: usize) {
+    bench_encode(bencher, plain_vectors(width));
+}
+
+#[divan::bench(args = WIDTHS)]
+fn encode_nullable(bencher: Bencher, width: usize) {
+    let input = MaskedArray::try_new(plain_vectors(width), sparse_nulls(width))
         .unwrap()
         .into_array();
-    bench_normalized(bencher, normalized);
+
+    bench_encode(bencher, input);
 }
