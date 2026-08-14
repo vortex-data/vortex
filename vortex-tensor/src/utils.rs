@@ -33,20 +33,18 @@ use crate::encodings::normalized::NormalizedArraySlotsExt;
 use crate::matcher::AnyTensor;
 use crate::matcher::TensorMatch;
 
-/// Safety factor for unit-norm tolerance. Applied as a constant multiplier on the probabilistic
-/// `√d · ε` bound so that legitimate round-off noise clears the check with headroom.
-pub(crate) const SAFETY_FACTOR: usize = 10;
+const UNIT_NORM_SAFETY_FACTOR: f64 = 10.0;
+
+const F16_MAX_UNIT_NORM_DRIFT: f64 = 1e-2;
 
 /// Returns the acceptable unit-norm drift for the given element precision and dimension count.
 ///
-/// Uses the `c · √d · ε` bound where ε is machine epsilon and d is the vector dimension. Under
-/// IEEE 754 round-to-nearest the probabilistic (RMS-case) forward error for computing ‖x‖₂ grows
-/// as `O(√d · ε)` rather than the worst-case `O(d · ε)` from the classical Wilkinson bound,
-/// assuming near-independent rounding errors across the d-term summation.
+/// Uses `10 · √d · ε`, where `ε` is machine epsilon and `d` is the dimension count. The f16
+/// tolerance is capped at one percent.
 ///
-/// Reference: Croci, Fasi, Higham, Mary, Mikaitis (2022). "Stochastic rounding: implementation,
-/// error analysis and applications." Royal Society Open Science, 9: 211631, §6.1 "Probabilistic
-/// error analysis." <https://doi.org/10.1098/rsos.211631>
+/// # Panics
+///
+/// Panics if `element_ptype` is not floating point.
 pub fn unit_norm_tolerance(element_ptype: PType, dimensions: usize) -> f64 {
     let machine_epsilon: f64 = match element_ptype {
         PType::F64 => f64::EPSILON,
@@ -57,7 +55,12 @@ pub fn unit_norm_tolerance(element_ptype: PType, dimensions: usize) -> f64 {
 
     let dimensions_root = (dimensions as f64).sqrt();
 
-    SAFETY_FACTOR as f64 * machine_epsilon * dimensions_root
+    let tolerance = UNIT_NORM_SAFETY_FACTOR * machine_epsilon * dimensions_root;
+    if element_ptype == PType::F16 {
+        tolerance.min(F16_MAX_UNIT_NORM_DRIFT)
+    } else {
+        tolerance
+    }
 }
 
 /// Extracts the `(normalized, norms)` children of a [`Normalized`]-encoded array.
@@ -107,17 +110,33 @@ pub fn validate_tensor_float_input(input_dtype: &DType) -> VortexResult<TensorMa
     Ok(tensor_match)
 }
 
-/// Validates that two arguments of a binary tensor-like operator share the same float tensor
-/// dtype (ignoring top-level nullability), returning the shared [`TensorMatch`].
+/// Validates two arguments of a binary float tensor-like operator.
+///
+/// Fixed-shape tensors must have the same dtype, ignoring top-level nullability. Vector operands
+/// may mix [`Vector`](crate::vector::Vector) and
+/// [`UnitVector`](crate::unit_vector::UnitVector), but must have the same element ptype and
+/// dimensions. Returns the left operand's [`TensorMatch`].
 pub fn validate_binary_tensor_float_inputs<'a>(
     lhs: &'a DType,
     rhs: &DType,
 ) -> VortexResult<TensorMatch<'a>> {
-    vortex_ensure!(
-        lhs.eq_ignore_nullability(rhs),
-        "binary tensor expression expects inputs to have the same dtype, got {lhs} and {rhs}"
+    let lhs_match = validate_tensor_float_input(lhs)?;
+    let rhs_match = validate_tensor_float_input(rhs)?;
+    let both_vectors = matches!(
+        (lhs_match, rhs_match),
+        (TensorMatch::Vector(_), TensorMatch::Vector(_))
     );
-    validate_tensor_float_input(lhs)
+    let compatible = lhs.eq_ignore_nullability(rhs)
+        || (both_vectors
+            && lhs_match.element_ptype() == rhs_match.element_ptype()
+            && lhs_match.list_size() == rhs_match.list_size());
+
+    vortex_ensure!(
+        compatible,
+        "binary tensor expression expects compatible input dtypes, got {lhs} and {rhs}"
+    );
+
+    Ok(lhs_match)
 }
 
 /// The flat primitive elements of a tensor storage array, with typed row access.

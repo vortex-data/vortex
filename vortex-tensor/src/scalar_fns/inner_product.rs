@@ -47,11 +47,13 @@ use crate::utils::validate_binary_tensor_float_inputs;
 /// this is the standard dot product; for higher-rank ([`FixedShapeTensor`]) arrays this is the
 /// Frobenius inner product.
 ///
-/// Both inputs must be tensor-like extension arrays ([`FixedShapeTensor`] or [`Vector`]) with the
-/// same dtype and a float element type. The output is a float column of the same float type.
+/// Fixed-shape tensor inputs must have the same dtype, ignoring top-level nullability. Vector
+/// inputs may mix [`Vector`] and [`UnitVector`] when their element ptype and dimensions match. The
+/// output is a float column with that element ptype.
 ///
 /// [`FixedShapeTensor`]: crate::fixed_shape_tensor::FixedShapeTensor
 /// [`Vector`]: crate::vector::Vector
+/// [`UnitVector`]: crate::unit_vector::UnitVector
 #[derive(Clone)]
 pub struct InnerProduct;
 

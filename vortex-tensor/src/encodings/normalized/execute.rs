@@ -83,7 +83,13 @@ fn denormalize_constant_norms(
 
     // A near-unit norm must still be multiplied, or `scalar_at` can disagree with bulk decoding.
     if norm_value == 1.0 {
-        return reattach_validity(normalized.clone(), validity);
+        let normalized: ExtensionArray = normalized.clone().execute(ctx)?;
+        let decoded = ExtensionArray::new(
+            dtype.as_nonnullable().as_extension().clone(),
+            normalized.storage_array().clone(),
+        )
+        .into_array();
+        return reattach_validity(decoded, validity);
     }
 
     let normalized: ExtensionArray = normalized.clone().execute(ctx)?;

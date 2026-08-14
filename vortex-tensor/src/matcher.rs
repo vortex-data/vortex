@@ -14,10 +14,8 @@ use crate::types::vector::VectorMatcherMetadata;
 
 /// Matcher for any tensor-like extension type.
 ///
-/// Currently the different kinds of tensors that are available are:
-///
-/// - `FixedShapeTensor`
-/// - `Vector`
+/// Matches [`FixedShapeTensor`](crate::fixed_shape_tensor::FixedShapeTensor),
+/// [`Vector`](crate::vector::Vector), and [`UnitVector`](crate::unit_vector::UnitVector).
 pub struct AnyTensor;
 
 /// The matched variant of a tensor-like extension type.
@@ -26,9 +24,7 @@ pub enum TensorMatch<'a> {
     /// A [`FixedShapeTensor`](crate::fixed_shape_tensor::FixedShapeTensor) extension type.
     FixedShapeTensor(FixedShapeTensorMatcherMetadata<'a>),
 
-    /// A [`Vector`](crate::vector::Vector) extension type.
-    ///
-    /// Note that we store an owned type here wrapping (copyable) data from the dtype.
+    /// A [`Vector`](crate::vector::Vector) or [`UnitVector`](crate::unit_vector::UnitVector).
     Vector(VectorMatcherMetadata),
 }
 
@@ -58,7 +54,6 @@ impl Matcher for AnyTensor {
             return Some(TensorMatch::FixedShapeTensor(metadata));
         }
 
-        // Special logic for vectors to get convenience metadata (instead of `EmptyMetadata`).
         if let Some(metadata) = ext_dtype.metadata_opt::<AnyVector>() {
             return Some(TensorMatch::Vector(metadata));
         }

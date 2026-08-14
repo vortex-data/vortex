@@ -80,5 +80,6 @@ mod matcher;
 pub use arrow::ARROW_VECTOR_EXTENSION_NAME;
 pub use matcher::AnyVector;
 pub use matcher::VectorMatcherMetadata;
+pub(crate) use matcher::match_vector_storage;
 
 mod vtable;

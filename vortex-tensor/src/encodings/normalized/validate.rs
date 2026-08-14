@@ -17,6 +17,9 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 
+use crate::types::vector::AnyVector;
+use crate::types::vector::Vector;
+use crate::unit_vector::AnyUnitVector;
 use crate::utils::extract_flat_elements;
 use crate::utils::unit_norm_tolerance;
 use crate::utils::validate_tensor_float_input;
@@ -34,7 +37,7 @@ pub(super) fn validate_normalized_children(
     vortex_ensure_eq!(
         normalized.len(),
         len,
-        "Normalized normalized child must have the array length ({len}), got {}",
+        "Normalized direction must have the array length ({len}), got {}",
         normalized.len(),
     );
     vortex_ensure_eq!(
@@ -44,13 +47,27 @@ pub(super) fn validate_normalized_children(
         norms.len(),
     );
 
-    let tensor_match = validate_tensor_float_input(normalized.dtype())?;
-    let element_ptype = tensor_match.element_ptype();
+    let parent_match = validate_tensor_float_input(dtype)?;
+    let child_match = validate_tensor_float_input(normalized.dtype())?;
+    let element_ptype = parent_match.element_ptype();
 
-    vortex_ensure_eq!(
-        *normalized.dtype(),
-        dtype.as_nonnullable(),
-        "Normalized normalized child must be the non-nullable array dtype ({}), got {}",
+    vortex_ensure!(
+        !dtype.as_extension().is::<AnyUnitVector>(),
+        "Normalized parent dtype must be Vector or FixedShapeTensor, got {dtype}",
+    );
+    let parent_is_vector = dtype.as_extension().is::<Vector>();
+    let child_is_vector = normalized.dtype().as_extension().is::<AnyVector>();
+    let compatible_child = if parent_is_vector {
+        child_is_vector
+            && parent_match.element_ptype() == child_match.element_ptype()
+            && parent_match.list_size() == child_match.list_size()
+            && !normalized.dtype().is_nullable()
+    } else {
+        *normalized.dtype() == dtype.as_nonnullable()
+    };
+    vortex_ensure!(
+        compatible_child,
+        "Normalized direction must be compatible with the non-nullable parent dtype {}, got {}",
         dtype.as_nonnullable(),
         normalized.dtype(),
     );
@@ -89,17 +106,14 @@ pub(super) fn validate_normalized_children(
 
 /// Validates the semantic invariants documented by [`Normalized`].
 ///
-/// The zero relationship is checked in both directions. Otherwise, a zero row with a nonzero
-/// stored norm would decode differently from [`L2Norm`]. This `O(len * list_size)` scan includes
-/// rows that the parent might mark null.
+/// When `norms` is present, the zero relationship is checked in both directions for every row,
+/// including parent-null rows. Without norms, null direction rows are skipped.
 ///
 /// # Errors
 ///
-/// Returns an error if either child has an incompatible dtype or length, or if a row violates the
-/// semantic invariants.
+/// Returns an error if a child is incompatible or a row violates the semantic invariants.
 ///
 /// [`Normalized`]: crate::encodings::normalized::Normalized
-/// [`L2Norm`]: crate::scalar_fns::l2_norm::L2Norm
 pub fn validate_normalized_rows(
     normalized: &ArrayRef,
     norms: Option<&ArrayRef>,
@@ -139,6 +153,16 @@ pub fn validate_normalized_rows(
     }
 
     let normalized: ExtensionArray = normalized.clone().execute(ctx)?;
+    let valid_rows = if norms.is_none() {
+        Some(
+            normalized
+                .as_ref()
+                .validity()?
+                .execute_mask(row_count, ctx)?,
+        )
+    } else {
+        None
+    };
     let flat = extract_flat_elements(normalized.storage_array(), tensor_flat_size, ctx)?;
     let norms = norms
         .map(|norms| norms.clone().execute::<PrimitiveArray>(ctx))
@@ -148,6 +172,13 @@ pub fn validate_normalized_rows(
         let stored_norms = norms.as_ref().map(|norms| norms.as_slice::<T>());
 
         for i in 0..row_count {
+            if valid_rows
+                .as_ref()
+                .is_some_and(|validity| !validity.value(i))
+            {
+                continue;
+            }
+
             let (row_norm_sq, is_zero_row) =
                 flat.row::<T>(i)
                     .iter()
@@ -159,9 +190,9 @@ pub fn validate_normalized_rows(
             let row_norm = row_norm_sq.sqrt();
 
             vortex_ensure!(
-                row_norm.is_zero() || (row_norm - 1.0).abs() <= tolerance,
-                "Normalized normalized child must have L2 norm 1.0 or 0.0, but row {i} has \
-                 {row_norm:.6}",
+                is_zero_row || (row_norm - 1.0).abs() <= tolerance,
+                "Normalized direction must have L2 norm 1.0 or be exactly zero, but row {i} has \
+                 norm {row_norm:.6}",
             );
 
             if let Some(stored_norms) = stored_norms {
@@ -173,9 +204,8 @@ pub fn validate_normalized_rows(
 
                 vortex_ensure!(
                     is_zero_row == stored_norm_f64.is_zero(),
-                    "Normalized normalized child must be all zeros exactly when its stored norm is \
-                     0.0, but row {i} pairs a {} normalized row with a stored norm of \
-                     {stored_norm_f64:.6}",
+                    "Normalized direction must be exactly zero if and only if its stored norm is \
+                     0.0, but row {i} pairs a {} direction with norm {stored_norm_f64:.6}",
                     if is_zero_row { "zero" } else { "nonzero" },
                 );
             }

@@ -35,7 +35,8 @@ impl ArrayParentReduceRule<Normalized> for NormalizedSliceRule {
         // SAFETY: Slicing every slot with the same range preserves their dtypes and lengths.
         Ok(Some(
             unsafe {
-                Normalized::new_unchecked(
+                Normalized::new_unchecked_with_dtype(
+                    array.dtype().clone(),
                     array.normalized().slice(range.clone())?,
                     array.norms().slice(range.clone())?,
                     array.validity()?.slice(range.clone())?,
@@ -63,7 +64,8 @@ impl ArrayParentReduceRule<Normalized> for NormalizedFilterRule {
         // SAFETY: Filtering every slot with the same mask preserves their dtypes and lengths.
         Ok(Some(
             unsafe {
-                Normalized::new_unchecked(
+                Normalized::new_unchecked_with_dtype(
+                    array.dtype().clone(),
                     array.normalized().filter(mask.clone())?,
                     array.norms().filter(mask.clone())?,
                     array.validity()?.filter(mask)?,

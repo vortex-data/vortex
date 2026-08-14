@@ -1,20 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use prost::Message;
 use vortex_array::Array;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::EmptyArrayData;
+use vortex_array::EmptyMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::array_slots;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::extension::ExtDType;
+use vortex_array::dtype::proto::dtype as pb;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
@@ -24,9 +30,11 @@ use vortex_array::vtable::ValidityVTable;
 use vortex_array::vtable::child_to_validity;
 use vortex_array::vtable::validity_to_child;
 use vortex_array::vtable::with_empty_buffers;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -35,6 +43,10 @@ use crate::encodings::normalized::execute::denormalize;
 use crate::encodings::normalized::rules::RULES;
 use crate::encodings::normalized::validate::validate_normalized_children;
 use crate::encodings::normalized::validate::validate_normalized_rows;
+use crate::types::unit_vector::AnyUnitVector;
+use crate::types::unit_vector::UnitVector;
+use crate::types::vector::AnyVector;
+use crate::types::vector::Vector;
 use crate::utils::validate_tensor_float_input;
 
 /// A [`Normalized`]-encoded Vortex array.
@@ -49,7 +61,10 @@ pub type NormalizedArray = Array<Normalized>;
 ///
 /// Every [`NormalizedArray`] has three slots.
 ///
-/// - `normalized` is a non-nullable float tensor with the parent dtype's shape.
+/// - For a [`Vector`] parent, `normalized` is a non-nullable
+///   [`UnitVector`](crate::unit_vector::UnitVector). A documented lossy transform may instead
+///   erase the refinement and store an ordinary non-nullable Vector.
+/// - For a [`FixedShapeTensor`] parent, `normalized` is the corresponding non-nullable tensor.
 /// - `norms` is a non-nullable primitive column with the tensor element ptype.
 /// - `validity` optionally contains the parent validity as a non-nullable boolean column.
 ///
@@ -67,10 +82,11 @@ pub type NormalizedArray = Array<Normalized>;
 ///
 /// # Lossy normalized children
 ///
-/// [`new_unchecked`](Self::new_unchecked) permits an approximate normalized child, such as a
-/// quantized direction. The stored norms remain authoritative. [`L2Norm`], [`InnerProduct`], and
-/// [`CosineSimilarity`] therefore operate on the stored children and can differ slightly from
-/// decoding and recomputing.
+/// Unchecked construction permits an approximate normalized child, such as a quantized direction.
+/// If it can no longer prove the UnitVector tolerance, a Vector direction **must** erase that
+/// refinement to ordinary Vector. The stored norms remain authoritative. [`L2Norm`],
+/// [`InnerProduct`], and [`CosineSimilarity`] therefore operate on the stored children and can
+/// differ slightly from decoding and recomputing.
 ///
 /// [`Vector`]: crate::vector::Vector
 /// [`FixedShapeTensor`]: crate::fixed_shape_tensor::FixedShapeTensor
@@ -110,12 +126,38 @@ impl Normalized {
     /// Returns an error if the children are structurally incompatible, or if they violate any of
     /// the semantic invariants listed on [`Normalized`].
     pub fn try_new(
-        normalized: ArrayRef,
+        mut normalized: ArrayRef,
         norms: ArrayRef,
         validity: Validity,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<NormalizedArray> {
-        let array = Array::try_from_parts(normalized_parts(normalized, norms, validity))?;
+        let dtype = decoded_dtype_for_direction(normalized.dtype(), validity.nullability())?;
+        if dtype
+            .as_extension_opt()
+            .is_some_and(|dtype| dtype.is::<Vector>())
+            && !normalized
+                .dtype()
+                .as_extension_opt()
+                .is_some_and(|dtype| dtype.is::<AnyUnitVector>())
+        {
+            let extension: ExtensionArray = normalized.execute(ctx)?;
+            // SAFETY: The semantic scan below validates the direction before it is returned.
+            normalized = unsafe { UnitVector::new_unchecked(extension.storage_array().clone())? };
+        }
+        if dtype
+            .as_extension_opt()
+            .is_some_and(|dtype| dtype.is::<Vector>())
+        {
+            vortex_ensure!(
+                normalized
+                    .dtype()
+                    .as_extension_opt()
+                    .is_some_and(|dtype| dtype.is::<AnyUnitVector>()),
+                "exact Normalized vector direction must be a UnitVector, got {}",
+                normalized.dtype(),
+            );
+        }
+        let array = Array::try_from_parts(normalized_parts(dtype, normalized, norms, validity))?;
         validate_normalized_rows(array.normalized(), Some(array.norms()), ctx)?;
 
         Ok(array)
@@ -138,17 +180,56 @@ impl Normalized {
         norms: ArrayRef,
         validity: Validity,
     ) -> NormalizedArray {
-        unsafe { Array::from_parts_unchecked(normalized_parts(normalized, norms, validity)) }
+        let dtype = decoded_dtype_for_direction(normalized.dtype(), validity.nullability())
+            .vortex_expect("new_unchecked requires a valid tensor direction dtype");
+        unsafe { Self::new_unchecked_with_dtype(dtype, normalized, norms, validity) }
+    }
+
+    /// Builds a [`NormalizedArray`] with an explicit decoded dtype and without validation.
+    ///
+    /// # Safety
+    ///
+    /// The caller must uphold the invariants of [`new_unchecked`](Self::new_unchecked), and the
+    /// normalized child must be compatible with `dtype`. A vector parent accepts a UnitVector
+    /// child, or an ordinary Vector child when a documented lossy transform erased the
+    /// refinement. Violating these requirements can produce incorrect results but not memory
+    /// unsafety.
+    pub(crate) unsafe fn new_unchecked_with_dtype(
+        dtype: DType,
+        normalized: ArrayRef,
+        norms: ArrayRef,
+        validity: Validity,
+    ) -> NormalizedArray {
+        unsafe { Array::from_parts_unchecked(normalized_parts(dtype, normalized, norms, validity)) }
     }
 }
 
+fn decoded_dtype_for_direction(
+    direction_dtype: &DType,
+    nullability: Nullability,
+) -> VortexResult<DType> {
+    if direction_dtype
+        .as_extension_opt()
+        .is_some_and(|dtype| dtype.is::<AnyVector>())
+    {
+        let storage_dtype = direction_dtype
+            .as_extension()
+            .storage_dtype()
+            .with_nullability(nullability);
+        let dtype = ExtDType::<Vector>::try_new(EmptyMetadata, storage_dtype)?;
+        return Ok(DType::Extension(dtype.erased()));
+    }
+
+    Ok(direction_dtype.with_nullability(nullability))
+}
+
 fn normalized_parts(
+    dtype: DType,
     normalized: ArrayRef,
     norms: ArrayRef,
     validity: Validity,
 ) -> ArrayParts<Normalized> {
     let len = normalized.len();
-    let dtype = normalized.dtype().with_nullability(validity.nullability());
     let slots = NormalizedSlots {
         normalized,
         norms,
@@ -157,6 +238,13 @@ fn normalized_parts(
     .into_slots();
 
     ArrayParts::new(Normalized, dtype, len, EmptyArrayData).with_slots(slots)
+}
+
+#[derive(Clone, prost::Message)]
+struct NormalizedMetadata {
+    /// The direction dtype, absent from legacy metadata where it matched the parent dtype.
+    #[prost(message, optional, tag = "1")]
+    direction_dtype: Option<pb::DType>,
 }
 
 impl VTable for Normalized {
@@ -203,11 +291,11 @@ impl VTable for Normalized {
     }
 
     fn serialize(
-        _array: ArrayView<'_, Self>,
+        array: ArrayView<'_, Self>,
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
-        // The parent dtype determines both child dtypes and the array nullability.
-        Ok(Some(vec![]))
+        let direction_dtype = Some(array.slots_view().normalized.dtype().try_into()?);
+        Ok(Some(NormalizedMetadata { direction_dtype }.encode_to_vec()))
     }
 
     fn deserialize(
@@ -217,16 +305,17 @@ impl VTable for Normalized {
         metadata: &[u8],
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure!(
-            metadata.is_empty(),
-            "NormalizedArray expects empty metadata, got {} bytes",
-            metadata.len(),
-        );
-
         let element_ptype = validate_tensor_float_input(dtype)?.element_ptype();
-        let normalized_dtype = dtype.as_nonnullable();
+        let metadata = NormalizedMetadata::decode(metadata)
+            .map_err(|error| vortex_err!("Failed to decode NormalizedMetadata: {error}"))?;
+        let normalized_dtype = metadata
+            .direction_dtype
+            .as_ref()
+            .map(|dtype| DType::from_proto(dtype, session))
+            .transpose()?
+            .unwrap_or_else(|| dtype.as_nonnullable());
         let norms_dtype = DType::Primitive(element_ptype, Nullability::NonNullable);
 
         let normalized = children.get(0, &normalized_dtype, len)?;
@@ -249,7 +338,7 @@ impl VTable for Normalized {
             ),
         };
 
-        Ok(normalized_parts(normalized, norms, validity))
+        Ok(normalized_parts(dtype.clone(), normalized, norms, validity))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

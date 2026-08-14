@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use half::f16;
 use rstest::rstest;
 use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
@@ -40,6 +41,7 @@ use crate::encodings::normalized::normalize;
 use crate::encodings::normalized::validate_normalized_rows;
 use crate::tests::SESSION;
 use crate::types::vector::Vector;
+use crate::unit_vector::AnyUnitVector;
 use crate::utils::test_helpers::assert_close;
 use crate::utils::test_helpers::constant_tensor_array;
 use crate::utils::test_helpers::tensor_array;
@@ -382,7 +384,7 @@ fn accepts_zero_vectors_paired_with_zero_norms() -> VortexResult<()> {
 
 #[test]
 fn validate_accepts_normalized_f16_rows() -> VortexResult<()> {
-    let input = vector_array(2, &[3.0f32, 4.0, 0.0, 0.0].map(half::f16::from_f32))?;
+    let input = vector_array(2, &[3.0f32, 4.0, 0.0, 0.0].map(f16::from_f32))?;
     let mut ctx = SESSION.create_execution_ctx();
 
     let normalized_array = normalize(input, &mut ctx)?;
@@ -393,9 +395,9 @@ fn validate_accepts_normalized_f16_rows() -> VortexResult<()> {
 fn checked_construction_accepts_dense_normalized_f16_row() -> VortexResult<()> {
     // Every coordinate is smaller than the unit-norm tolerance. Exact zero detection must not
     // misclassify this row as the zero vector.
-    let element = half::f16::from_f32(1.0 / 128.0_f32.sqrt());
+    let element = f16::from_f32(1.0 / 128.0_f32.sqrt());
     let normalized = vector_array(128, &[element; 128])?;
-    let norms = PrimitiveArray::from_iter([half::f16::from_f32(1.0)]).into_array();
+    let norms = PrimitiveArray::from_iter([f16::from_f32(1.0)]).into_array();
     let mut ctx = SESSION.create_execution_ctx();
 
     Normalized::try_new(normalized, norms, Validity::NonNullable, &mut ctx)?;
@@ -462,6 +464,42 @@ fn normalize_keeps_constant_input_children_constant() -> VortexResult<()> {
         &[5.0],
     );
 
+    Ok(())
+}
+
+#[test]
+fn normalize_constant_f16_uses_wide_accumulation() -> VortexResult<()> {
+    let values = vec![f16::ONE; 4096];
+    let input = Vector::constant_array(&values, 8)?;
+    let mut ctx = SESSION.create_execution_ctx();
+    let normalized = normalize(input, &mut ctx)?;
+
+    validate_normalized_rows(normalized.normalized(), None, &mut ctx)
+}
+
+#[test]
+fn normalize_vector_uses_a_unit_vector_direction() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let normalized = normalize(vector_array(2, &[3.0f64, 4.0])?, &mut ctx)?;
+
+    assert!(
+        normalized
+            .normalized()
+            .dtype()
+            .as_extension()
+            .is::<AnyUnitVector>()
+    );
+    assert!(normalized.dtype().as_extension().is::<Vector>());
+    Ok(())
+}
+
+#[test]
+fn scheme_skips_unit_vectors() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let normalized = normalize(vector_array(2, &[3.0f64, 4.0])?, &mut ctx)?;
+    let unit: Canonical = normalized.normalized().clone().execute(&mut ctx)?;
+
+    assert!(!NormalizedScheme.matches(&unit));
     Ok(())
 }
 
@@ -672,7 +710,7 @@ fn serde_round_trip(#[case] input: ArrayRef) -> VortexResult<()> {
 }
 
 #[test]
-fn serialization_carries_no_metadata() -> VortexResult<()> {
+fn serialization_carries_the_direction_dtype() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let nullable = normalize(nullable_vector_input()?, &mut ctx)?.into_array();
     let non_nullable = normalize(vector_array(2, &[3.0, 4.0, 1.0, 0.0])?, &mut ctx)?.into_array();
@@ -681,12 +719,30 @@ fn serialization_carries_no_metadata() -> VortexResult<()> {
         let bytes = SESSION
             .array_serialize(array)?
             .expect("Normalized must serialize");
-        assert!(bytes.is_empty(), "Normalized must not serialize metadata");
+        assert!(
+            !bytes.is_empty(),
+            "Normalized must serialize its direction dtype"
+        );
     }
 
     assert_eq!(nullable.nchildren(), NormalizedSlots::COUNT);
     assert_eq!(non_nullable.nchildren(), NormalizedSlots::COUNT - 1);
 
+    Ok(())
+}
+
+#[test]
+fn legacy_empty_metadata_uses_the_parent_dtype_for_the_direction() -> VortexResult<()> {
+    let direction = vector_array(2, &[0.6f64, 0.8])?;
+    let dtype = direction.dtype().clone();
+    let norms = PrimitiveArray::from_iter([5.0f64]).into_array();
+    let children = vec![direction, norms];
+
+    let recovered =
+        ArrayPlugin::deserialize(&Normalized, &dtype, 1, &[], &[], &children, &SESSION)?;
+    let recovered = recovered.as_::<Normalized>();
+
+    assert!(recovered.normalized().dtype().as_extension().is::<Vector>());
     Ok(())
 }
 
@@ -725,17 +781,57 @@ fn serde_round_trip_of_a_nullable_column_with_no_null_rows() -> VortexResult<()>
 }
 
 #[test]
+fn lossy_vector_direction_dtype_round_trips() -> VortexResult<()> {
+    let direction = vector_array(2, &[0.61f64, 0.79])?;
+    let dtype = direction.dtype().clone();
+    let norms = PrimitiveArray::from_iter([5.0f64]).into_array();
+    // SAFETY: A plain Vector direction is the documented escape hatch for a lossy transform. The
+    // child dtype, length, ptype, and parent dtype are compatible.
+    let original = unsafe {
+        Normalized::new_unchecked_with_dtype(dtype, direction, norms, Validity::NonNullable)
+    }
+    .into_array();
+    let metadata = SESSION
+        .array_serialize(&original)?
+        .expect("Normalized must serialize");
+    let recovered = ArrayPlugin::deserialize(
+        &Normalized,
+        original.dtype(),
+        original.len(),
+        &metadata,
+        &[],
+        &original.children(),
+        &SESSION,
+    )?;
+    let recovered = recovered.as_::<Normalized>();
+
+    assert!(recovered.normalized().dtype().as_extension().is::<Vector>());
+    assert_eq!(recovered.dtype(), original.dtype());
+    Ok(())
+}
+
+#[test]
 fn deserialize_rejects_validity_child_for_non_nullable_dtype() -> VortexResult<()> {
     let normalized = vector_array(2, &[0.6f64, 0.8, 1.0, 0.0])?;
     let dtype = normalized.dtype().clone();
+    let norms = PrimitiveArray::from_iter([5.0f64, 1.0]).into_array();
+    // SAFETY: The children are compatible and satisfy the exact normalized invariants.
+    let original = unsafe {
+        Normalized::new_unchecked(normalized.clone(), norms.clone(), Validity::NonNullable)
+    }
+    .into_array();
+    let metadata = SESSION
+        .array_serialize(&original)?
+        .expect("Normalized must serialize");
     let children = vec![
         normalized,
-        PrimitiveArray::from_iter([5.0f64, 1.0]).into_array(),
+        norms,
         BoolArray::from_iter([true, false]).into_array(),
     ];
 
-    let error = ArrayPlugin::deserialize(&Normalized, &dtype, 2, &[], &[], &children, &SESSION)
-        .unwrap_err();
+    let error =
+        ArrayPlugin::deserialize(&Normalized, &dtype, 2, &metadata, &[], &children, &SESSION)
+            .unwrap_err();
 
     assert!(
         error

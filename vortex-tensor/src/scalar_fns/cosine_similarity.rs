@@ -34,6 +34,7 @@ use crate::encodings::normalized::NormalizedOrientation;
 use crate::encodings::normalized::try_build_constant_normalized;
 use crate::scalar_fns::inner_product::InnerProduct;
 use crate::scalar_fns::l2_norm::L2Norm;
+use crate::unit_vector::AnyUnitVector;
 use crate::utils::BinaryTensorOpMetadata;
 use crate::utils::extract_normalized_children;
 use crate::utils::validate_binary_tensor_float_inputs;
@@ -44,16 +45,22 @@ use crate::utils::validate_binary_tensor_float_inputs;
 /// The shape and permutation do not affect the result because cosine similarity only depends on the
 /// element values, not their logical arrangement.
 ///
-/// Both inputs must be tensor-like extension arrays ([`FixedShapeTensor`] or [`Vector`]) with the
-/// same dtype and a float element type. The output is a float column of the same float type.
+/// Fixed-shape tensor inputs must have the same dtype, ignoring top-level nullability. Vector
+/// inputs may mix [`Vector`] and [`UnitVector`] when their element ptype and dimensions match. The
+/// output is a float column with that element ptype.
 ///
 /// When either input is [`Normalized`]-encoded, this operator treats the stored norms and
 /// normalized children as authoritative. For lossy normalized children, that means the optimized
 /// read-through path may intentionally differ slightly from decoding both sides to dense
 /// coordinates and recomputing cosine from scratch.
 ///
+/// A [`UnitVector`] norm is treated as one, while [`L2Norm`] still measures its physical
+/// coordinates. With tolerance `t`, omitting one norm adds at most approximately `t` absolute
+/// error; omitting both adds at most `2t + t²`.
+///
 /// [`FixedShapeTensor`]: crate::fixed_shape_tensor::FixedShapeTensor
 /// [`Vector`]: crate::vector::Vector
+/// [`UnitVector`]: crate::unit_vector::UnitVector
 /// [`Normalized`]: crate::encodings::normalized::Normalized
 #[derive(Clone)]
 pub struct CosineSimilarity;
@@ -112,10 +119,10 @@ impl ScalarFnVTable for CosineSimilarity {
         let len = args.row_count();
 
         // Normalize extension-level constants so the encoded fast path can use them.
-        if let Some(normalized_array) = try_build_constant_normalized(&lhs_ref, len, ctx)? {
+        if let Some(normalized_array) = try_build_constant_normalized(&lhs_ref, ctx)? {
             lhs_ref = normalized_array.into_array();
         }
-        if let Some(normalized_array) = try_build_constant_normalized(&rhs_ref, len, ctx)? {
+        if let Some(normalized_array) = try_build_constant_normalized(&rhs_ref, ctx)? {
             rhs_ref = normalized_array.into_array();
         }
 
@@ -131,6 +138,23 @@ impl ScalarFnVTable for CosineSimilarity {
                 return self.execute_one_normalized(normalized_array, plain, len, ctx);
             }
             NormalizedOrientation::Neither => {}
+        }
+
+        let lhs_is_unit = lhs_ref.dtype().as_extension().is::<AnyUnitVector>();
+        let rhs_is_unit = rhs_ref.dtype().as_extension().is::<AnyUnitVector>();
+        match (lhs_is_unit, rhs_is_unit) {
+            (true, true) => {
+                return InnerProduct::try_new(lhs_ref, rhs_ref)?
+                    .into_array()
+                    .execute(ctx);
+            }
+            (true, false) => {
+                return self.execute_one_unit(lhs_ref, rhs_ref, len, ctx);
+            }
+            (false, true) => {
+                return self.execute_one_unit(rhs_ref, lhs_ref, len, ctx);
+            }
+            (false, false) => {}
         }
 
         // Compute combined validity.
@@ -215,6 +239,37 @@ impl ScalarFnArrayVTable for CosineSimilarity {
 }
 
 impl CosineSimilarity {
+    fn execute_one_unit(
+        &self,
+        unit: ArrayRef,
+        plain: ArrayRef,
+        len: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let validity = unit.validity()?.and(plain.validity()?)?;
+        let dot: PrimitiveArray = InnerProduct::try_new(unit, plain.clone())?
+            .into_array()
+            .execute(ctx)?;
+        let plain_norm: PrimitiveArray = L2Norm::try_new(plain)?.into_array().execute(ctx)?;
+
+        match_each_float_ptype!(dot.ptype(), |T| {
+            let dots = dot.as_slice::<T>();
+            let norms = plain_norm.as_slice::<T>();
+            let buffer: Buffer<T> = (0..len)
+                .map(|i| {
+                    if norms[i] == T::zero() {
+                        T::zero()
+                    } else {
+                        dots[i] / norms[i]
+                    }
+                })
+                .collect();
+
+            // SAFETY: The buffer length equals `len`, which matches the source validity length.
+            Ok(unsafe { PrimitiveArray::new_unchecked(buffer, validity) }.into_array())
+        })
+    }
+
     /// Both sides are [`Normalized`]-encoded: treat the normalized children as authoritative, so
     /// `cosine_similarity = dot(n_l, n_r)`.
     ///
@@ -281,6 +336,26 @@ impl CosineSimilarity {
 
         let normalized_norms: PrimitiveArray = normalized_norms.execute(ctx)?;
 
+        if plain_ref.dtype().as_extension().is::<AnyUnitVector>() {
+            return match_each_float_ptype!(dot.ptype(), |T| {
+                let dots = dot.as_slice::<T>();
+                let normalized_norms = normalized_norms.as_slice::<T>();
+                let buffer: Buffer<T> = (0..len)
+                    .map(|i| {
+                        if normalized_norms[i] == T::zero() {
+                            T::zero()
+                        } else {
+                            dots[i]
+                        }
+                    })
+                    .collect();
+
+                // SAFETY: The buffer length equals `len`, which matches the source validity
+                // length.
+                Ok(unsafe { PrimitiveArray::new_unchecked(buffer, validity) }.into_array())
+            });
+        }
+
         let norm_arr = L2Norm::try_new(plain_ref.clone())?;
         let plain_norm: PrimitiveArray = norm_arr.into_array().execute(ctx)?;
 
@@ -308,14 +383,15 @@ impl CosineSimilarity {
 
 #[cfg(test)]
 mod tests {
-
     use rstest::rstest;
     use vortex_array::ArrayPlugin;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::ExtensionArray;
     use vortex_array::arrays::MaskedArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::extension::ExtensionArrayExt;
     use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
@@ -324,6 +400,7 @@ mod tests {
     use crate::scalar_fns::cosine_similarity::CosineSimilarity;
     use crate::tests::SESSION;
     use crate::types::vector::Vector;
+    use crate::unit_vector::UnitVector;
     use crate::utils::test_helpers::assert_close;
     use crate::utils::test_helpers::constant_tensor_array;
     use crate::utils::test_helpers::normalized_array;
@@ -336,6 +413,36 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
         Ok(prim.as_slice::<f64>().to_vec())
+    }
+
+    fn checked_unit_vector(values: &[f32]) -> VortexResult<ArrayRef> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let dimensions = u32::try_from(values.len())?;
+        let vector: ExtensionArray = vector_array(dimensions, values)?.execute(&mut ctx)?;
+        UnitVector::try_new_unit_vector_array(vector.storage_array().clone(), &mut ctx)
+    }
+
+    #[test]
+    fn both_unit_vectors_omit_norms() -> VortexResult<()> {
+        let lhs = checked_unit_vector(&[0.6000005, 0.8])?;
+        let rhs = checked_unit_vector(&[1.0, 0.0])?;
+        let result = CosineSimilarity::try_new(lhs, rhs)?
+            .into_array()
+            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
+
+        assert_eq!(result.as_slice::<f32>()[0], 0.6000005);
+        Ok(())
+    }
+
+    #[test]
+    fn one_unit_vector_omits_its_norm() -> VortexResult<()> {
+        let unit = checked_unit_vector(&[0.6000005, 0.8])?;
+        let plain = vector_array(2, &[3.0f32, 4.0])?;
+        let result = CosineSimilarity::try_new(unit, plain)?
+            .into_array()
+            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
+        assert!((result.as_slice::<f32>()[0] - 1.0000004).abs() < 1e-6);
+        Ok(())
     }
 
     #[test]
