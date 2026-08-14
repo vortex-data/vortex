@@ -118,27 +118,3 @@ where
     let values = decoded.iter().map(compute).collect();
     Ok(T::build_array(len, valid, values, nullability))
 }
-
-/// Evaluate a decoded kernel over rows where both geometry columns are valid.
-pub(super) fn eval_column_pair<T, F>(
-    left: &ArrayRef,
-    right: &ArrayRef,
-    valid: &Mask,
-    compute: F,
-    nullability: Nullability,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef>
-where
-    T: GeoTypesOutput,
-    F: Fn(&Geometry<f64>, &Geometry<f64>) -> T,
-{
-    let len = left.len();
-    let left = geometries(&left.filter(valid.clone())?, ctx)?;
-    let right = geometries(&right.filter(valid.clone())?, ctx)?;
-    let values = left
-        .iter()
-        .zip(&right)
-        .map(|(left, right)| compute(left, right))
-        .collect();
-    Ok(T::build_array(len, valid, values, nullability))
-}

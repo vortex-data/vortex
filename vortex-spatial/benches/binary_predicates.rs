@@ -4,18 +4,13 @@
 //! Microbenchmarks for the binary geometry predicates `ST_Contains` and `ST_Intersects`, focused
 //! on the cost of a batch-constant operand.
 //!
-//! The constant is a 128-vertex query polygon, the shape a spatial filter broadcasts against a
+//! The constant is a 32-vertex query polygon, the shape a spatial filter broadcasts against a
 //! column. Arms pair it with a point column (the external `geo` crate answers those pairings with
 //! direct point-in-polygon algorithms) and with a small-polygon column (`geo` routes those through
 //! bounding-box prechecks and `relate`), covering both a mostly-disjoint dataset where the bbox
 //! early-out rejects nearly every row and an all-overlapping one where it never does. The
 //! column-x-column arms are the control: no operand is constant, so a prepared path has nothing to
 //! hoist and must not regress them.
-//!
-//! `contains` has no all-overlapping arm. One `contains(query polygon, contained square)` row
-//! builds a topology graph over the constant's 128 edges, which CodSpeed's CPU simulation charges
-//! around 120 µs, so no row count both fits the per-iteration budget and exercises the row loop.
-//! [`intersects::polygons_overlapping_x_constant`] covers the never-rejects case instead.
 //!
 //! Run with `cargo bench -p vortex-spatial --bench binary_predicates`.
 
@@ -54,25 +49,27 @@ fn main() {
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(spatial_session);
 
-/// The ordinary arms use the same row count so results are comparable across shapes. A geometry
-/// predicate costs roughly a microsecond per row under CodSpeed's CPU simulation, which caps the
-/// row count well below a typical batch to stay inside the 1 ms per-iteration budget from
-/// `docs/developer-guide/benchmarking.md`.
-const ROWS: usize = 1 << 5;
+/// The ordinary arms use the same row count so results are comparable across shapes. The small
+/// fixture keeps geometry decoding and preparation inside CodSpeed's 1 ms per-iteration budget.
+const ROWS: usize = 1 << 4;
 
 /// The all-overlapping polygon arm never rejects on bounding boxes, so every row pays for the full
 /// pairwise predicate. It needs a smaller fixture than [`ROWS`] to stay inside the same budget.
-const OVERLAPPING_POLYGON_ROWS: usize = 1 << 4;
+const OVERLAPPING_POLYGON_ROWS: usize = 1 << 3;
+
+/// Containment builds a topology graph for each polygon pair. Two rows exercise construction
+/// followed by reuse of the prepared constant geometry while staying inside the benchmark budget.
+const CONTAINED_POLYGON_ROWS: usize = 2;
 
 /// Deterministic pseudo-random value in `[0, 1)`.
 fn unit(i: usize) -> f64 {
     ((i.wrapping_mul(2654435761) >> 8) % 10_000) as f64 / 10_000.0
 }
 
-/// The exterior ring of a convex 128-gon of radius 100 centered at `(cx, cy)`: enough vertices
-/// that per-row work proportional to the constant's size shows up clearly.
+/// The exterior ring of a convex 32-gon of radius 100 centered at `(cx, cy)`: enough vertices to
+/// exercise work proportional to the constant's size without dominating CodSpeed simulation.
 fn query_ring(cx: f64, cy: f64) -> Vec<(f64, f64)> {
-    let n = 128;
+    let n = 32;
     (0..=n)
         .map(|i| {
             let theta = (i % n) as f64 / n as f64 * TAU;
@@ -220,6 +217,23 @@ mod contains {
                 &mut ctx,
             )
         });
+    }
+
+    /// Constant container against contained polygons: every bbox check passes, the first row
+    /// prepares the constant geometry, and the remaining rows reuse it for the full predicate.
+    #[divan::bench]
+    fn constant_x_polygons_overlapping(bencher: Bencher) {
+        let mut ctx = SESSION.create_execution_ctx();
+        let query = query_constant(&mut ctx, CONTAINED_POLYGON_ROWS);
+        let polygons = squares_mostly_overlapping(CONTAINED_POLYGON_ROWS);
+        bencher
+            .counter(ItemsCount::new(CONTAINED_POLYGON_ROWS))
+            .bench_local(|| {
+                execute(
+                    SpatialContains::try_new(query.clone(), polygons.clone()),
+                    &mut ctx,
+                )
+            });
     }
 
     /// Constant container against a point column with one null row in eight.
