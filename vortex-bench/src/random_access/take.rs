@@ -165,7 +165,7 @@ impl VortexRandomAccessor {
         let file = SESSION
             .open_options()
             .with_layout_reader_cache()
-            .open_object_store(remote.store(), &remote.key(path)?)
+            .open_object_store(remote.store(), ObjectStorePath::from(remote.key(path)?))
             .await?;
         Ok(Self {
             name: name.into(),
