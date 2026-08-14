@@ -137,13 +137,17 @@ struct VortexBaseReader final : BaseFileReader {
 
     unique_ptr<CData> ffi_file;
     vector<column_t> virtual_ids;
+    bool exhausted {false};
 
     inline void AddVirtualColumn(column_t id) override {
         virtual_ids.push_back(id);
     }
 
-    // Called under global lock. Returns false when file is exhausted.
-    bool TryInitializeScan(ClientContext &, GlobalTableFunctionState &, LocalTableFunctionState &) override;
+    // Called under global lock. Returns false when file is exhausted
+    inline bool
+    TryInitializeScan(ClientContext &, GlobalTableFunctionState &, LocalTableFunctionState &) override {
+        return !exhausted;
+    }
 
     // Called without lock if TryInitializeScan succeeds
     void PrepareScan(ClientContext &, GlobalTableFunctionState &gstate, LocalTableFunctionState &) override;

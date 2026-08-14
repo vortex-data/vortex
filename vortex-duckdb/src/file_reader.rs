@@ -81,14 +81,12 @@ pub struct Scan {
     receiver: AsyncReceiver<ScanItem>,
     file_row_number_column_pos: Option<usize>,
     file_index_column_pos: Option<usize>,
-    aggregate_positions: Vec<usize>,
     _driver: Task<()>,
 }
 
 pub struct File {
     pub(crate) reader: LayoutReaderRef,
     file_index: u64,
-    exhausted: bool,
     rows_read: AtomicU64,
     scan: Option<Scan>,
 }
@@ -102,7 +100,6 @@ async fn open_reader(file_path: String, file_index: u64) -> VortexResult<File> {
     Ok(File {
         reader,
         file_index,
-        exhausted: false,
         rows_read: AtomicU64::new(0),
         scan: None,
     })
@@ -306,14 +303,13 @@ pub fn prepare_scan(
         receiver,
         file_row_number_column_pos,
         file_index_column_pos,
-        aggregate_positions: global.aggregate_positions.clone(),
         _driver: driver,
     });
     Ok(())
 }
 
 fn file_scan_aggregate(
-    file: &mut File,
+    file: &File,
     global: &TableFunctionGlobal,
     local: &mut TableFunctionLocal,
 ) -> VortexResult<()> {
@@ -325,15 +321,15 @@ fn file_scan_aggregate(
     let Some(scan) = file.scan.as_ref() else {
         vortex_panic!("No file scan");
     };
+
     loop {
         let Ok(item) = RUNTIME.block_on(scan.receiver.recv()) else {
-            file.exhausted = true;
             break;
         };
         let (array, _cache) = item?;
         let array = convert_result(array, &mut ctx)?;
 
-        for (position, partial) in scan
+        for (position, partial) in global
             .aggregate_positions
             .iter()
             .zip(local.partials.iter_mut())
@@ -364,14 +360,16 @@ fn file_scan_aggregate(
     Ok(())
 }
 
+/// Returns true if file is exhausted
 pub fn file_scan(
-    file: &mut File,
+    file: &File,
     global: &TableFunctionGlobal,
     local: &mut TableFunctionLocal,
     output: &mut DataChunkRef,
-) -> VortexResult<()> {
+) -> VortexResult<bool> {
     if !local.partials.is_empty() {
-        return file_scan_aggregate(file, global, local);
+        file_scan_aggregate(file, global, local)?;
+        return Ok(true);
     }
     let Some(scan) = file.scan.as_ref() else {
         vortex_panic!("No file scan");
@@ -379,8 +377,7 @@ pub fn file_scan(
     loop {
         if local.exporter.is_none() {
             let Ok(item) = RUNTIME.block_on(scan.receiver.recv()) else {
-                file.exhausted = true;
-                return Ok(());
+                return Ok(true);
             };
             let (array, cache) = item?;
 
@@ -408,11 +405,7 @@ pub fn file_scan(
             break;
         }
     }
-    Ok(())
-}
-
-pub fn try_initialize_scan(file: &File) -> bool {
-    !file.exhausted
+    Ok(false)
 }
 
 pub fn get_progress_in_file(file: &File) -> f64 {

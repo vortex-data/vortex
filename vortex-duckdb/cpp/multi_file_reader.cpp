@@ -168,12 +168,6 @@ unique_ptr<NodeStatistics> VortexReaderInterface::GetCardinality(const MultiFile
     return out;
 }
 
-bool VortexBaseReader::TryInitializeScan(ClientContext &,
-                                         GlobalTableFunctionState &,
-                                         LocalTableFunctionState &) {
-    return duckdb_reader_try_initialize_scan(ffi_file->DataPtr());
-}
-
 void VortexBaseReader::PrepareScan(ClientContext &,
                                    GlobalTableFunctionState &global_state,
                                    LocalTableFunctionState &) {
@@ -211,9 +205,10 @@ AsyncResult VortexBaseReader::Scan(ClientContext &,
 
     duckdb_vx_error error = nullptr;
     duckdb_data_chunk ffi_chunk = reinterpret_cast<duckdb_data_chunk>(&chunk);
-    void *const ffi_global = global.ffi_global_state->DataPtr();
+    const void *const ffi_global = global.ffi_global_state->DataPtr();
     void *const ffi_local = local.ffi_local_state->DataPtr();
-    duckdb_reader_scan(ffi_file->DataPtr(), ffi_global, ffi_local, ffi_chunk, &error);
+    const void *const ffi_file_ptr = ffi_file->DataPtr();
+    exhausted = duckdb_reader_scan(ffi_file_ptr, ffi_global, ffi_local, ffi_chunk, &error);
     if (error) {
         throw InvalidInputException(IntoErrString(error));
     }

@@ -38,7 +38,6 @@ use crate::file_reader::get_progress_in_file;
 use crate::file_reader::prepare_scan;
 use crate::file_reader::reader_initialize;
 use crate::file_reader::reader_open;
-use crate::file_reader::try_initialize_scan;
 use crate::table_function::Cardinality;
 use crate::table_function::TableFunctionBind;
 use crate::table_function::TableFunctionGlobal;
@@ -263,20 +262,14 @@ pub unsafe extern "C-unwind" fn duckdb_reader_prepare_scan(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn duckdb_reader_try_initialize_scan(file: *mut c_void) -> bool {
-    let file = unsafe { file.cast::<File>().as_ref() }.vortex_expect("null pointer");
-    try_initialize_scan(file)
-}
-
-#[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn duckdb_reader_scan(
-    file: *mut c_void,
+    file: *const c_void,
     global_state: *const c_void,
     local_state: *mut c_void,
     output: cpp::duckdb_data_chunk,
     error: *mut cpp::duckdb_vx_error,
-) {
-    let file = unsafe { file.cast::<File>().as_mut() }.vortex_expect("null pointer");
+) -> bool {
+    let file = unsafe { file.cast::<File>().as_ref() }.vortex_expect("null pointer");
     let global_state = unsafe { global_state.cast::<TableFunctionGlobal>().as_ref() }
         .vortex_expect("null pointer");
     let local_state =
