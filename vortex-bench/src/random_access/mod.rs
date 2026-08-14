@@ -104,7 +104,7 @@ const DATA_PAGE_ROWS: usize = PARQUET_READ_BATCH_SIZE;
 
 /// Parquet writer properties for a synthetic random-access dataset of `approx_row_bytes` per row.
 ///
-/// The defaults are wrong for this suite: `max_row_group_size` defaults to 1Mi rows, which is more
+/// The defaults are wrong for this suite: the max row group row count defaults to 1Mi rows, which is more
 /// than every dataset here holds, so each file ends up as one row group. Readers select row groups
 /// before rows, so a single-row-group file forces a point lookup to fetch and decode the whole
 /// file — cheap from page cache, ruinous over an object store.
@@ -113,7 +113,7 @@ pub fn random_access_writer_properties(approx_row_bytes: usize) -> WriterPropert
         .clamp(MIN_BATCHES_PER_ROW_GROUP, MAX_BATCHES_PER_ROW_GROUP);
 
     WriterProperties::builder()
-        .set_max_row_group_size(batches * PARQUET_READ_BATCH_SIZE)
+        .set_max_row_group_row_count(Some(batches * PARQUET_READ_BATCH_SIZE))
         .set_data_page_row_count_limit(DATA_PAGE_ROWS)
         .build()
 }
@@ -263,6 +263,11 @@ mod tests {
         Ok(())
     }
 
+    /// Rows per row group, treating "unlimited" as the whole file.
+    fn rows_per_row_group(props: &WriterProperties) -> usize {
+        props.max_row_group_row_count().unwrap_or(usize::MAX)
+    }
+
     /// Row widths of the three synthetic random-access datasets.
     const FEATURE_VECTORS_ROW_BYTES: usize = 8 + 1024 * 4;
     const NESTED_LISTS_ROW_BYTES: usize = 8 + 10 * 8;
@@ -274,7 +279,7 @@ mod tests {
     #[case::nested_structs(NESTED_STRUCTS_ROW_BYTES)]
     fn row_groups_split_a_million_row_dataset(#[case] approx_row_bytes: usize) {
         let props = random_access_writer_properties(approx_row_bytes);
-        let rows_per_group = props.max_row_group_size();
+        let rows_per_group = rows_per_row_group(&props);
 
         // The whole point: a million-row dataset must not land in a single row group.
         assert!(
@@ -289,8 +294,8 @@ mod tests {
 
     #[test]
     fn wide_rows_get_smaller_row_groups_than_narrow_rows() {
-        let wide = random_access_writer_properties(FEATURE_VECTORS_ROW_BYTES).max_row_group_size();
-        let narrow = random_access_writer_properties(NESTED_STRUCTS_ROW_BYTES).max_row_group_size();
+        let wide = rows_per_row_group(&random_access_writer_properties(FEATURE_VECTORS_ROW_BYTES));
+        let narrow = rows_per_row_group(&random_access_writer_properties(NESTED_STRUCTS_ROW_BYTES));
         assert!(
             wide < narrow,
             "wide {wide} should be smaller than narrow {narrow}"
