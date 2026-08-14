@@ -4,16 +4,19 @@
 //! Native execution of the arithmetic operators (Add/Sub/Mul/Div) of the [`Binary`] scalar
 //! function. There is no Arrow fallback.
 //!
+//! The primitive widths are computed by a
+//! [`RowFn`](crate::scalar_fn::unstable::row::RowFn), which owns null handling, constants, and
+//! validity for them; see [`row`]. Decimal keeps its own columnar implementation in [`decimal`].
+//!
 //! [`Binary`]: super::Binary
 
 mod checked;
 mod decimal;
 mod primitive;
-#[cfg(test)]
-mod tests;
+mod row;
 
 use decimal::execute_numeric_decimal;
-use primitive::execute_numeric_primitive;
+use row::execute_numeric_primitive;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -81,3 +84,6 @@ fn build_empty_result(
 
     Ok(Canonical::empty(&result_dtype).into_array())
 }
+
+#[cfg(test)]
+mod tests;
