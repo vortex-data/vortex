@@ -33,10 +33,10 @@ use crate::duckdb::try_or;
 use crate::duckdb::try_or_null;
 use crate::file_reader::File;
 use crate::file_reader::file_scan;
-use crate::file_reader::file_should_skip;
 use crate::file_reader::file_statistics;
 use crate::file_reader::get_progress_in_file;
 use crate::file_reader::prepare_scan;
+use crate::file_reader::reader_initialize;
 use crate::file_reader::reader_open;
 use crate::file_reader::try_initialize_scan;
 use crate::table_function::Cardinality;
@@ -234,7 +234,7 @@ pub unsafe extern "C-unwind" fn duckdb_reader_initialize(
     let global_init_data = unsafe { global_init_data.cast::<TableFunctionGlobal>().as_ref() }
         .vortex_expect("global_init_data null pointer");
     let file = unsafe { file.cast::<File>().as_ref() }.vortex_expect("file null pointer");
-    try_or(error_out, || file_should_skip(global_init_data, file))
+    try_or(error_out, || reader_initialize(global_init_data, file))
 }
 
 #[unsafe(no_mangle)]
@@ -263,23 +263,20 @@ pub unsafe extern "C-unwind" fn duckdb_reader_prepare_scan(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn duckdb_reader_try_initialize_scan(
-    local_init_data: *const c_void,
-) -> bool {
-    let local = unsafe { local_init_data.cast::<TableFunctionLocal>().as_ref() }
-        .vortex_expect("local_init_data null pointer");
-    try_initialize_scan(local)
+pub unsafe extern "C-unwind" fn duckdb_reader_try_initialize_scan(file: *mut c_void) -> bool {
+    let file = unsafe { file.cast::<File>().as_ref() }.vortex_expect("null pointer");
+    try_initialize_scan(file)
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn duckdb_reader_scan(
-    file: *const c_void,
+    file: *mut c_void,
     global_state: *const c_void,
     local_state: *mut c_void,
     output: cpp::duckdb_data_chunk,
     error: *mut cpp::duckdb_vx_error,
 ) {
-    let file = unsafe { file.cast::<File>().as_ref() }.vortex_expect("null pointer");
+    let file = unsafe { file.cast::<File>().as_mut() }.vortex_expect("null pointer");
     let global_state = unsafe { global_state.cast::<TableFunctionGlobal>().as_ref() }
         .vortex_expect("null pointer");
     let local_state =

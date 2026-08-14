@@ -134,8 +134,6 @@ pub struct TableFunctionLocal {
     pub(crate) exporter: Option<ArrayExporter>,
     // Aggregate scan accumulated partials. Empty for non-aggregate scan
     pub(crate) partials: Vec<Box<dyn DynAccumulator>>,
-    // Current file processed is read till end
-    pub(crate) exhausted: bool,
 }
 
 #[derive(Clone)]
@@ -159,7 +157,7 @@ pub enum Cardinality {
 /// and after a query another file is added matching the glob, for second query
 /// bind() will be called again.
 pub fn bind(first_file: &File, result: &mut BindResultRef) -> VortexResult<TableFunctionBind> {
-    let dtype = first_file.dtype.clone();
+    let dtype = first_file.reader.dtype().clone();
     let column_fields = extract_schema_from_dtype(&dtype)?;
 
     for field in &column_fields {
@@ -168,7 +166,7 @@ pub fn bind(first_file: &File, result: &mut BindResultRef) -> VortexResult<Table
 
     Ok(TableFunctionBind {
         dtype,
-        first_file_row_count: first_file.row_count,
+        first_file_row_count: first_file.reader.row_count(),
         filter_exprs: vec![],
         column_fields,
         has_non_optional_filter: AtomicBool::new(false),
@@ -236,7 +234,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
         Projection::new_aggregate(&bind_data.aggregates, &bind_data.column_fields)
     };
 
-    debug!(input=?init_input, %projection, "table function init global");
+    debug!(%projection, "table function init global");
 
     let bound_projection = optimize_and_bind(projection, &bind_data.dtype)?;
     Ok(TableFunctionGlobal {
@@ -312,7 +310,6 @@ pub fn init_local(
     TableFunctionLocal {
         exporter: None,
         partials,
-        exhausted: false,
     }
 }
 

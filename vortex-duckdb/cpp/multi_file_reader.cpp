@@ -25,23 +25,31 @@ bool VortexBindData::Equals(const FunctionData &other_base) const {
 
 ReaderInitializeType
 VortexMultiFileReader::InitializeReader(MultiFileReaderData &reader_data,
-                                        const MultiFileBindData &,
+                                        const MultiFileBindData &bind_data,
                                         const vector<MultiFileColumnDefinition> &global_columns,
-                                        const vector<ColumnIndex> &,
-                                        optional_ptr<TableFilterSet>,
-                                        ClientContext &,
+                                        const vector<ColumnIndex> &global_column_ids,
+                                        optional_ptr<TableFilterSet> table_filters,
+                                        ClientContext &context,
                                         MultiFileGlobalState &gstate) {
+    D_ASSERT(reader_data.reader != nullptr);
     D_ASSERT(gstate.global_state != nullptr);
 
-    // TODO(myrrc): call MultiFileReader::InitializeReader and exit early once
-    // we support hive partitioning and/or UNION BY NAME
-
-    // projection expression pushdown and aggregate pushdown may have
-    // changed columns, update them in our reader
     VortexBaseReader &reader = reader_data.reader->Cast<VortexBaseReader>();
-    reader.columns = global_columns;
 
-    VortexGlobalState &global = gstate.global_state->Cast<VortexGlobalState>();
+    reader.columns = global_columns; // base InitializeReader requires columns to be set
+    const ReaderInitializeType base_skip = MultiFileReader::InitializeReader(reader_data,
+                                                                             bind_data,
+                                                                             global_columns,
+                                                                             global_column_ids,
+                                                                             table_filters,
+                                                                             context,
+                                                                             gstate);
+    if (base_skip == ReaderInitializeType::SKIP_READING_FILE) {
+        return base_skip;
+    }
+
+    const VortexGlobalState &global = gstate.global_state->Cast<VortexGlobalState>();
+
     duckdb_vx_error error = nullptr;
     void *const ffi_global_state = global.ffi_global_state->DataPtr();
     void *const ffi_file = reader.ffi_file->DataPtr();
@@ -73,6 +81,7 @@ void VortexReaderInterface::BindReader(ClientContext &context,
     if (error) {
         throw BinderException(IntoErrString(error));
     }
+
     bind.ffi_bind_data = unique_ptr<CData>(reinterpret_cast<CData *>(ffi_bind_data));
 }
 
@@ -80,7 +89,8 @@ unique_ptr<GlobalTableFunctionState>
 VortexReaderInterface::InitializeGlobalState(ClientContext &context,
                                              MultiFileBindData &bind_data,
                                              MultiFileGlobalState &input) {
-    void *const ffi_bind = bind_data.bind_data->Cast<VortexBindData>().ffi_bind_data->DataPtr();
+    const VortexBindData &bind = bind_data.bind_data->Cast<VortexBindData>();
+    void *const ffi_bind = bind.ffi_bind_data->DataPtr();
 
     vector<idx_t> column_ids(input.column_indexes.size());
     for (size_t i = 0; i < input.column_indexes.size(); ++i) {
@@ -160,10 +170,8 @@ unique_ptr<NodeStatistics> VortexReaderInterface::GetCardinality(const MultiFile
 
 bool VortexBaseReader::TryInitializeScan(ClientContext &,
                                          GlobalTableFunctionState &,
-                                         LocalTableFunctionState &state) {
-    const VortexLocalState &local = state.Cast<VortexLocalState>();
-    void *const ffi_local = local.ffi_local_state->DataPtr();
-    return duckdb_reader_try_initialize_scan(ffi_local);
+                                         LocalTableFunctionState &) {
+    return duckdb_reader_try_initialize_scan(ffi_file->DataPtr());
 }
 
 void VortexBaseReader::PrepareScan(ClientContext &,

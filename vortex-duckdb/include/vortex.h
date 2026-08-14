@@ -81,10 +81,10 @@ void duckdb_reader_prepare_scan(const void *bind_data,
                                 duckdb_vx_table_filter_set filters,
                                 duckdb_vx_error *error);
 
-extern bool duckdb_reader_try_initialize_scan(const void *local_init_data);
+extern bool duckdb_reader_try_initialize_scan(void *file);
 
 extern
-void duckdb_reader_scan(const void *file,
+void duckdb_reader_scan(void *file,
                         const void *global_state,
                         void *local_state,
                         duckdb_data_chunk output,

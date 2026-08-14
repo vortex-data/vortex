@@ -86,11 +86,9 @@ pub struct Scan {
 }
 
 pub struct File {
-    reader: LayoutReaderRef,
-    pub(crate) dtype: DType,
-    pub(crate) row_count: u64,
+    pub(crate) reader: LayoutReaderRef,
     file_index: u64,
-
+    exhausted: bool,
     rows_read: AtomicU64,
     scan: Option<Scan>,
 }
@@ -102,10 +100,9 @@ async fn open_reader(file_path: String, file_index: u64) -> VortexResult<File> {
     let file = open_cached(&SESSION, file, &path, None, &|options| options).await?;
     let reader = file.layout_reader()?;
     Ok(File {
-        dtype: reader.dtype().clone(),
-        row_count: reader.row_count(),
         reader,
         file_index,
+        exhausted: false,
         rows_read: AtomicU64::new(0),
         scan: None,
     })
@@ -122,7 +119,7 @@ pub fn file_statistics(file: &File, column_name: &str) -> Option<ColumnStatistic
         .downcast_ref::<FileStatsLayoutReader>()?;
     let stats_sets = stats_reader.file_stats().stats_sets();
 
-    let DType::Struct(fields, _) = &file.dtype else {
+    let DType::Struct(fields, _) = &file.reader.dtype() else {
         return None;
     };
     let index = fields
@@ -188,7 +185,8 @@ impl Pruning {
     }
 }
 
-pub fn file_should_skip(global: &TableFunctionGlobal, file: &File) -> VortexResult<bool> {
+/// Returns true if file should be skipped
+pub fn reader_initialize(global: &TableFunctionGlobal, file: &File) -> VortexResult<bool> {
     let Some(pruning) = global.pruning.as_ref() else {
         return Ok(false);
     };
@@ -210,8 +208,9 @@ pub fn file_should_skip(global: &TableFunctionGlobal, file: &File) -> VortexResu
     let Some(filter) = &pruning.filter else {
         return Ok(false);
     };
-    let row_range = 0..file.row_count;
-    let mask = Mask::new_true(usize::try_from(file.row_count).unwrap_or(usize::MAX));
+    let row_count = file.reader.row_count();
+    let row_range = 0..row_count;
+    let mask = Mask::new_true(usize::try_from(row_count).unwrap_or(usize::MAX));
     let evaluation = file.reader.pruning_evaluation(&row_range, filter, mask)?;
     match evaluation.now_or_never() {
         Some(Ok(result_mask)) => Ok(result_mask.all_false()),
@@ -314,7 +313,7 @@ pub fn prepare_scan(
 }
 
 fn file_scan_aggregate(
-    file: &File,
+    file: &mut File,
     global: &TableFunctionGlobal,
     local: &mut TableFunctionLocal,
 ) -> VortexResult<()> {
@@ -328,7 +327,7 @@ fn file_scan_aggregate(
     };
     loop {
         let Ok(item) = RUNTIME.block_on(scan.receiver.recv()) else {
-            local.exhausted = true;
+            file.exhausted = true;
             break;
         };
         let (array, _cache) = item?;
@@ -366,7 +365,7 @@ fn file_scan_aggregate(
 }
 
 pub fn file_scan(
-    file: &File,
+    file: &mut File,
     global: &TableFunctionGlobal,
     local: &mut TableFunctionLocal,
     output: &mut DataChunkRef,
@@ -380,7 +379,7 @@ pub fn file_scan(
     loop {
         if local.exporter.is_none() {
             let Ok(item) = RUNTIME.block_on(scan.receiver.recv()) else {
-                local.exhausted = true;
+                file.exhausted = true;
                 return Ok(());
             };
             let (array, cache) = item?;
@@ -412,11 +411,12 @@ pub fn file_scan(
     Ok(())
 }
 
-pub fn try_initialize_scan(local: &TableFunctionLocal) -> bool {
-    !local.exhausted
+pub fn try_initialize_scan(file: &File) -> bool {
+    !file.exhausted
 }
 
 pub fn get_progress_in_file(file: &File) -> f64 {
+    // TODO(myrrc) this is inaccurate if filters are pushed
     let read = file.rows_read.load(Ordering::Relaxed) as f64;
-    100.0 * read / file.row_count as f64
+    100.0 * read / file.reader.row_count() as f64
 }

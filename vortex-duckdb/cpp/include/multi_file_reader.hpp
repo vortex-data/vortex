@@ -143,9 +143,7 @@ struct VortexBaseReader final : BaseFileReader {
     }
 
     // Called under global lock. Returns false when file is exhausted.
-    bool TryInitializeScan(ClientContext &context,
-                           GlobalTableFunctionState &gstate,
-                           LocalTableFunctionState &lstate) override;
+    bool TryInitializeScan(ClientContext &, GlobalTableFunctionState &, LocalTableFunctionState &) override;
 
     // Called without lock if TryInitializeScan succeeds
     void PrepareScan(ClientContext &, GlobalTableFunctionState &gstate, LocalTableFunctionState &) override;
