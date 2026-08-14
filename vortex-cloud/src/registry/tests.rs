@@ -218,3 +218,91 @@ fn test_opendal_schemes_reach_the_opendal_builder() -> Result<(), Box<dyn std::e
     }
     Ok(())
 }
+
+/// The key the registry reports must be the object's *literal* key.
+///
+/// `~` is unreserved, so it travels through a URL verbatim; characters a URL has to escape decode
+/// back to their literal form.
+#[rstest::rstest]
+#[case("repro~tilde~key/data.vortex", "repro~tilde~key/data.vortex")]
+#[case("tablets/~~all~0/data.vortex", "tablets/~~all~0/data.vortex")]
+#[case("dir/a[1].vortex", "dir/a[1].vortex")]
+#[case("dir/a%23b.vortex", "dir/a#b.vortex")]
+#[case("dir/a%20b.vortex", "dir/a b.vortex")]
+#[case("dir/a%2520b.vortex", "dir/a%20b.vortex")]
+fn test_resolve_reports_literal_key(
+    #[case] url_path: &str,
+    #[case] expected: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let registry = registry();
+    registry.register(
+        Url::parse("memory://bucket/")?,
+        Arc::new(object_store::memory::InMemory::new()),
+    );
+
+    // Both the registered-store branch and the recomputed cached branch must agree.
+    let url = Url::parse(&format!("memory://bucket/{url_path}"))?;
+    let (_store, path) = registry.resolve(&url)?;
+    assert_eq!(path.as_ref(), expected);
+    let (_store, path) = registry.resolve(&url)?;
+    assert_eq!(path.as_ref(), expected);
+    Ok(())
+}
+
+#[rstest::rstest]
+#[case::tilde("repro~tilde~key/data.vortex")]
+#[case::double_tilde("tablets/~~all~0/data.vortex")]
+#[case::brackets("dir/a[1].vortex")]
+#[case::braces("dir/a{x}.vortex")]
+#[case::caret("dir/a^b.vortex")]
+#[case::pipe("dir/a|b.vortex")]
+#[case::star("dir/a*b.vortex")]
+#[case::space("dir/a b.vortex")]
+#[case::plain("plain/data.vortex")]
+#[tokio::test]
+async fn test_resolved_key_reaches_the_object(
+    #[case] key: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use object_store::ObjectStoreExt;
+    use vortex_error::VortexError;
+    use vortex_file::OpenOptionsSessionExt;
+
+    let session = vortex_array::array_session()
+        .with::<vortex_layout::session::LayoutSession>()
+        .with::<vortex_io::session::RuntimeSession>();
+
+    // Seed the store with the literal key, the way any other client would.
+    let store: Arc<dyn ObjectStore> = Arc::new(object_store::memory::InMemory::new());
+    let location = Path::parse(key)?;
+    assert_eq!(
+        location.as_ref(),
+        key,
+        "the store must hold the literal key"
+    );
+    store.put(&location, vec![0u8; 1024].into()).await?;
+
+    let registry = registry();
+    registry.register(Url::parse("memory://bucket/")?, Arc::clone(&store));
+    let (store, path) = registry.resolve(&Url::parse(&format!("memory://bucket/{key}"))?)?;
+    assert_eq!(
+        path.as_ref(),
+        key,
+        "the registry must report the literal key"
+    );
+
+    let Err(err) = session
+        .open_options()
+        .open_object_store(&store, path.as_ref())
+        .await
+    else {
+        panic!("the payload is not a Vortex file, so opening it must fail")
+    };
+    assert!(
+        !matches!(
+            err,
+            VortexError::ObjectStore(object_store::Error::NotFound { .. }, _)
+        ),
+        "opening {key:?} requested a key the store does not have: {err}"
+    );
+    Ok(())
+}

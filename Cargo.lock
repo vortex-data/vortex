@@ -9826,8 +9826,14 @@ dependencies = [
  "percent-encoding",
  "rstest",
  "tempfile",
+ "tokio",
  "tracing",
  "url",
+ "vortex-array",
+ "vortex-error",
+ "vortex-file",
+ "vortex-io",
+ "vortex-layout",
  "vortex-utils",
 ]
 
@@ -10476,6 +10482,7 @@ dependencies = [
  "pyo3-bytes",
  "pyo3-log",
  "pyo3-object_store",
+ "rstest",
  "tokio",
  "url",
  "vortex",
