@@ -906,12 +906,8 @@ mod tests {
 
     #[test]
     fn or_chain_falsify_visits_each_node_once() -> VortexResult<()> {
-        // Regression test: the `Or` falsifier used to recurse into both children once per
-        // registered `Binary` rule, making the rewrite exponential in `Or`-nesting depth
-        // for chains like `a = 0 OR a = 1 OR ...`.
-        let session = crate::array_session();
         let visits = Arc::new(AtomicUsize::new(0));
-        session
+        SESSION
             .stats()
             .register_rewrite(BinaryVisitCounter(Arc::clone(&visits)));
 
