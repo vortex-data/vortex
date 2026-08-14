@@ -41,7 +41,6 @@ impl FileMetadata for CachedVortexMetadata {
             .unwrap_or(1024 * 64)
     }
 
-    #[expect(clippy::disallowed_types)]
     fn extra_info(&self) -> HashMap<String, String> {
         Default::default()
     }
