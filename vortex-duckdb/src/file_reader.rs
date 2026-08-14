@@ -10,6 +10,7 @@ use std::sync::atomic::Ordering;
 use futures::FutureExt;
 use kanal::AsyncReceiver;
 use object_store::registry::ObjectStoreRegistry;
+use tracing::debug;
 use url::Url;
 use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute as _;
@@ -239,11 +240,23 @@ pub fn prepare_scan(
         row_selection,
         row_range,
         has_non_optional_filter,
-        ..
+        file_selection,
+        file_range,
     } = convert_filter(bind, column_ids, filters)?;
     if has_non_optional_filter {
         bind.has_non_optional_filter.store(true, Ordering::Relaxed);
     }
+
+    debug!(
+        filter = filter
+            .as_ref()
+            .map_or_else(|| "true".to_string(), |f| f.to_string()),
+        ?row_selection,
+        ?row_range,
+        ?file_selection,
+        ?file_range,
+        "prepare scan"
+    );
 
     let filter = filter
         .map(|expr| optimize_and_bind(expr, &bind.dtype))

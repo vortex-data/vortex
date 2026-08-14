@@ -10,10 +10,10 @@
 extern "C" {
 #endif
 
-typedef struct duckdb_vx_tfunc_bind_result_ *duckdb_vx_tfunc_bind_result;
+typedef struct duckdb_bind_result_ *duckdb_bind_result;
 
 // Add a result column to the bind info.
-void duckdb_vx_tfunc_bind_result_add_column(duckdb_vx_tfunc_bind_result ffi_result,
+void duckdb_vx_tfunc_bind_result_add_column(duckdb_bind_result ffi_result,
                                             const char *name_str,
                                             size_t name_len,
                                             duckdb_logical_type ffi_type);
@@ -25,26 +25,8 @@ void duckdb_vx_string_map_insert(duckdb_vx_string_map map, const char *key, cons
 // Input data passed into the init_global and init_local callbacks.
 typedef struct {
     const void *bind_data;
-
-    /**
-     * Projected columns that are requested to be read. These are not
-     * all columns, only the ones DuckDB optimizer thinks we should read.
-     */
     idx_t *column_ids;
     size_t column_ids_count;
-
-    /**
-     * Post filter projected columns. Our table function implements filter
-     * pushdown so this list is a subset of columns referenced in column_ids
-     * after filter pushdown and filter pruning. May be empty, in which case
-     * column_ids should be used.
-     * Indices in this list reference values from column_ids. I.e. if
-     * column_ids[1] = 5
-     *
-     * Example usage:
-     * https://github.com/duckdb/duckdb/blob/dc11eadd8f0a7c600f0034810706605ebe10d5b9/src/include/duckdb/function/table_function.hpp#L147
-     */
-
     duckdb_vx_table_filter_set filters;
     duckdb_client_context client_context;
 } duckdb_vx_tfunc_init_input;

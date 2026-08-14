@@ -5,7 +5,7 @@ use crate::cpp;
 use crate::duckdb::LogicalTypeRef;
 use crate::lifetime_wrapper;
 
-lifetime_wrapper!(BindResult, cpp::duckdb_vx_tfunc_bind_result, |_| {});
+lifetime_wrapper!(BindResult, cpp::duckdb_bind_result, |_| {});
 
 impl BindResultRef {
     pub fn add_result_column(&self, name: &str, logical_type: &LogicalTypeRef) {

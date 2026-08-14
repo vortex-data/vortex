@@ -52,17 +52,24 @@ VortexMultiFileReader::InitializeReader(MultiFileReaderData &reader_data,
     return skip ? ReaderInitializeType::SKIP_READING_FILE : ReaderInitializeType::INITIALIZED;
 }
 
-void VortexReaderInterface::BindReader(ClientContext &,
-                                       vector<LogicalType> &,
-                                       vector<string> &,
+void VortexReaderInterface::BindReader(ClientContext &context,
+                                       vector<LogicalType> &types,
+                                       vector<string> &names,
                                        MultiFileBindData &bind_data) {
+    BaseFileReaderOptions options;
+    MultiFileOptions file_options;
+    VortexBindResult result = {types, names};
+
     VortexBindData &bind = bind_data.bind_data->Cast<VortexBindData>();
-    D_ASSERT(bind_data.initial_reader != nullptr);
+    const OpenFileInfo first_file = bind_data.file_list->GetFirstFile();
+    bind_data.initial_reader = CreateReader(context, first_file, options, file_options);
     const VortexBaseReader &initial_reader = bind_data.initial_reader->Cast<VortexBaseReader>();
 
     duckdb_vx_error error = nullptr;
     const void *const ffi_file = initial_reader.ffi_file->DataPtr();
-    duckdb_vx_data ffi_bind_data = duckdb_table_function_bind(ffi_file, &error);
+    duckdb_bind_result ffi_result = reinterpret_cast<duckdb_bind_result>(&result);
+
+    duckdb_vx_data ffi_bind_data = duckdb_table_function_bind(ffi_file, ffi_result, &error);
     if (error) {
         throw BinderException(IntoErrString(error));
     }
@@ -74,13 +81,6 @@ VortexReaderInterface::InitializeGlobalState(ClientContext &context,
                                              MultiFileBindData &bind_data,
                                              MultiFileGlobalState &input) {
     void *const ffi_bind = bind_data.bind_data->Cast<VortexBindData>().ffi_bind_data->DataPtr();
-
-    // Pushed projection expressions and casts change what the scan outputs
-    vector<LogicalType> types;
-    vector<string> names;
-    VortexBindResult schema = {types, names};
-    duckdb_table_function_bind_schema(ffi_bind, reinterpret_cast<duckdb_vx_tfunc_bind_result>(&schema));
-    bind_data.columns = MultiFileColumnDefinition::ColumnsFromNamesAndTypes(names, types);
 
     vector<idx_t> column_ids(input.column_indexes.size());
     for (size_t i = 0; i < input.column_indexes.size(); ++i) {

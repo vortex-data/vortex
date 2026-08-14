@@ -52,11 +52,8 @@ duckdb_vx_data duckdb_table_function_init_local(const void *bind_data,
 
 extern
 duckdb_vx_data duckdb_table_function_bind(const void *first_file,
+                                          duckdb_bind_result result,
                                           duckdb_vx_error *error_out);
-
-extern
-void duckdb_table_function_bind_schema(const void *bind_data,
-                                       duckdb_vx_tfunc_bind_result schema_result);
 
 extern
 duckdb_vx_data duckdb_reader_open(const char *file_path,

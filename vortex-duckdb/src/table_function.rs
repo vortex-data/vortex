@@ -49,7 +49,6 @@ use crate::duckdb::BindResultRef;
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::DuckdbStringMapRef;
 use crate::duckdb::ExpressionRef;
-use crate::duckdb::LogicalType;
 use crate::duckdb::LogicalTypeRef;
 use crate::duckdb::TableInitInput;
 use crate::duckdb::Value;
@@ -73,7 +72,6 @@ pub struct TableFunctionBind {
     pub(crate) has_non_optional_filter: AtomicBool,
     // Non-empty iff this scan is aggregate
     aggregates: Vec<ColumnAggregate>,
-    aggregate_outputs: Vec<(String, LogicalType)>,
 }
 assert_impl_all!(TableFunctionBind: Send, Clone);
 
@@ -89,7 +87,6 @@ impl Clone for TableFunctionBind {
                 self.has_non_optional_filter.load(Ordering::Relaxed),
             ),
             aggregates: self.aggregates.clone(),
-            aggregate_outputs: self.aggregate_outputs.clone(),
         }
     }
 }
@@ -158,12 +155,17 @@ pub enum Cardinality {
     Estimate(u64),
 }
 
-// Called for every new query. For example, if there is a VIEW over *.vortex,
-// and after a query another file is added matching the glob, for second query
-// bind() will be called again.
-pub fn bind(first_file: &File) -> VortexResult<TableFunctionBind> {
+/// Called for every new query. For example, if there is a VIEW over *.vortex,
+/// and after a query another file is added matching the glob, for second query
+/// bind() will be called again.
+pub fn bind(first_file: &File, result: &mut BindResultRef) -> VortexResult<TableFunctionBind> {
     let dtype = first_file.dtype.clone();
     let column_fields = extract_schema_from_dtype(&dtype)?;
+
+    for field in &column_fields {
+        result.add_result_column(&field.name, &field.logical_type);
+    }
+
     Ok(TableFunctionBind {
         dtype,
         first_file_row_count: first_file.row_count,
@@ -171,20 +173,7 @@ pub fn bind(first_file: &File) -> VortexResult<TableFunctionBind> {
         column_fields,
         has_non_optional_filter: AtomicBool::new(false),
         aggregates: vec![],
-        aggregate_outputs: vec![],
     })
-}
-
-pub fn bind_schema(bind_data: &TableFunctionBind, result: &mut BindResultRef) {
-    if !bind_data.aggregate_outputs.is_empty() {
-        for (name, logical_type) in &bind_data.aggregate_outputs {
-            result.add_result_column(name, logical_type);
-        }
-        return;
-    }
-    for field in &bind_data.column_fields {
-        result.add_result_column(&field.name, &field.logical_type);
-    }
 }
 
 pub fn finalize_scan(global: &TableFunctionGlobal, chunk: &mut DataChunkRef) -> VortexResult<bool> {
@@ -246,8 +235,10 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
     } else {
         Projection::new_aggregate(&bind_data.aggregates, &bind_data.column_fields)
     };
-    let bound_projection = optimize_and_bind(projection, &bind_data.dtype)?;
 
+    debug!(input=?init_input, %projection, "table function init global");
+
+    let bound_projection = optimize_and_bind(projection, &bind_data.dtype)?;
     Ok(TableFunctionGlobal {
         pruning,
         aggregate_positions,
@@ -528,7 +519,6 @@ pub fn pushdown_projection_aggregates(
         return Ok(false);
     }
     bind_data.aggregates = aggregates;
-    bind_data.aggregate_outputs = outputs;
     Ok(true)
 }
 

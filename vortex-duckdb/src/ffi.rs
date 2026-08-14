@@ -44,7 +44,6 @@ use crate::table_function::TableFunctionBind;
 use crate::table_function::TableFunctionGlobal;
 use crate::table_function::TableFunctionLocal;
 use crate::table_function::bind;
-use crate::table_function::bind_schema;
 use crate::table_function::cardinality;
 use crate::table_function::finalize_scan;
 use crate::table_function::init_global;
@@ -175,26 +174,16 @@ pub unsafe extern "C-unwind" fn duckdb_table_function_init_local(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn duckdb_table_function_bind(
     first_file: *const c_void,
+    result: cpp::duckdb_bind_result,
     error_out: *mut cpp::duckdb_vx_error,
 ) -> cpp::duckdb_vx_data {
-    let first_file =
-        unsafe { first_file.cast::<File>().as_ref() }.vortex_expect("file null pointer");
+    let first_file = unsafe { first_file.cast::<File>().as_ref() }.vortex_expect("null pointer");
+    let mut result = unsafe { BindResult::own(result) };
 
     try_or_null(error_out, || {
-        let bind_data = bind(first_file)?;
+        let bind_data = bind(first_file, &mut result)?;
         Ok(Data::from(Box::new(bind_data)).as_ptr())
     })
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn duckdb_table_function_bind_schema(
-    bind_data: *const c_void,
-    schema_result: cpp::duckdb_vx_tfunc_bind_result,
-) {
-    let bind_data = unsafe { bind_data.cast::<TableFunctionBind>().as_ref() }
-        .vortex_expect("bind_data null pointer");
-    let schema_result = unsafe { BindResult::borrow_mut(schema_result) };
-    bind_schema(bind_data, schema_result);
 }
 
 #[unsafe(no_mangle)]

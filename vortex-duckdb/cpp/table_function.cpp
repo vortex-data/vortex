@@ -93,14 +93,14 @@ void pushdown_complex_filter(const FunctionData &bind_data, FilterVec &filters) 
     }
 }
 
-extern "C" void duckdb_vx_tfunc_bind_result_add_column(duckdb_vx_tfunc_bind_result ffi_result,
+extern "C" void duckdb_vx_tfunc_bind_result_add_column(duckdb_bind_result ffi_result,
                                                        const char *name_str,
                                                        size_t name_len,
                                                        duckdb_logical_type ffi_type) {
     D_ASSERT(ffi_result);
     D_ASSERT(name_str);
     D_ASSERT(ffi_type);
-    const VortexBindResult &result = *reinterpret_cast<VortexBindResult *>(ffi_result);
+    VortexBindResult &result = *reinterpret_cast<VortexBindResult *>(ffi_result);
     const LogicalType logical_type = *reinterpret_cast<LogicalType *>(ffi_type);
 
     result.names.emplace_back(name_str, name_len);

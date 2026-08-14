@@ -85,9 +85,10 @@ struct VortexReaderInterface final : MultiFileReaderInterface {
         return make_uniq<VortexBindData>();
     }
 
-    void BindReader(ClientContext &,
-                    vector<LogicalType> &,
-                    vector<string> &,
+    // Open first file, populate types and names from it
+    void BindReader(ClientContext &context,
+                    vector<LogicalType> &types,
+                    vector<string> &names,
                     MultiFileBindData &bind_data) override;
 
     unique_ptr<GlobalTableFunctionState> InitializeGlobalState(ClientContext &context,
