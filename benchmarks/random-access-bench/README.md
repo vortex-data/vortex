@@ -27,3 +27,27 @@ work in each timed iteration. CI drives the full matrix via
 ```bash
 cargo run -p random-access-bench --profile release_debug --features lance
 ```
+
+## Running against S3
+
+The same benchmark can read its data from an object store instead of local disk. The remote
+directory must mirror the layout of the local data directory (`vortex-bench/data/`), so the
+files are materialized locally first and then uploaded verbatim:
+
+```bash
+cargo run -p random-access-bench --profile release_debug --features lance -- \
+  --prepare-data --formats parquet,vortex,lance
+aws s3 cp --recursive vortex-bench/data s3://my-bucket/my-prefix/
+
+cargo run -p random-access-bench --profile release_debug --features lance -- \
+  --remote-data-dir s3://my-bucket/my-prefix/
+```
+
+Credentials and region come from the environment (`AWS_REGION`, `AWS_PROFILE`, ...).
+
+Remote measurements are named `...-tokio-s3` instead of `...-tokio-local-disk` and are
+reported with `s3` storage, so they form a series separate from the local-disk numbers. In CI
+the variant runs from
+[`pr-bench-random-access-s3.yml`](../../.github/workflows/pr-bench-random-access-s3.yml)
+(label `action/bench-random-access-s3`) and from the `Random Access (S3)` matrix entry in
+`develop-bench.yml`.

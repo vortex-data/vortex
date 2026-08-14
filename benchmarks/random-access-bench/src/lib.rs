@@ -24,8 +24,10 @@ use vortex_bench::random_access::ArrowIpcRandomAccessor;
 use vortex_bench::random_access::BenchDataset;
 use vortex_bench::random_access::ParquetRandomAccessor;
 use vortex_bench::random_access::RandomAccessor;
+use vortex_bench::random_access::RemoteDataDir;
 use vortex_bench::random_access::VortexRandomAccessor;
 use vortex_bench::utils::constants::STORAGE_NVME;
+use vortex_bench::utils::constants::STORAGE_S3;
 use vortex_bench::v3;
 
 use crate::render::RandomAccessRun;
@@ -150,10 +152,11 @@ async fn benchmark_random_access(
     time_limit_secs: u64,
     storage: &str,
     reopen: bool,
+    remote: Option<&RemoteDataDir>,
 ) -> Result<RandomAccessRun> {
     let time_limit = Duration::from_secs(time_limit_secs);
     let mut runs = Vec::new();
-    let prepared_accessor = open_accessor(dataset, format).await?;
+    let prepared_accessor = open_accessor(dataset, format, remote).await?;
     let cached_accessor = (!reopen).then_some(prepared_accessor);
 
     if let Some(accessor) = &cached_accessor {
@@ -173,7 +176,10 @@ async fn benchmark_random_access(
         let arr = if let Some(accessor) = &cached_accessor {
             accessor.take(indices).await?
         } else {
-            open_accessor(dataset, format).await?.take(indices).await?
+            open_accessor(dataset, format, remote)
+                .await?
+                .take(indices)
+                .await?
         };
         runs.push(start.elapsed());
         drop(arr);
@@ -214,16 +220,29 @@ fn display_name(dataset: &str, pattern: Option<AccessPattern>) -> String {
 /// historical continuity with existing benchmark data.
 /// For other datasets, includes dataset and pattern:
 /// `random-access/{dataset}/{pattern}/{format}-tokio-local-disk`.
-fn measurement_name(dataset: &str, pattern: Option<AccessPattern>, format: Format) -> String {
+///
+/// Remote runs use a `-tokio-s3` suffix so their results form a separate series from the
+/// local-disk ones.
+fn measurement_name(
+    dataset: &str,
+    pattern: Option<AccessPattern>,
+    format: Format,
+    remote: bool,
+) -> String {
     let fmt = format.ext();
+    let suffix = source_suffix(remote);
     match pattern {
-        Some(p) => format!(
-            "random-access/{}/{}/{}-tokio-local-disk",
-            dataset,
-            p.name(),
-            fmt
-        ),
-        None => format!("random-access/{}-tokio-local-disk", fmt),
+        Some(p) => format!("random-access/{}/{}/{}-{}", dataset, p.name(), fmt, suffix),
+        None => format!("random-access/{}-{}", fmt, suffix),
+    }
+}
+
+/// Name suffix identifying where the benchmarked files are read from.
+fn source_suffix(remote: bool) -> &'static str {
+    if remote {
+        "tokio-s3"
+    } else {
+        "tokio-local-disk"
     }
 }
 
@@ -240,6 +259,38 @@ fn push_v3_random_access_record(records: &mut Vec<v3::V3Record>, run: &RandomAcc
     records.push(v3::random_access_record(&run.timing, &dataset, open_mode));
 }
 
+/// Materialize the local data file for `dataset` in `format`, writing it if it is missing.
+async fn dataset_path(dataset: &dyn BenchDataset, format: Format) -> Result<PathBuf> {
+    match format {
+        #[cfg(feature = "lance")]
+        Format::Lance => {
+            use lance_bench::random_access;
+            match dataset.name() {
+                "taxi" => random_access::taxi_data_lance().await,
+                "feature-vectors" => random_access::feature_vectors_lance().await,
+                "nested-lists" => random_access::nested_lists_lance().await,
+                "nested-structs" => random_access::nested_structs_lance().await,
+                other => anyhow::bail!("Unknown dataset for Lance: {other}"),
+            }
+        }
+        format => dataset.path(format).await,
+    }
+}
+
+/// Materialize every local data file needed for `datasets` and `formats`.
+///
+/// Remote runs read data that must already exist in the remote directory, so this is run first
+/// (locally) and the resulting files uploaded verbatim.
+pub async fn prepare_data(datasets: &[Box<dyn BenchDataset>], formats: &[Format]) -> Result<()> {
+    for dataset in datasets {
+        for format in formats {
+            let path = dataset_path(dataset.as_ref(), *format).await?;
+            println!("{}", path.display());
+        }
+    }
+    Ok(())
+}
+
 /// Open a random accessor for any supported format.
 ///
 /// For Vortex and Parquet, the path comes from [`BenchDataset::path`].
@@ -247,11 +298,13 @@ fn push_v3_random_access_record(records: &mut Vec<v3::V3Record>, run: &RandomAcc
 async fn open_accessor(
     dataset: &dyn BenchDataset,
     format: Format,
+    remote: Option<&RemoteDataDir>,
 ) -> Result<Box<dyn RandomAccessor>> {
     let name = format!(
-        "random-access/{}/{}-tokio-local-disk",
+        "random-access/{}/{}-{}",
         dataset.name(),
-        format.ext()
+        format.ext(),
+        source_suffix(remote.is_some())
     );
     match format {
         Format::ArrowIpc => {
@@ -259,28 +312,33 @@ async fn open_accessor(
             Ok(Box::new(ArrowIpcRandomAccessor::open(path, name)?))
         }
         Format::OnDiskVortex | Format::VortexCompact => {
-            let path = dataset.path(format).await?;
-            Ok(Box::new(
-                VortexRandomAccessor::open(path, name, format).await?,
-            ))
+            let path = dataset_path(dataset, format).await?;
+            Ok(match remote {
+                Some(remote) => Box::new(
+                    VortexRandomAccessor::open_object_store(remote, &path, name, format).await?,
+                ),
+                None => Box::new(VortexRandomAccessor::open(path, name, format).await?),
+            })
         }
         Format::Parquet => {
-            let path = dataset.path(format).await?;
-            Ok(Box::new(ParquetRandomAccessor::open(path, name).await?))
+            let path = dataset_path(dataset, format).await?;
+            Ok(match remote {
+                Some(remote) => {
+                    Box::new(ParquetRandomAccessor::open_object_store(remote, &path, name).await?)
+                }
+                None => Box::new(ParquetRandomAccessor::open(path, name).await?),
+            })
         }
         #[cfg(feature = "lance")]
         Format::Lance => {
             use lance_bench::random_access;
-            let path = match dataset.name() {
-                "taxi" => random_access::taxi_data_lance().await?,
-                "feature-vectors" => random_access::feature_vectors_lance().await?,
-                "nested-lists" => random_access::nested_lists_lance().await?,
-                "nested-structs" => random_access::nested_structs_lance().await?,
-                other => anyhow::bail!("Unknown dataset for Lance: {other}"),
-            };
-            Ok(Box::new(
-                random_access::LanceRandomAccessor::open(path, name).await?,
-            ))
+            let path = dataset_path(dataset, format).await?;
+            Ok(match remote {
+                Some(remote) => Box::new(
+                    random_access::LanceRandomAccessor::open_uri(&remote.uri(&path)?, name).await?,
+                ),
+                None => Box::new(random_access::LanceRandomAccessor::open(path, name).await?),
+            })
         }
         other => unimplemented!("open_accessor not implemented for {other}"),
     }
@@ -313,6 +371,8 @@ pub struct RunConfig {
     pub output_path: Option<PathBuf>,
     /// Optional path for benchmark ingest JSONL records.
     pub ingest_output: Option<PathBuf>,
+    /// When set, read the data files from this remote directory instead of local disk.
+    pub remote_data_dir: Option<RemoteDataDir>,
 }
 
 /// Run random-access benchmarks with `config`.
@@ -326,7 +386,15 @@ pub async fn run(config: RunConfig) -> Result<()> {
         display_format,
         output_path,
         ingest_output,
+        remote_data_dir,
     } = config;
+
+    let remote = remote_data_dir.as_ref();
+    let storage = if remote.is_some() {
+        STORAGE_S3
+    } else {
+        STORAGE_NVME
+    };
 
     let reopen_variants: &[bool] = match open_mode {
         OpenMode::Cached => &[false],
@@ -351,7 +419,7 @@ pub async fn run(config: RunConfig) -> Result<()> {
     for dataset in &datasets {
         for format in &formats {
             if dataset.name() == "taxi" {
-                let name = measurement_name(dataset.name(), None, *format);
+                let name = measurement_name(dataset.name(), None, *format, remote.is_some());
                 for &reopen in reopen_variants {
                     let bench_name = if reopen {
                         format!("{name}-footer")
@@ -365,8 +433,9 @@ pub async fn run(config: RunConfig) -> Result<()> {
                         None,
                         &FIXED_TAXI_INDICES,
                         time_limit,
-                        STORAGE_NVME,
+                        storage,
                         reopen,
+                        remote,
                     )
                     .await?;
 
@@ -378,7 +447,8 @@ pub async fn run(config: RunConfig) -> Result<()> {
 
             for pattern in &patterns {
                 let indices = generate_indices(dataset.as_ref(), *pattern);
-                let name = measurement_name(dataset.name(), Some(*pattern), *format);
+                let name =
+                    measurement_name(dataset.name(), Some(*pattern), *format, remote.is_some());
                 for &reopen in reopen_variants {
                     let bench_name = if reopen {
                         format!("{name}-footer")
@@ -392,8 +462,9 @@ pub async fn run(config: RunConfig) -> Result<()> {
                         Some(*pattern),
                         &indices,
                         time_limit,
-                        STORAGE_NVME,
+                        storage,
                         reopen,
+                        remote,
                     )
                     .await?;
 

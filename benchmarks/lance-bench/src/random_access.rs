@@ -89,11 +89,17 @@ pub struct LanceRandomAccessor {
 impl LanceRandomAccessor {
     /// Open a Lance dataset and return a ready-to-use accessor.
     pub async fn open(path: PathBuf, name: impl Into<String>) -> anyhow::Result<Self> {
-        let dataset = Dataset::open(
+        Self::open_uri(
             path.to_str()
                 .ok_or_else(|| anyhow!("Invalid dataset path"))?,
+            name,
         )
-        .await?;
+        .await
+    }
+
+    /// Open a Lance dataset from any URI (local path, `s3://...`, ...).
+    pub async fn open_uri(uri: &str, name: impl Into<String>) -> anyhow::Result<Self> {
+        let dataset = Dataset::open(uri).await?;
         let projection = ProjectionRequest::from_schema(dataset.schema().clone());
         Ok(Self {
             name: name.into(),

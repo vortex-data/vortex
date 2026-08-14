@@ -4,7 +4,7 @@ name: PR Benchmark Runner
 
 concurrency:
   # The group causes runs to queue instead of running in parallel.
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}-${{ inputs.benchmark_id }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}-${{ inputs.benchmark_id }}${{ inputs.variant_id }}
   # Don't cancel benchmarks that are already running, instead just queue them up.
   cancel-in-progress: false
 
@@ -21,6 +21,20 @@ on:
         required: false
         type: boolean
         default: false
+      variant_id:
+        description: >-
+          Suffix distinguishing runs of the same benchmark, e.g. "-s3". Keeps the PR comment
+          tag and the concurrency group of a variant separate from the default run.
+        required: false
+        type: string
+        default: ""
+      remote_data_dir:
+        description: >-
+          When set, the benchmark data is uploaded to this S3 prefix and read back from there
+          instead of local disk. Only supported by random-access-bench.
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -122,6 +136,26 @@ jobs:
           extra_args: "--debuginfo-strip=false"
           parca_agent_version: "0.49.0"
 
+      - name: Setup AWS CLI
+        if: github.event.pull_request.head.repo.fork == false
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c  # v6
+        with:
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+
+      - name: Upload benchmark data to S3
+        if: inputs.remote_data_dir != '' && github.event.pull_request.head.repo.fork == false
+        shell: bash
+        env:
+          AWS_REGION: "us-east-1"
+        run: |
+          set -Eeu -o pipefail -x
+
+          target/release_debug/${{ inputs.benchmark_id }} --prepare-data \
+            --formats ${{ inputs.with_lance && 'parquet,vortex,lance' || 'parquet,vortex' }}
+          aws s3 rm --recursive "${{ inputs.remote_data_dir }}"
+          aws s3 cp --recursive vortex-bench/data "${{ inputs.remote_data_dir }}"
+
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
 
@@ -132,8 +166,10 @@ jobs:
           RUST_BACKTRACE: full
           VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+          AWS_REGION: "us-east-1"
         run: |
-          python3 scripts/random-access-split.py
+          python3 scripts/random-access-split.py \
+            ${{ inputs.remote_data_dir != '' && format('--remote-data-dir {0}', inputs.remote_data_dir) || '' }}
 
       - name: Run ${{ inputs.benchmark_name }} benchmark (per-dataset)
         if: inputs.benchmark_id == 'compress-bench'
@@ -154,13 +190,6 @@ jobs:
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
         run: |
           python3 scripts/string-split.py
-
-      - name: Setup AWS CLI
-        if: github.event.pull_request.head.repo.fork == false
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c  # v6
-        with:
-          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
-          aws-region: us-east-1
 
       - name: Install uv
         uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
@@ -184,7 +213,7 @@ jobs:
         uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
         with:
           file-path: comment.md
-          comment-tag: bench-pr-comment-${{ inputs.benchmark_id }}
+          comment-tag: bench-pr-comment-${{ inputs.benchmark_id }}${{ inputs.variant_id }}
 
       - name: Comment PR on failure
         if: failure() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
@@ -194,4 +223,12 @@ jobs:
             # BENCHMARK FAILED
 
             Benchmark `${{ inputs.benchmark_name }}` failed! Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
-          comment-tag: bench-pr-comment-${{ inputs.benchmark_id }}
+          comment-tag: bench-pr-comment-${{ inputs.benchmark_id }}${{ inputs.variant_id }}
+
+
+      - name: Delete benchmark data from S3
+        if: always() && inputs.remote_data_dir != '' && github.event.pull_request.head.repo.fork == false
+        shell: bash
+        env:
+          AWS_REGION: "us-east-1"
+        run: aws s3 rm --recursive "${{ inputs.remote_data_dir }}"
