@@ -209,6 +209,18 @@ fn field_names(fields: &Bound<'_, PyAny>) -> PyResult<FieldNames> {
         .into())
 }
 
+/// Extract expressions from any iterable, so that a generator serves as well as a sequence.
+///
+/// A `Vec<PyIntoExpr>` parameter would reject anything that is not a sequence, and these functions
+/// are documented to take an iterable — which is what a caller building expressions in a
+/// comprehension naturally has.
+fn into_exprs(exprs: &Bound<'_, PyAny>) -> PyResult<Vec<Expression>> {
+    exprs
+        .try_iter()?
+        .map(|expr| coerce_expression(&expr?))
+        .collect()
+}
+
 /// Extract `(name, expression)` pairs from either a mapping or an iterable of 2-tuples.
 fn named_exprs(fields: &Bound<'_, PyAny>) -> PyResult<Vec<(FieldName, Expression)>> {
     let items: Vec<Bound<'_, PyAny>> = if let Ok(dict) = fields.cast::<PyDict>() {
@@ -690,8 +702,8 @@ pub fn or_(left: PyIntoExpr, right: PyIntoExpr) -> PyExpr {
 /// :class:`vortex.Expr` or ``None``
 ///     ``None`` if ``exprs`` is empty.
 #[pyfunction]
-pub fn and_collect(exprs: Vec<PyIntoExpr>) -> Option<PyExpr> {
-    expr::and_collect(exprs.into_iter().map(PyIntoExpr::into_inner)).map(PyExpr::from)
+pub fn and_collect(exprs: &Bound<'_, PyAny>) -> PyResult<Option<PyExpr>> {
+    Ok(expr::and_collect(into_exprs(exprs)?).map(PyExpr::from))
 }
 
 /// Combine expressions with logical OR using a balanced tree.
@@ -706,8 +718,8 @@ pub fn and_collect(exprs: Vec<PyIntoExpr>) -> Option<PyExpr> {
 /// :class:`vortex.Expr` or ``None``
 ///     ``None`` if ``exprs`` is empty.
 #[pyfunction]
-pub fn or_collect(exprs: Vec<PyIntoExpr>) -> Option<PyExpr> {
-    expr::or_collect(exprs.into_iter().map(PyIntoExpr::into_inner)).map(PyExpr::from)
+pub fn or_collect(exprs: &Bound<'_, PyAny>) -> PyResult<Option<PyExpr>> {
+    Ok(expr::or_collect(into_exprs(exprs)?).map(PyExpr::from))
 }
 
 macro_rules! binary_fn {
@@ -1068,7 +1080,7 @@ pub fn pack(fields: &Bound<'_, PyAny>, nullable: bool) -> PyResult<PyExpr> {
 /// :class:`vortex.Expr`
 #[pyfunction]
 #[pyo3(signature = (exprs, *, duplicate_handling = "error"))]
-pub fn merge(exprs: Vec<PyIntoExpr>, duplicate_handling: &str) -> PyResult<PyExpr> {
+pub fn merge(exprs: &Bound<'_, PyAny>, duplicate_handling: &str) -> PyResult<PyExpr> {
     let duplicate_handling = match duplicate_handling.to_ascii_lowercase().as_str() {
         "error" => DuplicateHandling::Error,
         "rightmost" | "right_most" => DuplicateHandling::RightMost,
@@ -1079,10 +1091,7 @@ pub fn merge(exprs: Vec<PyIntoExpr>, duplicate_handling: &str) -> PyResult<PyExp
         }
     };
     Ok(PyExpr {
-        inner: expr::merge_opts(
-            exprs.into_iter().map(PyIntoExpr::into_inner),
-            duplicate_handling,
-        ),
+        inner: expr::merge_opts(into_exprs(exprs)?, duplicate_handling),
     })
 }
 
@@ -1169,19 +1178,19 @@ pub fn list_sum(child: PyIntoExpr, skip_nans: bool) -> PyExpr {
 /// ```
 #[pyfunction]
 #[pyo3(signature = (when_then, else_value = None))]
-pub fn case_when(
-    when_then: Vec<(PyIntoExpr, PyIntoExpr)>,
-    else_value: Option<PyIntoExpr>,
-) -> PyResult<PyExpr> {
+pub fn case_when(when_then: &Bound<'_, PyAny>, else_value: Option<PyIntoExpr>) -> PyResult<PyExpr> {
+    let when_then: Vec<(Expression, Expression)> = when_then
+        .try_iter()?
+        .map(|pair| {
+            let (condition, value): (Bound<'_, PyAny>, Bound<'_, PyAny>) = pair?.extract()?;
+            Ok((coerce_expression(&condition)?, coerce_expression(&value)?))
+        })
+        .collect::<PyResult<_>>()?;
     if when_then.is_empty() {
         return Err(PyValueError::new_err(
             "case_when requires at least one (condition, value) pair",
         ));
     }
-    let when_then = when_then
-        .into_iter()
-        .map(|(condition, value)| (condition.into_inner(), value.into_inner()))
-        .collect();
     Ok(PyExpr {
         inner: expr::nested_case_when(when_then, else_value.map(PyIntoExpr::into_inner)),
     })

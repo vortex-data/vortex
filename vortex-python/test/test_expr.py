@@ -149,6 +149,31 @@ def test_case_when_requires_a_pair() -> None:
 def test_collect_returns_none_when_empty() -> None:
     assert ve.and_collect([]) is None
     assert ve.or_collect([]) is None
+    assert ve.and_collect(expr for expr in ()) is None
+    assert ve.or_collect(expr for expr in ()) is None
+
+
+def test_functions_taking_an_iterable_accept_a_generator() -> None:
+    # Building the expressions in a comprehension is the natural way to call these, so a generator
+    # has to work and not just a sequence.
+    columns = ["age", "id"]
+    assert str(ve.and_collect(ve.column(name) > 1 for name in columns)) == str(
+        ve.and_collect([ve.column("age") > 1, ve.column("id") > 1])
+    )
+    assert str(ve.or_collect(ve.column(name) > 1 for name in columns)) == str(
+        ve.or_collect([ve.column("age") > 1, ve.column("id") > 1])
+    )
+    assert str(ve.merge(ve.select([name]) for name in columns)) == str(
+        ve.merge([ve.select(["age"]), ve.select(["id"])])
+    )
+    assert str(ve.case_when((ve.column(name) > 1, name) for name in columns)) == str(
+        ve.case_when([(ve.column("age") > 1, "age"), (ve.column("id") > 1, "id")])
+    )
+
+
+def test_case_when_rejects_an_empty_generator() -> None:
+    with pytest.raises(ValueError):
+        _ = ve.case_when(pair for pair in ())
 
 
 # --------------------------------------------------------------------------------------
