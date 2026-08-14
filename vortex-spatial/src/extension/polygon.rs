@@ -53,6 +53,7 @@ use super::coordinate::coordinate_dimension;
 use super::coordinate::coordinate_storage_dtype;
 use super::geoarrow_metadata;
 use super::geoarrow_to_wkb;
+use super::placeholder_geometry;
 use super::spatial_metadata_from_arrow;
 
 /// A polygon: `geoarrow.polygon`, stored as `List<List<Struct<x, y[, z][, m]>>>` (rings of vertices).
@@ -149,6 +150,23 @@ pub(crate) fn polygon_geometries(
                 .ok_or_else(|| vortex_err!("spatial: null geometry is not supported"))?
                 .map_err(|e| vortex_err!("spatial: geometry access failed: {e}"))?
                 .to_geometry())
+        })
+        .collect()
+}
+
+/// Like [`polygon_geometries`], but a null row decodes to the placeholder geometry instead of
+/// failing. The caller guarantees null rows are never read.
+pub(crate) fn polygon_geometries_null_tolerant(
+    storage: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Vec<Geometry<f64>>> {
+    polygon_array(storage, ctx)?
+        .iter()
+        .map(|geometry| match geometry {
+            None => Ok(placeholder_geometry()),
+            Some(geometry) => Ok(geometry
+                .map_err(|e| vortex_err!("spatial: geometry access failed: {e}"))?
+                .to_geometry()),
         })
         .collect()
 }

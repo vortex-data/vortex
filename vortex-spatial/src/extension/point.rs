@@ -50,6 +50,7 @@ use super::coordinate::coordinate_from_struct;
 use super::coordinate::coordinate_storage_dtype;
 use super::geoarrow_metadata;
 use super::geoarrow_to_wkb;
+use super::placeholder_geometry;
 use super::spatial_metadata_from_arrow;
 
 /// A single location: `geoarrow.point`, stored as `Struct<x, y[, z][, m]>` of non-nullable `f64`.
@@ -146,6 +147,23 @@ pub(crate) fn point_geometries(
                 .ok_or_else(|| vortex_err!("spatial: null geometry is not supported"))?
                 .map_err(|e| vortex_err!("spatial: geometry access failed: {e}"))?
                 .to_geometry())
+        })
+        .collect()
+}
+
+/// Like [`point_geometries`], but a null row decodes to the placeholder geometry instead of
+/// failing. The caller guarantees null rows are never read.
+pub(crate) fn point_geometries_null_tolerant(
+    storage: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Vec<Geometry<f64>>> {
+    point_array(storage, ctx)?
+        .iter()
+        .map(|geometry| match geometry {
+            None => Ok(placeholder_geometry()),
+            Some(geometry) => Ok(geometry
+                .map_err(|e| vortex_err!("spatial: geometry access failed: {e}"))?
+                .to_geometry()),
         })
         .collect()
 }

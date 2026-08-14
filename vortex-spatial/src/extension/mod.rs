@@ -178,6 +178,63 @@ pub(crate) fn geometries(
     }
 }
 
+/// The geometry a null row decodes to under [`geometries_null_tolerant`]. Arbitrary: the caller
+/// guarantees null rows are never read.
+pub(crate) fn placeholder_geometry() -> Geometry<f64> {
+    Geometry::Point(geo_types::Point::new(0.0, 0.0))
+}
+
+/// Whether [`geometries_null_tolerant`] supports this array without filtering null rows first.
+pub(crate) fn can_decode_geometries_null_tolerant(array: &ArrayRef) -> VortexResult<bool> {
+    if array.validity()?.definitely_no_nulls() {
+        return Ok(true);
+    }
+
+    let Some(ext) = array.dtype().as_extension_opt() else {
+        vortex_bail!(
+            "spatial: operand is not a geometry extension type, was {}",
+            array.dtype()
+        );
+    };
+
+    Ok(ext.is::<Point>() || ext.is::<Polygon>())
+}
+
+/// Decode a native geometry column that may contain null rows, writing [`placeholder_geometry`]
+/// into their slots. The caller guarantees null rows are never read.
+///
+/// `Ok(None)` means this geometry type has no null-tolerant decode yet (`Point` and `Polygon` are
+/// covered), and the caller falls back to the filter strategy, which never decodes a null row. A
+/// column with definitely no nulls delegates to the ordinary [`geometries`] for any type.
+pub(crate) fn geometries_null_tolerant(
+    array: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<Vec<Geometry<f64>>>> {
+    if array.validity()?.definitely_no_nulls() {
+        return geometries(array, ctx).map(Some);
+    }
+
+    let Some(ext) = array.dtype().as_extension_opt() else {
+        vortex_bail!(
+            "spatial: operand is not a geometry extension type, was {}",
+            array.dtype()
+        );
+    };
+    let storage = array
+        .clone()
+        .execute::<ExtensionArray>(ctx)?
+        .storage_array()
+        .clone();
+
+    if ext.is::<Point>() {
+        point_geometries_null_tolerant(&storage, ctx).map(Some)
+    } else if ext.is::<Polygon>() {
+        polygon_geometries_null_tolerant(&storage, ctx).map(Some)
+    } else {
+        Ok(None)
+    }
+}
+
 /// Decode a constant operand scalar to one geometry, a constant of any
 /// supported geometry type is decoded exactly like a column.
 pub(crate) fn single_geometry(
