@@ -69,8 +69,8 @@ use crate::segments::writer::BufferedSegmentSink;
 /// that implements [`VortexWrite`].
 ///
 /// All write strategies are restricted to the components in the session's enabled editions: an
-/// array, layout, extension dtype, or zone-map aggregate outside them fails the write. A kind the
-/// editions declare nothing of is left unrestricted.
+/// array, layout, extension dtype, or zone-map aggregate outside them fails the write. An empty
+/// component set therefore forbids writing any component of that kind.
 ///
 /// Construct with [`WriteOptionsSessionExt::write_options`] for normal use so the writer inherits
 /// the session's runtime, array registry, and memory configuration.
@@ -226,11 +226,9 @@ impl VortexWriteOptions {
 
         // The array context is built here, rather than when the options were constructed, so that
         // encodings registered on the session in between are still eligible for the file.
-        let mut ctx = LayoutWriterContext::new(new_array_context(&self.session))
-            .with_buffered_bytes_tracker(self.buffered_bytes.clone());
-        if let Some(allowed) = edition_filter(&self.session, ComponentKind::Aggregate) {
-            ctx = ctx.with_allowed_aggregates(allowed);
-        }
+        let ctx = LayoutWriterContext::new(new_array_context(&self.session))
+            .with_buffered_bytes_tracker(self.buffered_bytes.clone())
+            .with_allowed_aggregates(edition_filter(&self.session, ComponentKind::Aggregate));
         let dtype = stream.dtype().clone();
         validate_dtype_editions(&self.session, &dtype)?;
 
@@ -370,22 +368,14 @@ fn new_array_context(session: &VortexSession) -> ArrayContext {
         .with_allowed_ids(enabled_encoding_ids.into_iter().collect())
 }
 
-/// The ids of `kind` the enabled editions permit, or `None` when they declare none.
-///
-/// A kind with no declared members carries no guarantee to enforce, so its filter stays disarmed
-/// rather than forbidding every component of that kind; declaring the first member arms it.
-/// Arrays are always restricted to the enabled set, since that is the set the file format's
-/// read-forever guarantee is written against.
-fn edition_filter(session: &VortexSession, kind: ComponentKind) -> Option<HashSet<Id>> {
-    let ids: HashSet<Id> = session.enabled_component_ids(kind).into_iter().collect();
-    (!ids.is_empty()).then_some(ids)
+/// The ids of `kind` the enabled editions permit.
+fn edition_filter(session: &VortexSession, kind: ComponentKind) -> HashSet<Id> {
+    session.enabled_component_ids(kind).into_iter().collect()
 }
 
 /// Validate every extension dtype nested in the file schema against the enabled editions.
 fn validate_dtype_editions(session: &VortexSession, dtype: &DType) -> VortexResult<()> {
-    let Some(allowed) = edition_filter(session, ComponentKind::DType) else {
-        return Ok(());
-    };
+    let allowed = edition_filter(session, ComponentKind::DType);
 
     fn validate(dtype: &DType, allowed: &HashSet<Id>) -> VortexResult<()> {
         match dtype {
@@ -433,10 +423,7 @@ fn validate_dtype_editions(session: &VortexSession, dtype: &DType) -> VortexResu
 /// The context every layout in the file is interned through, restricted to the layouts the
 /// enabled editions permit.
 fn new_layout_context(session: &VortexSession) -> LayoutContext {
-    match edition_filter(session, ComponentKind::Layout) {
-        Some(allowed) => LayoutContext::default().with_allowed_ids(allowed),
-        None => LayoutContext::default(),
-    }
+    LayoutContext::default().with_allowed_ids(edition_filter(session, ComponentKind::Layout))
 }
 
 fn validate_metadata_segments(metadata: &HashMap<String, ByteBuffer>) -> VortexResult<()> {
@@ -757,10 +744,9 @@ mod tests {
         Ok(())
     }
 
-    /// This test edition declares only arrays, so its other kind filters must stay disarmed.
-    /// Arming them on an empty set would forbid every component of those kinds.
+    /// This test edition declares only arrays, so every other kind must forbid all components.
     #[test]
-    fn kind_filters_arm_on_declaration() -> Result<(), vortex_edition::EditionError> {
+    fn kind_filters_are_active_when_empty() -> Result<(), vortex_edition::EditionError> {
         const EDITION: EditionId = EditionId::new("test", 2026, 8, 0);
         static ARRAYS_ONLY: EditionDeclaration = EditionDeclaration {
             edition: Edition {
@@ -773,13 +759,13 @@ mod tests {
         let session = array_session().with::<EditionSession>();
         session.register_edition(&ARRAYS_ONLY)?;
         session.enable_edition(EDITION)?;
-        assert!(edition_filter(&session, ComponentKind::Layout).is_none());
-        assert!(edition_filter(&session, ComponentKind::DType).is_none());
-        assert!(edition_filter(&session, ComponentKind::Aggregate).is_none());
+        assert!(edition_filter(&session, ComponentKind::Layout).is_empty());
+        assert!(edition_filter(&session, ComponentKind::DType).is_empty());
+        assert!(edition_filter(&session, ComponentKind::Aggregate).is_empty());
         assert!(
             new_layout_context(&session)
                 .intern(&"vortex.flat".into())
-                .is_some()
+                .is_none()
         );
 
         session.editions().declare_inclusion(EditionInclusion::new(
@@ -787,8 +773,7 @@ mod tests {
             "vortex.min",
             EDITION,
         ))?;
-        let allowed = edition_filter(&session, ComponentKind::Aggregate)
-            .vortex_expect("aggregate member is declared");
+        let allowed = edition_filter(&session, ComponentKind::Aggregate);
         assert_eq!(allowed.len(), 1);
         assert!(allowed.contains(&Id::from("vortex.min")));
         Ok(())

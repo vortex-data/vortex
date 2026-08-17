@@ -21,9 +21,11 @@ use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldMask;
+use vortex_array::dtype::session::DTypeSessionExt;
 use vortex_array::session::ArraySessionExt;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
+use vortex_edition::ComponentKind;
 use vortex_edition::Edition;
 use vortex_edition::EditionId;
 use vortex_edition::EditionInclusion;
@@ -39,6 +41,7 @@ use vortex_layout::layouts::repartition::RepartitionStrategy;
 use vortex_layout::layouts::repartition::RepartitionWriterOptions;
 use vortex_layout::scan::split_by::SplitBy;
 use vortex_layout::session::LayoutSession;
+use vortex_layout::session::LayoutSessionExt;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -79,13 +82,50 @@ fn enable_all_registered_array_encodings(session: &VortexSession) {
             min_vortex_version: None,
         })
         .unwrap();
-    let ids = session
-        .arrays()
-        .registry()
-        .read(|map| map.keys().copied().collect::<Vec<_>>());
-    for id in ids {
+    let component_ids = [
+        (
+            ComponentKind::Array,
+            session
+                .arrays()
+                .registry()
+                .read(|map| map.keys().copied().collect::<Vec<_>>()),
+        ),
+        (
+            ComponentKind::Layout,
+            session
+                .layouts()
+                .registry()
+                .read(|map| map.keys().copied().collect::<Vec<_>>()),
+        ),
+        (
+            ComponentKind::DType,
+            session
+                .dtypes()
+                .registry()
+                .read(|map| map.keys().copied().collect::<Vec<_>>()),
+        ),
+    ];
+    for (kind, ids) in component_ids {
+        for id in ids {
+            editions
+                .declare_inclusion(EditionInclusion::new(kind, &id, BENCH_EDITION))
+                .unwrap();
+        }
+    }
+    for id in [
+        "vortex.bounded_max",
+        "vortex.bounded_min",
+        "vortex.max",
+        "vortex.min",
+        "vortex.nan_count",
+        "vortex.null_count",
+    ] {
         editions
-            .declare_inclusion(EditionInclusion::array(&id, BENCH_EDITION))
+            .declare_inclusion(EditionInclusion::new(
+                ComponentKind::Aggregate,
+                id,
+                BENCH_EDITION,
+            ))
             .unwrap();
     }
     session.enable_edition(BENCH_EDITION).unwrap();

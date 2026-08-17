@@ -279,10 +279,8 @@ pub trait EditionSessionExt: SessionExt {
     /// Resolve the ids of one [`ComponentKind`] across all enabled editions: what a writer
     /// may emit for that kind.
     ///
-    /// Ids are only unique within a kind, so this never mixes kinds. An empty result means
-    /// the enabled editions declare nothing of this kind, which is not the same as
-    /// forbidding everything — see [`crate::EditionSession::components_in`] and the
-    /// writer's policy for how an undeclared kind is treated.
+    /// Ids are only unique within a kind, so this never mixes kinds. An empty result means the
+    /// enabled editions permit no components of this kind.
     fn enabled_component_ids(&self, kind: ComponentKind) -> Vec<Id> {
         let Some(enabled) = self.get_opt::<EnabledEditions>() else {
             return vec![];

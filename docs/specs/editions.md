@@ -2,8 +2,8 @@
 
 Vortex defines an ever-growing set of serialized formats for arrays and other durable objects. A frozen **edition**
 groups these formats, records when they joined the compatibility guarantee, and specifies the minimum Vortex release
-that can read them. That release and every later version can read every format in the edition. Draft editions specify
-no minimum Vortex release and carry no read-forever guarantee.
+that can read them. That release and every later version can read every format in the edition. Draft editions specify no
+minimum Vortex release and carry no read-forever guarantee.
 
 An edition member is a serialized format: an ID together with the schema and semantics of its metadata and payload. The
 same model applies to array encodings, layout encodings, aggregate functions, and extension dtypes. The read-forever
@@ -32,17 +32,15 @@ time, and the writer enforces a separate ID set for each kind:
 | `dtype`     | extension dtypes nested in the file schema | file writer                  |
 | `aggregate` | zone maps in zoned layouts                 | the layout writer context    |
 
-**For every kind whose filter is active, writing a component outside the enabled editions fails the write.** A zone map
-is only an optimization, so a forbidden aggregate could in principle be dropped instead. Vortex fails the write because
-silently producing a file that prunes worse than configured hides a policy violation.
+**For every kind, writing a component outside the enabled editions fails the write.** A zone map
+is only an optimization, so a forbidden aggregate could, in principle, be dropped instead. Vortex refuses to write the
+file because silently producing one that prunes less effectively than configured would conceal a policy violation.
 
-Aggregates are checked against the set the write would actually record: an aggregate that a column's dtype cannot hold
-is not written, so it is not a violation either.
+Aggregates are checked against the set that the file write operation would actually record: an aggregate that a column's
+dtype cannot hold is not written, so it is not a violation either.
 
-**A non-array kind with no declared members is unrestricted.** An edition that declares no layouts makes no promise
-about layouts, so the writer leaves them alone rather than forbidding all of them. Declaring the first member of a
-non-array kind arms its filter. Arrays are always filtered because every file serializes array encodings; a file-writing
-session therefore needs an enabled edition that declares them. `core2026.08.0` declares the aggregates the default
+**A kind with no declared members permits no members.** The enabled editions must collectively declare every array,
+layout, extension dtype, and aggregate that a write serializes. `core2026.08.0` declares the aggregates the default
 writer records in zone maps: `min`, `max`, `bounded_min`, `bounded_max`, `nan_count`, and `null_count`. `sum` is absent
 because the writer records no zone sum. File-level statistics still carry a sum in a fixed legacy slot, not as a
 serialized aggregate function ID, so the aggregate filter does not govern it.
@@ -200,6 +198,7 @@ Minimum Vortex release: `0.36.0`.
   `vortex.decimal_byte_parts`, `vortex.dict`, `vortex.ext`, `vortex.fsst`, `vortex.list`,
   `vortex.null`, `vortex.primitive`, `vortex.runend`, `vortex.sparse`, `vortex.struct`,
   `vortex.varbin`, `vortex.varbinview`, `vortex.zigzag`
+- `layout`: `vortex.chunked`, `vortex.dict`, `vortex.flat`, `vortex.stats`, `vortex.struct`
 - `dtype`: `vortex.date`, `vortex.time`, `vortex.timestamp`
 
 #### `core2025.06.0`
@@ -226,6 +225,7 @@ Minimum Vortex release: `0.65.0`.
 Minimum Vortex release: `0.84.0`.
 
 - `array`: `vortex.map`
+- `layout`: `vortex.zoned`
 - `aggregate`: `vortex.bounded_max`, `vortex.bounded_min`, `vortex.max`, `vortex.min`,
   `vortex.nan_count`, `vortex.null_count`
 
@@ -250,6 +250,7 @@ Draft member lists may change and have no minimum-reader or read-forever guarant
 #### `unstable2026.06.0`
 
 - `array`: `vortex.onpair`
+- `layout`: `vortex.list`
 
 #### `spatial2026.08.0`
 
