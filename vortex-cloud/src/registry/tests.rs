@@ -292,7 +292,7 @@ async fn test_resolved_key_reaches_the_object(
 
     let Err(err) = session
         .open_options()
-        .open_object_store(&store, path.as_ref())
+        .open_object_store(&store, path)
         .await
     else {
         panic!("the payload is not a Vortex file, so opening it must fail")
