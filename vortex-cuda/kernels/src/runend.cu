@@ -155,3 +155,97 @@ GENERATE_RUNEND_KERNELS_FOR_VALUE(i64, int64_t)
 GENERATE_RUNEND_KERNELS_FOR_VALUE(f16, __half)
 GENERATE_RUNEND_KERNELS_FOR_VALUE(f32, float)
 GENERATE_RUNEND_KERNELS_FOR_VALUE(f64, double)
+
+template <typename EndsT>
+__device__ void runend_decode_validity_kernel(const EndsT *const __restrict ends,
+                                              uint64_t num_runs,
+                                              const uint8_t *const __restrict values_validity,
+                                              uint64_t values_validity_offset,
+                                              uint64_t offset,
+                                              uint64_t output_len,
+                                              uint8_t *const __restrict output_validity) {
+    const uint64_t output_bytes = (output_len + 7) / 8;
+    const uint64_t bytes_per_block = static_cast<uint64_t>(blockDim.x) * ELEMENTS_PER_THREAD;
+    const uint64_t block_start = static_cast<uint64_t>(blockIdx.x) * bytes_per_block;
+    const uint64_t block_stop = min(block_start + bytes_per_block, output_bytes);
+
+    for (uint64_t output_byte = block_start + threadIdx.x; output_byte < block_stop;
+         output_byte += blockDim.x) {
+        const uint64_t output_start = output_byte * 8;
+        const uint64_t output_stop = min(output_start + 8, output_len);
+        uint8_t bits = 0;
+        for (uint64_t idx = output_start; idx < output_stop; ++idx) {
+            uint64_t run_idx = upper_bound(ends, num_runs, idx + offset);
+            if (run_idx >= num_runs) {
+                run_idx = num_runs - 1;
+            }
+            const uint64_t validity_idx = values_validity_offset + run_idx;
+            bits |= ((values_validity[validity_idx / 8] >> (validity_idx % 8)) & 1) << (idx % 8);
+        }
+        output_validity[output_byte] = bits;
+    }
+}
+
+extern "C" __global__ void runend_validity_u8(const uint8_t *const __restrict ends,
+                                              uint64_t num_runs,
+                                              const uint8_t *const __restrict values_validity,
+                                              uint64_t values_validity_offset,
+                                              uint64_t offset,
+                                              uint64_t output_len,
+                                              uint8_t *const __restrict output_validity) {
+    runend_decode_validity_kernel(ends,
+                                  num_runs,
+                                  values_validity,
+                                  values_validity_offset,
+                                  offset,
+                                  output_len,
+                                  output_validity);
+}
+
+extern "C" __global__ void runend_validity_u16(const uint16_t *const __restrict ends,
+                                               uint64_t num_runs,
+                                               const uint8_t *const __restrict values_validity,
+                                               uint64_t values_validity_offset,
+                                               uint64_t offset,
+                                               uint64_t output_len,
+                                               uint8_t *const __restrict output_validity) {
+    runend_decode_validity_kernel(ends,
+                                  num_runs,
+                                  values_validity,
+                                  values_validity_offset,
+                                  offset,
+                                  output_len,
+                                  output_validity);
+}
+
+extern "C" __global__ void runend_validity_u32(const uint32_t *const __restrict ends,
+                                               uint64_t num_runs,
+                                               const uint8_t *const __restrict values_validity,
+                                               uint64_t values_validity_offset,
+                                               uint64_t offset,
+                                               uint64_t output_len,
+                                               uint8_t *const __restrict output_validity) {
+    runend_decode_validity_kernel(ends,
+                                  num_runs,
+                                  values_validity,
+                                  values_validity_offset,
+                                  offset,
+                                  output_len,
+                                  output_validity);
+}
+
+extern "C" __global__ void runend_validity_u64(const uint64_t *const __restrict ends,
+                                               uint64_t num_runs,
+                                               const uint8_t *const __restrict values_validity,
+                                               uint64_t values_validity_offset,
+                                               uint64_t offset,
+                                               uint64_t output_len,
+                                               uint8_t *const __restrict output_validity) {
+    runend_decode_validity_kernel(ends,
+                                  num_runs,
+                                  values_validity,
+                                  values_validity_offset,
+                                  offset,
+                                  output_len,
+                                  output_validity);
+}

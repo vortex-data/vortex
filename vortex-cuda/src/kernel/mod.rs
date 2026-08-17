@@ -31,6 +31,7 @@ mod slice;
 
 pub(crate) use arrays::ConstantNumericExecutor;
 pub(crate) use arrays::DictExecutor;
+pub(crate) use arrays::MaskedExecutor;
 pub(crate) use arrays::SharedExecutor;
 pub use encodings::ZstdKernelPrep;
 pub use encodings::zstd_kernel_prepare;
