@@ -168,9 +168,14 @@ unique_ptr<NodeStatistics> VortexReaderInterface::GetCardinality(const MultiFile
     return out;
 }
 
-void VortexBaseReader::PrepareScan(ClientContext &,
-                                   GlobalTableFunctionState &global_state,
-                                   LocalTableFunctionState &) {
+bool VortexBaseReader::TryInitializeScan(ClientContext &,
+                                         GlobalTableFunctionState &global_state,
+                                         LocalTableFunctionState &local_state) {
+    const VortexGlobalState &global = global_state.Cast<VortexGlobalState>();
+    VortexLocalState &local = local_state.Cast<VortexLocalState>();
+
+    // TODO(myrrc) this is called by all threads although we need it only for
+    // first one
     const idx_t real_columns = columns.size() - virtual_ids.size();
     vector<idx_t> local_column_ids(column_ids.size());
     for (idx_t i = 0; i < column_ids.size(); i++) {
@@ -178,22 +183,23 @@ void VortexBaseReader::PrepareScan(ClientContext &,
         local_column_ids[i] = local_id < real_columns ? local_id : virtual_ids[local_id - real_columns];
     }
 
-    VortexGlobalState &global = global_state.Cast<VortexGlobalState>();
-
     duckdb_vx_error error = nullptr;
     const void *const ffi_bind = global.ffi_bind_data;
     const void *const ffi_global = global.ffi_global_state->DataPtr();
+    void *const ffi_local = local.ffi_local_state->DataPtr();
     auto ffi_filters = reinterpret_cast<duckdb_vx_table_filter_set>(filters.get());
-    duckdb_reader_prepare_scan(ffi_bind,
-                               ffi_global,
-                               ffi_file->DataPtr(),
-                               local_column_ids.data(),
-                               local_column_ids.size(),
-                               ffi_filters,
-                               &error);
+    const bool exhausted = duckdb_reader_try_initialize_scan(ffi_bind,
+                                                             ffi_global,
+                                                             ffi_local,
+                                                             ffi_file->DataPtr(),
+                                                             local_column_ids.data(),
+                                                             local_column_ids.size(),
+                                                             ffi_filters,
+                                                             &error);
     if (error) {
         throw InvalidInputException(IntoErrString(error));
     }
+    return exhausted;
 }
 
 AsyncResult VortexBaseReader::Scan(ClientContext &,
@@ -208,7 +214,7 @@ AsyncResult VortexBaseReader::Scan(ClientContext &,
     const void *const ffi_global = global.ffi_global_state->DataPtr();
     void *const ffi_local = local.ffi_local_state->DataPtr();
     const void *const ffi_file_ptr = ffi_file->DataPtr();
-    exhausted = duckdb_reader_scan(ffi_file_ptr, ffi_global, ffi_local, ffi_chunk, &error);
+    duckdb_reader_scan(ffi_file_ptr, ffi_global, ffi_local, ffi_chunk, &error);
     if (error) {
         throw InvalidInputException(IntoErrString(error));
     }

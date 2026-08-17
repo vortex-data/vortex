@@ -35,9 +35,9 @@ use crate::file_reader::File;
 use crate::file_reader::file_scan;
 use crate::file_reader::file_statistics;
 use crate::file_reader::get_progress_in_file;
-use crate::file_reader::prepare_scan;
 use crate::file_reader::reader_initialize;
 use crate::file_reader::reader_open;
+use crate::file_reader::reader_try_initialize_scan;
 use crate::table_function::Cardinality;
 use crate::table_function::TableFunctionBind;
 use crate::table_function::TableFunctionGlobal;
@@ -237,15 +237,16 @@ pub unsafe extern "C-unwind" fn duckdb_reader_initialize(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn duckdb_reader_prepare_scan(
+pub unsafe extern "C-unwind" fn duckdb_reader_try_initialize_scan(
     bind_data: *const c_void,
-    global_init_data: *const c_void,
+    global_state: *const c_void,
+    local_state: *mut c_void,
     file: *mut c_void,
     column_ids: *const u64,
     column_ids_count: usize,
     filters: cpp::duckdb_vx_table_filter_set,
     error: *mut cpp::duckdb_vx_error,
-) {
+) -> bool {
     let bind_data = unsafe { bind_data.cast::<TableFunctionBind>().as_ref() }
         .vortex_expect("bind_data null pointer");
     let file = unsafe { file.cast::<File>().as_mut() }.vortex_expect("file null pointer");
@@ -254,10 +255,19 @@ pub unsafe extern "C-unwind" fn duckdb_reader_prepare_scan(
     } else {
         unsafe { std::slice::from_raw_parts(column_ids, column_ids_count) }
     };
-    let global_init_data = unsafe { global_init_data.cast::<TableFunctionGlobal>().as_ref() }
-        .vortex_expect("global_init_data null pointer");
+    let global_state = unsafe { global_state.cast::<TableFunctionGlobal>().as_ref() }
+        .vortex_expect("null pointer");
+    let local_state =
+        unsafe { local_state.cast::<TableFunctionLocal>().as_mut() }.vortex_expect("null pointer");
     try_or(error, || {
-        prepare_scan(bind_data, global_init_data, file, column_ids, filters)
+        reader_try_initialize_scan(
+            bind_data,
+            global_state,
+            local_state,
+            file,
+            column_ids,
+            filters,
+        )
     });
 }
 

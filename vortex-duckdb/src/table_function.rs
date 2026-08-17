@@ -10,7 +10,9 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
 use custom_labels::CURRENT_LABELSET;
+use futures::future::BoxFuture;
 use itertools::Itertools;
+use kanal::AsyncReceiver;
 use num_traits::AsPrimitive;
 use parking_lot::Mutex;
 use static_assertions::assert_impl_all;
@@ -52,7 +54,7 @@ use crate::duckdb::ExpressionRef;
 use crate::duckdb::LogicalTypeRef;
 use crate::duckdb::TableInitInput;
 use crate::duckdb::Value;
-use crate::exporter::ArrayExporter;
+use crate::exporter::{ArrayExporter, ConversionCache};
 use crate::file_reader::File;
 use crate::file_reader::Pruning;
 use crate::projection::DuckdbField;
@@ -116,6 +118,8 @@ impl<'a> TableInitInput<'a> {
 pub struct TableFunctionGlobal {
     pub(crate) pruning: Option<Pruning>,
     pub(crate) projection: BoundExpression,
+    file_row_number_column_pos: Option<usize>,
+    file_index_column_pos: Option<usize>,
     // Following fields are used only in aggregate scans.
     /// Splits that are not merged into global partials
     /// 0 means everything started is merged.
@@ -129,11 +133,17 @@ pub struct TableFunctionGlobal {
 }
 assert_impl_all!(TableFunctionGlobal: Send, Sync);
 
+pub type Split = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
+
 /// Per-thread scan state
 pub struct TableFunctionLocal {
     pub(crate) exporter: Option<ArrayExporter>,
-    // Aggregate scan accumulated partials. Empty for non-aggregate scan
+    /// Aggregate scan accumulated partials. Empty for non-aggregate scan
     pub(crate) partials: Vec<Box<dyn DynAccumulator>>,
+    // Per-thread state, updated for every file
+    pub(crate) split: Option<Split>,
+    pub(crate) file_row_number_column_pos: Option<usize>,
+    pub(crate) file_index_column_pos: Option<usize>,
 }
 
 #[derive(Clone)]
@@ -310,6 +320,7 @@ pub fn init_local(
     TableFunctionLocal {
         exporter: None,
         partials,
+        split: None,
     }
 }
 

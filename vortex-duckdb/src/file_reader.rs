@@ -4,15 +4,12 @@
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::LazyLock;
-use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
 use futures::FutureExt;
-use kanal::AsyncReceiver;
 use object_store::registry::ObjectStoreRegistry;
 use tracing::debug;
 use url::Url;
-use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute as _;
 use vortex::array::arrays::struct_::StructArrayExt as _;
 use vortex::cloud::Registry;
@@ -28,7 +25,6 @@ use vortex::io::compat::Compat;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::runtime::BlockingRuntime as _;
-use vortex::io::runtime::Task;
 use vortex::layout::LayoutReaderRef;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::mask::Mask;
@@ -46,6 +42,7 @@ use crate::exporter::ConversionCache;
 use crate::projection::FILE_INDEX_COLUMN_IDX;
 use crate::projection::FILE_ROW_NUMBER_COLUMN_IDX;
 use crate::projection::Filter;
+use crate::table_function::Split;
 use crate::table_function::TableFunctionBind;
 use crate::table_function::TableFunctionGlobal;
 use crate::table_function::TableFunctionLocal;
@@ -75,20 +72,13 @@ fn resolve_filesystem(url: &Url) -> VortexResult<(FileSystemRef, String)> {
     ))
 }
 
-type ScanItem = VortexResult<(ArrayRef, Arc<ConversionCache>)>;
-
-pub struct Scan {
-    receiver: AsyncReceiver<ScanItem>,
-    file_row_number_column_pos: Option<usize>,
-    file_index_column_pos: Option<usize>,
-    _driver: Task<()>,
-}
-
 pub struct File {
-    pub(crate) reader: LayoutReaderRef,
+    pub reader: LayoutReaderRef,
+    /// File splits stored in inverse order.
+    pub splits: Vec<Split>,
+    pub cache: ConversionCache,
     file_index: u64,
-    rows_read: AtomicU64,
-    scan: Option<Scan>,
+    total_splits: u64,
 }
 
 async fn open_reader(file_path: String, file_index: u64) -> VortexResult<File> {
@@ -96,12 +86,14 @@ async fn open_reader(file_path: String, file_index: u64) -> VortexResult<File> {
     let (fs, path) = resolve_filesystem(&url)?;
     let file = fs.open_read(&path).await?;
     let file = open_cached(&SESSION, file, &path, None, &|options| options).await?;
-    let reader = file.layout_reader()?;
     Ok(File {
-        reader,
+        reader: file.layout_reader()?,
         file_index,
-        rows_read: AtomicU64::new(0),
-        scan: None,
+        total_splits: 0,
+        cache: ConversionCache::default(),
+        splits: vec![],
+        file_row_number_column_pos: None,
+        file_index_column_pos: None,
     })
 }
 
@@ -109,24 +101,165 @@ pub fn reader_open(file_path: &str, file_index: u64) -> VortexResult<File> {
     RUNTIME.block_on(open_reader(file_path.to_owned(), file_index))
 }
 
-pub fn file_statistics(file: &File, column_name: &str) -> Option<ColumnStatistics> {
-    let stats_reader = file
+fn reader_prune(global: &TableFunctionGlobal, file: &File) -> VortexResult<bool> {
+    let Some(pruning) = global.pruning.as_ref() else {
+        return Ok(false);
+    };
+    let index = file.file_index;
+    let excluded = match &pruning.file_selection {
+        Selection::IncludeByIndex(buffer) => buffer.as_slice().binary_search(&index).is_err(),
+        Selection::ExcludeByIndex(buffer) => buffer.as_slice().binary_search(&index).is_ok(),
+        _ => false,
+    };
+    if excluded
+        || pruning
+            .file_range
+            .as_ref()
+            .is_some_and(|r| !r.contains(&index))
+    {
+        return Ok(true);
+    }
+
+    let Some(filter) = &pruning.filter else {
+        return Ok(false);
+    };
+    let row_count = file.reader.row_count();
+    let row_range = 0..row_count;
+    let mask = Mask::new_true(usize::try_from(row_count).unwrap_or(usize::MAX));
+    let evaluation = file.reader.pruning_evaluation(&row_range, filter, mask)?;
+    match evaluation.now_or_never() {
+        Some(Ok(result_mask)) => Ok(result_mask.all_false()),
+        _ => Ok(false),
+    }
+}
+
+/// Returns true if file should be skipped.
+/// Called under file lock.
+pub fn reader_initialize(global: &TableFunctionGlobal, file: &File) -> VortexResult<bool> {
+    if reader_prune(global, file)? {
+        return Ok(true);
+    }
+
+    for (i, id) in column_ids.iter().enumerate() {
+        if *id == FILE_ROW_NUMBER_COLUMN_IDX {
+            file.file_row_number_column_pos = Some(i);
+        } else if *id == FILE_INDEX_COLUMN_IDX {
+            file.file_index_column_pos = Some(i);
+        }
+    }
+
+    let Filter {
+        filter,
+        row_selection,
+        row_range,
+        has_non_optional_filter,
+        file_selection,
+        file_range,
+    } = convert_filter(bind, column_ids, filters)?;
+    if has_non_optional_filter {
+        bind.has_non_optional_filter.store(true, Ordering::Relaxed);
+    }
+
+    debug!(
+        filter = filter
+            .as_ref()
+            .map_or_else(|| "true".to_string(), |f| f.to_string()),
+        ?row_selection,
+        ?row_range,
+        ?file_selection,
+        ?file_range,
+        "prepare scan"
+    );
+
+    let filter = filter
+        .map(|expr| optimize_and_bind(expr, &bind.dtype))
+        .transpose()?;
+
+    let mut builder = ScanBuilder::new(SESSION.clone(), Arc::clone(&file.reader))
+        .with_projection(global.projection.clone())
+        .with_some_filter(filter)
+        .with_ordered(file_row_number_column_pos.is_some())
+        .with_selection(row_selection);
+    if let Some(range) = row_range {
+        builder = builder.with_row_range(range);
+    }
+    let splits = builder.build()?;
+
+    let handles = splits
+        .into_iter()
+        .map(|task| RUNTIME.handle().spawn(task))
+        .collect::<Vec<_>>();
+}
+
+/// Returns true if file is exhausted.
+/// Called under global lock.
+pub fn reader_try_initialize_scan(
+    bind: &TableFunctionBind,
+    global: &TableFunctionGlobal,
+    local: &mut TableFunctionLocal,
+    file: &mut File,
+    column_ids: &[u64],
+    filters: cpp::duckdb_vx_table_filter_set,
+) -> VortexResult<bool> {
+    if let Some(split) = file.splits.pop() {
+        local.split = Some(split);
+        local.file_row_number_column_pos = file.file_row_number_column_pos;
+        local.file_index_column_pos = file.file_index_column_pos;
+        return Ok(false);
+    }
+    if file.total_splits > 0 {
+        // file is exhausted
+        return Ok(true);
+    }
+
+    let pending = (!global.aggregates.is_empty()).then(|| Arc::clone(&global.pending));
+    // TODO we may want some backpressure/size (number of cores?)
+    let (sender, receiver) = kanal::unbounded_async();
+
+    let driver = RUNTIME.handle().spawn(async move {
+        for handle in handles {
+            match handle.await {
+                Ok(Some(array)) => {
+                    if let Some(pending) = &pending {
+                        pending.fetch_add(1, Ordering::Relaxed);
+                    }
+                    if sender.send(Ok(array)).await.is_err() {
+                        // The receiver is gone: the scan was cancelled or the
+                        // query ended.
+                        return;
+                    }
+                }
+                // split is filtered
+                Ok(None) => {}
+                Err(e) => {
+                    let _ = sender.send(Err(e)).await;
+                    return;
+                }
+            }
+        }
+    });
+
+    local.file_row_number_column_pos = file_row_number_column_pos;
+    local.file_index_column_pos = file_index_column_pos;
+    file.driver = Some(Driver { driver, receiver });
+    Ok(false)
+}
+
+pub fn file_statistics(file: &File, column: &str) -> Option<ColumnStatistics> {
+    let reader = file
         .reader
         .as_any()
         .downcast_ref::<FileStatsLayoutReader>()?;
-    let stats_sets = stats_reader.file_stats().stats_sets();
+    let stats_sets = reader.file_stats().stats_sets();
 
     let DType::Struct(fields, _) = &file.reader.dtype() else {
-        return None;
+        vortex_panic!("Not a Struct");
     };
-    let index = fields
-        .names()
-        .iter()
-        .position(|name| name.as_ref() == column_name)?;
+    let index = fields.find(column)?;
     let dtype = fields.field_by_index(index)?;
 
-    let stats_aggregate = ColumnStatisticsAggregate::new(stats_sets.get(index)?);
-    Some(ColumnStatistics::from(&stats_aggregate, dtype))
+    let stats = ColumnStatisticsAggregate::new(stats_sets.get(index)?);
+    Some(ColumnStatistics::from(&stats, dtype))
 }
 
 pub struct Pruning {
@@ -182,134 +315,8 @@ impl Pruning {
     }
 }
 
-/// Returns true if file should be skipped
-pub fn reader_initialize(global: &TableFunctionGlobal, file: &File) -> VortexResult<bool> {
-    let Some(pruning) = global.pruning.as_ref() else {
-        return Ok(false);
-    };
-    let index = file.file_index;
-    let excluded = match &pruning.file_selection {
-        Selection::IncludeByIndex(buffer) => buffer.as_slice().binary_search(&index).is_err(),
-        Selection::ExcludeByIndex(buffer) => buffer.as_slice().binary_search(&index).is_ok(),
-        _ => false,
-    };
-    if excluded
-        || pruning
-            .file_range
-            .as_ref()
-            .is_some_and(|r| !r.contains(&index))
-    {
-        return Ok(true);
-    }
-
-    let Some(filter) = &pruning.filter else {
-        return Ok(false);
-    };
-    let row_count = file.reader.row_count();
-    let row_range = 0..row_count;
-    let mask = Mask::new_true(usize::try_from(row_count).unwrap_or(usize::MAX));
-    let evaluation = file.reader.pruning_evaluation(&row_range, filter, mask)?;
-    match evaluation.now_or_never() {
-        Some(Ok(result_mask)) => Ok(result_mask.all_false()),
-        _ => Ok(false),
-    }
-}
-
-const FILE_CHANNEL_CAPACITY: usize = 16;
-
-pub fn prepare_scan(
-    bind: &TableFunctionBind,
-    global: &TableFunctionGlobal,
-    file: &mut File,
-    column_ids: &[u64],
-    filters: cpp::duckdb_vx_table_filter_set,
-) -> VortexResult<()> {
-    let file_row_number_column_pos = column_ids
-        .iter()
-        .position(|&id| id == FILE_ROW_NUMBER_COLUMN_IDX);
-    let file_index_column_pos = column_ids
-        .iter()
-        .position(|&id| id == FILE_INDEX_COLUMN_IDX);
-
-    let Filter {
-        filter,
-        row_selection,
-        row_range,
-        has_non_optional_filter,
-        file_selection,
-        file_range,
-    } = convert_filter(bind, column_ids, filters)?;
-    if has_non_optional_filter {
-        bind.has_non_optional_filter.store(true, Ordering::Relaxed);
-    }
-
-    debug!(
-        filter = filter
-            .as_ref()
-            .map_or_else(|| "true".to_string(), |f| f.to_string()),
-        ?row_selection,
-        ?row_range,
-        ?file_selection,
-        ?file_range,
-        "prepare scan"
-    );
-
-    let filter = filter
-        .map(|expr| optimize_and_bind(expr, &bind.dtype))
-        .transpose()?;
-
-    let mut builder = ScanBuilder::new(SESSION.clone(), Arc::clone(&file.reader))
-        .with_projection(global.projection.clone())
-        .with_some_filter(filter)
-        .with_ordered(file_row_number_column_pos.is_some())
-        .with_selection(row_selection);
-    if let Some(range) = row_range {
-        builder = builder.with_row_range(range);
-    }
-    let splits = builder.build()?;
-
-    let handles = splits
-        .into_iter()
-        .map(|task| RUNTIME.handle().spawn(task))
-        .collect::<Vec<_>>();
-
-    let cache = Arc::new(ConversionCache::default());
-
-    let pending = (!global.aggregates.is_empty()).then(|| Arc::clone(&global.pending));
-    let (sender, receiver) = kanal::bounded_async(FILE_CHANNEL_CAPACITY);
-    let driver = RUNTIME.handle().spawn(async move {
-        for handle in handles {
-            match handle.await {
-                Ok(Some(array)) => {
-                    if let Some(pending) = &pending {
-                        pending.fetch_add(1, Ordering::Relaxed);
-                    }
-                    if sender.send(Ok((array, Arc::clone(&cache)))).await.is_err() {
-                        // The receiver is gone: the scan was cancelled or the query ended.
-                        return;
-                    }
-                }
-                // split is filtered
-                Ok(None) => {}
-                Err(e) => {
-                    let _ = sender.send(Err(e)).await;
-                    return;
-                }
-            }
-        }
-    });
-
-    file.scan = Some(Scan {
-        receiver,
-        file_row_number_column_pos,
-        file_index_column_pos,
-        _driver: driver,
-    });
-    Ok(())
-}
-
 fn file_scan_aggregate(
-    file: &File,
+    file: &mut File,
     global: &TableFunctionGlobal,
     local: &mut TableFunctionLocal,
 ) -> VortexResult<()> {
@@ -318,16 +325,15 @@ fn file_scan_aggregate(
     let mut accumulated = 0u64;
     let mut rows = 0u64;
 
-    let Some(scan) = file.scan.as_ref() else {
-        vortex_panic!("No file scan");
+    let Some(receiver) = local.receiver else {
+        vortex_panic!("no receiver");
     };
 
     loop {
-        let Ok(item) = RUNTIME.block_on(scan.receiver.recv()) else {
+        let Ok(array) = RUNTIME.block_on(receiver.recv()) else {
             break;
         };
-        let (array, _cache) = item?;
-        let array = convert_result(array, &mut ctx)?;
+        let array = convert_result(array?, &mut ctx)?;
 
         for (position, partial) in global
             .aggregate_positions
