@@ -44,7 +44,6 @@ use crate::convert::try_from_bound_expression;
 use crate::convert::try_from_projection_aggregate;
 use crate::convert::try_from_projection_expression;
 use crate::cpp::DUCKDB_TYPE;
-use crate::duckdb::BindResultRef;
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::DuckdbStringMapRef;
 use crate::duckdb::ExpressionRef;
@@ -54,26 +53,24 @@ use crate::duckdb::Value;
 use crate::duckdb::{AggregateExpression, TableFilterSetRef};
 use crate::duckdb::{AggregatePushdownInputRef, TableFilterSet};
 use crate::exporter::ArrayExporter;
-use crate::file_reader::File;
 use crate::projection::FILE_INDEX_COLUMN_IDX;
 use crate::projection::FILE_ROW_NUMBER_COLUMN_IDX;
 use crate::projection::Projection;
-use crate::projection::extract_schema_from_dtype;
 use crate::projection::{DuckdbField, Filter};
 
 // Aggregate projection index for count(*). See cpp/aggregate_fn_pushdown.cpp
 pub const COUNT_STAR_PROJ_IDX: u64 = u64::MAX;
 
-pub struct BindState {
+pub(crate) struct BindState {
     pub dtype: DType,
-    first_file_row_count: u64,
+    pub first_file_row_count: u64,
     pub filters: Vec<Expression>,
     pub columns: Vec<DuckdbField>,
     // There exists at least one non-optional table filter or at least one
     // complex filter is pushed down.
     pub has_non_optional_filter: AtomicBool,
     // Non-empty iff this scan is aggregate
-    aggregates: Vec<ColumnAggregate>,
+    pub aggregates: Vec<ColumnAggregate>,
 }
 assert_impl_all!(BindState: Send, Clone);
 
@@ -95,9 +92,9 @@ impl Clone for BindState {
 impl fmt::Debug for BindState {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("DataSourceBindData")
-            .field("column_fields", &self.columns)
+            .field("columns", &self.columns)
             .field(
-                "filter_exprs",
+                "filters",
                 &self
                     .filters
                     .iter()
@@ -109,7 +106,7 @@ impl fmt::Debug for BindState {
 }
 
 impl<'a> TableInitInput<'a> {
-    pub fn bind_data(&self) -> &BindState {
+    pub(crate) fn bind_data(&self) -> &BindState {
         unsafe { &*self.input.bind_data.cast::<BindState>() }
     }
 
@@ -167,27 +164,6 @@ pub enum Cardinality {
     Exact(u64),
     /// An estimate of the number of rows.
     Estimate(u64),
-}
-
-/// Called for every new query. For example, if there is a VIEW over *.vortex,
-/// and after a query another file is added matching the glob, for second query
-/// bind() will be called again.
-pub fn bind(first_file: &File, result: &mut BindResultRef) -> VortexResult<BindState> {
-    let dtype = first_file.reader.dtype().clone();
-    let column_fields = extract_schema_from_dtype(&dtype)?;
-
-    for field in &column_fields {
-        result.add_result_column(&field.name, &field.logical_type);
-    }
-
-    Ok(BindState {
-        dtype,
-        first_file_row_count: first_file.reader.row_count(),
-        filters: vec![],
-        columns: column_fields,
-        has_non_optional_filter: AtomicBool::new(false),
-        aggregates: vec![],
-    })
 }
 
 pub fn finalize_scan(global: &GlobalState, chunk: &mut DataChunkRef) -> VortexResult<bool> {

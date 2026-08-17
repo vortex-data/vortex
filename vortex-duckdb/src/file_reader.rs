@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 use std::sync::LazyLock;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
 use futures::FutureExt;
@@ -30,10 +31,13 @@ use crate::RUNTIME;
 use crate::SESSION;
 use crate::column_statistics::ColumnStatistics;
 use crate::column_statistics::ColumnStatisticsAggregate;
+use crate::duckdb::BindResultRef;
 use crate::duckdb::DataChunkRef;
 use crate::exporter::ArrayExporter;
 use crate::exporter::ConversionCache;
 use crate::projection::Filter;
+use crate::projection::extract_schema_from_dtype;
+use crate::table_function::BindState;
 use crate::table_function::GlobalState;
 use crate::table_function::LocalState;
 use crate::table_function::Split;
@@ -68,12 +72,7 @@ pub struct File {
     pub splits: Vec<Split>,
     pub cache: ConversionCache,
     index: u64,
-}
-
-impl File {
-    fn total_splits(&self) -> usize {
-        self.splits.capacity()
-    }
+    total_splits: usize,
 }
 
 async fn open_reader(file_path: String, file_index: u64) -> VortexResult<File> {
@@ -86,11 +85,30 @@ async fn open_reader(file_path: String, file_index: u64) -> VortexResult<File> {
         cache: ConversionCache::default(),
         index: file_index,
         splits: vec![],
+        total_splits: 0,
     })
 }
 
 pub fn reader_open(file_path: &str, file_index: u64) -> VortexResult<File> {
     RUNTIME.block_on(open_reader(file_path.to_owned(), file_index))
+}
+
+pub fn reader_bind(file: &File, result: &mut BindResultRef) -> VortexResult<BindState> {
+    let dtype = file.reader.dtype().clone();
+    let columns = extract_schema_from_dtype(&dtype)?;
+
+    for column in &columns {
+        result.add_result_column(&column.name, &column.logical_type);
+    }
+
+    Ok(BindState {
+        dtype,
+        first_file_row_count: file.reader.row_count(),
+        filters: vec![],
+        columns,
+        has_non_optional_filter: AtomicBool::new(false),
+        aggregates: vec![],
+    })
 }
 
 /// Returns true if file should be skipped.
@@ -112,39 +130,42 @@ pub fn reader_initialize(file: &mut File, global: &GlobalState) -> VortexResult<
         builder = builder.with_row_range(row_range.clone());
     }
     let mut splits = builder.build()?;
+
     // threads take last element of file.splits so we need to reverse
     splits.reverse();
+    file.total_splits = splits.len();
     file.splits = splits;
     Ok(false)
 }
 
-/// Returns true if file is exhausted.
+/// Returns false if file is exhausted.
 /// Called from all threads under global lock.
 pub fn reader_try_initialize_scan(file: &mut File, local: &mut LocalState) -> bool {
     let Some(split) = file.splits.pop() else {
-        return true;
+        return false;
     };
     local.split = Some(split);
-    false
+    true
 }
 
+/// Returns false if file is exhausted
 pub fn reader_scan(
     file: &File,
     global: &GlobalState,
     local: &mut LocalState,
-    output: &mut DataChunkRef,
-) -> VortexResult<()> {
+    chunk: &mut DataChunkRef,
+) -> VortexResult<bool> {
     if !local.partials.is_empty() {
         return reader_scan_aggregate(global, local);
     }
-    let Some(split) = local.split.take() else {
-        return Ok(());
-    };
 
     if local.exporter.is_none() {
+        let Some(split) = local.split.take() else {
+            return Ok(false);
+        };
         let Some(array) = RUNTIME.block_on(async move { split.await })? else {
             // split is filtered
-            return Ok(());
+            return Ok(true);
         };
         let mut ctx = SESSION.create_execution_ctx();
         let array = convert_result(array, &mut ctx)?;
@@ -153,22 +174,22 @@ pub fn reader_scan(
     let exporter = local.exporter.as_mut().vortex_expect("no exporter");
 
     let has_more_data = exporter.export(
-        output,
+        chunk,
         global.file_index_column_pos,
         global.file_row_number_column_pos,
     )?;
     if !has_more_data {
         local.exporter = None;
     }
-    Ok(())
+    Ok(true)
 }
 
-fn reader_scan_aggregate(global: &GlobalState, local: &mut LocalState) -> VortexResult<()> {
+fn reader_scan_aggregate(global: &GlobalState, local: &mut LocalState) -> VortexResult<bool> {
     let Some(split) = local.split.take() else {
-        return Ok(());
+        return Ok(false);
     };
     let Some(array) = RUNTIME.block_on(async move { split.await })? else {
-        return Ok(());
+        return Ok(true);
     };
     global.pending.fetch_add(1, Ordering::Relaxed);
 
@@ -197,7 +218,7 @@ fn reader_scan_aggregate(global: &GlobalState, local: &mut LocalState) -> Vortex
     }
 
     global.pending.fetch_sub(1, Ordering::Release);
-    Ok(())
+    Ok(true)
 }
 
 pub fn reader_get_statistics(file: &File, column: &str) -> Option<ColumnStatistics> {
@@ -249,7 +270,7 @@ fn reader_prune(file: &File, filter: &Filter) -> VortexResult<bool> {
 }
 
 pub fn reader_get_progress_in_file(file: &File) -> f64 {
-    let total = file.total_splits();
+    let total = file.total_splits;
     let left = file.splits.len();
     let denom = total + (total == 0) as usize;
     100.0 * (total - left) as f64 / denom as f64

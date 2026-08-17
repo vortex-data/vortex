@@ -78,7 +78,7 @@ void VortexReaderInterface::BindReader(ClientContext &context,
     const void *const ffi_file = initial_reader.ffi_file->DataPtr();
     duckdb_bind_result ffi_result = reinterpret_cast<duckdb_bind_result>(&result);
 
-    duckdb_vx_data ffi_bind_data = duckdb_table_function_bind(ffi_file, ffi_result, &error);
+    duckdb_vx_data ffi_bind_data = duckdb_reader_bind(ffi_file, ffi_result, &error);
     if (error) {
         throw BinderException(IntoErrString(error));
     }
@@ -197,11 +197,11 @@ AsyncResult VortexBaseReader::Scan(ClientContext &,
     const void *const ffi_global = global.ffi_global_state->DataPtr();
     void *const ffi_local = local.ffi_local_state->DataPtr();
     const void *const ffi_file_ptr = ffi_file->DataPtr();
-    duckdb_reader_scan(ffi_file_ptr, ffi_global, ffi_local, ffi_chunk, &error);
+    const bool has_more_data = duckdb_reader_scan(ffi_file_ptr, ffi_global, ffi_local, ffi_chunk, &error);
     if (error) {
         throw InvalidInputException(IntoErrString(error));
     }
-    return chunk.size() == 0 ? SourceResultType::FINISHED : SourceResultType::HAVE_MORE_OUTPUT;
+    return has_more_data ? SourceResultType::HAVE_MORE_OUTPUT : SourceResultType::FINISHED;
 }
 
 void VortexReaderInterface::GetVirtualColumns(ClientContext &,

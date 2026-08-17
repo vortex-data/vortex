@@ -151,12 +151,6 @@ struct VortexBaseReader final : BaseFileReader {
                            GlobalTableFunctionState &,
                            LocalTableFunctionState &local_state) override;
 
-    /*
-     * Called without lock if TryInitializeScan succeeds.
-     * Called multiple times by multiple threads for same file.
-     */
-    void PrepareScan(ClientContext &, GlobalTableFunctionState &gstate, LocalTableFunctionState &) override;
-
     AsyncResult Scan(ClientContext &,
                      GlobalTableFunctionState &global_state,
                      LocalTableFunctionState &local_state,

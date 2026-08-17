@@ -32,17 +32,17 @@ use crate::duckdb::TableInitInput;
 use crate::duckdb::try_or;
 use crate::duckdb::try_or_null;
 use crate::file_reader::File;
+use crate::file_reader::reader_bind;
 use crate::file_reader::reader_get_progress_in_file;
 use crate::file_reader::reader_get_statistics;
 use crate::file_reader::reader_initialize;
 use crate::file_reader::reader_open;
 use crate::file_reader::reader_scan;
 use crate::file_reader::reader_try_initialize_scan;
+use crate::table_function::BindState;
 use crate::table_function::Cardinality;
 use crate::table_function::GlobalState;
 use crate::table_function::LocalState;
-use crate::table_function::BindState;
-use crate::table_function::bind;
 use crate::table_function::cardinality;
 use crate::table_function::finalize_scan;
 use crate::table_function::init_global;
@@ -54,54 +54,48 @@ use crate::table_function::to_string;
 
 #[unsafe(no_mangle)]
 unsafe extern "C-unwind" fn duckdb_table_function_to_string(
-    bind_data: *const c_void,
+    bind: *const c_void,
     map: cpp::duckdb_vx_string_map,
 ) {
-    let bind_data = unsafe { bind_data.cast::<BindState>().as_ref() }
-        .vortex_expect("bind_data null pointer");
+    let bind = unsafe { bind.cast::<BindState>().as_ref() }.vortex_expect("null pointer");
     let map = unsafe { DuckdbStringMap::borrow_mut(map) };
-    to_string(bind_data, map);
+    to_string(bind, map);
 }
 
 #[unsafe(no_mangle)]
 unsafe extern "C-unwind" fn duckdb_table_function_pushdown_complex_filter(
-    bind_data: *mut c_void,
+    bind: *mut c_void,
     expr: cpp::duckdb_vx_expr,
-    error_out: *mut cpp::duckdb_vx_error,
+    error: *mut cpp::duckdb_vx_error,
 ) -> bool {
-    let bind_data = unsafe { bind_data.cast::<BindState>().as_mut() }
-        .vortex_expect("bind_data null pointer");
+    let bind = unsafe { bind.cast::<BindState>().as_mut() }.vortex_expect("null pointer");
     let expr = unsafe { Expression::borrow(expr) };
-    try_or(error_out, || pushdown_complex_filter(bind_data, expr))
+    try_or(error, || pushdown_complex_filter(bind, expr))
 }
 
 #[unsafe(no_mangle)]
 unsafe extern "C-unwind" fn duckdb_table_function_pushdown_projection_expression(
-    bind_data: *mut c_void,
+    bind: *mut c_void,
     expr: cpp::duckdb_vx_expr,
     column_id: usize,
-    error_out: *mut cpp::duckdb_vx_error,
+    error: *mut cpp::duckdb_vx_error,
 ) -> bool {
-    let bind_data = unsafe { bind_data.cast::<BindState>().as_mut() }
-        .vortex_expect("bind_data null pointer");
+    let bind = unsafe { bind.cast::<BindState>().as_mut() }.vortex_expect("null pointer");
     let expr = unsafe { Expression::borrow(expr) };
-    try_or(error_out, || {
-        pushdown_projection_expression(bind_data, expr, column_id)
+    try_or(error, || {
+        pushdown_projection_expression(bind, expr, column_id)
     })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn duckdb_table_function_pushdown_projection_aggregates(
-    bind_data: *mut c_void,
+    bind: *mut c_void,
     input: cpp::duckdb_vx_agg_input,
-    error_out: *mut cpp::duckdb_vx_error,
+    error: *mut cpp::duckdb_vx_error,
 ) -> bool {
-    let bind_data = unsafe { bind_data.cast::<BindState>().as_mut() }
-        .vortex_expect("bind_data null pointer");
+    let bind = unsafe { bind.cast::<BindState>().as_mut() }.vortex_expect("null pointer");
     let input = unsafe { AggregatePushdownInput::borrow(input) };
-    try_or(error_out, || {
-        pushdown_projection_aggregates(bind_data, input)
-    })
+    try_or(error, || pushdown_projection_aggregates(bind, input))
 }
 
 #[unsafe(no_mangle)]
@@ -113,25 +107,23 @@ pub unsafe extern "C-unwind" fn duckdb_table_function_pushdown_expression(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn duckdb_table_function_cardinality(
-    bind_data: *const c_void,
+    bind: *const c_void,
     file_count: u64,
-    node_stats_out: *mut cpp::duckdb_vx_node_statistics,
+    stats: *mut cpp::duckdb_vx_node_statistics,
 ) {
-    let bind_data = unsafe { bind_data.cast::<BindState>().as_ref() }
-        .vortex_expect("bind_data null pointer");
-    let node_stats =
-        unsafe { node_stats_out.as_mut() }.vortex_expect("node_stats_out null pointer");
+    let bind = unsafe { bind.cast::<BindState>().as_ref() }.vortex_expect("null pointer");
+    let stats = unsafe { stats.as_mut() }.vortex_expect("null pointer");
 
-    match cardinality(bind_data, file_count) {
+    match cardinality(bind, file_count) {
         Cardinality::Exact(c) => {
-            node_stats.has_estimated_cardinality = true;
-            node_stats.estimated_cardinality = c as _;
-            node_stats.has_max_cardinality = true;
-            node_stats.max_cardinality = c as _;
+            stats.has_estimated_cardinality = true;
+            stats.estimated_cardinality = c as _;
+            stats.has_max_cardinality = true;
+            stats.max_cardinality = c as _;
         }
         Cardinality::Estimate(c) => {
-            node_stats.has_estimated_cardinality = true;
-            node_stats.estimated_cardinality = c as _;
+            stats.has_estimated_cardinality = true;
+            stats.estimated_cardinality = c as _;
         }
     }
 }
@@ -139,18 +131,17 @@ pub unsafe extern "C-unwind" fn duckdb_table_function_cardinality(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn duckdb_table_function_init_global(
     init_input: *const cpp::duckdb_vx_tfunc_init_input,
-    error_out: *mut cpp::duckdb_vx_error,
+    error: *mut cpp::duckdb_vx_error,
 ) -> cpp::duckdb_vx_data {
-    let init_input = TableInitInput::new(
-        unsafe { init_input.as_ref() }.vortex_expect("init_input null pointer"),
-    );
+    let init_input =
+        TableInitInput::new(unsafe { init_input.as_ref() }.vortex_expect("null pointer"));
 
     match init_global(&init_input) {
         Ok(init_data) => Data::from(Box::new(init_data)).as_ptr(),
         Err(e) => {
             // Set the error in the error output.
             let msg = e.to_string();
-            unsafe { error_out.write(cpp::duckdb_vx_error_create(msg.as_ptr().cast(), msg.len())) };
+            unsafe { error.write(cpp::duckdb_vx_error_create(msg.as_ptr().cast(), msg.len())) };
             ptr::null_mut::<cpp::duckdb_vx_data_>().cast()
         }
     }
@@ -168,7 +159,7 @@ pub unsafe extern "C-unwind" fn duckdb_table_function_init_local(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn duckdb_table_function_bind(
+pub unsafe extern "C-unwind" fn duckdb_reader_bind(
     first_file: *const c_void,
     result: cpp::duckdb_bind_result,
     error_out: *mut cpp::duckdb_vx_error,
@@ -177,7 +168,7 @@ pub unsafe extern "C-unwind" fn duckdb_table_function_bind(
     let mut result = unsafe { BindResult::own(result) };
 
     try_or_null(error_out, || {
-        let bind_data = bind(first_file, &mut result)?;
+        let bind_data = reader_bind(first_file, &mut result)?;
         Ok(Data::from(Box::new(bind_data)).as_ptr())
     })
 }
@@ -205,7 +196,7 @@ pub unsafe extern "C-unwind" fn duckdb_reader_get_statistics(
     column_name_len: usize,
     stats_out: *mut cpp::duckdb_column_statistics,
 ) -> bool {
-    let file = unsafe { file.cast::<File>().as_ref() }.vortex_expect("file null pointer");
+    let file = unsafe { file.cast::<File>().as_ref() }.vortex_expect("null pointer");
     let name_bytes =
         unsafe { std::slice::from_raw_parts(column_name.cast::<u8>(), column_name_len) };
     let column_name = String::from_utf8_lossy(name_bytes);
@@ -249,7 +240,7 @@ pub unsafe extern "C-unwind" fn duckdb_reader_scan(
     local: *mut c_void,
     chunk: cpp::duckdb_data_chunk,
     error: *mut cpp::duckdb_vx_error,
-) {
+) -> bool {
     let file = unsafe { file.cast::<File>().as_ref() }.vortex_expect("null pointer");
     let global = unsafe { global.cast::<GlobalState>().as_ref() }.vortex_expect("null pointer");
     let local = unsafe { local.cast::<LocalState>().as_mut() }.vortex_expect("null pointer");
@@ -276,11 +267,10 @@ pub unsafe extern "C-unwind" fn duckdb_reader_finalize_scan(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn duckdb_table_function_bind_data_clone(
-    bind_data: *const c_void,
+    bind: *const c_void,
 ) -> cpp::duckdb_vx_data {
-    let bind_data = unsafe { bind_data.cast::<BindState>().as_ref() }
-        .vortex_expect("bind_data null pointer");
-    let copied_data = bind_data.clone();
+    let bind = unsafe { bind.cast::<BindState>().as_ref() }.vortex_expect("null pointer");
+    let copied_data = bind.clone();
     Data::from(Box::new(copied_data)).as_ptr()
 }
 

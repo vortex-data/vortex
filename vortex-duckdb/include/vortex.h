@@ -17,41 +17,41 @@
 extern "C" {
 #endif // __cplusplus
 
-extern void duckdb_table_function_to_string(const void *bind_data, duckdb_vx_string_map map);
+extern void duckdb_table_function_to_string(const void *bind, duckdb_vx_string_map map);
 
 extern
-bool duckdb_table_function_pushdown_complex_filter(void *bind_data,
+bool duckdb_table_function_pushdown_complex_filter(void *bind,
                                                    duckdb_vx_expr expr,
-                                                   duckdb_vx_error *error_out);
+                                                   duckdb_vx_error *error);
 
 extern
-bool duckdb_table_function_pushdown_projection_expression(void *bind_data,
+bool duckdb_table_function_pushdown_projection_expression(void *bind,
                                                           duckdb_vx_expr expr,
                                                           size_t column_id,
-                                                          duckdb_vx_error *error_out);
+                                                          duckdb_vx_error *error);
 
 extern
-bool duckdb_table_function_pushdown_projection_aggregates(void *bind_data,
+bool duckdb_table_function_pushdown_projection_aggregates(void *bind,
                                                           duckdb_vx_agg_input input,
-                                                          duckdb_vx_error *error_out);
+                                                          duckdb_vx_error *error);
 
 extern bool duckdb_table_function_pushdown_expression(duckdb_vx_expr expr);
 
 extern
-void duckdb_table_function_cardinality(const void *bind_data,
+void duckdb_table_function_cardinality(const void *bind,
                                        uint64_t file_count,
-                                       duckdb_vx_node_statistics *node_stats_out);
+                                       duckdb_vx_node_statistics *stats);
 
 extern
 duckdb_vx_data duckdb_table_function_init_global(const duckdb_vx_tfunc_init_input *init_input,
-                                                 duckdb_vx_error *error_out);
+                                                 duckdb_vx_error *error);
 
 extern duckdb_vx_data duckdb_table_function_init_local(const void *bind, const void *global);
 
 extern
-duckdb_vx_data duckdb_table_function_bind(const void *first_file,
-                                          duckdb_bind_result result,
-                                          duckdb_vx_error *error_out);
+duckdb_vx_data duckdb_reader_bind(const void *first_file,
+                                  duckdb_bind_result result,
+                                  duckdb_vx_error *error_out);
 
 extern
 duckdb_vx_data duckdb_reader_open(const char *file_path,
@@ -83,7 +83,7 @@ bool duckdb_reader_finalize_scan(const void *global,
                                  duckdb_data_chunk chunk,
                                  duckdb_vx_error *error);
 
-extern duckdb_vx_data duckdb_table_function_bind_data_clone(const void *bind_data);
+extern duckdb_vx_data duckdb_table_function_bind_data_clone(const void *bind);
 
 extern
 duckdb_vx_data duckdb_copy_function_copy_to_bind(const char *const *column_names,
