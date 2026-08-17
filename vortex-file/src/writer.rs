@@ -68,9 +68,9 @@ use crate::segments::writer::BufferedSegmentSink;
 /// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink
 /// that implements [`VortexWrite`].
 ///
-/// All write strategies are restricted to the components in the session's enabled editions: an array,
-/// layout, or zone-map aggregate outside them fails the write. A kind the editions declare nothing of
-/// is left unrestricted.
+/// All write strategies are restricted to the components in the session's enabled editions: an
+/// array, layout, extension dtype, or zone-map aggregate outside them fails the write. A kind the
+/// editions declare nothing of is left unrestricted.
 ///
 /// Construct with [`WriteOptionsSessionExt::write_options`] for normal use so the writer inherits
 /// the session's runtime, array registry, and memory configuration.
@@ -206,8 +206,8 @@ impl VortexWriteOptions {
     /// Note that buffers are flushed as soon as they are available with no buffering, the caller
     /// is responsible for deciding how to configure buffering on the underlying `Write` sink.
     ///
-    /// The set of encodings permitted in the file is snapshotted from the session's array registry
-    /// here, so encodings registered after this call are not written.
+    /// The set of encodings permitted in the file is snapshotted from the session's enabled
+    /// editions here, so editions enabled after this call do not affect the write.
     pub async fn write<W: VortexWrite + Unpin, S: ArrayStream + Send + 'static>(
         self,
         write: W,
@@ -232,6 +232,7 @@ impl VortexWriteOptions {
             ctx = ctx.with_allowed_aggregates(allowed);
         }
         let dtype = stream.dtype().clone();
+        validate_dtype_editions(&self.session, &dtype)?;
 
         let (mut ptr, eof) = SequenceId::root().split();
 
@@ -358,26 +359,75 @@ impl VortexWriteOptions {
 }
 
 fn new_array_context(session: &VortexSession) -> ArrayContext {
-    // NOTE(os): Setup an array context that already has all known encodings pre-populated.
+    // NOTE(os): Set up an array context with all enabled encodings pre-populated.
     // This is preferred for now over having an empty context here, because only the
     // serialised array order is deterministic. The serialisation of arrays are done
     // parallel and with an empty context they can register their encodings to the context
     // in different order, changing the written bytes from run to run.
     let enabled_encoding_ids = session.enabled_component_ids(ComponentKind::Array);
     ArrayContext::new(enabled_encoding_ids.iter().cloned().sorted().collect())
-        // Only permit encodings known to the session.
+        // Only permit encodings in the enabled editions.
         .with_allowed_ids(enabled_encoding_ids.into_iter().collect())
 }
 
 /// The ids of `kind` the enabled editions permit, or `None` when they declare none.
 ///
-/// Editions declare array members today. A kind with no declared members carries no guarantee
-/// to enforce, so its filter stays disarmed rather than forbidding every layout or aggregate;
-/// declaring the first member of a kind arms it. Arrays are always restricted to the enabled
-/// set, since that is the set the file format's read-forever guarantee is written against.
+/// A kind with no declared members carries no guarantee to enforce, so its filter stays disarmed
+/// rather than forbidding every component of that kind; declaring the first member arms it.
+/// Arrays are always restricted to the enabled set, since that is the set the file format's
+/// read-forever guarantee is written against.
 fn edition_filter(session: &VortexSession, kind: ComponentKind) -> Option<HashSet<Id>> {
     let ids: HashSet<Id> = session.enabled_component_ids(kind).into_iter().collect();
     (!ids.is_empty()).then_some(ids)
+}
+
+/// Validate every extension dtype nested in the file schema against the enabled editions.
+fn validate_dtype_editions(session: &VortexSession, dtype: &DType) -> VortexResult<()> {
+    let Some(allowed) = edition_filter(session, ComponentKind::DType) else {
+        return Ok(());
+    };
+
+    fn validate(dtype: &DType, allowed: &HashSet<Id>) -> VortexResult<()> {
+        match dtype {
+            DType::List(element, _) | DType::FixedSizeList(element, ..) => {
+                validate(element, allowed)
+            }
+            DType::Map(map, _) => {
+                validate(&map.key_dtype(), allowed)?;
+                validate(&map.value_dtype(), allowed)
+            }
+            DType::Struct(fields, _) => {
+                for field in fields.fields() {
+                    validate(&field, allowed)?;
+                }
+                Ok(())
+            }
+            DType::Union(variants, _) => {
+                for variant in variants.variants() {
+                    validate(&variant, allowed)?;
+                }
+                Ok(())
+            }
+            DType::Extension(extension) => {
+                if !allowed.contains(&extension.id()) {
+                    vortex_bail!(
+                        "Extension DType {} not permitted by enabled editions",
+                        extension.id()
+                    );
+                }
+                validate(extension.storage_dtype(), allowed)
+            }
+            DType::Null
+            | DType::Bool(_)
+            | DType::Primitive(..)
+            | DType::Decimal(..)
+            | DType::Utf8(_)
+            | DType::Binary(_)
+            | DType::Variant(_) => Ok(()),
+        }
+    }
+
+    validate(dtype, &allowed)
 }
 
 /// The context every layout in the file is interned through, restricted to the layouts the
@@ -707,9 +757,8 @@ mod tests {
         Ok(())
     }
 
-    /// Editions declare array members today, so the layout and aggregate filters must stay
-    /// disarmed until something declares members of those kinds — arming them on an empty
-    /// set would forbid every layout and drop every zone-map aggregate.
+    /// This test edition declares only arrays, so its other kind filters must stay disarmed.
+    /// Arming them on an empty set would forbid every component of those kinds.
     #[test]
     fn kind_filters_arm_on_declaration() -> Result<(), vortex_edition::EditionError> {
         const EDITION: EditionId = EditionId::new("test", 2026, 8, 0);
@@ -725,6 +774,7 @@ mod tests {
         session.register_edition(&ARRAYS_ONLY)?;
         session.enable_edition(EDITION)?;
         assert!(edition_filter(&session, ComponentKind::Layout).is_none());
+        assert!(edition_filter(&session, ComponentKind::DType).is_none());
         assert!(edition_filter(&session, ComponentKind::Aggregate).is_none());
         assert!(
             new_layout_context(&session)
@@ -741,6 +791,42 @@ mod tests {
             .vortex_expect("aggregate member is declared");
         assert_eq!(allowed.len(), 1);
         assert!(allowed.contains(&Id::from("vortex.min")));
+        Ok(())
+    }
+
+    #[test]
+    fn dtype_filter_checks_nested_extension_dtypes() -> VortexResult<()> {
+        use vortex_array::dtype::Nullability;
+        use vortex_array::extension::datetime::Date;
+        use vortex_array::extension::datetime::Time;
+        use vortex_array::extension::datetime::TimeUnit;
+
+        const EDITION: EditionId = EditionId::new("test", 2026, 8, 0);
+        static DECLARATION: EditionDeclaration = EditionDeclaration {
+            edition: Edition {
+                id: EDITION,
+                min_vortex_version: None,
+            },
+            added: &[EditionMember::dtype(&"vortex.date")],
+        };
+
+        let session = array_session().with::<EditionSession>();
+        session
+            .register_edition(&DECLARATION)
+            .map_err(|error| vortex_err!("{error}"))?;
+        session
+            .enable_edition(EDITION)
+            .map_err(|error| vortex_err!("{error}"))?;
+
+        let date = DType::Extension(Date::new(TimeUnit::Days, Nullability::NonNullable).erased());
+        let nested = DType::struct_([("date", date)], Nullability::NonNullable);
+        validate_dtype_editions(&session, &nested)?;
+
+        let time =
+            DType::Extension(Time::new(TimeUnit::Seconds, Nullability::NonNullable).erased());
+        let error = validate_dtype_editions(&session, &time)
+            .expect_err("vortex.time is not in the enabled edition");
+        assert!(error.to_string().contains("vortex.time"));
         Ok(())
     }
 

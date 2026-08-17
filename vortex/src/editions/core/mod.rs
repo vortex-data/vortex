@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The `core` edition family: the encodings the default file writer emits.
+//! The `core` edition family: the serialized components the default file writer emits.
 //!
-//! One module per edition, each declaring the edition and the encodings that join the
+//! One module per edition, each declaring the edition and the components that join the
 //! family at it; members of earlier editions are inherited and never restated.
 
 pub mod v2025_05;

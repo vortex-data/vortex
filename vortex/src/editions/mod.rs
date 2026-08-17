@@ -8,9 +8,10 @@
 //! registers them with [`crate::editions::register_default_editions`] and then selects its write
 //! policy with [`crate::editions::enable_default_editions`].
 //!
-//! Members carry a [`crate::editions::ComponentKind`]: arrays a written array may use, and the
-//! aggregates zone maps record. Declaring the first member of a kind arms the writer's filter for
-//! it, and a component outside the enabled editions fails the write whatever its kind.
+//! Members carry a [`crate::editions::ComponentKind`]: arrays a written array may use, extension
+//! dtypes its schema may contain, and the aggregates zone maps record. Declaring the first member
+//! of a kind arms the writer's filter for it, and a component outside the enabled editions fails
+//! the write whatever its kind.
 //!
 //! The default file writer resolves the session's enabled editions at write time. The
 //! facade enables the newest frozen `core` edition, [`crate::editions::CORE_2026_08`], and

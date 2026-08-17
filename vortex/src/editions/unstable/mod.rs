@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The `unstable` edition family: opt-in encodings without a frozen compatibility guarantee.
+//! The `unstable` edition family: opt-in components without a frozen compatibility guarantee.
 //!
-//! One module per draft edition, each declaring the encodings that join the family at it.
+//! One module per draft edition, each declaring the components that join the family at it.
 //! Members of earlier editions are inherited and never restated.
 
 pub mod v2025_05;

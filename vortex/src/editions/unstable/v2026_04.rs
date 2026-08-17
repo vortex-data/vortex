@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The April 2026 `unstable` encoding cohort.
+//! The April 2026 `unstable` component cohort.
 
 use vortex_edition::Edition;
 use vortex_edition::EditionDeclaration;
@@ -11,7 +11,7 @@ use vortex_edition::EditionMember;
 /// The April 2026 draft edition of the `unstable` family.
 pub const UNSTABLE_2026_04_0: EditionId = EditionId::new("unstable", 2026, 4, 0);
 
-/// The declaration of [`UNSTABLE_2026_04_0`] and the encodings that join the family at it.
+/// The declaration of [`UNSTABLE_2026_04_0`] and the components that join the family at it.
 pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: UNSTABLE_2026_04_0,
@@ -24,5 +24,7 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         EditionMember::array(&"vortex.tensor.inner_product"),
         EditionMember::array(&"vortex.tensor.normalized"),
         EditionMember::array(&"vortex.tensor.l2_norm"),
+        EditionMember::dtype(&"vortex.tensor.fixed_shape_tensor"),
+        EditionMember::dtype(&"vortex.tensor.vector"),
     ],
 };

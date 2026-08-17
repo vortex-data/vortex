@@ -118,6 +118,25 @@ fn core_2026_07_encoding_set_is_pinned() {
 }
 
 #[test]
+fn core_2026_07_dtype_set_is_pinned() {
+    let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
+    let dtypes = session.components_in(&CORE_2026_07_0, ComponentKind::DType);
+    let ids: Vec<&str> = dtypes
+        .iter()
+        .map(|inclusion| inclusion.component_id.as_str())
+        .collect();
+    assert_eq!(
+        ids,
+        [
+            "vortex.date",
+            "vortex.time",
+            "vortex.timestamp",
+            "vortex.uuid",
+        ]
+    );
+}
+
+#[test]
 fn encodings_in_editions_unions_families() {
     let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
     let core_only: Vec<_> = session
@@ -183,6 +202,26 @@ fn core_edition_ids_are_registered_array_encodings() {
         assert!(
             registry.contains_key(&inclusion.component_id),
             "{} is declared in core but not registered as an array encoding",
+            inclusion.component_id
+        );
+    }
+}
+
+#[test]
+fn core_dtype_ids_are_registered_extension_dtypes() {
+    use vortex_array::dtype::session::DTypeSessionExt;
+
+    use crate::VortexSessionDefault;
+
+    let session = VortexSession::default();
+    let registry = session.dtypes().registry().clone();
+    for inclusion in session
+        .editions()
+        .components_in(&CORE_2026_08, ComponentKind::DType)
+    {
+        assert!(
+            registry.contains_key(&inclusion.component_id),
+            "{} is declared in core but not registered as an extension dtype",
             inclusion.component_id
         );
     }

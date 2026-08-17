@@ -10318,6 +10318,7 @@ dependencies = [
  "prost 0.14.4",
  "vortex-array",
  "vortex-arrow",
+ "vortex-edition",
  "vortex-error",
  "vortex-proto",
  "vortex-session",

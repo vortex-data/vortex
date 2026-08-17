@@ -301,6 +301,7 @@ fn kinds_are_resolved_independently() -> Result<(), crate::EditionError> {
         },
         added: &[
             EditionMember::array(&"test.alpha"),
+            EditionMember::dtype(&"test.alpha"),
             EditionMember::layout(&"test.alpha"),
             EditionMember::layout(&"test.flat"),
         ],
@@ -319,6 +320,7 @@ fn kinds_are_resolved_independently() -> Result<(), crate::EditionError> {
     };
     // A layout never reaches the array registry, and what a writer may emit is the arrays.
     assert_eq!(ids(ComponentKind::Array), ["test.alpha"]);
+    assert_eq!(ids(ComponentKind::DType), ["test.alpha"]);
     assert_eq!(ids(ComponentKind::Layout), ["test.alpha", "test.flat"]);
     assert_eq!(session.enabled_component_ids(ComponentKind::Array).len(), 1);
 
