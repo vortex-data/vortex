@@ -15,6 +15,7 @@ use vortex::cloud::Registry;
 use vortex::dtype::DType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
+use vortex::error::vortex_panic;
 use vortex::file::multi::open_cached;
 use vortex::file::multi::parse_uri_or_path;
 use vortex::file::v2::FileStatsLayoutReader;
@@ -235,7 +236,10 @@ pub fn reader_get_statistics(file: &File, column: &str) -> Option<ColumnStatisti
     let dtype = fields.field_by_index(index)?;
 
     let stats = ColumnStatisticsAggregate::new(stats_sets.get(index)?);
-    Some(ColumnStatistics::from(&stats, dtype))
+    match ColumnStatistics::from(&stats, dtype) {
+        Ok(stats) => Some(stats),
+        Err(e) => vortex_panic!(e),
+    }
 }
 
 fn reader_prune(file: &File, filter: &Filter) -> VortexResult<bool> {

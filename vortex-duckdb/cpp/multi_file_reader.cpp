@@ -278,19 +278,12 @@ static unique_ptr<BaseStatistics> base_stats(duckdb_column_statistics &stats, Lo
 unique_ptr<BaseStatistics> VortexBaseReader::GetStatistics(ClientContext &, const string &name) {
     duckdb_column_statistics statistics = {};
     if (!duckdb_reader_get_statistics(ffi_file->DataPtr(), name.c_str(), name.size(), &statistics)) {
-        return nullptr;
+        return {};
     }
 
-    auto name_matches = [&](const MultiFileColumnDefinition &column) {
-        return column.name == name;
-    };
-    const auto column_it = std::find_if(columns.begin(), columns.end(), name_matches);
-    D_ASSERT(column_it != columns.end());
-    const MultiFileColumnDefinition &column = *column_it;
-
     using enum LogicalTypeId;
-    const LogicalType &type = column.type;
-    switch (type.id()) {
+    const unique_ptr<LogicalType> type(reinterpret_cast<LogicalType *>(statistics.type));
+    switch (type->id()) {
     case BOOLEAN:
     case TINYINT:
     case SMALLINT:
@@ -304,11 +297,11 @@ unique_ptr<BaseStatistics> VortexBaseReader::GetStatistics(ClientContext &, cons
     case UBIGINT:
     case UHUGEINT:
     case HUGEINT: {
-        return numeric_stats(statistics, type);
+        return numeric_stats(statistics, *type);
     }
     case VARCHAR:
     case BLOB: {
-        return string_stats(statistics, type);
+        return string_stats(statistics, *type);
     }
     case STRUCT: {
         // TODO(myrrc)
@@ -318,7 +311,7 @@ unique_ptr<BaseStatistics> VortexBaseReader::GetStatistics(ClientContext &, cons
         return {};
     }
     default:
-        return base_stats(statistics, type);
+        return base_stats(statistics, *type);
     }
 }
 
