@@ -556,28 +556,37 @@ impl Node for BoundExpression {
         };
 
         let mut order = TraversalOrder::Continue;
-        let mut changed = false;
-        let children = children
-            .iter()
-            .cloned()
-            .map(|child| match order {
-                TraversalOrder::Continue | TraversalOrder::Skip => f(child).map(|result| {
-                    order = result.order;
-                    changed |= result.changed;
-                    result.value
-                }),
-                TraversalOrder::Stop => Ok(child),
-            })
-            .collect::<VortexResult<Vec<_>>>()?;
+        // Stays `None` until a child actually changes. Most nodes of a rewritten tree are
+        // untouched.
+        let mut rewritten: Option<Vec<Self>> = None;
 
-        if changed {
-            Ok(Transformed {
-                value: self.with_children(children)?,
+        for (index, child) in children.iter().enumerate() {
+            let value = match order {
+                TraversalOrder::Continue | TraversalOrder::Skip => {
+                    let result = f(child.clone())?;
+                    order = result.order;
+                    if result.changed && rewritten.is_none() {
+                        let mut prefix = Vec::with_capacity(children.len());
+                        prefix.extend_from_slice(&children[..index]);
+                        rewritten = Some(prefix);
+                    }
+                    result.value
+                }
+                TraversalOrder::Stop => child.clone(),
+            };
+
+            if let Some(rewritten) = &mut rewritten {
+                rewritten.push(value);
+            }
+        }
+
+        match rewritten {
+            Some(rewritten) => Ok(Transformed {
+                value: self.with_children(rewritten)?,
                 order,
                 changed: true,
-            })
-        } else {
-            Ok(Transformed::no(self))
+            }),
+            None => Ok(Transformed::no(self)),
         }
     }
 
