@@ -17,7 +17,7 @@ use crate::scalar_fn::unstable::row::InputElement;
 /// Every [`ElementTuple`] implements this trait. Its source delegates each lane read to the tuple's
 /// unchecked view access after batch execution validates every decoded column length once.
 pub trait IndexedElementTuple: ElementTuple {
-    /// The source shared execution uses for a dense all-per-row loop.
+    /// The source used when no input is batch-constant.
     ///
     /// Its length must be the common view length. For every valid index it must preserve row order,
     /// return the same value as [`ElementTuple::get_from_views`], and uphold the unchecked read

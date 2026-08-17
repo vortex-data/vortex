@@ -20,7 +20,7 @@ use crate::scalar_fn::unstable::row::IndexedElementTuple;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::scalar_fn::unstable::row::visitor::assert_owned_output_needs_no_drop;
 
-/// Zero-sized evidence used to erase failure reduction from infallible owned visits.
+/// Zero-sized failure accumulator for infallible owned visits.
 #[derive(Clone, Copy, Default)]
 struct NoFailure;
 
@@ -28,7 +28,7 @@ impl BitOrAssign for NoFailure {
     fn bitor_assign(&mut self, _rhs: Self) {}
 }
 
-/// Decode every input column for one kernel invocation, then store one infallible output per row.
+/// Decode every input column, then store one output per row from an infallible kernel.
 pub(crate) fn execute_owned_infallible<Args, Out, Prepared>(
     args: &dyn ExecutionArgs,
     ctx: &mut ExecutionCtx,
@@ -48,7 +48,7 @@ where
     )
 }
 
-/// Decode every input column for one kernel invocation, then store outputs and reduce failures.
+/// Decode every input column, then store outputs and combine per-row failure evidence.
 pub(crate) fn execute_owned<Args, Out, Prepared, Fail>(
     args: &dyn ExecutionArgs,
     ctx: &mut ExecutionCtx,
@@ -61,66 +61,59 @@ where
     Out: OutputElement,
     Fail: Copy + Default + BitOrAssign,
 {
+    // The output vector stays at length zero until every slot is initialized so that an unwind
+    // abandons partially initialized spare capacity. This no-drop assertion proves that no
+    // initialized value requires a destructor to run.
     const { assert_owned_output_needs_no_drop::<Out>() };
 
-    // Keep the vector length at zero until every row succeeds. An unwind then abandons partially
-    // initialized spare capacity without treating it as initialized output. The no-drop assertion
-    // above proves that no initialized value requires its destructor to run.
-    let row_count = args.row_count();
-    let mut values = Vec::<Out>::with_capacity(row_count);
     let columns = Args::decode(args, ctx)?;
     let prepared = prepare(Args::constants(&columns));
-    let failure;
 
-    {
-        let output = &mut values.spare_capacity_mut()[..row_count];
+    let row_count = args.row_count();
+    let mut values = Vec::<Out>::with_capacity(row_count);
+    let output = &mut values.spare_capacity_mut()[..row_count];
 
-        // When every input stores one value per row, the indexed source removes argument-shape
-        // dispatch from the hot loop and lets the lane kernel optimize the traversal as one
-        // operation. Keep view construction and its length proof in this branch. Hoisting them
-        // through the shared validation helper changed add, subtract, and multiply with
-        // batch-constant and per-row arguments from 9.219, 9.229, and 18.94 us to 30.46, 31.11,
-        // and 37.73 us on a Ryzen 9 7950X with rustc 1.91.0 and LLVM 21.1.2.
-        // Restoring this placement recovered the fast code under the 16-CGU, no-LTO bench profile.
-        if let Some(views) = Args::per_row_views(&columns) {
-            vortex_ensure!(
-                Args::view_lens_match(&views, row_count),
-                "a decoded row input does not address exactly {row_count} rows",
-            );
+    let failure = if let Some(views) = Args::views_no_constants(&columns) {
+        // Keep this validation beside the views so LLVM sees their common length here.
+        vortex_ensure!(
+            Args::view_lens_match(&views, row_count),
+            "a decoded row input does not address exactly {row_count} rows",
+        );
 
-            // SAFETY: `view_lens_match` proved every view addresses exactly `row_count` rows
-            // immediately above.
-            failure = unsafe { Args::indexed_source(views, row_count) }
-                .map_checked_into(output, |elements| apply(&prepared, elements));
-        } else {
-            // A batch-constant input was collapsed to one row during decoding. This path reads that
-            // row repeatedly while indexing only the per-row inputs.
-            vortex_ensure!(
-                Args::decoded_lens_match(&columns, row_count),
-                "a decoded row input does not address exactly {row_count} rows",
-            );
+        // SAFETY: `view_lens_match` proved every view addresses exactly `row_count` rows
+        // immediately above.
+        let source = unsafe { Args::indexed_source(views, row_count) };
 
-            // Keep the output-slot iterator as the loop bound. `row_count` is address-taken by the
-            // validation error formatting above. With rustc 1.97.1 and LLVM 22.1.6 under 16 CGUs
-            // without LTO, indexing `output` by a `0..row_count` range retains an early-exit bounds
-            // check and prevents vectorization with batch-constant and per-row arguments. Recheck
-            // the optimized IR and those benchmarks before restoring that range loop.
-            let mut accumulated = Fail::default();
-            for (index, slot) in output.iter_mut().enumerate() {
-                let (value, row_failure) = apply(&prepared, Args::get(&columns, index));
-                slot.write(value);
-                accumulated |= row_failure;
-            }
-            failure = accumulated;
+        source.map_checked_into(output, |elements| apply(&prepared, elements))
+    } else {
+        // Keep this proof branch-local. Shared validation prevents LLVM from specializing this
+        // loop for each batch-constant arrangement, leaving it scalar under multiple CGUs without
+        // LTO. The exact pass interaction is unknown.
+        vortex_ensure!(
+            Args::decoded_lens_match(&columns, row_count),
+            "a decoded row input does not address exactly {row_count} rows",
+        );
+
+        let mut accumulated = Fail::default();
+
+        // Iterate over `output` directly. A `0..row_count` range reuses the address-taken value
+        // from the validation error formatter and retains an output bounds check.
+        for (index, slot) in output.iter_mut().enumerate() {
+            // LLVM unswitches the batch-constant checks in `Args::get` before vectorizing the loop.
+            let (value, row_failure) = apply(&prepared, Args::get(&columns, index));
+
+            slot.write(value);
+            accumulated |= row_failure;
         }
-    }
 
-    // SAFETY: normal completion of either loop initializes every slot in `0..row_count` exactly
+        accumulated
+    };
+
+    // SAFETY: normal completion of either execution path initializes `0..row_count` exactly
     // once, and `values` was allocated with at least `row_count` capacity.
     unsafe { values.set_len(row_count) };
 
-    // Failure evidence is reduced inside the loop so its richer error construction stays cold.
-    // Preserve that provenance so batch execution may retry over only valid rows.
+    // Defer failures so batch execution can retry with only valid rows.
     match finish_failure(failure) {
         Ok(()) => Ok(RowExecution::Output(Out::build(values))),
         Err(error) => Ok(RowExecution::DeferredError(error)),
