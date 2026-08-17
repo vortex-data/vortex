@@ -148,7 +148,7 @@ struct VortexBaseReader final : BaseFileReader {
      * to next file and calls TryInitializeScan on it.
      */
     bool TryInitializeScan(ClientContext &,
-                           GlobalTableFunctionState &global_state,
+                           GlobalTableFunctionState &,
                            LocalTableFunctionState &local_state) override;
 
     /*

@@ -14,7 +14,6 @@ use vortex::cloud::Registry;
 use vortex::dtype::DType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
-use vortex::error::vortex_panic;
 use vortex::file::multi::open_cached;
 use vortex::file::multi::parse_uri_or_path;
 use vortex::file::v2::FileStatsLayoutReader;
@@ -97,40 +96,36 @@ pub fn reader_open(file_path: &str, file_index: u64) -> VortexResult<File> {
 /// Returns true if file should be skipped.
 /// Called under file lock.
 pub fn reader_initialize(file: &mut File, global: &GlobalState) -> VortexResult<bool> {
-    if let Some(filter) = global.filter.as_ref()
-        && reader_prune(file, filter)?
-    {
+    if reader_prune(file, &global.filter)? {
         return Ok(true);
     }
 
     let ordered = global.file_row_number_column_pos.is_some();
     let reader = Arc::clone(&file.reader);
+    let filter = &global.filter;
     let mut builder = ScanBuilder::new(SESSION.clone(), reader)
         .with_projection(global.projection.clone())
-        .with_ordered(ordered);
-    let Some(filter) = global.filter.as_ref() else {
-        file.splits = builder.build()?;
-        return Ok(false);
-    };
-    builder = builder
-        // TODO avoid cloning a filter
+        .with_ordered(ordered)
         .with_some_filter(filter.filter.clone())
         .with_selection(filter.row_selection.clone());
     if let Some(row_range) = filter.row_range.as_ref() {
         builder = builder.with_row_range(row_range.clone());
     }
-    file.splits = builder.build()?;
+    let mut splits = builder.build()?;
+    // threads take last element of file.splits so we need to reverse
+    splits.reverse();
+    file.splits = splits;
     Ok(false)
 }
 
 /// Returns true if file is exhausted.
 /// Called from all threads under global lock.
-pub fn reader_try_initialize_scan(file: &mut File, local: &mut LocalState) -> VortexResult<bool> {
+pub fn reader_try_initialize_scan(file: &mut File, local: &mut LocalState) -> bool {
     let Some(split) = file.splits.pop() else {
-        return Ok(true);
+        return true;
     };
     local.split = Some(split);
-    Ok(false)
+    false
 }
 
 pub fn reader_scan(
@@ -140,7 +135,7 @@ pub fn reader_scan(
     output: &mut DataChunkRef,
 ) -> VortexResult<()> {
     if !local.partials.is_empty() {
-        return reader_scan_aggregate(file, global, local);
+        return reader_scan_aggregate(global, local);
     }
     let Some(split) = local.split.take() else {
         return Ok(());
@@ -153,7 +148,6 @@ pub fn reader_scan(
         };
         let mut ctx = SESSION.create_execution_ctx();
         let array = convert_result(array, &mut ctx)?;
-        // TODO advance rows_read
         local.exporter = Some(ArrayExporter::try_new(&array, &file.cache, ctx)?);
     }
     let exporter = local.exporter.as_mut().vortex_expect("no exporter");
@@ -166,15 +160,10 @@ pub fn reader_scan(
     if !has_more_data {
         local.exporter = None;
     }
-
     Ok(())
 }
 
-fn reader_scan_aggregate(
-    file: &File,
-    global: &GlobalState,
-    local: &mut LocalState,
-) -> VortexResult<()> {
+fn reader_scan_aggregate(global: &GlobalState, local: &mut LocalState) -> VortexResult<()> {
     let Some(split) = local.split.take() else {
         return Ok(());
     };
@@ -186,10 +175,6 @@ fn reader_scan_aggregate(
     let mut ctx = SESSION.create_execution_ctx();
     let array = convert_result(array, &mut ctx)?;
 
-    let has_count_star = local.partials.len() < global.aggregates.len();
-    let mut accumulated = 0u64;
-    let mut rows = 0u64;
-
     for (position, partial) in global
         .aggregate_positions
         .iter()
@@ -198,25 +183,20 @@ fn reader_scan_aggregate(
         partial.accumulate(array.unmasked_field(*position), &mut ctx)?;
     }
 
-    let len = array.len() as u64;
-    rows += len;
-    file.rows_read.fetch_add(len, Ordering::Relaxed);
-    accumulated += 1;
-
-    if accumulated == 0 {
-        return Ok(());
-    }
-
     {
         let mut partials = global.partials.lock();
         for (global_partial, local_partial) in partials.iter_mut().zip(&mut local.partials) {
             global_partial.combine_partials(local_partial.flush()?)?;
         }
     }
+
+    let has_count_star = local.partials.len() < global.aggregates.len();
     if has_count_star {
-        global.row_count.fetch_add(rows, Ordering::Relaxed);
+        let len = array.len() as u64;
+        global.row_count.fetch_add(len, Ordering::Relaxed);
     }
-    global.pending.fetch_sub(accumulated, Ordering::Release);
+
+    global.pending.fetch_sub(1, Ordering::Release);
     Ok(())
 }
 
@@ -228,7 +208,7 @@ pub fn reader_get_statistics(file: &File, column: &str) -> Option<ColumnStatisti
     let stats_sets = reader.file_stats().stats_sets();
 
     let DType::Struct(fields, _) = &file.reader.dtype() else {
-        vortex_panic!("not a Struct");
+        return None;
     };
     let index = fields.find(column)?;
     let dtype = fields.field_by_index(index)?;
@@ -239,7 +219,7 @@ pub fn reader_get_statistics(file: &File, column: &str) -> Option<ColumnStatisti
 
 fn reader_prune(file: &File, filter: &Filter) -> VortexResult<bool> {
     let index = file.index;
-    let excluded = match &pruning.file_selection {
+    let excluded = match &filter.file_selection {
         Selection::IncludeByIndex(buffer) => buffer.as_slice().binary_search(&index).is_err(),
         Selection::ExcludeByIndex(buffer) => buffer.as_slice().binary_search(&index).is_ok(),
         _ => false,
@@ -247,7 +227,7 @@ fn reader_prune(file: &File, filter: &Filter) -> VortexResult<bool> {
     if excluded {
         return Ok(true);
     }
-    if pruning
+    if filter
         .file_range
         .as_ref()
         .is_some_and(|r| !r.contains(&index))
@@ -255,7 +235,7 @@ fn reader_prune(file: &File, filter: &Filter) -> VortexResult<bool> {
         return Ok(true);
     }
 
-    let Some(filter) = &pruning.filter else {
+    let Some(filter) = &filter.filter else {
         return Ok(false);
     };
     let row_count = file.reader.row_count();
@@ -268,8 +248,9 @@ fn reader_prune(file: &File, filter: &Filter) -> VortexResult<bool> {
     }
 }
 
-pub fn get_progress_in_file(file: &File) -> f64 {
+pub fn reader_get_progress_in_file(file: &File) -> f64 {
     let total = file.total_splits();
     let left = file.splits.len();
-    100.0 * (total - left) as f64 / total.max(1) as f64
+    let denom = total + (total == 0) as usize;
+    100.0 * (total - left) as f64 / denom as f64
 }

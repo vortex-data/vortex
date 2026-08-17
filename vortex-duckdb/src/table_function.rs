@@ -44,8 +44,6 @@ use crate::convert::try_from_bound_expression;
 use crate::convert::try_from_projection_aggregate;
 use crate::convert::try_from_projection_expression;
 use crate::cpp::DUCKDB_TYPE;
-use crate::duckdb::AggregateExpression;
-use crate::duckdb::AggregatePushdownInputRef;
 use crate::duckdb::BindResultRef;
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::DuckdbStringMapRef;
@@ -53,9 +51,10 @@ use crate::duckdb::ExpressionRef;
 use crate::duckdb::LogicalTypeRef;
 use crate::duckdb::TableInitInput;
 use crate::duckdb::Value;
+use crate::duckdb::{AggregateExpression, TableFilterSetRef};
+use crate::duckdb::{AggregatePushdownInputRef, TableFilterSet};
 use crate::exporter::ArrayExporter;
 use crate::file_reader::File;
-use crate::file_reader::Pruning;
 use crate::projection::FILE_INDEX_COLUMN_IDX;
 use crate::projection::FILE_ROW_NUMBER_COLUMN_IDX;
 use crate::projection::Projection;
@@ -65,27 +64,26 @@ use crate::projection::{DuckdbField, Filter};
 // Aggregate projection index for count(*). See cpp/aggregate_fn_pushdown.cpp
 pub const COUNT_STAR_PROJ_IDX: u64 = u64::MAX;
 
-pub struct TableFunctionBind {
-    pub(crate) dtype: DType,
+pub struct BindState {
+    pub dtype: DType,
     first_file_row_count: u64,
-    pub(crate) filter_exprs: Vec<Expression>,
-    pub(crate) column_fields: Vec<DuckdbField>,
+    pub filters: Vec<Expression>,
+    pub columns: Vec<DuckdbField>,
     // There exists at least one non-optional table filter or at least one
     // complex filter is pushed down.
-    pub(crate) has_non_optional_filter: AtomicBool,
+    pub has_non_optional_filter: AtomicBool,
     // Non-empty iff this scan is aggregate
     aggregates: Vec<ColumnAggregate>,
 }
-assert_impl_all!(TableFunctionBind: Send, Clone);
+assert_impl_all!(BindState: Send, Clone);
 
-impl Clone for TableFunctionBind {
+impl Clone for BindState {
     fn clone(&self) -> Self {
         Self {
             dtype: self.dtype.clone(),
             first_file_row_count: self.first_file_row_count,
-            // Cloning happens only for late materialization refetch
-            filter_exprs: vec![],
-            column_fields: self.column_fields.clone(),
+            filters: vec![],
+            columns: self.columns.clone(),
             has_non_optional_filter: AtomicBool::new(
                 self.has_non_optional_filter.load(Ordering::Relaxed),
             ),
@@ -94,14 +92,14 @@ impl Clone for TableFunctionBind {
     }
 }
 
-impl fmt::Debug for TableFunctionBind {
+impl fmt::Debug for BindState {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("DataSourceBindData")
-            .field("column_fields", &self.column_fields)
+            .field("column_fields", &self.columns)
             .field(
                 "filter_exprs",
                 &self
-                    .filter_exprs
+                    .filters
                     .iter()
                     .map(|e| e.to_string())
                     .collect::<Vec<String>>(),
@@ -111,15 +109,23 @@ impl fmt::Debug for TableFunctionBind {
 }
 
 impl<'a> TableInitInput<'a> {
-    pub fn bind_data(&self) -> &TableFunctionBind {
-        unsafe { &*self.input.bind_data.cast::<TableFunctionBind>() }
+    pub fn bind_data(&self) -> &BindState {
+        unsafe { &*self.input.bind_data.cast::<BindState>() }
+    }
+
+    pub fn filters(&self) -> Option<&TableFilterSetRef> {
+        let ptr = self.input.filters;
+        if ptr.is_null() {
+            None
+        } else {
+            Some(unsafe { TableFilterSet::borrow(ptr) })
+        }
     }
 }
 
 pub struct GlobalState {
-    pub pruning: Option<Pruning>,
     pub projection: BoundExpression,
-    pub filter: Option<Filter>,
+    pub filter: Filter,
     pub file_row_number_column_pos: Option<usize>,
     pub file_index_column_pos: Option<usize>,
 
@@ -141,6 +147,7 @@ pub type Split = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
 pub struct LocalState {
     pub exporter: Option<ArrayExporter>,
     pub split: Option<Split>,
+
     /// Empty for non-aggregate scan
     pub partials: Vec<Box<dyn DynAccumulator>>,
 }
@@ -165,7 +172,7 @@ pub enum Cardinality {
 /// Called for every new query. For example, if there is a VIEW over *.vortex,
 /// and after a query another file is added matching the glob, for second query
 /// bind() will be called again.
-pub fn bind(first_file: &File, result: &mut BindResultRef) -> VortexResult<TableFunctionBind> {
+pub fn bind(first_file: &File, result: &mut BindResultRef) -> VortexResult<BindState> {
     let dtype = first_file.reader.dtype().clone();
     let column_fields = extract_schema_from_dtype(&dtype)?;
 
@@ -173,11 +180,11 @@ pub fn bind(first_file: &File, result: &mut BindResultRef) -> VortexResult<Table
         result.add_result_column(&field.name, &field.logical_type);
     }
 
-    Ok(TableFunctionBind {
+    Ok(BindState {
         dtype,
         first_file_row_count: first_file.reader.row_count(),
-        filter_exprs: vec![],
-        column_fields,
+        filters: vec![],
+        columns: column_fields,
         has_non_optional_filter: AtomicBool::new(false),
         aggregates: vec![],
     })
@@ -218,11 +225,7 @@ pub fn finalize_scan(global: &GlobalState, chunk: &mut DataChunkRef) -> VortexRe
 pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
     let bind_data = init_input.bind_data();
 
-    let partials = build_partials(
-        &bind_data.aggregates,
-        &bind_data.column_fields,
-        &bind_data.dtype,
-    )?;
+    let partials = build_partials(&bind_data.aggregates, &bind_data.columns, &bind_data.dtype)?;
 
     let mut file_row_number_column_pos = None;
     let mut file_index_column_pos = None;
@@ -234,8 +237,6 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
             file_index_column_pos = Some(i);
         }
     }
-
-    let pruning = Pruning::new(bind_data, column_ids, init_input.input.filters)?;
 
     let mut seen = HashMap::with_capacity(bind_data.aggregates.len());
     let mut aggregate_positions = Vec::with_capacity(bind_data.aggregates.len());
@@ -249,34 +250,41 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
     }
 
     let Projection(projection) = if bind_data.aggregates.is_empty() {
-        Projection::new(column_ids, &bind_data.column_fields)
+        Projection::new(column_ids, &bind_data.columns)
     } else {
-        Projection::new_aggregate(&bind_data.aggregates, &bind_data.column_fields)
+        Projection::new_aggregate(&bind_data.aggregates, &bind_data.columns)
     };
 
-    let filter = convert_filter(bind, column_ids, filters)?;
-    if has_non_optional_filter {
-        bind.has_non_optional_filter.store(true, Ordering::Relaxed);
+    let filter = Filter::new(
+        init_input.filters(),
+        column_ids,
+        &bind_data.columns,
+        &bind_data.filters,
+        &bind_data.dtype,
+    )?;
+    if filter.has_non_optional_filter {
+        bind_data
+            .has_non_optional_filter
+            .store(true, Ordering::Relaxed);
     }
 
     debug!(
         %projection,
-        filter = filter
+        filter = filter.filter
             .as_ref()
             .map_or_else(|| "true".to_string(), |f| f.to_string()),
-        ?row_selection,
-        ?row_range,
-        ?file_selection,
-        ?file_range,
-        "prepare scan"
+        row_selection = ?filter.row_selection,
+        row_range = ?filter.row_range,
+        file_selection = ?filter.file_selection,
+        file_range = ?filter.file_range,
+        "table function scan input"
     );
 
     let projection = optimize_and_bind(projection, &bind_data.dtype)?;
     Ok(GlobalState {
-        pruning,
-        aggregate_positions,
         projection,
         filter,
+        aggregate_positions,
         pending: Arc::new(AtomicU64::new(0)),
         aggregates: bind_data.aggregates.clone(),
         partials: Mutex::new(partials),
@@ -317,10 +325,7 @@ fn build_partials(
         .collect()
 }
 
-pub fn init_local(
-    bind_data: &TableFunctionBind,
-    global: &GlobalState,
-) -> LocalState {
+pub fn init_local(bind_data: &BindState, global: &GlobalState) -> LocalState {
     unsafe {
         use custom_labels::sys;
 
@@ -336,14 +341,10 @@ pub fn init_local(
         CURRENT_LABELSET.set(key, value);
     }
 
-    let partials = build_partials(
-        &global.aggregates,
-        &bind_data.column_fields,
-        &bind_data.dtype,
-    )
-    // if aggregate initialization produced an error, it would error in
-    // init_global, see "partials" initialization there
-    .vortex_expect("local state aggregate initialization failed");
+    let partials = build_partials(&global.aggregates, &bind_data.columns, &bind_data.dtype)
+        // if aggregate initialization produced an error, it would error in
+        // init_global, see "partials" initialization there
+        .vortex_expect("local state aggregate initialization failed");
 
     LocalState {
         exporter: None,
@@ -399,12 +400,12 @@ fn aggregate_output_value(scalar: Scalar, expected: &LogicalTypeRef) -> VortexRe
 }
 
 pub fn pushdown_complex_filter(
-    bind_data: &mut TableFunctionBind,
+    bind_data: &mut BindState,
     expr: &ExpressionRef,
 ) -> VortexResult<bool> {
     debug!(%expr, "pushing down expression");
 
-    let Some(expr) = try_from_bound_expression(expr, &bind_data.column_fields)? else {
+    let Some(expr) = try_from_bound_expression(expr, &bind_data.columns)? else {
         debug!(%expr, "failed to push down expression");
         return Ok(false);
     };
@@ -436,16 +437,16 @@ pub fn pushdown_complex_filter(
         .store(true, Ordering::Relaxed);
 
     debug!(%expr, report_pushed, "pushed down expression");
-    bind_data.filter_exprs.push(expr);
+    bind_data.filters.push(expr);
     Ok(report_pushed)
 }
 
 pub fn pushdown_projection_expression(
-    bind_data: &mut TableFunctionBind,
+    bind_data: &mut BindState,
     expr: &ExpressionRef,
     projection_id: usize,
 ) -> VortexResult<bool> {
-    let field = &bind_data.column_fields[projection_id];
+    let field = &bind_data.columns[projection_id];
     debug!(%expr, %projection_id, col_name=field.name, "pushing down projection expression");
     match try_from_projection_expression(expr, field)? {
         None => {
@@ -457,7 +458,7 @@ pub fn pushdown_projection_expression(
             let Ok(out_dtype) = vx_expr.return_dtype(&bind_data.dtype) else {
                 return Ok(false);
             };
-            let field = &mut bind_data.column_fields[projection_id];
+            let field = &mut bind_data.columns[projection_id];
             field.logical_type = expr.return_type().to_owned();
             field.dtype = out_dtype;
             field.projection_expr = Some(vx_expr);
@@ -468,11 +469,11 @@ pub fn pushdown_projection_expression(
 
 fn can_push_projection_aggregate(
     aggregate: &PushedAggregate,
-    bind_data: &TableFunctionBind,
+    bind_data: &BindState,
     projection_id: u64,
 ) -> bool {
     let projection_id_usize: usize = projection_id.as_();
-    let field = &bind_data.column_fields[projection_id_usize];
+    let field = &bind_data.columns[projection_id_usize];
     let Ok(dtype) = aggregate_input_dtype(field, &bind_data.dtype) else {
         return false;
     };
@@ -524,9 +525,12 @@ fn can_push_projection_aggregate(
 /// same columns. If we return true, optimized pass expands output to N columns,
 /// e.g. min(x), max(x) turns into min(x0), max(x1), 2 columns in output.
 pub fn pushdown_projection_aggregates(
-    bind_data: &mut TableFunctionBind,
+    bind_data: &mut BindState,
     input: &AggregatePushdownInputRef,
 ) -> VortexResult<bool> {
+    // TODO
+    return Ok(false);
+
     let len = input.len();
     let mut aggregates = Vec::with_capacity(len);
     let mut outputs = Vec::with_capacity(len);
@@ -543,7 +547,7 @@ pub fn pushdown_projection_aggregates(
             ColumnAggregate::CountStar => "count_star()".to_string(),
             ColumnAggregate::Real { projection_id, .. } => {
                 let id: usize = projection_id.as_();
-                bind_data.column_fields[id].name.clone()
+                bind_data.columns[id].name.clone()
             }
         };
         outputs.push((name, output_type));
@@ -559,7 +563,7 @@ pub fn pushdown_projection_aggregates(
 }
 
 fn try_push_projection_aggregate(
-    bind_data: &TableFunctionBind,
+    bind_data: &BindState,
     aggregate: AggregateExpression<'_>,
     i: usize,
 ) -> VortexResult<Option<ColumnAggregate>> {
@@ -595,7 +599,7 @@ fn try_push_projection_aggregate(
 /// duckdb uses is a 0.2 filter if there is any non-optional filter. We mimic it
 /// here.
 const DEFAULT_SELECTIVITY: f64 = 0.2;
-pub fn cardinality(bind_data: &TableFunctionBind, file_count: u64) -> Cardinality {
+pub fn cardinality(bind_data: &BindState, file_count: u64) -> Cardinality {
     // If we're doing an aggregate scan, we don't change output cardinality to
     // 1 as we want duckdb to do our aggregation in parallel. That may look
     // counterintuitive in the plan, though.
@@ -615,10 +619,10 @@ pub fn cardinality(bind_data: &TableFunctionBind, file_count: u64) -> Cardinalit
     Cardinality::Estimate(max(1, post_cardinality))
 }
 
-pub fn to_string(bind_data: &TableFunctionBind, map: &mut DuckdbStringMapRef) {
+pub fn to_string(bind_data: &BindState, map: &mut DuckdbStringMapRef) {
     map.push("Function", "Vortex Scan");
-    if !bind_data.filter_exprs.is_empty() {
-        let mut filters = bind_data.filter_exprs.iter().map(|f| format!("{f}"));
+    if !bind_data.filters.is_empty() {
+        let mut filters = bind_data.filters.iter().map(|f| format!("{f}"));
         map.push("Filters", &filters.join("\n"));
     }
 
@@ -632,10 +636,7 @@ pub fn to_string(bind_data: &TableFunctionBind, map: &mut DuckdbStringMapRef) {
                     aggregate,
                 } => {
                     let projection_id: usize = projection_id.as_();
-                    format!(
-                        "{aggregate}({})",
-                        bind_data.column_fields[projection_id].name
-                    )
+                    format!("{aggregate}({})", bind_data.columns[projection_id].name)
                 }
                 ColumnAggregate::CountStar => "count(*)".to_string(),
             })
@@ -647,7 +648,7 @@ pub fn to_string(bind_data: &TableFunctionBind, map: &mut DuckdbStringMapRef) {
     }
 
     let projections = bind_data
-        .column_fields
+        .columns
         .iter()
         .filter_map(|field| {
             field
