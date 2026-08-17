@@ -196,10 +196,10 @@ where
     } = codes_offsets.into_data_parts();
     let (validity_bit_offset, validity_bits) = cuda_validity(&validity, num_strings, ctx).await?;
 
-    let (symbols, symbol_lengths, validity_device, codes_bytes, codes_offsets) = futures::try_join!(
-        ctx.copy_to_device(symbols_u64)?,
-        ctx.copy_to_device(symbol_lengths)?,
-        ctx.ensure_on_device(validity_bits),
+    let symbols = ctx.stream().copy_to_device_sync(&symbols_u64)?;
+    let symbol_lengths = ctx.stream().copy_to_device_sync(symbol_lengths.as_ref())?;
+    let validity_device = ctx.ensure_on_device_sync(validity_bits)?;
+    let (codes_bytes, codes_offsets) = futures::try_join!(
         ctx.ensure_on_device(codes_bytes_handle),
         ctx.ensure_on_device(codes_offsets_buffer),
     )?;
@@ -305,10 +305,10 @@ where
     } = codes_offsets.into_data_parts();
     let (validity_bit_offset, validity_bits) = cuda_validity(&validity, len, ctx).await?;
 
-    let (symbols, symbol_lengths, validity_device, codes_bytes, codes_offsets) = futures::try_join!(
-        ctx.copy_to_device(symbols_u64)?,
-        ctx.copy_to_device(symbol_lengths)?,
-        ctx.ensure_on_device(validity_bits),
+    let symbols = ctx.stream().copy_to_device_sync(&symbols_u64)?;
+    let symbol_lengths = ctx.stream().copy_to_device_sync(symbol_lengths.as_ref())?;
+    let validity_device = ctx.ensure_on_device_sync(validity_bits)?;
+    let (codes_bytes, codes_offsets) = futures::try_join!(
         ctx.ensure_on_device(codes_bytes_handle),
         ctx.ensure_on_device(codes_offsets_buffer),
     )?;
