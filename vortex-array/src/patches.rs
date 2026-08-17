@@ -264,11 +264,18 @@ impl Patches {
         // Perform validation of components when they are host-resident.
         // This is not possible to do eagerly when the data is on GPU memory.
         if indices.is_host() && values.is_host() {
-            let max = usize::try_from(&indices.execute_scalar(
-                indices.len() - 1,
-                &mut legacy_session().create_execution_ctx(),
-            )?)
-            .map_err(|_| vortex_err!("indices must be a number"))?;
+            let max = if let Some(primitive) = indices.as_opt::<Primitive>() {
+                match_each_unsigned_integer_ptype!(primitive.ptype(), |T| {
+                    NumCast::from(primitive.as_slice::<T>()[primitive.len() - 1])
+                        .ok_or_else(|| vortex_err!("indices must be a number"))
+                })
+            } else {
+                usize::try_from(&indices.execute_scalar(
+                    indices.len() - 1,
+                    &mut legacy_session().create_execution_ctx(),
+                )?)
+                .map_err(|_| vortex_err!("indices must be a number"))
+            }?;
             vortex_ensure!(
                 max - offset < array_len,
                 "Patch indices {max:?}, offset {offset} are longer than the array length {array_len}"

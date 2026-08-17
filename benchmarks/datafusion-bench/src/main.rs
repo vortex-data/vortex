@@ -289,10 +289,14 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
             .runtime_env()
             .object_store(table_url.object_store())?;
 
-        let fs: FileSystemRef = Arc::new(ObjectStoreFileSystem::new(
-            Arc::clone(&store),
-            SESSION.handle(),
-        ));
+        let fs: FileSystemRef = if benchmark_base.scheme() == "file" {
+            Arc::new(ObjectStoreFileSystem::local(SESSION.handle()))
+        } else {
+            Arc::new(ObjectStoreFileSystem::new(
+                Arc::clone(&store),
+                SESSION.handle(),
+            ))
+        };
         let base_prefix = benchmark_base.path().trim_start_matches('/').to_string();
         let fs = fs.with_prefix(base_prefix);
 

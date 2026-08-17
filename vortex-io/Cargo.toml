@@ -45,6 +45,9 @@ vortex-utils = { workspace = true }
 [target.'cfg(unix)'.dependencies]
 custom-labels = { workspace = true }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+io-uring = { workspace = true }
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Smol is our default impl, so we don't want it to be optional, but it cannot be part of wasm
 smol = { workspace = true }
@@ -60,6 +63,13 @@ itertools = { workspace = true }
 rstest = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+rustix = { workspace = true }
+
+[[bench]]
+name = "uring_read_at"
+harness = false
 
 [features]
 object_store = ["dep:object_store", "vortex-error/object_store"]

@@ -116,5 +116,10 @@ harness = false
 test = false
 
 [[bench]]
+name = "random_access_reconstruct"
+harness = false
+test = false
+
+[[bench]]
 name = "pipeline"
 harness = false

@@ -22,6 +22,12 @@ use vortex_metrics::MetricBuilder;
 use vortex_metrics::MetricsRegistry;
 use vortex_metrics::Timer;
 
+/// Preferred read size for local file sources, including SSDs.
+pub const FILE_PREFERRED_READ_SIZE: u64 = 64 * 1024;
+
+/// Preferred read size for object storage sources.
+pub const OBJECT_STORAGE_PREFERRED_READ_SIZE: u64 = 1 << 20;
+
 /// Configuration for coalescing nearby I/O requests into single operations.
 #[derive(Clone, Copy, Debug)]
 pub struct CoalesceConfig {
@@ -69,7 +75,10 @@ impl CoalesceConfig {
 
     /// Configuration appropriate for local filesystem access.
     pub const fn file() -> Self {
-        Self::new(1 << 20, 4 << 20) // 1MB distance, 4MB max
+        // Local random reads are cheap enough that reading gaps between segments costs more than
+        // issuing another operation. Adjacent and overlapping requests still coalesce, while the
+        // 4 MiB cap preserves useful batching for scans.
+        Self::new(0, 4 << 20)
     }
 
     /// Configuration appropriate for object storage (S3, GCS, etc.).
@@ -90,6 +99,14 @@ pub trait VortexReadAt: Send + Sync + 'static {
 
     /// Configuration for merging nearby I/O requests into fewer, larger reads.
     fn coalesce_config(&self) -> Option<CoalesceConfig> {
+        None
+    }
+
+    /// Preferred size of independently requested byte ranges for this source.
+    ///
+    /// Layout readers can use this hint when dividing large logical segments into canonical read
+    /// ranges. Returning `None` asks readers to preserve whole-segment reads.
+    fn preferred_read_size(&self) -> Option<u64> {
         None
     }
 
@@ -148,6 +165,10 @@ impl VortexReadAt for Arc<dyn VortexReadAt> {
         self.as_ref().coalesce_config()
     }
 
+    fn preferred_read_size(&self) -> Option<u64> {
+        self.as_ref().preferred_read_size()
+    }
+
     fn concurrency(&self) -> usize {
         self.as_ref().concurrency()
     }
@@ -177,6 +198,10 @@ impl<R: VortexReadAt> VortexReadAt for Arc<R> {
 
     fn coalesce_config(&self) -> Option<CoalesceConfig> {
         self.as_ref().coalesce_config()
+    }
+
+    fn preferred_read_size(&self) -> Option<u64> {
+        self.as_ref().preferred_read_size()
     }
 
     fn concurrency(&self) -> usize {
@@ -344,6 +369,10 @@ impl<T: VortexReadAt + Clone> VortexReadAt for InstrumentedReadAt<T> {
         self.read.coalesce_config()
     }
 
+    fn preferred_read_size(&self) -> Option<u64> {
+        self.read.preferred_read_size()
+    }
+
     fn concurrency(&self) -> usize {
         self.read.concurrency()
     }
@@ -439,7 +468,7 @@ mod tests {
     #[test]
     fn test_coalesce_config_file() {
         let config = CoalesceConfig::file();
-        assert_eq!(config.distance, 1 << 20); // 1MB
+        assert_eq!(config.distance, 0);
         assert_eq!(config.max_size, 4 << 20); // 4MB
     }
 

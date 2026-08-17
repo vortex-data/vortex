@@ -63,6 +63,11 @@ impl ArrayStats {
         self.inner.write().clear(stat);
     }
 
+    /// Clears every cached statistic.
+    pub fn clear_all(&self) {
+        *self.inner.write() = StatsSet::default();
+    }
+
     pub fn retain(&self, stats: &[Stat]) {
         self.inner.write().retain_only(stats);
     }
@@ -248,6 +253,11 @@ impl StatsSetRef<'_> {
 
     pub fn clear(&self, stat: Stat) {
         self.array_stats.clear(stat);
+    }
+
+    /// Clears every cached statistic from this array.
+    pub fn clear_all(&self) {
+        self.array_stats.clear_all();
     }
 
     pub fn compute_min<U: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(

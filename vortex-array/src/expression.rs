@@ -9,10 +9,16 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArray;
+use crate::arrays::Struct;
+use crate::arrays::StructArray;
+use crate::arrays::struct_::compute::rules::struct_get_item;
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
 use crate::optimizer::ArrayOptimizer;
+use crate::scalar_fn::fns::get_item::GetItem;
 use crate::scalar_fn::fns::literal::Literal;
+use crate::scalar_fn::fns::pack::Pack;
+use crate::validity::Validity;
 
 impl ArrayRef {
     /// Apply a bound expression to this array, producing a new array in constant time.
@@ -34,6 +40,24 @@ impl ArrayRef {
             .iter()
             .map(|child| self.clone().apply_bound(child))
             .try_collect()?;
+
+        if let Some(field_name) = scalar_fn.as_opt::<GetItem>()
+            && let [child] = children.as_slice()
+            && let Some(array) = child.as_opt::<Struct>()
+        {
+            return struct_get_item(array, field_name);
+        }
+
+        if let Some(pack) = scalar_fn.as_opt::<Pack>() {
+            let validity = match pack.nullability {
+                crate::dtype::Nullability::NonNullable => Validity::NonNullable,
+                crate::dtype::Nullability::Nullable => Validity::AllValid,
+            };
+            return Ok(
+                StructArray::try_new(pack.names.clone(), children, self.len(), validity)?
+                    .into_array(),
+            );
+        }
 
         let array =
             ScalarFnArray::try_new_with_len(scalar_fn.clone(), children, self.len())?.into_array();
