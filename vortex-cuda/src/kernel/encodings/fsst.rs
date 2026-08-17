@@ -10,6 +10,7 @@ use async_trait::async_trait;
 use cudarc::driver::DevicePtr;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
+use cudarc::driver::ValidAsZeroBits;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
@@ -32,6 +33,7 @@ use vortex::dtype::DType;
 use vortex::dtype::NativePType;
 use vortex::dtype::PType;
 use vortex::encodings::fsst::FSST;
+use vortex::encodings::fsst::FSST_SYMBOL_TABLE_LEN;
 use vortex::encodings::fsst::FSSTArray;
 use vortex::encodings::fsst::FSSTArrayExt;
 use vortex::encodings::fsst::FSSTArraySlotsExt;
@@ -57,6 +59,33 @@ pub(crate) struct FSSTVarBin {
     pub(crate) values: BufferHandle,
     pub(crate) validity: Validity,
 }
+
+/// The complete FSST table uploaded to a single device buffer.
+///
+/// This is plain data with the same C layout as `FSSTSymbolTable` in `fsst.cu`.
+/// Packing it avoids allocating and uploading two separate tiny device buffers for every decode.
+#[repr(C)]
+#[derive(Debug)]
+struct FSSTSymbolTable {
+    symbols: [u64; FSST_SYMBOL_TABLE_LEN],
+    symbol_lengths: [u8; FSST_SYMBOL_TABLE_LEN],
+}
+
+// SAFETY: `FSSTSymbolTable` has a stable C layout, contains only integer arrays, and all-zero
+// bit patterns are valid for every field.
+unsafe impl DeviceRepr for FSSTSymbolTable {}
+unsafe impl ValidAsZeroBits for FSSTSymbolTable {}
+
+impl From<&FSSTArray> for FSSTSymbolTable {
+    fn from(fsst: &FSSTArray) -> Self {
+        Self {
+            symbols: std::array::from_fn(|index| fsst.padded_symbols()[index].to_u64()),
+            symbol_lengths: std::array::from_fn(|index| fsst.padded_symbol_lengths()[index]),
+        }
+    }
+}
+
+const _: () = assert!(size_of::<FSSTSymbolTable>() == 2296);
 
 /// Returns validity backing bytes and the bit offset of the first row for the FSST kernels.
 ///
@@ -183,12 +212,10 @@ where
     let validity = fsst.codes().validity()?;
     let num_strings = fsst.len();
     let num_strings_u64 = u64::try_from(num_strings)?;
-    let symbols_u64 = fsst
-        .symbols()
-        .iter()
-        .map(|symbol| symbol.to_u64())
-        .collect::<Vec<_>>();
-    let symbol_lengths = fsst.padded_symbol_lengths().slice(0..fsst.n_symbols());
+    let symbol_table = FSSTSymbolTable::from(&fsst);
+    let symbol_table = ctx
+        .stream()
+        .copy_to_device_sync(std::slice::from_ref(&symbol_table))?;
     let codes_bytes_handle = fsst.codes_bytes_handle().clone();
     let PrimitiveDataParts {
         buffer: codes_offsets_buffer,
@@ -196,8 +223,6 @@ where
     } = codes_offsets.into_data_parts();
     let (validity_bit_offset, validity_bits) = cuda_validity(&validity, num_strings, ctx).await?;
 
-    let symbols = ctx.stream().copy_to_device_sync(&symbols_u64)?;
-    let symbol_lengths = ctx.stream().copy_to_device_sync(symbol_lengths.as_ref())?;
     let validity_device = ctx.ensure_on_device_sync(validity_bits)?;
     let (codes_bytes, codes_offsets) = futures::try_join!(
         ctx.ensure_on_device(codes_bytes_handle),
@@ -208,8 +233,7 @@ where
     let mut views = ctx.device_alloc::<i128>(num_strings)?;
     let codes_bytes_view = codes_bytes.cuda_view::<u8>()?;
     let codes_offsets_view = codes_offsets.cuda_view::<U>()?;
-    let symbols_view = symbols.cuda_view::<u64>()?;
-    let symbol_lengths_view = symbol_lengths.cuda_view::<u8>()?;
+    let symbol_table_view = symbol_table.cuda_view::<FSSTSymbolTable>()?;
     let output_offsets_view = output_offsets.cuda_view::<i32>()?;
     let validity_view = validity_device.cuda_view::<u8>()?;
     let ptype = U::PTYPE.to_string();
@@ -218,8 +242,7 @@ where
     ctx.launch_kernel(&cuda_function, num_strings, |args| {
         args.arg(&codes_bytes_view)
             .arg(&codes_offsets_view)
-            .arg(&symbols_view)
-            .arg(&symbol_lengths_view)
+            .arg(&symbol_table_view)
             .arg(&output_offsets_view)
             .arg(&validity_view)
             .arg(&validity_bit_offset)
@@ -292,12 +315,10 @@ where
     let validity = fsst.codes().validity()?;
     let len = fsst.len();
     let len_u64 = len as u64;
-    let symbols_u64 = fsst
-        .symbols()
-        .iter()
-        .map(|s| s.to_u64())
-        .collect::<Vec<_>>();
-    let symbol_lengths = fsst.padded_symbol_lengths().slice(0..fsst.n_symbols());
+    let symbol_table = FSSTSymbolTable::from(&fsst);
+    let symbol_table = ctx
+        .stream()
+        .copy_to_device_sync(std::slice::from_ref(&symbol_table))?;
     let codes_bytes_handle = fsst.codes_bytes_handle().clone();
     let PrimitiveDataParts {
         buffer: codes_offsets_buffer,
@@ -305,8 +326,6 @@ where
     } = codes_offsets.into_data_parts();
     let (validity_bit_offset, validity_bits) = cuda_validity(&validity, len, ctx).await?;
 
-    let symbols = ctx.stream().copy_to_device_sync(&symbols_u64)?;
-    let symbol_lengths = ctx.stream().copy_to_device_sync(symbol_lengths.as_ref())?;
     let validity_device = ctx.ensure_on_device_sync(validity_bits)?;
     let (codes_bytes, codes_offsets) = futures::try_join!(
         ctx.ensure_on_device(codes_bytes_handle),
@@ -325,8 +344,7 @@ where
 
     let codes_bytes_view = codes_bytes.cuda_view::<u8>()?;
     let codes_offsets_view = codes_offsets.cuda_view::<U>()?;
-    let symbols_view = symbols.cuda_view::<u64>()?;
-    let symbol_lengths_view = symbol_lengths.cuda_view::<u8>()?;
+    let symbol_table_view = symbol_table.cuda_view::<FSSTSymbolTable>()?;
     let output_offsets_view = output_offsets.cuda_view::<i32>()?;
     let validity_view = validity_device.cuda_view::<u8>()?;
     let ptype = U::PTYPE.to_string();
@@ -335,8 +353,7 @@ where
     ctx.launch_kernel(&cuda_function, len, |args| {
         args.arg(&codes_bytes_view)
             .arg(&codes_offsets_view)
-            .arg(&symbols_view)
-            .arg(&symbol_lengths_view)
+            .arg(&symbol_table_view)
             .arg(&output_offsets_view)
             .arg(&validity_view)
             .arg(&validity_bit_offset)
@@ -431,12 +448,10 @@ where
         }));
     }
 
-    let symbols_u64 = fsst
-        .symbols()
-        .iter()
-        .map(|s| s.to_u64())
-        .collect::<Vec<_>>();
-    let symbol_lengths = fsst.padded_symbol_lengths().slice(0..fsst.n_symbols());
+    let symbol_table = FSSTSymbolTable::from(&fsst);
+    let symbol_table = ctx
+        .stream()
+        .copy_to_device_sync(std::slice::from_ref(&symbol_table))?;
     let codes_bytes_handle = fsst.codes_bytes_handle().clone();
     let PrimitiveDataParts {
         buffer: codes_offsets_buffer,
@@ -445,9 +460,7 @@ where
 
     let (validity_bit_offset, validity_bits) = cuda_validity(&validity, num_strings, ctx).await?;
 
-    let (symbols, symbol_lengths, output_offsets, validity_device, codes_bytes, codes_offsets) = futures::try_join!(
-        ctx.copy_to_device(symbols_u64)?,
-        ctx.copy_to_device(symbol_lengths)?,
+    let (output_offsets, validity_device, codes_bytes, codes_offsets) = futures::try_join!(
         ctx.copy_to_device(output_offsets)?,
         ctx.ensure_on_device(validity_bits),
         ctx.ensure_on_device(codes_bytes_handle),
@@ -469,8 +482,7 @@ where
 
     let codes_bytes_view = codes_bytes.cuda_view::<u8>()?;
     let codes_offsets_view = codes_offsets.cuda_view::<U>()?;
-    let symbols_view = symbols.cuda_view::<u64>()?;
-    let symbol_lengths_view = symbol_lengths.cuda_view::<u8>()?;
+    let symbol_table_view = symbol_table.cuda_view::<FSSTSymbolTable>()?;
     let output_offsets_view = output_offsets.cuda_view::<u64>()?;
     let validity_view = validity_device.cuda_view::<u8>()?;
 
@@ -479,8 +491,7 @@ where
     ctx.launch_kernel(&cuda_function, num_strings, |args| {
         args.arg(&codes_bytes_view)
             .arg(&codes_offsets_view)
-            .arg(&symbols_view)
-            .arg(&symbol_lengths_view)
+            .arg(&symbol_table_view)
             .arg(&output_offsets_view)
             .arg(&validity_view)
             .arg(&validity_bit_offset)

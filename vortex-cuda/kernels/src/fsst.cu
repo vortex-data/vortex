@@ -40,13 +40,9 @@
 // 16-aligned) and the epilogue tail (< 16 bytes left, no room for u128).
 // In steady state out_pos stays 16-aligned and u128 fires repeatedly.
 //
-// The 256-entry symbol table (≤ 2 KB) is read directly from global memory.
-// Staging it into shared memory measured ~3% slower at 10M rows and ~15%
-// slower at 1M rows (benchmarked on clickbench URLs). The hypothesis is that L1
-// already holds the table after a few iterations and the explicit shared copy
-// adds bank-conflict latency on the warp-divergent `symbols[code]` reads; the
-// gap is wider at 1M because the kernel is less bandwidth-bound there, so
-// per-load latency shows up more.
+// The 255-entry symbols and lengths arrays are packed into one global-memory
+// table. This preserves fast cached global loads while requiring only one small
+// allocation and upload for each FSST decode.
 //
 // Decoded symbols are masked to their valid byte length so the table's high
 // bits never leak. The main loop drains to `scratch.cursor ≤ 16`, keeping
@@ -129,6 +125,13 @@ struct Scratch {
 // bytes are stored inline after the u32 length. Longer values store their
 // first four bytes, backing-buffer index, and byte offset.
 constexpr uint32_t MAX_INLINED_SIZE = 12;
+
+struct alignas(8) FSSTSymbolTable {
+    uint64_t symbols[255];
+    uint8_t symbol_lengths[255];
+};
+
+static_assert(sizeof(FSSTSymbolTable) == 2296, "FSSTSymbolTable must match the Rust kernel argument");
 
 template <typename CodeOffsetT, typename OutputOffsetT>
 struct FSSTArgs {
@@ -249,8 +252,7 @@ __device__ inline void fsst_decode_string(const FSSTArgs<CodeOffsetT, OutputOffs
 #define GENERATE_FSST_VIEW_KERNEL(suffix, CodeOffsetT)                                                       \
     extern "C" __global__ void fsst_##suffix(const uint8_t *__restrict codes_bytes,                          \
                                              const CodeOffsetT *__restrict codes_offsets,                    \
-                                             const uint64_t *__restrict symbols,                             \
-                                             const uint8_t *__restrict symbol_lengths,                       \
+                                             const FSSTSymbolTable *__restrict symbol_table,                 \
                                              const uint64_t *__restrict output_offsets,                      \
                                              const uint8_t *__restrict validity_bits,                        \
                                              uint64_t validity_bit_offset,                                   \
@@ -260,8 +262,8 @@ __device__ inline void fsst_decode_string(const FSSTArgs<CodeOffsetT, OutputOffs
         const FSSTArgs<CodeOffsetT, uint64_t> args = {                                                       \
             codes_bytes,                                                                                     \
             codes_offsets,                                                                                   \
-            symbols,                                                                                         \
-            symbol_lengths,                                                                                  \
+            symbol_table->symbols,                                                                           \
+            symbol_table->symbol_lengths,                                                                    \
             output_bytes,                                                                                    \
             output_offsets,                                                                                  \
             validity_bits,                                                                                   \
@@ -274,8 +276,7 @@ __device__ inline void fsst_decode_string(const FSSTArgs<CodeOffsetT, OutputOffs
 #define GENERATE_FSST_VARBIN_KERNEL(suffix, CodeOffsetT)                                                     \
     extern "C" __global__ void fsst_varbin_##suffix(const uint8_t *__restrict codes_bytes,                   \
                                                     const CodeOffsetT *__restrict codes_offsets,             \
-                                                    const uint64_t *__restrict symbols,                      \
-                                                    const uint8_t *__restrict symbol_lengths,                \
+                                                    const FSSTSymbolTable *__restrict symbol_table,          \
                                                     const int32_t *__restrict output_offsets,                \
                                                     const uint8_t *__restrict validity_bits,                 \
                                                     uint64_t validity_bit_offset,                            \
@@ -284,8 +285,8 @@ __device__ inline void fsst_decode_string(const FSSTArgs<CodeOffsetT, OutputOffs
         const FSSTArgs<CodeOffsetT, int32_t> args = {                                                        \
             codes_bytes,                                                                                     \
             codes_offsets,                                                                                   \
-            symbols,                                                                                         \
-            symbol_lengths,                                                                                  \
+            symbol_table->symbols,                                                                           \
+            symbol_table->symbol_lengths,                                                                    \
             output_bytes,                                                                                    \
             output_offsets,                                                                                  \
             validity_bits,                                                                                   \
@@ -298,8 +299,7 @@ __device__ inline void fsst_decode_string(const FSSTArgs<CodeOffsetT, OutputOffs
 #define GENERATE_FSST_VARBINVIEW_KERNEL(suffix, CodeOffsetT)                                                 \
     extern "C" __global__ void fsst_varbinview_##suffix(const uint8_t *__restrict codes_bytes,               \
                                                         const CodeOffsetT *__restrict codes_offsets,         \
-                                                        const uint64_t *__restrict symbols,                  \
-                                                        const uint8_t *__restrict symbol_lengths,            \
+                                                        const FSSTSymbolTable *__restrict symbol_table,      \
                                                         const int32_t *__restrict output_offsets,            \
                                                         const uint8_t *__restrict validity_bits,             \
                                                         uint64_t validity_bit_offset,                        \
@@ -309,8 +309,8 @@ __device__ inline void fsst_decode_string(const FSSTArgs<CodeOffsetT, OutputOffs
         const FSSTArgs<CodeOffsetT, int32_t> args = {                                                        \
             codes_bytes,                                                                                     \
             codes_offsets,                                                                                   \
-            symbols,                                                                                         \
-            symbol_lengths,                                                                                  \
+            symbol_table->symbols,                                                                           \
+            symbol_table->symbol_lengths,                                                                    \
             output_bytes,                                                                                    \
             output_offsets,                                                                                  \
             validity_bits,                                                                                   \
