@@ -46,6 +46,50 @@ pub(crate) async fn i32_offsets_from_lengths(
     })
 }
 
+/// Build offsets without status validation when the caller has already proven that every length
+/// is nonnegative and their exact sum fits in an Arrow `i32` offset.
+pub(crate) async fn i32_offsets_from_known_lengths(
+    lengths: PrimitiveArray,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<BufferHandle> {
+    let len = lengths.len();
+    let ptype = lengths.ptype();
+    let PrimitiveDataParts { buffer, .. } = lengths.into_data_parts();
+    let lengths = ctx.ensure_on_device(buffer).await?;
+
+    match_each_integer_ptype!(ptype, |L| {
+        i32_offsets_from_known_lengths_typed::<L>(&lengths, len, ctx)
+    })
+}
+
+fn i32_offsets_from_known_lengths_typed<L>(
+    lengths: &BufferHandle,
+    len: usize,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<BufferHandle>
+where
+    L: NativePType + DeviceRepr + Send + Sync + 'static,
+{
+    let scan_len = len
+        .checked_add(1)
+        .ok_or_else(|| vortex_err!("Arrow offset count overflow"))?;
+    let lengths_view = lengths.cuda_view::<L>()?;
+    let mut scan_input = ctx.device_alloc::<i32>(scan_len)?;
+    let ptype = L::PTYPE.to_string();
+    let scan_kernel =
+        ctx.load_function_with_suffixes("arrow_offsets", &["from", "known", "lengths", &ptype])?;
+    let len_u64 = u64::try_from(len)?;
+
+    ctx.launch_kernel(&scan_kernel, scan_len, |args| {
+        args.arg(&lengths_view).arg(&mut scan_input).arg(&len_u64);
+    })?;
+
+    let offsets = exclusive_sum_i32(&scan_input, scan_len, ctx)?;
+    Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(
+        offsets,
+    ))))
+}
+
 async fn i32_offsets_from_lengths_typed<L>(
     lengths: &BufferHandle,
     len: usize,

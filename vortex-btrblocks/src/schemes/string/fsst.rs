@@ -16,6 +16,7 @@ use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::varbin::VarBinArraySlotsExt;
+use vortex_array::expr::stats::Stat;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
 use vortex_error::VortexResult;
@@ -84,6 +85,10 @@ impl Scheme for FSSTScheme {
             .clone()
             .execute::<PrimitiveArray>(exec_ctx)?
             .narrow(exec_ctx)?;
+        let length_stats = uncompressed_lengths_primitive
+            .as_ref()
+            .statistics()
+            .compute_all(&[Stat::Min, Stat::Sum], exec_ctx)?;
         let compressed_original_lengths = compressor.compress_child(
             &uncompressed_lengths_primitive.into_array(),
             &compress_ctx,
@@ -91,6 +96,9 @@ impl Scheme for FSSTScheme {
             0,
             exec_ctx,
         )?;
+        compressed_original_lengths
+            .statistics()
+            .set_iter(length_stats.into_iter());
 
         let codes_offsets_primitive = fsst
             .codes()

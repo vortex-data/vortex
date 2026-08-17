@@ -23,6 +23,9 @@ use vortex::array::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use vortex::array::arrays::varbinview::build_views::build_views;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBuffer;
+use vortex::array::expr::stats::Precision;
+use vortex::array::expr::stats::Stat;
+use vortex::array::expr::stats::StatsProvider;
 use vortex::array::match_each_integer_ptype;
 use vortex::array::match_each_unsigned_integer_ptype;
 use vortex::array::validity::Validity;
@@ -43,6 +46,7 @@ use crate::CanonicalCudaExt;
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::arrow::I32Offsets;
+use crate::arrow::i32_offsets_from_known_lengths;
 use crate::arrow::i32_offsets_from_lengths;
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecute;
@@ -122,7 +126,7 @@ impl CudaExecute for FSSTExecutor {
             }));
         }
 
-        if can_build_i32_offsets(&fsst) {
+        if exact_nonnegative_length_sum(&fsst).is_some() || can_build_i32_offsets(&fsst) {
             decode_fsst_varbinview(fsst, ctx).await
         } else {
             decode_fsst_host_varbinview(fsst, ctx).await
@@ -154,7 +158,7 @@ async fn decode_fsst_varbinview(
     let I32Offsets {
         buffer: output_offsets,
         total: total_size,
-    } = i32_offsets_from_lengths(lens, ctx).await?;
+    } = fsst_i32_offsets(&fsst, lens, ctx).await?;
 
     if total_size == 0 {
         let views = ctx.copy_to_device(vec![0i128; len])?.await?;
@@ -259,7 +263,7 @@ pub(crate) async fn decode_fsst_varbin(
     let I32Offsets {
         buffer: output_offsets,
         total: total_size,
-    } = i32_offsets_from_lengths(lens, ctx).await?;
+    } = fsst_i32_offsets(&fsst, lens, ctx).await?;
 
     if total_size == 0 {
         let allocation = CudaDeviceBuffer::new(ctx.device_alloc::<u8>(1)?);
@@ -351,6 +355,34 @@ where
         values: BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output))),
         validity,
     })
+}
+
+async fn fsst_i32_offsets(
+    fsst: &FSSTArray,
+    lengths: PrimitiveArray,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<I32Offsets> {
+    if let Some(total) = exact_nonnegative_length_sum(fsst) {
+        return Ok(I32Offsets {
+            buffer: i32_offsets_from_known_lengths(lengths, ctx).await?,
+            total,
+        });
+    }
+
+    i32_offsets_from_lengths(lengths, ctx).await
+}
+
+fn exact_nonnegative_length_sum(fsst: &FSSTArray) -> Option<usize> {
+    let stats = fsst.uncompressed_lengths().statistics();
+    let Precision::Exact(min) = stats.get(Stat::Min) else {
+        return None;
+    };
+    let Precision::Exact(sum) = stats.get(Stat::Sum) else {
+        return None;
+    };
+    let min = i64::try_from(&min).ok()?;
+    let total = usize::try_from(&sum).ok()?;
+    (min >= 0 && total <= i32::MAX as usize).then_some(total)
 }
 
 fn can_build_i32_offsets(fsst: &FSSTArray) -> bool {
