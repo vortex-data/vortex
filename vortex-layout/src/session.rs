@@ -15,6 +15,7 @@ use crate::layouts::chunked::Chunked;
 use crate::layouts::dict::Dict;
 use crate::layouts::flat::Flat;
 use crate::layouts::list::List;
+use crate::layouts::paged::Paged;
 use crate::layouts::struct_::Struct;
 use crate::layouts::zoned::LegacyStats;
 use crate::layouts::zoned::Zoned;
@@ -62,6 +63,7 @@ impl Default for LayoutSession {
         this.register(&LegacyStats as &dyn LayoutEncoding);
         this.register(&Dict as &dyn LayoutEncoding);
         this.register(&List as &dyn LayoutEncoding);
+        this.register(&Paged as &dyn LayoutEncoding);
         this
     }
 }

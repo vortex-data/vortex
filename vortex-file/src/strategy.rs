@@ -62,6 +62,7 @@ pub struct WriteStrategyBuilder {
     allow_encodings: Option<HashSet<ArrayId>>,
     flat_strategy: Option<Arc<dyn LayoutStrategy>>,
     probe_compressor: Option<Arc<dyn CompressorPlugin>>,
+    page_size: Option<usize>,
     /// Whether to write list fields using [`ListLayoutStrategy`].
     ///
     /// [`ListLayoutStrategy`]: vortex_layout::layouts::list::writer::ListLayoutStrategy
@@ -80,6 +81,9 @@ impl Default for WriteStrategyBuilder {
             allow_encodings: None,
             flat_strategy: None,
             probe_compressor: None,
+            // Off by default: a reader without the paged layout encoding cannot descend into a
+            // page, so paging changes who can read the file.
+            page_size: None,
             use_list_layout: use_experimental_list_layout(),
         }
     }
@@ -92,6 +96,21 @@ impl WriteStrategyBuilder {
     /// random-access locality.
     pub fn with_row_block_size(mut self, row_block_size: usize) -> Self {
         self.row_block_size = row_block_size;
+        self
+    }
+
+    /// Group each chunked layout's children into pages of at most `page_size` chunks, each
+    /// serialized into its own segment.
+    ///
+    /// A layout is a single recursive flatbuffer verified against a table limit, so a file with
+    /// enough chunks becomes one its own reader rejects. Paging bounds the tables in every
+    /// flatbuffer to roughly `page_size`, at the cost of one extra segment read per page touched.
+    /// Zero, or leaving this unset, keeps chunks inline.
+    ///
+    /// Note that a reader without the `vortex.paged` layout encoding registered can inspect a
+    /// paged file's layout tree but cannot scan it.
+    pub fn with_page_size(mut self, page_size: usize) -> Self {
+        self.page_size = Some(page_size);
         self
     }
 
@@ -202,7 +221,8 @@ impl WriteStrategyBuilder {
         };
 
         // 7. for each chunk create a flat layout
-        let chunked = ChunkedLayoutStrategy::new(Arc::clone(&flat));
+        let chunked = ChunkedLayoutStrategy::new(Arc::clone(&flat))
+            .with_page_size(self.page_size.unwrap_or(0));
         // 6. buffer chunks so they end up with closer segment ids physically
         let buffered = BufferedStrategy::new(chunked, 2 * ONE_MEG); // 2MB
 
