@@ -435,6 +435,42 @@ impl PcoData {
                     .sum::<usize>(),
             "page count does not match metadata"
         );
+
+        let mut n_values = 0usize;
+        for (chunk_idx, chunk) in self.metadata.chunks.iter().enumerate() {
+            let mut chunk_n_values = 0usize;
+            for page in &chunk.pages {
+                let page_n_values = page.n_values as usize;
+                vortex_ensure!(
+                    page_n_values != 0,
+                    "Pco chunk {chunk_idx} contains an empty page"
+                );
+                chunk_n_values = chunk_n_values.checked_add(page_n_values).ok_or_else(|| {
+                    vortex_err!("Pco chunk {chunk_idx} value count overflows usize")
+                })?;
+            }
+            vortex_ensure!(
+                chunk_n_values <= VALUES_PER_CHUNK,
+                "Pco chunk {chunk_idx} contains {chunk_n_values} values, exceeding the maximum of {VALUES_PER_CHUNK}"
+            );
+            n_values = n_values
+                .checked_add(chunk_n_values)
+                .ok_or_else(|| vortex_err!("Pco value count overflows usize"))?;
+        }
+        vortex_ensure!(
+            n_values <= self.unsliced_n_rows,
+            "Pco contains {n_values} values for only {} rows",
+            self.unsliced_n_rows
+        );
+        if validity.definitely_no_nulls() {
+            vortex_ensure!(
+                n_values == self.unsliced_n_rows,
+                "Pco contains {n_values} values for {} non-null rows",
+                self.unsliced_n_rows
+            );
+        } else if validity.definitely_all_null() {
+            vortex_ensure!(n_values == 0, "Pco contains values for an all-null array");
+        }
         Ok(())
     }
 
@@ -608,16 +644,19 @@ impl PcoData {
         // may exceed the bounds of the slice, so we need to slice later.
         let (fd, _) =
             FileDecompressor::new(self.metadata.header.as_slice()).map_err(vortex_err_from_pco)?;
-        let mut decompressed_values = BufferMut::<T>::with_capacity(slice_n_values);
+        let mut decompressed_values =
+            BufferMut::<T>::with_capacity(slice_n_values.min(VALUES_PER_CHUNK));
         let mut page_idx = 0;
-        let mut page_value_start = 0;
+        let mut page_value_start = 0usize;
         let mut n_skipped_values = 0;
         for (chunk_info, chunk_meta) in self.metadata.chunks.iter().zip(&self.chunk_metas) {
             // lazily initialize chunk decompressor
             let mut chunk_decompressor: Option<ChunkDecompressor<T>> = None;
             for page_info in &chunk_info.pages {
                 let page_n_values = page_info.n_values as usize;
-                let page_value_stop = page_value_start + page_n_values;
+                let page_value_stop = page_value_start
+                    .checked_add(page_n_values)
+                    .ok_or_else(|| vortex_err!("Pco page value counts overflow usize"))?;
 
                 if page_value_start >= slice_value_stop {
                     break;
@@ -626,12 +665,18 @@ impl PcoData {
                 if page_value_stop > slice_value_start {
                     // we need this page
                     let old_len = decompressed_values.len();
-                    let new_len = old_len + page_n_values;
+                    let new_len = old_len.checked_add(page_n_values).ok_or_else(|| {
+                        vortex_err!("Pco decompressed value count overflows usize")
+                    })?;
                     decompressed_values.reserve(page_n_values);
                     unsafe {
                         decompressed_values.set_len(new_len);
                     }
-                    let page: &[u8] = self.pages[page_idx].as_ref();
+                    let page: &[u8] = self
+                        .pages
+                        .get(page_idx)
+                        .ok_or_else(|| vortex_err!("Missing Pco page {page_idx}"))?
+                        .as_ref();
 
                     let mut cd = match chunk_decompressor.take() {
                         Some(d) => d,
@@ -660,10 +705,22 @@ impl PcoData {
         }
 
         // Slice only the values requested.
-        let value_offset = slice_value_start - n_skipped_values;
+        let value_offset = slice_value_start
+            .checked_sub(n_skipped_values)
+            .ok_or_else(|| {
+                vortex_err!("Pco page metadata skips beyond the requested value range")
+            })?;
+        let value_stop = value_offset
+            .checked_add(slice_n_values)
+            .ok_or_else(|| vortex_err!("Pco requested value range overflows usize"))?;
+        vortex_ensure!(
+            value_stop <= decompressed_values.len(),
+            "Pco contains {} decompressed values, but the requested range ends at {value_stop}",
+            decompressed_values.len()
+        );
         Ok(decompressed_values
             .freeze()
-            .slice(value_offset..value_offset + slice_n_values)
+            .slice(value_offset..value_stop)
             .into_byte_buffer())
     }
 
@@ -730,7 +787,9 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
 
+    use super::VALUES_PER_CHUNK;
     use crate::Pco;
 
     #[test]
@@ -761,5 +820,37 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(20u32), Some(30), Some(40), Some(50)])
                 .into_array();
         assert_arrays_eq!(sliced, expected, &mut ctx);
+    }
+
+    #[test]
+    fn test_decompress_bounds_initial_allocation() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let values = PrimitiveArray::from_iter([42u32]);
+        let pco = Pco::from_primitive(values.as_view(), 0, 128, &mut ctx)?;
+        let mut data = pco.data().clone();
+
+        // Simulate a corrupt logical length whose validity claims far more values than the
+        // encoded pages contain. This must not be used directly as an allocation size.
+        data.unsliced_n_rows = usize::MAX;
+        data.slice_stop = usize::MAX;
+
+        let result = data.decompress_values_typed::<u32>(&Validity::NonNullable, &mut ctx);
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_validate_rejects_oversized_chunk() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let values = PrimitiveArray::from_iter([42u32]);
+        let pco = Pco::from_primitive(values.as_view(), 0, 128, &mut ctx)?;
+        let mut data = pco.data().clone();
+        data.metadata.chunks[0].pages[0].n_values = u32::try_from(VALUES_PER_CHUNK + 1)?;
+
+        assert!(
+            data.validate(pco.dtype(), pco.len(), &Validity::NonNullable)
+                .is_err()
+        );
+        Ok(())
     }
 }
