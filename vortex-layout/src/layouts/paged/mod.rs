@@ -328,6 +328,7 @@ mod test {
     use vortex_flatbuffers::layout as fbl;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
+    use vortex_mask::Mask;
 
     use super::*;
     use crate::LayoutContext;
@@ -538,6 +539,41 @@ mod test {
                 requests.load(Ordering::Relaxed),
                 0,
                 "planning must not fetch any page segment"
+            );
+        })
+    }
+
+    /// A pruning evaluation that is never awaited must not fetch the page.
+    ///
+    /// `ZonedReader::pruning_evaluation` builds its data child's pruning future eagerly and only
+    /// awaits it when its own zone map did not already prune the range, so a page that issues its
+    /// segment request while the future is being constructed is read for ranges that are then
+    /// discarded.
+    #[test]
+    fn pruning_that_is_not_awaited_does_not_fetch_the_page() {
+        block_on(|handle| async {
+            let session = new_session().with_handle(handle);
+            let (segments, layout) = write_chunks(12, 3, &session).await;
+
+            let requests = Arc::new(AtomicUsize::new(0));
+            let counting = Arc::new(CountingSource {
+                inner: segments,
+                requests: Arc::clone(&requests),
+            });
+            let reader = layout
+                .new_reader("".into(), counting, &session, &Default::default())
+                .unwrap();
+            let expr = root().bind(reader.dtype()).unwrap();
+
+            // Built and dropped without ever being polled.
+            let _pruning = reader
+                .pruning_evaluation(&(0..12), &expr, Mask::new_true(12))
+                .unwrap();
+
+            assert_eq!(
+                requests.load(Ordering::Relaxed),
+                0,
+                "a pruning future that was never awaited fetched page segments"
             );
         })
     }

@@ -63,12 +63,15 @@ impl PagedReader {
 
     /// Return a future resolving to the reader for this page's subtree.
     ///
-    /// The segment request is only issued once the page is actually evaluated, so a page that is
-    /// pruned away, or never intersected by any scanned row range, costs no IO.
+    /// The segment is requested inside the future, on its first poll, rather than when it is
+    /// constructed. Callers build a page's evaluation future without knowing whether they will
+    /// await it — `ZonedReader::pruning_evaluation` builds its data child's eagerly and drops it
+    /// unawaited when its own zone map already pruned the range — so requesting here would read
+    /// pages for ranges that are then discarded.
     fn child_reader(&self) -> SharedReaderFuture {
         self.child
             .get_or_init(|| {
-                let segment_fut = self.segment_source.request(self.layout.segment_id());
+                let segment_id = self.layout.segment_id();
                 let dtype = self.layout.dtype().clone();
                 let layout_ctx = self.layout.layout_ctx().clone();
                 let array_ctx = self.layout.array_ctx().clone();
@@ -79,7 +82,7 @@ impl PagedReader {
 
                 async move {
                     let reader = async {
-                        let segment = segment_fut.await?;
+                        let segment = segment_source.request(segment_id).await?;
                         // The page is a `Layout` flatbuffer root, verified in its own right.
                         let page = FlatBuffer::align_from(segment.to_host_sync());
                         let layout = layout_from_flatbuffer(
