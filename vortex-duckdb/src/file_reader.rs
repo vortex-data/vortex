@@ -26,7 +26,6 @@ use vortex::io::runtime::BlockingRuntime as _;
 use vortex::layout::LayoutReaderRef;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::mask::Mask;
-use vortex::scan::selection::Selection;
 
 use crate::RUNTIME;
 use crate::SESSION;
@@ -72,11 +71,10 @@ pub struct File {
     /// File splits stored in inverse order
     pub splits: Vec<Split>,
     pub cache: ConversionCache,
-    index: u64,
     total_splits: usize,
 }
 
-async fn open_reader(file_path: String, file_index: u64) -> VortexResult<File> {
+async fn open_reader(file_path: String) -> VortexResult<File> {
     let url = parse_uri_or_path(&file_path)?;
     let (fs, path) = resolve_filesystem(&url)?;
     let file = fs.open_read(&path).await?;
@@ -84,14 +82,13 @@ async fn open_reader(file_path: String, file_index: u64) -> VortexResult<File> {
     Ok(File {
         reader: file.layout_reader()?,
         cache: ConversionCache::default(),
-        index: file_index,
         splits: vec![],
         total_splits: 0,
     })
 }
 
-pub fn reader_open(file_path: &str, file_index: u64) -> VortexResult<File> {
-    RUNTIME.block_on(open_reader(file_path.to_owned(), file_index))
+pub fn reader_open(file_path: &str) -> VortexResult<File> {
+    RUNTIME.block_on(open_reader(file_path.to_owned()))
 }
 
 pub fn reader_bind(file: &File, result: &mut BindResultRef) -> VortexResult<BindState> {
@@ -174,11 +171,7 @@ pub fn reader_scan(
     }
     let exporter = local.exporter.as_mut().vortex_expect("no exporter");
 
-    let has_more_data = exporter.export(
-        chunk,
-        global.file_index_column_pos,
-        global.file_row_number_column_pos,
-    )?;
+    let has_more_data = exporter.export(chunk, global.file_row_number_column_pos)?;
     if !has_more_data {
         local.exporter = None;
     }
@@ -243,23 +236,6 @@ pub fn reader_get_statistics(file: &File, column: &str) -> Option<ColumnStatisti
 }
 
 fn reader_prune(file: &File, filter: &Filter) -> VortexResult<bool> {
-    let index = file.index;
-    let excluded = match &filter.file_selection {
-        Selection::IncludeByIndex(buffer) => buffer.as_slice().binary_search(&index).is_err(),
-        Selection::ExcludeByIndex(buffer) => buffer.as_slice().binary_search(&index).is_ok(),
-        _ => false,
-    };
-    if excluded {
-        return Ok(true);
-    }
-    if filter
-        .file_range
-        .as_ref()
-        .is_some_and(|r| !r.contains(&index))
-    {
-        return Ok(true);
-    }
-
     let Some(filter) = &filter.filter else {
         return Ok(false);
     };

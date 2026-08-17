@@ -29,8 +29,6 @@ use crate::table_function::ColumnAggregate;
 
 // See MultiFileReader for constants
 
-/// "file_index" virtual column
-pub(crate) static FILE_INDEX_COLUMN_IDX: u64 = 9223372036854775810;
 /// "file_row_number" virtual column
 pub(crate) static FILE_ROW_NUMBER_COLUMN_IDX: u64 = 9223372036854775809;
 
@@ -186,8 +184,6 @@ pub struct Filter {
     pub filter: Option<BoundExpression>,
     pub row_selection: Selection,
     pub row_range: Option<Range<u64>>,
-    pub file_selection: Selection,
-    pub file_range: Option<Range<u64>>,
     pub has_non_optional_filter: bool,
 }
 
@@ -230,18 +226,13 @@ impl Filter {
             push_filter_expr(&mut table_filter_exprs, expr);
         }
 
-        let mut file_selection = Selection::All;
         let mut row_selection = Selection::All;
         let mut row_range = None;
-        let mut file_range = None;
         if let Some(filter) = table_filter_set {
             for (idx, expression) in filter.into_iter() {
                 let idx: usize = idx.as_();
                 if column_ids[idx] == FILE_ROW_NUMBER_COLUMN_IDX {
                     (row_selection, row_range) = try_from_virtual_column_filter(expression)?;
-                }
-                if column_ids[idx] == FILE_INDEX_COLUMN_IDX {
-                    (file_selection, file_range) = try_from_virtual_column_filter(expression)?;
                 }
             }
         };
@@ -254,8 +245,6 @@ impl Filter {
             filter,
             row_selection,
             row_range,
-            file_selection,
-            file_range,
             has_non_optional_filter,
         };
         Ok(out)
@@ -319,7 +308,7 @@ mod tests {
 
         assert_eq!(Projection::new(&ids, &fields).0, root());
 
-        let ids = [FILE_ROW_NUMBER_COLUMN_IDX, 0, 1, FILE_INDEX_COLUMN_IDX, 2];
+        let ids = [FILE_ROW_NUMBER_COLUMN_IDX, 0, 1, 2];
         let exprs = Projection::new(&ids, &fields);
         let row_idx_struct = pack([("file_row_number", row_idx())], false.into());
         let root_with_virtual_cols = merge([row_idx_struct, root()]);

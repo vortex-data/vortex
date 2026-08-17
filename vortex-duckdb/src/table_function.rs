@@ -53,7 +53,6 @@ use crate::duckdb::Value;
 use crate::duckdb::{AggregateExpression, TableFilterSetRef};
 use crate::duckdb::{AggregatePushdownInputRef, TableFilterSet};
 use crate::exporter::ArrayExporter;
-use crate::projection::FILE_INDEX_COLUMN_IDX;
 use crate::projection::FILE_ROW_NUMBER_COLUMN_IDX;
 use crate::projection::Projection;
 use crate::projection::{DuckdbField, Filter};
@@ -124,7 +123,6 @@ pub struct GlobalState {
     pub projection: BoundExpression,
     pub filter: Filter,
     pub file_row_number_column_pos: Option<usize>,
-    pub file_index_column_pos: Option<usize>,
 
     // Following fields are used only in aggregate scans.
     /// Splits that are not merged into global partials
@@ -204,13 +202,10 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
     let partials = build_partials(&bind_data.aggregates, &bind_data.columns, &bind_data.dtype)?;
 
     let mut file_row_number_column_pos = None;
-    let mut file_index_column_pos = None;
     let column_ids = init_input.column_ids();
     for (i, id) in column_ids.iter().enumerate() {
         if *id == FILE_ROW_NUMBER_COLUMN_IDX {
             file_row_number_column_pos = Some(i);
-        } else if *id == FILE_INDEX_COLUMN_IDX {
-            file_index_column_pos = Some(i);
         }
     }
 
@@ -251,8 +246,6 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
             .map_or_else(|| "true".to_string(), |f| f.to_string()),
         row_selection = ?filter.row_selection,
         row_range = ?filter.row_range,
-        file_selection = ?filter.file_selection,
-        file_range = ?filter.file_range,
         "table function scan input"
     );
 
@@ -266,7 +259,6 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
         partials: Mutex::new(partials),
         row_count: AtomicU64::new(0),
         file_row_number_column_pos,
-        file_index_column_pos,
     })
 }
 

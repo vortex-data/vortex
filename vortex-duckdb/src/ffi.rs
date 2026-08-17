@@ -177,14 +177,13 @@ pub unsafe extern "C-unwind" fn duckdb_reader_bind(
 pub unsafe extern "C-unwind" fn duckdb_reader_open(
     file_path: *const c_char,
     file_path_len: usize,
-    file_index: u64,
     error: *mut cpp::duckdb_vx_error,
 ) -> cpp::duckdb_vx_data {
     let path = unsafe { std::slice::from_raw_parts(file_path.cast::<u8>(), file_path_len) };
     let path = String::from_utf8_lossy(path).into_owned();
 
     try_or_null(error, || {
-        let file = reader_open(&path, file_index)?;
+        let file = reader_open(&path)?;
         Ok(Data::from(Box::new(file)).as_ptr())
     })
 }

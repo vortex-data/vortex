@@ -56,7 +56,6 @@ duckdb_vx_data duckdb_reader_bind(const void *first_file,
 extern
 duckdb_vx_data duckdb_reader_open(const char *file_path,
                                   size_t file_path_len,
-                                  uint64_t file_index,
                                   duckdb_vx_error *error);
 
 extern
