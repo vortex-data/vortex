@@ -1,29 +1,31 @@
 # Editions
 
-Vortex defines an ever-growing set of serialized formats for arrays and other durable objects. A frozen **edition**
-groups these formats, records when they joined the compatibility guarantee, and specifies the minimum Vortex release
-that can read them. That release and every later version can read every format in the edition. Draft editions specify no
-minimum Vortex release and carry no read-forever guarantee.
+Vortex files contain several kinds of serialized **component**: array encodings, layout encodings, extension dtypes,
+and aggregate functions. An **edition** is a named set of these components. It controls what a writer may put in a file
+and, once frozen, identifies the earliest Vortex release that supports every component in the set.
 
-An edition member is a serialized format: an ID together with the schema and semantics of its metadata and payload. The
-same model applies to array encodings, layout encodings, aggregate functions, and extension dtypes. The read-forever
-guarantee preserves the meaning of this serialized representation; it does not freeze the in-memory implementation used
-to read or write it.
+Each component consists of a kind, an ID, and the wire contract for its metadata and payload. The compatibility
+guarantee applies to that serialized contract, not to the in-memory implementation that reads or writes it.
 
-The first edition, `core2025.05.0`, contains the stable serialized formats that Vortex
-`0.36.0` could write. This is the release from which the Vortex file format is considered stable. Later `core` editions
-add stable formats released after that boundary. Editions are additive: each edition contains every member of the
-preceding edition in its family, plus new members. For example, selecting `core2026.07.0` and `unstable2026.06.0`
-enables stable formats released through July 2026 and unstable formats released through June 2026. When every selected
-edition is frozen, the most recent required Vortex release among them is the earliest Vortex version guaranteed to read
-the file. Selecting a draft edition such as `unstable2026.06.0` opts out of that guarantee for its members.
+Editions belong to independently versioned families and are cumulative within a family. Each edition includes all
+components from the preceding edition in that family, plus any newly added components. A writer selects at most one
+edition from each family and may use the union of their components. For example, selecting `core2026.07.0` and
+`unstable2026.06.0` allows stable components released through July 2026 and unstable components released through June
+2026.
+
+The first frozen edition, `core2025.05.0`, contains the components that Vortex `0.36.0` could write. This marks the
+start of the Vortex file format's stability guarantee. Every Vortex release from `0.36.0` onward can read
+`core2025.05.0`, and later frozen `core` editions extend that guarantee to newer components.
+
+When a writer selects only frozen editions, the highest of their minimum Vortex releases is the earliest release
+guaranteed to read the resulting file. Draft editions have no minimum reader version; selecting one gives up this
+guarantee for any draft components written to the file.
 
 ## What an edition contains
 
-Every member of an edition is recorded with a **component kind**: `array`, `layout`, `dtype`, or
-`aggregate`. The kind is recorded because IDs are unique only within a kind: a layout named
-`vortex.flat` and an array encoding named `vortex.flat` are different members. Membership is resolved one kind at a
-time, and the writer enforces a separate ID set for each kind:
+An edition records every component by kind and ID. IDs are unique within a kind, but not across kinds: a layout named
+`vortex.flat` and an array encoding with the same ID are distinct components. The writer therefore builds and enforces
+a separate allowlist for each kind:
 
 | Kind        | Written                                    | Enforced at                  |
 |-------------|--------------------------------------------|------------------------------|
@@ -32,160 +34,154 @@ time, and the writer enforces a separate ID set for each kind:
 | `dtype`     | extension dtypes nested in the file schema | file writer                  |
 | `aggregate` | zone maps in zoned layouts                 | the layout writer context    |
 
-**For every kind, writing a component outside the enabled editions fails the write.** A zone map
-is only an optimization, so a forbidden aggregate could, in principle, be dropped instead. Vortex refuses to write the
-file because silently producing one that prunes less effectively than configured would conceal a policy violation.
+Writing a component that is absent from the selected editions fails the write. This rule applies to every kind,
+including aggregates. Although a zone map is only an optimization and could be dropped, doing so would silently change
+the writer's configured pruning behavior.
 
-Aggregates are checked against the set that the file write operation would actually record: an aggregate that a column's
-dtype cannot hold is not written, so it is not a violation either.
+Only aggregates that would actually be written are checked. If a column's dtype cannot support an aggregate, the
+writer omits it and there is no edition violation.
 
-**A kind with no declared members permits no members.** The enabled editions must collectively declare every array,
-layout, extension dtype, and aggregate that a write serializes. `core2026.08.0` declares the aggregates the default
-writer records in zone maps: `min`, `max`, `bounded_min`, `bounded_max`, `nan_count`, and `null_count`. `sum` is absent
-because the writer records no zone sum. File-level statistics still carry a sum in a fixed legacy slot, not as a
-serialized aggregate function ID, so the aggregate filter does not govern it.
+An empty allowlist permits no components of that kind; it is not a wildcard. Collectively, the selected editions must
+declare every array encoding, layout encoding, extension dtype, and aggregate function that the writer serializes.
 
-A session that registers components outside `core` enables their family alongside `core`. For example, spatial support
-enables `spatial2026.08.0`, and JSON support enables `json2026.08.0`. The writer may emit the union of the selected
-families.
+For example, `core2026.08.0` declares the aggregate functions that the default writer may store in zone maps: `min`,
+`max`, `bounded_min`, `bounded_max`, `nan_count`, and `null_count`. It does not declare `sum`, because the writer does
+not store sums in zone maps. File-level statistics use a fixed legacy field for sums rather than a serialized aggregate
+function ID, so this allowlist does not apply to them.
 
-## Resolving an unknown-object error
+Optional Vortex modules enable their own edition families alongside `core`. Spatial support enables
+`spatial2026.08.0`, for example, while JSON support enables `json2026.08.0`.
 
-If a read failed with an unknown ID for an array encoding, layout encoding, aggregate function, or extension dtype and
-pointed you here, the reader encountered a serialized format it does not support. Find the ID in
-the [registry](#edition-registry) below:
+## Resolving an unknown-component error
 
-1. **The ID is listed under a frozen edition.** The file is newer than your Vortex build. Upgrade to at least that
-   edition's required Vortex release.
-2. **The ID is listed under a draft edition.** No released reader is guaranteed to support it yet. Use a build that
-   registers the draft component, or ask the producer which build wrote the file.
-3. **The ID is not listed anywhere.** The file was written outside the editions system with a custom, third-party, or
-   experimental format. Ask the producer how to read it, or register its implementation with your session. Tools that
-   only inspect or relocate data can opt in to
-   `allow_unknown`, which decodes unrecognised encodings into inert placeholders and disables pruning for zone maps
-   whose aggregate functions it cannot resolve.
+An unknown-ID error means that the reader does not recognize a serialized component in the file. Find the component's
+kind and ID in the [registry](#edition-registry):
+
+1. **It belongs to a frozen edition.** Upgrade to at least the minimum Vortex release listed for that edition.
+2. **It belongs to a draft edition.** No released reader is guaranteed to support it. Use a build that registers the
+   component, or ask the file's producer which build to use.
+3. **It is not in the registry.** The file contains a custom, third-party, or experimental component outside the
+   editions system. Ask the producer for its implementation and register it with the reader's session.
+
+Tools that only inspect or copy data can opt in to `allow_unknown`. Unknown array encodings, layout encodings, and
+extension dtypes are then preserved as inert representations. An unknown aggregate function disables the affected
+zone-map pruning rather than causing the file to be rejected.
 
 ## Writing with an edition
 
-By default, the Vortex facade targets its newest frozen `core` edition. New formats can spend an adoption period in a
-draft or unstable edition before joining a later frozen `core` edition. The members of a file's frozen editions carry
-the read-forever guarantee. If serialization would emit a format ID outside an active kind filter, the write fails
-immediately; edition violations never surface as someone else's read error later.
+By default, the Vortex facade targets the newest frozen `core` edition. New components may first appear in a draft
+edition before joining a later frozen `core` edition. If serialization would use a component outside the selected
+editions, the write fails immediately.
 
-The enabled editions are stored on the writer's Vortex session. Registering an edition makes its declaration available
-to the session; enabling it separately allows the writer to emit its members. Enabling another edition from the same
-family replaces the earlier selection.
+Edition configuration belongs to the writer's Vortex session. Registering an edition makes its declaration available
+to the session; enabling it allows the writer to use its components. Enabling another edition in the same family
+replaces the previous selection.
 
-Two knobs exist when the default is not what you want:
+You can change the default configuration to:
 
-- **Pin an older edition** when files must stay readable by deployments running older Vortex.
-- **Opt in to additional edition families.** Families are independently versioned and additive:
-  Vortex currently declares `core`, `unstable`, `spatial`, and `json`. A writer targets at most one edition per family
-  and may emit any component in their union; each component belongs to exactly one family.
+- **Target an older `core` edition** when the file must remain readable by an older Vortex deployment.
+- **Enable another family** to use components outside `core`. Vortex currently defines `unstable`, `spatial`, and
+  `json` in addition to `core`.
 
-Sessions assembled without the Vortex facade must register and enable their write editions before using the file writer.
-A raw `with_allow_encodings` array-writer policy may narrow the permitted array encodings further, but it does not
-expand the enabled editions.
+Sessions created without the Vortex facade must register and enable their editions before writing files. The lower-level
+`with_allow_encodings` policy can further restrict array encodings, but cannot permit an encoding excluded by the
+selected editions.
 
 ## How editions change
 
-A published edition is frozen: neither its member list nor the meaning of any member ID may change. New formats are
-staged in a **draft** edition and become guaranteed only when that draft is frozen as the next edition; each registry
-entry records the edition it joined in. A format may later be *deprecated*, meaning writers stop emitting it, but
-readers keep decoding it indefinitely. Deprecation therefore never invalidates existing files.
+A frozen edition never changes: neither its component list nor the meaning of its component IDs may be altered. New
+components are staged in a **draft** edition, whose contents may change. They become part of the compatibility guarantee
+only when that draft is frozen as the next edition in its family.
 
-## How serialized formats evolve
+A component may later be deprecated, meaning that writers stop using it. Readers must continue to support it, so
+deprecation does not invalidate existing files.
 
-In-memory representations are unversioned implementation details. They may gain capabilities or be replaced without
-changing an edition. Serialization plugin registries map between the two worlds:
-on read, the plugin selected by a serialized ID constructs whichever in-memory representation the reader prefers, and on
-write, the implementation chooses a serialized format that can represent the value and is permitted by the target
-editions. Most in-memory representations have one format and use the same ID in memory and on disk, but that is not
-required: several serialized IDs may map to one in-memory representation. The edition check applies to the ID written
-into the file, so it constrains exactly what the target reader will encounter.
+## How serialized components evolve
+
+Editions govern serialized components, not in-memory representations. An in-memory representation may gain capabilities
+or be replaced without changing an edition. On read, the plugin registered for a component ID constructs the current
+in-memory representation. On write, the implementation selects a component that can represent the value and is allowed
+by the selected editions.
+
+An in-memory representation often has a single serialized component and uses the same ID in memory and on disk, but
+this is not required. Multiple component IDs may deserialize into the same in-memory representation. Editions constrain
+the ID stored in the file, because that is what the reader must understand.
 
 ### Compatible evolution keeps the ID
 
-A serialized format may evolve under its existing ID only when the change is both **backward and forward compatible**:
-an old reader must still interpret data from a new writer correctly, and a new reader must still interpret data from an
-old writer correctly. Adding an optional field is compatible only when old readers can safely ignore it and new readers
-have the correct default when it is absent.
+A component may keep its ID only if changes to its wire format are both **backward and forward compatible**: a new
+reader must correctly interpret data from an old writer, and an old reader must correctly interpret data from a new
+writer. For example, adding an optional field is compatible only if old readers can safely ignore it and new readers use
+the correct default when it is absent.
 
-Compatible evolution may add accepted input, but it cannot change the meaning of bytes that existing readers already
-accept. Removing or repurposing a field, redefining existing bytes, or requiring information that old writers never
-emitted is incompatible.
+Compatible evolution may broaden what the wire format accepts, but it cannot change the meaning of data that existing
+readers already accept. Removing or repurposing a field, redefining existing bytes, and requiring information that old
+writers did not provide are all incompatible changes.
 
-### Incompatible evolution creates a new format
+### Incompatible evolution requires a new ID
 
-An incompatible revision is a **new serialized format** with a new ID, registry entry, and edition membership. The old
-format remains in the registry and readable forever. The in-memory representation does not need to fork: it can read and
-write both formats, choosing between them according to the value and the target editions.
+An incompatible revision is a new component, with a new ID, registry entry, and edition membership. The old component
+remains in the registry and must remain readable. The in-memory representation need not change: it can read and write
+both components, choosing between them based on the value and the selected editions.
 
-Name successive incompatible revisions as a version chain on the same base name:
-`vortex.foo`, `vortex.foo_v2`, `vortex.foo_v3`. Do not use descriptively named successor variants. This gives each
-format at most one successor, so its serialized history is a list rather than a tree of competing revisions.
+Name successive incompatible revisions by appending a version to the same base name: `vortex.foo`, `vortex.foo_v2`,
+`vortex.foo_v3`. Do not give successor versions descriptive names. A linear naming scheme keeps the component's
+serialized history unambiguous.
 
 #### Example: multi-part decimals
 
-`vortex.decimal_byte_parts` froze into `core2025.05.0` representing each decimal value as a single signed integer child.
-Its metadata includes a `lower_part_count` field, but readers of the frozen format require it to be zero. Suppose its
-in-memory representation gains support for wide decimals as a signed most-significant part plus unsigned 64-bit lower
-parts:
+`vortex.decimal_byte_parts` entered `core2025.05.0` with each decimal value represented by one signed integer child.
+Its metadata includes `lower_part_count`, but readers of this component require that field to be zero. Suppose the
+in-memory representation gains support for wide decimals, represented by a signed most-significant part and one or more
+unsigned 64-bit lower parts:
 
 - A single-part array still serializes as `vortex.decimal_byte_parts` with
   `lower_part_count = 0`, indistinguishable from files written before the change.
-- An array with lower parts serializes as `vortex.decimal_byte_parts_v2`, staged in a draft edition.
-- A new reader deserializes both IDs into the same in-memory representation. A reader that predates the second format
-  reports an unknown-ID error for `vortex.decimal_byte_parts_v2`, rather than entering a decoder that was never taught
-  about lower parts.
+- An array with lower parts uses the new `vortex.decimal_byte_parts_v2` component, initially staged in a draft edition.
+- A new reader deserializes both IDs into the same in-memory representation. An older reader reports
+  `vortex.decimal_byte_parts_v2` as unknown instead of trying to decode a wire format it does not support.
 
 ### Reading: deserialize into the current representation
 
-Each serialized format in a frozen edition remains readable forever. Its deserializer may upgrade the data into the
-current in-memory representation instead of preserving a parallel legacy representation. For example, a serialized
-`vortex.alp` array with interior patches is deserialized as a `Patched` array wrapping a patch-free ALP array, and zone
-maps written before aggregate descriptors existed, including whole `vortex.stats` layouts, deserialize into the same
-zone-map machinery used by modern `vortex.zoned` layouts. There is no version negotiation at read time: the reader
-resolves the serialized ID and deserializes it, or reports the relevant
-[unknown-ID error](#resolving-an-unknown-object-error).
+Every component in a frozen edition remains readable. Its deserializer may convert old data directly into the current
+in-memory representation rather than preserving a parallel legacy representation. For example, a `vortex.alp` array
+with interior patches is read as a `Patched` array around a patch-free ALP array. Similarly, old zone maps, including
+`vortex.stats` layouts, are read by the machinery used for modern `vortex.zoned` layouts.
 
-### Writing: select a permitted format
+Readers do not negotiate versions. They resolve the component ID and deserialize it, or report an
+[unknown-component error](#resolving-an-unknown-component-error).
 
-Writers choose a serialized format that can represent the current in-memory value and is permitted by the target
-editions. This need not be the newest format: a value that the older frozen format represents exactly may continue to
-use its older ID. If the preferred format is newer than the target edition, the writer resolves the conflict in one of
-two ways:
+### Writing: select a permitted component
 
-1. **Translate.** If the value has a lossless translation to a permitted serialized format, emit that format. For
-   example, a newer layout may re-emit its zone statistics using an older stats schema.
+Writers choose a component that both represents the current value and belongs to the selected editions. This need not
+be the newest component: if an older component can represent the value exactly, the writer may continue to use it. If
+the preferred component is not permitted, the writer has two options:
+
+1. **Translate.** If the value has a lossless translation to a permitted component, use that component. For example, a
+   newer layout may write its zone statistics using an older statistics schema.
 2. **Convert to canonical and recompress.** Otherwise, decompress the data to a canonical representation and recompress
-   it with the configured compressors, filtered to the target editions. This is how arrays are handled today: the write
-   pipeline normalizes each chunk, recursively executing an encoding outside the permitted set down to canonical, and
-   then lets the edition-filtered compressor choose the final encoding.
+   it with the configured compressors, restricted to the selected editions. This is how arrays are handled today: the
+   writer normalizes each chunk to a canonical representation, then lets the edition-filtered compressor choose the
+   final encoding.
 
-Both paths run inside the ordinary write pipeline, so the configured compressors produce the final bytes. If neither
-path can express the data within the target editions, the write fails rather than emitting a file that the target reader
-cannot load.
+Both paths use the normal write pipeline and its configured compressors. If neither can express the data using the
+selected editions, the write fails.
 
 ### What this means for each kind
 
-- **Arrays.** Enforced at write time today: the writer's array context only permits serialized array encodings from the
-  enabled editions.
-- **Layouts.** The layout strategy decides the layout tree at write time. Layout membership declares which serialized
-  layout formats a target reader understands. Strategies must degrade to older structures, for example plain chunked
-  data instead of newer auxiliary layouts, when targeting editions that predate them.
+- **Arrays.** The array serialization context permits only encodings from the selected editions.
+- **Layouts.** The layout strategy builds the layout tree at write time. When targeting an older edition, it must use
+  structures available in that edition, such as plain chunked data in place of newer auxiliary layouts.
 - **Extension dtypes.** Before writing any bytes, the file writer recursively validates every extension dtype in the
-  schema. Every serialized extension dtype embeds its ID and metadata, so a dtype in durable data needs the same
-  guarantee as an array encoding. Readers resolve its ID against the session's dtype registry.
+  schema. Readers resolve serialized dtype IDs against the session's dtype registry.
 - **Aggregate functions.** Zone maps serialize aggregate function IDs and their options. A zone map containing a
-  function outside the target editions fails the write. Readers handle an unknown aggregate under `allow_unknown` as
-  described [above](#resolving-an-unknown-object-error), which is sound because ignoring a zone map only weakens
-  pruning.
+  function outside the selected editions fails the write. With `allow_unknown`, readers disable a zone map whose
+  aggregate function they do not recognize; ignoring a zone map only reduces pruning and does not affect correctness.
 
 ## Edition registry
 
 Registry entries list the edition in which each component first appeared. Later editions in the same family inherit all
-earlier members.
+earlier components.
 
 ### Frozen `core` editions
 
@@ -231,7 +227,7 @@ Minimum Vortex release: `0.84.0`.
 
 ### Draft editions
 
-Draft member lists may change and have no minimum-reader or read-forever guarantee.
+Draft component lists may change and have no minimum reader or permanent compatibility guarantee.
 
 #### `unstable2025.05.0`
 
