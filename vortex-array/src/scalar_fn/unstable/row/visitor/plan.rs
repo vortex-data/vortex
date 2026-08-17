@@ -114,15 +114,12 @@ pub(crate) struct BatchPlan {
     pub(crate) output_dtype: DType,
 
     /// How this concrete dispatch executes nullable rows.
-    // TODO(connor)[RowFn]: Remove this allowance when the execution backend from #9130 consumes
-    // this policy.
-    #[allow(dead_code)]
     pub(crate) policy: RowPolicy,
 }
 
 impl BatchPlan {
     /// Return the output dtype widened with strict input nullability.
-    pub(crate) fn result_dtype(self, args: &[DType]) -> DType {
+    pub(crate) fn result_dtype(&self, args: &[DType]) -> DType {
         let nullability = self.output_dtype.nullability()
             | Nullability::from(args.iter().any(DType::is_nullable));
 
@@ -139,7 +136,7 @@ pub(crate) enum RowPolicy {
     /// Evaluate all rows, retrying only valid rows if a deferred error is raised.
     DenseWithRetry,
 
-    /// Execute only valid rows, trying skip-invalid execution before filtering.
+    /// Execute only valid rows over the original inputs before filtering.
     ValidOnly,
 }
 

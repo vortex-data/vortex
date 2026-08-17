@@ -10,7 +10,7 @@ use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 
 use super::ElementTuple;
-use super::element_tuple::batch_constant;
+use super::batch_constant;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;

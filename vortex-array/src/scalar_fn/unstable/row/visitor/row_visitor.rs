@@ -74,7 +74,7 @@ pub trait RowVisitor<Options>: private::Sealed + Sized {
     /// # Examples
     ///
     /// Test whether each string occurs in its allowed-values list. The prepare closure builds one
-    /// lookup table for a batch-constant list. The row closure scans a varying list directly.
+    /// lookup table for a batch-constant list. The row closure scans a per-row list directly.
     ///
     /// ```ignore
     /// visitor.visit_prepared::<

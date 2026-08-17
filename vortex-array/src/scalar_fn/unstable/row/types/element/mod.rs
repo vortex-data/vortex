@@ -20,3 +20,4 @@ mod primitive;
 mod tuple;
 pub use tuple::ElementTuple;
 pub use tuple::IndexedElementTuple;
+pub use tuple::batch_constant;

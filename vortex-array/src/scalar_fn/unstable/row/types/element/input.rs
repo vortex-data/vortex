@@ -68,7 +68,7 @@ pub unsafe trait InputElement: 'static {
     /// cannot decode this particular array.
     ///
     /// Override this for a non-dense-safe representation that can still place safe placeholders in
-    /// null slots. The skip-invalid executor never reads those slots.
+    /// null slots. Valid-row execution never reads those slots.
     fn decode_null_tolerant(
         array: ArrayRef,
         ctx: &mut ExecutionCtx,

@@ -19,7 +19,12 @@ use super::visitor::RowVisitor;
 use crate::dtype::DType;
 use crate::scalar_fn::ScalarFnId;
 
-/// A scalar function computed one row at a time.
+/// A strict scalar function whose row kernel cannot produce null from valid inputs.
+///
+/// This is stronger than
+/// [`ScalarFnVTable::is_strict`](crate::scalar_fn::ScalarFnVTable::is_strict), which requires null
+/// propagation but permits valid inputs to produce null. The framework derives output validity
+/// only from input validity.
 ///
 /// Declare argument names and use [`dispatch`](Self::dispatch) to select element and output types.
 /// Every implementation receives the standard [`ScalarFnVTable`]. A public type that needs custom

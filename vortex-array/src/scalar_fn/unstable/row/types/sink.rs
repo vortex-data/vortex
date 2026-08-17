@@ -21,8 +21,7 @@ use crate::scalar_fn::unstable::row::OutputElement;
 /// batch state. The executor passes each row slot into an [`Fn`] closure.
 ///
 /// Rows arrive in increasing index order. Ordinary execution visits `0..row_count` exactly once.
-/// Skip-invalid execution can omit invalid rows when [`skipped_rows_initializer`] returns an
-/// initializer.
+/// Execution can omit invalid rows when [`skipped_rows_initializer`] returns an initializer.
 ///
 /// # Errors
 ///
@@ -73,10 +72,11 @@ pub unsafe trait OutputSink<Options>: 'static + Sized {
     /// **must not** be able to construct one without establishing the invariant.
     type WriteToken: 'static;
 
-    /// The operation that initializes every output position before skip-invalid execution.
+    /// The operation that initializes every output position before
+    /// [skip-invalid execution](crate::scalar_fn::unstable::row).
     ///
-    /// `Some` enables skip-invalid execution. The initializer **must** make every row safe to
-    /// finish. Callbacks overwrite valid rows, and batch execution masks skipped rows.
+    /// `Some` enables this strategy. The initializer **must** make every row safe to finish.
+    /// Callbacks overwrite valid rows, and batch execution masks skipped rows.
     ///
     /// `None` makes the executor fall back to filtering the inputs.
     fn skipped_rows_initializer() -> Option<for<'a> fn(&mut Self::Rows<'a>)> {
@@ -153,7 +153,7 @@ impl InitializedElement {
 /// The row closure must return the [`InitializedElement`] from [`InitializedElement::write`] on
 /// success. The token is zero-sized, so the proof adds no runtime row state.
 ///
-/// Skip-invalid execution initializes placeholders before omitting rows. Errors and unwinds are
+/// When execution omits invalid rows, it initializes placeholders first. Errors and unwinds are
 /// safe because `values` keeps length zero until `finish`. The `T: Copy` bound means that
 /// initialized spare-capacity elements require no destruction.
 pub struct UninitElementSink<T> {

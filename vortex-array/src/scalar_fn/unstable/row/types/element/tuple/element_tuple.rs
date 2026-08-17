@@ -27,20 +27,31 @@ pub struct ArgColumn<T: InputElement>(
 );
 
 enum ArgColumnKind<T: InputElement> {
+    /// One decoded value per batch row; executors validate the exact length before traversal.
     PerRow(T::Column),
+
+    /// Exactly one decoded row, established by [`ArgColumn::try_from_constant`].
     Constant(T::Column),
 }
 
 impl<T: InputElement> ArgColumn<T> {
+    fn try_from_constant(column: T::Column) -> VortexResult<Self> {
+        let decoded_len = T::view_len(&T::view(&column));
+        vortex_ensure_eq!(
+            decoded_len,
+            1,
+            "a decoded batch-constant input must contain exactly 1 row, got {decoded_len}",
+        );
+
+        Ok(Self(ArgColumnKind::Constant(column)))
+    }
+
     fn decode(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         // An empty input has no row 0 to slice, and its row loop runs zero times either way.
         if let Some(constant) = batch_constant(&array)
             && !array.is_empty()
         {
-            return Ok(Self(ArgColumnKind::Constant(T::decode(
-                constant.slice(0..1)?,
-                ctx,
-            )?)));
+            return Self::try_from_constant(T::decode(constant.slice(0..1)?, ctx)?);
         }
 
         Ok(Self(ArgColumnKind::PerRow(T::decode(array, ctx)?)))
@@ -52,10 +63,7 @@ impl<T: InputElement> ArgColumn<T> {
         if let Some(constant) = batch_constant(&array)
             && !array.is_empty()
         {
-            return Ok(Some(Self(ArgColumnKind::Constant(T::decode(
-                constant.slice(0..1)?,
-                ctx,
-            )?))));
+            return Self::try_from_constant(T::decode(constant.slice(0..1)?, ctx)?).map(Some);
         }
 
         Ok(T::decode_null_tolerant(array, ctx)?
@@ -88,14 +96,14 @@ impl<T: InputElement> ArgColumn<T> {
     }
 
     fn addresses_rows(&self, row_count: usize) -> bool {
-        // A constant is always read at index zero, so it addresses any batch length.
+        // A constant is validated when constructed and is always read at index zero.
         match &self.0 {
             ArgColumnKind::PerRow(column) => T::view_len(&T::view(column)) == row_count,
             ArgColumnKind::Constant(_) => true,
         }
     }
 
-    fn constant(&self) -> Option<T::Elem<'_>> {
+    fn constant_value(&self) -> Option<T::Elem<'_>> {
         match &self.0 {
             ArgColumnKind::PerRow(_) => None,
             ArgColumnKind::Constant(column) => Some(T::get(column, 0)),
@@ -170,8 +178,8 @@ pub trait ElementTuple: 'static + private::Sealed {
 
     /// Decode every input column once while tolerating null rows.
     ///
-    /// Return `Ok(None)` when an argument has no null-tolerant representation. The skip-invalid
-    /// strategy calls this once per batch.
+    /// Return `Ok(None)` when an argument has no null-tolerant representation. Valid-row execution
+    /// calls this once per batch.
     fn decode_null_tolerant(
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
@@ -195,9 +203,10 @@ pub trait ElementTuple: 'static + private::Sealed {
 
     /// Whether every per-row argument contains exactly `row_count` rows.
     ///
-    /// This is the mixed-shape equivalent of [`view_lens_match`](Self::view_lens_match) when
-    /// [`per_row_views`](Self::per_row_views) declines. It runs once before the hot loop for the
-    /// same LLVM optimization. A batch constant is exempt because decoding collapsed it to one row.
+    /// This is the equivalent of [`view_lens_match`](Self::view_lens_match) when the columns include
+    /// batch constants. It runs once before the hot loop for the same LLVM optimization. A batch
+    /// constant is exempt because its [`ArgColumn`] constructor already validated the one-row
+    /// representation produced by decoding.
     fn decoded_lens_match(columns: &Self::Columns, row_count: usize) -> bool;
 
     /// Read one row from borrowed views.
@@ -372,7 +381,7 @@ macro_rules! element_tuple {
             }
 
             fn constants(columns: &Self::Columns) -> Self::ConstElems<'_> {
-                ($(columns.$idx.constant(),)+)
+                ($(columns.$idx.constant_value(),)+)
             }
         }
     };
