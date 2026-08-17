@@ -290,11 +290,7 @@ async fn test_resolved_key_reaches_the_object(
         "the registry must report the literal key"
     );
 
-    let Err(err) = session
-        .open_options()
-        .open_object_store(&store, path)
-        .await
-    else {
+    let Err(err) = session.open_options().open_object_store(&store, path).await else {
         panic!("the payload is not a Vortex file, so opening it must fail")
     };
     assert!(
