@@ -35,13 +35,17 @@ impl CastReduce for Pco {
             return Ok(None);
         };
 
-        let data = PcoData::new(
-            array.chunk_metas.clone(),
-            array.pages.clone(),
-            dtype.as_ptype(),
-            array.metadata.clone(),
-            array.unsliced_n_rows(),
-        )
+        // SAFETY: The buffers and metadata come from a validated Pco array, the primitive type is
+        // unchanged, and `Pco::try_new` validates the adjusted nullability and slice below.
+        let data = unsafe {
+            PcoData::new_unchecked(
+                array.chunk_metas.clone(),
+                array.pages.clone(),
+                dtype.as_ptype(),
+                array.metadata.clone(),
+                array.unsliced_n_rows(),
+            )
+        }
         ._slice(array.slice_start(), array.slice_stop());
 
         Ok(Some(

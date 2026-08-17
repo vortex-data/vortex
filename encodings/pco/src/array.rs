@@ -237,7 +237,10 @@ impl VTable for Pco {
             validity: validity_to_child(&validity, len),
         }
         .into_slots();
-        let data = PcoData::new(chunk_metas, pages, dtype.as_ptype(), metadata, len);
+        // SAFETY: `Array::try_from_parts`, which consumes these parts, validates the data before
+        // publishing the array.
+        let data =
+            unsafe { PcoData::new_unchecked(chunk_metas, pages, dtype.as_ptype(), metadata, len) };
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
@@ -312,20 +315,29 @@ pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
 pub struct Pco;
 
 impl Pco {
-    pub(crate) fn try_new(
-        dtype: DType,
-        data: PcoData,
-        validity: Validity,
-    ) -> VortexResult<PcoArray> {
+    /// Constructs a Pco array after validating its data and validity invariants.
+    pub fn try_new(dtype: DType, data: PcoData, validity: Validity) -> VortexResult<PcoArray> {
         let len = data.len();
         data.validate(&dtype, len, &validity)?;
+        // SAFETY: `validate` checked the dtype, length, validity, metadata, and buffer invariants.
+        Ok(unsafe { Self::new_unchecked(dtype, data, validity) })
+    }
+
+    /// Constructs a Pco array without validating its data and validity invariants.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that [`PcoData::validate`] would succeed for `dtype`, `data.len()`,
+    /// and `validity`.
+    pub unsafe fn new_unchecked(dtype: DType, data: PcoData, validity: Validity) -> PcoArray {
+        let len = data.len();
         let slots = PcoSlots {
             validity: validity_to_child(&validity, data.unsliced_n_rows()),
         }
         .into_slots();
-        Ok(unsafe {
+        unsafe {
             Array::from_parts_unchecked(ArrayParts::new(Pco, dtype, len, data).with_slots(slots))
-        })
+        }
     }
 
     /// Compress a primitive array using pcodec.
@@ -474,8 +486,13 @@ impl PcoData {
         Ok(())
     }
 
-    /// Construct unsliced Pco data from chunk metadata, pages, and serialized metadata.
-    pub fn new(
+    /// Constructs unsliced Pco data without validating its metadata and buffers.
+    ///
+    /// # Safety
+    ///
+    /// The returned data must pass [`Self::validate`] before it is decompressed or published as
+    /// part of an array.
+    pub unsafe fn new_unchecked(
         chunk_metas: Vec<ByteBuffer>,
         pages: Vec<ByteBuffer>,
         ptype: PType,
@@ -573,13 +590,17 @@ impl PcoData {
             header,
             chunks: chunk_infos,
         };
-        Ok(PcoData::new(
-            chunk_meta_buffers,
-            page_buffers,
-            parray.dtype().as_ptype(),
-            metadata,
-            parray.len(),
-        ))
+        // SAFETY: The compressor produced matching chunk metadata and pages from `parray`, with
+        // the same ptype, logical length, and valid-value count.
+        Ok(unsafe {
+            PcoData::new_unchecked(
+                chunk_meta_buffers,
+                page_buffers,
+                parray.dtype().as_ptype(),
+                metadata,
+                parray.len(),
+            )
+        })
     }
 
     /// Downcast and compress an array into Pco data.
@@ -603,7 +624,7 @@ impl PcoData {
     }
 
     /// Decompress this Pco data into a primitive array.
-    pub fn decompress(
+    pub(crate) fn decompress(
         &self,
         unsliced_validity: &Validity,
         ctx: &mut ExecutionCtx,
@@ -646,6 +667,8 @@ impl PcoData {
             FileDecompressor::new(self.metadata.header.as_slice()).map_err(vortex_err_from_pco)?;
         let mut decompressed_values =
             BufferMut::<T>::with_capacity(slice_n_values.min(VALUES_PER_CHUNK));
+        // Validation bounds every page-count prefix and selected-page subtotal by
+        // `unsliced_n_rows`, so the arithmetic below cannot overflow.
         let mut page_idx = 0;
         let mut page_value_start = 0usize;
         let mut n_skipped_values = 0;
@@ -654,9 +677,7 @@ impl PcoData {
             let mut chunk_decompressor: Option<ChunkDecompressor<T>> = None;
             for page_info in &chunk_info.pages {
                 let page_n_values = page_info.n_values as usize;
-                let page_value_stop = page_value_start
-                    .checked_add(page_n_values)
-                    .ok_or_else(|| vortex_err!("Pco page value counts overflow usize"))?;
+                let page_value_stop = page_value_start + page_n_values;
 
                 if page_value_start >= slice_value_stop {
                     break;
@@ -665,9 +686,7 @@ impl PcoData {
                 if page_value_stop > slice_value_start {
                     // we need this page
                     let old_len = decompressed_values.len();
-                    let new_len = old_len.checked_add(page_n_values).ok_or_else(|| {
-                        vortex_err!("Pco decompressed value count overflows usize")
-                    })?;
+                    let new_len = old_len + page_n_values;
                     decompressed_values.reserve(page_n_values);
                     unsafe {
                         decompressed_values.set_len(new_len);
@@ -705,14 +724,10 @@ impl PcoData {
         }
 
         // Slice only the values requested.
-        let value_offset = slice_value_start
-            .checked_sub(n_skipped_values)
-            .ok_or_else(|| {
-                vortex_err!("Pco page metadata skips beyond the requested value range")
-            })?;
-        let value_stop = value_offset
-            .checked_add(slice_n_values)
-            .ok_or_else(|| vortex_err!("Pco requested value range overflows usize"))?;
+        // Skipped pages end before `slice_value_start`, and the resulting stop is at most
+        // `slice_value_stop`, which is bounded by `unsliced_n_rows`.
+        let value_offset = slice_value_start - n_skipped_values;
+        let value_stop = value_offset + slice_n_values;
         vortex_ensure!(
             value_stop <= decompressed_values.len(),
             "Pco contains {} decompressed values, but the requested range ends at {value_stop}",
