@@ -624,6 +624,8 @@ mod tests {
         let build_ctx = LayoutBuildContext {
             session: &session,
             array_read_ctx: &build_read_ctx,
+            // No page in a zoned or legacy-stats subtree, so no nested layout to resolve.
+            layout_read_ctx: &ReadContext::new([]),
         };
 
         let layout = <LegacyStats as VTable>::build(
@@ -655,6 +657,8 @@ mod tests {
         let build_ctx = LayoutBuildContext {
             session: &session,
             array_read_ctx: &build_read_ctx,
+            // No page in a zoned or legacy-stats subtree, so no nested layout to resolve.
+            layout_read_ctx: &ReadContext::new([]),
         };
 
         let result = <Zoned as VTable>::build(
@@ -684,6 +688,8 @@ mod tests {
         let build_ctx = LayoutBuildContext {
             session: &session,
             array_read_ctx: &build_read_ctx,
+            // No page in a zoned or legacy-stats subtree, so no nested layout to resolve.
+            layout_read_ctx: &ReadContext::new([]),
         };
 
         let metadata = ZonedMetadata {
@@ -720,6 +726,8 @@ mod tests {
         let build_ctx = LayoutBuildContext {
             session: &session,
             array_read_ctx: &build_read_ctx,
+            // No page in a zoned or legacy-stats subtree, so no nested layout to resolve.
+            layout_read_ctx: &ReadContext::new([]),
         };
 
         let metadata = ZonedMetadata {

@@ -465,6 +465,8 @@ mod test {
         let build_ctx = LayoutBuildContext {
             session: &session,
             array_read_ctx: &read_ctx,
+            // No page in a zoned or legacy-stats subtree, so no nested layout to resolve.
+            layout_read_ctx: &ReadContext::new([]),
         };
         let legacy_layout = <LegacyStats as VTable>::build(
             &LegacyStatsLayoutEncoding,

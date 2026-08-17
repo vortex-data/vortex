@@ -93,6 +93,7 @@ async fn paginate(
                 &page,
                 &row_offsets,
                 ReadContext::new(ctx.array_ctx().to_ids()),
+                ctx.layout_ctx(),
                 segment_sink,
                 eof.advance(),
             )

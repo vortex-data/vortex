@@ -14,9 +14,10 @@ use crate::sequence::SequenceId;
 
 /// Serialize `layout` into its own segment, returning the page that stands in for it.
 ///
-/// The subtree is written as a nested `Layout` flatbuffer against a fresh encoding dictionary,
-/// which travels in the page's metadata. The parent therefore spends one table on the whole
-/// subtree, and the page is verified against the table and depth limits on its own.
+/// The subtree is written as a nested `Layout` flatbuffer, interned into the same encoding
+/// dictionary the footer serializes through, so the page indexes into the file's one dictionary
+/// rather than carrying a copy. The parent spends one table on the whole subtree, and the page is
+/// verified against the table and depth limits on its own.
 ///
 /// `row_offsets` are the subtree's exclusive chunk boundaries, relative to its first row. They are
 /// promoted to the page so scan planning, which is synchronous, can proceed without reading it,
@@ -25,12 +26,12 @@ pub async fn write_page(
     layout: &LayoutRef,
     row_offsets: &[u64],
     array_ctx: ReadContext,
+    layout_ctx: &LayoutContext,
     segment_sink: &SegmentSinkRef,
     sequence_id: SequenceId,
 ) -> VortexResult<LayoutRef> {
-    let page_ctx = LayoutContext::default();
     let page = layout
-        .flatbuffer_writer(&page_ctx)
+        .flatbuffer_writer(layout_ctx)
         .write_flatbuffer_bytes()?;
     let segment_id = segment_sink
         .write(sequence_id, vec![page.into_inner()])
@@ -40,7 +41,7 @@ pub async fn write_page(
         layout.row_count(),
         layout.dtype().clone(),
         segment_id,
-        ReadContext::new(page_ctx.to_ids()),
+        ReadContext::new(layout_ctx.to_ids()),
         array_ctx,
         ChunkBoundaries::from_offsets(row_offsets, layout.row_count()),
     )

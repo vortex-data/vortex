@@ -94,6 +94,7 @@ pub fn layout_from_flatbuffer_with_options(
     let build_ctx = LayoutBuildContext {
         session,
         array_read_ctx: ctx,
+        layout_read_ctx: layout_ctx,
     };
     let layout = encoding.build(
         dtype,

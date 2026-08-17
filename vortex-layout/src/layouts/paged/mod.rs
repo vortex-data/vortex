@@ -30,7 +30,6 @@ use vortex_session::registry::ReadContext;
 use crate::Layout;
 use crate::LayoutChildType;
 use crate::LayoutDeserializeArgs;
-use crate::LayoutEncodingId;
 use crate::LayoutId;
 use crate::LayoutParts;
 use crate::LayoutReaderContext;
@@ -143,15 +142,9 @@ impl VTable for Paged {
     }
 
     fn metadata(layout: &Layout<Self>) -> Self::Metadata {
-        // The page's own encoding dictionary. The file footer's dictionary is not usable here: it
-        // is not built until the footer is serialized, long after the page segment was written.
+        // No encoding dictionary: the page's flatbuffer is interned into the same context the
+        // footer serializes through, so it indexes into the file's one dictionary.
         ProstMetadata(PagedLayoutMetadata {
-            layout_encodings: layout
-                .layout_ctx
-                .ids()
-                .iter()
-                .map(|id| id.as_str().to_string())
-                .collect(),
             uniform_chunk_len: match &layout.boundaries {
                 ChunkBoundaries::Uniform { len, .. } => Some(*len),
                 ChunkBoundaries::Explicit(_) => None,
@@ -212,14 +205,9 @@ impl VTable for Paged {
                 "Paged layout must set both a uniform chunk length and a chunk count, or neither"
             ),
         };
-        let layout_ids = metadata
-            .layout_encodings
-            .iter()
-            .map(|id| LayoutEncodingId::from(id.as_str()))
-            .collect::<Vec<_>>();
         Ok(PagedData {
             segment_id: args.segment_ids[0],
-            layout_ctx: ReadContext::new(layout_ids),
+            layout_ctx: args.layout_read_ctx.clone(),
             array_ctx: args.array_read_ctx.clone(),
             boundaries,
         })
@@ -302,8 +290,6 @@ impl Layout<Paged> {
 
 #[derive(prost::Message)]
 pub struct PagedLayoutMetadata {
-    #[prost(repeated, string, tag = "1")]
-    pub layout_encodings: Vec<String>,
     /// Exclusive row boundaries of the subtree's chunks, relative to this page's first row.
     ///
     /// Packed varints, so promoting them to the page boundary costs no flatbuffer tables — the
@@ -465,6 +451,25 @@ mod test {
                 sixty_four <= eight + 1,
                 "a page of 64 uniform chunks should cost no more metadata than one of 8, \
                  but it took {sixty_four} bytes against {eight}"
+            );
+        })
+    }
+
+    /// A page must not repeat the file's layout encoding dictionary. Interning into the same
+    /// context the footer uses means a page's metadata carries only its chunk boundaries, which
+    /// for a uniform subtree is two integers.
+    #[test]
+    fn pages_do_not_repeat_the_encoding_dictionary() {
+        block_on(|handle| async {
+            let session = new_session().with_handle(handle);
+            let (_, paged) = write_chunks(64, 64, &session).await;
+
+            let page = paged.slot(0).unwrap().unwrap();
+            let metadata = page.metadata().len();
+            assert!(
+                metadata <= 16,
+                "a uniform page should carry only its boundaries, but its metadata is \
+                 {metadata} bytes"
             );
         })
     }

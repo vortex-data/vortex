@@ -226,7 +226,12 @@ impl VortexWriteOptions {
 
         // The array context is built here, rather than when the options were constructed, so that
         // encodings registered on the session in between are still eligible for the file.
+        // One layout context for the whole write: strategies that serialize a layout themselves,
+        // such as a page, intern into the same dictionary the footer is serialized through, so a
+        // nested layout flatbuffer indexes into the file's one dictionary.
+        let layout_ctx = new_layout_context(&self.session);
         let ctx = LayoutWriterContext::new(new_array_context(&self.session))
+            .with_layout_context(layout_ctx.clone())
             .with_buffered_bytes_tracker(self.buffered_bytes.clone())
             .with_allowed_aggregates(edition_filter(&self.session, ComponentKind::Aggregate));
         let dtype = stream.dtype().clone();
@@ -309,7 +314,7 @@ impl VortexWriteOptions {
         let (footer_buffers, metadata, approx_byte_size) = footer
             .clone()
             .into_serializer()
-            .with_layout_context(new_layout_context(&self.session))
+            .with_layout_context(layout_ctx)
             .with_metadata_segments(self.metadata)
             .with_offset(position)
             .with_exclude_dtype(self.exclude_dtype)
