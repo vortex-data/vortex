@@ -36,15 +36,20 @@ use crate::scalar_fn::unstable::row::ViewLen;
 ///
 /// - Every index below [`ViewLen::len`] for [`Rows`] **must** identify one distinct row owned by
 ///   this sink.
+/// - A borrowed [`Rows`] view **must** retain its length and index-to-row mapping until it is
+///   dropped. Calls to [`row_unchecked`](Self::row_unchecked) and safe uses of a returned
+///   [`Row`](Self::Row) **must** preserve both properties.
+/// - [`skipped_rows_initializer`] is the only exception to this stability requirement. The executor
+///   checks the length again after the initializer. The initializer **must** initialize every row.
 /// - A row must either be initialized before the callback or require a
 ///   [`WriteToken`] that safe code cannot produce without initializing that exact row. Evidence for
 ///   an uninitialized row **must not** be safely forgeable, reusable, or substitutable.
-/// - An initializer returned by [`skipped_rows_initializer`] **must** initialize every row.
 /// - `Self` and every borrowed [`Rows`] view **must** remain safe to drop if decoding,
 ///   preparation, skipped-row initialization, or a row callback returns an error or unwinds. The
 ///   executor can abandon a sink after any prefix of rows.
 /// - [`finish`] **must** be sound once every visited callback returned its required token and the
 ///   skipped-row initializer, when present, ran successfully.
+/// - Violating these requirements can cause undefined behavior.
 ///
 /// [`Rows`]: Self::Rows
 /// [`WriteToken`]: Self::WriteToken

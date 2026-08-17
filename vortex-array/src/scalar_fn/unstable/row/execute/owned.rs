@@ -16,6 +16,7 @@ use vortex_error::vortex_ensure;
 use super::RowExecution;
 use crate::ExecutionCtx;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::unstable::row::FailureEvidence;
 use crate::scalar_fn::unstable::row::IndexedElementTuple;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::scalar_fn::unstable::row::visitor::assert_owned_output_needs_no_drop;
@@ -59,7 +60,7 @@ pub(crate) fn execute_owned<Args, Out, Prepared, Fail>(
 where
     Args: IndexedElementTuple,
     Out: OutputElement,
-    Fail: Copy + Default + BitOrAssign,
+    Fail: FailureEvidence,
 {
     // The output vector stays at length zero until every slot is initialized so that an unwind
     // abandons partially initialized spare capacity. This no-drop assertion proves that no

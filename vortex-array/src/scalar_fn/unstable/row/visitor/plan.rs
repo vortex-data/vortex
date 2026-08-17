@@ -7,7 +7,6 @@
 //! null-handling policy that execution must reproduce.
 
 use std::marker::PhantomData;
-use std::ops::BitOrAssign;
 
 use vortex_error::VortexResult;
 
@@ -21,6 +20,7 @@ use super::row_visitor::private;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::scalar_fn::unstable::row::ElementTuple;
+use crate::scalar_fn::unstable::row::FailureEvidence;
 use crate::scalar_fn::unstable::row::IndexedElementTuple;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::scalar_fn::unstable::row::OutputSink;
@@ -98,7 +98,7 @@ impl<F: RowFn> RowVisitor<F::Options> for BatchPlanner<'_, F> {
     where
         Args: IndexedElementTuple,
         Out: OutputElement,
-        Fail: Copy + Default + BitOrAssign,
+        Fail: FailureEvidence,
     {
         const { assert_deferred_visit_contract::<F, Args, Out, Fail>() };
         Ok(BatchPlan {

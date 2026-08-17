@@ -202,7 +202,7 @@ pub trait ElementTuple: 'static + private::Sealed {
 
     /// Borrow the decoded columns only when no argument is batch-constant.
     ///
-    /// Returns `None` if any argument is batch-constant. Otherwise, omitting [`ArgColumn`] from the
+    /// Returns `None` if any argument is batch-constant. Otherwise, omitting `ArgColumn` from the
     /// returned tuple removes batch-constant checks from the row loop.
     fn views_if_no_consts(columns: &Self::Columns) -> Option<Self::Views<'_>>;
 
@@ -217,7 +217,7 @@ pub trait ElementTuple: 'static + private::Sealed {
     ///
     /// This is the equivalent of [`view_lens_match`](Self::view_lens_match) when the columns include
     /// batch constants. It runs once before the hot loop for the same LLVM optimization. A batch
-    /// constant is exempt because its [`ArgColumn`] constructor already validated the one-row
+    /// constant is exempt because its `ArgColumn` constructor already validated the one-row
     /// representation produced by decoding.
     fn decoded_lens_match(columns: &Self::Columns, row_count: usize) -> bool;
 

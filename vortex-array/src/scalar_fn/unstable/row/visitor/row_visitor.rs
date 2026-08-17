@@ -8,11 +8,10 @@
 //!
 //! [`RowFn`]: crate::scalar_fn::unstable::row::RowFn
 
-use std::ops::BitOrAssign;
-
 use vortex_error::VortexResult;
 
 use crate::scalar_fn::unstable::row::ElementTuple;
+use crate::scalar_fn::unstable::row::FailureEvidence;
 use crate::scalar_fn::unstable::row::IndexedElementTuple;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::scalar_fn::unstable::row::OutputSink;
@@ -197,9 +196,8 @@ pub trait RowVisitor<Options>: private::Sealed + Sized {
     /// `apply` must not panic or have side effects. Dense execution can pass unspecified values
     /// from null rows.
     ///
-    /// The executor OR-reduces `Fail` across rows and passes the result to `finish_failure`.
-    /// [`Default::default`] **must** mean success, including for an empty batch. The compiler
-    /// cannot check this requirement.
+    /// The executor OR-reduces [`FailureEvidence`] across rows and passes the result to
+    /// `finish_failure`.
     ///
     /// [`RowFn::FALLIBLE`](crate::scalar_fn::unstable::row::RowFn::FALLIBLE) **must** be `true`.
     /// `Out` must not require drop glue. `Fail` must be no wider than `Out`, or failure tracking
@@ -238,7 +236,7 @@ pub trait RowVisitor<Options>: private::Sealed + Sized {
     where
         Args: IndexedElementTuple,
         Out: OutputElement,
-        Fail: Copy + Default + BitOrAssign,
+        Fail: FailureEvidence,
     {
         self.visit_prepared_deferred::<Args, Out, (), Fail>(
             |_| (),
@@ -291,7 +289,7 @@ pub trait RowVisitor<Options>: private::Sealed + Sized {
     where
         Args: IndexedElementTuple,
         Out: OutputElement,
-        Fail: Copy + Default + BitOrAssign;
+        Fail: FailureEvidence;
 }
 
 pub(super) mod private {

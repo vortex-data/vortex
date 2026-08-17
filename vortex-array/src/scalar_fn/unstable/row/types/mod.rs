@@ -5,8 +5,8 @@
 //!
 //! [`ViewLen`] reports the rows addressable through a row-loop view. [`element`] defines the Rust
 //! values decoded from input columns and built into simple output columns. [`sink`] handles outputs
-//! that need row handles or batch-wide state. [`result`] defines the immediate and deferred
-//! outcomes returned by sink-writing row closures.
+//! that need row handles or batch-wide state. [`result`] defines immediate and deferred row
+//! outcomes.
 
 mod element;
 pub use element::ElementTuple;
@@ -15,6 +15,7 @@ pub use element::InputElement;
 pub use element::OutputElement;
 
 mod result;
+pub use result::FailureEvidence;
 pub use result::SinkResult;
 
 mod sink;

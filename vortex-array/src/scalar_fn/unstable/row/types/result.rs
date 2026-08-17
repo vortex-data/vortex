@@ -1,14 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Return types for sink-writing row closures.
+//! Return types for row closures.
 //!
-//! [`SinkResult`] lets the executor handle initialized sinks and sinks that require an
-//! [`InitializedElement`] token, with either infallible or immediate-error callbacks.
+//! [`FailureEvidence`] represents deferred failures from owned row closures. [`SinkResult`] lets
+//! the executor handle initialized sinks and sinks that require an [`InitializedElement`] token,
+//! with either infallible or immediate-error callbacks.
+
+use std::ops::BitOrAssign;
 
 use vortex_error::VortexResult;
 
 use super::InitializedElement;
+
+/// Compact failure evidence that can be OR-reduced across rows.
+///
+/// [`Default::default`] **must** mean success, including for an empty batch. The compiler cannot
+/// check this requirement.
+pub trait FailureEvidence: Copy + Default + BitOrAssign {}
+
+impl<T: Copy + Default + BitOrAssign> FailureEvidence for T {}
 
 /// The result of writing one row: success or an immediate error.
 ///

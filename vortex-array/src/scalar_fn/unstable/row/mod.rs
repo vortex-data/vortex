@@ -27,6 +27,7 @@ pub use row_fn::RowFn;
 
 mod types;
 pub use types::ElementTuple;
+pub use types::FailureEvidence;
 pub use types::IndexedElementTuple;
 pub use types::InitializedElement;
 pub use types::InputElement;

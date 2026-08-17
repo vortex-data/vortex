@@ -7,8 +7,6 @@
 //! match the plan before entering a row loop. [`ExecuteValidRows`] can decline, so the batch layer
 //! filters the inputs and retries with [`ExecuteRows`].
 
-use std::ops::BitOrAssign;
-
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_mask::Mask;
@@ -25,6 +23,7 @@ use crate::ExecutionCtx;
 use crate::dtype::DType;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::unstable::row::ElementTuple;
+use crate::scalar_fn::unstable::row::FailureEvidence;
 use crate::scalar_fn::unstable::row::IndexedElementTuple;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::scalar_fn::unstable::row::OutputSink;
@@ -138,7 +137,7 @@ impl<F: RowFn> RowVisitor<F::Options> for ExecuteRows<'_, '_, F> {
     where
         Args: IndexedElementTuple,
         Out: OutputElement,
-        Fail: Copy + Default + BitOrAssign,
+        Fail: FailureEvidence,
     {
         const { assert_deferred_visit_contract::<F, Args, Out, Fail>() };
         ensure_plan(
@@ -270,7 +269,7 @@ impl<F: RowFn> RowVisitor<F::Options> for ExecuteValidRows<'_, '_, F> {
     where
         Args: IndexedElementTuple,
         Out: OutputElement,
-        Fail: Copy + Default + BitOrAssign,
+        Fail: FailureEvidence,
     {
         const { assert_deferred_visit_contract::<F, Args, Out, Fail>() };
         ensure_plan(

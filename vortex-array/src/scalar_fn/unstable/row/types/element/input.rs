@@ -17,10 +17,12 @@ use crate::scalar_fn::unstable::row::ViewLen;
 ///
 /// # Safety
 ///
-/// For every view returned by [`view`](Self::view), every index below [`ViewLen::len`] **must**
-/// satisfy the safety contract of
-/// [`get_from_view_unchecked`](Self::get_from_view_unchecked). Shared execution relies on this
-/// proof to perform unchecked reads after one pre-loop length check.
+/// - For each view returned by [`view`](Self::view), every index below [`ViewLen::len`] **must**
+///   satisfy the contract of [`get_from_view_unchecked`](Self::get_from_view_unchecked).
+/// - The view length and its addressable indices **must** remain stable while the view exists.
+///   Interior mutability exposed through an element **must not** change either property.
+/// - Shared execution checks the length once before unchecked reads. Violating these requirements
+///   can cause undefined behavior.
 pub unsafe trait InputElement: 'static {
     /// The decoded column representation supporting `O(1)` row access.
     type Column;
