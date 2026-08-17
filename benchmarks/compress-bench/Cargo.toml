@@ -21,7 +21,7 @@ arrow-schema = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
-cudarc = { workspace = true, optional = true }
+cudarc = { workspace = true, features = ["nvtx"], optional = true }
 futures = { workspace = true }
 indicatif = { workspace = true }
 itertools = { workspace = true }

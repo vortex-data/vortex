@@ -12,6 +12,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use cudarc::driver::CudaEvent;
 use cudarc::driver::sys::CUevent_flags::CU_EVENT_DEFAULT;
+use cudarc::nvtx::safe::scoped_range;
 use futures::StreamExt;
 use serde_json::json;
 use tempfile::NamedTempFile;
@@ -86,8 +87,8 @@ impl Compressor for GpuVortexCompressor {
         anyhow::ensure!(
             profile
                 .as_deref()
-                .is_none_or(|mode| matches!(mode, "wall" | "gpu")),
-            "VORTEX_GPU_PROFILE must be wall or gpu"
+                .is_none_or(|mode| matches!(mode, "wall" | "gpu" | "nsys" | "nsys-ranges")),
+            "VORTEX_GPU_PROFILE must be wall, gpu, nsys, or nsys-ranges"
         );
         if profile.is_none() {
             let start = Instant::now();
@@ -112,6 +113,8 @@ impl Compressor for GpuVortexCompressor {
         }
 
         let profile_gpu = profile.as_deref() == Some("gpu");
+        let profile_nsys = matches!(profile.as_deref(), Some("nsys" | "nsys-ranges"));
+        let profile_trees = profile.as_deref() != Some("nsys-ranges");
         let start = Instant::now();
         let open_start = Instant::now();
         let open_options = SESSION.open_options().with_cuda();
@@ -163,7 +166,7 @@ impl Compressor for GpuVortexCompressor {
             batch_count += 1;
             decoded_rows += record.len();
             for field in record.iter_unmasked_fields() {
-                let metadata = profile.as_ref().map(|_| {
+                let metadata = profile_trees.then(|| {
                     (
                         field.encoding_id().to_string(),
                         field
@@ -175,9 +178,13 @@ impl Compressor for GpuVortexCompressor {
                 let before = profile_gpu
                     .then(|| cuda_ctx.stream().record_event(Some(CU_EVENT_DEFAULT)))
                     .transpose()?;
+                let range = profile_nsys.then(|| {
+                    scoped_range(format!("vortex_field encoding={}", field.encoding_id()))
+                });
                 let field_start = Instant::now();
                 black_box(field.clone().execute_cuda(&mut cuda_ctx).await?);
                 let wall = field_start.elapsed();
+                drop(range);
                 field_time += wall;
                 let events = if let Some(before) = before {
                     Some((

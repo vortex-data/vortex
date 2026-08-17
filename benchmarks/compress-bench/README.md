@@ -30,7 +30,9 @@ Set `VORTEX_GPU_PROFILE=wall` to emit one JSON record per decompression with fil
 decoded rows, batch and field-dispatch counts, host time for open, scan planning, reads, struct and
 field dispatch, and final synchronization, plus wall time grouped by full encoding tree. Set it to
 `gpu` to additionally bracket field dispatches with CUDA events and report each encoding group's
-device-stream time. Profiling perturbs the measurement; rerun without it for comparison numbers.
+device-stream time. `nsys` adds an NVTX range around each field while retaining encoding-tree
+metrics; `nsys-ranges` omits tree construction for a lower-overhead Nsight Systems capture.
+Profiling perturbs the measurement; rerun without it for comparison numbers.
 
 ```bash
 VORTEX_GPU_PROFILE=gpu cargo run -p compress-bench --profile release_debug \
