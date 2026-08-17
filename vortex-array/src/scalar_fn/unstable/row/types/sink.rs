@@ -14,11 +14,12 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::dtype::DType;
 use crate::scalar_fn::unstable::row::OutputElement;
+use crate::scalar_fn::unstable::row::ViewLen;
 
 /// A column allocated once per batch that a row closure writes into, one row at a time.
 ///
-/// A sink can use function options and input dtypes to build a runtime-shaped output or own shared
-/// batch state. The executor passes each row slot into an [`Fn`] closure.
+/// A sink can use function options to build a runtime-shaped output or own shared batch state. The
+/// executor passes each row slot into an [`Fn`] closure.
 ///
 /// Rows arrive in increasing index order. Ordinary execution visits `0..row_count` exactly once.
 /// Execution can omit invalid rows when [`skipped_rows_initializer`] returns an initializer.
@@ -33,7 +34,8 @@ use crate::scalar_fn::unstable::row::OutputElement;
 ///
 /// An implementation must uphold all of these requirements:
 ///
-/// - Every index in `0..row_count(rows)` **must** identify one distinct row owned by this sink.
+/// - Every index below [`ViewLen::len`] for [`Rows`] **must** identify one distinct row owned by
+///   this sink.
 /// - A row must either be initialized before the callback or require a
 ///   [`WriteToken`] that safe code cannot produce without initializing that exact row. Evidence for
 ///   an uninitialized row **must not** be safely forgeable, reusable, or substitutable.
@@ -47,7 +49,6 @@ use crate::scalar_fn::unstable::row::OutputElement;
 /// [`Rows`]: Self::Rows
 /// [`WriteToken`]: Self::WriteToken
 /// [`finish`]: Self::finish
-/// [`row_count`]: Self::row_count
 /// [`RowFn::FALLIBLE`]: crate::scalar_fn::unstable::row::RowFn::FALLIBLE
 /// [`SinkResult`]: crate::scalar_fn::unstable::row::SinkResult
 /// [`skipped_rows_initializer`]: Self::skipped_rows_initializer
@@ -56,7 +57,7 @@ pub unsafe trait OutputSink<Options>: 'static + Sized {
     ///
     /// Borrowed once before execution so the sink's buffer descriptor and shape become loop
     /// invariants rather than being re-read through `&mut Self` for every row.
-    type Rows<'a>
+    type Rows<'a>: ViewLen
     where
         Self: 'a;
 
@@ -83,11 +84,11 @@ pub unsafe trait OutputSink<Options>: 'static + Sized {
         None
     }
 
-    /// The dtype of the column this sink builds, given the function options and input dtypes.
+    /// The dtype of the column this sink builds, given the function options.
     ///
     /// **Must** be non-nullable: batch execution derives nullability from the inputs, widens the
     /// result, and masks the null rows.
-    fn output_dtype(options: &Options, args: &[DType]) -> VortexResult<DType>;
+    fn return_dtype(options: &Options) -> VortexResult<DType>;
 
     /// Allocate a sink for `rows` rows.
     fn with_capacity(rows: usize) -> VortexResult<Self>;
@@ -95,18 +96,15 @@ pub unsafe trait OutputSink<Options>: 'static + Sized {
     /// Borrow all output rows for the hot loop.
     fn rows(&mut self) -> Self::Rows<'_>;
 
-    /// The number of rows addressable through [`row_unchecked`](Self::row_unchecked).
-    fn row_count(rows: &Self::Rows<'_>) -> usize;
-
     /// Hand out the place to write row `index`. Must be `O(1)`: it is called in the row loop.
     ///
     /// # Safety
     ///
-    /// `index` must be less than [`row_count`](Self::row_count) for `rows`.
+    /// `index` must be less than [`ViewLen::len`] for `rows`.
     unsafe fn row_unchecked<'a>(rows: &'a mut Self::Rows<'_>, index: usize) -> Self::Row<'a>;
 
     /// Finish into the built column, whose dtype **must** be this sink's
-    /// [`output_dtype`](Self::output_dtype). Called once per batch.
+    /// [`return_dtype`](Self::return_dtype). Called once per batch.
     ///
     /// # Safety
     ///
@@ -183,7 +181,7 @@ unsafe impl<T: OutputElement + Copy + Default, Options> OutputSink<Options>
         })
     }
 
-    fn output_dtype(_options: &Options, _args: &[DType]) -> VortexResult<DType> {
+    fn return_dtype(_options: &Options) -> VortexResult<DType> {
         Ok(T::element_dtype())
     }
 
@@ -196,10 +194,6 @@ unsafe impl<T: OutputElement + Copy + Default, Options> OutputSink<Options>
 
     fn rows(&mut self) -> Self::Rows<'_> {
         &mut self.values.spare_capacity_mut()[..self.row_count]
-    }
-
-    fn row_count(rows: &Self::Rows<'_>) -> usize {
-        rows.len()
     }
 
     unsafe fn row_unchecked<'a>(rows: &'a mut Self::Rows<'_>, index: usize) -> Self::Row<'a> {

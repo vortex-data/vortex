@@ -17,6 +17,8 @@
 //! reduce compact failure evidence in that loop and retry only valid rows when null payloads may
 //! have caused the failure.
 
+// TODO(connor)[RowFn]: Remove this expectation when #9450 connects the batch executor.
+#[expect(dead_code)]
 mod execute;
 pub use execute::RowExecution;
 
@@ -32,6 +34,7 @@ pub use types::OutputElement;
 pub use types::OutputSink;
 pub use types::SinkResult;
 pub use types::UninitElementSink;
+pub use types::ViewLen;
 
 mod visitor;
 pub use visitor::RowVisitor;

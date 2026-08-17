@@ -67,13 +67,13 @@ where
     const { assert_owned_output_needs_no_drop::<Out>() };
 
     let columns = Args::decode(args, ctx)?;
-    let prepared = prepare(Args::constants(&columns));
+    let prepared = prepare(Args::const_values(&columns));
 
     let row_count = args.row_count();
     let mut values = Vec::<Out>::with_capacity(row_count);
     let output = &mut values.spare_capacity_mut()[..row_count];
 
-    let failure = if let Some(views) = Args::views_no_constants(&columns) {
+    let failure = if let Some(views) = Args::views_if_no_consts(&columns) {
         // Keep this validation beside the views so LLVM sees their common length here.
         vortex_ensure!(
             Args::view_lens_match(&views, row_count),

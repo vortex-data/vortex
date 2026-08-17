@@ -36,7 +36,7 @@ const fn assert_input_visit_contract<F: RowFn, Args: ElementTuple>() {
     // Dictionary push-down can evaluate values that no input row references. Every dispatch must
     // therefore match the function-wide fallibility declaration.
     assert!(
-        !Args::DECODE_FALLIBLE || F::FALLIBLE,
+        Args::DECODE_INFALLIBLE || F::FALLIBLE,
         "RowFn::FALLIBLE must be true when input decoding can fail",
     );
 }
@@ -106,7 +106,7 @@ where
 {
     Args::validate(dtypes)?;
 
-    let dtype = Sink::output_dtype(options, dtypes)?;
+    let dtype = Sink::return_dtype(options)?;
     vortex_ensure!(
         !dtype.is_nullable(),
         "row output sinks must declare a non-nullable dtype, got {dtype}",

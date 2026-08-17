@@ -14,7 +14,7 @@ pub trait OutputElement: 'static + Sized {
     /// derived from the inputs by batch execution.
     ///
     /// Because this method takes no arguments, the dtype must be a property of the Rust type. Use
-    /// an [`OutputSink`] when the output dtype depends on function options or input dtypes.
+    /// an [`OutputSink`] when the output dtype depends on function options.
     ///
     /// [`OutputSink`]: crate::scalar_fn::unstable::row::OutputSink
     fn element_dtype() -> DType;

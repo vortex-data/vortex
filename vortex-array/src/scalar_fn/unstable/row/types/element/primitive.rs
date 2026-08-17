@@ -17,7 +17,7 @@ use crate::scalar_fn::unstable::row::InputElement;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::validity::Validity;
 
-// SAFETY: the per-row view is a native slice, and its reported length is the slice length.
+// SAFETY: the view is a native slice, and its reported length is the slice length.
 unsafe impl<T: NativePType> InputElement for T {
     type Column = Buffer<T>;
     type View<'a> = &'a [T];
@@ -25,7 +25,7 @@ unsafe impl<T: NativePType> InputElement for T {
 
     // Every lane of the buffer holds a `T`, valid or not.
     const DENSE_SAFE: bool = true;
-    const DECODE_FALLIBLE: bool = false;
+    const DECODE_INFALLIBLE: bool = true;
 
     fn validate(dtype: &DType) -> VortexResult<()> {
         let expected = T::PTYPE;
@@ -54,10 +54,6 @@ unsafe impl<T: NativePType> InputElement for T {
 
     fn view(column: &Self::Column) -> Self::View<'_> {
         column.as_slice()
-    }
-
-    fn view_len(view: &Self::View<'_>) -> usize {
-        view.len()
     }
 
     fn get_from_view<'a>(view: &Self::View<'a>, index: usize) -> T

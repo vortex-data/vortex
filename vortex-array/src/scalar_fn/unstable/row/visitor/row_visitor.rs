@@ -74,7 +74,8 @@ pub trait RowVisitor<Options>: private::Sealed + Sized {
     /// # Examples
     ///
     /// Test whether each string occurs in its allowed-values list. The prepare closure builds one
-    /// lookup table for a batch-constant list. The row closure scans a per-row list directly.
+    /// lookup table for a batch-constant list. The row closure scans the current list from the input
+    /// column directly.
     ///
     /// ```ignore
     /// visitor.visit_prepared::<
@@ -161,16 +162,16 @@ pub trait RowVisitor<Options>: private::Sealed + Sized {
     /// visitor.visit_prepared_into::<
     ///     (TensorRow<T>, TensorRow<T>),
     ///     UninitElementSink<T>,
-    ///     ConstantVectorMagnitudes<T>,
+    ///     ConstVectorMagnitudes<T>,
     ///     InitializedElement,
     /// >(
-    ///     |(lhs, rhs)| ConstantVectorMagnitudes {
+    ///     |(lhs, rhs)| ConstVectorMagnitudes {
     ///         lhs: lhs.map(vector_magnitude),
     ///         rhs: rhs.map(vector_magnitude),
     ///     },
-    ///     |constant_magnitudes, (lhs, rhs), output| {
+    ///     |const_magnitudes, (lhs, rhs), output| {
     ///         let similarity =
-    ///             cosine_similarity_with_constant_magnitudes(constant_magnitudes, lhs, rhs);
+    ///             cosine_similarity_with_const_magnitudes(const_magnitudes, lhs, rhs);
     ///
     ///         // SAFETY: `output` is the `UninitElementSink` row supplied for this callback.
     ///         unsafe { InitializedElement::write(output, similarity) }

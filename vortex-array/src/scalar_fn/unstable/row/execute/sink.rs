@@ -10,7 +10,6 @@
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
@@ -21,29 +20,7 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::unstable::row::ElementTuple;
 use crate::scalar_fn::unstable::row::OutputSink;
 use crate::scalar_fn::unstable::row::SinkResult;
-
-/// Verify that every decoded input addresses exactly `row_count` rows.
-///
-/// Unlike the owned executor, the paths with and without batch constants can share this check
-/// without losing sink-loop vectorization under multiple CGUs without LTO. The exact pass
-/// interaction is unknown.
-fn verify_lengths<Args: ElementTuple>(
-    columns: &Args::Columns,
-    views: Option<&Args::Views<'_>>,
-    row_count: usize,
-) -> VortexResult<()> {
-    let lengths_match = match views {
-        Some(views) => Args::view_lens_match(views, row_count),
-        None => Args::decoded_lens_match(columns, row_count),
-    };
-
-    vortex_ensure!(
-        lengths_match,
-        "a decoded row input does not address exactly {row_count} rows",
-    );
-
-    Ok(())
-}
+use crate::scalar_fn::unstable::row::ViewLen;
 
 /// Decode inputs once, then write one sink row for each input row.
 ///
@@ -62,13 +39,11 @@ where
     ApplyResult: SinkResult<WriteToken = <Sink as OutputSink<Options>>::WriteToken>,
 {
     let columns = Args::decode(args, ctx)?;
-    let views = Args::views_no_constants(&columns);
+    let views = Args::views_if_no_consts(&columns);
 
     let row_count = args.row_count();
-    verify_lengths::<Args>(&columns, views.as_ref(), row_count)?;
-
-    let constants = Args::constants(&columns);
-    let prepared = prepare(constants);
+    let const_values = Args::const_values(&columns);
+    let prepared = prepare(const_values);
 
     let mut sink = <Sink as OutputSink<Options>>::with_capacity(row_count)?;
 
@@ -77,7 +52,7 @@ where
         let mut rows = <Sink as OutputSink<Options>>::rows(&mut sink);
 
         // This equality proves to LLVM that `0..row_count` is in bounds for `rows`.
-        let sink_row_count = <Sink as OutputSink<Options>>::row_count(&rows);
+        let sink_row_count = rows.len();
         vortex_ensure_eq!(
             sink_row_count,
             row_count,
@@ -85,8 +60,12 @@ where
         );
 
         if let Some(views) = views {
+            if !Args::view_lens_match(&views, row_count) {
+                decoded_length_error(row_count)?;
+            }
+
             for index in 0..row_count {
-                // SAFETY: `verify_lengths` proved every view has `row_count` rows before the loop.
+                // SAFETY: `view_lens_match` proved every view has `row_count` rows before the loop.
                 let elements = unsafe { Args::get_from_views_unchecked(&views, index) };
                 // SAFETY: the sink row-count check above proved every loop index is in bounds.
                 let output =
@@ -95,6 +74,10 @@ where
                 apply(&prepared, elements, output).into_result()?;
             }
         } else {
+            if !Args::decoded_lens_match(&columns, row_count) {
+                decoded_length_error(row_count)?;
+            }
+
             for index in 0..row_count {
                 // SAFETY: the sink row-count check above proved every loop index is in bounds.
                 let output =
@@ -139,11 +122,9 @@ where
         return Ok(None);
     };
 
-    let views = Args::views_no_constants(&columns);
-    verify_lengths::<Args>(&columns, views.as_ref(), row_count)?;
-
-    let constants = Args::constants(&columns);
-    let prepared = prepare(constants);
+    let views = Args::views_if_no_consts(&columns);
+    let const_values = Args::const_values(&columns);
+    let prepared = prepare(const_values);
 
     // Keep `rows` scoped so its borrow ends before `finish`. With multiple CGUs and no LTO, using
     // `drop(rows)` duplicates `Args::get` in every sparse callback.
@@ -154,7 +135,7 @@ where
 
         // The initializer can change addressability. Recheck it so LLVM can prove every mask
         // index is in bounds.
-        let initialized_row_count = <Sink as OutputSink<Options>>::row_count(&rows);
+        let initialized_row_count = rows.len();
         vortex_ensure_eq!(
             initialized_row_count,
             row_count,
@@ -162,19 +143,27 @@ where
         );
 
         if let Some(views) = views {
+            if !Args::view_lens_match(&views, row_count) {
+                decoded_length_error(row_count)?;
+            }
+
             valid_rows.try_for_each_set_index(|index| {
                 // SAFETY: the post-initialization row-count check proved that the sink addresses
                 // every mask index, which is below the mask's validated `row_count`.
                 let output =
                     unsafe { <Sink as OutputSink<Options>>::row_unchecked(&mut rows, index) };
 
-                // SAFETY: `verify_lengths` proved every view has `row_count` rows, and mask indices
-                // are below `row_count`.
+                // SAFETY: `view_lens_match` proved every view has `row_count` rows, and mask
+                // indices are below `row_count`.
                 let elements = unsafe { Args::get_from_views_unchecked(&views, index) };
 
                 apply(&prepared, elements, output).into_result()
             })?;
         } else {
+            if !Args::decoded_lens_match(&columns, row_count) {
+                decoded_length_error(row_count)?;
+            }
+
             valid_rows.try_for_each_set_index(|index| {
                 // SAFETY: the post-initialization row-count check proved that the sink addresses
                 // every mask index, which is below the mask's validated `row_count`.
@@ -191,6 +180,18 @@ where
     unsafe { <Sink as OutputSink<Options>>::finish(sink) }
         .map(RowExecution::Output)
         .map(Some)
+}
+
+/// Construct a decoded-length error outside the traversal branches.
+///
+/// Owned execution (`owned.rs`) derives its index from an output-slice iterator. Sink execution
+/// only has indexed row access, so `row_count` remains the loop bound. Formatting the error inside
+/// either branch takes the address of that bound and prevents LLVM from vectorizing some sink
+/// loops.
+#[cold]
+#[inline(never)]
+fn decoded_length_error(row_count: usize) -> VortexResult<()> {
+    vortex_bail!("a decoded row input does not address exactly {row_count} rows")
 }
 
 /// State resolved before preparing the skip-invalid row loop.
@@ -292,7 +293,7 @@ mod tests {
         type Row<'a> = ();
         type WriteToken = ();
 
-        fn output_dtype(_options: &Options, _args: &[DType]) -> VortexResult<DType> {
+        fn return_dtype(_options: &Options) -> VortexResult<DType> {
             Ok(DType::from(i64::PTYPE))
         }
 
@@ -303,10 +304,6 @@ mod tests {
         }
 
         fn rows(&mut self) -> Self::Rows<'_> {}
-
-        fn row_count(_rows: &Self::Rows<'_>) -> usize {
-            0
-        }
 
         unsafe fn row_unchecked<'a>(_rows: &'a mut Self::Rows<'_>, _index: usize) -> Self::Row<'a> {
         }
@@ -330,7 +327,7 @@ mod tests {
             })
         }
 
-        fn output_dtype(_options: &Options, _args: &[DType]) -> VortexResult<DType> {
+        fn return_dtype(_options: &Options) -> VortexResult<DType> {
             Ok(DType::from(i64::PTYPE))
         }
 
@@ -340,10 +337,6 @@ mod tests {
 
         fn rows(&mut self) -> Self::Rows<'_> {
             &mut self.0
-        }
-
-        fn row_count(rows: &Self::Rows<'_>) -> usize {
-            rows.len()
         }
 
         unsafe fn row_unchecked<'a>(rows: &'a mut Self::Rows<'_>, index: usize) -> Self::Row<'a> {

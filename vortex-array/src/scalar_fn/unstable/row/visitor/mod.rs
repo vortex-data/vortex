@@ -8,12 +8,11 @@
 mod check;
 pub(super) use check::assert_owned_output_needs_no_drop;
 
+// TODO(connor)[RowFn]: Remove this expectation when #9450 constructs the execution visitors.
+#[expect(dead_code)]
 mod execute;
-pub(super) use execute::ExecuteRows;
-pub(super) use execute::ExecuteValidRows;
 
 mod plan;
-pub(super) use plan::BatchPlan;
 pub(super) use plan::BatchPlanner;
 pub(super) use plan::RowPolicy;
 

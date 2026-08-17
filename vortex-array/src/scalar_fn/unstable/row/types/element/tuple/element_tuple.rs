@@ -19,62 +19,63 @@ use crate::arrays::masked::MaskedArraySlotsExt;
 use crate::dtype::DType;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::unstable::row::InputElement;
+use crate::scalar_fn::unstable::row::ViewLen;
 
 /// One decoded input, collapsed to a single row when it is constant for the batch.
 pub struct ArgColumn<T: InputElement>(
-    /// The decoded column, classified by whether it stores one value per row.
+    /// The decoded argument, classified by how the row loop addresses it.
     ArgColumnKind<T>,
 );
 
 enum ArgColumnKind<T: InputElement> {
-    /// One decoded value per batch row; executors validate the exact length before traversal.
-    PerRow(T::Column),
+    /// A decoded column covering the full batch; executors validate its length before traversal.
+    Column(T::Column),
 
-    /// Exactly one decoded row, established by [`ArgColumn::try_from_constant`].
-    Constant(T::Column),
+    /// Exactly one decoded row, established by [`ArgColumn::try_from_const`].
+    Const(T::Column),
 }
 
 impl<T: InputElement> ArgColumn<T> {
-    fn try_from_constant(column: T::Column) -> VortexResult<Self> {
-        let decoded_len = T::view_len(&T::view(&column));
+    fn try_from_const(column: T::Column) -> VortexResult<Self> {
+        let decoded_len = T::view(&column).len();
         vortex_ensure_eq!(
             decoded_len,
             1,
             "a decoded batch-constant input must contain exactly 1 row, got {decoded_len}",
         );
 
-        Ok(Self(ArgColumnKind::Constant(column)))
+        Ok(Self(ArgColumnKind::Const(column)))
     }
 
     fn decode(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         // An empty input has no row 0 to slice, and its row loop runs zero times either way.
-        if let Some(constant) = batch_constant(&array)
+        if let Some(const_array) = batch_const(&array)
             && !array.is_empty()
         {
-            return Self::try_from_constant(T::decode(constant.slice(0..1)?, ctx)?);
+            return Self::try_from_const(T::decode(const_array.slice(0..1)?, ctx)?);
         }
 
-        Ok(Self(ArgColumnKind::PerRow(T::decode(array, ctx)?)))
+        Ok(Self(ArgColumnKind::Column(T::decode(array, ctx)?)))
     }
 
     fn decode_null_tolerant(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<Self>> {
         // Batch execution short-circuits null constants before selecting a strategy, so a
         // constant reaching this path is non-null and can use the ordinary decode.
-        if let Some(constant) = batch_constant(&array)
+        if let Some(const_array) = batch_const(&array)
             && !array.is_empty()
         {
-            return Self::try_from_constant(T::decode(constant.slice(0..1)?, ctx)?).map(Some);
+            return Self::try_from_const(T::decode(const_array.slice(0..1)?, ctx)?).map(Some);
         }
 
         Ok(T::decode_null_tolerant(array, ctx)?
-            .map(ArgColumnKind::PerRow)
+            .map(ArgColumnKind::Column)
             .map(Self))
     }
 
     fn can_decode_null_tolerant(array: &ArrayRef) -> VortexResult<bool> {
         // Batch execution short-circuits null constants before selecting this path, so a
         // non-empty constant can always use the ordinary decode.
-        if batch_constant(array).is_some() && !array.is_empty() {
+        if batch_const(array).is_some() && !array.is_empty() {
             return Ok(true);
         }
 
@@ -83,30 +84,30 @@ impl<T: InputElement> ArgColumn<T> {
 
     fn get(&self, index: usize) -> T::Elem<'_> {
         match &self.0 {
-            ArgColumnKind::PerRow(column) => T::get(column, index),
-            ArgColumnKind::Constant(column) => T::get(column, 0),
+            ArgColumnKind::Column(column) => T::get(column, index),
+            ArgColumnKind::Const(column) => T::get(column, 0),
         }
     }
 
-    fn per_row_column(&self) -> Option<&T::Column> {
+    fn as_column(&self) -> Option<&T::Column> {
         match &self.0 {
-            ArgColumnKind::PerRow(column) => Some(column),
-            ArgColumnKind::Constant(_) => None,
+            ArgColumnKind::Column(column) => Some(column),
+            ArgColumnKind::Const(_) => None,
         }
     }
 
     fn addresses_rows(&self, row_count: usize) -> bool {
         // A constant is validated when constructed and is always read at index zero.
         match &self.0 {
-            ArgColumnKind::PerRow(column) => T::view_len(&T::view(column)) == row_count,
-            ArgColumnKind::Constant(_) => true,
+            ArgColumnKind::Column(column) => T::view(column).len() == row_count,
+            ArgColumnKind::Const(_) => true,
         }
     }
 
-    fn constant_value(&self) -> Option<T::Elem<'_>> {
+    fn const_value(&self) -> Option<T::Elem<'_>> {
         match &self.0 {
-            ArgColumnKind::PerRow(_) => None,
-            ArgColumnKind::Constant(column) => Some(T::get(column, 0)),
+            ArgColumnKind::Column(_) => None,
+            ArgColumnKind::Const(column) => Some(T::get(column, 0)),
         }
     }
 }
@@ -115,19 +116,27 @@ impl<T: InputElement> ArgColumn<T> {
 ///
 /// Batch execution owns mask validity, so a masked constant can expose its constant child here. An
 /// extension over constant storage remains wrapped to preserve its extension dtype.
-pub fn batch_constant(array: &ArrayRef) -> Option<ArrayRef> {
+pub fn batch_const(array: &ArrayRef) -> Option<ArrayRef> {
     if array.is::<Constant>() {
         return Some(array.clone());
     }
 
+    // TODO(joe): We want to change this to a V2 Masked.
     if let Some(masked) = array.as_opt::<Masked>() {
-        return Some(masked.child().clone()).filter(|child| child.is::<Constant>());
+        return masked
+            .child()
+            .is::<Constant>()
+            .then(|| masked.child().clone());
     }
 
-    array
-        .as_opt::<Extension>()
-        .is_some_and(|ext| ext.storage_array().is::<Constant>())
-        .then(|| array.clone())
+    // TODO(connor): This is maybe incorrect unless this is a refinement type?
+    if let Some(extension) = array.as_opt::<Extension>()
+        && extension.storage_array().is::<Constant>()
+    {
+        return Some(array.clone());
+    }
+
+    None
 }
 
 /// Typed argument tuples for arities zero through twelve.
@@ -146,9 +155,9 @@ pub trait ElementTuple: 'static + private::Sealed {
 
     /// The batch-constant element values.
     ///
-    /// `Some` carries the value of a batch-constant argument. `None` marks a non-constant argument.
-    /// A [`RowVisitor`] passes these values to its prepare closure so constant work can leave the
-    /// row loop.
+    /// `Some` carries the value of a batch-constant argument. `None` marks an argument decoded at
+    /// full batch length. A [`RowVisitor`] passes these values to its prepare closure so constant
+    /// work can leave the row loop.
     ///
     /// [`RowVisitor`]: crate::scalar_fn::unstable::row::RowVisitor
     type ConstElems<'a>;
@@ -159,8 +168,8 @@ pub trait ElementTuple: 'static + private::Sealed {
     /// Whether every argument is [`InputElement::DENSE_SAFE`].
     const DENSE_SAFE: bool;
 
-    /// Whether _any_ argument is [`InputElement::DECODE_FALLIBLE`].
-    const DECODE_FALLIBLE: bool;
+    /// Whether every argument is [`InputElement::DECODE_INFALLIBLE`].
+    const DECODE_INFALLIBLE: bool;
 
     /// Validate the input dtypes and exact arity.
     fn validate(dtypes: &[DType]) -> VortexResult<()>;
@@ -191,11 +200,11 @@ pub trait ElementTuple: 'static + private::Sealed {
     /// visible in the loop so LLVM can unswitch it before vectorizing.
     fn get(columns: &Self::Columns, index: usize) -> Self::Elems<'_>;
 
-    /// Borrow the decoded columns when none is batch-constant.
+    /// Borrow the decoded columns only when no argument is batch-constant.
     ///
-    /// Returns `None` if any column is batch-constant. Otherwise, omitting [`ArgColumn`] from the
-    /// returned tuple removes constant checks from the row loop.
-    fn views_no_constants(columns: &Self::Columns) -> Option<Self::Views<'_>>;
+    /// Returns `None` if any argument is batch-constant. Otherwise, omitting [`ArgColumn`] from the
+    /// returned tuple removes batch-constant checks from the row loop.
+    fn views_if_no_consts(columns: &Self::Columns) -> Option<Self::Views<'_>>;
 
     /// Whether every view contains exactly `row_count` rows.
     ///
@@ -204,7 +213,7 @@ pub trait ElementTuple: 'static + private::Sealed {
     /// length, which lets it optimize the tuple access as one fixed-length traversal.
     fn view_lens_match(views: &Self::Views<'_>, row_count: usize) -> bool;
 
-    /// Whether every non-constant argument contains exactly `row_count` rows.
+    /// Whether every argument decoded at full batch length contains exactly `row_count` rows.
     ///
     /// This is the equivalent of [`view_lens_match`](Self::view_lens_match) when the columns include
     /// batch constants. It runs once before the hot loop for the same LLVM optimization. A batch
@@ -225,9 +234,12 @@ pub trait ElementTuple: 'static + private::Sealed {
         index: usize,
     ) -> Self::Elems<'a>;
 
-    /// Read the batch-constant elements out of the decoded columns once for one row-kernel
-    /// invocation.
-    fn constants(columns: &Self::Columns) -> Self::ConstElems<'_>;
+    /// Return one optional batch-constant value per argument.
+    ///
+    /// Each tuple position is `Some(value)` when that argument is batch-constant and `None` when it
+    /// was decoded at full batch length. Executors pass the tuple to the prepare closure once
+    /// before the row loop.
+    fn const_values(columns: &Self::Columns) -> Self::ConstElems<'_>;
 }
 
 impl private::Sealed for () {}
@@ -240,7 +252,7 @@ impl ElementTuple for () {
 
     const ARITY: usize = 0;
     const DENSE_SAFE: bool = true;
-    const DECODE_FALLIBLE: bool = false;
+    const DECODE_INFALLIBLE: bool = true;
 
     fn validate(dtypes: &[DType]) -> VortexResult<()> {
         vortex_ensure_eq!(
@@ -269,7 +281,7 @@ impl ElementTuple for () {
 
     fn get(_columns: &Self::Columns, _index: usize) -> Self::Elems<'_> {}
 
-    fn views_no_constants(_columns: &Self::Columns) -> Option<Self::Views<'_>> {
+    fn views_if_no_consts(_columns: &Self::Columns) -> Option<Self::Views<'_>> {
         Some(())
     }
 
@@ -289,7 +301,7 @@ impl ElementTuple for () {
     ) -> Self::Elems<'a> {
     }
 
-    fn constants(_columns: &Self::Columns) -> Self::ConstElems<'_> {}
+    fn const_values(_columns: &Self::Columns) -> Self::ConstElems<'_> {}
 }
 
 macro_rules! element_tuple {
@@ -304,7 +316,7 @@ macro_rules! element_tuple {
 
             const ARITY: usize = $arity;
             const DENSE_SAFE: bool = $($t::DENSE_SAFE &&)+ true;
-            const DECODE_FALLIBLE: bool = $($t::DECODE_FALLIBLE ||)+ false;
+            const DECODE_INFALLIBLE: bool = $($t::DECODE_INFALLIBLE &&)+ true;
 
             fn validate(dtypes: &[DType]) -> VortexResult<()> {
                 vortex_ensure_eq!(
@@ -353,15 +365,15 @@ macro_rules! element_tuple {
                 ($(columns.$idx.get(index),)+)
             }
 
-            fn views_no_constants(columns: &Self::Columns) -> Option<Self::Views<'_>> {
-                Some(($($t::view(columns.$idx.per_row_column()?),)+))
+            fn views_if_no_consts(columns: &Self::Columns) -> Option<Self::Views<'_>> {
+                Some(($($t::view(columns.$idx.as_column()?),)+))
             }
 
             fn view_lens_match(
                 views: &Self::Views<'_>,
                 row_count: usize,
             ) -> bool {
-                $($t::view_len(&views.$idx) == row_count &&)+ true
+                $(views.$idx.len() == row_count &&)+ true
             }
 
             fn decoded_lens_match(columns: &Self::Columns, row_count: usize) -> bool {
@@ -383,8 +395,8 @@ macro_rules! element_tuple {
                 ($(unsafe { $t::get_from_view_unchecked(&views.$idx, index) },)+)
             }
 
-            fn constants(columns: &Self::Columns) -> Self::ConstElems<'_> {
-                ($(columns.$idx.constant_value(),)+)
+            fn const_values(columns: &Self::Columns) -> Self::ConstElems<'_> {
+                ($(columns.$idx.const_value(),)+)
             }
         }
     };

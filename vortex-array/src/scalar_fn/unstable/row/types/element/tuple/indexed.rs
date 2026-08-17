@@ -11,6 +11,7 @@ use vortex_compute::lane_kernels::LaneZip;
 
 use super::ElementTuple;
 use crate::scalar_fn::unstable::row::InputElement;
+use crate::scalar_fn::unstable::row::ViewLen;
 
 /// An argument tuple that supports a validated dense indexed traversal.
 ///
@@ -48,7 +49,7 @@ impl<'a, T: InputElement> IndexedSource for ElementSource<'a, T> {
     type Item = T::Elem<'a>;
 
     fn len(&self) -> usize {
-        T::view_len(&self.view)
+        self.view.len()
     }
 
     unsafe fn get_unchecked(&self, index: usize) -> Self::Item {

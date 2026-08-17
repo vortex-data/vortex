@@ -114,6 +114,8 @@ pub(crate) struct BatchPlan {
     pub(crate) output_dtype: DType,
 
     /// How this concrete dispatch executes nullable rows.
+    // TODO(connor)[RowFn]: Remove this expectation when #9450 uses the planned policy.
+    #[expect(dead_code)]
     pub(crate) policy: RowPolicy,
 }
 
@@ -143,7 +145,7 @@ pub(crate) enum RowPolicy {
 impl RowPolicy {
     /// The policy for an infallible owned output.
     pub(crate) const fn for_owned_output<Args: ElementTuple>() -> Self {
-        if Args::DENSE_SAFE && !Args::DECODE_FALLIBLE {
+        if Args::DENSE_SAFE && Args::DECODE_INFALLIBLE {
             Self::Dense
         } else {
             Self::ValidOnly
@@ -152,7 +154,7 @@ impl RowPolicy {
 
     /// The policy for an owned output carrying batch-deferred failure evidence.
     pub(crate) const fn for_deferred_output<Args: ElementTuple>() -> Self {
-        if Args::DENSE_SAFE && !Args::DECODE_FALLIBLE {
+        if Args::DENSE_SAFE && Args::DECODE_INFALLIBLE {
             Self::DenseWithRetry
         } else {
             Self::ValidOnly
@@ -161,7 +163,7 @@ impl RowPolicy {
 
     /// The policy for a sink-writing output.
     pub(crate) const fn for_sink<Args: ElementTuple, ApplyResult: SinkResult>() -> Self {
-        if Args::DENSE_SAFE && !Args::DECODE_FALLIBLE && !ApplyResult::FALLIBLE {
+        if Args::DENSE_SAFE && Args::DECODE_INFALLIBLE && !ApplyResult::FALLIBLE {
             Self::Dense
         } else {
             Self::ValidOnly
