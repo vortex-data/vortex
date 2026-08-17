@@ -51,12 +51,13 @@ VortexMultiFileReader::InitializeReader(MultiFileReaderData &reader_data,
     const VortexGlobalState &global = gstate.global_state->Cast<VortexGlobalState>();
 
     duckdb_vx_error error = nullptr;
-    void *const ffi_global_state = global.ffi_global_state->DataPtr();
+    void *const ffi_global = global.ffi_global_state->DataPtr();
     void *const ffi_file = reader.ffi_file->DataPtr();
-    const bool skip = duckdb_reader_initialize(ffi_global_state, ffi_file, &error);
+    const bool skip = duckdb_reader_initialize(ffi_global, ffi_file, &error);
     if (error) {
         throw InvalidInputException(IntoErrString(error));
     }
+
     return skip ? ReaderInitializeType::SKIP_READING_FILE : ReaderInitializeType::INITIALIZED;
 }
 

@@ -12,7 +12,6 @@ use std::sync::atomic::Ordering;
 use custom_labels::CURRENT_LABELSET;
 use futures::future::BoxFuture;
 use itertools::Itertools;
-use kanal::AsyncReceiver;
 use num_traits::AsPrimitive;
 use parking_lot::Mutex;
 use static_assertions::assert_impl_all;
@@ -54,12 +53,14 @@ use crate::duckdb::ExpressionRef;
 use crate::duckdb::LogicalTypeRef;
 use crate::duckdb::TableInitInput;
 use crate::duckdb::Value;
-use crate::exporter::{ArrayExporter, ConversionCache};
+use crate::exporter::ArrayExporter;
 use crate::file_reader::File;
 use crate::file_reader::Pruning;
-use crate::projection::DuckdbField;
+use crate::projection::FILE_INDEX_COLUMN_IDX;
+use crate::projection::FILE_ROW_NUMBER_COLUMN_IDX;
 use crate::projection::Projection;
 use crate::projection::extract_schema_from_dtype;
+use crate::projection::{DuckdbField, Filter};
 
 // Aggregate projection index for count(*). See cpp/aggregate_fn_pushdown.cpp
 pub const COUNT_STAR_PROJ_IDX: u64 = u64::MAX;
@@ -115,35 +116,33 @@ impl<'a> TableInitInput<'a> {
     }
 }
 
-pub struct TableFunctionGlobal {
-    pub(crate) pruning: Option<Pruning>,
-    pub(crate) projection: BoundExpression,
-    file_row_number_column_pos: Option<usize>,
-    file_index_column_pos: Option<usize>,
+pub struct GlobalState {
+    pub pruning: Option<Pruning>,
+    pub projection: BoundExpression,
+    pub filter: Option<Filter>,
+    pub file_row_number_column_pos: Option<usize>,
+    pub file_index_column_pos: Option<usize>,
+
     // Following fields are used only in aggregate scans.
     /// Splits that are not merged into global partials
     /// 0 means everything started is merged.
     /// u64::MAX means output row is written.
-    pub(crate) pending: Arc<AtomicU64>,
-    pub(crate) aggregates: Vec<ColumnAggregate>,
-    pub(crate) aggregate_positions: Vec<usize>,
-    // Accumulated partials
-    pub(crate) partials: Mutex<Vec<Box<dyn DynAccumulator>>>,
-    pub(crate) row_count: AtomicU64,
+    pub pending: Arc<AtomicU64>,
+    pub aggregates: Vec<ColumnAggregate>,
+    pub aggregate_positions: Vec<usize>,
+    pub partials: Mutex<Vec<Box<dyn DynAccumulator>>>,
+    pub row_count: AtomicU64,
 }
-assert_impl_all!(TableFunctionGlobal: Send, Sync);
+assert_impl_all!(GlobalState: Send, Sync);
 
 pub type Split = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
 
 /// Per-thread scan state
-pub struct TableFunctionLocal {
-    pub(crate) exporter: Option<ArrayExporter>,
-    /// Aggregate scan accumulated partials. Empty for non-aggregate scan
-    pub(crate) partials: Vec<Box<dyn DynAccumulator>>,
-    // Per-thread state, updated for every file
-    pub(crate) split: Option<Split>,
-    pub(crate) file_row_number_column_pos: Option<usize>,
-    pub(crate) file_index_column_pos: Option<usize>,
+pub struct LocalState {
+    pub exporter: Option<ArrayExporter>,
+    pub split: Option<Split>,
+    /// Empty for non-aggregate scan
+    pub partials: Vec<Box<dyn DynAccumulator>>,
 }
 
 #[derive(Clone)]
@@ -184,7 +183,7 @@ pub fn bind(first_file: &File, result: &mut BindResultRef) -> VortexResult<Table
     })
 }
 
-pub fn finalize_scan(global: &TableFunctionGlobal, chunk: &mut DataChunkRef) -> VortexResult<bool> {
+pub fn finalize_scan(global: &GlobalState, chunk: &mut DataChunkRef) -> VortexResult<bool> {
     if global.aggregates.is_empty() {
         return Ok(false);
     }
@@ -216,7 +215,7 @@ pub fn finalize_scan(global: &TableFunctionGlobal, chunk: &mut DataChunkRef) -> 
     Ok(true)
 }
 
-pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlobal> {
+pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
     let bind_data = init_input.bind_data();
 
     let partials = build_partials(
@@ -225,7 +224,18 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
         &bind_data.dtype,
     )?;
 
-    let pruning = Pruning::new(bind_data, init_input.column_ids(), init_input.input.filters)?;
+    let mut file_row_number_column_pos = None;
+    let mut file_index_column_pos = None;
+    let column_ids = init_input.column_ids();
+    for (i, id) in column_ids.iter().enumerate() {
+        if *id == FILE_ROW_NUMBER_COLUMN_IDX {
+            file_row_number_column_pos = Some(i);
+        } else if *id == FILE_INDEX_COLUMN_IDX {
+            file_index_column_pos = Some(i);
+        }
+    }
+
+    let pruning = Pruning::new(bind_data, column_ids, init_input.input.filters)?;
 
     let mut seen = HashMap::with_capacity(bind_data.aggregates.len());
     let mut aggregate_positions = Vec::with_capacity(bind_data.aggregates.len());
@@ -239,22 +249,40 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
     }
 
     let Projection(projection) = if bind_data.aggregates.is_empty() {
-        Projection::new(init_input.column_ids(), &bind_data.column_fields)
+        Projection::new(column_ids, &bind_data.column_fields)
     } else {
         Projection::new_aggregate(&bind_data.aggregates, &bind_data.column_fields)
     };
 
-    debug!(%projection, "table function init global");
+    let filter = convert_filter(bind, column_ids, filters)?;
+    if has_non_optional_filter {
+        bind.has_non_optional_filter.store(true, Ordering::Relaxed);
+    }
 
-    let bound_projection = optimize_and_bind(projection, &bind_data.dtype)?;
-    Ok(TableFunctionGlobal {
+    debug!(
+        %projection,
+        filter = filter
+            .as_ref()
+            .map_or_else(|| "true".to_string(), |f| f.to_string()),
+        ?row_selection,
+        ?row_range,
+        ?file_selection,
+        ?file_range,
+        "prepare scan"
+    );
+
+    let projection = optimize_and_bind(projection, &bind_data.dtype)?;
+    Ok(GlobalState {
         pruning,
         aggregate_positions,
-        projection: bound_projection,
+        projection,
+        filter,
         pending: Arc::new(AtomicU64::new(0)),
         aggregates: bind_data.aggregates.clone(),
         partials: Mutex::new(partials),
         row_count: AtomicU64::new(0),
+        file_row_number_column_pos,
+        file_index_column_pos,
     })
 }
 
@@ -291,8 +319,8 @@ fn build_partials(
 
 pub fn init_local(
     bind_data: &TableFunctionBind,
-    global: &TableFunctionGlobal,
-) -> TableFunctionLocal {
+    global: &GlobalState,
+) -> LocalState {
     unsafe {
         use custom_labels::sys;
 
@@ -317,7 +345,7 @@ pub fn init_local(
     // init_global, see "partials" initialization there
     .vortex_expect("local state aggregate initialization failed");
 
-    TableFunctionLocal {
+    LocalState {
         exporter: None,
         partials,
         split: None,

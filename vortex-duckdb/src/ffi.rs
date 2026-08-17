@@ -33,15 +33,15 @@ use crate::duckdb::try_or;
 use crate::duckdb::try_or_null;
 use crate::file_reader::File;
 use crate::file_reader::file_scan;
-use crate::file_reader::file_statistics;
 use crate::file_reader::get_progress_in_file;
+use crate::file_reader::reader_get_statistics;
 use crate::file_reader::reader_initialize;
 use crate::file_reader::reader_open;
 use crate::file_reader::reader_try_initialize_scan;
 use crate::table_function::Cardinality;
+use crate::table_function::GlobalState;
+use crate::table_function::LocalState;
 use crate::table_function::TableFunctionBind;
-use crate::table_function::TableFunctionGlobal;
-use crate::table_function::TableFunctionLocal;
 use crate::table_function::bind;
 use crate::table_function::cardinality;
 use crate::table_function::finalize_scan;
@@ -163,7 +163,7 @@ pub unsafe extern "C-unwind" fn duckdb_table_function_init_local(
 ) -> cpp::duckdb_vx_data {
     let bind_data = unsafe { bind_data.cast::<TableFunctionBind>().as_ref() }
         .vortex_expect("bind_data null pointer");
-    let global_init_data = unsafe { global_init_data.cast::<TableFunctionGlobal>().as_ref() }
+    let global_init_data = unsafe { global_init_data.cast::<GlobalState>().as_ref() }
         .vortex_expect("global_init_data null pointer");
 
     let init_data = init_local(bind_data, global_init_data);
@@ -213,7 +213,7 @@ pub unsafe extern "C-unwind" fn duckdb_reader_get_statistics(
         unsafe { std::slice::from_raw_parts(column_name.cast::<u8>(), column_name_len) };
     let column_name = String::from_utf8_lossy(name_bytes);
 
-    let Some(stats) = file_statistics(file, &column_name) else {
+    let Some(stats) = reader_get_statistics(file, &column_name) else {
         return false;
     };
     let stats_out = unsafe { &mut *stats_out };
@@ -226,49 +226,24 @@ pub unsafe extern "C-unwind" fn duckdb_reader_get_statistics(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn duckdb_reader_initialize(
-    global_init_data: *const c_void,
-    file: *const c_void,
-    error_out: *mut cpp::duckdb_vx_error,
+    global: *const c_void,
+    file: *mut c_void,
+    error: *mut cpp::duckdb_vx_error,
 ) -> bool {
-    let global_init_data = unsafe { global_init_data.cast::<TableFunctionGlobal>().as_ref() }
-        .vortex_expect("global_init_data null pointer");
-    let file = unsafe { file.cast::<File>().as_ref() }.vortex_expect("file null pointer");
-    try_or(error_out, || reader_initialize(global_init_data, file))
+    let global = unsafe { global.cast::<GlobalState>().as_ref() }.vortex_expect("null pointer");
+    let file = unsafe { file.cast::<File>().as_mut() }.vortex_expect("null pointer");
+    try_or(error, || reader_initialize(file, global))
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn duckdb_reader_try_initialize_scan(
-    bind_data: *const c_void,
-    global_state: *const c_void,
-    local_state: *mut c_void,
+    local: *mut c_void,
     file: *mut c_void,
-    column_ids: *const u64,
-    column_ids_count: usize,
-    filters: cpp::duckdb_vx_table_filter_set,
     error: *mut cpp::duckdb_vx_error,
-) -> bool {
-    let bind_data = unsafe { bind_data.cast::<TableFunctionBind>().as_ref() }
-        .vortex_expect("bind_data null pointer");
-    let file = unsafe { file.cast::<File>().as_mut() }.vortex_expect("file null pointer");
-    let column_ids = if column_ids_count == 0 {
-        &[]
-    } else {
-        unsafe { std::slice::from_raw_parts(column_ids, column_ids_count) }
-    };
-    let global_state = unsafe { global_state.cast::<TableFunctionGlobal>().as_ref() }
-        .vortex_expect("null pointer");
-    let local_state =
-        unsafe { local_state.cast::<TableFunctionLocal>().as_mut() }.vortex_expect("null pointer");
-    try_or(error, || {
-        reader_try_initialize_scan(
-            bind_data,
-            global_state,
-            local_state,
-            file,
-            column_ids,
-            filters,
-        )
-    });
+) {
+    let file = unsafe { file.cast::<File>().as_mut() }.vortex_expect("null pointer");
+    let local = unsafe { local.cast::<LocalState>().as_mut() }.vortex_expect("null pointer");
+    try_or(error, || reader_try_initialize_scan(file, local));
 }
 
 #[unsafe(no_mangle)]
@@ -280,10 +255,10 @@ pub unsafe extern "C-unwind" fn duckdb_reader_scan(
     error: *mut cpp::duckdb_vx_error,
 ) -> bool {
     let file = unsafe { file.cast::<File>().as_ref() }.vortex_expect("null pointer");
-    let global_state = unsafe { global_state.cast::<TableFunctionGlobal>().as_ref() }
-        .vortex_expect("null pointer");
+    let global_state =
+        unsafe { global_state.cast::<GlobalState>().as_ref() }.vortex_expect("null pointer");
     let local_state =
-        unsafe { local_state.cast::<TableFunctionLocal>().as_mut() }.vortex_expect("null pointer");
+        unsafe { local_state.cast::<LocalState>().as_mut() }.vortex_expect("null pointer");
     let data_chunk = unsafe { DataChunk::borrow_mut(output) };
     try_or(error, || {
         file_scan(file, global_state, local_state, data_chunk)
@@ -302,7 +277,7 @@ pub unsafe extern "C-unwind" fn duckdb_reader_finalize_scan(
     output: cpp::duckdb_data_chunk,
     error: *mut cpp::duckdb_vx_error,
 ) -> bool {
-    let global_init_data = unsafe { global_init_data.cast::<TableFunctionGlobal>().as_ref() }
+    let global_init_data = unsafe { global_init_data.cast::<GlobalState>().as_ref() }
         .vortex_expect("global_init_data null pointer");
     let data_chunk = unsafe { DataChunk::borrow_mut(output) };
     try_or(error, || finalize_scan(global_init_data, data_chunk))

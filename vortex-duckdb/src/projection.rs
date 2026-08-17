@@ -7,6 +7,7 @@ use vortex::dtype::DType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
+use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::col;
@@ -182,7 +183,7 @@ impl Projection {
 }
 
 pub struct Filter {
-    pub filter: Option<Expression>,
+    pub filter: Option<BoundExpression>,
     pub row_selection: Selection,
     pub row_range: Option<Range<u64>>,
     pub file_selection: Selection,
@@ -245,8 +246,12 @@ impl Filter {
             }
         };
 
+        let filter = and_collect(table_filter_exprs)
+            .map(|expr| expr.optimize_recursive(dtype)?.bind(dtype))
+            .transpose()?;
+
         let out = Self {
-            filter: and_collect(table_filter_exprs),
+            filter,
             row_selection,
             row_range,
             file_selection,
