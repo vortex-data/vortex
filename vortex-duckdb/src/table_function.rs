@@ -126,18 +126,21 @@ pub struct GlobalState {
     pub file_row_number_column_pos: Option<usize>,
 
     // Following fields are used only in aggregate scans.
-    /// Splits that are not merged into global partials
-    /// 0 means everything started is merged.
+    /// Number of active threads processing files.
+    /// 0 means we're the last accumulating thread.
     /// u64::MAX means output row is written.
-    pub pending: Arc<AtomicU64>,
+    pub active_threads: Arc<AtomicU64>,
     pub aggregates: Vec<ColumnAggregate>,
-    pub aggregate_positions: Vec<usize>,
-    pub partials: Mutex<Vec<Box<dyn DynAccumulator>>>,
+    pub has_count_star: bool,
+    pub partials: Mutex<Vec<Partials>>,
     pub row_count: AtomicU64,
 }
 assert_impl_all!(GlobalState: Send, Sync);
 
 pub type Split = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
+
+/// field position, accumulator
+pub type Partials = Vec<(usize, Box<dyn DynAccumulator>)>;
 
 /// Per-thread scan state
 pub struct LocalState {
@@ -145,7 +148,7 @@ pub struct LocalState {
     pub split: Option<Split>,
 
     /// Empty for non-aggregate scan
-    pub partials: Vec<Box<dyn DynAccumulator>>,
+    pub partials: Partials,
 }
 
 #[derive(Clone)]
@@ -169,23 +172,28 @@ pub fn finalize_scan(global: &GlobalState, chunk: &mut DataChunkRef) -> VortexRe
     if global.aggregates.is_empty() {
         return Ok(false);
     }
-    // 0 means every produced array has been accumulated, u64::MAX means output is
-    // written. is_err() covers "still accumulating" and "already emitted"
     if global
-        .pending
+        .active_threads
         .compare_exchange(0, u64::MAX, Ordering::AcqRel, Ordering::Relaxed)
         .is_err()
     {
         return Ok(false);
     }
 
-    let mut accumulators = global.partials.lock();
+    let mut partials = global.partials.lock();
+    let (base, rest) = partials.split_first_mut().vortex_expect("no local state");
+    for other in rest.iter_mut() {
+        for ((_, acc), (_, part)) in base.iter_mut().zip(other.iter_mut()) {
+            acc.combine_partials(part.flush()?)?;
+        }
+    }
+
     let row_count = global.row_count.load(Ordering::Acquire) as i64;
-    let mut accum_iter = accumulators.iter_mut();
+    let mut accum_iter = base.iter_mut();
     for (idx, aggregate) in global.aggregates.iter().enumerate() {
         let value = match aggregate {
             ColumnAggregate::Real { .. } => {
-                let accum = accum_iter.next().vortex_expect("partial for real agg");
+                let (_, accum) = accum_iter.next().vortex_expect("no partial for aggregate");
                 let expected = chunk.get_vector_mut(idx).logical_type();
                 aggregate_output_value(accum.finish()?, &expected)?
             }
@@ -197,10 +205,24 @@ pub fn finalize_scan(global: &GlobalState, chunk: &mut DataChunkRef) -> VortexRe
     Ok(true)
 }
 
+/// Called once per thread when it has no more files to read
+pub fn finish_reading(global: &GlobalState, local: &mut LocalState) {
+    if global.aggregates.is_empty() {
+        return;
+    }
+    let partials = std::mem::take(&mut local.partials);
+    global.partials.lock().push(partials);
+    global.active_threads.fetch_sub(1, Ordering::Release);
+}
+
 pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
     let bind_data = init_input.bind_data();
 
-    let partials = build_partials(&bind_data.aggregates, &bind_data.columns, &bind_data.dtype)?;
+    build_partials(&bind_data.aggregates, &bind_data.columns, &bind_data.dtype)?;
+    let has_count_star = bind_data
+        .aggregates
+        .iter()
+        .any(|a| matches!(a, ColumnAggregate::CountStar));
 
     let mut file_row_number_column_pos = None;
     let column_ids = init_input.column_ids();
@@ -212,17 +234,6 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
         } else if !is_virtual_column(*id) {
             pos += 1;
         }
-    }
-
-    let mut seen = HashMap::with_capacity(bind_data.aggregates.len());
-    let mut aggregate_positions = Vec::with_capacity(bind_data.aggregates.len());
-    for aggregate in &bind_data.aggregates {
-        let ColumnAggregate::Real { projection_id, .. } = aggregate else {
-            continue;
-        };
-        let len = seen.len();
-        let pos = *seen.entry(*projection_id).or_insert(len);
-        aggregate_positions.push(pos);
     }
 
     let Projection(projection) = if bind_data.aggregates.is_empty() {
@@ -258,10 +269,10 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
     Ok(GlobalState {
         projection,
         filter,
-        aggregate_positions,
-        pending: Arc::new(AtomicU64::new(0)),
+        active_threads: Arc::new(AtomicU64::new(0)),
         aggregates: bind_data.aggregates.clone(),
-        partials: Mutex::new(partials),
+        has_count_star,
+        partials: Mutex::new(Vec::new()),
         row_count: AtomicU64::new(0),
         file_row_number_column_pos,
     })
@@ -279,23 +290,24 @@ fn build_partials(
     aggregates: &[ColumnAggregate],
     fields: &[DuckdbField],
     scope: &DType,
-) -> VortexResult<Vec<Box<dyn DynAccumulator>>> {
-    aggregates
-        .iter()
-        .filter_map(|spec| match spec {
-            ColumnAggregate::Real {
-                projection_id,
-                aggregate,
-            } => {
-                let projection_id: usize = projection_id.as_();
-                Some(
-                    aggregate_input_dtype(&fields[projection_id], scope)
-                        .and_then(|dtype| aggregate.build(dtype)),
-                )
-            }
-            ColumnAggregate::CountStar => None,
-        })
-        .collect()
+) -> VortexResult<Vec<(usize, Box<dyn DynAccumulator>)>> {
+    let mut seen: HashMap<u64, usize> = HashMap::with_capacity(aggregates.len());
+    let mut partials = Vec::with_capacity(aggregates.len());
+    for spec in aggregates {
+        let ColumnAggregate::Real {
+            projection_id,
+            aggregate,
+        } = spec
+        else {
+            continue;
+        };
+        let next = seen.len();
+        let field_pos = *seen.entry(*projection_id).or_insert(next);
+        let column: usize = projection_id.as_();
+        let dtype = aggregate_input_dtype(&fields[column], scope)?;
+        partials.push((field_pos, aggregate.build(dtype)?));
+    }
+    Ok(partials)
 }
 
 pub fn init_local(bind_data: &BindState, global: &GlobalState) -> LocalState {
@@ -316,8 +328,12 @@ pub fn init_local(bind_data: &BindState, global: &GlobalState) -> LocalState {
 
     let partials = build_partials(&global.aggregates, &bind_data.columns, &bind_data.dtype)
         // if aggregate initialization produced an error, it would error in
-        // init_global, see "partials" initialization there
+        // init_global, see build_partials call there
         .vortex_expect("local state aggregate initialization failed");
+
+    if !global.aggregates.is_empty() {
+        global.active_threads.fetch_add(1, Ordering::Relaxed);
+    }
 
     LocalState {
         exporter: None,
@@ -501,9 +517,6 @@ pub fn pushdown_projection_aggregates(
     bind_data: &mut BindState,
     input: &AggregatePushdownInputRef,
 ) -> VortexResult<bool> {
-    // TODO
-    return Ok(false);
-
     let len = input.len();
     let mut aggregates = Vec::with_capacity(len);
     let mut outputs = Vec::with_capacity(len);

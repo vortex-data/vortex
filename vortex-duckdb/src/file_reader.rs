@@ -38,6 +38,7 @@ use crate::exporter::ConversionCache;
 use crate::projection::Filter;
 use crate::projection::extract_schema_from_dtype;
 use crate::table_function::BindState;
+use crate::table_function::ColumnAggregate;
 use crate::table_function::GlobalState;
 use crate::table_function::LocalState;
 use crate::table_function::Split;
@@ -153,7 +154,7 @@ pub fn reader_scan(
     local: &mut LocalState,
     chunk: &mut DataChunkRef,
 ) -> VortexResult<bool> {
-    if !local.partials.is_empty() {
+    if !global.aggregates.is_empty() {
         return reader_scan_aggregate(global, local);
     }
 
@@ -183,35 +184,22 @@ fn reader_scan_aggregate(global: &GlobalState, local: &mut LocalState) -> Vortex
         return Ok(false);
     };
     let Some(array) = RUNTIME.block_on(async move { split.await })? else {
+        // split is filtered
         return Ok(true);
     };
-    global.pending.fetch_add(1, Ordering::Relaxed);
 
     let mut ctx = SESSION.create_execution_ctx();
     let array = convert_result(array, &mut ctx)?;
 
-    for (position, partial) in global
-        .aggregate_positions
-        .iter()
-        .zip(local.partials.iter_mut())
-    {
+    for (position, partial) in local.partials.iter_mut() {
         partial.accumulate(array.unmasked_field(*position), &mut ctx)?;
     }
 
-    {
-        let mut partials = global.partials.lock();
-        for (global_partial, local_partial) in partials.iter_mut().zip(&mut local.partials) {
-            global_partial.combine_partials(local_partial.flush()?)?;
-        }
-    }
-
-    let has_count_star = local.partials.len() < global.aggregates.len();
-    if has_count_star {
+    if global.has_count_star {
         let len = array.len() as u64;
         global.row_count.fetch_add(len, Ordering::Relaxed);
     }
 
-    global.pending.fetch_sub(1, Ordering::Release);
     Ok(true)
 }
 

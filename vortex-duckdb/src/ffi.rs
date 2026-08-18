@@ -45,6 +45,7 @@ use crate::table_function::GlobalState;
 use crate::table_function::LocalState;
 use crate::table_function::cardinality;
 use crate::table_function::finalize_scan;
+use crate::table_function::finish_reading;
 use crate::table_function::init_global;
 use crate::table_function::init_local;
 use crate::table_function::pushdown_complex_filter;
@@ -272,6 +273,16 @@ pub unsafe extern "C-unwind" fn duckdb_reader_finalize_scan(
     let global = unsafe { global.cast::<GlobalState>().as_ref() }.vortex_expect("null pointer");
     let chunk = unsafe { DataChunk::borrow_mut(chunk) };
     try_or(error, || finalize_scan(global, chunk))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn duckdb_reader_finish_reading(
+    global: *const c_void,
+    local: *mut c_void,
+) {
+    let global = unsafe { global.cast::<GlobalState>().as_ref() }.vortex_expect("null pointer");
+    let local = unsafe { local.cast::<LocalState>().as_mut() }.vortex_expect("null pointer");
+    finish_reading(global, local);
 }
 
 #[unsafe(no_mangle)]

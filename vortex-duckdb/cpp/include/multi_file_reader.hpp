@@ -144,6 +144,7 @@ struct VortexReaderInterface final : MultiFileReaderInterface {
 
     void GetVirtualColumns(ClientContext &, MultiFileBindData &, virtual_column_map_t &result) override;
     bool FinalizeScan(ClientContext &, GlobalTableFunctionState &gstate, DataChunk &output) override;
+    void FinishReading(ClientContext &, GlobalTableFunctionState &gstate, LocalTableFunctionState &lstate) override;
 };
 
 struct VortexBaseReader final : BaseFileReader {

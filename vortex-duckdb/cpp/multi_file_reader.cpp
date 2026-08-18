@@ -238,6 +238,16 @@ bool VortexReaderInterface::FinalizeScan(ClientContext &,
     return filled;
 }
 
+void VortexReaderInterface::FinishReading(ClientContext &,
+                                          GlobalTableFunctionState &global_state,
+                                          LocalTableFunctionState &local_state) {
+    const VortexGlobalState &global = global_state.Cast<VortexGlobalState>();
+    const VortexLocalState &local = local_state.Cast<VortexLocalState>();
+    const void *const ffi_global = global.ffi_global_state->DataPtr();
+    void *const ffi_local = local.ffi_local_state->DataPtr();
+    duckdb_reader_finish_reading(ffi_global, ffi_local);
+}
+
 static Value &UnwrapValue(duckdb_value value) {
     return *(reinterpret_cast<Value *>(value));
 }

@@ -84,6 +84,8 @@ bool duckdb_reader_finalize_scan(const void *global,
                                  duckdb_data_chunk chunk,
                                  duckdb_vx_error *error);
 
+extern void duckdb_reader_finish_reading(const void *global, void *local);
+
 extern duckdb_vx_data duckdb_table_function_bind_data_clone(const void *bind);
 
 extern
