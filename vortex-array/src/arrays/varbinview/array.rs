@@ -22,6 +22,7 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::ArraySlots;
 use crate::ExecutionCtx;
+#[cfg(debug_assertions)]
 use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
@@ -36,6 +37,7 @@ use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
+#[cfg(debug_assertions)]
 use crate::legacy_session;
 use crate::validity::Validity;
 
@@ -477,35 +479,56 @@ impl VarBinViewData {
         let len = views.len();
 
         match validity {
-            // Single pass: validate the valid (non-null) entries and note whether any null slot
-            // holds a non-empty view; only then do we take a mutable copy and normalize the slots.
             Validity::Array(_) => {
                 let mask = validity.execute_mask(len, ctx)?;
-                let mut needs_replace = false;
-                for ((idx, view), valid) in views.iter().enumerate().zip(mask.iter()) {
-                    if valid {
-                        Self::validate_view(idx, view, buffers, &validator)?;
-                    } else if *view != empty {
-                        needs_replace = true;
+                match views.try_into_mut() {
+                    Ok(mut views) => {
+                        let slice = views.as_mut_slice();
+                        for (idx, valid) in mask.iter().enumerate() {
+                            if valid {
+                                Self::validate_view(idx, &slice[idx], buffers, &validator)?;
+                            } else {
+                                slice[idx] = empty;
+                            }
+                        }
+                        Ok(views.freeze())
+                    }
+                    Err(views) => {
+                        let mut needs_replace = false;
+                        for ((idx, view), valid) in views.iter().enumerate().zip(mask.iter()) {
+                            if valid {
+                                Self::validate_view(idx, view, buffers, &validator)?;
+                            } else if *view != empty {
+                                needs_replace = true;
+                            }
+                        }
+                        if !needs_replace {
+                            return Ok(views);
+                        }
+                        let mut views = views.into_mut();
+                        let slice = views.as_mut_slice();
+                        for_each_invalid_range(&mask, len, |start, end| {
+                            slice[start..end].fill(empty)
+                        });
+                        Ok(views.freeze())
                     }
                 }
-                if !needs_replace {
-                    return Ok(views);
-                }
-                let mut views = views.into_mut();
-                let slice = views.as_mut_slice();
-                for_each_invalid_range(&mask, len, |start, end| slice[start..end].fill(empty));
-                Ok(views.freeze())
             }
             // Every entry is null, so there is nothing to validate: replace all views with empty.
-            Validity::AllInvalid => {
-                if views.iter().all(|view| *view == empty) {
-                    return Ok(views);
+            Validity::AllInvalid => match views.try_into_mut() {
+                Ok(mut views) => {
+                    views.as_mut_slice().fill(empty);
+                    Ok(views.freeze())
                 }
-                let mut views = views.into_mut();
-                views.as_mut_slice().fill(empty);
-                Ok(views.freeze())
-            }
+                Err(views) => {
+                    if views.iter().all(|view| *view == empty) {
+                        return Ok(views);
+                    }
+                    let mut views = views.into_mut();
+                    views.as_mut_slice().fill(empty);
+                    Ok(views.freeze())
+                }
+            },
             // No nulls: validate every view, nothing to replace.
             Validity::NonNullable | Validity::AllValid => {
                 for (idx, view) in views.iter().enumerate() {
