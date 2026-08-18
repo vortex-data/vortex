@@ -52,8 +52,8 @@ struct VortexMultiFileReader final : MultiFileReader {
      * clickbench 23) will be opened, and we will read their footers.
      *
      * ComplexFilterPushdown/DynamicFilterPushdown callbacks technically allow
-     * filtering file list via filter, but with file_index specificaly it
-     * doesn't work:
+     * filtering file list via filter, but with file_index specifically it
+     * doesn't work.
      * Say we have a filter "file_index IN (1, 2)" and files 0,1,2. We filter
      * first file and return a new list of two files. Duckdb 1.5 then
      * renumbers files 1->0, 2->1 (it uses file index). Then it evaluates
@@ -144,7 +144,9 @@ struct VortexReaderInterface final : MultiFileReaderInterface {
 
     void GetVirtualColumns(ClientContext &, MultiFileBindData &, virtual_column_map_t &result) override;
     bool FinalizeScan(ClientContext &, GlobalTableFunctionState &gstate, DataChunk &output) override;
-    void FinishReading(ClientContext &, GlobalTableFunctionState &gstate, LocalTableFunctionState &lstate) override;
+    void FinishReading(ClientContext &,
+                       GlobalTableFunctionState &gstate,
+                       LocalTableFunctionState &lstate) override;
 };
 
 struct VortexBaseReader final : BaseFileReader {

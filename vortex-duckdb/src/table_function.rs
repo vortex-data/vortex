@@ -44,19 +44,22 @@ use crate::convert::try_from_bound_expression;
 use crate::convert::try_from_projection_aggregate;
 use crate::convert::try_from_projection_expression;
 use crate::cpp::DUCKDB_TYPE;
+use crate::duckdb::AggregateExpression;
+use crate::duckdb::AggregatePushdownInputRef;
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::DuckdbStringMapRef;
 use crate::duckdb::ExpressionRef;
 use crate::duckdb::LogicalTypeRef;
+use crate::duckdb::TableFilterSet;
+use crate::duckdb::TableFilterSetRef;
 use crate::duckdb::TableInitInput;
 use crate::duckdb::Value;
-use crate::duckdb::{AggregateExpression, TableFilterSetRef};
-use crate::duckdb::{AggregatePushdownInputRef, TableFilterSet};
 use crate::exporter::ArrayExporter;
+use crate::projection::DuckdbField;
 use crate::projection::FILE_ROW_NUMBER_COLUMN_IDX;
+use crate::projection::Filter;
 use crate::projection::Projection;
 use crate::projection::is_virtual_column;
-use crate::projection::{DuckdbField, Filter};
 
 // Aggregate projection index for count(*). See cpp/aggregate_fn_pushdown.cpp
 pub const COUNT_STAR_PROJ_IDX: u64 = u64::MAX;

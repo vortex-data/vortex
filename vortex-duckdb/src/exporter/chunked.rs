@@ -123,7 +123,7 @@ mod tests {
         )?;
         let mut chunk = DataChunk::new([LogicalType::varchar()]);
 
-        assert!(exporter.export(&mut chunk, None, None)?);
+        assert!(exporter.export(&mut chunk, None)?);
         assert_eq!(
             format!("{}", String::try_from(&*chunk)?),
             r#"Chunk - [1 Columns]
@@ -131,7 +131,7 @@ mod tests {
 "#
         );
 
-        assert!(exporter.export(&mut chunk, None, None)?);
+        assert!(exporter.export(&mut chunk, None)?);
         assert_eq!(
             format!("{}", String::try_from(&*chunk)?),
             r#"Chunk - [1 Columns]
@@ -139,7 +139,7 @@ mod tests {
 "#
         );
 
-        assert!(!exporter.export(&mut chunk, None, None)?);
+        assert!(!exporter.export(&mut chunk, None)?);
         Ok(())
     }
 }

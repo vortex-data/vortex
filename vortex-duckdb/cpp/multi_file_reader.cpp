@@ -39,23 +39,21 @@ VortexMultiFileReader::InitializeReader(MultiFileReaderData &reader_data,
 
     const void *const ffi_bind = bind.ffi_bind_data->DataPtr();
 
-    // In aggregate scans columns are aggregate results so base column mapping
-    // is wrong.
-    if (duckdb_reader_is_aggregate(ffi_bind)) {
-        reader.columns = global_columns;
-    } else {
+    reader.columns = global_columns;
+
+    // Aggregate scan columns are aggregate results so base column mapping is
+    // wrong.
+    if (!duckdb_reader_is_aggregate(ffi_bind)) {
         // Projection expression pushdown changes types of columns
-        vector<MultiFileColumnDefinition> columns = global_columns;
-        for (size_t i = 0; i < columns.size(); i++) {
+        for (size_t i = 0; i < global_columns.size(); i++) {
             const duckdb_logical_type type = duckdb_reader_bind_column_type(ffi_bind, i);
-            columns[i].type = *reinterpret_cast<const LogicalType *>(type);
+            reader.columns[i].type = *reinterpret_cast<const LogicalType *>(type);
         }
-        reader.columns = std::move(columns);
 
         // this prunes files for virtual columns like "file_index"
         const ReaderInitializeType base_skip = MultiFileReader::InitializeReader(reader_data,
                                                                                  bind_data,
-                                                                                 columns,
+                                                                                 reader.columns,
                                                                                  global_column_ids,
                                                                                  table_filters,
                                                                                  context,
