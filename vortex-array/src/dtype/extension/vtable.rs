@@ -18,7 +18,8 @@ use crate::scalar::ScalarValue;
 /// compatibility.
 ///
 /// An extension dtype is not a new physical array layout. It is a logical wrapper around a storage
-/// [`DType`] plus metadata. Implementations should keep [`validate_dtype`](Self::validate_dtype)
+/// [`DType`](crate::dtype::DType) plus metadata. Implementations should keep
+/// [`validate_dtype`](Self::validate_dtype)
 /// strict enough that every valid storage scalar can be interpreted by
 /// [`unpack_native`](Self::unpack_native).
 pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
