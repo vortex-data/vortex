@@ -3,9 +3,10 @@
 
 //! CUDA executor for OnPair decompression.
 //!
-//! Decoding runs on the GPU over the full token stream — a sliced array keeps
-//! its whole `codes` child, and buffers never round-trip between host and
-//! device to cut a window out of it:
+//! Decoding runs entirely on the GPU. A sliced array keeps its whole `codes`
+//! child, so the lightweight prefix sweep covers the retained stream, while
+//! the dictionary gather/scatter and output allocation cover only the visible
+//! token window:
 //!
 //! 1. `onpair_batch_offsets` (in the CUB shim) regenerates the per-batch
 //!    output offsets (`chunk_offsets`) the decode kernel positions its writes
@@ -19,8 +20,8 @@
 //!    partial-batch reduction over each boundary batch's head. No boundary is
 //!    read on host before the single gating readback.
 //! 3. `onpair_shmem_4tpt_split8read` gathers each token's bytes from the
-//!    split dictionary layout and scatters them to the output byte stream;
-//!    the window is then exposed as a zero-copy device slice of the heap.
+//!    split dictionary layout and scatters only the visible window into an
+//!    exact-sized output byte stream.
 //!
 //! Every kernel that reads the codes is instantiated for the two widths
 //! OnPair stores (u16 natively, u8 when the compressor narrowed the codes),
@@ -244,8 +245,7 @@ pub(crate) async fn decode_onpair_varbin(
 
 /// The shared result of the OnPair GPU decode pipeline.
 struct OnPairDecoded {
-    /// This array's rows' decoded bytes: a zero-copy device slice of the full
-    /// decoded heap, bounded by the on-device window-offsets resolution.
+    /// This array's rows' decoded bytes.
     bytes: BufferHandle,
     /// Byte size of the window, computed on device.
     total_size: usize,
@@ -255,15 +255,12 @@ struct OnPairDecoded {
     lengths: PrimitiveArray,
 }
 
-/// Run the OnPair decode pipeline over the full token stream: stage the codes
-/// and dictionary, regenerate the per-batch output offsets on the device,
-/// validate the compressed stream, and decode the flat byte stream. A sliced
-/// array keeps its whole `codes` child, so the decode runs unwindowed and this
-/// array's rows are exposed as a zero-copy device slice of the decoded heap,
-/// bounded by the on-device `onpair_window_offsets` resolution — the codes
-/// never round-trip through the host. Returns `Ok(None)` when there is
-/// nothing to decode: the array is empty, every row is null, or the code
-/// window is empty.
+/// Run the OnPair decode pipeline: stage the codes and dictionary, regenerate
+/// per-batch output offsets on the device, resolve and validate the visible
+/// token window, then decode only the batches intersecting that window. The
+/// retained full code stream never round-trips through the host. Returns
+/// `Ok(None)` when there is nothing to decode: the array is empty, every row
+/// is null, or the code window is empty.
 async fn decode_onpair_bytes(
     onpair: ArrayView<'_, OnPair>,
     ctx: &mut CudaExecutionCtx,
@@ -355,7 +352,7 @@ async fn stage_dict(
 }
 
 /// Stage the codes at their native width `C`, resolve the window bounds on
-/// device, validate the stream, and decode the full token stream. Returns
+/// device, validate the stream, and decode the visible token window. Returns
 /// `Ok(None)` when the token window turns out to be empty.
 async fn decode_window<C>(
     codes: PrimitiveArray,
@@ -469,21 +466,21 @@ where
         ensure_zero_lengths(lengths).await?;
         return Ok(None);
     }
-    let byte_start = usize::try_from(byte_start)?;
+    let byte_start_u64 = byte_start;
+    let byte_start = usize::try_from(byte_start_u64)?;
     let byte_end = usize::try_from(byte_end)?;
     vortex_ensure!(
         byte_start <= byte_end && byte_end <= heap_size,
         "OnPair window bounds [{byte_start}, {byte_end}) exceed decoded heap size {heap_size}"
     );
     let total_size = byte_end - byte_start;
-    // A conformant dictionary has no zero-length tokens, so a non-empty code
-    // window decodes to at least one byte.
+    // A conformant dictionary has no zero-length tokens, so a non-empty code window decodes to at
+    // least one byte.
     vortex_ensure!(total_size > 0, "OnPair has codes but decodes to zero bytes");
 
-    // Decode the full stream. The kernel's drain gates 16-byte stores on
-    // `out_start % 16` relative to the buffer base, so the base must be
-    // 16-aligned.
-    let mut bytes = ctx.device_alloc::<u8>(heap_size)?;
+    // Decode only batches intersecting the visible token window. The kernel's drain gates 16-byte
+    // stores on `out_start % 16` relative to the buffer base, so the base must be 16-aligned.
+    let mut bytes = ctx.device_alloc::<u8>(total_size)?;
     let (bytes_base_ptr, _) = bytes.device_ptr(ctx.stream());
     assert_eq!(
         bytes_base_ptr % 16,
@@ -491,11 +488,15 @@ where
         "output base not 16-aligned: {bytes_base_ptr:#x}",
     );
 
+    let first_batch = token_start / TOKENS_PER_BATCH as u64;
+    let end_batch = token_end.div_ceil(TOKENS_PER_BATCH as u64);
+    let window_batches = usize::try_from(end_batch - first_batch)?;
+    let launch_config = batch_launch_config(window_batches)?;
     let decode_fn = ctx.load_function_with_suffixes("onpair_shmem_4tpt_split8read", &[&ptype])?;
     ctx.launch_kernel_config(
         &decode_fn,
-        staged.launch_config,
-        staged.num_tokens,
+        launch_config,
+        usize::try_from(token_end - token_start)?,
         |args| {
             args.arg(&codes_view)
                 .arg(&staged.chunk_offsets)
@@ -503,14 +504,15 @@ where
                 .arg(&padded_view)
                 .arg(&lens_view)
                 .arg(&mut bytes)
-                .arg(&num_tokens_u64);
+                .arg(&token_start)
+                .arg(&token_end)
+                .arg(&first_batch)
+                .arg(&byte_start_u64);
         },
     )?;
 
-    // This array's rows as a zero-copy device slice of the decoded heap.
-    let heap = CudaDeviceBuffer::new(bytes);
     Ok(Some(OnPairDecoded {
-        bytes: BufferHandle::new_device(heap.slice(byte_start..byte_end)),
+        bytes: BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(bytes))),
         total_size,
         lengths,
     }))
@@ -524,7 +526,6 @@ struct StagedCodes {
     /// is the total decoded byte count of the full code stream.
     chunk_offsets: CudaSlice<u64>,
     num_tokens: usize,
-    launch_config: LaunchConfig,
 }
 
 /// Stage this array's device-decompressed codes and regenerate the decode
@@ -546,7 +547,6 @@ async fn stage_codes(
     let codes_dev = ctx.ensure_on_device(codes_buffer).await?;
 
     let num_batches = num_tokens.div_ceil(TOKENS_PER_BATCH);
-    let launch_config = batch_launch_config(num_batches)?;
     let chunk_offsets = onpair_batch_offsets(
         &codes_dev,
         code_width,
@@ -562,7 +562,6 @@ async fn stage_codes(
         codes: codes_dev,
         chunk_offsets,
         num_tokens,
-        launch_config,
     })
 }
 
@@ -646,6 +645,7 @@ mod tests {
     use crate::arrow::DeviceArrayExt;
     use crate::arrow::release_device_array;
     use crate::arrow::release_schema;
+    use crate::device_buffer::cuda_backing_allocation;
     use crate::session::CudaSession;
     use crate::session::VarBinExportLayout;
 
@@ -811,7 +811,7 @@ mod tests {
     /// A slice deep into a large array: both code-window boundaries land
     /// mid-batch in non-zero batches, exercising the on-device window-bounds
     /// resolution (whole-batch prefix plus partial-batch reduction) and the
-    /// zero-copy window slice of the full decoded heap.
+    /// exact-sized decoded window allocation.
     #[crate::test]
     async fn test_cuda_onpair_decompression_sliced_large() -> VortexResult<()> {
         let mut ctx = vortex_array::array_session().create_execution_ctx();
@@ -833,6 +833,12 @@ mod tests {
             .execute(sliced.clone(), &mut cuda_ctx)
             .await?;
         assert_device_resident(&gpu_result);
+        let expected_bytes = strings[19_997..20_101]
+            .iter()
+            .map(String::len)
+            .sum::<usize>();
+        let values = &gpu_result.as_varbinview().data_buffers()[0];
+        assert_eq!(cuda_backing_allocation(values)?.len(), expected_bytes);
         let host_result = gpu_result.into_host().await?.into_array();
         assert_arrays_eq!(sliced, host_result, &mut ctx);
         Ok(())
