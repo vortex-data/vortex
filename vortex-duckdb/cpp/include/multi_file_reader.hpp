@@ -40,9 +40,25 @@ struct VortexMultiFileReader final : MultiFileReader {
 
     /*
      * Called after InitializeGlobalState but before TryInitializeScan under
-     * file-local lock. Used to avoid opening the file for scanning if footer
+     * file-local lock. Used to avoid initializing file splits if footer
      * statistics prove false for pushed filter or file index is not present in
      * file selection.
+     *
+     * TODO(myrrc):
+     * InitializeReader prunes unused files e.g. ones filtered by "file_index".
+     * These files are opened but not initialized. Duckdb 2.0 allows filtering
+     * on virtual columns to skip opening files, but until it's released,
+     * filtered files (say, second pass in late materialization queries like
+     * clickbench 23) will be opened, and we will read their footers.
+     *
+     * ComplexFilterPushdown/DynamicFilterPushdown callbacks technically allow
+     * filtering file list via filter, but with file_index specificaly it
+     * doesn't work:
+     * Say we have a filter "file_index IN (1, 2)" and files 0,1,2. We filter
+     * first file and return a new list of two files. Duckdb 1.5 then
+     * renumbers files 1->0, 2->1 (it uses file index). Then it evaluates
+     * the old filter with new file index and file 1 (with new index 0) is
+     * filtered out which produces invalid results.
      */
     ReaderInitializeType InitializeReader(MultiFileReaderData &reader_data,
                                           const MultiFileBindData &bind_data,

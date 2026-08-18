@@ -37,6 +37,7 @@ VortexMultiFileReader::InitializeReader(MultiFileReaderData &reader_data,
     VortexBaseReader &reader = reader_data.reader->Cast<VortexBaseReader>();
 
     reader.columns = global_columns; // base InitializeReader requires columns to be set
+    // this prunes files for virtual columns like "file_index"
     const ReaderInitializeType base_skip = MultiFileReader::InitializeReader(reader_data,
                                                                              bind_data,
                                                                              global_columns,
