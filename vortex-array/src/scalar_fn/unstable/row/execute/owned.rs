@@ -19,6 +19,7 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::unstable::row::FailureEvidence;
 use crate::scalar_fn::unstable::row::IndexedElementTuple;
 use crate::scalar_fn::unstable::row::OutputElement;
+use crate::scalar_fn::unstable::row::ViewLen;
 use crate::scalar_fn::unstable::row::visitor::assert_owned_output_needs_no_drop;
 
 /// Zero-sized failure accumulator for infallible owned visits.
@@ -77,19 +78,19 @@ where
     let failure = if let Some(views) = Args::views_if_no_consts(&columns) {
         // Keep this validation beside the views so LLVM sees their common length here.
         vortex_ensure!(
-            Args::view_lens_match(&views, row_count),
+            Args::ARITY == 0 || views.len() == row_count,
             "a decoded row input does not address exactly {row_count} rows",
         );
 
-        // SAFETY: `view_lens_match` proved every view addresses exactly `row_count` rows
-        // immediately above.
+        // SAFETY: the tuple length check proved every non-nullary view addresses exactly
+        // `row_count` rows immediately above. Nullary tuples do not access an input view.
         let source = unsafe { Args::indexed_source(views, row_count) };
 
         source.map_checked_into(output, |elements| apply(&prepared, elements))
     } else {
         // Keep this proof branch-local. Shared validation prevents LLVM from specializing this
         // loop for each batch-constant arrangement, leaving it scalar under multiple CGUs without
-        // LTO. The exact pass interaction is unknown.
+        // LTO.
         vortex_ensure!(
             Args::decoded_lens_match(&columns, row_count),
             "a decoded row input does not address exactly {row_count} rows",

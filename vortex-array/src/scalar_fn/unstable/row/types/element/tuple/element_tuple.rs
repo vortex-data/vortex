@@ -148,7 +148,7 @@ pub trait ElementTuple: 'static + private::Sealed {
     type Columns;
 
     /// Borrowed views of decoded columns with no batch constants.
-    type Views<'a>;
+    type Views<'a>: ViewLen;
 
     /// The borrowed row of element values.
     type Elems<'a>;
@@ -206,19 +206,15 @@ pub trait ElementTuple: 'static + private::Sealed {
     /// returned tuple removes batch-constant checks from the row loop.
     fn views_if_no_consts(columns: &Self::Columns) -> Option<Self::Views<'_>>;
 
-    /// Whether every view contains exactly `row_count` rows.
-    ///
-    /// The executor calls this once before the loop used when no input is batch-constant. A
-    /// successful check gives LLVM a dominating equality between the loop bound and every source
-    /// length, which lets it optimize the tuple access as one fixed-length traversal.
-    fn view_lens_match(views: &Self::Views<'_>, row_count: usize) -> bool;
-
     /// Whether every argument decoded at full batch length contains exactly `row_count` rows.
     ///
-    /// This is the equivalent of [`view_lens_match`](Self::view_lens_match) when the columns include
-    /// batch constants. It runs once before the hot loop for the same LLVM optimization. A batch
-    /// constant is exempt because its `ArgColumn` constructor already validated the one-row
-    /// representation produced by decoding.
+    /// NB: `Columns` cannot implement [`ViewLen`] because a batch-constant [`ArgColumn`] physically
+    /// contains one decoded row while logically addressing every row in the batch. By contrast,
+    /// [`views_if_no_consts`](Self::views_if_no_consts) constructs `Views` only when every argument
+    /// is non-constant, so those views have one common physical length.
+    ///
+    /// This check runs once before the hot loop. A batch constant is exempt because its
+    /// [`ArgColumn`] constructor already validated the one-row representation produced by decoding.
     fn decoded_lens_match(columns: &Self::Columns, row_count: usize) -> bool;
 
     /// Read one row from borrowed views.
@@ -283,10 +279,6 @@ impl ElementTuple for () {
 
     fn views_if_no_consts(_columns: &Self::Columns) -> Option<Self::Views<'_>> {
         Some(())
-    }
-
-    fn view_lens_match(_views: &Self::Views<'_>, _row_count: usize) -> bool {
-        true
     }
 
     fn decoded_lens_match(_columns: &Self::Columns, _row_count: usize) -> bool {
@@ -367,13 +359,6 @@ macro_rules! element_tuple {
 
             fn views_if_no_consts(columns: &Self::Columns) -> Option<Self::Views<'_>> {
                 Some(($($t::view(columns.$idx.as_column()?),)+))
-            }
-
-            fn view_lens_match(
-                views: &Self::Views<'_>,
-                row_count: usize,
-            ) -> bool {
-                $(views.$idx.len() == row_count &&)+ true
             }
 
             fn decoded_lens_match(columns: &Self::Columns, row_count: usize) -> bool {

@@ -54,3 +54,51 @@ impl<T: ViewLen + ?Sized> ViewLen for &mut T {
         T::len(self)
     }
 }
+
+macro_rules! impl_tuple_view_len {
+    ($first:ident; $($rest:ident : $idx:tt),*) => {
+        impl<$first: ViewLen, $($rest: ViewLen),*> ViewLen for ($first, $($rest,)*) {
+            fn len(&self) -> usize {
+                let len = self.0.len();
+                $(assert_eq!(self.$idx.len(), len, "tuple views must have equal lengths");)*
+
+                len
+            }
+        }
+    };
+}
+
+impl_tuple_view_len!(A;);
+impl_tuple_view_len!(A; B: 1);
+impl_tuple_view_len!(A; B: 1, C: 2);
+impl_tuple_view_len!(A; B: 1, C: 2, D: 3);
+impl_tuple_view_len!(A; B: 1, C: 2, D: 3, E: 4);
+impl_tuple_view_len!(A; B: 1, C: 2, D: 3, E: 4, F: 5);
+impl_tuple_view_len!(A; B: 1, C: 2, D: 3, E: 4, F: 5, G: 6);
+impl_tuple_view_len!(A; B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7);
+impl_tuple_view_len!(A; B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7, I: 8);
+impl_tuple_view_len!(A; B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7, I: 8, J: 9);
+impl_tuple_view_len!(A; B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7, I: 8, J: 9, K: 10);
+impl_tuple_view_len!(A; B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7, I: 8, J: 9, K: 10, L: 11);
+
+#[cfg(test)]
+mod tests {
+    use super::ViewLen;
+
+    #[test]
+    fn tuple_len_returns_common_len() {
+        let first: &[i64] = &[1, 2];
+        let second: &[i64] = &[3, 4];
+
+        assert_eq!((first, second).len(), 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "tuple views must have equal lengths")]
+    fn tuple_len_rejects_mismatch() {
+        let first: &[i64] = &[1];
+        let second: &[i64] = &[2, 3];
+
+        let _ = (first, second).len();
+    }
+}

@@ -39,7 +39,6 @@ where
     ApplyResult: SinkResult<WriteToken = <Sink as OutputSink<Options>>::WriteToken>,
 {
     let columns = Args::decode(args, ctx)?;
-    let views = Args::views_if_no_consts(&columns);
 
     let row_count = args.row_count();
     let const_values = Args::const_values(&columns);
@@ -59,13 +58,15 @@ where
             "the output sink must address exactly {row_count} rows, got {sink_row_count}",
         );
 
+        let views = Args::views_if_no_consts(&columns);
         if let Some(views) = views {
-            if !Args::view_lens_match(&views, row_count) {
+            if Args::ARITY != 0 && views.len() != row_count {
                 decoded_length_error(row_count)?;
             }
 
             for index in 0..row_count {
-                // SAFETY: `view_lens_match` proved every view has `row_count` rows before the loop.
+                // SAFETY: the tuple length check proved every non-nullary view has `row_count`
+                // rows before the loop. Nullary tuples do not access an input view.
                 let elements = unsafe { Args::get_from_views_unchecked(&views, index) };
                 // SAFETY: the sink row-count check above proved every loop index is in bounds.
                 let output =
@@ -143,7 +144,7 @@ where
         );
 
         if let Some(views) = views {
-            if !Args::view_lens_match(&views, row_count) {
+            if Args::ARITY != 0 && views.len() != row_count {
                 decoded_length_error(row_count)?;
             }
 
@@ -153,8 +154,9 @@ where
                 let output =
                     unsafe { <Sink as OutputSink<Options>>::row_unchecked(&mut rows, index) };
 
-                // SAFETY: `view_lens_match` proved every view has `row_count` rows, and mask
-                // indices are below `row_count`.
+                // SAFETY: the tuple length check proved every non-nullary view has `row_count`
+                // rows, and mask indices are below `row_count`. Nullary tuples do not access an
+                // input view.
                 let elements = unsafe { Args::get_from_views_unchecked(&views, index) };
 
                 apply(&prepared, elements, output).into_result()
