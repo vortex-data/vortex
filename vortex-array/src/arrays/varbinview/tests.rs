@@ -70,20 +70,23 @@ pub fn binary_view_size_and_alignment() {
 }
 
 #[test]
-pub fn replace_invalid_views() -> VortexResult<()> {
+pub fn validate_replaces_null_views() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let views = Buffer::<BinaryView>::copy_from(vec![
         BinaryView::new_inlined(b"ololo"),
         BinaryView::new_ref(13, *b"AAAA", 0xDEAD_BEEF, 0xF000_0000),
     ]);
+    let buffers: Arc<[ByteBuffer]> = Arc::new([]);
+    let dtype = DType::Utf8(Nullability::Nullable);
     let buffer = BitBuffer::from_iter([true, false]);
     let validity = Validity::from_bit_buffer(buffer, Nullability::Nullable);
 
-    let replaced = VarBinViewData::replace_invalid_views(views.clone(), &validity, &mut ctx)?;
+    let replaced = VarBinViewData::validate(views.clone(), &buffers, &dtype, &validity, &mut ctx)?;
     assert_eq!(replaced[0], views[0]);
     assert_eq!(replaced[1], BinaryView::empty_view());
 
-    let replaced = VarBinViewData::replace_invalid_views(views, &Validity::AllInvalid, &mut ctx)?;
+    let replaced =
+        VarBinViewData::validate(views, &buffers, &dtype, &Validity::AllInvalid, &mut ctx)?;
     assert!(
         replaced
             .iter()

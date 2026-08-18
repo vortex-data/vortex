@@ -206,45 +206,10 @@ impl VarBinViewData {
         validity: Validity,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
-        let views = Self::replace_invalid_views(views, &validity, ctx)?;
-        Self::validate(&views, &buffers, &dtype, &validity)?;
+        let views = Self::validate(views, &buffers, &dtype, &validity, ctx)?;
 
         // SAFETY: validate ensures all invariants are met.
         Ok(unsafe { Self::new_unchecked(views, buffers, dtype, validity) })
-    }
-
-    // Replace views at invalid (null) slots with empty views
-    pub(crate) fn replace_invalid_views(
-        views: Buffer<BinaryView>,
-        validity: &Validity,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Buffer<BinaryView>> {
-        let mask = validity.execute_mask(views.len(), ctx)?;
-        if mask.all_true() {
-            return Ok(views);
-        }
-        let len = views.len();
-        let empty = BinaryView::empty_view();
-
-        let mut views = match views.try_into_mut() {
-            Ok(views) => views,
-            Err(views) => {
-                let mut needs_replace = false;
-                for_each_invalid_range(&mask, len, |start, end| {
-                    if !needs_replace && views[start..end].iter().any(|view| *view != empty) {
-                        needs_replace = true;
-                    }
-                });
-                if !needs_replace {
-                    return Ok(views);
-                }
-                views.into_mut()
-            }
-        };
-
-        let slice = views.as_mut_slice();
-        for_each_invalid_range(&mask, len, |start, end| slice[start..end].fill(empty));
-        Ok(views.freeze())
     }
 
     /// Constructs a new `VarBinViewArray`.
@@ -316,8 +281,15 @@ impl VarBinViewData {
         validity: Validity,
     ) -> Self {
         #[cfg(debug_assertions)]
-        Self::validate(&views, &buffers, &dtype, &validity)
-            .vortex_expect("[Debug Assertion]: Invalid `VarBinViewArray` parameters");
+        #[expect(clippy::disallowed_methods)]
+        let views = Self::validate(
+            views,
+            &buffers,
+            &dtype,
+            &validity,
+            &mut legacy_session().create_execution_ctx(),
+        )
+        .vortex_expect("[Debug Assertion]: Invalid `VarBinViewArray` parameters");
 
         let handles: Vec<BufferHandle> = buffers
             .iter()
@@ -348,13 +320,15 @@ impl VarBinViewData {
 
     /// Validates the components that would be used to create a `VarBinViewArray`.
     ///
-    /// This function checks all the invariants required by `VarBinViewArray::new_unchecked`.
+    /// This function checks all the invariants required by `VarBinViewArray::new_unchecked`,
+    /// and also replaces invalid/null views with empty views.
     pub fn validate(
-        views: &Buffer<BinaryView>,
+        views: Buffer<BinaryView>,
         buffers: &Arc<[ByteBuffer]>,
         dtype: &DType,
         validity: &Validity,
-    ) -> VortexResult<()> {
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Buffer<BinaryView>> {
         vortex_ensure!(
             validity.nullability() == dtype.nullability(),
             InvalidArgument: "validity {:?} incompatible with nullability {:?}",
@@ -363,23 +337,21 @@ impl VarBinViewData {
         );
 
         match dtype {
-            DType::Utf8(_) => Self::validate_views(views, buffers, validity, |string| {
+            DType::Utf8(_) => Self::validate_views(views, buffers, validity, ctx, |string| {
                 simdutf8::basic::from_utf8(string).is_ok()
-            })?,
-            DType::Binary(_) => Self::validate_views(views, buffers, validity, |_| true)?,
+            }),
+            DType::Binary(_) => Self::validate_views(views, buffers, validity, ctx, |_| true),
             _ => vortex_bail!(InvalidArgument: "invalid DType {dtype} for `VarBinViewArray`"),
         }
-
-        Ok(())
     }
 
-    #[allow(clippy::disallowed_methods)]
     fn validate_views<F>(
-        views: &Buffer<BinaryView>,
+        views: Buffer<BinaryView>,
         buffers: &Arc<[ByteBuffer]>,
         validity: &Validity,
+        ctx: &mut ExecutionCtx,
         validator: F,
-    ) -> VortexResult<()>
+    ) -> VortexResult<Buffer<BinaryView>>
     where
         F: Fn(&[u8]) -> bool,
     {
@@ -430,30 +402,45 @@ impl VarBinViewData {
             Ok(())
         };
 
+        let empty = BinaryView::empty_view();
+        let len = views.len();
+
         match validity {
             // Array-backed validity is the only variant that needs an execution context: execute it
-            // into a mask once and zip it with the views, validating only the valid (non-null)
-            // entries.
+            // into a mask once and zip it with the views.
             Validity::Array(_) => {
-                let mut ctx = legacy_session().create_execution_ctx();
-                let mask = validity.execute_mask(views.len(), &mut ctx)?;
+                let mask = validity.execute_mask(len, ctx)?;
+                let mut needs_replace = false;
                 for ((idx, view), valid) in views.iter().enumerate().zip(mask.iter()) {
                     if valid {
                         validate_view(idx, view)?;
+                    } else if *view != empty {
+                        needs_replace = true;
                     }
                 }
+                if !needs_replace {
+                    return Ok(views);
+                }
+                let mut views = views.into_mut();
+                let slice = views.as_mut_slice();
+                for_each_invalid_range(&mask, len, |start, end| slice[start..end].fill(empty));
+                Ok(views.freeze())
             }
-            // Every entry is null, so there is nothing to validate.
-            Validity::AllInvalid => {}
-            // No nulls: validate every view.
+            Validity::AllInvalid => {
+                if views.iter().all(|view| *view == empty) {
+                    return Ok(views);
+                }
+                let mut views = views.into_mut();
+                views.as_mut_slice().fill(empty);
+                Ok(views.freeze())
+            }
             Validity::NonNullable | Validity::AllValid => {
                 for (idx, view) in views.iter().enumerate() {
                     validate_view(idx, view)?;
                 }
+                Ok(views)
             }
         }
-
-        Ok(())
     }
 
     /// Returns the length of this array.
