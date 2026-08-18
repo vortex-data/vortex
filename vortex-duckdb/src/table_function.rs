@@ -4,7 +4,6 @@
 use std::cmp::max;
 use std::fmt::Formatter;
 use std::fmt::{self};
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
@@ -129,14 +128,17 @@ pub struct GlobalState {
     pub file_row_number_column_pos: Option<usize>,
 
     // Following fields are used only in aggregate scans.
-    /// Number of active threads processing files.
-    /// 0 means we're the last accumulating thread.
-    /// u64::MAX means output row is written.
-    pub active_threads: Arc<AtomicU64>,
+    pub aggregate_state: Mutex<AggregateState>,
     pub aggregates: Vec<ColumnAggregate>,
     pub has_count_star: bool,
-    pub partials: Mutex<Vec<Partials>>,
     pub row_count: AtomicU64,
+}
+
+#[derive(Default)]
+pub struct AggregateState {
+    pub active_threads: usize,
+    pub output_row_written: bool,
+    pub partials: Vec<Partials>,
 }
 assert_impl_all!(GlobalState: Send, Sync);
 
@@ -152,6 +154,7 @@ pub struct LocalState {
 
     /// Empty for non-aggregate scan
     pub partials: Partials,
+    pub finished: bool,
 }
 
 #[derive(Clone)]
@@ -171,20 +174,22 @@ pub enum Cardinality {
     Estimate(u64),
 }
 
+/// Called by thread when work is done. May be called multiple times by same
+/// thread
 pub fn finalize_scan(global: &GlobalState, chunk: &mut DataChunkRef) -> VortexResult<bool> {
     if global.aggregates.is_empty() {
         return Ok(false);
     }
-    if global
-        .active_threads
-        .compare_exchange(0, u64::MAX, Ordering::AcqRel, Ordering::Relaxed)
-        .is_err()
-    {
+    let mut state = global.aggregate_state.lock();
+    if state.active_threads != 0 || state.output_row_written {
         return Ok(false);
     }
+    state.output_row_written = true;
 
-    let mut partials = global.partials.lock();
-    let (base, rest) = partials.split_first_mut().vortex_expect("no local state");
+    let (base, rest) = state
+        .partials
+        .split_first_mut()
+        .vortex_expect("no local state");
     for other in rest.iter_mut() {
         for ((_, acc), (_, part)) in base.iter_mut().zip(other.iter_mut()) {
             acc.combine_partials(part.flush()?)?;
@@ -210,12 +215,14 @@ pub fn finalize_scan(global: &GlobalState, chunk: &mut DataChunkRef) -> VortexRe
 
 /// Called once per thread when it has no more files to read
 pub fn finish_reading(global: &GlobalState, local: &mut LocalState) {
-    if global.aggregates.is_empty() {
+    if global.aggregates.is_empty() || local.finished {
         return;
     }
+    local.finished = true;
     let partials = std::mem::take(&mut local.partials);
-    global.partials.lock().push(partials);
-    global.active_threads.fetch_sub(1, Ordering::Release);
+    let mut agg = global.aggregate_state.lock();
+    agg.partials.push(partials);
+    agg.active_threads -= 1;
 }
 
 pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
@@ -272,10 +279,9 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
     Ok(GlobalState {
         projection,
         filter,
-        active_threads: Arc::new(AtomicU64::new(0)),
         aggregates: bind_data.aggregates.clone(),
         has_count_star,
-        partials: Mutex::new(Vec::new()),
+        aggregate_state: Mutex::new(AggregateState::default()),
         row_count: AtomicU64::new(0),
         file_row_number_column_pos,
     })
@@ -335,13 +341,14 @@ pub fn init_local(bind_data: &BindState, global: &GlobalState) -> LocalState {
         .vortex_expect("local state aggregate initialization failed");
 
     if !global.aggregates.is_empty() {
-        global.active_threads.fetch_add(1, Ordering::Relaxed);
+        global.aggregate_state.lock().active_threads += 1;
     }
 
     LocalState {
         exporter: None,
         partials,
         split: None,
+        finished: false,
     }
 }
 
