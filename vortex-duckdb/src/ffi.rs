@@ -224,6 +224,15 @@ pub unsafe extern "C-unwind" fn duckdb_reader_initialize(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn duckdb_reader_bind_column_type(
+    bind: *const c_void,
+    index: usize,
+) -> cpp::duckdb_logical_type {
+    let bind = unsafe { bind.cast::<BindState>().as_ref() }.vortex_expect("null pointer");
+    bind.columns[index].logical_type.as_ptr()
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn duckdb_reader_try_initialize_scan(
     local: *mut c_void,
     file: *mut c_void,

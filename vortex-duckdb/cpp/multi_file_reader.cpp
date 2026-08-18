@@ -35,12 +35,22 @@ VortexMultiFileReader::InitializeReader(MultiFileReaderData &reader_data,
     D_ASSERT(gstate.global_state != nullptr);
 
     VortexBaseReader &reader = reader_data.reader->Cast<VortexBaseReader>();
+    const VortexBindData &bind = bind_data.bind_data->Cast<VortexBindData>();
 
-    reader.columns = global_columns; // base InitializeReader requires columns to be set
+    const void *const ffi_bind = bind.ffi_bind_data->DataPtr();
+
+    // Projection expression pushdown changes types of columns
+    vector<MultiFileColumnDefinition> columns = global_columns;
+    for (size_t i = 0; i < columns.size(); i++) {
+        const duckdb_logical_type type = duckdb_reader_bind_column_type(ffi_bind, i);
+        columns[i].type = *reinterpret_cast<const LogicalType *>(type);
+    }
+    reader.columns = columns;
+
     // this prunes files for virtual columns like "file_index"
     const ReaderInitializeType base_skip = MultiFileReader::InitializeReader(reader_data,
                                                                              bind_data,
-                                                                             global_columns,
+                                                                             columns,
                                                                              global_column_ids,
                                                                              table_filters,
                                                                              context,
