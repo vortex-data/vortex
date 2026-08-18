@@ -23,6 +23,9 @@ use vortex::array::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use vortex::array::arrays::varbinview::build_views::build_views;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBuffer;
+use vortex::array::expr::stats::Precision;
+use vortex::array::expr::stats::Stat;
+use vortex::array::expr::stats::StatsProvider;
 use vortex::array::match_each_integer_ptype;
 use vortex::array::match_each_unsigned_integer_ptype;
 use vortex::array::validity::Validity;
@@ -30,6 +33,7 @@ use vortex::buffer::Alignment;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
 use vortex::dtype::NativePType;
+use vortex::dtype::PType;
 use vortex::encodings::fsst::FSST;
 use vortex::encodings::fsst::FSSTArray;
 use vortex::encodings::fsst::FSSTArrayExt;
@@ -42,6 +46,7 @@ use crate::CanonicalCudaExt;
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::arrow::I32Offsets;
+use crate::arrow::i32_offsets_from_known_lengths;
 use crate::arrow::i32_offsets_from_lengths;
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecute;
@@ -121,42 +126,117 @@ impl CudaExecute for FSSTExecutor {
             }));
         }
 
-        let lens = fsst
-            .uncompressed_lengths()
-            .clone()
-            .execute_cuda(ctx)
-            .await?
-            .into_host()
-            .await?
-            .into_primitive();
-        let codes_offsets = fsst
-            .codes()
-            .offsets()
-            .clone()
-            .execute_cuda(ctx)
-            .await?
-            .into_primitive();
-
-        // Prefix-sum lens to per-string u64 output offsets so the kernel
-        // knows where to write each decoded string.
-        let output_offsets: Vec<u64> = match_each_integer_ptype!(lens.ptype(), |P| {
-            let mut out = Vec::with_capacity(lens.len() + 1);
-            let mut acc: u64 = 0;
-            out.push(0u64);
-            #[allow(clippy::unnecessary_cast)]
-            for &l in lens.as_slice::<P>() {
-                acc += l as u64;
-                out.push(acc);
-            }
-            out
-        });
-
-        // Dispatch on the unsigned width; signed and unsigned offsets of the
-        // same width share an identical byte representation.
-        match_each_unsigned_integer_ptype!(codes_offsets.ptype().to_unsigned(), |U| {
-            decode_fsst::<U>(fsst, codes_offsets, lens, output_offsets, ctx).await
-        })
+        if exact_nonnegative_length_sum(&fsst).is_some() || can_build_i32_offsets(&fsst) {
+            decode_fsst_varbinview(fsst, ctx).await
+        } else {
+            decode_fsst_host_varbinview(fsst, ctx).await
+        }
     }
+}
+
+/// Decode FSST directly into a device-resident canonical `VarBinView` array.
+async fn decode_fsst_varbinview(
+    fsst: FSSTArray,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<Canonical> {
+    let dtype = fsst.dtype().clone();
+    let validity = fsst.codes().validity()?;
+    let len = fsst.len();
+    let lens = fsst
+        .uncompressed_lengths()
+        .clone()
+        .execute_cuda(ctx)
+        .await?
+        .into_primitive();
+    let codes_offsets = fsst
+        .codes()
+        .offsets()
+        .clone()
+        .execute_cuda(ctx)
+        .await?
+        .into_primitive();
+    let I32Offsets {
+        buffer: output_offsets,
+        total: total_size,
+    } = fsst_i32_offsets(&fsst, lens, ctx).await?;
+
+    if total_size == 0 {
+        let views = ctx.copy_to_device(vec![0i128; len])?.await?;
+        return Ok(Canonical::VarBinView(unsafe {
+            VarBinViewArray::new_handle_unchecked(views, Arc::from([]), dtype, validity)
+        }));
+    }
+
+    match_each_unsigned_integer_ptype!(codes_offsets.ptype().to_unsigned(), |U| {
+        decode_fsst_varbinview_typed::<U>(fsst, codes_offsets, output_offsets, total_size, ctx)
+            .await
+    })
+}
+
+async fn decode_fsst_varbinview_typed<U>(
+    fsst: FSSTArray,
+    codes_offsets: PrimitiveArray,
+    output_offsets: BufferHandle,
+    total_size: usize,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<Canonical>
+where
+    U: NativePType + DeviceRepr + Send + Sync + 'static,
+{
+    let dtype = fsst.dtype().clone();
+    let validity = fsst.codes().validity()?;
+    let num_strings = fsst.len();
+    let num_strings_u64 = u64::try_from(num_strings)?;
+    let symbols_u64 = fsst
+        .symbols()
+        .iter()
+        .map(|symbol| symbol.to_u64())
+        .collect::<Vec<_>>();
+    let symbol_lengths = fsst.padded_symbol_lengths().slice(0..fsst.n_symbols());
+    let codes_bytes_handle = fsst.codes_bytes_handle().clone();
+    let PrimitiveDataParts {
+        buffer: codes_offsets_buffer,
+        ..
+    } = codes_offsets.into_data_parts();
+    let (validity_bit_offset, validity_bits) = cuda_validity(&validity, num_strings, ctx).await?;
+
+    let symbols = ctx.stream().copy_to_device_sync(&symbols_u64)?;
+    let symbol_lengths = ctx.stream().copy_to_device_sync(symbol_lengths.as_ref())?;
+    let validity_device = ctx.ensure_on_device_sync(validity_bits)?;
+    let (codes_bytes, codes_offsets) = futures::try_join!(
+        ctx.ensure_on_device(codes_bytes_handle),
+        ctx.ensure_on_device(codes_offsets_buffer),
+    )?;
+
+    let mut output = ctx.device_alloc::<u8>(total_size)?;
+    let mut views = ctx.device_alloc::<i128>(num_strings)?;
+    let codes_bytes_view = codes_bytes.cuda_view::<u8>()?;
+    let codes_offsets_view = codes_offsets.cuda_view::<U>()?;
+    let symbols_view = symbols.cuda_view::<u64>()?;
+    let symbol_lengths_view = symbol_lengths.cuda_view::<u8>()?;
+    let output_offsets_view = output_offsets.cuda_view::<i32>()?;
+    let validity_view = validity_device.cuda_view::<u8>()?;
+    let ptype = U::PTYPE.to_string();
+    let cuda_function = ctx.load_function_with_suffixes("fsst", &["varbinview", &ptype])?;
+
+    ctx.launch_kernel(&cuda_function, num_strings, |args| {
+        args.arg(&codes_bytes_view)
+            .arg(&codes_offsets_view)
+            .arg(&symbols_view)
+            .arg(&symbol_lengths_view)
+            .arg(&output_offsets_view)
+            .arg(&validity_view)
+            .arg(&validity_bit_offset)
+            .arg(&mut output)
+            .arg(&mut views)
+            .arg(&num_strings_u64);
+    })?;
+
+    let views = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(views)));
+    let values = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output)));
+    Ok(Canonical::VarBinView(unsafe {
+        VarBinViewArray::new_handle_unchecked(views, Arc::from([values]), dtype, validity)
+    }))
 }
 
 /// Decode FSST directly into Arrow-compatible i32 offsets and contiguous values on device.
@@ -183,7 +263,7 @@ pub(crate) async fn decode_fsst_varbin(
     let I32Offsets {
         buffer: output_offsets,
         total: total_size,
-    } = i32_offsets_from_lengths(lens, ctx).await?;
+    } = fsst_i32_offsets(&fsst, lens, ctx).await?;
 
     if total_size == 0 {
         let allocation = CudaDeviceBuffer::new(ctx.device_alloc::<u8>(1)?);
@@ -229,10 +309,10 @@ where
     } = codes_offsets.into_data_parts();
     let (validity_bit_offset, validity_bits) = cuda_validity(&validity, len, ctx).await?;
 
-    let (symbols, symbol_lengths, validity_device, codes_bytes, codes_offsets) = futures::try_join!(
-        ctx.copy_to_device(symbols_u64)?,
-        ctx.copy_to_device(symbol_lengths)?,
-        ctx.ensure_on_device(validity_bits),
+    let symbols = ctx.stream().copy_to_device_sync(&symbols_u64)?;
+    let symbol_lengths = ctx.stream().copy_to_device_sync(symbol_lengths.as_ref())?;
+    let validity_device = ctx.ensure_on_device_sync(validity_bits)?;
+    let (codes_bytes, codes_offsets) = futures::try_join!(
         ctx.ensure_on_device(codes_bytes_handle),
         ctx.ensure_on_device(codes_offsets_buffer),
     )?;
@@ -274,6 +354,84 @@ where
         offsets: output_offsets,
         values: BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output))),
         validity,
+    })
+}
+
+async fn fsst_i32_offsets(
+    fsst: &FSSTArray,
+    lengths: PrimitiveArray,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<I32Offsets> {
+    if let Some(total) = exact_nonnegative_length_sum(fsst) {
+        return Ok(I32Offsets {
+            buffer: i32_offsets_from_known_lengths(lengths, ctx).await?,
+            total,
+        });
+    }
+
+    i32_offsets_from_lengths(lengths, ctx).await
+}
+
+fn exact_nonnegative_length_sum(fsst: &FSSTArray) -> Option<usize> {
+    let stats = fsst.uncompressed_lengths().statistics();
+    let Precision::Exact(min) = stats.get(Stat::Min) else {
+        return None;
+    };
+    let Precision::Exact(sum) = stats.get(Stat::Sum) else {
+        return None;
+    };
+    let min = i64::try_from(&min).ok()?;
+    let total = usize::try_from(&sum).ok()?;
+    (min >= 0 && total <= i32::MAX as usize).then_some(total)
+}
+
+fn can_build_i32_offsets(fsst: &FSSTArray) -> bool {
+    let max_length = match fsst.uncompressed_lengths().dtype().as_ptype() {
+        PType::U8 => u8::MAX as usize,
+        PType::U16 => u16::MAX as usize,
+        PType::U32 => u32::MAX as usize,
+        PType::U64 => usize::MAX,
+        _ => return false,
+    };
+    fsst.len()
+        .checked_mul(max_length)
+        .is_some_and(|max_total| max_total <= i32::MAX as usize)
+}
+
+async fn decode_fsst_host_varbinview(
+    fsst: FSSTArray,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<Canonical> {
+    let lens = fsst
+        .uncompressed_lengths()
+        .clone()
+        .execute_cuda(ctx)
+        .await?
+        .into_host()
+        .await?
+        .into_primitive();
+    let codes_offsets = fsst
+        .codes()
+        .offsets()
+        .clone()
+        .execute_cuda(ctx)
+        .await?
+        .into_primitive();
+
+    let output_offsets: Vec<u64> = match_each_integer_ptype!(lens.ptype(), |P| {
+        let mut out = Vec::with_capacity(lens.len() + 1);
+        let mut acc: u64 = 0;
+        out.push(0u64);
+        #[allow(clippy::unnecessary_cast)]
+        for &length in lens.as_slice::<P>() {
+            acc += length as u64;
+            out.push(acc);
+        }
+        out
+    });
+
+    match_each_unsigned_integer_ptype!(codes_offsets.ptype().to_unsigned(), |U| {
+        decode_fsst::<U>(fsst, codes_offsets, lens, output_offsets, ctx).await
     })
 }
 

@@ -23,6 +23,7 @@ use vortex::array::arrays::varbinview::BinaryView;
 use vortex::array::arrays::varbinview::VarBinViewDataParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::legacy_session;
+use vortex::array::validity::Validity;
 use vortex::buffer::BitBuffer;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
@@ -34,6 +35,26 @@ pub trait CanonicalCudaExt {
     async fn into_host(self) -> VortexResult<Self>
     where
         Self: Sized;
+}
+
+/// Copies an array-backed validity mask back to the host.
+///
+/// Only [`Validity::Array`] owns a buffer; the other variants are metadata and pass through.
+/// Migrating the values of a nullable array without its validity leaves the mask on the
+/// device, and the first host read of it — canonicalising to Arrow, say — panics in
+/// `BufferHandle::unwrap_host`.
+#[allow(clippy::disallowed_methods)]
+async fn validity_into_host(validity: Validity) -> VortexResult<Validity> {
+    let Validity::Array(array) = validity else {
+        return Ok(validity);
+    };
+    Ok(Validity::Array(
+        array
+            .execute::<Canonical>(&mut legacy_session().create_execution_ctx())?
+            .into_host()
+            .await?
+            .into_array(),
+    ))
 }
 
 #[async_trait]
@@ -67,13 +88,11 @@ impl CanonicalCudaExt for Canonical {
                     struct_fields.names().clone(),
                     host_fields,
                     len,
-                    validity,
+                    validity_into_host(validity).await?,
                 )))
             }
             n @ Canonical::Null(_) => Ok(n),
             Canonical::Bool(bool) => {
-                // NOTE: update to copy to host when adding buffer handle.
-                // Also update other method to copy validity to host.
                 let len = bool.len();
                 let validity = bool.validity()?;
                 let BoolDataParts { bits, meta } = bool.into_data().into_parts(len);
@@ -83,7 +102,10 @@ impl CanonicalCudaExt for Canonical {
                     meta.len(),
                     meta.offset(),
                 );
-                Ok(Canonical::Bool(BoolArray::new(bits, validity)))
+                Ok(Canonical::Bool(BoolArray::new(
+                    bits,
+                    validity_into_host(validity).await?,
+                )))
             }
             Canonical::Primitive(prim) => {
                 let PrimitiveDataParts {
@@ -95,7 +117,7 @@ impl CanonicalCudaExt for Canonical {
                 Ok(Canonical::Primitive(PrimitiveArray::from_byte_buffer(
                     buffer.try_into_host()?.await?,
                     ptype,
-                    validity,
+                    validity_into_host(validity).await?,
                 )))
             }
             Canonical::Decimal(decimal) => {
@@ -106,6 +128,7 @@ impl CanonicalCudaExt for Canonical {
                     validity,
                     ..
                 } = decimal.into_data_parts();
+                let validity = validity_into_host(validity).await?;
                 Ok(Canonical::Decimal(unsafe {
                     DecimalArray::new_unchecked_handle(
                         BufferHandle::new_host(values.try_into_host()?.await?),
@@ -136,6 +159,7 @@ impl CanonicalCudaExt for Canonical {
                 let host_buffers = try_join_all(host_buffers).await?;
                 let host_buffers: Arc<[ByteBuffer]> = Arc::from(host_buffers);
 
+                let validity = validity_into_host(validity).await?;
                 Ok(Canonical::VarBinView(unsafe {
                     VarBinViewArray::new_unchecked(host_views, host_buffers, dtype, validity)
                 }))

@@ -61,3 +61,28 @@ GENERATE_FROM_LENGTHS_KERNEL(u8, uint8_t, false)
 GENERATE_FROM_LENGTHS_KERNEL(u16, uint16_t, false)
 GENERATE_FROM_LENGTHS_KERNEL(u32, uint32_t, false)
 GENERATE_FROM_LENGTHS_KERNEL(u64, uint64_t, false)
+
+// Convert lengths that have already been proven nonnegative with an i32-representable sum. This
+// avoids allocating and copying a status word when trusted exact Min/Sum statistics provide the
+// same proof on the host.
+#define GENERATE_FROM_KNOWN_LENGTHS_KERNEL(suffix, LengthT)                                                  \
+    extern "C" __global__ void arrow_offsets_from_known_lengths_##suffix(const LengthT *__restrict lengths,  \
+                                                                         int32_t *__restrict scan,           \
+                                                                         uint64_t len) {                     \
+        const uint64_t scan_len = len + 1;                                                                   \
+        const uint64_t elements_per_block = (uint64_t)blockDim.x * ELEMENTS_PER_THREAD;                      \
+        const uint64_t block_start = (uint64_t)blockIdx.x * elements_per_block;                              \
+        const uint64_t block_stop = min(block_start + elements_per_block, scan_len);                         \
+        for (uint64_t idx = block_start + threadIdx.x; idx < block_stop; idx += blockDim.x) {                \
+            scan[idx] = idx == len ? 0 : (int32_t)lengths[idx];                                              \
+        }                                                                                                    \
+    }
+
+GENERATE_FROM_KNOWN_LENGTHS_KERNEL(i8, int8_t)
+GENERATE_FROM_KNOWN_LENGTHS_KERNEL(i16, int16_t)
+GENERATE_FROM_KNOWN_LENGTHS_KERNEL(i32, int32_t)
+GENERATE_FROM_KNOWN_LENGTHS_KERNEL(i64, int64_t)
+GENERATE_FROM_KNOWN_LENGTHS_KERNEL(u8, uint8_t)
+GENERATE_FROM_KNOWN_LENGTHS_KERNEL(u16, uint16_t)
+GENERATE_FROM_KNOWN_LENGTHS_KERNEL(u32, uint32_t)
+GENERATE_FROM_KNOWN_LENGTHS_KERNEL(u64, uint64_t)

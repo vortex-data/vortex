@@ -114,6 +114,30 @@ impl CudaSession {
         }
     }
 
+    /// Creates a single-stream CUDA session using device 0, with event tracking disabled.
+    ///
+    /// Every execution context created from this session shares the same stream. This avoids
+    /// cudarc's per-buffer events, which are only needed to synchronize buffer use across streams.
+    pub fn try_single_stream() -> VortexResult<Self> {
+        // cudarc panics rather than returning an error when the CUDA driver library cannot be
+        // loaded, so catch any unwind here to uphold this constructor's no-panic contract.
+        match catch_unwind(AssertUnwindSafe(|| -> VortexResult<Self> {
+            let context = CudaContext::new(0)
+                .map_err(|err| vortex_err!("failed to initialize CUDA device 0: {err}"))?;
+            // SAFETY: this context is private to a session whose pool contains exactly one stream,
+            // and event tracking is disabled before any device buffers can be allocated.
+            unsafe { context.disable_event_tracking() };
+            let this = Self::with_stream_pool_capacity(context, 1);
+            initialize_cuda(&this);
+            Ok(this)
+        })) {
+            Ok(result) => result,
+            Err(_) => Err(vortex_err!(
+                "failed to initialize CUDA: the driver library is unavailable"
+            )),
+        }
+    }
+
     /// Creates a new CUDA execution context.
     pub fn create_execution_ctx(
         vortex_session: &vortex::session::VortexSession,

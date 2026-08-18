@@ -10,8 +10,10 @@ use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
+use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::bool::BoolDataParts;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_native_ptype;
@@ -149,10 +151,36 @@ async fn decode_runend_typed<V: DeviceRepr + NativePType, E: DeviceRepr + Native
         Validity::AllInvalid => {
             unreachable!("AllInvalid should be handled by RunEndExecutor::execute")
         }
-        Validity::Array(_) => {
-            vortex_bail!(
-                "RunEnd GPU decoding does not yet support per-element validity in values; falling back to CPU"
-            );
+        Validity::Array(array) => {
+            let values_validity = array.execute_cuda(ctx).await?.into_bool();
+            let BoolDataParts { bits, meta } = values_validity.into_data().into_parts(num_runs);
+            let values_validity_device = ctx.ensure_on_device(bits).await?;
+            let values_validity_view = values_validity_device.cuda_view::<u8>()?;
+            let output_bytes = output_len.div_ceil(8);
+            let mut output_validity = ctx.device_alloc::<u8>(output_bytes)?;
+            let validity_kernel =
+                ctx.load_function_with_suffixes("runend", &["validity", &E::PTYPE.to_string()])?;
+            let values_validity_offset = u64::try_from(meta.offset())?;
+
+            ctx.launch_kernel(&validity_kernel, output_bytes, |args| {
+                args.arg(&ends_view)
+                    .arg(&num_runs_u64)
+                    .arg(&values_validity_view)
+                    .arg(&values_validity_offset)
+                    .arg(&offset_u64)
+                    .arg(&output_len_u64)
+                    .arg(&mut output_validity);
+            })?;
+
+            Validity::Array(
+                BoolArray::new_handle(
+                    BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output_validity))),
+                    0,
+                    output_len,
+                    Validity::NonNullable,
+                )
+                .into_array(),
+            )
         }
     };
 
@@ -182,7 +210,6 @@ mod tests {
 
     use super::*;
     use crate::CanonicalCudaExt;
-    use crate::executor::CudaArrayExt;
     use crate::session::CudaSession;
 
     fn make_runend_array<V, E>(ends: Vec<E>, values: Vec<V>, ctx: &mut ExecutionCtx) -> RunEndArray
@@ -303,7 +330,7 @@ mod tests {
     }
 
     #[crate::test]
-    async fn test_cuda_runend_nullable_values_falls_back_to_cpu() -> VortexResult<()> {
+    async fn test_cuda_runend_nullable_values() -> VortexResult<()> {
         let mut ctx = vortex_array::array_session().create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
@@ -312,19 +339,26 @@ mod tests {
         let ends_array =
             PrimitiveArray::new(Buffer::from(vec![3u32, 6, 10]), Validity::NonNullable)
                 .into_array();
-        let validity =
-            Validity::Array(BoolArray::from_iter([true, false, true].into_iter()).into_array());
-        let values_array =
-            PrimitiveArray::new(Buffer::from(vec![10i32, 0, 30]), validity).into_array();
-        let runend_array = RunEnd::new(ends_array, values_array, cuda_ctx.execution_ctx());
+        // Slice the validity to exercise a non-zero input bit offset, then slice the RunEnd
+        // array to exercise a non-zero logical offset and a partial final output byte.
+        let values_validity = BoolArray::from_iter([
+            false, false, false, true, false, true, false, false, false, false,
+        ])
+        .into_array()
+        .slice(3..6)?;
+        let values_array = PrimitiveArray::new(
+            Buffer::from(vec![10i32, 0, 30]),
+            Validity::Array(values_validity),
+        )
+        .into_array();
+        // SAFETY: ends are increasing, ends/values have equal length, and [offset, offset +
+        // length) = [1, 10) is covered by the final run end.
+        let runend_array = unsafe { RunEnd::new_unchecked(ends_array, values_array, 1, 9) };
 
-        // execute_cuda should fall back to CPU and still produce the correct result.
-        let gpu_result = runend_array
-            .clone()
-            .into_array()
-            .execute_cuda(&mut cuda_ctx)
+        let gpu_result = RunEndExecutor
+            .execute(runend_array.clone().into_array(), &mut cuda_ctx)
             .await
-            .vortex_expect("GPU/CPU fallback should succeed")
+            .vortex_expect("GPU decompression failed")
             .into_host()
             .await?
             .into_array();

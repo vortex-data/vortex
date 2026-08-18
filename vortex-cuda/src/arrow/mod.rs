@@ -33,6 +33,7 @@ use cudarc::driver::CudaStream;
 use cudarc::driver::DevicePtr;
 use cudarc::runtime::sys::cudaEvent_t;
 pub(crate) use offsets::I32Offsets;
+pub(crate) use offsets::i32_offsets_from_known_lengths;
 pub(crate) use offsets::i32_offsets_from_lengths;
 use vortex::array::ArrayRef;
 use vortex::array::arrays::Dict;

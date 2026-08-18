@@ -46,19 +46,31 @@ __device__ void date_time_parts(const DaysT *__restrict days,
     X(i8, int8_t)                                                                                            \
     X(i16, int16_t)                                                                                          \
     X(i32, int32_t)                                                                                          \
-    X(i64, int64_t)
+    X(i64, int64_t)                                                                                          \
+    X(u8, uint8_t)                                                                                           \
+    X(u16, uint16_t)                                                                                         \
+    X(u32, uint32_t)                                                                                         \
+    X(u64, uint64_t)
 
 #define EXPAND_SUBSECONDS(d, DT, s, ST)                                                                      \
     GENERATE_DATE_TIME_PARTS_KERNEL(d, DT, s, ST, i8, int8_t)                                                \
     GENERATE_DATE_TIME_PARTS_KERNEL(d, DT, s, ST, i16, int16_t)                                              \
     GENERATE_DATE_TIME_PARTS_KERNEL(d, DT, s, ST, i32, int32_t)                                              \
-    GENERATE_DATE_TIME_PARTS_KERNEL(d, DT, s, ST, i64, int64_t)
+    GENERATE_DATE_TIME_PARTS_KERNEL(d, DT, s, ST, i64, int64_t)                                              \
+    GENERATE_DATE_TIME_PARTS_KERNEL(d, DT, s, ST, u8, uint8_t)                                               \
+    GENERATE_DATE_TIME_PARTS_KERNEL(d, DT, s, ST, u16, uint16_t)                                             \
+    GENERATE_DATE_TIME_PARTS_KERNEL(d, DT, s, ST, u32, uint32_t)                                             \
+    GENERATE_DATE_TIME_PARTS_KERNEL(d, DT, s, ST, u64, uint64_t)
 
 #define EXPAND_SECONDS(d, DT)                                                                                \
     EXPAND_SUBSECONDS(d, DT, i8, int8_t)                                                                     \
     EXPAND_SUBSECONDS(d, DT, i16, int16_t)                                                                   \
     EXPAND_SUBSECONDS(d, DT, i32, int32_t)                                                                   \
-    EXPAND_SUBSECONDS(d, DT, i64, int64_t)
+    EXPAND_SUBSECONDS(d, DT, i64, int64_t)                                                                   \
+    EXPAND_SUBSECONDS(d, DT, u8, uint8_t)                                                                    \
+    EXPAND_SUBSECONDS(d, DT, u16, uint16_t)                                                                  \
+    EXPAND_SUBSECONDS(d, DT, u32, uint32_t)                                                                  \
+    EXPAND_SUBSECONDS(d, DT, u64, uint64_t)
 
-// Generate all 64 kernels (4³)
+// Components are narrowed independently, so generate every signed/unsigned integer combination.
 EXPAND_DAYS(EXPAND_SECONDS)

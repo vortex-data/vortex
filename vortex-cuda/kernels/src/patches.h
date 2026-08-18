@@ -9,8 +9,8 @@
 extern "C" {
 #endif
 
-/// Type tag for chunk_offsets pointer.
-typedef enum { CO_U8 = 0, CO_U16 = 1, CO_U32 = 2, CO_U64 = 3 } ChunkOffsetType;
+/// Type tag for an unsigned integer pointer.
+typedef enum { UNSIGNED_U8 = 0, UNSIGNED_U16 = 1, UNSIGNED_U32 = 2, UNSIGNED_U64 = 3 } UnsignedType;
 
 static const uint32_t PATCH_DERIVE_INDICES_BASE = UINT32_MAX;
 
@@ -24,8 +24,9 @@ static const uint32_t PATCH_DERIVE_INDICES_BASE = UINT32_MAX;
 /// A NULL chunk_offsets pointer indicates no patches are present.
 typedef struct {
     void *chunk_offsets;
-    ChunkOffsetType chunk_offset_type;
-    uint32_t *indices;
+    UnsignedType chunk_offset_type;
+    UnsignedType indices_type;
+    void *indices;
     void *values;
     uint32_t offset;
     uint32_t offset_within_chunk;

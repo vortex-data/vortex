@@ -32,6 +32,25 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           enable-sccache: "true"
+      - name: Install DuckDB
+        # The Public BI datasets are converted from CSV to Parquet through the DuckDB CLI, as
+        # in bench-pr.yml. Without it those datasets fail to materialise their fixture.
+        run: |
+          wget -qO- https://github.com/duckdb/duckdb/releases/download/v1.5.5/duckdb_cli-linux-amd64.zip | funzip > duckdb
+          chmod +x duckdb
+          echo "$PWD" >> "$GITHUB_PATH"
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+      - name: Install cuDF
+        # The GPU Parquet number is a full cuDF `read_parquet`. cuDF ships prebuilt manylinux
+        # wheels on NVIDIA's index, so it stays a runtime dependency and never enters the Rust
+        # build. pandas and pyarrow back the --gpu-verify cross-check.
+        run: |
+          uv venv --python 3.12 .venv-cudf
+          uv pip install --python .venv-cudf \
+            --extra-index-url https://pypi.nvidia.com \
+            cudf-cu12 pandas pyarrow
+          echo "$PWD/.venv-cudf/bin" >> "$GITHUB_PATH"
       - uses: ./.github/actions/system-info
       - name: Display NVIDIA GPU details
         run: |
@@ -44,8 +63,68 @@ jobs:
           cargo build --locked --package compress-bench --profile release_debug --features cuda,unstable_encodings
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
-      - name: Run GPU compression benchmark
+      - name: Verify GPU decompression correctness
+        id: verify
         shell: bash
+        continue-on-error: true
+        env:
+          RUST_BACKTRACE: "1"
+          FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+        # Cross-checks every GPU-decompressed page and field against the CPU decoders before
+        # any timings are taken. Verification runs inline, so this pass is not timed. It runs
+        # every dataset rather than stopping at the first failure, so one run reports the whole
+        # matrix; the gate step below still fails the job.
+        run: |
+          set -o pipefail
+          target/release_debug/compress-bench \
+            --gpu-decompress --gpu-verify --iterations 1 -d table 2>&1 | tee gpu-verify.txt
+      - name: Publish verification result
+        shell: bash
+        # The per-dataset verdicts are worth surfacing on the PR whether or not they all pass:
+        # digging them out of a multi-thousand-line job log is otherwise the only way to see
+        # which encodings decode correctly on the GPU.
+        run: |
+          {
+            echo "# GPU decompression verification"
+            echo
+            if [ "${{ steps.verify.outcome }}" = "success" ]; then
+              echo "All GPU datasets matched the CPU decode."
+            else
+              echo "Verification failed. Per-dataset results:"
+            fi
+            echo
+            echo '```text'
+            grep -E "verified [0-9]+|GPU decompression failed|^  - " gpu-verify.txt | tail -40 \
+              || tail -40 gpu-verify.txt
+            echo '```'
+            # The per-dataset lines above carry only the first line of each error. Python
+            # tracebacks, Rust backtraces and first-differing-row dumps span several lines, so
+            # the tail of the raw output goes in a collapsed block rather than back in the log.
+            if [ "${{ steps.verify.outcome }}" != "success" ]; then
+              echo
+              echo "<details><summary>Full error detail</summary>"
+              echo
+              echo '```text'
+              tail -200 gpu-verify.txt
+              echo '```'
+              echo
+              echo "</details>"
+            fi
+          } > verify-comment.md
+          cat verify-comment.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Comment PR with verification result
+        if: github.event.pull_request.head.repo.fork == false
+        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
+        with:
+          file-path: verify-comment.md
+          comment-tag: bench-pr-comment-gpu-verify
+      - name: Run GPU compression benchmark
+        id: bench
+        shell: bash
+        # A dataset the GPU cannot decode is reported per dataset and still fails the run, but
+        # the timing tables are printed first, so the datasets that do decode publish their
+        # numbers. The gate at the end of the job turns either failure into a job failure.
+        continue-on-error: true
         env:
           RUST_BACKTRACE: full
           # Do not enable VORTEX_EXPERIMENTAL_PATCHED_ARRAY here: it rewrites interior
@@ -56,9 +135,29 @@ jobs:
           # (cuda.yaml), which also sets only FLAT_LAYOUT_INLINE_ARRAY_NODE.
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
         run: |
+          # `shell: bash` implies -e, so a non-zero benchmark exit would skip the cat and leave
+          # the timing tables out of the job log entirely. Capture the status instead.
+          status=0
           bash scripts/bench-taskset.sh target/release_debug/compress-bench \
-            --gpu-decompress -d table > gpu-compress.txt
+            --gpu-decompress -d table > gpu-compress.txt || status=$?
           cat gpu-compress.txt
+          exit "$status"
+      - name: Run CPU decompression baseline
+        id: cpu-bench
+        continue-on-error: true
+        shell: bash
+        env:
+          RUST_BACKTRACE: full
+          FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+        # Same binary, same datasets, same machine, CPU decoders. Without this the GPU ratio
+        # says which of two GPU readers is faster but not whether either beats the CPU, which
+        # is the only number that says whether GPU decoding is worth doing at all.
+        run: |
+          bash scripts/bench-taskset.sh target/release_debug/compress-bench \
+            --ops decompress \
+            --datasets 'TPC-H l_comment|taxi|Arade|Bimbo|CMSprovider|Euro2016|Food|HashTags' \
+            -d table > cpu-compress.txt
+          cat cpu-compress.txt
       - name: Publish results
         shell: bash
         run: |
@@ -67,6 +166,12 @@ jobs:
             echo
             echo '```text'
             cat gpu-compress.txt
+            echo '```'
+            echo
+            echo "## CPU baseline (same machine, same datasets)"
+            echo
+            echo '```text'
+            cat cpu-compress.txt || echo "CPU baseline did not produce output"
             echo '```'
           } > comment.md
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
@@ -85,3 +190,11 @@ jobs:
 
             GPU Compression failed. Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
           comment-tag: bench-pr-comment-gpu-compress
+      - name: Fail if verification or the benchmark failed
+        if: steps.verify.outcome == 'failure' || steps.bench.outcome == 'failure'
+        shell: bash
+        # Last, so both the verification matrix and the timing tables are already published.
+        run: |
+          echo "verify=${{ steps.verify.outcome }} bench=${{ steps.bench.outcome }}" >&2
+          echo "GPU decompression failed; see the verification and results comments." >&2
+          exit 1

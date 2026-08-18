@@ -6,31 +6,29 @@
 use std::mem::size_of;
 use std::ops::Range;
 
-use num_traits::ToPrimitive;
 use vortex::array::buffer::BufferHandle;
 use vortex::buffer::Alignment;
-use vortex::buffer::Buffer;
-use vortex::buffer::BufferMut;
 use vortex::buffer::ByteBufferMut;
 use vortex::dtype::PType;
-use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::patches::PATCH_CHUNK_SIZE;
 use vortex_array::patches::Patches;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 
 use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
 use crate::executor::CudaArrayExt;
 use crate::kernel::patches::gpu::GPUPatches;
 use crate::kernel::patches::gpu::PATCH_DERIVE_INDICES_BASE;
-use crate::kernel::patches::ptype_to_chunk_offset_type;
+use crate::kernel::patches::ptype_to_unsigned_type;
 
 /// A set of device-resident patches.
 pub struct DevicePatches {
     pub(crate) chunk_offsets: BufferHandle,
     pub(crate) chunk_offset_ptype: PType,
     pub(crate) indices: BufferHandle,
+    pub(crate) indices_ptype: PType,
     pub(crate) values: BufferHandle,
     pub(crate) offset: usize,
     pub(crate) offset_within_chunk: usize,
@@ -55,6 +53,12 @@ pub(crate) async fn load_device_patches(
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<DevicePatches> {
     let offset = patches.offset();
+    vortex_ensure!(
+        offset
+            .checked_add(patches.array_len())
+            .is_some_and(|end| end <= u32::MAX as usize),
+        "CUDA patches require offset + array length to fit in u32"
+    );
     let offset_within_chunk = patches.offset_within_chunk().unwrap_or_default();
     // Get or compute chunk_offsets
     let Some(co) = patches.chunk_offsets() else {
@@ -68,7 +72,7 @@ pub(crate) async fn load_device_patches(
         (co_canonical.buffer_handle().clone(), ptype, len)
     };
 
-    // Load indices - must be converted to u32 for GPU use
+    // Load indices at their native width.
     let indices = patches
         .indices()
         .clone()
@@ -76,23 +80,7 @@ pub(crate) async fn load_device_patches(
         .await?
         .into_primitive();
     let indices_ptype = indices.ptype();
-    #[expect(clippy::expect_used)]
-    let indices = if indices_ptype == PType::U32 {
-        indices.buffer_handle().clone()
-    } else {
-        // Convert indices to u32
-        let indices_buf = indices.buffer_handle().to_host().await;
-        let indices_u32 = match_each_unsigned_integer_ptype!(indices_ptype, |I| {
-            let src: Buffer<I> = Buffer::from_byte_buffer(indices_buf);
-            let mut dst: BufferMut<u32> = BufferMut::with_capacity(src.len());
-            for &idx in src.as_slice() {
-                // Indices are limited to u32 range for GPU
-                dst.push(idx.to_u32().expect("index should fit in u32"));
-            }
-            dst.freeze()
-        });
-        BufferHandle::new_host(indices_u32.into_byte_buffer())
-    };
+    let indices = indices.buffer_handle().clone();
 
     // Load values
     let values = patches
@@ -113,6 +101,7 @@ pub(crate) async fn load_device_patches(
         chunk_offsets,
         chunk_offset_ptype,
         indices,
+        indices_ptype,
         values,
         offset,
         offset_within_chunk,
@@ -134,7 +123,8 @@ fn build_gpu_patches(
     // chunk_offset_type and indices) which would be UB when serialized.
     let mut gpu_patches: GPUPatches = unsafe { std::mem::zeroed() };
     gpu_patches.chunk_offsets = dp.chunk_offsets.cuda_device_ptr()? as _;
-    gpu_patches.chunk_offset_type = ptype_to_chunk_offset_type(dp.chunk_offset_ptype)?;
+    gpu_patches.chunk_offset_type = ptype_to_unsigned_type(dp.chunk_offset_ptype)?;
+    gpu_patches.indices_type = ptype_to_unsigned_type(dp.indices_ptype)?;
     gpu_patches.indices = dp.indices.cuda_device_ptr()? as _;
     gpu_patches.values = dp.values.cuda_device_ptr()? as _;
     gpu_patches.offset = dp.offset as u32;

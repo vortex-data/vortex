@@ -6,19 +6,23 @@
 #include "fastlanes_common.cuh"
 #include "patches.h"
 
-/// Load a chunk offset value, dispatching on the runtime type.
-__device__ inline uint32_t load_chunk_offset(const GPUPatches &patches, uint32_t idx) {
-    switch (patches.chunk_offset_type) {
-    case CO_U8:
-        return reinterpret_cast<const uint8_t *>(patches.chunk_offsets)[idx];
-    case CO_U16:
-        return reinterpret_cast<const uint16_t *>(patches.chunk_offsets)[idx];
-    case CO_U32:
-        return reinterpret_cast<const uint32_t *>(patches.chunk_offsets)[idx];
-    case CO_U64:
-        return static_cast<uint32_t>(reinterpret_cast<const uint64_t *>(patches.chunk_offsets)[idx]);
+/// Load an unsigned integer value, dispatching on the runtime type.
+__device__ inline uint32_t load_unsigned(const void *values, UnsignedType type, uint32_t idx) {
+    switch (type) {
+    case UNSIGNED_U8:
+        return reinterpret_cast<const uint8_t *>(values)[idx];
+    case UNSIGNED_U16:
+        return reinterpret_cast<const uint16_t *>(values)[idx];
+    case UNSIGNED_U32:
+        return reinterpret_cast<const uint32_t *>(values)[idx];
+    case UNSIGNED_U64:
+        return static_cast<uint32_t>(reinterpret_cast<const uint64_t *>(values)[idx]);
     }
     return 0;
+}
+
+__device__ inline uint32_t load_chunk_offset(const GPUPatches &patches, uint32_t idx) {
+    return load_unsigned(patches.chunk_offsets, patches.chunk_offset_type, idx);
 }
 
 /// A single patch: a within-chunk index and its replacement value.
@@ -49,17 +53,14 @@ public:
     /// Construct a cursor for this thread's portion of patches in the chunk.
     __device__
     PatchesCursor(const GPUPatches &patches, uint32_t chunk, uint32_t thread_idx, uint32_t n_threads) {
-        if (patches.chunk_offsets == nullptr) {
-            indices = nullptr;
-            values = nullptr;
-            remaining = 0;
-            return;
-        }
+        indices = nullptr;
+        indices_type = UNSIGNED_U32;
+        index = 0;
+        values = nullptr;
+        remaining = 0;
+        chunk_base = 0;
 
-        if (chunk >= patches.n_chunks) {
-            indices = nullptr;
-            values = nullptr;
-            remaining = 0;
+        if (patches.chunk_offsets == nullptr || chunk >= patches.n_chunks) {
             return;
         }
 
@@ -94,7 +95,9 @@ public:
 
         uint32_t start = patches_start_idx + my_start;
         remaining = my_end - my_start;
-        indices = patches.indices + start;
+        indices = patches.indices;
+        indices_type = patches.indices_type;
+        index = start;
         values = reinterpret_cast<const T *>(patches.values) + start;
 
         // The iterator returns indices relative to the start of the chunk.
@@ -110,16 +113,19 @@ public:
         if (remaining == 0) {
             return {FL_CHUNK, T {}};
         }
-        uint16_t within_chunk = static_cast<uint16_t>(*indices - chunk_base);
+        uint16_t within_chunk =
+            static_cast<uint16_t>(load_unsigned(indices, indices_type, index) - chunk_base);
         Patch<T> patch = {within_chunk, *values};
-        indices++;
+        index++;
         values++;
         remaining--;
         return patch;
     }
 
 private:
-    const uint32_t *indices;
+    const void *indices;
+    UnsignedType indices_type;
+    uint32_t index;
     const T *values;
     uint32_t remaining;
     uint32_t chunk_base;
