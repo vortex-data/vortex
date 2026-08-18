@@ -112,7 +112,7 @@ pub fn reader_bind(file: &File, result: &mut BindResultRef) -> VortexResult<Bind
 /// Returns true if file should be skipped.
 /// Called under file lock.
 pub fn reader_initialize(file: &mut File, global: &GlobalState) -> VortexResult<bool> {
-    if reader_prune(file, &global.filter)? {
+    if prune_reader(file, &global.filter)? {
         return Ok(true);
     }
 
@@ -222,7 +222,7 @@ pub fn reader_get_statistics(file: &File, column: &str) -> Option<ColumnStatisti
     }
 }
 
-fn reader_prune(file: &File, filter: &Filter) -> VortexResult<bool> {
+fn prune_reader(file: &File, filter: &Filter) -> VortexResult<bool> {
     let Some(filter) = &filter.filter else {
         return Ok(false);
     };
@@ -231,8 +231,8 @@ fn reader_prune(file: &File, filter: &Filter) -> VortexResult<bool> {
     let mask = Mask::new_true(usize::try_from(row_count).unwrap_or(usize::MAX));
     let evaluation = file.reader.pruning_evaluation(&row_range, filter, mask)?;
     match evaluation.now_or_never() {
-        Some(Ok(result_mask)) => Ok(result_mask.all_false()),
-        _ => Ok(false),
+        Some(mask) => mask.map(|mask| mask.all_false()),
+        None => Ok(false),
     }
 }
 

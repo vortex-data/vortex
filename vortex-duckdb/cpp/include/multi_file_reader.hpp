@@ -101,7 +101,6 @@ struct VortexReaderInterface final : MultiFileReaderInterface {
         return make_uniq<VortexBindData>();
     }
 
-    // Open first file, populate types and names from it
     void BindReader(ClientContext &context,
                     vector<LogicalType> &types,
                     vector<string> &names,
@@ -156,6 +155,8 @@ struct VortexBaseReader final : BaseFileReader {
 
     unique_ptr<CData> ffi_file;
     vector<column_t> virtual_ids;
+    // needed to discard statistics for aggregate scans
+    const void *ffi_bind = nullptr;
 
     inline void AddVirtualColumn(column_t id) override {
         virtual_ids.push_back(id);
@@ -180,6 +181,7 @@ struct VortexBaseReader final : BaseFileReader {
 
     double GetProgressInFile(ClientContext &) override;
 
+    // Called only on initial reader in multi-file scan
     unique_ptr<BaseStatistics> GetStatistics(ClientContext &context, const string &name) override;
 
     inline string GetReaderType() const override {

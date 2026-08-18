@@ -8,6 +8,7 @@ use std::ptr;
 
 use num_traits::AsPrimitive;
 use vortex::error::VortexExpect;
+use vortex::error::vortex_err;
 
 use crate::convert::can_push_expression;
 use crate::copy::CopyFunctionBind;
@@ -181,10 +182,10 @@ pub unsafe extern "C-unwind" fn duckdb_reader_open(
     error: *mut cpp::duckdb_vx_error,
 ) -> cpp::duckdb_vx_data {
     let path = unsafe { std::slice::from_raw_parts(file_path.cast::<u8>(), file_path_len) };
-    let path = String::from_utf8_lossy(path).into_owned();
 
     try_or_null(error, || {
-        let file = reader_open(&path)?;
+        let path = str::from_utf8(path).map_err(|_| vortex_err!("invalid utf-8"))?;
+        let file = reader_open(path)?;
         Ok(Data::from(Box::new(file)).as_ptr())
     })
 }

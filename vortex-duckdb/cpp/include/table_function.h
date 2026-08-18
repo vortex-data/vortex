@@ -47,7 +47,7 @@ typedef struct {
     // set only for strings
     uint64_t max_string_length;
     bool has_null;
-    // non-owned column type
+    // owned column type
     duckdb_logical_type type;
 } duckdb_column_statistics;
 

@@ -87,7 +87,7 @@ void VortexReaderInterface::BindReader(ClientContext &context,
     VortexBindData &bind = bind_data.bind_data->Cast<VortexBindData>();
     const OpenFileInfo first_file = bind_data.file_list->GetFirstFile();
     bind_data.initial_reader = CreateReader(context, first_file, options, file_options);
-    const VortexBaseReader &initial_reader = bind_data.initial_reader->Cast<VortexBaseReader>();
+    VortexBaseReader &initial_reader = bind_data.initial_reader->Cast<VortexBaseReader>();
 
     duckdb_vx_error error = nullptr;
     const void *const ffi_file = initial_reader.ffi_file->DataPtr();
@@ -98,6 +98,7 @@ void VortexReaderInterface::BindReader(ClientContext &context,
         throw BinderException(IntoErrString(error));
     }
 
+    initial_reader.ffi_bind = bind.ffi_bind_data->DataPtr();
     bind.ffi_bind_data = unique_ptr<CData>(reinterpret_cast<CData *>(ffi_bind_data));
 }
 
@@ -294,6 +295,12 @@ static unique_ptr<BaseStatistics> string_stats(duckdb_column_statistics &stats, 
 
 static unique_ptr<BaseStatistics> base_stats(duckdb_column_statistics &stats, LogicalType type) {
     BaseStatistics out = BaseStatistics::CreateUnknown(type);
+    if (stats.min) {
+        duckdb_destroy_value(&stats.min);
+    }
+    if (stats.max) {
+        duckdb_destroy_value(&stats.max);
+    }
     if (!stats.has_null) {
         out.Set(StatsInfo::CANNOT_HAVE_NULL_VALUES);
     }
@@ -301,6 +308,11 @@ static unique_ptr<BaseStatistics> base_stats(duckdb_column_statistics &stats, Lo
 }
 
 unique_ptr<BaseStatistics> VortexBaseReader::GetStatistics(ClientContext &, const string &name) {
+    D_ASSERT(ffi_bind);
+    if (duckdb_reader_is_aggregate(ffi_bind)) {
+        return {};
+    }
+
     duckdb_column_statistics statistics = {};
     if (!duckdb_reader_get_statistics(ffi_file->DataPtr(), name.c_str(), name.size(), &statistics)) {
         return {};
@@ -333,6 +345,12 @@ unique_ptr<BaseStatistics> VortexBaseReader::GetStatistics(ClientContext &, cons
         // Duckdb's has_null has a different semantics for structs.
         // If we propagate our has_null, this breaks Duckdb optimizer.
         // You can reproduce it in struct.slt test in vortex-sqllogictests:
+        if (statistics.min) {
+            duckdb_destroy_value(&statistics.min);
+        }
+        if (statistics.max) {
+            duckdb_destroy_value(&statistics.max);
+        }
         return {};
     }
     default:

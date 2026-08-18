@@ -80,8 +80,9 @@ impl ArrayExporter {
         })
     }
 
-    /// Export the data into next chunk.
-    /// Returns true if there's more data to export into next chunk.
+    /// Export data into current chunk.
+    /// Returns true if there is data to be written into next chunk or false if
+    /// this exporter is exhausted.
     pub fn export(
         &mut self,
         chunk: &mut DataChunkRef,

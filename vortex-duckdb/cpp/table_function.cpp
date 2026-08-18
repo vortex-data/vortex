@@ -3,12 +3,12 @@
 
 #include "data.hpp"
 #include "error.hpp"
-#include "expr.h"
-#include "multi_file_reader.hpp"
-#include "table_function.h"
 #include "table_function.hpp"
-#include "vortex.h"
+#include "multi_file_reader.hpp"
+#include "expr.h"
 #include "vortex_duckdb.h"
+#include "table_function.h"
+#include "vortex.h"
 
 #include "duckdb.h"
 #include "duckdb/catalog/catalog.hpp"
