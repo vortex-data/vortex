@@ -9,7 +9,10 @@ use crate::ArrayRef;
 use crate::dtype::DType;
 
 /// An owned row value that can be built into an all-valid column.
-pub trait OutputElement: 'static + Sized {
+///
+/// Skip-invalid execution uses [`Default`] only as a placeholder for invalid rows. Batch execution
+/// masks those rows before returning the output.
+pub trait OutputElement: 'static + Sized + Default {
     /// The dtype of columns built from this element type. **Must** be non-nullable: nullability is
     /// derived from the inputs by batch execution.
     ///

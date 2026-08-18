@@ -15,6 +15,7 @@ use crate::VortexSessionExecute;
 use crate::array_session;
 use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
+use crate::assert_arrays_eq;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
@@ -30,12 +31,16 @@ use crate::scalar_fn::unstable::row::execute_rows;
 use crate::validity::Validity;
 
 #[derive(Clone)]
+struct DeferredAdd;
+
+#[derive(Clone)]
 struct ValidOnlyIdentity;
 
 #[derive(Clone)]
 struct InvalidKernelOutput;
 
 /// Produces a null row to exercise output validation at the row-function boundary.
+#[derive(Default)]
 struct NullProducingI64(i64);
 
 impl OutputElement for NullProducingI64 {
@@ -79,6 +84,36 @@ unsafe impl<Options> OutputSink<Options> for I64Sink {
 
     unsafe fn finish(self) -> VortexResult<ArrayRef> {
         Ok(PrimitiveArray::new(self.0.freeze(), Validity::NonNullable).into_array())
+    }
+}
+
+impl RowFn for DeferredAdd {
+    type Options = EmptyOptions;
+
+    const ARG_NAMES: &'static [&'static str] = &["lhs", "rhs"];
+    const INFALLIBLE: bool = false;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("test.deferred_add");
+        *ID
+    }
+
+    fn dispatch<V: RowVisitor<Self::Options>>(
+        &self,
+        _options: &Self::Options,
+        _args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        visitor.visit_deferred::<(i64, i64), i64, bool>(
+            |(lhs, rhs)| lhs.overflowing_add(rhs),
+            |overflowed| {
+                if overflowed {
+                    vortex_bail!(InvalidArgument: "deferred addition overflowed");
+                }
+
+                Ok(())
+            },
+        )
     }
 }
 
@@ -170,6 +205,21 @@ fn test_kernel_output_rejects_nulls_at_function_boundary() -> VortexResult<()> {
         error.contains("row kernel must produce only valid rows"),
         "the boundary error must identify invalid row output, got {error}",
     );
+    Ok(())
+}
+
+#[test]
+fn test_deferred_owned_execution_skips_invalid_rows() -> VortexResult<()> {
+    let validity = Validity::from_iter([true, false]);
+    let lhs = PrimitiveArray::new(vec![1_i64, i64::MAX], validity.clone()).into_array();
+    let rhs = ConstantArray::new(1_i64, 2).into_array();
+    let args = VecExecutionArgs::new(vec![lhs, rhs], 2);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let actual = execute_rows(&DeferredAdd, &EmptyOptions, &args, &mut ctx)?;
+    let expected = PrimitiveArray::new(vec![2_i64, 0], validity).into_array();
+
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
     Ok(())
 }
 
