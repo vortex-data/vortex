@@ -92,8 +92,15 @@ __device__ inline void onpair_window_offsets_body(const CodeT *__restrict codes,
         uint64_t last,                                                                                       \
         const uint32_t *__restrict status,                                                                   \
         uint64_t *__restrict scratch) {                                                                      \
-        onpair_window_offsets_body<CodeT, OffsetT>(                                                          \
-            codes, lens, dict_size, chunk_offsets, total_tokens, codes_offsets, last, status, scratch);      \
+        onpair_window_offsets_body<CodeT, OffsetT>(codes,                                                    \
+                                                   lens,                                                     \
+                                                   dict_size,                                                \
+                                                   chunk_offsets,                                            \
+                                                   total_tokens,                                             \
+                                                   codes_offsets,                                            \
+                                                   last,                                                     \
+                                                   status,                                                   \
+                                                   scratch);                                                 \
     }
 
 #define GENERATE_WINDOW_OFFSETS_KERNELS(code_suffix, CodeT)                                                  \
