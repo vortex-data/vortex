@@ -9,13 +9,13 @@
 //! that delegate to a private row kernel.
 
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use super::batch::BorrowedRowFnArgs;
 use super::batch::RowFnExecutionArgs;
+use super::batch::finalize_kernel_output;
 use super::row_fn::RowFn;
 use super::visitor::BatchPlanner;
 use super::visitor::ExecuteRows;
@@ -104,6 +104,9 @@ pub fn row_fn_return_dtype<F: RowFn>(
 /// A type cannot implement both [`RowFn`] and [`ScalarFnVTable`] because every `RowFn` receives the
 /// standard vtable automatically. Existing vtables can keep their custom hooks on one type and
 /// delegate row execution to a private `RowFn` kernel through this function.
+///
+/// Nullary functions execute for `args.row_count()` rows without batch validity handling because
+/// they have no input validity to propagate.
 pub fn execute_rows<F: RowFn>(
     function: &F,
     options: &F::Options,
@@ -111,10 +114,10 @@ pub fn execute_rows<F: RowFn>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     ensure_arity(function, args.num_inputs())?;
-    vortex_ensure!(
-        args.num_inputs() != 0,
-        "row-function execution does not support nullary kernels"
-    );
+
+    if args.num_inputs() == 0 {
+        return execute_nullary_rows(function, options, args.row_count(), ctx);
+    }
 
     let batch = prepare_batch(function, options, args)?;
     batch.execute(
@@ -122,6 +125,22 @@ pub fn execute_rows<F: RowFn>(
         |args, valid, ctx| try_execute_valid_rows(function, options, args, valid, ctx),
         ctx,
     )
+}
+
+/// Execute a nullary kernel without batch validity or constant handling.
+fn execute_nullary_rows<F: RowFn>(
+    function: &F,
+    options: &F::Options,
+    row_count: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let plan = function.dispatch(options, &[], BatchPlanner::<F>::new(&[], options))?;
+    let result_dtype = plan.result_dtype(&[]);
+    let args = BorrowedRowFnArgs::new(&[], row_count, &[], &plan.output_dtype, plan.policy);
+
+    let values = execute_row_kernel(function, options, args, ctx)?;
+
+    finalize_kernel_output(RowFn::id(function), &result_dtype, row_count, values, ctx)
 }
 
 fn ensure_arity<F: RowFn>(function: &F, actual: usize) -> VortexResult<()> {
@@ -198,6 +217,7 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
+    use rstest::rstest;
     use vortex_error::VortexError;
     use vortex_error::VortexResult;
     use vortex_session::registry::CachedId;
@@ -208,6 +228,7 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::scalar_fn::EmptyOptions;
     use crate::scalar_fn::ScalarFnId;
@@ -220,6 +241,9 @@ mod tests {
     struct IndexingRowFn;
 
     #[derive(Clone)]
+    struct NullarySeven;
+
+    #[derive(Clone)]
     struct ChangingDispatchRowFn {
         dispatches: Arc<AtomicUsize>,
         change: DispatchChange,
@@ -229,6 +253,27 @@ mod tests {
     enum DispatchChange {
         Policy,
         Element,
+    }
+
+    impl RowFn for NullarySeven {
+        type Options = EmptyOptions;
+
+        const ARG_NAMES: &'static [&'static str] = &[];
+        const INFALLIBLE: bool = true;
+
+        fn id(&self) -> ScalarFnId {
+            static ID: CachedId = CachedId::new("test.nullary_seven");
+            *ID
+        }
+
+        fn dispatch<V: RowVisitor<Self::Options>>(
+            &self,
+            _options: &Self::Options,
+            _args: &[DType],
+            visitor: V,
+        ) -> VortexResult<V::VisitResult> {
+            visitor.visit::<(), i64>(|()| 7)
+        }
     }
 
     impl RowFn for IndexingRowFn {
@@ -300,6 +345,20 @@ mod tests {
             .expect_err("wrong arity must fail before dispatch");
 
         assert_arity_error(error);
+    }
+
+    #[rstest]
+    #[case::empty(0)]
+    #[case::nonempty(3)]
+    fn test_execute_nullary_rows(#[case] row_count: usize) -> VortexResult<()> {
+        let args = VecExecutionArgs::new(vec![], row_count);
+        let mut ctx = array_session().create_execution_ctx();
+
+        let actual = execute_rows(&NullarySeven, &EmptyOptions, &args, &mut ctx)?;
+        let expected = PrimitiveArray::from_iter(vec![7_i64; row_count]).into_array();
+
+        assert_arrays_eq!(&actual, &expected, &mut ctx);
+        Ok(())
     }
 
     #[test]

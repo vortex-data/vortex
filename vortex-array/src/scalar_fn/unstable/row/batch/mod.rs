@@ -24,7 +24,6 @@ mod args;
 pub(super) use args::BorrowedRowFnArgs;
 
 mod execute;
-#[cfg(test)]
 pub(super) use execute::finalize_kernel_output;
 
 mod planning;

@@ -23,7 +23,6 @@ mod dense;
 mod valid_only;
 
 mod output;
-#[cfg(test)]
 pub(crate) use output::finalize_kernel_output;
 
 impl RowFnExecutionArgs {
