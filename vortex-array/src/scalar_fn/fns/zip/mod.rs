@@ -11,6 +11,7 @@ pub use kernel::*;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
 use vortex_session::VortexSession;
@@ -207,7 +208,7 @@ pub(crate) fn zip_impl(
 
 fn zip_return_dtype(if_true: &DType, if_false: &DType) -> VortexResult<DType> {
     zip_nullability_union(if_true, if_false).ok_or_else(|| {
-        vortex_error::vortex_err!(
+        vortex_err!(
             "zip requires if_true and if_false to have the same base type, got {} and {}",
             if_true,
             if_false
