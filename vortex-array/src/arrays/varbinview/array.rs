@@ -331,20 +331,29 @@ impl VarBinViewData {
         validity: &Validity,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        vortex_ensure!(
-            validity.nullability() == dtype.nullability(),
-            InvalidArgument: "validity {:?} incompatible with nullability {:?}",
-            validity,
-            dtype.nullability()
-        );
-
-        match dtype {
-            DType::Utf8(_) => Self::validate_views(views, buffers, validity, ctx, |string| {
-                simdutf8::basic::from_utf8(string).is_ok()
-            }),
-            DType::Binary(_) => Self::validate_views(views, buffers, validity, ctx, |_| true),
-            _ => vortex_bail!(InvalidArgument: "invalid DType {dtype} for `VarBinViewArray`"),
+        let check_utf8 = Self::check_nullability(dtype, validity)?;
+        match validity {
+            // Array-backed validity is the only variant that needs an execution context: execute it
+            // into a mask once and zip it with the views, validating only the valid (non-null)
+            // entries.
+            Validity::Array(_) => {
+                let mask = validity.execute_mask(views.len(), ctx)?;
+                for ((idx, view), valid) in views.iter().enumerate().zip(mask.iter()) {
+                    if valid {
+                        Self::validate_view(idx, view, buffers, check_utf8)?;
+                    }
+                }
+            }
+            // Every entry is null, so there is nothing to validate.
+            Validity::AllInvalid => {}
+            // No nulls: validate every view.
+            Validity::NonNullable | Validity::AllValid => {
+                for (idx, view) in views.iter().enumerate() {
+                    Self::validate_view(idx, view, buffers, check_utf8)?;
+                }
+            }
         }
+        Ok(())
     }
 
     /// Validates components like validate() and replaces views at null slots to empty views
@@ -355,40 +364,92 @@ impl VarBinViewData {
         validity: &Validity,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Buffer<BinaryView>> {
-        vortex_ensure!(
-            validity.nullability() == dtype.nullability(),
-            InvalidArgument: "validity {:?} incompatible with nullability {:?}",
-            validity,
-            dtype.nullability()
-        );
+        let check_utf8 = Self::check_nullability(dtype, validity)?;
+        let empty = BinaryView::empty_view();
+        let len = views.len();
 
-        match dtype {
-            DType::Utf8(_) => {
-                Self::validate_and_fix_views(views, buffers, validity, ctx, |string| {
-                    simdutf8::basic::from_utf8(string).is_ok()
-                })
+        match validity {
+            Validity::Array(_) => {
+                let mask = validity.execute_mask(len, ctx)?;
+                match views.try_into_mut() {
+                    Ok(mut views) => {
+                        let slice = views.as_mut_slice();
+                        for (idx, valid) in mask.iter().enumerate() {
+                            if valid {
+                                Self::validate_view(idx, &slice[idx], buffers, check_utf8)?;
+                            } else {
+                                slice[idx] = empty;
+                            }
+                        }
+                        Ok(views.freeze())
+                    }
+                    Err(views) => {
+                        let mut needs_replace = false;
+                        for ((idx, view), valid) in views.iter().enumerate().zip(mask.iter()) {
+                            if valid {
+                                Self::validate_view(idx, view, buffers, check_utf8)?;
+                            } else if *view != empty {
+                                needs_replace = true;
+                            }
+                        }
+                        if !needs_replace {
+                            return Ok(views);
+                        }
+                        let mut views = views.into_mut();
+                        let slice = views.as_mut_slice();
+                        for_each_invalid_range(&mask, len, |start, end| {
+                            slice[start..end].fill(empty)
+                        });
+                        Ok(views.freeze())
+                    }
+                }
             }
-            DType::Binary(_) => {
-                Self::validate_and_fix_views(views, buffers, validity, ctx, |_| true)
+            // Every entry is null, so there is nothing to validate: replace all views with empty.
+            Validity::AllInvalid => match views.try_into_mut() {
+                Ok(mut views) => {
+                    views.as_mut_slice().fill(empty);
+                    Ok(views.freeze())
+                }
+                Err(views) if views.iter().all(|view| *view == empty) => Ok(views),
+                Err(views) => {
+                    let mut views = views.into_mut();
+                    views.as_mut_slice().fill(empty);
+                    Ok(views.freeze())
+                }
+            },
+            // No nulls: validate every view, nothing to replace.
+            Validity::NonNullable | Validity::AllValid => {
+                for (idx, view) in views.iter().enumerate() {
+                    Self::validate_view(idx, view, buffers, check_utf8)?;
+                }
+                Ok(views)
             }
-            _ => vortex_bail!(InvalidArgument: "invalid DType {dtype} for `VarBinViewArray`"),
         }
     }
 
-    fn validate_view<F>(
+    fn check_nullability(dtype: &DType, validity: &Validity) -> VortexResult<bool> {
+        let (is_utf8, nullability) = Self::dtype_parts(dtype)?;
+        vortex_ensure!(
+            validity.nullability() == nullability,
+            InvalidArgument: "validity {:?} incompatible with nullability {:?}",
+            validity,
+            nullability
+        );
+        Ok(is_utf8)
+    }
+
+    fn validate_view(
         idx: usize,
         view: &BinaryView,
         buffers: &Arc<[ByteBuffer]>,
-        validator: &F,
-    ) -> VortexResult<()>
-    where
-        F: Fn(&[u8]) -> bool,
-    {
+        check_utf8: bool,
+    ) -> VortexResult<()> {
+        let valid_utf8 = |bytes: &[u8]| !check_utf8 || simdutf8::basic::from_utf8(bytes).is_ok();
         if view.is_inlined() {
             // Validate the inline bytestring
             let bytes = &view.as_inlined().data[..view.len() as usize];
             vortex_ensure!(
-                validator(bytes),
+                valid_utf8(bytes),
                 InvalidArgument: "view at index {idx}: inlined bytes failed utf-8 validation"
             );
         } else {
@@ -423,120 +484,11 @@ impl VarBinViewData {
 
             // Validate the full string
             vortex_ensure!(
-                validator(bytes),
+                valid_utf8(bytes),
                 InvalidArgument: "view at index {idx}: outlined bytes fails utf-8 validation"
             );
         }
         Ok(())
-    }
-
-    fn validate_views<F>(
-        views: &Buffer<BinaryView>,
-        buffers: &Arc<[ByteBuffer]>,
-        validity: &Validity,
-        ctx: &mut ExecutionCtx,
-        validator: F,
-    ) -> VortexResult<()>
-    where
-        F: Fn(&[u8]) -> bool,
-    {
-        match validity {
-            // Array-backed validity is the only variant that needs an execution context: execute it
-            // into a mask once and zip it with the views, validating only the valid (non-null)
-            // entries.
-            Validity::Array(_) => {
-                let mask = validity.execute_mask(views.len(), ctx)?;
-                for ((idx, view), valid) in views.iter().enumerate().zip(mask.iter()) {
-                    if valid {
-                        Self::validate_view(idx, view, buffers, &validator)?;
-                    }
-                }
-            }
-            // Every entry is null, so there is nothing to validate.
-            Validity::AllInvalid => {}
-            // No nulls: validate every view.
-            Validity::NonNullable | Validity::AllValid => {
-                for (idx, view) in views.iter().enumerate() {
-                    Self::validate_view(idx, view, buffers, &validator)?;
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    fn validate_and_fix_views<F>(
-        views: Buffer<BinaryView>,
-        buffers: &Arc<[ByteBuffer]>,
-        validity: &Validity,
-        ctx: &mut ExecutionCtx,
-        validator: F,
-    ) -> VortexResult<Buffer<BinaryView>>
-    where
-        F: Fn(&[u8]) -> bool,
-    {
-        let empty = BinaryView::empty_view();
-        let len = views.len();
-
-        match validity {
-            Validity::Array(_) => {
-                let mask = validity.execute_mask(len, ctx)?;
-                match views.try_into_mut() {
-                    Ok(mut views) => {
-                        let slice = views.as_mut_slice();
-                        for (idx, valid) in mask.iter().enumerate() {
-                            if valid {
-                                Self::validate_view(idx, &slice[idx], buffers, &validator)?;
-                            } else {
-                                slice[idx] = empty;
-                            }
-                        }
-                        Ok(views.freeze())
-                    }
-                    Err(views) => {
-                        let mut needs_replace = false;
-                        for ((idx, view), valid) in views.iter().enumerate().zip(mask.iter()) {
-                            if valid {
-                                Self::validate_view(idx, view, buffers, &validator)?;
-                            } else if *view != empty {
-                                needs_replace = true;
-                            }
-                        }
-                        if !needs_replace {
-                            return Ok(views);
-                        }
-                        let mut views = views.into_mut();
-                        let slice = views.as_mut_slice();
-                        for_each_invalid_range(&mask, len, |start, end| {
-                            slice[start..end].fill(empty)
-                        });
-                        Ok(views.freeze())
-                    }
-                }
-            }
-            // Every entry is null, so there is nothing to validate: replace all views with empty.
-            Validity::AllInvalid => match views.try_into_mut() {
-                Ok(mut views) => {
-                    views.as_mut_slice().fill(empty);
-                    Ok(views.freeze())
-                }
-                Err(views) => {
-                    if views.iter().all(|view| *view == empty) {
-                        return Ok(views);
-                    }
-                    let mut views = views.into_mut();
-                    views.as_mut_slice().fill(empty);
-                    Ok(views.freeze())
-                }
-            },
-            // No nulls: validate every view, nothing to replace.
-            Validity::NonNullable | Validity::AllValid => {
-                for (idx, view) in views.iter().enumerate() {
-                    Self::validate_view(idx, view, buffers, &validator)?;
-                }
-                Ok(views)
-            }
-        }
     }
 
     /// Returns the length of this array.
