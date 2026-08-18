@@ -178,8 +178,6 @@ impl BtrBlocksCompressorBuilder {
             string::StringDictScheme.id(),
             binary::BinaryDictScheme.id(),
         ];
-        #[cfg(feature = "unstable_encodings")]
-        excluded.push(string::OnPairScheme.id());
         // Delta has no GPU decode kernel and its prefix-sum decode is inherently sequential, so it
         // is incompatible with pure-GPU decompression paths.
         #[cfg(feature = "unstable_encodings")]
