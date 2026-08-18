@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::convert::Infallible;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Result as FmtResult;
@@ -462,21 +463,10 @@ impl BitBuffer {
     /// (whose per-`next` iterator state does not inline as well).
     #[inline]
     pub fn for_each_set_index<F: FnMut(usize)>(&self, mut f: F) {
-        let mut base = 0usize;
-        for word in self.chunks().iter_padded() {
-            if word == u64::MAX {
-                for k in 0..64 {
-                    f(base + k);
-                }
-            } else {
-                let mut w = word;
-                while w != 0 {
-                    f(base + w.trailing_zeros() as usize);
-                    w &= w - 1;
-                }
-            }
-            base += 64;
-        }
+        let Ok(()) = self.try_for_each_set_index(|index| {
+            f(index);
+            Ok::<_, Infallible>(())
+        });
     }
 
     /// Fallible variant of [`for_each_set_index`](Self::for_each_set_index).
