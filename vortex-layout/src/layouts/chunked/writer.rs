@@ -3,26 +3,21 @@
 
 use std::sync::Arc;
 
-use async_stream::stream;
 use async_trait::async_trait;
-use futures::StreamExt;
-use futures::TryStreamExt;
-use futures::stream;
+use vortex_array::ArrayRef;
+use vortex_array::dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 
 use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::LayoutWriter;
 use crate::LayoutWriterContext;
 use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::segments::SegmentSinkRef;
-use crate::sequence::SendableSequentialStream;
-use crate::sequence::SequencePointer;
-use crate::sequence::SequentialStreamAdapter;
-use crate::sequence::SequentialStreamExt as _;
+use crate::sequence::SequenceId;
 
 #[derive(Clone)]
 pub struct ChunkedLayoutStrategy {
@@ -38,62 +33,63 @@ impl ChunkedLayoutStrategy {
     }
 }
 
-#[async_trait]
 impl LayoutStrategy for ChunkedLayoutStrategy {
-    async fn write_stream(
+    fn new_writer(
         &self,
         ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
-        stream: SendableSequentialStream,
-        mut eof: SequencePointer,
+        dtype: DType,
         session: &VortexSession,
-    ) -> VortexResult<LayoutRef> {
-        let dtype = stream.dtype().clone();
-        let dtype2 = dtype.clone();
-        let chunk_strategy = Arc::clone(&self.chunk_strategy);
-        let handle = session.handle();
+    ) -> VortexResult<Box<dyn LayoutWriter>> {
+        Ok(Box::new(ChunkedLayoutWriter {
+            chunk_strategy: Arc::clone(&self.chunk_strategy),
+            ctx,
+            segment_sink,
+            dtype,
+            session: session.clone(),
+            child_layouts: Vec::new(),
+        }))
+    }
+}
 
-        // We spawn each child to allow parallelism when processing chunks.
-        let stream = stream! {
-            let mut stream = stream;
-            while let Some(chunk) = stream.next().await {
-                let chunk_eof = eof.split_off();
+struct ChunkedLayoutWriter {
+    chunk_strategy: Arc<dyn LayoutStrategy>,
+    ctx: LayoutWriterContext,
+    segment_sink: SegmentSinkRef,
+    dtype: DType,
+    session: VortexSession,
+    child_layouts: Vec<LayoutRef>,
+}
 
-                let chunk_strategy = Arc::clone(&chunk_strategy);
-                let ctx = ctx.clone();
-                let segment_sink = Arc::clone(&segment_sink);
-                let dtype = dtype2.clone();
-                let session = session.clone();
+#[async_trait]
+impl LayoutWriter for ChunkedLayoutWriter {
+    async fn write(&mut self, sequence_id: SequenceId, chunk: ArrayRef) -> VortexResult<()> {
+        let mut sequence = sequence_id.descend();
+        let mut child = self.chunk_strategy.new_writer(
+            self.ctx.clone(),
+            Arc::clone(&self.segment_sink),
+            self.dtype.clone(),
+            &self.session,
+        )?;
+        child.write(sequence.advance(), chunk).await?;
+        child.finish(sequence.advance()).await?;
+        self.child_layouts.push(child.close().await?);
+        Ok(())
+    }
 
-                yield handle.spawn_nested(move |handle| async move {
-                    let session = session.with_handle(handle);
-                    chunk_strategy
-                        .write_stream(
-                            ctx,
-                            segment_sink,
-                            SequentialStreamAdapter::new(
-                                dtype,
-                                stream::iter([chunk]),
-                            )
-                            .sendable(),
-                            chunk_eof,
-                            &session,
-                        )
-                        .await
-                })
-            }
-        };
+    async fn finish(&mut self, _sequence_id: SequenceId) -> VortexResult<()> {
+        Ok(())
+    }
 
-        // Poll all of our children concurrently to accumulate their layouts.
-        let mut child_layouts: Vec<LayoutRef> = stream.buffered(usize::MAX).try_collect().await?;
-
+    async fn close(mut self: Box<Self>) -> VortexResult<LayoutRef> {
+        let mut child_layouts = std::mem::take(&mut self.child_layouts);
         if child_layouts.len() == 1 {
             Ok(child_layouts.pop().vortex_expect("must have one child"))
         } else {
             let row_count = child_layouts.iter().map(|layout| layout.row_count()).sum();
             Ok(ChunkedLayout::new(
                 row_count,
-                dtype,
+                self.dtype,
                 OwnedLayoutChildren::layout_children(child_layouts),
             )
             .into_layout())

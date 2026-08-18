@@ -54,7 +54,7 @@ impl SegmentSink for BufferedSegmentSink {
             let mut specs = self.segment_specs.lock();
             let segment_id = SegmentId::from(
                 u32::try_from(specs.len())
-                    .map_err(|_| vortex_err!("Too mant segments, u32 overflow"))?,
+                    .map_err(|_| vortex_err!("Too many segments, u32 overflow"))?,
             );
 
             // The API requires us to write these buffers contiguously. Therefore, we can only
@@ -90,10 +90,16 @@ impl SegmentSink for BufferedSegmentSink {
         };
 
         if let Some(padding) = padding_buffer {
-            let _ = self.buffers.send(padding).await;
+            self.buffers
+                .send(padding)
+                .await
+                .map_err(|_| vortex_err!("segment buffer receiver dropped"))?;
         }
         for buffer in buffers {
-            let _ = self.buffers.send(buffer).await;
+            self.buffers
+                .send(buffer)
+                .await
+                .map_err(|_| vortex_err!("segment buffer receiver dropped"))?;
         }
 
         Ok(segment_id)

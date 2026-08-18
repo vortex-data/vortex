@@ -14,11 +14,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::StreamExt;
-use futures::TryStreamExt;
-use futures::future::try_join;
 use futures::future::try_join_all;
-use futures::pin_mut;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
@@ -28,10 +24,8 @@ use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
-use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_io::kanal_ext::KanalExt;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::DefaultHashBuilder;
@@ -40,14 +34,12 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::LayoutWriter;
 use crate::LayoutWriterContext;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSinkRef;
-use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequenceId;
-use crate::sequence::SequencePointer;
-use crate::sequence::SequentialStreamAdapter;
-use crate::sequence::SequentialStreamExt;
+use crate::strategy::LayoutWriterActor;
 
 /// Writes struct-typed arrays into a [`StructLayout`], one child layout per field.
 ///
@@ -101,18 +93,14 @@ impl StructStrategy {
     }
 }
 
-#[async_trait]
 impl LayoutStrategy for StructStrategy {
-    async fn write_stream(
+    fn new_writer(
         &self,
         ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
-        stream: SendableSequentialStream,
-        mut eof: SequencePointer,
+        dtype: DType,
         session: &VortexSession,
-    ) -> VortexResult<LayoutRef> {
-        let dtype = stream.dtype().clone();
-
+    ) -> VortexResult<Box<dyn LayoutWriter>> {
         let Some(struct_dtype) = dtype.as_struct_fields_opt() else {
             vortex_bail!("StructStrategy can only write struct-typed streams, got {dtype}");
         };
@@ -124,81 +112,6 @@ impl LayoutStrategy for StructStrategy {
             vortex_bail!("StructLayout must have unique field names");
         }
         let is_nullable = dtype.is_nullable();
-
-        // Optimization: when there are no fields, don't spawn any work and just write a trivial
-        // StructLayout.
-        if struct_dtype.nfields() == 0 && !is_nullable {
-            let row_count = stream
-                .try_fold(
-                    0u64,
-                    |acc, (_, arr)| async move { Ok(acc + arr.len() as u64) },
-                )
-                .await?;
-            return Ok(StructLayout::new(row_count, dtype, vec![]).into_layout());
-        }
-
-        // stream<struct_chunk> -> stream<vec<column_chunk>>
-        let columns_session = session.clone();
-        let columns_vec_stream = stream.map(move |chunk| {
-            let (sequence_id, chunk) = chunk?;
-            let mut sequence_pointer = sequence_id.descend();
-            let mut ctx = columns_session.create_execution_ctx();
-            let struct_chunk = chunk.clone().execute::<StructArray>(&mut ctx)?;
-            let mut columns: Vec<(SequenceId, ArrayRef)> = Vec::new();
-            if is_nullable {
-                columns.push((
-                    sequence_pointer.advance(),
-                    chunk
-                        .validity()?
-                        .execute_mask(chunk.len(), &mut ctx)?
-                        .into_array(),
-                ));
-            }
-
-            columns.extend(
-                struct_chunk
-                    .iter_unmasked_fields()
-                    .map(|field| (sequence_pointer.advance(), field.clone())),
-            );
-
-            Ok(columns)
-        });
-
-        let mut stream_count = struct_dtype.nfields();
-        if is_nullable {
-            stream_count += 1;
-        }
-
-        let (column_streams_tx, column_streams_rx): (Vec<_>, Vec<_>) =
-            (0..stream_count).map(|_| kanal::bounded_async(1)).unzip();
-
-        // Fan out column chunks to their respective transposed streams. Keep this future joined
-        // with the column writers so producer panics/errors cannot be hidden as channel EOF.
-        let handle = session.handle();
-        let fanout_fut = async move {
-            pin_mut!(columns_vec_stream);
-            while let Some(result) = columns_vec_stream.next().await {
-                match result {
-                    Ok(columns) => {
-                        for (tx, column) in column_streams_tx.iter().zip_eq(columns) {
-                            if tx.send(Ok(column)).await.is_err() {
-                                vortex_bail!(
-                                    "struct column writer finished before all chunks were sent"
-                                );
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        let e: Arc<VortexError> = Arc::new(e);
-                        for tx in column_streams_tx.iter() {
-                            let _ = tx.send(Err(VortexError::from(Arc::clone(&e)))).await;
-                        }
-                        return Err(VortexError::from(e));
-                    }
-                }
-            }
-            Ok(())
-        };
 
         // First child column is the validity, subsequent children are the individual struct fields
         let column_dtypes: Vec<DType> = if is_nullable {
@@ -217,44 +130,110 @@ impl LayoutStrategy for StructStrategy {
             struct_dtype.names().iter().cloned().collect()
         };
 
-        let layout_futures: Vec<_> = column_dtypes
+        let buffered_bytes = ctx.buffered_bytes_tracker().clone();
+        let handle = session.handle();
+        let children = column_dtypes
             .into_iter()
-            .zip_eq(column_streams_rx)
             .zip_eq(column_names)
             .enumerate()
-            .map(move |(index, ((dtype, recv), name))| {
-                let column_stream =
-                    SequentialStreamAdapter::new(dtype, recv.into_stream().boxed()).sendable();
-                let child_eof = eof.split_off();
-                let session = session.clone();
-                let ctx = ctx.clone();
-                let segment_sink = Arc::clone(&segment_sink);
-                handle.spawn_nested(move |h| {
-                    // Validity is written through the validity strategy; every other field
-                    // resolves to its named override or the default strategy.
-                    let writer = if index == 0 && is_nullable {
-                        Arc::clone(&self.validity)
-                    } else {
-                        self.field_writers
-                            .get(&name)
-                            .cloned()
-                            .unwrap_or_else(|| Arc::clone(&self.default))
-                    };
-                    let session = session.with_handle(h);
-
-                    async move {
-                        writer
-                            .write_stream(ctx, segment_sink, column_stream, child_eof, &session)
-                            .await
-                    }
-                })
+            .map(|(index, (dtype, name))| {
+                let strategy = if index == 0 && is_nullable {
+                    Arc::clone(&self.validity)
+                } else {
+                    self.field_writers
+                        .get(&name)
+                        .cloned()
+                        .unwrap_or_else(|| Arc::clone(&self.default))
+                };
+                let writer =
+                    strategy.new_writer(ctx.clone(), Arc::clone(&segment_sink), dtype, session)?;
+                Ok(LayoutWriterActor::spawn(
+                    writer,
+                    buffered_bytes.clone(),
+                    &handle,
+                ))
             })
-            .collect();
+            .collect::<VortexResult<Vec<_>>>()?;
 
-        let (_success, column_layouts) = try_join(fanout_fut, try_join_all(layout_futures)).await?;
-        // TODO(os): transposed stream could count row counts as well,
-        // This must hold though, all columns must have the same row count of the struct layout
-        let row_count = column_layouts.first().map(|l| l.row_count()).unwrap_or(0);
-        Ok(StructLayout::new(row_count, dtype, column_layouts).into_layout())
+        Ok(Box::new(StructLayoutWriter {
+            dtype,
+            is_nullable,
+            children,
+            exec_ctx: session.create_execution_ctx(),
+            row_count: 0,
+        }))
+    }
+}
+
+struct StructLayoutWriter {
+    dtype: DType,
+    is_nullable: bool,
+    children: Vec<LayoutWriterActor>,
+    exec_ctx: vortex_array::ExecutionCtx,
+    row_count: u64,
+}
+
+#[async_trait]
+impl LayoutWriter for StructLayoutWriter {
+    async fn write(&mut self, sequence_id: SequenceId, chunk: ArrayRef) -> VortexResult<()> {
+        self.row_count += chunk.len() as u64;
+        if self.children.is_empty() {
+            return Ok(());
+        }
+
+        let struct_chunk = chunk.clone().execute::<StructArray>(&mut self.exec_ctx)?;
+        let mut columns = Vec::with_capacity(self.children.len());
+        if self.is_nullable {
+            columns.push(
+                chunk
+                    .validity()?
+                    .execute_mask(chunk.len(), &mut self.exec_ctx)?
+                    .into_array(),
+            );
+        }
+        columns.extend(struct_chunk.iter_unmasked_fields().cloned());
+
+        let mut sequence = sequence_id.descend();
+        let child_sequences = (0..self.children.len())
+            .map(|_| sequence.advance())
+            .collect::<Vec<_>>();
+        try_join_all(
+            self.children
+                .iter_mut()
+                .zip_eq(columns)
+                .zip(child_sequences)
+                .map(|((writer, column), sequence_id)| writer.write(sequence_id, column)),
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn finish(&mut self, sequence_id: SequenceId) -> VortexResult<()> {
+        let mut sequence = sequence_id.descend();
+        let child_sequences = (0..self.children.len())
+            .map(|_| sequence.advance())
+            .collect::<Vec<_>>();
+        try_join_all(
+            self.children
+                .iter_mut()
+                .zip(child_sequences)
+                .map(|(child, sequence_id)| child.finish(sequence_id)),
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn close(self: Box<Self>) -> VortexResult<LayoutRef> {
+        let Self {
+            dtype,
+            children,
+            row_count,
+            ..
+        } = *self;
+        let mut layouts = Vec::with_capacity(children.len());
+        for mut writer in children {
+            layouts.push(writer.take_layout()?);
+        }
+        Ok(StructLayout::new(row_count, dtype, layouts).into_layout())
     }
 }

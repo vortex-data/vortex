@@ -428,7 +428,7 @@ pub struct FileStatsAccumulator {
 }
 
 impl FileStatsAccumulator {
-    fn new(
+    pub fn new(
         dtype: &DType,
         stats: Arc<[Stat]>,
         max_variable_length_statistics_size: usize,
@@ -475,6 +475,12 @@ impl FileStatsAccumulator {
         chunk: VortexResult<(SequenceId, ArrayRef)>,
     ) -> VortexResult<(SequenceId, ArrayRef)> {
         let (sequence_id, chunk) = chunk?;
+        self.push(&chunk)?;
+        Ok((sequence_id, chunk))
+    }
+
+    /// Accumulate statistics for one pushed array chunk.
+    pub fn push(&self, chunk: &ArrayRef) -> VortexResult<()> {
         let mut ctx = self.ctx.lock();
         if chunk.dtype().is_struct() {
             let struct_chunk = chunk.clone().execute::<StructArray>(&mut ctx)?;
@@ -487,9 +493,9 @@ impl FileStatsAccumulator {
                 acc.push_chunk(field, &mut ctx)?;
             }
         } else {
-            self.accumulators.lock()[0].push_chunk(&chunk, &mut ctx)?;
+            self.accumulators.lock()[0].push_chunk(chunk, &mut ctx)?;
         }
-        Ok((sequence_id, chunk))
+        Ok(())
     }
 
     pub fn stats_sets(&self) -> Vec<StatsSet> {

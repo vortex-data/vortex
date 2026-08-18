@@ -11,7 +11,6 @@ use std::sync::OnceLock;
 
 use async_trait::async_trait;
 use futures::FutureExt;
-use futures::StreamExt;
 use futures::future::BoxFuture;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayVTable;
@@ -44,6 +43,7 @@ use vortex::layout::LayoutReader;
 use vortex::layout::LayoutReaderRef;
 use vortex::layout::LayoutRef;
 use vortex::layout::LayoutStrategy;
+use vortex::layout::LayoutWriter;
 use vortex::layout::LayoutWriterContext;
 use vortex::layout::RowSplits;
 use vortex::layout::SplitRange;
@@ -53,8 +53,7 @@ use vortex::layout::layouts::SharedArrayFuture;
 use vortex::layout::segments::SegmentId;
 use vortex::layout::segments::SegmentSinkRef;
 use vortex::layout::segments::SegmentSource;
-use vortex::layout::sequence::SendableSequentialStream;
-use vortex::layout::sequence::SequencePointer;
+use vortex::layout::sequence::SequenceId;
 use vortex::mask::Mask;
 use vortex::scalar::Scalar;
 use vortex::scalar::ScalarTruncation;
@@ -410,21 +409,40 @@ fn truncate_scalar_stat<F: Fn(Scalar) -> Option<(Scalar, bool)>>(
     }
 }
 
-#[async_trait]
 impl LayoutStrategy for CudaFlatLayoutStrategy {
-    async fn write_stream(
+    fn new_writer(
         &self,
         ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
-        mut stream: SendableSequentialStream,
-        _eof: SequencePointer,
+        dtype: DType,
         session: &VortexSession,
-    ) -> VortexResult<LayoutRef> {
-        let options = self.clone();
-        let Some(chunk) = stream.next().await else {
-            vortex_bail!("CudaFlatLayoutStrategy needs a single chunk");
-        };
-        let (sequence_id, chunk) = chunk?;
+    ) -> VortexResult<Box<dyn LayoutWriter>> {
+        Ok(Box::new(CudaFlatLayoutWriter {
+            ctx,
+            segment_sink,
+            dtype,
+            session: session.clone(),
+            options: self.clone(),
+            layout: None,
+        }))
+    }
+}
+
+struct CudaFlatLayoutWriter {
+    ctx: LayoutWriterContext,
+    segment_sink: SegmentSinkRef,
+    dtype: DType,
+    session: VortexSession,
+    options: CudaFlatLayoutStrategy,
+    layout: Option<LayoutRef>,
+}
+
+#[async_trait]
+impl LayoutWriter for CudaFlatLayoutWriter {
+    async fn write(&mut self, sequence_id: SequenceId, chunk: ArrayRef) -> VortexResult<()> {
+        if self.layout.is_some() {
+            vortex_bail!("CudaFlatLayoutStrategy received more than a single chunk");
+        }
         let row_count = chunk.len() as u64;
 
         match chunk.dtype() {
@@ -433,7 +451,7 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
                     lower_bound(
                         BufferString::from_scalar(v)
                             .vortex_expect("utf8 scalar must be a BufferString"),
-                        self.max_variable_length_statistics_size,
+                        self.options.max_variable_length_statistics_size,
                         *n,
                     )
                 });
@@ -441,7 +459,7 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
                     upper_bound(
                         BufferString::from_scalar(v)
                             .vortex_expect("utf8 scalar must be a BufferString"),
-                        self.max_variable_length_statistics_size,
+                        self.options.max_variable_length_statistics_size,
                         *n,
                     )
                 });
@@ -451,7 +469,7 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
                     lower_bound(
                         ByteBuffer::from_scalar(v)
                             .vortex_expect("binary scalar must be a ByteBuffer"),
-                        self.max_variable_length_statistics_size,
+                        self.options.max_variable_length_statistics_size,
                         *n,
                     )
                 });
@@ -459,7 +477,7 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
                     upper_bound(
                         ByteBuffer::from_scalar(v)
                             .vortex_expect("binary scalar must be a ByteBuffer"),
-                        self.max_variable_length_statistics_size,
+                        self.options.max_variable_length_statistics_size,
                         *n,
                     )
                 });
@@ -471,11 +489,11 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
         let host_buffers = extract_constant_buffers(&chunk);
 
         let buffers = chunk.serialize(
-            ctx.array_ctx(),
-            session,
+            self.ctx.array_ctx(),
+            &self.session,
             &SerializeOptions {
                 offset: 0,
-                include_padding: options.include_padding,
+                include_padding: self.options.include_padding,
             },
         )?;
         assert!(buffers.len() >= 2);
@@ -483,31 +501,40 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
         // Always store the array tree inline (the cuda path requires it for planning).
         let array_tree = buffers[buffers.len() - 2].clone();
 
-        let segment_id = segment_sink.write(sequence_id, buffers).await?;
-
-        let None = stream.next().await else {
-            vortex_bail!("CudaFlatLayoutStrategy received stream with more than a single chunk");
-        };
+        let segment_id = self.segment_sink.write(sequence_id, buffers).await?;
 
         let host_buffer_map: HashMap<u32, ByteBuffer> = host_buffers
             .iter()
             .map(|hb| (hb.buffer_index, ByteBuffer::from(hb.data.clone())))
             .collect();
 
-        Ok(LayoutParts::new(
-            CudaFlat,
-            stream.dtype().clone(),
-            row_count,
-            vec![segment_id],
-            layout_children(Vec::new()),
-            CudaFlatData {
-                segment_id,
-                ctx: ReadContext::new(ctx.array_ctx().to_ids()),
-                array_tree,
-                host_buffers: Arc::new(host_buffer_map),
-            },
-        )
-        .into_layout())
+        self.layout = Some(
+            LayoutParts::new(
+                CudaFlat,
+                self.dtype.clone(),
+                row_count,
+                vec![segment_id],
+                layout_children(Vec::new()),
+                CudaFlatData {
+                    segment_id,
+                    ctx: ReadContext::new(self.ctx.array_ctx().to_ids()),
+                    array_tree,
+                    host_buffers: Arc::new(host_buffer_map),
+                },
+            )
+            .into_layout(),
+        );
+        Ok(())
+    }
+
+    async fn finish(&mut self, _sequence_id: SequenceId) -> VortexResult<()> {
+        Ok(())
+    }
+
+    async fn close(self: Box<Self>) -> VortexResult<LayoutRef> {
+        self.layout.ok_or_else(|| {
+            vortex::error::vortex_err!("CudaFlatLayoutStrategy needs a single chunk")
+        })
     }
 }
 

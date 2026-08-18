@@ -1476,7 +1476,7 @@ async fn test_writer_basic_push() -> VortexResult<()> {
     let dtype = st.dtype().clone();
 
     let mut buf = ByteBufferMut::empty();
-    let mut writer = SESSION.write_options().writer(&mut buf, dtype.clone());
+    let mut writer = SESSION.write_options().writer(&mut buf, dtype.clone())?;
 
     writer.push(st.clone()).await?;
     let summary = writer.finish().await?;
@@ -1488,6 +1488,29 @@ async fn test_writer_basic_push() -> VortexResult<()> {
 
     assert_eq!(result.len(), 4);
     assert_eq!(result.dtype(), &dtype);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_writer_rejects_mismatched_dtype() -> VortexResult<()> {
+    let array = buffer![1u32, 2, 3].into_array();
+    let wrong_dtype = buffer![1i64, 2, 3].into_array();
+
+    let mut buf = ByteBufferMut::empty();
+    let mut writer = SESSION
+        .write_options()
+        .writer(&mut buf, array.dtype().clone())?;
+
+    let error = writer
+        .write(wrong_dtype)
+        .await
+        .expect_err("mismatched dtype must be rejected");
+    assert!(error.to_string().contains("expected array with dtype u32"));
+
+    writer.write(array).await?;
+    let summary = writer.close().await?;
+    assert_eq!(summary.row_count(), 3);
 
     Ok(())
 }
@@ -1505,7 +1528,7 @@ async fn test_writer_multiple_pushes() -> VortexResult<()> {
     let dtype = chunk1.dtype().clone();
 
     let mut buf = ByteBufferMut::empty();
-    let mut writer = SESSION.write_options().writer(&mut buf, dtype.clone());
+    let mut writer = SESSION.write_options().writer(&mut buf, dtype.clone())?;
 
     writer.push(chunk1).await?;
     writer.push(chunk2).await?;
@@ -1542,7 +1565,7 @@ async fn test_writer_push_stream() -> VortexResult<()> {
     let sendable_stream = ArrayStreamExt::boxed(ArrayStreamAdapter::new(dtype.clone(), stream));
 
     let mut buf = ByteBufferMut::empty();
-    let mut writer = SESSION.write_options().writer(&mut buf, dtype.clone());
+    let mut writer = SESSION.write_options().writer(&mut buf, dtype.clone())?;
 
     writer.push_stream(sendable_stream).await?;
 
@@ -1570,7 +1593,7 @@ async fn test_writer_bytes_written() -> VortexResult<()> {
     let dtype = array.dtype().clone();
 
     let mut buf = ByteBufferMut::empty();
-    let mut writer = SESSION.write_options().writer(&mut buf, dtype);
+    let mut writer = SESSION.write_options().writer(&mut buf, dtype)?;
 
     assert_eq!(writer.bytes_written(), 0);
 
@@ -1592,16 +1615,15 @@ async fn test_writer_bytes_written() -> VortexResult<()> {
 }
 
 #[rstest]
-#[case::table_one_leaf(true, 1, false, 32)]
-#[case::table_two_shared_leaves(true, 2, false, 64)]
-#[case::table_field_override(true, 2, true, 64)]
-#[case::struct_default(false, 1, false, 32)]
+#[case::table_one_leaf(true, 1, false)]
+#[case::table_two_shared_leaves(true, 2, false)]
+#[case::table_field_override(true, 2, true)]
+#[case::struct_default(false, 1, false)]
 #[tokio::test]
 async fn test_writer_buffered_bytes(
     #[case] use_table_strategy: bool,
     #[case] leaf_count: usize,
     #[case] field_override: bool,
-    #[case] expected_buffered_bytes: u64,
 ) -> VortexResult<()> {
     const BUFFER_SIZE: u64 = 16;
 
@@ -1631,17 +1653,23 @@ async fn test_writer_buffered_bytes(
     let mut buf = ByteBufferMut::empty();
     let options = SESSION.write_options().with_strategy(Arc::clone(&strategy));
     let buffered_bytes = options.buffered_bytes_tracker();
-    let mut writer = options.writer(&mut buf, array.dtype().clone());
+    let mut writer = options.writer(&mut buf, array.dtype().clone())?;
 
     assert_eq!(writer.buffered_bytes(), 0);
 
-    // The third push forces two chunks through the capacity-one input channel while keeping the
-    // writer open. Each physical leaf retains two BUFFER_SIZE chunks while peeking for more input.
+    // Each buffered leaf retains two chunks. Depending on how far its independently-driven child
+    // has progressed, the actor mailbox may also retain the third chunk.
     writer.push(array.clone()).await?;
     writer.push(array.clone()).await?;
     writer.push(array).await?;
 
-    assert_eq!(writer.buffered_bytes(), expected_buffered_bytes);
+    let observed_buffered_bytes = writer.buffered_bytes();
+    let minimum = 2 * BUFFER_SIZE * leaf_count as u64;
+    let maximum = 3 * BUFFER_SIZE * leaf_count as u64;
+    assert!(
+        (minimum..=maximum).contains(&observed_buffered_bytes),
+        "expected {minimum}..={maximum} buffered bytes, got {observed_buffered_bytes}"
+    );
 
     let summary = writer.finish().await?;
     assert_eq!(summary.row_count(), 12);
@@ -1669,12 +1697,12 @@ async fn test_buffered_bytes_are_writer_scoped() -> VortexResult<()> {
     let mut first = SESSION
         .write_options()
         .with_strategy(Arc::clone(&strategy))
-        .writer(&mut first_buf, array.dtype().clone());
+        .writer(&mut first_buf, array.dtype().clone())?;
     let mut second_buf = ByteBufferMut::empty();
     let mut second = SESSION
         .write_options()
         .with_strategy(strategy)
-        .writer(&mut second_buf, array.dtype().clone());
+        .writer(&mut second_buf, array.dtype().clone())?;
 
     first.push(array.clone()).await?;
     first.push(array.clone()).await?;
@@ -1683,8 +1711,8 @@ async fn test_buffered_bytes_are_writer_scoped() -> VortexResult<()> {
     second.push(array.clone()).await?;
     second.push(array).await?;
 
-    assert_eq!(first.buffered_bytes(), 2 * BUFFER_SIZE);
-    assert_eq!(second.buffered_bytes(), 2 * BUFFER_SIZE);
+    assert!((2 * BUFFER_SIZE..=3 * BUFFER_SIZE).contains(&first.buffered_bytes()));
+    assert!((2 * BUFFER_SIZE..=3 * BUFFER_SIZE).contains(&second.buffered_bytes()));
 
     first.finish().await?;
     second.finish().await?;
@@ -1742,7 +1770,7 @@ async fn test_writer_empty_chunks() -> VortexResult<()> {
     let dtype = empty.dtype().clone();
 
     let mut buf = ByteBufferMut::empty();
-    let mut writer = SESSION.write_options().writer(&mut buf, dtype.clone());
+    let mut writer = SESSION.write_options().writer(&mut buf, dtype.clone())?;
 
     writer.push(empty.clone()).await?;
     writer.push(non_empty).await?;
@@ -1781,7 +1809,7 @@ async fn test_writer_mixed_push_and_stream() -> VortexResult<()> {
     let sendable_stream = ArrayStreamExt::boxed(ArrayStreamAdapter::new(dtype.clone(), stream));
 
     let mut buf = ByteBufferMut::empty();
-    let mut writer = SESSION.write_options().writer(&mut buf, dtype.clone());
+    let mut writer = SESSION.write_options().writer(&mut buf, dtype.clone())?;
 
     writer.push(chunk1).await?;
     writer.push_stream(sendable_stream).await?;
@@ -1824,7 +1852,7 @@ async fn test_writer_with_complex_types() -> VortexResult<()> {
     let dtype = chunk.dtype().clone();
 
     let mut buf = ByteBufferMut::empty();
-    let mut writer = SESSION.write_options().writer(&mut buf, dtype.clone());
+    let mut writer = SESSION.write_options().writer(&mut buf, dtype.clone())?;
 
     writer.push(chunk).await?;
     let footer = writer.finish().await?;
@@ -2020,7 +2048,7 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
     let mut writer = SESSION
         .write_options()
         .with_file_statistics(PRUNING_STATS.to_vec())
-        .writer(&mut buf, array.dtype().clone());
+        .writer(&mut buf, array.dtype().clone())?;
 
     writer.push(array).await?;
     let summary = writer.finish().await?;

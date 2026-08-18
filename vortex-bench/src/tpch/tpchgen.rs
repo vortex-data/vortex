@@ -19,7 +19,6 @@ use parquet::file::properties::WriterProperties;
 use tokio::fs::File as TokioFile;
 use tokio::sync::Semaphore;
 use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tpchgen::generators::CustomerGenerator;
 use tpchgen::generators::LineItemGenerator;
@@ -31,9 +30,6 @@ use tpchgen::generators::RegionGenerator;
 use tpchgen::generators::SupplierGenerator;
 use tpchgen_arrow::RecordBatchIterator;
 use tracing::info;
-use vortex::array::ArrayRef;
-use vortex::array::stream::ArrayStreamAdapter;
-use vortex::error::VortexExpect;
 use vortex::file::WriteOptionsSessionExt;
 use vortex_arrow::ArrowSessionExt;
 
@@ -195,16 +191,12 @@ fn generate_table_file(
             // Create writer based on format
             let mut writer: Box<dyn FileWriter + Send> = match write_format {
                 Format::Parquet => Box::new(ParquetWriter::new(path, schema).await?),
-                Format::OnDiskVortex => Box::new(VortexWriter::new(
-                    path,
-                    schema,
-                    CompactionStrategy::Default,
-                )?),
-                Format::VortexCompact => Box::new(VortexWriter::new(
-                    path,
-                    schema,
-                    CompactionStrategy::Compact,
-                )?),
+                Format::OnDiskVortex => {
+                    Box::new(VortexWriter::new(path, schema, CompactionStrategy::Default).await?)
+                }
+                Format::VortexCompact => {
+                    Box::new(VortexWriter::new(path, schema, CompactionStrategy::Compact).await?)
+                }
                 _ => unreachable!(),
             };
 
@@ -324,37 +316,22 @@ impl FileWriter for ParquetWriter {
 
 /// Vortex writer for streaming TPC-H data
 struct VortexWriter {
-    sender: Option<mpsc::Sender<vortex::error::VortexResult<ArrayRef>>>,
-    write_task: Option<tokio::task::JoinHandle<Result<()>>>,
+    writer: vortex::file::Writer<TokioFile>,
 }
 
 impl VortexWriter {
-    fn new(
+    async fn new(
         path: PathBuf,
         schema: SchemaRef,
         compaction_strategy: CompactionStrategy,
     ) -> Result<Self> {
-        // Increase buffer size to avoid backpressure issues
-        let (sender, receiver) = mpsc::channel(2);
         let dtype = SESSION.arrow().from_arrow_schema(schema.as_ref())?;
-        let file_path = path;
-        let write_task = Some(tokio::spawn(async move {
-            let stream = ArrayStreamAdapter::new(dtype, ReceiverStream::new(receiver));
+        let file = TokioFile::create(path).await?;
+        let writer = compaction_strategy
+            .apply_options(SESSION.write_options())
+            .writer(file, dtype)?;
 
-            let mut file = TokioFile::create(&file_path).await?;
-            compaction_strategy
-                .apply_options(SESSION.write_options())
-                .write(&mut file, stream)
-                .await
-                .map_err(|e| anyhow!("Vortex write failed: {}", e))?;
-
-            Ok(())
-        }));
-
-        Ok(Self {
-            sender: Some(sender),
-            write_task,
-        })
+        Ok(Self { writer })
     }
 }
 
@@ -365,24 +342,17 @@ impl FileWriter for VortexWriter {
         let array = SESSION
             .arrow()
             .from_arrow_record_batch(batch.clone(), &schema)?;
-        self.sender
-            .as_ref()
-            .vortex_expect("sender closed early")
-            .send(Ok(array))
+        self.writer
+            .write(array)
             .await
-            .map_err(|_| anyhow!("Failed to send array to write task"))
+            .map_err(|e| anyhow!("Vortex write failed: {e}"))
     }
 
-    async fn finalize(mut self: Box<Self>) -> Result<()> {
-        // Close the sender to signal end of stream
-        self.sender.take();
-
-        // Wait for write task to complete
-        if let Some(task) = self.write_task.take() {
-            task.await
-                .map_err(|e| anyhow!("Write task failed: {}", e))??;
-        }
-
+    async fn finalize(self: Box<Self>) -> Result<()> {
+        self.writer
+            .close()
+            .await
+            .map_err(|e| anyhow!("Vortex write failed: {e}"))?;
         Ok(())
     }
 }

@@ -13,10 +13,10 @@ use vortex_buffer::ByteBufferMut;
 
 use crate::IoBuf;
 
-pub trait VortexWrite {
-    fn write_all<B: IoBuf>(&mut self, buffer: B) -> impl Future<Output = io::Result<B>>;
-    fn flush(&mut self) -> impl Future<Output = io::Result<()>>;
-    fn shutdown(&mut self) -> impl Future<Output = io::Result<()>>;
+pub trait VortexWrite: Send {
+    fn write_all<B: IoBuf>(&mut self, buffer: B) -> impl Future<Output = io::Result<B>> + Send;
+    fn flush(&mut self) -> impl Future<Output = io::Result<()>> + Send;
+    fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> + Send;
 }
 
 impl VortexWrite for Vec<u8> {
@@ -51,7 +51,7 @@ impl VortexWrite for ByteBufferMut {
 
 impl<T> VortexWrite for Cursor<T>
 where
-    Cursor<T>: Write,
+    Cursor<T>: Write + Send,
 {
     fn write_all<B: IoBuf>(&mut self, buffer: B) -> impl Future<Output = io::Result<B>> {
         ready(Write::write_all(self, buffer.as_slice()).map(|_| buffer))
@@ -112,7 +112,7 @@ impl VortexWrite for async_fs::File {
 
 /// An adapter to use an `AsyncWrite` as a `VortexWrite`.
 pub struct AsyncWriteAdapter<W: AsyncWrite>(pub W);
-impl<W: AsyncWrite + Unpin> VortexWrite for AsyncWriteAdapter<W> {
+impl<W: AsyncWrite + Unpin + Send> VortexWrite for AsyncWriteAdapter<W> {
     async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {
         self.0.write_all(buffer.as_slice()).await?;
         Ok(buffer)

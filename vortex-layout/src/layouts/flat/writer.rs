@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use async_trait::async_trait;
-use futures::StreamExt;
+use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
@@ -23,14 +23,14 @@ use vortex_session::registry::ReadContext;
 
 use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::LayoutWriter;
 use crate::LayoutWriterContext;
 use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::flat::flat_layout_inline_array_node;
 use crate::segments::SegmentSinkRef;
-use crate::sequence::SendableSequentialStream;
-use crate::sequence::SequencePointer;
+use crate::sequence::SequenceId;
 
 #[derive(Clone)]
 pub struct FlatLayoutStrategy {
@@ -79,27 +79,42 @@ fn truncate_scalar_stat<F: Fn(Scalar) -> Option<(Scalar, bool)>>(
     }
 }
 
-#[async_trait]
 impl LayoutStrategy for FlatLayoutStrategy {
-    async fn write_stream(
+    fn new_writer(
         &self,
         ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
-        mut stream: SendableSequentialStream,
-        _eof: SequencePointer,
+        dtype: DType,
         session: &VortexSession,
-    ) -> VortexResult<LayoutRef> {
-        let Some(chunk) = stream.next().await else {
-            // an empty input has no segment to write.
-            return Ok(ChunkedLayout::new(
-                0,
-                stream.dtype().clone(),
-                OwnedLayoutChildren::layout_children(vec![]),
-            )
-            .into_layout());
-        };
-        let (sequence_id, chunk) = chunk?;
+    ) -> VortexResult<Box<dyn LayoutWriter>> {
+        Ok(Box::new(FlatLayoutWriter {
+            ctx,
+            segment_sink,
+            dtype,
+            session: session.clone(),
+            include_padding: self.include_padding,
+            max_variable_length_statistics_size: self.max_variable_length_statistics_size,
+            layout: None,
+        }))
+    }
+}
 
+struct FlatLayoutWriter {
+    ctx: LayoutWriterContext,
+    segment_sink: SegmentSinkRef,
+    dtype: DType,
+    session: VortexSession,
+    include_padding: bool,
+    max_variable_length_statistics_size: usize,
+    layout: Option<LayoutRef>,
+}
+
+#[async_trait]
+impl LayoutWriter for FlatLayoutWriter {
+    async fn write(&mut self, sequence_id: SequenceId, chunk: ArrayRef) -> VortexResult<()> {
+        if self.layout.is_some() {
+            vortex_bail!("flat layout received more than a single chunk");
+        }
         let row_count = chunk.len() as u64;
 
         match chunk.dtype() {
@@ -143,8 +158,8 @@ impl LayoutStrategy for FlatLayoutStrategy {
         }
 
         let buffers = chunk.serialize(
-            ctx.array_ctx(),
-            session,
+            self.ctx.array_ctx(),
+            &self.session,
             &SerializeOptions {
                 offset: 0,
                 include_padding: self.include_padding,
@@ -154,19 +169,29 @@ impl LayoutStrategy for FlatLayoutStrategy {
         assert!(buffers.len() >= 2);
         let array_node =
             flat_layout_inline_array_node().then(|| buffers[buffers.len() - 2].clone());
-        let segment_id = segment_sink.write(sequence_id, buffers).await?;
+        let segment_id = self.segment_sink.write(sequence_id, buffers).await?;
+        self.layout = Some(
+            FlatLayout::new_with_metadata(
+                row_count,
+                self.dtype.clone(),
+                segment_id,
+                ReadContext::new(self.ctx.array_ctx().to_ids()),
+                array_node,
+            )
+            .into_layout(),
+        );
+        Ok(())
+    }
 
-        let None = stream.next().await else {
-            vortex_bail!("flat layout received stream with more than a single chunk");
-        };
-        Ok(FlatLayout::new_with_metadata(
-            row_count,
-            stream.dtype().clone(),
-            segment_id,
-            ReadContext::new(ctx.array_ctx().to_ids()),
-            array_node,
-        )
-        .into_layout())
+    async fn finish(&mut self, _sequence_id: SequenceId) -> VortexResult<()> {
+        Ok(())
+    }
+
+    async fn close(self: Box<Self>) -> VortexResult<LayoutRef> {
+        let Self { layout, dtype, .. } = *self;
+        Ok(layout.unwrap_or_else(|| {
+            ChunkedLayout::new(0, dtype, OwnedLayoutChildren::layout_children(vec![])).into_layout()
+        }))
     }
 }
 

@@ -3,7 +3,7 @@
 
 //! A configurable writer strategy for tabular data.
 //!
-//! [`TableStrategy`] is a *dispatcher*: it inspects the dtype of the stream it is handed and
+//! [`TableStrategy`] is a *dispatcher*: it inspects the dtype of the writer it constructs and
 //! routes struct columns to [`StructStrategy`], list columns to [`ListLayoutStrategy`], and
 //! everything else to the configured leaf strategy. Because it hands *itself* (suitably descended)
 //! to those structural writers as the strategy for their children, arbitrarily nested struct/list
@@ -16,7 +16,7 @@ use std::env;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
-use async_trait::async_trait;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldPath;
@@ -25,14 +25,12 @@ use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::LayoutWriter;
 use crate::LayoutWriterContext;
 use crate::layouts::list::writer::ListLayoutStrategy;
 use crate::layouts::struct_::StructStrategy;
 use crate::segments::SegmentSinkRef;
-use crate::sequence::SendableSequentialStream;
-use crate::sequence::SequencePointer;
 
 /// Whether [`TableStrategy`] writes list fields using a [`ListLayoutStrategy`] by
 /// default. Disabled unless the environment variable `VORTEX_EXPERIMENTAL_LIST_LAYOUT`
@@ -47,10 +45,10 @@ pub fn use_experimental_list_layout() -> bool {
 
 type ListLayoutFactory = Arc<dyn Fn(ListLayoutStrategy) -> Arc<dyn LayoutStrategy> + Send + Sync>;
 
-/// A configurable strategy for writing nested tabular data, dispatching each (sub)stream to the
+/// A configurable strategy for writing nested tabular data, dispatching each writer node to the
 /// structural writer for its dtype.
 ///
-/// Dispatch rules, applied to the dtype of the stream handed to [`write_stream`]:
+/// Dispatch rules, applied to the dtype handed to [`LayoutStrategy::new_writer`]:
 /// - **struct** → [`StructStrategy`], with each field written by its override (if any) or by a
 ///   descended copy of this dispatcher.
 /// - **list** → [`ListLayoutStrategy`], with `elements` written by a descended copy of this
@@ -59,8 +57,6 @@ type ListLayoutFactory = Arc<dyn Fn(ListLayoutStrategy) -> Arc<dyn LayoutStrateg
 ///   [`with_list_layout`][Self::with_list_layout] (off by default); otherwise a list falls through
 ///   to the leaf strategy.
 /// - **anything else** → the leaf strategy.
-///
-/// [`write_stream`]: LayoutStrategy::write_stream
 pub struct TableStrategy {
     /// A set of field-path overrides, e.g. to force one column to be compact-compressed. Keys are
     /// paths relative to the level this dispatcher sits at.
@@ -291,37 +287,28 @@ impl TableStrategy {
 }
 
 /// Dispatches each stream to the structural writer for its dtype.
-#[async_trait]
 impl LayoutStrategy for TableStrategy {
-    async fn write_stream(
+    fn new_writer(
         &self,
         ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
-        stream: SendableSequentialStream,
-        eof: SequencePointer,
+        dtype: DType,
         session: &VortexSession,
-    ) -> VortexResult<LayoutRef> {
-        let dtype = stream.dtype().clone();
-
+    ) -> VortexResult<Box<dyn LayoutWriter>> {
         if dtype.is_struct() {
             return self
                 .struct_strategy()
-                .write_stream(ctx, segment_sink, stream, eof, session)
-                .await;
+                .new_writer(ctx, segment_sink, dtype, session);
         }
 
         if dtype.is_list()
             && let Some(list_strategy) = self.list_strategy()
         {
-            return list_strategy
-                .write_stream(ctx, segment_sink, stream, eof, session)
-                .await;
+            return list_strategy.new_writer(ctx, segment_sink, dtype, session);
         }
 
         // Leaf: hand off to the leaf strategy.
-        self.leaf
-            .write_stream(ctx, segment_sink, stream, eof, session)
-            .await
+        self.leaf.new_writer(ctx, segment_sink, dtype, session)
     }
 }
 
@@ -432,12 +419,12 @@ mod tests {
         .into_array();
 
         let layout = write(&flat_table().with_list_layout(), outer).await?;
-        insta::assert_snapshot!(layout.display_tree(), @r"
+        insta::assert_snapshot!(layout.display_tree(), @"
         vortex.list, dtype: list(list(i32)), children: 2
         ├── elements: vortex.list, dtype: list(i32), children: 2
-        │   ├── elements: vortex.flat, dtype: i32, segment: 1
-        │   └── offsets: vortex.flat, dtype: u64, segment: 2
-        └── offsets: vortex.flat, dtype: u64, segment: 0
+        │   ├── elements: vortex.flat, dtype: i32, segment: 0
+        │   └── offsets: vortex.flat, dtype: u64, segment: 1
+        └── offsets: vortex.flat, dtype: u64, segment: 2
         ");
         Ok(())
     }
@@ -463,14 +450,14 @@ mod tests {
         let st = StructArray::from_fields([("items", items)].as_slice())?.into_array();
 
         let layout = write(&flat_table().with_list_layout(), st).await?;
-        insta::assert_snapshot!(layout.display_tree(), @r"
+        insta::assert_snapshot!(layout.display_tree(), @"
         vortex.struct, dtype: {items=list({a=i32, b=i32})?}, children: 1
         └── items: vortex.list, dtype: list({a=i32, b=i32})?, children: 3
             ├── elements: vortex.struct, dtype: {a=i32, b=i32}, children: 2
-            │   ├── a: vortex.flat, dtype: i32, segment: 2
-            │   └── b: vortex.flat, dtype: i32, segment: 3
-            ├── offsets: vortex.flat, dtype: u64, segment: 0
-            └── validity: vortex.flat, dtype: bool, segment: 1
+            │   ├── a: vortex.flat, dtype: i32, segment: 0
+            │   └── b: vortex.flat, dtype: i32, segment: 1
+            ├── offsets: vortex.flat, dtype: u64, segment: 2
+            └── validity: vortex.flat, dtype: bool, segment: 3
         ");
         Ok(())
     }
@@ -502,13 +489,13 @@ mod tests {
         )
         .with_list_layout();
         let layout = write(&dispatcher, chunked).await?;
-        insta::assert_snapshot!(layout.display_tree(), @r"
+        insta::assert_snapshot!(layout.display_tree(), @"
         vortex.list, dtype: list(i32), children: 2
         ├── elements: vortex.chunked, dtype: i32, children: 2
         │   ├── [0]: vortex.flat, dtype: i32, segment: 0
-        │   └── [1]: vortex.flat, dtype: i32, segment: 1
+        │   └── [1]: vortex.flat, dtype: i32, segment: 2
         └── offsets: vortex.chunked, dtype: u64, children: 2
-            ├── [0]: vortex.flat, dtype: u64, segment: 2
+            ├── [0]: vortex.flat, dtype: u64, segment: 1
             └── [1]: vortex.flat, dtype: u64, segment: 3
         ");
         Ok(())
@@ -601,13 +588,13 @@ mod tests {
         let chunked = ChunkedArray::try_new(vec![c0, c1], dtype)?.into_array();
 
         let layout = write(&dispatcher, chunked).await?;
-        insta::assert_snapshot!(layout.display_tree(), @r"
+        insta::assert_snapshot!(layout.display_tree(), @"
         vortex.struct, dtype: {a=i32, b=i32}, children: 2
         ├── a: vortex.chunked, dtype: i32, children: 2
         │   ├── [0]: vortex.flat, dtype: i32, segment: 0
-        │   └── [1]: vortex.flat, dtype: i32, segment: 1
+        │   └── [1]: vortex.flat, dtype: i32, segment: 2
         └── b: vortex.chunked, dtype: i32, children: 2
-            ├── [0]: vortex.flat, dtype: i32, segment: 2
+            ├── [0]: vortex.flat, dtype: i32, segment: 1
             └── [1]: vortex.flat, dtype: i32, segment: 3
         ");
         Ok(())

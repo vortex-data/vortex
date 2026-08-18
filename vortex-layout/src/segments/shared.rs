@@ -95,10 +95,9 @@ mod tests {
 
         // Add a segment to the test source
         let data = ByteBuffer::from(vec![1, 2, 3, 4]);
-        let seq_id = SequenceId::root().downgrade();
         source
             .segments
-            .write(seq_id, vec![data.clone()])
+            .write(SequenceId::root().downgrade(), vec![data.clone()])
             .await
             .unwrap();
 
@@ -124,10 +123,9 @@ mod tests {
 
         // Add a segment
         let data = ByteBuffer::from(vec![5, 6, 7, 8]);
-        let seq_id = SequenceId::root().downgrade();
         source
             .segments
-            .write(seq_id, vec![data.clone()])
+            .write(SequenceId::root().downgrade(), vec![data.clone()])
             .await
             .unwrap();
 

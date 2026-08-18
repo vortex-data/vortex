@@ -3,12 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::VecDeque;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::StreamExt as _;
-use parking_lot::Mutex;
+use futures::FutureExt;
+use futures::future::BoxFuture;
+use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
@@ -25,7 +27,8 @@ use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::aggregate_fn::fns::null_count::NullCount;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::dtype::DType;
-use vortex_error::VortexError;
+use vortex_array::scalar::Scalar;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::session::RuntimeSessionExt;
@@ -34,17 +37,15 @@ use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::LayoutWriter;
 use crate::LayoutWriterContext;
 use crate::layouts::zoned::AggregateStatsAccumulator;
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::aggregate_partials;
 use crate::layouts::zoned::schema::default_bounded_stat_max_bytes;
 use crate::segments::SegmentSinkRef;
-use crate::sequence::SendableSequentialStream;
+use crate::sequence::SequenceId;
 use crate::sequence::SequencePointer;
-use crate::sequence::SequentialArrayStreamExt;
-use crate::sequence::SequentialStreamAdapter;
-use crate::sequence::SequentialStreamExt;
 
 /// Configuration for building zoned layouts.
 ///
@@ -94,106 +95,149 @@ impl ZonedStrategy {
     }
 }
 
-#[async_trait]
 impl LayoutStrategy for ZonedStrategy {
-    async fn write_stream(
+    fn new_writer(
         &self,
         ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
-        stream: SendableSequentialStream,
-        mut eof: SequencePointer,
+        dtype: DType,
         session: &VortexSession,
-    ) -> VortexResult<LayoutRef> {
+    ) -> VortexResult<Box<dyn LayoutWriter>> {
         let aggregate_fns = self
             .options
             .aggregate_fns
             .clone()
-            .unwrap_or_else(|| default_zoned_aggregate_fns(stream.dtype(), session));
-        let compute_session = session.clone();
-
-        let stats_accumulator = Arc::new(Mutex::new(AggregateStatsAccumulator::new(
-            stream.dtype(),
-            &aggregate_fns,
-        )));
+            .unwrap_or_else(|| default_zoned_aggregate_fns(&dtype, session));
+        let stats_accumulator = AggregateStatsAccumulator::new(&dtype, &aggregate_fns);
+        let aggregate_fns = stats_accumulator.aggregate_fns();
         // The accumulator has dropped the aggregates this dtype cannot hold, leaving the ones
         // this write would record. An aggregate the context forbids fails the write, like a
         // forbidden array or layout: dropping it silently would leave a file that prunes worse
         // than the caller asked for, with nothing in the output saying so.
-        let aggregate_fns = stats_accumulator.lock().aggregate_fns();
         for aggregate_fn in aggregate_fns.iter() {
             if !ctx.allows_aggregate(&aggregate_fn.id()) {
                 vortex_bail!("Aggregate {} not permitted by ctx", aggregate_fn.id());
             }
         }
+        let buffered_bytes = ctx.buffered_bytes_tracker().clone();
+        let data = self
+            .child
+            .new_writer(ctx.clone(), Arc::clone(&segment_sink), dtype, session)?;
 
-        let stream_dtype = stream.dtype().clone();
-        let concurrency = self.options.concurrency.get();
-        let stream = stream
-            .map(move |item| {
-                let aggregate_fns = Arc::clone(&aggregate_fns);
-                let session = compute_session.clone();
-                session.handle().spawn_cpu(move || {
-                    let (sequence_id, chunk) = item?;
+        Ok(Box::new(ZonedLayoutWriter {
+            data,
+            stats_strategy: Arc::clone(&self.stats),
+            ctx,
+            segment_sink,
+            session: session.clone(),
+            stats_accumulator,
+            aggregate_fns,
+            buffered_bytes,
+            concurrency: self.options.concurrency.get(),
+            block_size: self.options.block_size,
+            pending: VecDeque::new(),
+            stats_sequence: None,
+        }))
+    }
+}
+
+type ZoneFuture = BoxFuture<
+    'static,
+    VortexResult<(
+        SequenceId,
+        ArrayRef,
+        Vec<Scalar>,
+        crate::BufferedBytesReservation,
+    )>,
+>;
+
+struct ZonedLayoutWriter {
+    data: Box<dyn LayoutWriter>,
+    stats_strategy: Arc<dyn LayoutStrategy>,
+    ctx: LayoutWriterContext,
+    segment_sink: SegmentSinkRef,
+    session: VortexSession,
+    stats_accumulator: AggregateStatsAccumulator,
+    aggregate_fns: Arc<[AggregateFnRef]>,
+    buffered_bytes: crate::BufferedBytesTracker,
+    concurrency: usize,
+    block_size: NonZeroUsize,
+    pending: VecDeque<ZoneFuture>,
+    stats_sequence: Option<SequencePointer>,
+}
+
+impl ZonedLayoutWriter {
+    async fn drain_one(&mut self) -> VortexResult<()> {
+        let Some(future) = self.pending.pop_front() else {
+            return Ok(());
+        };
+        let (sequence_id, chunk, partials, reservation) = future.await?;
+        self.stats_accumulator.push_partials(partials)?;
+        drop(reservation);
+        self.data.write(sequence_id, chunk).await
+    }
+}
+
+#[async_trait]
+impl LayoutWriter for ZonedLayoutWriter {
+    async fn write(&mut self, sequence_id: SequenceId, chunk: ArrayRef) -> VortexResult<()> {
+        let aggregate_fns = Arc::clone(&self.aggregate_fns);
+        let session = self.session.clone();
+        let reservation = self.buffered_bytes.reserve(chunk.nbytes());
+        self.pending.push_back(
+            self.session
+                .handle()
+                .spawn_cpu(move || {
                     let partials = aggregate_partials(
                         &chunk,
                         &aggregate_fns,
                         &mut session.create_execution_ctx(),
                     )?;
-                    Ok::<_, VortexError>((sequence_id, chunk, partials))
+                    Ok((sequence_id, chunk, partials, reservation))
                 })
-            })
-            .buffered(concurrency);
+                .boxed(),
+        );
+        if self.pending.len() >= self.concurrency {
+            self.drain_one().await?;
+        }
+        Ok(())
+    }
 
-        // Accumulate zone stats in stream order so the auxiliary table stays aligned with the
-        // data child.
-        let stats_accumulator2 = Arc::clone(&stats_accumulator);
-        let stream = SequentialStreamAdapter::new(
-            stream_dtype,
-            stream.map(move |item| {
-                let (sequence_id, chunk, partials) = item?;
-                stats_accumulator2.lock().push_partials(partials)?;
-                Ok((sequence_id, chunk))
-            }),
-        )
-        .sendable();
+    async fn finish(&mut self, sequence_id: SequenceId) -> VortexResult<()> {
+        while !self.pending.is_empty() {
+            self.drain_one().await?;
+        }
+        let mut sequence = sequence_id.descend();
+        self.data.finish(sequence.advance()).await?;
+        self.stats_sequence = Some(sequence);
+        Ok(())
+    }
 
-        let block_size = self.options.block_size;
-
-        // The eof used for the data child should appear _before_ our own stats tables.
-        let data_eof = eof.split_off();
-        let data_layout = self
-            .child
-            .write_stream(
-                ctx.clone(),
-                Arc::clone(&segment_sink),
-                stream,
-                data_eof,
-                session,
-            )
-            .await?;
-
-        let mut exec_ctx = session.create_execution_ctx();
-        let Some((stats_array, aggregate_fns)) =
-            stats_accumulator.lock().as_array(&mut exec_ctx)?
+    async fn close(mut self: Box<Self>) -> VortexResult<LayoutRef> {
+        let data_layout = self.data.close().await?;
+        let Some((stats_array, aggregate_fns)) = self
+            .stats_accumulator
+            .as_array(&mut self.session.create_execution_ctx())?
         else {
-            // If we have no stats (e.g. the DType doesn't support them), then we just return the
-            // child layout.
             return Ok(data_layout);
         };
 
-        // We must defer creating the stats table LayoutWriter until now, because the DType of
-        // the table depends on which stats were successfully computed.
-        let stats_stream = stats_array
-            .into_array()
-            .to_array_stream()
-            .sequenced(eof.split_off());
-        let zones_layout = self
-            .stats
-            .write_stream(ctx, Arc::clone(&segment_sink), stats_stream, eof, session)
-            .await?;
-
+        let stats_array = stats_array.into_array();
+        let mut stats = self.stats_strategy.new_writer(
+            self.ctx,
+            self.segment_sink,
+            stats_array.dtype().clone(),
+            &self.session,
+        )?;
+        let mut stats_sequence = self
+            .stats_sequence
+            .take()
+            .vortex_expect("zoned writer must be finished before close");
+        stats.write(stats_sequence.advance(), stats_array).await?;
+        stats.finish(stats_sequence.advance()).await?;
+        let zones_layout = stats.close().await?;
         Ok(
-            ZonedLayout::try_new(data_layout, zones_layout, block_size, aggregate_fns)?
+            ZonedLayout::try_new(data_layout, zones_layout, self.block_size, aggregate_fns)?
                 .into_layout(),
         )
     }

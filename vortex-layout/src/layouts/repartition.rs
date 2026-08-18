@@ -4,10 +4,7 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use async_stream::try_stream;
 use async_trait::async_trait;
-use futures::StreamExt as _;
-use futures::pin_mut;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
@@ -18,14 +15,14 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
+use crate::BufferedBytesReservation;
+use crate::BufferedBytesTracker;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::LayoutWriter;
 use crate::LayoutWriterContext;
 use crate::segments::SegmentSinkRef;
-use crate::sequence::SendableSequentialStream;
-use crate::sequence::SequencePointer;
-use crate::sequence::SequentialStreamAdapter;
-use crate::sequence::SequentialStreamExt;
+use crate::sequence::SequenceId;
 
 #[derive(Clone)]
 pub struct RepartitionWriterOptions {
@@ -62,7 +59,7 @@ impl RepartitionWriterOptions {
         match dtype.element_size() {
             Some(elem_size) if elem_size > 0 => {
                 // `div_ceil` ensures we overshoot the block_size_target; therefore preventing
-                // `write_stream` from combining adjacent 0.9 MiB chunks into one 1.8 MiB chunk.
+                // Prevent adjacent 0.9 MiB inputs from being combined into one 1.8 MiB block.
                 let max_rows = usize::try_from(block_size_target.div_ceil(elem_size as u64))
                     .unwrap_or(usize::MAX);
                 self.block_len_multiple.min(max_rows).max(1)
@@ -91,100 +88,111 @@ impl RepartitionStrategy {
     }
 }
 
-#[async_trait]
 impl LayoutStrategy for RepartitionStrategy {
-    async fn write_stream(
+    fn new_writer(
         &self,
         ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
-        stream: SendableSequentialStream,
-        eof: SequencePointer,
+        dtype: DType,
         session: &VortexSession,
-    ) -> VortexResult<LayoutRef> {
-        // TODO(os): spawn stream below like:
-        // canon_stream = stream.map(async {to_canonical}).map(spawn).buffered(parallelism)
-        let dtype = stream.dtype().clone();
-        let stream = if self.options.canonicalize {
-            let canonicalize_session = session.clone();
-            SequentialStreamAdapter::new(
-                dtype.clone(),
-                stream.map(move |chunk| {
-                    let (sequence_id, chunk) = chunk?;
-                    let mut ctx = canonicalize_session.create_execution_ctx();
-                    let canonical = chunk.execute::<Canonical>(&mut ctx)?.into_array();
-                    VortexResult::Ok((sequence_id, canonical))
-                }),
-            )
-            .sendable()
+    ) -> VortexResult<Box<dyn LayoutWriter>> {
+        let block_len = self.options.effective_block_len(&dtype);
+        let buffered_bytes = ctx.buffered_bytes_tracker().clone();
+        Ok(Box::new(RepartitionLayoutWriter {
+            child: self
+                .child
+                .new_writer(ctx, segment_sink, dtype.clone(), session)?,
+            chunks: ChunksBuffer::new(self.options.block_size_minimum, block_len, buffered_bytes),
+            dtype,
+            block_len,
+            canonicalize: self.options.canonicalize,
+            exec_ctx: session.create_execution_ctx(),
+        }))
+    }
+}
+
+struct RepartitionLayoutWriter {
+    child: Box<dyn LayoutWriter>,
+    chunks: ChunksBuffer,
+    dtype: DType,
+    block_len: usize,
+    canonicalize: bool,
+    exec_ctx: vortex_array::ExecutionCtx,
+}
+
+impl RepartitionLayoutWriter {
+    fn canonicalize(&mut self, chunk: ArrayRef) -> VortexResult<ArrayRef> {
+        if self.canonicalize {
+            Ok(chunk.execute::<Canonical>(&mut self.exec_ctx)?.into_array())
         } else {
-            stream
-        };
+            Ok(chunk)
+        }
+    }
 
-        let dtype_clone = dtype.clone();
-        let options = self.options.clone();
+    fn build_output(
+        &mut self,
+        mut chunks: Vec<(SequenceId, ArrayRef)>,
+    ) -> VortexResult<(SequenceId, ArrayRef)> {
+        let (sequence_id, last) = chunks.pop().vortex_expect("output chunks are non-empty");
+        let chunked = ChunkedArray::try_new(
+            chunks
+                .into_iter()
+                .map(|(_, chunk)| chunk)
+                .chain(std::iter::once(last)),
+            self.dtype.clone(),
+        )?;
+        Ok((
+            sequence_id,
+            chunked
+                .into_array()
+                .execute::<Canonical>(&mut self.exec_ctx)?
+                .into_array(),
+        ))
+    }
+}
 
-        // For fixed-width types with large per-element sizes, reduce the block_len_multiple
-        // so that each block targets block_size_target bytes rather than producing oversized
-        // segments.
-        let block_len = options.effective_block_len(&dtype);
-        let block_size_minimum = options.block_size_minimum;
-        let repartition_session = session.clone();
+#[async_trait]
+impl LayoutWriter for RepartitionLayoutWriter {
+    async fn write(&mut self, sequence_id: SequenceId, chunk: ArrayRef) -> VortexResult<()> {
+        let chunk = self.canonicalize(chunk)?;
+        let mut sequence = sequence_id.descend();
+        let mut offset = 0;
+        while offset < chunk.len() {
+            let end = (offset + self.block_len).min(chunk.len());
+            self.chunks
+                .push_back(sequence.advance(), chunk.slice(offset..end)?);
+            offset = end;
 
-        let repartitioned_stream = try_stream! {
-            let canonical_stream = stream.peekable();
-            pin_mut!(canonical_stream);
-
-            let mut ctx = repartition_session.create_execution_ctx();
-            let mut chunks = ChunksBuffer::new(block_size_minimum, block_len);
-            while let Some(chunk) = canonical_stream.as_mut().next().await {
-                let (sequence_id, chunk) = chunk?;
-                let mut sequence_pointer = sequence_id.descend();
-                let mut offset = 0;
-                while offset < chunk.len() {
-                    let end = (offset + block_len).min(chunk.len());
-                    let sliced = chunk.slice(offset..end)?;
-                    chunks.push_back(sliced);
-                    offset = end;
-
-                    if chunks.have_enough() {
-                        let output_chunks = chunks.collect_exact_blocks()?;
-                        assert!(!output_chunks.is_empty());
-                        let chunked =
-                            ChunkedArray::try_new(output_chunks, dtype_clone.clone())?;
-                        if !chunked.is_empty() {
-                            let canonical = chunked.into_array().execute::<Canonical>(&mut ctx)?.into_array();
-                            yield (
-                                sequence_pointer.advance(),
-                                canonical,
-                            )
-                        }
-                    }
-                }
-                if canonical_stream.as_mut().peek().await.is_none() {
-                    let to_flush = ChunkedArray::try_new(
-                        chunks.data.drain(..).map(|(arr, _)| arr),
-                        dtype_clone.clone(),
-                    )?;
-                    if !to_flush.is_empty() {
-                        let canonical = to_flush.into_array().execute::<Canonical>(&mut ctx)?.into_array();
-                        yield (
-                            sequence_pointer.advance(),
-                            canonical,
-                        )
-                    }
+            if self.chunks.have_enough() {
+                let chunks = self.chunks.collect_exact_blocks()?;
+                assert!(!chunks.is_empty());
+                let (sequence_id, output) = self.build_output(chunks)?;
+                if !output.is_empty() {
+                    self.child.write(sequence_id, output).await?;
                 }
             }
-        };
+        }
+        Ok(())
+    }
 
-        self.child
-            .write_stream(
-                ctx,
-                segment_sink,
-                SequentialStreamAdapter::new(dtype, repartitioned_stream).sendable(),
-                eof,
-                session,
-            )
-            .await
+    async fn finish(&mut self, sequence_id: SequenceId) -> VortexResult<()> {
+        if !self.chunks.data.is_empty() {
+            let chunks = self
+                .chunks
+                .data
+                .drain(..)
+                .map(|(sequence_id, array, _, _reservation)| (sequence_id, array))
+                .collect();
+            let (sequence_id, output) = self.build_output(chunks)?;
+            if !output.is_empty() {
+                self.child.write(sequence_id, output).await?;
+            }
+        }
+        self.child.finish(sequence_id).await
+    }
+
+    async fn close(self: Box<Self>) -> VortexResult<LayoutRef> {
+        self.child.close().await
     }
 }
 
@@ -192,21 +200,27 @@ struct ChunksBuffer {
     /// Each entry stores the chunk and the `nbytes()` snapshot taken at push time.
     /// This avoids accounting mismatches when interior-mutable arrays (e.g. `SharedArray`)
     /// change their reported size after being pushed.
-    data: VecDeque<(ArrayRef, u64)>,
+    data: VecDeque<(SequenceId, ArrayRef, u64, BufferedBytesReservation)>,
     row_count: usize,
     nbytes: u64,
     block_size_minimum: u64,
     block_len_multiple: usize,
+    buffered_bytes: BufferedBytesTracker,
 }
 
 impl ChunksBuffer {
-    fn new(block_size_minimum: u64, block_len_multiple: usize) -> Self {
+    fn new(
+        block_size_minimum: u64,
+        block_len_multiple: usize,
+        buffered_bytes: BufferedBytesTracker,
+    ) -> Self {
         Self {
             data: Default::default(),
             row_count: 0,
             nbytes: 0,
             block_size_minimum,
             block_len_multiple,
+            buffered_bytes,
         }
     }
 
@@ -214,12 +228,12 @@ impl ChunksBuffer {
         self.nbytes >= self.block_size_minimum && self.row_count >= self.block_len_multiple
     }
 
-    fn collect_exact_blocks(&mut self) -> VortexResult<Vec<ArrayRef>> {
+    fn collect_exact_blocks(&mut self) -> VortexResult<Vec<(SequenceId, ArrayRef)>> {
         let nblocks = self.row_count / self.block_len_multiple;
         let mut res = Vec::with_capacity(self.data.len());
         let mut remaining = nblocks * self.block_len_multiple;
         while remaining > 0 {
-            let (chunk, _) = self
+            let (sequence_id, chunk, _, _reservation) = self
                 .pop_front()
                 .vortex_expect("must have at least one chunk");
             let len = chunk.len();
@@ -227,34 +241,37 @@ impl ChunksBuffer {
             if len > remaining {
                 let left = chunk.slice(0..remaining)?;
                 let right = chunk.slice(remaining..len)?;
-                self.push_front(right);
-                res.push(left);
+                let mut sequence = sequence_id.descend();
+                res.push((sequence.advance(), left));
+                self.push_front(sequence.advance(), right);
                 remaining = 0;
             } else {
-                res.push(chunk);
+                res.push((sequence_id, chunk));
                 remaining -= len;
             }
         }
         Ok(res)
     }
 
-    fn push_back(&mut self, chunk: ArrayRef) {
+    fn push_back(&mut self, sequence_id: SequenceId, chunk: ArrayRef) {
         let nb = chunk.nbytes();
         self.row_count += chunk.len();
         self.nbytes += nb;
-        self.data.push_back((chunk, nb));
+        self.data
+            .push_back((sequence_id, chunk, nb, self.buffered_bytes.reserve(nb)));
     }
 
-    fn push_front(&mut self, chunk: ArrayRef) {
+    fn push_front(&mut self, sequence_id: SequenceId, chunk: ArrayRef) {
         let nb = chunk.nbytes();
         self.row_count += chunk.len();
         self.nbytes += nb;
-        self.data.push_front((chunk, nb));
+        self.data
+            .push_front((sequence_id, chunk, nb, self.buffered_bytes.reserve(nb)));
     }
 
-    fn pop_front(&mut self) -> Option<(ArrayRef, u64)> {
+    fn pop_front(&mut self) -> Option<(SequenceId, ArrayRef, u64, BufferedBytesReservation)> {
         let res = self.data.pop_front();
-        if let Some((chunk, nb)) = res.as_ref() {
+        if let Some((_, chunk, nb, _)) = res.as_ref() {
             self.row_count -= chunk.len();
             self.nbytes -= nb;
         }
@@ -508,11 +525,16 @@ mod tests {
         let s1 = arr.slice(0..block_len)?;
         let s2 = arr.slice(block_len..n)?;
 
-        let mut buf = ChunksBuffer::new(0, block_len);
-        buf.push_back(s1);
-        buf.push_back(s2);
+        let tracker = BufferedBytesTracker::new();
+        let mut buf = ChunksBuffer::new(0, block_len, tracker.clone());
+        let mut sequence = SequenceId::root();
+        buf.push_back(sequence.advance(), s1);
+        buf.push_back(sequence.advance(), s2);
 
-        let _output = buf.pop_front().unwrap();
+        assert!(tracker.buffered_bytes() > 0);
+
+        let output = buf.pop_front().unwrap();
+        drop(output);
 
         // Transition SharedState from Source to Cached for ALL slices sharing this Arc.
         use vortex_array::arrays::shared::SharedArrayExt;
@@ -520,9 +542,11 @@ mod tests {
             shared_handle.get_or_compute(|source| source.clone().execute::<Canonical>(&mut ctx))?;
 
         // Before the fix this panicked with "attempt to subtract with overflow".
-        let _s2 = buf.pop_front().unwrap();
+        let s2 = buf.pop_front().unwrap();
+        drop(s2);
         assert_eq!(buf.nbytes, 0);
         assert_eq!(buf.row_count, 0);
+        assert_eq!(tracker.buffered_bytes(), 0);
 
         Ok(())
     }

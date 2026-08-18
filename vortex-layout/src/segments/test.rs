@@ -41,9 +41,11 @@ impl SegmentSource for TestSegments {
 impl SegmentSink for TestSegments {
     async fn write(
         &self,
-        _sequence_id: SequenceId,
+        mut sequence_id: SequenceId,
         buffers: Vec<ByteBuffer>,
     ) -> VortexResult<SegmentId> {
+        sequence_id.collapse().await;
+
         // Combine all the buffers since we're only a test implementation
         let mut buffer = ByteBufferMut::empty();
         for segment in buffers {

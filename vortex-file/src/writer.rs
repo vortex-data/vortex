@@ -1,20 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::future::Future;
 use std::io;
 use std::io::Write;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
+use std::task::Poll;
 
 use futures::FutureExt;
 use futures::StreamExt;
-use futures::TryStreamExt;
-use futures::future::Fuse;
-use futures::future::LocalBoxFuture;
+use futures::future::poll_fn;
 use futures::future::ready;
 use futures::pin_mut;
-use futures::select;
 use itertools::Itertools;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
@@ -25,30 +24,26 @@ use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorExt;
 use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::ArrayStream;
-use vortex_array::stream::ArrayStreamAdapter;
-use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
 use vortex_buffer::ByteBuffer;
 use vortex_edition::ComponentKind;
 use vortex_edition::EditionSessionExt;
-use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_io::IoBuf;
 use vortex_io::VortexWrite;
-use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::BufferedBytesTracker;
 use vortex_layout::LayoutContext;
 use vortex_layout::LayoutStrategy;
+use vortex_layout::LayoutWriterActor;
 use vortex_layout::LayoutWriterContext;
-use vortex_layout::layouts::file_stats::accumulate_stats;
+use vortex_layout::layouts::file_stats::FileStatsAccumulator;
 use vortex_layout::sequence::SequenceId;
-use vortex_layout::sequence::SequentialStreamAdapter;
-use vortex_layout::sequence::SequentialStreamExt;
+use vortex_layout::sequence::SequencePointer;
 use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 use vortex_session::registry::Id;
@@ -213,147 +208,67 @@ impl VortexWriteOptions {
         write: W,
         stream: S,
     ) -> VortexResult<WriteSummary> {
-        self.write_internal(write, ArrayStreamExt::boxed(stream))
-            .await
+        let dtype = stream.dtype().clone();
+        let mut writer = self.writer(write, dtype)?;
+        pin_mut!(stream);
+        while let Some(chunk) = stream.next().await {
+            writer.write(chunk?).await?;
+        }
+        writer.close().await
     }
 
-    async fn write_internal<W: VortexWrite + Unpin>(
-        self,
-        mut write: W,
-        stream: SendableArrayStream,
-    ) -> VortexResult<WriteSummary> {
+    /// Create a push-based [`Writer`] that can be used to incrementally write arrays to the file.
+    ///
+    /// This follows the same lifecycle as other columnar file writers: call [`Writer::write`] for
+    /// each chunk, then call [`Writer::close`] to flush remaining buffers and receive the
+    /// [`WriteSummary`]. Each chunk must have dtype `dtype`.
+    pub fn writer<W: VortexWrite + Unpin>(self, write: W, dtype: DType) -> VortexResult<Writer<W>> {
         validate_metadata_segments(&self.metadata)?;
-
-        // The array context is built here, rather than when the options were constructed, so that
-        // encodings registered on the session in between are still eligible for the file.
         let mut ctx = LayoutWriterContext::new(new_array_context(&self.session))
             .with_buffered_bytes_tracker(self.buffered_bytes.clone());
         if let Some(allowed) = edition_filter(&self.session, ComponentKind::Aggregate) {
             ctx = ctx.with_allowed_aggregates(allowed);
         }
-        let dtype = stream.dtype().clone();
-
-        let (mut ptr, eof) = SequenceId::root().split();
-
-        let stream = SequentialStreamAdapter::new(
+        let layout_ctx = new_layout_context(&self.session);
+        let (buffers_send, buffers) = kanal::bounded_async(1);
+        let segment_sink = Arc::new(BufferedSegmentSink::new(
+            buffers_send,
+            MAGIC_BYTES.len() as u64,
+        ));
+        let layout = self.strategy.new_writer(
+            ctx.clone(),
+            Arc::<BufferedSegmentSink>::clone(&segment_sink),
             dtype.clone(),
-            stream
-                .try_filter(|chunk| ready(!chunk.is_empty()))
-                .map(move |result| result.map(|chunk| (ptr.advance(), chunk))),
-        )
-        .sendable();
-        let (file_stats, stream) = accumulate_stats(
-            stream,
+            &self.session,
+        )?;
+        let layout =
+            LayoutWriterActor::spawn(layout, self.buffered_bytes.clone(), &self.session.handle());
+        let sequence = SequenceId::root();
+        let file_stats = FileStatsAccumulator::new(
+            &dtype,
             self.file_statistics.clone().into(),
             self.max_variable_length_statistics_size,
             &self.session,
         );
-
-        // First, write the magic bytes.
-        write.write_all(ByteBuffer::copy_from(MAGIC_BYTES)).await?;
-        let mut position = MAGIC_BYTES.len() as u64;
-
-        // Create a channel to send buffers from the segment sink to the output stream.
-        let (send, recv) = kanal::bounded_async(1);
-
-        let segments = Arc::new(BufferedSegmentSink::new(send, position));
-
-        // We spawn the layout future so it is driven in the background while we write the
-        // buffer stream, so we don't need to poll it until all buffers have been drained.
-        let ctx2 = ctx.clone();
-        let session = self.session.clone();
-        let layout_fut = self.session.handle().spawn_nested(move |h| async move {
-            let session = session.with_handle(h);
-            let layout = self
-                .strategy
-                .write_stream(
-                    ctx2,
-                    Arc::<BufferedSegmentSink>::clone(&segments),
-                    stream,
-                    eof,
-                    &session,
-                )
-                .await?;
-            Ok::<_, VortexError>((layout, segments.segment_specs()))
-        });
-
-        // Flush buffers as they arrive
-        let recv_stream = recv.into_stream();
-        pin_mut!(recv_stream);
-        while let Some(buffer) = recv_stream.next().await {
-            if buffer.is_empty() {
-                continue;
-            }
-            position += buffer.len() as u64;
-            write.write_all(buffer).await?;
-        }
-
-        let (layout, segment_specs) = layout_fut.await?;
-
-        // Assemble the Footer object now that we have all the segments.
-        let statistics = if self.file_statistics.is_empty() {
-            None
-        } else {
-            Some(FileStatistics::new_with_dtype(
-                file_stats.stats_sets().into(),
-                &dtype,
-            ))
-        };
-        let mut footer = Footer::new(
-            Arc::clone(&layout),
-            segment_specs,
-            statistics,
-            ReadContext::new(ctx.array_ctx().to_ids()),
-        );
-
-        // Emit the footer buffers and EOF.
-        let (footer_buffers, metadata, approx_byte_size) = footer
-            .clone()
-            .into_serializer()
-            .with_layout_context(new_layout_context(&self.session))
-            .with_metadata_segments(self.metadata)
-            .with_offset(position)
-            .with_exclude_dtype(self.exclude_dtype)
-            .serialize_with_metadata()?;
-        footer = footer
-            .with_metadata_segments(metadata)
-            .with_approx_byte_size(approx_byte_size);
-
-        for buffer in footer_buffers {
-            position += buffer.len() as u64;
-            write.write_all(buffer).await?;
-        }
-
-        write.flush().await?;
-
-        Ok(WriteSummary {
-            footer,
-            size: position,
-        })
-    }
-
-    /// Create a push-based [`Writer`] that can be used to incrementally write arrays to the file.
-    ///
-    /// Each pushed chunk must have dtype `dtype`. Call [`Writer::finish`] to close the input stream,
-    /// flush remaining buffers, and receive the [`WriteSummary`].
-    pub fn writer<'w, W: VortexWrite + Unpin + 'w>(self, write: W, dtype: DType) -> Writer<'w> {
-        // Create a channel for sending arrays to the layout task.
-        let (arrays_send, arrays_recv) = kanal::bounded_async(1);
-
-        let arrays =
-            ArrayStreamExt::boxed(ArrayStreamAdapter::new(dtype, arrays_recv.into_stream()));
-
         let write = CountingVortexWrite::new(write);
         let bytes_written = write.counter();
-        let buffered_bytes = self.buffered_bytes.clone();
-        let future = self.write(write, arrays).boxed_local().fuse();
-
-        Writer {
-            arrays: Some(arrays_send),
-            future,
+        Ok(Writer {
+            write,
+            buffers,
+            segment_sink,
+            layout: Some(layout),
+            sequence,
+            ctx,
+            layout_ctx,
+            dtype,
+            file_stats,
+            file_statistics: self.file_statistics,
+            metadata: self.metadata,
+            exclude_dtype: self.exclude_dtype,
+            position: 0,
             bytes_written,
-            buffered_bytes,
-        }
+            buffered_bytes: self.buffered_bytes,
+        })
     }
 }
 
@@ -422,83 +337,153 @@ fn validate_metadata_segments(metadata: &HashMap<String, ByteBuffer>) -> VortexR
 }
 
 /// An async API for writing Vortex files.
-pub struct Writer<'w> {
-    // The input channel for sending arrays to the writer.
-    arrays: Option<kanal::AsyncSender<VortexResult<ArrayRef>>>,
-    // The writer task that ultimately produces the footer.
-    future: Fuse<LocalBoxFuture<'w, VortexResult<WriteSummary>>>,
-    // The bytes written so far.
+pub struct Writer<W> {
+    write: CountingVortexWrite<W>,
+    buffers: kanal::AsyncReceiver<ByteBuffer>,
+    segment_sink: Arc<BufferedSegmentSink>,
+    layout: Option<LayoutWriterActor>,
+    sequence: SequencePointer,
+    ctx: LayoutWriterContext,
+    layout_ctx: LayoutContext,
+    dtype: DType,
+    file_stats: FileStatsAccumulator,
+    file_statistics: Vec<Stat>,
+    metadata: HashMap<String, ByteBuffer>,
+    exclude_dtype: bool,
+    position: u64,
     bytes_written: Arc<AtomicU64>,
-    // The buffered bytes accounting shared with the layout strategies for this write.
     buffered_bytes: BufferedBytesTracker,
 }
 
-impl Writer<'_> {
-    /// Push a new chunk into the writer.
-    pub async fn push(&mut self, chunk: ArrayRef) -> VortexResult<()> {
-        let arrays = self.arrays.clone().vortex_expect("missing arrays sender");
-        let send_fut = async move { arrays.send(Ok(chunk)).await }.fuse();
-        pin_mut!(send_fut);
-
-        // We poll the writer future to continue writing bytes to the output, while waiting for
-        // enough room to push the next chunk into the channel.
-        select! {
-            result = send_fut => {
-                // If the send future failed, the writer has failed or panicked.
-                if result.is_err() {
-                    return Err(self.handle_failed_task().await);
-                }
-            },
-            result = &mut self.future => {
-                // Under normal operation, the writer future should never complete until
-                // finish() is called. Therefore, we can assume the writer has failed.
-                // The writer future has failed, we need to propagate the error.
-                match result {
-                    Ok(_) => vortex_bail!("Internal error: writer future completed early"),
-                    Err(e) => return Err(e),
-                }
-            }
+impl<W: VortexWrite + Unpin> Writer<W> {
+    async fn ensure_started(&mut self) -> VortexResult<()> {
+        if self.position == 0 {
+            self.write
+                .write_all(ByteBuffer::copy_from(MAGIC_BYTES))
+                .await?;
+            self.position = MAGIC_BYTES.len() as u64;
         }
-
         Ok(())
     }
 
-    /// Push an entire [`ArrayStream`] into the writer, consuming it.
+    async fn write_buffer(
+        write: &mut CountingVortexWrite<W>,
+        position: &mut u64,
+        buffer: ByteBuffer,
+    ) -> VortexResult<()> {
+        if !buffer.is_empty() {
+            *position += buffer.len() as u64;
+            write.write_all(buffer).await?;
+        }
+        Ok(())
+    }
+
+    async fn drive_layout<T>(
+        write: &mut CountingVortexWrite<W>,
+        buffers: &kanal::AsyncReceiver<ByteBuffer>,
+        position: &mut u64,
+        operation: impl Future<Output = VortexResult<T>>,
+        channel_closed_message: &'static str,
+    ) -> VortexResult<T> {
+        enum Event<B> {
+            Buffer(B),
+            Done,
+        }
+
+        let operation = operation.fuse();
+        pin_mut!(operation);
+        let mut completed = None;
+
+        loop {
+            let receive = buffers.recv().fuse();
+            pin_mut!(receive);
+            let event = poll_fn(|cx| {
+                if let Poll::Ready(buffer) = receive.as_mut().poll(cx) {
+                    return Poll::Ready(Event::Buffer(buffer));
+                }
+
+                if completed.is_none()
+                    && let Poll::Ready(result) = operation.as_mut().poll(cx)
+                {
+                    completed = Some(result);
+                }
+
+                // Poll again because polling the layout operation may have completed a send into
+                // the receive future that was pending immediately above.
+                if let Poll::Ready(buffer) = receive.as_mut().poll(cx) {
+                    return Poll::Ready(Event::Buffer(buffer));
+                }
+
+                if completed.is_some() {
+                    Poll::Ready(Event::Done)
+                } else {
+                    Poll::Pending
+                }
+            })
+            .await;
+
+            match event {
+                Event::Buffer(buffer) => {
+                    let buffer = buffer.map_err(|_| vortex_err!("{channel_closed_message}"))?;
+                    Self::write_buffer(write, position, buffer).await?;
+                }
+                Event::Done => {
+                    return completed.take().vortex_expect("layout operation completed");
+                }
+            }
+        }
+    }
+
+    /// Write a new chunk.
     ///
-    /// A task is spawned to consume the stream and push it into the writer, with the current
-    /// thread being used to write buffers to the output.
+    /// Returns an error without writing the chunk if its dtype does not match the dtype used to
+    /// construct the writer.
+    pub async fn write(&mut self, chunk: ArrayRef) -> VortexResult<()> {
+        if chunk.dtype() != &self.dtype {
+            vortex_bail!(
+                "Writer expected array with dtype {}, but received {}",
+                self.dtype,
+                chunk.dtype()
+            );
+        }
+
+        if chunk.is_empty() {
+            return Ok(());
+        }
+        self.ensure_started().await?;
+        self.file_stats.push(&chunk)?;
+
+        let sequence_id = self.sequence.advance();
+        let layout = self.layout.as_mut().vortex_expect("layout writer present");
+        let write = &mut self.write;
+        let buffers = &self.buffers;
+        let position = &mut self.position;
+        Self::drive_layout(
+            write,
+            buffers,
+            position,
+            layout.write(sequence_id, chunk),
+            "segment buffer channel closed while writing",
+        )
+        .await?;
+        while let Ok(Some(buffer)) = buffers.try_recv() {
+            Self::write_buffer(write, position, buffer).await?;
+        }
+        Ok(())
+    }
+
+    /// Push a new chunk into the writer.
+    ///
+    /// This is an alias for [`Self::write`].
+    pub async fn push(&mut self, chunk: ArrayRef) -> VortexResult<()> {
+        self.write(chunk).await
+    }
+
+    /// Push an entire [`ArrayStream`] into the writer, consuming it.
     pub async fn push_stream(&mut self, mut stream: SendableArrayStream) -> VortexResult<()> {
-        let arrays = self.arrays.clone().vortex_expect("missing arrays sender");
-        let stream_fut = async move {
-            while let Some(chunk) = stream.next().await {
-                arrays.send(chunk).await?;
-            }
-            Ok::<_, kanal::SendError>(())
+        while let Some(chunk) = stream.next().await {
+            self.write(chunk?).await?;
         }
-        .fuse();
-        pin_mut!(stream_fut);
-
-        // We poll the writer future to continue writing bytes to the output, while waiting for
-        // enough room to push the stream into the channel.
-        select! {
-            result = stream_fut => {
-                if let Err(_send_err) = result {
-                    // If the send future failed, the writer has failed or panicked.
-                    return Err(self.handle_failed_task().await);
-                }
-            }
-
-            result = &mut self.future => {
-                // Under normal operation, the writer future should never complete until
-                // finish() is called. Therefore, we can assume the writer has failed.
-                // The writer future has failed, we need to propagate the error.
-                match result {
-                    Ok(_) => vortex_bail!("Internal error: writer future completed early"),
-                    Err(e) => return Err(e),
-                }
-            }
-        }
-
         Ok(())
     }
 
@@ -507,7 +492,10 @@ impl Writer<'_> {
         self.bytes_written.load(Ordering::Relaxed)
     }
 
-    /// Returns the number of bytes currently buffered by the layout writers.
+    /// Returns the logical byte size of arrays currently retained by layout strategies.
+    ///
+    /// This includes arrays queued for asynchronous layout work. It does not include allocator
+    /// overhead, statistics-builder state, or buffering performed by the output sink.
     pub fn buffered_bytes(&self) -> u64 {
         self.buffered_bytes.buffered_bytes()
     }
@@ -515,21 +503,67 @@ impl Writer<'_> {
     /// Finish writing the Vortex file, flushing any remaining buffers and returning the
     /// new file's footer.
     pub async fn finish(mut self) -> VortexResult<WriteSummary> {
-        // Drop the input channel to signal EOF.
-        drop(self.arrays.take());
+        self.ensure_started().await?;
+        let mut layout = self.layout.take().vortex_expect("layout writer present");
+        let sequence_id = self.sequence.advance();
+        let write = &mut self.write;
+        let buffers = &self.buffers;
+        let position = &mut self.position;
+        let layout = Self::drive_layout(
+            write,
+            buffers,
+            position,
+            async move {
+                layout.finish(sequence_id).await?;
+                layout.take_layout()
+            },
+            "segment buffer channel closed while closing",
+        )
+        .await?;
+        while let Ok(Some(buffer)) = buffers.try_recv() {
+            Self::write_buffer(write, position, buffer).await?;
+        }
 
-        // Await the future task.
-        self.future.await
+        let statistics = if self.file_statistics.is_empty() {
+            None
+        } else {
+            Some(FileStatistics::new_with_dtype(
+                self.file_stats.stats_sets().into(),
+                &self.dtype,
+            ))
+        };
+        let mut footer = Footer::new(
+            layout,
+            self.segment_sink.segment_specs(),
+            statistics,
+            ReadContext::new(self.ctx.array_ctx().to_ids()),
+        );
+        let (footer_buffers, metadata, approx_byte_size) = footer
+            .clone()
+            .into_serializer()
+            .with_layout_context(self.layout_ctx)
+            .with_metadata_segments(self.metadata)
+            .with_offset(self.position)
+            .with_exclude_dtype(self.exclude_dtype)
+            .serialize_with_metadata()?;
+        footer = footer
+            .with_metadata_segments(metadata)
+            .with_approx_byte_size(approx_byte_size);
+        for buffer in footer_buffers {
+            Self::write_buffer(&mut self.write, &mut self.position, buffer).await?;
+        }
+        self.write.flush().await?;
+        Ok(WriteSummary {
+            footer,
+            size: self.position,
+        })
     }
 
-    /// Assuming the writer task has failed, await it to get the error.
-    async fn handle_failed_task(&mut self) -> VortexError {
-        match (&mut self.future).await {
-            Ok(_) => vortex_err!(
-                "Internal error: writer task completed successfully but write future finished early"
-            ),
-            Err(e) => e,
-        }
+    /// Close the writer, flushing any remaining buffers and returning the file summary.
+    ///
+    /// This is an alias for [`Self::finish`].
+    pub async fn close(self) -> VortexResult<WriteSummary> {
+        self.finish().await
     }
 }
 
@@ -544,7 +578,7 @@ impl<'rt, B: BlockingRuntime> BlockingWrite<'rt, B> {
     ///
     /// The iterator is converted to an [`ArrayStream`] and driven to completion on
     /// the configured blocking runtime.
-    pub fn write<W: Write + Unpin>(
+    pub fn write<W: Write + Unpin + Send>(
         self,
         write: W,
         iter: impl ArrayIterator + Send + 'static,
@@ -557,25 +591,25 @@ impl<'rt, B: BlockingRuntime> BlockingWrite<'rt, B> {
     }
 
     /// Create a blocking push-based writer for chunks with dtype `dtype`.
-    pub fn writer<'w, W: Write + Unpin + 'w>(
+    pub fn writer<W: Write + Unpin + Send>(
         self,
         write: W,
         dtype: DType,
-    ) -> BlockingWriter<'rt, 'w, B> {
-        BlockingWriter {
-            writer: self.options.writer(BlockingWriteAdapter(write), dtype),
+    ) -> VortexResult<BlockingWriter<'rt, B, W>> {
+        Ok(BlockingWriter {
+            writer: self.options.writer(BlockingWriteAdapter(write), dtype)?,
             runtime: self.runtime,
-        }
+        })
     }
 }
 
 /// A blocking adapter around a [`Writer`], allowing incremental writing of arrays to a Vortex file.
-pub struct BlockingWriter<'rt, 'w, B: BlockingRuntime> {
+pub struct BlockingWriter<'rt, B: BlockingRuntime, W> {
     runtime: &'rt B,
-    writer: Writer<'w>,
+    writer: Writer<BlockingWriteAdapter<W>>,
 }
 
-impl<B: BlockingRuntime> BlockingWriter<'_, '_, B> {
+impl<B: BlockingRuntime, W: Write + Unpin + Send> BlockingWriter<'_, B, W> {
     /// Push one array chunk into the file.
     pub fn push(&mut self, chunk: ArrayRef) -> VortexResult<()> {
         self.runtime.block_on(self.writer.push(chunk))
@@ -586,7 +620,7 @@ impl<B: BlockingRuntime> BlockingWriter<'_, '_, B> {
         self.writer.bytes_written()
     }
 
-    /// Returns the number of bytes currently buffered by layout strategies.
+    /// Returns the logical byte size of arrays currently retained by layout strategies.
     pub fn buffered_bytes(&self) -> u64 {
         self.writer.buffered_bytes()
     }
@@ -600,7 +634,7 @@ impl<B: BlockingRuntime> BlockingWriter<'_, '_, B> {
 // TODO(ngates): this blocking API may change, for now we just run blocking I/O inline.
 struct BlockingWriteAdapter<W>(W);
 
-impl<W: Write + Unpin> VortexWrite for BlockingWriteAdapter<W> {
+impl<W: Write + Unpin + Send> VortexWrite for BlockingWriteAdapter<W> {
     async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {
         self.0.write_all(buffer.as_slice())?;
         Ok(buffer)
@@ -683,6 +717,12 @@ mod tests {
     use vortex_edition::EditionSessionExt;
 
     use super::*;
+
+    #[test]
+    fn push_writer_is_send() {
+        fn assert_send<T: Send>() {}
+        assert_send::<Writer<io::Cursor<Vec<u8>>>>();
+    }
 
     #[test]
     fn array_context_only_permits_enabled_encodings() -> Result<(), vortex_edition::EditionError> {

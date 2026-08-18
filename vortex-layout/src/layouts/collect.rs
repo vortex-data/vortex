@@ -3,23 +3,22 @@
 
 use std::sync::Arc;
 
-use async_stream::try_stream;
 use async_trait::async_trait;
-use futures::StreamExt;
-use futures::pin_mut;
+use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::dtype::DType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
+use crate::BufferedBytesReservation;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::LayoutWriter;
 use crate::LayoutWriterContext;
 use crate::segments::SegmentSinkRef;
-use crate::sequence::SendableSequentialStream;
-use crate::sequence::SequencePointer;
-use crate::sequence::SequentialStream;
-use crate::sequence::SequentialStreamAdapter;
+use crate::sequence::SequenceId;
 
 /// A strategy that collects all chunks and turns them into a single array chunk to pass into
 /// a child strategy.
@@ -35,44 +34,58 @@ impl CollectStrategy {
     }
 }
 
-#[async_trait]
 impl LayoutStrategy for CollectStrategy {
-    async fn write_stream(
+    fn new_writer(
         &self,
         ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
-        stream: SendableSequentialStream,
-        eof: SequencePointer,
+        dtype: DType,
         session: &VortexSession,
-    ) -> VortexResult<LayoutRef> {
-        // Read the whole stream, then write one Chunked stream to the inner thing
-        let dtype = stream.dtype().clone();
+    ) -> VortexResult<Box<dyn LayoutWriter>> {
+        let buffered_bytes = ctx.buffered_bytes_tracker().clone();
+        Ok(Box::new(CollectLayoutWriter {
+            child: self
+                .child
+                .new_writer(ctx, segment_sink, dtype.clone(), session)?,
+            dtype,
+            buffered_bytes,
+            chunks: Vec::new(),
+        }))
+    }
+}
 
-        let _dtype = dtype.clone();
-        let collected_stream = try_stream! {
-            pin_mut!(stream);
+struct CollectLayoutWriter {
+    child: Box<dyn LayoutWriter>,
+    dtype: DType,
+    buffered_bytes: crate::BufferedBytesTracker,
+    chunks: Vec<(SequenceId, ArrayRef, BufferedBytesReservation)>,
+}
 
-            let mut chunks = Vec::new();
-            let mut latest_sequence_id = None;
-            while let Some(chunk) = stream.next().await {
-                let (sequence_id, chunk) = chunk?;
-                latest_sequence_id = Some(sequence_id);
-                chunks.push(chunk);
-            }
+#[async_trait]
+impl LayoutWriter for CollectLayoutWriter {
+    async fn write(&mut self, sequence_id: SequenceId, chunk: ArrayRef) -> VortexResult<()> {
+        let reservation = self.buffered_bytes.reserve(chunk.nbytes());
+        self.chunks.push((sequence_id, chunk, reservation));
+        Ok(())
+    }
 
-            // an empty input yields no chunk; the child layout handles it.
-            let Some(sequence_id) = latest_sequence_id else {
-                return;
-            };
+    async fn finish(&mut self, sequence_id: SequenceId) -> VortexResult<()> {
+        if !self.chunks.is_empty() {
+            let mut chunks = self.chunks.drain(..).collect::<Vec<_>>();
+            let (sequence_id, last, last_reservation) =
+                chunks.pop().vortex_expect("chunks checked non-empty");
+            let chunks = chunks
+                .into_iter()
+                .map(|(_, chunk, _reservation)| chunk)
+                .chain(std::iter::once(last));
+            drop(last_reservation);
+            let collected = ChunkedArray::try_new(chunks, self.dtype.clone())?.into_array();
+            self.child.write(sequence_id, collected).await?;
+        }
+        self.child.finish(sequence_id).await
+    }
 
-            let collected = ChunkedArray::try_new(chunks, _dtype)?.into_array();
-            yield (sequence_id, collected);
-        };
-
-        let adapted = Box::pin(SequentialStreamAdapter::new(dtype, collected_stream));
-
-        self.child
-            .write_stream(ctx, segment_sink, adapted, eof, session)
-            .await
+    async fn close(self: Box<Self>) -> VortexResult<LayoutRef> {
+        self.child.close().await
     }
 }
