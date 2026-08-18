@@ -569,7 +569,16 @@ fn bindgen_c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
 
 /// Generate libvortex_duckdb.*
 fn compile_cpp(duckdb_include_dir: &Path) {
-    cc::Build::new()
+    let mut build = cc::Build::new();
+    let has_debuginfo = env::var("DEBUG")
+        .map(|v| !matches!(v.as_str(), "false" | "0" | "none" | ""))
+        .unwrap_or(false);
+    if env_true("VX_DUCKDB_DEBUG") || has_debuginfo {
+        build.define("DEBUG", None);
+    } else {
+        build.define("NDEBUG", None);
+    }
+    build
         .std("c++20")
         .flags(["-Wall", "-Wextra", "-Wpedantic", "-Werror"])
         .cpp(true)
@@ -623,6 +632,7 @@ fn main() {
     println!("cargo:rerun-if-changed=patches");
     println!("cargo:rerun-if-env-changed=VX_DUCKDB_DEBUG");
     println!("cargo:rerun-if-env-changed=VX_DUCKDB_SAN");
+    println!("cargo:rerun-if-env-changed=DEBUG");
     println!("cargo:rerun-if-env-changed=CARGO_HTTP_TIMEOUT");
     println!("cargo:rerun-if-env-changed=HTTP_TIMEOUT");
     println!("cargo:rerun-if-env-changed=TARGET");

@@ -7,8 +7,6 @@
 #include "vortex_duckdb.h"
 #include "vortex.h"
 
-// TODO (myrrc) remove NDEBUG in release builds
-
 unique_ptr<FunctionData> VortexBindData::Copy() const {
     auto result = make_uniq<VortexBindData>();
     if (ffi_bind_data) {
@@ -98,8 +96,8 @@ void VortexReaderInterface::BindReader(ClientContext &context,
         throw BinderException(IntoErrString(error));
     }
 
-    initial_reader.ffi_bind = bind.ffi_bind_data->DataPtr();
     bind.ffi_bind_data = unique_ptr<CData>(reinterpret_cast<CData *>(ffi_bind_data));
+    initial_reader.ffi_bind = bind.ffi_bind_data->DataPtr();
 }
 
 unique_ptr<GlobalTableFunctionState>
