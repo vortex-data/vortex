@@ -6,6 +6,23 @@
 //! Architecture-specific kernels compact selected lanes a mask word at a time. Full-width stores
 //! may write trailing garbage, so out-of-place outputs reserve one vector of slack and in-place
 //! kernels never store beyond the source chunk already loaded.
+//!
+//! The table is the complete SIMD eligibility map after cached representations have declined the
+//! mask. `d` is mask density; every entry also requires `len >= 64`. A dash means that no SIMD
+//! kernel exists for that width.
+//!
+//! | Target features | 1 byte | 2 bytes | 4 bytes | 8 bytes |
+//! | --- | --- | --- | --- | --- |
+//! | x86 AVX-512 VBMI2 | `d >= 0.00` | `d >= 0.15` | `d >= 0.25` | `d >= 0.30` |
+//! | x86 AVX-512F (no VBMI2) | `d >= 0.15`* | `d >= 0.25`* | `d >= 0.25` | `d >= 0.30` |
+//! | x86 AVX2 | `d >= 0.15` | `d >= 0.25` | `d >= 0.25` | `d >= 0.45` |
+//! | aarch64 NEON | `d >= 0.15` | `d >= 0.15` | `d >= 0.30` | `0.50 <= d < 0.80` |
+//! | other | — | — | — | — |
+//!
+//! \* The 1- and 2-byte fallbacks require AVX2.
+//!
+//! On x86, the widest available kernel is considered first for each width. When no entry matches,
+//! control returns to [`buffer`](super::buffer) for scalar selection.
 
 use std::ptr;
 

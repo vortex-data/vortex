@@ -2,6 +2,20 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Buffer-level filter dispatch across cached, SIMD, and scalar strategies.
+//!
+//! Selection is an ordered ladder, not a set of independent choices. The first matching row wins:
+//!
+//! | Priority | Condition | Out-of-place | In-place |
+//! | --- | --- | --- | --- |
+//! | 1 | cached slices: one run, or average run length >= 8 | copy runs | move runs |
+//! | 2 | cached indices and density <= 0.50 | gather indices | move indices |
+//! | 3 | an eligible architecture kernel | SIMD compress | SIMD compress |
+//! | 4 | density reaches [`byte_compress_density_threshold`] | byte compress | bitmap walk |
+//! | 5 | otherwise | bitmap walk | bitmap walk |
+//!
+//! In-place dispatch is attempted only for a uniquely owned buffer with density >= 0.50. SIMD
+//! eligibility is summarized in [`simd_compress`]. All-true, all-false, and contiguous masks are
+//! handled before buffer dispatch.
 
 use std::mem::size_of;
 
@@ -87,7 +101,14 @@ fn useful_cached_slices(mask: &MaskValues) -> Option<&[(usize, usize)]> {
 fn byte_compress_density_threshold<T>() -> f64 {
     let width = size_of::<T>();
 
-    // These crossovers are benchmarked in `benches/filter_fixed_width.rs`.
+    // A density at or above the table entry selects byte compress after the higher-priority
+    // strategies have declined the mask. These crossovers are benchmarked in
+    // `benches/filter_fixed_width.rs`.
+    //
+    // | Target | 1 byte | 2 bytes | 4 bytes | 8 bytes | other |
+    // | --- | ---: | ---: | ---: | ---: | ---: |
+    // | aarch64 | 0.90 | 0.90 | 0.90 | 0.75 | 0.90 |
+    // | other | 0.00 | 0.50 | 0.50 | 0.75 | 0.875 |
     if cfg!(target_arch = "aarch64") {
         return match width {
             8 => 0.75,

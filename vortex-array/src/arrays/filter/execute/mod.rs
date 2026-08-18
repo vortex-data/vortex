@@ -4,6 +4,16 @@
 //! Execution logic for [`super::FilterArray`].
 //!
 //! The main entrypoint is [`execute_filter`] which filters any [`Canonical`] array.
+//! Before canonical execution, [`execute_filter_fast_paths`] tries these cases in order:
+//!
+//! | Condition | Result |
+//! | --- | --- |
+//! | mask selects nothing | empty canonical array |
+//! | mask selects everything | unchanged child |
+//! | mask selects one contiguous run | zero-copy slice |
+//! | child is entirely null | null constant array |
+//!
+//! Fixed-width canonical arrays then use the strategy ladder in [`buffer`].
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
