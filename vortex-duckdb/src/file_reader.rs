@@ -161,7 +161,7 @@ pub fn reader_scan(
         let Some(split) = local.split.take() else {
             return Ok(false);
         };
-        let Some(array) = RUNTIME.block_on(async move { split.await })? else {
+        let Some(array) = RUNTIME.block_on(split)? else {
             // split is filtered
             return Ok(true);
         };
@@ -182,7 +182,7 @@ fn reader_scan_aggregate(global: &GlobalState, local: &mut LocalState) -> Vortex
     let Some(split) = local.split.take() else {
         return Ok(false);
     };
-    let Some(array) = RUNTIME.block_on(async move { split.await })? else {
+    let Some(array) = RUNTIME.block_on(split)? else {
         // split is filtered
         return Ok(true);
     };

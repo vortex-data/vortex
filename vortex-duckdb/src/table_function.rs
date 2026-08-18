@@ -529,24 +529,14 @@ pub fn pushdown_projection_aggregates(
 ) -> VortexResult<bool> {
     let len = input.len();
     let mut aggregates = Vec::with_capacity(len);
-    let mut outputs = Vec::with_capacity(len);
     let mut has_non_count_star = false;
 
     debug!(%len, "pushing down projection aggregates");
     for i in 0..len {
         let expression = input.get(i);
-        let output_type = expression.expr.return_type().to_owned();
         let Some(aggregate) = try_push_projection_aggregate(bind_data, expression, i)? else {
             return Ok(false);
         };
-        let name = match &aggregate {
-            ColumnAggregate::CountStar => "count_star()".to_string(),
-            ColumnAggregate::Real { projection_id, .. } => {
-                let id: usize = projection_id.as_();
-                bind_data.columns[id].name.clone()
-            }
-        };
-        outputs.push((name, output_type));
         has_non_count_star |= matches!(aggregate, ColumnAggregate::Real { .. });
         aggregates.push(aggregate);
     }
