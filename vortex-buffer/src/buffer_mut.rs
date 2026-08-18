@@ -4,6 +4,7 @@
 use core::mem::MaybeUninit;
 use std::any::type_name;
 use std::cmp::max;
+use std::convert::Infallible;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::io::Write;
@@ -683,53 +684,16 @@ impl<T> BufferMut<T> {
     /// The caller guarantees that the iterator will have a trusted upper bound, which allows the
     /// implementation to reserve all of the memory needed up front.
     pub fn extend_trusted<I: TrustedLen<Item = T>>(&mut self, iter: I) {
-        // Since we know the exact upper bound (from `TrustedLen`), we can reserve all of the memory
-        // for this operation up front.
-        let (_, upper_bound) = iter.size_hint();
-        self.reserve(
-            upper_bound
-                .vortex_expect("`TrustedLen` iterator somehow didn't have valid upper bound"),
-        );
-
-        // We store `begin` in the case that the upper bound hint is incorrect.
-        let begin: *const T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
-        let mut dst: *mut T = begin.cast_mut();
-
-        iter.for_each(|item| {
-            // SAFETY: We have reserved enough capacity to hold this item, and `dst` is a pointer
-            // derived from a valid reference to byte data.
-            unsafe { dst.write(item) };
-
-            // Note: We used to have `dst.add(iteration).write(item)`, here. However this was much
-            // slower than just incrementing `dst`.
-            // SAFETY: The offsets fits in `isize`, and because we were able to reserve the memory
-            // we know that `add` will not overflow.
-            unsafe { dst = dst.add(1) };
-        });
-
-        // SAFETY: `dst` was derived from `begin`, which were both valid references to byte data,
-        // and since the only operation that `dst` has is `add`, we know that `dst >= begin`.
-        let items_written = unsafe { dst.offset_from_unsigned(begin) };
-        let length = self.len() + items_written;
-
-        // SAFETY: We have written valid items between the old length and the new length.
-        unsafe { self.set_len(length) };
+        let Ok(()) = self.try_extend_trusted(iter.map(Ok::<_, Infallible>));
     }
 
     /// Creates a `BufferMut` from an iterator with a trusted length.
-    ///
-    /// Internally, this calls [`extend_trusted()`](Self::extend_trusted).
     pub fn from_trusted_len_iter<I>(iter: I) -> Self
     where
         I: TrustedLen<Item = T>,
     {
-        let (_, upper_bound) = iter.size_hint();
-        let mut buffer = Self::with_capacity(
-            upper_bound
-                .vortex_expect("`TrustedLen` iterator somehow didn't have valid upper bound"),
-        );
+        let Ok(buffer) = Self::try_from_trusted_len_iter(iter.map(Ok::<_, Infallible>));
 
-        buffer.extend_trusted(iter);
         buffer
     }
 
