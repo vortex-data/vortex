@@ -55,6 +55,7 @@ use crate::duckdb::{AggregatePushdownInputRef, TableFilterSet};
 use crate::exporter::ArrayExporter;
 use crate::projection::FILE_ROW_NUMBER_COLUMN_IDX;
 use crate::projection::Projection;
+use crate::projection::is_virtual_column;
 use crate::projection::{DuckdbField, Filter};
 
 // Aggregate projection index for count(*). See cpp/aggregate_fn_pushdown.cpp
@@ -203,9 +204,13 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
 
     let mut file_row_number_column_pos = None;
     let column_ids = init_input.column_ids();
-    for (i, id) in column_ids.iter().enumerate() {
+    let mut pos = 0;
+    for id in column_ids {
         if *id == FILE_ROW_NUMBER_COLUMN_IDX {
-            file_row_number_column_pos = Some(i);
+            file_row_number_column_pos = Some(pos);
+            pos += 1;
+        } else if !is_virtual_column(*id) {
+            pos += 1;
         }
     }
 

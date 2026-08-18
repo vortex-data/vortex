@@ -33,7 +33,7 @@ use crate::table_function::ColumnAggregate;
 pub(crate) static FILE_ROW_NUMBER_COLUMN_IDX: u64 = 9223372036854775809;
 
 /// See duckdb/src/common/constants.cpp
-fn is_virtual_column(id: u64) -> bool {
+pub(crate) fn is_virtual_column(id: u64) -> bool {
     id >= 9223372036854775808u64
 }
 
