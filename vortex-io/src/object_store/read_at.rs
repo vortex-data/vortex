@@ -25,6 +25,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::CoalesceConfig;
+use crate::OBJECT_STORAGE_PREFERRED_READ_SIZE;
 use crate::ReadAtRequest;
 use crate::ReadAtStream;
 use crate::VortexReadAt;
@@ -44,6 +45,7 @@ pub struct ObjectStoreReadAt {
     allocator: HostAllocatorRef,
     concurrency: usize,
     coalesce_config: Option<CoalesceConfig>,
+    preferred_read_size: Option<u64>,
 }
 
 impl ObjectStoreReadAt {
@@ -68,6 +70,7 @@ impl ObjectStoreReadAt {
             allocator,
             concurrency: DEFAULT_CONCURRENCY,
             coalesce_config: Some(CoalesceConfig::object_storage()),
+            preferred_read_size: Some(OBJECT_STORAGE_PREFERRED_READ_SIZE),
         }
     }
 
@@ -80,6 +83,12 @@ impl ObjectStoreReadAt {
     /// Set the coalesce config for this source.
     pub fn with_coalesce_config(mut self, config: CoalesceConfig) -> Self {
         self.coalesce_config = Some(config);
+        self
+    }
+
+    /// Set the preferred size of independently requested byte ranges for this source.
+    pub fn with_preferred_read_size(mut self, preferred_read_size: u64) -> Self {
+        self.preferred_read_size = Some(preferred_read_size);
         self
     }
 }
@@ -160,6 +169,10 @@ impl VortexReadAt for ObjectStoreReadAt {
 
     fn coalesce_config(&self) -> Option<CoalesceConfig> {
         self.coalesce_config
+    }
+
+    fn preferred_read_size(&self) -> Option<u64> {
+        self.preferred_read_size
     }
 
     fn concurrency(&self) -> usize {

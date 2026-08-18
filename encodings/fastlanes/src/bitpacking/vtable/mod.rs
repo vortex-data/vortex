@@ -72,6 +72,22 @@ pub struct BitPackedMetadata {
     pub(crate) patches: Option<PatchesMetadata>,
 }
 
+impl BitPackedMetadata {
+    pub fn bit_width(&self) -> VortexResult<u8> {
+        u8::try_from(self.bit_width)
+            .map_err(|_| vortex_err!("bit width {} does not fit in u8", self.bit_width))
+    }
+
+    pub fn offset(&self) -> VortexResult<u16> {
+        u16::try_from(self.offset)
+            .map_err(|_| vortex_err!("bit-packed offset {} does not fit in u16", self.offset))
+    }
+
+    pub fn patches(&self) -> Option<&PatchesMetadata> {
+        self.patches.as_ref()
+    }
+}
+
 impl ArrayHash for BitPackedData {
     fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: EqMode) {
         self.offset.hash(state);

@@ -346,7 +346,7 @@ vortex.struct, dtype: {numbers=i64?, strings=utf8}, children: 2, rows: 5
     #[test]
     fn test_display_tree_with_segment_source() {
         if std::env::var("NEXTEST_RUN_ID").is_ok() {
-            temp_env::with_var("FLAT_LAYOUT_INLINE_ARRAY_NODE", None::<&str>, || {
+            temp_env::with_var("FLAT_LAYOUT_INLINE_ARRAY_NODE", Some("0"), || {
                 block_on(|handle| async move {
                     let session = new_session().with_handle(handle);
                     let ctx = ArrayContext::empty();

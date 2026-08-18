@@ -5,6 +5,7 @@ use std::borrow::Cow;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::iter;
+use std::ops::Range;
 use std::sync::Arc;
 
 use flatbuffers::FlatBufferBuilder;
@@ -294,6 +295,31 @@ pub struct SerializedArray {
     buffers: Arc<[BufferHandle]>,
 }
 
+/// Location and alignment of one serialized array buffer within its containing segment.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SerializedBuffer {
+    index: usize,
+    range: Range<usize>,
+    alignment: Alignment,
+}
+
+impl SerializedBuffer {
+    /// Return this buffer's index in the serialized array's global buffer table.
+    pub fn index(&self) -> usize {
+        self.index
+    }
+
+    /// Return this buffer's byte range within the containing segment.
+    pub fn range(&self) -> &Range<usize> {
+        &self.range
+    }
+
+    /// Return the alignment required when materializing this buffer independently.
+    pub fn alignment(&self) -> Alignment {
+        self.alignment
+    }
+}
+
 impl Debug for SerializedArray {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SerializedArray")
@@ -514,6 +540,46 @@ impl SerializedArray {
             .buffers()
             .map(|buffers| buffers.iter().map(|b| b.length() as usize).collect())
             .unwrap_or_default()
+    }
+
+    /// Return the global buffer indices referenced by this array node.
+    pub fn buffer_indices(&self) -> Vec<usize> {
+        self.flatbuffer()
+            .buffers()
+            .map(|buffers| buffers.iter().map(usize::from).collect())
+            .unwrap_or_default()
+    }
+
+    /// Return validated locations for all data buffers in their serialized segment.
+    pub fn buffer_descriptors(&self) -> VortexResult<Vec<SerializedBuffer>> {
+        let fb_array = root::<fba::Array>(self.flatbuffer.as_ref())?;
+        let mut offset = 0usize;
+        fb_array
+            .buffers()
+            .unwrap_or_default()
+            .iter()
+            .enumerate()
+            .map(|(index, buffer)| {
+                if buffer.compression() != Compression::None {
+                    vortex_bail!(
+                        "Partial reads do not support serialized buffer compression {:?}",
+                        buffer.compression()
+                    );
+                }
+                let start = offset
+                    .checked_add(usize::from(buffer.padding()))
+                    .ok_or_else(|| vortex_err!("Buffer {index} padding overflows"))?;
+                let end = start
+                    .checked_add(buffer.length() as usize)
+                    .ok_or_else(|| vortex_err!("Buffer {index} length overflows"))?;
+                offset = end;
+                Ok(SerializedBuffer {
+                    index,
+                    range: start..end,
+                    alignment: Alignment::try_from_untrusted_exponent(buffer.alignment_exponent())?,
+                })
+            })
+            .collect()
     }
 
     /// Validate and align the array tree flatbuffer, returning the aligned buffer and root location.

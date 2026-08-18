@@ -52,6 +52,12 @@ pub struct ListMetadata {
     offset_ptype: i32,
 }
 
+impl ListMetadata {
+    pub fn elements_len(&self) -> u64 {
+        self.elements_len
+    }
+}
+
 impl ArrayHash for ListData {
     fn array_hash<H: Hasher>(&self, _state: &mut H, _accuracy: EqMode) {}
 }

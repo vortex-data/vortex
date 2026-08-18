@@ -406,10 +406,10 @@ mod tests {
         .into_array();
 
         let layout = write(&flat_table(), struct_array).await?;
-        insta::assert_snapshot!(layout.display_tree(), @r"
+        insta::assert_snapshot!(layout.display_tree(), @"
         vortex.struct, dtype: {a=i32, b=i32}, children: 2
-        ├── a: vortex.flat, dtype: i32, segment: 0
-        └── b: vortex.flat, dtype: i32, segment: 1
+        ├── a: vortex.flat, dtype: i32, segment 0, buffers=[12B], total=12B
+        └── b: vortex.flat, dtype: i32, segment 1, buffers=[12B], total=12B
         ");
         Ok(())
     }
@@ -432,12 +432,12 @@ mod tests {
         .into_array();
 
         let layout = write(&flat_table().with_list_layout(), outer).await?;
-        insta::assert_snapshot!(layout.display_tree(), @r"
+        insta::assert_snapshot!(layout.display_tree(), @"
         vortex.list, dtype: list(list(i32)), children: 2
         ├── elements: vortex.list, dtype: list(i32), children: 2
-        │   ├── elements: vortex.flat, dtype: i32, segment: 1
-        │   └── offsets: vortex.flat, dtype: u64, segment: 2
-        └── offsets: vortex.flat, dtype: u64, segment: 0
+        │   ├── elements: vortex.flat, dtype: i32, segment 1, buffers=[24B], total=24B
+        │   └── offsets: vortex.flat, dtype: u64, segment 2, buffers=[40B], total=40B
+        └── offsets: vortex.flat, dtype: u64, segment 0, buffers=[24B], total=24B
         ");
         Ok(())
     }
@@ -463,14 +463,14 @@ mod tests {
         let st = StructArray::from_fields([("items", items)].as_slice())?.into_array();
 
         let layout = write(&flat_table().with_list_layout(), st).await?;
-        insta::assert_snapshot!(layout.display_tree(), @r"
+        insta::assert_snapshot!(layout.display_tree(), @"
         vortex.struct, dtype: {items=list({a=i32, b=i32})?}, children: 1
         └── items: vortex.list, dtype: list({a=i32, b=i32})?, children: 3
             ├── elements: vortex.struct, dtype: {a=i32, b=i32}, children: 2
-            │   ├── a: vortex.flat, dtype: i32, segment: 2
-            │   └── b: vortex.flat, dtype: i32, segment: 3
-            ├── offsets: vortex.flat, dtype: u64, segment: 0
-            └── validity: vortex.flat, dtype: bool, segment: 1
+            │   ├── a: vortex.flat, dtype: i32, segment 2, buffers=[20B], total=20B
+            │   └── b: vortex.flat, dtype: i32, segment 3, buffers=[20B], total=20B
+            ├── offsets: vortex.flat, dtype: u64, segment 0, buffers=[32B], total=32B
+            └── validity: vortex.flat, dtype: bool, segment 1, buffers=[1B], total=1B
         ");
         Ok(())
     }
@@ -502,14 +502,14 @@ mod tests {
         )
         .with_list_layout();
         let layout = write(&dispatcher, chunked).await?;
-        insta::assert_snapshot!(layout.display_tree(), @r"
+        insta::assert_snapshot!(layout.display_tree(), @"
         vortex.list, dtype: list(i32), children: 2
         ├── elements: vortex.chunked, dtype: i32, children: 2
-        │   ├── [0]: vortex.flat, dtype: i32, segment: 0
-        │   └── [1]: vortex.flat, dtype: i32, segment: 1
+        │   ├── [0]: vortex.flat, dtype: i32, segment 0, buffers=[12B], total=12B
+        │   └── [1]: vortex.flat, dtype: i32, segment 1, buffers=[16B], total=16B
         └── offsets: vortex.chunked, dtype: u64, children: 2
-            ├── [0]: vortex.flat, dtype: u64, segment: 2
-            └── [1]: vortex.flat, dtype: u64, segment: 3
+            ├── [0]: vortex.flat, dtype: u64, segment 2, buffers=[24B], total=24B
+            └── [1]: vortex.flat, dtype: u64, segment 3, buffers=[16B], total=16B
         ");
         Ok(())
     }
@@ -569,7 +569,7 @@ mod tests {
     async fn non_struct_input_uses_leaf() -> VortexResult<()> {
         let primitive = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
         let layout = write(&flat_table(), primitive).await?;
-        insta::assert_snapshot!(layout.display_tree(), @"vortex.flat, dtype: i32, segment: 0");
+        insta::assert_snapshot!(layout.display_tree(), @"vortex.flat, dtype: i32, segment 0, buffers=[12B], total=12B");
         Ok(())
     }
 
@@ -601,14 +601,14 @@ mod tests {
         let chunked = ChunkedArray::try_new(vec![c0, c1], dtype)?.into_array();
 
         let layout = write(&dispatcher, chunked).await?;
-        insta::assert_snapshot!(layout.display_tree(), @r"
+        insta::assert_snapshot!(layout.display_tree(), @"
         vortex.struct, dtype: {a=i32, b=i32}, children: 2
         ├── a: vortex.chunked, dtype: i32, children: 2
-        │   ├── [0]: vortex.flat, dtype: i32, segment: 0
-        │   └── [1]: vortex.flat, dtype: i32, segment: 1
+        │   ├── [0]: vortex.flat, dtype: i32, segment 0, buffers=[8B], total=8B
+        │   └── [1]: vortex.flat, dtype: i32, segment 1, buffers=[4B], total=4B
         └── b: vortex.chunked, dtype: i32, children: 2
-            ├── [0]: vortex.flat, dtype: i32, segment: 2
-            └── [1]: vortex.flat, dtype: i32, segment: 3
+            ├── [0]: vortex.flat, dtype: i32, segment 2, buffers=[8B], total=8B
+            └── [1]: vortex.flat, dtype: i32, segment 3, buffers=[4B], total=4B
         ");
         Ok(())
     }
@@ -628,10 +628,10 @@ mod tests {
         let strategy =
             flat_table().with_field_writer(field_path!(a), Arc::new(FlatLayoutStrategy::default()));
         let layout = write(&strategy, struct_array).await?;
-        insta::assert_snapshot!(layout.display_tree(), @r"
+        insta::assert_snapshot!(layout.display_tree(), @"
         vortex.struct, dtype: {a=i32, b=i32}, children: 2
-        ├── a: vortex.flat, dtype: i32, segment: 0
-        └── b: vortex.flat, dtype: i32, segment: 1
+        ├── a: vortex.flat, dtype: i32, segment 0, buffers=[12B], total=12B
+        └── b: vortex.flat, dtype: i32, segment 1, buffers=[12B], total=12B
         ");
         Ok(())
     }

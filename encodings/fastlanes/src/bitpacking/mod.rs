@@ -19,6 +19,7 @@ mod vtable;
 pub(crate) use plugin::BitPackedPatchedPlugin;
 pub use vtable::BitPacked;
 pub use vtable::BitPackedArray;
+pub use vtable::BitPackedMetadata;
 
 pub(crate) fn initialize(session: &vortex_session::VortexSession) {
     vtable::initialize(session);
