@@ -1,8 +1,8 @@
 # Editions
 
-Vortex files contain several kinds of serialized **component**: array encodings, layout encodings, extension dtypes,
-and aggregate functions. An **edition** is a named set of these components. It controls what a writer may put in a file
-and, once frozen, identifies the earliest Vortex release that supports every component in the set.
+Vortex files contain several kinds of serialized **component**: array encodings, layout encodings, extension dtypes, and
+aggregate functions. An **edition** is a named set of these components. It controls what a writer may put in a file and,
+once frozen, identifies the earliest Vortex release that supports every component in the set.
 
 Each component consists of a kind, an ID, and the wire contract for its metadata and payload. The compatibility
 guarantee applies to that serialized contract, not to the in-memory implementation that reads or writes it.
@@ -11,6 +11,7 @@ Editions belong to independently versioned families and are cumulative within a 
 components from the preceding edition in that family, plus any newly added components. A writer selects at most one
 edition from each family and may use the union of their components. For example, selecting `core2026.07.0` and
 `unstable2026.06.0` allows stable components released through July 2026 and unstable components released through June
+
 2026.
 
 The first frozen edition, `core2025.05.0`, contains the components that Vortex `0.36.0` could write. This marks the
@@ -24,8 +25,8 @@ guarantee for any draft components written to the file.
 ## What an edition contains
 
 An edition records every component by kind and ID. IDs are unique within a kind, but not across kinds: a layout named
-`vortex.flat` and an array encoding with the same ID are distinct components. The writer therefore builds and enforces
-a separate allowlist for each kind:
+`vortex.flat` and an array encoding with the same ID are distinct components. The writer therefore builds and enforces a
+separate allowlist for each kind:
 
 | Kind        | Written                                    | Enforced at                  |
 |-------------|--------------------------------------------|------------------------------|
@@ -38,11 +39,11 @@ Writing a component that is absent from the selected editions fails the write. T
 including aggregates. Although a zone map is only an optimization and could be dropped, doing so would silently change
 the writer's configured pruning behavior.
 
-Only aggregates that would actually be written are checked. If a column's dtype cannot support an aggregate, the
-writer omits it and there is no edition violation.
+Only aggregates that would actually be written are checked. If a column's dtype cannot support an aggregate, the writer
+omits it and there is no edition violation.
 
-An empty allowlist permits no components of that kind; it is not a wildcard. Collectively, the selected editions must
-declare every array encoding, layout encoding, extension dtype, and aggregate function that the writer serializes.
+An empty allowlist permits no encodings. Collectively, the selected editions must declare every array encoding, layout
+encoding, extension dtype, and aggregate function that the writer serializes.
 
 For example, `core2026.08.0` declares the aggregate functions that the default writer may store in zone maps: `min`,
 `max`, `bounded_min`, `bounded_max`, `nan_count`, and `null_count`. It does not declare `sum`, because the writer does
@@ -59,7 +60,7 @@ kind and ID in the [registry](#edition-registry):
 
 1. **It belongs to a frozen edition.** Upgrade to at least the minimum Vortex release listed for that edition.
 2. **It belongs to a draft edition.** No released reader is guaranteed to support it. Use a build that registers the
-   component, or ask the file's producer which build to use.
+    component or ask the file's producer which build to use.
 3. **It is not in the registry.** The file contains a custom, third-party, or experimental component outside the
    editions system. Ask the producer for its implementation and register it with the reader's session.
 
@@ -73,9 +74,9 @@ By default, the Vortex facade targets the newest frozen `core` edition. New comp
 edition before joining a later frozen `core` edition. If serialization would use a component outside the selected
 editions, the write fails immediately.
 
-Edition configuration belongs to the writer's Vortex session. Registering an edition makes its declaration available
-to the session; enabling it allows the writer to use its components. Enabling another edition in the same family
-replaces the previous selection.
+Edition configuration belongs to the writer's Vortex session. Registering an edition makes its declaration available to
+the session; enabling it allows the writer to use its components. Enabling another edition in the same family replaces
+the previous selection.
 
 You can change the default configuration to:
 
@@ -103,9 +104,9 @@ or be replaced without changing an edition. On read, the plugin registered for a
 in-memory representation. On write, the implementation selects a component that can represent the value and is allowed
 by the selected editions.
 
-An in-memory representation often has a single serialized component and uses the same ID in memory and on disk, but
-this is not required. Multiple component IDs may deserialize into the same in-memory representation. Editions constrain
-the ID stored in the file, because that is what the reader must understand.
+An in-memory representation often has a single serialized component and uses the same ID in memory and on disk, but this
+is not required. Multiple component IDs may deserialize into the same in-memory representation. Editions constrain the
+ID stored in the file, because that is what the reader must understand.
 
 ### Compatible evolution keeps the ID
 
@@ -130,10 +131,10 @@ serialized history unambiguous.
 
 #### Example: multi-part decimals
 
-`vortex.decimal_byte_parts` entered `core2025.05.0` with each decimal value represented by one signed integer child.
-Its metadata includes `lower_part_count`, but readers of this component require that field to be zero. Suppose the
-in-memory representation gains support for wide decimals, represented by a signed most-significant part and one or more
-unsigned 64-bit lower parts:
+`vortex.decimal_byte_parts` entered `core2025.05.0` with each decimal value represented by one signed integer child. Its
+metadata includes `lower_part_count`, but readers of this component require that field to be zero. Suppose the in-memory
+representation gains support for wide decimals, represented by a signed most-significant part and one or more unsigned
+64-bit lower parts:
 
 - A single-part array still serializes as `vortex.decimal_byte_parts` with
   `lower_part_count = 0`, indistinguishable from files written before the change.
@@ -144,8 +145,8 @@ unsigned 64-bit lower parts:
 ### Reading: deserialize into the current representation
 
 Every component in a frozen edition remains readable. Its deserializer may convert old data directly into the current
-in-memory representation rather than preserving a parallel legacy representation. For example, a `vortex.alp` array
-with interior patches is read as a `Patched` array around a patch-free ALP array. Similarly, old zone maps, including
+in-memory representation rather than preserving a parallel legacy representation. For example, a `vortex.alp` array with
+interior patches is read as a `Patched` array around a patch-free ALP array. Similarly, old zone maps, including
 `vortex.stats` layouts, are read by the machinery used for modern `vortex.zoned` layouts.
 
 Readers do not negotiate versions. They resolve the component ID and deserialize it, or report an
@@ -153,9 +154,9 @@ Readers do not negotiate versions. They resolve the component ID and deserialize
 
 ### Writing: select a permitted component
 
-Writers choose a component that both represents the current value and belongs to the selected editions. This need not
-be the newest component: if an older component can represent the value exactly, the writer may continue to use it. If
-the preferred component is not permitted, the writer has two options:
+Writers choose a component that both represents the current value and belongs to the selected editions. This need not be
+the newest component: if an older component can represent the value exactly, the writer may continue to use it. If the
+preferred component is not permitted, the writer has two options:
 
 1. **Translate.** If the value has a lossless translation to a permitted component, use that component. For example, a
    newer layout may write its zone statistics using an older statistics schema.
