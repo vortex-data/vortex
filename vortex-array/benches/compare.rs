@@ -33,7 +33,8 @@ fn main() {
     divan::main();
 }
 
-const ARRAY_SIZE: usize = 65_536;
+// Sized to keep CodSpeed simulation under 1ms per benchmark.
+const ARRAY_SIZE: usize = 8_192;
 
 fn bench_compare(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, op: Operator) {
     let session = vortex_array::array_session();

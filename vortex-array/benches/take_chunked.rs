@@ -135,19 +135,20 @@ impl Display for Case {
     }
 }
 
+// Chunk and index counts are sized to keep CodSpeed simulation under 1ms per case.
 fn cases() -> Vec<Case> {
     let mut cases = Vec::new();
 
     for pattern in [Pattern::Sorted, Pattern::Shuffled] {
-        for chunks in [16, 1_024] {
-            for indices in [10_000, 100_000] {
+        for chunks in [4, 16] {
+            for indices in [250, 1_000] {
                 cases.push(Case::new("core", pattern, chunks, indices));
             }
         }
     }
 
-    for chunks in [1_024, 16_384] {
-        for indices in [1, 16, 256, 1_000] {
+    for chunks in [256, 2_048] {
+        for indices in [1, 16, 64] {
             cases.push(Case::new("small_m", Pattern::Shuffled, chunks, indices));
         }
     }
@@ -157,7 +158,7 @@ fn cases() -> Vec<Case> {
         Pattern::Duplicate90,
         Pattern::Duplicate99,
     ] {
-        cases.push(Case::new("duplicates", pattern, 16, 100_000));
+        cases.push(Case::new("duplicates", pattern, 16, 1_000));
     }
 
     for pattern in [Pattern::Shuffled, Pattern::Duplicate99] {
@@ -166,14 +167,14 @@ fn cases() -> Vec<Case> {
             ValueKind::Struct8,
             ValueKind::FixedSizeList8,
         ] {
-            cases.push(Case::new("value_shape", pattern, 16, 10_000).with_value_kind(value_kind));
+            cases.push(Case::new("value_shape", pattern, 16, 100).with_value_kind(value_kind));
         }
     }
 
-    for chunks in [16, 1_024] {
+    for chunks in [4, 16] {
         for validity in [IndexValidity::AllValid, IndexValidity::TenPercentNull] {
             cases.push(
-                Case::new("nullable", Pattern::Sorted, chunks, 100_000).with_validity(validity),
+                Case::new("nullable", Pattern::Sorted, chunks, 1_000).with_validity(validity),
             );
         }
     }
@@ -183,7 +184,7 @@ fn cases() -> Vec<Case> {
         Pattern::AlternatingChunks,
         Pattern::GroupedChunks,
     ] {
-        cases.push(Case::new("routing", pattern, 1_024, 100_000));
+        cases.push(Case::new("routing", pattern, 32, 1_000));
     }
 
     cases

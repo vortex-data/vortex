@@ -99,27 +99,27 @@ const PREDICATE_CASES: &[PredicateCase] = &[
         shape: IdPredicateShape::BalancedOr,
     },
     PredicateCase {
+        id_count: 128,
+        shape: IdPredicateShape::InList,
+    },
+    PredicateCase {
+        id_count: 128,
+        shape: IdPredicateShape::BalancedOr,
+    },
+    PredicateCase {
+        id_count: 192,
+        shape: IdPredicateShape::InList,
+    },
+    PredicateCase {
+        id_count: 192,
+        shape: IdPredicateShape::BalancedOr,
+    },
+    PredicateCase {
         id_count: 256,
         shape: IdPredicateShape::InList,
     },
     PredicateCase {
         id_count: 256,
-        shape: IdPredicateShape::BalancedOr,
-    },
-    PredicateCase {
-        id_count: 1_024,
-        shape: IdPredicateShape::InList,
-    },
-    PredicateCase {
-        id_count: 1_024,
-        shape: IdPredicateShape::BalancedOr,
-    },
-    PredicateCase {
-        id_count: 4_096,
-        shape: IdPredicateShape::InList,
-    },
-    PredicateCase {
-        id_count: 4_096,
         shape: IdPredicateShape::BalancedOr,
     },
 ];

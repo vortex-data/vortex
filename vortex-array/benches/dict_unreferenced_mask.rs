@@ -63,7 +63,8 @@ fn bench_many_codes_few_values(bencher: Bencher, num_values: i32) {
 fn bench_many_nulls(bencher: Bencher, fraction_valid: f64) {
     let mut rng = StdRng::seed_from_u64(0);
 
-    let num_codes = 65_536;
+    // Sized to keep CodSpeed simulation under 1ms per benchmark.
+    let num_codes = 32_768;
     let num_values = 1024i32;
 
     // Create values array

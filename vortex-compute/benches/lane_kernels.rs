@@ -49,7 +49,7 @@ fn main() {
     divan::main();
 }
 
-const SIZES: &[usize] = &[65_536];
+const SIZES: &[usize] = &[16_384];
 
 // -----------------------------------------------------------------------------
 // Cast fixture (u64/u16/i32 lanes + a single validity mask).

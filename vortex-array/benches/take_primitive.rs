@@ -26,8 +26,8 @@ fn main() {
     divan::main();
 }
 
-/// Number of indices to take.
-const NUM_INDICES: &[usize] = &[1_000, 10_000, 100_000];
+/// Number of indices to take. The top tier is sized to keep CodSpeed simulation under 1ms.
+const NUM_INDICES: &[usize] = &[1_000, 10_000, 25_000];
 
 /// Size of the source vector / dictionary values.
 const VECTOR_SIZE: &[usize] = &[16, 256, 2048, 8192];
@@ -36,7 +36,8 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 #[divan::bench(sample_count = 200)]
 fn primitive_take_u32(bencher: Bencher) {
-    const NUM_INDICES: usize = 1_000_000;
+    // Sized to keep CodSpeed simulation under 1ms.
+    const NUM_INDICES: usize = 50_000;
 
     let values = PrimitiveArray::from_iter(0u32..256).into_array();
     let indices =

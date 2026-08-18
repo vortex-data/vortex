@@ -58,11 +58,11 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(spatial_session);
 /// predicate costs roughly a microsecond per row under CodSpeed's CPU simulation, which caps the
 /// row count well below a typical batch to stay inside the 1 ms per-iteration budget from
 /// `docs/developer-guide/benchmarking.md`.
-const ROWS: usize = 1 << 7;
+const ROWS: usize = 1 << 5;
 
 /// The all-overlapping polygon arm never rejects on bounding boxes, so every row pays for the full
 /// pairwise predicate. It needs a smaller fixture than [`ROWS`] to stay inside the same budget.
-const OVERLAPPING_POLYGON_ROWS: usize = 1 << 5;
+const OVERLAPPING_POLYGON_ROWS: usize = 1 << 4;
 
 /// Deterministic pseudo-random value in `[0, 1)`.
 fn unit(i: usize) -> f64 {

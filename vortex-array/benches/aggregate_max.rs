@@ -16,7 +16,8 @@ fn main() {
     divan::main();
 }
 
-const N: usize = 100_000;
+// Sized to keep the CodSpeed simulation under 1ms per benchmark.
+const N: usize = 15_000;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 

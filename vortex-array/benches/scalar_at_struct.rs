@@ -26,7 +26,8 @@ fn main() {
 }
 
 const ARRAY_SIZE: usize = 100_000;
-const NUM_ACCESSES: usize = 1000;
+// Sized to keep the CodSpeed simulation under 1ms per benchmark.
+const NUM_ACCESSES: usize = 100;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 

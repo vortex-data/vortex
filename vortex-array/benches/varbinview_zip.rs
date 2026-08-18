@@ -27,7 +27,8 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 /// Benchmarks zip on VarBinView arrays with a highly fragmented mask (worst case for per-slice lookup paths).
 #[divan::bench]
 fn varbinview_zip_fragmented_mask(bencher: Bencher) {
-    let len = 65_536;
+    // Sized to keep CodSpeed simulation under 1ms per benchmark.
+    let len = 2_048;
     let if_true = fixture(len).into_array();
     let if_false = other_fixture(len).into_array();
     let mask = alternating_mask(len);
@@ -52,7 +53,8 @@ fn varbinview_zip_fragmented_mask(bencher: Bencher) {
 /// Benchmarks zip on VarBinView arrays with blocky mask segments to contrast with the fragmented case.
 #[divan::bench]
 fn varbinview_zip_block_mask(bencher: Bencher) {
-    let len = 65_536;
+    // Sized to keep CodSpeed simulation under 1ms per benchmark.
+    let len = 2_048;
     let if_true = fixture(len).into_array();
     let if_false = other_fixture(len).into_array();
     let mask = block_mask(len, 128);

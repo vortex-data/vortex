@@ -75,7 +75,8 @@ pub fn gen_dict_fsst_test_data<T: NativePType>(
 // Benchmark dataset generators
 // ---------------------------------------------------------------------------
 
-pub const NUM_STRINGS: usize = 100_000;
+// Sized so per-iteration CodSpeed times of benches using it stay under ~1ms.
+pub const NUM_STRINGS: usize = 2_000;
 
 // ---------------------------------------------------------------------------
 // URL generator (ClickBench-style weighted domains)

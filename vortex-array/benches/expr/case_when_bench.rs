@@ -58,7 +58,7 @@ fn make_fragmented_array(size: usize) -> ArrayRef {
 }
 
 /// Benchmark a simple binary CASE WHEN with varying array sizes.
-#[divan::bench(args = [1000, 10000, 100000])]
+#[divan::bench(args = [1000, 10000, 40000])]
 fn case_when_simple(bencher: Bencher, size: usize) {
     let array = make_struct_array(size);
 
@@ -160,7 +160,7 @@ fn case_when_nary_equality_lookup(bencher: Bencher, size: usize) {
 }
 
 /// Benchmark CASE WHEN without ELSE clause (result is nullable).
-#[divan::bench(args = [1000, 10000, 100000])]
+#[divan::bench(args = [1000, 10000, 40000])]
 fn case_when_without_else(bencher: Bencher, size: usize) {
     let array = make_struct_array(size);
 
@@ -180,7 +180,7 @@ fn case_when_without_else(bencher: Bencher, size: usize) {
 }
 
 /// Benchmark CASE WHEN where all conditions are true.
-#[divan::bench(args = [1000, 10000, 100000])]
+#[divan::bench(args = [1000, 10000, 40000])]
 fn case_when_all_true(bencher: Bencher, size: usize) {
     let array = make_struct_array(size);
 
@@ -237,7 +237,7 @@ fn case_when_nary_early_dominant(bencher: Bencher, size: usize) {
 }
 
 /// Benchmark CASE WHEN where all conditions are false.
-#[divan::bench(args = [1000, 10000, 100000])]
+#[divan::bench(args = [1000, 10000, 40000])]
 fn case_when_all_false(bencher: Bencher, size: usize) {
     let array = make_struct_array(size);
 
@@ -262,7 +262,7 @@ fn case_when_all_false(bencher: Bencher, size: usize) {
 
 /// Benchmark CASE WHEN cycling through 3 branches per row (triggers merge_row_by_row).
 /// Run length = 1; exercises branch 0, branch 1, and the else fallback at every 3rd row.
-#[divan::bench(args = [100, 1000])]
+#[divan::bench(args = [100, 400])]
 fn case_when_fragmented(bencher: Bencher, size: usize) {
     let array = make_fragmented_array(size);
 

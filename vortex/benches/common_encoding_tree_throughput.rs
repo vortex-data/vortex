@@ -59,7 +59,8 @@ fn main() {
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
 
-const NUM_VALUES: u64 = 100_000;
+// Sized so the slowest tree decompression stays well under 1ms on CodSpeed.
+const NUM_VALUES: u64 = 2048;
 
 // Helper function to conditionally add counter based on codspeed cfg
 fn with_byte_counter<'a, 'b>(bencher: Bencher<'a, 'b>, bytes: u64) -> Bencher<'a, 'b> {
@@ -147,8 +148,8 @@ mod setup {
     pub fn dict_varbinview_string() -> ArrayRef {
         let mut rng = StdRng::seed_from_u64(42);
 
-        // Create unique values (0.005% uniqueness = 50 unique strings)
-        let num_unique = ((NUM_VALUES as f64) * 0.00005) as usize;
+        // Create unique values (~5 unique strings)
+        let num_unique = ((NUM_VALUES as f64) * 0.0025) as usize;
         let unique_strings: Vec<String> = (0..num_unique)
             .map(|_| {
                 (0..8)
@@ -189,7 +190,7 @@ mod setup {
         for _ in 0..NUM_VALUES {
             if run_length == 0 {
                 current_value = rng.random_range(0u32..100);
-                run_length = rng.random_range(1..1000);
+                run_length = rng.random_range(1..100);
             }
             values.push(current_value);
             run_length -= 1;
@@ -233,7 +234,7 @@ mod setup {
     pub fn dict_fsst_varbin_string() -> ArrayRef {
         let mut rng = StdRng::seed_from_u64(43);
 
-        // Create unique values (1% uniqueness = 10,000 unique strings)
+        // Create unique values (1% uniqueness = ~20 unique strings)
         let num_unique = ((NUM_VALUES as f64) * 0.01) as usize;
         let unique_strings: Vec<String> = (0..num_unique)
             .map(|_| {
@@ -266,7 +267,7 @@ mod setup {
     pub fn dict_fsst_varbin_bp_string() -> ArrayRef {
         let mut rng = StdRng::seed_from_u64(45);
 
-        // Create unique values (1% uniqueness = 10,000 unique strings)
+        // Create unique values (1% uniqueness = ~20 unique strings)
         let num_unique = ((NUM_VALUES as f64) * 0.01) as usize;
         let unique_strings: Vec<String> = (0..num_unique)
             .map(|_| {

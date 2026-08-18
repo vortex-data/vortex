@@ -40,7 +40,8 @@ const BASE_LIST_SIZE: usize = 8;
 
 const SMALL: usize = 100;
 const MEDIUM: usize = 10_000;
-const LARGE: usize = 1_000_000;
+// Sized to keep the CodSpeed simulation under 1ms per benchmark.
+const LARGE: usize = 20_000;
 
 /// A uniformly-random partition of `num_lists * LIST_SIZE` elements into `num_lists` lists,
 /// plus a validity mask with ~1/8 of lists null at random positions.

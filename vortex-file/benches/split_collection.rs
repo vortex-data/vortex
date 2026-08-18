@@ -49,7 +49,7 @@ fn main() {
 const ROWS_PER_CHUNK: usize = 1024;
 
 /// (columns, chunks) configurations.
-const CONFIGS: &[(usize, usize)] = &[(64, 256)];
+const CONFIGS: &[(usize, usize)] = &[(16, 64)];
 
 static RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
     tokio::runtime::Builder::new_current_thread()
@@ -136,7 +136,7 @@ static FILES: LazyLock<HashMap<(usize, usize), VortexFile>> = LazyLock::new(|| {
 
 /// (columns, average chunks per column) for the misaligned files. A single column cannot be
 /// misaligned, so only multi-column configs are used.
-const MISALIGNED_CONFIGS: &[(usize, usize)] = &[(64, 256)];
+const MISALIGNED_CONFIGS: &[(usize, usize)] = &[(16, 64)];
 
 /// Per-column repartition block length: all distinct, so no two columns share interior chunk
 /// boundaries. Mirrors real files where byte-size coalescing gives each column its own chunking.

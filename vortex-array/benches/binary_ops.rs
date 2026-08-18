@@ -36,11 +36,12 @@ fn main() {
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
-const LEN: usize = 32_768;
+/// Sized to keep CodSpeed simulation under 1ms per benchmark.
+const LEN: usize = 4_096;
 
 /// Decimal Mul and Div cost far more per lane than Add, so they run over a shorter array to keep
 /// the instrumented CodSpeed runs quick.
-const DECIMAL_MUL_DIV_LEN: usize = 8_192;
+const DECIMAL_MUL_DIV_LEN: usize = 1_024;
 
 #[divan::bench]
 fn add_i64_nonnull(bencher: Bencher) {

@@ -26,8 +26,9 @@ fn main() {
 }
 
 // Sizes used for the fallible-path benches below. Kept small enough to fit in L2 so
-// the kernel cost shows up clearly rather than being hidden by DRAM bandwidth.
-const SIZES: &[usize] = &[65_536];
+// the kernel cost shows up clearly rather than being hidden by DRAM bandwidth, and
+// to keep the CodSpeed simulation under 1ms per benchmark.
+const SIZES: &[usize] = &[8_192];
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 

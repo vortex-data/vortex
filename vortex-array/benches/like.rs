@@ -22,7 +22,8 @@ fn main() {
     divan::main();
 }
 
-const ARRAY_SIZE: usize = 2_048;
+// Sized to keep CodSpeed simulation under 1ms per benchmark.
+const ARRAY_SIZE: usize = 1_024;
 
 /// Random lowercase strings of 4..=24 bytes, some with a `hello` infix.
 fn strings() -> ArrayRef {

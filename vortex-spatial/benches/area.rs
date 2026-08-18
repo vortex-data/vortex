@@ -35,7 +35,9 @@ static GLOBAL: MiMalloc = MiMalloc;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(spatial_session);
 
-const ROWS: usize = 512;
+/// Sized so the multipolygon case, the slowest arm, stays inside the 1 ms per-iteration budget
+/// from `docs/developer-guide/benchmarking.md` under CodSpeed's CPU simulation.
+const ROWS: usize = 128;
 
 fn main() {
     divan::main();
