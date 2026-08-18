@@ -5,6 +5,7 @@ mod kernel;
 
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::sync::Arc;
 
 pub use kernel::*;
 use vortex_error::VortexExpect as _;
@@ -24,6 +25,7 @@ use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::dtype::StructFields;
 use crate::expr::Expression;
 use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::Arity;
@@ -204,15 +206,63 @@ pub(crate) fn zip_impl(
 }
 
 fn zip_return_dtype(if_true: &DType, if_false: &DType) -> VortexResult<DType> {
-    vortex_ensure!(
-        if_true.eq_ignore_nullability(if_false),
-        "zip requires if_true and if_false to have the same base type, got {} and {}",
-        if_true,
-        if_false
-    );
-    Ok(if_true
-        .least_supertype(if_false)
-        .vortex_expect("zip inputs with the same base type must have a common dtype"))
+    zip_nullability_union(if_true, if_false).ok_or_else(|| {
+        vortex_error::vortex_err!(
+            "zip requires if_true and if_false to have the same base type, got {} and {}",
+            if_true,
+            if_false
+        )
+    })
+}
+
+fn zip_nullability_union(lhs: &DType, rhs: &DType) -> Option<DType> {
+    let nullability = lhs.nullability() | rhs.nullability();
+
+    match (lhs, rhs) {
+        (DType::List(lhs_element, _), DType::List(rhs_element, _)) => Some(DType::List(
+            Arc::new(zip_nullability_union(lhs_element, rhs_element)?),
+            nullability,
+        )),
+        (
+            DType::FixedSizeList(lhs_element, lhs_size, _),
+            DType::FixedSizeList(rhs_element, rhs_size, _),
+        ) if lhs_size == rhs_size => Some(DType::FixedSizeList(
+            Arc::new(zip_nullability_union(lhs_element, rhs_element)?),
+            *lhs_size,
+            nullability,
+        )),
+        (DType::Map(lhs_map, _), DType::Map(rhs_map, _))
+            if lhs_map.keys_sorted() == rhs_map.keys_sorted() =>
+        {
+            DType::map(
+                zip_nullability_union(&lhs_map.key_dtype(), &rhs_map.key_dtype())?,
+                zip_nullability_union(&lhs_map.value_dtype(), &rhs_map.value_dtype())?,
+                lhs_map.keys_sorted(),
+                nullability,
+            )
+            .ok()
+        }
+        (DType::Struct(lhs_fields, _), DType::Struct(rhs_fields, _))
+            if lhs_fields.names() == rhs_fields.names() =>
+        {
+            let fields = lhs_fields
+                .fields()
+                .zip(rhs_fields.fields())
+                .map(|(lhs, rhs)| zip_nullability_union(&lhs, &rhs))
+                .collect::<Option<Vec<_>>>()?;
+            Some(DType::Struct(
+                StructFields::new(lhs_fields.names().clone(), fields),
+                nullability,
+            ))
+        }
+        (DType::Union(lhs_variants, _), DType::Union(rhs_variants, _))
+            if lhs_variants == rhs_variants =>
+        {
+            Some(DType::Union(lhs_variants.clone(), nullability))
+        }
+        _ if lhs.eq_ignore_nullability(rhs) => Some(lhs.with_nullability(nullability)),
+        _ => None,
+    }
 }
 
 fn zip_impl_with_builder(

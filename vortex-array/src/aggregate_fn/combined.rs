@@ -102,16 +102,6 @@ pub trait BinaryCombined: 'static + Send + Sync + Clone {
         );
     }
 
-    /// Coerce the input type. Default: chains `right.coerce_args(left.coerce_args(input))`.
-    fn coerce_args(
-        &self,
-        options: &CombinedOptions<Self>,
-        input_dtype: &DType,
-    ) -> VortexResult<DType> {
-        let left_coerced = self.left().coerce_args(&options.0, input_dtype)?;
-        self.right().coerce_args(&options.1, &left_coerced)
-    }
-
     /// Build the partial struct dtype that wraps the two child partials.
     fn partial_struct_dtype(&self, left: DType, right: DType) -> DType {
         DType::Struct(
@@ -155,10 +145,6 @@ impl<T: BinaryCombined> AggregateFnVTable for Combined<T> {
 
     fn deserialize(&self, metadata: &[u8], session: &VortexSession) -> VortexResult<Self::Options> {
         BinaryCombined::deserialize(&self.0, metadata, session)
-    }
-
-    fn coerce_args(&self, options: &Self::Options, input_dtype: &DType) -> VortexResult<DType> {
-        BinaryCombined::coerce_args(&self.0, options, input_dtype)
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {

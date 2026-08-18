@@ -16,7 +16,6 @@
 #[cfg(feature = "arbitrary")]
 mod arbitrary;
 mod bigint;
-mod coercion;
 mod decimal;
 mod dtype_impl;
 pub mod extension;
