@@ -38,7 +38,6 @@ use crate::exporter::ConversionCache;
 use crate::projection::Filter;
 use crate::projection::extract_schema_from_dtype;
 use crate::table_function::BindState;
-use crate::table_function::ColumnAggregate;
 use crate::table_function::GlobalState;
 use crate::table_function::LocalState;
 use crate::table_function::Split;

@@ -68,6 +68,8 @@ extern bool duckdb_reader_initialize(const void *global, void *file, duckdb_vx_e
 
 extern duckdb_logical_type duckdb_reader_bind_column_type(const void *bind, size_t index);
 
+extern bool duckdb_reader_is_aggregate(const void *bind);
+
 extern bool duckdb_reader_try_initialize_scan(void *local, void *file);
 
 extern

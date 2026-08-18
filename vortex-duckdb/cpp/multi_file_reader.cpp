@@ -39,24 +39,30 @@ VortexMultiFileReader::InitializeReader(MultiFileReaderData &reader_data,
 
     const void *const ffi_bind = bind.ffi_bind_data->DataPtr();
 
-    // Projection expression pushdown changes types of columns
-    vector<MultiFileColumnDefinition> columns = global_columns;
-    for (size_t i = 0; i < columns.size(); i++) {
-        const duckdb_logical_type type = duckdb_reader_bind_column_type(ffi_bind, i);
-        columns[i].type = *reinterpret_cast<const LogicalType *>(type);
-    }
-    reader.columns = columns;
+    // In aggregate scans columns are aggregate results so base column mapping
+    // is wrong.
+    if (duckdb_reader_is_aggregate(ffi_bind)) {
+        reader.columns = global_columns;
+    } else {
+        // Projection expression pushdown changes types of columns
+        vector<MultiFileColumnDefinition> columns = global_columns;
+        for (size_t i = 0; i < columns.size(); i++) {
+            const duckdb_logical_type type = duckdb_reader_bind_column_type(ffi_bind, i);
+            columns[i].type = *reinterpret_cast<const LogicalType *>(type);
+        }
+        reader.columns = std::move(columns);
 
-    // this prunes files for virtual columns like "file_index"
-    const ReaderInitializeType base_skip = MultiFileReader::InitializeReader(reader_data,
-                                                                             bind_data,
-                                                                             columns,
-                                                                             global_column_ids,
-                                                                             table_filters,
-                                                                             context,
-                                                                             gstate);
-    if (base_skip == ReaderInitializeType::SKIP_READING_FILE) {
-        return base_skip;
+        // this prunes files for virtual columns like "file_index"
+        const ReaderInitializeType base_skip = MultiFileReader::InitializeReader(reader_data,
+                                                                                 bind_data,
+                                                                                 columns,
+                                                                                 global_column_ids,
+                                                                                 table_filters,
+                                                                                 context,
+                                                                                 gstate);
+        if (base_skip == ReaderInitializeType::SKIP_READING_FILE) {
+            return base_skip;
+        }
     }
 
     const VortexGlobalState &global = gstate.global_state->Cast<VortexGlobalState>();
