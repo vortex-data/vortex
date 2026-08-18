@@ -52,7 +52,7 @@ static SESSION: LazyLock<VortexSession> =
 
 /// Zone counts to sweep. The small case exposes per-call fixed cost, the large case exposes
 /// per-zone evaluation cost.
-const ZONE_COUNTS: &[usize] = &[16, 1024, 65536];
+const ZONE_COUNTS: &[usize] = &[16, 1024, 8192];
 
 const ZONE_LEN: u64 = 8192;
 
