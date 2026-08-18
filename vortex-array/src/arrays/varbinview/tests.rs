@@ -81,12 +81,13 @@ pub fn validate_replaces_null_views() -> VortexResult<()> {
     let buffer = BitBuffer::from_iter([true, false]);
     let validity = Validity::from_bit_buffer(buffer, Nullability::Nullable);
 
-    let replaced = VarBinViewData::validate(views.clone(), &buffers, &dtype, &validity, &mut ctx)?;
+    let replaced =
+        VarBinViewData::validate_and_fix(views.clone(), &buffers, &dtype, &validity, &mut ctx)?;
     assert_eq!(replaced[0], views[0]);
     assert_eq!(replaced[1], BinaryView::empty_view());
 
     let replaced =
-        VarBinViewData::validate(views, &buffers, &dtype, &Validity::AllInvalid, &mut ctx)?;
+        VarBinViewData::validate_and_fix(views, &buffers, &dtype, &Validity::AllInvalid, &mut ctx)?;
     assert!(
         replaced
             .iter()

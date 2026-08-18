@@ -206,7 +206,7 @@ impl VarBinViewData {
         validity: Validity,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
-        let views = Self::validate(views, &buffers, &dtype, &validity, ctx)?;
+        let views = Self::validate_and_fix(views, &buffers, &dtype, &validity, ctx)?;
 
         // SAFETY: validate ensures all invariants are met.
         Ok(unsafe { Self::new_unchecked(views, buffers, dtype, validity) })
@@ -282,8 +282,8 @@ impl VarBinViewData {
     ) -> Self {
         #[cfg(debug_assertions)]
         #[expect(clippy::disallowed_methods)]
-        let views = Self::validate(
-            views,
+        Self::validate(
+            &views,
             &buffers,
             &dtype,
             &validity,
@@ -321,14 +321,14 @@ impl VarBinViewData {
     /// Validates the components that would be used to create a `VarBinViewArray`.
     ///
     /// This function checks all the invariants required by `VarBinViewArray::new_unchecked`,
-    /// and also replaces invalid/null views with empty views.
+    /// validating only the views at non-null slots.
     pub fn validate(
-        views: Buffer<BinaryView>,
+        views: &Buffer<BinaryView>,
         buffers: &Arc<[ByteBuffer]>,
         dtype: &DType,
         validity: &Validity,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Buffer<BinaryView>> {
+    ) -> VortexResult<()> {
         vortex_ensure!(
             validity.nullability() == dtype.nullability(),
             InvalidArgument: "validity {:?} incompatible with nullability {:?}",
@@ -345,7 +345,125 @@ impl VarBinViewData {
         }
     }
 
+    /// Validates components like validate() and replaces views at null slots to empty views
+    pub(crate) fn validate_and_fix(
+        views: Buffer<BinaryView>,
+        buffers: &Arc<[ByteBuffer]>,
+        dtype: &DType,
+        validity: &Validity,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Buffer<BinaryView>> {
+        vortex_ensure!(
+            validity.nullability() == dtype.nullability(),
+            InvalidArgument: "validity {:?} incompatible with nullability {:?}",
+            validity,
+            dtype.nullability()
+        );
+
+        match dtype {
+            DType::Utf8(_) => {
+                Self::validate_and_fix_views(views, buffers, validity, ctx, |string| {
+                    simdutf8::basic::from_utf8(string).is_ok()
+                })
+            }
+            DType::Binary(_) => {
+                Self::validate_and_fix_views(views, buffers, validity, ctx, |_| true)
+            }
+            _ => vortex_bail!(InvalidArgument: "invalid DType {dtype} for `VarBinViewArray`"),
+        }
+    }
+
+    fn validate_view<F>(
+        idx: usize,
+        view: &BinaryView,
+        buffers: &Arc<[ByteBuffer]>,
+        validator: &F,
+    ) -> VortexResult<()>
+    where
+        F: Fn(&[u8]) -> bool,
+    {
+        if view.is_inlined() {
+            // Validate the inline bytestring
+            let bytes = &view.as_inlined().data[..view.len() as usize];
+            vortex_ensure!(
+                validator(bytes),
+                InvalidArgument: "view at index {idx}: inlined bytes failed utf-8 validation"
+            );
+        } else {
+            // Validate the view pointer
+            let view = view.as_view();
+            let buf_index = view.buffer_index as usize;
+            let start_offset = view.offset as usize;
+            let end_offset = start_offset.saturating_add(view.size as usize);
+
+            let buf = buffers.get(buf_index).ok_or_else(||
+                vortex_err!(InvalidArgument: "view at index {idx} references invalid buffer: {buf_index} out of bounds for VarBinViewData with {} buffers",
+                    buffers.len()))?;
+
+            vortex_ensure!(
+                start_offset < buf.len(),
+                InvalidArgument: "start offset {start_offset} out of bounds for buffer {buf_index} with size {}",
+                buf.len(),
+            );
+
+            vortex_ensure!(
+                end_offset <= buf.len(),
+                InvalidArgument: "end offset {end_offset} out of bounds for buffer {buf_index} with size {}",
+                buf.len(),
+            );
+
+            // Make sure the prefix data matches the buffer data.
+            let bytes = &buf[start_offset..end_offset];
+            vortex_ensure!(
+                view.prefix == bytes[..4],
+                InvalidArgument: "VarBinView prefix does not match full string"
+            );
+
+            // Validate the full string
+            vortex_ensure!(
+                validator(bytes),
+                InvalidArgument: "view at index {idx}: outlined bytes fails utf-8 validation"
+            );
+        }
+        Ok(())
+    }
+
     fn validate_views<F>(
+        views: &Buffer<BinaryView>,
+        buffers: &Arc<[ByteBuffer]>,
+        validity: &Validity,
+        ctx: &mut ExecutionCtx,
+        validator: F,
+    ) -> VortexResult<()>
+    where
+        F: Fn(&[u8]) -> bool,
+    {
+        match validity {
+            // Array-backed validity is the only variant that needs an execution context: execute it
+            // into a mask once and zip it with the views, validating only the valid (non-null)
+            // entries.
+            Validity::Array(_) => {
+                let mask = validity.execute_mask(views.len(), ctx)?;
+                for ((idx, view), valid) in views.iter().enumerate().zip(mask.iter()) {
+                    if valid {
+                        Self::validate_view(idx, view, buffers, &validator)?;
+                    }
+                }
+            }
+            // Every entry is null, so there is nothing to validate.
+            Validity::AllInvalid => {}
+            // No nulls: validate every view.
+            Validity::NonNullable | Validity::AllValid => {
+                for (idx, view) in views.iter().enumerate() {
+                    Self::validate_view(idx, view, buffers, &validator)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn validate_and_fix_views<F>(
         views: Buffer<BinaryView>,
         buffers: &Arc<[ByteBuffer]>,
         validity: &Validity,
@@ -355,65 +473,18 @@ impl VarBinViewData {
     where
         F: Fn(&[u8]) -> bool,
     {
-        let validate_view = |idx: usize, view: &BinaryView| -> VortexResult<()> {
-            if view.is_inlined() {
-                // Validate the inline bytestring
-                let bytes = &view.as_inlined().data[..view.len() as usize];
-                vortex_ensure!(
-                    validator(bytes),
-                    InvalidArgument: "view at index {idx}: inlined bytes failed utf-8 validation"
-                );
-            } else {
-                // Validate the view pointer
-                let view = view.as_view();
-                let buf_index = view.buffer_index as usize;
-                let start_offset = view.offset as usize;
-                let end_offset = start_offset.saturating_add(view.size as usize);
-
-                let buf = buffers.get(buf_index).ok_or_else(||
-                    vortex_err!(InvalidArgument: "view at index {idx} references invalid buffer: {buf_index} out of bounds for VarBinViewData with {} buffers",
-                        buffers.len()))?;
-
-                vortex_ensure!(
-                    start_offset < buf.len(),
-                    InvalidArgument: "start offset {start_offset} out of bounds for buffer {buf_index} with size {}",
-                    buf.len(),
-                );
-
-                vortex_ensure!(
-                    end_offset <= buf.len(),
-                    InvalidArgument: "end offset {end_offset} out of bounds for buffer {buf_index} with size {}",
-                    buf.len(),
-                );
-
-                // Make sure the prefix data matches the buffer data.
-                let bytes = &buf[start_offset..end_offset];
-                vortex_ensure!(
-                    view.prefix == bytes[..4],
-                    InvalidArgument: "VarBinView prefix does not match full string"
-                );
-
-                // Validate the full string
-                vortex_ensure!(
-                    validator(bytes),
-                    InvalidArgument: "view at index {idx}: outlined bytes fails utf-8 validation"
-                );
-            }
-            Ok(())
-        };
-
         let empty = BinaryView::empty_view();
         let len = views.len();
 
         match validity {
-            // Array-backed validity is the only variant that needs an execution context: execute it
-            // into a mask once and zip it with the views.
+            // Single pass: validate the valid (non-null) entries and note whether any null slot
+            // holds a non-empty view; only then do we take a mutable copy and normalize the slots.
             Validity::Array(_) => {
                 let mask = validity.execute_mask(len, ctx)?;
                 let mut needs_replace = false;
                 for ((idx, view), valid) in views.iter().enumerate().zip(mask.iter()) {
                     if valid {
-                        validate_view(idx, view)?;
+                        Self::validate_view(idx, view, buffers, &validator)?;
                     } else if *view != empty {
                         needs_replace = true;
                     }
@@ -426,6 +497,7 @@ impl VarBinViewData {
                 for_each_invalid_range(&mask, len, |start, end| slice[start..end].fill(empty));
                 Ok(views.freeze())
             }
+            // Every entry is null, so there is nothing to validate: replace all views with empty.
             Validity::AllInvalid => {
                 if views.iter().all(|view| *view == empty) {
                     return Ok(views);
@@ -434,9 +506,10 @@ impl VarBinViewData {
                 views.as_mut_slice().fill(empty);
                 Ok(views.freeze())
             }
+            // No nulls: validate every view, nothing to replace.
             Validity::NonNullable | Validity::AllValid => {
                 for (idx, view) in views.iter().enumerate() {
-                    validate_view(idx, view)?;
+                    Self::validate_view(idx, view, buffers, &validator)?;
                 }
                 Ok(views)
             }
