@@ -32,6 +32,8 @@ use crate::scalar_fn::unstable::row::RowFn;
 use crate::scalar_fn::unstable::row::SinkResult;
 use crate::scalar_fn::unstable::row::execute::execute_owned;
 use crate::scalar_fn::unstable::row::execute::execute_owned_infallible;
+use crate::scalar_fn::unstable::row::execute::execute_owned_infallible_valid_rows;
+use crate::scalar_fn::unstable::row::execute::execute_owned_valid_rows;
 use crate::scalar_fn::unstable::row::execute::execute_sink;
 use crate::scalar_fn::unstable::row::execute::execute_sink_valid_rows;
 
@@ -159,8 +161,8 @@ impl<F: RowFn> RowVisitor<F::Options> for ExecuteRows<'_, '_, F> {
 
 /// The runtime visit that executes valid rows over the original input columns.
 ///
-/// Only output sinks have a contract for skipped output positions. Owned visits therefore decline,
-/// and batch execution rejects that unsupported signature.
+/// Owned outputs initialize skipped positions with [`Default::default`]. Output sinks use
+/// their own skipped-row initializer.
 pub(crate) struct ExecuteValidRows<'args, 'ctx, F: RowFn> {
     /// The original inputs for this kernel invocation.
     args: &'args dyn ExecutionArgs,
@@ -213,8 +215,8 @@ impl<F: RowFn> RowVisitor<F::Options> for ExecuteValidRows<'_, '_, F> {
 
     fn visit_prepared<Args, Out, Prepared>(
         self,
-        _prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
-        _apply: impl Fn(&Prepared, Args::Elems<'_>) -> Out,
+        prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
+        apply: impl Fn(&Prepared, Args::Elems<'_>) -> Out,
     ) -> VortexResult<Self::VisitResult>
     where
         Args: IndexedElementTuple,
@@ -228,7 +230,9 @@ impl<F: RowFn> RowVisitor<F::Options> for ExecuteValidRows<'_, '_, F> {
             RowPolicy::for_owned_output::<Args>(),
         )?;
 
-        Ok(None)
+        execute_owned_infallible_valid_rows::<Args, Out, Prepared>(
+            self.args, self.valid, self.ctx, prepare, apply,
+        )
     }
 
     fn visit_prepared_into<Args, Sink, Prepared, ApplyResult>(
@@ -260,9 +264,9 @@ impl<F: RowFn> RowVisitor<F::Options> for ExecuteValidRows<'_, '_, F> {
 
     fn visit_prepared_deferred<Args, Out, Prepared, Fail>(
         self,
-        _prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
-        _apply: impl Fn(&Prepared, Args::Elems<'_>) -> (Out, Fail),
-        _finish_failure: impl FnOnce(Fail) -> VortexResult<()>,
+        prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
+        apply: impl Fn(&Prepared, Args::Elems<'_>) -> (Out, Fail),
+        finish_failure: impl FnOnce(Fail) -> VortexResult<()>,
     ) -> VortexResult<Self::VisitResult>
     where
         Args: IndexedElementTuple,
@@ -277,7 +281,14 @@ impl<F: RowFn> RowVisitor<F::Options> for ExecuteValidRows<'_, '_, F> {
             RowPolicy::for_deferred_output::<Args>(),
         )?;
 
-        Ok(None)
+        execute_owned_valid_rows::<Args, Out, Prepared, Fail>(
+            self.args,
+            self.valid,
+            self.ctx,
+            prepare,
+            apply,
+            finish_failure,
+        )
     }
 }
 

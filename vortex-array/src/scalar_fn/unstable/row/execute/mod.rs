@@ -9,6 +9,8 @@
 mod owned;
 pub(super) use owned::execute_owned;
 pub(super) use owned::execute_owned_infallible;
+pub(super) use owned::execute_owned_infallible_valid_rows;
+pub(super) use owned::execute_owned_valid_rows;
 
 mod sink;
 pub(super) use sink::execute_sink;
