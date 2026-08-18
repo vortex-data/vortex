@@ -5,6 +5,7 @@
 
 use std::fmt::Debug;
 use std::fmt::Formatter;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -21,6 +22,8 @@ use crate::filesystem::FileSystem;
 use crate::object_store::ObjectStoreReadAt;
 use crate::object_store::object_path_from_literal;
 use crate::runtime::Handle;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::std_file::FileReadAt;
 
 /// A [`FileSystem`] backed by an [`ObjectStore`].
 // TODO(ngates): we could consider spawning a driver task inside this file system such that we can
@@ -28,6 +31,7 @@ use crate::runtime::Handle;
 pub struct ObjectStoreFileSystem {
     store: Arc<dyn ObjectStore>,
     handle: Handle,
+    local_root: Option<PathBuf>,
 }
 
 impl Debug for ObjectStoreFileSystem {
@@ -41,16 +45,21 @@ impl Debug for ObjectStoreFileSystem {
 impl ObjectStoreFileSystem {
     /// Create a new filesystem backed by the given object store and runtime handle.
     pub fn new(store: Arc<dyn ObjectStore>, handle: Handle) -> Self {
-        Self { store, handle }
+        Self {
+            store,
+            handle,
+            local_root: None,
+        }
     }
 
     /// Create a new filesystem backed by a local file system object store and the given runtime
     /// handle.
     pub fn local(handle: Handle) -> Self {
-        Self::new(
-            Arc::new(object_store::local::LocalFileSystem::new()),
+        Self {
+            store: Arc::new(object_store::local::LocalFileSystem::new()),
             handle,
-        )
+            local_root: Some(PathBuf::from("/")),
+        }
     }
 }
 
@@ -90,6 +99,13 @@ impl FileSystem for ObjectStoreFileSystem {
     }
 
     async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(root) = &self.local_root {
+            return Ok(Arc::new(FileReadAt::open(
+                root.join(path),
+                self.handle.clone(),
+            )?));
+        }
         Ok(Arc::new(ObjectStoreReadAt::new(
             Arc::clone(&self.store),
             object_path_from_literal(path),
@@ -131,6 +147,23 @@ mod tests {
         }
         let handle = Handle::find().expect("tokio runtime available within #[tokio::test]");
         Ok(ObjectStoreFileSystem::new(store, handle))
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn local_files_use_file_read_settings() -> VortexResult<()> {
+        let file = tempfile::NamedTempFile::new()?;
+        let handle = Handle::find().expect("tokio runtime available within #[tokio::test]");
+        let reader = ObjectStoreFileSystem::local(handle)
+            .open_read(file.path().to_string_lossy().as_ref())
+            .await?;
+
+        assert_eq!(
+            reader.coalesce_config().expect("local coalescing").distance,
+            0
+        );
+        assert_eq!(reader.concurrency(), crate::std_file::DEFAULT_CONCURRENCY);
+        Ok(())
     }
 
     /// Regression test for #6599: globbing an exact path that exists must return that one file.

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod partial;
 mod reader;
 pub mod writer;
 
@@ -34,7 +35,7 @@ use crate::segments::SegmentSource;
 /// Check if inline array node is enabled.
 pub(super) fn flat_layout_inline_array_node() -> bool {
     static FLAT_LAYOUT_INLINE_ARRAY_NODE: LazyLock<bool> =
-        LazyLock::new(|| env::var("FLAT_LAYOUT_INLINE_ARRAY_NODE").is_ok_and(|v| v == "1"));
+        LazyLock::new(|| env::var("FLAT_LAYOUT_INLINE_ARRAY_NODE").map_or(true, |v| v != "0"));
     *FLAT_LAYOUT_INLINE_ARRAY_NODE
 }
 

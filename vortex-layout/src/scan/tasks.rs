@@ -69,8 +69,10 @@ pub fn split_exec<A: 'static + Send>(
             let reader = Arc::clone(&ctx.reader);
             let filter = Arc::clone(filter);
             let row_range = row_range.clone();
+            let filter_upper_bound = row_mask.clone();
+            let partial_reads_allowed = !row_mask.all_true();
 
-            MaskFuture::new(row_mask.len(), async move {
+            let filter_mask = MaskFuture::new(row_mask.len(), async move {
                 let mut mask = row_mask;
                 let mut dynamic_versions = vec![None; filter.conjuncts().len()];
 
@@ -117,8 +119,13 @@ pub fn split_exec<A: 'static + Send>(
                         return Ok(mask);
                     }
 
+                    let mask_future = if partial_reads_allowed {
+                        MaskFuture::ready(mask)
+                    } else {
+                        MaskFuture::ready(mask).without_partial_reads()
+                    };
                     let conjunct_mask = reader
-                        .filter_evaluation(&row_range, conjunct, MaskFuture::ready(mask))?
+                        .filter_evaluation(&row_range, conjunct, mask_future)?
                         .await?;
                     filter.report_selectivity(idx, conjunct_mask.density());
 
@@ -128,6 +135,12 @@ pub fn split_exec<A: 'static + Send>(
 
                 Ok(mask)
             })
+            .with_upper_bound(filter_upper_bound);
+            if partial_reads_allowed {
+                filter_mask.with_partial_reads()
+            } else {
+                filter_mask
+            }
         }
     };
 

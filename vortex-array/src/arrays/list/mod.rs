@@ -14,6 +14,7 @@ pub(crate) mod compute;
 
 mod vtable;
 pub use vtable::List;
+pub use vtable::ListMetadata;
 
 pub(crate) fn initialize(session: &vortex_session::VortexSession) {
     compute::initialize(session);

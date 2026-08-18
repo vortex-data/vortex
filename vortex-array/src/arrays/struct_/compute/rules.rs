@@ -77,6 +77,32 @@ fn reduce_struct_cast(
     ))
 }
 
+pub(crate) fn struct_get_item(
+    array: ArrayView<'_, Struct>,
+    field_name: &crate::dtype::FieldName,
+) -> VortexResult<ArrayRef> {
+    let field = array
+        .unmasked_field_by_name_opt(field_name)
+        .ok_or_else(|| {
+            vortex_err!(
+                "Field {} missing from struct array {}",
+                field_name,
+                array.struct_fields().names()
+            )
+        })?;
+
+    match array.validity()? {
+        Validity::NonNullable => Ok(field.clone()),
+        Validity::AllValid => field.clone().cast(field.dtype().as_nullable()),
+        Validity::AllInvalid => Ok(ConstantArray::new(
+            Scalar::null(field.dtype().as_nullable()),
+            field.len(),
+        )
+        .into_array()),
+        Validity::Array(mask) => field.clone().mask(mask),
+    }
+}
+
 /// Rule to flatten get_item from struct by field name
 #[derive(Debug)]
 pub(crate) struct StructGetItemRule;
@@ -90,38 +116,7 @@ impl ArrayParentReduceRule<Struct> for StructGetItemRule {
         parent: ScalarFnArrayView<'_, GetItem>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        let field_name = parent.options;
-        let field = child
-            .unmasked_field_by_name_opt(field_name)
-            .ok_or_else(|| {
-                vortex_err!(
-                    "Field '{}' missing from struct array {}",
-                    field_name,
-                    child.struct_fields().names()
-                )
-            })?;
-
-        match child.validity()? {
-            Validity::NonNullable => {
-                // If the struct is non-nullable, the field's validity is unchanged
-                Ok(Some(field.clone()))
-            }
-            Validity::AllValid => {
-                // If struct is nullable, field must also be nullable
-                field.clone().cast(field.dtype().as_nullable()).map(Some)
-            }
-            Validity::AllInvalid => {
-                // If everything is invalid, the field is also all invalid
-                Ok(Some(
-                    ConstantArray::new(Scalar::null(field.dtype().as_nullable()), field.len())
-                        .into_array(),
-                ))
-            }
-            Validity::Array(mask) => {
-                // If the validity is an array, we need to combine it with the field's validity
-                field.clone().mask(mask).map(Some)
-            }
-        }
+        struct_get_item(child, parent.options).map(Some)
     }
 }
 

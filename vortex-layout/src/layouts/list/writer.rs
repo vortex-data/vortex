@@ -399,8 +399,8 @@ mod tests {
 
         insta::assert_snapshot!(layout.display_tree(), @"
         vortex.list, dtype: list(i32), children: 2
-        ├── elements: vortex.flat, dtype: i32, segment: 0
-        └── offsets: vortex.flat, dtype: u64, segment: 1
+        ├── elements: vortex.flat, dtype: i32, segment 0, buffers=[20B], total=20B
+        └── offsets: vortex.flat, dtype: u64, segment 1, buffers=[32B], total=32B
         ");
         Ok(())
     }
@@ -416,9 +416,9 @@ mod tests {
 
         insta::assert_snapshot!(layout.display_tree(), @"
         vortex.list, dtype: list(i32)?, children: 3
-        ├── elements: vortex.flat, dtype: i32, segment: 0
-        ├── offsets: vortex.flat, dtype: u64, segment: 1
-        └── validity: vortex.flat, dtype: bool, segment: 2
+        ├── elements: vortex.flat, dtype: i32, segment 0, buffers=[20B], total=20B
+        ├── offsets: vortex.flat, dtype: u64, segment 1, buffers=[32B], total=32B
+        └── validity: vortex.flat, dtype: bool, segment 2, buffers=[1B], total=1B
         ");
         Ok(())
     }
@@ -428,7 +428,7 @@ mod tests {
     async fn non_list_input_routes_to_fallback() -> VortexResult<()> {
         let primitive = buffer![1i32, 2, 3].into_array();
         let layout = write(&flat_list_strategy(), primitive).await?;
-        insta::assert_snapshot!(layout.display_tree(), @"vortex.flat, dtype: i32, segment: 0");
+        insta::assert_snapshot!(layout.display_tree(), @"vortex.flat, dtype: i32, segment 0, buffers=[12B], total=12B");
         Ok(())
     }
 
@@ -478,9 +478,9 @@ mod tests {
         insta::assert_snapshot!(layout.display_tree(), @"
         vortex.list, dtype: list({a=i32, b=i32}), children: 2
         ├── elements: vortex.struct, dtype: {a=i32, b=i32}, children: 2
-        │   ├── a: vortex.flat, dtype: i32, segment: 1
-        │   └── b: vortex.flat, dtype: i32, segment: 2
-        └── offsets: vortex.flat, dtype: u64, segment: 0
+        │   ├── a: vortex.flat, dtype: i32, segment 1, buffers=[20B], total=20B
+        │   └── b: vortex.flat, dtype: i32, segment 2, buffers=[20B], total=20B
+        └── offsets: vortex.flat, dtype: u64, segment 0, buffers=[32B], total=32B
         ");
         Ok(())
     }
@@ -506,9 +506,9 @@ mod tests {
         insta::assert_snapshot!(layout.display_tree(), @"
         vortex.list, dtype: list(list(i32)), children: 2
         ├── elements: vortex.list, dtype: list(i32), children: 2
-        │   ├── elements: vortex.flat, dtype: i32, segment: 1
-        │   └── offsets: vortex.flat, dtype: u64, segment: 2
-        └── offsets: vortex.flat, dtype: u64, segment: 0
+        │   ├── elements: vortex.flat, dtype: i32, segment 1, buffers=[24B], total=24B
+        │   └── offsets: vortex.flat, dtype: u64, segment 2, buffers=[40B], total=40B
+        └── offsets: vortex.flat, dtype: u64, segment 0, buffers=[24B], total=24B
         ");
         Ok(())
     }
@@ -539,10 +539,10 @@ mod tests {
         vortex.list, dtype: list(list(list(i32))), children: 2
         ├── elements: vortex.list, dtype: list(list(i32)), children: 2
         │   ├── elements: vortex.list, dtype: list(i32), children: 2
-        │   │   ├── elements: vortex.flat, dtype: i32, segment: 2
-        │   │   └── offsets: vortex.flat, dtype: u64, segment: 3
-        │   └── offsets: vortex.flat, dtype: u64, segment: 1
-        └── offsets: vortex.flat, dtype: u64, segment: 0
+        │   │   ├── elements: vortex.flat, dtype: i32, segment 2, buffers=[16B], total=16B
+        │   │   └── offsets: vortex.flat, dtype: u64, segment 3, buffers=[24B], total=24B
+        │   └── offsets: vortex.flat, dtype: u64, segment 1, buffers=[16B], total=16B
+        └── offsets: vortex.flat, dtype: u64, segment 0, buffers=[16B], total=16B
         ");
         Ok(())
     }
@@ -572,11 +572,11 @@ mod tests {
         insta::assert_snapshot!(layout.display_tree(), @"
         vortex.chunked, dtype: list(i32), children: 2
         ├── [0]: vortex.list, dtype: list(i32), children: 2
-        │   ├── elements: vortex.flat, dtype: i32, segment: 0
-        │   └── offsets: vortex.flat, dtype: u64, segment: 1
+        │   ├── elements: vortex.flat, dtype: i32, segment 0, buffers=[12B], total=12B
+        │   └── offsets: vortex.flat, dtype: u64, segment 1, buffers=[24B], total=24B
         └── [1]: vortex.list, dtype: list(i32), children: 2
-            ├── elements: vortex.flat, dtype: i32, segment: 2
-            └── offsets: vortex.flat, dtype: u64, segment: 3
+            ├── elements: vortex.flat, dtype: i32, segment 2, buffers=[16B], total=16B
+            └── offsets: vortex.flat, dtype: u64, segment 3, buffers=[24B], total=24B
         ");
         Ok(())
     }

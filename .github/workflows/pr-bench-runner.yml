@@ -98,6 +98,11 @@ jobs:
           RUST_BACKTRACE: full
           VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+          VORTEX_IO_URING: "1"
+          VORTEX_IO_URING_RINGS: "4"
+          VORTEX_IO_URING_QUEUE_DEPTH: "128"
+          VORTEX_IO_URING_MIN_READ_SIZE: "0"
+          VORTEX_IO_URING_MAX_IN_FLIGHT: "512"
         run: |
           python3 scripts/random-access-split.py
 

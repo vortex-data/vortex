@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -146,6 +147,14 @@ impl SegmentCacheSourceAdapter {
 }
 
 impl SegmentSource for SegmentCacheSourceAdapter {
+    fn preferred_read_size(&self) -> Option<u64> {
+        self.source.preferred_read_size()
+    }
+
+    fn segment_len(&self, id: SegmentId) -> Option<u64> {
+        self.source.segment_len(id)
+    }
+
     fn request(&self, id: SegmentId) -> SegmentFuture {
         let cache = Arc::clone(&self.cache);
         let delegate = self.source.request(id);
@@ -165,5 +174,60 @@ impl SegmentSource for SegmentCacheSourceAdapter {
             Ok(result)
         }
         .boxed()
+    }
+
+    fn request_range(&self, id: SegmentId, range: Range<u64>) -> SegmentFuture {
+        let cache = Arc::clone(&self.cache);
+        let delegate = self.source.request_range(id, range.clone());
+
+        async move {
+            if let Ok(Some(segment)) = cache.get(id).await {
+                let start = usize::try_from(range.start)?;
+                let end = usize::try_from(range.end)?;
+                if start > end || end > segment.len() {
+                    return Err(vortex_error::vortex_err!(
+                        "Segment {} range {}..{} is out of bounds for cached segment length {}",
+                        id,
+                        range.start,
+                        range.end,
+                        segment.len()
+                    ));
+                }
+                tracing::debug!("Resolved segment {} range {:?} from cache", id, range);
+                return Ok(BufferHandle::new_host(segment.slice(start..end)));
+            }
+            delegate.await
+        }
+        .boxed()
+    }
+
+    fn request_ranges(&self, id: SegmentId, ranges: Vec<Range<u64>>) -> Vec<SegmentFuture> {
+        let delegates = self.source.request_ranges(id, ranges.clone());
+        ranges
+            .into_iter()
+            .zip(delegates)
+            .map(|(range, delegate)| {
+                let cache = Arc::clone(&self.cache);
+                async move {
+                    if let Ok(Some(segment)) = cache.get(id).await {
+                        let start = usize::try_from(range.start)?;
+                        let end = usize::try_from(range.end)?;
+                        if start > end || end > segment.len() {
+                            return Err(vortex_error::vortex_err!(
+                                "Segment {} range {}..{} is out of bounds for cached segment length {}",
+                                id,
+                                range.start,
+                                range.end,
+                                segment.len()
+                            ));
+                        }
+                        tracing::debug!("Resolved segment {} range {:?} from cache", id, range);
+                        return Ok(BufferHandle::new_host(segment.slice(start..end)));
+                    }
+                    delegate.await
+                }
+                .boxed()
+            })
+            .collect()
     }
 }

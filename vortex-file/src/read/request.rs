@@ -55,6 +55,17 @@ impl IoRequest {
         }
     }
 
+    /// Whether this physical request was assembled exclusively from partial segment ranges.
+    pub(crate) fn is_partial(&self) -> bool {
+        match &self.0 {
+            IoRequestInner::Single(request) => request.coalesce_distance.is_some(),
+            IoRequestInner::Coalesced(request) => request
+                .requests
+                .iter()
+                .all(|request| request.coalesce_distance.is_some()),
+        }
+    }
+
     /// Resolves the request with the given result.
     pub fn resolve(self, result: VortexResult<BufferHandle>) {
         match self.0 {
@@ -96,6 +107,8 @@ pub struct ReadRequest {
     pub(crate) offset: u64,
     pub(crate) length: usize,
     pub(crate) alignment: Alignment,
+    /// Optional per-request cap on the empty gap this request may coalesce across.
+    pub(crate) coalesce_distance: Option<u64>,
     pub(crate) callback: oneshot::Sender<VortexResult<BufferHandle>>,
 }
 
@@ -106,6 +119,7 @@ impl Debug for ReadRequest {
             .field("offset", &self.offset)
             .field("length", &self.length)
             .field("alignment", &self.alignment)
+            .field("coalesce_distance", &self.coalesce_distance)
             .field("is_closed", &self.callback.is_closed())
             .finish()
     }
