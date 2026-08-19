@@ -84,7 +84,7 @@ pub unsafe trait OutputSink<Options>: 'static + Sized {
     /// `Some` enables this strategy. The initializer **must** make every row safe to finish.
     /// Callbacks overwrite valid rows, and batch execution masks skipped rows.
     ///
-    /// `None` makes the executor fall back to filtering the inputs.
+    /// `None` makes skip-invalid execution unavailable for this sink.
     fn skipped_rows_initializer() -> Option<for<'a> fn(&mut Self::Rows<'a>)> {
         None
     }
