@@ -35,7 +35,7 @@ vortex-decimal-byte-parts = { workspace = true }
 vortex-edition = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
-vortex-file = { workspace = true, optional = true, default-features = true }
+vortex-file = { workspace = true, optional = true }
 vortex-flatbuffers = { workspace = true }
 vortex-fsst = { workspace = true }
 vortex-io = { workspace = true }
@@ -70,7 +70,7 @@ tracing-subscriber = { workspace = true }
 vortex = { path = ".", features = ["tokio"] }
 
 [features]
-default = ["files", "zstd"]
+default = ["files", "wasm-bindgen", "zstd"]
 files = ["dep:vortex-file"]
 memmap2 = ["vortex-buffer/memmap2"]
 object_store = ["vortex-file?/object_store", "vortex-io/object_store"]
@@ -88,7 +88,11 @@ tokio = [
     "vortex-layout/tokio",
 ]
 zstd = ["dep:vortex-zstd", "vortex-file?/zstd"]
-wasm-bindgen = ["vortex-io/wasm-bindgen"]
+wasm-bindgen = [
+    "vortex-file?/wasm-bindgen",
+    "vortex-io/wasm-bindgen",
+    "vortex-layout/wasm-bindgen",
+]
 pretty = ["vortex-array/table-display"]
 serde = ["vortex-array/serde", "vortex-buffer/serde", "vortex-mask/serde"]
 # Exposes experimental row-function APIs without compatibility guarantees.
