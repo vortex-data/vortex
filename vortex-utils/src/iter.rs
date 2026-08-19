@@ -3,6 +3,8 @@
 
 //! Iterator extension traits.
 
+use std::convert::Infallible;
+
 /// An extension trait for iterators that provides balanced binary tree reduction.
 ///
 /// Unlike [`Iterator::reduce`], which builds a left-leaning linear chain of depth N,
@@ -42,36 +44,10 @@ impl<I: Iterator + Sized> ReduceBalancedIterExt for I {
     where
         F: Fn(Self::Item, Self::Item) -> Self::Item,
     {
-        let mut items: Vec<_> = self.collect();
-        if items.is_empty() {
-            return None;
+        match self.try_reduce_balanced(|lhs, rhs| Ok::<_, Infallible>(combine(lhs, rhs))) {
+            Ok(result) => result,
+            Err(never) => match never {},
         }
-        if items.len() == 1 {
-            return items.pop();
-        }
-
-        let mut next = Vec::with_capacity(items.len() / 2);
-        while items.len() > 1 {
-            next.clear();
-            let mut iter = items.drain(..);
-            while let Some(lhs) = iter.next() {
-                if let Some(rhs) = iter.next() {
-                    next.push(combine(lhs, rhs));
-                } else {
-                    // Merge the odd element into the last paired element so it stays inside the
-                    // tree.
-                    let Some(previous) = next.pop() else {
-                        unreachable!("a reduction level with an odd tail has a preceding pair")
-                    };
-                    next.push(combine(previous, lhs));
-                }
-            }
-            drop(iter);
-            std::mem::swap(&mut items, &mut next);
-        }
-
-        assert_eq!(items.len(), 1);
-        items.pop()
     }
 
     fn try_reduce_balanced<F, E>(self, combine: F) -> Result<Option<Self::Item>, E>
@@ -86,6 +62,9 @@ impl<I: Iterator + Sized> ReduceBalancedIterExt for I {
             return Ok(items.pop());
         }
 
+        // Each pass consumes one level of the reduction tree, combining adjacent pairs into the
+        // next level. The two vectors swap roles between passes so items can be moved rather than
+        // cloned while retaining their allocations.
         let mut next = Vec::with_capacity(items.len() / 2);
         while items.len() > 1 {
             next.clear();
@@ -94,6 +73,8 @@ impl<I: Iterator + Sized> ReduceBalancedIterExt for I {
                 if let Some(rhs) = iter.next() {
                     next.push(combine(lhs, rhs)?);
                 } else {
+                    // Folding an odd tail into the preceding pair keeps it at the current tree
+                    // level instead of carrying it forward as a shallower subtree.
                     let Some(previous) = next.pop() else {
                         unreachable!("a reduction level with an odd tail has a preceding pair")
                     };
