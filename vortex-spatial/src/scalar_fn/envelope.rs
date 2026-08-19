@@ -77,7 +77,7 @@ pub struct SpatialEnvelope;
 impl SpatialEnvelope {
     /// A lazy `ScalarFnArray` computing the per-row bounding box of geometry operand `a`, which may
     /// be constant. The output length is taken from `a`.
-    pub fn try_new_array(a: ArrayRef) -> VortexResult<ScalarFnArray> {
+    pub fn try_new(a: ArrayRef) -> VortexResult<ScalarFnArray> {
         ScalarFnArray::try_new(
             TypedScalarFnInstance::new(SpatialEnvelope, EmptyOptions).erased(),
             vec![a],
@@ -310,7 +310,7 @@ mod tests {
 
     /// Execute a `SpatialEnvelope` over `array`, returning the lazy box column.
     fn boxes(array: ArrayRef) -> VortexResult<ArrayRef> {
-        Ok(SpatialEnvelope::try_new_array(array)?.into_array())
+        Ok(SpatialEnvelope::try_new(array)?.into_array())
     }
 
     /// A point's box is degenerate: both corners are the point itself.

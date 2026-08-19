@@ -43,7 +43,6 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::filter::FilterArraySlotsExt;
-use crate::arrays::scalar_fn::ScalarFnFactoryExt;
 use crate::assert_arrays_eq;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -659,7 +658,7 @@ fn trace_compare_on_dict() -> VortexResult<()> {
     .into_array();
     let rhs = ConstantArray::new(Scalar::from(20i32), dict.len()).into_array();
 
-    let compared = Binary.try_new_array(dict.len(), Operator::Eq, [dict, rhs])?;
+    let compared = Binary::try_new(dict, rhs, Operator::Eq)?.into_array();
 
     let traced = trace_op(|| compared.optimize())?;
     insta::assert_snapshot!(traced.trace.to_string(), @"
@@ -702,14 +701,15 @@ fn trace_like_on_dict() -> VortexResult<()> {
     let strings = dict_of_strings()?;
     let pattern = ConstantArray::new(Scalar::from("b%"), strings.len()).into_array();
 
-    let like = Like.try_new_array(
-        strings.len(),
+    let like = Like::try_new(
+        strings,
+        pattern,
         LikeOptions {
             negated: false,
             case_insensitive: false,
         },
-        [strings, pattern],
-    )?;
+    )?
+    .into_array();
 
     let traced = trace_op(|| like.optimize())?;
     insta::assert_snapshot!(traced.trace.to_string(), @"

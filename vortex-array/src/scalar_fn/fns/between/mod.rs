@@ -21,6 +21,7 @@ use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::Decimal;
 use crate::arrays::Primitive;
+use crate::arrays::ScalarFnArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::DType::Bool;
@@ -32,6 +33,7 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::operators::Operator;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -183,6 +185,22 @@ fn between_canonical(
 /// separate comparisons combined with a logical AND.
 #[derive(Clone)]
 pub struct Between;
+
+impl Between {
+    /// Creates a lazy between operation over an array and its bounds.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the children have different lengths or incompatible dtypes.
+    pub fn try_new(
+        array: ArrayRef,
+        lower: ArrayRef,
+        upper: ArrayRef,
+        options: BetweenOptions,
+    ) -> VortexResult<ScalarFnArray> {
+        ScalarFnArray::try_new(Between.bind(options), vec![array, lower, upper])
+    }
+}
 
 impl ScalarFnVTable for Between {
     type Options = BetweenOptions;

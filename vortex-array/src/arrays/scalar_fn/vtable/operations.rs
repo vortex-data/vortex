@@ -58,14 +58,19 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
+    use crate::ArraySlots;
     use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::array::Array;
+    use crate::array::ArrayParts;
     use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::ScalarFnArray;
     use crate::arrays::scalar_fn::ScalarFnArrayExt;
+    use crate::arrays::scalar_fn::array::ScalarFnData;
+    use crate::arrays::scalar_fn::vtable::ScalarFn;
     use crate::assert_arrays_eq;
     use crate::scalar::Scalar;
     use crate::scalar_fn::TypedScalarFnInstance;
@@ -107,6 +112,50 @@ mod tests {
         assert!(
             err.to_string()
                 .contains("ScalarFnArray must have children equal to the array length")
+        );
+    }
+
+    #[test]
+    fn rejects_wrong_arity() {
+        let child = buffer![1i32, 2, 3].into_array();
+        let scalar_fn = TypedScalarFnInstance::new(Binary, Operator::Add).erased();
+
+        let Err(err) = ScalarFnArray::try_new(scalar_fn.clone(), vec![child.clone()]) else {
+            panic!("Binary must reject one child");
+        };
+        assert!(
+            err.to_string()
+                .contains("ScalarFnArray requires 2 children, got 1")
+        );
+
+        let Err(err) = ScalarFnArray::try_new(scalar_fn, vec![child.clone(), child.clone(), child])
+        else {
+            panic!("Binary must reject three children");
+        };
+        assert!(
+            err.to_string()
+                .contains("ScalarFnArray requires 2 children, got 3")
+        );
+    }
+
+    #[test]
+    fn rejects_missing_child_slot() {
+        let lhs = buffer![1i32, 2, 3].into_array();
+        let dtype = lhs.dtype().clone();
+        let scalar_fn = TypedScalarFnInstance::new(Binary, Operator::Add).erased();
+        let vtable = ScalarFn { id: scalar_fn.id() };
+        let data = ScalarFnData { scalar_fn };
+        let slots = [Some(lhs), None].into_iter().collect::<ArraySlots>();
+
+        let Err(err) = Array::<ScalarFn>::try_from_parts(
+            ArrayParts::new(vtable, dtype, 3, data).with_slots(slots),
+        ) else {
+            panic!("ScalarFnArray must reject missing child slots");
+        };
+
+        assert!(
+            err.to_string()
+                .contains("ScalarFnArray requires every child slot to be present, got 1 missing")
         );
     }
 

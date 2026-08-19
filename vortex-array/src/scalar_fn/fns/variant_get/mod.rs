@@ -20,6 +20,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::ScalarFnArray;
 use crate::arrays::VariantArray;
 use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
@@ -32,6 +33,7 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::ScalarFnVTableExt;
 
 /// Extracts a field/index path from Variant values.
 ///
@@ -41,6 +43,17 @@ use crate::scalar_fn::ScalarFnVTable;
 /// but must fall back to the core Variant value for paths not represented by shredded storage.
 #[derive(Clone)]
 pub struct VariantGet;
+
+impl VariantGet {
+    /// Creates a lazy extraction from Variant `input`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not Variant data.
+    pub fn try_new(input: ArrayRef, options: VariantGetOptions) -> VortexResult<ScalarFnArray> {
+        ScalarFnArray::try_new(VariantGet.bind(options), vec![input])
+    }
+}
 
 impl ScalarFnVTable for VariantGet {
     type Options = VariantGetOptions;

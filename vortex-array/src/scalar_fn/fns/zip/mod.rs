@@ -21,6 +21,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
+use crate::arrays::ScalarFnArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity;
@@ -35,6 +36,7 @@ use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::SimplifyCtx;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::validity::Validity;
@@ -48,6 +50,22 @@ use crate::validity::Validity;
 /// rather than Arrow's `if_else` which propagates null conditions to the output.
 #[derive(Clone)]
 pub struct Zip;
+
+impl Zip {
+    /// Creates a lazy conditional selection between `if_true` and `if_false`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the children have different lengths, the values have incompatible
+    /// dtypes, or `mask` is not boolean data.
+    pub fn try_new(
+        if_true: ArrayRef,
+        if_false: ArrayRef,
+        mask: ArrayRef,
+    ) -> VortexResult<ScalarFnArray> {
+        ScalarFnArray::try_new(Zip.bind(EmptyOptions), vec![if_true, if_false, mask])
+    }
+}
 
 impl ScalarFnVTable for Zip {
     type Options = EmptyOptions;

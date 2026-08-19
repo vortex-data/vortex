@@ -10,8 +10,6 @@ use crate::array::ArrayView;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::chunked::ChunkedArrayExt;
-use crate::arrays::scalar_fn::ScalarFnFactoryExt;
-use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::fns::mask::Mask as MaskExpr;
 use crate::scalar_fn::fns::mask::MaskKernel;
 
@@ -29,7 +27,7 @@ impl MaskKernel for Chunked {
                 let start = chunk_offsets[i];
                 let end = chunk_offsets[i + 1];
                 let chunk_mask = mask.slice(start..end)?;
-                MaskExpr.try_new_array(chunk.len(), EmptyOptions, [chunk.clone(), chunk_mask])
+                MaskExpr::try_new(chunk.clone(), chunk_mask).map(IntoArray::into_array)
             })
             .collect::<VortexResult<_>>()?;
 

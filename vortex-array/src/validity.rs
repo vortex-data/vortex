@@ -28,7 +28,6 @@ use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
-use crate::arrays::scalar_fn::ScalarFnFactoryExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -322,8 +321,8 @@ impl Validity {
             | (Validity::AllValid, Validity::AllValid) => Validity::AllValid,
             // Here we actually have to do some work
             (Validity::Array(lhs), Validity::Array(rhs)) => Validity::Array(
-                Binary
-                    .try_new_array(lhs.len(), Operator::And, [lhs, rhs])?
+                Binary::try_new(lhs, rhs, Operator::And)?
+                    .into_array()
                     .optimize()?,
             ),
         })

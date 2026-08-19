@@ -278,13 +278,11 @@ mod tests {
     use crate::arrays::chunked::ChunkedArrayExt;
     use crate::arrays::dict::DictArrayExt;
     use crate::arrays::dict::DictArraySlotsExt;
-    use crate::arrays::scalar_fn::ScalarFnFactoryExt;
     use crate::assert_arrays_eq;
     use crate::dtype::Nullability;
     use crate::executor::VortexSessionExecute;
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar::Scalar;
-    use crate::scalar_fn::EmptyOptions;
     use crate::scalar_fn::fns::binary::Binary;
     use crate::scalar_fn::fns::not::Not;
     use crate::scalar_fn::fns::operators::Operator;
@@ -350,9 +348,7 @@ mod tests {
         }
         .into_array();
 
-        let result = Not
-            .try_new_array(dict.len(), EmptyOptions, [dict])?
-            .optimize()?;
+        let result = Not::try_new(dict)?.into_array().optimize()?;
         let result = result.as_::<Dict>();
 
         assert!(result.has_all_values_referenced());
@@ -367,7 +363,7 @@ mod tests {
         let dict = DictArray::try_new(codes, values)?.into_array();
         let const_false =
             ConstantArray::new(Scalar::bool(false, Nullability::NonNullable), 3).into_array();
-        let expr = Binary.try_new_array(3, Operator::And, vec![dict, const_false])?;
+        let expr = Binary::try_new(dict, const_false, Operator::And)?.into_array();
 
         let mut ctx = array_session().create_execution_ctx();
         // Kleene AND: null AND false == false, so all three rows must be valid `false`.
@@ -384,7 +380,7 @@ mod tests {
         let dict = DictArray::try_new(codes, values)?.into_array();
         let const_true =
             ConstantArray::new(Scalar::bool(true, Nullability::NonNullable), 3).into_array();
-        let expr = Binary.try_new_array(3, Operator::Or, vec![dict, const_true])?;
+        let expr = Binary::try_new(dict, const_true, Operator::Or)?.into_array();
 
         let mut ctx = array_session().create_execution_ctx();
         // Kleene OR: null OR true == true, so all three rows must be valid `true`.

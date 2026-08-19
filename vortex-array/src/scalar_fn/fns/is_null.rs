@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -9,6 +10,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::ScalarFnArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -18,11 +20,21 @@ use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::ScalarFnVTableExt;
 use crate::validity::Validity;
 
 /// Expression that checks for null values.
 #[derive(Clone)]
 pub struct IsNull;
+
+impl IsNull {
+    /// Creates a lazy null check over `input`.
+    #[expect(clippy::new_ret_no_self, reason = "constructs the lazy result array")]
+    pub fn new(input: ArrayRef) -> ScalarFnArray {
+        ScalarFnArray::try_new(IsNull.bind(EmptyOptions), vec![input])
+            .vortex_expect("IsNull has one child and an infallible return dtype")
+    }
+}
 
 impl ScalarFnVTable for IsNull {
     type Options = EmptyOptions;

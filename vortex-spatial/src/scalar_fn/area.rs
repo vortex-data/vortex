@@ -50,7 +50,7 @@ pub struct SpatialArea;
 
 impl SpatialArea {
     /// A lazy `ScalarFnArray` computing the per-row area of a native geometry operand.
-    pub fn try_new_array(array: ArrayRef) -> VortexResult<ScalarFnArray> {
+    pub fn try_new(array: ArrayRef) -> VortexResult<ScalarFnArray> {
         ScalarFnArray::try_new(
             TypedScalarFnInstance::new(SpatialArea, EmptyOptions).erased(),
             vec![array],
@@ -196,7 +196,7 @@ mod tests {
     ) -> VortexResult<()> {
         let session = vortex_array::array_session();
         let mut ctx = session.create_execution_ctx();
-        let areas = SpatialArea::try_new_array(geometry?)?.into_array();
+        let areas = SpatialArea::try_new(geometry?)?.into_array();
         let expected = PrimitiveArray::from_iter(expected.iter().copied()).into_array();
         assert_arrays_eq!(areas, expected, &mut ctx);
         Ok(())
@@ -216,7 +216,7 @@ mod tests {
             ]]]),
             None,
         ])?;
-        let areas = SpatialArea::try_new_array(multipolygons)?.into_array();
+        let areas = SpatialArea::try_new(multipolygons)?.into_array();
         let expected =
             PrimitiveArray::new(vec![4.0f64, 0.0], Validity::from_iter([true, false])).into_array();
 

@@ -139,7 +139,6 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinArray;
-    use crate::arrays::scalar_fn::ScalarFnFactoryExt;
     use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
@@ -209,9 +208,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let cast = Cast
-            .try_new_array(source.len(), target.clone(), [source])
-            .unwrap();
+        let cast = Cast::new(source, target.clone()).into_array();
         let parent_id = cast.encoding_id();
         let session = VortexSession::empty().with_some(KernelSession::empty());
         let kernels = session.kernels();

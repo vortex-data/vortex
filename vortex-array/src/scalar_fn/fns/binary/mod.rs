@@ -17,6 +17,7 @@ use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::arrays::ScalarFnArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::expr::and;
@@ -28,6 +29,7 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::SimplifyCtx;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::operators::CompareOperator;
@@ -50,6 +52,21 @@ use crate::scalar::Scalar;
 
 #[derive(Clone)]
 pub struct Binary;
+
+impl Binary {
+    /// Creates a lazy binary operation over `lhs` and `rhs`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the children have different lengths or incompatible dtypes.
+    pub fn try_new(
+        lhs: ArrayRef,
+        rhs: ArrayRef,
+        operator: Operator,
+    ) -> VortexResult<ScalarFnArray> {
+        ScalarFnArray::try_new(Binary.bind(operator), vec![lhs, rhs])
+    }
+}
 
 impl ScalarFnVTable for Binary {
     type Options = Operator;

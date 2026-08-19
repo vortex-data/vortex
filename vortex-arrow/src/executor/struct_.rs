@@ -231,9 +231,7 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
-    use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
     use vortex_array::dtype::FieldNames;
-    use vortex_array::scalar_fn::EmptyOptions;
     use vortex_array::scalar_fn::fns::mask::Mask;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
@@ -375,11 +373,7 @@ mod tests {
             Validity::NonNullable,
         )?;
         let mask = BoolArray::from_iter([true, false, true]);
-        let masked = Mask.try_new_array(
-            3,
-            EmptyOptions,
-            [struct_array.into_array(), mask.into_array()],
-        )?;
+        let masked = Mask::try_new(struct_array.into_array(), mask.into_array())?.into_array();
 
         let arrow = masked.execute_arrow(None, &mut ctx)?;
 

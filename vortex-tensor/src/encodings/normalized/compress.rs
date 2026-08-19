@@ -16,14 +16,12 @@ use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
-use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::match_each_float_ptype;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -139,9 +137,7 @@ pub fn normalize(input: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Normal
         return Ok(wrapped);
     }
 
-    let norms_array: ArrayRef = L2Norm
-        .try_new_array(row_count, EmptyOptions, [input.clone()])?
-        .execute(ctx)?;
+    let norms_array: ArrayRef = L2Norm::try_new(input.clone())?.into_array().execute(ctx)?;
 
     // Execute before reading validity. Reading validity from the lazy array would run `L2Norm`
     // again when the values are requested.

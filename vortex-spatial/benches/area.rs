@@ -96,7 +96,7 @@ fn multipolygons() -> ArrayRef {
 }
 
 fn areas(geometry: &ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
-    SpatialArea::try_new_array(geometry.clone())
+    SpatialArea::try_new(geometry.clone())
         .unwrap()
         .into_array()
         .execute::<Canonical>(ctx)

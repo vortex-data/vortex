@@ -165,7 +165,7 @@ pub struct SpatialMakeLine;
 
 impl SpatialMakeLine {
     /// A lazy `ScalarFnArray` constructing one two-vertex line string per pair of point operands.
-    pub fn try_new_array(a: ArrayRef, b: ArrayRef) -> VortexResult<ScalarFnArray> {
+    pub fn try_new(a: ArrayRef, b: ArrayRef) -> VortexResult<ScalarFnArray> {
         ScalarFnArray::try_new(
             TypedScalarFnInstance::new(SpatialMakeLine, EmptyOptions).erased(),
             vec![a, b],
@@ -316,7 +316,7 @@ mod tests {
         let starts = point_column(vec![0.0, 3.0], vec![0.0, 4.0])?;
         let ends = point_column(vec![3.0, 0.0], vec![4.0, 0.0])?;
 
-        let lines = SpatialMakeLine::try_new_array(starts, ends)?.into_array();
+        let lines = SpatialMakeLine::try_new(starts, ends)?.into_array();
         assert!(lines.dtype().as_extension().is::<LineString>());
         assert_eq!(
             geometries(&lines, &mut ctx)?,
@@ -341,7 +341,7 @@ mod tests {
         let starts = point_constant(0.0, 0.0, 3, &mut ctx)?;
         let ends = point_constant(3.0, 4.0, 3, &mut ctx)?;
 
-        let result = SpatialMakeLine::try_new_array(starts, ends)?
+        let result = SpatialMakeLine::try_new(starts, ends)?
             .into_array()
             .execute::<Columnar>(&mut ctx)?;
         let Columnar::Constant(lines) = result else {
@@ -377,7 +377,7 @@ mod tests {
             (column, constant)
         };
 
-        let lines = SpatialMakeLine::try_new_array(starts, ends)?.into_array();
+        let lines = SpatialMakeLine::try_new(starts, ends)?.into_array();
         let endpoints = [(3.0, 4.0), (6.0, 8.0)];
         let expected = endpoints
             .into_iter()
@@ -403,7 +403,7 @@ mod tests {
         let starts = ConstantArray::new(Scalar::null(point_dtype), 2).into_array();
         let ends = point_column(vec![3.0, 6.0], vec![4.0, 8.0])?;
 
-        let result = SpatialMakeLine::try_new_array(starts, ends)?
+        let result = SpatialMakeLine::try_new(starts, ends)?
             .into_array()
             .execute::<Columnar>(&mut ctx)?;
         let Columnar::Constant(lines) = result else {
@@ -470,7 +470,7 @@ mod tests {
         let start = dimensional_point(start_dimension, start, None)?;
         let end = dimensional_point(end_dimension, end, None)?;
 
-        let lines = SpatialMakeLine::try_new_array(start, end)?.into_array();
+        let lines = SpatialMakeLine::try_new(start, end)?.into_array();
         let vertices = flatten_coordinates(&lines, &mut ctx)?;
         assert_eq!(coordinate_dimension(vertices.dtype())?, expected_dimension);
         for (name, expected) in [("x", expected_x), ("y", expected_y)] {

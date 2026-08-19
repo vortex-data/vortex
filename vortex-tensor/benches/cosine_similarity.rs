@@ -85,7 +85,7 @@ fn bench_cosine(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef) {
     bencher
         .with_inputs(|| {
             (
-                CosineSimilarity::try_new_array(lhs.clone(), rhs.clone())
+                CosineSimilarity::try_new(lhs.clone(), rhs.clone())
                     .unwrap()
                     .into_array(),
                 session.create_execution_ctx(),

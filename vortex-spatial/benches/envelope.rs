@@ -64,7 +64,7 @@ fn coin(i: usize) -> bool {
 
 /// Execute the envelope of `column` to completion.
 fn envelope(column: &ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
-    SpatialEnvelope::try_new_array(column.clone())
+    SpatialEnvelope::try_new(column.clone())
         .unwrap()
         .into_array()
         .execute::<Canonical>(ctx)

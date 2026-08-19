@@ -166,11 +166,9 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
-    use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability::Nullable;
     use vortex_array::scalar::Scalar;
-    use vortex_array::scalar_fn::EmptyOptions;
     use vortex_array::scalar_fn::fns::mask::Mask;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
@@ -253,7 +251,7 @@ mod tests {
             VarBinViewArray::from_iter_str(["a", "b"]).into_array(),
         )?;
         let mask = BoolArray::from_iter([true, false, true]);
-        let masked = Mask.try_new_array(3, EmptyOptions, [dict.into_array(), mask.into_array()])?;
+        let masked = Mask::try_new(dict.into_array(), mask.into_array())?.into_array();
 
         let actual = execute(masked, &dict_type(DataType::UInt8, DataType::Utf8))?;
         let flat = arrow_cast::cast(&actual, &DataType::Utf8)?;

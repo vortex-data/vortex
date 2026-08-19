@@ -62,7 +62,7 @@ fn bench_inner_product(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef) {
         .counter(ItemsCount::new(lhs.len()))
         .with_inputs(|| {
             (
-                InnerProduct::try_new_array(lhs.clone(), rhs.clone())
+                InnerProduct::try_new(lhs.clone(), rhs.clone())
                     .unwrap()
                     .into_array(),
                 session.create_execution_ctx(),

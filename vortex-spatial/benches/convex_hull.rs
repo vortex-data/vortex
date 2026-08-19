@@ -65,7 +65,7 @@ fn multipoints(rows: usize, points_per_row: usize) -> ArrayRef {
 }
 
 fn hulls(input: &ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
-    SpatialConvexHull::try_new_array(input.clone())
+    SpatialConvexHull::try_new(input.clone())
         .unwrap()
         .into_array()
         .execute::<Canonical>(ctx)

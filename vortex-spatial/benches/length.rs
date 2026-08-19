@@ -61,7 +61,7 @@ fn linestrings(vertices: usize) -> ArrayRef {
 }
 
 fn lengths(lines: &ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
-    SpatialLength::try_new_array(lines.clone())
+    SpatialLength::try_new(lines.clone())
         .unwrap()
         .into_array()
         .execute::<Canonical>(ctx)

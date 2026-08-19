@@ -227,10 +227,8 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::SliceArray;
-    use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability::NonNullable;
-    use vortex_array::scalar_fn::EmptyOptions;
     use vortex_array::scalar_fn::fns::mask::Mask;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
@@ -436,7 +434,7 @@ mod tests {
             Validity::NonNullable,
         )?;
         let mask = BoolArray::from_iter([true, false, true]);
-        let masked = Mask.try_new_array(3, EmptyOptions, [list.into_array(), mask.into_array()])?;
+        let masked = Mask::try_new(list.into_array(), mask.into_array())?.into_array();
 
         let field = Field::new("item", DataType::Int32, false);
         let arrow_dt = DataType::List(field.into());

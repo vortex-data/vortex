@@ -14,7 +14,6 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
 use vortex_array::scalar_fn::fns::like::Like;
 use vortex_array::scalar_fn::fns::like::LikeOptions;
 
@@ -48,15 +47,13 @@ fn bench_like(bencher: Bencher, pattern: &str, options: LikeOptions) {
     bencher
         .with_inputs(|| {
             (
-                Like.try_new_array(
-                    ARRAY_SIZE,
+                Like::try_new(
+                    array.clone(),
+                    ConstantArray::new(pattern, ARRAY_SIZE).into_array(),
                     options,
-                    [
-                        array.clone(),
-                        ConstantArray::new(pattern, ARRAY_SIZE).into_array(),
-                    ],
                 )
-                .unwrap(),
+                .unwrap()
+                .into_array(),
                 session.create_execution_ctx(),
             )
         })
@@ -98,12 +95,9 @@ fn like_per_row_patterns(bencher: Bencher) {
     bencher
         .with_inputs(|| {
             (
-                Like.try_new_array(
-                    ARRAY_SIZE,
-                    LikeOptions::default(),
-                    [array.clone(), patterns.clone()],
-                )
-                .unwrap(),
+                Like::try_new(array.clone(), patterns.clone(), LikeOptions::default())
+                    .unwrap()
+                    .into_array(),
                 session.create_execution_ctx(),
             )
         })
