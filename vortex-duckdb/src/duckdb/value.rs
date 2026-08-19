@@ -99,7 +99,7 @@ impl ValueRef {
                 unsafe { cpp::duckdb_free(ptr.cast()) };
                 ExtractedValue::Varchar(string)
             }
-            DUCKDB_TYPE::DUCKDB_TYPE_BLOB => {
+            DUCKDB_TYPE::DUCKDB_TYPE_BLOB | DUCKDB_TYPE::DUCKDB_TYPE_UUID => {
                 ExtractedValue::Blob(unsafe { take_blob(cpp::duckdb_get_blob(self.as_ptr())) })
             }
             DUCKDB_TYPE::DUCKDB_TYPE_GEOMETRY => {

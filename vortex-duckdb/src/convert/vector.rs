@@ -29,6 +29,8 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::extension::datetime::TimeUnit;
+use vortex::extension::uuid::Uuid;
+use vortex::extension::uuid::UuidMetadata;
 use vortex::mask::Mask;
 use vortex_spatial::extension::SpatialMetadata;
 use vortex_spatial::extension::WellKnownBinary;
@@ -315,6 +317,29 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
                 _ => vortex_bail!("Unsupported decimal precision: {precision}"),
             }
             .map(|a| a.into_array())
+        }
+        DUCKDB_TYPE::DUCKDB_TYPE_UUID => {
+            let data = vector.as_slice_with_len::<i128>(len);
+            let mut bytes = BufferMut::<u8>::with_capacity(len * 16);
+            for v in data {
+                let be = (*v as u128) ^ (1u128 << 127);
+                bytes.extend_from_slice(&be.to_be_bytes());
+            }
+
+            let storage = FixedSizeListArray::try_new(
+                PrimitiveArray::new(bytes.freeze(), Validity::NonNullable).into_array(),
+                16,
+                vector.validity_ref(len).to_validity(),
+                len,
+            )?;
+            let ext_dtype = ExtDType::<Uuid>::try_with_vtable(
+                Uuid,
+                UuidMetadata::default(),
+                storage.dtype().clone(),
+            )?
+            .erased();
+
+            Ok(ExtensionArray::try_new(ext_dtype, storage.into_array())?.into_array())
         }
         DUCKDB_TYPE::DUCKDB_TYPE_ARRAY => {
             let array_elem_size = vector.logical_type().array_type_array_size();

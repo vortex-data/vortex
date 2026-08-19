@@ -40,6 +40,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::expr::Expression;
 use vortex::expr::stats::Precision;
+use vortex::extension::uuid::Uuid;
 use vortex::file::v2::FileStatsLayoutReader;
 use vortex::io::kanal_ext::KanalExt as _;
 use vortex::io::runtime::BlockingRuntime as _;
@@ -745,6 +746,13 @@ fn can_push_projection_aggregate(
     // vortex doesn't have list comparison
     if matches!(aggregate, PushedAggregate::Min | PushedAggregate::Max)
         && matches!(dtype, DType::List(..) | DType::FixedSizeList(..))
+    {
+        return false;
+    }
+
+    // UUID is backed by FixedSizeList which aggregations can't compute over
+    if dtype.as_extension_opt().is_some_and(|ext| ext.is::<Uuid>())
+        && !matches!(aggregate, PushedAggregate::Count)
     {
         return false;
     }

@@ -22,6 +22,7 @@
 use vortex::array::match_each_native_simd_ptype;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
+use vortex::dtype::Nullability::NonNullable;
 use vortex::dtype::Nullability::Nullable;
 use vortex::dtype::PType;
 use vortex::dtype::PType::I32;
@@ -30,6 +31,7 @@ use vortex::dtype::half::f16;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex::extension::datetime::AnyTemporal;
 use vortex::extension::datetime::Date;
@@ -38,6 +40,7 @@ use vortex::extension::datetime::Time;
 use vortex::extension::datetime::TimeUnit;
 use vortex::extension::datetime::Timestamp;
 use vortex::extension::datetime::TimestampOptions;
+use vortex::extension::uuid::Uuid;
 use vortex::scalar::BinaryScalar;
 use vortex::scalar::BoolScalar;
 use vortex::scalar::DecimalScalar;
@@ -315,6 +318,19 @@ impl<'a> TryFrom<&'a ValueRef> for Scalar {
                     ext.clone(),
                     Scalar::binary(b, Nullable),
                 )),
+                DType::Extension(ext) if ext.is::<Uuid>() => {
+                    vortex_ensure!(b.len() == 16, "UUID blob must be 16 bytes, got {}", b.len());
+                    let children = b
+                        .iter()
+                        .map(|&byte| Scalar::primitive(byte, NonNullable))
+                        .collect();
+                    let storage = Scalar::fixed_size_list(
+                        DType::Primitive(PType::U8, NonNullable),
+                        children,
+                        Nullable,
+                    );
+                    Ok(Scalar::extension_ref(ext.clone(), storage))
+                }
                 _ => vortex_bail!("Cannot convert DuckDB blob to Vortex scalar of dtype {dtype}"),
             },
             ExtractedValue::Date(days) => Ok(Scalar::extension::<Date>(
