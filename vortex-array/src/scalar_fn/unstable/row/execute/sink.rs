@@ -14,7 +14,7 @@ use vortex_error::vortex_ensure_eq;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
-use super::RowExecution;
+use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::unstable::row::ElementTuple;
@@ -32,7 +32,7 @@ pub(crate) fn execute_sink<Args, Prepared, Sink, ApplyResult, Options>(
     ctx: &mut ExecutionCtx,
     prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
     apply: impl Fn(&Prepared, Args::Elems<'_>, <Sink as OutputSink<Options>>::Row<'_>) -> ApplyResult,
-) -> VortexResult<RowExecution>
+) -> VortexResult<ArrayRef>
 where
     Args: ElementTuple,
     Sink: OutputSink<Options>,
@@ -92,21 +92,21 @@ where
     }
 
     // SAFETY: every row callback completed successfully, so each returned the required write token.
-    unsafe { <Sink as OutputSink<Options>>::finish(sink) }.map(RowExecution::Output)
+    unsafe { <Sink as OutputSink<Options>>::finish(sink) }
 }
 
 /// Write only the rows set in `valid`, or decline when the inputs or sink cannot support
 /// skip-invalid execution.
 ///
-/// `Ok(None)` signals batch execution to filter every input to the valid rows, run the dense
-/// kernel, and scatter the results back into a null-padded array.
+/// `Ok(None)` signals that direct skip-invalid execution is unavailable. Batch execution decides
+/// how to handle the decline.
 pub(crate) fn execute_sink_valid_rows<Args, Prepared, Sink, ApplyResult, Options>(
     args: &dyn ExecutionArgs,
     valid: &Mask,
     ctx: &mut ExecutionCtx,
     prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
     apply: impl Fn(&Prepared, Args::Elems<'_>, <Sink as OutputSink<Options>>::Row<'_>) -> ApplyResult,
-) -> VortexResult<Option<RowExecution>>
+) -> VortexResult<Option<ArrayRef>>
 where
     Args: ElementTuple,
     Sink: OutputSink<Options>,
@@ -179,9 +179,7 @@ where
 
     // SAFETY: the initializer completed before traversal, and every visited callback completed
     // successfully and returned the required write token.
-    unsafe { <Sink as OutputSink<Options>>::finish(sink) }
-        .map(RowExecution::Output)
-        .map(Some)
+    unsafe { <Sink as OutputSink<Options>>::finish(sink) }.map(Some)
 }
 
 /// Construct a decoded-length error outside the traversal branches.
@@ -267,21 +265,17 @@ mod tests {
     use vortex_error::vortex_err;
     use vortex_mask::Mask;
 
-    use super::RowExecution;
     use super::execute_sink_valid_rows;
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::PrimitiveArray;
-    use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::NativePType;
     use crate::scalar_fn::EmptyOptions;
     use crate::scalar_fn::VecExecutionArgs;
-    use crate::scalar_fn::unstable::row::InitializedElement;
     use crate::scalar_fn::unstable::row::OutputSink;
-    use crate::scalar_fn::unstable::row::UninitElementSink;
     use crate::validity::Validity;
 
     struct NonSkippingSink;
@@ -366,39 +360,6 @@ mod tests {
         )?;
 
         assert!(execution.is_none());
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_skip_invalid_sink_initializes_and_writes_addressed_rows() -> VortexResult<()> {
-        let input = PrimitiveArray::from_iter([10_i64, 20, 30]).into_array();
-        let args = VecExecutionArgs::new(vec![input], 3);
-        let valid = Mask::from_iter([true, false, true]);
-        let mut ctx = array_session().create_execution_ctx();
-
-        let execution = execute_sink_valid_rows::<
-            (i64,),
-            (),
-            UninitElementSink<i64>,
-            InitializedElement,
-            EmptyOptions,
-        >(
-            &args,
-            &valid,
-            &mut ctx,
-            |_| (),
-            |_, (value,), output| {
-                // SAFETY: `output` is the row supplied to this callback.
-                unsafe { InitializedElement::write(output, value * 2) }
-            },
-        )?;
-        let Some(RowExecution::Output(actual)) = execution else {
-            vortex_bail!("the skip-invalid sink must produce an output");
-        };
-        let expected = PrimitiveArray::from_iter([20_i64, 0, 60]);
-
-        assert_arrays_eq!(&actual, expected.as_ref(), &mut ctx);
 
         Ok(())
     }

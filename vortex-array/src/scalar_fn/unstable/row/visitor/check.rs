@@ -36,8 +36,8 @@ const fn assert_input_visit_contract<F: RowFn, Args: ElementTuple>() {
     // Dictionary push-down can evaluate values that no input row references. Every dispatch must
     // therefore match the function-wide fallibility declaration.
     assert!(
-        Args::DECODE_INFALLIBLE || F::FALLIBLE,
-        "RowFn::FALLIBLE must be true when input decoding can fail",
+        Args::DECODE_INFALLIBLE || !F::INFALLIBLE,
+        "RowFn::INFALLIBLE must be false when input decoding can fail",
     );
 }
 
@@ -59,8 +59,8 @@ where
 {
     assert_input_visit_contract::<Function, Args>();
     assert!(
-        !ApplyResult::FALLIBLE || Function::FALLIBLE,
-        "RowFn::FALLIBLE must be true when a row result can fail",
+        ApplyResult::INFALLIBLE || !Function::INFALLIBLE,
+        "RowFn::INFALLIBLE must be false when a row result can fail",
     );
 }
 
@@ -73,8 +73,8 @@ where
 {
     assert_owned_visit_contract::<Function, Args, Out>();
     assert!(
-        Function::FALLIBLE,
-        "RowFn::FALLIBLE must be true when a row result defers failure evidence",
+        !Function::INFALLIBLE,
+        "RowFn::INFALLIBLE must be false when a row result defers failure evidence",
     );
     assert!(
         size_of::<Fail>() <= size_of::<Out>(),

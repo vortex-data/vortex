@@ -40,13 +40,13 @@ pub trait RowFn: 'static + Sized + Clone + Send + Sync {
     /// The arguments in display order. Its length is the function's exact arity.
     const ARG_NAMES: &'static [&'static str];
 
-    /// Whether any dispatch can raise a semantic error.
+    /// Whether every dispatch is infallible.
     ///
     /// See [`ScalarFnVTable::is_fallible`](crate::scalar_fn::ScalarFnVTable::is_fallible) for a
     /// more detailed explanation of semantic errors.
     ///
-    /// The framework checks dispatched element and result types. A conservative `true` is allowed.
-    const FALLIBLE: bool;
+    /// The framework checks dispatched element and result types. A conservative `false` is allowed.
+    const INFALLIBLE: bool;
 
     /// Returns the ID of the scalar function.
     fn id(&self) -> ScalarFnId;

@@ -54,8 +54,8 @@ pub unsafe trait InputElement: 'static {
 
     /// Decode `array` into its column representation.
     ///
-    /// Called once per row-kernel invocation, including deferred-error retries. Hoist dtype checks,
-    /// downcasts, and other invocation-invariant work into this method.
+    /// Called once per row-kernel invocation. Hoist dtype checks, downcasts, and other
+    /// invocation-invariant work into this method.
     fn decode(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self::Column>;
 
     /// Whether [`decode_null_tolerant`](Self::decode_null_tolerant) can decode this array.

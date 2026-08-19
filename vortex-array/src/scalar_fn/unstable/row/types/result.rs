@@ -28,8 +28,8 @@ pub trait SinkResult: 'static + private::Sealed {
     /// The [`OutputSink::WriteToken`](super::OutputSink::WriteToken) carried by a success.
     type WriteToken: 'static;
 
-    /// Whether this return type can carry an error.
-    const FALLIBLE: bool;
+    /// Whether this return type is infallible.
+    const INFALLIBLE: bool;
 
     /// Convert this row's outcome into immediate success or failure.
     fn into_result(self) -> VortexResult<()>;
@@ -39,7 +39,7 @@ impl private::Sealed for () {}
 
 impl SinkResult for () {
     type WriteToken = ();
-    const FALLIBLE: bool = false;
+    const INFALLIBLE: bool = true;
 
     fn into_result(self) -> VortexResult<()> {
         Ok(())
@@ -50,7 +50,7 @@ impl private::Sealed for InitializedElement {}
 
 impl SinkResult for InitializedElement {
     type WriteToken = InitializedElement;
-    const FALLIBLE: bool = false;
+    const INFALLIBLE: bool = true;
 
     fn into_result(self) -> VortexResult<()> {
         Ok(())
@@ -61,7 +61,7 @@ impl private::Sealed for VortexResult<()> {}
 
 impl SinkResult for VortexResult<()> {
     type WriteToken = ();
-    const FALLIBLE: bool = true;
+    const INFALLIBLE: bool = false;
 
     fn into_result(self) -> VortexResult<()> {
         self
@@ -72,7 +72,7 @@ impl private::Sealed for VortexResult<InitializedElement> {}
 
 impl SinkResult for VortexResult<InitializedElement> {
     type WriteToken = InitializedElement;
-    const FALLIBLE: bool = true;
+    const INFALLIBLE: bool = false;
 
     fn into_result(self) -> VortexResult<()> {
         self.map(|_| ())

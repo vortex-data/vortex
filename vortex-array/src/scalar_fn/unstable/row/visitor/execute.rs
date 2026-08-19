@@ -3,9 +3,9 @@
 
 //! Visitors that execute dense and skip-invalid row loops.
 //!
-//! Each visit revalidates its concrete signature and checks that its output dtype and null policy
-//! match the plan before entering a row loop. [`ExecuteValidRows`] can decline, so the batch layer
-//! filters the inputs and retries with [`ExecuteRows`].
+//! Each visit revalidates its concrete signature and checks that its output dtype and execution
+//! policy match the plan before entering a row loop. [`ExecuteValidRows`] can decline when the
+//! signature cannot execute over the original inputs.
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
@@ -19,6 +19,7 @@ use super::check::assert_sink_visit_contract;
 use super::check::validate_owned_visit;
 use super::check::validate_sink_visit;
 use super::row_visitor::private;
+use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
 use crate::scalar_fn::ExecutionArgs;
@@ -29,7 +30,6 @@ use crate::scalar_fn::unstable::row::OutputElement;
 use crate::scalar_fn::unstable::row::OutputSink;
 use crate::scalar_fn::unstable::row::RowFn;
 use crate::scalar_fn::unstable::row::SinkResult;
-use crate::scalar_fn::unstable::row::execute::RowExecution;
 use crate::scalar_fn::unstable::row::execute::execute_owned;
 use crate::scalar_fn::unstable::row::execute::execute_owned_infallible;
 use crate::scalar_fn::unstable::row::execute::execute_sink;
@@ -79,7 +79,7 @@ impl<'args, 'ctx, F: RowFn> ExecuteRows<'args, 'ctx, F> {
 impl<F: RowFn> private::Sealed for ExecuteRows<'_, '_, F> {}
 
 impl<F: RowFn> RowVisitor<F::Options> for ExecuteRows<'_, '_, F> {
-    type VisitResult = RowExecution;
+    type VisitResult = ArrayRef;
 
     fn visit_prepared<Args, Out, Prepared>(
         self,
@@ -159,8 +159,8 @@ impl<F: RowFn> RowVisitor<F::Options> for ExecuteRows<'_, '_, F> {
 
 /// The runtime visit that executes valid rows over the original input columns.
 ///
-/// Only output sinks have a contract for skipped output positions. Owned visits therefore decline
-/// so batch execution can filter the valid inputs and scatter the output back.
+/// Only output sinks have a contract for skipped output positions. Owned visits therefore decline,
+/// and batch execution decides how to handle that unsupported signature.
 pub(crate) struct ExecuteValidRows<'args, 'ctx, F: RowFn> {
     /// The original inputs for this kernel invocation.
     args: &'args dyn ExecutionArgs,
@@ -209,7 +209,7 @@ impl<'args, 'ctx, F: RowFn> ExecuteValidRows<'args, 'ctx, F> {
 impl<F: RowFn> private::Sealed for ExecuteValidRows<'_, '_, F> {}
 
 impl<F: RowFn> RowVisitor<F::Options> for ExecuteValidRows<'_, '_, F> {
-    type VisitResult = Option<RowExecution>;
+    type VisitResult = Option<ArrayRef>;
 
     fn visit_prepared<Args, Out, Prepared>(
         self,
@@ -228,8 +228,6 @@ impl<F: RowFn> RowVisitor<F::Options> for ExecuteValidRows<'_, '_, F> {
             RowPolicy::for_owned_output::<Args>(),
         )?;
 
-        // Owned execution has no sink that can initialize skipped output positions. Decline so
-        // batch execution filters the inputs and retries with the dense visitor.
         Ok(None)
     }
 
@@ -279,7 +277,6 @@ impl<F: RowFn> RowVisitor<F::Options> for ExecuteValidRows<'_, '_, F> {
             RowPolicy::for_deferred_output::<Args>(),
         )?;
 
-        // Deferred owned execution has the same skipped-output limitation as `visit_prepared`.
         Ok(None)
     }
 }

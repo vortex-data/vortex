@@ -74,7 +74,7 @@ impl<F: RowFn> ScalarFnVTable for F {
     }
 
     fn is_fallible(&self, _options: &Self::Options) -> bool {
-        F::FALLIBLE
+        !F::INFALLIBLE
     }
 }
 
@@ -149,7 +149,7 @@ mod tests {
 
         const ARG_NAMES: &'static [&'static str] = &["value"];
 
-        const FALLIBLE: bool = false;
+        const INFALLIBLE: bool = true;
 
         fn id(&self) -> ScalarFnId {
             static ID: CachedId = CachedId::new("test.indexing_row_fn");

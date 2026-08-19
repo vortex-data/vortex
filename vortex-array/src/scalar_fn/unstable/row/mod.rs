@@ -14,13 +14,11 @@
 //! Unlike a general strict function, a [`RowFn`] cannot produce null from valid inputs.
 //!
 //! Prepared visits move work derived from constant operands outside the hot loop. Deferred visits
-//! reduce compact failure evidence in that loop and retry only valid rows when null payloads may
-//! have caused the failure.
+//! reduce compact failure evidence without constructing errors in that loop.
 
 // TODO(connor)[RowFn]: Remove this expectation when #9450 connects the batch executor.
 #[expect(dead_code)]
 mod execute;
-pub use execute::RowExecution;
 
 mod row_fn;
 pub use row_fn::RowFn;

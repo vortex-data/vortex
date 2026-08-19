@@ -175,8 +175,6 @@ pub trait ElementTuple: 'static + private::Sealed {
     fn validate(dtypes: &[DType]) -> VortexResult<()>;
 
     /// Decode every input column once for one row-kernel invocation.
-    ///
-    /// A dense deferred-error retry starts another invocation over filtered valid rows.
     fn decode(args: &dyn ExecutionArgs, ctx: &mut ExecutionCtx) -> VortexResult<Self::Columns>;
 
     /// Whether every input can be decoded without assuming that all rows are valid.

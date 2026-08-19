@@ -28,7 +28,7 @@ use crate::scalar_fn::unstable::row::ViewLen;
 ///
 /// Lifecycle methods report only incidental failures such as allocation. A semantic error that
 /// depends on input values **must** come from the row callback through a fallible [`SinkResult`],
-/// or [`RowFn::FALLIBLE`] cannot protect optimizations such as dictionary push-down.
+/// or [`RowFn::INFALLIBLE`] cannot protect optimizations such as dictionary push-down.
 ///
 /// # Safety
 ///
@@ -54,7 +54,7 @@ use crate::scalar_fn::unstable::row::ViewLen;
 /// [`Rows`]: Self::Rows
 /// [`WriteToken`]: Self::WriteToken
 /// [`finish`]: Self::finish
-/// [`RowFn::FALLIBLE`]: crate::scalar_fn::unstable::row::RowFn::FALLIBLE
+/// [`RowFn::INFALLIBLE`]: crate::scalar_fn::unstable::row::RowFn::INFALLIBLE
 /// [`SinkResult`]: crate::scalar_fn::unstable::row::SinkResult
 /// [`skipped_rows_initializer`]: Self::skipped_rows_initializer
 pub unsafe trait OutputSink<Options>: 'static + Sized {

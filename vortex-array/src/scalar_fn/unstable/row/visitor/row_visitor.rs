@@ -21,10 +21,10 @@ use crate::scalar_fn::unstable::row::SinkResult;
 ///
 /// Only the framework implements this trait. The `visit_prepared*` methods derive shared state
 /// from constant arguments before visiting any rows. Every visit verifies that the argument tuple
-/// matches [`RowFn::ARG_NAMES`] and that fallible decoding agrees with [`RowFn::FALLIBLE`].
+/// matches [`RowFn::ARG_NAMES`] and that fallible decoding agrees with [`RowFn::INFALLIBLE`].
 ///
 /// [`RowFn::ARG_NAMES`]: crate::scalar_fn::unstable::row::RowFn::ARG_NAMES
-/// [`RowFn::FALLIBLE`]: crate::scalar_fn::unstable::row::RowFn::FALLIBLE
+/// [`RowFn::INFALLIBLE`]: crate::scalar_fn::unstable::row::RowFn::INFALLIBLE
 pub trait RowVisitor<Options>: private::Sealed + Sized {
     /// The framework result of visiting one concrete row signature.
     ///
@@ -109,7 +109,7 @@ pub trait RowVisitor<Options>: private::Sealed + Sized {
     /// another row, sink, or local cell can violate the safety contract of [`OutputSink::finish`].
     ///
     /// A fallible `ApplyResult` requires
-    /// [`RowFn::FALLIBLE`](crate::scalar_fn::unstable::row::RowFn::FALLIBLE) to be `true`.
+    /// [`RowFn::INFALLIBLE`](crate::scalar_fn::unstable::row::RowFn::INFALLIBLE) to be `false`.
     ///
     /// # Examples
     ///
@@ -199,7 +199,7 @@ pub trait RowVisitor<Options>: private::Sealed + Sized {
     /// The executor OR-reduces [`FailureEvidence`] across rows and passes the result to
     /// `finish_failure`.
     ///
-    /// [`RowFn::FALLIBLE`](crate::scalar_fn::unstable::row::RowFn::FALLIBLE) **must** be `true`.
+    /// [`RowFn::INFALLIBLE`](crate::scalar_fn::unstable::row::RowFn::INFALLIBLE) **must** be `false`.
     /// `Out` must not require drop glue. `Fail` must be no wider than `Out`, or failure tracking
     /// reduces the vector width. The framework checks these requirements.
     ///

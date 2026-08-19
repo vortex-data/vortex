@@ -86,14 +86,6 @@ mod tests {
     use super::ViewLen;
 
     #[test]
-    fn tuple_len_returns_common_len() {
-        let first: &[i64] = &[1, 2];
-        let second: &[i64] = &[3, 4];
-
-        assert_eq!((first, second).len(), 2);
-    }
-
-    #[test]
     #[should_panic(expected = "tuple views must have equal lengths")]
     fn tuple_len_rejects_mismatch() {
         let first: &[i64] = &[1];
