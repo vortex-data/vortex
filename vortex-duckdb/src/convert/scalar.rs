@@ -208,7 +208,10 @@ impl ToDuckDBScalar for ExtScalar<'_> {
                 if tz.is_some() {
                     // TIMESTAMP_TZ stores time in UTC microseconds, tz is
                     // a display sign
-                    return Ok(Value::new_timestamp_tz(timestamp_tz_micros(*unit, value()?)?));
+                    return Ok(Value::new_timestamp_tz(timestamp_tz_micros(
+                        *unit,
+                        value()?,
+                    )?));
                 }
                 match unit {
                     TimeUnit::Nanoseconds => Value::new_timestamp_ns(value()?),
