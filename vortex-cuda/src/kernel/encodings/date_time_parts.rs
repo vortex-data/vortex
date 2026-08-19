@@ -297,8 +297,9 @@ mod tests {
         Ok(())
     }
 
-    /// Compression picks the narrowest ptype per component, so unsigned components are
-    /// common in real data (the taxi benchmark produces `u16` seconds).
+    /// Compression narrows each component to its smallest ptype, choosing unsigned whenever the
+    /// component is non-negative. Every post-epoch timestamp column therefore decomposes into
+    /// entirely unsigned components, which is what panicked on `taxi`.
     #[crate::test]
     async fn test_cuda_datetimeparts_unsigned_components() -> VortexResult<()> {
         let mut ctx = vortex_array::array_session().create_execution_ctx();
@@ -314,6 +315,47 @@ mod tests {
 
         let temporal = TemporalArray::new_timestamp(
             PrimitiveArray::new(buffer![0i64; len], Validity::NonNullable).into_array(),
+            TimeUnit::Milliseconds,
+            None,
+        );
+        let dtp_array = DateTimeParts::try_new(
+            temporal.dtype().clone(),
+            days_arr,
+            seconds_arr,
+            subseconds_arr,
+        )?;
+
+        let gpu_result = DateTimePartsExecutor
+            .execute(dtp_array.clone().into_array(), &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU decompression failed")
+            .into_host()
+            .await?
+            .into_array();
+
+        assert_arrays_eq!(dtp_array, gpu_result, &mut ctx);
+
+        Ok(())
+    }
+
+    /// Components are narrowed independently, so their signedness can differ within one array.
+    /// A timestamp column straddling the epoch narrows to unsigned days (all zero) with signed
+    /// seconds, which is only decoded correctly if each component keeps its own signedness.
+    #[crate::test]
+    async fn test_cuda_datetimeparts_mixed_signedness() -> VortexResult<()> {
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
+            .vortex_expect("failed to create execution context");
+
+        // Milliseconds -32_000, 0 and 31_000 split into these components.
+        let days_arr = PrimitiveArray::new(buffer![0u8, 0, 0], Validity::NonNullable).into_array();
+        let seconds_arr =
+            PrimitiveArray::new(buffer![-32i8, 0, 31], Validity::NonNullable).into_array();
+        let subseconds_arr =
+            PrimitiveArray::new(buffer![0u8, 0, 0], Validity::NonNullable).into_array();
+
+        let temporal = TemporalArray::new_timestamp(
+            PrimitiveArray::new(buffer![0i64; 3], Validity::NonNullable).into_array(),
             TimeUnit::Milliseconds,
             None,
         );
