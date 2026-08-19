@@ -5,18 +5,21 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::future::try_join_all;
+use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::ExtensionArray;
+use vortex::array::arrays::ListViewArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::bool::BoolDataParts;
 use vortex::array::arrays::decimal::DecimalDataParts;
 use vortex::array::arrays::extension::ExtensionArrayExt;
+use vortex::array::arrays::listview::ListViewDataParts;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::arrays::struct_::StructDataParts;
 use vortex::array::arrays::varbinview::BinaryView;
@@ -28,6 +31,19 @@ use vortex::buffer::BitBuffer;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
 use vortex::error::VortexResult;
+
+/// Copy a canonical child array to the host.
+async fn child_into_host(child: ArrayRef) -> VortexResult<ArrayRef> {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "CanonicalCudaExt threads no session through"
+    )]
+    Ok(child
+        .execute::<Canonical>(&mut legacy_session().create_execution_ctx())?
+        .into_host()
+        .await?
+        .into_array())
+}
 
 /// Move all canonical data from to_host from device.
 #[async_trait]
@@ -102,7 +118,7 @@ impl CanonicalCudaExt for Canonical {
             n @ Canonical::Null(_) => Ok(n),
             Canonical::Bool(bool) => {
                 let len = bool.len();
-                let validity = bool.validity()?;
+                let validity = validity_into_host(bool.validity()?).await?;
                 let BoolDataParts { bits, meta } = bool.into_data().into_parts(len);
 
                 let bits = BitBuffer::new_with_offset(
@@ -110,10 +126,7 @@ impl CanonicalCudaExt for Canonical {
                     meta.len(),
                     meta.offset(),
                 );
-                Ok(Canonical::Bool(BoolArray::new(
-                    bits,
-                    validity_into_host(validity).await?,
-                )))
+                Ok(Canonical::Bool(BoolArray::new(bits, validity)))
             }
             Canonical::Primitive(prim) => {
                 let PrimitiveDataParts {
@@ -153,6 +166,7 @@ impl CanonicalCudaExt for Canonical {
                     validity,
                     dtype,
                 } = varbinview.into_data_parts();
+                let validity = validity_into_host(validity).await?;
 
                 // Copy all device views to host
                 let host_views = views.try_into_host()?.await?;
@@ -167,10 +181,26 @@ impl CanonicalCudaExt for Canonical {
                 let host_buffers = try_join_all(host_buffers).await?;
                 let host_buffers: Arc<[ByteBuffer]> = Arc::from(host_buffers);
 
-                let validity = validity_into_host(validity).await?;
                 Ok(Canonical::VarBinView(unsafe {
                     VarBinViewArray::new_unchecked(host_views, host_buffers, dtype, validity)
                 }))
+            }
+            Canonical::List(list) => {
+                let ListViewDataParts {
+                    elements,
+                    offsets,
+                    sizes,
+                    validity,
+                    ..
+                } = list.into_data_parts();
+                let validity = validity_into_host(validity).await?;
+
+                Ok(Canonical::List(ListViewArray::try_new(
+                    child_into_host(elements).await?,
+                    child_into_host(offsets).await?,
+                    child_into_host(sizes).await?,
+                    validity,
+                )?))
             }
             Canonical::Extension(ext) => {
                 // Copy the storage array to host and rewrap in ExtensionArray.
