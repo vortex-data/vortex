@@ -18,6 +18,7 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         min_vortex_version: None,
     },
     added: &[
+        EditionMember::array(&"vortex.parquet.variant"),
         EditionMember::array(&"vortex.variant"),
         EditionMember::dtype(&"vortex.uuid"),
     ],

@@ -147,6 +147,18 @@ fn core_2026_08_2_is_draft() {
     );
     assert!(
         session
+            .components_in(&CORE_2026_08_2, ComponentKind::Array)
+            .iter()
+            .any(|inclusion| inclusion.component_id.as_str() == "vortex.parquet.variant")
+    );
+    assert!(
+        session
+            .components_in(&PREVIEW_2026_06_0, ComponentKind::Array)
+            .iter()
+            .all(|inclusion| inclusion.component_id.as_str() != "vortex.parquet.variant")
+    );
+    assert!(
+        session
             .components_in(&CORE_2026_08_2, ComponentKind::DType)
             .iter()
             .any(|inclusion| inclusion.component_id.as_str() == "vortex.uuid")

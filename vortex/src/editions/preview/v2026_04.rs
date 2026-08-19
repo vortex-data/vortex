@@ -18,7 +18,6 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         min_vortex_version: None,
     },
     added: &[
-        EditionMember::array(&"vortex.parquet.variant"),
         EditionMember::array(&"vortex.patched"),
         EditionMember::array(&"vortex.tensor.cosine_similarity"),
         EditionMember::array(&"vortex.tensor.inner_product"),

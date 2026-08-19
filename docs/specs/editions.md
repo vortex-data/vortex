@@ -229,7 +229,7 @@ Draft component lists may change and have no minimum reader or permanent compati
 
 #### `core2026.08.2`
 
-- `array`: `vortex.variant`
+- `array`: `vortex.parquet.variant`, `vortex.variant`
 - `dtype`: `vortex.uuid`
 
 #### `core2026.08.3`
@@ -246,8 +246,8 @@ Draft component lists may change and have no minimum reader or permanent compati
 
 #### `preview2026.04.0`
 
-- `array`: `vortex.parquet.variant`, `vortex.patched`, `vortex.tensor.cosine_similarity`,
-  `vortex.tensor.inner_product`, `vortex.tensor.l2_norm`, `vortex.tensor.normalized`
+- `array`: `vortex.patched`, `vortex.tensor.cosine_similarity`, `vortex.tensor.inner_product`,
+  `vortex.tensor.l2_norm`, `vortex.tensor.normalized`
 - `dtype`: `vortex.tensor.fixed_shape_tensor`, `vortex.tensor.vector`
 
 #### `preview2026.06.0`
