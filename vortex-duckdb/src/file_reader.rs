@@ -43,6 +43,31 @@ use crate::table_function::LocalState;
 use crate::table_function::Split;
 use crate::table_function::convert_result;
 
+/// Duckdb invokes following callbacks under various locks, and information
+/// about these locks is not propagated to Rust. We, however, don't want to add
+/// excessive synchronisation on our side, so the best we can do is document
+/// the invariants here.
+///
+/// Definitions:
+/// "global lock" - lock over all threads. Only one thread may access some
+///   section.
+/// "file-local lock" - multiple threads may access different File's in
+///   parallel, but only one thread can access a single File at a time.
+///
+/// Lifetime of file:
+///
+/// Bind, first file:
+///
+/// reader_open -> reader_bind
+///
+/// Plan and run:
+///
+/// reader_open (plan time) -> reader_get_statistics (plan time) ->
+/// reader_initialize -> reader_try_initialize_scan -> reader_scan
+///
+/// reader_get_progress_in_file is called between
+/// reader_scan calls from a separate thread.
+
 static REGISTRY: LazyLock<Registry> = LazyLock::new(Registry::new);
 
 fn resolve_filesystem(url: &Url) -> VortexResult<(FileSystemRef, String)> {
@@ -74,23 +99,45 @@ pub struct File {
     total_splits: usize,
 }
 
-async fn open_reader(file_path: String) -> VortexResult<File> {
-    let url = parse_uri_or_path(&file_path)?;
-    let (fs, path) = resolve_filesystem(&url)?;
-    let file = fs.open_read(&path).await?;
-    let file = open_cached(&SESSION, file, &path, None, &|options| options).await?;
-    Ok(File {
-        reader: file.layout_reader()?,
-        cache: ConversionCache::default(),
-        splits: vec![],
-        total_splits: 0,
-    })
+impl File {
+    async fn open(file_path: String) -> VortexResult<Self> {
+        let url = parse_uri_or_path(&file_path)?;
+        let (fs, path) = resolve_filesystem(&url)?;
+        let file = fs.open_read(&path).await?;
+        let file = open_cached(&SESSION, file, &path, None, &|options| options).await?;
+        Ok(File {
+            reader: file.layout_reader()?,
+            cache: ConversionCache::default(),
+            splits: vec![],
+            total_splits: 0,
+        })
+    }
+
+    fn can_skip(&self, filter: &Filter) -> VortexResult<bool> {
+        let Some(filter) = &filter.filter else {
+            return Ok(false);
+        };
+        let row_count = self.reader.row_count();
+        let row_range = 0..row_count;
+        let mask = Mask::new_true(usize::try_from(row_count).unwrap_or(usize::MAX));
+        let evaluation = self.reader.pruning_evaluation(&row_range, filter, mask)?;
+        match evaluation.now_or_never() {
+            Some(mask) => mask.map(|mask| mask.all_false()),
+            None => Ok(false),
+        }
+    }
 }
 
+/// Called once per file while initializing the scan under file-local lock.
+/// Files are opened lazily.
 pub fn reader_open(file_path: &str) -> VortexResult<File> {
-    RUNTIME.block_on(open_reader(file_path.to_owned()))
+    RUNTIME.block_on(File::open(file_path.to_owned()))
 }
 
+/// Called once per scan with first file without locks. Populates "result"
+/// with first file schema which is the scan schema. Unlike Parquet, we don't
+/// support schema evolution, so if any file schema doesn't match first schema,
+/// we break.
 pub fn reader_bind(file: &File, result: &mut BindResultRef) -> VortexResult<BindState> {
     let dtype = file.reader.dtype().clone();
     let columns = extract_schema_from_dtype(&dtype)?;
@@ -109,13 +156,16 @@ pub fn reader_bind(file: &File, result: &mut BindResultRef) -> VortexResult<Bind
     })
 }
 
-/// Returns true if file should be skipped.
-/// Called under file lock.
+/// Called once per file by one thread under file-local lock. Determines
+/// whether the opened file should be skipped. If this function returns false,
+/// duckdb closes the file and doesn't call reader_try_initialize_scan on it.
 pub fn reader_initialize(file: &mut File, global: &GlobalState) -> VortexResult<bool> {
-    if prune_reader(file, &global.filter)? {
+    if file.can_skip(&global.filter)? {
         return Ok(true);
     }
 
+    // Geting splits is non-trivial work so we prefer doing it here under file
+    // lock and not in reader_try_initialize_scan under global lock.
     let ordered = global.file_row_number_column_pos.is_some();
     let reader = Arc::clone(&file.reader);
     let filter = &global.filter;
@@ -136,8 +186,10 @@ pub fn reader_initialize(file: &mut File, global: &GlobalState) -> VortexResult<
     Ok(false)
 }
 
-/// Returns false if file is exhausted.
-/// Called from all threads under global lock.
+/// Called by all threads under global lock. If this function returns true,
+/// thread calls reader_scan on this file. If this function returns false,
+/// duckdb thinks file is exhausted, closes the file, and the first thread to
+/// get "false" switches to next file.
 pub fn reader_try_initialize_scan(file: &mut File, local: &mut LocalState) -> bool {
     let Some(split) = file.splits.pop() else {
         return false;
@@ -146,7 +198,9 @@ pub fn reader_try_initialize_scan(file: &mut File, local: &mut LocalState) -> bo
     true
 }
 
-/// Returns false if file is exhausted
+/// Called by all threads operating on a file without locks. If this function
+/// returns false, duckdb closes the file, and first thread to get "false"
+/// switches to next file.
 pub fn reader_scan(
     file: &File,
     global: &GlobalState,
@@ -202,6 +256,7 @@ fn reader_scan_aggregate(global: &GlobalState, local: &mut LocalState) -> Vortex
     Ok(true)
 }
 
+/// Called by one thread in plan phase without locks
 pub fn reader_get_statistics(file: &File, column: &str) -> Option<ColumnStatistics> {
     let reader = file
         .reader
@@ -222,20 +277,8 @@ pub fn reader_get_statistics(file: &File, column: &str) -> Option<ColumnStatisti
     }
 }
 
-fn prune_reader(file: &File, filter: &Filter) -> VortexResult<bool> {
-    let Some(filter) = &filter.filter else {
-        return Ok(false);
-    };
-    let row_count = file.reader.row_count();
-    let row_range = 0..row_count;
-    let mask = Mask::new_true(usize::try_from(row_count).unwrap_or(usize::MAX));
-    let evaluation = file.reader.pruning_evaluation(&row_range, filter, mask)?;
-    match evaluation.now_or_never() {
-        Some(mask) => mask.map(|mask| mask.all_false()),
-        None => Ok(false),
-    }
-}
-
+/// Called from a separate thread (not related to threads for Vortex
+/// table function) under global lock.
 pub fn reader_get_progress_in_file(file: &File) -> f64 {
     let total = file.total_splits;
     let left = file.splits.len();
