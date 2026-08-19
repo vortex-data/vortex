@@ -692,6 +692,12 @@ def format_measurement_value(value: float) -> str:
     value = float(value)
     if value.is_integer():
         return str(int(value))
+    # A hot median over an even number of runs lands on a half nanosecond, which
+    # %g renders in scientific notation once it passes nine significant digits.
+    # That fraction is noise next to a measurement this large, so round it away
+    # and keep the column readable.
+    if abs(value) >= 1e6:
+        return str(round(value))
     return f"{value:.9g}"
 
 

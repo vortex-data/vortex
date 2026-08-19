@@ -442,6 +442,17 @@ def test_comparison_report_retains_sql_analysis(tmp_path: Path) -> None:
     assert "unknown / unknown" not in report
 
 
+def test_large_hot_medians_render_without_scientific_notation() -> None:
+    compare = load_compare_module()
+
+    # A median over two runs can land on a half nanosecond; at this magnitude "%g"
+    # would switch to scientific notation and stop matching the baseline column.
+    assert compare.format_measurement_value(1478968300.5) == "1478968300"
+    assert compare.format_measurement_value(8228437.5) == "8228438"
+    assert compare.format_measurement_value(12.5) == "12.5"
+    assert compare.format_measurement_value(100) == "100"
+
+
 def test_cold_and_hot_runtimes_split_the_first_run_from_the_rest() -> None:
     compare = load_compare_module()
 
