@@ -15,7 +15,7 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::TemporalArray;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::buffer::BufferHandle;
-use vortex::array::match_each_signed_integer_ptype;
+use vortex::array::match_each_integer_ptype;
 use vortex::array::validity::Validity;
 use vortex::dtype::DType;
 use vortex::dtype::NativePType;
@@ -110,9 +110,9 @@ impl CudaExecute for DateTimePartsExecutor {
         let seconds_ptype = seconds_prim.ptype();
         let subseconds_ptype = subseconds_prim.ptype();
 
-        match_each_signed_integer_ptype!(days_ptype, |DaysT| {
-            match_each_signed_integer_ptype!(seconds_ptype, |SecondsT| {
-                match_each_signed_integer_ptype!(subseconds_ptype, |SubsecondsT| {
+        match_each_integer_ptype!(days_ptype, |DaysT| {
+            match_each_integer_ptype!(seconds_ptype, |SecondsT| {
+                match_each_integer_ptype!(subseconds_ptype, |SubsecondsT| {
                     decode_datetimeparts_typed::<DaysT, SecondsT, SubsecondsT>(
                         days_prim,
                         seconds_prim,
@@ -284,6 +284,46 @@ mod tests {
             .vortex_expect("failed to create execution context");
 
         let dtp_array = make_datetimeparts_array(days, seconds, subseconds, time_unit);
+        let gpu_result = DateTimePartsExecutor
+            .execute(dtp_array.clone().into_array(), &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU decompression failed")
+            .into_host()
+            .await?
+            .into_array();
+
+        assert_arrays_eq!(dtp_array, gpu_result, &mut ctx);
+
+        Ok(())
+    }
+
+    /// Compression picks the narrowest ptype per component, so unsigned components are
+    /// common in real data (the taxi benchmark produces `u16` seconds).
+    #[crate::test]
+    async fn test_cuda_datetimeparts_unsigned_components() -> VortexResult<()> {
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
+            .vortex_expect("failed to create execution context");
+
+        let len = 3;
+        let days_arr = PrimitiveArray::new(buffer![1u32, 2, 3], Validity::NonNullable).into_array();
+        let seconds_arr =
+            PrimitiveArray::new(buffer![3600u16, 0, 60], Validity::NonNullable).into_array();
+        let subseconds_arr =
+            PrimitiveArray::new(buffer![250u8, 0, 99], Validity::NonNullable).into_array();
+
+        let temporal = TemporalArray::new_timestamp(
+            PrimitiveArray::new(buffer![0i64; len], Validity::NonNullable).into_array(),
+            TimeUnit::Milliseconds,
+            None,
+        );
+        let dtp_array = DateTimeParts::try_new(
+            temporal.dtype().clone(),
+            days_arr,
+            seconds_arr,
+            subseconds_arr,
+        )?;
+
         let gpu_result = DateTimePartsExecutor
             .execute(dtp_array.clone().into_array(), &mut cuda_ctx)
             .await
