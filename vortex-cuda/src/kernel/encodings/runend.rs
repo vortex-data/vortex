@@ -215,7 +215,6 @@ mod tests {
 
     use super::*;
     use crate::CanonicalCudaExt;
-    use crate::executor::CudaArrayExt;
     use crate::session::CudaSession;
 
     fn make_runend_array<V, E>(ends: Vec<E>, values: Vec<V>, ctx: &mut ExecutionCtx) -> RunEndArray
@@ -352,10 +351,10 @@ mod tests {
         let runend_array = RunEnd::new(ends_array, values_array, cuda_ctx.execution_ctx());
 
         // The GPU expands the per-run validity bitmap through the run mapping.
-        let gpu_result = runend_array
-            .clone()
-            .into_array()
-            .execute_cuda(&mut cuda_ctx)
+        // Call the executor directly: `execute_cuda` would silently fall back to CPU for a
+        // host-resident array, hiding a GPU failure.
+        let gpu_result = RunEndExecutor
+            .execute(runend_array.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_host()
@@ -387,10 +386,10 @@ mod tests {
         let values_array = PrimitiveArray::new(Buffer::from(values), validity).into_array();
         let runend_array = RunEnd::new(ends_array, values_array, cuda_ctx.execution_ctx());
 
-        let gpu_result = runend_array
-            .clone()
-            .into_array()
-            .execute_cuda(&mut cuda_ctx)
+        // Call the executor directly: `execute_cuda` would silently fall back to CPU for a
+        // host-resident array, hiding a GPU failure.
+        let gpu_result = RunEndExecutor
+            .execute(runend_array.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_host()
