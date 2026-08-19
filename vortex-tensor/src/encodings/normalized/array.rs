@@ -62,7 +62,7 @@ pub type NormalizedArray = Array<Normalized>;
 /// Every [`NormalizedArray`] has three slots.
 ///
 /// - For a [`Vector`] parent, `normalized` is a non-nullable
-///   [`UnitVector`](crate::unit_vector::UnitVector). A documented lossy transform may instead
+///   [`UnitVector`]. A documented lossy transform may instead
 ///   erase the refinement and store an ordinary non-nullable Vector.
 /// - For a [`FixedShapeTensor`] parent, `normalized` is the corresponding non-nullable tensor.
 /// - `norms` is a non-nullable primitive column with the tensor element ptype.
