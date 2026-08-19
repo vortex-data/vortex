@@ -44,12 +44,14 @@ use vortex_session::registry::Id;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use super::CORE_2025_05_0;
-use super::CORE_2026_07_0;
-use super::CORE_2026_08;
+use super::CORE_2026_08_0;
+use super::CORE_2026_08_1;
+use super::CORE_2026_08_2;
+use super::CORE_2026_08_3;
 use super::DEFAULT_CORE_EDITION;
-use super::DEFAULT_UNSTABLE_EDITION;
+use super::DEFAULT_PREVIEW_EDITION;
 use super::EDITION_DECLARATIONS;
-use super::UNSTABLE_2026_06_0;
+use super::PREVIEW_2026_06_0;
 
 fn session() -> Result<EditionSession, EditionError> {
     let session = EditionSession::empty();
@@ -72,9 +74,9 @@ fn every_declared_edition_validates() -> Result<(), EditionError> {
 /// way it may change is by declaring a *new* edition, so a failure here means a frozen
 /// declaration was edited.
 #[test]
-fn core_2026_07_encoding_set_is_pinned() {
+fn core_2026_08_1_encoding_set_is_pinned() {
     let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
-    let encodings = session.components_in(&CORE_2026_07_0, ComponentKind::Array);
+    let encodings = session.components_in(&CORE_2026_08_1, ComponentKind::Array);
     let ids: Vec<&str> = encodings
         .iter()
         .map(|inclusion| inclusion.component_id.as_str())
@@ -100,6 +102,7 @@ fn core_2026_07_encoding_set_is_pinned() {
             "vortex.fsst",
             "vortex.list",
             "vortex.listview",
+            "vortex.map",
             "vortex.masked",
             "vortex.null",
             "vortex.pco",
@@ -110,7 +113,6 @@ fn core_2026_07_encoding_set_is_pinned() {
             "vortex.struct",
             "vortex.varbin",
             "vortex.varbinview",
-            "vortex.variant",
             "vortex.zigzag",
             "vortex.zstd",
         ]
@@ -118,21 +120,59 @@ fn core_2026_07_encoding_set_is_pinned() {
 }
 
 #[test]
-fn core_2026_07_dtype_set_is_pinned() {
+fn core_2026_08_1_dtype_set_is_pinned() {
     let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
-    let dtypes = session.components_in(&CORE_2026_07_0, ComponentKind::DType);
+    let dtypes = session.components_in(&CORE_2026_08_1, ComponentKind::DType);
     let ids: Vec<&str> = dtypes
         .iter()
         .map(|inclusion| inclusion.component_id.as_str())
         .collect();
-    assert_eq!(
-        ids,
-        [
-            "vortex.date",
-            "vortex.time",
-            "vortex.timestamp",
-            "vortex.uuid",
-        ]
+    assert_eq!(ids, ["vortex.date", "vortex.time", "vortex.timestamp"]);
+}
+
+#[test]
+fn core_2026_08_2_is_draft() {
+    let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
+    assert!(
+        session
+            .find(&CORE_2026_08_2)
+            .unwrap_or_else(|| panic!("{CORE_2026_08_2} is not registered"))
+            .is_draft()
+    );
+    assert!(
+        session
+            .components_in(&CORE_2026_08_2, ComponentKind::Array)
+            .iter()
+            .any(|inclusion| inclusion.component_id.as_str() == "vortex.variant")
+    );
+    assert!(
+        session
+            .components_in(&CORE_2026_08_2, ComponentKind::DType)
+            .iter()
+            .any(|inclusion| inclusion.component_id.as_str() == "vortex.uuid")
+    );
+}
+
+#[test]
+fn core_2026_08_3_adds_onpair() {
+    let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
+    assert!(
+        session
+            .find(&CORE_2026_08_3)
+            .unwrap_or_else(|| panic!("{CORE_2026_08_3} is not registered"))
+            .is_draft()
+    );
+    assert!(
+        session
+            .components_in(&CORE_2026_08_3, ComponentKind::Array)
+            .iter()
+            .any(|inclusion| inclusion.component_id.as_str() == "vortex.onpair")
+    );
+    assert!(
+        session
+            .components_in(&PREVIEW_2026_06_0, ComponentKind::Array)
+            .iter()
+            .all(|inclusion| inclusion.component_id.as_str() != "vortex.onpair")
     );
 }
 
@@ -140,14 +180,14 @@ fn core_2026_07_dtype_set_is_pinned() {
 fn encodings_in_editions_unions_families() {
     let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
     let core_only: Vec<_> = session
-        .components_in(&CORE_2026_07_0, ComponentKind::Array)
+        .components_in(&CORE_2026_08_1, ComponentKind::Array)
         .into_iter()
         .map(|inclusion| inclusion.component_id)
         .collect();
     let mut both = core_only.clone();
     both.extend(
         session
-            .components_in(&UNSTABLE_2026_06_0, ComponentKind::Array)
+            .components_in(&PREVIEW_2026_06_0, ComponentKind::Array)
             .into_iter()
             .map(|inclusion| inclusion.component_id),
     );
@@ -156,7 +196,7 @@ fn encodings_in_editions_unions_families() {
 
     assert!(both.len() > core_only.len());
     assert!(both.iter().any(|id| id.as_str() == "fastlanes.delta"));
-    assert!(both.iter().any(|id| id.as_str() == "vortex.onpair"));
+    assert!(both.iter().any(|id| id.as_str() == "vortex.zstd_buffers"));
     assert!(core_only.iter().all(|id| both.contains(id)));
 }
 
@@ -164,13 +204,43 @@ fn encodings_in_editions_unions_families() {
 fn earlier_editions_are_subsets() {
     let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
     let first = session.components_in(&CORE_2025_05_0, ComponentKind::Array);
-    let latest = session.components_in(&CORE_2026_08, ComponentKind::Array);
+    let latest = session.components_in(&CORE_2026_08_1, ComponentKind::Array);
     assert!(first.iter().all(|inclusion| {
         latest
             .iter()
             .any(|latest| latest.component_id == inclusion.component_id)
     }));
     assert!(first.len() < latest.len());
+}
+
+#[test]
+fn core_2026_08_editions_split_map_from_zoned_components() {
+    let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
+    assert!(
+        session
+            .components_in(&CORE_2026_08_0, ComponentKind::Array)
+            .iter()
+            .all(|inclusion| inclusion.component_id.as_str() != "vortex.map")
+    );
+    assert!(
+        session
+            .components_in(&CORE_2026_08_0, ComponentKind::Layout)
+            .iter()
+            .any(|inclusion| inclusion.component_id.as_str() == "vortex.zoned")
+    );
+    assert!(
+        session
+            .components_in(&CORE_2026_08_0, ComponentKind::Aggregate)
+            .iter()
+            .any(|inclusion| inclusion.component_id.as_str() == "vortex.min")
+    );
+
+    assert!(
+        session
+            .components_in(&CORE_2026_08_1, ComponentKind::Array)
+            .iter()
+            .any(|inclusion| inclusion.component_id.as_str() == "vortex.map")
+    );
 }
 
 #[test]
@@ -182,9 +252,9 @@ fn default_session_enables_the_write_editions() {
     assert!(enabled.contains(&DEFAULT_CORE_EDITION));
 
     #[cfg(feature = "unstable_encodings")]
-    assert!(enabled.contains(&DEFAULT_UNSTABLE_EDITION));
+    assert!(enabled.contains(&DEFAULT_PREVIEW_EDITION));
     #[cfg(not(feature = "unstable_encodings"))]
-    assert!(!enabled.contains(&DEFAULT_UNSTABLE_EDITION));
+    assert!(!enabled.contains(&DEFAULT_PREVIEW_EDITION));
 }
 
 #[test]
@@ -197,7 +267,7 @@ fn core_edition_ids_are_registered_array_encodings() {
     let registry = session.arrays().registry().clone();
     for inclusion in session
         .editions()
-        .components_in(&CORE_2026_08, ComponentKind::Array)
+        .components_in(&CORE_2026_08_1, ComponentKind::Array)
     {
         assert!(
             registry.contains_key(&inclusion.component_id),
@@ -217,7 +287,7 @@ fn core_dtype_ids_are_registered_extension_dtypes() {
     let registry = session.dtypes().registry().clone();
     for inclusion in session
         .editions()
-        .components_in(&CORE_2026_08, ComponentKind::DType)
+        .components_in(&CORE_2026_08_1, ComponentKind::DType)
     {
         assert!(
             registry.contains_key(&inclusion.component_id),
@@ -238,7 +308,7 @@ fn core_aggregate_ids_are_registered_aggregate_fns() {
     let session = VortexSession::default();
     let declared = session
         .editions()
-        .components_in(&CORE_2026_08, ComponentKind::Aggregate);
+        .components_in(&CORE_2026_08_1, ComponentKind::Aggregate);
     assert!(
         declared
             .iter()

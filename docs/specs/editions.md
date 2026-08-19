@@ -9,10 +9,9 @@ guarantee applies to that serialized contract, not to the in-memory implementati
 
 Editions belong to independently versioned families and are cumulative within a family. Each edition includes all
 components from the preceding edition in that family, plus any newly added components. A writer selects at most one
-edition from each family and may use the union of their components. For example, selecting `core2026.07.0` and
-`unstable2026.06.0` allows stable components released through July 2026 and unstable components released through June
-
-2026.
+edition from each family and may use the union of their components. For example, selecting `core2026.08.1` and
+`preview2026.06.0` allows stable components released through August 2026 and preview components released through
+June 2026.
 
 The first frozen edition, `core2025.05.0`, contains the components that Vortex `0.36.0` could write. This marks the
 start of the Vortex file format's stability guarantee. Every Vortex release from `0.36.0` onward can read
@@ -81,7 +80,7 @@ the previous selection.
 You can change the default configuration to:
 
 - **Target an older `core` edition** when the file must remain readable by an older Vortex deployment.
-- **Enable another family** to use components outside `core`. Vortex currently defines `unstable`, `spatial`, and
+- **Enable another family** to use components outside `core`. Vortex currently defines `preview`, `spatial`, and
   `json` in addition to `core`.
 
 Sessions created without the Vortex facade must register and enable their editions before writing files. The lower-level
@@ -210,43 +209,49 @@ Minimum Vortex release: `0.54.0`.
 
 - `array`: `fastlanes.rle`, `vortex.fixed_size_list`, `vortex.listview`, `vortex.masked`
 
-#### `core2026.07.0`
-
-Minimum Vortex release: `0.65.0`.
-
-- `array`: `vortex.variant`
-- `dtype`: `vortex.uuid`
-
 #### `core2026.08.0`
 
 Minimum Vortex release: `0.84.0`.
 
-- `array`: `vortex.map`
 - `layout`: `vortex.zoned`
 - `aggregate`: `vortex.bounded_max`, `vortex.bounded_min`, `vortex.max`, `vortex.min`,
   `vortex.nan_count`, `vortex.null_count`
+
+#### `core2026.08.1`
+
+Minimum Vortex release: `0.84.0`.
+
+- `array`: `vortex.map`
 
 ### Draft editions
 
 Draft component lists may change and have no minimum reader or permanent compatibility guarantee.
 
-#### `unstable2025.05.0`
+#### `core2026.08.2`
+
+- `array`: `vortex.variant`
+- `dtype`: `vortex.uuid`
+
+#### `core2026.08.3`
+
+- `array`: `vortex.onpair`
+
+#### `preview2025.05.0`
 
 - `array`: `fastlanes.delta`
 
-#### `unstable2026.02.0`
+#### `preview2026.02.0`
 
 - `array`: `vortex.zstd_buffers`
 
-#### `unstable2026.04.0`
+#### `preview2026.04.0`
 
 - `array`: `vortex.parquet.variant`, `vortex.patched`, `vortex.tensor.cosine_similarity`,
   `vortex.tensor.inner_product`, `vortex.tensor.l2_norm`, `vortex.tensor.normalized`
 - `dtype`: `vortex.tensor.fixed_shape_tensor`, `vortex.tensor.vector`
 
-#### `unstable2026.06.0`
+#### `preview2026.06.0`
 
-- `array`: `vortex.onpair`
 - `layout`: `vortex.list`
 
 #### `spatial2026.08.0`
