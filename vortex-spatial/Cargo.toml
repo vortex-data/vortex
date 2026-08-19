@@ -39,6 +39,8 @@ _test-harness = []
 divan = { workspace = true }
 mimalloc = { workspace = true }
 rstest = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+vortex = { workspace = true, features = ["files", "tokio"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-layout = { workspace = true }
 vortex-spatial = { path = ".", features = ["_test-harness"] }
@@ -77,6 +79,10 @@ harness = false
 
 [[bench]]
 name = "convex_hull"
+harness = false
+
+[[bench]]
+name = "dense_union_take"
 harness = false
 
 [lints]

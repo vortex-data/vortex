@@ -206,7 +206,7 @@ fn stat_was_truncated(
 }
 
 fn supports_file_stats(dtype: &DType) -> bool {
-    !matches!(dtype, DType::Variant(_))
+    !matches!(dtype, DType::Union(..) | DType::Variant(_))
 }
 
 fn is_varlen_dtype(dtype: &DType) -> bool {

@@ -26,7 +26,10 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         id: SPATIAL_2026_08,
         min_vortex_version: None,
     },
-    added: &[EditionMember::aggregate(&"vortex.st.aabb")],
+    added: &[
+        EditionMember::array(&"vortex.st.dense_union"),
+        EditionMember::aggregate(&"vortex.st.aabb"),
+    ],
 };
 
 #[cfg(test)]
@@ -52,6 +55,18 @@ mod tests {
         let enabled = session.enabled_component_ids(ComponentKind::Aggregate);
         assert!(
             enabled.iter().any(|id| id.as_str() == "vortex.st.aabb"),
+            "spatial session permits {enabled:?}"
+        );
+    }
+
+    #[test]
+    fn initialize_permits_dense_union() {
+        let session = crate::test_harness::spatial_session();
+        let enabled = session.enabled_component_ids(ComponentKind::Array);
+        assert!(
+            enabled
+                .iter()
+                .any(|id| id.as_str() == "vortex.st.dense_union"),
             "spatial session permits {enabled:?}"
         );
     }

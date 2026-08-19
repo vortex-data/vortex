@@ -35,6 +35,7 @@ use crate::scalar_fn::length::SpatialLength;
 use crate::scalar_fn::make_line::SpatialMakeLine;
 
 pub mod aggregate_fn;
+mod dense_union;
 pub mod editions;
 pub mod extension;
 pub mod prune;
@@ -46,6 +47,8 @@ mod tests;
 
 /// Set up a session with support for spatial extension types, encodings and layouts.
 pub fn initialize(session: &VortexSession) {
+    dense_union::initialize(session);
+
     // Register the spatial extension types.
     session.dtypes().register(WellKnownBinary);
     session.arrow().register_exporter(Arc::new(WellKnownBinary));

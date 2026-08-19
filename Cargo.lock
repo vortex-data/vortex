@@ -10614,6 +10614,8 @@ dependencies = [
  "mimalloc",
  "prost 0.14.4",
  "rstest",
+ "tokio",
+ "vortex",
  "vortex-array",
  "vortex-arrow",
  "vortex-buffer",

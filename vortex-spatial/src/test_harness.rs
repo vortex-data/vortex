@@ -20,6 +20,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
+pub use crate::dense_union::DenseUnion;
 use crate::extension::LineString;
 use crate::extension::MultiLineString;
 use crate::extension::MultiPoint;
