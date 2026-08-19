@@ -55,6 +55,9 @@ import pandas as pd
 # Benchmarks are noisier than textbook measurement data, so use a conservative
 # cutoff that is closer to a 99% two-sided interval before calling a change real.
 Z_SCORE_99 = 2.5758293035489004
+# Benchmark rows drift by well under a percent between identical runs, so leave
+# changes that small unmarked rather than colouring every row of a clean report.
+NEUTRAL_CHANGE_PCT = 1.0
 CONTROL_FORMAT = "parquet"
 FILE_SIZE_METRIC = "file_size"
 QUERY_TARGET_PATTERN = re.compile(r"_q(\d+)/([^:]+):(.+)$")
@@ -701,6 +704,38 @@ def format_measurement_value(value: float) -> str:
     return f"{value:.9g}"
 
 
+def format_factor(value: float) -> str:
+    """Render a dimensionless factor such as a row's hot/cold ratio."""
+
+    if pd.isna(value) or not np.isfinite(value):
+        return "—"
+    return f"{float(value):.2f}"
+
+
+def format_change_marker(ratio: float) -> str:
+    """Colour a change by direction, leaving sub-percent moves unmarked."""
+
+    if pd.isna(ratio) or ratio <= 0:
+        return ""
+    percent_change = (ratio - 1.0) * 100
+    if abs(percent_change) < NEUTRAL_CHANGE_PCT:
+        return "⚪"
+    return "🔴" if percent_change > 0 else "🟢"
+
+
+def format_delta_cell(pr_value: Any, base_value: Any, render: Any = None) -> str:
+    """Render one cell as PR value, base value, and the change between them."""
+
+    render = format_measurement_value if render is None else render
+    pr_text = render(pr_value)
+    base_text = render(base_value)
+    if pd.isna(pr_value) or pd.isna(base_value) or float(base_value) <= 0:
+        return f"{pr_text} / {base_text} / no baseline"
+
+    ratio = float(pr_value) / float(base_value)
+    return f"{pr_text} / {base_text} / {format_ratio_change(ratio)} {format_change_marker(ratio)}"
+
+
 def format_comparison_ratio(value: float) -> str:
     """Render a PR/base ratio or identify an unmatched PR measurement."""
 
@@ -1030,9 +1065,12 @@ def format_report_help() -> str:
             "- **Hot vs cold**: Every measurement is run several times. The first run is "
             "reported as the cold run, and the median of the runs after it is reported as "
             "the hot run. The verdict, geomeans, and significance all use hot runs; the "
-            "cold columns show first-run cost separately. Rows whose results predate "
-            "per-run reporting show only a hot value, taken from the value the runner "
-            "reported.",
+            "cold column shows first-run cost separately, and `hot/cold` is how much of "
+            "each run the warm path saves. Rows whose results predate per-run reporting "
+            "show only one value, taken from the value the runner reported.",
+            "- **Table cells**: Each cell reads `PR / base / %diff`. 🔴 marks a number that "
+            "grew, 🟢 one that shrank, and ⚪ a move under 1%, which is inside this "
+            "environment's run-to-run drift.",
             "",
             "</details>",
         ]
@@ -1130,7 +1168,8 @@ def main() -> None:
     engine_analyses = build_within_engine_statistical_analyses(query_df, threshold_pct)
     engine_summary = format_within_engine_summary(engine_analyses)
 
-    summary_fields: list[str] = []
+    base_label = str(base_commit_id)[:8] if base_commit_id is not None else "none"
+    summary_fields: list[str] = [f"**Commits**: PR `{pr_commit_id[:8]}` vs base `{base_label}`"]
 
     if verdict is not None:
         summary_fields.append(f"**Verdict**: {verdict['status']} ({verdict['confidence']} confidence)")
@@ -1186,7 +1225,6 @@ def main() -> None:
     print("")
 
     grouped_tables = df3.groupby(["engine", "file_format", "unit"], dropna=False, sort=False)
-    base_label = str(base_commit_id)[:8] if base_commit_id is not None else "none"
     for engine, file_format, unit in sorted(grouped_tables.groups.keys(), key=group_sort_key):
         group_df = grouped_tables.get_group((engine, file_format, unit)).sort_values("name")
         group_performance = format_performance(
@@ -1198,21 +1236,34 @@ def main() -> None:
         significant_improvements = (group_df["ratio"] <= improvement_threshold).sum()
         significant_regressions = (group_df["ratio"] >= regression_threshold).sum()
         has_cold_runs = group_df[["cold_value_pr", "cold_value_base"]].notna().any().any()
-        # Only label the columns hot/cold where the rows actually recorded every run.
-        hot_suffix = " hot" if has_cold_runs else ""
+        # Each cell carries the PR value, the base value, and the change between
+        # them, so one row fits the three measurements without going ten columns wide.
+        hot_cells = [
+            format_delta_cell(pr_value, base_value)
+            for pr_value, base_value in zip(group_df["hot_value_pr"], group_df["hot_value_base"])
+        ]
         columns = {
             "name": [
                 format_name_with_highlight(name, ratio, improvement_threshold, regression_threshold)
                 for name, ratio in zip(group_df["name"], group_df["ratio"])
             ],
-            f"PR {pr_commit_id[:8]}{hot_suffix} ({unit})": group_df["hot_value_pr"].map(format_measurement_value),
-            f"base {base_label}{hot_suffix} ({unit})": group_df["hot_value_base"].map(format_measurement_value),
-            f"{'hot ' if has_cold_runs else ''}ratio (PR/base)": group_df["ratio"].map(format_comparison_ratio),
         }
+        # Only label the columns hot/cold where the rows actually recorded every run.
         if has_cold_runs:
-            columns[f"PR {pr_commit_id[:8]} cold ({unit})"] = group_df["cold_value_pr"].map(format_measurement_value)
-            columns[f"base {base_label} cold ({unit})"] = group_df["cold_value_base"].map(format_measurement_value)
-            columns["cold ratio (PR/base)"] = group_df["cold_ratio"].map(format_comparison_ratio)
+            columns[f"hot {unit} (PR / base / %diff)"] = hot_cells
+            columns[f"cold {unit} (PR / base / %diff)"] = [
+                format_delta_cell(pr_value, base_value)
+                for pr_value, base_value in zip(group_df["cold_value_pr"], group_df["cold_value_base"])
+            ]
+            columns["hot/cold (PR / base / %diff)"] = [
+                format_delta_cell(pr_factor, base_factor, format_factor)
+                for pr_factor, base_factor in zip(
+                    group_df["hot_value_pr"] / group_df["cold_value_pr"],
+                    group_df["hot_value_base"] / group_df["cold_value_base"],
+                )
+            ]
+        else:
+            columns[f"{unit} (PR / base / %diff)"] = hot_cells
         display_df = pd.DataFrame(columns)
         print("<details>")
         summary_text = (
@@ -1228,7 +1279,7 @@ def main() -> None:
                 index=False,
                 tablefmt="github",
                 disable_numparse=True,
-                colalign=("left", *("right",) * (len(display_df.columns) - 1)),
+                colalign=tuple("left" for _ in display_df.columns),
             )
         )
         print("")

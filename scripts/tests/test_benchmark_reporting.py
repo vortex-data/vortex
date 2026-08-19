@@ -369,18 +369,17 @@ def test_comparison_report_groups_by_target_and_unit(tmp_path: Path) -> None:
     assert "How to read Verdict and Engines" not in report
     # These measurements report a single number, so there is no cold run to split out.
     assert "cold" not in report
+    assert "hot" not in report
     assert "<summary>vortex / vortex-file-compressed / ms " in report
     assert "<summary>vortex / vortex-file-compressed / % " in report
     assert "<summary>vortex / vortex-file-compressed / ratio " in report
     assert "<summary>vortex / parquet / ms " in report
-    assert markdown_row(report, "timing/fixture") == ["timing/fixture", "11.75", "12.5", "0.94"]
-    assert markdown_row(report, "size/fixture") == ["size/fixture", "44.5", "45.25", "0.98"]
-    assert markdown_row(report, "ratio/fixture") == ["ratio/fixture", "0.8", "0.75", "1.07"]
+    assert markdown_row(report, "timing/fixture") == ["timing/fixture", "11.75 / 12.5 / -6.0% 🟢"]
+    assert markdown_row(report, "size/fixture") == ["size/fixture", "44.5 / 45.25 / -1.7% 🟢"]
+    assert markdown_row(report, "ratio/fixture") == ["ratio/fixture", "0.8 / 0.75 / +6.7% 🔴"]
     assert markdown_row(report, "new timing/fixture") == [
         "new timing/fixture",
-        "3.125",
-        "—",
-        "no baseline",
+        "3.125 / — / no baseline",
     ]
 
 
@@ -391,12 +390,10 @@ def test_comparison_report_handles_missing_benchmark_baseline(tmp_path: Path) ->
     report = render_report(tmp_path, base_rows, pr_rows, "New benchmark")
 
     assert "No baseline is available for this benchmark yet" in report
-    assert "base none (ms)" in report
+    assert "vs base `none`" in report
     assert markdown_row(report, "new timing/fixture") == [
         "new timing/fixture",
-        "3.125",
-        "—",
-        "no baseline",
+        "3.125 / — / no baseline",
     ]
 
 
@@ -411,9 +408,7 @@ def test_comparison_report_handles_mixed_query_types_in_baseline(tmp_path: Path)
 
     assert markdown_row(report, "random-access/fixture") == [
         "random-access/fixture",
-        "13",
-        "12.5",
-        "1.04",
+        "13 / 12.5 / +4.0% 🔴",
     ]
 
 
@@ -497,15 +492,13 @@ def test_report_splits_cold_and_hot_runs(tmp_path: Path) -> None:
 
     assert markdown_row(report, "tpch_q01/datafusion:vortex-file-compressed") == [
         "tpch_q01/datafusion:vortex-file-compressed 🚀",
-        "50",
-        "100",
-        "0.50",
-        "2000",
-        "1000",
-        "2.00",
+        "50 / 100 / -50.0% 🟢",
+        "2000 / 1000 / +100.0% 🔴",
+        "0.03 / 0.10 / -75.0% 🟢",
     ]
     assert "**Attributed Vortex impact**: -50.0%" in report
     assert "**Cold run (geomean)**: Vortex 2.000x ❌ · Parquet 1.000x ➖" in report
+    assert "**Commits**: PR `pr-sha` vs base " in report
 
 
 def test_verdict_ignores_a_cold_start_only_regression(tmp_path: Path) -> None:
@@ -536,12 +529,9 @@ def test_verdict_ignores_a_cold_start_only_regression(tmp_path: Path) -> None:
     assert "**Cold run (geomean)**: Vortex 4.000x ❌ · Parquet 1.000x ➖" in report
     assert markdown_row(report, "tpch_q01/datafusion:vortex-file-compressed") == [
         "tpch_q01/datafusion:vortex-file-compressed",
-        "100",
-        "100",
-        "1.00",
-        "400",
-        "100",
-        "4.00",
+        "100 / 100 / +0.0% ⚪",
+        "400 / 100 / +300.0% 🔴",
+        "0.25 / 1.00 / -75.0% 🟢",
     ]
 
 
