@@ -26,10 +26,17 @@ use crate::scalar_fn::ScalarFnId;
 /// propagation but permits valid inputs to produce null. The framework derives output validity
 /// only from input validity.
 ///
+/// A dispatched [`OutputElement`] or [`OutputSink`] describes the non-nullable values produced for
+/// valid rows. The framework widens that dtype when an input dtype is nullable, attaches the
+/// input-derived validity, and casts the finished array to the widened dtype. Implementations do
+/// not construct nullable placeholders for invalid rows.
+///
 /// Declare argument names and use [`dispatch`](Self::dispatch) to select element and output types.
 /// Every implementation receives the standard [`ScalarFnVTable`]. A public type that needs custom
 /// vtable hooks can delegate its row kernel through [`row_fn_return_dtype`] and [`execute_rows`].
 ///
+/// [`OutputElement`]: crate::scalar_fn::unstable::row::OutputElement
+/// [`OutputSink`]: crate::scalar_fn::unstable::row::OutputSink
 /// [`ScalarFnVTable`]: crate::scalar_fn::ScalarFnVTable
 /// [`execute_rows`]: crate::scalar_fn::unstable::row::execute_rows
 /// [`row_fn_return_dtype`]: crate::scalar_fn::unstable::row::row_fn_return_dtype

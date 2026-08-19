@@ -13,6 +13,7 @@ pub use element::ElementTuple;
 pub use element::IndexedElementTuple;
 pub use element::InputElement;
 pub use element::OutputElement;
+pub(super) use element::batch_const;
 
 mod result;
 pub use result::FailureEvidence;

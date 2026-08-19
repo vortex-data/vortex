@@ -13,12 +13,15 @@
 //!
 //! Unlike a general strict function, a [`RowFn`] cannot produce null from valid inputs.
 //!
+//! A _partially valid_ batch contains both valid and invalid rows. _Skip-invalid_ runs the kernel
+//! only for valid rows without changing row positions.
+//!
 //! Prepared visits move work derived from constant operands outside the hot loop. Deferred visits
 //! reduce compact failure evidence without constructing errors in that loop.
 
-// TODO(connor)[RowFn]: Remove this expectation when #9450 connects the batch executor.
-#[expect(dead_code)]
 mod execute;
+
+mod batch;
 
 mod row_fn;
 pub use row_fn::RowFn;

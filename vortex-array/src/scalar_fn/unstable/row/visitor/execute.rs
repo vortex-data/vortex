@@ -160,7 +160,7 @@ impl<F: RowFn> RowVisitor<F::Options> for ExecuteRows<'_, '_, F> {
 /// The runtime visit that executes valid rows over the original input columns.
 ///
 /// Only output sinks have a contract for skipped output positions. Owned visits therefore decline,
-/// and batch execution decides how to handle that unsupported signature.
+/// and batch execution rejects that unsupported signature.
 pub(crate) struct ExecuteValidRows<'args, 'ctx, F: RowFn> {
     /// The original inputs for this kernel invocation.
     args: &'args dyn ExecutionArgs,

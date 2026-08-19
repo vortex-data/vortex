@@ -114,8 +114,6 @@ pub(crate) struct BatchPlan {
     pub(crate) output_dtype: DType,
 
     /// How this concrete dispatch executes nullable rows.
-    // TODO(connor)[RowFn]: Remove this expectation when #9450 uses the planned policy.
-    #[expect(dead_code)]
     pub(crate) policy: RowPolicy,
 }
 
