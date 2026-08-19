@@ -14,6 +14,7 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::aggregate_fn::GeometryAabb;
+use crate::extension::Geometry;
 use crate::extension::LineString;
 use crate::extension::MultiLineString;
 use crate::extension::MultiPoint;
@@ -74,6 +75,9 @@ pub fn initialize(session: &VortexSession) {
     session.dtypes().register(Rect);
     session.arrow().register_exporter(Arc::new(Rect));
     session.arrow().register_importer(Arc::new(Rect));
+    session.dtypes().register(Geometry);
+    session.arrow().register_exporter(Arc::new(Geometry));
+    session.arrow().register_importer(Arc::new(Geometry));
 
     // Register the geometry scalar functions.
     session.scalar_fns().register(SpatialArea);

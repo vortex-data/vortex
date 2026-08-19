@@ -3,7 +3,7 @@
 
 //! Unary operand dispatch, plus an adapter for row-oriented `geo_types` kernels.
 
-use geo_types::Geometry;
+use geo_types::Geometry as GeoGeometry;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -18,7 +18,7 @@ use super::Execution;
 use super::Operand;
 use super::geo_types::GeoTypesOutput;
 use super::geo_types::eval_column;
-use crate::extension::single_geometry;
+use crate::extension::decode_geometry_scalar;
 
 /// Dispatch a unary strict geometry kernel over a constant or column.
 ///
@@ -77,7 +77,7 @@ pub(crate) fn execute_unary_geo_types<T, F>(
 ) -> VortexResult<ArrayRef>
 where
     T: GeoTypesOutput,
-    F: Fn(&Geometry<f64>) -> T,
+    F: Fn(&GeoGeometry<f64>) -> T,
 {
     let nullability = array.dtype().nullability();
     dispatch_unary(
@@ -85,7 +85,7 @@ where
         T::dtype(nullability),
         |execution, ctx| match execution.operands {
             [Operand::Constant(scalar)] => {
-                let geometry = single_geometry(&scalar, ctx)?;
+                let geometry = decode_geometry_scalar(&scalar, ctx)?;
                 Ok(ConstantArray::new(
                     compute(&geometry).into_scalar(execution.nullability),
                     execution.len,

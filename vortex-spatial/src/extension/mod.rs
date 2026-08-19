@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub(crate) mod coordinate;
+mod geometry;
 mod linestring;
 mod multilinestring;
 mod multipoint;
@@ -16,7 +17,7 @@ use std::sync::Arc;
 
 use ::wkb::reader::GeometryType;
 use arrow_array::BinaryArray;
-use geo_types::Geometry;
+use geo_types::Geometry as GeoGeometry;
 use geoarrow::array::GenericWkbArray;
 use geoarrow::array::GeoArrowArray;
 use geoarrow::datatypes::CoordType;
@@ -32,6 +33,7 @@ use geoarrow::datatypes::PointType;
 use geoarrow::datatypes::PolygonType;
 use geoarrow::datatypes::WkbType;
 use geoarrow_cast::cast::cast;
+pub use geometry::*;
 pub use linestring::*;
 pub use multilinestring::*;
 pub use multipoint::*;
@@ -73,8 +75,19 @@ pub(crate) fn is_native_geometry(dtype: &DType) -> bool {
             || ext.is::<Polygon>()
             || ext.is::<MultiLineString>()
             || ext.is::<MultiPolygon>()
+            || ext.is::<Geometry>()
             || ext.is::<Rect>()
     })
+}
+
+/// Whether `dtype` is the mixed [`Geometry`] union rather than a homogeneous geometry type.
+///
+/// The mixed column has union storage, so the kernels that read coordinates straight out of a
+/// homogeneous layout have to take a different path for it.
+pub(crate) fn is_mixed_geometry(dtype: &DType) -> bool {
+    dtype
+        .as_extension_opt()
+        .is_some_and(|ext| ext.is::<Geometry>())
 }
 
 /// Flatten a native geometry column into a single coordinate `Struct<x, y, ...>` containing
@@ -143,17 +156,20 @@ pub(crate) fn flatten_row_offsets(
     Ok((row_offsets, level.execute::<StructArray>(ctx)?))
 }
 
-/// Decode a native geometry column to `geo_types`. A non-geometry operand is an error.
-pub(crate) fn geometries(
+/// Decode a native geometry column to the row-oriented `geo_types` representation.
+pub(crate) fn decode_geometries(
     array: &ArrayRef,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Vec<Geometry<f64>>> {
+) -> VortexResult<Vec<GeoGeometry<f64>>> {
     let Some(ext) = array.dtype().as_extension_opt() else {
         vortex_bail!(
             "spatial: operand is not a geometry extension type, was {}",
             array.dtype()
         );
     };
+    if is_mixed_geometry(array.dtype()) {
+        return decode_mixed_geometries(array, ctx);
+    }
     let storage = array
         .clone()
         .execute::<ExtensionArray>(ctx)?
@@ -180,12 +196,12 @@ pub(crate) fn geometries(
 
 /// Decode a constant operand scalar to one geometry, a constant of any
 /// supported geometry type is decoded exactly like a column.
-pub(crate) fn single_geometry(
+pub(crate) fn decode_geometry_scalar(
     scalar: &Scalar,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Geometry<f64>> {
+) -> VortexResult<GeoGeometry<f64>> {
     let array = ConstantArray::new(scalar.clone(), 1).into_array();
-    geometries(&array, ctx)?
+    decode_geometries(&array, ctx)?
         .pop()
         .ok_or_else(|| vortex_err!("spatial: constant operand decoded to no geometry"))
 }

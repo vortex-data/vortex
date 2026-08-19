@@ -6,6 +6,8 @@
 //! A row-oriented consumer (e.g. bulk-loading an in-memory R-tree in a spatial-join operator)
 //! reads the resulting box column back row by row.
 
+use geo::BoundingRect;
+use geo::Rect as SpatialRect;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -33,6 +35,7 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -45,7 +48,9 @@ use crate::extension::build_rect_array;
 use crate::extension::coordinate::Dimension;
 use crate::extension::coordinate::box_corners;
 use crate::extension::coordinate::ordinates;
+use crate::extension::decode_mixed_geometries;
 use crate::extension::flatten_row_offsets;
+use crate::extension::is_mixed_geometry;
 use crate::extension::is_native_geometry;
 use crate::scalar_fn::execute::Execution;
 use crate::scalar_fn::execute::Operand;
@@ -138,6 +143,62 @@ fn row_boxes(
     ))
 }
 
+/// Compute each valid row's box over a mixed geometry column and scatter the results back into
+/// full-length corner columns.
+///
+/// Union storage has no single coordinate layout to read straight through, so this decodes to
+/// `geo_types` per row rather than folding raw ordinate slices like [`row_boxes`].
+fn mixed_geometry_boxes(
+    array: ArrayRef,
+    valid: &Mask,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<(Vec<ArrayRef>, Validity)> {
+    let len = array.len();
+    let decoded = decode_mixed_geometries(&array.filter(valid.clone())?, ctx)?;
+    let rects = decoded.iter().map(BoundingRect::bounding_rect);
+
+    let mut xmins = BufferMut::zeroed(len);
+    let mut ymins = BufferMut::zeroed(len);
+    let mut xmaxs = BufferMut::zeroed(len);
+    let mut ymaxs = BufferMut::zeroed(len);
+    // A row has a box iff it is valid and owns at least one coordinate (an empty geometry has
+    // no box).
+    let mut has_box = vec![false; len];
+    let mut scatter = |row: usize, rect: Option<SpatialRect<f64>>| {
+        if let Some(rect) = rect {
+            xmins[row] = rect.min().x;
+            ymins[row] = rect.min().y;
+            xmaxs[row] = rect.max().x;
+            ymaxs[row] = rect.max().y;
+            has_box[row] = true;
+        }
+    };
+
+    match valid.indices() {
+        AllOr::All => {
+            for (row, rect) in rects.enumerate() {
+                scatter(row, rect);
+            }
+        }
+        AllOr::None => {}
+        AllOr::Some(rows) => {
+            for (&row, rect) in rows.iter().zip(rects) {
+                scatter(row, rect);
+            }
+        }
+    }
+
+    Ok((
+        vec![
+            xmins.freeze().into_array(),
+            ymins.freeze().into_array(),
+            xmaxs.freeze().into_array(),
+            ymaxs.freeze().into_array(),
+        ],
+        Validity::from_iter(has_box),
+    ))
+}
+
 /// Compute boxes directly over a non-constant native geometry column.
 fn envelope_array(
     array: ArrayRef,
@@ -146,6 +207,11 @@ fn envelope_array(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let len = array.len();
+    if is_mixed_geometry(array.dtype()) {
+        let valid = validity.execute_mask(len, ctx)?;
+        let (corners, output_validity) = mixed_geometry_boxes(array, &valid, ctx)?;
+        return build_rect_array(output_dtype, corners, len, output_validity);
+    }
     let is_rect = array
         .dtype()
         .as_extension_opt()
@@ -237,9 +303,9 @@ impl ScalarFnVTable for SpatialEnvelope {
         Ok(DType::Extension(output_box_dtype()?.erased()))
     }
 
-    /// Compute each row's box directly over the native coordinate storage — no decode to
-    /// `geo_types`, no Arrow round-trip. A null row, or a valid row that owns no coordinate (an
-    /// empty geometry), yields a null box.
+    /// Compute each row's box directly over homogeneous native coordinate storage. Geometry
+    /// unions use the row-oriented fallback. A null row, or a valid row that owns no coordinate
+    /// (an empty geometry), yields a null box.
     fn execute(
         &self,
         _: &Self::Options,

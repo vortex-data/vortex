@@ -41,8 +41,8 @@ use vortex_array::stats::rewrite::StatsRewriteCtx;
 use vortex_error::VortexResult;
 
 use crate::aggregate_fn::GeometryAabb;
+use crate::extension::decode_geometry_scalar;
 use crate::extension::is_native_geometry;
-use crate::extension::single_geometry;
 
 /// Splits a symmetric two-operand spatial predicate into the scope-rooted geometry column and the
 /// constant operand's scalar.
@@ -91,7 +91,7 @@ fn query_aabb(
     // Decoding the constant into a concrete geometry runs through the compute stack, which needs
     // an execution context.
     let mut exec = ctx.session().create_execution_ctx();
-    Ok(single_geometry(constant, &mut exec)?.bounding_rect())
+    Ok(decode_geometry_scalar(constant, &mut exec)?.bounding_rect())
 }
 
 /// The chunk's AABB statistic, as the storage struct with `xmin`/`ymin`/`xmax`/`ymax` fields.

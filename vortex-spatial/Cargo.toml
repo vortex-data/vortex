@@ -15,6 +15,7 @@ version.workspace = true
 
 [dependencies]
 arrow-array = { workspace = true }
+arrow-buffer = { workspace = true }
 arrow-schema = { workspace = true }
 geo = { workspace = true }
 geo-traits = { workspace = true }

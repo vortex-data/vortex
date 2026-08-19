@@ -4,7 +4,7 @@
 //! Binary pairwise dispatch, plus an adapter for row-oriented `geo_types` kernels.
 
 use geo::BoundingRect;
-use geo_types::Geometry;
+use geo_types::Geometry as GeoGeometry;
 use geo_types::Rect;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -22,7 +22,7 @@ use super::Operand;
 use super::geo_types::GeoTypesOutput;
 use super::geo_types::eval_column;
 use super::geo_types::eval_column_pair;
-use crate::extension::single_geometry;
+use crate::extension::decode_geometry_scalar;
 
 /// Dispatch a binary strict geometry kernel over constants and columns.
 ///
@@ -112,7 +112,7 @@ pub(crate) fn execute_binary_geo_types<T, F>(
 ) -> VortexResult<ArrayRef>
 where
     T: GeoTypesOutput,
-    F: Fn(&Geometry<f64>, &Geometry<f64>) -> T + Copy,
+    F: Fn(&GeoGeometry<f64>, &GeoGeometry<f64>) -> T + Copy,
 {
     let nullability = Nullability::from(left.dtype().is_nullable() || right.dtype().is_nullable());
     dispatch_binary(
@@ -121,8 +121,8 @@ where
         T::dtype(nullability),
         |execution, ctx| match execution.operands {
             [Operand::Constant(left), Operand::Constant(right)] => {
-                let left = single_geometry(&left, ctx)?;
-                let right = single_geometry(&right, ctx)?;
+                let left = decode_geometry_scalar(&left, ctx)?;
+                let right = decode_geometry_scalar(&right, ctx)?;
                 Ok(ConstantArray::new(
                     compute(&left, &right).into_scalar(execution.nullability),
                     execution.len,
@@ -130,7 +130,7 @@ where
                 .into_array())
             }
             [Operand::Constant(left), Operand::Column(right)] => {
-                let left = single_geometry(&left, ctx)?;
+                let left = decode_geometry_scalar(&left, ctx)?;
                 let prescreen = bbox_precheck.zip(left.bounding_rect());
                 eval_column(
                     &right,
@@ -145,7 +145,7 @@ where
                 )
             }
             [Operand::Column(left), Operand::Constant(right)] => {
-                let right = single_geometry(&right, ctx)?;
+                let right = decode_geometry_scalar(&right, ctx)?;
                 let prescreen = bbox_precheck.zip(right.bounding_rect());
                 eval_column(
                     &left,

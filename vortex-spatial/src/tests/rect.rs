@@ -110,7 +110,8 @@ fn roundtrips_through_arrow() -> VortexResult<()> {
     Ok(())
 }
 
-/// The existing spatial scalar functions run on a `Rect` operand via the shared `geometries()` decode,
+/// The existing spatial scalar functions run on a `Rect` operand via the shared
+/// `decode_geometries()` path,
 /// producing the same results as the equivalent polygon: a box `(0,0)-(10,10)` against interior
 /// point `(5,5)` and exterior point `(20,20)`.
 #[test]

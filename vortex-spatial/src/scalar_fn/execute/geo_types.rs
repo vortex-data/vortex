@@ -6,7 +6,7 @@
 //! `geo_types` is the row representation consumed by the kernel. These helpers always construct
 //! and return Vortex arrays; they do not expose `geo_types` values as scalar-function outputs.
 
-use geo_types::Geometry;
+use geo_types::Geometry as GeoGeometry;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -22,7 +22,7 @@ use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
-use crate::extension::geometries;
+use crate::extension::decode_geometries;
 
 /// A primitive result produced after kernel inputs are decoded to `geo_types`.
 pub(crate) trait GeoTypesOutput: Copy {
@@ -111,10 +111,10 @@ pub(super) fn eval_column<T, F>(
 ) -> VortexResult<ArrayRef>
 where
     T: GeoTypesOutput,
-    F: Fn(&Geometry<f64>) -> T,
+    F: Fn(&GeoGeometry<f64>) -> T,
 {
     let len = column.len();
-    let decoded = geometries(&column.filter(valid.clone())?, ctx)?;
+    let decoded = decode_geometries(&column.filter(valid.clone())?, ctx)?;
     let values = decoded.iter().map(compute).collect();
     Ok(T::build_array(len, valid, values, nullability))
 }
@@ -130,11 +130,11 @@ pub(super) fn eval_column_pair<T, F>(
 ) -> VortexResult<ArrayRef>
 where
     T: GeoTypesOutput,
-    F: Fn(&Geometry<f64>, &Geometry<f64>) -> T,
+    F: Fn(&GeoGeometry<f64>, &GeoGeometry<f64>) -> T,
 {
     let len = left.len();
-    let left = geometries(&left.filter(valid.clone())?, ctx)?;
-    let right = geometries(&right.filter(valid.clone())?, ctx)?;
+    let left = decode_geometries(&left.filter(valid.clone())?, ctx)?;
+    let right = decode_geometries(&right.filter(valid.clone())?, ctx)?;
     let values = left
         .iter()
         .zip(&right)

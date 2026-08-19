@@ -3,6 +3,7 @@
 
 //! The 2D axis-aligned bounding-box (AABB) aggregate for native geometry columns.
 
+use geo::BoundingRect;
 use geo::Rect as SpatialRect;
 use vortex_array::ArrayRef;
 use vortex_array::Columnar;
@@ -29,7 +30,9 @@ use crate::extension::box_storage_dtype;
 use crate::extension::coordinate::Dimension;
 use crate::extension::coordinate::box_corners;
 use crate::extension::coordinate::ordinates;
+use crate::extension::decode_mixed_geometries;
 use crate::extension::flatten_coordinates;
+use crate::extension::is_mixed_geometry;
 use crate::extension::is_native_geometry;
 
 /// Aggregates a native geometry column's 2D axis-aligned bounding box (AABB) as a native
@@ -205,6 +208,14 @@ impl AggregateFnVTable for GeometryAabb {
         // non-nullable case already costs nothing (the all-true mask makes `filter` a no-op).
         let valid = array.validity()?.execute_mask(array.len(), ctx)?;
         let array = array.filter(valid)?;
+        if is_mixed_geometry(array.dtype()) {
+            for geometry in decode_mixed_geometries(&array, ctx)? {
+                if let Some(rect) = geometry.bounding_rect() {
+                    partial.merge(rect);
+                }
+            }
+            return Ok(());
+        }
         // Null rows are gone, so every coordinate below belongs to a present geometry — the
         // `unmasked_field_by_name` reads are therefore safe. Min/max the raw x/y buffers directly:
         // cheap, and avoids `to_geometry`'s panic on empty points (which decoding would hit).

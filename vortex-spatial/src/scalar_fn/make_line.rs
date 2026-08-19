@@ -270,8 +270,8 @@ mod tests {
     use crate::extension::coordinate::Dimension;
     use crate::extension::coordinate::coordinate_dimension;
     use crate::extension::coordinate::ordinates;
+    use crate::extension::decode_geometries;
     use crate::extension::flatten_coordinates;
-    use crate::extension::geometries;
     use crate::test_harness::point_column;
 
     fn dimensional_point(
@@ -319,7 +319,7 @@ mod tests {
         let lines = SpatialMakeLine::try_new_array(starts, ends)?.into_array();
         assert!(lines.dtype().as_extension().is::<LineString>());
         assert_eq!(
-            geometries(&lines, &mut ctx)?,
+            decode_geometries(&lines, &mut ctx)?,
             vec![
                 Geometry::LineString(GeoLineString::new(vec![
                     Coord { x: 0.0, y: 0.0 },
@@ -351,7 +351,7 @@ mod tests {
         };
         assert_eq!(lines.len(), 3);
         assert_eq!(
-            geometries(&lines.into_array(), &mut ctx)?,
+            decode_geometries(&lines.into_array(), &mut ctx)?,
             vec![
                 Geometry::LineString(GeoLineString::new(vec![
                     Coord { x: 0.0, y: 0.0 },
@@ -391,7 +391,7 @@ mod tests {
                 }))
             })
             .collect::<Vec<_>>();
-        assert_eq!(geometries(&lines, &mut ctx)?, expected);
+        assert_eq!(decode_geometries(&lines, &mut ctx)?, expected);
         Ok(())
     }
 

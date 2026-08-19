@@ -35,9 +35,9 @@ use crate::extension::MultiPoint;
 use crate::extension::Polygon;
 use crate::extension::build_polygon_array;
 use crate::extension::coordinate::Dimension;
-use crate::extension::geometries;
+use crate::extension::decode_geometries;
+use crate::extension::decode_geometry_scalar;
 use crate::extension::polygon_storage_dtype;
-use crate::extension::single_geometry;
 use crate::scalar_fn::execute::Execution;
 use crate::scalar_fn::execute::Operand;
 use crate::scalar_fn::execute::dispatch_unary;
@@ -75,7 +75,7 @@ fn convex_hull_array(
     output_dtype: &ExtDTypeRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let decoded = geometries(&array.filter(valid.clone())?, ctx)?;
+    let decoded = decode_geometries(&array.filter(valid.clone())?, ctx)?;
     let hulls = decoded.iter().map(ConvexHull::convex_hull);
     let polygons = match valid.indices() {
         AllOr::All => hulls.map(Some).collect(),
@@ -104,7 +104,7 @@ fn execute_convex_hull(
 ) -> VortexResult<ArrayRef> {
     match execution.operands {
         [Operand::Constant(scalar)] => {
-            let hull = single_geometry(&scalar, ctx)?.convex_hull();
+            let hull = decode_geometry_scalar(&scalar, ctx)?.convex_hull();
             let output = build_polygon_array(
                 &[Some(hull)],
                 output_dtype.metadata::<Polygon>().clone(),

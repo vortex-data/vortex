@@ -20,6 +20,8 @@ use vortex_array::arrays::UnionArray;
 use vortex_array::arrays::union::UnionArraySlotsExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::compute::conformance::mask::test_mask_conformance;
+use vortex_array::compute::conformance::take::test_take_conformance;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -37,6 +39,7 @@ use vortex_session::registry::ReadContext;
 use super::DenseUnion;
 use super::DenseUnionArray;
 use super::DenseUnionArraySlotsExt;
+use crate::test_harness::spatial_session;
 
 fn variants() -> VortexResult<UnionVariants> {
     UnionVariants::try_new(
@@ -84,12 +87,6 @@ fn nullable_dense_union() -> VortexResult<DenseUnionArray> {
     )
 }
 
-fn session() -> VortexSession {
-    let session = vortex_array::array_session();
-    crate::initialize(&session);
-    session
-}
-
 #[track_caller]
 fn assert_rows(
     array: &ArrayRef,
@@ -123,7 +120,7 @@ fn assert_same_rows(
 
 #[test]
 fn scalar_at_uses_type_id_and_offset() -> VortexResult<()> {
-    let session = session();
+    let session = spatial_session();
     let array = dense_union()?.into_array();
     assert_rows(
         &array,
@@ -138,7 +135,7 @@ fn scalar_at_uses_type_id_and_offset() -> VortexResult<()> {
 
 #[test]
 fn outer_and_selected_child_nulls_are_distinct() -> VortexResult<()> {
-    let session = session();
+    let session = spatial_session();
     let variants = nullable_variants()?;
     let array = nullable_dense_union()?.into_array();
     assert_rows(
@@ -163,64 +160,84 @@ fn outer_and_selected_child_nulls_are_distinct() -> VortexResult<()> {
     )
 }
 
-#[test]
-fn slice_filter_take_and_mask_preserve_dense_encoding() -> VortexResult<()> {
-    let session = session();
+/// The selector-only kernels, each applied to [`dense_union`].
+#[derive(Clone, Copy)]
+enum SelectorOp {
+    Slice,
+    Filter,
+    Take,
+    Mask,
+}
+
+impl SelectorOp {
+    fn apply(self, array: &ArrayRef) -> VortexResult<ArrayRef> {
+        match self {
+            Self::Slice => array.slice(1..3),
+            Self::Filter => array.filter(Mask::from_iter([true, false, true])),
+            Self::Take => array.take(PrimitiveArray::from_iter([2u32, 0, 1]).into_array()),
+            Self::Mask => array
+                .clone()
+                .mask(BoolArray::from_iter([true, false, true]).into_array()),
+        }
+    }
+}
+
+#[rstest]
+#[case::slice(SelectorOp::Slice)]
+#[case::filter(SelectorOp::Filter)]
+#[case::take(SelectorOp::Take)]
+#[case::mask(SelectorOp::Mask)]
+fn selector_ops_preserve_dense_encoding(#[case] op: SelectorOp) -> VortexResult<()> {
+    let session = spatial_session();
+    let variants = variants()?;
     let array = dense_union()?.into_array();
+    let selected = op.apply(&array)?;
 
-    let sliced = array.slice(1..3)?;
-    let filtered = array.filter(Mask::from_iter([true, false, true]))?;
-    let taken = array.take(PrimitiveArray::from_iter([2u32, 0, 1]).into_array())?;
-    let masked = array.mask(BoolArray::from_iter([true, false, true]).into_array())?;
+    // Selector-only means the compact children survive untouched, at their original length.
+    assert!(selected.is::<DenseUnion>());
+    assert_eq!(selected.as_::<DenseUnion>().children()[0].len(), 2);
 
-    assert!(sliced.is::<DenseUnion>());
-    assert!(filtered.is::<DenseUnion>());
-    assert!(taken.is::<DenseUnion>());
-    assert!(masked.is::<DenseUnion>());
-    assert_eq!(sliced.as_::<DenseUnion>().children()[0].len(), 2);
-    assert_eq!(filtered.as_::<DenseUnion>().children()[0].len(), 2);
-    assert_eq!(taken.as_::<DenseUnion>().children()[0].len(), 2);
-    assert_eq!(masked.as_::<DenseUnion>().children()[0].len(), 2);
+    let number =
+        |value: i32, nullability| Scalar::union(variants.clone(), 5, value.into(), nullability);
+    let flag =
+        |value: bool, nullability| Scalar::union(variants.clone(), 9, value.into(), nullability);
+    let expected = match op {
+        SelectorOp::Slice => vec![
+            flag(true, Nullability::NonNullable)?,
+            number(30, Nullability::NonNullable)?,
+        ],
+        SelectorOp::Filter => vec![
+            number(10, Nullability::NonNullable)?,
+            number(30, Nullability::NonNullable)?,
+        ],
+        SelectorOp::Take => vec![
+            number(30, Nullability::NonNullable)?,
+            number(10, Nullability::NonNullable)?,
+            flag(true, Nullability::NonNullable)?,
+        ],
+        SelectorOp::Mask => vec![
+            number(10, Nullability::Nullable)?,
+            Scalar::null(DType::Union(variants.clone(), Nullability::Nullable)),
+            number(30, Nullability::Nullable)?,
+        ],
+    };
+    assert_rows(&selected, expected, &session)
+}
 
-    assert_rows(
-        &sliced,
-        vec![
-            Scalar::union(variants()?, 9, true.into(), Nullability::NonNullable)?,
-            Scalar::union(variants()?, 5, 30i32.into(), Nullability::NonNullable)?,
-        ],
-        &session,
-    )?;
-    assert_rows(
-        &filtered,
-        vec![
-            Scalar::union(variants()?, 5, 10i32.into(), Nullability::NonNullable)?,
-            Scalar::union(variants()?, 5, 30i32.into(), Nullability::NonNullable)?,
-        ],
-        &session,
-    )?;
-    assert_rows(
-        &taken,
-        vec![
-            Scalar::union(variants()?, 5, 30i32.into(), Nullability::NonNullable)?,
-            Scalar::union(variants()?, 5, 10i32.into(), Nullability::NonNullable)?,
-            Scalar::union(variants()?, 9, true.into(), Nullability::NonNullable)?,
-        ],
-        &session,
-    )?;
-    assert_rows(
-        &masked,
-        vec![
-            Scalar::union(variants()?, 5, 10i32.into(), Nullability::Nullable)?,
-            Scalar::null(DType::Union(variants()?, Nullability::Nullable)),
-            Scalar::union(variants()?, 5, 30i32.into(), Nullability::Nullable)?,
-        ],
-        &session,
-    )
+#[rstest]
+#[case::non_nullable(dense_union())]
+#[case::nullable(nullable_dense_union())]
+fn take_and_mask_conformance(#[case] array: VortexResult<DenseUnionArray>) -> VortexResult<()> {
+    let array = array?.into_array();
+    let mut ctx = spatial_session().create_execution_ctx();
+    test_take_conformance(&array, &mut ctx);
+    test_mask_conformance(&array, &mut ctx);
+    Ok(())
 }
 
 #[test]
 fn nullable_take_indices_become_outer_nulls() -> VortexResult<()> {
-    let session = session();
+    let session = spatial_session();
     let taken = dense_union()?
         .into_array()
         .take(PrimitiveArray::from_option_iter([Some(2u32), None, Some(0)]).into_array())?;
@@ -238,7 +255,7 @@ fn nullable_take_indices_become_outer_nulls() -> VortexResult<()> {
 
 #[test]
 fn canonicalization_uses_sparse_dictionary_children() -> VortexResult<()> {
-    let session = session();
+    let session = spatial_session();
     let array = dense_union()?.into_array();
     let mut ctx = session.create_execution_ctx();
     let canonical = array.clone().execute::<UnionArray>(&mut ctx)?;
@@ -250,7 +267,7 @@ fn canonicalization_uses_sparse_dictionary_children() -> VortexResult<()> {
 
 #[test]
 fn canonicalization_handles_unselected_empty_child() -> VortexResult<()> {
-    let session = session();
+    let session = spatial_session();
     let array = DenseUnion::try_new(
         PrimitiveArray::from_iter([5u8, 5]).into_array(),
         PrimitiveArray::from_iter([0i32, 1]).into_array(),
@@ -276,7 +293,7 @@ fn invalid_type_id_and_offsets_return_errors(
     #[case] offset: i32,
     #[case] expected: &str,
 ) -> VortexResult<()> {
-    let session = session();
+    let session = spatial_session();
     let mut ctx = session.create_execution_ctx();
     let array = DenseUnion::try_new(
         PrimitiveArray::from_iter([type_id]).into_array(),
@@ -340,7 +357,7 @@ fn validates_structural_components(
 
 #[test]
 fn canonicalization_handles_zero_length_array() -> VortexResult<()> {
-    let session = session();
+    let session = spatial_session();
     let array = DenseUnion::try_new(
         PrimitiveArray::from_iter(Vec::<u8>::new()).into_array(),
         PrimitiveArray::from_iter(Vec::<i32>::new()).into_array(),
@@ -359,7 +376,7 @@ fn canonicalization_handles_zero_length_array() -> VortexResult<()> {
 
 #[test]
 fn serde_roundtrip() -> VortexResult<()> {
-    let session = session();
+    let session = spatial_session();
     let array = nullable_dense_union()?.into_array();
     let dtype = array.dtype().clone();
     let len = array.len();

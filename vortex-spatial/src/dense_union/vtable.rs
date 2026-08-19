@@ -18,14 +18,12 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::dtype::UnionVariants;
 use vortex_array::require_child;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::with_empty_buffers;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
@@ -40,6 +38,7 @@ use super::array::DenseUnionSlots;
 use super::array::make_parts;
 use super::canonical::canonicalize;
 use super::rules::PARENT_RULES;
+use super::union_variants;
 
 const OFFSETS_DTYPE: DType = DType::Primitive(PType::I32, Nullability::NonNullable);
 
@@ -50,13 +49,6 @@ struct DenseUnionMetadata {
     child_lengths: Vec<u64>,
 }
 
-fn union_dtype(dtype: &DType) -> VortexResult<(&UnionVariants, Nullability)> {
-    let DType::Union(variants, nullability) = dtype else {
-        vortex_bail!("DenseUnion requires a union dtype, got {dtype}");
-    };
-    Ok((variants, *nullability))
-}
-
 fn validate_components(
     type_ids: &ArrayRef,
     offsets: &ArrayRef,
@@ -64,7 +56,7 @@ fn validate_components(
     dtype: &DType,
     len: usize,
 ) -> VortexResult<()> {
-    let (variants, nullability) = union_dtype(dtype)?;
+    let (variants, nullability) = union_variants(dtype)?;
     vortex_ensure_eq!(
         children.len(),
         variants.len(),
@@ -128,7 +120,7 @@ impl VTable for DenseUnion {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        let (variants, _) = union_dtype(dtype)?;
+        let (variants, _) = union_variants(dtype)?;
         let expected_slots = DenseUnionSlots::CHILDREN_OFFSET + variants.len();
         vortex_ensure_eq!(
             slots.len(),
@@ -199,7 +191,7 @@ impl VTable for DenseUnion {
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure!(buffers.is_empty(), "DenseUnion expects no buffers");
-        let (variants, nullability) = union_dtype(dtype)?;
+        let (variants, nullability) = union_variants(dtype)?;
         let metadata = DenseUnionMetadata::decode(metadata)?;
         vortex_ensure_eq!(
             metadata.child_lengths.len(),

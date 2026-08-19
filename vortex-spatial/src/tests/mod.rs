@@ -4,6 +4,7 @@
 //! Arrow interop tests for the spatial extension types, exercising the session wiring set up
 //! by [`crate::initialize`].
 
+mod geometry;
 mod linestring;
 mod multilinestring;
 mod multipoint;
