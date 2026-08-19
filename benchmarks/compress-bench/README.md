@@ -117,7 +117,11 @@ rendered before the failure summary, so a dataset the GPU cannot decode still le
 the matrix with numbers — the process exits non-zero either way.
 
 The dataset list in `src/main.rs` therefore holds only datasets a `--gpu-verify` run has confirmed.
-Several others are waiting on `vortex-cuda` kernel gaps (`u16` in `date_time_parts`, a
-`vortex.masked` kernel, and a CPU fallback reached with device-resident buffers); they are listed
-with their reasons next to `gpu_datasets`. Add one there once its gap is closed and verification
-passes.
+It now covers the whole compress suite: the kernel gaps that kept `taxi`, `Arade`, `CMSprovider`,
+`Euro2016`, `HashTags` and the `StructListOfInts` wide tables off it — `u16` components in
+`date_time_parts`, per-element `RunEnd` validity, and missing `vortex.masked` and `vortex.list`
+kernels — have since been closed. Add a new dataset there once verification passes.
+
+`airquality` and `rplace` download from pcodec's public bucket, which the CPU suite skips to avoid
+creating egress charges for pcodec. The GPU suite runs every entry on its explicit list, so both
+are fetched on each GPU run.

@@ -241,24 +241,23 @@ async fn run_compress(
 
     // Datasets run in GPU mode. Add one only after a `--gpu-verify` run has confirmed its CUDA
     // decode end to end; a dataset here that cannot decode fails the benchmark job. Between them
-    // these cover FSST strings, bit-packed numerics and columns with nulls.
-    //
-    // Not yet listed, each blocked on a `vortex-cuda` gap rather than on the benchmark:
-    //
-    // - `taxi` and `Arade`: `Unsupported ptype u16`. The CUDA `date_time_parts` kernel dispatches
-    //   with `match_each_signed_integer_ptype!` where the CPU canonicaliser uses
-    //   `match_each_integer_ptype!`. Widening the fused kernel takes 4³ = 64 PTX instantiations
-    //   to 8³ = 512, so it is not a free change.
-    // - `Euro2016` and `HashTags`: `No CUDA kernel for encoding vortex.masked`.
-    // - `CMSprovider`: `expected host buffer` — a CPU fallback is reached with device-resident
-    //   buffers, which `CudaArrayExt::execute_cuda` refuses.
-    // - `StructListOfInts`: its list layouts have no verified CUDA decode path.
-    let gpu_datasets: [&dyn Dataset; 4] = [
+    // these cover FSST strings, bit-packed numerics, timestamps, columns with nulls, and lists.
+    let gpu_datasets: Vec<&dyn Dataset> = [
         &TPCHLCommentCanonical as &dyn Dataset,
         &TPCHLCommentChunked,
+        &TaxiData,
+        PBI_DATASETS.get(Arade),
         PBI_DATASETS.get(Bimbo),
+        PBI_DATASETS.get(CMSprovider),
+        PBI_DATASETS.get(Euro2016),
         PBI_DATASETS.get(Food),
-    ];
+        PBI_DATASETS.get(HashTags),
+        &DownloadableDataset::AirQuality,
+        &DownloadableDataset::RPlace,
+    ]
+    .into_iter()
+    .chain(structlistofints.iter().map(|d| d as &dyn Dataset))
+    .collect();
 
     let all_datasets: Vec<&dyn Dataset> = [
         &TaxiData as &dyn Dataset,
@@ -283,7 +282,7 @@ async fn run_compress(
     .collect();
 
     let datasets: Vec<&dyn Dataset> = if mode.is_gpu() {
-        gpu_datasets.to_vec()
+        gpu_datasets
     } else {
         all_datasets
     }
@@ -291,6 +290,9 @@ async fn run_compress(
     .filter(|d| {
         if let Some(filter) = datasets_filter.as_ref() {
             filter.is_match(d.name())
+        } else if mode.is_gpu() {
+            // The GPU suite is an explicit list, so every entry on it runs.
+            true
         } else {
             // These download data from pcodec's public bucket, presumably creating egress charges
             // for pcodec. As such, we do not run in CI.
