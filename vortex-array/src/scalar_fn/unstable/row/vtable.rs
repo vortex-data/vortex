@@ -14,8 +14,12 @@ use vortex_error::vortex_ensure_eq;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
+use super::batch::Batch;
+use super::batch::BorrowedExecutionArgs;
 use super::row_fn::RowFn;
 use super::visitor::BatchPlanner;
+use super::visitor::ExecuteRows;
+use super::visitor::ExecuteValidRows;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
@@ -26,10 +30,6 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::unstable::row::batch::Batch;
-use crate::scalar_fn::unstable::row::batch::BorrowedExecutionArgs;
-use crate::scalar_fn::unstable::row::visitor::ExecuteRows;
-use crate::scalar_fn::unstable::row::visitor::ExecuteValidRows;
 
 impl<F: RowFn> ScalarFnVTable for F {
     type Options = F::Options;
