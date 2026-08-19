@@ -15,7 +15,7 @@ pub const CORE_2026_07_0: EditionId = EditionId::new("core", 2026, 7, 0);
 pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: CORE_2026_07_0,
-        min_vortex_version: Some("0.65.0"),
+        min_vortex_version: None,
     },
     added: &[EditionMember::array(&"vortex.variant")],
 };

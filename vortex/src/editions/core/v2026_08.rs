@@ -9,9 +9,9 @@ use vortex_edition::EditionId;
 use vortex_edition::EditionMember;
 
 /// The August 2026 core edition containing canonical Map arrays.
-pub const CORE_2026_08: EditionId = EditionId::new("core", 2026, 8, 0);
+pub const CORE_2026_08_0: EditionId = EditionId::new("core", 2026, 8, 0);
 
-/// The declaration of [`CORE_2026_08`] and the components that join the family at it.
+/// The declaration of [`CORE_2026_08_0`] and the components that join the family at it.
 ///
 /// The aggregates are the set the default writer records in zone maps. Declaring them arms the
 /// writer's aggregate filter, so a strategy asking for an aggregate outside this set fails the
@@ -22,8 +22,8 @@ pub const CORE_2026_08: EditionId = EditionId::new("core", 2026, 8, 0);
 /// records it, so the two stay consistent.
 pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
-        id: CORE_2026_08,
-        min_vortex_version: Some("0.84.0"),
+        id: CORE_2026_08_0,
+        min_vortex_version: None,
     },
     added: &[
         EditionMember::array(&"vortex.map"),

@@ -45,7 +45,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use super::CORE_2025_05_0;
 use super::CORE_2026_07_0;
-use super::CORE_2026_08;
+use super::CORE_2026_08_0;
 use super::DEFAULT_CORE_EDITION;
 use super::DEFAULT_UNSTABLE_EDITION;
 use super::EDITION_DECLARATIONS;
@@ -145,7 +145,7 @@ fn encodings_in_editions_unions_families() {
 fn earlier_editions_are_subsets() {
     let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
     let first = session.components_in(&CORE_2025_05_0, ComponentKind::Array);
-    let latest = session.components_in(&CORE_2026_08, ComponentKind::Array);
+    let latest = session.components_in(&CORE_2026_08_0, ComponentKind::Array);
     assert!(first.iter().all(|inclusion| {
         latest
             .iter()
@@ -178,7 +178,7 @@ fn core_edition_ids_are_registered_array_encodings() {
     let registry = session.arrays().registry().clone();
     for inclusion in session
         .editions()
-        .components_in(&CORE_2026_08, ComponentKind::Array)
+        .components_in(&CORE_2026_08_0, ComponentKind::Array)
     {
         assert!(
             registry.contains_key(&inclusion.component_id),
@@ -199,7 +199,7 @@ fn core_aggregate_ids_are_registered_aggregate_fns() {
     let session = VortexSession::default();
     let declared = session
         .editions()
-        .components_in(&CORE_2026_08, ComponentKind::Aggregate);
+        .components_in(&CORE_2026_08_0, ComponentKind::Aggregate);
     assert!(
         declared
             .iter()

@@ -16,4 +16,4 @@ pub use v2025_05::CORE_2025_05_0;
 pub use v2025_06::CORE_2025_06_0;
 pub use v2025_10::CORE_2025_10_0;
 pub use v2026_07::CORE_2026_07_0;
-pub use v2026_08::CORE_2026_08;
+pub use v2026_08::CORE_2026_08_0;
