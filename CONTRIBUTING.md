@@ -133,29 +133,31 @@ At the time of writing, the following individuals serve as Committers (non-votin
 
 1. Adam Gutglick
 2. Alexander Droste
-3. Andy Pavlo
-4. Connor Tsui
-5. Daniel King
-6. Dmitrii Blaginin
-7. Joseph Isaacs
-8. Marko Bakovic
-9. Onur Satici
-10. Xinyu Zeng
-11. Alfonso Subiotto
-12. Lorenz Hübschle
+3. Alfonso Subiotto
+4. Andy Pavlo
+5. Connor Tsui
+6. Daniel King
+7. Dmitrii Blaginin
+8. Lorenz Hübschle
+9. Marko Bakovic
+10. Mikhail Kot
+11. Mosha Pasumansky
+12. Onur Satici
+13. Xinyu Zeng
 
 ### Maintainers
 
 At the time of writing, the following individuals serve as Committers & Maintainers (voting TSC members) on the project:
 
 1. Andrew Duffy
-2. Carlo Curino
-3. Nicholas Gates
-4. Robert Kruszewski
-5. Wes McKinney
-6. Will Manning (chair)
-7. Frederic Branczyk
-8. Benjamin Wagner
+2. Benjamin Wagner
+3. Carlo Curino
+4. Frederic Branczyk
+5. Joseph Isaacs
+6. Nicholas Gates
+7. Robert Kruszewski
+8. Wes McKinney
+9. Will Manning (chair)
 
 ## Coding style
 
