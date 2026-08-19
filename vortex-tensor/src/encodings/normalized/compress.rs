@@ -28,6 +28,7 @@ use vortex_compressor::scheme::SchemeExt;
 use vortex_compressor::stats::ArrayAndStats;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
 use crate::encodings::normalized::Normalized;
 use crate::encodings::normalized::NormalizedArray;
@@ -38,6 +39,7 @@ use crate::matcher::AnyTensor;
 use crate::scalar_fns::l2_normalize::normalize_children;
 use crate::scalar_fns::l2_normalize::normalize_row_into;
 use crate::scalar_fns::l2_normalize::normalized_output_dtype;
+use crate::types::unit_vector::AnyUnitVector;
 use crate::types::unit_vector::UnitVector;
 use crate::utils::extract_constant_flat_row;
 
@@ -90,7 +92,13 @@ impl Scheme for NormalizedScheme {
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let dtype = data.array().dtype().clone();
-        let normalized_array = normalize(data.array().clone(), exec_ctx)?;
+        // A tensor can be valid even when its norm cannot be represented in its element ptype.
+        // Compression must preserve the original array for these value-dependent failures.
+        let normalized_array = match normalize(data.array().clone(), exec_ctx) {
+            Ok(normalized) => normalized,
+            Err(VortexError::InvalidArgument(..)) => return Ok(data.array().clone()),
+            Err(error) => return Err(error),
+        };
 
         // Splitting magnitude out is only worth anything if the children then compress: the
         // unit-norm coordinates have a bounded range and the norms are an ordinary float column.
@@ -127,8 +135,18 @@ impl Scheme for NormalizedScheme {
 ///
 /// # Errors
 ///
-/// Returns an error if `input` is not a float tensor column or if execution fails.
+/// Returns an error if `input` is not an ordinary float Vector or float FixedShapeTensor, if a row
+/// cannot be normalized in its element ptype, or if execution fails.
 pub fn normalize(input: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<NormalizedArray> {
+    vortex_ensure!(
+        !input
+            .dtype()
+            .as_extension_opt()
+            .is_some_and(|dtype| dtype.is::<AnyUnitVector>()),
+        InvalidArgument: "Normalized input must be an ordinary Vector or FixedShapeTensor, got {}",
+        input.dtype(),
+    );
+
     if let Some(normalized) = try_build_constant_normalized(&input, ctx)? {
         return Ok(normalized);
     }
@@ -148,6 +166,14 @@ pub(crate) fn try_build_constant_normalized(
     input: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<NormalizedArray>> {
+    if input
+        .dtype()
+        .as_extension_opt()
+        .is_some_and(|dtype| dtype.is::<AnyUnitVector>())
+    {
+        return Ok(None);
+    }
+
     let Some(ext) = input.as_opt::<Extension>() else {
         return Ok(None);
     };

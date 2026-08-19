@@ -38,8 +38,10 @@ use crate::encodings::normalized::NormalizedArraySlotsExt;
 use crate::encodings::normalized::NormalizedScheme;
 use crate::encodings::normalized::NormalizedSlots;
 use crate::encodings::normalized::normalize;
+use crate::encodings::normalized::try_build_constant_normalized;
 use crate::encodings::normalized::validate_normalized_rows;
 use crate::tests::SESSION;
+use crate::types::unit_vector::UnitVector;
 use crate::types::vector::Vector;
 use crate::unit_vector::AnyUnitVector;
 use crate::utils::test_helpers::assert_close;
@@ -504,6 +506,42 @@ fn scheme_skips_unit_vectors() -> VortexResult<()> {
 }
 
 #[test]
+fn normalize_rejects_unit_vector_input() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let vector: ExtensionArray = vector_array(2, &[1.0f64, 0.0])?.execute(&mut ctx)?;
+    let unit = UnitVector::try_new_unit_vector_array(vector.storage_array().clone(), &mut ctx)?;
+
+    let Err(error) = normalize(unit, &mut ctx) else {
+        return Err(vortex_error::vortex_err!(
+            AssertionFailed: "normalize must reject UnitVector input"
+        ));
+    };
+
+    assert!(
+        error
+            .to_string()
+            .contains("Normalized input must be an ordinary Vector or FixedShapeTensor")
+    );
+    Ok(())
+}
+
+#[test]
+fn constant_fast_path_skips_unit_vectors() -> VortexResult<()> {
+    let vector = Vector::constant_array(&[1.0f64, 0.0], 2)?;
+    let Some(vector) = vector.as_opt::<Extension>() else {
+        return Err(vortex_error::vortex_err!(
+            AssertionFailed: "Vector::constant_array must create an Extension array"
+        ));
+    };
+    // SAFETY: The constant storage repeats the exact unit vector `[1.0, 0.0]`.
+    let unit = unsafe { UnitVector::new_unchecked(vector.storage_array().clone())? };
+    let mut ctx = SESSION.create_execution_ctx();
+
+    assert!(try_build_constant_normalized(&unit, &mut ctx)?.is_none());
+    Ok(())
+}
+
+#[test]
 fn normalize_zeroes_rows_with_zero_norms() -> VortexResult<()> {
     let input = vector_array(2, &[0.0, 0.0, 3.0, 4.0])?;
     let mut ctx = SESSION.create_execution_ctx();
@@ -916,6 +954,21 @@ fn compressor_emits_the_dedicated_encoding(#[case] input: ArrayRef) -> VortexRes
     assert_eq!(compressed.encoding_id(), ArrayVTable::id(&Normalized));
     assert!(compressed.nbytes() < input.nbytes());
     assert_tensor_arrays_eq(compressed, input)
+}
+
+#[test]
+fn compressor_preserves_rows_with_unrepresentable_norms() -> VortexResult<()> {
+    let input = vector_array(2, &[f32::MAX, f32::MAX])?;
+    let compressor = BtrBlocksCompressorBuilder::default()
+        .with_new_scheme(&NormalizedScheme)
+        .build();
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let compressed = compressor.compress(&input, &mut ctx)?;
+
+    assert_ne!(compressed.encoding_id(), ArrayVTable::id(&Normalized));
+    vortex_array::assert_arrays_eq!(compressed, input, &mut ctx);
+    Ok(())
 }
 
 fn nullable_collinear_vectors(rows: usize) -> VortexResult<ArrayRef> {

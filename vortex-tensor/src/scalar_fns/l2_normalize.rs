@@ -282,7 +282,7 @@ pub(crate) unsafe fn normalize_row_into<T: NativePType>(
         sum + value * value
     });
 
-    let (norm_f64, scaled_divisor) = if sum_squares.is_finite() && sum_squares != 0.0 {
+    let (norm_f64, scaled_divisor) = if sum_squares.is_normal() {
         (sum_squares.sqrt(), None)
     } else if sum_squares == 0.0 && row.iter().all(Zero::is_zero) {
         (0.0, None)
@@ -293,17 +293,17 @@ pub(crate) unsafe fn normalize_row_into<T: NativePType>(
 
     vortex_ensure!(
         norm_f64.is_finite(),
-        "L2 norm must be finite, got {norm_f64}"
+        InvalidArgument: "L2 norm must be finite, got {norm_f64}"
     );
     let norm = T::from_f64(norm_f64).ok_or_else(|| {
         vortex_err!(
-            "L2 norm must be representable as {}, got {norm_f64}",
+            InvalidArgument: "L2 norm must be representable as {}, got {norm_f64}",
             T::PTYPE,
         )
     })?;
     vortex_ensure!(
         ToPrimitive::to_f64(&norm).is_some_and(f64::is_finite),
-        "L2 norm must be representable as {}, got {norm_f64}",
+        InvalidArgument: "L2 norm must be representable as {}, got {norm_f64}",
         T::PTYPE,
     );
     if norm_f64 == 0.0 {
@@ -558,6 +558,21 @@ mod tests {
 
         validate_normalized_rows(normalized, None, &mut SESSION.create_execution_ctx())?;
         assert!(norms.as_slice::<f64>()[0] > 0.0);
+        Ok(())
+    }
+
+    #[test]
+    fn scaled_fallback_handles_subnormal_sum_of_squares() -> VortexResult<()> {
+        let value = 2e-162f64;
+        let result = evaluate(vector_array(1, &[value])?)?;
+        let normalized = result.unmasked_field_by_name("normalized")?;
+        let norms: PrimitiveArray = result
+            .unmasked_field_by_name("norms")?
+            .clone()
+            .execute(&mut SESSION.create_execution_ctx())?;
+
+        validate_normalized_rows(normalized, None, &mut SESSION.create_execution_ctx())?;
+        assert_eq!(norms.as_slice::<f64>(), &[value]);
         Ok(())
     }
 
