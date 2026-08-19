@@ -116,7 +116,10 @@ impl BoundExpression {
         scalar_fn: ScalarFnRef,
         children: impl IntoIterator<Item = BoundExpression>,
     ) -> VortexResult<Self> {
-        let children = Vec::from_iter(children);
+        Self::try_new_vec(scalar_fn, children.into_iter().collect())
+    }
+
+    fn try_new_vec(scalar_fn: ScalarFnRef, children: Vec<BoundExpression>) -> VortexResult<Self> {
         vortex_ensure!(
             scalar_fn.signature().arity().matches(children.len()),
             "Expression arity mismatch: expected {} children but got {}",
@@ -143,12 +146,7 @@ impl BoundExpression {
         children: impl IntoIterator<Item = BoundExpression>,
     ) -> VortexResult<Self> {
         let children = Vec::from_iter(children);
-        let BoundExpression::Scalar {
-            dtype,
-            scalar_fn,
-            children: old_children,
-        } = &self
-        else {
+        let BoundExpression::Scalar { scalar_fn, .. } = &self else {
             vortex_ensure!(
                 children.is_empty(),
                 "Root expression cannot have {} children",
@@ -157,21 +155,7 @@ impl BoundExpression {
             return Ok(self);
         };
 
-        // cheaply check dtype equality before rebuilding the scalar
-        if children.len() == old_children.len()
-            && children
-                .iter()
-                .zip(old_children.iter())
-                .all(|(new, old)| new.dtype() == old.dtype())
-        {
-            return Ok(Self::Scalar {
-                dtype: dtype.clone(),
-                scalar_fn: scalar_fn.clone(),
-                children: children.into(),
-            });
-        }
-
-        Self::try_new(scalar_fn.clone(), children)
+        Self::try_new_vec(scalar_fn.clone(), children)
     }
 
     /// The dtype this expression evaluates to.
