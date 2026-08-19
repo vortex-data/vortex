@@ -712,18 +712,29 @@ def format_factor(value: float) -> str:
     return f"{float(value):.2f}"
 
 
-def format_change_marker(ratio: float) -> str:
-    """Colour a change by direction, leaving sub-percent moves unmarked."""
+def format_change_marker(ratio: float, improvement_threshold: float, regression_threshold: float) -> str:
+    """Mark a change by direction, escalating once it clears the report's threshold."""
 
     if pd.isna(ratio) or ratio <= 0:
         return ""
+    if ratio <= improvement_threshold:
+        return "🚀"
+    if ratio >= regression_threshold:
+        return "🚨"
+
     percent_change = (ratio - 1.0) * 100
     if abs(percent_change) < NEUTRAL_CHANGE_PCT:
         return "⚪"
     return "🔴" if percent_change > 0 else "🟢"
 
 
-def format_delta_cell(pr_value: Any, base_value: Any, render: Any = None) -> str:
+def format_delta_cell(
+    pr_value: Any,
+    base_value: Any,
+    improvement_threshold: float,
+    regression_threshold: float,
+    render: Any = None,
+) -> str:
     """Render one cell as PR value, base value, and the change between them."""
 
     render = format_measurement_value if render is None else render
@@ -733,7 +744,8 @@ def format_delta_cell(pr_value: Any, base_value: Any, render: Any = None) -> str
         return f"{pr_text} / {base_text} / no baseline"
 
     ratio = float(pr_value) / float(base_value)
-    return f"{pr_text} / {base_text} / {format_ratio_change(ratio)} {format_change_marker(ratio)}"
+    marker = format_change_marker(ratio, improvement_threshold, regression_threshold)
+    return f"{pr_text} / {base_text} / {format_ratio_change(ratio)} {marker}"
 
 
 def format_comparison_ratio(value: float) -> str:
@@ -901,20 +913,6 @@ def format_file_size_report(base_rows: pd.DataFrame, pr_rows: pd.DataFrame) -> s
     return output.getvalue().rstrip()
 
 
-def format_name_with_highlight(
-    name: str, ratio: float, improvement_threshold: float, regression_threshold: float
-) -> str:
-    """Highlight clearly large raw changes in the detailed per-config tables."""
-
-    if pd.isna(ratio):
-        return name
-    if ratio <= improvement_threshold:
-        return f"{name} 🚀"
-    if ratio >= regression_threshold:
-        return f"{name} 🚨"
-    return name
-
-
 def format_signal(signal: str) -> str:
     """Render the attributed-change label for markdown output."""
 
@@ -1068,9 +1066,10 @@ def format_report_help() -> str:
             "cold column shows first-run cost separately, and `hot/cold` is how much of "
             "each run the warm path saves. Rows whose results predate per-run reporting "
             "show only one value, taken from the value the runner reported.",
-            "- **Table cells**: Each cell reads `PR / base / %diff`. 🔴 marks a number that "
-            "grew, 🟢 one that shrank, and ⚪ a move under 1%, which is inside this "
-            "environment's run-to-run drift.",
+            "- **Table cells**: Each cell reads `PR / base / %diff`, and the mark sits on "
+            "the number that moved rather than on the benchmark name. 🚨 and 🚀 are changes "
+            "past this suite's threshold, 🔴 and 🟢 are smaller moves, and ⚪ is a move under "
+            "1%, which is inside this environment's run-to-run drift.",
             "",
             "</details>",
         ]
@@ -1236,27 +1235,26 @@ def main() -> None:
         significant_improvements = (group_df["ratio"] <= improvement_threshold).sum()
         significant_regressions = (group_df["ratio"] >= regression_threshold).sum()
         has_cold_runs = group_df[["cold_value_pr", "cold_value_base"]].notna().any().any()
+
         # Each cell carries the PR value, the base value, and the change between
         # them, so one row fits the three measurements without going ten columns wide.
+        def delta_cell(pr_value: Any, base_value: Any, render: Any = None) -> str:
+            return format_delta_cell(pr_value, base_value, improvement_threshold, regression_threshold, render)
+
         hot_cells = [
-            format_delta_cell(pr_value, base_value)
+            delta_cell(pr_value, base_value)
             for pr_value, base_value in zip(group_df["hot_value_pr"], group_df["hot_value_base"])
         ]
-        columns = {
-            "name": [
-                format_name_with_highlight(name, ratio, improvement_threshold, regression_threshold)
-                for name, ratio in zip(group_df["name"], group_df["ratio"])
-            ],
-        }
+        columns = {"name": list(group_df["name"])}
         # Only label the columns hot/cold where the rows actually recorded every run.
         if has_cold_runs:
             columns[f"hot {unit} (PR / base / %diff)"] = hot_cells
             columns[f"cold {unit} (PR / base / %diff)"] = [
-                format_delta_cell(pr_value, base_value)
+                delta_cell(pr_value, base_value)
                 for pr_value, base_value in zip(group_df["cold_value_pr"], group_df["cold_value_base"])
             ]
             columns["hot/cold (PR / base / %diff)"] = [
-                format_delta_cell(pr_factor, base_factor, format_factor)
+                delta_cell(pr_factor, base_factor, format_factor)
                 for pr_factor, base_factor in zip(
                     group_df["hot_value_pr"] / group_df["cold_value_pr"],
                     group_df["hot_value_base"] / group_df["cold_value_base"],
