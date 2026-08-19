@@ -281,7 +281,7 @@ tracing = { version = "0.1.41", default-features = false }
 tracing-perfetto = "0.1.5"
 tracing-subscriber = "0.3"
 url = "2.5.7"
-uuid = { version = "1.23", features = ["js"] }
+uuid = "1.23"
 wasm-bindgen-futures = "0.4.58"
 wkb = "0.9.2"
 xshell = "0.2.6"
@@ -314,7 +314,7 @@ vortex-fsst = { version = "0.1.0", path = "./encodings/fsst", default-features =
 vortex-io = { version = "0.1.0", path = "./vortex-io", default-features = false }
 vortex-ipc = { version = "0.1.0", path = "./vortex-ipc", default-features = false }
 vortex-json = { version = "0.1.0", path = "./vortex-json", default-features = false }
-vortex-layout = { version = "0.1.0", path = "./vortex-layout", default-features = false }
+vortex-layout = { version = "0.1.0", path = "./vortex-layout" }
 vortex-mask = { version = "0.1.0", path = "./vortex-mask", default-features = false }
 vortex-metrics = { version = "0.1.0", path = "./vortex-metrics", default-features = false }
 vortex-onpair = { version = "0.1.0", path = "./encodings/onpair", default-features = false }

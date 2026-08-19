@@ -88,6 +88,7 @@ tokio = [
     "vortex-layout/tokio",
 ]
 zstd = ["dep:vortex-zstd", "vortex-file?/zstd"]
+wasm-bindgen = ["vortex-io/wasm-bindgen"]
 pretty = ["vortex-array/table-display"]
 serde = ["vortex-array/serde", "vortex-buffer/serde", "vortex-mask/serde"]
 # Exposes experimental row-function APIs without compatibility guarantees.

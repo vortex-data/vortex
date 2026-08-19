@@ -55,6 +55,7 @@ serde_json = { workspace = true }
 taffy = { workspace = true }
 vortex = { version = "0.1.0", path = "../vortex", default-features = false, features = [
     "files",
+    "wasm-bindgen",
 ] }
 vortex-arrow = { workspace = true }
 

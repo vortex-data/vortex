@@ -10348,6 +10348,7 @@ dependencies = [
  "termtree",
  "tokio",
  "tracing",
+ "uuid",
  "vortex-array",
  "vortex-arrow",
  "vortex-btrblocks",
