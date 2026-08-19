@@ -3,6 +3,7 @@
 
 import importlib.util
 import json
+import math
 import subprocess
 import sys
 from pathlib import Path
@@ -26,10 +27,10 @@ def load_compare_module():
 def timing_row(name: str, base: int, pr: int) -> dict[str, object]:
     return {
         "name": name,
-        "value_base": base,
-        "value_pr": pr,
-        "all_runtimes_base": [base, base, base],
-        "all_runtimes_pr": [pr, pr, pr],
+        "hot_value_base": base,
+        "hot_value_pr": pr,
+        "hot_runtimes_base": [base, base, base],
+        "hot_runtimes_pr": [pr, pr, pr],
     }
 
 
@@ -41,12 +42,19 @@ def stored_timing_row(
     dataset: dict[str, object] | None = None,
     engine: str = "datafusion",
     file_format: str = "parquet",
+    cold: int | None = None,
 ) -> dict[str, object]:
+    """Build a runner result row whose first run is the cold one.
+
+    `value` stays the median across all runs, which is what the benchmark binary
+    writes, so the reporter has to derive the hot median from `all_runtimes`.
+    """
+
     row: dict[str, object] = {
         "name": name,
         "unit": "ns",
         "value": value,
-        "all_runtimes": [value, value, value],
+        "all_runtimes": [value if cold is None else cold, value, value],
         "commit_id": commit,
         "target": {"engine": engine, "format": file_format},
     }
@@ -359,6 +367,8 @@ def test_comparison_report_groups_by_target_and_unit(tmp_path: Path) -> None:
 
     assert "unknown / unknown" not in report
     assert "How to read Verdict and Engines" not in report
+    # These measurements report a single number, so there is no cold run to split out.
+    assert "cold" not in report
     assert "<summary>vortex / vortex-file-compressed / ms " in report
     assert "<summary>vortex / vortex-file-compressed / % " in report
     assert "<summary>vortex / vortex-file-compressed / ratio " in report
@@ -424,12 +434,104 @@ def test_comparison_report_retains_sql_analysis(tmp_path: Path) -> None:
     report = render_report(tmp_path, base_rows, pr_rows, "TPC-H")
 
     assert "**Verdict**:" in report
-    assert "**Vortex (geomean)**:" in report
-    assert "**Parquet (geomean)**:" in report
+    assert "**Vortex (hot geomean)**:" in report
+    assert "**Parquet (hot geomean)**:" in report
     assert "How to read Verdict and Engines" in report
     assert "<summary>datafusion / vortex-file-compressed / ns " in report
     assert "<summary>datafusion / parquet / ns " in report
     assert "unknown / unknown" not in report
+
+
+def test_cold_and_hot_runtimes_split_the_first_run_from_the_rest() -> None:
+    compare = load_compare_module()
+
+    assert compare.cold_runtime([7, 9, 11]) == 7
+    assert compare.hot_runtimes([7, 9, 11]) == [9, 11]
+    assert compare.hot_runtime([7, 9, 11], 9) == 10
+
+
+def test_hot_runtime_falls_back_to_the_reported_value_without_later_runs() -> None:
+    compare = load_compare_module()
+
+    assert math.isnan(compare.cold_runtime(None))
+    assert compare.hot_runtimes(None) == []
+    assert compare.hot_runtime(None, 42) == 42
+    assert compare.hot_runtime([7], 7) == 7
+    assert math.isnan(compare.hot_runtime(None, None))
+
+
+def test_report_splits_cold_and_hot_runs(tmp_path: Path) -> None:
+    base_rows = [
+        stored_timing_row("base-sha", "tpch_q01/datafusion:parquet", 100, cold=1000),
+        stored_timing_row(
+            "base-sha",
+            "tpch_q01/datafusion:vortex-file-compressed",
+            100,
+            file_format="vortex",
+            cold=1000,
+        ),
+    ]
+    pr_rows = [
+        stored_timing_row("pr-sha", "tpch_q01/datafusion:parquet", 100, cold=1000),
+        stored_timing_row(
+            "pr-sha",
+            "tpch_q01/datafusion:vortex-file-compressed",
+            50,
+            file_format="vortex",
+            cold=2000,
+        ),
+    ]
+
+    report = render_report(tmp_path, base_rows, pr_rows, "TPC-H")
+
+    assert markdown_row(report, "tpch_q01/datafusion:vortex-file-compressed") == [
+        "tpch_q01/datafusion:vortex-file-compressed 🚀",
+        "50",
+        "100",
+        "0.50",
+        "2000",
+        "1000",
+        "2.00",
+    ]
+    assert "**Attributed Vortex impact**: -50.0%" in report
+    assert "**Cold run (geomean)**: Vortex 2.000x ❌ · Parquet 1.000x ➖" in report
+
+
+def test_verdict_ignores_a_cold_start_only_regression(tmp_path: Path) -> None:
+    base_rows = [
+        stored_timing_row("base-sha", "tpch_q01/datafusion:parquet", 100, cold=100),
+        stored_timing_row(
+            "base-sha",
+            "tpch_q01/datafusion:vortex-file-compressed",
+            100,
+            file_format="vortex",
+            cold=100,
+        ),
+    ]
+    pr_rows = [
+        stored_timing_row("pr-sha", "tpch_q01/datafusion:parquet", 100, cold=100),
+        stored_timing_row(
+            "pr-sha",
+            "tpch_q01/datafusion:vortex-file-compressed",
+            100,
+            file_format="vortex",
+            cold=400,
+        ),
+    ]
+
+    report = render_report(tmp_path, base_rows, pr_rows, "TPC-H")
+
+    assert "**Attributed Vortex impact**: +0.0%" in report
+    assert "**Cold run (geomean)**: Vortex 4.000x ❌ · Parquet 1.000x ➖" in report
+    assert markdown_row(report, "tpch_q01/datafusion:vortex-file-compressed") == [
+        "tpch_q01/datafusion:vortex-file-compressed",
+        "100",
+        "100",
+        "1.00",
+        "400",
+        "100",
+        "4.00",
+    ]
 
 
 def file_size_record(commit: str, size: int) -> dict[str, object]:
