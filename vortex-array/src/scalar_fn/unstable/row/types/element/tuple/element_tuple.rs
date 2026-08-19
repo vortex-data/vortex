@@ -204,15 +204,19 @@ pub trait ElementTuple: 'static + private::Sealed {
     /// returned tuple removes batch-constant checks from the row loop.
     fn views_if_no_consts(columns: &Self::Columns) -> Option<Self::Views<'_>>;
 
+    /// Whether every borrowed view contains exactly `row_count` rows.
+    ///
+    /// Executors must validate each retained view before unchecked traversal. [`ViewLen::len`] on
+    /// a tuple asserts that component lengths are equal and panics on a mismatch. Rebuilding views
+    /// from [`Columns`](Self::Columns) does not prove the lengths of the views passed to
+    /// [`get_from_views_unchecked`](Self::get_from_views_unchecked).
+    fn view_lens_match(views: &Self::Views<'_>, row_count: usize) -> bool;
+
     /// Whether every argument decoded at full batch length contains exactly `row_count` rows.
     ///
-    /// NB: `Columns` cannot implement [`ViewLen`] because a batch-constant [`ArgColumn`] physically
-    /// contains one decoded row while logically addressing every row in the batch. By contrast,
-    /// [`views_if_no_consts`](Self::views_if_no_consts) constructs `Views` only when every argument
-    /// is non-constant, so those views have one common physical length.
-    ///
-    /// This check runs once before the hot loop. A batch constant is exempt because its
-    /// [`ArgColumn`] constructor already validated the one-row representation produced by decoding.
+    /// `Columns` cannot implement [`ViewLen`] because a batch-constant `ArgColumn` stores one
+    /// decoded row while logically addressing the full batch. The batch-constant constructor
+    /// validates that one-row representation, so this method checks only non-constant columns.
     fn decoded_lens_match(columns: &Self::Columns, row_count: usize) -> bool;
 
     /// Read one row from borrowed views.
@@ -277,6 +281,10 @@ impl ElementTuple for () {
 
     fn views_if_no_consts(_columns: &Self::Columns) -> Option<Self::Views<'_>> {
         Some(())
+    }
+
+    fn view_lens_match(_views: &Self::Views<'_>, _row_count: usize) -> bool {
+        true
     }
 
     fn decoded_lens_match(_columns: &Self::Columns, _row_count: usize) -> bool {
@@ -357,6 +365,10 @@ macro_rules! element_tuple {
 
             fn views_if_no_consts(columns: &Self::Columns) -> Option<Self::Views<'_>> {
                 Some(($($t::view(columns.$idx.as_column()?),)+))
+            }
+
+            fn view_lens_match(views: &Self::Views<'_>, row_count: usize) -> bool {
+                $(views.$idx.len() == row_count &&)+ true
             }
 
             fn decoded_lens_match(columns: &Self::Columns, row_count: usize) -> bool {

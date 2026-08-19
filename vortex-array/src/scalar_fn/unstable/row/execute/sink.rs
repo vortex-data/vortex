@@ -60,13 +60,13 @@ where
 
         let views = Args::views_if_no_consts(&columns);
         if let Some(views) = views {
-            if Args::ARITY != 0 && views.len() != row_count {
+            if !Args::view_lens_match(&views, row_count) {
                 decoded_length_error(row_count)?;
             }
 
             for index in 0..row_count {
-                // SAFETY: the tuple length check proved every non-nullary view has `row_count`
-                // rows before the loop. Nullary tuples do not access an input view.
+                // SAFETY: `view_lens_match` checked that these exact retained views address
+                // `row_count` rows before the loop.
                 let elements = unsafe { Args::get_from_views_unchecked(&views, index) };
                 // SAFETY: the sink row-count check above proved every loop index is in bounds.
                 let output =
@@ -144,7 +144,7 @@ where
         );
 
         if let Some(views) = views {
-            if Args::ARITY != 0 && views.len() != row_count {
+            if !Args::view_lens_match(&views, row_count) {
                 decoded_length_error(row_count)?;
             }
 
@@ -154,9 +154,8 @@ where
                 let output =
                     unsafe { <Sink as OutputSink<Options>>::row_unchecked(&mut rows, index) };
 
-                // SAFETY: the tuple length check proved every non-nullary view has `row_count`
-                // rows, and mask indices are below `row_count`. Nullary tuples do not access an
-                // input view.
+                // SAFETY: `view_lens_match` checked that these exact retained views address
+                // `row_count` rows, and mask indices are below `row_count`.
                 let elements = unsafe { Args::get_from_views_unchecked(&views, index) };
 
                 apply(&prepared, elements, output).into_result()

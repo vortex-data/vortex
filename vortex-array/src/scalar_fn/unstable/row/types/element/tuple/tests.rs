@@ -91,6 +91,14 @@ i64_test_element!(
 i64_test_element!(DenseFallible, false);
 
 #[test]
+fn test_view_lens_match_checks_each_view() {
+    let first: &[i64] = &[1, 2];
+    let second: &[i64] = &[3];
+
+    assert!(!<(i64, i64)>::view_lens_match(&(first, second), 2));
+}
+
+#[test]
 fn test_null_tolerant_decline_precedes_decoding() -> VortexResult<()> {
     DECODE_CALLS.store(0, Ordering::Relaxed);
     let first = PrimitiveArray::from_iter([1_i64, 2]).into_array();
