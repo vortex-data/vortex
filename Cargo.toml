@@ -186,6 +186,7 @@ lending-iterator = "0.1.7"
 libfuzzer-sys = "0.4"
 libloading = "0.8"
 liblzma = "0.4"
+libmimalloc-sys = "0.1"
 log = { version = "0.4.21" }
 memchr = "2.8.0"
 memmap2 = "0.9.5"

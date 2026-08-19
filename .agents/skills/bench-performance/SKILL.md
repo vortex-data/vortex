@@ -110,13 +110,10 @@ assuming a flag exists.
 
 Source: `benchmarks/datafusion-bench/src/main.rs`.
 
-Runs each selected query exactly once per process.
-To repeat a query manually, loop the command.
-
 Supported diagnostics:
 
 - `--formats parquet,vortex,vortex-compact,lance,arrow`;
-- `--queries 6`, `--exclude-queries 1,2`, `--print-queries`, `--display-format gh-json`;
+- `--queries 6`, `--exclude-queries 1,2`, `--iterations N`, `--display-format gh-json`;
 - `--hide-progress-bar`, `-o /private/tmp/out.jsonl`, `--ingest-jsonl /private/tmp/out.ingest.jsonl`;
 - `--verbose`, `--tracing`, `--track-memory`, `--runner NAME`, `--opt key=value`;
 - `--explain` prints query plans instead of timing;
@@ -130,7 +127,7 @@ Examples:
 ```bash
 FEATURE_TOGGLE=1 RUST_LOG=vortex_datafusion=debug,vortex_layout=debug,datafusion=warn \
   target/release_debug/datafusion-bench tpch \
-  --display-format gh-json --hide-progress-bar \
+  --display-format gh-json --iterations 5 --hide-progress-bar \
   --formats <format> --queries <query> --show-metrics \
   -o /private/tmp/<label>.jsonl
 ```
@@ -144,16 +141,14 @@ FEATURE_TOGGLE=1 target/release_debug/datafusion-bench tpch \
 
 Source: `benchmarks/duckdb-bench/src/main.rs`.
 
-Runs each selected query exactly once per process.
-To repeat a query manually, loop the command.
-
 Supported diagnostics:
 
 - `--formats parquet,vortex,vortex-compact,duckdb`;
 - `--delete-duckdb-database` rebuilds the per-format DuckDB database;
 - `--threads N` sets DuckDB's `threads` config;
-- `--reuse` keeps one DuckDB connection open, useful with Samply to keep work on the same threads;
-- common flags: `--queries`, `--exclude-queries`, `--print-queries`, `--display-format`,
+- `--reuse` keeps one DuckDB connection across iterations, useful with Samply to keep work on the
+  same threads;
+- common flags: `--queries`, `--exclude-queries`, `--iterations`, `--display-format`,
   `--hide-progress-bar`, `-o`, `--ingest-jsonl`, `--track-memory`, `--verbose`, `--tracing`,
   `--runner`, `--opt`, `--explain`.
 
@@ -162,7 +157,7 @@ Example:
 ```bash
 RUST_LOG=duckdb_bench=trace,vortex_duckdb=debug,info \
   target/release_debug/duckdb-bench tpch \
-  --display-format gh-json --hide-progress-bar \
+  --display-format gh-json --iterations 5 --hide-progress-bar \
   --formats <baseline-format>,<candidate-format> --queries <query> --threads 8 --reuse \
   -o /private/tmp/<label>.jsonl
 ```
@@ -185,7 +180,7 @@ Example:
 ```bash
 RUST_LOG=lance_bench=debug,datafusion=warn \
   target/release_debug/lance-bench tpch \
-  --display-format gh-json --hide-progress-bar \
+  --display-format gh-json --iterations 5 --hide-progress-bar \
   --queries <query> \
   -o /private/tmp/<label>.jsonl
 ```
@@ -239,7 +234,7 @@ When investigating stream scheduling, enable the relevant flow trace and summari
 ```bash
 <FLOW_TRACE_ENV>=1 RUST_LOG=<flow-target>=debug,datafusion=warn \
   target/<profile-dir>/datafusion-bench clickbench \
-  --display-format gh-json --hide-progress-bar \
+  --display-format gh-json --iterations 1 --hide-progress-bar \
   --formats vortex --queries <query> \
   -o /private/tmp/<label>.jsonl > /private/tmp/<label>.log 2>&1
 
@@ -291,13 +286,13 @@ For Vortex/DataFusion scan I/O, prefer `--show-metrics` before OS tracing:
 
 ```bash
 target/release_debug/datafusion-bench <benchmark> \
-  --display-format gh-json --hide-progress-bar \
+  --display-format gh-json --iterations 1 --hide-progress-bar \
   --formats <format> --queries <query> --show-metrics \
   -o /private/tmp/<baseline-label>.jsonl \
   > /private/tmp/<baseline-label>.metrics.txt 2>&1
 
 FEATURE_TOGGLE=1 target/release_debug/datafusion-bench <benchmark> \
-  --display-format gh-json --hide-progress-bar \
+  --display-format gh-json --iterations 1 --hide-progress-bar \
   --formats <format> --queries <query> --show-metrics \
   -o /private/tmp/<candidate-label>.jsonl \
   > /private/tmp/<candidate-label>.metrics.txt 2>&1
@@ -355,7 +350,7 @@ profile contains only the target engine:
 FEATURE_TOGGLE=1 samply record --save-only --unstable-presymbolicate --rate 1000 \
   --output /private/tmp/<label>.profile.json.gz \
   -- target/release_debug/datafusion-bench <benchmark> \
-    --display-format gh-json --hide-progress-bar \
+    --display-format gh-json --iterations 500 --hide-progress-bar \
     --formats <format> --queries <query>
 ```
 
@@ -370,7 +365,7 @@ DuckDB profiling usually needs `--reuse`:
 samply record --save-only --unstable-presymbolicate --rate 1000 \
   --output /private/tmp/<label>.profile.json.gz \
   -- target/release_debug/duckdb-bench <benchmark> \
-    --display-format gh-json --hide-progress-bar \
+    --display-format gh-json --iterations 500 --hide-progress-bar \
     --formats <format> --queries <query> --reuse
 ```
 

@@ -38,6 +38,9 @@ struct Args {
     #[arg(value_enum)]
     benchmark: BenchmarkArg,
 
+    #[arg(short, long, default_value_t = 5)]
+    iterations: usize,
+
     #[arg(short, long)]
     threads: Option<usize>,
 
@@ -181,7 +184,9 @@ fn main() -> anyhow::Result<()> {
     let mode = if args.explain {
         BenchmarkMode::Explain
     } else {
-        BenchmarkMode::Run { iterations: 1 }
+        BenchmarkMode::Run {
+            iterations: args.iterations,
+        }
     };
 
     runner.run_all(

@@ -48,14 +48,13 @@ class BenchmarkExecutor:
             benchmark.value,
             "--display-format",
             "gh-json",
+            "--iterations",
+            str(iterations),
             "--hide-progress-bar",
         ]
 
         if self.backend in {Engine.DATAFUSION, Engine.DUCKDB}:
             cmd.extend(["--formats", ",".join(fmt.value for fmt in formats)])
-        else:
-            # datafusion-bench and duckdb-bench run single query per process
-            cmd.extend(["--iterations", str(iterations)])
         if self.backend == Engine.DUCKDB:
             cmd.append("--delete-duckdb-database")
 
