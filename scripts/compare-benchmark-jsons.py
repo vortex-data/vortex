@@ -734,8 +734,14 @@ def format_delta_cell(
     improvement_threshold: float,
     regression_threshold: float,
     render: Any = None,
+    mark: bool = True,
 ) -> str:
-    """Render one cell as PR value, base value, and the change between them."""
+    """Render one cell as PR value, base value, and the change between them.
+
+    Only the runs themselves carry a direction marker. A derived column such as
+    `hot/cold` moves for reasons that are not a win or a loss on their own, so it
+    renders the change unmarked.
+    """
 
     render = format_measurement_value if render is None else render
     pr_text = render(pr_value)
@@ -744,8 +750,12 @@ def format_delta_cell(
         return f"{pr_text} / {base_text} / no baseline"
 
     ratio = float(pr_value) / float(base_value)
+    change_text = format_ratio_change(ratio)
+    if not mark:
+        return f"{pr_text} / {base_text} / {change_text}"
+
     marker = format_change_marker(ratio, improvement_threshold, regression_threshold)
-    return f"{pr_text} / {base_text} / {format_ratio_change(ratio)} {marker}"
+    return f"{pr_text} / {base_text} / {change_text} {marker}"
 
 
 def format_comparison_ratio(value: float) -> str:
@@ -1066,10 +1076,11 @@ def format_report_help() -> str:
             "cold column shows first-run cost separately, and `hot/cold` is how much of "
             "each run the warm path saves. Rows whose results predate per-run reporting "
             "show only one value, taken from the value the runner reported.",
-            "- **Table cells**: Each cell reads `PR / base / %diff`, and the mark sits on "
-            "the number that moved rather than on the benchmark name. 🚨 and 🚀 are changes "
-            "past this suite's threshold, 🔴 and 🟢 are smaller moves, and ⚪ is a move under "
-            "1%, which is inside this environment's run-to-run drift.",
+            "- **Table cells**: Each cell reads `PR / base / %diff`. The hot and cold "
+            "columns mark the direction of their change: 🚨 and 🚀 are changes past this "
+            "suite's threshold, 🔴 and 🟢 are smaller moves, and ⚪ is a move under 1%, "
+            "which is inside this environment's run-to-run drift. `hot/cold` is left "
+            "unmarked because a shift in the warm-up ratio is not a win or a loss by itself.",
             "",
             "</details>",
         ]
@@ -1238,8 +1249,8 @@ def main() -> None:
 
         # Each cell carries the PR value, the base value, and the change between
         # them, so one row fits the three measurements without going ten columns wide.
-        def delta_cell(pr_value: Any, base_value: Any, render: Any = None) -> str:
-            return format_delta_cell(pr_value, base_value, improvement_threshold, regression_threshold, render)
+        def delta_cell(pr_value: Any, base_value: Any, render: Any = None, mark: bool = True) -> str:
+            return format_delta_cell(pr_value, base_value, improvement_threshold, regression_threshold, render, mark)
 
         hot_cells = [
             delta_cell(pr_value, base_value)
@@ -1254,7 +1265,7 @@ def main() -> None:
                 for pr_value, base_value in zip(group_df["cold_value_pr"], group_df["cold_value_base"])
             ]
             columns["hot/cold (PR / base / %diff)"] = [
-                delta_cell(pr_factor, base_factor, format_factor)
+                delta_cell(pr_factor, base_factor, format_factor, mark=False)
                 for pr_factor, base_factor in zip(
                     group_df["hot_value_pr"] / group_df["cold_value_pr"],
                     group_df["hot_value_base"] / group_df["cold_value_base"],

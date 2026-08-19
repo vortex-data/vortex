@@ -495,7 +495,7 @@ def test_report_splits_cold_and_hot_runs(tmp_path: Path) -> None:
         "tpch_q01/datafusion:vortex-file-compressed",
         "50 / 100 / -50.0% 🚀",
         "2000 / 1000 / +100.0% 🚨",
-        "0.03 / 0.10 / -75.0% 🚀",
+        "0.03 / 0.10 / -75.0%",
     ]
     assert "**Attributed Vortex impact**: -50.0%" in report
     assert "**Cold run (geomean)**: Vortex 2.000x ❌ · Parquet 1.000x ➖" in report
@@ -532,7 +532,7 @@ def test_verdict_ignores_a_cold_start_only_regression(tmp_path: Path) -> None:
         "tpch_q01/datafusion:vortex-file-compressed",
         "100 / 100 / +0.0% ⚪",
         "400 / 100 / +300.0% 🚨",
-        "0.25 / 1.00 / -75.0% 🚀",
+        "0.25 / 1.00 / -75.0%",
     ]
 
 
