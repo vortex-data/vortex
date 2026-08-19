@@ -43,30 +43,30 @@ use crate::table_function::LocalState;
 use crate::table_function::Split;
 use crate::table_function::convert_result;
 
-/// Duckdb invokes following callbacks under various locks, and information
-/// about these locks is not propagated to Rust. We, however, don't want to add
-/// excessive synchronisation on our side, so the best we can do is document
-/// the invariants here.
-///
-/// Definitions:
-/// "global lock" - lock over all threads. Only one thread may access some
-///   section.
-/// "file-local lock" - multiple threads may access different File's in
-///   parallel, but only one thread can access a single File at a time.
-///
-/// Lifetime of file:
-///
-/// Bind, first file:
-///
-/// reader_open -> reader_bind
-///
-/// Plan and run:
-///
-/// reader_open (plan time) -> reader_get_statistics (plan time) ->
-/// reader_initialize -> reader_try_initialize_scan -> reader_scan
-///
-/// reader_get_progress_in_file is called between
-/// reader_scan calls from a separate thread.
+// Duckdb invokes following callbacks under various locks, and information
+// about these locks is not propagated to Rust. We, however, don't want to add
+// excessive synchronisation on our side, so the best we can do is document
+// the invariants here.
+//
+// Definitions:
+// "global lock" - lock over all threads. Only one thread may access some
+//   section.
+// "file-local lock" - multiple threads may access different File's in
+//   parallel, but only one thread can access a single File at a time.
+//
+// Lifetime of file:
+//
+// Bind, first file:
+//
+// reader_open -> reader_bind
+//
+// Plan and run:
+//
+// reader_open (plan time) -> reader_get_statistics (plan time) ->
+// reader_initialize -> reader_try_initialize_scan -> reader_scan
+//
+// reader_get_progress_in_file is called between
+// reader_scan calls from a separate thread.
 
 static REGISTRY: LazyLock<Registry> = LazyLock::new(Registry::new);
 

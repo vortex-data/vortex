@@ -60,18 +60,18 @@ use crate::projection::Filter;
 use crate::projection::Projection;
 use crate::projection::is_virtual_column;
 
-/// Lifetime of table function:
-///
-/// Plan/optimize:
-///
-/// pushdown_complex_filter -> pushdown_projection_expression ->
-/// pushdown_projection_aggregates -> cardinality -> to_string
-///
-/// (called by one thread)
-///
-/// Execute:
-///
-/// init_global -> init_local -> finish_reading -> finalize_scan
+// Lifetime of table function:
+//
+// Plan/optimize:
+//
+// pushdown_complex_filter -> pushdown_projection_expression ->
+// pushdown_projection_aggregates -> cardinality -> to_string
+//
+// (called by one thread)
+//
+// Execute:
+//
+// init_global -> init_local -> finish_reading -> finalize_scan
 
 // Aggregate projection index for count(*). See cpp/aggregate_fn_pushdown.cpp
 pub const COUNT_STAR_PROJ_IDX: u64 = u64::MAX;
