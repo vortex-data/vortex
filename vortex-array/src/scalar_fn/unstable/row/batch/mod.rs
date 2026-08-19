@@ -5,7 +5,7 @@
 //!
 //! A batch is the set of same-length input columns supplied in one scalar-function call. A row
 //! function handles typed values for one logical row. This module adds the columnar concerns around
-//! that row function: planning the output and null strategy, preserving batch constants,
+//! that row function: planning the output and null handling, preserving batch constants,
 //! propagating strict validity, selecting an execution strategy, and validating the finished
 //! output.
 //!
@@ -46,12 +46,12 @@ pub(crate) struct Batch {
     /// The input dtypes, collected with the columns and reused by both planning and execution.
     arg_dtypes: SmallVec<[DType; 4]>,
 
-    /// The conjoined input validity, so a row of the output is valid iff it is valid in every
-    /// input. Conjoining is lazy, and nothing materializes it unless the null handling asks.
+    /// The conjoined input validity. An output row is valid exactly when it is valid in every
+    /// input. Conjoining is lazy, and null handling materializes the mask only when required.
     validity: Validity,
 
-    /// The dtype the function declares for these inputs, which the kernel's output is reconciled
-    /// against. Already widened to nullable if any input is nullable.
+    /// The declared output dtype, widened to nullable when any input is nullable. Kernel output is
+    /// reconciled against this dtype.
     result_dtype: DType,
 
     /// The non-nullable dtype the dispatched output capability builds, computed while planning.

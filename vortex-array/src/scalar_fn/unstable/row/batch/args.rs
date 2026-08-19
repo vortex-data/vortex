@@ -4,15 +4,15 @@
 //! Execution arguments paired with the metadata selected during planning.
 //!
 //! [`BorrowedExecutionArgs`] can point at original or sliced arrays while retaining the dtypes,
-//! output dtype, and null policy of the original batch plan.
+//! output dtype, and execution policy of the original batch plan.
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
+use super::RowPolicy;
 use crate::ArrayRef;
 use crate::dtype::DType;
 use crate::scalar_fn::ExecutionArgs;
-use crate::scalar_fn::unstable::row::visitor::RowPolicy;
 
 /// A borrowed [`ExecutionArgs`] view with the metadata selected for its row function.
 ///

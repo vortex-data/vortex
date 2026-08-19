@@ -19,6 +19,10 @@ pub trait OutputElement: 'static + Sized {
     /// [`OutputSink`]: crate::scalar_fn::unstable::row::OutputSink
     fn element_dtype() -> DType;
 
-    /// Build a column from one value per row. Called once per batch.
+    /// Build an all-valid column from one value per row.
+    ///
+    /// The returned column must contain `values.len()` rows and match
+    /// [`element_dtype`](Self::element_dtype) except for outer nullability. The framework calls
+    /// this method once per batch.
     fn build(values: Vec<Self>) -> ArrayRef;
 }

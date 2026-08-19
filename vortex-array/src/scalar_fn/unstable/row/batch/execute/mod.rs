@@ -29,8 +29,8 @@ pub(crate) use output::finalize_kernel_output;
 impl Batch {
     /// Apply constant folding and null handling around `kernel`.
     ///
-    /// When the mask contains valid and invalid rows, `try_valid_rows` executes only valid rows
-    /// over the original inputs. Every result is checked against the planned shape and dtype.
+    /// For a partially valid batch, `try_valid_rows` executes only valid rows over the original
+    /// inputs. Every result is checked against the planned shape and dtype.
     pub(crate) fn execute(
         &self,
         kernel: impl Fn(BorrowedExecutionArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
@@ -53,8 +53,9 @@ impl Batch {
             return Ok(self.all_null());
         }
 
-        // All inputs constant, and their conjoined validity proves every row non-null. This sees
-        // through extension and masked wrappers just like argument decoding does.
+        // All inputs are constant, and their conjoined validity proves that every row is non-null.
+        // The constant check sees through extension and masked wrappers, just like argument
+        // decoding.
         if self.row_count > 0
             && self.validity.definitely_no_nulls()
             && self.inputs.iter().all(|input| batch_const(input).is_some())
