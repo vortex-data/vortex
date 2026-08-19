@@ -75,62 +75,101 @@ fn i32_stats(num_zones: usize) -> (Vec<i32>, Vec<i32>) {
     (mins, maxs)
 }
 
-fn counts(num_zones: usize, seed: u64, modulus: u64) -> Buffer<u64> {
-    pseudo_random(num_zones, seed)
-        .map(|v| v % modulus)
-        .collect()
+struct ZoneCounts {
+    null: Vec<u64>,
+    nan: Option<Vec<u64>>,
+    has_min_max: Vec<bool>,
+}
+
+fn zone_counts(column_dtype: &DType, num_zones: usize) -> ZoneCounts {
+    let row_counts = (0..num_zones)
+        .map(|zone| {
+            if zone + 1 == num_zones {
+                ZONE_LEN / 2
+            } else {
+                ZONE_LEN
+            }
+        })
+        .collect::<Vec<_>>();
+    let null = pseudo_random(num_zones, 0xc0ffee)
+        .zip(&row_counts)
+        .map(|(value, row_count)| value % (row_count + 1))
+        .collect::<Vec<_>>();
+    let nan = column_dtype.is_float().then(|| {
+        pseudo_random(num_zones, 0xfeed)
+            .zip(row_counts.iter().zip(&null))
+            .map(|(value, (row_count, null_count))| value % (row_count - null_count + 1))
+            .collect::<Vec<_>>()
+    });
+    let has_min_max = row_counts
+        .iter()
+        .enumerate()
+        .map(|(zone, row_count)| {
+            null[zone] + nan.as_ref().map_or(0, |counts| counts[zone]) < *row_count
+        })
+        .collect();
+
+    ZoneCounts {
+        null,
+        nan,
+        has_min_max,
+    }
 }
 
 /// The aggregates the zoned writer stores by default for a numeric column. `nan_count` only has a
 /// state dtype for floats, so it is omitted for integers.
-fn min_max_fields(column_dtype: &DType, num_zones: usize) -> Vec<(String, ArrayRef)> {
+fn min_max_fields(
+    column_dtype: &DType,
+    num_zones: usize,
+    has_min_max: &[bool],
+) -> Vec<(String, ArrayRef)> {
     let (mins, maxs) = i32_stats(num_zones);
     let max = Max.bind(NumericalAggregateOpts::skip_nans());
     let min = Min.bind(NumericalAggregateOpts::skip_nans());
+    let min_validity = Validity::from_iter(has_min_max.iter().copied());
+    let max_validity = Validity::from_iter(has_min_max.iter().copied());
 
     let (min_array, max_array) = if column_dtype.is_float() {
         (
             PrimitiveArray::new(
                 mins.iter().map(|v| f64::from(*v)).collect::<Buffer<f64>>(),
-                Validity::AllValid,
+                min_validity,
             )
             .into_array(),
             PrimitiveArray::new(
                 maxs.iter().map(|v| f64::from(*v)).collect::<Buffer<f64>>(),
-                Validity::AllValid,
+                max_validity,
             )
             .into_array(),
         )
     } else {
         (
-            PrimitiveArray::new(
-                mins.iter().copied().collect::<Buffer<i32>>(),
-                Validity::AllValid,
-            )
-            .into_array(),
-            PrimitiveArray::new(
-                maxs.iter().copied().collect::<Buffer<i32>>(),
-                Validity::AllValid,
-            )
-            .into_array(),
+            PrimitiveArray::new(mins.iter().copied().collect::<Buffer<i32>>(), min_validity)
+                .into_array(),
+            PrimitiveArray::new(maxs.iter().copied().collect::<Buffer<i32>>(), max_validity)
+                .into_array(),
         )
     };
 
     vec![(max.to_string(), max_array), (min.to_string(), min_array)]
 }
 
-fn count_fields(column_dtype: &DType, num_zones: usize) -> Vec<(String, ArrayRef)> {
+fn count_fields(counts: &ZoneCounts) -> Vec<(String, ArrayRef)> {
     let mut fields = Vec::new();
-    if column_dtype.is_float() {
+    if let Some(nan) = &counts.nan {
         fields.push((
             NanCount.bind(EmptyOptions).to_string(),
-            PrimitiveArray::new(counts(num_zones, 0xfeed, 4), Validity::AllValid).into_array(),
+            PrimitiveArray::new(
+                nan.iter().copied().collect::<Buffer<_>>(),
+                Validity::AllValid,
+            )
+            .into_array(),
         ));
     }
     fields.push((
         NullCount.bind(EmptyOptions).to_string(),
         PrimitiveArray::new(
-            counts(num_zones, 0xc0ffee, ZONE_LEN + 1),
+            counts.null.iter().copied().collect::<Buffer<_>>(),
             Validity::AllValid,
         )
         .into_array(),
@@ -151,12 +190,13 @@ fn zone_map(column_dtype: DType, num_zones: usize, counts_only: bool) -> ZoneMap
         .lock()
         .entry((column_dtype.clone(), num_zones, counts_only))
         .or_insert_with(|| {
+            let counts = zone_counts(&column_dtype, num_zones);
             let mut fields = if counts_only {
                 Vec::new()
             } else {
-                min_max_fields(&column_dtype, num_zones)
+                min_max_fields(&column_dtype, num_zones, &counts.has_min_max)
             };
-            fields.extend(count_fields(&column_dtype, num_zones));
+            fields.extend(count_fields(&counts));
             build(column_dtype.clone(), fields, num_zones)
         })
         .clone()
