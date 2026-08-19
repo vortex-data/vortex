@@ -374,9 +374,9 @@ def test_comparison_report_groups_by_target_and_unit(tmp_path: Path) -> None:
     assert "<summary>vortex / vortex-file-compressed / % " in report
     assert "<summary>vortex / vortex-file-compressed / ratio " in report
     assert "<summary>vortex / parquet / ms " in report
-    assert markdown_row(report, "timing/fixture") == ["timing/fixture", "11.75 / 12.5 / -6.0% 🟢"]
-    assert markdown_row(report, "size/fixture") == ["size/fixture", "44.5 / 45.25 / -1.7% 🟢"]
-    assert markdown_row(report, "ratio/fixture") == ["ratio/fixture", "0.8 / 0.75 / +6.7% 🔴"]
+    assert markdown_row(report, "timing/fixture") == ["timing/fixture", "11.75 / 12.5 / -6.0%"]
+    assert markdown_row(report, "size/fixture") == ["size/fixture", "44.5 / 45.25 / -1.7%"]
+    assert markdown_row(report, "ratio/fixture") == ["ratio/fixture", "0.8 / 0.75 / +6.7%"]
     assert markdown_row(report, "new timing/fixture") == [
         "new timing/fixture",
         "3.125 / — / no baseline",
@@ -408,7 +408,7 @@ def test_comparison_report_handles_mixed_query_types_in_baseline(tmp_path: Path)
 
     assert markdown_row(report, "random-access/fixture") == [
         "random-access/fixture",
-        "13 / 12.5 / +4.0% 🔴",
+        "13 / 12.5 / +4.0%",
     ]
 
 
@@ -464,6 +464,26 @@ def test_hot_runtime_falls_back_to_the_reported_value_without_later_runs() -> No
     assert compare.hot_runtime(None, 42) == 42
     assert compare.hot_runtime([7], 7) == 7
     assert math.isnan(compare.hot_runtime(None, None))
+
+
+def test_only_changes_past_the_suite_threshold_are_marked(tmp_path: Path) -> None:
+    # TPC-H runs at a 10% threshold, so 9% is noise here and 11% is not.
+    base_rows = [
+        stored_timing_row("base-sha", "tpch_q01/datafusion:vortex-file-compressed", 100, file_format="vortex"),
+        stored_timing_row("base-sha", "tpch_q02/datafusion:vortex-file-compressed", 100, file_format="vortex"),
+        stored_timing_row("base-sha", "tpch_q03/datafusion:vortex-file-compressed", 100, file_format="vortex"),
+    ]
+    pr_rows = [
+        stored_timing_row("pr-sha", "tpch_q01/datafusion:vortex-file-compressed", 109, file_format="vortex"),
+        stored_timing_row("pr-sha", "tpch_q02/datafusion:vortex-file-compressed", 111, file_format="vortex"),
+        stored_timing_row("pr-sha", "tpch_q03/datafusion:vortex-file-compressed", 89, file_format="vortex"),
+    ]
+
+    report = render_report(tmp_path, base_rows, pr_rows, "TPC-H")
+
+    assert markdown_row(report, "tpch_q01/datafusion:vortex-file-compressed")[1] == "109 / 100 / +9.0%"
+    assert markdown_row(report, "tpch_q02/datafusion:vortex-file-compressed")[1] == "111 / 100 / +11.0% 🔴"
+    assert markdown_row(report, "tpch_q03/datafusion:vortex-file-compressed")[1] == "89 / 100 / -11.0% 🟢"
 
 
 def test_report_splits_cold_and_hot_runs(tmp_path: Path) -> None:

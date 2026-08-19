@@ -55,9 +55,6 @@ import pandas as pd
 # Benchmarks are noisier than textbook measurement data, so use a conservative
 # cutoff that is closer to a 99% two-sided interval before calling a change real.
 Z_SCORE_99 = 2.5758293035489004
-# Benchmark rows drift by well under a percent between identical runs, so leave
-# changes that small unmarked rather than colouring every row of a clean report.
-NEUTRAL_CHANGE_PCT = 1.0
 CONTROL_FORMAT = "parquet"
 FILE_SIZE_METRIC = "file_size"
 QUERY_TARGET_PATTERN = re.compile(r"_q(\d+)/([^:]+):(.+)$")
@@ -712,21 +709,27 @@ def format_factor(value: float) -> str:
     return f"{float(value):.2f}"
 
 
-def format_change_marker(ratio: float) -> str:
-    """Mark a real change as good or bad, leaving moves inside the noise floor bare."""
+def format_change_marker(ratio: float, improvement_threshold: float, regression_threshold: float) -> str:
+    """Mark a change that clears the suite's threshold, leaving everything quieter bare.
+
+    Anything inside the threshold is treated as noise for this environment, so it
+    carries no mark at all rather than a colour the reader has to discount.
+    """
 
     if pd.isna(ratio) or ratio <= 0:
         return ""
-
-    percent_change = (ratio - 1.0) * 100
-    if abs(percent_change) < NEUTRAL_CHANGE_PCT:
-        return ""
-    return "🔴" if percent_change > 0 else "🟢"
+    if ratio <= improvement_threshold:
+        return "🟢"
+    if ratio >= regression_threshold:
+        return "🔴"
+    return ""
 
 
 def format_delta_cell(
     pr_value: Any,
     base_value: Any,
+    improvement_threshold: float,
+    regression_threshold: float,
     render: Any = None,
     mark: bool = True,
 ) -> str:
@@ -748,7 +751,7 @@ def format_delta_cell(
     if not mark:
         return f"{pr_text} / {base_text} / {change_text}"
 
-    marker = format_change_marker(ratio)
+    marker = format_change_marker(ratio, improvement_threshold, regression_threshold)
     if not marker:
         return f"{pr_text} / {base_text} / {change_text}"
     return f"{pr_text} / {base_text} / {change_text} {marker}"
@@ -1073,8 +1076,8 @@ def format_report_help() -> str:
             "each run the warm path saves. Rows whose results predate per-run reporting "
             "show only one value, taken from the value the runner reported.",
             "- **Table cells**: Each cell reads `PR / base / %diff`. The hot and cold "
-            "columns mark a real change as 🔴 slower or 🟢 faster. A move under 1% is left "
-            "unmarked, being inside this environment's run-to-run drift, and so is "
+            "columns mark a change as 🔴 slower or 🟢 faster once it clears this suite's "
+            "threshold; anything smaller is noise here and is left unmarked, as is "
             "`hot/cold`, because a shift in the warm-up ratio is not a win or a loss by itself.",
             "",
             "</details>",
@@ -1245,7 +1248,7 @@ def main() -> None:
         # Each cell carries the PR value, the base value, and the change between
         # them, so one row fits the three measurements without going ten columns wide.
         def delta_cell(pr_value: Any, base_value: Any, render: Any = None, mark: bool = True) -> str:
-            return format_delta_cell(pr_value, base_value, render, mark)
+            return format_delta_cell(pr_value, base_value, improvement_threshold, regression_threshold, render, mark)
 
         hot_cells = [
             delta_cell(pr_value, base_value)
