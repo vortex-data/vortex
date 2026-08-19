@@ -17,6 +17,7 @@ use vortex::dtype::Nullability::Nullable;
 use vortex::dtype::StructFields;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteSummary;
@@ -88,10 +89,22 @@ pub fn copy_to_sink(
         .as_ref()
         .ok_or_else(|| vortex_err!("sink closed early"))?
         .clone();
-    RUNTIME
-        .block_on(sink.send(chunk))
-        .map_err(|e| vortex_err!("send error {e}"))?;
-    Ok(())
+    RUNTIME.block_on(async {
+        // sink.send may error with "receiver is gone" which isn't the
+        // real error
+        if sink.send(chunk).await.is_ok() {
+            return Ok(());
+        }
+        let task;
+        {
+            task = init_global.write_task.lock().take();
+        }
+        if let Some(task) = task {
+            // we can get the real error (i.e invalid path) from here
+            task.await?;
+        }
+        vortex_bail!("Writer stopped before all data was written")
+    })
 }
 
 pub fn copy_to_finalize(init_global: &mut CopyFunctionGlobal) -> VortexResult<()> {

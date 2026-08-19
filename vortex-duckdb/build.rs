@@ -46,7 +46,7 @@ const SOURCE_FILES: [&str; 11] = [
 
 // Duckdb C API function we use.
 // This lowers codegen'd src/cpp.rs by four times.
-const DUCKDB_C_API_FUNCTIONS: [&str; 134] = [
+const DUCKDB_C_API_FUNCTIONS: [&str; 135] = [
     "duckdb_array_type_array_size",
     "duckdb_array_type_child_type",
     "duckdb_array_vector_get_child",
@@ -80,6 +80,7 @@ const DUCKDB_C_API_FUNCTIONS: [&str; 134] = [
     "duckdb_create_selection_vector",
     "duckdb_create_struct_type",
     "duckdb_create_time",
+    "duckdb_create_time_ns",
     "duckdb_create_timestamp",
     "duckdb_create_timestamp_ms",
     "duckdb_create_timestamp_ns",

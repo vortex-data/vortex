@@ -178,8 +178,6 @@ impl ToDuckDBScalar for ExtScalar<'_> {
     /// Converts an extension scalar (temporal types or `WellKnownBinary` geometries) to a DuckDB
     /// value.
     fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
-        let logical_type = LogicalType::try_from(&DType::Extension(self.ext_dtype().clone()))?;
-
         if let Some(wkb) = self.ext_dtype().metadata_opt::<WellKnownBinary>() {
             let storage = self.to_storage_scalar();
             let binary = storage
@@ -187,7 +185,7 @@ impl ToDuckDBScalar for ExtScalar<'_> {
                 .ok_or_else(|| vortex_err!("WellKnownBinary storage must be a binary scalar"))?;
             return Ok(match binary.value() {
                 Some(bytes) => Value::new_geometry(bytes.as_slice(), wkb.crs.as_deref())?,
-                None => Value::null(&logical_type),
+                None => Value::null(&*ext_logical_type(self)?),
             });
         }
 
@@ -207,15 +205,10 @@ impl ToDuckDBScalar for ExtScalar<'_> {
 
         Ok(match temporal {
             TemporalMetadata::Timestamp(unit, tz) => {
-                if let Some(tz) = tz.as_ref() {
-                    if tz.as_ref() != "UTC" {
-                        // TODO(ngates): we should convert into UTC as DuckDB does internally.
-                        //  I'm sure we can expose their timezone conversion functions to do this.
-                        vortex_bail!(
-                            "Currently only UTC timezone is supported for duckdb timestamp(tz) conversion"
-                        );
-                    }
-                    return Ok(Value::new_timestamp_tz(value()?));
+                if tz.is_some() {
+                    // TIMESTAMP_TZ stores time in UTC microseconds, tz is
+                    // a display sign
+                    return Ok(Value::new_timestamp_tz(timestamp_tz_micros(*unit, value()?)?));
                 }
                 match unit {
                     TimeUnit::Nanoseconds => Value::new_timestamp_ns(value()?),
@@ -228,26 +221,46 @@ impl ToDuckDBScalar for ExtScalar<'_> {
                 }
             }
             TemporalMetadata::Date(unit) => match unit {
-                TimeUnit::Days => self
-                    .to_storage_scalar()
-                    .as_primitive_opt()
-                    .ok_or_else(|| {
-                        vortex_err!("temporal types must be backed by primitive scalars")
-                    })?
-                    .as_::<i32>()
-                    .map(Value::new_date)
-                    .unwrap_or_else(|| Value::null(&logical_type)),
+                TimeUnit::Days => {
+                    let days = self
+                        .to_storage_scalar()
+                        .as_primitive_opt()
+                        .ok_or_else(|| {
+                            vortex_err!("temporal types must be backed by primitive scalars")
+                        })?
+                        .as_::<i32>();
+                    match days {
+                        Some(days) => Value::new_date(days),
+                        None => Value::null(&*ext_logical_type(self)?),
+                    }
+                }
                 _ => vortex_bail!("cannot have TimeUnit {unit}, so represent a day"),
             },
             TemporalMetadata::Time(unit) => match unit {
                 TimeUnit::Microseconds => Value::new_time(value()?),
                 TimeUnit::Milliseconds => Value::new_time(value()? * 1000),
                 TimeUnit::Seconds => Value::new_time(value()? * 1000 * 1000),
-                TimeUnit::Nanoseconds | TimeUnit::Days => {
-                    vortex_bail!("cannot convert timeunit {unit} to a duckdb MS time")
+                TimeUnit::Nanoseconds => Value::new_time_ns(value()?),
+                TimeUnit::Days => {
+                    vortex_bail!("cannot convert timeunit {unit} to a duckdb time")
                 }
             },
         })
+    }
+}
+
+fn ext_logical_type(scalar: &ExtScalar<'_>) -> VortexResult<LogicalType> {
+    LogicalType::try_from(&DType::Extension(scalar.ext_dtype().clone()))
+}
+
+fn timestamp_tz_micros(unit: TimeUnit, raw: i64) -> VortexResult<i64> {
+    let overflow = || vortex_err!("timestamp_tz overflow rescaling {raw}{unit} to micros");
+    match unit {
+        TimeUnit::Seconds => raw.checked_mul(1_000_000).ok_or_else(overflow),
+        TimeUnit::Milliseconds => raw.checked_mul(1_000).ok_or_else(overflow),
+        TimeUnit::Microseconds => Ok(raw),
+        TimeUnit::Nanoseconds => Ok(raw / 1_000),
+        TimeUnit::Days => vortex_bail!("timestamp_tz cannot have a day time unit"),
     }
 }
 
@@ -313,6 +326,13 @@ impl<'a> TryFrom<&'a ValueRef> for Scalar {
                 Scalar::try_new(
                     DType::Primitive(I64, Nullable),
                     Some(ScalarValue::from(micros)),
+                )?,
+            )),
+            ExtractedValue::TimeNs(nanos) => Ok(Scalar::extension::<Time>(
+                TimeUnit::Nanoseconds,
+                Scalar::try_new(
+                    DType::Primitive(I64, Nullable),
+                    Some(ScalarValue::from(nanos)),
                 )?,
             )),
             ExtractedValue::TimestampNs(nanos) => Ok(Scalar::extension::<Timestamp>(
@@ -590,6 +610,63 @@ mod tests {
             other => panic!("unexpected extracted value: {other:?}"),
         };
         assert_eq!(extracted, raw);
+    }
+
+    fn timestamp_tz_scalar(unit: TimeUnit, tz: &str, v: i64) -> Scalar {
+        Scalar::extension::<Timestamp>(
+            TimestampOptions {
+                unit,
+                tz: Some(tz.into()),
+            },
+            Scalar::try_new(
+                DType::Primitive(PType::I64, Nullability::NonNullable),
+                Some(ScalarValue::from(v)),
+            )
+            .unwrap(),
+        )
+    }
+
+    #[rstest]
+    #[case::seconds_utc(TimeUnit::Seconds, "UTC", 1_704_088_800, 1_704_088_800_000_000)]
+    #[case::millis_utc(
+        TimeUnit::Milliseconds,
+        "UTC",
+        1_704_088_800_123,
+        1_704_088_800_123_000
+    )]
+    #[case::micros_utc(
+        TimeUnit::Microseconds,
+        "UTC",
+        1_704_088_800_000_000,
+        1_704_088_800_000_000
+    )]
+    #[case::nanos_utc(
+        TimeUnit::Nanoseconds,
+        "UTC",
+        1_704_088_800_123_456_789,
+        1_704_088_800_123_456
+    )]
+    #[case::seconds_non_utc(
+        TimeUnit::Seconds,
+        "America/New_York",
+        1_704_088_800,
+        1_704_088_800_000_000
+    )]
+    fn try_from_timestamp_tz_scalar(
+        #[case] unit: TimeUnit,
+        #[case] tz: &str,
+        #[case] raw: i64,
+        #[case] expected_micros: i64,
+    ) {
+        let value = Value::try_from(timestamp_tz_scalar(unit, tz, raw)).unwrap();
+        assert_eq!(
+            value.logical_type().as_type_id(),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ
+        );
+        let ExtractedValue::TimestampTz(micros) = value.extract() else {
+            panic!("expected timestamp_tz");
+        };
+        assert_eq!(micros, expected_micros);
     }
 
     #[test]

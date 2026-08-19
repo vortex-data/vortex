@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+SET TimeZone = 'UTC';
+
+statement ok
+COPY (
+    SELECT TIMESTAMPTZ '2024-01-01' + to_seconds(range) AS ts
+    FROM range(100000)
+) TO '${WORK_DIR}/tz-unit.vortex' (FORMAT vortex);
+
+query I
+SELECT count(*) FROM '${WORK_DIR}/tz-unit.vortex'
+WHERE ts >= TIMESTAMPTZ '2024-01-01 06:00:00';
+----
+78400

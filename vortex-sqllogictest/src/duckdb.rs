@@ -288,6 +288,7 @@ impl std::fmt::Display for ValueDisplayAdapter {
             ExtractedValue::Blob(_)
             | ExtractedValue::Date(_)
             | ExtractedValue::Time(_)
+            | ExtractedValue::TimeNs(_)
             | ExtractedValue::TimestampNs(_)
             | ExtractedValue::Timestamp(_)
             | ExtractedValue::TimestampMs(_)

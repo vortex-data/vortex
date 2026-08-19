@@ -284,10 +284,9 @@ fn temporal_to_duckdb(temporal: TemporalMetadata) -> VortexResult<LogicalType> {
             TimeUnit::Seconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S,
             _ => vortex_bail!("Invalid TimeUnit {} for timestamp", unit),
         },
-        TemporalMetadata::Timestamp(unit, Some(tz)) => {
-            if tz.as_ref() != "UTC" {
-                vortex_bail!("Invalid timezone for timestamp_tz {tz}, must be UTC");
-            }
+        // TIMESTAMP_TZ's timezone is a display unit, time is stored in UTC
+        // microseconds
+        TemporalMetadata::Timestamp(unit, Some(_)) => {
             if unit != &TimeUnit::Microseconds {
                 vortex_bail!(
                     "Invalid TimeUnit {} for timestamp_tz, must be Microseconds",
