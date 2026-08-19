@@ -393,13 +393,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_scanArrow(
     });
 }
 
-/// Copy any column carrying a non-zero array offset into an offset-0 equivalent.
-///
-/// arrow-rs exports `ArrayData::offset` over the C Data Interface without rebasing the
-/// buffer pointers, and arrow-java's importer ignores that field (through 19.0.0), so such
-/// a column lands shifted by `offset` on the Java side. Only bit-packed columns get here
-/// with one: slicing a byte-addressed buffer rebases the pointer, but a boolean slice
-/// starting mid-byte carries `start % 8`.
+/// Copy any column carrying a non-zero array offset into an offset-0 equivalent because
+/// arrow-java's C Data importer ignores `offset` (as of 19.0.0).
 fn rebase_offsets(batch: RecordBatch) -> VortexResult<RecordBatch> {
     let mut rebased = false;
     let columns = batch
