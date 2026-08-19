@@ -26,6 +26,8 @@ use vortex::array::arrays::VarBinArray;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::buffer::buffer;
+use vortex::editions::CORE_2026_08_2;
+use vortex::editions::EditionSessionExt;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::VortexWrite;
@@ -497,8 +499,8 @@ async fn arrow_uuid_extension_roundtrip() -> anyhow::Result<()> {
     use vortex_arrow::ArrowSessionExt;
 
     let ctx = TestSessionContext::default();
-    // Default vortex session has importer/exporter for Arrow UUID
     let session = VortexSession::default();
+    session.enable_edition(CORE_2026_08_2)?;
 
     let mut uuid_field = Field::new("id", DataType::FixedSizeBinary(16), false);
     uuid_field.try_with_extension_type(Uuid)?;
@@ -565,6 +567,7 @@ async fn arrow_uuid_extension_roundtrip_nested_struct() -> anyhow::Result<()> {
 
     let ctx = TestSessionContext::default();
     let session = VortexSession::default();
+    session.enable_edition(CORE_2026_08_2)?;
 
     let mut inner_uuid_field = Field::new("id", DataType::FixedSizeBinary(16), false);
     inner_uuid_field.try_with_extension_type(Uuid)?;
