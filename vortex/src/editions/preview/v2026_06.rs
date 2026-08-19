@@ -17,5 +17,11 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         id: PREVIEW_2026_06_0,
         min_vortex_version: None,
     },
-    added: &[EditionMember::layout(&"vortex.list")],
+    added: &[
+        EditionMember::layout(&"vortex.list"),
+        // Written only by CUDA-enabled sessions, which register the layout through
+        // `vortex_cuda::layout::register_cuda_layout`. A writer resolves layouts against the
+        // enabled editions, so the GPU flat layout has to be a member to be written at all.
+        EditionMember::layout(&"vortex.cuda_flat"),
+    ],
 };
