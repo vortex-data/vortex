@@ -164,7 +164,7 @@ pub fn reader_initialize(file: &mut File, global: &GlobalState) -> VortexResult<
         return Ok(true);
     }
 
-    // Geting splits is non-trivial work so we prefer doing it here under file
+    // Getting splits is non-trivial work so we prefer doing it here under file
     // lock and not in reader_try_initialize_scan under global lock.
     let ordered = global.file_row_number_column_pos.is_some();
     let reader = Arc::clone(&file.reader);
