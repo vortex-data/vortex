@@ -16,6 +16,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 BINARY = "target/release_debug/compress-bench"
 PARTS_DIR = Path("parts")
 
+# TODO(myrrc): we should also drop CUDA allocator caches
 
 def drop_os_caches() -> None:
     try:

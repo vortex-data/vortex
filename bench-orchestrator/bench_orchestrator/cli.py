@@ -387,8 +387,10 @@ def run(
                     try:
                         query_ids = executor.list_queries(benchmark, query_list, exclude_list)
                         for query_id in query_ids:
-                            part_ingest_output = backend_ingest_output_path(ingest_temp_dir, run_idx, backend)
-                            run_idx += 1
+                            part_ingest_output = None
+                            if ingest_temp_dir is not None:
+                                part_ingest_output = backend_ingest_output_path(ingest_temp_dir, run_idx, backend)
+                                run_idx += 1
 
                             drop_os_caches()
 
