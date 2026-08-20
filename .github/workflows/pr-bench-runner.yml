@@ -89,6 +89,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # `compare-benchmark-jsons.py` resolves its baseline by walking `git rev-list HEAD`,
+          # which reaches only the tip of a shallow clone.
+          fetch-depth: 0
 
       - name: Install DuckDB
         uses: ./.github/actions/setup-duckdb
