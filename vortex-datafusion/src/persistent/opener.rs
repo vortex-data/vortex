@@ -397,9 +397,7 @@ impl FileOpener for VortexOpener {
                 .transpose()
                 .map_err(|e| exec_datafusion_err!("Couldn't bind Vortex scan filter: {e}"))?;
 
-            if let Some(limit) = limit
-                && filter.is_none()
-            {
+            if let Some(limit) = limit {
                 scan_builder = scan_builder.with_limit(limit);
             }
 
@@ -445,28 +443,29 @@ impl FileOpener for VortexOpener {
             }
 
             let stream_target_field = Field::new_struct("", stream_schema.fields().clone(), false);
+            let file_location = file.object_meta.location.clone();
             let stream = scan_builder
                 .with_metrics_registry(metrics_registry)
                 .with_ordered(has_output_ordering)
-                .map(move |chunk| {
-                    let mut ctx = session.create_execution_ctx();
-                    let arrow_session = ctx.session().clone();
-                    let arrow = arrow_session.arrow().execute_arrow(
-                        chunk,
-                        Some(&stream_target_field),
-                        &mut ctx,
-                    )?;
-                    Ok(RecordBatch::from(arrow.as_struct().clone()))
-                })
                 .into_stream()
                 .map_err(|e| exec_datafusion_err!("Failed to create Vortex stream: {e}"))?
-                .map_err(move |e: VortexError| {
-                    DataFusionError::External(Box::new(e.with_context(format!(
-                        "Failed to read Vortex file: {}",
-                        file.object_meta.location
-                    ))))
+                // Convert to Arrow inline on the polling thread: DataFusion sources are expected
+                // to do their CPU work inside `poll_next`, and spawning this onto the blocking
+                // pool oversubscribes the CPU.
+                .map(move |chunk| {
+                    let mut ctx = session.create_execution_ctx();
+                    chunk.and_then(|chunk| {
+                        let arrow_session = ctx.session().clone();
+                        let arrow = arrow_session.arrow().execute_arrow(
+                            chunk,
+                            Some(&stream_target_field),
+                            &mut ctx,
+                        )?;
+                        Ok(RecordBatch::from(arrow.as_struct().clone()))
+                    })
                 })
-                .map(move |batch| {
+                .map_err(move |e: VortexError| vortex_file_read_error(&file_location, e))
+                .map(move |batch| -> DFResult<RecordBatch> {
                     let batch = if projector.projection().as_ref().is_empty() {
                         batch
                     } else {
@@ -549,10 +548,10 @@ impl NaturalSplits {
 }
 
 /// Return the cached [`NaturalSplits`] for `path`, computing and caching them on first use.
-fn natural_splits_for_file<A: 'static + Send>(
+fn natural_splits_for_file(
     natural_splits: &DashMap<Path, Arc<NaturalSplits>>,
     path: &Path,
-    scan_builder: &ScanBuilder<A>,
+    scan_builder: &ScanBuilder,
     total_size: u64,
 ) -> DFResult<Arc<NaturalSplits>> {
     if let Some(splits) = natural_splits.get(path) {
@@ -574,8 +573,8 @@ fn natural_splits_for_file<A: 'static + Send>(
 
 /// Walk the layout tree to compute the file's full natural split boundaries for the fields
 /// referenced by the scan's projection and filter.
-fn compute_natural_splits<A: 'static + Send>(
-    scan_builder: &ScanBuilder<A>,
+fn compute_natural_splits(
+    scan_builder: &ScanBuilder,
     total_size: u64,
 ) -> DFResult<Arc<NaturalSplits>> {
     let row_boundaries = scan_builder
@@ -636,6 +635,12 @@ fn split_midpoint_to_byte(split_range: &Range<u64>, row_count: u64, total_size: 
     u64::try_from(midpoint_byte).vortex_expect("midpoint byte projection should fit into u64")
 }
 
+fn vortex_file_read_error(path: &Path, error: VortexError) -> DataFusionError {
+    DataFusionError::External(Box::new(
+        error.with_context(format!("Failed to read Vortex file: {path}")),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use std::fmt;
@@ -668,6 +673,7 @@ mod tests {
     use datafusion_physical_expr::expressions as df_expr;
     use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
     use datafusion_physical_expr::projection::ProjectionExpr;
+    use futures::TryStreamExt;
     use insta::assert_snapshot;
     use itertools::Itertools;
     use object_store::ObjectStore;
@@ -1081,6 +1087,48 @@ mod tests {
                 .map(|metric| metric.as_usize()),
             Some(1)
         );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_open_applies_limit_after_filtering() -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "filtered-limit/file.vortex";
+        let batch = record_batch!((
+            "a",
+            Int32,
+            vec![Some(1), Some(2), Some(3), Some(4), Some(5), Some(6)]
+        ))
+        .unwrap();
+        let data_size =
+            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
+        let file = PartitionedFile::new(file_path.to_string(), data_size);
+        let table_schema = TableSchema::from_file_schema(batch.schema());
+        // `a > 3` excludes the first three rows, so a limit applied *before* filtering would take
+        // rows [1, 2, 3] and filter them all out (yielding nothing), whereas a limit applied
+        // *after* filtering yields the first three matching rows [4, 5, 6]. Asserting the values
+        // (not just the count) is what makes this test able to detect a pre-filter regression.
+        let filter = logical2physical(&col("a").gt(lit(3_i32)), table_schema.table_schema());
+
+        let mut opener = make_opener(object_store, table_schema, Some(filter));
+        opener.limit = Some(3);
+
+        let batches = opener.open(file)?.await?.try_collect::<Vec<_>>().await?;
+        let values = batches
+            .iter()
+            .flat_map(|batch| {
+                batch
+                    .column(0)
+                    .as_any()
+                    .downcast_ref::<Int32Array>()
+                    .expect("projected column should be Int32")
+                    .values()
+                    .to_vec()
+            })
+            .collect::<Vec<i32>>();
+
+        assert_eq!(values, [4, 5, 6]);
 
         Ok(())
     }

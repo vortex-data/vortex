@@ -40,6 +40,7 @@ use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 
 use crate::LayoutReaderRef;
+use crate::scan::limit::RowLimit;
 use crate::scan::scan_builder::ScanBuilder;
 
 /// An implementation of a [`DataSource`] that reads data from a [`LayoutReaderRef`].
@@ -168,6 +169,13 @@ impl DataSource for LayoutReaderDataSource {
             }
         }
 
+        // Only unordered scans share a limit across external partitions: reservation order is
+        // completion order, which an ordered scan cannot accept. Ordered partitions each apply
+        // the limit locally and the engine trims the concatenated result.
+        let row_limit = (!scan_request.ordered)
+            .then(|| scan_request.limit.map(RowLimit::new))
+            .flatten();
+
         Ok(Box::new(LayoutReaderScan {
             reader: Arc::clone(&self.reader),
             session: self.session.clone(),
@@ -175,6 +183,7 @@ impl DataSource for LayoutReaderDataSource {
             projection,
             filter,
             limit: scan_request.limit,
+            row_limit,
             selection: scan_request.selection,
             ordered: scan_request.ordered,
             metrics_registry: self.metrics_registry.clone(),
@@ -196,6 +205,7 @@ struct LayoutReaderScan {
     projection: BoundExpression,
     filter: Option<BoundExpression>,
     limit: Option<u64>,
+    row_limit: Option<RowLimit>,
     ordered: bool,
     selection: Selection,
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
@@ -236,6 +246,9 @@ impl Stream for LayoutReaderScan {
         if this.limit.is_some_and(|limit| limit == 0) {
             return Poll::Ready(None);
         }
+        if this.row_limit.as_ref().is_some_and(RowLimit::is_exhausted) {
+            return Poll::Ready(None);
+        }
 
         let split_end = this
             .next_row
@@ -249,7 +262,8 @@ impl Stream for LayoutReaderScan {
         // the actual output row count is unknown (could be anywhere from 0 to split_rows),
         // so decrementing by split_rows would be too aggressive and could stop producing
         // splits before the limit is reached. Instead, pass the full remaining limit to
-        // each split and let the engine enforce the exact limit at the stream level.
+        // each split; a shared `row_limit` (unordered scans) caps the total, and otherwise
+        // the engine enforces the exact limit at the stream level.
         if this.filter.is_none()
             && let Some(ref mut limit) = this.limit
         {
@@ -262,6 +276,7 @@ impl Stream for LayoutReaderScan {
             projection: this.projection.clone(),
             filter: this.filter.clone(),
             limit: split_limit,
+            row_limit: this.row_limit.clone(),
             ordered: this.ordered,
             row_range,
             selection: this.selection.clone(),
@@ -274,7 +289,10 @@ impl Stream for LayoutReaderScan {
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        if self.next_row >= self.end_row {
+        if self.next_row >= self.end_row
+            || self.limit.is_some_and(|limit| limit == 0)
+            || self.row_limit.as_ref().is_some_and(RowLimit::is_exhausted)
+        {
             return (0, Some(0));
         }
         let remaining_rows = self.end_row - self.next_row;
@@ -289,6 +307,7 @@ struct LayoutReaderSplit {
     projection: BoundExpression,
     filter: Option<BoundExpression>,
     limit: Option<u64>,
+    row_limit: Option<RowLimit>,
     ordered: bool,
     row_range: Range<u64>,
     selection: Selection,
@@ -311,7 +330,7 @@ impl Partition for LayoutReaderSplit {
         let row_count = self.selection.row_count(row_count);
         let row_count = self.limit.map_or(row_count, |limit| row_count.min(limit));
 
-        if self.filter.is_some() {
+        if self.filter.is_some() || self.row_limit.is_some() {
             Precision::inexact(row_count)
         } else {
             Precision::exact(row_count)
@@ -329,13 +348,14 @@ impl Partition for LayoutReaderSplit {
             .with_projection(self.projection)
             .with_some_filter(self.filter)
             .with_some_limit(self.limit)
+            .with_some_row_limit(self.row_limit)
             .with_some_metrics_registry(self.metrics_registry)
             .with_ordered(self.ordered);
 
         let dtype = builder.dtype()?;
         // Use into_stream() which creates a LazyScanStream that spawns individual I/O
         // tasks onto the runtime, enabling parallel execution across executor threads.
-        let stream = builder.into_stream()?;
+        let stream = builder.into_stream()?.boxed();
 
         Ok(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
             dtype, stream,
@@ -400,5 +420,62 @@ impl Partition for Empty {
             dtype,
             stream::iter(iter),
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use futures::StreamExt;
+    use futures::TryStreamExt;
+    use parking_lot::Mutex;
+    use vortex_array::expr::root;
+    use vortex_error::VortexResult;
+    use vortex_io::runtime::BlockingRuntime;
+    use vortex_io::runtime::single::SingleThreadRuntime;
+    use vortex_scan::DataSource;
+    use vortex_scan::ScanRequest;
+
+    use super::LayoutReaderDataSource;
+    use crate::scan::test::TestLayoutReader;
+    use crate::scan::test::collect_scan_values;
+    use crate::scan::test::session_with_handle;
+
+    /// An unordered limit is shared by every partition of the scan, and is applied to each split's
+    /// mask, so the partitions together never project more rows than the limit can return.
+    #[test]
+    fn unordered_limit_never_projects_more_than_the_global_budget() -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let projection_masks = Arc::new(Mutex::new(Vec::new()));
+        let source = LayoutReaderDataSource::new(
+            Arc::new(
+                TestLayoutReader::new(12).with_projection_masks(Arc::clone(&projection_masks)),
+            ),
+            session,
+        )
+        .with_split_max_row_count(2);
+
+        let scan = runtime.block_on(source.scan(ScanRequest {
+            filter: Some(root()),
+            limit: Some(3),
+            ordered: false,
+            ..Default::default()
+        }))?;
+        let partitions = runtime.block_on(scan.partitions().try_collect::<Vec<_>>())?;
+        assert_eq!(partitions.len(), 6);
+
+        let chunks = runtime.block_on(
+            futures::stream::iter(partitions)
+                .map(|partition| partition.execute())
+                .try_flatten_unordered(Some(6))
+                .try_collect::<Vec<_>>(),
+        )?;
+        let values = collect_scan_values(chunks.into_iter().map(Ok))?;
+
+        assert_eq!(values.len(), 3);
+        assert_eq!(projection_masks.lock().iter().sum::<usize>(), 3);
+        Ok(())
     }
 }

@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use async_trait::async_trait;
+use futures::StreamExt;
 use futures::TryStreamExt;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
@@ -72,15 +73,17 @@ impl Dataset for TPCHLCommentChunked {
         let chunks: Vec<_> = file
             .scan()?
             .with_projection(projection)
+            .into_array_stream()?
             .map({
                 let ctx = ctx.clone();
                 move |a| {
                     let mut ctx = ctx.clone();
-                    let canonical = a.execute::<Canonical>(&mut ctx)?;
-                    Ok(canonical.into_array())
+                    a.and_then(|a| {
+                        let canonical = a.execute::<Canonical>(&mut ctx)?;
+                        Ok(canonical.into_array())
+                    })
                 }
             })
-            .into_array_stream()?
             .try_collect()
             .await?;
 

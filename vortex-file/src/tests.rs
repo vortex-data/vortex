@@ -1328,7 +1328,7 @@ async fn write_nullable_top_level_struct() {
 
 async fn round_trip(
     array: &ArrayRef,
-    f: impl FnOnce(ScanBuilder<ArrayRef>) -> VortexResult<ScanBuilder<ArrayRef>>,
+    f: impl FnOnce(ScanBuilder) -> VortexResult<ScanBuilder>,
 ) -> VortexResult<ArrayRef> {
     let mut writer = vec![];
     SESSION
