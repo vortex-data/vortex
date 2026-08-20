@@ -23,7 +23,9 @@ impl CastReduce for Constant {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_error::VortexResult;
 
+    use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;
@@ -33,6 +35,7 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
 
@@ -43,8 +46,29 @@ mod tests {
     #[case(ConstantArray::new(Scalar::from(true), 7).into_array())]
     #[case(ConstantArray::new(Scalar::null_native::<i32>(), 4).into_array())]
     #[case(ConstantArray::new(Scalar::from(255u8), 1).into_array())]
-    fn test_cast_constant_conformance(#[case] array: crate::ArrayRef) {
+    fn test_cast_constant_conformance(#[case] array: ArrayRef) {
         test_cast_conformance(&array, &mut array_session().create_execution_ctx());
+    }
+
+    #[test]
+    fn cast_constant_out_of_range_reports_scalar_error() -> VortexResult<()> {
+        let err = ConstantArray::new(Scalar::from(-1i32), 5)
+            .into_array()
+            .cast(DType::Primitive(PType::U32, Nullability::Nullable))?
+            .execute::<ArrayRef>(&mut array_session().create_execution_ctx())
+            .expect_err("casting a negative constant to u32 must fail");
+
+        // The scalar cast failure must surface, not a missing-rule error.
+        let message = err.to_string();
+        assert!(
+            message.contains("Cannot cast"),
+            "unexpected error: {message}"
+        );
+        assert!(
+            !message.contains("No CastReduce"),
+            "unexpected error: {message}"
+        );
+        Ok(())
     }
 
     #[test]
