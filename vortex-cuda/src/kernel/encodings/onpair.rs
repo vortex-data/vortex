@@ -49,6 +49,7 @@ use num_traits::AsPrimitive;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
+use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
@@ -56,8 +57,10 @@ use vortex::array::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use vortex::array::arrays::varbinview::build_views::build_views;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBuffer;
+use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::match_each_integer_ptype;
 use vortex::array::validity::Validity;
+use vortex::buffer::Buffer;
 use vortex::dtype::DType;
 use vortex::dtype::NativePType;
 use vortex::dtype::PType;
@@ -73,7 +76,7 @@ use vortex_onpair::OnPair;
 use vortex_onpair::OnPairArray;
 use vortex_onpair::OnPairArrayExt;
 use vortex_onpair::OnPairArraySlotsExt;
-use vortex_onpair::dict_view;
+use vortex_onpair::OnPairDictionary;
 
 use crate::CanonicalCudaExt;
 use crate::CudaBufferExt;
@@ -321,7 +324,13 @@ async fn stage_dict(
     onpair: ArrayView<'_, OnPair>,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<StagedDict> {
-    let dict = dict_view(onpair, ctx.execution_ctx())?;
+    // Both dictionary parts are read here by the host staging loop below, so both must be
+    // host-resident first. `dict_view` reads them through `BufferHandle::as_host` and a CPU
+    // cast kernel, which panic once the array's buffers live on the device.
+    let dict_bytes = onpair.dict_bytes_handle().clone().try_into_host()?.await?;
+    let dict_offsets = host_dict_offsets(onpair, ctx).await?;
+    let dict = OnPairDictionary::try_new(dict_bytes, dict_offsets)?;
+    let dict = dict.as_view();
     let dict_size = dict.num_tokens();
     let dict_size_u32 = u32::try_from(dict_size)?;
     let mut dict_padded = vec![0u8; dict_size * MAX_TOKEN_SIZE];
@@ -596,6 +605,28 @@ async fn decode_primitive_child(
     Ok(child.execute_cuda(ctx).await?.into_primitive())
 }
 
+/// The `dict_offsets` child, decoded and widened to the `u32` the dictionary stores.
+///
+/// Decoded on the GPU like the other children, then copied back: the dictionary is staged
+/// on the host, and the child is `dict_size + 1` elements, so the round trip is bounded by
+/// the dictionary size rather than the array length.
+async fn host_dict_offsets(
+    onpair: ArrayView<'_, OnPair>,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<Buffer<u32>> {
+    let offsets = decode_primitive_child(onpair.dict_offsets().clone(), ctx).await?;
+    let offsets = Canonical::Primitive(offsets)
+        .into_host()
+        .await?
+        .into_primitive();
+    let nullability = offsets.dtype().nullability();
+    Ok(offsets
+        .into_array()
+        .cast(DType::Primitive(PType::U32, nullability))?
+        .execute::<PrimitiveArray>(ctx.execution_ctx())?
+        .into_buffer::<u32>())
+}
+
 /// Cold path: the window has no codes, so the rows must decode to zero bytes.
 async fn ensure_zero_lengths(lengths: PrimitiveArray) -> VortexResult<()> {
     let lengths = Canonical::Primitive(lengths)
@@ -728,6 +759,52 @@ mod tests {
             .vortex_expect("GPU decompression failed");
         assert_eq!(gpu_result.dtype(), &dtype);
         assert_device_resident(&gpu_result);
+
+        let host_result = gpu_result.into_host().await?.into_array();
+        assert_arrays_eq!(onpair, host_result, &mut ctx);
+        Ok(())
+    }
+
+    /// Arrays read through the CUDA flat layout arrive with their buffers already on the
+    /// device. Staging the dictionary must copy it back rather than assuming a host buffer,
+    /// which is what panicked with "expected host buffer" on `taxi` and TPC-H `l_comment`.
+    #[crate::test]
+    async fn test_cuda_onpair_device_resident_dictionary() -> VortexResult<()> {
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
+            .vortex_expect("failed to create execution context");
+
+        let strings = vec![
+            Some(&b"the quick brown fox"[..]),
+            Some(&b"jumps over the lazy dog"[..]),
+            Some(&b"hello world"[..]),
+            Some(&b"vortex onpair test string"[..]),
+        ];
+        let dtype = DType::Utf8(Nullability::NonNullable);
+        let onpair = compress_onpair(strings, dtype.clone(), &mut cuda_ctx)?;
+        let view = onpair
+            .as_typed::<OnPair>()
+            .vortex_expect("expected OnPair array");
+
+        // Rebuild the array with its dictionary blob resident on the device.
+        let dict_bytes = view.dict_bytes_handle().as_host().to_vec();
+        let dict_device = cuda_ctx.copy_to_device(dict_bytes)?.await?;
+        let device_onpair = OnPair::try_new(
+            dtype.clone(),
+            dict_device,
+            view.dict_offsets().clone(),
+            view.codes().clone(),
+            view.codes_offsets().clone(),
+            view.uncompressed_lengths().clone(),
+            view.array_validity(),
+        )?
+        .into_array();
+
+        let gpu_result = OnPairExecutor
+            .execute(device_onpair, &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU decompression failed");
+        assert_eq!(gpu_result.dtype(), &dtype);
 
         let host_result = gpu_result.into_host().await?.into_array();
         assert_arrays_eq!(onpair, host_result, &mut ctx);

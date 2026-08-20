@@ -232,6 +232,27 @@ fn build_dictionary(
         .map_err(|e| vortex_err!(InvalidArgument: "Unsafe OnPair dictionary: {e}"))
 }
 
+/// A safety-validated dictionary built from host-materialized parts, owned
+/// independently of any array.
+///
+/// [`dict_view`] reaches the same parts through host-only accessors, which panics when
+/// the array's buffers are device-resident. Callers that have already copied the
+/// dictionary blob and its widened offsets to the host — the CUDA executor, which stages
+/// the dictionary on the host regardless — build through this instead.
+pub struct OnPairDictionary(CompactDictionary<OnPairDictionaryStorage>);
+
+impl OnPairDictionary {
+    /// Validates `(bytes, offsets)` and seals them into a dictionary.
+    pub fn try_new(bytes: ByteBuffer, offsets: Buffer<u32>) -> VortexResult<Self> {
+        Ok(Self(build_dictionary(bytes, offsets)?))
+    }
+
+    /// Borrows the dictionary as a view.
+    pub fn as_view(&self) -> CompactDictionaryView<'_> {
+        self.0.as_view()
+    }
+}
+
 /// A safety-validated [`CompactDictionaryView`] over `array`'s dictionary.
 ///
 /// The first successful initialization widens the `dict_offsets` child and
