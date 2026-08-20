@@ -189,9 +189,9 @@ impl EditionSession {
     }
 
     /// Validate all registered declarations. Errors on editions in undeclared families,
-    /// inclusions referencing undeclared editions, editions out of chronological order within a family (unversioned drafts
-    /// must be newest), malformed version strings, and members requiring a release newer
-    /// than their edition declares.
+    /// inclusions referencing undeclared editions, editions out of chronological order within
+    /// a family (unversioned drafts must be newest), malformed version strings, and members
+    /// requiring a release newer than their edition declares.
     pub fn validate(&self) -> Result<(), EditionError> {
         let editions = self.editions();
 

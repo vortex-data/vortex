@@ -178,18 +178,45 @@ selected editions, the write fails.
   function outside the selected editions fails the write. With `allow_unknown`, readers disable a zone map whose
   aggregate function they do not recognize; ignoring a zone map only reduces pruning and does not affect correctness.
 
-## The `unstable` family
+## The `preview` family
 
-Alongside `core` there is an `unstable` family, holding encodings that are still being
-evaluated. It is the exception to everything above: every `unstable` edition is a permanent
+Alongside `core` there is a `preview` family, holding components that are still being
+evaluated. It is the exception to everything above: every `preview` edition is a permanent
 draft, so the family never freezes and carries no read-compatibility guarantee at all. A file
-written with these encodings is readable only by a build that knows them, and a future release
+written with these components is readable only by a build that knows them, and a future release
 may stop supporting one.
 
 Because of that, the writer only emits them when you opt in — the default session enables the
-newest `unstable` edition solely when the `unstable_encodings` cargo feature is selected.
-Encodings graduate by being declared in a new `core` edition, which is where they pick up the
+newest `preview` edition solely when the `unstable_encodings` cargo feature is selected.
+Components graduate by being declared in a new `core` edition, which is where they pick up the
 read-forever guarantee.
+
+## Declaring, freezing, and the edition records
+
+The first-party declarations live in `vortex-edition/src/declarations/`, one module per
+edition. Each declared edition is exported as a TOML record under `vortex/editions/`, grouped
+by family, by running:
+
+```sh
+cargo run -p xtask -- generate-editions
+```
+
+Changing the declarations follows the edition's lifecycle:
+
+1. **Declare a draft.** Add a module declaring the new edition with `min_vortex_version: None`
+   and the members that join the family at it, then regenerate the records. A draft carries no
+   guarantee, so its declaration and record may change freely — or be dropped — while it is
+   assembled.
+2. **Freeze it.** Once a release ships readers for every member, record that release as the
+   edition's `min_vortex_version` and regenerate the records. Freezing is the act of
+   publishing the read-forever guarantee.
+3. **Never touch it again.** A frozen record is immutable: CI
+   (`cargo run -p xtask -- check-editions`) rejects any change that edits, renames, unfreezes,
+   or deletes a frozen record, and rejects new editions that do not extend their family's
+   chronology. To change what writers may emit, declare the next edition instead.
+
+The record files are the reviewable contract, so changes under `vortex/editions/` and
+`vortex-edition/src/declarations/` additionally require two approvals to merge.
 
 ## Edition registry
 
