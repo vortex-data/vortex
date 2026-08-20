@@ -4,6 +4,7 @@
 #![expect(clippy::unwrap_used)]
 
 use divan::Bencher;
+use mimalloc::MiMalloc;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
@@ -12,6 +13,9 @@ use vortex_array::dtype::StructFields;
 use vortex_array::expr::get_item;
 use vortex_array::expr::pack;
 use vortex_array::expr::root;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();

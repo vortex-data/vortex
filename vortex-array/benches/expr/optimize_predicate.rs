@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 use divan::Bencher;
 use divan::black_box;
+use mimalloc::MiMalloc;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -32,6 +33,9 @@ use vortex_array::expr::or_collect;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::scalar::Scalar;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();
