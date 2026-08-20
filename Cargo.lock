@@ -10234,6 +10234,7 @@ name = "vortex-io"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-executor",
  "async-fs",
  "async-stream",
  "async-trait",

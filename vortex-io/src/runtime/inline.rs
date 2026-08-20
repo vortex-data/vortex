@@ -11,10 +11,13 @@ use std::task::Poll;
 use std::task::Wake;
 use std::task::Waker;
 
-/// Drives a future synchronously until it completes.
+/// Drives a future on the current thread until it completes, spinning rather than parking while
+/// no wake-up is pending.
 ///
-/// This is only suitable for futures whose progress does not depend on yielding control to an
-/// external event loop. It is used by the WebAssembly runtime when JavaScript interop is disabled.
+/// This backs `SingleThreadRuntime::block_on` on WebAssembly, where a single-threaded module
+/// cannot park: `std::thread::park` is a no-op there, so any `block_on` implementation degrades to
+/// this spin. Progress therefore depends on every wake-up coming from this same thread; a future
+/// waiting on an external event loop never completes.
 pub(super) fn block_on<F: Future>(future: F) -> F::Output {
     let mut future = pin!(future);
     let wake_state = Arc::new(SpinWaker::default());

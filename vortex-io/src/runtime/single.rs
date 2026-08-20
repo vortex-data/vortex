@@ -5,13 +5,13 @@ use std::rc::Rc;
 use std::rc::Weak as RcWeak;
 use std::sync::Arc;
 
+use async_executor::LocalExecutor;
 use futures::Stream;
 use futures::StreamExt;
 use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use futures::stream::LocalBoxStream;
 use parking_lot::Mutex;
-use smol::LocalExecutor;
 use vortex_error::vortex_panic;
 
 use crate::runtime::AbortHandle;
@@ -19,12 +19,18 @@ use crate::runtime::AbortHandleRef;
 use crate::runtime::BlockingRuntime;
 use crate::runtime::Executor;
 use crate::runtime::Handle;
-use crate::runtime::smol::SmolAbortHandle;
+use crate::runtime::abort::TaskAbortHandle;
 
 /// A runtime that drives all work on the current thread.
 ///
 /// This is subtly different from using a current-thread runtime to drive a future since it is
 /// capable of running `!Send` I/O futures.
+///
+/// This is also the runtime to use on WebAssembly targets without a JavaScript event loop: since
+/// spawned work is queued onto the local executor rather than driven inline, tasks that
+/// communicate with one another can make progress. Note that `block_on` cannot park a
+/// single-threaded WebAssembly thread, so every future it drives must be woken from this same
+/// thread; futures waiting on an external event loop will never complete.
 pub struct SingleThreadRuntime {
     sender: Arc<Sender>,
     executor: Rc<LocalExecutor<'static>>,
@@ -36,6 +42,21 @@ impl Default for SingleThreadRuntime {
         let sender = Arc::new(Sender::new(&executor));
         Self { sender, executor }
     }
+}
+
+/// Drives a future on the current thread until it completes.
+///
+/// Off WebAssembly we use smol's `block_on`, which parks the thread while no task is runnable.
+/// A single-threaded WebAssembly thread cannot park, so there we spin instead, which is sound
+/// because every wake-up must come from this same thread.
+#[cfg(not(target_arch = "wasm32"))]
+fn drive<F: Future>(fut: F) -> F::Output {
+    smol::block_on(fut)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn drive<F: Future>(fut: F) -> F::Output {
+    crate::runtime::inline::block_on(fut)
 }
 
 struct Sender {
@@ -64,7 +85,7 @@ impl Sender {
                         drop(
                             spawn
                                 .task_callback
-                                .send(SmolAbortHandle::new_handle(local.spawn(spawn.future))),
+                                .send(TaskAbortHandle::new_handle(local.spawn(spawn.future))),
                         );
                     }
                 }
@@ -79,7 +100,7 @@ impl Sender {
                     if let Some(local) = weak_local2.upgrade() {
                         let work = spawn.sync;
                         // Ignore send errors since it means the caller immediately detached.
-                        drop(spawn.task_callback.send(SmolAbortHandle::new_handle(
+                        drop(spawn.task_callback.send(TaskAbortHandle::new_handle(
                             local.spawn(async move { work() }),
                         )));
                     }
@@ -95,7 +116,7 @@ impl Sender {
                     if let Some(local) = weak_local2.upgrade() {
                         let work = spawn.sync;
                         // Ignore send errors since it means the caller immediately detached.
-                        drop(spawn.task_callback.send(SmolAbortHandle::new_handle(
+                        drop(spawn.task_callback.send(TaskAbortHandle::new_handle(
                             local.spawn(async move { work() }),
                         )));
                     }
@@ -168,7 +189,7 @@ impl BlockingRuntime for SingleThreadRuntime {
     where
         Fut: Future<Output = R>,
     {
-        smol::block_on(self.executor.run(fut))
+        drive(self.executor.run(fut))
     }
 
     fn block_on_stream<'a, S, R>(&self, stream: S) -> Self::BlockingIterator<'a, R>
@@ -215,10 +236,11 @@ where
 /// meaning we need the spawning channel consumer to do some work before the caller can actually
 /// get ahold of their task handle.
 ///
-/// The reason we don't pass back a smol::Task, and instead pass back a SmolAbortHandle, is because
-/// we invert the behaviour of abort and drop. Dropping the abort handle results in the task being
-/// detached, whereas dropping the smol::Task results in the task being canceled. This helps avoid
-/// a race where the caller detaches the LazyAbortHandle before the smol::Task has been launched.
+/// The reason we don't pass back the executor's own task handle, and instead pass back a
+/// [`TaskAbortHandle`], is because we invert the behaviour of abort and drop. Dropping the abort
+/// handle results in the task being detached, whereas dropping the task handle results in the task
+/// being canceled. This helps avoid a race where the caller detaches the LazyAbortHandle before
+/// the task has been launched.
 struct SpawnAsync<'rt> {
     future: BoxFuture<'rt, ()>,
     task_callback: oneshot::Sender<AbortHandleRef>,
@@ -236,7 +258,7 @@ struct LazyAbortHandle {
 
 impl AbortHandle for LazyAbortHandle {
     fn abort(self: Box<Self>) {
-        // Aborting a smol::Task is done by dropping it.
+        // Aborting a task is done by dropping its handle.
         if let Ok(Some(task)) = self.task.lock().try_recv() {
             task.abort()
         }
@@ -254,7 +276,7 @@ impl<T> Iterator for SingleThreadIterator<'_, T> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let fut = self.stream.next();
-        smol::block_on(self.executor.run(fut))
+        drive(self.executor.run(fut))
     }
 }
 

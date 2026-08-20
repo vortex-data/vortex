@@ -7,47 +7,45 @@
 //! In the future, it may also include a buffer manager or other shared resources.
 //!
 //! The threading models we currently support are:
-//! * Single-threaded: all work is driven on the current thread.
+//! * Single-threaded: all work is driven on the current thread. This is also the model to use on
+//!   WebAssembly targets that have no JavaScript event loop.
 //! * Multi-threaded: work is driven on a pool of threads managed by Vortex.
 //! * Worker Pool: work is driven on a pool of threads provided by the caller.
 //! * Tokio: work is driven on a Tokio runtime provided by the caller.
-//! * WebAssembly: work is driven by `wasm_bindgen_futures`, or synchronously when the
-//!   `wasm-bindgen` feature is disabled.
+//! * WebAssembly: work is driven by `wasm_bindgen_futures`.
 //!
 //! Callers may also implement [`Executor`] themselves and install it with
 //! `RuntimeSessionExt::with_handle`.
 
 use futures::future::BoxFuture;
 
+mod abort;
 mod blocking;
 pub use blocking::*;
 #[cfg(not(target_arch = "wasm32"))]
 mod blocking_pool;
 mod handle;
 pub use handle::*;
-#[cfg(any(
-    test,
-    all(
-        target_arch = "wasm32",
-        target_os = "unknown",
-        not(feature = "wasm-bindgen")
-    )
-))]
+#[cfg(any(test, target_arch = "wasm32"))]
 mod inline;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod current;
 #[cfg(not(target_arch = "wasm32"))]
 mod pool;
-#[cfg(not(target_arch = "wasm32"))]
 pub mod single;
 #[cfg(not(target_arch = "wasm32"))]
 mod smol;
 #[cfg(feature = "tokio")]
 pub mod tokio;
 // target_os = "unknown" matches browser WebAssembly, excluding WASI targets that do not use this
-// browser-specific runtime.
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+// browser-specific runtime. Without `wasm-bindgen` there is no JavaScript event loop to schedule
+// onto, and callers should drive a `single::SingleThreadRuntime` instead.
+#[cfg(all(
+    target_arch = "wasm32",
+    target_os = "unknown",
+    feature = "wasm-bindgen"
+))]
 pub mod wasm;
 
 #[cfg(test)]
