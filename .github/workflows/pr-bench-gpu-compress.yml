@@ -78,8 +78,7 @@ jobs:
           # (cuda.yaml), which also sets only FLAT_LAYOUT_INLINE_ARRAY_NODE.
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
         run: |
-          bash scripts/bench-taskset.sh target/release_debug/compress-bench \
-            --gpu-decompress -d gh-json -o results.json
+          python3 scripts/compress-split.py --gpu-decompress
       - name: Publish results
         shell: bash
         run: |

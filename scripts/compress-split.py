@@ -29,14 +29,18 @@ def drop_os_caches() -> None:
         pass
 
 
-def list_datasets() -> list[str]:
-    result = subprocess.run([BINARY, "--print-datasets"], check=True, capture_output=True, text=True)
+def list_datasets(gpu_decompress: bool) -> list[str]:
+    cmd = [BINARY, "--print-datasets"]
+    if gpu_decompress:
+        cmd.append("--gpu-decompress")
+    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
-def run_datasets(formats: str, emit_ingest_records: bool) -> None:
+def run_datasets(formats: str, emit_ingest_records: bool, gpu_decompress: bool) -> list[str]:
     PARTS_DIR.mkdir(parents=True, exist_ok=True)
-    for i, dataset in enumerate(list_datasets()):
+    failures: list[str] = []
+    for i, dataset in enumerate(list_datasets(gpu_decompress)):
         drop_os_caches()
 
         args = [
@@ -45,17 +49,21 @@ def run_datasets(formats: str, emit_ingest_records: bool) -> None:
             BINARY,
             "--datasets",
             f"^{re.escape(dataset)}$",
-            "--formats",
-            formats,
-            "-d",
-            "gh-json",
-            "-o",
-            str(PARTS_DIR / f"{i}.gh.json"),
         ]
+        if gpu_decompress:
+            # GPU mode fixes its own formats
+            args.append("--gpu-decompress")
+        else:
+            args += ["--formats", formats]
+        args += ["-d", "gh-json", "-o", str(PARTS_DIR / f"{i}.gh.json")]
         if emit_ingest_records:
             args += ["--ingest-jsonl", str(PARTS_DIR / f"{i}.ingest.jsonl")]
         print("+", " ".join(args), flush=True)
-        subprocess.run(args, check=True)
+
+        result = subprocess.run(args, check=not gpu_decompress)
+        if result.returncode != 0:
+            failures.append(dataset)
+    return failures
 
 
 def merge(pattern: str, out_path: str) -> None:
@@ -81,12 +89,20 @@ def main() -> None:
         action="store_true",
         help="merge --ingest-jsonl records into results.ingest.jsonl",
     )
+    parser.add_argument(
+        "--gpu-decompress",
+        action="store_true",
+        help="run the GPU decompression suite (forwards --gpu-decompress, ignores --formats)",
+    )
     args = parser.parse_args()
 
-    run_datasets(args.formats, args.emit_ingest_records)
+    failures = run_datasets(args.formats, args.emit_ingest_records, args.gpu_decompress)
     merge(f"{PARTS_DIR}/*.gh.json", "results.json")
     if args.emit_ingest_records:
         merge(f"{PARTS_DIR}/*.ingest.jsonl", "results.ingest.jsonl")
+
+    if failures:
+        raise SystemExit("GPU decompression failed for: " + ", ".join(failures))
 
 
 if __name__ == "__main__":
