@@ -4,18 +4,18 @@
 use smallvec::SmallVec;
 use vortex_error::VortexResult;
 
-use super::super::Batch;
-use super::super::args::BorrowedExecutionArgs;
+use super::super::RowFnExecutionArgs;
+use super::super::args::BorrowedRowFnArgs;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 
-impl Batch {
+impl RowFnExecutionArgs {
     /// Execute all-constant inputs by evaluating one row and broadcasting the validated result.
     pub(super) fn execute_all_constant(
         &self,
-        kernel: impl Fn(BorrowedExecutionArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
+        kernel: impl Fn(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let one_row: SmallVec<[ArrayRef; 4]> = self

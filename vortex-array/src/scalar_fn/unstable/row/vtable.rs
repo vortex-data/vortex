@@ -14,8 +14,8 @@ use vortex_error::vortex_ensure_eq;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
-use super::batch::Batch;
-use super::batch::BorrowedExecutionArgs;
+use super::batch::BorrowedRowFnArgs;
+use super::batch::RowFnExecutionArgs;
 use super::row_fn::RowFn;
 use super::visitor::BatchPlanner;
 use super::visitor::ExecuteRows;
@@ -139,7 +139,7 @@ fn ensure_arity<F: RowFn>(function: &F, actual: usize) -> VortexResult<()> {
 fn execute_row_kernel<F: RowFn>(
     function: &F,
     options: &F::Options,
-    args: BorrowedExecutionArgs<'_>,
+    args: BorrowedRowFnArgs<'_>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     function.dispatch(
@@ -159,7 +159,7 @@ fn execute_row_kernel<F: RowFn>(
 fn try_execute_valid_rows<F: RowFn>(
     function: &F,
     options: &F::Options,
-    args: BorrowedExecutionArgs<'_>,
+    args: BorrowedRowFnArgs<'_>,
     valid: &Mask,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
@@ -182,8 +182,8 @@ fn prepare_batch<F: RowFn>(
     function: &F,
     options: &F::Options,
     args: &dyn ExecutionArgs,
-) -> VortexResult<Batch> {
-    Batch::new(RowFn::id(function), args, |arg_dtypes| {
+) -> VortexResult<RowFnExecutionArgs> {
+    RowFnExecutionArgs::new(RowFn::id(function), args, |arg_dtypes| {
         function.dispatch(
             options,
             arg_dtypes,

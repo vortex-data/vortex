@@ -3,7 +3,7 @@
 
 //! Execution arguments paired with the metadata selected during planning.
 //!
-//! [`BorrowedExecutionArgs`] can point at original or sliced arrays while retaining the dtypes,
+//! [`BorrowedRowFnArgs`] can point at original or sliced arrays while retaining the dtypes,
 //! output dtype, and execution policy of the original batch plan.
 
 use vortex_error::VortexResult;
@@ -20,7 +20,7 @@ use crate::scalar_fn::ExecutionArgs;
 /// batch. Keeping them together prevents an execution path from pairing an input view with
 /// unrelated planning metadata.
 #[derive(Clone, Copy)]
-pub(crate) struct BorrowedExecutionArgs<'a> {
+pub(crate) struct BorrowedRowFnArgs<'a> {
     /// The input arrays for this row-function invocation.
     arrays: &'a [ArrayRef],
 
@@ -37,7 +37,7 @@ pub(crate) struct BorrowedExecutionArgs<'a> {
     policy: RowPolicy,
 }
 
-impl<'a> BorrowedExecutionArgs<'a> {
+impl<'a> BorrowedRowFnArgs<'a> {
     /// Pair one input view with the planning metadata selected for its batch.
     pub(crate) fn new(
         arrays: &'a [ArrayRef],
@@ -71,7 +71,7 @@ impl<'a> BorrowedExecutionArgs<'a> {
     }
 }
 
-impl ExecutionArgs for BorrowedExecutionArgs<'_> {
+impl ExecutionArgs for BorrowedRowFnArgs<'_> {
     fn get(&self, index: usize) -> VortexResult<ArrayRef> {
         self.arrays.get(index).cloned().ok_or_else(|| {
             vortex_err!(

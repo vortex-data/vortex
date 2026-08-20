@@ -9,9 +9,9 @@
 //! propagating strict validity, selecting an execution strategy, and validating the finished
 //! output.
 //!
-//! [`BatchPlan`] carries the nullable execution strategy selected by a concrete dispatch. [`Batch`]
-//! applies that strategy, and [`BorrowedExecutionArgs`] pairs each kernel invocation with its
-//! planning metadata.
+//! [`BatchPlan`] carries the nullable execution strategy selected by a concrete dispatch.
+//! [`RowFnExecutionArgs`] applies that strategy, and [`BorrowedRowFnArgs`] pairs each kernel
+//! invocation with its planning metadata.
 
 use smallvec::SmallVec;
 
@@ -21,7 +21,7 @@ use crate::scalar_fn::ScalarFnId;
 use crate::validity::Validity;
 
 mod args;
-pub(super) use args::BorrowedExecutionArgs;
+pub(super) use args::BorrowedRowFnArgs;
 
 mod execute;
 #[cfg(test)]
@@ -33,7 +33,7 @@ pub(super) use super::visitor::BatchPlan;
 pub(super) use super::visitor::RowPolicy;
 
 /// The same-length input columns and metadata for one row-function execution.
-pub(crate) struct Batch {
+pub(crate) struct RowFnExecutionArgs {
     /// The function being executed, named in the errors this raises.
     id: ScalarFnId,
 

@@ -5,7 +5,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 
-use super::super::Batch;
+use super::super::RowFnExecutionArgs;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -15,7 +15,7 @@ use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::scalar_fn::ScalarFnId;
 
-impl Batch {
+impl RowFnExecutionArgs {
     pub(super) fn all_null(&self) -> ArrayRef {
         ConstantArray::new(Scalar::null(self.result_dtype.clone()), self.row_count).into_array()
     }

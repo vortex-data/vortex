@@ -5,8 +5,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
-use super::super::Batch;
-use super::super::args::BorrowedExecutionArgs;
+use super::super::RowFnExecutionArgs;
+use super::super::args::BorrowedRowFnArgs;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -23,7 +23,7 @@ enum ResolvedValidity {
     PartiallyValid(Mask),
 }
 
-impl Batch {
+impl RowFnExecutionArgs {
     /// Resolve validity, then execute valid rows over the original inputs.
     ///
     /// # Panics
@@ -32,9 +32,9 @@ impl Batch {
     /// support null-tolerant decoding, and output sinks must initialize skipped rows.
     pub(super) fn execute_valid_only(
         &self,
-        kernel: impl Fn(BorrowedExecutionArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
+        kernel: impl Fn(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
         try_valid_rows: impl FnOnce(
-            BorrowedExecutionArgs<'_>,
+            BorrowedRowFnArgs<'_>,
             &Mask,
             &mut ExecutionCtx,
         ) -> VortexResult<Option<ArrayRef>>,
@@ -58,14 +58,14 @@ impl Batch {
     /// Materialize validity and handle all-valid or all-null batches.
     fn resolve_validity(
         &self,
-        kernel: &impl Fn(BorrowedExecutionArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
+        kernel: &impl Fn(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ResolvedValidity> {
         let valid = self.validity.clone().execute_mask(self.row_count, ctx)?;
 
         // An array-backed validity can materialize to all valid even though the cheap checks in
-        // `Batch::execute` could not prove that. Run the full-row kernel in that case. Check
-        // all-true before all-false because an empty mask is both.
+        // `RowFnExecutionArgs::execute` could not prove that. Run the full-row kernel in that
+        // case. Check all-true before all-false because an empty mask is both.
         if valid.all_true() {
             let values = kernel(self.execution_args(&self.inputs, self.row_count), ctx)?;
             let values = self.validate_kernel_output(values, self.row_count, ctx)?;
@@ -85,7 +85,7 @@ impl Batch {
     fn try_execute_valid_rows(
         &self,
         try_valid_rows: impl FnOnce(
-            BorrowedExecutionArgs<'_>,
+            BorrowedRowFnArgs<'_>,
             &Mask,
             &mut ExecutionCtx,
         ) -> VortexResult<Option<ArrayRef>>,

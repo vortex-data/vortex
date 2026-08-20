@@ -3,15 +3,15 @@
 
 //! Selects a batch execution strategy.
 //!
-//! [`Batch::execute`] handles universal fast paths, then delegates to dense or valid-only
-//! execution.
+//! [`RowFnExecutionArgs::execute`] handles universal fast paths, then delegates to dense or
+//! valid-only execution.
 
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use super::Batch;
+use super::RowFnExecutionArgs;
 use super::RowPolicy;
-use super::args::BorrowedExecutionArgs;
+use super::args::BorrowedRowFnArgs;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrays::Constant;
@@ -26,16 +26,16 @@ mod output;
 #[cfg(test)]
 pub(crate) use output::finalize_kernel_output;
 
-impl Batch {
+impl RowFnExecutionArgs {
     /// Apply constant folding and null handling around `kernel`.
     ///
     /// For a partially valid batch, `try_valid_rows` executes only valid rows over the original
     /// inputs. Every result is checked against the planned shape and dtype.
     pub(crate) fn execute(
         &self,
-        kernel: impl Fn(BorrowedExecutionArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
+        kernel: impl Fn(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
         try_valid_rows: impl FnOnce(
-            BorrowedExecutionArgs<'_>,
+            BorrowedRowFnArgs<'_>,
             &Mask,
             &mut ExecutionCtx,
         ) -> VortexResult<Option<ArrayRef>>,

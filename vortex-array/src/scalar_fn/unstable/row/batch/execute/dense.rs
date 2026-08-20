@@ -3,18 +3,18 @@
 
 use vortex_error::VortexResult;
 
-use super::super::Batch;
-use super::super::args::BorrowedExecutionArgs;
+use super::super::RowFnExecutionArgs;
+use super::super::args::BorrowedRowFnArgs;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::builtins::ArrayBuiltins;
 use crate::validity::Validity;
 
-impl Batch {
+impl RowFnExecutionArgs {
     /// Run every stored payload, then attach the input validity without materializing its mask.
     pub(super) fn execute_dense(
         &self,
-        kernel: impl Fn(BorrowedExecutionArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
+        kernel: impl Fn(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let values = kernel(self.execution_args(&self.inputs, self.row_count), ctx)?;
@@ -25,7 +25,7 @@ impl Batch {
                 self.finalize_output(values, self.row_count)
             }
             Validity::Array(valid) => self.finalize_output(values.mask(valid)?, self.row_count),
-            // Handled by the guard in `Batch::execute`, before the kernel ran.
+            // Handled by the guard in `RowFnExecutionArgs::execute`, before the kernel ran.
             Validity::AllInvalid => Ok(self.all_null()),
         }
     }

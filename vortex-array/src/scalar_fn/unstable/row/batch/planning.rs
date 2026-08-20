@@ -5,16 +5,16 @@ use smallvec::SmallVec;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 
-use super::Batch;
 use super::BatchPlan;
-use super::args::BorrowedExecutionArgs;
+use super::RowFnExecutionArgs;
+use super::args::BorrowedRowFnArgs;
 use crate::ArrayRef;
 use crate::dtype::DType;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::validity::Validity;
 
-impl Batch {
+impl RowFnExecutionArgs {
     /// Collect the inputs and derive their dtypes, validity, and execution policy.
     ///
     /// This constructor **must not** be used for a nullary function. With no input columns, there
@@ -65,8 +65,8 @@ impl Batch {
         &'b self,
         arrays: &'b [ArrayRef],
         row_count: usize,
-    ) -> BorrowedExecutionArgs<'b> {
-        BorrowedExecutionArgs::new(
+    ) -> BorrowedRowFnArgs<'b> {
+        BorrowedRowFnArgs::new(
             arrays,
             row_count,
             &self.arg_dtypes,
