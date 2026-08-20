@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
+use std::sync::Arc;
 
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
@@ -10,6 +11,7 @@ use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
+use vortex_array::expr::BoundExpressionRef;
 use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::descendent_bound_annotations;
 use vortex_array::expr::make_bound_free_field_annotator;
@@ -294,13 +296,15 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
         let fields = child.fields();
         let referenced_fields =
             descendent_bound_annotations(expression, make_bound_free_field_annotator(fields))
-                .get(&ExactBoundExpr(expression.clone()))
+                .get(&ExactBoundExpr(Arc::clone(expression)))
                 .vortex_expect("Bound expression missing free-field annotations")
                 .clone();
         let expanded_root = expanded_struct_root(child.dtype(), fields)?;
-        let expanded = expand_struct_root(expression.clone(), &expanded_root, fields)?;
-        let partitioned =
-            partition_bound(expanded.clone(), make_bound_free_field_annotator(fields))?;
+        let expanded = expand_struct_root(Arc::clone(expression), &expanded_root, fields)?;
+        let partitioned = partition_bound(
+            Arc::clone(&expanded),
+            make_bound_free_field_annotator(fields),
+        )?;
 
         if partitioned.partition_names.is_empty() {
             let selected_indices = fields
@@ -324,7 +328,7 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
                 .collect::<VortexResult<Vec<_>>>()?;
             let rewritten = child.with_pruned_fields(pruned_fields)?.into_plan();
             return Ok(Some(
-                EvalPlan::try_new(expression.clone(), rewritten)?.into_plan(),
+                EvalPlan::try_new(Arc::clone(expression), rewritten)?.into_plan(),
             ));
         }
 
@@ -361,9 +365,9 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
                     .get(0)
                     .ok_or_else(|| vortex_err!("Struct expression partition pack is empty"))?;
                 collapsed.push((name.clone(), value_name.clone()));
-                partition.children()[0].clone()
+                Arc::clone(&partition.children()[0])
             } else {
-                partition.clone()
+                Arc::clone(partition)
             };
             let lowered = step_into_struct_field(lowered, name, field.dtype().clone())?;
             field_expressions[field_index] = Some(lowered);
@@ -408,10 +412,10 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
 /// * `collapsed` - `(partition_name, value_name)` pairs whose one-field `Pack` was removed;
 ///   each `$.partition_name.value_name` access is rewritten to `$.partition_name`.
 pub(super) fn rewrite_partition_root(
-    expression: BoundExpression,
+    expression: BoundExpressionRef,
     root_dtype: DType,
     collapsed: &[(FieldName, FieldName)],
-) -> VortexResult<BoundExpression> {
+) -> VortexResult<BoundExpressionRef> {
     Ok(expression
         .transform_down(|node| {
             if let Some(value_name) = node.as_opt::<GetItem>() {
@@ -461,17 +465,20 @@ fn field_plan(plan: &Plan<Pack>, index: usize) -> VortexResult<PlanRef> {
 fn expanded_struct_root(
     root_dtype: &DType,
     fields: &StructFields,
-) -> VortexResult<BoundExpression> {
+) -> VortexResult<BoundExpressionRef> {
     let root = BoundExpression::new_root(root_dtype.clone());
     let children = fields
         .names()
         .iter()
-        .map(|name| BoundExpression::try_new(GetItem.bind(name.clone()), [root.clone()]))
+        .map(|name| BoundExpression::try_new(GetItem.bind(name.clone()), [Arc::clone(&root)]))
         .collect::<VortexResult<Vec<_>>>()?;
     bound_pack(fields.names().clone(), children)
 }
 
-fn is_identity_expression(expression: &BoundExpression, input_dtype: &DType) -> VortexResult<bool> {
+fn is_identity_expression(
+    expression: &BoundExpressionRef,
+    input_dtype: &DType,
+) -> VortexResult<bool> {
     if expression.is_root() {
         return Ok(expression.dtype() == input_dtype);
     }
@@ -485,15 +492,15 @@ fn is_identity_expression(expression: &BoundExpression, input_dtype: &DType) -> 
 }
 
 fn expand_struct_root(
-    expression: BoundExpression,
-    expanded_root: &BoundExpression,
+    expression: BoundExpressionRef,
+    expanded_root: &BoundExpressionRef,
     fields: &StructFields,
-) -> VortexResult<BoundExpression> {
+) -> VortexResult<BoundExpressionRef> {
     Ok(expression
         .transform_down(|node| {
             if node.is_root() {
                 return Ok(Transformed {
-                    value: expanded_root.clone(),
+                    value: Arc::clone(expanded_root),
                     changed: true,
                     order: TraversalOrder::Skip,
                 });
@@ -502,11 +509,7 @@ fn expand_struct_root(
             let Some(scalar_fn) = node.as_scalar() else {
                 return Ok(Transformed::no(node));
             };
-            if !node
-                .children()
-                .first()
-                .is_some_and(BoundExpression::is_root)
-            {
+            if !node.children().first().is_some_and(|child| child.is_root()) {
                 return Ok(Transformed::no(node));
             }
 
@@ -515,7 +518,7 @@ fn expand_struct_root(
                     vortex_err!("Field {field_name} not found while expanding struct root")
                 })?;
                 return Ok(Transformed {
-                    value: expanded_root.children()[index].clone(),
+                    value: Arc::clone(&expanded_root.children()[index]),
                     changed: true,
                     order: TraversalOrder::Skip,
                 });
@@ -529,7 +532,7 @@ fn expand_struct_root(
                         let index = fields
                             .find(name)
                             .vortex_expect("normalized selection fields must exist in the root");
-                        expanded_root.children()[index].clone()
+                        Arc::clone(&expanded_root.children()[index])
                     })
                     .collect();
                 return Ok(Transformed {
@@ -545,10 +548,10 @@ fn expand_struct_root(
 }
 
 fn step_into_struct_field(
-    expression: BoundExpression,
+    expression: BoundExpressionRef,
     field_name: &FieldName,
     field_dtype: DType,
-) -> VortexResult<BoundExpression> {
+) -> VortexResult<BoundExpressionRef> {
     Ok(expression
         .transform_down(|node| {
             let is_field_access = node
@@ -570,7 +573,10 @@ fn step_into_struct_field(
         .into_inner())
 }
 
-fn bound_pack(names: FieldNames, children: Vec<BoundExpression>) -> VortexResult<BoundExpression> {
+fn bound_pack(
+    names: FieldNames,
+    children: Vec<BoundExpressionRef>,
+) -> VortexResult<BoundExpressionRef> {
     BoundExpression::try_new(
         PackFn.bind(PackOptions {
             names,

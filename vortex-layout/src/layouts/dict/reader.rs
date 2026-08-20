@@ -19,7 +19,7 @@ use vortex_array::arrays::SharedArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::Nullability;
-use vortex_array::expr::BoundExpression;
+use vortex_array::expr::BoundExpressionRef;
 use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::bound::pack as bound_pack;
 use vortex_array::expr::direct_bound_annotations;
@@ -145,13 +145,13 @@ impl DictReader {
         })
     }
 
-    fn values_eval(&self, expr: BoundExpression) -> SharedArrayFuture {
+    fn values_eval(&self, expr: BoundExpressionRef) -> SharedArrayFuture {
         // This is unsound since we cannot be sure that all the values are referenced in the query
         // after applying the filter, so if the expression is fallible this might fail when it
         // shouldn't.
         // TODO(joe): fixme
 
-        let key = ExactBoundExpr(expr.clone());
+        let key = ExactBoundExpr(Arc::clone(&expr));
 
         // Check cache first with read-only lock
         if let Some(fut) = self.values_evals.get(&key) {
@@ -186,11 +186,10 @@ const PUSHDOWN_ANNOTATION: &str = "";
 /// We want to push to the array only if the expression has a negative cost, is infallible, and is
 /// strict. Strictness ensures dictionary null codes still force a null result after pushdown.
 fn split_expression_for_pushdown(
-    expr: &BoundExpression,
-) -> VortexResult<(BoundExpression, Option<BoundExpression>)> {
-    let references_root =
-        label_bound_tree(expr, BoundExpression::is_root, |acc, &child| acc | child);
-    let annotations = direct_bound_annotations(expr, |expr: &BoundExpression| {
+    expr: &BoundExpressionRef,
+) -> VortexResult<(BoundExpressionRef, Option<BoundExpressionRef>)> {
+    let references_root = label_bound_tree(expr, |node| node.is_root(), |acc, &child| acc | child);
+    let annotations = direct_bound_annotations(expr, |expr: &BoundExpressionRef| {
         let Some(scalar_fn) = expr.as_scalar() else {
             return vec![];
         };
@@ -199,7 +198,7 @@ fn split_expression_for_pushdown(
             && signature.is_strict()
             && is_negative_cost(scalar_fn.id())
             && references_root
-                .get(&ExactBoundExpr(expr.clone()))
+                .get(&ExactBoundExpr(Arc::clone(expr)))
                 .copied()
                 .unwrap_or(true)
         {
@@ -208,12 +207,12 @@ fn split_expression_for_pushdown(
             vec![]
         }
     });
-    let partition = partition_bound_annotations(expr.clone(), annotations)?;
+    let partition = partition_bound_annotations(Arc::clone(expr), annotations)?;
     if partition.partitions.is_empty() {
         Ok((partition.root, None))
     } else {
         debug_assert_eq!(1, partition.partitions.len());
-        Ok((partition.root, Some(partition.partitions[0].clone())))
+        Ok((partition.root, Some(Arc::clone(&partition.partitions[0]))))
     }
 }
 
@@ -242,7 +241,7 @@ impl LayoutReader for DictReader {
     fn pruning_evaluation(
         &self,
         _row_range: &Range<u64>,
-        _expr: &BoundExpression,
+        _expr: &BoundExpressionRef,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         // NOTE: we can get the values here, convert expression to the codes domain, and push down
@@ -255,11 +254,11 @@ impl LayoutReader for DictReader {
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &BoundExpression,
+        expr: &BoundExpressionRef,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         // TODO(joe): fix up expr partitioning with fallibility and strictness annotations
-        let values_eval = self.values_eval(expr.clone());
+        let values_eval = self.values_eval(Arc::clone(expr));
 
         // We register interest on the entire codes row_range for now, there
         // is no straightforward shift into the codes domain we can do to the expression
@@ -286,7 +285,7 @@ impl LayoutReader for DictReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &BoundExpression,
+        expr: &BoundExpressionRef,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         // TODO: fix up expr partitioning with fallibility and strictness annotations
@@ -371,7 +370,7 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
-    use vortex_array::expr::BoundExpression;
+    use vortex_array::expr::BoundExpressionRef;
     use vortex_array::expr::Expression;
     use vortex_array::expr::bound::pack as bound_pack;
     use vortex_array::expr::byte_length;
@@ -745,8 +744,8 @@ mod tests {
 
     fn test_apply(
         original: Expression,
-        outer: BoundExpression,
-        inner: BoundExpression,
+        outer: BoundExpressionRef,
+        inner: BoundExpressionRef,
     ) -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         let array = VarBinArray::from_iter(
@@ -769,12 +768,12 @@ mod tests {
     fn split_bound(
         expr: Expression,
         dtype: &DType,
-    ) -> VortexResult<(BoundExpression, Option<BoundExpression>)> {
+    ) -> VortexResult<(BoundExpressionRef, Option<BoundExpressionRef>)> {
         let bound = expr.bind(dtype)?;
         split_expression_for_pushdown(&bound)
     }
 
-    fn pushed_scope(inner: &BoundExpression) -> DType {
+    fn pushed_scope(inner: &BoundExpressionRef) -> DType {
         DType::Struct(
             StructFields::from_iter([(PUSHDOWN_ANNOTATION, inner.dtype().clone())]),
             Nullability::NonNullable,

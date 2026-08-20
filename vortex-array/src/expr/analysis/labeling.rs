@@ -2,12 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::expr::BoundExpression;
+use crate::expr::BoundExpressionRef;
 use crate::expr::ExactBoundExpr;
 use crate::expr::Expression;
 use crate::expr::traversal::Node;
@@ -62,8 +63,8 @@ where
 ///
 /// This avoids structurally hashing bound dtypes, which may deserialize a lazy schema.
 pub fn label_bound_tree<L: Clone>(
-    expr: &BoundExpression,
-    self_label: impl Fn(&BoundExpression) -> L,
+    expr: &BoundExpressionRef,
+    self_label: impl Fn(&BoundExpressionRef) -> L,
     mut merge_child: impl FnMut(L, &L) -> L,
 ) -> BoundLabels<L> {
     let mut visitor = BoundLabelingVisitor {
@@ -120,7 +121,7 @@ where
 
 struct BoundLabelingVisitor<'a, L, F, G>
 where
-    F: Fn(&BoundExpression) -> L,
+    F: Fn(&BoundExpressionRef) -> L,
     G: FnMut(L, &L) -> L,
 {
     labels: BoundLabels<L>,
@@ -130,10 +131,10 @@ where
 
 impl<'node, 'visitor, L: Clone, F, G> NodeVisitor<'node> for BoundLabelingVisitor<'visitor, L, F, G>
 where
-    F: Fn(&BoundExpression) -> L,
+    F: Fn(&BoundExpressionRef) -> L,
     G: FnMut(L, &L) -> L,
 {
-    type NodeTy = BoundExpression;
+    type NodeTy = BoundExpressionRef;
 
     fn visit_down(&mut self, _node: &'node Self::NodeTy) -> VortexResult<TraversalOrder> {
         Ok(TraversalOrder::Continue)
@@ -144,12 +145,12 @@ where
         let final_label = node.children().iter().fold(self_label, |acc, child| {
             let child_label = self
                 .labels
-                .get(&ExactBoundExpr(child.clone()))
+                .get(&ExactBoundExpr(Arc::clone(child)))
                 .vortex_expect("child must have label");
             (self.merge_child)(acc, child_label)
         });
         self.labels
-            .insert(ExactBoundExpr(node.clone()), final_label);
+            .insert(ExactBoundExpr(Arc::clone(node)), final_label);
         Ok(TraversalOrder::Continue)
     }
 }

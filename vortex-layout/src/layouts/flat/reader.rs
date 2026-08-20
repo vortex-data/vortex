@@ -13,7 +13,7 @@ use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
-use vortex_array::expr::BoundExpression;
+use vortex_array::expr::BoundExpressionRef;
 use vortex_array::serde::SerializedArray;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -115,7 +115,7 @@ impl LayoutReader for FlatReader {
     fn pruning_evaluation(
         &self,
         _row_range: &Range<u64>,
-        _expr: &BoundExpression,
+        _expr: &BoundExpressionRef,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         Ok(MaskFuture::ready(mask))
@@ -124,7 +124,7 @@ impl LayoutReader for FlatReader {
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &BoundExpression,
+        expr: &BoundExpressionRef,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         let row_range = usize::try_from(row_range.start)
@@ -133,7 +133,7 @@ impl LayoutReader for FlatReader {
                 .vortex_expect("Row range end must fit within FlatLayout size");
         let name = Arc::clone(&self.name);
         let array = self.array_future();
-        let expr = expr.clone();
+        let expr = Arc::clone(expr);
         let session = self.session.clone();
 
         Ok(MaskFuture::new(mask.len(), async move {
@@ -183,7 +183,7 @@ impl LayoutReader for FlatReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &BoundExpression,
+        expr: &BoundExpressionRef,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         let row_range = usize::try_from(row_range.start)
@@ -192,7 +192,7 @@ impl LayoutReader for FlatReader {
                 .vortex_expect("Row range end must fit within FlatLayout size");
         let name = Arc::clone(&self.name);
         let array = self.array_future();
-        let expr = expr.clone();
+        let expr = Arc::clone(expr);
 
         Ok(async move {
             trace!("Flat array evaluation {} - {}", name, expr);

@@ -4,6 +4,7 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_error::VortexExpect;
@@ -17,6 +18,7 @@ use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
 use crate::expr::BoundExpression;
+use crate::expr::BoundExpressionRef;
 use crate::expr::ExactBoundExpr;
 use crate::expr::analysis::Annotation;
 use crate::expr::analysis::AnnotationFn;
@@ -41,8 +43,8 @@ use crate::expr::traversal::TraversalOrder;
 /// root.
 ///
 /// See <https://github.com/vortex-data/vortex/issues/1907>.
-pub fn partition_bound<A: AnnotationFn<BoundExpression>>(
-    expr: BoundExpression,
+pub fn partition_bound<A: AnnotationFn<BoundExpressionRef>>(
+    expr: BoundExpressionRef,
     annotate_fn: A,
 ) -> VortexResult<BoundPartitionedExpr<A::Annotation>>
 where
@@ -58,7 +60,7 @@ where
 ///
 /// Prefer [`partition_bound`] when annotations can be derived by an [`AnnotationFn`].
 pub fn partition_bound_annotations<A>(
-    expr: BoundExpression,
+    expr: BoundExpressionRef,
     annotations: BoundAnnotations<A>,
 ) -> VortexResult<BoundPartitionedExpr<A>>
 where
@@ -66,7 +68,7 @@ where
     FieldName: From<A>,
 {
     let mut collector = PartitionCollector::<A>::new(&annotations);
-    expr.clone().rewrite(&mut collector)?;
+    Arc::clone(&expr).rewrite(&mut collector)?;
 
     let mut partitions = Vec::with_capacity(collector.sub_expressions.len());
     let mut partition_annotations = Vec::with_capacity(collector.sub_expressions.len());
@@ -107,9 +109,9 @@ where
 #[derive(Debug)]
 pub struct BoundPartitionedExpr<A> {
     /// The root expression used to re-assemble the results.
-    pub root: BoundExpression,
+    pub root: BoundExpressionRef,
     /// The partition expressions themselves.
-    pub partitions: Box<[BoundExpression]>,
+    pub partitions: Box<[BoundExpressionRef]>,
     /// The field name of each partition as referenced in the root expression.
     pub partition_names: FieldNames,
     /// The annotation associated with each partition.
@@ -137,7 +139,7 @@ where
 {
     /// Return the partition for a given field, if it exists.
     // FIXME(ngates): this should return an iterator since an annotation may have multiple partitions.
-    pub fn find_partition(&self, id: &A) -> Option<&BoundExpression> {
+    pub fn find_partition(&self, id: &A) -> Option<&BoundExpressionRef> {
         let id = FieldName::from(id.clone());
         self.partition_names
             .iter()
@@ -146,7 +148,10 @@ where
     }
 
     /// Replace the partition expressions and update every root dtype in the recombination tree.
-    pub fn replace_partitions(&mut self, partitions: Box<[BoundExpression]>) -> VortexResult<()> {
+    pub fn replace_partitions(
+        &mut self,
+        partitions: Box<[BoundExpressionRef]>,
+    ) -> VortexResult<()> {
         vortex_ensure!(
             partitions.len() == self.partition_names.len(),
             "Expected {} partitions, got {}",
@@ -155,7 +160,7 @@ where
         );
 
         let root_dtype = partition_root_dtype(&self.partition_names, &partitions);
-        let root = replace_root_dtype(self.root.clone(), root_dtype)?;
+        let root = replace_root_dtype(Arc::clone(&self.root), root_dtype)?;
         self.partitions = partitions;
         self.root = root;
         Ok(())
@@ -165,7 +170,7 @@ where
 #[derive(Debug)]
 struct PartitionCollector<'a, A: Annotation> {
     annotations: &'a BoundAnnotations<A>,
-    sub_expressions: HashMap<A, Vec<BoundExpression>>,
+    sub_expressions: HashMap<A, Vec<BoundExpressionRef>>,
 }
 
 impl<'a, A: Annotation + Display> PartitionCollector<'a, A> {
@@ -187,10 +192,10 @@ impl<A: Annotation + Display> NodeRewriter for PartitionCollector<'_, A>
 where
     FieldName: From<A>,
 {
-    type NodeTy = BoundExpression;
+    type NodeTy = BoundExpressionRef;
 
     fn visit_down(&mut self, node: Self::NodeTy) -> VortexResult<Transformed<Self::NodeTy>> {
-        match self.annotations.get(&ExactBoundExpr(node.clone())) {
+        match self.annotations.get(&ExactBoundExpr(Arc::clone(&node))) {
             // If this expression only accesses a single field, then we can skip the children
             Some(annotations) if annotations.len() == 1 => {
                 let annotation = annotations
@@ -198,7 +203,7 @@ where
                     .next()
                     .vortex_expect("expected one field");
                 let sub_exprs = self.sub_expressions.entry(annotation.clone()).or_default();
-                sub_exprs.push(node.clone());
+                sub_exprs.push(Arc::clone(&node));
                 Ok(Transformed {
                     value: node,
                     changed: false,
@@ -236,10 +241,10 @@ impl<A: Annotation + Display> NodeRewriter for PartitionRootRewriter<'_, A>
 where
     FieldName: From<A>,
 {
-    type NodeTy = BoundExpression;
+    type NodeTy = BoundExpressionRef;
 
     fn visit_down(&mut self, node: Self::NodeTy) -> VortexResult<Transformed<Self::NodeTy>> {
-        let Some(annotations) = self.annotations.get(&ExactBoundExpr(node.clone())) else {
+        let Some(annotations) = self.annotations.get(&ExactBoundExpr(Arc::clone(&node))) else {
             return Ok(Transformed::no(node));
         };
         if annotations.len() != 1 {
@@ -271,7 +276,7 @@ where
     }
 }
 
-fn partition_root_dtype(names: &FieldNames, partitions: &[BoundExpression]) -> DType {
+fn partition_root_dtype(names: &FieldNames, partitions: &[BoundExpressionRef]) -> DType {
     DType::Struct(
         StructFields::new(
             names.clone(),
@@ -284,7 +289,10 @@ fn partition_root_dtype(names: &FieldNames, partitions: &[BoundExpression]) -> D
     )
 }
 
-fn replace_root_dtype(expr: BoundExpression, root_dtype: DType) -> VortexResult<BoundExpression> {
+fn replace_root_dtype(
+    expr: BoundExpressionRef,
+    root_dtype: DType,
+) -> VortexResult<BoundExpressionRef> {
     Ok(expr
         .transform_down(|node| {
             if node.is_root() {
@@ -340,7 +348,7 @@ mod tests {
     }
 
     fn partition_by_field(
-        expr: BoundExpression,
+        expr: BoundExpressionRef,
         dtype: &DType,
     ) -> VortexResult<BoundPartitionedExpr<FieldName>> {
         let fields = dtype.as_struct_fields_opt().unwrap();

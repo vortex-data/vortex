@@ -14,7 +14,7 @@ use vortex_array::MaskFuture;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr::BoundExpression;
+use vortex_array::expr::BoundExpressionRef;
 use vortex_array::expr::ExactBoundExpr;
 use vortex_error::VortexResult;
 use vortex_layout::ArrayFuture;
@@ -72,7 +72,7 @@ impl FileStatsLayoutReader {
     ///
     /// Row-count placeholders are resolved against the full file row count,
     /// independent of the requested row range.
-    fn evaluate_file_stats(&self, expr: &BoundExpression) -> VortexResult<bool> {
+    fn evaluate_file_stats(&self, expr: &BoundExpressionRef) -> VortexResult<bool> {
         can_prune_file_stats(
             expr,
             self.child.row_count(),
@@ -113,10 +113,10 @@ impl LayoutReader for FileStatsLayoutReader {
     fn pruning_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &BoundExpression,
+        expr: &BoundExpressionRef,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
-        let key = ExactBoundExpr(expr.clone());
+        let key = ExactBoundExpr(Arc::clone(expr));
 
         // Check cache first with read-only lock.
         if let Some(pruned) = self.prune_cache.get(&key) {
@@ -140,7 +140,7 @@ impl LayoutReader for FileStatsLayoutReader {
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &BoundExpression,
+        expr: &BoundExpressionRef,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         self.child.filter_evaluation(row_range, expr, mask)
@@ -149,7 +149,7 @@ impl LayoutReader for FileStatsLayoutReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &BoundExpression,
+        expr: &BoundExpressionRef,
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
         self.child.projection_evaluation(row_range, expr, mask)

@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::dtype::Field;
 use crate::dtype::FieldPath;
 use crate::dtype::FieldPathSet;
-use crate::expr::BoundExpression;
+use crate::expr::BoundExpressionRef;
 use crate::expr::traversal::FoldDownContext;
 use crate::expr::traversal::FoldUp;
 use crate::expr::traversal::NodeExt;
@@ -22,12 +24,11 @@ use crate::scalar_fn::fns::select::Select;
 /// expression is represented by [`FieldPath::root`], which conservatively selects all fields.
 /// Scalar functions other than `GetItem` and `Select` conservatively reference each complete child
 /// output.
-pub fn referenced_field_paths(expr: &BoundExpression) -> VortexResult<FieldPathSet> {
+pub fn referenced_field_paths(expr: &BoundExpressionRef) -> VortexResult<FieldPathSet> {
     let mut collector = ReferencedFieldPaths {
         field_paths: FieldPathSet::default(),
     };
-    expr.clone()
-        .fold_context(&vec![FieldPath::root()], &mut collector)?;
+    Arc::clone(expr).fold_context(&vec![FieldPath::root()], &mut collector)?;
     Ok(collector.field_paths)
 }
 
@@ -47,14 +48,14 @@ struct ReferencedFieldPaths {
 }
 
 impl NodeFolderContext for ReferencedFieldPaths {
-    type NodeTy = BoundExpression;
+    type NodeTy = BoundExpressionRef;
     type Result = ();
     type Context = Vec<FieldPath>;
 
     fn visit_down(
         &mut self,
         requested: &Self::Context,
-        node: &BoundExpression,
+        node: &BoundExpressionRef,
     ) -> VortexResult<FoldDownContext<Self::Context, ()>> {
         if node.is_root() {
             self.field_paths.extend(
@@ -115,7 +116,7 @@ impl NodeFolderContext for ReferencedFieldPaths {
 
     fn visit_up(
         &mut self,
-        _node: BoundExpression,
+        _node: BoundExpressionRef,
         _requested: &Self::Context,
         _children: Vec<()>,
     ) -> VortexResult<FoldUp<()>> {

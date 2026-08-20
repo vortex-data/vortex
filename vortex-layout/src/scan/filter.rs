@@ -2,12 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::iter;
+use std::sync::Arc;
 
 use bit_vec::BitVec;
 use itertools::Itertools;
 use parking_lot::RwLock;
 use sketches_ddsketch::DDSketch;
-use vortex_array::expr::BoundExpression;
+use vortex_array::expr::BoundExpressionRef;
 use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_array::scalar_fn::fns::operators::Operator;
@@ -23,7 +24,7 @@ const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
 /// conjunctions in an attempt to minimize the work done.
 pub struct FilterExpr {
     /// The conjuncts involved in the filter expression.
-    conjuncts: Vec<BoundExpression>,
+    conjuncts: Vec<BoundExpressionRef>,
     /// A histogram for the selectivity of each conjunct.
     conjunct_selectivity: Vec<RwLock<DDSketch>>,
     /// Dynamic expression trackers for each conjunct, incase they contain dynamic expressions.
@@ -34,7 +35,7 @@ pub struct FilterExpr {
     selectivity_quantile: f64,
 }
 
-fn bound_conjuncts(expr: &BoundExpression) -> Vec<BoundExpression> {
+fn bound_conjuncts(expr: &BoundExpressionRef) -> Vec<BoundExpressionRef> {
     let mut conjuncts = Vec::new();
     let mut pending = vec![expr];
 
@@ -46,7 +47,7 @@ fn bound_conjuncts(expr: &BoundExpression) -> Vec<BoundExpression> {
         {
             pending.extend(expr.children().iter().rev());
         } else {
-            conjuncts.push(expr.clone());
+            conjuncts.push(Arc::clone(expr));
         }
     }
 
@@ -54,7 +55,7 @@ fn bound_conjuncts(expr: &BoundExpression) -> Vec<BoundExpression> {
 }
 
 impl FilterExpr {
-    pub fn new(expr: BoundExpression) -> Self {
+    pub fn new(expr: BoundExpressionRef) -> Self {
         let conjuncts = bound_conjuncts(&expr);
         let num_conjuncts = conjuncts.len();
 
@@ -75,7 +76,7 @@ impl FilterExpr {
 
     /// The conjuncts that make up this filter expression.
     #[inline]
-    pub fn conjuncts(&self) -> &[BoundExpression] {
+    pub fn conjuncts(&self) -> &[BoundExpressionRef] {
         &self.conjuncts
     }
 

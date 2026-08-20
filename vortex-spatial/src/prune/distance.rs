@@ -4,7 +4,7 @@
 //! `ST_Distance(geom, const) <op> radius` pruning.
 
 use geo::Rect as SpatialRect;
-use vortex_array::expr::BoundExpression;
+use vortex_array::expr::BoundExpressionRef;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::fns::binary::Binary;
@@ -42,9 +42,9 @@ impl StatsRewriteRule for SpatialDistancePrune {
 
     fn falsify(
         &self,
-        expr: &BoundExpression,
+        expr: &BoundExpressionRef,
         ctx: &StatsRewriteCtx<'_>,
-    ) -> VortexResult<Option<BoundExpression>> {
+    ) -> VortexResult<Option<BoundExpressionRef>> {
         // Only the ordered comparisons prune today. `== r` could prune in the future (a chunk is
         // provably empty when `r` lies outside its box's [min, max] distance interval), it's just
         // not implemented. `!= r` cannot: pruning would need every row's distance to equal `r`,
@@ -94,11 +94,11 @@ impl StatsRewriteRule for SpatialDistancePrune {
 ///
 /// A distance is always `>= 0`, which decides the degenerate radii up front.
 fn distance_prune_proof(
-    geom: &BoundExpression,
+    geom: &BoundExpressionRef,
     query: SpatialRect<f64>,
     op: Operator,
     radius: f64,
-) -> Option<BoundExpression> {
+) -> Option<BoundExpressionRef> {
     // A distance is always non-negative, so degenerate radii resolve without touching the box.
     match op {
         // `<= r` / `< r` with a negative radius (or zero, for `<`) match nothing: prune every chunk.
@@ -130,7 +130,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::BoundExpression;
+    use vortex_array::expr::BoundExpressionRef;
     use vortex_array::expr::gt_eq;
     use vortex_array::expr::lit;
     use vortex_array::expr::lt_eq;
@@ -158,7 +158,7 @@ mod tests {
         operator: Operator,
         geom_first: bool,
         radius: impl Into<Scalar>,
-    ) -> VortexResult<Option<BoundExpression>> {
+    ) -> VortexResult<Option<BoundExpressionRef>> {
         let session = spatial_session();
         let mut ctx = session.create_execution_ctx();
 

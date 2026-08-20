@@ -161,7 +161,7 @@ impl PlanParentReduceRule<Concat> for ExpressionConcatRule {
         let chunks = child
             .children()
             .iter()
-            .map(|chunk| Ok(EvalPlan::try_new(expression.clone(), chunk?)?.into_plan()))
+            .map(|chunk| Ok(EvalPlan::try_new(Arc::clone(expression), chunk?)?.into_plan()))
             .collect::<VortexResult<Vec<_>>>()?;
         Ok(Some(
             ConcatPlan::try_new(expression.dtype().clone(), chunks)?.into_plan(),

@@ -15,6 +15,8 @@ mod intersects;
 #[cfg(test)]
 mod test_harness;
 
+use std::sync::Arc;
+
 pub use distance::SpatialDistancePrune;
 use geo::BoundingRect;
 use geo::Rect as SpatialRect;
@@ -22,7 +24,7 @@ pub use intersects::SpatialIntersectsPrune;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::EmptyOptions;
-use vortex_array::expr::BoundExpression;
+use vortex_array::expr::BoundExpressionRef;
 use vortex_array::expr::bound::binary;
 use vortex_array::expr::bound::case_when;
 use vortex_array::expr::bound::checked_add;
@@ -52,9 +54,9 @@ use crate::extension::single_geometry;
 /// An asymmetric predicate (e.g. a future contains) must recover which operand is the column
 /// itself instead of calling this.
 fn geometry_and_constant<'a>(
-    expr: &'a BoundExpression,
+    expr: &'a BoundExpressionRef,
     ctx: &StatsRewriteCtx<'_>,
-) -> VortexResult<Option<(&'a BoundExpression, &'a Scalar)>> {
+) -> VortexResult<Option<(&'a BoundExpressionRef, &'a Scalar)>> {
     // The predicate is symmetric, so the column (scope root) and the constant may be on either
     // side.
     let (lhs, rhs) = (expr.child(0), expr.child(1));
@@ -98,22 +100,22 @@ fn query_aabb(
 ///
 /// A chunk written without the statistic reads as null here; every proof built on top must let
 /// that null propagate to its root, where the zone map keeps the chunk.
-fn aabb_stat(geom: &BoundExpression) -> BoundExpression {
+fn aabb_stat(geom: &BoundExpressionRef) -> BoundExpressionRef {
     // `ext_storage` unwraps the native `geoarrow.box` stat value to its backing struct, so
     // proofs can `get_item` the coordinate fields.
-    ext_storage(stat(geom.clone(), GeometryAabb.bind(EmptyOptions)))
+    ext_storage(stat(Arc::clone(geom), GeometryAabb.bind(EmptyOptions)))
 }
 
 /// Lower bound on every row's squared distance to the query AABB: zero when the boxes overlap or
 /// touch, positive iff they are strictly separated.
 ///
 /// Prunes "near" predicates: `min_dist_sq > r^2` proves every row is farther than `r`.
-fn min_dist_sq(aabb: &BoundExpression, query: SpatialRect<f64>) -> BoundExpression {
-    let field = |name: &str| get_item(name, aabb.clone());
+fn min_dist_sq(aabb: &BoundExpressionRef, query: SpatialRect<f64>) -> BoundExpressionRef {
+    let field = |name: &str| get_item(name, Arc::clone(aabb));
     // Per axis: gap = max(0, q_lo - aabb_hi, aabb_lo - q_hi), positive only when the intervals
     // are separated. The nearest two points of the boxes are one axis-gap apart per axis, so the
     // squared distance is gap_x^2 + gap_y^2 (squared throughout to avoid a sqrt).
-    let gap = |q_lo: f64, q_hi: f64, lo: BoundExpression, hi: BoundExpression| {
+    let gap = |q_lo: f64, q_hi: f64, lo: BoundExpressionRef, hi: BoundExpressionRef| {
         maximum(
             lit(0.0),
             maximum(
@@ -130,12 +132,12 @@ fn min_dist_sq(aabb: &BoundExpression, query: SpatialRect<f64>) -> BoundExpressi
 /// Upper bound on every row's squared distance to the query AABB.
 ///
 /// Prunes "far" predicates: `max_dist_sq < r^2` proves every row is within `r`.
-fn max_dist_sq(aabb: &BoundExpression, query: SpatialRect<f64>) -> BoundExpression {
-    let field = |name: &str| get_item(name, aabb.clone());
+fn max_dist_sq(aabb: &BoundExpressionRef, query: SpatialRect<f64>) -> BoundExpressionRef {
+    let field = |name: &str| get_item(name, Arc::clone(aabb));
     // Per axis: span = max(q_hi, aabb_hi) - min(q_lo, aabb_lo), the farthest two points of the
     // boxes can be apart. The nullable AABB field is the second `maximum`/`minimum` argument so
     // that `case_when`'s else branch carries the nullability - a missing stat propagates null.
-    let span = |q_lo: f64, q_hi: f64, lo: BoundExpression, hi: BoundExpression| {
+    let span = |q_lo: f64, q_hi: f64, lo: BoundExpressionRef, hi: BoundExpressionRef| {
         binary(
             Operator::Sub,
             maximum(lit(q_hi), hi),
@@ -148,16 +150,16 @@ fn max_dist_sq(aabb: &BoundExpression, query: SpatialRect<f64>) -> BoundExpressi
 }
 
 /// `e * e`.
-fn square(e: BoundExpression) -> BoundExpression {
-    binary(Operator::Mul, e.clone(), e)
+fn square(e: BoundExpressionRef) -> BoundExpressionRef {
+    binary(Operator::Mul, Arc::clone(&e), e)
 }
 
 /// `max(a, b)`.
-fn maximum(a: BoundExpression, b: BoundExpression) -> BoundExpression {
-    case_when(gt(a.clone(), b.clone()), a, b)
+fn maximum(a: BoundExpressionRef, b: BoundExpressionRef) -> BoundExpressionRef {
+    case_when(gt(Arc::clone(&a), Arc::clone(&b)), a, b)
 }
 
 /// `min(a, b)`.
-fn minimum(a: BoundExpression, b: BoundExpression) -> BoundExpression {
-    case_when(lt(a.clone(), b.clone()), a, b)
+fn minimum(a: BoundExpressionRef, b: BoundExpressionRef) -> BoundExpressionRef {
+    case_when(lt(Arc::clone(&a), Arc::clone(&b)), a, b)
 }

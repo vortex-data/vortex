@@ -22,6 +22,7 @@ use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
 use crate::dtype::DType;
 use crate::expr::BoundExpression;
+use crate::expr::BoundExpressionRef;
 use crate::expr::Expression;
 use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::ScalarFnId;
@@ -512,8 +513,8 @@ pub trait ScalarFnVTableExt: ScalarFnVTable {
     fn try_new_bound_expr(
         &self,
         options: Self::Options,
-        children: impl IntoIterator<Item = BoundExpression>,
-    ) -> VortexResult<BoundExpression> {
+        children: impl IntoIterator<Item = BoundExpressionRef>,
+    ) -> VortexResult<BoundExpressionRef> {
         BoundExpression::try_new(self.bind(options), children)
     }
 }

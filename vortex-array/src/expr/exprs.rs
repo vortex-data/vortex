@@ -16,6 +16,7 @@ use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::expr::BoundExpression;
+use crate::expr::BoundExpressionRef;
 use crate::expr::Expression;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
@@ -66,7 +67,7 @@ pub fn root() -> Expression {
 }
 
 /// Creates a bound expression that references a root scope with the given dtype.
-pub fn bound_root(dtype: DType) -> BoundExpression {
+pub fn bound_root(dtype: DType) -> BoundExpressionRef {
     BoundExpression::new_root(dtype)
 }
 
@@ -99,7 +100,7 @@ pub fn lit(value: impl Into<Scalar>) -> Expression {
 }
 
 /// Creates a bound literal expression.
-pub fn bound_lit(value: impl Into<Scalar>) -> BoundExpression {
+pub fn bound_lit(value: impl Into<Scalar>) -> BoundExpressionRef {
     Literal
         .try_new_bound_expr(value.into(), [])
         .vortex_expect("literal expressions are always well-typed")
@@ -120,7 +121,7 @@ pub fn col(field: impl Into<FieldName>) -> Expression {
 }
 
 /// Creates a bound expression that accesses a field from a root scope with the given dtype.
-pub fn bound_col(field: impl Into<FieldName>, scope: DType) -> BoundExpression {
+pub fn bound_col(field: impl Into<FieldName>, scope: DType) -> BoundExpressionRef {
     bound_get_item(field, bound_root(scope))
 }
 
@@ -137,7 +138,10 @@ pub fn get_item(field: impl Into<FieldName>, child: Expression) -> Expression {
 }
 
 /// Creates a bound expression that extracts a named field from a struct expression.
-pub fn bound_get_item(field: impl Into<FieldName>, child: BoundExpression) -> BoundExpression {
+pub fn bound_get_item(
+    field: impl Into<FieldName>,
+    child: BoundExpressionRef,
+) -> BoundExpressionRef {
     GetItem
         .try_new_bound_expr(field.into(), [child])
         .vortex_expect("get-item expressions must reference a field in the child dtype")
@@ -159,10 +163,10 @@ pub fn variant_get(
 
 /// Creates a bound expression that extracts a path from a Variant expression.
 pub fn bound_variant_get(
-    child: BoundExpression,
+    child: BoundExpressionRef,
     path: impl Into<VariantPath>,
     dtype: Option<DType>,
-) -> BoundExpression {
+) -> BoundExpressionRef {
     VariantGet
         .try_new_bound_expr(VariantGetOptions::new(path.into(), dtype), [child])
         .vortex_expect("variant-get expressions require a Variant child")
@@ -185,10 +189,10 @@ pub fn case_when(
 
 /// Creates a bound CASE WHEN expression with one WHEN/THEN pair and an ELSE value.
 pub fn bound_case_when(
-    condition: BoundExpression,
-    then_value: BoundExpression,
-    else_value: BoundExpression,
-) -> BoundExpression {
+    condition: BoundExpressionRef,
+    then_value: BoundExpressionRef,
+    else_value: BoundExpressionRef,
+) -> BoundExpressionRef {
     let options = CaseWhenOptions {
         num_when_then_pairs: 1,
         has_else: true,
@@ -209,9 +213,9 @@ pub fn case_when_no_else(condition: Expression, then_value: Expression) -> Expre
 
 /// Creates a bound CASE WHEN expression with one WHEN/THEN pair and no ELSE value.
 pub fn bound_case_when_no_else(
-    condition: BoundExpression,
-    then_value: BoundExpression,
-) -> BoundExpression {
+    condition: BoundExpressionRef,
+    then_value: BoundExpressionRef,
+) -> BoundExpressionRef {
     let options = CaseWhenOptions {
         num_when_then_pairs: 1,
         has_else: false,
@@ -253,9 +257,9 @@ pub fn nested_case_when(
 
 /// Creates a bound n-ary CASE WHEN expression from WHEN/THEN pairs and an optional ELSE value.
 pub fn bound_nested_case_when(
-    when_then_pairs: Vec<(BoundExpression, BoundExpression)>,
-    else_value: Option<BoundExpression>,
-) -> BoundExpression {
+    when_then_pairs: Vec<(BoundExpressionRef, BoundExpressionRef)>,
+    else_value: Option<BoundExpressionRef>,
+) -> BoundExpressionRef {
     assert!(
         !when_then_pairs.is_empty(),
         "nested_case_when requires at least one when/then pair"
@@ -295,9 +299,9 @@ pub fn binary(operator: Operator, lhs: Expression, rhs: Expression) -> Expressio
 /// Creates a bound binary expression with the given operator.
 pub fn bound_binary(
     operator: Operator,
-    lhs: BoundExpression,
-    rhs: BoundExpression,
-) -> BoundExpression {
+    lhs: BoundExpressionRef,
+    rhs: BoundExpressionRef,
+) -> BoundExpressionRef {
     Binary
         .try_new_bound_expr(operator, [lhs, rhs])
         .vortex_expect("binary expressions must have compatible operand dtypes")
@@ -331,7 +335,7 @@ pub fn eq(lhs: Expression, rhs: Expression) -> Expression {
 }
 
 /// Creates a bound equality expression.
-pub fn bound_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
+pub fn bound_eq(lhs: BoundExpressionRef, rhs: BoundExpressionRef) -> BoundExpressionRef {
     bound_binary(Operator::Eq, lhs, rhs)
 }
 
@@ -363,7 +367,7 @@ pub fn not_eq(lhs: Expression, rhs: Expression) -> Expression {
 }
 
 /// Creates a bound inequality expression.
-pub fn bound_not_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
+pub fn bound_not_eq(lhs: BoundExpressionRef, rhs: BoundExpressionRef) -> BoundExpressionRef {
     bound_binary(Operator::NotEq, lhs, rhs)
 }
 
@@ -395,7 +399,7 @@ pub fn gt_eq(lhs: Expression, rhs: Expression) -> Expression {
 }
 
 /// Creates a bound greater-than-or-equal expression.
-pub fn bound_gt_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
+pub fn bound_gt_eq(lhs: BoundExpressionRef, rhs: BoundExpressionRef) -> BoundExpressionRef {
     bound_binary(Operator::Gte, lhs, rhs)
 }
 
@@ -427,7 +431,7 @@ pub fn gt(lhs: Expression, rhs: Expression) -> Expression {
 }
 
 /// Creates a bound greater-than expression.
-pub fn bound_gt(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
+pub fn bound_gt(lhs: BoundExpressionRef, rhs: BoundExpressionRef) -> BoundExpressionRef {
     bound_binary(Operator::Gt, lhs, rhs)
 }
 
@@ -459,7 +463,7 @@ pub fn lt_eq(lhs: Expression, rhs: Expression) -> Expression {
 }
 
 /// Creates a bound less-than-or-equal expression.
-pub fn bound_lt_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
+pub fn bound_lt_eq(lhs: BoundExpressionRef, rhs: BoundExpressionRef) -> BoundExpressionRef {
     bound_binary(Operator::Lte, lhs, rhs)
 }
 
@@ -491,7 +495,7 @@ pub fn lt(lhs: Expression, rhs: Expression) -> Expression {
 }
 
 /// Creates a bound less-than expression.
-pub fn bound_lt(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
+pub fn bound_lt(lhs: BoundExpressionRef, rhs: BoundExpressionRef) -> BoundExpressionRef {
     bound_binary(Operator::Lt, lhs, rhs)
 }
 
@@ -521,7 +525,7 @@ pub fn or(lhs: Expression, rhs: Expression) -> Expression {
 }
 
 /// Creates a bound boolean OR expression.
-pub fn bound_or(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
+pub fn bound_or(lhs: BoundExpressionRef, rhs: BoundExpressionRef) -> BoundExpressionRef {
     bound_binary(Operator::Or, lhs, rhs)
 }
 
@@ -539,9 +543,9 @@ where
 }
 
 /// Collects bound expressions into a balanced tree of boolean OR expressions.
-pub fn bound_or_collect<I>(iter: I) -> Option<BoundExpression>
+pub fn bound_or_collect<I>(iter: I) -> Option<BoundExpressionRef>
 where
-    I: IntoIterator<Item = BoundExpression>,
+    I: IntoIterator<Item = BoundExpressionRef>,
 {
     iter.into_iter().reduce_balanced(bound_or)
 }
@@ -572,7 +576,7 @@ pub fn and(lhs: Expression, rhs: Expression) -> Expression {
 }
 
 /// Creates a bound boolean AND expression.
-pub fn bound_and(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
+pub fn bound_and(lhs: BoundExpressionRef, rhs: BoundExpressionRef) -> BoundExpressionRef {
     bound_binary(Operator::And, lhs, rhs)
 }
 
@@ -590,9 +594,9 @@ where
 }
 
 /// Collects bound expressions into a balanced tree of boolean AND expressions.
-pub fn bound_and_collect<I>(iter: I) -> Option<BoundExpression>
+pub fn bound_and_collect<I>(iter: I) -> Option<BoundExpressionRef>
 where
-    I: IntoIterator<Item = BoundExpression>,
+    I: IntoIterator<Item = BoundExpressionRef>,
 {
     iter.into_iter().reduce_balanced(bound_and)
 }
@@ -638,7 +642,7 @@ pub fn checked_add(lhs: Expression, rhs: Expression) -> Expression {
 }
 
 /// Creates a bound checked-add expression.
-pub fn bound_checked_add(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
+pub fn bound_checked_add(lhs: BoundExpressionRef, rhs: BoundExpressionRef) -> BoundExpressionRef {
     bound_binary(Operator::Add, lhs, rhs)
 }
 
@@ -657,7 +661,7 @@ pub fn not(operand: Expression) -> Expression {
 }
 
 /// Creates a bound expression that logically inverts boolean values.
-pub fn bound_not(operand: BoundExpression) -> BoundExpression {
+pub fn bound_not(operand: BoundExpressionRef) -> BoundExpressionRef {
     Not.try_new_bound_expr(EmptyOptions, [operand])
         .vortex_expect("not expressions require a boolean operand")
 }
@@ -692,11 +696,11 @@ pub fn between(
 
 /// Creates a bound expression that checks if values are between two bounds.
 pub fn bound_between(
-    arr: BoundExpression,
-    lower: BoundExpression,
-    upper: BoundExpression,
+    arr: BoundExpressionRef,
+    lower: BoundExpressionRef,
+    upper: BoundExpressionRef,
     options: BetweenOptions,
-) -> BoundExpression {
+) -> BoundExpressionRef {
     Between
         .try_new_bound_expr(options, [arr, lower, upper])
         .vortex_expect("between expressions require compatible operand dtypes")
@@ -718,7 +722,10 @@ pub fn select(field_names: impl Into<FieldNames>, child: Expression) -> Expressi
 }
 
 /// Creates a bound expression that selects specific fields from a struct expression.
-pub fn bound_select(field_names: impl Into<FieldNames>, child: BoundExpression) -> BoundExpression {
+pub fn bound_select(
+    field_names: impl Into<FieldNames>,
+    child: BoundExpressionRef,
+) -> BoundExpressionRef {
     Select
         .try_new_bound_expr(FieldSelection::Include(field_names.into()), [child])
         .vortex_expect("select expressions require fields from a struct child")
@@ -741,8 +748,8 @@ pub fn select_exclude(fields: impl Into<FieldNames>, child: Expression) -> Expre
 /// Creates a bound expression that excludes specific fields from a struct expression.
 pub fn bound_select_exclude(
     fields: impl Into<FieldNames>,
-    child: BoundExpression,
-) -> BoundExpression {
+    child: BoundExpressionRef,
+) -> BoundExpressionRef {
     Select
         .try_new_bound_expr(FieldSelection::Exclude(fields.into()), [child])
         .vortex_expect("select expressions require fields from a struct child")
@@ -776,9 +783,9 @@ pub fn pack(
 
 /// Creates a bound expression that packs values into a struct with named fields.
 pub fn bound_pack(
-    elements: impl IntoIterator<Item = (impl Into<FieldName>, BoundExpression)>,
+    elements: impl IntoIterator<Item = (impl Into<FieldName>, BoundExpressionRef)>,
     nullability: Nullability,
-) -> BoundExpression {
+) -> BoundExpressionRef {
     let (names, values): (Vec<_>, Vec<_>) = elements
         .into_iter()
         .map(|(name, value)| (name.into(), value))
@@ -810,7 +817,7 @@ pub fn cast(child: Expression, target: DType) -> Expression {
 }
 
 /// Creates a bound expression that casts values to a target dtype.
-pub fn bound_cast(child: BoundExpression, target: DType) -> BoundExpression {
+pub fn bound_cast(child: BoundExpressionRef, target: DType) -> BoundExpressionRef {
     Cast.try_new_bound_expr(target, [child])
         .vortex_expect("cast expressions require a supported source and target dtype")
 }
@@ -828,7 +835,10 @@ pub fn fill_null(child: Expression, fill_value: Expression) -> Expression {
 }
 
 /// Creates a bound expression that replaces null values with a fill value.
-pub fn bound_fill_null(child: BoundExpression, fill_value: BoundExpression) -> BoundExpression {
+pub fn bound_fill_null(
+    child: BoundExpressionRef,
+    fill_value: BoundExpressionRef,
+) -> BoundExpressionRef {
     FillNull
         .try_new_bound_expr(EmptyOptions, [child, fill_value])
         .vortex_expect("fill-null expressions require compatible child and fill dtypes")
@@ -849,7 +859,7 @@ pub fn is_null(child: Expression) -> Expression {
 }
 
 /// Creates a bound expression that checks for null values.
-pub fn bound_is_null(child: BoundExpression) -> BoundExpression {
+pub fn bound_is_null(child: BoundExpressionRef) -> BoundExpressionRef {
     IsNull
         .try_new_bound_expr(EmptyOptions, [child])
         .vortex_expect("is-null expressions are always well-typed")
@@ -870,7 +880,7 @@ pub fn is_not_null(child: Expression) -> Expression {
 }
 
 /// Creates a bound expression that checks for non-null values.
-pub fn bound_is_not_null(child: BoundExpression) -> BoundExpression {
+pub fn bound_is_not_null(child: BoundExpressionRef) -> BoundExpressionRef {
     IsNotNull
         .try_new_bound_expr(EmptyOptions, [child])
         .vortex_expect("is-not-null expressions are always well-typed")
@@ -890,7 +900,7 @@ pub fn like(child: Expression, pattern: Expression) -> Expression {
 }
 
 /// Creates a bound SQL LIKE expression.
-pub fn bound_like(child: BoundExpression, pattern: BoundExpression) -> BoundExpression {
+pub fn bound_like(child: BoundExpressionRef, pattern: BoundExpressionRef) -> BoundExpressionRef {
     bound_like_with_options(child, pattern, false, false)
 }
 
@@ -906,7 +916,7 @@ pub fn ilike(child: Expression, pattern: Expression) -> Expression {
 }
 
 /// Creates a bound case-insensitive SQL ILIKE expression.
-pub fn bound_ilike(child: BoundExpression, pattern: BoundExpression) -> BoundExpression {
+pub fn bound_ilike(child: BoundExpressionRef, pattern: BoundExpressionRef) -> BoundExpressionRef {
     bound_like_with_options(child, pattern, false, true)
 }
 
@@ -922,7 +932,10 @@ pub fn not_like(child: Expression, pattern: Expression) -> Expression {
 }
 
 /// Creates a bound negated SQL NOT LIKE expression.
-pub fn bound_not_like(child: BoundExpression, pattern: BoundExpression) -> BoundExpression {
+pub fn bound_not_like(
+    child: BoundExpressionRef,
+    pattern: BoundExpressionRef,
+) -> BoundExpressionRef {
     bound_like_with_options(child, pattern, true, false)
 }
 
@@ -938,16 +951,19 @@ pub fn not_ilike(child: Expression, pattern: Expression) -> Expression {
 }
 
 /// Creates a bound negated case-insensitive SQL NOT ILIKE expression.
-pub fn bound_not_ilike(child: BoundExpression, pattern: BoundExpression) -> BoundExpression {
+pub fn bound_not_ilike(
+    child: BoundExpressionRef,
+    pattern: BoundExpressionRef,
+) -> BoundExpressionRef {
     bound_like_with_options(child, pattern, true, true)
 }
 
 fn bound_like_with_options(
-    child: BoundExpression,
-    pattern: BoundExpression,
+    child: BoundExpressionRef,
+    pattern: BoundExpressionRef,
     negated: bool,
     case_insensitive: bool,
-) -> BoundExpression {
+) -> BoundExpressionRef {
     Like.try_new_bound_expr(
         LikeOptions {
             negated,
@@ -966,7 +982,7 @@ pub fn mask(array: Expression, mask: Expression) -> Expression {
 }
 
 /// Creates a bound mask expression.
-pub fn bound_mask(array: BoundExpression, mask: BoundExpression) -> BoundExpression {
+pub fn bound_mask(array: BoundExpressionRef, mask: BoundExpressionRef) -> BoundExpressionRef {
     Mask.try_new_bound_expr(EmptyOptions, [array, mask])
         .vortex_expect("mask expressions require a boolean mask")
 }
@@ -990,7 +1006,7 @@ pub fn merge(elements: impl IntoIterator<Item = impl Into<Expression>>) -> Expre
 }
 
 /// Creates a bound expression that merges struct expressions.
-pub fn bound_merge(elements: impl IntoIterator<Item = BoundExpression>) -> BoundExpression {
+pub fn bound_merge(elements: impl IntoIterator<Item = BoundExpressionRef>) -> BoundExpressionRef {
     bound_merge_opts(elements, DuplicateHandling::default())
 }
 
@@ -1006,9 +1022,9 @@ pub fn merge_opts(
 
 /// Creates a bound merge expression with explicit duplicate handling.
 pub fn bound_merge_opts(
-    elements: impl IntoIterator<Item = BoundExpression>,
+    elements: impl IntoIterator<Item = BoundExpressionRef>,
     duplicate_handling: DuplicateHandling,
-) -> BoundExpression {
+) -> BoundExpressionRef {
     Merge
         .try_new_bound_expr(duplicate_handling, elements)
         .vortex_expect("merge expressions require non-nullable struct children")
@@ -1028,10 +1044,10 @@ pub fn zip_expr(mask: Expression, if_true: Expression, if_false: Expression) -> 
 
 /// Creates a bound zip expression that conditionally selects between two arrays.
 pub fn bound_zip_expr(
-    mask: BoundExpression,
-    if_true: BoundExpression,
-    if_false: BoundExpression,
-) -> BoundExpression {
+    mask: BoundExpressionRef,
+    if_true: BoundExpressionRef,
+    if_false: BoundExpressionRef,
+) -> BoundExpressionRef {
     Zip.try_new_bound_expr(EmptyOptions, [if_true, if_false, mask])
         .vortex_expect("zip expressions require a boolean mask and compatible value dtypes")
 }
@@ -1046,8 +1062,8 @@ pub fn dynamic_with_options(options: DynamicComparisonExpr, lhs: Expression) -> 
 /// Creates a bound dynamic comparison expression from its complete options.
 pub fn bound_dynamic_with_options(
     options: DynamicComparisonExpr,
-    lhs: BoundExpression,
-) -> BoundExpression {
+    lhs: BoundExpressionRef,
+) -> BoundExpressionRef {
     DynamicComparison
         .try_new_bound_expr(options, [lhs])
         .vortex_expect("dynamic comparisons require a compatible left-hand dtype")
@@ -1080,8 +1096,8 @@ pub fn bound_dynamic(
     rhs_value: impl Fn() -> Option<ScalarValue> + Send + Sync + 'static,
     rhs_dtype: DType,
     default: bool,
-    lhs: BoundExpression,
-) -> BoundExpression {
+    lhs: BoundExpressionRef,
+) -> BoundExpressionRef {
     bound_dynamic_with_options(
         DynamicComparisonExpr {
             operator,
@@ -1110,7 +1126,10 @@ pub fn list_contains(list: Expression, value: Expression) -> Expression {
 }
 
 /// Creates a bound expression that checks if a value is contained in a list.
-pub fn bound_list_contains(list: BoundExpression, value: BoundExpression) -> BoundExpression {
+pub fn bound_list_contains(
+    list: BoundExpressionRef,
+    value: BoundExpressionRef,
+) -> BoundExpressionRef {
     ListContains
         .try_new_bound_expr(EmptyOptions, [list, value])
         .vortex_expect("list-contains expressions require a compatible list and value dtype")
@@ -1130,7 +1149,7 @@ pub fn byte_length(input: Expression) -> Expression {
 }
 
 /// Creates a bound expression that computes each element's byte length.
-pub fn bound_byte_length(input: BoundExpression) -> BoundExpression {
+pub fn bound_byte_length(input: BoundExpressionRef) -> BoundExpressionRef {
     ByteLength
         .try_new_bound_expr(EmptyOptions, [input])
         .vortex_expect("byte-length expressions require a variable-length binary child")
@@ -1149,7 +1168,7 @@ pub fn ext_storage(input: Expression) -> Expression {
 }
 
 /// Creates a bound expression that extracts an extension array's storage values.
-pub fn bound_ext_storage(input: BoundExpression) -> BoundExpression {
+pub fn bound_ext_storage(input: BoundExpressionRef) -> BoundExpressionRef {
     ExtStorage
         .try_new_bound_expr(EmptyOptions, [input])
         .vortex_expect("extension-storage expressions require an extension child")
@@ -1170,7 +1189,7 @@ pub fn list_length(input: Expression) -> Expression {
 }
 
 /// Creates a bound expression that computes the number of elements in each list.
-pub fn bound_list_length(input: BoundExpression) -> BoundExpression {
+pub fn bound_list_length(input: BoundExpressionRef) -> BoundExpressionRef {
     ListLength
         .try_new_bound_expr(EmptyOptions, [input])
         .vortex_expect("list-length expressions require a list child")
@@ -1195,7 +1214,7 @@ pub fn list_sum(input: Expression) -> Expression {
 }
 
 /// Creates a bound expression that sums the elements of each list.
-pub fn bound_list_sum(input: BoundExpression) -> BoundExpression {
+pub fn bound_list_sum(input: BoundExpressionRef) -> BoundExpressionRef {
     ListSum
         .try_new_bound_expr(NumericalAggregateOpts::default(), [input])
         .vortex_expect("list-sum expressions require a numeric list child")
@@ -1209,9 +1228,9 @@ pub fn list_sum_opts(input: Expression, options: NumericalAggregateOpts) -> Expr
 
 /// Creates a bound list-sum expression with explicit aggregate options.
 pub fn bound_list_sum_opts(
-    input: BoundExpression,
+    input: BoundExpressionRef,
     options: NumericalAggregateOpts,
-) -> BoundExpression {
+) -> BoundExpressionRef {
     ListSum
         .try_new_bound_expr(options, [input])
         .vortex_expect("list-sum expressions require a numeric list child")

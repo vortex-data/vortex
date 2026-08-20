@@ -2,13 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::expr::BoundExpression;
+use crate::expr::BoundExpressionRef;
 use crate::expr::ExactBoundExpr;
 use crate::expr::Expression;
 use crate::expr::traversal::Node;
@@ -85,11 +86,11 @@ where
 /// Unlike [`descendent_annotations`], this uses [`ExactBoundExpr`] keys to preserve the cheap
 /// identity semantics of an already-bound tree.
 pub fn descendent_bound_annotations<A>(
-    expr: &BoundExpression,
+    expr: &BoundExpressionRef,
     annotate: A,
 ) -> BoundAnnotations<A::Annotation>
 where
-    A: AnnotationFn<BoundExpression>,
+    A: AnnotationFn<BoundExpressionRef>,
 {
     bound_annotations(expr, annotate, true)
 }
@@ -98,22 +99,22 @@ where
 ///
 /// The returned map uses [`ExactBoundExpr`] keys so lookups do not structurally hash node dtypes.
 pub fn direct_bound_annotations<A>(
-    expr: &BoundExpression,
+    expr: &BoundExpressionRef,
     annotate: A,
 ) -> BoundAnnotations<A::Annotation>
 where
-    A: AnnotationFn<BoundExpression>,
+    A: AnnotationFn<BoundExpressionRef>,
 {
     bound_annotations(expr, annotate, false)
 }
 
 fn bound_annotations<A>(
-    expr: &BoundExpression,
+    expr: &BoundExpressionRef,
     annotate: A,
     propagate_up: bool,
 ) -> BoundAnnotations<A::Annotation>
 where
-    A: AnnotationFn<BoundExpression>,
+    A: AnnotationFn<BoundExpressionRef>,
 {
     let mut visitor = BoundAnnotationVisitor {
         annotations: Default::default(),
@@ -176,7 +177,7 @@ where
 
 struct BoundAnnotationVisitor<A>
 where
-    A: AnnotationFn<BoundExpression>,
+    A: AnnotationFn<BoundExpressionRef>,
 {
     annotations: BoundAnnotations<A::Annotation>,
     annotate: A,
@@ -185,9 +186,9 @@ where
 
 impl<'a, A> NodeVisitor<'a> for BoundAnnotationVisitor<A>
 where
-    A: AnnotationFn<BoundExpression>,
+    A: AnnotationFn<BoundExpressionRef>,
 {
-    type NodeTy = BoundExpression;
+    type NodeTy = BoundExpressionRef;
 
     fn visit_down(&mut self, node: &'a Self::NodeTy) -> VortexResult<TraversalOrder> {
         let annotations = (self.annotate)(node);
@@ -196,7 +197,7 @@ where
         }
 
         self.annotations
-            .entry(ExactBoundExpr(node.clone()))
+            .entry(ExactBoundExpr(Arc::clone(node)))
             .or_default()
             .extend(annotations);
         Ok(TraversalOrder::Skip)
@@ -212,13 +213,13 @@ where
             .iter()
             .filter_map(|child| {
                 self.annotations
-                    .get(&ExactBoundExpr(child.clone()))
+                    .get(&ExactBoundExpr(Arc::clone(child)))
                     .cloned()
             })
             .collect::<Vec<_>>();
         let annotations = self
             .annotations
-            .entry(ExactBoundExpr(node.clone()))
+            .entry(ExactBoundExpr(Arc::clone(node)))
             .or_default();
         child_annotations
             .into_iter()

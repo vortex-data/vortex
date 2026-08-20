@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use std::fmt;
 
 use vortex_array::EmptyMetadata;
-use vortex_array::expr::BoundExpression;
+use vortex_array::expr::BoundExpressionRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::registry::CachedId;
@@ -26,7 +26,7 @@ pub struct Eval;
 /// The expression evaluated by an [`Eval`].
 #[derive(Clone, Debug)]
 pub struct EvalData {
-    expression: BoundExpression,
+    expression: BoundExpressionRef,
 }
 
 /// A plan that applies an expression to its child.
@@ -34,7 +34,7 @@ pub type EvalPlan = Plan<Eval>;
 
 impl EvalPlan {
     /// Creates an evaluation of `expression`, which must be bound to the child's dtype.
-    pub fn try_new(expression: BoundExpression, child: PlanRef) -> VortexResult<Self> {
+    pub fn try_new(expression: BoundExpressionRef, child: PlanRef) -> VortexResult<Self> {
         validate_expression_child(&expression, &child)?;
 
         // SAFETY: The expression root dtype was validated against the child dtype above.
@@ -46,7 +46,7 @@ impl EvalPlan {
     /// # Safety
     ///
     /// Every scope root in `expression` must have the same dtype as `child`.
-    pub unsafe fn new_unchecked(expression: BoundExpression, child: PlanRef) -> Self {
+    pub unsafe fn new_unchecked(expression: BoundExpressionRef, child: PlanRef) -> Self {
         PlanParts {
             vtable: Eval,
             dtype: expression.dtype().clone(),
@@ -58,7 +58,7 @@ impl EvalPlan {
     }
 
     /// Returns the expression evaluated by this plan.
-    pub fn expression(&self) -> &BoundExpression {
+    pub fn expression(&self) -> &BoundExpressionRef {
         &self.data().expression
     }
 
@@ -115,7 +115,7 @@ impl PlanVTable for Eval {
     }
 }
 
-fn validate_expression_child(expression: &BoundExpression, child: &PlanRef) -> VortexResult<()> {
+fn validate_expression_child(expression: &BoundExpressionRef, child: &PlanRef) -> VortexResult<()> {
     if !expression.is_root_bound_to(child.dtype()) {
         vortex_bail!(
             "Eval expression is not bound to child dtype {}",

@@ -12,7 +12,7 @@ use itertools::Either;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
-use vortex_array::expr::BoundExpression;
+use vortex_array::expr::BoundExpressionRef;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorAdapter;
 use vortex_array::stream::ArrayStream;
@@ -38,8 +38,8 @@ use crate::scan::tasks::split_exec;
 pub struct RepeatedScan<A: 'static + Send> {
     session: VortexSession,
     layout_reader: LayoutReaderRef,
-    projection: BoundExpression,
-    filter: Option<BoundExpression>,
+    projection: BoundExpressionRef,
+    filter: Option<BoundExpressionRef>,
     ordered: bool,
     /// Optionally read a subset of the rows in the file.
     row_range: Option<Range<u64>>,
@@ -92,8 +92,8 @@ impl<A: 'static + Send> RepeatedScan<A> {
     pub fn new(
         session: VortexSession,
         layout_reader: LayoutReaderRef,
-        projection: BoundExpression,
-        filter: Option<BoundExpression>,
+        projection: BoundExpressionRef,
+        filter: Option<BoundExpressionRef>,
         ordered: bool,
         row_range: Option<Range<u64>>,
         selection: Selection,
@@ -176,7 +176,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         let ctx = Arc::new(TaskContext {
             filter: self.filter.clone().map(|f| Arc::new(FilterExpr::new(f))),
             reader: Arc::clone(&self.layout_reader),
-            projection: self.projection.clone(),
+            projection: Arc::clone(&self.projection),
             mapper: Arc::clone(&self.map_fn),
         });
 

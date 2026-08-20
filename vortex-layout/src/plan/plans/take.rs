@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
+use std::sync::Arc;
 
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
@@ -151,14 +152,14 @@ impl PlanParentReduceRule<Take> for ExpressionTakeRule {
             |acc, &child| (acc.0 | child.0, acc.1 & child.1, acc.2 | child.2),
         );
         let (references_root, is_strict, is_fallible) = labels
-            .get(&ExactBoundExpr(expression.clone()))
+            .get(&ExactBoundExpr(Arc::clone(expression)))
             .copied()
             .unwrap_or((false, false, true));
         if !references_root || !is_strict || is_fallible {
             return Ok(None);
         }
 
-        let values = EvalPlan::try_new(expression.clone(), child.values()?)?.into_plan();
+        let values = EvalPlan::try_new(Arc::clone(expression), child.values()?)?.into_plan();
         Ok(Some(TakePlan::new(child.codes()?, values).into_plan()))
     }
 }

@@ -38,7 +38,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::PType::I32;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr::BoundExpression;
+use vortex_array::expr::BoundExpressionRef;
 use vortex_array::expr::Expression;
 use vortex_array::expr::and;
 use vortex_array::expr::cast;
@@ -115,7 +115,7 @@ fn strict_sorted(indices: Buffer<u64>) -> StrictSortedBuffer<u64> {
     StrictSortedBuffer::try_new(indices).expect("test indices should be strictly increasing")
 }
 
-fn bind_scan_expr(file: &VortexFile, expr: Expression) -> BoundExpression {
+fn bind_scan_expr(file: &VortexFile, expr: Expression) -> BoundExpressionRef {
     expr.optimize_recursive(file.dtype())
         .and_then(|expr| expr.bind(file.dtype()))
         .vortex_expect("scan expression should bind")

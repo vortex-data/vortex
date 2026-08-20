@@ -41,7 +41,7 @@ impl ExprDisplay for Expression {
 
 impl ExprDisplay for BoundExpression {
     fn display_child(&self, index: usize) -> &dyn ExprDisplay {
-        &self.children()[index]
+        self.children()[index].as_ref()
     }
 
     fn display_children_count(&self) -> usize {
@@ -50,7 +50,9 @@ impl ExprDisplay for BoundExpression {
 }
 
 trait DisplayTreeNode: Sized {
-    fn tree_children(&self) -> &[Self];
+    fn tree_child(&self, index: usize) -> &Self;
+
+    fn tree_children_count(&self) -> usize;
 
     fn tree_child_name(&self, index: usize) -> ChildName;
 
@@ -61,8 +63,12 @@ trait DisplayTreeNode: Sized {
 const ROOT_DISPLAY: &str = "vortex.root()";
 
 impl DisplayTreeNode for Expression {
-    fn tree_children(&self) -> &[Self] {
-        Expression::children(self)
+    fn tree_child(&self, index: usize) -> &Self {
+        Expression::child(self, index)
+    }
+
+    fn tree_children_count(&self) -> usize {
+        Expression::children(self).len()
     }
 
     fn tree_child_name(&self, index: usize) -> ChildName {
@@ -81,8 +87,12 @@ impl DisplayTreeNode for Expression {
 }
 
 impl DisplayTreeNode for BoundExpression {
-    fn tree_children(&self) -> &[Self] {
-        BoundExpression::children(self)
+    fn tree_child(&self, index: usize) -> &Self {
+        BoundExpression::child(self, index)
+    }
+
+    fn tree_children_count(&self) -> usize {
+        BoundExpression::children(self).len()
     }
 
     fn tree_child_name(&self, index: usize) -> ChildName {
@@ -120,10 +130,14 @@ impl<T: DisplayTreeNode> TreeDisplayAdapter for DisplayTreeExpr<'_, T> {
         node: &Self::Node,
         visit: &mut dyn FnMut(&str, &Self::Node, bool) -> fmt::Result,
     ) -> fmt::Result {
-        let children = node.tree_children();
-        for (index, child) in children.iter().enumerate() {
+        let children_count = node.tree_children_count();
+        for index in 0..children_count {
             let child_name = node.tree_child_name(index);
-            visit(child_name.as_ref(), child, index + 1 == children.len())?;
+            visit(
+                child_name.as_ref(),
+                node.tree_child(index),
+                index + 1 == children_count,
+            )?;
         }
         Ok(())
     }

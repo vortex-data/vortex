@@ -133,7 +133,7 @@ mod test {
     use vortex_array::dtype::FieldPath;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::BoundExpression;
+    use vortex_array::expr::BoundExpressionRef;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
     use vortex_mask::Mask;
@@ -242,7 +242,7 @@ mod test {
             fn pruning_evaluation(
                 &self,
                 _: &Range<u64>,
-                _: &BoundExpression,
+                _: &BoundExpressionRef,
                 _: Mask,
             ) -> VortexResult<MaskFuture> {
                 unimplemented!()
@@ -251,7 +251,7 @@ mod test {
             fn filter_evaluation(
                 &self,
                 _: &Range<u64>,
-                _: &BoundExpression,
+                _: &BoundExpressionRef,
                 _: MaskFuture,
             ) -> VortexResult<MaskFuture> {
                 unimplemented!()
@@ -260,7 +260,7 @@ mod test {
             fn projection_evaluation(
                 &self,
                 _: &Range<u64>,
-                _: &BoundExpression,
+                _: &BoundExpressionRef,
                 _: MaskFuture,
             ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
                 unimplemented!()

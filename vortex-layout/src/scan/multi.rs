@@ -37,7 +37,7 @@ use itertools::Itertools;
 use tracing::Instrument;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
-use vortex_array::expr::BoundExpression;
+use vortex_array::expr::BoundExpressionRef;
 use vortex_array::expr::stats::Precision;
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::ArrayStreamAdapter;
@@ -324,8 +324,8 @@ impl DataSource for MultiLayoutDataSource {
 
 #[derive(Clone)]
 struct BoundScanRequest {
-    projection: BoundExpression,
-    filter: SharedVortexResult<Option<BoundExpression>>,
+    projection: BoundExpressionRef,
+    filter: SharedVortexResult<Option<BoundExpressionRef>>,
     row_range: Option<Range<u64>>,
     selection: Selection,
     partition_selection: Selection,

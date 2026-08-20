@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -10,7 +12,7 @@ use vortex_array::arrays::NullArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr::BoundExpression;
+use vortex_array::expr::BoundExpressionRef;
 use vortex_array::expr::bound::lit;
 use vortex_array::expr::stats::Stat;
 use vortex_array::scalar::Scalar;
@@ -26,13 +28,13 @@ use vortex_session::VortexSession;
 use crate::FileStatistics;
 
 pub(crate) fn can_prune_file_stats(
-    expr: &BoundExpression,
+    expr: &BoundExpressionRef,
     row_count: u64,
     file_stats: &FileStatistics,
     struct_fields: &StructFields,
     session: &VortexSession,
 ) -> VortexResult<bool> {
-    let Some(pruning_expr) = expr.falsify(session)? else {
+    let Some(pruning_expr) = Arc::clone(expr).falsify(session)? else {
         return Ok(false);
     };
 
@@ -68,10 +70,10 @@ struct FileStatsBinder<'a> {
 impl StatBinder for FileStatsBinder<'_> {
     fn bind_aggregate(
         &self,
-        input: &BoundExpression,
+        input: &BoundExpressionRef,
         aggregate_fn: &AggregateFnRef,
         _stat_dtype: &DType,
-    ) -> VortexResult<Option<BoundExpression>> {
+    ) -> VortexResult<Option<BoundExpressionRef>> {
         let Some(stat) = Stat::from_aggregate_fn(aggregate_fn) else {
             return Ok(None);
         };
@@ -83,7 +85,7 @@ impl StatBinder for FileStatsBinder<'_> {
 }
 
 impl FileStatsBinder<'_> {
-    fn stat_ref(&self, field_path: &FieldPath, stat: Stat) -> Option<BoundExpression> {
+    fn stat_ref(&self, field_path: &FieldPath, stat: Stat) -> Option<BoundExpressionRef> {
         // FileStats currently only holds top-level field statistics.
         if field_path.parts().len() != 1 {
             return None;
@@ -102,7 +104,7 @@ impl FileStatsBinder<'_> {
     }
 }
 
-fn direct_field_path(expr: &BoundExpression) -> Option<FieldPath> {
+fn direct_field_path(expr: &BoundExpressionRef) -> Option<FieldPath> {
     if expr.is_root() {
         return Some(FieldPath::root());
     }

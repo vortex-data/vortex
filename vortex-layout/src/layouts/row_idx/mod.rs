@@ -25,6 +25,7 @@ use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::expr::BoundExpression;
+use vortex_array::expr::BoundExpressionRef;
 use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::transform::BoundPartitionedExpr;
 use vortex_array::expr::transform::partition_bound;
@@ -65,8 +66,8 @@ impl RowIdxLayoutReader {
         }
     }
 
-    fn partition_expr(&self, expr: &BoundExpression) -> VortexResult<Partitioning> {
-        let key = ExactBoundExpr(expr.clone());
+    fn partition_expr(&self, expr: &BoundExpressionRef) -> VortexResult<Partitioning> {
+        let key = ExactBoundExpr(Arc::clone(expr));
 
         // Check cache first with read-only lock.
         if let Some(entry) = self.partition_cache.get(&key)
@@ -85,9 +86,9 @@ impl RowIdxLayoutReader {
         Ok(result)
     }
 
-    fn compute_partitioning(&self, expr: &BoundExpression) -> VortexResult<Partitioning> {
+    fn compute_partitioning(&self, expr: &BoundExpressionRef) -> VortexResult<Partitioning> {
         // Partition the expression into row idx and child expressions.
-        let mut partitioned = partition_bound(expr.clone(), |expr: &BoundExpression| {
+        let mut partitioned = partition_bound(Arc::clone(expr), |expr: &BoundExpressionRef| {
             if expr
                 .as_scalar()
                 .is_some_and(|scalar_fn| scalar_fn.is::<RowIdx>())
@@ -103,8 +104,8 @@ impl RowIdxLayoutReader {
         // If there's only a single partition, we can directly return the expression.
         if partitioned.partitions.len() == 1 {
             return Ok(match &partitioned.partition_annotations[0] {
-                Partition::RowIdx => Partitioning::RowIdx(replace_row_idx(expr.clone())?),
-                Partition::Child => Partitioning::Child(expr.clone()),
+                Partition::RowIdx => Partitioning::RowIdx(replace_row_idx(Arc::clone(expr))?),
+                Partition::Child => Partitioning::Child(Arc::clone(expr)),
             });
         }
 
@@ -125,9 +126,9 @@ impl RowIdxLayoutReader {
 #[derive(Clone)]
 enum Partitioning {
     // An expression that only references the row index (e.g., `row_idx == 5`).
-    RowIdx(BoundExpression),
+    RowIdx(BoundExpressionRef),
     // An expression that does not reference the row index.
-    Child(BoundExpression),
+    Child(BoundExpressionRef),
     // Contains both the RowIdx and Child expressions, (e.g., `row_idx < child.some_field`).
     Partitioned(Arc<BoundPartitionedExpr<Partition>>),
 }
@@ -184,14 +185,14 @@ impl LayoutReader for RowIdxLayoutReader {
     fn pruning_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &BoundExpression,
+        expr: &BoundExpressionRef,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         Ok(match &self.partition_expr(expr)? {
             Partitioning::RowIdx(expr) => row_idx_mask_future(
                 self.row_offset,
                 row_range,
-                expr.clone(),
+                Arc::clone(expr),
                 MaskFuture::ready(mask),
                 self.session.clone(),
             ),
@@ -203,7 +204,7 @@ impl LayoutReader for RowIdxLayoutReader {
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &BoundExpression,
+        expr: &BoundExpressionRef,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         match &self.partition_expr(expr)? {
@@ -217,7 +218,7 @@ impl LayoutReader for RowIdxLayoutReader {
                     Partition::RowIdx => Ok(row_idx_mask_future(
                         self.row_offset,
                         row_range,
-                        expr.clone(),
+                        Arc::clone(expr),
                         mask,
                         self.session.clone(),
                     )),
@@ -227,7 +228,7 @@ impl LayoutReader for RowIdxLayoutReader {
                     Partition::RowIdx => Ok(row_idx_array_future(
                         self.row_offset,
                         row_range,
-                        expr.clone(),
+                        Arc::clone(expr),
                         mask,
                         self.session.clone(),
                     )),
@@ -241,14 +242,14 @@ impl LayoutReader for RowIdxLayoutReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &BoundExpression,
+        expr: &BoundExpressionRef,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         match &self.partition_expr(expr)? {
             Partitioning::RowIdx(expr) => Ok(row_idx_array_future(
                 self.row_offset,
                 row_range,
-                expr.clone(),
+                Arc::clone(expr),
                 mask,
                 self.session.clone(),
             )),
@@ -258,7 +259,7 @@ impl LayoutReader for RowIdxLayoutReader {
                     Partition::RowIdx => Ok(row_idx_array_future(
                         self.row_offset,
                         row_range,
-                        expr.clone(),
+                        Arc::clone(expr),
                         mask,
                         self.session.clone(),
                     )),
@@ -273,7 +274,7 @@ impl LayoutReader for RowIdxLayoutReader {
     }
 }
 
-fn replace_row_idx(expr: BoundExpression) -> VortexResult<BoundExpression> {
+fn replace_row_idx(expr: BoundExpressionRef) -> VortexResult<BoundExpressionRef> {
     Ok(expr
         .transform_down(|node| {
             if node
@@ -312,7 +313,7 @@ fn idx_array(row_offset: u64, row_range: &Range<u64>) -> SequenceArray {
 fn row_idx_mask_future(
     row_offset: u64,
     row_range: &Range<u64>,
-    expr: BoundExpression,
+    expr: BoundExpressionRef,
     mask: MaskFuture,
     session: VortexSession,
 ) -> MaskFuture {
@@ -333,7 +334,7 @@ fn row_idx_mask_future(
 fn row_idx_array_future(
     row_offset: u64,
     row_range: &Range<u64>,
-    expr: BoundExpression,
+    expr: BoundExpressionRef,
     mask: MaskFuture,
     session: VortexSession,
 ) -> ArrayFuture {

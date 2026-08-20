@@ -19,7 +19,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::expr::BoundExpression;
+use vortex_array::expr::BoundExpressionRef;
 use vortex_array::expr::root;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::validity::Validity;
@@ -108,7 +108,7 @@ impl ListReader {
     fn project_validity(
         &self,
         row_range: &Range<u64>,
-        expr: &BoundExpression,
+        expr: &BoundExpressionRef,
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
         let validity_reader = self.validity.clone();
@@ -151,13 +151,13 @@ impl ListReader {
     fn project_all(
         &self,
         row_range: &Range<u64>,
-        expr: &BoundExpression,
+        expr: &BoundExpressionRef,
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
         let is_full_range = row_range.start == 0 && row_range.end == self.layout.row_count();
         let reader = self.clone();
         let row_range = row_range.clone();
-        let expr = expr.clone();
+        let expr = Arc::clone(expr);
         Ok(async move {
             let mask = mask.await?;
             if is_full_range && mask.all_true() {
@@ -170,11 +170,11 @@ impl ListReader {
     }
 
     /// Fetch the complete `elements`, `offsets`, and `validity` children concurrently.
-    fn project_all_full(&self, expr: &BoundExpression) -> VortexResult<ArrayFuture> {
+    fn project_all_full(&self, expr: &BoundExpressionRef) -> VortexResult<ArrayFuture> {
         let row_count = self.layout.row_count();
         let elements_row_count = self.elements.row_count();
         let nullability = self.layout.dtype().nullability();
-        let expr = expr.clone();
+        let expr = Arc::clone(expr);
 
         let offsets_fut = self.fetch_raw_offsets(&(0..row_count))?;
         let elements_fut = self.fetch_raw_elements(&(0..elements_row_count))?;
@@ -205,7 +205,7 @@ impl ListReader {
     fn project_all_bounded(
         &self,
         row_range: &Range<u64>,
-        expr: &BoundExpression,
+        expr: &BoundExpressionRef,
         mask: Mask,
     ) -> VortexResult<ArrayFuture> {
         // Crop to the smallest contiguous row range containing every selected list.
@@ -219,7 +219,7 @@ impl ListReader {
             ..(row_range.start + u64::try_from(selected_rows.end)?);
 
         let nullability = self.layout.dtype().nullability();
-        let expr = expr.clone();
+        let expr = Arc::clone(expr);
         let reader = self.clone();
         let offsets_fut = self.fetch_raw_offsets(&selected_row_range)?;
 
@@ -257,7 +257,7 @@ impl ListReader {
     fn project_offsets_validity(
         &self,
         row_range: &Range<u64>,
-        expr: &BoundExpression,
+        expr: &BoundExpressionRef,
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
         let offsets = self.fetch_raw_offsets(row_range)?;
@@ -412,7 +412,7 @@ impl LayoutReader for ListReader {
     fn pruning_evaluation(
         &self,
         _row_range: &Range<u64>,
-        _expr: &BoundExpression,
+        _expr: &BoundExpressionRef,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         Ok(MaskFuture::ready(mask))
@@ -421,13 +421,13 @@ impl LayoutReader for ListReader {
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &BoundExpression,
+        expr: &BoundExpressionRef,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         let len = mask.len();
         let reader = self.clone();
         let row_range = row_range.clone();
-        let expr = expr.clone();
+        let expr = Arc::clone(expr);
         let session = self.session.clone();
 
         Ok(MaskFuture::new(len, async move {
@@ -460,7 +460,7 @@ impl LayoutReader for ListReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &BoundExpression,
+        expr: &BoundExpressionRef,
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
         // Read as little as possible based on which list children the expression needs.

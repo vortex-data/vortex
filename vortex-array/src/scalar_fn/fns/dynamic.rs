@@ -19,7 +19,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::dtype::DType;
-use crate::expr::BoundExpression;
+use crate::expr::BoundExpressionRef;
 use crate::expr::display::ExprDisplay;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::NodeVisitor;
@@ -206,12 +206,12 @@ pub struct DynamicExprUpdates {
 
 impl DynamicExprUpdates {
     /// Track dynamic scalar functions contained in a bound expression tree.
-    pub fn new(expr: &BoundExpression) -> Option<Self> {
+    pub fn new(expr: &BoundExpressionRef) -> Option<Self> {
         #[derive(Default)]
         struct Visitor(Vec<DynamicComparisonExpr>);
 
         impl NodeVisitor<'_> for Visitor {
-            type NodeTy = BoundExpression;
+            type NodeTy = BoundExpressionRef;
 
             fn visit_down(&mut self, node: &'_ Self::NodeTy) -> VortexResult<TraversalOrder> {
                 if let Some(dynamic) = node

@@ -12,7 +12,7 @@ use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
-use vortex_array::expr::BoundExpression;
+use vortex_array::expr::BoundExpressionRef;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -136,7 +136,7 @@ impl LayoutReader for ZonedReader {
     fn pruning_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &BoundExpression,
+        expr: &BoundExpressionRef,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         trace!("Stats pruning evaluation: {} - {}", &self.name, expr);
@@ -144,7 +144,7 @@ impl LayoutReader for ZonedReader {
             .data_child()?
             .pruning_evaluation(row_range, expr, mask.clone())?;
 
-        let Some(pruning_mask_future) = self.pruning.pruning_mask_future(expr.clone()) else {
+        let Some(pruning_mask_future) = self.pruning.pruning_mask_future(Arc::clone(expr)) else {
             trace!("Stats pruning evaluation: not prune-able {expr}");
             return Ok(data_eval);
         };
@@ -169,7 +169,7 @@ impl LayoutReader for ZonedReader {
             .try_collect()?;
 
         let name = Arc::clone(&self.name);
-        let expr = expr.clone();
+        let expr = Arc::clone(expr);
 
         Ok(MaskFuture::new(mask.len(), async move {
             trace!("Invoking stats pruning evaluation {}: {}", name, expr);
@@ -209,7 +209,7 @@ impl LayoutReader for ZonedReader {
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &BoundExpression,
+        expr: &BoundExpressionRef,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         self.data_child()?.filter_evaluation(row_range, expr, mask)
@@ -218,7 +218,7 @@ impl LayoutReader for ZonedReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &BoundExpression,
+        expr: &BoundExpressionRef,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         // TODO(ngates): there are some projection expressions that we may also be able to

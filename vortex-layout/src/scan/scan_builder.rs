@@ -17,6 +17,7 @@ use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::BoundExpression;
+use vortex_array::expr::BoundExpressionRef;
 use vortex_array::expr::analysis::referenced_field_paths;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorAdapter;
@@ -58,8 +59,8 @@ use crate::scan::splits::attempt_split_ranges;
 pub struct ScanBuilder<A> {
     session: VortexSession,
     layout_reader: LayoutReaderRef,
-    projection: BoundExpression,
-    filter: Option<BoundExpression>,
+    projection: BoundExpressionRef,
+    filter: Option<BoundExpressionRef>,
     /// Whether the scan needs to return splits in the order they appear in the file.
     ordered: bool,
     /// Optionally read a subset of the rows in the file.
@@ -136,19 +137,19 @@ impl ScanBuilder<ArrayRef> {
 
 impl<A: 'static + Send> ScanBuilder<A> {
     /// Add a filter expression bound against the reader dtype.
-    pub fn with_filter(mut self, filter: BoundExpression) -> Self {
+    pub fn with_filter(mut self, filter: BoundExpressionRef) -> Self {
         self.filter = Some(filter);
         self
     }
 
     /// Add or clear a filter expression bound against the reader dtype.
-    pub fn with_some_filter(mut self, filter: Option<BoundExpression>) -> Self {
+    pub fn with_some_filter(mut self, filter: Option<BoundExpressionRef>) -> Self {
         self.filter = filter;
         self
     }
 
     /// Set a projection expression bound against the reader dtype.
-    pub fn with_projection(mut self, projection: BoundExpression) -> Self {
+    pub fn with_projection(mut self, projection: BoundExpressionRef) -> Self {
         self.projection = projection;
         self
     }
@@ -473,8 +474,8 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
 ///
 /// Projection and filter must be pre-simplified and bound against the scan dtype.
 pub fn referenced_field_masks(
-    projection: &BoundExpression,
-    filter: Option<&BoundExpression>,
+    projection: &BoundExpressionRef,
+    filter: Option<&BoundExpressionRef>,
 ) -> VortexResult<Vec<FieldMask>> {
     let mut field_paths = referenced_field_paths(projection)?;
     if let Some(filter) = filter {
@@ -518,7 +519,7 @@ mod test {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
-    use vortex_array::expr::BoundExpression;
+    use vortex_array::expr::BoundExpressionRef;
     use vortex_array::expr::ExactBoundExpr;
     use vortex_array::expr::eq;
     use vortex_array::expr::get_item;
@@ -564,8 +565,8 @@ mod test {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let projection = eq(root(), lit(1_i32)).bind(&dtype)?;
         let filter = eq(root(), lit(2_i32)).bind(&dtype)?;
-        let expected_projection = ExactBoundExpr(projection.clone());
-        let expected_filter = ExactBoundExpr(filter.clone());
+        let expected_projection = ExactBoundExpr(Arc::clone(&projection));
+        let expected_filter = ExactBoundExpr(Arc::clone(&filter));
         let reader = Arc::new(CountingLayoutReader::new(Arc::new(AtomicUsize::new(0))));
 
         let builder = ScanBuilder::new(SCAN_SESSION.clone(), reader)
@@ -670,7 +671,7 @@ mod test {
         fn pruning_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &BoundExpression,
+            _expr: &BoundExpressionRef,
             _mask: Mask,
         ) -> VortexResult<MaskFuture> {
             unimplemented!("not needed for this test");
@@ -679,7 +680,7 @@ mod test {
         fn filter_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &BoundExpression,
+            _expr: &BoundExpressionRef,
             _mask: MaskFuture,
         ) -> VortexResult<MaskFuture> {
             unimplemented!("not needed for this test");
@@ -688,7 +689,7 @@ mod test {
         fn projection_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &BoundExpression,
+            _expr: &BoundExpressionRef,
             _mask: MaskFuture,
         ) -> VortexResult<ArrayFuture> {
             Ok(Box::pin(async move {
@@ -761,7 +762,7 @@ mod test {
         fn pruning_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &BoundExpression,
+            _expr: &BoundExpressionRef,
             mask: Mask,
         ) -> VortexResult<MaskFuture> {
             Ok(MaskFuture::ready(mask))
@@ -770,7 +771,7 @@ mod test {
         fn filter_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &BoundExpression,
+            _expr: &BoundExpressionRef,
             mask: MaskFuture,
         ) -> VortexResult<MaskFuture> {
             Ok(mask)
@@ -779,7 +780,7 @@ mod test {
         fn projection_evaluation(
             &self,
             row_range: &Range<u64>,
-            _expr: &BoundExpression,
+            _expr: &BoundExpressionRef,
             _mask: MaskFuture,
         ) -> VortexResult<ArrayFuture> {
             let start = usize::try_from(row_range.start)
@@ -914,7 +915,7 @@ mod test {
         fn pruning_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &BoundExpression,
+            _expr: &BoundExpressionRef,
             _mask: Mask,
         ) -> VortexResult<MaskFuture> {
             unimplemented!("not needed for this test");
@@ -923,7 +924,7 @@ mod test {
         fn filter_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &BoundExpression,
+            _expr: &BoundExpressionRef,
             _mask: MaskFuture,
         ) -> VortexResult<MaskFuture> {
             unimplemented!("not needed for this test");
@@ -932,7 +933,7 @@ mod test {
         fn projection_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &BoundExpression,
+            _expr: &BoundExpressionRef,
             _mask: MaskFuture,
         ) -> VortexResult<ArrayFuture> {
             Ok(Box::pin(async move {

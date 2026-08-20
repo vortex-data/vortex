@@ -3,6 +3,7 @@
 
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::sync::Arc;
 
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
@@ -11,6 +12,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
+use vortex_array::expr::BoundExpressionRef;
 use vortex_array::expr::transform::partition_bound;
 use vortex_array::expr::traversal::NodeExt;
 use vortex_array::expr::traversal::Transformed;
@@ -94,10 +96,10 @@ impl PlanVTable for RowIdx {
 /// `#row_idx` bypass `child`, and mixed expressions combine independently planned branches with a
 /// [`PackPlan`]. The file row offset is supplied by the execution row domain.
 pub fn plan_row_idx_expression(
-    expression: BoundExpression,
+    expression: BoundExpressionRef,
     child: PlanRef,
 ) -> VortexResult<PlanRef> {
-    let partitioned = partition_bound(expression.clone(), |node| {
+    let partitioned = partition_bound(Arc::clone(&expression), |node| {
         if node
             .as_scalar()
             .is_some_and(|scalar_fn| scalar_fn.is::<RowIdxFn>())
@@ -173,18 +175,18 @@ pub fn plan_row_idx_expression(
             return Err(vortex_err!("Row-index expression partition is empty"));
         };
         collapsed.push((row_idx_partition_name, value_name.clone()));
-        row_idx_partition.children()[0].clone()
+        Arc::clone(&row_idx_partition.children()[0])
     } else {
-        row_idx_partition.clone()
+        Arc::clone(row_idx_partition)
     };
     let child_expression = if child_partition.children().len() == 1 {
         let Some(value_name) = child_pack.names.get(0) else {
             return Err(vortex_err!("Data expression partition is empty"));
         };
         collapsed.push((child_partition_name, value_name.clone()));
-        child_partition.children()[0].clone()
+        Arc::clone(&child_partition.children()[0])
     } else {
-        child_partition.clone()
+        Arc::clone(child_partition)
     };
 
     let row_count = child.row_count();
@@ -209,7 +211,7 @@ pub fn plan_row_idx_expression(
     Ok(EvalPlan::try_new(residual, partitions.into_plan())?.into_plan())
 }
 
-fn replace_row_idx(expression: BoundExpression) -> VortexResult<BoundExpression> {
+fn replace_row_idx(expression: BoundExpressionRef) -> VortexResult<BoundExpressionRef> {
     Ok(expression
         .transform_down(|node| {
             if node

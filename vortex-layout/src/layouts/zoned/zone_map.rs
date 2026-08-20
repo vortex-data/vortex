@@ -21,7 +21,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
-use vortex_array::expr::BoundExpression;
+use vortex_array::expr::BoundExpressionRef;
 use vortex_array::expr::Expression;
 use vortex_array::expr::eq;
 use vortex_array::expr::get_item;
@@ -140,12 +140,12 @@ impl ZoneMap {
     /// only after the predicate has been lowered to the zone-map table.
     pub fn prune(
         &self,
-        predicate: &BoundExpression,
+        predicate: &BoundExpressionRef,
         session: &VortexSession,
     ) -> VortexResult<Mask> {
         let mut ctx = session.create_execution_ctx();
         let num_zones = self.array.len();
-        let predicate = self.lower_stats(predicate.clone())?;
+        let predicate = self.lower_stats(Arc::clone(predicate))?;
 
         let array = self.array.clone().into_array();
         let applied = array.apply_bound(&predicate)?;
@@ -159,7 +159,7 @@ impl ZoneMap {
         substituted.null_as_false().execute(&mut ctx)
     }
 
-    fn lower_stats(&self, predicate: BoundExpression) -> VortexResult<BoundExpression> {
+    fn lower_stats(&self, predicate: BoundExpressionRef) -> VortexResult<BoundExpressionRef> {
         let binder = ZoneMapStatsBinder { zone_map: self };
         bind_stats(predicate, &binder)
     }
@@ -172,10 +172,10 @@ struct ZoneMapStatsBinder<'a> {
 impl StatBinder for ZoneMapStatsBinder<'_> {
     fn bind_aggregate(
         &self,
-        input: &BoundExpression,
+        input: &BoundExpressionRef,
         aggregate_fn: &AggregateFnRef,
         _stat_dtype: &DType,
-    ) -> VortexResult<Option<BoundExpression>> {
+    ) -> VortexResult<Option<BoundExpressionRef>> {
         if !input.is_root() {
             return Ok(None);
         }
@@ -235,7 +235,7 @@ impl StatBinder for ZoneMapStatsBinder<'_> {
 }
 
 impl ZoneMapStatsBinder<'_> {
-    fn bind_target(&self, expr: Expression) -> VortexResult<BoundExpression> {
+    fn bind_target(&self, expr: Expression) -> VortexResult<BoundExpressionRef> {
         expr.bind(self.zone_map.array.dtype())
     }
 }
@@ -365,7 +365,7 @@ mod tests {
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::BoundExpression;
+    use vortex_array::expr::BoundExpressionRef;
     use vortex_array::expr::Expression;
     use vortex_array::expr::cast;
     use vortex_array::expr::gt;
@@ -389,7 +389,7 @@ mod tests {
     use crate::layouts::zoned::zone_map::ZoneMap;
     use crate::test::SESSION;
 
-    fn falsify(expr: &Expression, dtype: DType) -> BoundExpression {
+    fn falsify(expr: &Expression, dtype: DType) -> BoundExpressionRef {
         expr.bind(&dtype)
             .unwrap()
             .falsify(&SESSION)

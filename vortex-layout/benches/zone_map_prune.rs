@@ -28,7 +28,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::expr::BoundExpression;
+use vortex_array::expr::BoundExpressionRef;
 use vortex_array::expr::Expression;
 use vortex_array::expr::eq;
 use vortex_array::expr::gt;
@@ -248,7 +248,7 @@ fn f64_dtype() -> DType {
     DType::Primitive(PType::F64, Nullability::Nullable)
 }
 
-fn falsify(expr: Expression, column_dtype: &DType) -> BoundExpression {
+fn falsify(expr: Expression, column_dtype: &DType) -> BoundExpressionRef {
     expr.bind(column_dtype)
         .unwrap()
         .falsify(&SESSION)
@@ -256,7 +256,7 @@ fn falsify(expr: Expression, column_dtype: &DType) -> BoundExpression {
         .unwrap()
 }
 
-fn run(bencher: Bencher, zone_map: ZoneMap, predicate: BoundExpression) {
+fn run(bencher: Bencher, zone_map: ZoneMap, predicate: BoundExpressionRef) {
     bencher.bench(|| {
         divan::black_box(
             zone_map
@@ -269,7 +269,7 @@ fn run(bencher: Bencher, zone_map: ZoneMap, predicate: BoundExpression) {
 /// Integer range predicate: binds to `max` only, no row count, no NaN guard.
 #[divan::bench(args = ZONE_COUNTS)]
 fn int_gt(bencher: Bencher, num_zones: usize) {
-    static PREDICATE: LazyLock<BoundExpression> =
+    static PREDICATE: LazyLock<BoundExpressionRef> =
         LazyLock::new(|| falsify(gt(root(), lit(5_000i32)), &i32_dtype()));
     run(
         bencher,
@@ -282,7 +282,7 @@ fn int_gt(bencher: Bencher, num_zones: usize) {
 /// stores `nan_count` they lower to the same expression.
 #[divan::bench(args = ZONE_COUNTS)]
 fn float_gt(bencher: Bencher, num_zones: usize) {
-    static PREDICATE: LazyLock<BoundExpression> =
+    static PREDICATE: LazyLock<BoundExpressionRef> =
         LazyLock::new(|| falsify(gt(root(), lit(5_000f64)), &f64_dtype()));
     run(
         bencher,
@@ -294,7 +294,7 @@ fn float_gt(bencher: Bencher, num_zones: usize) {
 /// Null predicate: lowers to `null_count == row_count`, exercising the row-count path.
 #[divan::bench(args = ZONE_COUNTS)]
 fn is_not_null_pred(bencher: Bencher, num_zones: usize) {
-    static PREDICATE: LazyLock<BoundExpression> =
+    static PREDICATE: LazyLock<BoundExpressionRef> =
         LazyLock::new(|| falsify(is_not_null(root()), &i32_dtype()));
     run(
         bencher,
@@ -306,7 +306,7 @@ fn is_not_null_pred(bencher: Bencher, num_zones: usize) {
 /// A 16-term `OR` chain, which is where lowering cost grows relative to evaluation cost.
 #[divan::bench(args = ZONE_COUNTS)]
 fn or_chain(bencher: Bencher, num_zones: usize) {
-    static PREDICATE: LazyLock<BoundExpression> = LazyLock::new(|| {
+    static PREDICATE: LazyLock<BoundExpressionRef> = LazyLock::new(|| {
         let expr = (0..16i32)
             .map(|i| eq(root(), lit(i * 500)))
             .reduce(or)
@@ -324,7 +324,7 @@ fn or_chain(bencher: Bencher, num_zones: usize) {
 /// constant.
 #[divan::bench(args = ZONE_COUNTS)]
 fn missing_stats(bencher: Bencher, num_zones: usize) {
-    static PREDICATE: LazyLock<BoundExpression> =
+    static PREDICATE: LazyLock<BoundExpressionRef> =
         LazyLock::new(|| falsify(gt(root(), lit(5_000i32)), &i32_dtype()));
     run(
         bencher,

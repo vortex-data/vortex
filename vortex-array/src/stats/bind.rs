@@ -17,7 +17,7 @@ use vortex_error::VortexResult;
 
 use crate::aggregate_fn::AggregateFnRef;
 use crate::dtype::DType;
-use crate::expr::BoundExpression;
+use crate::expr::BoundExpressionRef;
 use crate::expr::bound::lit;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::Transformed;
@@ -37,16 +37,16 @@ pub trait StatBinder {
     /// statistic is unavailable in their backing representation.
     fn bind_aggregate(
         &self,
-        input: &BoundExpression,
+        input: &BoundExpressionRef,
         aggregate_fn: &AggregateFnRef,
         stat_dtype: &DType,
-    ) -> VortexResult<Option<BoundExpression>>;
+    ) -> VortexResult<Option<BoundExpressionRef>>;
 
     /// Expression to use when a stat is unavailable.
     ///
     /// The default is a nullable null literal, which preserves three-valued
     /// pruning semantics for stats-table execution.
-    fn missing_stat(&self, dtype: DType) -> VortexResult<BoundExpression> {
+    fn missing_stat(&self, dtype: DType) -> VortexResult<BoundExpressionRef> {
         null_expr(dtype)
     }
 }
@@ -57,9 +57,9 @@ pub trait StatBinder {
 /// are responsible for expressing stat semantics; binding maps aggregate-backed
 /// stat requests to the concrete stats representation supported by the binder.
 pub fn bind_stats<B: StatBinder + ?Sized>(
-    predicate: BoundExpression,
+    predicate: BoundExpressionRef,
     binder: &B,
-) -> VortexResult<BoundExpression> {
+) -> VortexResult<BoundExpressionRef> {
     Ok(predicate
         .transform_down(|expr| {
             if !expr.is::<StatFn>() {
@@ -75,9 +75,9 @@ pub fn bind_stats<B: StatBinder + ?Sized>(
 }
 
 fn bind_stat_fn(
-    expr: &BoundExpression,
+    expr: &BoundExpressionRef,
     binder: &(impl StatBinder + ?Sized),
-) -> VortexResult<Option<BoundExpression>> {
+) -> VortexResult<Option<BoundExpressionRef>> {
     let options = expr.as_::<StatFn>();
     let aggregate_fn = options.aggregate_fn();
     // `StatFn` has exactly one child: the expression the aggregate statistic is computed over.
@@ -86,7 +86,7 @@ fn bind_stat_fn(
     binder.bind_aggregate(input, aggregate_fn, expr.dtype())
 }
 
-fn null_expr(dtype: DType) -> VortexResult<BoundExpression> {
+fn null_expr(dtype: DType) -> VortexResult<BoundExpressionRef> {
     Ok(lit(Scalar::null(dtype.as_nullable())))
 }
 
@@ -140,10 +140,10 @@ mod tests {
     impl StatBinder for TestBinder {
         fn bind_aggregate(
             &self,
-            _input: &BoundExpression,
+            _input: &BoundExpressionRef,
             aggregate_fn: &AggregateFnRef,
             _stat_dtype: &DType,
-        ) -> VortexResult<Option<BoundExpression>> {
+        ) -> VortexResult<Option<BoundExpressionRef>> {
             let Some(stat) = Stat::from_aggregate_fn(aggregate_fn) else {
                 return Ok(None);
             };

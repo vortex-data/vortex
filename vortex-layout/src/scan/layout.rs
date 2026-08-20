@@ -18,7 +18,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::Nullability;
-use vortex_array::expr::BoundExpression;
+use vortex_array::expr::BoundExpressionRef;
 use vortex_array::expr::stats::Precision;
 use vortex_array::scalar::Scalar;
 use vortex_array::stats::StatsSet;
@@ -193,8 +193,8 @@ struct LayoutReaderScan {
     reader: LayoutReaderRef,
     session: VortexSession,
     dtype: DType,
-    projection: BoundExpression,
-    filter: Option<BoundExpression>,
+    projection: BoundExpressionRef,
+    filter: Option<BoundExpressionRef>,
     limit: Option<u64>,
     ordered: bool,
     selection: Selection,
@@ -259,7 +259,7 @@ impl Stream for LayoutReaderScan {
         let split = Box::new(LayoutReaderSplit {
             reader: Arc::clone(&this.reader),
             session: this.session.clone(),
-            projection: this.projection.clone(),
+            projection: Arc::clone(&this.projection),
             filter: this.filter.clone(),
             limit: split_limit,
             ordered: this.ordered,
@@ -286,8 +286,8 @@ impl Stream for LayoutReaderScan {
 struct LayoutReaderSplit {
     reader: LayoutReaderRef,
     session: VortexSession,
-    projection: BoundExpression,
-    filter: Option<BoundExpression>,
+    projection: BoundExpressionRef,
+    filter: Option<BoundExpressionRef>,
     limit: Option<u64>,
     ordered: bool,
     row_range: Range<u64>,

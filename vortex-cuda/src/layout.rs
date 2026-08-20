@@ -19,7 +19,7 @@ use vortex::array::MaskFuture;
 use vortex::array::ProstMetadata;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::Constant;
-use vortex::array::expr::BoundExpression;
+use vortex::array::expr::BoundExpressionRef;
 use vortex::array::expr::stats::Precision;
 use vortex::array::expr::stats::Stat;
 use vortex::array::expr::stats::StatsProvider;
@@ -268,7 +268,7 @@ impl LayoutReader for CudaFlatReader {
     fn pruning_evaluation(
         &self,
         _row_range: &Range<u64>,
-        _expr: &BoundExpression,
+        _expr: &BoundExpressionRef,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         Ok(MaskFuture::ready(mask))
@@ -277,7 +277,7 @@ impl LayoutReader for CudaFlatReader {
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &BoundExpression,
+        expr: &BoundExpressionRef,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         let row_range = usize::try_from(row_range.start)
@@ -286,7 +286,7 @@ impl LayoutReader for CudaFlatReader {
                 .vortex_expect("Row range end must fit within CudaFlatLayout size");
         let name = Arc::clone(&self.name);
         let array = self.array_future();
-        let expr = expr.clone();
+        let expr = Arc::clone(expr);
         let session = self.session.clone();
 
         Ok(MaskFuture::new(mask.len(), async move {
@@ -326,7 +326,7 @@ impl LayoutReader for CudaFlatReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &BoundExpression,
+        expr: &BoundExpressionRef,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         let row_range = usize::try_from(row_range.start)
@@ -335,7 +335,7 @@ impl LayoutReader for CudaFlatReader {
                 .vortex_expect("Row range end must fit within CudaFlatLayout size");
         let name = Arc::clone(&self.name);
         let array = self.array_future();
-        let expr = expr.clone();
+        let expr = Arc::clone(expr);
 
         Ok(async move {
             tracing::debug!("CudaFlat array evaluation {} - {}", name, expr);

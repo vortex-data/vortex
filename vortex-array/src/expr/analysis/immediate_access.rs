@@ -5,7 +5,7 @@ use vortex_error::VortexExpect;
 
 use crate::dtype::FieldName;
 use crate::dtype::StructFields;
-use crate::expr::BoundExpression;
+use crate::expr::BoundExpressionRef;
 use crate::expr::Expression;
 use crate::expr::analysis::AnnotationFn;
 use crate::scalar_fn::fns::get_item::GetItem;
@@ -64,8 +64,8 @@ pub fn make_free_field_annotator(
 /// Returns the free top-level fields for bound expression nodes.
 pub fn make_bound_free_field_annotator(
     scope: &StructFields,
-) -> impl AnnotationFn<BoundExpression, Annotation = FieldName> {
-    move |expr: &BoundExpression| {
+) -> impl AnnotationFn<BoundExpressionRef, Annotation = FieldName> {
+    move |expr: &BoundExpressionRef| {
         let Some(scalar_fn) = expr.as_scalar() else {
             return scope.names().iter().cloned().collect();
         };

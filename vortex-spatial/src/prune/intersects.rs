@@ -3,7 +3,7 @@
 
 //! `ST_Intersects(geom, const)` pruning.
 
-use vortex_array::expr::BoundExpression;
+use vortex_array::expr::BoundExpressionRef;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::stats::rewrite::StatsRewriteCtx;
@@ -34,9 +34,9 @@ impl StatsRewriteRule for SpatialIntersectsPrune {
 
     fn falsify(
         &self,
-        expr: &BoundExpression,
+        expr: &BoundExpressionRef,
         ctx: &StatsRewriteCtx<'_>,
-    ) -> VortexResult<Option<BoundExpression>> {
+    ) -> VortexResult<Option<BoundExpressionRef>> {
         let Some((geom, constant)) = geometry_and_constant(expr, ctx)? else {
             return Ok(None);
         };
@@ -56,7 +56,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::BoundExpression;
+    use vortex_array::expr::BoundExpressionRef;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
     use vortex_array::scalar::Scalar;
@@ -75,7 +75,7 @@ mod tests {
 
     /// Run the intersects rule against `SpatialIntersects(root, point(1.0, 0.5))`, operands swapped
     /// when `geom_first` is false.
-    fn falsify_intersects(geom_first: bool) -> VortexResult<Option<BoundExpression>> {
+    fn falsify_intersects(geom_first: bool) -> VortexResult<Option<BoundExpressionRef>> {
         let session = spatial_session();
         let mut ctx = session.create_execution_ctx();
 

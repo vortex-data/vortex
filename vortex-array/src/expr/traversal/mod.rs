@@ -22,7 +22,7 @@ pub use visitor::pre_order_visit_down;
 pub use visitor::pre_order_visit_up;
 use vortex_error::VortexResult;
 
-use crate::expr::BoundExpression;
+use crate::expr::BoundExpressionRef;
 use crate::expr::Expression;
 use crate::expr::traversal::fold::NodeFolderContextWrapper;
 
@@ -528,16 +528,12 @@ impl Node for Expression {
     }
 }
 
-impl Node for BoundExpression {
+impl Node for BoundExpressionRef {
     fn apply_children<'a, F: FnMut(&'a Self) -> VortexResult<TraversalOrder>>(
         &'a self,
         mut f: F,
     ) -> VortexResult<TraversalOrder> {
-        let BoundExpression::Scalar { children, .. } = self else {
-            return Ok(TraversalOrder::Continue);
-        };
-
-        for child in children.iter() {
+        for child in self.children() {
             match f(child)? {
                 TraversalOrder::Continue | TraversalOrder::Skip => {}
                 TraversalOrder::Stop => return Ok(TraversalOrder::Stop),
@@ -551,32 +547,35 @@ impl Node for BoundExpression {
         self,
         mut f: F,
     ) -> VortexResult<Transformed<Self>> {
-        let BoundExpression::Scalar { children, .. } = &self else {
+        if self.children().is_empty() {
             return Ok(Transformed::no(self));
-        };
+        }
 
         let mut order = TraversalOrder::Continue;
         // Stays `None` until a child actually changes. Most nodes of a rewritten tree are
         // untouched.
         let mut rewritten: Option<Vec<Self>> = None;
 
-        for (index, child) in children.iter().enumerate() {
-            let value = match order {
-                TraversalOrder::Continue | TraversalOrder::Skip => {
-                    let result = f(child.clone())?;
-                    order = result.order;
-                    if result.changed && rewritten.is_none() {
-                        let mut prefix = Vec::with_capacity(children.len());
-                        prefix.extend_from_slice(&children[..index]);
-                        rewritten = Some(prefix);
+        {
+            let children = self.children();
+            for (index, child) in children.iter().enumerate() {
+                let value = match order {
+                    TraversalOrder::Continue | TraversalOrder::Skip => {
+                        let result = f(Arc::clone(child))?;
+                        order = result.order;
+                        if result.changed && rewritten.is_none() {
+                            let mut prefix = Vec::with_capacity(children.len());
+                            prefix.extend_from_slice(&children[..index]);
+                            rewritten = Some(prefix);
+                        }
+                        result.value
                     }
-                    result.value
-                }
-                TraversalOrder::Stop => child.clone(),
-            };
+                    TraversalOrder::Stop => Arc::clone(child),
+                };
 
-            if let Some(rewritten) = &mut rewritten {
-                rewritten.push(value);
+                if let Some(rewritten) = &mut rewritten {
+                    rewritten.push(value);
+                }
             }
         }
 
@@ -591,17 +590,11 @@ impl Node for BoundExpression {
     }
 
     fn iter_children<T>(&self, f: impl FnOnce(&mut dyn Iterator<Item = &Self>) -> T) -> T {
-        match self {
-            BoundExpression::Scalar { children, .. } => f(&mut children.iter()),
-            BoundExpression::Root { .. } => f(&mut std::iter::empty()),
-        }
+        f(&mut self.children().iter())
     }
 
     fn children_count(&self) -> usize {
-        match self {
-            BoundExpression::Scalar { children, .. } => children.len(),
-            BoundExpression::Root { .. } => 0,
-        }
+        self.children().len()
     }
 }
 

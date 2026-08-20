@@ -18,7 +18,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
-use vortex_array::expr::BoundExpression;
+use vortex_array::expr::BoundExpressionRef;
 use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::root;
 use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
@@ -38,7 +38,7 @@ use crate::layouts::zoned::zone_map::ZoneMap;
 type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
 pub(super) type SharedPruningResult =
     Shared<BoxFuture<'static, SharedVortexResult<Arc<PruningResult>>>>;
-type PredicateCache = Arc<OnceLock<Option<BoundExpression>>>;
+type PredicateCache = Arc<OnceLock<Option<BoundExpressionRef>>>;
 
 pub(super) struct PruningState {
     zone_count: usize,
@@ -78,8 +78,11 @@ impl PruningState {
         }
     }
 
-    pub(super) fn pruning_mask_future(&self, expr: BoundExpression) -> Option<SharedPruningResult> {
-        let key = ExactBoundExpr(expr.clone());
+    pub(super) fn pruning_mask_future(
+        &self,
+        expr: BoundExpressionRef,
+    ) -> Option<SharedPruningResult> {
+        let key = ExactBoundExpr(Arc::clone(&expr));
 
         if let Some(result) = self.pruning_result.get(&key) {
             return result.value().clone();
@@ -89,7 +92,7 @@ impl PruningState {
             .entry(key)
             .or_insert_with(|| {
                 let dynamic_updates = DynamicExprUpdates::new(&expr);
-                match self.pruning_predicate(expr.clone()) {
+                match self.pruning_predicate(Arc::clone(&expr)) {
                     None => {
                         trace!(%expr, "no pruning predicate");
                         None
@@ -126,13 +129,13 @@ impl PruningState {
             .clone()
     }
 
-    fn pruning_predicate(&self, expr: BoundExpression) -> Option<BoundExpression> {
-        let key = ExactBoundExpr(expr.clone());
+    fn pruning_predicate(&self, expr: BoundExpressionRef) -> Option<BoundExpressionRef> {
+        let key = ExactBoundExpr(Arc::clone(&expr));
 
         self.pruning_predicates
             .entry(key)
             .or_default()
-            .get_or_init(move || match expr.falsify(&self.session) {
+            .get_or_init(move || match Arc::clone(&expr).falsify(&self.session) {
                 Ok(predicate) => predicate,
                 Err(error) => {
                     trace!(%expr, %error, "failed to construct stats rewrite predicate");
@@ -191,7 +194,7 @@ impl PruningState {
 
 pub(super) struct PruningResult {
     zone_map: ZoneMap,
-    predicate: BoundExpression,
+    predicate: BoundExpressionRef,
     dynamic_updates: Option<DynamicExprUpdates>,
     latest_result: RwLock<(u64, Mask)>,
     session: VortexSession,

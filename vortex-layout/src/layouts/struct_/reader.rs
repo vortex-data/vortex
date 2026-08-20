@@ -20,6 +20,7 @@ use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
+use vortex_array::expr::BoundExpressionRef;
 use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::bound::get_item;
 use vortex_array::expr::bound::pack;
@@ -60,7 +61,7 @@ pub struct StructReader {
 
     /// A `pack` expression that holds each individual field of the root DType. This expansion
     /// ensures we can correctly partition expressions over the fields of the struct.
-    expanded_root_expr: BoundExpression,
+    expanded_root_expr: BoundExpressionRef,
 
     field_lookup: Option<HashMap<FieldName, usize>>,
     partitioned_expr_cache: DashMap<ExactBoundExpr, Arc<OnceLock<Partitioned>>>,
@@ -159,8 +160,8 @@ impl StructReader {
     }
 
     /// Utility for partitioning an expression over the fields of a struct.
-    fn partition_expr(&self, expr: &BoundExpression) -> VortexResult<Partitioned> {
-        let key = ExactBoundExpr(expr.clone());
+    fn partition_expr(&self, expr: &BoundExpressionRef) -> VortexResult<Partitioned> {
+        let key = ExactBoundExpr(Arc::clone(expr));
 
         // Look up the cell under a shared shard lock; only a miss takes the write lock, and
         // only for as long as it takes to insert an empty cell.
@@ -185,15 +186,18 @@ impl StructReader {
         Ok(cell.get_or_init(|| result).clone())
     }
 
-    fn compute_partitioned_expr(&self, expr: &BoundExpression) -> VortexResult<Partitioned> {
+    fn compute_partitioned_expr(&self, expr: &BoundExpressionRef) -> VortexResult<Partitioned> {
         // First, we expand the root scope into the fields of the struct to ensure
         // that partitioning works correctly.
-        let expr =
-            expand_struct_root(expr.clone(), &self.expanded_root_expr, self.struct_fields())?;
+        let expr = expand_struct_root(
+            Arc::clone(expr),
+            &self.expanded_root_expr,
+            self.struct_fields(),
+        )?;
 
         // Partition the expression into expressions that can be evaluated over individual fields
         let mut partitioned = partition_bound(
-            expr.clone(),
+            Arc::clone(&expr),
             make_bound_free_field_annotator(
                 self.dtype()
                     .as_struct_fields_opt()
@@ -224,7 +228,11 @@ impl StructReader {
             .iter()
             .zip_eq(partitioned.partition_names.iter())
             .map(|(expr, name)| {
-                step_into_struct_field(expr.clone(), name, self.field_reader(name)?.dtype().clone())
+                step_into_struct_field(
+                    Arc::clone(expr),
+                    name,
+                    self.field_reader(name)?.dtype().clone(),
+                )
             })
             .try_collect::<_, Vec<_>, _>()?
             .into_boxed_slice();
@@ -237,12 +245,12 @@ impl StructReader {
 fn expanded_struct_root(
     root_dtype: &DType,
     fields: &StructFields,
-) -> VortexResult<BoundExpression> {
+) -> VortexResult<BoundExpressionRef> {
     let root = BoundExpression::new_root(root_dtype.clone());
     let children = fields
         .names()
         .iter()
-        .map(|name| get_item(name.clone(), root.clone()))
+        .map(|name| get_item(name.clone(), Arc::clone(&root)))
         .collect::<Vec<_>>();
     Ok(pack(
         fields.names().iter().cloned().zip(children),
@@ -251,15 +259,15 @@ fn expanded_struct_root(
 }
 
 fn expand_struct_root(
-    expr: BoundExpression,
-    expanded_root: &BoundExpression,
+    expr: BoundExpressionRef,
+    expanded_root: &BoundExpressionRef,
     fields: &StructFields,
-) -> VortexResult<BoundExpression> {
+) -> VortexResult<BoundExpressionRef> {
     Ok(expr
         .transform_down(|node| {
             if node.is_root() {
                 return Ok(Transformed {
-                    value: expanded_root.clone(),
+                    value: Arc::clone(expanded_root),
                     changed: true,
                     order: TraversalOrder::Skip,
                 });
@@ -268,11 +276,7 @@ fn expand_struct_root(
             let Some(scalar_fn) = node.as_scalar() else {
                 return Ok(Transformed::no(node));
             };
-            if !node
-                .children()
-                .first()
-                .is_some_and(BoundExpression::is_root)
-            {
+            if !node.children().first().is_some_and(|child| child.is_root()) {
                 return Ok(Transformed::no(node));
             }
 
@@ -281,7 +285,7 @@ fn expand_struct_root(
                     vortex_err!("Field {field_name} not found while expanding struct root")
                 })?;
                 return Ok(Transformed {
-                    value: expanded_root.children()[idx].clone(),
+                    value: Arc::clone(&expanded_root.children()[idx]),
                     changed: true,
                     order: TraversalOrder::Skip,
                 });
@@ -295,7 +299,7 @@ fn expand_struct_root(
                         let idx = fields.find(name).vortex_expect(
                             "normalized selection fields must exist in the struct root",
                         );
-                        expanded_root.children()[idx].clone()
+                        Arc::clone(&expanded_root.children()[idx])
                     })
                     .collect();
                 return Ok(Transformed {
@@ -311,10 +315,10 @@ fn expand_struct_root(
 }
 
 fn step_into_struct_field(
-    expr: BoundExpression,
+    expr: BoundExpressionRef,
     field_name: &FieldName,
     field_dtype: DType,
-) -> VortexResult<BoundExpression> {
+) -> VortexResult<BoundExpressionRef> {
     Ok(expr
         .transform_down(|node| {
             let is_field_access = node
@@ -336,7 +340,7 @@ fn step_into_struct_field(
         .into_inner())
 }
 
-fn is_pack_or_merge(expr: &BoundExpression) -> bool {
+fn is_pack_or_merge(expr: &BoundExpressionRef) -> bool {
     expr.as_scalar()
         .is_some_and(|scalar_fn| scalar_fn.is::<Pack>() || scalar_fn.is::<Merge>())
 }
@@ -347,7 +351,7 @@ fn is_pack_or_merge(expr: &BoundExpression) -> bool {
 #[derive(Clone)]
 enum Partitioned {
     /// An expression which only operates over a single field
-    Single(FieldName, BoundExpression),
+    Single(FieldName, BoundExpressionRef),
     /// An expression which operates over multiple fields
     Multi(Arc<BoundPartitionedExpr<FieldName>>),
 }
@@ -391,7 +395,7 @@ impl LayoutReader for StructReader {
     fn pruning_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &BoundExpression,
+        expr: &BoundExpressionRef,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         // Partition the expression into expressions that can be evaluated over individual fields
@@ -417,7 +421,7 @@ impl LayoutReader for StructReader {
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &BoundExpression,
+        expr: &BoundExpressionRef,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         // Partition the expression into expressions that can be evaluated over individual fields
@@ -458,7 +462,7 @@ impl LayoutReader for StructReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &BoundExpression,
+        expr: &BoundExpressionRef,
         mask_fut: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
         let validity_fut = self

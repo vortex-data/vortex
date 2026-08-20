@@ -296,19 +296,29 @@ mod tests {
         let root = bound::root(scope.clone());
         let value = bound::get_item("value", root);
         let literal = bound::lit(5i32);
-        let condition = bound::gt(value.clone(), literal.clone());
+        let condition = bound::gt(Arc::clone(&value), Arc::clone(&literal));
         assert_eq!(condition.dtype(), &DType::Bool(Nullability::NonNullable));
-        assert_eq!(condition.children(), &[value.clone(), literal.clone()]);
+        assert_eq!(
+            condition.children(),
+            &[Arc::clone(&value), Arc::clone(&literal)]
+        );
 
-        let case = bound::case_when(condition.clone(), value.clone(), literal.clone());
+        let case = bound::case_when(
+            Arc::clone(&condition),
+            Arc::clone(&value),
+            Arc::clone(&literal),
+        );
         assert_eq!(case.dtype(), &value_dtype);
-        assert_eq!(case.children(), &[condition.clone(), value, literal]);
+        assert_eq!(case.children(), &[Arc::clone(&condition), value, literal]);
 
         let packed = bound::pack(
-            [("condition", condition.clone()), ("value", case.clone())],
+            [
+                ("condition", Arc::clone(&condition)),
+                ("value", Arc::clone(&case)),
+            ],
             Nullability::NonNullable,
         );
-        assert_eq!(packed.children(), &[condition, case.clone()]);
+        assert_eq!(packed.children(), &[condition, Arc::clone(&case)]);
         assert_eq!(
             packed.dtype(),
             &DType::Struct(
