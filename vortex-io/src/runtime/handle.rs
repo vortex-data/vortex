@@ -44,7 +44,7 @@ impl Handle {
     /// Returns a handle to the current runtime, if such a reasonable choice exists.
     ///
     /// For example, if called from within a Tokio context this will return a
-    /// `TokioRuntime` handle.
+    /// `TokioRuntime` handle. On browser WebAssembly this returns the global `WasmRuntime` handle.
     pub fn find() -> Option<Self> {
         #[cfg(feature = "tokio")]
         {
@@ -56,6 +56,14 @@ impl Handle {
             }
         }
 
+        #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+        {
+            use crate::runtime::wasm::WasmRuntime;
+
+            return Some(WasmRuntime::handle());
+        }
+
+        #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
         None
     }
 
