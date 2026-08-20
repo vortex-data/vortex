@@ -4,24 +4,23 @@
 # record changes with it. Recording a min_vortex_version freezes the edition, after which
 # this file may never change again.
 
-edition = "unstable2026.04.0"
-family = "unstable"
+edition = "preview2026.06.0"
+family = "preview"
 
-# The encodings that join the family at this edition.
-added = [
-    "vortex.parquet.variant",
-    "vortex.patched",
-    "vortex.tensor.cosine_similarity",
-    "vortex.tensor.inner_product",
-    "vortex.tensor.l2_norm",
-    "vortex.tensor.normalized",
+# The components that join the family at this edition.
+[added]
+arrays = []
+layouts = [
+    "vortex.list",
 ]
+dtypes = []
+aggregates = []
 
-# The edition's full membership: the encodings above, plus every member of earlier
+# The edition's full membership: the components above, plus every member of earlier
 # editions of the family.
-encodings = [
+[components]
+arrays = [
     "fastlanes.delta",
-    "vortex.parquet.variant",
     "vortex.patched",
     "vortex.tensor.cosine_similarity",
     "vortex.tensor.inner_product",
@@ -29,3 +28,11 @@ encodings = [
     "vortex.tensor.normalized",
     "vortex.zstd_buffers",
 ]
+layouts = [
+    "vortex.list",
+]
+dtypes = [
+    "vortex.tensor.fixed_shape_tensor",
+    "vortex.tensor.vector",
+]
+aggregates = []

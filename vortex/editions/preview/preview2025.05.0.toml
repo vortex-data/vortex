@@ -4,16 +4,24 @@
 # record changes with it. Recording a min_vortex_version freezes the edition, after which
 # this file may never change again.
 
-edition = "unstable2025.05.0"
-family = "unstable"
+edition = "preview2025.05.0"
+family = "preview"
 
-# The encodings that join the family at this edition.
-added = [
+# The components that join the family at this edition.
+[added]
+arrays = [
     "fastlanes.delta",
 ]
+layouts = []
+dtypes = []
+aggregates = []
 
-# The edition's full membership: the encodings above, plus every member of earlier
+# The edition's full membership: the components above, plus every member of earlier
 # editions of the family.
-encodings = [
+[components]
+arrays = [
     "fastlanes.delta",
 ]
+layouts = []
+dtypes = []
+aggregates = []

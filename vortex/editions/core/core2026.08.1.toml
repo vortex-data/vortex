@@ -4,18 +4,23 @@
 # contains never changes again. Freezing a new edition adds a new file to this directory;
 # editing or deleting a frozen one is rejected by CI.
 
-edition = "core2026.07.0"
+edition = "core2026.08.1"
 family = "core"
-min_vortex_version = "0.65.0"
+min_vortex_version = "0.84.0"
 
-# The encodings that join the family at this edition.
-added = [
-    "vortex.variant",
+# The components that join the family at this edition.
+[added]
+arrays = [
+    "vortex.onpair",
 ]
+layouts = []
+dtypes = []
+aggregates = []
 
-# The edition's full membership: the encodings above, plus every member of earlier
+# The edition's full membership: the components above, plus every member of earlier
 # editions of the family.
-encodings = [
+[components]
+arrays = [
     "fastlanes.bitpacked",
     "fastlanes.for",
     "fastlanes.rle",
@@ -36,6 +41,7 @@ encodings = [
     "vortex.listview",
     "vortex.masked",
     "vortex.null",
+    "vortex.onpair",
     "vortex.pco",
     "vortex.primitive",
     "vortex.runend",
@@ -44,7 +50,27 @@ encodings = [
     "vortex.struct",
     "vortex.varbin",
     "vortex.varbinview",
-    "vortex.variant",
     "vortex.zigzag",
     "vortex.zstd",
+]
+layouts = [
+    "vortex.chunked",
+    "vortex.dict",
+    "vortex.flat",
+    "vortex.stats",
+    "vortex.struct",
+    "vortex.zoned",
+]
+dtypes = [
+    "vortex.date",
+    "vortex.time",
+    "vortex.timestamp",
+]
+aggregates = [
+    "vortex.bounded_max",
+    "vortex.bounded_min",
+    "vortex.max",
+    "vortex.min",
+    "vortex.nan_count",
+    "vortex.null_count",
 ]

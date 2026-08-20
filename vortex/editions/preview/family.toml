@@ -2,12 +2,12 @@
 #
 # This describes the family the editions beside it belong to.
 
-name = "unstable"
+name = "preview"
 
 doc = """
-Opt-in encodings that are still being evaluated. Every unstable edition stays a draft, so
+Opt-in components that are still being evaluated. Every preview edition stays a draft, so
 the family never freezes and carries no compatibility guarantee: a file written with these
-encodings is readable only by a build that knows them, and a later release may stop
+components is readable only by a build that knows them, and a later release may stop
 supporting one. The writer emits them only when the `unstable_encodings` feature is
-selected. An encoding graduates by joining a core edition.
+selected. A component graduates by joining a core edition.
 """

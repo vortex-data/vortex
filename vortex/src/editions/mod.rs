@@ -9,14 +9,19 @@
 //! [`crate::editions::register_default_editions`] and then selects its write policy with
 //! [`crate::editions::enable_default_editions`].
 //!
+//! Members carry a [`crate::editions::ComponentKind`]: arrays a written array may use, extension
+//! dtypes its schema may contain, and the aggregates zone maps record. Every kind is restricted to
+//! its declared members, so an empty set permits no components of that kind.
+//!
 //! The default file writer resolves the session's enabled editions at write time. The
-//! facade enables the newest frozen `core` edition, [`crate::editions::CORE_2026_08`], and
-//! additionally enables the latest unstable edition when the `unstable_encodings` feature is
+//! facade enables the newest frozen `core` edition, [`crate::editions::CORE_2026_08_1`], and
+//! additionally enables the latest preview edition when the `unstable_encodings` feature is
 //! selected.
 
 #[cfg(test)]
 mod tests;
 
+pub use vortex_edition::ComponentKind;
 pub use vortex_edition::EDITION_DECLARATIONS;
 pub use vortex_edition::EDITION_FAMILIES;
 pub use vortex_edition::Edition;
@@ -24,6 +29,7 @@ pub use vortex_edition::EditionDeclaration;
 pub use vortex_edition::EditionFamily;
 pub use vortex_edition::EditionId;
 pub use vortex_edition::EditionInclusion;
+pub use vortex_edition::EditionMember;
 pub use vortex_edition::EditionSession;
 pub use vortex_edition::EditionSessionExt;
 pub use vortex_edition::EnabledEditions;
@@ -31,23 +37,25 @@ pub use vortex_edition::declarations::core;
 pub use vortex_edition::declarations::core::CORE_2025_05_0;
 pub use vortex_edition::declarations::core::CORE_2025_06_0;
 pub use vortex_edition::declarations::core::CORE_2025_10_0;
-pub use vortex_edition::declarations::core::CORE_2026_07_0;
-pub use vortex_edition::declarations::core::CORE_2026_08;
-pub use vortex_edition::declarations::unstable;
-pub use vortex_edition::declarations::unstable::UNSTABLE_2025_05_0;
-pub use vortex_edition::declarations::unstable::UNSTABLE_2026_02_0;
-pub use vortex_edition::declarations::unstable::UNSTABLE_2026_04_0;
-pub use vortex_edition::declarations::unstable::UNSTABLE_2026_06_0;
+pub use vortex_edition::declarations::core::CORE_2026_08_0;
+pub use vortex_edition::declarations::core::CORE_2026_08_1;
+pub use vortex_edition::declarations::core::CORE_2026_08_2;
+pub use vortex_edition::declarations::core::CORE_2026_08_3;
+pub use vortex_edition::declarations::preview;
+pub use vortex_edition::declarations::preview::PREVIEW_2025_05_0;
+pub use vortex_edition::declarations::preview::PREVIEW_2026_02_0;
+pub use vortex_edition::declarations::preview::PREVIEW_2026_04_0;
+pub use vortex_edition::declarations::preview::PREVIEW_2026_06_0;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 /// The `core` edition enabled for writing by the default Vortex session.
-pub const DEFAULT_CORE_EDITION: EditionId = CORE_2026_08;
+pub const DEFAULT_CORE_EDITION: EditionId = CORE_2026_08_1;
 
-/// The `unstable` edition enabled for writing by the default Vortex session when the
+/// The `preview` edition enabled for writing by the default Vortex session when the
 /// `unstable_encodings` feature is selected.
-pub const DEFAULT_UNSTABLE_EDITION: EditionId = UNSTABLE_2026_06_0;
+pub const DEFAULT_PREVIEW_EDITION: EditionId = PREVIEW_2026_06_0;
 
 /// Register the Vortex edition families and declarations with the session's
 /// [`EditionSession`].
@@ -69,7 +77,7 @@ pub fn register_default_editions(session: &VortexSession) {
 
 /// Enable the default Vortex editions for writing.
 ///
-/// This selects the newest frozen `core` edition and, when configured, the newest unstable
+/// This selects the newest frozen `core` edition and, when configured, the newest preview
 /// edition. All declarations must have been registered first with
 /// [`register_default_editions`].
 pub fn enable_default_editions(session: &VortexSession) {
@@ -80,7 +88,7 @@ pub fn enable_default_editions(session: &VortexSession) {
 
     #[cfg(feature = "unstable_encodings")]
     session
-        .enable_edition(DEFAULT_UNSTABLE_EDITION)
+        .enable_edition(DEFAULT_PREVIEW_EDITION)
         .map_err(|e| vortex_err!("{e}"))
-        .vortex_expect("default unstable edition is registered");
+        .vortex_expect("default preview edition is registered");
 }

@@ -6,6 +6,7 @@
 use crate::Edition;
 use crate::EditionDeclaration;
 use crate::EditionId;
+use crate::EditionMember;
 
 /// The October 2025 edition of the `core` family.
 pub const CORE_2025_10_0: EditionId = EditionId::new("core", 2025, 10, 0);
@@ -17,9 +18,9 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         min_vortex_version: Some("0.54.0"),
     },
     added: &[
-        &"fastlanes.rle",
-        &"vortex.fixed_size_list",
-        &"vortex.listview",
-        &"vortex.masked",
+        EditionMember::array(&"fastlanes.rle"),
+        EditionMember::array(&"vortex.fixed_size_list"),
+        EditionMember::array(&"vortex.listview"),
+        EditionMember::array(&"vortex.masked"),
     ],
 };

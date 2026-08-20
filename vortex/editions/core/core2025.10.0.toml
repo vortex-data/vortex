@@ -8,17 +8,22 @@ edition = "core2025.10.0"
 family = "core"
 min_vortex_version = "0.54.0"
 
-# The encodings that join the family at this edition.
-added = [
+# The components that join the family at this edition.
+[added]
+arrays = [
     "fastlanes.rle",
     "vortex.fixed_size_list",
     "vortex.listview",
     "vortex.masked",
 ]
+layouts = []
+dtypes = []
+aggregates = []
 
-# The edition's full membership: the encodings above, plus every member of earlier
+# The edition's full membership: the components above, plus every member of earlier
 # editions of the family.
-encodings = [
+[components]
+arrays = [
     "fastlanes.bitpacked",
     "fastlanes.for",
     "fastlanes.rle",
@@ -50,3 +55,16 @@ encodings = [
     "vortex.zigzag",
     "vortex.zstd",
 ]
+layouts = [
+    "vortex.chunked",
+    "vortex.dict",
+    "vortex.flat",
+    "vortex.stats",
+    "vortex.struct",
+]
+dtypes = [
+    "vortex.date",
+    "vortex.time",
+    "vortex.timestamp",
+]
+aggregates = []
