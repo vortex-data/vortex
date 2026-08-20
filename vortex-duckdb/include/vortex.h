@@ -60,6 +60,7 @@ duckdb_vx_data duckdb_reader_open(const char *file_path,
 
 extern
 bool duckdb_reader_get_statistics(const void *file,
+                                  const void *bind,
                                   const char *column_name,
                                   size_t column_name_len,
                                   duckdb_column_statistics *stats_out);

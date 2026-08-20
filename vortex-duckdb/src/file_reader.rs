@@ -58,12 +58,12 @@ use crate::table_function::convert_result;
 //
 // Bind, first file:
 //
-// reader_open -> reader_bind
+// reader_open -> reader_bind -> reader_get_statistics
 //
 // Plan and run:
 //
-// reader_open (plan time) -> reader_get_statistics (plan time) ->
-// reader_initialize -> reader_try_initialize_scan -> reader_scan
+// reader_open (plan time) -> reader_initialize ->
+// reader_try_initialize_scan -> reader_scan
 //
 // reader_get_progress_in_file is called between
 // reader_scan calls from a separate thread.
@@ -256,8 +256,17 @@ fn reader_scan_aggregate(global: &GlobalState, local: &mut LocalState) -> Vortex
     Ok(true)
 }
 
-/// Called by one thread in plan phase without locks
-pub fn reader_get_statistics(file: &File, column: &str) -> Option<ColumnStatistics> {
+/// Called by one thread in plan phase without locks only on the first file
+/// after calling reader_open and reader_bind on it.
+pub fn reader_get_statistics(
+    file: &File,
+    bind: &BindState,
+    column: &str,
+) -> Option<ColumnStatistics> {
+    if !bind.aggregates.is_empty() {
+        return None;
+    }
+
     let reader = file
         .reader
         .as_any()

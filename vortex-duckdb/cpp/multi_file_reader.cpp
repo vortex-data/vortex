@@ -307,12 +307,12 @@ static unique_ptr<BaseStatistics> base_stats(duckdb_column_statistics &stats, Lo
 
 unique_ptr<BaseStatistics> VortexBaseReader::GetStatistics(ClientContext &, const string &name) {
     D_ASSERT(ffi_bind);
-    if (duckdb_reader_is_aggregate(ffi_bind)) {
-        return {};
-    }
-
     duckdb_column_statistics statistics = {};
-    if (!duckdb_reader_get_statistics(ffi_file->DataPtr(), name.c_str(), name.size(), &statistics)) {
+    if (!duckdb_reader_get_statistics(ffi_file->DataPtr(),
+                                      ffi_bind,
+                                      name.c_str(),
+                                      name.size(),
+                                      &statistics)) {
         return {};
     }
 

@@ -193,6 +193,7 @@ pub unsafe extern "C-unwind" fn duckdb_reader_open(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn duckdb_reader_get_statistics(
     file: *const c_void,
+    bind: *const c_void,
     column_name: *const c_char,
     column_name_len: usize,
     stats_out: *mut cpp::duckdb_column_statistics,
@@ -200,9 +201,10 @@ pub unsafe extern "C-unwind" fn duckdb_reader_get_statistics(
     let file = unsafe { file.cast::<File>().as_ref() }.vortex_expect("null pointer");
     let name_bytes =
         unsafe { std::slice::from_raw_parts(column_name.cast::<u8>(), column_name_len) };
-    let column_name = String::from_utf8_lossy(name_bytes);
+    let bind = unsafe { bind.cast::<BindState>().as_ref() }.vortex_expect("null pointer");
+    let name = String::from_utf8_lossy(name_bytes);
 
-    let Some(stats) = reader_get_statistics(file, &column_name) else {
+    let Some(stats) = reader_get_statistics(file, bind, &name) else {
         return false;
     };
     let stats_out = unsafe { &mut *stats_out };

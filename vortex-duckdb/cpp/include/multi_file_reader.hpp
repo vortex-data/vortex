@@ -155,7 +155,11 @@ struct VortexBaseReader final : BaseFileReader {
 
     unique_ptr<CData> ffi_file;
     vector<column_t> virtual_ids;
-    // needed to discard statistics for aggregate scans
+    /*
+     * Populated only for first file reader in scan when BindReader() is
+     * called on it. Used in GetStatistics() which is called only for first
+     * file after BindReader().
+     */
     const void *ffi_bind = nullptr;
 
     inline void AddVirtualColumn(column_t id) override {
@@ -181,7 +185,7 @@ struct VortexBaseReader final : BaseFileReader {
 
     double GetProgressInFile(ClientContext &) override;
 
-    // Called only on initial reader in multi-file scan
+    // Called on first file in scan after BindReader() has been called on it
     unique_ptr<BaseStatistics> GetStatistics(ClientContext &context, const string &name) override;
 
     inline string GetReaderType() const override {
