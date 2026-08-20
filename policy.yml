@@ -1,0 +1,85 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+---
+policy:
+  approval:
+    - or:
+        - a vortex committer has approved
+        - an untouched renovate pull request has an allowed approval
+    - claude or codex authored pull requests have two committer approvals
+  disapproval:
+    options:
+      methods:
+        disapprove:
+          comments:
+            - ":-1:"
+            - "-1"
+            - "👎"
+          github_review: true
+        revoke:
+          comments:
+            - ":+1:"
+            - "+1"
+            - "👍"
+          github_review: true
+    requires:
+      teams:
+        - "vortex-data/committers"
+
+approval_defaults:
+  options:
+    # Allow explicit PR comments and GitHub reviews, but not PR body text.
+    methods:
+      comments:
+        - ":+1:"
+        - "+1"
+        - "👍"
+      comment_patterns: []
+      github_review: true
+      github_review_comment_patterns: []
+      body_patterns: []
+    allow_author: false
+    allow_contributor: false
+    allow_non_author_contributor: true
+    invalidate_on_push: false
+
+approval_rules:
+  - name: a vortex committer has approved
+    description: "Requires approval from the Committers team."
+    requires:
+      count: 1
+      teams:
+        - "vortex-data/committers"
+
+  - name: an untouched renovate pull request has an allowed approval
+    description: "Allows approval by renovate-approve or a committer only when every commit in the PR is still Renovate-authored or Renovate-committed."
+    if:
+      has_author_in:
+        users:
+          - "renovate[bot]"
+      only_has_contributors_in:
+        users:
+          - "renovate[bot]"
+    options:
+      allow_author: true
+      allow_contributor: true
+    requires:
+      count: 1
+      users:
+        - "renovate-approve[bot]"
+      teams:
+        - "vortex-data/committers"
+
+  - name: claude or codex authored pull requests have two committer approvals
+    if:
+      has_author_in:
+        users:
+          - "vortex-claude[bot]"
+          - "claude-code[bot]"
+          - "codex[bot]"
+          - "openai-codex[bot]"
+    requires:
+      count: 2
+      teams:
+        - "vortex-data/committers"

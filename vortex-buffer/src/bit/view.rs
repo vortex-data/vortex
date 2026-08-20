@@ -63,6 +63,7 @@ impl<'a> BitBufferView<'a> {
     /// Create a new view over `buffer` with `len` bits, starting at bit zero.
     ///
     /// Panics if the buffer is not large enough to hold `len` bits.
+    #[inline]
     pub fn new(buffer: &'a [u8], len: usize) -> Self {
         Self::new_with_offset(buffer, len, 0)
     }
@@ -70,6 +71,7 @@ impl<'a> BitBufferView<'a> {
     /// Create a new view over `buffer` with `len` bits, starting at the given bit `offset`.
     ///
     /// Panics if the buffer is not large enough to hold `len` bits after the offset.
+    #[inline]
     pub fn new_with_offset(buffer: &'a [u8], len: usize, offset: usize) -> Self {
         assert!(
             len.saturating_add(offset) <= buffer.len().saturating_mul(8),
@@ -86,11 +88,13 @@ impl<'a> BitBufferView<'a> {
     }
 
     /// Create a new view over `buffer` described by `meta`.
+    #[inline]
     pub fn from_meta(buffer: &'a [u8], meta: BitBufferMeta) -> Self {
         Self::new_with_offset(buffer, meta.len(), meta.offset())
     }
 
     /// Returns the [`BitBufferMeta`] (offset and length) describing this view.
+    #[inline]
     pub fn meta(&self) -> BitBufferMeta {
         BitBufferMeta::new(self.offset, self.len)
     }
@@ -142,6 +146,7 @@ impl<'a> BitBufferView<'a> {
     /// Create a new view over the range `[start, end)` of this view.
     ///
     /// Panics if the slice would extend beyond the end of the view.
+    #[inline]
     pub fn slice(&self, range: impl RangeBounds<usize>) -> BitBufferView<'a> {
         let (start, end) = resolve_range(range, self.len);
         BitBufferView::new_with_offset(self.buffer, end - start, self.offset + start)
@@ -149,41 +154,49 @@ impl<'a> BitBufferView<'a> {
 
     /// Access chunks of the buffer aligned to an 8 byte boundary as
     /// `[prefix, <full chunks>, suffix]`.
+    #[inline]
     pub fn unaligned_chunks(&self) -> UnalignedBitChunk<'a> {
         UnalignedBitChunk::new(self.buffer, self.offset, self.len)
     }
 
     /// Access chunks of the underlying buffer as 8 byte chunks with a final trailer.
+    #[inline]
     pub fn chunks(&self) -> BitChunks<'a> {
         BitChunks::new(self.buffer, self.offset, self.len)
     }
 
     /// Get the number of set bits in the view.
+    #[inline]
     pub fn true_count(&self) -> usize {
         count_ones(self.buffer, self.offset, self.len)
     }
 
     /// Get the number of unset bits in the view.
+    #[inline]
     pub fn false_count(&self) -> usize {
         self.len - self.true_count()
     }
 
     /// Returns the position of the `nth` set bit (0-indexed), or `None` if out of range.
+    #[inline]
     pub fn select(&self, nth: usize) -> Option<usize> {
         bit_select(self.buffer, self.offset, self.len, nth)
     }
 
     /// Iterator over bits in the view.
+    #[inline]
     pub fn iter(&self) -> BitIterator<'a> {
         BitIterator::new(self.buffer, self.offset, self.len)
     }
 
     /// Iterator over set indices of the underlying buffer.
+    #[inline]
     pub fn set_indices(&self) -> BitIndexIterator<'a> {
         BitIndexIterator::new(self.buffer, self.offset, self.len)
     }
 
     /// Iterator over set slices of the underlying buffer.
+    #[inline]
     pub fn set_slices(&self) -> BitSliceIterator<'a> {
         BitSliceIterator::new(self.buffer, self.offset, self.len)
     }
@@ -240,6 +253,7 @@ impl<'a> BitBufferMutView<'a> {
     /// Create a new mutable view over `buffer` with `len` bits, starting at bit zero.
     ///
     /// Panics if the buffer is not large enough to hold `len` bits.
+    #[inline]
     pub fn new(buffer: &'a mut [u8], len: usize) -> Self {
         Self::new_with_offset(buffer, len, 0)
     }
@@ -247,6 +261,7 @@ impl<'a> BitBufferMutView<'a> {
     /// Create a new mutable view over `buffer` with `len` bits, starting at bit `offset`.
     ///
     /// Panics if the buffer is not large enough to hold `len` bits after the offset.
+    #[inline]
     pub fn new_with_offset(buffer: &'a mut [u8], len: usize, offset: usize) -> Self {
         assert!(
             len.saturating_add(offset) <= buffer.len().saturating_mul(8),
@@ -324,16 +339,19 @@ impl<'a> BitBufferMutView<'a> {
     }
 
     /// Get the number of set bits in the view.
+    #[inline]
     pub fn true_count(&self) -> usize {
         self.as_view().true_count()
     }
 
     /// Get the number of unset bits in the view.
+    #[inline]
     pub fn false_count(&self) -> usize {
         self.as_view().false_count()
     }
 
     /// Iterator over bits in the view.
+    #[inline]
     pub fn iter(&self) -> BitIterator<'_> {
         self.as_view().iter()
     }
@@ -341,6 +359,7 @@ impl<'a> BitBufferMutView<'a> {
     /// Set the bit at `index` to the given boolean value.
     ///
     /// Panics if `index` exceeds the view length.
+    #[inline]
     pub fn set_to(&mut self, index: usize, value: bool) {
         if value {
             self.set(index);
@@ -354,6 +373,7 @@ impl<'a> BitBufferMutView<'a> {
     /// # Safety
     ///
     /// Caller must ensure that `index` is within the range of the view.
+    #[inline]
     pub unsafe fn set_to_unchecked(&mut self, index: usize, value: bool) {
         if value {
             // SAFETY: checked by caller
@@ -367,6 +387,7 @@ impl<'a> BitBufferMutView<'a> {
     /// Set the bit at `index` to `true`.
     ///
     /// Panics if `index` exceeds the view length.
+    #[inline]
     pub fn set(&mut self, index: usize) {
         assert!(index < self.len, "index {index} exceeds len {}", self.len);
         // SAFETY: checked by assertion
@@ -376,6 +397,7 @@ impl<'a> BitBufferMutView<'a> {
     /// Set the bit at `index` to `false`.
     ///
     /// Panics if `index` exceeds the view length.
+    #[inline]
     pub fn unset(&mut self, index: usize) {
         assert!(index < self.len, "index {index} exceeds len {}", self.len);
         // SAFETY: checked by assertion

@@ -4,7 +4,6 @@
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -12,6 +11,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_array::builders::builder_with_capacity;
 use vortex_array::dtype::DType;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_native_ptype;
@@ -90,12 +90,12 @@ pub fn filter_canonical_array(
         }
         DType::Utf8(_) | DType::Binary(_) => {
             let utf8 = array.clone().execute::<VarBinViewArray>(ctx)?;
-            let values = utf8.with_iterator(|iter| {
-                iter.zip(filter.iter())
-                    .filter(|(_, f)| **f)
-                    .map(|(v, _)| v.map(|u| u.to_vec()))
-                    .collect::<Vec<_>>()
-            });
+            let mask = utf8.validity()?.execute_mask(utf8.len(), ctx)?;
+            let values = (0..utf8.len())
+                .zip(filter.iter())
+                .filter(|(_, f)| **f)
+                .map(|(i, _)| mask.value(i).then(|| utf8.bytes_at(i).to_vec()))
+                .collect::<Vec<_>>();
             Ok(VarBinViewArray::from_iter(values, array.dtype().clone()).into_array())
         }
         DType::List(..) | DType::FixedSizeList(..) => {
@@ -121,6 +121,16 @@ pub fn filter_canonical_array(
                 validity,
             )
             .map(|a| a.into_array())
+        }
+        DType::Map(..) => {
+            let mut builder =
+                builder_with_capacity(array.dtype(), filter.iter().filter(|b| **b).count());
+            for (idx, keep) in filter.iter().enumerate() {
+                if *keep {
+                    builder.append_scalar(&array.execute_scalar(idx, ctx)?)?;
+                }
+            }
+            Ok(builder.finish())
         }
         d @ (DType::Null | DType::Union(..) | DType::Variant(_) | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")

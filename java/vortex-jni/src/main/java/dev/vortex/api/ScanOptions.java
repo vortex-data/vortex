@@ -36,6 +36,8 @@ public interface ScanOptions {
     /**
      * Sorted ascending, unique row indices that should be included in (or excluded from) the scan, depending on
      * {@link #selectionMode()}.
+     *
+     * <p>The native scan validates this contract and rejects indices that are not strictly ascending.
      */
     Optional<long[]> selectionIndices();
 
@@ -64,9 +66,6 @@ public interface ScanOptions {
         if (hasIndices && hasRoaringBitmap) {
             throw new IllegalArgumentException("row selection must use either indices or roaring bitmap, not both");
         }
-        if (hasIndices) {
-            validateSelectionIndices(selectionIndices().orElseThrow());
-        }
 
         switch (selectionMode()) {
             case INCLUDE_ALL -> {
@@ -88,20 +87,6 @@ public interface ScanOptions {
                     throw new IllegalArgumentException("selection roaring bitmap must not be empty");
                 }
             }
-        }
-    }
-
-    private static void validateSelectionIndices(long[] selectionIndices) {
-        long previous = -1L;
-        for (int i = 0; i < selectionIndices.length; i++) {
-            long index = selectionIndices[i];
-            if (index < 0) {
-                throw new IllegalArgumentException("selection indices must be non-negative");
-            }
-            if (i > 0 && index <= previous) {
-                throw new IllegalArgumentException("selection indices must be sorted ascending and unique");
-            }
-            previous = index;
         }
     }
 

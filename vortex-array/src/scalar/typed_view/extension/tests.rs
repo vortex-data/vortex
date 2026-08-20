@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::Hash;
+use std::hash::Hasher;
+
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -20,6 +24,7 @@ impl ExtVTable for TestI32Ext {
     type Metadata = EmptyMetadata;
     type NativeValue<'a> = &'a str;
 
+    #[expect(clippy::disallowed_methods, reason = "test-only id")]
     fn id(&self) -> ExtId {
         ExtId::new("test_ext")
     }
@@ -103,6 +108,7 @@ fn test_ext_scalar_partial_ord_different_types() {
         type Metadata = EmptyMetadata;
         type NativeValue<'a> = &'a str;
 
+        #[expect(clippy::disallowed_methods, reason = "test-only id")]
         fn id(&self) -> ExtId {
             ExtId::new("test_ext_2")
         }
@@ -170,6 +176,28 @@ fn test_ext_scalar_hash() {
     );
     set.insert(scalar3);
     assert_eq!(set.len(), 2);
+}
+
+#[test]
+fn test_ext_scalar_hash_ignores_storage_nullability() {
+    let nullable = Scalar::extension::<TestI32Ext>(
+        EmptyMetadata,
+        Scalar::primitive(42_i32, Nullability::Nullable),
+    );
+    let non_nullable = Scalar::extension::<TestI32Ext>(
+        EmptyMetadata,
+        Scalar::primitive(42_i32, Nullability::NonNullable),
+    );
+    let nullable = nullable.as_extension();
+    let non_nullable = non_nullable.as_extension();
+
+    assert_eq!(nullable, non_nullable);
+
+    let mut nullable_hasher = DefaultHasher::new();
+    nullable.hash(&mut nullable_hasher);
+    let mut non_nullable_hasher = DefaultHasher::new();
+    non_nullable.hash(&mut non_nullable_hasher);
+    assert_eq!(nullable_hasher.finish(), non_nullable_hasher.finish());
 }
 
 #[test]
@@ -285,6 +313,7 @@ fn test_ext_scalar_with_metadata() {
         type Metadata = usize;
         type NativeValue<'a> = &'a str;
 
+        #[expect(clippy::disallowed_methods, reason = "test-only id")]
         fn id(&self) -> ExtId {
             ExtId::new("test_ext_metadata")
         }

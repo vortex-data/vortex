@@ -2,7 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use rstest::rstest;
+use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
+use vortex_error::VortexResult;
 
 use super::common::create_basic_fsl;
 use super::common::create_empty_fsl;
@@ -10,10 +12,13 @@ use super::common::create_large_fsl;
 use super::common::create_nullable_fsl;
 use super::common::create_single_element_fsl;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::array_session;
+use crate::arrays::ConstantArray;
 use crate::arrays::FixedSizeListArray;
+use crate::arrays::PiecewiseSequenceArray;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::builders::ArrayBuilder;
@@ -33,7 +38,10 @@ use crate::validity::Validity;
 #[case::single_element(create_single_element_fsl())]
 #[case::empty(create_empty_fsl())]
 fn test_take_fsl_conformance(#[case] fsl: FixedSizeListArray) {
-    test_take_conformance(&fsl.into_array());
+    test_take_conformance(
+        &fsl.into_array(),
+        &mut array_session().create_execution_ctx(),
+    );
 }
 
 // FSL-specific edge case tests that aren't covered by conformance.
@@ -88,7 +96,10 @@ fn test_take_degenerate_lists(
     let elements = PrimitiveArray::empty::<i32>(Nullability::NonNullable);
     let fsl = FixedSizeListArray::new(elements.into_array(), 0, validity, 5);
 
-    test_take_conformance(&fsl.clone().into_array());
+    test_take_conformance(
+        &fsl.clone().into_array(),
+        &mut array_session().create_execution_ctx(),
+    );
 
     // Also test the specific behavior.
     let indices_array = PrimitiveArray::from_option_iter(indices);
@@ -139,6 +150,105 @@ fn test_take_fsl_with_null_indices_preserves_elements() {
         3,
     );
     assert_arrays_eq!(expected, result, &mut ctx);
+}
+
+#[test]
+fn test_take_fsl_null_index_ignores_out_of_bounds_payload() {
+    let mut ctx = array_session().create_execution_ctx();
+    let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
+    let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 3);
+
+    let indices = PrimitiveArray::new(
+        buffer![1u32, 99, 2],
+        Validity::from_iter([true, false, true]),
+    )
+    .into_array();
+    let result = fsl.take(indices).unwrap();
+
+    let expected = FixedSizeListArray::new(
+        buffer![3i32, 4, 0, 0, 5, 6].into_array(),
+        2,
+        Validity::from_iter([true, false, true]),
+        3,
+    );
+    assert_arrays_eq!(expected, result, &mut ctx);
+}
+
+fn contiguous_pieces(starts: &[u64], lengths: &[u64]) -> VortexResult<ArrayRef> {
+    let len = usize::try_from(lengths.iter().sum::<u64>())?;
+    Ok(PiecewiseSequenceArray::try_new(
+        starts.iter().copied().collect::<Buffer<u64>>().into_array(),
+        lengths
+            .iter()
+            .copied()
+            .collect::<Buffer<u64>>()
+            .into_array(),
+        ConstantArray::new(1u64, starts.len()).into_array(),
+        len,
+    )?
+    .into_array())
+}
+
+fn nullable_fsl_i32() -> FixedSizeListArray {
+    FixedSizeListArray::new(
+        PrimitiveArray::from_iter(0i32..12).into_array(),
+        3,
+        Validity::from_iter([true, false, true, true]),
+        4,
+    )
+}
+
+#[rstest]
+#[case::multi_piece(&[2, 0], &[2, 1], &[2u64, 3, 0])]
+#[case::single_piece_slices(&[1], &[3], &[1u64, 2, 3])]
+#[case::zero_length_piece(&[3, 0, 1], &[0, 1, 2], &[0u64, 1, 2])]
+fn test_take_piecewise(
+    #[case] starts: &[u64],
+    #[case] lengths: &[u64],
+    #[case] expanded: &[u64],
+) -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let fsl = nullable_fsl_i32();
+
+    let result = fsl.take(contiguous_pieces(starts, lengths)?)?;
+    let expected = fsl.take(Buffer::from(expanded.to_vec()).into_array())?;
+
+    assert_arrays_eq!(result, expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_take_piecewise_out_of_bounds() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let fsl = nullable_fsl_i32();
+
+    let indices = contiguous_pieces(&[2], &[3])?;
+    let result = fsl
+        .take(indices)
+        .and_then(|taken| taken.execute::<Canonical>(&mut ctx));
+
+    assert!(result.is_err(), "expected out-of-bounds error");
+    Ok(())
+}
+
+#[test]
+fn test_take_piecewise_non_unit_multiplier() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let fsl = nullable_fsl_i32();
+
+    // Multiplier 2 falls back to the generic path but must stay correct.
+    let indices = PiecewiseSequenceArray::try_new(
+        buffer![0u64].into_array(),
+        buffer![2u64].into_array(),
+        buffer![2u64].into_array(),
+        2,
+    )?
+    .into_array();
+    let result = fsl.take(indices)?;
+    let expected = fsl.take(buffer![0u64, 2].into_array())?;
+
+    assert_arrays_eq!(result, expected, &mut ctx);
+    Ok(())
 }
 
 // Element index overflow: with u8 indices and list_size=16, data_idx=16 produces element index

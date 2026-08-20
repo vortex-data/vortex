@@ -6,7 +6,7 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::VarBinArray;
-use vortex_array::arrays::varbin::VarBinArrayExt;
+use vortex_array::arrays::varbin::VarBinArraySlotsExt;
 use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastKernel;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
@@ -15,6 +15,7 @@ use vortex_error::VortexResult;
 
 use crate::FSST;
 use crate::FSSTArrayExt;
+use crate::FSSTArraySlotsExt;
 
 fn build_with_codes_validity(
     array: ArrayView<'_, FSST>,
@@ -147,7 +148,7 @@ mod tests {
         let array = array.into_array();
         let compressor = fsst_train_compressor(&array, &mut ctx)?;
         let fsst = fsst_compress(&array, &compressor, &mut ctx)?;
-        test_cast_conformance(&fsst.into_array());
+        test_cast_conformance(&fsst.into_array(), &mut ctx);
         Ok(())
     }
 }

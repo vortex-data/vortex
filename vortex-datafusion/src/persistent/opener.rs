@@ -5,11 +5,13 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::sync::Weak;
 
+use arrow_array::RecordBatchOptions;
 use arrow_schema::Field;
 use arrow_schema::Schema;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
+use datafusion_common::Statistics;
 use datafusion_common::arrow::array::AsArray;
 use datafusion_common::arrow::array::RecordBatch;
 use datafusion_common::exec_datafusion_err;
@@ -23,32 +25,31 @@ use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
 use datafusion_physical_expr::split_conjunction;
+use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_expr::utils::reassign_expr_columns;
 use datafusion_physical_expr_adapter::PhysicalExprAdapterFactory;
 use datafusion_physical_expr_adapter::replace_columns_with_literals;
-use datafusion_physical_expr_common::physical_expr::is_dynamic_physical_expr;
-use datafusion_physical_plan::metrics::Count;
+use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
+use datafusion_physical_plan::metrics::MetricBuilder;
+use datafusion_physical_plan::metrics::MetricCategory;
 use datafusion_pruning::FilePruner;
 use futures::FutureExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream;
-use itertools::Itertools;
 use object_store::path::Path;
 use tracing::Instrument;
 use vortex::array::VortexSessionExecute;
-use vortex::array::arrow::ArrowSessionExt;
-use vortex::dtype::FieldMask;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::scan_builder::ScanBuilder;
-use vortex::layout::scan::split_by::SplitBy;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
 use vortex::session::VortexSession;
+use vortex_arrow::ArrowSessionExt;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
 
@@ -83,19 +84,19 @@ pub(crate) struct VortexOpener {
     /// This is the table's schema without partition columns. It may contain fields which do
     /// not exist in the file, and are supplied by the `schema_adapter_factory`.
     pub table_schema: TableSchema,
-    /// A hint for the desired row count of record batches returned from the scan.
-    pub batch_size: usize,
     /// If provided, the scan will not return more than this many rows.
     pub limit: Option<u64>,
     /// A metrics object for tracking performance of the scan.
     pub metrics_registry: Arc<dyn MetricsRegistry>,
+    /// DataFusion-native metrics exposed through `DataSourceExec`.
+    pub df_metrics: ExecutionPlanMetricsSet,
     /// A shared cache of file readers.
     ///
     /// To save on the overhead of reparsing FlatBuffers and rebuilding the layout tree, we cache
     /// a file reader the first time we read a file.
     pub layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
-    /// Shared full-file natural split ranges keyed by file path.
-    pub natural_split_ranges: Arc<DashMap<Path, Arc<[Range<u64>]>>>,
+    /// Shared full-file natural splits keyed by file path.
+    pub natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
     /// Whether the query has output ordering specified
     pub has_output_ordering: bool,
 
@@ -108,6 +109,12 @@ pub(crate) struct VortexOpener {
 
 impl FileOpener for VortexOpener {
     fn open(&self, file: PartitionedFile) -> DFResult<FileOpenFuture> {
+        // Calculate the output schema before replacing partition columns with literals so it
+        // retains the table and partition-field metadata declared by the plan.
+        let output_schema = Arc::new(
+            self.projection
+                .project_schema(self.table_schema.table_schema())?,
+        );
         let session = self.session.clone();
         let metrics_registry = Arc::clone(&self.metrics_registry);
         let labels = vec![
@@ -123,20 +130,23 @@ impl FileOpener for VortexOpener {
         let reader =
             InstrumentedReadAt::new_with_labels(reader, metrics_registry.as_ref(), labels.clone());
 
-        let file_pruning_predicate = self.file_pruning_predicate.clone();
+        let mut file_pruning_predicate = self.file_pruning_predicate.clone();
         let expr_adapter_factory = Arc::clone(&self.expr_adapter_factory);
         let file_metadata_cache = self.file_metadata_cache.clone();
 
         let unified_file_schema = Arc::clone(self.table_schema.file_schema());
-        let batch_size = self.batch_size;
         let limit = self.limit;
         let layout_readers = Arc::clone(&self.layout_readers);
-        let natural_split_ranges = Arc::clone(&self.natural_split_ranges);
+        let natural_splits = Arc::clone(&self.natural_splits);
         let has_output_ordering = self.has_output_ordering;
         let scan_concurrency = self.scan_concurrency;
 
         let expr_convertor = Arc::clone(&self.expression_convertor);
         let projection_pushdown = self.projection_pushdown;
+
+        let predicate_creation_errors = MetricBuilder::new(&self.df_metrics)
+            .with_category(MetricCategory::Rows)
+            .global_counter("num_predicate_creation_errors");
 
         // Replace column access for partition columns with literals
         #[expect(clippy::disallowed_types)]
@@ -149,6 +159,13 @@ impl FileOpener for VortexOpener {
             .zip(file.partition_values.clone())
             .collect::<std::collections::HashMap<String, ScalarValue>>();
 
+        let predicate_uses_partition_columns =
+            file_pruning_predicate.as_ref().is_some_and(|predicate| {
+                collect_columns(predicate)
+                    .iter()
+                    .any(|column| literal_value_cols.contains_key(column.name()))
+            });
+
         if !literal_value_cols.is_empty() {
             projection = projection.try_map_exprs(|expr| {
                 replace_columns_with_literals(Arc::clone(&expr), &literal_value_cols)
@@ -156,24 +173,30 @@ impl FileOpener for VortexOpener {
             filter = filter
                 .map(|p| replace_columns_with_literals(p, &literal_value_cols))
                 .transpose()?;
+            file_pruning_predicate = file_pruning_predicate
+                .map(|p| replace_columns_with_literals(p, &literal_value_cols))
+                .transpose()?;
         }
 
         Ok(async move {
-            // Create FilePruner when we have a predicate and either dynamic expressions
-            // or file statistics available. The pruner can eliminate files without
-            // opening them based on File-level statistics (min/max values per column)
+            // FilePruner requires a statistics object even when the rewritten predicate
+            // only contains partition literals. Supply unknown file-column statistics in
+            // that case so static and dynamic partition predicates can still prune.
+            let synthetic_statistics = (!file.has_statistics() && predicate_uses_partition_columns)
+                .then(|| {
+                    file.clone()
+                        .with_statistics(Arc::new(Statistics::new_unknown(&unified_file_schema)))
+                });
+            let pruning_file = synthetic_statistics.as_ref().unwrap_or(&file);
+
             let mut file_pruner = file_pruning_predicate
-                .filter(|p| {
-                    // Only create pruner if we have dynamic expressions or file statistics
-                    // to work with. Static predicates without stats won't benefit from pruning.
-                    is_dynamic_physical_expr(p) || file.has_statistics()
-                })
+                .filter(|_| file.has_statistics() || predicate_uses_partition_columns)
                 .and_then(|predicate| {
                     FilePruner::try_new(
                         Arc::clone(&predicate),
                         &unified_file_schema,
-                        &file,
-                        Count::default(),
+                        pruning_file,
+                        predicate_creation_errors,
                     )
                 });
 
@@ -237,10 +260,8 @@ impl FileOpener for VortexOpener {
             let this_file_schema = Arc::new(calculate_physical_schema(
                 vxf.dtype(),
                 &unified_file_schema,
-                session.arrow(),
+                &session.arrow(),
             )?);
-
-            let projected_physical_schema = projection.project_schema(&unified_file_schema)?;
 
             let expr_adapter = expr_adapter_factory.create(
                 Arc::clone(&unified_file_schema),
@@ -268,7 +289,7 @@ impl FileOpener for VortexOpener {
                 expr_convertor.split_projection(
                     projection.clone(),
                     &this_file_schema,
-                    &projected_physical_schema,
+                    output_schema.as_ref(),
                 )?
             } else {
                 // When projection pushdown is disabled, read only the required columns
@@ -278,14 +299,18 @@ impl FileOpener for VortexOpener {
 
             // The schema of the stream returned from the vortex scan.
             // We use a reference schema for types that don't roundtrip (Dictionary, Utf8, etc.).
-            let scan_dtype = scan_projection.return_dtype(vxf.dtype()).map_err(|_e| {
-                exec_datafusion_err!("Couldn't get the dtype for the underlying Vortex scan")
-            })?;
+            let scan_projection = scan_projection
+                .optimize_recursive(vxf.dtype())
+                .and_then(|projection| projection.bind(vxf.dtype()))
+                .map_err(|_e| {
+                    exec_datafusion_err!("Couldn't get the dtype for the underlying Vortex scan")
+                })?;
+            let scan_dtype = scan_projection.dtype().clone();
 
             // When projection pushdown is enabled, the scan outputs the projected columns.
             // When disabled, the scan outputs raw columns and the projection is applied after.
             let scan_reference_schema = if projection_pushdown {
-                projected_physical_schema
+                (*output_schema).clone()
             } else {
                 // Build schema from the raw columns being read
                 let column_indices = projection.column_indices();
@@ -293,10 +318,10 @@ impl FileOpener for VortexOpener {
                     .into_iter()
                     .map(|idx| this_file_schema.field(idx).clone())
                     .collect();
-                Schema::new(fields)
+                Schema::new_with_metadata(fields, this_file_schema.metadata().clone())
             };
             let stream_schema =
-                calculate_physical_schema(&scan_dtype, &scan_reference_schema, session.arrow())?;
+                calculate_physical_schema(&scan_dtype, &scan_reference_schema, &session.arrow())?;
 
             let leftover_projection = leftover_projection
                 .try_map_exprs(|expr| reassign_expr_columns(expr, &stream_schema))?;
@@ -336,34 +361,6 @@ impl FileOpener for VortexOpener {
                 scan_builder = vortex_plan.apply_to_builder(scan_builder);
             }
 
-            if let Some(file_range) = file.range {
-                let byte_range = Range {
-                    start: u64::try_from(file_range.start)
-                        .map_err(|_| exec_datafusion_err!("Vortex file range start is negative"))?,
-                    end: u64::try_from(file_range.end)
-                        .map_err(|_| exec_datafusion_err!("Vortex file range end is negative"))?,
-                };
-                if byte_range.start != 0 || byte_range.end != file.object_meta.size {
-                    // Full-file scans already cover every natural split. Only translate the
-                    // byte range back into row boundaries when DataFusion has trimmed the file.
-                    let natural_split_ranges = natural_split_ranges_for_file(
-                        natural_split_ranges.as_ref(),
-                        &file.object_meta.location,
-                        &layout_reader,
-                    )?;
-
-                    let Some(row_range) = split_aligned_row_range(
-                        byte_range,
-                        file.object_meta.size,
-                        natural_split_ranges.as_ref(),
-                    ) else {
-                        return Ok(stream::empty().boxed());
-                    };
-
-                    scan_builder = scan_builder.with_row_range(row_range);
-                }
-            }
-
             let filter = filter
                 .and_then(|f| {
                     // Verify that all filters we've accepted from DataFusion get pushed down.
@@ -395,6 +392,10 @@ impl FileOpener for VortexOpener {
                     make_vortex_predicate(expr_convertor.as_ref(), &pushed).transpose()
                 })
                 .transpose()?;
+            let filter = filter
+                .map(|filter| filter.optimize_recursive(vxf.dtype())?.bind(vxf.dtype()))
+                .transpose()
+                .map_err(|e| exec_datafusion_err!("Couldn't bind Vortex scan filter: {e}"))?;
 
             if let Some(limit) = limit
                 && filter.is_none()
@@ -406,11 +407,46 @@ impl FileOpener for VortexOpener {
                 scan_builder = scan_builder.with_concurrency(concurrency);
             }
 
+            // Set before the byte-range translation below, which computes natural splits for
+            // the fields the scan's projection and filter reference.
+            scan_builder = scan_builder
+                .with_projection(scan_projection)
+                .with_some_filter(filter);
+
+            if let Some(file_range) = file.range {
+                let byte_range = Range {
+                    start: u64::try_from(file_range.start)
+                        .map_err(|_| exec_datafusion_err!("Vortex file range start is negative"))?,
+                    end: u64::try_from(file_range.end)
+                        .map_err(|_| exec_datafusion_err!("Vortex file range end is negative"))?,
+                };
+                if byte_range.start != 0 || byte_range.end != file.object_meta.size {
+                    // Full-file scans already cover every natural split. Only translate the
+                    // byte range back into row boundaries when DataFusion has trimmed the file.
+                    let natural_splits = natural_splits_for_file(
+                        natural_splits.as_ref(),
+                        &file.object_meta.location,
+                        &scan_builder,
+                        file.object_meta.size,
+                    )?;
+
+                    let Some(row_range) =
+                        split_aligned_row_range(byte_range, natural_splits.as_ref())
+                    else {
+                        return Ok(stream::empty().boxed());
+                    };
+
+                    scan_builder = scan_builder
+                        .with_row_range(row_range)
+                        // Hand the shared full-file boundaries back to the scan so prepare()
+                        // skips its own layout walk.
+                        .with_natural_splits(Arc::clone(&natural_splits.row_boundaries));
+                }
+            }
+
             let stream_target_field = Field::new_struct("", stream_schema.fields().clone(), false);
             let stream = scan_builder
                 .with_metrics_registry(metrics_registry)
-                .with_projection(scan_projection)
-                .with_some_filter(filter)
                 .with_ordered(has_output_ordering)
                 .map(move |chunk| {
                     let mut ctx = session.create_execution_ctx();
@@ -424,40 +460,26 @@ impl FileOpener for VortexOpener {
                 })
                 .into_stream()
                 .map_err(|e| exec_datafusion_err!("Failed to create Vortex stream: {e}"))?
-                .map_ok(move |rb| {
-                    // We try and slice the stream into respecting datafusion's configured batch size.
-                    stream::iter(
-                        (0..rb.num_rows().div_ceil(batch_size * 2))
-                            .flat_map(move |block_idx| {
-                                let offset = block_idx * batch_size * 2;
-
-                                // If we have less than two batches worth of rows left, we keep them together as a single batch.
-                                if rb.num_rows() - offset < 2 * batch_size {
-                                    let length = rb.num_rows() - offset;
-                                    [Some(rb.slice(offset, length)), None].into_iter()
-                                } else {
-                                    let first = rb.slice(offset, batch_size);
-                                    let second = rb.slice(offset + batch_size, batch_size);
-                                    [Some(first), Some(second)].into_iter()
-                                }
-                            })
-                            .flatten()
-                            .map(Ok),
-                    )
-                })
                 .map_err(move |e: VortexError| {
                     DataFusionError::External(Box::new(e.with_context(format!(
                         "Failed to read Vortex file: {}",
                         file.object_meta.location
                     ))))
                 })
-                .try_flatten()
                 .map(move |batch| {
-                    if projector.projection().as_ref().is_empty() {
+                    let batch = if projector.projection().as_ref().is_empty() {
                         batch
                     } else {
                         batch.and_then(|b| projector.project_batch(&b))
-                    }
+                    }?;
+
+                    let (_, columns, row_count) = batch.into_parts();
+                    RecordBatch::try_new_with_options(
+                        Arc::clone(&output_schema),
+                        columns,
+                        &RecordBatchOptions::new().with_row_count(Some(row_count)),
+                    )
+                    .map_err(Into::into)
                 })
                 .boxed();
 
@@ -472,38 +494,98 @@ impl FileOpener for VortexOpener {
     }
 }
 
-fn natural_split_ranges_for_file(
-    natural_split_ranges: &DashMap<Path, Arc<[Range<u64>]>>,
-    path: &Path,
-    layout_reader: &Arc<dyn LayoutReader>,
-) -> DFResult<Arc<[Range<u64>]>> {
-    if let Some(split_ranges) = natural_split_ranges.get(path) {
-        return Ok(Arc::clone(split_ranges.value()));
-    }
+/// A file's natural split boundaries plus the precomputed byte each split is assigned to,
+/// enabling [`split_aligned_row_range`] to translate a DataFusion byte range into row
+/// boundaries with a binary search instead of re-projecting every split per partition.
+///
+/// The boundaries are computed for the fields referenced by the scan's projection and filter.
+/// All partitions translate through the first opener's cached entry (the cache lives on the
+/// source, so projection and filter are fixed for its lifetime), which keeps the byte ranges
+/// tiling the file's rows exactly once.
+#[derive(Debug)]
+pub(crate) struct NaturalSplits {
+    /// Sorted row boundaries of the natural splits; split `i` covers
+    /// `row_boundaries[i]..row_boundaries[i + 1]`. Shared so partitions can hand the
+    /// boundaries back to the scan via [`ScanBuilder::with_natural_splits`], skipping the
+    /// per-partition layout walk in `prepare`.
+    row_boundaries: Arc<[u64]>,
+    /// For each split, the byte a DataFusion byte range must contain to own it (see
+    /// [`split_assignment_byte`]); one entry per split, sorted because split midpoints
+    /// increase monotonically under the row-to-byte projection.
+    assignment_bytes: Box<[u64]>,
+}
 
-    let split_ranges = compute_natural_split_ranges(layout_reader.as_ref())?;
+impl NaturalSplits {
+    fn new(row_boundaries: Arc<[u64]>, total_size: u64) -> Self {
+        let row_count = row_boundaries.last().copied().unwrap_or_default();
+        let assignment_bytes = if row_count == 0 {
+            Box::default()
+        } else {
+            row_boundaries
+                .windows(2)
+                .enumerate()
+                .map(|(idx, boundaries)| {
+                    split_assignment_byte(
+                        idx,
+                        &(boundaries[0]..boundaries[1]),
+                        row_count,
+                        total_size,
+                    )
+                })
+                .collect()
+        };
 
-    match natural_split_ranges.entry(path.clone()) {
-        Entry::Occupied(entry) => Ok(Arc::clone(entry.get())),
-        Entry::Vacant(entry) => {
-            entry.insert(Arc::clone(&split_ranges));
-            Ok(split_ranges)
+        debug_assert!(assignment_bytes.is_sorted());
+        debug_assert_eq!(
+            assignment_bytes.len() + usize::from(!row_boundaries.is_empty()),
+            row_boundaries.len()
+        );
+
+        Self {
+            row_boundaries,
+            assignment_bytes,
         }
     }
 }
 
-fn compute_natural_split_ranges(layout_reader: &dyn LayoutReader) -> DFResult<Arc<[Range<u64>]>> {
-    let row_count = layout_reader.row_count();
-    let row_range = 0..row_count;
-    let split_points: Vec<_> = SplitBy::Layout
-        .splits(layout_reader, &row_range, &[FieldMask::All])
-        .map_err(|e| exec_datafusion_err!("Failed to compute Vortex natural splits: {e}"))?
-        .into_iter()
-        .tuple_windows()
-        .map(|(s, e)| s..e)
-        .collect::<Vec<_>>();
+/// Return the cached [`NaturalSplits`] for `path`, computing and caching them on first use.
+fn natural_splits_for_file<A: 'static + Send>(
+    natural_splits: &DashMap<Path, Arc<NaturalSplits>>,
+    path: &Path,
+    scan_builder: &ScanBuilder<A>,
+    total_size: u64,
+) -> DFResult<Arc<NaturalSplits>> {
+    if let Some(splits) = natural_splits.get(path) {
+        return Ok(Arc::clone(splits.value()));
+    }
 
-    Ok(split_points.into())
+    // Compute while holding the entry so concurrent partitions opening the same file wait
+    // for the winner instead of all walking the layout tree; the redundant walks contend on
+    // the lazily-initialized layout children and dominate the cost of the computation itself.
+    match natural_splits.entry(path.clone()) {
+        Entry::Occupied(entry) => Ok(Arc::clone(entry.get())),
+        Entry::Vacant(entry) => {
+            let splits = compute_natural_splits(scan_builder, total_size)?;
+            entry.insert(Arc::clone(&splits));
+            Ok(splits)
+        }
+    }
+}
+
+/// Walk the layout tree to compute the file's full natural split boundaries for the fields
+/// referenced by the scan's projection and filter.
+fn compute_natural_splits<A: 'static + Send>(
+    scan_builder: &ScanBuilder<A>,
+    total_size: u64,
+) -> DFResult<Arc<NaturalSplits>> {
+    let row_boundaries = scan_builder
+        .full_file_splits()
+        .map_err(|e| exec_datafusion_err!("Failed to compute Vortex natural splits: {e}"))?;
+
+    Ok(Arc::new(NaturalSplits::new(
+        row_boundaries.into(),
+        total_size,
+    )))
 }
 
 /// Translate a DataFusion byte range to the contiguous natural split ranges it owns.
@@ -511,33 +593,25 @@ fn compute_natural_split_ranges(layout_reader: &dyn LayoutReader) -> DFResult<Ar
 /// byte 0 so a tiny first byte range still claims the first rows.
 fn split_aligned_row_range(
     byte_range: Range<u64>,
-    total_size: u64,
-    split_ranges: &[Range<u64>],
+    natural_splits: &NaturalSplits,
 ) -> Option<Range<u64>> {
     if byte_range.start >= byte_range.end {
         return None;
     }
 
-    let row_count = split_ranges.last().map(|split| split.end)?;
-    if row_count == 0 {
+    let first_split = natural_splits
+        .assignment_bytes
+        .partition_point(|&assignment_byte| assignment_byte < byte_range.start);
+    let after_last_split = natural_splits
+        .assignment_bytes
+        .partition_point(|&assignment_byte| assignment_byte < byte_range.end);
+    if first_split == after_last_split {
         return None;
     }
 
-    let mut owned_splits = split_ranges
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, split_range)| {
-            let assignment_byte = split_assignment_byte(idx, split_range, row_count, total_size);
-            byte_range.contains(&assignment_byte).then_some(split_range)
-        });
-
-    let first_split = owned_splits.next()?;
-    let mut row_range = first_split.start..first_split.end;
-    for split_range in owned_splits {
-        row_range.end = split_range.end;
-    }
-
-    Some(row_range)
+    Some(
+        natural_splits.row_boundaries[first_split]..natural_splits.row_boundaries[after_last_split],
+    )
 }
 
 fn split_assignment_byte(
@@ -564,6 +638,7 @@ fn split_midpoint_to_byte(split_range: &Range<u64>, row_count: u64, total_size: 
 
 #[cfg(test)]
 mod tests {
+    use std::fmt;
     use std::sync::Arc;
     use std::sync::LazyLock;
 
@@ -571,6 +646,7 @@ mod tests {
     use arrow_schema::Fields;
     use arrow_schema::SchemaRef;
     use datafusion::arrow::array::DictionaryArray;
+    use datafusion::arrow::array::Int32Array;
     use datafusion::arrow::array::RecordBatch;
     use datafusion::arrow::array::StringArray;
     use datafusion::arrow::array::StructArray;
@@ -585,9 +661,12 @@ mod tests {
     use datafusion::physical_expr::planner::logical2physical;
     use datafusion::physical_expr_adapter::DefaultPhysicalExprAdapterFactory;
     use datafusion::scalar::ScalarValue;
+    use datafusion_common::stats::Precision;
     use datafusion_execution::cache::DefaultFilesMetadataCache;
     use datafusion_expr::Operator;
+    use datafusion_physical_expr::PhysicalExpr;
     use datafusion_physical_expr::expressions as df_expr;
+    use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
     use datafusion_physical_expr::projection::ProjectionExpr;
     use insta::assert_snapshot;
     use itertools::Itertools;
@@ -595,14 +674,13 @@ mod tests {
     use object_store::memory::InMemory;
     use rstest::rstest;
     use vortex::VortexSessionDefault;
-    use vortex::array::ArrayRef;
-    use vortex::array::arrow::FromArrowArray;
     use vortex::buffer::Buffer;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::VortexWrite;
     use vortex::io::object_store::ObjectStoreWrite;
     use vortex::metrics::DefaultMetricsRegistry;
     use vortex::scan::selection::Selection;
+    use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
     use vortex::session::VortexSession;
 
     use super::*;
@@ -612,12 +690,70 @@ mod tests {
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
 
+    /// Test-only expr used to test error reporting.
+    #[derive(Debug, Eq, Hash, PartialEq)]
+    struct SnapshotErrorExpr;
+
+    impl fmt::Display for SnapshotErrorExpr {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "snapshot_error")
+        }
+    }
+
+    impl PhysicalExpr for SnapshotErrorExpr {
+        fn data_type(&self, _input_schema: &Schema) -> DFResult<DataType> {
+            Ok(DataType::Boolean)
+        }
+
+        fn nullable(&self, _input_schema: &Schema) -> DFResult<bool> {
+            Ok(false)
+        }
+
+        fn fmt_sql(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            fmt::Display::fmt(self, f)
+        }
+
+        fn evaluate(&self, _batch: &RecordBatch) -> DFResult<datafusion_expr::ColumnarValue> {
+            Err(DataFusionError::Internal(
+                "intentional snapshot error".to_owned(),
+            ))
+        }
+
+        fn children(&self) -> Vec<&PhysicalExprRef> {
+            Vec::new()
+        }
+
+        fn with_new_children(
+            self: Arc<Self>,
+            children: Vec<PhysicalExprRef>,
+        ) -> DFResult<PhysicalExprRef> {
+            assert!(children.is_empty());
+            Ok(self)
+        }
+
+        fn snapshot(&self) -> DFResult<Option<PhysicalExprRef>> {
+            Err(DataFusionError::Internal(
+                "intentional snapshot error".to_owned(),
+            ))
+        }
+    }
+
+    fn natural_splits(total_size: u64, split_ranges: &[Range<u64>]) -> NaturalSplits {
+        let mut row_boundaries = Vec::with_capacity(split_ranges.len() + 1);
+        if let Some(first) = split_ranges.first() {
+            row_boundaries.push(first.start);
+            row_boundaries.extend(split_ranges.iter().map(|range| range.end));
+        }
+        NaturalSplits::new(row_boundaries.into(), total_size)
+    }
+
     #[rstest]
     #[case(0..3, 10, vec![0..2, 2..5, 5..10], Some(0..2))]
     #[case(3..7, 10, vec![0..2, 2..5, 5..10], Some(2..5))]
     #[case(1..8, 10, vec![0..1, 1..9, 9..10], Some(1..9))]
     #[case(1..4, 16, vec![0..1, 1..2, 2..3, 3..4], None)]
     #[case(0..1, 10, vec![0..2, 2..10], Some(0..2))]
+    #[case(0..2, 2, vec![], None)]
     fn test_split_aligned_row_range(
         #[case] byte_range: Range<u64>,
         #[case] total_size: u64,
@@ -625,7 +761,7 @@ mod tests {
         #[case] expected: Option<Range<u64>>,
     ) {
         assert_eq!(
-            split_aligned_row_range(byte_range, total_size, &split_ranges),
+            split_aligned_row_range(byte_range, &natural_splits(total_size, &split_ranges)),
             expected
         );
     }
@@ -634,10 +770,11 @@ mod tests {
     fn test_split_aligned_ranges_cover_splits_exactly_once() {
         let split_ranges = vec![0..1, 1..4, 4..10, 10..13];
         let byte_ranges = [0..4, 4..8, 8..12, 12..16];
+        let natural_splits = natural_splits(16, &split_ranges);
 
         let assigned = byte_ranges
             .into_iter()
-            .filter_map(|byte_range| split_aligned_row_range(byte_range, 16, &split_ranges))
+            .filter_map(|byte_range| split_aligned_row_range(byte_range, &natural_splits))
             .collect::<Vec<_>>();
 
         assert_eq!(assigned, vec![0..4, 4..10, 10..13]);
@@ -668,12 +805,35 @@ mod tests {
         }
     }
 
+    #[rstest]
+    #[case(vec![], 10)]
+    #[case(vec![0], 10)]
+    #[case(vec![], 0)]
+    #[case(vec![0], 0)]
+    fn test_natural_splits_empty_file(#[case] row_boundaries: Vec<u64>, #[case] total_size: u64) {
+        let splits = NaturalSplits::new(row_boundaries.clone().into(), total_size);
+
+        assert!(splits.assignment_bytes.is_empty());
+        assert_eq!(splits.row_boundaries.as_ref(), row_boundaries.as_slice());
+        assert_eq!(split_aligned_row_range(0..u64::MAX, &splits), None);
+    }
+
+    #[test]
+    fn test_split_aligned_row_range_keeps_colliding_assignments_together() {
+        let natural_splits = natural_splits(2, &[0..1, 1..2, 2..3, 3..4]);
+
+        assert_eq!(natural_splits.assignment_bytes.as_ref(), [0, 0, 1, 1]);
+        assert_eq!(split_aligned_row_range(0..1, &natural_splits), Some(0..2));
+        assert_eq!(split_aligned_row_range(1..2, &natural_splits), Some(2..4));
+    }
+
     async fn write_arrow_to_vortex(
         object_store: Arc<dyn ObjectStore>,
         path: &str,
         rb: RecordBatch,
     ) -> anyhow::Result<u64> {
-        let array = ArrayRef::from_arrow(rb, false)?;
+        let schema = rb.schema();
+        let array = SESSION.arrow().from_arrow_record_batch(rb, &schema)?;
         let path = Path::parse(path)?;
 
         let mut write = ObjectStoreWrite::new(object_store, &path).await?;
@@ -700,11 +860,11 @@ mod tests {
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema,
-            batch_size: 100,
             limit: None,
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
+            df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
-            natural_split_ranges: Default::default(),
+            natural_splits: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -762,6 +922,165 @@ mod tests {
         let num_batches = data.len();
         let num_rows = data.iter().map(|rb| rb.num_rows()).sum::<usize>();
         assert_eq!((num_batches, num_rows), (0, 0));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_open_preserves_declared_schema_metadata() -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "part=1/file.vortex";
+        let batch = record_batch!(("a", Int32, vec![Some(1), Some(2), Some(3)]))?;
+        let data_size =
+            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
+
+        let file_schema = Arc::new(
+            batch.schema().as_ref().clone().with_metadata(
+                [("table".to_string(), "metadata".to_string())]
+                    .into_iter()
+                    .collect(),
+            ),
+        );
+        let table_schema = TableSchema::new(
+            file_schema,
+            vec![Arc::new(
+                Field::new("part", DataType::Int32, false).with_metadata(
+                    [("partition".to_string(), "metadata".to_string())]
+                        .into_iter()
+                        .collect(),
+                ),
+            )],
+        );
+        let projection = ProjectionExprs::from_indices(&[0, 1], table_schema.table_schema());
+        let expected_schema = Arc::new(projection.project_schema(table_schema.table_schema())?);
+
+        assert_eq!(
+            expected_schema.metadata().get("table"),
+            Some(&"metadata".to_string())
+        );
+        assert_eq!(
+            expected_schema.field(1).metadata().get("partition"),
+            Some(&"metadata".to_string())
+        );
+
+        for projection_pushdown in [false, true] {
+            let mut opener = make_opener(Arc::clone(&object_store), table_schema.clone(), None);
+            opener.projection = projection.clone();
+            opener.projection_pushdown = projection_pushdown;
+
+            let mut file = PartitionedFile::new(file_path.to_string(), data_size);
+            file.partition_values = vec![ScalarValue::Int32(Some(1))];
+            let batches = opener.open(file)?.await?.try_collect::<Vec<_>>().await?;
+
+            assert!(!batches.is_empty());
+            for batch in batches {
+                assert_eq!(batch.schema().as_ref(), expected_schema.as_ref());
+            }
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_open_all_valid_nullable_columns_with_nonnullable_table_schema()
+    -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "nullable/file.vortex";
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, true)])),
+            vec![Arc::new(Int32Array::from(vec![Some(1), Some(2), Some(3)]))],
+        )?;
+        let data_size = write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch).await?;
+
+        let expected_schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, false)]));
+        let table_schema = TableSchema::from_file_schema(Arc::clone(&expected_schema));
+
+        for projection_pushdown in [false, true] {
+            let mut opener = make_opener(Arc::clone(&object_store), table_schema.clone(), None);
+            opener.projection_pushdown = projection_pushdown;
+
+            let file = PartitionedFile::new(file_path.to_string(), data_size);
+            let batches = opener.open(file)?.await?.try_collect::<Vec<_>>().await?;
+
+            assert_eq!(batches.len(), 1);
+            assert_eq!(batches[0].schema().as_ref(), expected_schema.as_ref());
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_file_pruning_replaces_partition_columns_without_file_statistics()
+    -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, false)]));
+        let table_schema = TableSchema::new(
+            Arc::clone(&file_schema),
+            vec![Arc::new(Field::new("part", DataType::Int32, false))],
+        );
+
+        let partition_column = Arc::new(df_expr::Column::new("part", 1)) as PhysicalExprRef;
+        let predicate = Arc::new(df_expr::BinaryExpr::new(
+            Arc::clone(&partition_column),
+            Operator::Gt,
+            df_expr::lit(ScalarValue::Int32(Some(1))),
+        )) as PhysicalExprRef;
+        let dynamic_predicate = Arc::new(DynamicFilterPhysicalExpr::new(
+            vec![partition_column],
+            predicate,
+        )) as PhysicalExprRef;
+
+        let mut opener = make_opener(object_store, table_schema, None);
+        opener.file_pruning_predicate = Some(dynamic_predicate);
+        let df_metrics = opener.df_metrics.clone();
+
+        // The file does not exist and has no statistics. Replacing `part` with 1
+        // makes the predicate false, so pruning must happen before any file I/O.
+        let mut file = PartitionedFile::new("missing.vortex", 1);
+        file.partition_values = vec![ScalarValue::Int32(Some(1))];
+        let batches = opener.open(file)?.await?.try_collect::<Vec<_>>().await?;
+
+        assert!(batches.is_empty());
+        assert_eq!(
+            df_metrics
+                .clone_inner()
+                .sum_by_name("num_predicate_creation_errors")
+                .map(|metric| metric.as_usize()),
+            Some(0)
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_file_pruning_creation_errors_are_reported() -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "metrics/file.vortex";
+        let batch = record_batch!(("a", Int32, vec![Some(1), Some(2), Some(3)])).unwrap();
+        let data_size =
+            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
+        let mut statistics = Statistics::new_unknown(batch.schema().as_ref());
+        statistics.column_statistics[0].null_count = Precision::Exact(0);
+        let file = PartitionedFile::new(file_path, data_size).with_statistics(Arc::new(statistics));
+
+        let mut opener = make_opener(
+            object_store,
+            TableSchema::from_file_schema(batch.schema()),
+            None,
+        );
+        opener.file_pruning_predicate = Some(Arc::new(SnapshotErrorExpr));
+        let df_metrics = opener.df_metrics.clone();
+
+        let batches = opener.open(file)?.await?.try_collect::<Vec<_>>().await?;
+
+        assert_eq!(batches.iter().map(RecordBatch::num_rows).sum::<usize>(), 3);
+        assert_eq!(
+            df_metrics
+                .clone_inner()
+                .sum_by_name("num_predicate_creation_errors")
+                .map(|metric| metric.as_usize()),
+            Some(1)
+        );
 
         Ok(())
     }
@@ -872,11 +1191,11 @@ mod tests {
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema: table_schema.clone(),
-            batch_size: 100,
             limit: None,
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
+            df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
-            natural_split_ranges: Default::default(),
+            natural_splits: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -959,11 +1278,11 @@ mod tests {
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema: TableSchema::from_file_schema(Arc::clone(&table_schema)),
-            batch_size: 100,
             limit: None,
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
+            df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
-            natural_split_ranges: Default::default(),
+            natural_splits: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -1116,11 +1435,11 @@ mod tests {
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema: table_schema.clone(),
-            batch_size: 100,
             limit: None,
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
+            df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
-            natural_split_ranges: Default::default(),
+            natural_splits: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -1176,11 +1495,11 @@ mod tests {
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema: TableSchema::from_file_schema(schema),
-            batch_size: 100,
             limit: None,
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
+            df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
-            natural_split_ranges: Default::default(),
+            natural_splits: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -1193,8 +1512,6 @@ mod tests {
     // Test that Selection::IncludeByIndex filters to specific row indices.
     async fn test_selection_include_by_index() -> anyhow::Result<()> {
         use datafusion::arrow::util::pretty::pretty_format_batches_with_options;
-        use vortex::buffer::Buffer;
-        use vortex::scan::selection::Selection;
 
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
         let file_path = "/path/file.vortex";
@@ -1208,7 +1525,7 @@ mod tests {
         file.extensions
             .insert(
                 VortexAccessPlan::default().with_selection(Selection::IncludeByIndex(
-                    Buffer::from_iter(vec![1, 3, 5, 7]),
+                    StrictSortedBuffer::try_new(Buffer::from_iter(vec![1, 3, 5, 7]))?,
                 )),
             );
 
@@ -1252,7 +1569,7 @@ mod tests {
         file.extensions
             .insert(
                 VortexAccessPlan::default().with_selection(Selection::ExcludeByIndex(
-                    Buffer::from_iter(vec![0, 2, 4, 6, 8]),
+                    StrictSortedBuffer::try_new(Buffer::from_iter(vec![0, 2, 4, 6, 8]))?,
                 )),
             );
 
@@ -1385,11 +1702,11 @@ mod tests {
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema,
-            batch_size: 100,
             limit: None,
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
+            df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
-            natural_split_ranges: Default::default(),
+            natural_splits: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,

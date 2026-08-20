@@ -1,0 +1,24 @@
+name: Question
+description: Ask a question about using or configuring Vortex
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check the [documentation](https://docs.vortex.dev) first. For quick
+        back-and-forth, try the [Vortex Slack channel](https://vortex.dev/slack).
+
+  - type: textarea
+    id: question
+    attributes:
+      label: What's your question?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What you've tried, relevant code, or your environment
+    validations:
+      required: false

@@ -3,6 +3,7 @@
 
 package dev.vortex.spark.write;
 
+import dev.vortex.relocated.org.apache.arrow.vector.complex.MapVector;
 import dev.vortex.relocated.org.apache.arrow.vector.types.DateUnit;
 import dev.vortex.relocated.org.apache.arrow.vector.types.FloatingPointPrecision;
 import dev.vortex.relocated.org.apache.arrow.vector.types.TimeUnit;
@@ -61,28 +62,29 @@ public final class SparkToArrowSchema {
      * @return the corresponding Arrow field
      */
     private static Field convertField(StructField sparkField) {
-        ArrowType arrowType = convertType(sparkField.dataType());
-        FieldType fieldType = new FieldType(sparkField.nullable(), arrowType, null);
+        return convertField(sparkField.name(), sparkField.dataType(), sparkField.nullable());
+    }
 
-        if (sparkField.dataType() instanceof StructType) {
-            // Handle nested struct
-            StructType structType = (StructType) sparkField.dataType();
+    private static Field convertField(String name, DataType sparkType, boolean nullable) {
+        if (sparkType instanceof StructType structType) {
             List<Field> children = new ArrayList<>();
             for (StructField childField : structType.fields()) {
                 children.add(convertField(childField));
             }
-            return new Field(sparkField.name(), fieldType, children);
-        } else if (sparkField.dataType() instanceof ArrayType) {
-            // Handle array type
-            ArrayType arrayType = (ArrayType) sparkField.dataType();
-            Field elementField = new Field(
-                    "element",
-                    new FieldType(arrayType.containsNull(), convertType(arrayType.elementType()), null),
-                    null);
-            return new Field(sparkField.name(), fieldType, List.of(elementField));
+            return new Field(name, new FieldType(nullable, new ArrowType.Struct(), null), children);
+        } else if (sparkType instanceof ArrayType arrayType) {
+            Field elementField = convertField("element", arrayType.elementType(), arrayType.containsNull());
+            return new Field(name, new FieldType(nullable, new ArrowType.List(), null), List.of(elementField));
+        } else if (sparkType instanceof MapType mapType) {
+            Field keyField = convertField(MapVector.KEY_NAME, mapType.keyType(), false);
+            Field valueField = convertField(MapVector.VALUE_NAME, mapType.valueType(), mapType.valueContainsNull());
+            Field entries = new Field(
+                    MapVector.DATA_VECTOR_NAME,
+                    FieldType.notNullable(new ArrowType.Struct()),
+                    List.of(keyField, valueField));
+            return new Field(name, new FieldType(nullable, new ArrowType.Map(false), null), List.of(entries));
         } else {
-            // Primitive type
-            return new Field(sparkField.name(), fieldType, null);
+            return new Field(name, new FieldType(nullable, convertType(sparkType), null), null);
         }
     }
 
@@ -125,9 +127,6 @@ public final class SparkToArrowSchema {
             return new ArrowType.List();
         } else if (sparkType instanceof StructType) {
             return new ArrowType.Struct();
-        } else if (sparkType instanceof MapType) {
-            // Map is represented as List<Struct<key, value>> in Arrow
-            return new ArrowType.List();
         } else {
             throw new UnsupportedOperationException("Unsupported Spark type for Arrow conversion: "
                     + sparkType.getClass().getName());

@@ -10,8 +10,6 @@ use crate::array::ArrayView;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::chunked::ChunkedArrayExt;
-use crate::arrays::scalar_fn::ScalarFnFactoryExt;
-use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::fns::mask::Mask as MaskExpr;
 use crate::scalar_fn::fns::mask::MaskKernel;
 
@@ -21,7 +19,7 @@ impl MaskKernel for Chunked {
         mask: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let chunk_offsets = array.chunk_offsets();
+        let chunk_offsets = array.chunk_offset_values();
         let new_chunks: Vec<ArrayRef> = array
             .iter_chunks()
             .enumerate()
@@ -29,7 +27,7 @@ impl MaskKernel for Chunked {
                 let start = chunk_offsets[i];
                 let end = chunk_offsets[i + 1];
                 let chunk_mask = mask.slice(start..end)?;
-                MaskExpr.try_new_array(chunk.len(), EmptyOptions, [chunk.clone(), chunk_mask])
+                MaskExpr::try_new(chunk.clone(), chunk_mask).map(IntoArray::into_array)
             })
             .collect::<VortexResult<_>>()?;
 
@@ -45,6 +43,8 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::mask::test_mask_conformance;
@@ -76,10 +76,13 @@ mod test {
         DType::Primitive(PType::U8, Nullability::NonNullable),
     ).unwrap())]
     #[case(ChunkedArray::try_new(
-        (0..20).map(|i| buffer![i as f32, i as f32 + 0.5].into_array()).collect(),
+        (0..20).map(|i| buffer![i as f32, i as f32 + 0.5].into_array()),
         DType::Primitive(PType::F32, Nullability::NonNullable),
     ).unwrap())]
     fn test_mask_chunked_conformance(#[case] chunked: ChunkedArray) {
-        test_mask_conformance(&chunked.into_array());
+        test_mask_conformance(
+            &chunked.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

@@ -14,6 +14,7 @@ use bytes::Buf;
 use bytes::BufMut;
 use bytes::BytesMut;
 use bytes::buf::UninitSlice;
+use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
@@ -683,15 +684,12 @@ impl<T> BufferMut<T> {
     /// The caller guarantees that the iterator will have a trusted upper bound, which allows the
     /// implementation to reserve all of the memory needed up front.
     pub fn extend_trusted<I: TrustedLen<Item = T>>(&mut self, iter: I) {
-        // Since we know the exact upper bound (from `TrustedLen`), we can reserve all of the memory
-        // for this operation up front.
         let (_, upper_bound) = iter.size_hint();
         self.reserve(
             upper_bound
                 .vortex_expect("`TrustedLen` iterator somehow didn't have valid upper bound"),
         );
 
-        // We store `begin` in the case that the upper bound hint is incorrect.
         let begin: *const T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
         let mut dst: *mut T = begin.cast_mut();
 
@@ -702,13 +700,13 @@ impl<T> BufferMut<T> {
 
             // Note: We used to have `dst.add(iteration).write(item)`, here. However this was much
             // slower than just incrementing `dst`.
-            // SAFETY: The offsets fits in `isize`, and because we were able to reserve the memory
+            // SAFETY: The offset fits in `isize`, and because we were able to reserve the memory
             // we know that `add` will not overflow.
             unsafe { dst = dst.add(1) };
         });
 
-        // SAFETY: `dst` was derived from `begin`, which were both valid references to byte data,
-        // and since the only operation that `dst` has is `add`, we know that `dst >= begin`.
+        // SAFETY: `dst` starts at `begin` and advances by one for each item, so both pointers refer
+        // to the same allocation and `dst` is at or after `begin`.
         let items_written = unsafe { dst.offset_from_unsigned(begin) };
         let length = self.len() + items_written;
 
@@ -741,40 +739,7 @@ impl<T> BufferMut<T> {
     where
         I: TrustedLen<Item = Result<T, E>>,
     {
-        let (_, upper_bound) = iter.size_hint();
-        self.reserve(
-            upper_bound
-                .vortex_expect("`TrustedLen` iterator somehow didn't have valid upper bound"),
-        );
-
-        let begin: *const T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
-        let mut dst: *mut T = begin.cast_mut();
-        let mut result: Result<(), E> = Ok(());
-
-        for item in iter {
-            match item {
-                Ok(value) => {
-                    // SAFETY: We reserved enough capacity to hold this item, and `dst` is a
-                    // pointer derived from a valid reference to byte data.
-                    unsafe { dst.write(value) };
-                    // SAFETY: The offset fits in `isize` because we reserved that much capacity.
-                    unsafe { dst = dst.add(1) };
-                }
-                Err(e) => {
-                    result = Err(e);
-                    break;
-                }
-            }
-        }
-
-        // SAFETY: `dst` was derived from `begin`, both valid references to byte data, and
-        // `dst >= begin` since the only operation on `dst` is `add`.
-        let items_written = unsafe { dst.offset_from_unsigned(begin) };
-        let length = self.len() + items_written;
-        // SAFETY: We have written valid items between the old length and the new length.
-        unsafe { self.set_len(length) };
-
-        result
+        iter.process_results(|values| self.extend_trusted(values))
     }
 
     /// Like [`from_trusted_len_iter()`](Self::from_trusted_len_iter), but the iterator yields
@@ -783,14 +748,7 @@ impl<T> BufferMut<T> {
     where
         I: TrustedLen<Item = Result<T, E>>,
     {
-        let (_, upper_bound) = iter.size_hint();
-        let mut buffer = Self::with_capacity(
-            upper_bound
-                .vortex_expect("`TrustedLen` iterator somehow didn't have valid upper bound"),
-        );
-
-        buffer.try_extend_trusted(iter)?;
-        Ok(buffer)
+        iter.process_results(|values| Self::from_trusted_len_iter(values))
     }
 }
 
@@ -979,6 +937,15 @@ mod test {
                 .map(|&v| if v == 20 { Err("bad") } else { Ok(v) }),
         );
         assert_eq!(result.err(), Some("bad"));
+    }
+
+    #[test]
+    fn try_extend_trusted_retains_values_before_error() {
+        let mut buf = BufferMut::from_iter([0, 10]);
+        let result = buf.try_extend_trusted([Ok(20), Err("bad"), Ok(30)].into_iter());
+
+        assert_eq!(result, Err("bad"));
+        assert_eq!(buf.as_slice(), &[0, 10, 20]);
     }
 
     #[test]

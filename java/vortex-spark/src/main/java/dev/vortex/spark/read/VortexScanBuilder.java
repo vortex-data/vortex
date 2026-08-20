@@ -108,16 +108,17 @@ public final class VortexScanBuilder
     /**
      * Builds a VortexScan with the configured paths and columns.
      *
+     * <p>An empty column list is allowed: aggregates such as {@code count()} need no column data, and the scan then
+     * reads the minimal schema.
+     *
      * @return a new VortexScan instance
-     * @throws IllegalStateException if no paths or columns have been added
+     * @throws IllegalStateException if no paths have been added
      */
     @Override
     public Scan build() {
         var paths = this.paths.build();
 
         checkState(!paths.isEmpty(), "paths cannot be empty");
-        // Allow empty columns for operations like count() that don't need actual column data
-        // If no columns are specified, we'll read the minimal schema needed
 
         return new VortexScan(
                 paths,

@@ -5,7 +5,6 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use num_traits::AsPrimitive;
-use smallvec::smallvec;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
@@ -15,28 +14,32 @@ use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::ArraySlots;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
+use crate::array_slots;
 use crate::arrays::VarBin;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
-use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
+use crate::dtype::OffsetBuilderPType;
+use crate::legacy_session;
 use crate::match_each_integer_ptype;
 use crate::validity::Validity;
 
-/// The offsets array defining the start/end of each variable-length binary element.
-pub(super) const OFFSETS_SLOT: usize = 0;
-/// The validity bitmap indicating which elements are non-null.
-pub(super) const VALIDITY_SLOT: usize = 1;
-pub(super) const NUM_SLOTS: usize = 2;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["offsets", "validity"];
+#[array_slots(VarBin)]
+pub struct VarBinSlots {
+    /// The offsets array defining the start/end of each variable-length binary element.
+    #[slot(0)]
+    pub offsets: ArrayRef,
+    /// The validity bitmap indicating which elements are non-null.
+    #[slot(1)]
+    pub validity: Option<ArrayRef>,
+}
 
 #[derive(Clone, Debug)]
 pub struct VarBinData {
@@ -83,7 +86,11 @@ impl VarBinData {
     }
 
     pub(crate) fn make_slots(offsets: ArrayRef, validity: &Validity, len: usize) -> ArraySlots {
-        smallvec![Some(offsets), validity_to_child(validity, len)]
+        VarBinSlots {
+            offsets,
+            validity: validity_to_child(validity, len),
+        }
+        .into_slots()
     }
 
     /// Constructs a new `VarBinArray`.
@@ -230,6 +237,7 @@ impl VarBinData {
     }
 
     /// Validates that every non-null value is valid UTF-8.
+    #[allow(clippy::disallowed_methods)]
     fn validate_utf8(offsets: &ArrayRef, bytes: &[u8], validity: &Validity) -> VortexResult<()> {
         let validate_at = |i: usize, start: usize, end: usize| -> VortexResult<()> {
             let string_bytes = &bytes[start..end];
@@ -242,7 +250,7 @@ impl VarBinData {
             Ok(())
         };
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = legacy_session().create_execution_ctx();
         // TODO(joe): update the created VarBin with this decompressed Array.
         let primitive_offsets = offsets.clone().execute::<PrimitiveArray>(&mut ctx)?;
 
@@ -301,17 +309,7 @@ impl VarBinData {
     }
 }
 
-pub trait VarBinArrayExt: TypedArrayRef<VarBin> {
-    fn offsets(&self) -> &ArrayRef {
-        self.as_ref().slots()[OFFSETS_SLOT]
-            .as_ref()
-            .vortex_expect("VarBinArray offsets slot")
-    }
-
-    fn validity_child(&self) -> Option<&ArrayRef> {
-        self.as_ref().slots()[VALIDITY_SLOT].as_ref()
-    }
-
+pub trait VarBinArrayExt: VarBinArraySlotsExt {
     fn dtype_parts(&self) -> (bool, Nullability) {
         match self.as_ref().dtype() {
             DType::Utf8(nullability) => (true, *nullability),
@@ -330,11 +328,12 @@ pub trait VarBinArrayExt: TypedArrayRef<VarBin> {
 
     fn varbin_validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[VALIDITY_SLOT].as_ref(),
+            self.as_ref().slots()[VarBinSlots::VALIDITY].as_ref(),
             self.nullability(),
         )
     }
 
+    #[allow(clippy::disallowed_methods)]
     fn offset_at(&self, index: usize) -> usize {
         assert!(
             index <= self.as_ref().len(),
@@ -344,7 +343,7 @@ pub trait VarBinArrayExt: TypedArrayRef<VarBin> {
 
         (&self
             .offsets()
-            .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(index, &mut legacy_session().create_execution_ctx())
             .vortex_expect("offsets must support execute_scalar"))
             .try_into()
             .vortex_expect("Failed to convert offset to usize")
@@ -384,11 +383,11 @@ impl Array<VarBin> {
         dtype: DType,
     ) -> Self {
         let iter = iter.into_iter();
-        let mut builder = VarBinBuilder::<u32>::with_capacity(iter.size_hint().0);
+        let mut builder = VarBinBuilder::<u32>::with_capacity(dtype, iter.size_hint().0);
         for v in iter {
             builder.append(v.as_ref().map(|o| o.as_ref()));
         }
-        builder.finish(dtype)
+        builder.finish_into_varbin()
     }
 
     pub fn from_iter_nonnull<T: AsRef<[u8]>, I: IntoIterator<Item = T>>(
@@ -396,23 +395,23 @@ impl Array<VarBin> {
         dtype: DType,
     ) -> Self {
         let iter = iter.into_iter();
-        let mut builder = VarBinBuilder::<u32>::with_capacity(iter.size_hint().0);
+        let mut builder = VarBinBuilder::<u32>::with_capacity(dtype, iter.size_hint().0);
         for v in iter {
             builder.append_value(v);
         }
-        builder.finish(dtype)
+        builder.finish_into_varbin()
     }
 
     fn from_vec_sized<O, T>(vec: Vec<T>, dtype: DType) -> Self
     where
-        O: IntegerPType,
+        O: OffsetBuilderPType,
         T: AsRef<[u8]>,
     {
-        let mut builder = VarBinBuilder::<O>::with_capacity(vec.len());
+        let mut builder = VarBinBuilder::<O>::with_capacity(dtype, vec.len());
         for v in vec {
             builder.append_value(v.as_ref());
         }
-        builder.finish(dtype)
+        builder.finish_into_varbin()
     }
 
     /// Create from a vector of string slices.
@@ -455,7 +454,7 @@ impl Array<VarBin> {
         let len = offsets.len().saturating_sub(1);
         let slots = VarBinData::make_slots(offsets, &validity, len);
         let data = VarBinData::build(
-            slots[OFFSETS_SLOT]
+            slots[VarBinSlots::OFFSETS]
                 .as_ref()
                 .vortex_expect("VarBinArray offsets slot")
                 .clone(),

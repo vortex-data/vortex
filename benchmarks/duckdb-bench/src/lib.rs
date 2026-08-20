@@ -16,7 +16,6 @@ use vortex_bench::Format;
 use vortex_bench::IdempotentPath;
 use vortex_bench::generate_duckdb_registration_sql;
 use vortex_bench::runner::BenchmarkQueryResult;
-use vortex_duckdb::duckdb::Config;
 use vortex_duckdb::duckdb::Connection;
 use vortex_duckdb::duckdb::Database;
 use vortex_duckdb::duckdb::QueryResult;
@@ -27,6 +26,8 @@ pub struct DuckClient {
     connection: Option<Connection>,
     pub db_path: PathBuf,
     pub threads: Option<usize>,
+    /// `INSTALL spatial; LOAD spatial;` for SpatialBench.
+    init_sql: Vec<String>,
 }
 
 impl DuckClient {
@@ -52,13 +53,34 @@ impl DuckClient {
             format!("{name}/{format}/", name = benchmark.dataset_name()).to_data_path()
         };
         let dir = base_path.join(format.name());
-        std::fs::create_dir_all(&dir)?;
         let db_path = dir.join("duckdb.db");
+
+        if format != Format::OnDiskDuckDB {
+            std::fs::create_dir_all(&dir)?;
+        } else if data_url.scheme() != "file" {
+            anyhow::bail!("DuckDB format requires local data prepared by data-gen");
+        } else if !db_path.exists() {
+            anyhow::bail!(
+                "prepared DuckDB database is missing at {}. Generate it with \
+                 `vx-bench prepare-data {} --formats-json '[\"duckdb\"]'` or \
+                 `cargo run --bin data-gen -- {} --formats duckdb` using the same --opt values.",
+                db_path.display(),
+                benchmark.dataset_name(),
+                benchmark.dataset_name(),
+            );
+        }
 
         tracing::info!(db_path = %db_path.display(), "Opening DuckDB");
 
         if delete_database && db_path.exists() {
-            std::fs::remove_file(&db_path)?;
+            if format == Format::OnDiskDuckDB {
+                tracing::info!(
+                    db_path = %db_path.display(),
+                    "Keeping prepared DuckDB format database"
+                );
+            } else {
+                std::fs::remove_file(&db_path)?;
+            }
         }
 
         let (db, connection) = Self::open_and_setup_database(Some(db_path.clone()), threads)?;
@@ -68,37 +90,44 @@ impl DuckClient {
             connection: Some(connection),
             db_path,
             threads,
+            init_sql: Vec::new(),
         })
+    }
+
+    /// Run `statements` now and after every subsequent [`DuckClient::reopen`].
+    pub fn set_init_sql(&mut self, statements: Vec<String>) -> Result<()> {
+        for stmt in &statements {
+            self.connection().query(stmt)?;
+        }
+        // After `LOAD spatial`, shadow the overridden spatial functions so that their filters
+        // push down. No-op without it.
+        self.db
+            .as_ref()
+            .vortex_expect("DuckClient database accessed after close")
+            .register_spatial_overrides()?;
+        self.init_sql = statements;
+        Ok(())
     }
 
     pub fn open_and_setup_database(
         path: Option<PathBuf>,
         threads: Option<usize>,
     ) -> Result<(Database, Connection)> {
-        let mut config = Config::new().vortex_expect("failed to create duckdb config");
-
-        // Set DuckDB thread count if specified
-        if let Some(thread_count) = threads {
-            config.set("threads", &format!("{}", thread_count))?;
-        }
-
         let db = match path {
-            Some(path) => Database::open_with_config(path, config),
-            None => Database::open_in_memory_with_config(config),
+            Some(path) => Database::open(path),
+            None => Database::open_in_memory(),
         }?;
 
         let connection = db.connect()?;
         vortex_duckdb::initialize(&db)?;
 
-        // Enable Parquet metadata cache for all benchmark runs.
-        //
+        if let Some(thread_count) = threads {
+            connection.query(&format!("SET threads = {thread_count}"))?;
+        }
+
         // `parquet_metadata_cache` is an extension-specific option that's
         // only available after the Parquet extension is loaded. The Parquet
         // extension is loaded after the connection is established.
-        //
-        // Passing the option to `open_with_config` before leads to
-        // "Invalid Input Error: The following options were not recognized:
-        // parquet_metadata_cache" when running DuckDB in debug mode.
         connection.query("SET parquet_metadata_cache = true")?;
 
         Ok((db, connection))
@@ -118,6 +147,19 @@ impl DuckClient {
         self.db = Some(db);
         self.connection = Some(connection);
 
+        // Replay init SQL (e.g. LOAD spatial).
+        for stmt in &self.init_sql {
+            self.connection
+                .as_ref()
+                .vortex_expect("connection just opened")
+                .query(stmt)?;
+        }
+        // Re-shadow the overridden spatial functions against the fresh instance.
+        self.db
+            .as_ref()
+            .vortex_expect("database just opened")
+            .register_spatial_overrides()?;
+
         Ok(())
     }
 
@@ -133,6 +175,7 @@ impl DuckClient {
             connection: Some(connection),
             db_path,
             threads: None,
+            init_sql: Vec::new(),
         })
     }
 
@@ -157,8 +200,17 @@ impl DuckClient {
         benchmark: &B,
         file_format: Format,
     ) -> Result<()> {
+        if file_format == Format::OnDiskDuckDB {
+            // Native DuckDB data is materialized by data-gen. The opened database already
+            // contains benchmark tables, so there is nothing to register here.
+            return Ok(());
+        }
+
         let object_type = match file_format {
-            Format::Parquet | Format::OnDiskVortex | Format::VortexCompact => "VIEW",
+            Format::Parquet
+            | Format::OnDiskVortex
+            | Format::VortexCompact
+            | Format::VortexSpatialNative => "VIEW",
             Format::OnDiskDuckDB => "TABLE",
             Format::Lance => {
                 anyhow::bail!(
@@ -169,14 +221,8 @@ impl DuckClient {
             format => anyhow::bail!("Format {format} isn't supported for DuckDB"),
         };
 
-        // DuckDB loads from parquet for OnDiskDuckDB format
-        let load_format = match file_format {
-            Format::Parquet | Format::OnDiskDuckDB => Format::Parquet,
-            f => f,
-        };
-
         // Get the base URL for the format's data directory
-        let format_url = benchmark.format_path(load_format, benchmark.data_url())?;
+        let format_url = benchmark.format_path(file_format, benchmark.data_url())?;
         let base_dir = format_url.as_str();
         let base_dir = base_dir
             .strip_prefix("file://")
@@ -184,7 +230,7 @@ impl DuckClient {
             .trim_end_matches('/');
 
         let commands =
-            generate_duckdb_registration_sql(benchmark, base_dir, load_format, object_type);
+            generate_duckdb_registration_sql(benchmark, base_dir, file_format, object_type);
 
         for stmt in commands {
             self.execute_query(&stmt)?;

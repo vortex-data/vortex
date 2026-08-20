@@ -3,8 +3,8 @@
 
 //! CUDA support for Vortex arrays.
 
-use std::process::Command;
-
+use cudarc::driver::CudaContext;
+use cudarc::driver::sys;
 use tracing::info;
 
 pub mod arrow;
@@ -14,6 +14,7 @@ mod device_buffer;
 mod device_read_at;
 pub mod dynamic_dispatch;
 pub mod executor;
+mod file;
 pub mod hybrid_dispatch;
 mod kernel;
 pub mod layout;
@@ -34,6 +35,8 @@ pub use device_read_at::CopyDeviceReadAt;
 pub use executor::CudaDispatchMode;
 pub use executor::CudaExecutionCtx;
 pub use executor::CudaKernelEvents;
+pub use file::CudaOpenOptions;
+pub use file::CudaOpenOptionsExt;
 use kernel::ALPExecutor;
 use kernel::BitPackedExecutor;
 use kernel::ConstantNumericExecutor;
@@ -45,6 +48,7 @@ use kernel::FSSTExecutor;
 use kernel::FilterExecutor;
 use kernel::FoRExecutor;
 pub use kernel::LaunchStrategy;
+use kernel::OnPairExecutor;
 use kernel::RunEndExecutor;
 use kernel::SharedExecutor;
 pub use kernel::TracingLaunchStrategy;
@@ -59,9 +63,11 @@ pub use pinned::PinnedPoolStats;
 pub use pinned::PooledPinnedBuffer;
 pub use pooled_read_at::PooledByteBufferReadAt;
 pub use pooled_read_at::PooledFileReadAt;
+pub use pooled_read_at::PooledFileReadAtOptions;
 pub use pooled_read_at::PooledObjectStoreReadAt;
 pub use session::CudaSession;
 pub use session::CudaSessionExt;
+pub use session::VarBinExportLayout;
 pub use stream::VortexCudaStream;
 pub use stream_pool::VortexCudaStreamPool;
 use vortex::array::ArrayVTable;
@@ -85,16 +91,21 @@ use vortex::encodings::zstd::ZstdBuffers;
 #[cfg(test)]
 use vortex_cuda_macros::test;
 pub use vortex_nvcomp as nvcomp;
+use vortex_onpair::OnPair;
 
 use crate::kernel::SequenceExecutor;
 use crate::kernel::SliceExecutor;
 
-/// Checks if CUDA is available on the system by looking for nvcc.
+/// Checks if a CUDA driver and at least one CUDA device are available.
+///
+/// cudarc loads `libcuda` lazily and panics if the driver library is absent, so we first probe
+/// for it with cudarc's own `is_culib_present`. Creating the context then fails gracefully with
+/// `Err`, rather than panicking, when the driver is present but no usable device is.
 pub fn cuda_available() -> bool {
-    Command::new("nvcc")
-        .arg("--version")
-        .output()
-        .is_ok_and(|o| o.status.success())
+    // SAFETY: `is_culib_present` only tries to dlopen the driver library to test for its
+    // presence; it upholds no further invariants.
+    let driver_present = unsafe { sys::is_culib_present() };
+    driver_present && CudaContext::new(0).is_ok()
 }
 
 /// Registers CUDA kernels.
@@ -109,6 +120,7 @@ pub fn initialize_cuda(session: &CudaSession) {
     session.register_kernel(Shared.id(), &SharedExecutor);
     session.register_kernel(FoR.id(), &FoRExecutor);
     session.register_kernel(FSST.id(), &FSSTExecutor);
+    session.register_kernel(OnPair.id(), &OnPairExecutor);
     session.register_kernel(RunEnd.id(), &RunEndExecutor);
     session.register_kernel(Sequence.id(), &SequenceExecutor);
     session.register_kernel(ZigZag.id(), &ZigZagExecutor);

@@ -7,35 +7,35 @@ include ./setup.slt.no
 
 # Create a file with string data
 query I
-COPY (SELECT * FROM (VALUES ('Hello'), ('Hi'), ('Hey')) AS t(str)) TO '$__TEST_DIR__/strings.vortex';
+COPY (SELECT * FROM (VALUES ('Hello'), ('Hi'), ('Hey')) AS t(str)) TO '${WORK_DIR}/strings.vortex';
 ----
 3
 
 # Test string aggregation
 query T
-SELECT string_agg(str, ',') FROM '$__TEST_DIR__/strings.vortex';
+SELECT string_agg(str, ',') FROM '${WORK_DIR}/strings.vortex';
 ----
 Hello,Hi,Hey
 
 # Test string filtering with LIKE
 query T
-SELECT string_agg(str, ',') FROM '$__TEST_DIR__/strings.vortex' WHERE str LIKE '%He%';
+SELECT string_agg(str, ',') FROM '${WORK_DIR}/strings.vortex' WHERE str LIKE '%He%';
 ----
 Hello,Hey
 
 query T
-SELECT string_agg(str, ',') FROM '$__TEST_DIR__/strings.vortex' WHERE contains(str, 'e');
-----
-Hello,Hey
-
-onlyif duckdb
-query T
-SELECT string_agg(str, ',') FROM '$__TEST_DIR__/strings.vortex' WHERE prefix(str, 'He');
+SELECT string_agg(str, ',') FROM '${WORK_DIR}/strings.vortex' WHERE contains(str, 'e');
 ----
 Hello,Hey
 
 onlyif duckdb
 query T
-SELECT string_agg(str, ',') FROM '$__TEST_DIR__/strings.vortex' WHERE suffix(str, 'lo');
+SELECT string_agg(str, ',') FROM '${WORK_DIR}/strings.vortex' WHERE prefix(str, 'He');
+----
+Hello,Hey
+
+onlyif duckdb
+query T
+SELECT string_agg(str, ',') FROM '${WORK_DIR}/strings.vortex' WHERE suffix(str, 'lo');
 ----
 Hello

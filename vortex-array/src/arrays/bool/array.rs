@@ -4,7 +4,6 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 
-use arrow_array::BooleanArray;
 use smallvec::smallvec;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMeta;
@@ -24,16 +23,19 @@ use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
+use crate::array_slots;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::validity::Validity;
 
-/// The validity bitmap indicating which elements are non-null.
-pub(super) const VALIDITY_SLOT: usize = 0;
-pub(super) const NUM_SLOTS: usize = 1;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
+#[array_slots(Bool)]
+pub struct BoolSlots {
+    /// The validity bitmap indicating which elements are non-null.
+    #[slot(0)]
+    pub validity: Option<ArrayRef>,
+}
 
 /// Inner data for a boolean array that stores true/false values in a compact bit-packed format.
 ///
@@ -95,7 +97,7 @@ pub trait BoolArrayExt: TypedArrayRef<Bool> {
 
     fn validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[VALIDITY_SLOT].as_ref(),
+            self.as_ref().slots()[BoolSlots::VALIDITY].as_ref(),
             self.nullability(),
         )
     }
@@ -111,7 +113,7 @@ pub trait BoolArrayExt: TypedArrayRef<Bool> {
     }
 
     fn maybe_execute_mask(&self, ctx: &mut ExecutionCtx) -> VortexResult<Option<Mask>> {
-        let all_valid = match &self.validity() {
+        let all_valid = match &BoolArrayExt::validity(self) {
             Validity::NonNullable | Validity::AllValid => true,
             Validity::AllInvalid => false,
             Validity::Array(a) => a.statistics().compute_min::<bool>(ctx).unwrap_or(false),
@@ -126,8 +128,7 @@ pub trait BoolArrayExt: TypedArrayRef<Bool> {
     }
 
     fn to_mask_fill_null_false(&self, ctx: &mut ExecutionCtx) -> Mask {
-        let validity_mask = self
-            .validity()
+        let validity_mask = BoolArrayExt::validity(self)
             .execute_mask(self.as_ref().len(), ctx)
             .vortex_expect("Failed to compute validity mask");
         let buffer = match validity_mask {
@@ -338,14 +339,16 @@ impl FromIterator<bool> for BoolArray {
 
 impl FromIterator<Option<bool>> for BoolArray {
     fn from_iter<I: IntoIterator<Item = Option<bool>>>(iter: I) -> Self {
-        let (buffer, nulls) = BooleanArray::from_iter(iter).into_parts();
+        let iter = iter.into_iter();
+        let capacity = iter.size_hint().0;
+        let mut bits = BitBufferMut::with_capacity(capacity);
+        let mut validity = BitBufferMut::with_capacity(capacity);
+        for value in iter {
+            bits.append(value.unwrap_or_default());
+            validity.append(value.is_some());
+        }
 
-        BoolArray::new(
-            BitBuffer::from(buffer),
-            nulls
-                .map(|n| Validity::from(BitBuffer::from(n.into_inner())))
-                .unwrap_or(Validity::AllValid),
-        )
+        BoolArray::new(bits.freeze(), Validity::from(validity.freeze()))
     }
 }
 
@@ -366,9 +369,12 @@ mod tests {
     use std::iter::once;
     use std::iter::repeat_n;
 
+    use vortex_buffer::Alignment;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::BitBufferMut;
+    use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
@@ -377,6 +383,7 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::bool::BoolArrayExt;
     use crate::assert_arrays_eq;
+    use crate::buffer::BufferHandle;
     use crate::patches::Patches;
     use crate::validity::Validity;
 
@@ -468,6 +475,25 @@ mod tests {
         let arr = BoolArray::from(BitBuffer::new_set(16));
         let sliced = arr.slice(4..12).unwrap();
         assert_arrays_eq!(sliced, BoolArray::from_iter([true; 8]), &mut ctx);
+    }
+
+    #[test]
+    fn slice_aligned_host_handle_at_unaligned_byte() -> VortexResult<()> {
+        let bits: ByteBuffer = buffer![0b1010_1100_u8, 0b0110_1001, 0];
+        let bits = bits.aligned(Alignment::of::<u64>());
+        let array =
+            BoolArray::new_handle(BufferHandle::new_host(bits), 0, 16, Validity::NonNullable)
+                .into_array();
+
+        let sliced = array.slice(9..15)?;
+
+        let mut ctx = array_session().create_execution_ctx();
+        assert_arrays_eq!(
+            sliced,
+            BoolArray::from_iter([false, false, true, false, true, true]),
+            &mut ctx
+        );
+        Ok(())
     }
 
     #[test]

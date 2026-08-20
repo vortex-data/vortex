@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 
 use crate::FoR;
 use crate::r#for::array::FoRArrayExt;
+use crate::r#for::array::FoRArraySlotsExt;
 
 impl SliceReduce for FoR {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {

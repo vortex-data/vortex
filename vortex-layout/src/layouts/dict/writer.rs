@@ -13,12 +13,12 @@ use futures::FutureExt;
 use futures::Stream;
 use futures::StreamExt;
 use futures::TryStreamExt;
+use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use futures::pin_mut;
 use futures::stream::BoxStream;
 use futures::stream::once;
 use futures::try_join;
-use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -30,7 +30,6 @@ use vortex_array::builders::dict::dict_encoder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -39,11 +38,12 @@ use vortex_io::kanal_ext::KanalExt;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 
-use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::LayoutWriterContext;
 use crate::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
+use crate::layouts::compressed::CompressorPlugin;
 use crate::layouts::dict::DictLayout;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
@@ -108,6 +108,7 @@ pub struct DictStrategy {
     values: Arc<dyn LayoutStrategy>,
     fallback: Arc<dyn LayoutStrategy>,
     options: DictLayoutOptions,
+    probe_compressor: Arc<dyn CompressorPlugin>,
 }
 
 impl DictStrategy {
@@ -116,12 +117,14 @@ impl DictStrategy {
         values: Values,
         fallback: Fallback,
         options: DictLayoutOptions,
+        probe_compressor: Arc<dyn CompressorPlugin>,
     ) -> Self {
         Self {
             codes: Arc::new(codes),
             values: Arc::new(values),
             fallback: Arc::new(fallback),
             options,
+            probe_compressor,
         }
     }
 }
@@ -130,7 +133,7 @@ impl DictStrategy {
 impl LayoutStrategy for DictStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         mut eof: SequencePointer,
@@ -155,7 +158,9 @@ impl LayoutStrategy for DictStrategy {
             None => true, // empty stream
             Some(chunk) => {
                 let mut exec_ctx = session.create_execution_ctx();
-                let compressed = BtrBlocksCompressor::default().compress(&chunk, &mut exec_ctx)?;
+                let compressed = self
+                    .probe_compressor
+                    .compress_chunk(&chunk, &mut exec_ctx)?;
                 !compressed.is::<Dict>()
             }
         };
@@ -246,10 +251,6 @@ impl LayoutStrategy for DictStrategy {
             OwnedLayoutChildren::layout_children(child_layouts),
         )
         .into_layout())
-    }
-
-    fn buffered_bytes(&self) -> u64 {
-        self.codes.buffered_bytes() + self.values.buffered_bytes() + self.fallback.buffered_bytes()
     }
 }
 

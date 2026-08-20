@@ -113,6 +113,15 @@ pub struct PinnedByteBufferPool {
     puts: AtomicU64,
 }
 
+impl std::fmt::Debug for PinnedByteBufferPool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PinnedByteBufferPool")
+            .field("max_keep_per_size", &self.max_keep_per_size)
+            .field("stats", &self.stats())
+            .finish_non_exhaustive()
+    }
+}
+
 struct InflightPinnedBuffer {
     event: Arc<CudaEvent>,
     buffer: PinnedByteBuffer,
@@ -298,6 +307,19 @@ impl PooledPinnedBuffer {
         inner
             .as_mut_slice()
             .unwrap_or_else(|e| vortex_panic!("failed to access pinned host buffer: {e}"))
+    }
+
+    /// Shortens the logical length without reallocating the pinned buffer.
+    ///
+    /// This is an O(1) metadata update; the allocation capacity is unchanged.
+    #[cfg(target_os = "linux")]
+    pub(crate) fn truncate(&mut self, len: usize) {
+        let inner = self
+            .inner
+            .as_mut()
+            .unwrap_or_else(|| vortex_panic!("buffer already consumed"));
+        assert!(len <= inner.len());
+        inner.set_logical_len(len);
     }
 
     /// Submits a non-blocking H2D DMA transfer and returns a device buffer.

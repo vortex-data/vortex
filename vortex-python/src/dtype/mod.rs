@@ -33,9 +33,8 @@ use pyo3::pyclass;
 use pyo3::pymethods;
 use pyo3::types::PyType;
 use pyo3::wrap_pyfunction;
-use vortex::array::arrow::ArrowSessionExt;
 use vortex::dtype::DType;
-use vortex::dtype::arrow::FromArrowType;
+use vortex_arrow::ArrowSessionExt;
 
 use crate::arrow::FromPyArrow;
 use crate::arrow::ToPyArrow;
@@ -133,6 +132,9 @@ impl PyDType {
             DType::Binary(..) => Self::with_subclass(py, dtype, PyBinaryDType),
             DType::List(..) => Self::with_subclass(py, dtype, PyListDType),
             DType::FixedSizeList(..) => Self::with_subclass(py, dtype, PyFixedSizeListDType),
+            DType::Map(..) => Err(PyValueError::new_err(
+                "Map dtypes are not supported in Python",
+            )),
             DType::Struct(..) => Self::with_subclass(py, dtype, PyStructDType),
             DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
             DType::Variant(_) => Err(PyValueError::new_err(
@@ -179,7 +181,7 @@ impl PyDType {
     }
 
     fn to_arrow_schema(&self, py: Python) -> PyVortexResult<Py<PyAny>> {
-        Ok(self.0.to_arrow_schema()?.to_pyarrow(py)?)
+        Ok(session().arrow().to_arrow_schema(&self.0)?.to_pyarrow(py)?)
     }
 
     fn __str__(&self) -> String {
@@ -190,6 +192,11 @@ impl PyDType {
         self.0.python_repr().to_string()
     }
 
+    /// Return whether this data type allows null values.
+    fn is_nullable(&self) -> bool {
+        self.0.is_nullable()
+    }
+
     /// Construct a Vortex data type from an Arrow data type.
     #[classmethod]
     #[pyo3(signature = (arrow_dtype, *, non_nullable = false))]
@@ -198,10 +205,11 @@ impl PyDType {
         #[pyo3(from_py_with = import_arrow_dtype)] arrow_dtype: DataType,
         non_nullable: bool,
     ) -> PyResult<Bound<'py, PyDType>> {
-        Self::init(
-            cls.py(),
-            DType::from_arrow(&Field::new("_", arrow_dtype, !non_nullable)),
-        )
+        let dtype = session()
+            .arrow()
+            .from_arrow_field(&Field::new("_", arrow_dtype, !non_nullable))
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Self::init(cls.py(), dtype)
     }
 }
 

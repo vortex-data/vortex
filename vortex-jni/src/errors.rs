@@ -11,6 +11,7 @@ use jni::sys::JNI_FALSE;
 use jni::sys::jboolean;
 use jni::sys::jobject;
 use vortex::error::VortexError;
+use vortex::error::vortex_err;
 
 #[derive(Debug, thiserror::Error)]
 pub enum JNIError {
@@ -35,6 +36,15 @@ impl From<VortexError> for JNIError {
 impl From<ArrowError> for JNIError {
     fn from(error: ArrowError) -> Self {
         JNIError::Vortex(VortexError::from(error))
+    }
+}
+
+impl From<JNIError> for VortexError {
+    fn from(error: JNIError) -> Self {
+        match error {
+            JNIError::Vortex(error) => error,
+            JNIError::Custom(error) => vortex_err!("JNI: {error}"),
+        }
     }
 }
 

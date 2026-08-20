@@ -20,33 +20,51 @@ use datafusion_execution::SendableRecordBatchStream;
 use datafusion_execution::TaskContext;
 use datafusion_physical_plan::DisplayAs;
 use datafusion_physical_plan::DisplayFormatType;
+use datafusion_physical_plan::metrics::Count;
+use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
+use datafusion_physical_plan::metrics::MetricBuilder;
+use datafusion_physical_plan::metrics::MetricCategory;
 use datafusion_physical_plan::metrics::MetricsSet;
 use futures::StreamExt;
 use object_store::ObjectStore;
 use object_store::path::Path;
 use tokio_stream::wrappers::ReceiverStream;
-use vortex::array::arrow::ArrowSessionExt;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteSummary;
 use vortex::io::VortexWrite;
 use vortex::io::object_store::ObjectStoreWrite;
 use vortex::session::VortexSession;
+use vortex_arrow::ArrowSessionExt;
 
 /// Implements [`DataSink`] for writing Vortex files.
 pub struct VortexSink {
     config: FileSinkConfig,
     schema: SchemaRef,
     session: VortexSession,
+    metrics: ExecutionPlanMetricsSet,
+    rows_written: Count,
+    bytes_written: Count,
 }
 
 impl VortexSink {
     /// Creates a new [`VortexSink`] instance.
     pub fn new(config: FileSinkConfig, schema: SchemaRef, session: VortexSession) -> Self {
+        let metrics = ExecutionPlanMetricsSet::new();
+        let rows_written = MetricBuilder::new(&metrics)
+            .with_category(MetricCategory::Rows)
+            .global_counter("rows_written");
+        let bytes_written = MetricBuilder::new(&metrics)
+            .with_category(MetricCategory::Bytes)
+            .global_counter("bytes_written");
+
         Self {
             config,
             schema,
             session,
+            metrics,
+            rows_written,
+            bytes_written,
         }
     }
 }
@@ -75,7 +93,7 @@ impl DisplayAs for VortexSink {
 #[async_trait]
 impl DataSink for VortexSink {
     fn metrics(&self) -> Option<MetricsSet> {
-        None
+        Some(self.metrics.clone_inner())
     }
 
     /// Returns the sink schema
@@ -161,7 +179,12 @@ impl FileSink for VortexSink {
                 Ok(r) => {
                     let (path, summary) = r?;
 
-                    row_count += summary.row_count();
+                    let rows = summary.row_count();
+                    row_count += rows;
+                    self.rows_written
+                        .add(usize::try_from(rows).unwrap_or(usize::MAX));
+                    self.bytes_written
+                        .add(usize::try_from(summary.size()).unwrap_or(usize::MAX));
 
                     tracing::info!(path = %path, "Successfully written file");
                 }
@@ -234,11 +257,28 @@ mod tests {
             )
             .await?;
 
-        ctx.session
+        let insert = ctx
+            .session
             .sql("INSERT INTO my_tbl VALUES ('hello', 1), ('world', 2);")
-            .await?
-            .collect()
             .await?;
+        let physical_plan = insert.create_physical_plan().await?;
+        datafusion_physical_plan::collect(Arc::clone(&physical_plan), ctx.session.task_ctx())
+            .await?;
+
+        let metrics = physical_plan
+            .metrics()
+            .ok_or_else(|| anyhow::anyhow!("Vortex insert did not expose sink metrics"))?;
+        assert_eq!(
+            metrics
+                .sum_by_name("rows_written")
+                .map(|metric| metric.as_usize()),
+            Some(2)
+        );
+        assert!(
+            metrics
+                .sum_by_name("bytes_written")
+                .is_some_and(|metric| metric.as_usize() > 0)
+        );
 
         let batches = ctx
             .session
@@ -482,10 +522,12 @@ mod tests {
             file_output_mode: FileOutputMode::SingleFile,
         };
 
-        let get_sink = || VortexSink {
-            config: config.clone(),
-            schema: Arc::clone(table_schema.file_schema()),
-            session: session.clone(),
+        let get_sink = || {
+            VortexSink::new(
+                config.clone(),
+                Arc::clone(table_schema.file_schema()),
+                session.clone(),
+            )
         };
 
         insta::assert_snapshot!(DefaultDisplay(get_sink()).to_string(), @"VortexSink(file_groups=[])");

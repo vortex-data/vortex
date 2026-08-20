@@ -28,8 +28,6 @@ vortex-utils = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }
-rstest = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["env-filter"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-session = { workspace = true }
 

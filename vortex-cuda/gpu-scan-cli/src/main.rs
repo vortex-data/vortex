@@ -29,13 +29,12 @@ use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
 use vortex::io::session::RuntimeSessionExt;
+use vortex::session::SessionExt;
 use vortex::session::VortexSession;
+use vortex_cuda::CudaOpenOptionsExt;
 use vortex_cuda::CudaSession;
-use vortex_cuda::PinnedByteBufferPool;
 use vortex_cuda::PooledByteBufferReadAt;
-use vortex_cuda::PooledFileReadAt;
 use vortex_cuda::TracingLaunchStrategy;
-use vortex_cuda::VortexCudaStreamPool;
 use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda::layout::CudaFlatLayoutStrategy;
 use vortex_cuda::layout::register_cuda_layout;
@@ -155,16 +154,13 @@ async fn cmd_scan(path: PathBuf, gpu_file: bool, json_output: bool) -> VortexRes
     let mut cuda_ctx = CudaSession::create_execution_ctx(&session)?
         .with_launch_strategy(Arc::new(TracingLaunchStrategy));
 
-    let pool = Arc::new(PinnedByteBufferPool::new(Arc::clone(
-        cuda_ctx.stream().context(),
-    )));
-    let cuda_stream =
-        VortexCudaStreamPool::new(Arc::clone(cuda_ctx.stream().context()), 1).stream()?;
-    let handle = session.handle();
+    let cuda_session = session.get::<CudaSession>();
+    let pool = Arc::clone(cuda_session.pinned_buffer_pool());
+    let cuda_stream = cuda_session.stream()?;
+    drop(cuda_session);
 
     let gpu_file_handle = if gpu_file {
-        let reader = PooledFileReadAt::open(&path, handle, Arc::clone(&pool), cuda_stream)?;
-        session.open_options().open(Arc::new(reader)).await?
+        session.open_options().with_cuda().open_path(&path).await?
     } else {
         let (recompressed, footer) = recompress_for_gpu(&path, &session).await?;
         let reader = PooledByteBufferReadAt::new(recompressed, Arc::clone(&pool), cuda_stream);

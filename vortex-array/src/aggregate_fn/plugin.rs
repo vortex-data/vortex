@@ -10,6 +10,7 @@ use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::dtype::DType;
 
 /// Reference-counted pointer to an aggregate function plugin.
 pub type AggregateFnPluginRef = Arc<dyn AggregateFnPlugin>;
@@ -28,6 +29,19 @@ pub trait AggregateFnPlugin: 'static + Send + Sync {
     /// Deserialize an aggregate function from serialized metadata.
     fn deserialize(&self, metadata: &[u8], session: &VortexSession)
     -> VortexResult<AggregateFnRef>;
+
+    /// The default zone statistic (per-chunk) for a column of `input_dtype`, or `None` if the
+    /// dtype is not supported (or this aggregate is not a zone statistic at all).
+    ///
+    /// This is how a registered aggregate volunteers itself as a per-chunk statistic: when a
+    /// zoned layout writer opens a column, it collects every plugin's default via
+    /// [`AggregateFnSession::zone_stat_defaults`], so new statistics can be added without the
+    /// writer knowing about them.
+    ///
+    /// [`AggregateFnSession::zone_stat_defaults`]: crate::aggregate_fn::session::AggregateFnSession::zone_stat_defaults
+    fn zone_stat_default(&self, _input_dtype: &DType) -> Option<AggregateFnRef> {
+        None
+    }
 }
 
 impl std::fmt::Debug for dyn AggregateFnPlugin {
@@ -50,5 +64,9 @@ impl<V: AggregateFnVTable> AggregateFnPlugin for V {
     ) -> VortexResult<AggregateFnRef> {
         let options = AggregateFnVTable::deserialize(self, metadata, session)?;
         Ok(AggregateFn::new(self.clone(), options).erased())
+    }
+
+    fn zone_stat_default(&self, input_dtype: &DType) -> Option<AggregateFnRef> {
+        AggregateFnVTable::zone_stat_default(self, input_dtype)
     }
 }

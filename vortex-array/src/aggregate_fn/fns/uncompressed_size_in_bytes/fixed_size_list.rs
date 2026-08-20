@@ -8,7 +8,7 @@ use super::uncompressed_size_in_bytes_u64;
 use super::validity_uncompressed_size_in_bytes;
 use crate::ExecutionCtx;
 use crate::arrays::FixedSizeListArray;
-use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
+use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 
 pub(super) fn fixed_size_list_uncompressed_size_in_bytes(
     array: &FixedSizeListArray,

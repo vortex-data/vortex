@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use anyhow::Result;
 use async_trait::async_trait;
 use futures::TryStreamExt;
-use glob::glob;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
@@ -39,12 +38,10 @@ async fn ensure_tpch_parquet() -> Result<PathBuf> {
         generate_tpch_tables(options).await?;
     }
 
-    // Return the first lineitem parquet file
-    let pattern = data_dir.join("lineitem_*.parquet");
-    glob(pattern.to_string_lossy().as_ref())?
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("No lineitem parquet files found"))?
-        .map_err(Into::into)
+    let path = data_dir.join("lineitem.parquet");
+    path.exists()
+        .then_some(path)
+        .ok_or_else(|| anyhow::anyhow!("No lineitem parquet file found"))
 }
 
 #[async_trait]
@@ -58,7 +55,7 @@ impl Dataset for TPCHLCommentChunked {
         let scale_factor_dir = base_path.join("1.0");
         let data_dir = scale_factor_dir.join(Format::OnDiskVortex.name());
 
-        // Generate TPC-H CSV data if it doesn't exist
+        // Generate TPC-H Vortex data if it doesn't exist
         if !data_dir.exists() {
             // Use blocking call like TPC-H benchmark does
             let options = TpchGenOptions::new("1.0".to_string(), scale_factor_dir)
@@ -67,30 +64,25 @@ impl Dataset for TPCHLCommentChunked {
             futures::executor::block_on(generate_tpch_tables(options))?;
         }
 
-        let mut chunks: Vec<ArrayRef> = vec![];
-        for path in glob(
-            data_dir
-                .join("lineitem_*.vortex")
-                .to_string_lossy()
-                .as_ref(),
-        )? {
-            let file = SESSION.open_options().open_path(path?).await?;
-            let file_chunks: Vec<_> = file
-                .scan()?
-                .with_projection(pack(vec![("l_comment", col("l_comment"))], NonNullable))
-                .map({
-                    let ctx = ctx.clone();
-                    move |a| {
-                        let mut ctx = ctx.clone();
-                        let canonical = a.execute::<Canonical>(&mut ctx)?;
-                        Ok(canonical.into_array())
-                    }
-                })
-                .into_array_stream()?
-                .try_collect()
-                .await?;
-            chunks.extend(file_chunks);
-        }
+        let path = data_dir.join("lineitem.vortex");
+        let file = SESSION.open_options().open_path(path).await?;
+        let projection = pack(vec![("l_comment", col("l_comment"))], NonNullable)
+            .optimize_recursive(file.dtype())?
+            .bind(file.dtype())?;
+        let chunks: Vec<_> = file
+            .scan()?
+            .with_projection(projection)
+            .map({
+                let ctx = ctx.clone();
+                move |a| {
+                    let mut ctx = ctx.clone();
+                    let canonical = a.execute::<Canonical>(&mut ctx)?;
+                    Ok(canonical.into_array())
+                }
+            })
+            .into_array_stream()?
+            .try_collect()
+            .await?;
 
         Ok(ChunkedArray::from_iter(chunks).into_array())
     }

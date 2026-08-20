@@ -119,10 +119,20 @@ const VECTOR_SIZE: &[usize] = &[16, 256, 2048, 8192];
 fn my_bench<const N: usize>(bencher: Bencher, num_indices: usize) { ... }
 ```
 
-### Keep per-iteration execution time under ~1 ms
+### Keep per-iteration execution time under 1 ms
 
-Each individual iteration of the benchmarked closure should complete in
-**less than 1ms**. This is to keep benchmarks snappy, locally and on CI.
+**1 ms is the maximum, not a soft target.** Each individual iteration of the benchmarked
+closure must complete in less than 1 ms. This is to keep benchmarks snappy, locally and on
+CI.
+
+A benchmark that needs longer than that is measuring too much work at once. Shrink the
+input size until a single iteration fits, split it into smaller parameterized cases, or
+gate it with `#[cfg(not(codspeed))]` if it genuinely cannot be made to fit.
+
+The number to check against the budget is the per-iteration time, not the time the whole
+benchmark binary takes. CodSpeed reports exactly that: its performance report on a pull
+request lists the per-iteration time under `HEAD` for every benchmark the pull request adds
+or changes, so check any new benchmark there before merging.
 
 ### Gate CodSpeed-incompatible benchmarks
 
@@ -208,14 +218,20 @@ uv run --project bench-orchestrator vx-bench run tpch \
 
 Benchmarks run automatically on all commits to `develop` and can be run on-demand for PRs:
 
-- **Post-commit** -- compression, random access, and SQL benchmarks run on every commit to
-  `develop`, with results uploaded for historical tracking.
-- **PR benchmarks** -- triggered by the `action/benchmark` label. Results are compared against
-  the latest `develop` run and posted as a PR comment.
-- **SQL benchmarks** -- triggered by the `action/benchmark-sql` label. Runs the base SQL matrix,
-  which excludes Appian, TPC-H SF=10 on S3, `vortex-compact`, and `duckdb:duckdb`.
-- **Full SQL benchmarks** -- triggered by the `action/benchmark-sql-full` label. Runs the full
-  SQL matrix of suites, engines, formats, and storage backends (NVMe, S3).
+- **Post-commit** -- compression, string encoding, random access, and SQL benchmarks run on every
+  commit to `develop`, with results uploaded for historical tracking.
+- **Random access** -- `action/bench-random-access` runs only the random-access benchmark.
+- **Compression** -- `action/bench-compress` runs only the compression benchmark.
+- **String encoding** -- `action/bench-string` runs only the string encoding benchmark.
+- **GPU compression** -- `action/bench-gpu-compress` runs the allow-listed Vortex decompression
+  cases on a GPU runner.
+- **SQL** -- `action/bench-sql` runs the `pr` preset, which excludes `vortex-compact`.
+- **SQL Compact** -- `action/bench-sql-compact` runs the `pr-compact` preset, which benchmarks
+  `vortex-compact` plus Parquet control rows used to distinguish code changes from runner drift.
+- **All CPU benchmarks** -- `action/bench-all` runs random access, compression, string encoding,
+  and the `pr-all` SQL preset, which combines the `pr` and `pr-compact` coverage without
+  repeating shared jobs. Do not combine it with other benchmark labels; GPU compression is the
+  only exception.
 
 All CI benchmarks run on dedicated instances with the `release_debug` profile and
 `-C target-cpu=native` to produce representative numbers.

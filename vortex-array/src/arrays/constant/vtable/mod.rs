@@ -5,6 +5,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::hash::Hasher;
 
+use itertools::Itertools;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -15,6 +16,7 @@ use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
+use crate::ArrayParts;
 use crate::ArrayRef;
 use crate::EqMode;
 use crate::ExecutionCtx;
@@ -24,6 +26,8 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::array::unsupported_buffer_replacement;
+use crate::arrays::ExtensionArray;
 use crate::arrays::constant::ConstantData;
 use crate::arrays::constant::compute::rules::PARENT_RULES;
 use crate::arrays::constant::vtable::canonical::constant_canonicalize;
@@ -31,14 +35,21 @@ use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::BoolBuilder;
 use crate::builders::DecimalBuilder;
+use crate::builders::FixedSizeListBuilder;
+use crate::builders::ListViewBuilder;
 use crate::builders::NullBuilder;
 use crate::builders::PrimitiveBuilder;
 use crate::builders::VarBinViewBuilder;
+use crate::builders::builder_with_capacity;
 use crate::canonical::Canonical;
 use crate::dtype::DType;
+use crate::dtype::OffsetBuilderPType;
 use crate::match_each_decimal_value;
+use crate::match_each_listview_builder;
 use crate::match_each_native_ptype;
+use crate::match_each_varbin_builder;
 use crate::scalar::DecimalValue;
+use crate::scalar::ListScalar;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::serde::ArrayChildren;
@@ -109,6 +120,14 @@ impl VTable for Constant {
         }
     }
 
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        unsupported_buffer_replacement(array, buffers)
+    }
+
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         vortex_panic!("ConstantArray slot_name index {idx} out of bounds")
     }
@@ -131,7 +150,7 @@ impl VTable for Constant {
         buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
         session: &VortexSession,
-    ) -> VortexResult<crate::array::ArrayParts<Self>> {
+    ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure!(
             buffers.len() == 1,
             "Expected 1 buffer, got {}",
@@ -144,7 +163,7 @@ impl VTable for Constant {
         let scalar_value = ScalarValue::from_proto_bytes(bytes, dtype, session)?;
         let scalar = Scalar::try_new(dtype.clone(), scalar_value)?;
 
-        Ok(crate::array::ArrayParts::new(
+        Ok(ArrayParts::new(
             self.clone(),
             dtype.clone(),
             len,
@@ -212,36 +231,162 @@ impl VTable for Constant {
                 });
             }
             DType::Utf8(_) => {
-                append_value_or_nulls::<VarBinViewBuilder>(builder, scalar.is_null(), n, |b| {
-                    let typed = scalar.as_utf8();
-                    let value = typed
-                        .value()
-                        .vortex_expect("non-null utf8 scalar must have a value");
-                    b.append_n_values(value.as_bytes(), n);
-                });
+                if let Some(result) = match_each_varbin_builder!(builder, |builder| {
+                    builder.append_scalar_repeated(scalar, n)
+                }) {
+                    result?;
+                } else {
+                    append_value_or_nulls::<VarBinViewBuilder>(builder, scalar.is_null(), n, |b| {
+                        let value = scalar
+                            .as_utf8()
+                            .value()
+                            .vortex_expect("non-null utf8 scalar must have a value");
+                        b.append_n_values(value.as_bytes(), n);
+                    });
+                }
             }
             DType::Binary(_) => {
-                append_value_or_nulls::<VarBinViewBuilder>(builder, scalar.is_null(), n, |b| {
-                    let typed = scalar.as_binary();
-                    let value = typed
-                        .value()
-                        .vortex_expect("non-null binary scalar must have a value");
-                    b.append_n_values(value, n);
-                });
+                if let Some(result) = match_each_varbin_builder!(builder, |builder| {
+                    builder.append_scalar_repeated(scalar, n)
+                }) {
+                    result?;
+                } else {
+                    append_value_or_nulls::<VarBinViewBuilder>(builder, scalar.is_null(), n, |b| {
+                        let value = scalar
+                            .as_binary()
+                            .value()
+                            .vortex_expect("non-null binary scalar must have a value");
+                        b.append_n_values(value, n);
+                    });
+                }
             }
-            // TODO: add fast paths for DType::Struct, DType::List, DType::FixedSizeList, DType::Extension.
-            _ => {
-                let canonical = array
-                    .array()
-                    .clone()
-                    .execute::<Canonical>(ctx)?
-                    .into_array();
-                builder.extend_from_array(&canonical);
+            DType::List(..) => append_constant_list_run(array, n, builder, ctx)?,
+            DType::Extension(ext_dtype) => {
+                // An extension array is its storage wearing a dtype, so a run of identical values
+                // is a constant storage array, which stays constant-encoded in the builder.
+                // Canonicalizing instead would materialize the storage: see the note in
+                // `constant_canonicalize` about `ExtensionConstantRule`.
+                let storage = ConstantArray::new(scalar.as_extension().to_storage_scalar(), n);
+                ExtensionArray::new(ext_dtype.clone(), storage.into_array())
+                    .into_array()
+                    .append_to_builder(builder, ctx)?
             }
+            DType::FixedSizeList(..) => {
+                append_constant_fixed_size_list_run(array, n, builder, ctx)?
+            }
+            // The remaining dtypes canonicalize cheaply: a constant struct canonicalizes to
+            // constant fields, and a constant map to views sharing one copy of the entries, so
+            // appending the canonical array preserves the run's economy.
+            // TODO: add a fast path for DType::Union once it has a builder.
+            _ => append_via_canonical(array, builder, ctx)?,
         }
 
         Ok(())
     }
+}
+
+/// Appends the constant list `array` as one run sharing a single copy of its elements.
+///
+/// The list's elements materialize once, and
+/// [`ListViewBuilder::append_array_as_repeated_list`] points the run's `n` views at that one
+/// copy. Only a list-view builder has a layout that can share elements; any other builder for a
+/// list dtype - a [`ListBuilder`](crate::builders::ListBuilder), whose offsets can only describe
+/// contiguous lists - appends the canonical run instead.
+fn append_constant_list_run(
+    array: ArrayView<'_, Constant>,
+    n: usize,
+    builder: &mut dyn ArrayBuilder,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    let scalar = array.scalar();
+    match match_each_listview_builder!(builder, |b| append_repeated_list_run(
+        b,
+        scalar.as_list(),
+        n,
+        ctx
+    )) {
+        Some(result) => result,
+        None => append_via_canonical(array, builder, ctx),
+    }
+}
+
+/// Appends the list `scalar` to a [`ListViewBuilder`] `n` times, storing its elements once.
+fn append_repeated_list_run<O: OffsetBuilderPType, S: OffsetBuilderPType>(
+    builder: &mut ListViewBuilder<O, S>,
+    scalar: ListScalar,
+    n: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    if n == 0 {
+        return Ok(());
+    }
+
+    let Some(elements) = scalar.elements() else {
+        // A null run stores no elements at all.
+        builder.append_nulls(n);
+        return Ok(());
+    };
+
+    let mut elements_builder = builder_with_capacity(scalar.element_dtype(), elements.len());
+    for element in &elements {
+        elements_builder.append_scalar(element)?;
+    }
+
+    builder.append_array_as_repeated_list(&elements_builder.finish(), n, ctx)
+}
+
+/// Appends the constant fixed-size-list `array` as its list's elements tiled `n` times.
+///
+/// The list's elements materialize into a tile once - a single [`ConstantArray`] when they are
+/// all the same scalar, so that the tiling costs nothing - and
+/// [`FixedSizeListBuilder::append_array_as_repeated_list`] shares that one tile across the run.
+fn append_constant_fixed_size_list_run(
+    array: ArrayView<'_, Constant>,
+    n: usize,
+    builder: &mut dyn ArrayBuilder,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    let Some(builder) = builder.as_any_mut().downcast_mut::<FixedSizeListBuilder>() else {
+        return append_via_canonical(array, builder, ctx);
+    };
+
+    if n == 0 {
+        return Ok(());
+    }
+
+    let scalar = array.scalar().as_list();
+    let Some(elements) = scalar.elements() else {
+        // A null run stores no elements of its own, only the placeholders the builder writes.
+        builder.append_nulls(n);
+        return Ok(());
+    };
+
+    let tile = match elements.iter().all_equal_value() {
+        Ok(uniform) => ConstantArray::new(uniform.clone(), elements.len()).into_array(),
+        Err(_) => {
+            let mut tile_builder = builder_with_capacity(builder.element_dtype(), elements.len());
+            for element in &elements {
+                tile_builder.append_scalar(element)?;
+            }
+            tile_builder.finish()
+        }
+    };
+
+    builder.append_array_as_repeated_list(&tile, n, ctx)
+}
+
+/// Appends `array` by canonicalizing it first, for the dtypes with no fast path of their own.
+fn append_via_canonical(
+    array: ArrayView<'_, Constant>,
+    builder: &mut dyn ArrayBuilder,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    let canonical = array
+        .array()
+        .clone()
+        .execute::<Canonical>(ctx)?
+        .into_array();
+    canonical.append_to_builder(builder, ctx)
 }
 
 /// Downcasts `builder` to `B`, then either appends `n` nulls or calls `fill` with the typed
@@ -268,19 +413,36 @@ fn append_value_or_nulls<B: ArrayBuilder + 'static>(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use rstest::rstest;
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::arrays::Chunked;
+    use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
+    use crate::arrays::Extension;
+    use crate::arrays::FixedSizeList;
+    use crate::arrays::ListView;
+    use crate::arrays::Struct;
+    use crate::arrays::chunked::ChunkedArrayExt;
     use crate::arrays::constant::vtable::canonical::constant_canonicalize;
+    use crate::arrays::extension::ExtensionArrayExt;
+    use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
+    use crate::arrays::listview::ListViewArraySlotsExt;
+    use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
+    use crate::builders::ArrayBuilder;
+    use crate::builders::ListBuilder;
     use crate::builders::builder_with_capacity;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
+    use crate::extension::datetime::Date;
+    use crate::extension::datetime::TimeUnit;
     use crate::scalar::Scalar;
 
     /// Appends `array` into a fresh builder and asserts the result matches `constant_canonicalize`.
@@ -300,6 +462,23 @@ mod tests {
     #[test]
     fn test_null_constant_append() -> VortexResult<()> {
         assert_append_matches_canonical(ConstantArray::new(Scalar::null(DType::Null), 5))
+    }
+
+    #[test]
+    fn test_with_buffers_rejects_serialized_scalar_buffer() {
+        let array =
+            ConstantArray::new(Scalar::primitive(42i32, Nullability::NonNullable), 3).into_array();
+        let buffers = array.buffer_handles();
+
+        // SAFETY: the replacement buffers are the array's existing buffers, so the logical values
+        // would be unchanged if the encoding supported buffer replacement.
+        let Err(err) = (unsafe { array.with_buffers(buffers) }) else {
+            panic!("ConstantArray should reject replacing its serialized scalar buffer");
+        };
+        assert!(
+            err.to_string()
+                .contains("does not support in-memory buffer replacement")
+        );
     }
 
     #[rstest]
@@ -370,6 +549,79 @@ mod tests {
         ))
     }
 
+    #[rstest]
+    #[case::non_empty(vec![Scalar::from(1i32), Scalar::from(2i32)], 4)]
+    #[case::empty(vec![], 3)]
+    #[case::n_zero(vec![Scalar::from(1i32)], 0)]
+    fn test_list_constant_append(
+        #[case] elements: Vec<Scalar>,
+        #[case] n: usize,
+    ) -> VortexResult<()> {
+        let scalar = Scalar::list(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            elements,
+            Nullability::NonNullable,
+        );
+        assert_append_matches_canonical(ConstantArray::new(scalar, n))
+    }
+
+    #[test]
+    fn test_null_list_constant_append() -> VortexResult<()> {
+        let dtype = DType::List(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            Nullability::Nullable,
+        );
+        assert_append_matches_canonical(ConstantArray::new(Scalar::null(dtype), 3))
+    }
+
+    /// A run of identical lists appended into a list-view builder shares one copy of its elements
+    /// across the whole run.
+    #[test]
+    fn test_list_constant_append_keeps_one_copy_of_the_elements() -> VortexResult<()> {
+        let mut ctx = crate::array_session().create_execution_ctx();
+        let scalar = Scalar::list(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            vec![Scalar::from(1i32), Scalar::from(2i32), Scalar::from(3i32)],
+            Nullability::NonNullable,
+        );
+        let array = ConstantArray::new(scalar, 1_000);
+
+        let mut builder = builder_with_capacity(array.dtype(), array.len());
+        array
+            .into_array()
+            .append_to_builder(builder.as_mut(), &mut ctx)?;
+        let result = builder.finish();
+
+        assert_eq!(
+            result.as_::<ListView>().elements().len(),
+            3,
+            "the run's elements should be stored once, not once per row",
+        );
+        Ok(())
+    }
+
+    /// A `ListBuilder`'s offsets can only describe contiguous lists, so a constant run cannot
+    /// share its elements there and takes the canonical path instead.
+    #[test]
+    fn test_list_constant_append_into_list_builder() -> VortexResult<()> {
+        let mut ctx = crate::array_session().create_execution_ctx();
+        let element_dtype: Arc<DType> =
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
+        let scalar = Scalar::list(
+            Arc::clone(&element_dtype),
+            vec![Scalar::from(1i32), Scalar::from(2i32)],
+            Nullability::NonNullable,
+        );
+        let array = ConstantArray::new(scalar, 4).into_array();
+
+        let mut builder =
+            ListBuilder::<u32>::with_capacity(element_dtype, Nullability::NonNullable, 0, 0);
+        array.append_to_builder(&mut builder, &mut ctx)?;
+
+        assert_arrays_eq!(&builder.finish(), &array, &mut ctx);
+        Ok(())
+    }
+
     #[test]
     fn test_struct_constant_append() -> VortexResult<()> {
         let fields = StructFields::new(
@@ -397,5 +649,120 @@ mod tests {
         );
         let dtype = DType::Struct(fields, Nullability::Nullable);
         assert_append_matches_canonical(ConstantArray::new(Scalar::null(dtype), 4))
+    }
+
+    /// A run of identical structs should leave each field constant-encoded rather than materialize
+    /// a value per row per field.
+    #[test]
+    fn test_struct_constant_append_keeps_fields_constant() -> VortexResult<()> {
+        let mut ctx = crate::array_session().create_execution_ctx();
+        let fields = StructFields::new(
+            ["x", "y"].into(),
+            vec![
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+                DType::Utf8(Nullability::NonNullable),
+            ],
+        );
+        let scalar = Scalar::struct_(
+            DType::Struct(fields, Nullability::NonNullable),
+            [
+                Scalar::primitive(42i32, Nullability::NonNullable),
+                Scalar::utf8("hi", Nullability::NonNullable),
+            ],
+        );
+        let array = ConstantArray::new(scalar, 1_000);
+
+        let mut builder = builder_with_capacity(array.dtype(), array.len());
+        array
+            .into_array()
+            .append_to_builder(builder.as_mut(), &mut ctx)?;
+        let result = builder.finish();
+
+        let struct_array = result.as_::<Struct>();
+        for field in 0..2 {
+            assert!(
+                struct_array.unmasked_field(field).is::<Constant>(),
+                "field {field} should have stayed constant-encoded",
+            );
+        }
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::non_uniform(vec![Scalar::from(1i32), Scalar::from(2i32)])]
+    #[case::uniform(vec![Scalar::from(7i32), Scalar::from(7i32)])]
+    fn test_fixed_size_list_constant_append(#[case] elements: Vec<Scalar>) -> VortexResult<()> {
+        let scalar = Scalar::fixed_size_list(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            elements,
+            Nullability::NonNullable,
+        );
+        assert_append_matches_canonical(ConstantArray::new(scalar, 4))
+    }
+
+    #[test]
+    fn test_null_fixed_size_list_constant_append() -> VortexResult<()> {
+        let dtype = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            2,
+            Nullability::Nullable,
+        );
+        assert_append_matches_canonical(ConstantArray::new(Scalar::null(dtype), 3))
+    }
+
+    /// A fixed-size list whose elements are all the same scalar tiles a constant array, so the
+    /// tile's chunks stay constant-encoded rather than materializing a value per row.
+    #[test]
+    fn test_uniform_fixed_size_list_constant_append_keeps_elements_constant() -> VortexResult<()> {
+        let mut ctx = crate::array_session().create_execution_ctx();
+        let scalar = Scalar::fixed_size_list(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            vec![Scalar::from(7i32), Scalar::from(7i32)],
+            Nullability::NonNullable,
+        );
+        let array = ConstantArray::new(scalar, 1_000);
+
+        let mut builder = builder_with_capacity(array.dtype(), array.len());
+        array
+            .into_array()
+            .append_to_builder(builder.as_mut(), &mut ctx)?;
+        let result = builder.finish();
+
+        let elements = result.as_::<FixedSizeList>().elements().clone();
+        assert!(
+            elements
+                .as_::<Chunked>()
+                .iter_chunks()
+                .all(|chunk| chunk.is::<Constant>()),
+            "a uniform tile should have stayed constant-encoded",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_extension_constant_append() -> VortexResult<()> {
+        let scalar = Scalar::extension::<Date>(TimeUnit::Days, Scalar::from(Some(42i32)));
+        assert_append_matches_canonical(ConstantArray::new(scalar, 5))
+    }
+
+    /// An extension array is its storage wearing a dtype, so a run of identical values should leave
+    /// the storage constant-encoded.
+    #[test]
+    fn test_extension_constant_append_keeps_storage_constant() -> VortexResult<()> {
+        let mut ctx = crate::array_session().create_execution_ctx();
+        let scalar = Scalar::extension::<Date>(TimeUnit::Days, Scalar::from(Some(42i32)));
+        let array = ConstantArray::new(scalar, 1_000);
+
+        let mut builder = builder_with_capacity(array.dtype(), array.len());
+        array
+            .into_array()
+            .append_to_builder(builder.as_mut(), &mut ctx)?;
+        let result = builder.finish();
+
+        assert!(
+            result.as_::<Extension>().storage_array().is::<Constant>(),
+            "the storage should have stayed constant-encoded",
+        );
+        Ok(())
     }
 }

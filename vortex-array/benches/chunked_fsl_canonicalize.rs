@@ -16,6 +16,7 @@ use divan::Bencher;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::array_session;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::validity::Validity;
@@ -23,10 +24,11 @@ use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 /// Number of lists in each chunk.
 const LISTS_PER_CHUNK: usize = 1_000;
@@ -53,9 +55,7 @@ fn create_fsl(list_size: usize, num_lists: usize) -> FixedSizeListArray {
 fn create_chunked_fsl(list_size: usize, num_chunks: usize) -> ChunkedArray {
     let chunk = create_fsl(list_size, LISTS_PER_CHUNK);
     let dtype = chunk.dtype().clone();
-    let chunks = (0..num_chunks)
-        .map(|_| chunk.clone().into_array())
-        .collect();
+    let chunks = (0..num_chunks).map(|_| chunk.clone().into_array());
     ChunkedArray::try_new(chunks, dtype).unwrap()
 }
 

@@ -11,7 +11,7 @@ use crate::array::ArrayView;
 use crate::arrays::Variant;
 use crate::arrays::VariantArray;
 use crate::arrays::slice::SliceReduce;
-use crate::arrays::variant::VariantArrayExt;
+use crate::arrays::variant::VariantArraySlotsExt;
 
 impl SliceReduce for Variant {
     fn slice(array: ArrayView<'_, Variant>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {

@@ -8,7 +8,6 @@ maxdepth: 2
 ---
 
 extending/index
-embedding/index
 language-bindings
 benchmarking
 ```
@@ -24,6 +23,7 @@ internals/session
 internals/async-runtime
 internals/vtables
 internals/execution
+internals/scan-planning
 internals/stats-pruning
 internals/io
 internals/serialization
@@ -37,6 +37,5 @@ caption: Integrations
 ---
 
 integrations/datafusion
-integrations/duckdb
 integrations/spark
 ```

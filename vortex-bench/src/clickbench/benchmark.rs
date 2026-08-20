@@ -41,7 +41,7 @@ impl ClickBenchBenchmark {
     }
 }
 
-/// ClickBench sorted by event date and event time.
+/// ClickBench sorted by event time, with shard filenames shuffled to exercise sort pushdown.
 pub struct ClickBenchSortedBenchmark {
     pub queries_file: Option<String>,
     pub data_url: Url,
@@ -60,7 +60,9 @@ impl ClickBenchSortedBenchmark {
 fn read_clickbench_queries(queries_file: Option<&str>) -> Result<Vec<(usize, String)>> {
     let queries_filepath = match queries_file {
         Some(file) => file.into(),
-        None => Path::new(env!("CARGO_MANIFEST_DIR")).join("clickbench_queries.sql"),
+        None => Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("sql")
+            .join("clickbench_queries.sql"),
     };
 
     Ok(fs::read_to_string(queries_filepath)?
@@ -74,6 +76,10 @@ fn read_clickbench_queries(queries_file: Option<&str>) -> Result<Vec<(usize, Str
 
 #[async_trait::async_trait]
 impl Benchmark for ClickBenchBenchmark {
+    fn doc_path(&self) -> &'static str {
+        "vortex-bench/sql/clickbench.md"
+    }
+
     fn queries(&self) -> Result<Vec<(usize, String)>> {
         read_clickbench_queries(self.queries_file.as_deref())
     }
@@ -118,6 +124,10 @@ impl Benchmark for ClickBenchBenchmark {
 
 #[async_trait::async_trait]
 impl Benchmark for ClickBenchSortedBenchmark {
+    fn doc_path(&self) -> &'static str {
+        "vortex-bench/sql/clickbench.md#sorted-variant"
+    }
+
     fn queries(&self) -> Result<Vec<(usize, String)>> {
         Ok(read_clickbench_queries(self.queries_file.as_deref())?
             .into_iter()

@@ -2,16 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use rstest::rstest;
+use vortex_buffer::BitBuffer;
+use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use super::*;
 use crate::Canonical;
 use crate::IntoArray;
-#[expect(deprecated)]
-use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::array_session;
+use crate::arrays::BoolArray;
+use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::dtype::DType;
@@ -43,6 +45,24 @@ fn test_dtype_nullability_with_nullable_child() {
 }
 
 #[test]
+fn test_empty_child_with_array_validity() -> VortexResult<()> {
+    let child_validity =
+        Validity::Array(BoolArray::new(BitBuffer::new_set(0), Validity::NonNullable).into_array());
+    let child = PrimitiveArray::new(Buffer::<i32>::empty(), child_validity).into_array();
+    let validity =
+        Validity::Array(BoolArray::new(BitBuffer::new_set(0), Validity::NonNullable).into_array());
+
+    let mut ctx = array_session().create_execution_ctx();
+    assert!(child.all_valid(&mut ctx)?);
+    assert!(child.all_invalid(&mut ctx)?);
+
+    let array = MaskedArray::try_new(child, validity)?;
+
+    assert!(array.is_empty());
+    Ok(())
+}
+
+#[test]
 fn test_canonical_dtype_matches_array_dtype() -> VortexResult<()> {
     // The canonical form should have the same nullability as the array's dtype.
     let child = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
@@ -63,11 +83,13 @@ fn test_masked_child_with_validity() {
     let array =
         MaskedArray::try_new(child, Validity::from_iter([true, false, true, false, true])).unwrap();
 
-    #[expect(deprecated)]
-    let prim = array.as_array().to_primitive();
-
     // Positions where validity is false should be null in masked_child.
     let mut ctx = array_session().create_execution_ctx();
+    let prim = array
+        .as_array()
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)
+        .unwrap();
     assert_eq!(prim.valid_count(&mut ctx).unwrap(), 3);
     assert!(
         prim.is_valid(0, &mut array_session().create_execution_ctx())
@@ -139,4 +161,24 @@ fn test_masked_child_preserves_length(#[case] validity: Validity) {
             .mask_eq(&validity, array.len(), &mut ctx)
             .unwrap(),
     );
+}
+
+#[test]
+fn masked_listview_execute_preserves_zctl_true() -> VortexResult<()> {
+    // Masking only intersects validity, so the zero-copy-to-list survives
+    // execution.
+    let elements = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
+    let offsets = PrimitiveArray::from_iter([0i32, 2]).into_array();
+    let sizes = PrimitiveArray::from_iter([2i32, 1]).into_array();
+    let list_view = unsafe {
+        ListViewArray::new_unchecked(elements, offsets, sizes, Validity::NonNullable)
+            .with_zero_copy_to_list(true)
+    };
+
+    let masked = MaskedArray::try_new(list_view.into_array(), Validity::from_iter([true, false]))?;
+    let canonical = masked
+        .into_array()
+        .execute::<Canonical>(&mut array_session().create_execution_ctx())?;
+    assert!(canonical.into_listview().is_zero_copy_to_list());
+    Ok(())
 }

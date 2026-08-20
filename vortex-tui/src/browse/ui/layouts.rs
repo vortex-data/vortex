@@ -176,8 +176,7 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
         // Canonicalize each field once so the per-row `execute_scalar` calls below do not
         // re-decode the field encodings for every row.
         let field_arrays: Vec<ArrayRef> = struct_array
-            .unmasked_fields()
-            .iter()
+            .iter_unmasked_fields()
             .map(|field| {
                 field
                     .clone()

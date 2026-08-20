@@ -39,8 +39,8 @@ workspace = true
 [dev-dependencies]
 divan = { workspace = true }
 num-traits = { workspace = true }
-rand = { workspace = true }
 rstest = { workspace = true }
+vortex-bench-support = { workspace = true }
 
 [[bench]]
 name = "vortex_buffer"
@@ -48,4 +48,12 @@ harness = false
 
 [[bench]]
 name = "vortex_bitbuffer"
+harness = false
+
+[[bench]]
+name = "cpu_dispatch"
+harness = false
+
+[[bench]]
+name = "collect_bool"
 harness = false

@@ -1,0 +1,9 @@
+---
+source: vortex-btrblocks/tests/golden.rs
+expression: rendered
+---
+input: decimal(12,2), len=16384, nbytes=131072
+root: vortex.decimal_byte_parts(decimal(12,2), len=16384) nbytes=47666
+  metadata: 
+  msp: vortex.pco(i32, len=16384) nbytes=47666
+    metadata: ptype: i32, nrows: 16384, slice: 0..16384

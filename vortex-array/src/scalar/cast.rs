@@ -7,6 +7,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 
 use crate::dtype::DType;
 use crate::scalar::Scalar;
@@ -29,6 +30,16 @@ impl Scalar {
             // Cast from non-nullable to nullable or vice versa.
             // The `try_new` will handle nullability checks.
             return Scalar::try_new(target_dtype.clone(), self.value().cloned());
+        }
+
+        if let (Some(source), Some(target)) = (self.dtype().as_map_opt(), target_dtype.as_map_opt())
+            && target.keys_sorted()
+            && !source.keys_sorted()
+        {
+            return Err(vortex_err!(
+                "Cannot cast {} to {target_dtype}: source does not assert sorted map keys",
+                self.dtype()
+            ));
         }
 
         // Null can be cast into any nullable type as null.
@@ -57,8 +68,12 @@ impl Scalar {
             DType::Utf8(_) => self.as_utf8().cast(target_dtype),
             DType::Binary(_) => self.as_binary().cast(target_dtype),
             DType::List(..) | DType::FixedSizeList(..) => self.as_list().cast(target_dtype),
+            DType::Map(..) => self.as_map().cast(target_dtype),
             DType::Struct(..) => self.as_struct().cast(target_dtype),
-            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+            DType::Union(..) => vortex_bail!(
+                "union scalar cast from {} to {target_dtype} is not supported (yet)",
+                self.dtype()
+            ),
             DType::Variant(_) => vortex_bail!("Variant scalars can't be cast to {target_dtype}"),
             DType::Extension(..) => self.as_extension().cast(target_dtype),
         }

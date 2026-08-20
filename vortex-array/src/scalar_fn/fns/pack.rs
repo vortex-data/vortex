@@ -23,6 +23,7 @@ use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
 use crate::expr::Expression;
+use crate::expr::display::ExprDisplay;
 use crate::expr::lit;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -105,13 +106,13 @@ impl ScalarFnVTable for Pack {
     fn fmt_sql(
         &self,
         options: &Self::Options,
-        expr: &Expression,
+        expr: &dyn ExprDisplay,
         f: &mut Formatter<'_>,
     ) -> std::fmt::Result {
         write!(f, "pack(")?;
-        for (i, (name, child)) in options.names.iter().zip(expr.children().iter()).enumerate() {
+        for (i, name) in options.names.iter().enumerate() {
             write!(f, "{}: ", name)?;
-            child.fmt_sql(f)?;
+            Display::fmt(expr.display_child(i), f)?;
             if i + 1 < options.names.len() {
                 write!(f, ", ")?;
             }
@@ -150,9 +151,9 @@ impl ScalarFnVTable for Pack {
             .execute(ctx)
     }
 
-    // This applies a nullability
-    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
-        true
+    fn is_strict(&self, _instance: &Self::Options) -> bool {
+        // A null field value does not force the packed struct row to be null.
+        false
     }
 
     fn is_fallible(&self, _instance: &Self::Options) -> bool {
@@ -170,8 +171,6 @@ mod tests {
     use super::PackOptions;
     use crate::ArrayRef;
     use crate::IntoArray;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::PrimitiveArray;
@@ -194,26 +193,33 @@ mod tests {
     }
 
     fn primitive_field(array: &ArrayRef, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
+        let mut ctx = array_session().create_execution_ctx();
         let mut field_path = field_path.iter();
 
         let Some(field) = field_path.next() else {
             vortex_bail!("empty field path");
         };
 
-        #[expect(deprecated)]
-        let mut array = array.to_struct().unmasked_field_by_name(field)?.clone();
+        let mut array = array
+            .clone()
+            .execute::<StructArray>(&mut ctx)?
+            .unmasked_field_by_name(field)?
+            .clone();
         for field in field_path {
-            #[expect(deprecated)]
-            let next = array.to_struct().unmasked_field_by_name(field)?.clone();
+            let next = array
+                .clone()
+                .execute::<StructArray>(&mut ctx)?
+                .unmasked_field_by_name(field)?
+                .clone();
             array = next;
         }
-        #[expect(deprecated)]
-        let result = array.to_primitive();
+        let result = array.execute::<PrimitiveArray>(&mut ctx)?;
         Ok(result)
     }
 
     #[test]
     pub fn test_empty_pack() {
+        let mut ctx = array_session().create_execution_ctx();
         let expr = Pack.new_expr(
             PackOptions {
                 names: Default::default(),
@@ -225,8 +231,11 @@ mod tests {
         let test_array = test_array();
         let actual_array = test_array.clone().apply(&expr).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
-        #[expect(deprecated)]
-        let nfields = actual_array.to_struct().struct_fields().nfields();
+        let nfields = actual_array
+            .execute::<StructArray>(&mut ctx)
+            .unwrap()
+            .struct_fields()
+            .nfields();
         assert_eq!(nfields, 0);
     }
 
@@ -241,8 +250,11 @@ mod tests {
             [col("a"), col("b"), col("a")],
         );
 
-        #[expect(deprecated)]
-        let actual_array = test_array().apply(&expr).unwrap().to_struct();
+        let actual_array = test_array()
+            .apply(&expr)
+            .unwrap()
+            .execute::<StructArray>(&mut ctx)
+            .unwrap();
 
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
         assert!(matches!(actual_array.validity(), Ok(Validity::NonNullable)));
@@ -285,8 +297,11 @@ mod tests {
             ],
         );
 
-        #[expect(deprecated)]
-        let actual_array = test_array().apply(&expr).unwrap().to_struct();
+        let actual_array = test_array()
+            .apply(&expr)
+            .unwrap()
+            .execute::<StructArray>(&mut ctx)
+            .unwrap();
 
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
 
@@ -314,6 +329,7 @@ mod tests {
 
     #[test]
     pub fn test_pack_nullable() {
+        let mut ctx = array_session().create_execution_ctx();
         let expr = Pack.new_expr(
             PackOptions {
                 names: ["one", "two", "three"].into(),
@@ -322,8 +338,11 @@ mod tests {
             [col("a"), col("b"), col("a")],
         );
 
-        #[expect(deprecated)]
-        let actual_array = test_array().apply(&expr).unwrap().to_struct();
+        let actual_array = test_array()
+            .apply(&expr)
+            .unwrap()
+            .execute::<StructArray>(&mut ctx)
+            .unwrap();
 
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
         assert!(matches!(actual_array.validity(), Ok(Validity::AllValid)));

@@ -6,15 +6,17 @@ use std::sync::LazyLock;
 
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
+use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::Canonical;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::accessor::ArrayAccessor;
+use crate::array_session;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ListArray;
+use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
@@ -23,8 +25,6 @@ use crate::arrays::dict_test::gen_dict_primitive_chunks;
 use crate::arrays::struct_::StructArrayExt;
 use crate::assert_arrays_eq;
 use crate::builders::builder_with_capacity;
-#[expect(deprecated)]
-use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -32,7 +32,7 @@ use crate::dtype::PType::I32;
 use crate::executor::execute_into_builder;
 use crate::validity::Validity;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 fn chunked_array() -> ChunkedArray {
     ChunkedArray::try_new(
@@ -206,30 +206,36 @@ fn with_slot_rewrites_chunk_and_offsets() {
     let mut ctx = SESSION.create_execution_ctx();
     let array = chunked_array().into_array();
 
-    let replacement = buffer![10u64, 11, 12].into_array();
-    let array = array.with_slot(1, replacement).unwrap();
+    let replacement = buffer![1u64, 2, 3].into_array();
+    // SAFETY: the replacement chunk has the same logical values as the original chunk; only the
+    // physical child handle changes.
+    let array = unsafe { array.with_slot(1, replacement) }.unwrap();
     let array = array.as_::<Chunked>();
 
     assert_eq!(array.nchunks(), 3);
-    assert_eq!(array.chunk_offsets(), [0, 3, 6, 9]);
+    assert_eq!(array.chunk_offset_values(), [0, 3, 6, 9]);
     assert_arrays_eq!(
         array.chunk(0).clone(),
-        PrimitiveArray::from_iter([10u64, 11, 12]),
+        PrimitiveArray::from_iter([1u64, 2, 3]),
         &mut ctx
     );
     assert_arrays_eq!(
         array.array().clone(),
-        PrimitiveArray::from_iter([10u64, 11, 12, 4, 5, 6, 7, 8, 9]),
+        PrimitiveArray::from_iter([1u64, 2, 3, 4, 5, 6, 7, 8, 9]),
         &mut ctx
     );
 }
 
 #[test]
 fn with_slot_rejects_len_mismatch() {
-    let err = chunked_array()
-        .into_array()
-        .with_slot(1, buffer![10u64, 11].into_array())
-        .unwrap_err();
+    // SAFETY: this call is expected to fail the checked slot length invariant before any rewritten
+    // array is returned or observed.
+    let err = unsafe {
+        chunked_array()
+            .into_array()
+            .with_slot(1, buffer![10u64, 11].into_array())
+    }
+    .unwrap_err();
 
     assert!(err.to_string().contains("physical rewrite"));
 }
@@ -352,36 +358,34 @@ fn scalar_at_empty_children_leading() {
 }
 
 #[test]
-pub fn pack_nested_structs() {
+pub fn pack_nested_structs() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let struct_array = StructArray::try_new(
         ["a"].into(),
         vec![VarBinViewArray::from_iter_str(["foo", "bar", "baz", "quak"]).into_array()],
         4,
         Validity::NonNullable,
-    )
-    .unwrap();
+    )?;
     let dtype = struct_array.dtype().clone();
     let chunked = ChunkedArray::try_new(
         vec![
-            ChunkedArray::try_new(vec![struct_array.clone().into_array()], dtype.clone())
-                .unwrap()
+            ChunkedArray::try_new(vec![struct_array.clone().into_array()], dtype.clone())?
                 .into_array(),
         ],
         dtype,
-    )
-    .unwrap()
+    )?
     .into_array();
-    #[expect(deprecated)]
-    let canonical_struct = chunked.to_struct();
-    #[expect(deprecated)]
-    let canonical_varbin = canonical_struct.unmasked_fields()[0].to_varbinview();
-    #[expect(deprecated)]
-    let original_varbin = struct_array.unmasked_fields()[0].to_varbinview();
-    let orig_values =
-        original_varbin.with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>());
-    let canon_values =
-        canonical_varbin.with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>());
-    assert_eq!(orig_values, canon_values);
+    let canonical_struct = chunked.execute::<StructArray>(&mut ctx)?;
+    let canonical_varbin = canonical_struct
+        .unmasked_field(0)
+        .clone()
+        .execute::<VarBinViewArray>(&mut ctx)?;
+    let original_varbin = struct_array
+        .unmasked_field(0)
+        .clone()
+        .execute::<VarBinViewArray>(&mut ctx)?;
+    assert_arrays_eq!(original_varbin, canonical_varbin, &mut ctx);
+    Ok(())
 }
 
 #[test]
@@ -409,8 +413,12 @@ pub fn pack_nested_lists() {
         ),
     );
 
-    #[expect(deprecated)]
-    let canon_values = chunked_list.unwrap().as_array().to_listview();
+    let canon_values = chunked_list
+        .unwrap()
+        .as_array()
+        .clone()
+        .execute::<ListViewArray>(&mut ctx)
+        .unwrap();
 
     assert_eq!(
         l1.execute_scalar(0, &mut ctx).unwrap(),

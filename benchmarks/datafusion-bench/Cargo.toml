@@ -14,6 +14,17 @@ rust-version = { workspace = true }
 version = { workspace = true }
 publish = false
 
+[package.metadata.cargo-shear]
+ignored = ["vortex-cuda"]
+
+[[bin]]
+name = "datafusion-bench"
+path = "src/main.rs"
+test = false
+
+[lib]
+test = false
+
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
@@ -36,6 +47,7 @@ parking_lot = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 url = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "files", "tokio"] }
+vortex-arrow = { workspace = true }
 vortex-bench = { workspace = true }
 vortex-cuda = { workspace = true, optional = true }
 vortex-datafusion = { workspace = true }

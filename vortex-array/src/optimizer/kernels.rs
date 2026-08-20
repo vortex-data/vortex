@@ -27,12 +27,14 @@ use std::any::Any;
 use std::borrow::Borrow;
 use std::fmt::Debug;
 use std::hash::BuildHasher;
+use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
 use vortex_error::VortexResult;
-use vortex_error::vortex_panic;
+use vortex_session::ArcSwapMap;
 use vortex_session::SessionExt;
+use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
 use vortex_session::VortexSession;
 use vortex_session::registry::Id;
@@ -41,7 +43,6 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::arc_swap_map::ArcSwapMap;
 use crate::array::VTable;
 use crate::arrays::Struct;
 use crate::arrays::struct_::compute::rules::struct_cast_reduce_parent;
@@ -171,14 +172,19 @@ impl Borrow<u64> for ExecuteParentFnId {
     }
 }
 
+/// Registry of [`ReduceParentFn`]s, keyed by hashed `(parent, child)` pair.
+type ReduceParentRegistry = ArcSwapMap<ReduceParentFnId, Arc<[ReduceParentFn]>>;
+/// Registry of [`ExecuteParentKernelRef`]s, keyed by hashed `(parent, child)` pair.
+type ExecuteParentRegistry = ArcSwapMap<ExecuteParentFnId, Arc<[ExecuteParentKernelRef]>>;
+
 /// Session-scoped registry of optimizer kernel functions.
 ///
 /// Each kernel kind has its own storage map, keyed by `(outer_id, child_id)`. Registering
 /// functions for an existing key appends them to that key's ordered list.
 #[derive(Clone, Debug)]
 pub struct ArrayKernels {
-    reduce_parent: ArcSwapMap<ReduceParentFnId, Arc<[ReduceParentFn]>>,
-    execute_parent: ArcSwapMap<ExecuteParentFnId, Arc<[ExecuteParentKernelRef]>>,
+    reduce_parent: ReduceParentRegistry,
+    execute_parent: ExecuteParentRegistry,
 }
 
 impl Default for ArrayKernels {
@@ -193,8 +199,8 @@ impl ArrayKernels {
     /// Create an empty [`ArrayKernels`] with no kernels registered.
     pub fn empty() -> Self {
         Self {
-            reduce_parent: ArcSwapMap::default(),
-            execute_parent: ArcSwapMap::default(),
+            reduce_parent: ReduceParentRegistry::default(),
+            execute_parent: ExecuteParentRegistry::default(),
         }
     }
 
@@ -316,6 +322,17 @@ impl KernelSession {
     }
 }
 
+/// Derefs to the held [`ArrayKernels`] registry, so a [`KernelSession`] (or a
+/// [`SessionGuard<KernelSession>`](SessionGuard) read from a session) can be used wherever an
+/// `&ArrayKernels` is expected.
+impl Deref for KernelSession {
+    type Target = ArrayKernels;
+
+    fn deref(&self) -> &ArrayKernels {
+        &self.kernels
+    }
+}
+
 impl Default for KernelSession {
     fn default() -> Self {
         // `ArrayKernels::default` installs the built-in parent-reduce kernels. The execute-parent
@@ -343,17 +360,16 @@ impl SessionVar for KernelSession {
 
 /// Extension trait for accessing the optimizer kernel registry from a [`VortexSession`].
 pub trait ArrayKernelsExt: SessionExt {
-    /// Returns the active [`ArrayKernels`] registry if the session contains a [`KernelSession`].
-    fn kernels_opt(&self) -> Option<&ArrayKernels> {
-        self.get_opt::<KernelSession>().map(KernelSession::kernels)
-    }
-
-    /// Returns the active [`ArrayKernels`] registry.
+    /// Returns the session's [`KernelSession`], inserting a default one (with the built-in
+    /// kernels) if it does not exist.
     ///
-    /// Panics if the session does not contain a [`KernelSession`].
-    fn kernels(&self) -> &ArrayKernels {
-        self.kernels_opt()
-            .unwrap_or_else(|| vortex_panic!("Session does not contain a KernelSession"))
+    /// The returned [`SessionGuard`] borrows the session snapshot it was read from (so the registry
+    /// stays alive even if the session is concurrently mutated) and derefs through [`KernelSession`]
+    /// to the [`ArrayKernels`] registry, so it can be used wherever an `&ArrayKernels` is expected.
+    /// The registry shares its storage with the session, so kernels registered through it remain
+    /// visible to the session.
+    fn kernels(&self) -> SessionGuard<'_, KernelSession> {
+        self.get::<KernelSession>()
     }
 }
 
@@ -389,9 +405,11 @@ mod tests {
     }
 
     #[test]
-    fn kernels_opt_is_none_without_kernel_session() {
+    fn kernels_inserts_default_kernel_session() {
         let session = VortexSession::empty();
 
-        assert!(session.kernels_opt().is_none());
+        // `kernels()` uses `get`, so it inserts a default `KernelSession` (with the built-in
+        // kernels) rather than returning `None`.
+        assert!(session.kernels().has_execute_parent(Binary.id(), Bool.id()));
     }
 }

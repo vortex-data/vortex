@@ -20,7 +20,16 @@ class Engine(Enum):
 
     @property
     def binary_name(self) -> str:
-        """Return the cargo binary name for this engine when used to execute benchmarks."""
+        """Return the benchmark executable name for this engine."""
+        return {
+            Engine.DUCKDB: "duckdb-bench",
+            Engine.DATAFUSION: "datafusion-bench",
+            Engine.LANCE: "lance-bench",
+        }[self]
+
+    @property
+    def package_name(self) -> str:
+        """Return the Cargo package name that provides this engine's benchmark binary."""
         return {
             Engine.DUCKDB: "duckdb-bench",
             Engine.DATAFUSION: "datafusion-bench",
@@ -31,10 +40,10 @@ class Engine(Enum):
 class Format(Enum):
     """Data formats for benchmarks."""
 
-    ARROW = "arrow"
     PARQUET = "parquet"
     VORTEX = "vortex"
     VORTEX_COMPACT = "vortex-compact"
+    VORTEX_SPATIAL_NATIVE = "vortex-spatial-native"
     DUCKDB = "duckdb"
     LANCE = "lance"
 
@@ -52,12 +61,13 @@ class Benchmark(Enum):
     POLARSIGNALS = "polarsignals"
     PUBLIC_BI = "public-bi"
     STATPOPGEN = "statpopgen"
+    SPATIALBENCH = "spatialbench"
+    VORTEX_QUERIES = "vortex"
 
 
 # Engine to supported formats mapping.
 ENGINE_FORMATS: dict[Engine, list[Format]] = {
     Engine.DATAFUSION: [
-        Format.ARROW,
         Format.PARQUET,
         Format.VORTEX,
         Format.VORTEX_COMPACT,
@@ -67,10 +77,24 @@ ENGINE_FORMATS: dict[Engine, list[Format]] = {
         Format.PARQUET,
         Format.VORTEX,
         Format.VORTEX_COMPACT,
+        Format.VORTEX_SPATIAL_NATIVE,
         Format.DUCKDB,
     ],
     Engine.LANCE: [Format.LANCE],
 }
+
+# Engines each benchmark can run on. Benchmarks default to *every* engine; list one here only to
+# restrict it. SpatialBench's queries use DuckDB-specific `ST_*` spatial SQL that DataFusion has no
+# functions for yet.
+BENCHMARK_ENGINES: dict[Benchmark, frozenset[Engine]] = {
+    Benchmark.SPATIALBENCH: frozenset({Engine.DUCKDB}),
+}
+
+
+def engines_for_benchmark(benchmark: Benchmark) -> frozenset[Engine]:
+    """Return the engines `benchmark` supports, defaulting to every engine when unrestricted."""
+    return BENCHMARK_ENGINES.get(benchmark, frozenset(Engine))
+
 
 T = TypeVar("T")
 
@@ -175,13 +199,16 @@ def parse_formats_json(value: str) -> list[Format]:
 
 
 def resolve_axis_targets(
-    engines: Iterable[Engine], formats: Iterable[Format]
+    engines: Iterable[Engine], formats: Iterable[Format], benchmark: Benchmark | None = None
 ) -> tuple[list[BenchmarkTarget], list[str]]:
     """Expand engine/format axes into supported explicit targets."""
     warnings: list[str] = []
     targets: list[BenchmarkTarget] = []
 
     for engine in engines:
+        if benchmark is not None and engine not in engines_for_benchmark(benchmark):
+            warnings.append(f"Benchmark {benchmark.value} does not support engine {engine.value}")
+            continue
         for fmt in formats:
             target = BenchmarkTarget(engine=engine, format=fmt).normalized()
             if not target.is_supported():
@@ -200,7 +227,9 @@ def group_targets_by_backend(targets: Iterable[BenchmarkTarget]) -> dict[Engine,
     return groups
 
 
-def validate_targets(targets: Iterable[BenchmarkTarget], options: dict[str, str]) -> list[str]:
+def validate_targets(
+    targets: Iterable[BenchmarkTarget], options: dict[str, str], benchmark: Benchmark | None = None
+) -> list[str]:
     """Validate explicit targets against benchmark runner constraints."""
     errors: list[str] = []
 
@@ -208,6 +237,8 @@ def validate_targets(targets: Iterable[BenchmarkTarget], options: dict[str, str]
     for target in normalized_targets:
         if not target.is_supported():
             errors.append(f"Format {target.format.value} is not supported by engine {target.engine.value}")
+        if benchmark is not None and target.engine not in engines_for_benchmark(benchmark):
+            errors.append(f"Benchmark {benchmark.value} does not support engine {target.engine.value}")
 
     if options.get("remote-data-dir") and any(target.format == Format.LANCE for target in normalized_targets):
         errors.append("Lance format is not supported for remote storage benchmarks.")
@@ -242,7 +273,7 @@ class RunConfig:
 
     def validate(self) -> list[str]:
         """Validate the configuration and return any errors."""
-        return validate_targets(self.targets, self.options)
+        return validate_targets(self.targets, self.options, self.benchmark)
 
 
 @dataclass

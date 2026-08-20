@@ -12,6 +12,7 @@ use vortex_error::VortexResult;
 
 use crate::rle::RLE;
 use crate::rle::RLEArrayExt;
+use crate::rle::RLEArraySlotsExt;
 
 impl CastReduce for RLE {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -162,6 +163,6 @@ mod tests {
     fn test_cast_rle_conformance(#[case] primitive: PrimitiveArray) {
         let mut ctx = SESSION.create_execution_ctx();
         let rle_array = rle(&primitive, &mut ctx);
-        test_cast_conformance(&rle_array.into_array());
+        test_cast_conformance(&rle_array.into_array(), &mut ctx);
     }
 }

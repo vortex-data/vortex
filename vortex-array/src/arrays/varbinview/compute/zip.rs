@@ -57,7 +57,7 @@ impl ZipKernel for VarBinView {
         let true_validity = if_true.varbinview_validity().execute_mask(len, ctx)?;
         let false_validity = if_false.varbinview_validity().execute_mask(len, ctx)?;
 
-        let mask = mask.try_to_mask_fill_null_false(ctx)?;
+        let mask = mask.clone().null_as_false().execute(ctx)?;
         let if_false_view = if_false;
         match mask.slices() {
             AllOr::All => push_range(
@@ -209,19 +209,19 @@ fn push_view(
 
 #[cfg(test)]
 mod tests {
+    use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
     use crate::IntoArray;
-    use crate::accessor::ArrayAccessor;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::VarBinViewArray;
     use crate::builtins::ArrayBuiltins;
-    #[expect(deprecated)]
-    use crate::canonical::ToCanonical as _;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
 
     #[test]
-    fn zip_varbinview_kernel_zips() {
+    fn zip_varbinview_kernel_zips() -> VortexResult<()> {
         let a = VarBinViewArray::from_iter(
             [
                 Some("aaaaaaaaaaaaa_long"), // outlined
@@ -248,18 +248,22 @@ mod tests {
 
         let mask = Mask::from_iter([true, false, true, false, false, true]);
 
-        #[expect(deprecated)]
+        let mut ctx = array_session().create_execution_ctx();
         let zipped = mask
             .clone()
             .into_array()
-            .zip(a.into_array(), b.into_array())
-            .unwrap()
-            .to_varbinview();
+            .zip(a.into_array(), b.into_array())?
+            .execute::<VarBinViewArray>(&mut ctx)?;
 
-        let values = zipped.with_iterator(|it| {
-            it.map(|v| v.map(|bytes| String::from_utf8(bytes.to_vec()).unwrap()))
-                .collect::<Vec<_>>()
-        });
+        let mut ctx = array_session().create_execution_ctx();
+        let validity_mask = zipped.validity()?.execute_mask(zipped.len(), &mut ctx)?;
+        let values = (0..zipped.len())
+            .map(|i| {
+                validity_mask
+                    .value(i)
+                    .then(|| String::from_utf8(zipped.bytes_at(i).to_vec()).unwrap())
+            })
+            .collect::<Vec<_>>();
 
         assert_eq!(
             values,
@@ -274,5 +278,6 @@ mod tests {
         );
         assert_eq!(zipped.len(), mask.len());
         assert_eq!(zipped.dtype(), &DType::Utf8(Nullability::Nullable));
+        Ok(())
     }
 }

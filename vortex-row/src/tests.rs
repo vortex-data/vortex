@@ -10,15 +10,20 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::array_session;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::listview::ListViewArrayExt;
+use vortex_array::arrays::listview::ListViewArraySlotsExt;
+use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::extension::datetime::Date;
 use vortex_array::extension::datetime::TimeUnit;
+use vortex_array::validity::Validity;
+use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 
 use crate::RowEncoder;
@@ -611,5 +616,79 @@ fn reject_list_dtype_early() {
     assert!(
         err.to_string().contains("List"),
         "expected error mentioning List, got: {err}"
+    );
+}
+
+/// Chunks of one decimal column can compress to different physical value widths. The key
+/// width must come from the declared dtype, not the chunk's `values_type`, otherwise keys
+/// from different chunks are not memcmp-comparable.
+#[rstest]
+#[case::ascending(false)]
+#[case::descending(true)]
+fn decimal_keys_comparable_across_chunk_widths(#[case] descending: bool) -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let dtype = DecimalDType::new(7, 5);
+    let field = RowSortField::new(descending, true);
+
+    // One logical DECIMAL(7, 5) column whose chunks compressed to different physical widths.
+    let chunk_i8 = DecimalArray::new(buffer![91i8, -5], dtype, Validity::NonNullable).into_array();
+    let chunk_i16 =
+        DecimalArray::new(buffer![484i16, 300], dtype, Validity::NonNullable).into_array();
+    let values: [i32; 4] = [91, -5, 484, 300];
+
+    let keys_i8 = collect_row_bytes(&convert_columns(&[chunk_i8], &[field], &mut ctx)?);
+    let keys_i16 = collect_row_bytes(&convert_columns(&[chunk_i16], &[field], &mut ctx)?);
+    let keys = [keys_i8, keys_i16].concat();
+
+    for (i, vi) in values.iter().enumerate() {
+        for (j, vj) in values.iter().enumerate() {
+            let expected = if descending { vj.cmp(vi) } else { vi.cmp(vj) };
+            assert_eq!(
+                keys[i].cmp(&keys[j]),
+                expected,
+                "keys for {vi} and {vj} do not compare like the values"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// A null slot's backing value is unspecified and might not fit the dtype-derived key width;
+/// encoding must ignore it rather than report a spurious overflow.
+#[test]
+fn decimal_null_slot_garbage_does_not_error() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let dtype = DecimalDType::new(7, 5);
+    let field = RowSortField::new(false, true);
+
+    let chunk = DecimalArray::new(
+        buffer![484i64, 10_000_000_000_000, 91],
+        dtype,
+        Validity::from_iter([true, false, true]),
+    )
+    .into_array();
+
+    let keys = collect_row_bytes(&convert_columns(&[chunk], &[field], &mut ctx)?);
+    assert!(keys[1] < keys[2], "null must sort before non-nulls");
+    assert!(keys[2] < keys[0], "91 must sort before 484");
+    Ok(())
+}
+
+/// A valid value too large for the dtype-derived key width must fail loudly instead of
+/// silently encoding a corrupt key.
+#[test]
+fn decimal_value_not_fitting_key_width_errors() {
+    let mut ctx = array_session().create_execution_ctx();
+    let dtype = DecimalDType::new(7, 5);
+    let field = RowSortField::new(false, true);
+
+    let chunk = DecimalArray::new(buffer![10_000_000_000_000i64], dtype, Validity::NonNullable)
+        .into_array();
+
+    let err = convert_columns(&[chunk], &[field], &mut ctx)
+        .expect_err("a valid value wider than the key width must be rejected");
+    assert!(
+        err.to_string().contains("does not fit"),
+        "expected a does-not-fit error, got: {err}"
     );
 }

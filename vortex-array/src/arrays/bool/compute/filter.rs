@@ -3,6 +3,7 @@
 
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
+use vortex_buffer::CpuKernel;
 use vortex_buffer::get_bit;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -90,14 +91,19 @@ pub fn filter_bitbuffer_by_mask(
     mask_buf: &BitBuffer,
     true_count: usize,
 ) -> BitBuffer {
-    #[cfg(target_arch = "x86_64")]
-    {
-        if std::arch::is_x86_feature_detected!("bmi2") {
-            // SAFETY: BMI2 confirmed available; the inner function is compiled with BMI2.
-            return unsafe { filter_pext_bmi2(src, mask_buf, true_count) };
+    type FilterKernel = unsafe fn(&BitBuffer, &BitBuffer, usize) -> BitBuffer;
+    static KERNEL: CpuKernel<FilterKernel> = CpuKernel::new(|| {
+        #[cfg(target_arch = "x86_64")]
+        {
+            if std::arch::is_x86_feature_detected!("bmi2") {
+                return filter_pext_bmi2;
+            }
         }
-    }
-    filter_pext_fallback(src, mask_buf, true_count)
+        filter_pext_fallback
+    });
+    // SAFETY: the selector only returns kernels that are safe or whose required CPU
+    // features were probed before selection.
+    unsafe { KERNEL.get()(src, mask_buf, true_count) }
 }
 
 /// BMI2-native filter: entire function compiled with BMI2+POPCNT enabled.
@@ -366,7 +372,10 @@ mod tests {
     #[case(BoolArray::from_iter((0..100).map(|i| i % 2 == 0)))]
     #[case(BoolArray::from_iter((0..1024).map(|i| i % 3 != 0)))]
     fn test_filter_bool_conformance(#[case] array: BoolArray) {
-        test_filter_conformance(&array.into_array());
+        test_filter_conformance(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 
     #[cfg(target_arch = "x86_64")]

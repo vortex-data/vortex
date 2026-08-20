@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::Columnar;
@@ -40,7 +41,8 @@ impl AggregateFnVTable for First {
     type Partial = FirstPartial;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new("vortex.first")
+        static ID: CachedId = CachedId::new("vortex.first");
+        *ID
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

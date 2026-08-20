@@ -1,12 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ffi::CStr;
-
 use vortex::error::VortexExpect;
+#[cfg(test)]
 use vortex::error::VortexResult;
-use vortex::error::vortex_bail;
-use vortex::error::vortex_err;
 
 use crate::cpp;
 use crate::cpp::DUCKDB_TYPE;
@@ -58,8 +55,14 @@ impl QueryResultRef {
     }
 
     /// Get the name of a column by index.
+    #[cfg(test)]
     pub fn column_name(&self, col_idx: usize) -> VortexResult<&str> {
         unsafe {
+            use std::ffi::CStr;
+
+            use vortex::error::vortex_bail;
+            use vortex::error::vortex_err;
+
             let name_ptr = cpp::duckdb_column_name(self.as_ptr(), col_idx as u64);
             if name_ptr.is_null() {
                 vortex_bail!("Invalid column index: {}", col_idx);

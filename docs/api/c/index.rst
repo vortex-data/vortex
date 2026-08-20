@@ -83,31 +83,5 @@ responsible for freeing them.
 .. c:autofunction:: vx_error_free
    :file: vortex.h
 
-.. c:autofunction:: vx_error_get_message
+.. c:autofunction:: vx_error_message
    :file: vortex.h
-
-Strings
--------
-
-Vortex strings wrap a Rust `Arc<str>`, and therefore are reference-counted, UTF-8 encoded, and not null-terminated.
-
-.. c:autotype:: vx_string
-   :file: vortex.h
-
-.. c:autofunction:: vx_string_clone
-   :file: vortex.h
-
-.. c:autofunction:: vx_string_free
-   :file: vortex.h
-
-.. c:autofunction:: vx_string_new
-   :file: vortex.h
-
-.. c:autofunction:: vx_string_new_from_cstr
-   :file: vortex.h
-
-.. c:autofunction:: vx_string_len
-    :file: vortex.h
-
-.. c:autofunction:: vx_string_ptr
-    :file: vortex.h

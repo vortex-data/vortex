@@ -1,0 +1,76 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Example-style coverage for DataFusion Vortex table options.
+#
+# Session settings provide the baseline for tables created through
+# VortexFormatFactory::create. Per-table OPTIONS override that baseline for the
+# table being created.
+
+include ../setup.slt.no
+
+statement ok
+SET vortex.predicate_pushdown = false;
+
+statement ok
+CREATE EXTERNAL TABLE session_disabled_pushdown (
+    x BIGINT NOT NULL,
+    y BIGINT NOT NULL
+)
+STORED AS vortex
+LOCATION '${WORK_DIR}/session_disabled_pushdown/';
+
+statement ok
+INSERT INTO session_disabled_pushdown VALUES
+    (1, 10),
+    (2, 20),
+    (3, 30);
+
+query TT
+EXPLAIN SELECT y FROM session_disabled_pushdown WHERE x > 1 ORDER BY y;
+----
+logical_plan
+01)Sort: session_disabled_pushdown.y ASC NULLS LAST
+02)--Projection: session_disabled_pushdown.y
+03)----Filter: session_disabled_pushdown.x > Int64(1)
+04)------TableScan: session_disabled_pushdown projection=[x, y], partial_filters=[session_disabled_pushdown.x > Int64(1)]
+physical_plan
+01)SortExec: expr=[y@0 ASC NULLS LAST], preserve_partitioning=[false]
+02)--FilterExec: x@0 > 1, projection=[y@1]
+03)----DataSourceExec: file_groups={<slt:ignore>}, projection=[x, y], file_type=vortex
+
+statement ok
+CREATE EXTERNAL TABLE table_enabled_pushdown (
+    x BIGINT NOT NULL,
+    y BIGINT NOT NULL
+)
+STORED AS vortex
+LOCATION '${WORK_DIR}/table_enabled_pushdown/'
+OPTIONS(predicate_pushdown 'true');
+
+statement ok
+INSERT INTO table_enabled_pushdown VALUES
+    (1, 10),
+    (2, 20),
+    (3, 30);
+
+query TT
+EXPLAIN SELECT y FROM table_enabled_pushdown WHERE x > 1 ORDER BY y;
+----
+logical_plan
+01)Sort: table_enabled_pushdown.y ASC NULLS LAST
+02)--Projection: table_enabled_pushdown.y
+03)----Filter: table_enabled_pushdown.x > Int64(1)
+04)------TableScan: table_enabled_pushdown projection=[x, y], partial_filters=[table_enabled_pushdown.x > Int64(1)]
+physical_plan
+01)SortExec: expr=[y@0 ASC NULLS LAST], preserve_partitioning=[false]
+02)--DataSourceExec: file_groups={<slt:ignore>}, projection=[y], file_type=vortex, predicate: x@0 > 1
+
+query I
+SELECT y FROM table_enabled_pushdown WHERE x > 1 ORDER BY y;
+----
+20
+30
+
+statement ok
+SET vortex.predicate_pushdown = true;

@@ -15,7 +15,7 @@ use crate::arrays::filter::execute::slice;
 ///
 /// This will attempt to filter in-place (via [`Buffer::try_into_mut`]) when the buffer has
 /// exclusive ownership, avoiding an extra allocation.
-pub(super) fn filter_buffer<T: Copy>(buffer: Buffer<T>, mask: &MaskValues) -> Buffer<T> {
+pub(crate) fn filter_buffer<T: Copy>(buffer: Buffer<T>, mask: &MaskValues) -> Buffer<T> {
     match buffer.try_into_mut() {
         Ok(mut buffer_mut) => {
             let new_len = slice::filter_slice_mut_by_mask_values(buffer_mut.as_mut_slice(), mask);

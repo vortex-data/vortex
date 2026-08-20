@@ -25,10 +25,10 @@ use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::ScalarFnArray;
 use crate::arrays::bool::BoolArrayExt;
-use crate::arrays::listview::ListViewArrayExt;
+use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::primitive::PrimitiveArrayExt;
-use crate::arrays::scalar_fn::ScalarFnFactoryExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
@@ -43,12 +43,24 @@ use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
 
 #[derive(Clone)]
 pub struct ListContains;
+
+impl ListContains {
+    /// Creates a lazy list membership check for `needle` in `list`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the children have different lengths or `list` is not a list array.
+    pub fn try_new(list: ArrayRef, needle: ArrayRef) -> VortexResult<ScalarFnArray> {
+        ScalarFnArray::try_new(ListContains.bind(EmptyOptions), vec![list, needle])
+    }
+}
 
 impl ScalarFnVTable for ListContains {
     type Options = EmptyOptions;
@@ -121,9 +133,9 @@ impl ScalarFnVTable for ListContains {
         compute_list_contains(&list_array, &value_array, ctx)
     }
 
-    // Nullability matters for contains([], x) where x is false.
-    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
-        true
+    // An empty list can produce false even when the needle is null.
+    fn is_strict(&self, _options: &Self::Options) -> bool {
+        false
     }
 
     fn is_fallible(&self, _options: &Self::Options) -> bool {
@@ -197,16 +209,13 @@ fn constant_list_scalar_contains(
     let result = elements
         .iter()
         .map(|element| {
-            Binary
-                .try_new_array(
-                    len,
-                    Operator::Eq,
-                    [
-                        ConstantArray::new(element.clone(), len).into_array(),
-                        values.clone(),
-                    ],
-                )?
-                .fill_null(false_scalar.clone())
+            Binary::try_new(
+                ConstantArray::new(element.clone(), len).into_array(),
+                values.clone(),
+                Operator::Eq,
+            )?
+            .into_array()
+            .fill_null(false_scalar.clone())
         })
         .collect::<VortexResult<Vec<_>>>()?
         .into_iter()
@@ -237,11 +246,8 @@ fn list_contains_scalar(
     }
 
     let rhs = ConstantArray::new(value.clone(), elems.len());
-    let matching_elements = Binary.try_new_array(
-        elems.len(),
-        Operator::Eq,
-        &[elems.clone(), rhs.clone().into_array()],
-    )?;
+    let matching_elements =
+        Binary::try_new(elems.clone(), rhs.clone().into_array(), Operator::Eq)?.into_array();
 
     // TODO(ngates): we should execute this into a Columnar and check for constant.
     let matches = matching_elements.execute::<BoolArray>(ctx)?;
@@ -400,6 +406,7 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::Buffer;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -410,8 +417,6 @@ mod tests {
     use crate::arrays::ListArray;
     use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
-    #[expect(deprecated)]
-    use crate::canonical::ToCanonical as _;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType::I32;
@@ -601,23 +606,26 @@ mod tests {
         );
 
         assert_eq!(
-            expr.falsify(&scope, &STATS_SESSION)?,
-            Some(and(
+            expr.bind(&scope)?.falsify(&STATS_SESSION)?,
+            Some(
                 and(
-                    or(
-                        lt(stat(col("a"), Stat::Max), lit(1i32)),
-                        gt(stat(col("a"), Stat::Min), lit(1i32)),
+                    and(
+                        or(
+                            lt(stat(col("a"), Stat::Max), lit(1i32)),
+                            gt(stat(col("a"), Stat::Min), lit(1i32)),
+                        ),
+                        or(
+                            lt(stat(col("a"), Stat::Max), lit(2i32)),
+                            gt(stat(col("a"), Stat::Min), lit(2i32)),
+                        )
                     ),
                     or(
-                        lt(stat(col("a"), Stat::Max), lit(2i32)),
-                        gt(stat(col("a"), Stat::Min), lit(2i32)),
+                        lt(stat(col("a"), Stat::Max), lit(3i32)),
+                        gt(stat(col("a"), Stat::Min), lit(3i32)),
                     )
-                ),
-                or(
-                    lt(stat(col("a"), Stat::Max), lit(3i32)),
-                    gt(stat(col("a"), Stat::Min), lit(3i32)),
                 )
-            ))
+                .bind(&scope)?
+            )
         );
         Ok(())
     }
@@ -666,15 +674,14 @@ mod tests {
     // -- Tests migrated from compute/list_contains.rs --
 
     fn nonnull_strings(values: Vec<Vec<&str>>) -> ArrayRef {
-        #[expect(deprecated)]
-        let result = ListArray::from_iter_slow::<u64, _>(
-            values,
-            Arc::new(DType::Utf8(Nullability::NonNullable)),
-        )
-        .unwrap()
-        .to_listview()
-        .into_array();
-        result
+        let mut ctx = array_session().create_execution_ctx();
+
+        ListArray::from_iter_slow::<u64, _>(values, Arc::new(DType::Utf8(Nullability::NonNullable)))
+            .unwrap()
+            .into_array()
+            .execute::<ListViewArray>(&mut ctx)
+            .vortex_expect("failed to convert to listview")
+            .into_array()
     }
 
     fn null_strings(values: Vec<Vec<Option<&str>>>) -> ArrayRef {
@@ -693,13 +700,15 @@ mod tests {
         let elements =
             VarBinArray::from_iter(elements, DType::Utf8(Nullability::Nullable)).into_array();
 
-        #[expect(deprecated)]
-        let result = ListArray::try_new(elements, offsets, Validity::NonNullable)
+        let mut ctx = array_session().create_execution_ctx();
+
+        ListArray::try_new(elements, offsets, Validity::NonNullable)
             .unwrap()
             .as_array()
-            .to_listview()
-            .into_array();
-        result
+            .clone()
+            .execute::<ListViewArray>(&mut ctx)
+            .vortex_expect("failed to convert to listview")
+            .into_array()
     }
 
     fn bool_array(values: Vec<bool>, validity: Validity) -> BoolArray {

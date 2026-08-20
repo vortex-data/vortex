@@ -6,11 +6,14 @@
 //! Vortex encoders must always produce unsigned integer codes; signed codes are only accepted for
 //! external compatibility.
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VTable;
+use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
@@ -25,12 +28,12 @@ use vortex_error::VortexResult;
 
 use crate::CascadingCompressor;
 use crate::builtins::IntDictScheme;
-use crate::ctx::CompressorContext;
-use crate::estimate::CompressionEstimate;
-use crate::estimate::DeferredEstimate;
-use crate::estimate::EstimateVerdict;
 use crate::scheme::ChildSelection;
+use crate::scheme::CompressionEstimate;
+use crate::scheme::CompressorContext;
+use crate::scheme::DeferredEstimate;
 use crate::scheme::DescendantExclusion;
+use crate::scheme::EstimateVerdict;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
 use crate::stats::ArrayAndStats;
@@ -49,6 +52,10 @@ impl Scheme for FloatDictScheme {
 
     fn matches(&self, canonical: &Canonical) -> bool {
         canonical.dtype().is_float()
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![Dict.id()]
     }
 
     fn stats_options(&self) -> GenerateStatsOptions {

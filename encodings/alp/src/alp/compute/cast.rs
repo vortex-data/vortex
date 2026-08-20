@@ -154,7 +154,7 @@ mod tests {
         let array_primitive = array.execute::<PrimitiveArray>(&mut ctx)?;
         let alp =
             alp_encode(array_primitive.as_view(), None, &mut ctx).vortex_expect("cannot fail");
-        test_cast_conformance(&alp.into_array());
+        test_cast_conformance(&alp.into_array(), &mut ctx);
 
         Ok(())
     }

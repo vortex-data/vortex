@@ -103,9 +103,14 @@ impl StatPopGenBenchmark {
 
 #[async_trait::async_trait]
 impl Benchmark for StatPopGenBenchmark {
+    fn doc_path(&self) -> &'static str {
+        "vortex-bench/sql/statpopgen.md"
+    }
+
     fn queries(&self) -> Result<Vec<(usize, String)>> {
         let queries_file = workspace_root()
             .join("vortex-bench")
+            .join("sql")
             .join("statpopgen")
             .with_extension("sql");
         let contents = fs::read_to_string(queries_file)?;

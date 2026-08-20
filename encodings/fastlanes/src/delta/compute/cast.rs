@@ -12,6 +12,7 @@ use vortex_error::VortexResult;
 
 use crate::delta::Delta;
 use crate::delta::array::DeltaArrayExt;
+use crate::delta::array::DeltaArraySlotsExt;
 
 impl CastReduce for Delta {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -244,6 +245,9 @@ mod tests {
         let delta_array =
             Delta::try_from_primitive_array(&primitive, &mut SESSION.create_execution_ctx())
                 .unwrap();
-        test_cast_conformance(&delta_array.into_array());
+        test_cast_conformance(
+            &delta_array.into_array(),
+            &mut SESSION.create_execution_ctx(),
+        );
     }
 }

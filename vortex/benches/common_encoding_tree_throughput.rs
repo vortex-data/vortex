@@ -5,6 +5,7 @@
 
 use std::fmt;
 use std::ops::Deref;
+use std::sync::Arc;
 use std::sync::LazyLock;
 
 use divan::Bencher;
@@ -23,7 +24,7 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::TemporalArray;
 use vortex::array::arrays::VarBinArray;
 use vortex::array::arrays::VarBinViewArray;
-use vortex::array::arrays::varbin::VarBinArrayExt;
+use vortex::array::arrays::varbin::VarBinArraySlotsExt;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::dtype::DType;
 use vortex::dtype::PType;
@@ -36,12 +37,14 @@ use vortex::encodings::datetime_parts::split_temporal;
 use vortex::encodings::fastlanes::BitPacked;
 use vortex::encodings::fastlanes::FoR;
 use vortex::encodings::fastlanes::FoRArrayExt;
+use vortex::encodings::fastlanes::FoRArraySlotsExt;
 use vortex::encodings::fsst::FSST;
 use vortex::encodings::fsst::FSSTArrayExt;
+use vortex::encodings::fsst::FSSTArraySlotsExt;
 use vortex::encodings::fsst::fsst_compress;
 use vortex::encodings::fsst::fsst_train_compressor;
 use vortex::encodings::runend::RunEnd;
-use vortex::encodings::runend::RunEndArrayExt;
+use vortex::encodings::runend::RunEndArraySlotsExt;
 use vortex::error::VortexExpect;
 use vortex::extension::datetime::TimeUnit;
 use vortex_session::VortexSession;
@@ -50,12 +53,14 @@ use vortex_session::VortexSession;
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
 
-const NUM_VALUES: u64 = 100_000;
+// Sized so the slowest tree decompression stays well under 1ms on CodSpeed.
+const NUM_VALUES: u64 = 2048;
 
 // Helper function to conditionally add counter based on codspeed cfg
 fn with_byte_counter<'a, 'b>(bencher: Bencher<'a, 'b>, bytes: u64) -> Bencher<'a, 'b> {
@@ -73,6 +78,7 @@ fn with_byte_counter<'a, 'b>(bencher: Bencher<'a, 'b>, bytes: u64) -> Bencher<'a
 mod setup {
     use rand::rngs::StdRng;
     use vortex_array::VortexSessionExecute;
+    use vortex_fsst::FSSTSymbolTable;
 
     use super::*;
 
@@ -102,7 +108,7 @@ mod setup {
     pub fn for_bp_u64() -> ArrayRef {
         let mut ctx = SESSION.create_execution_ctx();
         let (uint_array, ..) = setup_primitive_arrays();
-        let compressed = FoR::encode(uint_array).unwrap();
+        let compressed = FoR::encode(uint_array, &mut ctx).unwrap();
         let inner = compressed.encoded();
         let bp = BitPacked::encode(inner, 8, &mut ctx).unwrap();
         FoR::try_new(bp.into_array(), compressed.reference_scalar().clone())
@@ -122,7 +128,7 @@ mod setup {
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
-        let for_array = FoR::encode(alp_encoded_prim).unwrap();
+        let for_array = FoR::encode(alp_encoded_prim, &mut ctx).unwrap();
         let inner = for_array.encoded();
         let bp = BitPacked::encode(inner, 8, &mut ctx).unwrap();
         let for_with_bp =
@@ -142,8 +148,8 @@ mod setup {
     pub fn dict_varbinview_string() -> ArrayRef {
         let mut rng = StdRng::seed_from_u64(42);
 
-        // Create unique values (0.005% uniqueness = 50 unique strings)
-        let num_unique = ((NUM_VALUES as f64) * 0.00005) as usize;
+        // Create unique values (~5 unique strings)
+        let num_unique = ((NUM_VALUES as f64) * 0.0025) as usize;
         let unique_strings: Vec<String> = (0..num_unique)
             .map(|_| {
                 (0..8)
@@ -184,7 +190,7 @@ mod setup {
         for _ in 0..NUM_VALUES {
             if run_length == 0 {
                 current_value = rng.random_range(0u32..100);
-                run_length = rng.random_range(1..1000);
+                run_length = rng.random_range(1..100);
             }
             values.push(current_value);
             run_length -= 1;
@@ -200,7 +206,7 @@ mod setup {
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
-        let ends_for = FoR::encode(ends_prim).unwrap();
+        let ends_for = FoR::encode(ends_prim, &mut ctx).unwrap();
         let ends_inner = ends_for.encoded();
         let ends_bp = BitPacked::encode(ends_inner, 8, &mut ctx).unwrap();
         let compressed_ends =
@@ -228,7 +234,7 @@ mod setup {
     pub fn dict_fsst_varbin_string() -> ArrayRef {
         let mut rng = StdRng::seed_from_u64(43);
 
-        // Create unique values (1% uniqueness = 10,000 unique strings)
+        // Create unique values (1% uniqueness = ~20 unique strings)
         let num_unique = ((NUM_VALUES as f64) * 0.01) as usize;
         let unique_strings: Vec<String> = (0..num_unique)
             .map(|_| {
@@ -261,7 +267,7 @@ mod setup {
     pub fn dict_fsst_varbin_bp_string() -> ArrayRef {
         let mut rng = StdRng::seed_from_u64(45);
 
-        // Create unique values (1% uniqueness = 10,000 unique strings)
+        // Create unique values (1% uniqueness = ~20 unique strings)
         let num_unique = ((NUM_VALUES as f64) * 0.01) as usize;
         let unique_strings: Vec<String> = (0..num_unique)
             .map(|_| {
@@ -298,10 +304,16 @@ mod setup {
         .unwrap();
 
         // Rebuild FSST with compressed codes
-        let compressed_fsst = FSST::try_new(
+        let compressed_fsst = FSST::try_new_with_symbol_table(
             fsst.dtype().clone(),
-            fsst.symbols().clone(),
-            fsst.symbol_lengths().clone(),
+            Arc::new(
+                FSSTSymbolTable::new_padded(
+                    fsst.padded_symbols().clone(),
+                    fsst.padded_symbol_lengths().clone(),
+                    fsst.n_symbols(),
+                )
+                .unwrap(),
+            ),
             compressed_codes,
             fsst.uncompressed_lengths().clone(),
             &mut ctx,
@@ -343,7 +355,7 @@ mod setup {
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
-        let days_for = FoR::encode(days_prim).unwrap();
+        let days_for = FoR::encode(days_prim, &mut ctx).unwrap();
         let days_inner = days_for.encoded();
         let days_bp = BitPacked::encode(days_inner, 16, &mut ctx).unwrap();
         let compressed_days =
@@ -357,7 +369,7 @@ mod setup {
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
-        let seconds_for = FoR::encode(seconds_prim).unwrap();
+        let seconds_for = FoR::encode(seconds_prim, &mut ctx).unwrap();
         let seconds_inner = seconds_for.encoded();
         let seconds_bp = BitPacked::encode(seconds_inner, 17, &mut ctx).unwrap();
         let compressed_seconds = FoR::try_new(
@@ -372,7 +384,7 @@ mod setup {
             .subseconds
             .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
-        let subseconds_for = FoR::encode(subseconds_prim).unwrap();
+        let subseconds_for = FoR::encode(subseconds_prim, &mut ctx).unwrap();
         let subseconds_inner = subseconds_for.encoded();
         let subseconds_bp = BitPacked::encode(subseconds_inner, 20, &mut ctx).unwrap();
         let compressed_subseconds = FoR::try_new(

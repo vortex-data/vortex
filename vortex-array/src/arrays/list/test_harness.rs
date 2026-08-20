@@ -6,22 +6,21 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_error::VortexResult;
 
-use crate::ArrayRef;
 use crate::arrays::ListArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::ListBuilder;
 use crate::dtype::DType;
-use crate::dtype::IntegerPType;
+use crate::dtype::OffsetBuilderPType;
 use crate::scalar::Scalar;
 
 impl ListArray {
     /// This is a convenience method to create a list array from an iterator of iterators.
     /// This method is slow however since each element is first converted to a scalar and then
     /// appended to the array.
-    pub fn from_iter_slow<O: IntegerPType, I: IntoIterator>(
+    pub fn from_iter_slow<O: OffsetBuilderPType, I: IntoIterator>(
         iter: I,
         dtype: Arc<DType>,
-    ) -> VortexResult<ArrayRef>
+    ) -> VortexResult<ListArray>
     where
         I::Item: IntoIterator,
         <I::Item as IntoIterator>::Item: Into<Scalar>,
@@ -42,13 +41,13 @@ impl ListArray {
             );
             builder.append_value(elem.as_list())?
         }
-        Ok(builder.finish())
+        Ok(builder.finish_into_list())
     }
 
-    pub fn from_iter_opt_slow<O: IntegerPType, I: IntoIterator<Item = Option<T>>, T>(
+    pub fn from_iter_opt_slow<O: OffsetBuilderPType, I: IntoIterator<Item = Option<T>>, T>(
         iter: I,
         dtype: Arc<DType>,
-    ) -> VortexResult<ArrayRef>
+    ) -> VortexResult<ListArray>
     where
         T: IntoIterator,
         T::Item: Into<Scalar>,
@@ -73,6 +72,6 @@ impl ListArray {
                 builder.append_null()
             }
         }
-        Ok(builder.finish())
+        Ok(builder.finish_into_list())
     }
 }

@@ -4,11 +4,14 @@
 use std::any::Any;
 use std::sync::Arc;
 
+use vortex_session::ArcSwapMap;
 use vortex_session::SessionExt;
+use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
 
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnPluginRef;
+use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::fns::all_nan::AllNan;
 use crate::aggregate_fn::fns::all_non_distinct::AllNonDistinct;
@@ -33,7 +36,6 @@ use crate::aggregate_fn::fns::sum::Sum;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::aggregate_fn::kernels::DynGroupedAggregateKernel;
-use crate::arc_swap_map::ArcSwapMap;
 use crate::array::ArrayId;
 use crate::array::VTable;
 use crate::arrays::Chunked;
@@ -43,6 +45,7 @@ use crate::arrays::chunked::compute::aggregate::ChunkedArrayAggregate;
 use crate::arrays::dict::compute::is_constant::DictIsConstantKernel;
 use crate::arrays::dict::compute::is_sorted::DictIsSortedKernel;
 use crate::arrays::dict::compute::min_max::DictMinMaxKernel;
+use crate::dtype::DType;
 
 /// Session state for aggregate functions and encoding-specific aggregate kernels.
 ///
@@ -51,12 +54,11 @@ use crate::arrays::dict::compute::min_max::DictMinMaxKernel;
 /// [`VortexSession`](vortex_session::VortexSession).
 #[derive(Clone, Debug)]
 pub struct AggregateFnSession {
-    registry: ArcSwapMap<AggregateFnId, AggregateFnPluginRef>,
+    registry: AggregateFnRegistry,
 
-    kernels: ArcSwapMap<AggregateKernelKey, &'static dyn DynAggregateKernel>,
-    grouped_kernels: ArcSwapMap<AggregateFnId, &'static dyn DynGroupedAggregateKernel>,
-    grouped_encoding_kernels:
-        ArcSwapMap<GroupedEncodingKernelKey, &'static dyn DynGroupedAggregateKernel>,
+    kernels: AggregateKernelRegistry,
+    grouped_kernels: GroupedKernelRegistry,
+    grouped_encoding_kernels: GroupedEncodingKernelRegistry,
 }
 
 impl SessionVar for AggregateFnSession {
@@ -72,13 +74,23 @@ impl SessionVar for AggregateFnSession {
 type AggregateKernelKey = (ArrayId, Option<AggregateFnId>);
 type GroupedEncodingKernelKey = (ArrayId, AggregateFnId);
 
+/// Registry of aggregate function plugins, keyed by aggregate function id.
+type AggregateFnRegistry = ArcSwapMap<AggregateFnId, AggregateFnPluginRef>;
+/// Registry of aggregate kernels, keyed by encoding and optional aggregate function.
+type AggregateKernelRegistry = ArcSwapMap<AggregateKernelKey, &'static dyn DynAggregateKernel>;
+/// Registry of encoding-agnostic grouped aggregate kernels, keyed by aggregate function id.
+type GroupedKernelRegistry = ArcSwapMap<AggregateFnId, &'static dyn DynGroupedAggregateKernel>;
+/// Registry of grouped aggregate kernels, keyed by encoding and aggregate function.
+type GroupedEncodingKernelRegistry =
+    ArcSwapMap<GroupedEncodingKernelKey, &'static dyn DynGroupedAggregateKernel>;
+
 impl Default for AggregateFnSession {
     fn default() -> Self {
         let this = Self {
-            registry: ArcSwapMap::default(),
-            kernels: ArcSwapMap::default(),
-            grouped_kernels: ArcSwapMap::default(),
-            grouped_encoding_kernels: ArcSwapMap::default(),
+            registry: AggregateFnRegistry::default(),
+            kernels: AggregateKernelRegistry::default(),
+            grouped_kernels: GroupedKernelRegistry::default(),
+            grouped_encoding_kernels: GroupedEncodingKernelRegistry::default(),
         };
 
         // Register the built-in aggregate functions
@@ -131,6 +143,22 @@ impl AggregateFnSession {
         let id = vtable.id();
         let pluginref = Arc::new(vtable) as AggregateFnPluginRef;
         self.registry.insert(id, pluginref);
+    }
+
+    /// The default per-chunk zone statistics for a column of `input_dtype`, collected from every
+    /// registered aggregate's `zone_stat_default`.
+    ///
+    /// Each call scans the whole plugin registry, so this is intended to be called once per
+    /// column when a zoned writer is opened, not per chunk or per row.
+    pub fn zone_stat_defaults(&self, input_dtype: &DType) -> Vec<AggregateFnRef> {
+        self.registry.read(|registry| {
+            let mut fns: Vec<AggregateFnRef> = registry
+                .values()
+                .filter_map(|plugin| plugin.zone_stat_default(input_dtype))
+                .collect();
+            fns.sort_by_key(|f| f.id());
+            fns
+        })
     }
 
     /// Returns the aggregate kernel registered for `array_id` and `agg_fn_id`, if any.
@@ -221,7 +249,7 @@ impl AggregateFnSession {
 /// Extension trait for accessing aggregate function session data.
 pub trait AggregateFnSessionExt: SessionExt {
     /// Returns the aggregate function session data.
-    fn aggregate_fns(&self) -> &AggregateFnSession {
+    fn aggregate_fns(&self) -> SessionGuard<'_, AggregateFnSession> {
         self.get::<AggregateFnSession>()
     }
 }

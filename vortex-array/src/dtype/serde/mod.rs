@@ -24,6 +24,7 @@ mod test {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::UnionVariants;
     use crate::dtype::serde::DTypeSerde;
     use crate::dtype::test::SESSION;
 
@@ -180,5 +181,53 @@ mod test {
             .deserialize(&mut deserializer)
             .unwrap();
         assert_eq!(DType::Variant(Nullability::Nullable), deserialized);
+    }
+
+    #[test]
+    fn test_serde_union_dtype_json_roundtrip() {
+        let dtype = DType::Union(
+            UnionVariants::new(["value"].into(), vec![DType::Utf8(Nullability::Nullable)]).unwrap(),
+            Nullability::Nullable,
+        );
+
+        let json = serde_json::to_string(&dtype).unwrap();
+        assert_eq!(
+            json,
+            r#"{"Union":[{"names":["value"],"dtypes":[{"Utf8":true}],"type_ids":[0]},true]}"#
+        );
+        let mut deserializer = serde_json::Deserializer::from_str(&json);
+        let deserialized: DType = DTypeSerde::<DType>::new(&SESSION)
+            .deserialize(&mut deserializer)
+            .unwrap();
+
+        assert_eq!(deserialized, dtype);
+        assert_eq!(deserialized.nullability(), Nullability::Nullable);
+    }
+
+    #[test]
+    fn test_serde_nested_map_dtype_json_roundtrip() {
+        let inner_map = DType::map(
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            DType::Utf8(Nullability::Nullable),
+            true,
+            Nullability::NonNullable,
+        )
+        .unwrap();
+        let map = DType::map(
+            inner_map,
+            DType::Utf8(Nullability::Nullable),
+            false,
+            Nullability::Nullable,
+        )
+        .unwrap();
+        let dtype = DType::struct_([("map", map)], Nullability::Nullable);
+
+        let json = serde_json::to_string(&dtype).unwrap();
+        let mut deserializer = serde_json::Deserializer::from_str(&json);
+        let deserialized: DType = DTypeSerde::<DType>::new(&SESSION)
+            .deserialize(&mut deserializer)
+            .unwrap();
+
+        assert_eq!(deserialized, dtype);
     }
 }

@@ -18,6 +18,7 @@ use vortex_session::registry::CachedId;
 use crate::AnyCanonical;
 use crate::ArrayEq;
 use crate::ArrayHash;
+use crate::ArrayParts;
 use crate::ArrayRef;
 use crate::EqMode;
 use crate::array::Array;
@@ -26,10 +27,10 @@ use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::array::VTable;
 use crate::array::ValidityVTable;
-use crate::arrays::slice::SliceArrayExt;
-use crate::arrays::slice::array::CHILD_SLOT;
-use crate::arrays::slice::array::SLOT_NAMES;
+use crate::array::with_empty_buffers;
+use crate::arrays::slice::SliceArraySlotsExt;
 use crate::arrays::slice::array::SliceData;
+use crate::arrays::slice::array::SliceSlots;
 use crate::arrays::slice::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -76,10 +77,10 @@ impl VTable for Slice {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         vortex_ensure!(
-            slots[CHILD_SLOT].is_some(),
+            slots[SliceSlots::CHILD].is_some(),
             "SliceArray child slot must be present"
         );
-        let child = slots[CHILD_SLOT]
+        let child = slots[SliceSlots::CHILD]
             .as_ref()
             .vortex_expect("validated child slot");
         vortex_ensure!(
@@ -115,8 +116,16 @@ impl VTable for Slice {
         None
     }
 
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        with_empty_buffers(self, array, buffers)
+    }
+
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        SliceSlots::NAMES[idx].to_string()
     }
 
     fn serialize(
@@ -136,12 +145,12 @@ impl VTable for Slice {
         _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<crate::array::ArrayParts<Self>> {
+    ) -> VortexResult<ArrayParts<Self>> {
         vortex_bail!("Slice array is not serializable")
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let array = require_child!(array, array.child(), CHILD_SLOT => AnyCanonical);
+        let array = require_child!(array, array.child(), SliceSlots::CHILD => AnyCanonical);
 
         debug_assert!(array.child().is_canonical());
         // TODO(ngates): we should inline canonical slice logic here.

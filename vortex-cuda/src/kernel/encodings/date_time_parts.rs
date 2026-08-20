@@ -167,13 +167,11 @@ where
     let subseconds_device = ctx.ensure_on_device(subseconds_buffer).await?;
 
     // Allocate output buffer
-    let output_slice = ctx.device_alloc::<i64>(output_len)?;
-    let output_device = CudaDeviceBuffer::new(output_slice);
+    let mut output_slice = ctx.device_alloc::<i64>(output_len)?;
 
     let days_view = days_device.cuda_view::<DaysT>()?;
     let seconds_view = seconds_device.cuda_view::<SecondsT>()?;
     let subseconds_view = subseconds_device.cuda_view::<SubsecondsT>()?;
-    let output_view = output_device.as_view::<i64>();
 
     let cuda_function = ctx.load_function(
         "date_time_parts",
@@ -187,10 +185,11 @@ where
             .arg(&seconds_view)
             .arg(&subseconds_view)
             .arg(&divisor)
-            .arg(&output_view)
+            .arg(&mut output_slice)
             .arg(&array_len_u64);
     })?;
 
+    let output_device = CudaDeviceBuffer::new(output_slice);
     let output_buffer = BufferHandle::new_device(Arc::new(output_device));
     let output_primitive = PrimitiveArray::from_buffer_handle(output_buffer, PType::I64, validity);
 

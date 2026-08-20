@@ -11,6 +11,7 @@ use vortex_array::arrays::slice::SliceKernel;
 use vortex_error::VortexResult;
 
 use crate::ALPRDArrayExt;
+use crate::ALPRDArraySlotsExt;
 use crate::alp_rd::ALPRD;
 
 impl SliceKernel for ALPRD {

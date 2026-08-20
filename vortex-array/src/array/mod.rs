@@ -53,6 +53,63 @@ use crate::hash::ArrayHash;
 /// heap allocation in the common case.
 pub type ArraySlots = SmallVec<[Option<ArrayRef>; 4]>;
 
+/// A borrowed run of required slots, e.g. the variadic tail of a slot layout.
+///
+/// Wraps a `&[Option<ArrayRef>]` whose entries are guaranteed present by encoding
+/// validation, exposing them as `&ArrayRef` without per-call-site unwrapping.
+#[derive(Clone, Copy, Debug)]
+pub struct SlotSlice<'a> {
+    slots: &'a [Option<ArrayRef>],
+    expect: &'static str,
+}
+
+impl<'a> SlotSlice<'a> {
+    /// Wrap a slice of slots that validation guarantees are all present.
+    ///
+    /// `expect` names the slot run in the panic message if a slot is unexpectedly absent.
+    pub fn new(slots: &'a [Option<ArrayRef>], expect: &'static str) -> Self {
+        Self { slots, expect }
+    }
+
+    /// The number of slots in the run.
+    pub fn len(&self) -> usize {
+        self.slots.len()
+    }
+
+    /// Returns `true` if the run contains no slots.
+    pub fn is_empty(&self) -> bool {
+        self.slots.is_empty()
+    }
+
+    /// Returns the slot at `idx`, or `None` if out of bounds.
+    pub fn get(&self, idx: usize) -> Option<&'a ArrayRef> {
+        self.slots
+            .get(idx)
+            .map(|slot| slot.as_ref().vortex_expect(self.expect))
+    }
+
+    /// Iterate the slots in order.
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = &'a ArrayRef> + use<'a> {
+        let expect = self.expect;
+        self.slots
+            .iter()
+            .map(move |slot| slot.as_ref().vortex_expect(expect))
+    }
+
+    /// Clone every slot into an owned `Vec`.
+    pub fn to_vec(&self) -> Vec<ArrayRef> {
+        self.iter().cloned().collect()
+    }
+}
+
+impl std::ops::Index<usize> for SlotSlice<'_> {
+    type Output = ArrayRef;
+
+    fn index(&self, idx: usize) -> &Self::Output {
+        self.slots[idx].as_ref().vortex_expect(self.expect)
+    }
+}
+
 /// The public API trait for all Vortex arrays.
 ///
 /// This trait is sealed and cannot be implemented outside of `vortex-array`.
@@ -79,23 +136,6 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
     ) -> VortexResult<()>;
 
     // --- Visitor methods (formerly in ArrayVisitor) ---
-
-    /// Returns the children of the array.
-    fn children(&self, this: &ArrayRef) -> Vec<ArrayRef>;
-
-    /// Returns the number of children of the array.
-    fn nchildren(&self, this: &ArrayRef) -> usize;
-
-    /// Returns the nth child of the array without allocating a Vec.
-    ///
-    /// Returns `None` if the index is out of bounds.
-    fn nth_child(&self, this: &ArrayRef, idx: usize) -> Option<ArrayRef>;
-
-    /// Returns the names of the children of the array.
-    fn children_names(&self, this: &ArrayRef) -> Vec<String>;
-
-    /// Returns the array's children with their names.
-    fn named_children(&self, this: &ArrayRef) -> Vec<(String, ArrayRef)>;
 
     /// Returns the buffers of the array.
     fn buffers(&self, this: &ArrayRef) -> Vec<ByteBuffer>;
@@ -127,6 +167,9 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
     /// Returns a new array with the given slots.
     fn with_slots(&self, this: &ArrayRef, slots: ArraySlots) -> VortexResult<ArrayRef>;
 
+    /// Returns a new array with the given buffers.
+    fn with_buffers(&self, this: &ArrayRef, buffers: Vec<BufferHandle>) -> VortexResult<ArrayRef>;
+
     /// Returns a new array with the given slots, bypassing encoding-level validation.
     ///
     /// Used by the executor to temporarily carry an array that has had one of its child slots
@@ -155,7 +198,7 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
     /// Execute the array by taking a single encoding-specific execution step.
     ///
     /// This is the checked entry point. If the encoding reports
-    /// [`ExecutionStep::Done`](crate::ExecutionStep::Done), implementations must validate that the
+    /// [`ExecutionStep::Done`](ExecutionStep::Done), implementations must validate that the
     /// returned array preserves this array's logical `len` and `dtype`, and must transfer this
     /// array's statistics to the returned array.
     fn execute(&self, this: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult>;
@@ -264,35 +307,6 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
         Ok(())
     }
 
-    fn children(&self, this: &ArrayRef) -> Vec<ArrayRef> {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        (0..V::nchildren(view)).map(|i| V::child(view, i)).collect()
-    }
-
-    fn nchildren(&self, this: &ArrayRef) -> usize {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        V::nchildren(view)
-    }
-
-    fn nth_child(&self, this: &ArrayRef, idx: usize) -> Option<ArrayRef> {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        (idx < V::nchildren(view)).then(|| V::child(view, idx))
-    }
-
-    fn children_names(&self, this: &ArrayRef) -> Vec<String> {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        (0..V::nchildren(view))
-            .map(|i| V::child_name(view, i))
-            .collect()
-    }
-
-    fn named_children(&self, this: &ArrayRef) -> Vec<(String, ArrayRef)> {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        (0..V::nchildren(view))
-            .map(|i| (V::child_name(view, i), V::child(view, i)))
-            .collect()
-    }
-
     fn buffers(&self, this: &ArrayRef) -> Vec<ByteBuffer> {
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         (0..V::nbuffers(view))
@@ -361,6 +375,16 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
         )?
         .with_stats_set(stats)
         .into_array())
+    }
+
+    fn with_buffers(&self, this: &ArrayRef, buffers: Vec<BufferHandle>) -> VortexResult<ArrayRef> {
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
+        let stats = this.statistics().to_owned();
+        Ok(
+            Array::<V>::try_from_parts(V::with_buffers(&self.vtable, view, &buffers)?)?
+                .with_stats_set(stats)
+                .into_array(),
+        )
     }
 
     unsafe fn with_slots_unchecked(&self, this: &ArrayRef, slots: ArraySlots) -> ArrayRef {

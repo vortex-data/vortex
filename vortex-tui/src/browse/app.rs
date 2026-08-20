@@ -79,10 +79,14 @@ impl LayoutCursor {
     ) -> Self {
         let mut layout = Arc::clone(footer.layout());
 
-        // Traverse the layout tree at each element of the path.
+        // Traverse the layout tree at each element of the path. Path components index into the
+        // serialized (present) children, matching the order shown in the browser.
         for component in path.iter().copied() {
             layout = layout
-                .child(component)
+                .children()
+                .vortex_expect("Failed to get child layouts")
+                .into_iter()
+                .nth(component)
                 .vortex_expect("Failed to get child layout");
         }
 
@@ -369,10 +373,13 @@ impl AppState {
                 &Default::default(),
             )
             .vortex_expect("Failed to create reader");
+        let expr = root()
+            .bind(reader.dtype())
+            .vortex_expect("root must bind against the layout dtype");
         let array = reader
             .projection_evaluation(
                 &(0..row_count),
-                &root(),
+                &expr,
                 MaskFuture::new_true(
                     usize::try_from(row_count).vortex_expect("row_count overflowed usize"),
                 ),

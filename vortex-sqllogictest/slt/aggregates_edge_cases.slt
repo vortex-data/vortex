@@ -1,0 +1,112 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ./setup.slt.no
+
+# Test vortex-duckdb and vortex-datafusion aggregation support.
+# vortex-duckdb currently doesn't push float aggregations to vortex so
+# this tests duckdb base behaviour so we wouldn't accidentally break it
+# in the future.
+# Integral and string aggregations in Duckdb are pushed to Vortex.
+
+statement ok
+COPY (SELECT CAST(x AS INTEGER) AS x FROM (VALUES (1),(2),(CAST(NULL AS INTEGER))) t(x))
+TO '${WORK_DIR}/i-some.vortex';
+
+statement ok
+COPY (SELECT CAST(x AS INTEGER) AS x FROM (VALUES (CAST(NULL AS INTEGER)),(CAST(NULL AS INTEGER))) t(x))
+TO '${WORK_DIR}/i-null.vortex';
+
+query IIIR
+SELECT min(x), max(x), count(x), avg(x) FROM '${WORK_DIR}/i-some.vortex';
+----
+1 2 2 1.5
+
+query IIIR
+SELECT min(x), max(x), count(x), avg(x) FROM '${WORK_DIR}/i-null.vortex';
+----
+NULL NULL 0 NULL
+
+statement ok
+COPY (SELECT * FROM (VALUES ('NaN'::DOUBLE),(1.0),(2.0),(CAST(NULL AS DOUBLE))) AS t(x))
+TO '${WORK_DIR}/f-nan.vortex';
+
+statement ok
+COPY (SELECT * FROM (VALUES ('NaN'::DOUBLE),('NaN'::DOUBLE)) AS t(x)) TO '${WORK_DIR}/f-allnan.vortex';
+
+statement ok
+COPY (SELECT * FROM (VALUES ('Infinity'::DOUBLE),('-Infinity'::DOUBLE),(0.0)) AS t(x))
+TO '${WORK_DIR}/f-mixinf.vortex';
+
+statement ok
+COPY (SELECT * FROM (VALUES ('Infinity'::DOUBLE),(1.0),(2.0)) AS t(x)) TO '${WORK_DIR}/f-posinf.vortex';
+
+statement ok
+COPY (SELECT * FROM (VALUES (CAST(NULL AS DOUBLE)),(CAST(NULL AS DOUBLE))) AS t(x))
+TO '${WORK_DIR}/f-null.vortex';
+
+query IRRRR
+SELECT count(x), sum(x), min(x), max(x), avg(x) FROM '${WORK_DIR}/f-nan.vortex';
+----
+3 NaN 1 NaN NaN
+
+# all NaN
+query IRRRR
+SELECT count(x), sum(x), min(x), max(x), avg(x) FROM '${WORK_DIR}/f-allnan.vortex';
+----
+2 NaN NaN NaN NaN
+
+query IRRRR
+SELECT count(x), sum(x), min(x), max(x), avg(x) FROM '${WORK_DIR}/f-mixinf.vortex';
+----
+3 NaN -Infinity Infinity NaN
+
+query IRRRR
+SELECT count(x), sum(x), min(x), max(x), avg(x) FROM '${WORK_DIR}/f-posinf.vortex';
+----
+3 Infinity 1 Infinity Infinity
+
+query IRRRR
+SELECT count(x), sum(x), min(x), max(x), avg(x) FROM '${WORK_DIR}/f-null.vortex';
+----
+0 NULL NULL NULL NULL
+
+statement ok
+COPY (SELECT * FROM (VALUES ('banana'),('apple'),(CAST(NULL AS VARCHAR))) AS t(x))
+TO '${WORK_DIR}/s-some.vortex';
+
+statement ok
+COPY (SELECT * FROM (VALUES (CAST(NULL AS VARCHAR)),(CAST(NULL AS VARCHAR))) AS t(x))
+TO '${WORK_DIR}/s-null.vortex';
+
+query TTI
+SELECT min(x), max(x), count(x) FROM '${WORK_DIR}/s-some.vortex';
+----
+apple banana 2
+
+query TTI
+SELECT min(x), max(x), count(x) FROM '${WORK_DIR}/s-null.vortex';
+----
+NULL NULL 0
+
+statement ok
+COPY (SELECT repeat('a',200) || lpad(i::VARCHAR,5,'0') AS x FROM generate_series(1,50) t(i))
+TO '${WORK_DIR}/s-long.vortex';
+
+query III
+SELECT length(min(x)), length(max(x)), count(x) FROM '${WORK_DIR}/s-long.vortex';
+----
+205 205 50
+
+statement ok
+COPY (SELECT CAST(i AS INTEGER) AS x FROM generate_series(1,100) t(i)) TO '${WORK_DIR}/i-series.vortex';
+
+query I
+SELECT sum(x) FROM '${WORK_DIR}/i-series.vortex';
+----
+5050
+
+query I
+SELECT sum(x) FROM '${WORK_DIR}/i-some.vortex';
+----
+3

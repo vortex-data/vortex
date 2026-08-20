@@ -17,6 +17,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::TypedArrayRef;
+use vortex_array::array_slots;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
@@ -62,9 +63,7 @@ impl VTable for ZigZag {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        let encoded = slots[ENCODED_SLOT]
-            .as_ref()
-            .vortex_expect("ZigZagArray encoded slot");
+        let encoded = ZigZagSlotsView::from_slots(slots).encoded;
         let expected_dtype = ZigZagData::dtype_from_encoded_dtype(encoded.dtype())?;
         vortex_ensure!(
             dtype == &expected_dtype,
@@ -88,6 +87,14 @@ impl VTable for ZigZag {
 
     fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         vortex_panic!("ZigZagArray buffer_name index {idx} out of bounds")
+    }
+
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        vortex_array::vtable::with_empty_buffers(self, array, buffers)
     }
 
     fn serialize(
@@ -126,7 +133,7 @@ impl VTable for ZigZag {
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        ZigZagSlots::NAMES[idx].to_string()
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -154,10 +161,12 @@ impl ArrayEq for ZigZagData {
     }
 }
 
-/// The zigzag-encoded values (signed integers mapped to unsigned).
-pub(super) const ENCODED_SLOT: usize = 0;
-pub(super) const NUM_SLOTS: usize = 1;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["encoded"];
+#[array_slots(ZigZag)]
+pub struct ZigZagSlots {
+    /// The zigzag-encoded values (signed integers mapped to unsigned).
+    #[slot(0)]
+    pub encoded: ArrayRef,
+}
 
 #[derive(Clone, Debug)]
 pub struct ZigZagData {}
@@ -168,13 +177,7 @@ impl Display for ZigZagData {
     }
 }
 
-pub trait ZigZagArrayExt: TypedArrayRef<ZigZag> {
-    fn encoded(&self) -> &ArrayRef {
-        self.as_ref().slots()[ENCODED_SLOT]
-            .as_ref()
-            .vortex_expect("ZigZagArray encoded slot")
-    }
-
+pub trait ZigZagArrayExt: ZigZagArraySlotsExt {
     fn ptype(&self) -> PType {
         PType::try_from(self.encoded().dtype())
             .vortex_expect("ZigZagArray encoded dtype")

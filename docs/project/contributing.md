@@ -7,15 +7,17 @@ The full contributing guide lives in the repository:
 
 Below is a brief summary.
 
-## Reporting Issues
+## Issues and Questions
 
-Bugs should be filed as [GitHub Issues](https://github.com/vortex-data/vortex/issues). Open-ended
-questions and feature requests should be filed as
-[GitHub Discussions](https://github.com/vortex-data/vortex/discussions).
+Bugs, feature requests, and questions should all be filed as
+[GitHub Issues](https://github.com/vortex-data/vortex/issues/new/choose). We strongly prefer that
+you use one of the provided issue templates rather than opening a blank issue; templates make sure
+we get the information needed to act on your report. For quick questions, the
+[Vortex Slack channel](https://vortex.dev/slack) is also a good option.
 
 ## Code Contributions
 
-1. Start a discussion on GitHub (unless the change is trivial).
+1. Start a discussion by creating or commenting on a GitHub Issue (unless the change is trivial).
 2. Implement the change, including tests for new functionality or bug fixes.
 3. Open a pull request — ensure CI passes and that you sign off your commits (see below).
    CI requires approval from a committer for first-time contributors.
@@ -43,7 +45,9 @@ This section describes our expectations around disclosure, review, and accountab
 The repository has [Claude Code](https://docs.anthropic.com/en/docs/claude-code) configured as a
 GitHub Action. Users with write access to the repository can mention `@claude` in PR comments or
 issue comments to trigger AI-powered code reviews, request changes, or generate PRs. Configuration
-for Claude's behavior lives in `CLAUDE.md` at the repository root.
+for coding agents lives in the repository's
+[`AGENTS.md`](https://github.com/vortex-data/vortex/blob/develop/AGENTS.md), with reusable workflows
+under [`.agents/skills`](https://github.com/vortex-data/vortex/tree/develop/.agents/skills).
 
 ### Disclosure
 

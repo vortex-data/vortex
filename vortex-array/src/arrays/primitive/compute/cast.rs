@@ -2,12 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::AsPrimitive;
+use num_traits::CheckedMul;
 use num_traits::NumCast;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_compute::lane_kernels::IndexedSinkExt;
 use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_compute::lane_kernels::ReinterpretSink;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -18,16 +20,28 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn;
 use crate::array::ArrayView;
+use crate::arrays::DecimalArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::PrimitiveArrayExt;
+use crate::dtype::BigCast;
 use crate::dtype::DType;
+use crate::dtype::DecimalDType;
+use crate::dtype::DecimalType;
+use crate::dtype::IntegerPType;
+use crate::dtype::NativeDecimalType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::dtype::ToI256;
+use crate::dtype::i256;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
+use crate::match_each_decimal_value_type;
+use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
+use crate::match_each_signed_integer_ptype;
+use crate::scalar::DecimalValue;
 use crate::scalar_fn::fns::cast::CastKernel;
 use crate::scalar_fn::fns::cast::CastReduce;
 use crate::validity::Validity;
@@ -68,6 +82,9 @@ impl CastKernel for Primitive {
         dtype: &DType,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        if let DType::Decimal(decimal_dtype, nullability) = dtype {
+            return cast_to_decimal(array, *decimal_dtype, *nullability, ctx).map(Some);
+        }
         let DType::Primitive(new_ptype, new_nullability) = dtype else {
             return Ok(None);
         };
@@ -105,6 +122,343 @@ impl CastKernel for Primitive {
     }
 }
 
+fn cast_to_decimal(
+    array: ArrayView<'_, Primitive>,
+    decimal_dtype: DecimalDType,
+    nullability: Nullability,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    if !array.ptype().is_int() {
+        vortex_bail!(
+            Compute: "Cannot cast floating primitive {} to decimal {}",
+            array.ptype(), decimal_dtype
+        );
+    }
+
+    let source_validity = array.validity()?;
+    let validity = source_validity
+        .clone()
+        .cast_nullability(nullability, array.len(), ctx)?;
+    let values_type = DecimalType::smallest_decimal_value_type(&decimal_dtype);
+
+    if decimal_dtype.scale() == 0
+        && signed_primitive_decimal_type(array.ptype()) == Some(values_type)
+    {
+        return match_each_signed_integer_ptype!(array.ptype(), |S| {
+            cast_unscaled_same_width_signed_integer_to_decimal::<S>(
+                array,
+                decimal_dtype,
+                validity,
+                &source_validity,
+                ctx,
+            )
+        });
+    }
+
+    let valid_values = source_validity.execute_mask(array.len(), ctx)?;
+    match_each_integer_ptype!(array.ptype(), |S| {
+        match_each_decimal_value_type!(values_type, |T| {
+            cast_integer_values_to_decimal::<S, T>(array, decimal_dtype, validity, &valid_values)
+        })
+    })
+}
+
+fn cast_unscaled_same_width_signed_integer_to_decimal<S>(
+    array: ArrayView<'_, Primitive>,
+    decimal_dtype: DecimalDType,
+    validity: Validity,
+    source_validity: &Validity,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef>
+where
+    S: IntegerPType + NativeDecimalType + ToI256,
+{
+    let values = array.as_slice::<S>();
+    let target_dtype = DType::Decimal(decimal_dtype, Nullability::NonNullable);
+    if !cached_values_fit_in(array, &target_dtype).unwrap_or(false) {
+        let valid_values = source_validity.execute_mask(array.len(), ctx)?;
+        validate_unscaled_signed_integer_values_to_decimal(values, decimal_dtype, &valid_values)
+            .map_err(|idx| primitive_to_decimal_cast_error(values[idx], decimal_dtype))?;
+    }
+
+    // SAFETY: `S::DECIMAL_TYPE` has the same physical representation as the source ptype, and
+    // either exact min/max statistics or the validation above prove every valid value fits.
+    Ok(unsafe {
+        DecimalArray::new_unchecked_handle(
+            array.buffer_handle().clone(),
+            S::DECIMAL_TYPE,
+            decimal_dtype,
+            validity,
+        )
+        .into_array()
+    })
+}
+
+fn validate_unscaled_signed_integer_values_to_decimal<S>(
+    values: &[S],
+    decimal_dtype: DecimalDType,
+    valid_values: &Mask,
+) -> Result<(), usize>
+where
+    S: NativeDecimalType,
+{
+    let fits = |value| decimal_value_fits_precision(value, decimal_dtype);
+    match valid_values {
+        Mask::AllTrue(_) => values
+            .iter()
+            .position(|&value| !fits(value))
+            .map_or(Ok(()), Err),
+        Mask::AllFalse(_) => Ok(()),
+        Mask::Values(mask) => {
+            let mut first_failure = None;
+            mask.bit_buffer().for_each_set_index(|idx| {
+                if first_failure.is_none() && !fits(values[idx]) {
+                    first_failure = Some(idx);
+                }
+            });
+            first_failure.map_or(Ok(()), Err)
+        }
+    }
+}
+
+fn cast_integer_values_to_decimal<S, T>(
+    array: ArrayView<'_, Primitive>,
+    decimal_dtype: DecimalDType,
+    validity: Validity,
+    valid_values: &Mask,
+) -> VortexResult<ArrayRef>
+where
+    S: IntegerPType + ToI256,
+    T: NativeDecimalType + CheckedMul,
+{
+    let scale = decimal_dtype.scale();
+    let buffer = if scale == 0 {
+        cast_unscaled_integer_values_to_decimal::<S, T>(array, decimal_dtype, valid_values)?
+    } else if scale > 0 {
+        cast_scaled_up_integer_values_to_decimal::<S, T>(array, decimal_dtype, valid_values)?
+    } else {
+        cast_scaled_down_integer_values_to_decimal::<S, T>(array, decimal_dtype, valid_values)?
+    };
+
+    Ok(DecimalArray::new(buffer, decimal_dtype, validity).into_array())
+}
+
+fn cast_unscaled_integer_values_to_decimal<S, T>(
+    array: ArrayView<'_, Primitive>,
+    decimal_dtype: DecimalDType,
+    valid_values: &Mask,
+) -> VortexResult<Buffer<T>>
+where
+    S: IntegerPType + ToI256,
+    T: NativeDecimalType,
+{
+    let values = array.as_slice::<S>();
+    cast_integer_values_to_decimal_buffer(values, decimal_dtype, valid_values, |value| {
+        let value = <T as BigCast>::from(value)?;
+        decimal_value_fits_precision(value, decimal_dtype).then_some(value)
+    })
+}
+
+fn cast_scaled_up_integer_values_to_decimal<S, T>(
+    array: ArrayView<'_, Primitive>,
+    decimal_dtype: DecimalDType,
+    valid_values: &Mask,
+) -> VortexResult<Buffer<T>>
+where
+    S: IntegerPType + ToI256,
+    T: NativeDecimalType + CheckedMul,
+{
+    let values = array.as_slice::<S>();
+    let scale_factor = decimal_scale_factor::<T>(decimal_dtype.scale())?;
+    cast_integer_values_to_decimal_buffer(values, decimal_dtype, valid_values, |value| {
+        let value = <T as BigCast>::from(value)?;
+        let value = value.checked_mul(&scale_factor)?;
+        decimal_value_fits_precision(value, decimal_dtype).then_some(value)
+    })
+}
+
+fn cast_scaled_down_integer_values_to_decimal<S, T>(
+    array: ArrayView<'_, Primitive>,
+    decimal_dtype: DecimalDType,
+    valid_values: &Mask,
+) -> VortexResult<Buffer<T>>
+where
+    S: IntegerPType + ToI256,
+    T: NativeDecimalType,
+{
+    let values = array.as_slice::<S>();
+    if decimal_dtype.scale().unsigned_abs() >= primitive_max_decimal_digits(array.ptype()) {
+        // The scale factor exceeds every source value, so only zero can be exactly rescaled.
+        return cast_integer_values_to_decimal_buffer(
+            values,
+            decimal_dtype,
+            valid_values,
+            |value| (value == S::default()).then_some(T::default()),
+        );
+    }
+
+    // Scaling down can shrink a value into a narrower target type, so first select the smallest
+    // signed carrier that can represent both the source and target.
+    let carrier_type = primitive_decimal_carrier_type(array.ptype()).max(T::DECIMAL_TYPE);
+    match_each_decimal_value_type!(carrier_type, |W| {
+        let scale_factor = decimal_scale_factor::<W>(decimal_dtype.scale())?;
+        cast_integer_values_to_decimal_buffer(values, decimal_dtype, valid_values, |value| {
+            let value = <W as BigCast>::from(value)?;
+            let quotient = value / scale_factor;
+            let value = (quotient * scale_factor == value).then_some(quotient)?;
+            let value = <T as BigCast>::from(value)?;
+            decimal_value_fits_precision(value, decimal_dtype).then_some(value)
+        })
+    })
+}
+
+fn cast_integer_values_to_decimal_buffer<S, T>(
+    values: &[S],
+    decimal_dtype: DecimalDType,
+    valid_values: &Mask,
+    cast: impl Fn(S) -> Option<T>,
+) -> VortexResult<Buffer<T>>
+where
+    S: IntegerPType + ToI256,
+    T: NativeDecimalType,
+{
+    cast_primitive_to_decimal_buffer(values, valid_values, cast)
+        .map_err(|idx| primitive_to_decimal_cast_error(values[idx], decimal_dtype))
+}
+
+/// Decimal physical type with the same representation, when `ptype` is signed.
+fn signed_primitive_decimal_type(ptype: PType) -> Option<DecimalType> {
+    match ptype {
+        PType::I8 => Some(DecimalType::I8),
+        PType::I16 => Some(DecimalType::I16),
+        PType::I32 => Some(DecimalType::I32),
+        PType::I64 => Some(DecimalType::I64),
+        PType::U8 | PType::U16 | PType::U32 | PType::U64 => None,
+        PType::F16 | PType::F32 | PType::F64 => {
+            unreachable!("floating primitives are rejected before selecting a decimal type")
+        }
+    }
+}
+
+/// The smallest signed decimal physical type that represents every `ptype` value.
+fn primitive_decimal_carrier_type(ptype: PType) -> DecimalType {
+    match ptype {
+        PType::I8 => DecimalType::I8,
+        PType::U8 | PType::I16 => DecimalType::I16,
+        PType::U16 | PType::I32 => DecimalType::I32,
+        PType::U32 | PType::I64 => DecimalType::I64,
+        PType::U64 => DecimalType::I128,
+        PType::F16 | PType::F32 | PType::F64 => {
+            unreachable!("floating primitives are rejected before selecting a decimal carrier")
+        }
+    }
+}
+
+/// Maximum decimal digits in `ptype`; scales at least this large can exactly rescale only zero.
+fn primitive_max_decimal_digits(ptype: PType) -> u8 {
+    match ptype {
+        PType::U8 | PType::I8 => 3,
+        PType::U16 | PType::I16 => 5,
+        PType::U32 | PType::I32 => 10,
+        PType::U64 => 20,
+        PType::I64 => 19,
+        PType::F16 | PType::F32 | PType::F64 => {
+            unreachable!("floating primitives are rejected before inspecting decimal digits")
+        }
+    }
+}
+
+fn decimal_scale_factor<T>(scale: i8) -> VortexResult<T>
+where
+    T: NativeDecimalType + CheckedMul,
+{
+    let exponent = if scale > 0 {
+        scale as u32
+    } else {
+        (-(scale as i16)) as u32
+    };
+    let ten = <T as BigCast>::from(10i8).ok_or_else(
+        || vortex_err!(Compute: "Cannot create decimal scale factor for scale {scale}"),
+    )?;
+    let mut factor = <T as BigCast>::from(1i8).ok_or_else(
+        || vortex_err!(Compute: "Cannot create decimal scale factor for scale {scale}"),
+    )?;
+    for _ in 0..exponent {
+        factor = factor.checked_mul(&ten).ok_or_else(
+            || vortex_err!(Compute: "Cannot create decimal scale factor for scale {scale}"),
+        )?;
+    }
+    Ok(factor)
+}
+
+fn decimal_value_fits_precision<T: NativeDecimalType>(
+    value: T,
+    decimal_dtype: DecimalDType,
+) -> bool {
+    let precision = decimal_dtype.precision() as usize;
+    value >= T::MIN_BY_PRECISION[precision] && value <= T::MAX_BY_PRECISION[precision]
+}
+
+fn cast_primitive_to_decimal_buffer<S, T>(
+    values: &[S],
+    valid_values: &Mask,
+    cast: impl Fn(S) -> Option<T>,
+) -> Result<Buffer<T>, usize>
+where
+    S: NativePType,
+    T: NativeDecimalType,
+{
+    if matches!(valid_values, Mask::AllFalse(_)) {
+        return Ok(BufferMut::<T>::zeroed(values.len()).freeze());
+    }
+
+    let mut buffer = BufferMut::<T>::with_capacity(values.len());
+    match valid_values {
+        Mask::AllTrue(_) => {
+            values.try_map_into(&mut buffer.spare_capacity_mut()[..values.len()], &cast)?;
+        }
+        Mask::Values(mask) => {
+            values.try_map_masked_into(
+                mask.bit_buffer(),
+                &mut buffer.spare_capacity_mut()[..values.len()],
+                &cast,
+            )?;
+        }
+        Mask::AllFalse(_) => unreachable!("all-null values are handled before allocating"),
+    }
+    // SAFETY: the selected map kernel initialized every lane before returning Ok.
+    unsafe { buffer.set_len(values.len()) };
+    Ok(buffer.freeze())
+}
+
+fn primitive_to_decimal_cast_error<S>(value: S, decimal_dtype: DecimalDType) -> VortexError
+where
+    S: IntegerPType + ToI256,
+{
+    let Some(value) = <i256 as BigCast>::from(value) else {
+        return vortex_err!(
+            Compute: "primitive value cannot be represented while casting to {}",
+            decimal_dtype
+        );
+    };
+
+    match DecimalValue::rescale_i256(value, 0, decimal_dtype.scale())
+        .and_then(|value| DecimalValue::try_from_i256(value, decimal_dtype))
+    {
+        Err(error) => error,
+        Ok(_) => {
+            debug_assert!(
+                false,
+                "primitive-to-decimal fast path rejected a value that the scalar cast accepts"
+            );
+            vortex_err!(
+                Compute: "primitive value cannot be represented while casting to {}",
+                decimal_dtype
+            )
+        }
+    }
+}
+
 /// Cast Primitive values from `F` to `T`.
 fn cast_values<F, T>(
     array: ArrayView<'_, Primitive>,
@@ -124,7 +478,28 @@ where
 
     // Returns `true` if every value of `from` is representable in `to` without loss.
     fn casts_losslessly_to(from: PType, to: PType) -> bool {
-        from.least_supertype(to) == Some(to)
+        if from == to {
+            return true;
+        }
+        if (from.is_unsigned_int() && to.is_unsigned_int())
+            || (from.is_signed_int() && to.is_signed_int())
+            || (from.is_float() && to.is_float())
+        {
+            return from.byte_width() <= to.byte_width();
+        }
+        if from.is_unsigned_int() && to.is_signed_int() {
+            return from.byte_width() < to.byte_width();
+        }
+        if from.is_int() && to.is_float() {
+            let minimum_float_width = match from.byte_width() {
+                1 => 2,
+                2 => 4,
+                4 => 8,
+                _ => return false,
+            };
+            return to.byte_width() >= minimum_float_width;
+        }
+        false
     }
 
     // Skip the fallible kernel when type widening or (cached) min/max prove every value fits.
@@ -268,21 +643,25 @@ mod test {
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexError;
+    use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;
+    use crate::arrays::DecimalArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
-    #[expect(deprecated)]
-    use crate::canonical::ToCanonical as _;
     use crate::compute::conformance::cast::test_cast_conformance;
     use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
+    use crate::dtype::DecimalType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::i256;
+    use crate::expr::stats::Stat;
     use crate::validity::Validity;
 
     #[test]
@@ -291,18 +670,21 @@ mod test {
         let arr = buffer![0u32, 10, 200].into_array();
 
         // cast from u32 to u8
-        #[expect(deprecated)]
-        let p = arr.cast(PType::U8.into()).unwrap().to_primitive();
+        let p = arr
+            .cast(PType::U8.into())
+            .unwrap()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([0u8, 10, 200]), &mut ctx);
         assert!(matches!(p.validity(), Ok(Validity::NonNullable)));
 
         // to nullable
-        #[expect(deprecated)]
         let p = p
             .into_array()
             .cast(DType::Primitive(PType::U8, Nullability::Nullable))
             .unwrap()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_arrays_eq!(
             p,
             PrimitiveArray::new(buffer![0u8, 10, 200], Validity::AllValid),
@@ -311,22 +693,22 @@ mod test {
         assert!(matches!(p.validity(), Ok(Validity::AllValid)));
 
         // back to non-nullable
-        #[expect(deprecated)]
         let p = p
             .into_array()
             .cast(DType::Primitive(PType::U8, Nullability::NonNullable))
             .unwrap()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([0u8, 10, 200]), &mut ctx);
         assert!(matches!(p.validity(), Ok(Validity::NonNullable)));
 
         // to nullable u32
-        #[expect(deprecated)]
         let p = p
             .into_array()
             .cast(DType::Primitive(PType::U32, Nullability::Nullable))
             .unwrap()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_arrays_eq!(
             p,
             PrimitiveArray::new(buffer![0u32, 10, 200], Validity::AllValid),
@@ -335,12 +717,12 @@ mod test {
         assert!(matches!(p.validity(), Ok(Validity::AllValid)));
 
         // to non-nullable u8
-        #[expect(deprecated)]
         let p = p
             .into_array()
             .cast(DType::Primitive(PType::U8, Nullability::NonNullable))
             .unwrap()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([0u8, 10, 200]), &mut ctx);
         assert!(matches!(p.validity(), Ok(Validity::NonNullable)));
     }
@@ -349,13 +731,280 @@ mod test {
     fn cast_u32_f32() {
         let mut ctx = array_session().create_execution_ctx();
         let arr = buffer![0u32, 10, 200].into_array();
-        #[expect(deprecated)]
-        let u8arr = arr.cast(PType::F32.into()).unwrap().to_primitive();
+        let u8arr = arr
+            .cast(PType::F32.into())
+            .unwrap()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_arrays_eq!(
             u8arr,
             PrimitiveArray::from_iter([0.0f32, 10., 200.]),
             &mut ctx
         );
+    }
+
+    #[test]
+    fn cast_integer_to_decimal_rescales() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let decimal_dtype = DecimalDType::new(5, 2);
+        let casted = PrimitiveArray::from_iter([42i32, -7])
+            .into_array()
+            .cast(DType::Decimal(decimal_dtype, Nullability::NonNullable))?
+            .execute::<DecimalArray>(&mut ctx)?;
+
+        assert_eq!(
+            casted.dtype(),
+            &DType::Decimal(decimal_dtype, Nullability::NonNullable)
+        );
+        assert_eq!(casted.values_type(), DecimalType::I32);
+        assert_eq!(casted.buffer::<i32>().as_ref(), &[4_200, -700]);
+        Ok(())
+    }
+
+    #[test]
+    fn cast_same_width_signed_integer_to_decimal_reuses_buffer() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let source = PrimitiveArray::from_iter([42i32, -7]);
+        let source_ptr = source.as_slice::<i32>().as_ptr();
+        let casted = source
+            .into_array()
+            .cast(DType::Decimal(
+                DecimalDType::new(9, 0),
+                Nullability::NonNullable,
+            ))?
+            .execute::<DecimalArray>(&mut ctx)?;
+
+        assert_eq!(casted.buffer::<i32>().as_ptr(), source_ptr);
+        assert_eq!(casted.buffer::<i32>().as_ref(), &[42, -7]);
+        Ok(())
+    }
+
+    #[test]
+    fn cast_same_width_signed_integer_to_decimal_reuses_buffer_with_cached_bounds()
+    -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let source = PrimitiveArray::from_iter([42i32, -7]);
+        let source_ptr = source.as_slice::<i32>().as_ptr();
+        let source = source.into_array();
+        source
+            .statistics()
+            .compute_all(&[Stat::Min, Stat::Max], &mut ctx)?;
+        let casted = source
+            .cast(DType::Decimal(
+                DecimalDType::new(9, 0),
+                Nullability::NonNullable,
+            ))?
+            .execute::<DecimalArray>(&mut ctx)?;
+
+        assert_eq!(casted.buffer::<i32>().as_ptr(), source_ptr);
+        Ok(())
+    }
+
+    #[test]
+    fn cast_same_width_signed_integer_to_decimal_ignores_out_of_range_nulls() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let source = PrimitiveArray::new(buffer![i32::MAX, 42], Validity::from_iter([false, true]));
+        let source_ptr = source.as_slice::<i32>().as_ptr();
+        let casted = source
+            .into_array()
+            .cast(DType::Decimal(
+                DecimalDType::new(9, 0),
+                Nullability::Nullable,
+            ))?
+            .execute::<DecimalArray>(&mut ctx)?;
+
+        assert_eq!(casted.buffer::<i32>().as_ptr(), source_ptr);
+        assert_eq!(
+            casted.validity()?.execute_mask(casted.len(), &mut ctx)?,
+            Mask::from(BitBuffer::from(vec![false, true]))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn cast_same_width_signed_integer_to_decimal_checks_precision() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let casted = PrimitiveArray::from_iter([i32::MAX])
+            .into_array()
+            .cast(DType::Decimal(
+                DecimalDType::new(9, 0),
+                Nullability::NonNullable,
+            ))?;
+
+        let error = casted.execute::<DecimalArray>(&mut ctx).unwrap_err();
+        assert!(error.to_string().contains("does not fit in precision"));
+        Ok(())
+    }
+
+    #[test]
+    fn cast_u64_to_decimal() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let decimal_dtype = DecimalDType::new(20, 0);
+        let casted = PrimitiveArray::from_iter([u64::MAX])
+            .into_array()
+            .cast(DType::Decimal(decimal_dtype, Nullability::NonNullable))?
+            .execute::<DecimalArray>(&mut ctx)?;
+
+        assert_eq!(casted.values_type(), DecimalType::I128);
+        assert_eq!(casted.buffer::<i128>().as_ref(), &[i128::from(u64::MAX)]);
+        Ok(())
+    }
+
+    #[test]
+    fn cast_integer_to_decimal_reports_scale_up_overflow() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let dtype = DType::Decimal(DecimalDType::new(38, 20), Nullability::NonNullable);
+        let casted = PrimitiveArray::from_iter([u64::MAX])
+            .into_array()
+            .cast(dtype)?;
+        let actual = casted.execute::<DecimalArray>(&mut ctx).unwrap_err();
+
+        assert!(
+            actual
+                .to_string()
+                .contains("does not fit in precision of decimal(38,20)")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn cast_u8_to_negative_scale_decimal() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let decimal_dtype = DecimalDType::new(2, -2);
+        let casted = PrimitiveArray::from_iter([200u8])
+            .into_array()
+            .cast(DType::Decimal(decimal_dtype, Nullability::NonNullable))?
+            .execute::<DecimalArray>(&mut ctx)?;
+
+        assert_eq!(casted.values_type(), DecimalType::I8);
+        assert_eq!(casted.buffer::<i8>().as_ref(), &[2]);
+        Ok(())
+    }
+
+    #[test]
+    fn cast_u64_to_negative_scale_decimal() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let decimal_dtype = DecimalDType::new(1, -19);
+        let casted = PrimitiveArray::from_iter([10_000_000_000_000_000_000u64])
+            .into_array()
+            .cast(DType::Decimal(decimal_dtype, Nullability::NonNullable))?
+            .execute::<DecimalArray>(&mut ctx)?;
+
+        assert_eq!(casted.values_type(), DecimalType::I8);
+        assert_eq!(casted.buffer::<i8>().as_ref(), &[1]);
+        Ok(())
+    }
+
+    #[test]
+    fn cast_integer_to_i256_decimal() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let decimal_dtype = DecimalDType::new(39, 2);
+        let casted = PrimitiveArray::from_iter([42i64])
+            .into_array()
+            .cast(DType::Decimal(decimal_dtype, Nullability::NonNullable))?
+            .execute::<DecimalArray>(&mut ctx)?;
+
+        assert_eq!(casted.values_type(), DecimalType::I256);
+        assert_eq!(casted.buffer::<i256>().as_ref(), &[i256::from_i128(4_200)]);
+        Ok(())
+    }
+
+    #[test]
+    fn cast_all_null_integer_to_decimal() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let decimal_dtype = DecimalDType::new(39, 2);
+        let casted = PrimitiveArray::new(buffer![i64::MAX, i64::MIN], Validity::AllInvalid)
+            .into_array()
+            .cast(DType::Decimal(decimal_dtype, Nullability::Nullable))?
+            .execute::<DecimalArray>(&mut ctx)?;
+
+        assert!(matches!(casted.validity(), Ok(Validity::AllInvalid)));
+        assert_eq!(casted.buffer::<i256>().as_ref(), &[i256::ZERO, i256::ZERO]);
+        Ok(())
+    }
+
+    #[test]
+    fn cast_integer_to_negative_scale_decimal_requires_exact_rescale() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let decimal_dtype = DecimalDType::new(3, -2);
+        let casted = PrimitiveArray::from_iter([1_200i32, -500])
+            .into_array()
+            .cast(DType::Decimal(decimal_dtype, Nullability::NonNullable))?
+            .execute::<DecimalArray>(&mut ctx)?;
+
+        assert_eq!(casted.buffer::<i16>().as_ref(), &[12, -5]);
+
+        let error = PrimitiveArray::from_iter([42i32])
+            .into_array()
+            .cast(DType::Decimal(decimal_dtype, Nullability::NonNullable))?
+            .execute::<DecimalArray>(&mut ctx)
+            .unwrap_err();
+        assert!(error.to_string().contains("would lose precision"));
+        Ok(())
+    }
+
+    #[test]
+    fn cast_zero_to_large_negative_scale_decimal() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let decimal_dtype = DecimalDType::new(3, -128);
+        let casted = PrimitiveArray::from_iter([0i32])
+            .into_array()
+            .cast(DType::Decimal(decimal_dtype, Nullability::NonNullable))?
+            .execute::<DecimalArray>(&mut ctx)?;
+
+        assert_eq!(casted.buffer::<i16>().as_ref(), &[0]);
+        Ok(())
+    }
+
+    #[test]
+    fn cast_integer_to_decimal_ignores_out_of_range_null_lanes() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let decimal_dtype = DecimalDType::new(3, 1);
+        let casted = PrimitiveArray::new(buffer![999i32, 42], Validity::from_iter([false, true]))
+            .into_array()
+            .cast(DType::Decimal(decimal_dtype, Nullability::Nullable))?
+            .execute::<DecimalArray>(&mut ctx)?;
+
+        assert_eq!(casted.buffer::<i16>().as_ref()[1], 420);
+        assert_eq!(
+            casted.validity()?.execute_mask(casted.len(), &mut ctx)?,
+            Mask::from(BitBuffer::from(vec![false, true]))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn cast_integer_to_decimal_checks_precision() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let casted = PrimitiveArray::from_iter([100i32])
+            .into_array()
+            .cast(DType::Decimal(
+                DecimalDType::new(2, 1),
+                Nullability::NonNullable,
+            ))?;
+
+        let error = casted.execute::<DecimalArray>(&mut ctx).unwrap_err();
+        assert!(error.to_string().contains("does not fit in precision"));
+        Ok(())
+    }
+
+    #[test]
+    fn cast_floating_primitive_to_decimal_fails() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let casted = PrimitiveArray::from_iter([1.0f64])
+            .into_array()
+            .cast(DType::Decimal(
+                DecimalDType::new(3, 1),
+                Nullability::NonNullable,
+            ))?;
+
+        let error = casted.execute::<DecimalArray>(&mut ctx).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("Cannot cast floating primitive f64 to decimal decimal(3,1)")
+        );
+        Ok(())
     }
 
     #[test]
@@ -394,12 +1043,12 @@ mod test {
             buffer![-1i32, 0, 10],
             Validity::from_iter([false, true, true]),
         );
-        #[expect(deprecated)]
         let p = arr
             .into_array()
             .cast(DType::Primitive(PType::U32, Nullability::Nullable))
             .unwrap()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_arrays_eq!(
             p,
             PrimitiveArray::from_option_iter([None, Some(0u32), Some(10)]),
@@ -421,13 +1070,15 @@ mod test {
     /// Same-width integer cast where all values fit: should reinterpret the
     /// buffer without allocation (pointer identity).
     #[test]
-    fn cast_same_width_int_reinterprets_buffer() -> vortex_error::VortexResult<()> {
+    fn cast_same_width_int_reinterprets_buffer() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         let src = PrimitiveArray::from_iter([0u32, 10, 100]);
         let src_ptr = src.as_slice::<u32>().as_ptr();
 
-        #[expect(deprecated)]
-        let dst = src.into_array().cast(PType::I32.into())?.to_primitive();
+        let dst = src
+            .into_array()
+            .cast(PType::I32.into())?
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let dst_ptr = dst.as_slice::<i32>().as_ptr();
 
         // Zero-copy: the data pointer should be identical.
@@ -452,13 +1103,13 @@ mod test {
     /// All-null array cast between same-width types should succeed without
     /// touching the buffer contents.
     #[test]
-    fn cast_same_width_all_null() -> vortex_error::VortexResult<()> {
+    fn cast_same_width_all_null() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         let arr = PrimitiveArray::new(buffer![0xFFu8, 0xFF], Validity::AllInvalid);
-        #[expect(deprecated)]
         let casted = arr
             .into_array()
             .cast(DType::Primitive(PType::I8, Nullability::Nullable))?
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut ctx)?;
         assert_eq!(casted.len(), 2);
         assert!(matches!(casted.validity(), Ok(Validity::AllInvalid)));
         Ok(())
@@ -467,7 +1118,7 @@ mod test {
     /// Same-width integer cast with nullable values: out-of-range nulls should
     /// not prevent the cast from succeeding.
     #[test]
-    fn cast_same_width_int_nullable_with_out_of_range_nulls() -> vortex_error::VortexResult<()> {
+    fn cast_same_width_int_nullable_with_out_of_range_nulls() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         // The null position holds u32::MAX which doesn't fit in i32, but it's
         // masked as invalid so the cast should still succeed via reinterpret.
@@ -475,11 +1126,10 @@ mod test {
             buffer![u32::MAX, 0u32, 42u32],
             Validity::from_iter([false, true, true]),
         );
-        #[expect(deprecated)]
         let casted = arr
             .into_array()
             .cast(DType::Primitive(PType::I32, Nullability::Nullable))?
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut ctx)?;
         assert_arrays_eq!(
             casted,
             PrimitiveArray::from_option_iter([None, Some(0i32), Some(42)]),
@@ -489,17 +1139,16 @@ mod test {
     }
 
     #[test]
-    fn cast_u32_to_u8_with_out_of_range_nulls() -> vortex_error::VortexResult<()> {
+    fn cast_u32_to_u8_with_out_of_range_nulls() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         let arr = PrimitiveArray::new(
             buffer![1000u32, 10u32, 42u32],
             Validity::from_iter([false, true, true]),
         );
-        #[expect(deprecated)]
         let casted = arr
             .into_array()
             .cast(DType::Primitive(PType::U8, Nullability::Nullable))?
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut ctx)?;
         assert_arrays_eq!(
             casted,
             PrimitiveArray::from_option_iter([None, Some(10u8), Some(42)]),
@@ -525,6 +1174,6 @@ mod test {
     #[case(PrimitiveArray::from_option_iter([Some(1i32), None, Some(-100), Some(0), None]).into_array())]
     #[case(buffer![42u32].into_array())]
     fn test_cast_primitive_conformance(#[case] array: ArrayRef) {
-        test_cast_conformance(&array);
+        test_cast_conformance(&array, &mut array_session().create_execution_ctx());
     }
 }

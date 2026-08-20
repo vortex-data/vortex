@@ -21,6 +21,7 @@ use num_traits::Unsigned;
 use num_traits::bounds::UpperBounded;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::dtype::DType;
@@ -89,6 +90,32 @@ pub trait UnsignedPType: IntegerPType + Unsigned {}
 
 /// Implements [`UnsignedPType`] for all possible `T` that have the correct bounds.
 impl<T> UnsignedPType for T where T: IntegerPType + Unsigned {}
+
+/// Trait for the integer types that can back a builder's `offsets` and `sizes`: `u32`, `i32`,
+/// `u64`, and `i64`.
+///
+/// This trait is sealed and cannot be implemented for any other type. Restricting the set of
+/// widths keeps the concrete [`ListBuilder`](crate::builders::ListBuilder),
+/// [`ListViewBuilder`](crate::builders::ListViewBuilder), and
+/// [`VarBinBuilder`](crate::builders::VarBinBuilder) instantiations small enough for
+/// [`match_each_list_builder!`](crate::match_each_list_builder) and
+/// [`match_each_varbin_builder!`](crate::match_each_varbin_builder) to enumerate them.
+pub trait OffsetBuilderPType: IntegerPType + offset_builder_sealed::Sealed {}
+
+mod offset_builder_sealed {
+    pub trait Sealed {}
+}
+
+macro_rules! impl_offset_builder_ptype {
+    ($($T:ty),*) => {
+        $(
+            impl offset_builder_sealed::Sealed for $T {}
+            impl OffsetBuilderPType for $T {}
+        )*
+    };
+}
+
+impl_offset_builder_ptype!(u32, i32, u64, i64);
 
 /// A trait for native Rust types that correspond 1:1 to a PType.
 ///
@@ -690,6 +717,25 @@ macro_rules! match_smallest_offset_type {
     }};
 }
 
+/// Macro to match the smallest [`OffsetBuilderPType`] able to index a given number of elements.
+///
+/// Like [`match_smallest_offset_type!`](crate::match_smallest_offset_type), but restricted to the
+/// unsigned types valid as builder offsets (`u32` and `u64`).
+#[macro_export]
+macro_rules! match_smallest_list_offset_type {
+    ($n_elements:expr, | $offset_type:ident | $body:block) => {{
+        let n_elements = $n_elements;
+        if n_elements <= u32::MAX as usize {
+            type $offset_type = u32;
+            $body
+        } else {
+            assert!(u64::try_from(n_elements).is_ok());
+            type $offset_type = u64;
+            $body
+        }
+    }};
+}
+
 impl PType {
     /// Returns `true` iff this PType is an unsigned integer type
     #[inline]
@@ -845,7 +891,7 @@ impl TryFrom<&DType> for PType {
         if let DType::Primitive(p, _) = value {
             Ok(*p)
         } else {
-            Err(vortex_err!("Cannot convert DType {} into PType", value))
+            vortex_bail!("Cannot convert DType {value} into PType")
         }
     }
 }

@@ -4,11 +4,13 @@
 #![cfg(feature = "tokio")]
 #![expect(clippy::cast_possible_truncation)]
 
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use futures::FutureExt;
+use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use tempfile::NamedTempFile;
 use vortex_array::buffer::BufferHandle;
@@ -18,6 +20,7 @@ use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 
 use crate::VortexReadAt;
+use crate::runtime::Task;
 use crate::runtime::single::block_on;
 use crate::runtime::tokio::TokioRuntime;
 use crate::std_file::FileReadAt;
@@ -223,6 +226,51 @@ async fn test_handle_spawn_cpu() {
     let result = task.await;
     assert_eq!(result, 100);
     assert_eq!(counter.load(Ordering::SeqCst), 1);
+}
+
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> &str {
+    payload
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or("<non-string panic>")
+}
+
+// Joining a spawned future that panicked must re-raise the *original* panic, not a generic
+// "Runtime dropped task" message.
+#[test]
+fn test_spawned_future_panic_reraises_original() {
+    let outcome = block_on(|handle| {
+        async move {
+            let task: Task<()> = handle.spawn(async move { panic!("original spawn panic") });
+            AssertUnwindSafe(task).catch_unwind().await
+        }
+        .boxed_local()
+    });
+
+    let payload = outcome.expect_err("panicking task must propagate a panic");
+    assert!(
+        panic_message(&*payload).contains("original spawn panic"),
+        "got: {:?}",
+        panic_message(&*payload)
+    );
+}
+
+// Same for CPU tasks.
+#[tokio::test]
+async fn test_spawned_cpu_task_panic_reraises_original() {
+    let handle = TokioRuntime::current();
+    let task: Task<()> = handle.spawn_cpu(|| panic!("original cpu panic"));
+
+    let payload = AssertUnwindSafe(task)
+        .catch_unwind()
+        .await
+        .expect_err("panicking cpu task must propagate a panic");
+    assert!(
+        panic_message(&*payload).contains("original cpu panic"),
+        "got: {:?}",
+        panic_message(&*payload)
+    );
 }
 
 // ============================================================================

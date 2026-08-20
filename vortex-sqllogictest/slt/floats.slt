@@ -7,12 +7,12 @@ include ./setup.slt.no
 
 # Create a file with float data
 query I
-COPY (SELECT * FROM (VALUES (1.5), (-2.5), (0.0), (42.42)) AS t(val)) TO '$__TEST_DIR__/floats.vortex';
+COPY (SELECT * FROM (VALUES (1.5), (-2.5), (0.0), (42.42)) AS t(val)) TO '${WORK_DIR}/floats.vortex';
 ----
 4
 
 # Test COUNT with filter on floats
 query I
-SELECT COUNT(*) FROM '$__TEST_DIR__/floats.vortex' WHERE val > 0;
+SELECT COUNT(*) FROM '${WORK_DIR}/floats.vortex' WHERE val > 0;
 ----
 2

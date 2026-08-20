@@ -20,7 +20,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::struct_::StructArrayExt;
-use vortex_array::arrays::variant::VariantArrayExt;
+use vortex_array::arrays::variant::VariantArraySlotsExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::assert_nth_scalar_is_null;
 use vortex_array::dtype::DType;
@@ -36,7 +36,7 @@ use vortex_json::Json;
 use vortex_session::VortexSession;
 
 use crate::ParquetVariant;
-use crate::ParquetVariantArrayExt;
+use crate::ParquetVariantArraySlotsExt;
 use crate::ShreddingSpec;
 use crate::json_to_variant;
 
@@ -145,7 +145,7 @@ fn converts_json_extension_input() -> VortexResult<()> {
 #[test]
 fn dict_encoded_input_converts_each_row() -> VortexResult<()> {
     // A dictionary-encoded JSON column exercises the dict-pushdown / canonicalization path:
-    // `json_to_variant` is not null-sensitive, so it pushes into the dict values (canonical
+    // `json_to_variant` is strict, so it pushes into the dict values (canonical
     // JSON extension values) where the kernel fires; either way every row must convert correctly.
     let values = json_input(VarBinViewArray::from_iter_str(["1", "2"]).into_array())?;
     let codes = PrimitiveArray::from_iter([0u8, 1, 0, 1, 0]).into_array();
@@ -200,7 +200,7 @@ fn shredding_produces_typed_value_child() -> VortexResult<()> {
     let result = execute_json_to_variant(input, shred_field_as_i64("a")?)?;
 
     assert!(
-        result.as_::<ParquetVariant>().typed_value_array().is_some(),
+        result.as_::<ParquetVariant>().typed_value().is_some(),
         "expected shredded typed_value child"
     );
 
@@ -283,7 +283,7 @@ fn shredding_root_path_shreds_top_level_values() -> VortexResult<()> {
     let result = execute_json_to_variant(input, spec)?;
 
     assert!(
-        result.as_::<ParquetVariant>().typed_value_array().is_some(),
+        result.as_::<ParquetVariant>().typed_value().is_some(),
         "expected shredded typed_value child"
     );
     assert_variant_i64_rows(&result.slice(0..2)?, &[Some(1), Some(2)])?;

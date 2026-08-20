@@ -10,10 +10,16 @@ header = """
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 #pragma once
 #include <stdint.h>
+#include <string.h>
 
-//
 // THIS FILE IS AUTO-GENERATED, DO NOT MAKE EDITS DIRECTLY
+
+// All operations return owned types which need to be freed by calling a
+// matching _free() function. This includes all arrays, data sources, scans,
+// errors, error messages, and other allocated objects.
 //
+// Unless stated explicitly, all function arguments are required. Passing
+// NULL to a function expecting a pointer is undefined behaviour.
 
 // https://arrow.apache.org/docs/format/CDataInterface.html#structure-definitions
 // If you want to use your own Arrow library like nanoarrow, define this macro
@@ -62,6 +68,22 @@ typedef struct ArrowArray FFI_ArrowArray;
 typedef struct ArrowArrayStream FFI_ArrowArrayStream;
 #endif
 """
+
+trailer = """
+/**
+ * Create a view over a null-terminated C string.
+ * View is valid as long as "str" is valid
+ */
+static inline vx_view vx_view_from_cstr(const char* str) {
+    vx_view s;
+    s.ptr = str;
+    s.len = strlen(str);
+    return s;
+}
+"""
+
+[export]
+exclude = ["DType", "PType", "Nullability", "Primitive"]
 
 [export.rename]
 "f16" = "uint16_t"

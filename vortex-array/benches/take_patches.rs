@@ -12,18 +12,23 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-#[expect(deprecated)]
-use vortex_array::ToCanonical as _;
 use vortex_array::VortexSessionExecute;
+use vortex_array::array_session;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::Patches;
 use vortex_buffer::Buffer;
+use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+
+/// Sized to keep CodSpeed simulation under 1ms per benchmark.
+const ARRAY_LEN: usize = 4096;
 
 const BENCH_ARGS: &[(f64, f64)] = &[
     // patches_sparsity, index_multiple
@@ -44,7 +49,7 @@ const BENCH_ARGS: &[(f64, f64)] = &[
 #[divan::bench(args = BENCH_ARGS)]
 fn take_search(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64)) {
     let mut rng = StdRng::seed_from_u64(0);
-    let patches = fixture(65536, patches_sparsity, &mut rng);
+    let patches = fixture(ARRAY_LEN, patches_sparsity, &mut rng);
     let indices = indices(
         patches.array_len(),
         (patches.array_len() as f64 * index_multiple) as usize,
@@ -54,8 +59,10 @@ fn take_search(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64))
     bencher
         .with_inputs(|| (&patches, &indices, SESSION.create_execution_ctx()))
         .bench_refs(|(patches, indices, ctx)| {
-            #[expect(deprecated)]
-            let prim = indices.to_primitive();
+            let prim = indices
+                .clone()
+                .execute::<PrimitiveArray>(ctx)
+                .vortex_expect("operation should succeed in benchmark");
             patches.take_search(prim, false, ctx)
         });
 }
@@ -63,7 +70,7 @@ fn take_search(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64))
 #[divan::bench(args = BENCH_ARGS)]
 fn take_search_chunked(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64)) {
     let mut rng = StdRng::seed_from_u64(0);
-    let patches = fixture_with_chunk_offsets(65536, patches_sparsity, &mut rng);
+    let patches = fixture_with_chunk_offsets(ARRAY_LEN, patches_sparsity, &mut rng);
     let indices = indices(
         patches.array_len(),
         (patches.array_len() as f64 * index_multiple) as usize,
@@ -73,8 +80,10 @@ fn take_search_chunked(bencher: Bencher, (patches_sparsity, index_multiple): (f6
     bencher
         .with_inputs(|| (&patches, &indices, SESSION.create_execution_ctx()))
         .bench_refs(|(patches, indices, ctx)| {
-            #[expect(deprecated)]
-            let prim = indices.to_primitive();
+            let prim = indices
+                .clone()
+                .execute::<PrimitiveArray>(ctx)
+                .vortex_expect("operation should succeed in benchmark");
             patches.take_search(prim, false, ctx)
         });
 }
@@ -82,7 +91,7 @@ fn take_search_chunked(bencher: Bencher, (patches_sparsity, index_multiple): (f6
 #[divan::bench(args = BENCH_ARGS)]
 fn take_map(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64)) {
     let mut rng = StdRng::seed_from_u64(0);
-    let patches = fixture(65536, patches_sparsity, &mut rng);
+    let patches = fixture(ARRAY_LEN, patches_sparsity, &mut rng);
     let indices = indices(
         patches.array_len(),
         (patches.array_len() as f64 * index_multiple) as usize,
@@ -92,8 +101,10 @@ fn take_map(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64)) {
     bencher
         .with_inputs(|| (&patches, &indices, SESSION.create_execution_ctx()))
         .bench_refs(|(patches, indices, ctx)| {
-            #[expect(deprecated)]
-            let prim = indices.to_primitive();
+            let prim = indices
+                .clone()
+                .execute::<PrimitiveArray>(ctx)
+                .vortex_expect("operation should succeed in benchmark");
             patches.take_map(prim, false, ctx)
         });
 }
@@ -105,15 +116,7 @@ fn fixture(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {
         .collect::<Buffer<u64>>();
     let sparse_len = indices.len();
     let values = Buffer::from_iter((0..sparse_len).map(|x| x as u64)).into_array();
-    Patches::new(
-        len,
-        0,
-        indices.into_array(),
-        values,
-        // TODO(0ax1): handle chunk offsets
-        None,
-    )
-    .unwrap()
+    Patches::new(len, 0, indices.into_array(), values, None).unwrap()
 }
 
 fn fixture_with_chunk_offsets(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {
@@ -125,7 +128,7 @@ fn fixture_with_chunk_offsets(len: usize, sparsity: f64, rng: &mut StdRng) -> Pa
     let sparse_len = patch_indices.len();
     let values = Buffer::from_iter((0..sparse_len).map(|x| x as u64)).into_array();
 
-    const PATCH_CHUNK_SIZE: usize = 1024;
+    const PATCH_CHUNK_SIZE: usize = 256;
     let chunk_offsets: Vec<u64> = (0..len)
         .step_by(PATCH_CHUNK_SIZE)
         .map(|chunk_start| {

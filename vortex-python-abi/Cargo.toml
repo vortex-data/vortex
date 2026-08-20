@@ -1,0 +1,18 @@
+[package]
+name = "vortex-python-abi"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Shared internal ABI types for Vortex Python extension modules."
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+publish = false
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true

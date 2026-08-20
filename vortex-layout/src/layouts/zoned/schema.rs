@@ -43,9 +43,20 @@ impl AggregateSpecProto {
         })
     }
 
-    pub(crate) fn to_aggregate_fn(&self, session: &VortexSession) -> VortexResult<AggregateFnRef> {
+    /// Resolve this spec to its aggregate function, returning `Ok(None)` for an unknown aggregate
+    /// ID when the session allows unknown plugins.
+    ///
+    /// A `None` result means the zone map cannot be reconstructed for this aggregate, so callers
+    /// should disable zoned pruning rather than fail the read.
+    fn to_aggregate_fn_opt(&self, session: &VortexSession) -> VortexResult<Option<AggregateFnRef>> {
+        #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
         let aggregate_fn_id = AggregateFnId::new(self.id.as_str());
+
         let Some(plugin) = session.aggregate_fns().find_plugin(&aggregate_fn_id) else {
+            if session.allows_unknown() {
+                return Ok(None);
+            }
+
             vortex_bail!("unknown aggregate function id: {}", self.id);
         };
 
@@ -58,7 +69,17 @@ impl AggregateSpecProto {
             );
         }
 
-        Ok(aggregate_fn)
+        Ok(Some(aggregate_fn))
+    }
+
+    /// Construct a spec referencing an aggregate ID that no session resolves, for exercising the
+    /// unknown-aggregate read paths.
+    #[cfg(test)]
+    pub(crate) fn new_unknown(id: &str) -> Self {
+        Self {
+            id: id.to_string(),
+            options: vec![],
+        }
     }
 }
 
@@ -111,6 +132,10 @@ pub(crate) fn legacy_stats_table_dtype(column_dtype: &DType, present_stats: &[St
     )
 }
 
+/// Serializes each live [`AggregateFnRef`] into an [`AggregateSpecProto`] for storage in zoned
+/// metadata. The inverse of [`try_aggregate_fns_from_specs`].
+///
+/// Errors if any aggregate is not serializable.
 pub(crate) fn aggregate_specs_from_fns(
     aggregate_fns: &[AggregateFnRef],
 ) -> VortexResult<Arc<[AggregateSpecProto]>> {
@@ -121,15 +146,27 @@ pub(crate) fn aggregate_specs_from_fns(
         .map(Into::into)
 }
 
-pub(crate) fn aggregate_fns_from_specs(
+/// Resolves each [`AggregateSpecProto`] into a live [`AggregateFnRef`], tolerating aggregates this
+/// session does not recognize. Rebuilding the `zones` child needs every spec resolved, since its
+/// dtype is derived from them.
+///
+/// Returns:
+///
+/// - `Ok(Some(fns))`: all resolved, so the zone map can be rebuilt.
+/// - `Ok(None)`: an aggregate is unknown but unknown plugins are allowed (see
+///   [`VortexSession::allows_unknown`]). The caller should disable pruning and scan only the `data`
+///   child, which still returns correct results.
+/// - `Err(..)`: any other failure (an unknown aggregate while disallowed, or undeserializable
+///   options).
+pub(crate) fn try_aggregate_fns_from_specs(
     aggregate_specs: &[AggregateSpecProto],
     session: &VortexSession,
-) -> VortexResult<Arc<[AggregateFnRef]>> {
+) -> VortexResult<Option<Arc<[AggregateFnRef]>>> {
     aggregate_specs
         .iter()
-        .map(|aggregate_spec| aggregate_spec.to_aggregate_fn(session))
-        .collect::<VortexResult<Vec<_>>>()
-        .map(Into::into)
+        .map(|aggregate_spec| aggregate_spec.to_aggregate_fn_opt(session))
+        .collect::<VortexResult<Option<Vec<_>>>>()
+        .map(|aggregate_fns| aggregate_fns.map(Arc::from))
 }
 
 pub(crate) fn aggregate_state_dtype(
@@ -164,6 +201,22 @@ mod tests {
     use vortex_array::extension::datetime::TimeUnit;
 
     use super::*;
+
+    #[test]
+    fn unknown_aggregate_errors_without_allow_unknown() {
+        let session = vortex_array::array_session();
+        let specs = [AggregateSpecProto::new_unknown("vortex.test.unknown")];
+        assert!(try_aggregate_fns_from_specs(&specs, &session).is_err());
+    }
+
+    #[test]
+    fn unknown_aggregate_is_none_with_allow_unknown() -> VortexResult<()> {
+        let session = vortex_array::array_session();
+        session.allow_unknown();
+        let specs = [AggregateSpecProto::new_unknown("vortex.test.unknown")];
+        assert!(try_aggregate_fns_from_specs(&specs, &session)?.is_none());
+        Ok(())
+    }
 
     #[test]
     fn stats_table_dtype_adds_truncation_flags() {

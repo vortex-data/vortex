@@ -25,7 +25,6 @@ vortex-proto = { workspace = true }
 vortex-session = { workspace = true }
 
 [dev-dependencies]
-itertools = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { path = "../../vortex-array", features = ["_test-harness"] }
 

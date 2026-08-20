@@ -4,10 +4,11 @@
 use std::sync::Arc;
 
 use arrow_array::RecordBatchReader;
+use arrow_schema::Schema;
 use pyo3::exceptions::PyTypeError;
+use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
-use pyo3_object_store::PyObjectStore;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
 use vortex::array::VortexSessionExecute;
@@ -27,15 +28,19 @@ use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::layout::scan::split_by::SplitBy;
 use vortex::layout::segments::MokaSegmentCache;
+use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
+use vortex_arrow::ArrowSessionExt;
 
-use crate::RUNTIME;
 use crate::arrays::PyArrayRef;
+use crate::arrow::FromPyArrow;
 use crate::arrow::IntoPyArrow;
+use crate::current_runtime;
 use crate::dataset::PyVortexDataset;
 use crate::dtype::PyDType;
 use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
 use crate::install_module;
+use crate::io::AnyVortexStore;
 use crate::iter::PyArrayIterator;
 use crate::object_store::resolve::ResolvedStore;
 use crate::object_store::resolve::resolve_store;
@@ -48,9 +53,16 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     install_module("vortex._lib.file", &m)?;
 
     m.add_function(wrap_pyfunction!(open, &m)?)?;
+    m.add_function(wrap_pyfunction!(_reopen, &m)?)?;
     m.add_class::<PyVortexFile>()?;
 
     Ok(())
+}
+
+/// Reopen a Vortex file by path. The unpickling half of [`PyVortexFile::__reduce__`].
+#[pyfunction]
+fn _reopen(py: Python, path: &str, without_segment_cache: bool) -> PyVortexResult<PyVortexFile> {
+    open(py, path, None, without_segment_cache)
 }
 
 /// Open a Vortex file for reading.
@@ -62,11 +74,13 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 pub fn open(
     py: Python,
     path: &str,
-    store: Option<PyObjectStore>,
+    store: Option<AnyVortexStore>,
     without_segment_cache: bool,
 ) -> PyVortexResult<PyVortexFile> {
+    let had_store = store.is_some();
+    let owned_path = path.to_string();
     let vxf = py.detach(move || {
-        RUNTIME.block_on(async move {
+        current_runtime().block_on(async move {
             let mut options = session().open_options();
             if !without_segment_cache {
                 // TODO(ngates): use a globally shared segment cache for all files
@@ -75,25 +89,69 @@ pub fn open(
 
             match resolve_store(path, store.map(|x| x.into_inner()))? {
                 ResolvedStore::ObjectStore(store, path) => {
-                    options.open_object_store(&store, path.as_ref()).await
+                    options.open_object_store(&store, path).await
                 }
                 ResolvedStore::Path(path) => options.open_path(path).await,
             }
         })
     })?;
 
-    Ok(PyVortexFile { vxf })
+    Ok(PyVortexFile {
+        vxf,
+        path: owned_path,
+        had_store,
+        without_segment_cache,
+    })
 }
 
 #[pyclass(name = "VortexFile", module = "vortex", frozen)]
 pub struct PyVortexFile {
     vxf: VortexFile,
+    /// The path this file was opened from, retained so that it can be reopened in another process.
+    path: String,
+    /// Whether an explicit object store was passed to [`open`]. Object stores are not picklable, so
+    /// such a file cannot be reopened by path alone.
+    had_store: bool,
+    without_segment_cache: bool,
 }
 
 #[pymethods]
 impl PyVortexFile {
     fn __len__(slf: PyRef<Self>) -> PyResult<usize> {
         Ok(usize::try_from(slf.vxf.row_count())?)
+    }
+
+    /// The path or URL this file was opened from.
+    ///
+    /// Returns
+    /// -------
+    /// :class:`.str`
+    #[getter]
+    fn path(slf: PyRef<Self>) -> String {
+        slf.path.clone()
+    }
+
+    /// Support for Python's pickle protocol: the file is reopened by path in the receiving process.
+    ///
+    /// Only the path is transferred, never any read state or segment cache, so this is cheap enough
+    /// to send a file to every worker of a multiprocessing pool or Ray job.
+    ///
+    /// Raises
+    /// ------
+    /// :class:`TypeError`
+    ///     If the file was opened with an explicit ``store``, since object stores cannot be
+    ///     pickled. Pass the URL to :func:`vortex.open` in the worker instead.
+    fn __reduce__<'py>(slf: PyRef<'py, Self>) -> PyResult<(Bound<'py, PyAny>, (String, bool))> {
+        if slf.had_store {
+            return Err(PyTypeError::new_err(
+                "cannot pickle a VortexFile opened with an explicit store, because object stores \
+                 are not picklable; open it from its URL in the receiving process instead",
+            ));
+        }
+        let py = slf.py();
+        let module = PyModule::import(py, "vortex._lib.file")?;
+        let reopen = module.getattr(intern!(py, "_reopen"))?;
+        Ok((reopen, (slf.path.clone(), slf.without_segment_cache)))
     }
 
     #[getter]
@@ -120,8 +178,9 @@ impl PyVortexFile {
             let mut ctx = session.create_execution_ctx();
             let builder =
                 scan_builder(&vxf, projection, expr, limit, indices, batch_size, &mut ctx)?;
+            let runtime = current_runtime();
             Ok(PyArrayIterator::new(Box::new(
-                builder.into_array_iter(&*RUNTIME)?,
+                builder.into_array_iter(&runtime)?,
             )))
         })
     }
@@ -152,21 +211,39 @@ impl PyVortexFile {
         })
     }
 
-    #[pyo3(signature = (projection = None, *, expr = None, limit = None, batch_size = None))]
+    #[pyo3(signature = (projection = None, *, expr = None, limit = None, batch_size = None, schema = None))]
     fn to_arrow(
         slf: Bound<Self>,
         projection: Option<PyIntoProjection>,
         expr: Option<PyExpr>,
         limit: Option<u64>,
         batch_size: Option<usize>,
+        schema: Option<&Bound<PyAny>>,
     ) -> PyVortexResult<Py<PyAny>> {
         let vxf = slf.get().vxf.clone();
+        let schema = schema
+            .map(|schema| Schema::from_pyarrow(&schema.as_borrowed()))
+            .transpose()?
+            .map(Arc::new);
 
+        let runtime = current_runtime();
         let reader = slf.py().detach(|| {
+            let filter = expr
+                .map(|e| {
+                    e.into_inner()
+                        .optimize_recursive(vxf.dtype())?
+                        .bind(vxf.dtype())
+                })
+                .transpose()?;
+            let projection = projection
+                .map(|p| p.0)
+                .unwrap_or_else(root)
+                .optimize_recursive(vxf.dtype())?
+                .bind(vxf.dtype())?;
             let mut builder = vxf
                 .scan()?
-                .with_some_filter(expr.map(|e| e.into_inner()))
-                .with_projection(projection.map(|p| p.0).unwrap_or_else(root));
+                .with_some_filter(filter)
+                .with_projection(projection);
 
             if let Some(limit) = limit {
                 builder = builder.with_limit(limit);
@@ -176,8 +253,11 @@ impl PyVortexFile {
                 builder = builder.with_split_by(SplitBy::RowCount(batch_size));
             }
 
-            let schema = Arc::new(builder.dtype()?.to_arrow_schema()?);
-            builder.into_record_batch_reader(schema, &*RUNTIME)
+            let schema = match schema {
+                Some(schema) => schema,
+                None => Arc::new(session().arrow().to_arrow_schema(&builder.dtype()?)?),
+            };
+            builder.into_record_batch_reader(schema, &runtime)
         })?;
 
         let rbr: Box<dyn RecordBatchReader + Send> = Box::new(reader);
@@ -208,10 +288,17 @@ fn scan_builder(
     batch_size: Option<usize>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ScanBuilder<ArrayRef>> {
+    let projection = projection
+        .unwrap_or_else(root)
+        .optimize_recursive(vxf.dtype())?
+        .bind(vxf.dtype())?;
+    let expr = expr
+        .map(|expr| expr.optimize_recursive(vxf.dtype())?.bind(vxf.dtype()))
+        .transpose()?;
     let mut builder = vxf
         .scan()?
         .with_some_filter(expr)
-        .with_projection(projection.unwrap_or_else(root));
+        .with_projection(projection);
 
     if let Some(limit) = limit {
         builder = builder.with_limit(limit);
@@ -220,7 +307,7 @@ fn scan_builder(
     if let Some(indices) = indices {
         let casted = indices.cast(DType::Primitive(PType::U64, NonNullable))?;
         let indices = casted.execute::<PrimitiveArray>(ctx)?.into_buffer::<u64>();
-        builder = builder.with_row_indices(indices);
+        builder = builder.with_row_indices(StrictSortedBuffer::try_new(indices)?);
     }
 
     if let Some(batch_size) = batch_size {

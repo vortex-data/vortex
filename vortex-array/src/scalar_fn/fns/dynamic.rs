@@ -19,7 +19,8 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::dtype::DType;
-use crate::expr::Expression;
+use crate::expr::BoundExpression;
+use crate::expr::display::ExprDisplay;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::NodeVisitor;
 use crate::expr::traversal::TraversalOrder;
@@ -64,10 +65,10 @@ impl ScalarFnVTable for DynamicComparison {
     fn fmt_sql(
         &self,
         dynamic: &DynamicComparisonExpr,
-        expr: &Expression,
+        expr: &dyn ExprDisplay,
         f: &mut Formatter<'_>,
     ) -> std::fmt::Result {
-        expr.child(0).fmt_sql(f)?;
+        Display::fmt(expr.display_child(0), f)?;
         write!(f, " {} dynamic(", dynamic.operator)?;
         match dynamic.scalar() {
             None => write!(f, "scalar=<none>")?,
@@ -119,8 +120,7 @@ impl ScalarFnVTable for DynamicComparison {
         .into_array())
     }
 
-    // Defer to the child
-    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
+    fn is_strict(&self, _options: &Self::Options) -> bool {
         false
     }
 }
@@ -205,15 +205,19 @@ pub struct DynamicExprUpdates {
 }
 
 impl DynamicExprUpdates {
-    pub fn new(expr: &Expression) -> Option<Self> {
+    /// Track dynamic scalar functions contained in a bound expression tree.
+    pub fn new(expr: &BoundExpression) -> Option<Self> {
         #[derive(Default)]
         struct Visitor(Vec<DynamicComparisonExpr>);
 
         impl NodeVisitor<'_> for Visitor {
-            type NodeTy = Expression;
+            type NodeTy = BoundExpression;
 
             fn visit_down(&mut self, node: &'_ Self::NodeTy) -> VortexResult<TraversalOrder> {
-                if let Some(dynamic) = node.as_opt::<DynamicComparison>() {
+                if let Some(dynamic) = node
+                    .as_scalar()
+                    .and_then(|scalar_fn| scalar_fn.as_opt::<DynamicComparison>())
+                {
                     self.0.push(dynamic.clone());
                 }
                 Ok(TraversalOrder::Continue)
@@ -286,6 +290,20 @@ mod tests {
     use crate::dtype::PType;
     use crate::expr::dynamic;
     use crate::expr::root;
+
+    #[test]
+    fn is_not_strict() {
+        let expr = dynamic(
+            CompareOperator::Lt,
+            || None,
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            true,
+            root(),
+        );
+
+        assert!(!expr.as_scalar().is_some_and(|f| f.signature().is_strict()));
+    }
+
     #[test]
     fn return_dtype_bool() -> VortexResult<()> {
         let expr = dynamic(

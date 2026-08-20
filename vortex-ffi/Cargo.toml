@@ -20,20 +20,17 @@ categories = { workspace = true }
 all-features = true
 
 [dependencies]
-arrow-array = { workspace = true, features = ["ffi"] }
+arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
 async-fs = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true }
-itertools = { workspace = true }
 mimalloc = { workspace = true, optional = true }
-object_store = { workspace = true, features = ["aws", "azure", "gcp"] }
 paste = { workspace = true }
-prost = { workspace = true }
-tracing = { workspace = true, features = ["std", "log"] }
+tracing = { workspace = true, features = ["log"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
-url = { workspace = true, features = [] }
 vortex = { workspace = true, features = ["object_store"] }
+vortex-arrow = { workspace = true }
 
 [dev-dependencies]
 rand = { workspace = true }

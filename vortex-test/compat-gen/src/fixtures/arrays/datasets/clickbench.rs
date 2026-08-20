@@ -11,7 +11,7 @@ use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::arrow::FromArrowArray;
+use vortex_arrow::ArrowSession;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -179,7 +179,7 @@ impl DatasetFixture for ClickBenchHits5kFixture {
         "5000 rows (5x1000 from random offsets) of ClickBench hits dataset with wide schema of primitives and strings"
     }
 
-    fn build(&self) -> VortexResult<ArrayRef> {
+    fn build(&self, arrow: &ArrowSession) -> VortexResult<ArrayRef> {
         let path = cached_clickbench_parquet()?;
         let file_bytes = fs::read(&path)
             .map_err(|e| vortex_err!("failed to read cached parquet at {}: {e}", path.display()))?;
@@ -198,7 +198,10 @@ impl DatasetFixture for ClickBenchHits5kFixture {
         Ok(ChunkedArray::from_iter(
             batches
                 .into_iter()
-                .map(|batch| ArrayRef::from_arrow(batch, false))
+                .map(|batch| {
+                    let schema = batch.schema();
+                    arrow.from_arrow_record_batch(batch, &schema)
+                })
                 .collect::<VortexResult<Vec<_>>>()?,
         )
         .into_array())

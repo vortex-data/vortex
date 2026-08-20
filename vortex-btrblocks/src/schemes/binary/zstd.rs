@@ -3,12 +3,14 @@
 
 //! Zstd compression for binary arrays.
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_compressor::estimate::CompressionEstimate;
-use vortex_compressor::estimate::DeferredEstimate;
+use vortex_array::VTable;
+use vortex_compressor::scheme::CompressionEstimate;
+use vortex_compressor::scheme::DeferredEstimate;
 use vortex_error::VortexResult;
 
 use crate::ArrayAndStats;
@@ -29,6 +31,10 @@ impl Scheme for ZstdScheme {
         canonical.dtype().is_binary()
     }
 
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![vortex_zstd::Zstd.id()]
+    }
+
     fn expected_compression_ratio(
         &self,
         _data: &ArrayAndStats,
@@ -45,7 +51,10 @@ impl Scheme for ZstdScheme {
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let compacted = data.array_as_varbinview().into_owned().compact_buffers()?;
+        let compacted = data
+            .array_as_varbinview()
+            .into_owned()
+            .compact_buffers(exec_ctx)?;
         Ok(
             vortex_zstd::Zstd::from_var_bin_view_without_dict(&compacted, 3, 8192, exec_ctx)?
                 .into_array(),

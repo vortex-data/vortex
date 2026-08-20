@@ -3,7 +3,9 @@
 We provide two interfaces for working with Vortex from Java:
 
 - `vortex-java` - a low-level interface JNI for working with Vortex files and arrays on cloud and local storage
-- `vortex-spark` - A Spark connector for working with datasets of Vortex files
+- `vortex-spark` - A Spark connector for working with datasets of Vortex files. See
+  [vortex-spark/README.md](vortex-spark/README.md) for how to load the connector into Spark
+  and query Vortex files from the DataFrame API or Spark SQL.
 
 ## Publishing
 

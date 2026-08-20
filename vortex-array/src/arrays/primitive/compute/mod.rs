@@ -4,10 +4,10 @@
 mod between;
 mod cast;
 mod fill_null;
+mod fixed_width;
 mod mask;
 pub(crate) mod rules;
 mod slice;
-mod take;
 mod zip;
 
 #[cfg(test)]

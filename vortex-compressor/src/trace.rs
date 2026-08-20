@@ -5,7 +5,7 @@
 
 use std::fmt;
 
-use crate::ctx::CompressorContext;
+use crate::scheme::CompressorContext;
 use crate::scheme::SchemeId;
 
 /// Shared tracing target for compressor decisions and coarse cascade structure.

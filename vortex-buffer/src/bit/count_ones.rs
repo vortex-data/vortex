@@ -4,6 +4,8 @@
 #[cfg(target_arch = "x86_64")]
 use vortex_error::VortexExpect;
 
+use crate::dispatch::CpuKernel;
+
 #[inline]
 pub fn count_ones(bytes: &[u8], offset: usize, len: usize) -> usize {
     if bytes.is_empty() {
@@ -70,24 +72,66 @@ fn mask_byte(byte: u8, bit_offset: usize, bit_len: usize) -> u8 {
     shifted & mask
 }
 
+type CountOnes = unsafe fn(&[u8]) -> usize;
+
 #[inline]
 fn count_ones_aligned(bytes: &[u8]) -> usize {
-    #[cfg(target_arch = "x86_64")]
-    {
-        if bytes.len() >= 64
-            && is_x86_feature_detected!("avx512f")
-            && is_x86_feature_detected!("avx512vpopcntdq")
-        {
-            // SAFETY: Runtime detection guarantees the required target features.
-            return unsafe { count_ones_aligned_avx512(bytes) };
-        }
-
-        if bytes.len() >= 32 && is_x86_feature_detected!("avx2") {
-            // SAFETY: Runtime detection guarantees the required target features.
-            return unsafe { count_ones_aligned_avx2(bytes) };
-        }
+    // SIMD kernels only pay off from 32 bytes. Below that, call the scalar kernel
+    // directly: it stays inlinable and skips the dispatch indirection, which would
+    // otherwise dominate the couple of word popcounts.
+    if bytes.len() < 32 {
+        return count_ones_aligned_scalar(bytes);
     }
 
+    static KERNEL: CpuKernel<CountOnes> = CpuKernel::new(|| {
+        #[cfg(target_arch = "x86_64")]
+        {
+            if is_x86_feature_detected!("avx512f")
+                && is_x86_feature_detected!("avx512vpopcntdq")
+                && is_x86_feature_detected!("avx2")
+            {
+                return count_ones_aligned_avx512_any_len;
+            }
+            if is_x86_feature_detected!("avx2") {
+                return count_ones_aligned_avx2_any_len;
+            }
+        }
+        count_ones_aligned_scalar
+    });
+    // SAFETY: the selector only returns kernels that are safe or whose required CPU
+    // features were probed before selection.
+    unsafe { KERNEL.get()(bytes) }
+}
+
+/// Length-aware AVX-512 entry: SIMD only pays off from 64 (AVX-512) / 32 (AVX2) bytes.
+///
+/// # Safety
+/// Requires AVX-512F, AVX-512VPOPCNTDQ, and AVX2.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx512vpopcntdq,avx2")]
+unsafe fn count_ones_aligned_avx512_any_len(bytes: &[u8]) -> usize {
+    if bytes.len() >= 64 {
+        // SAFETY: the caller guarantees the required target features.
+        return unsafe { count_ones_aligned_avx512(bytes) };
+    }
+    if bytes.len() >= 32 {
+        // SAFETY: every AVX-512F CPU also supports AVX2.
+        return unsafe { count_ones_aligned_avx2(bytes) };
+    }
+    count_ones_aligned_scalar(bytes)
+}
+
+/// Length-aware AVX2 entry: SIMD only pays off from 32 bytes.
+///
+/// # Safety
+/// Requires AVX2.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn count_ones_aligned_avx2_any_len(bytes: &[u8]) -> usize {
+    if bytes.len() >= 32 {
+        // SAFETY: the caller guarantees AVX2.
+        return unsafe { count_ones_aligned_avx2(bytes) };
+    }
     count_ones_aligned_scalar(bytes)
 }
 

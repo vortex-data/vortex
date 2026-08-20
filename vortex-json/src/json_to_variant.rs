@@ -13,7 +13,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Extension;
 use vortex_array::arrays::ExtensionArray;
-use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
+use vortex_array::arrays::ScalarFnArray;
 use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
 use vortex_array::scalar_fn::Arity;
@@ -67,6 +67,17 @@ use crate::Json;
 /// [Parquet Variant shredding]: https://github.com/apache/parquet-format/blob/master/VariantShredding.md
 #[derive(Clone)]
 pub struct JsonToVariant;
+
+impl JsonToVariant {
+    /// Creates a lazy conversion from JSON `input` to Variant data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a JSON extension array.
+    pub fn try_new(input: ArrayRef, options: JsonToVariantOptions) -> VortexResult<ScalarFnArray> {
+        ScalarFnArray::try_new(JsonToVariant.bind(options), vec![input])
+    }
+}
 
 impl ScalarFnVTable for JsonToVariant {
     type Options = JsonToVariantOptions;
@@ -179,16 +190,16 @@ impl ScalarFnVTable for JsonToVariant {
             );
         };
 
-        self.try_new_array(canonical.len(), options.clone(), [canonical])?
+        Self::try_new(canonical, options.clone())?
+            .into_array()
             .execute::<ArrayRef>(ctx)
     }
 
-    fn is_null_sensitive(&self, _options: &Self::Options) -> bool {
+    fn is_strict(&self, _options: &Self::Options) -> bool {
         // `json_to_variant` maps null rows to null rows and the JSON literal `null` to a
-        // variant-null value independently of which other rows are null, so it commutes with
-        // validity masking. Marking it not null-sensitive also lets it push through dictionaries
-        // into their JSON extension values, where the kernel fires directly.
-        false
+        // variant-null value. Its output dtype propagates the input nullability, so it is strict
+        // and can push through dictionaries into their JSON extension values.
+        true
     }
 }
 
@@ -355,9 +366,7 @@ mod tests {
     #[test]
     fn utf8_input_is_rejected() {
         let input = VarBinViewArray::from_iter_str(["1", "2"]).into_array();
-        let err = JsonToVariant
-            .try_new_array(input.len(), JsonToVariantOptions::unshredded(), [input])
-            .unwrap_err();
+        let err = JsonToVariant::try_new(input, JsonToVariantOptions::unshredded()).unwrap_err();
 
         assert!(
             err.to_string().contains("Json extension"),
@@ -377,11 +386,7 @@ mod tests {
         .into_array();
 
         let dtype = input.dtype().clone();
-        let array = JsonToVariant.try_new_array(
-            input.len(),
-            JsonToVariantOptions::unshredded(),
-            [input],
-        )?;
+        let array = JsonToVariant::try_new(input, JsonToVariantOptions::unshredded())?.into_array();
 
         let err = array
             .execute::<ArrayRef>(&mut session().create_execution_ctx())

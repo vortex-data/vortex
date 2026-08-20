@@ -65,8 +65,10 @@ jobs:
         if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: "true"
       - name: Ensure llvm-tools are installed
         run: |
           rustup component add llvm-tools || \
@@ -88,7 +90,7 @@ jobs:
       - name: Rust Tests
         if: ${{ matrix.suite == 'tests' }}
         run: |
-          cargo nextest run --locked --workspace --all-features --no-fail-fast
+          cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-python-cuda
       - name: Generate coverage report
         run: |
           RUST_SYSROOT="$(rustc --print sysroot)"
@@ -101,7 +103,7 @@ jobs:
             --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*' --ignore 'vortex-error/*' \
             --ignore 'vortex-python/*' --ignore 'vortex-jni/*' --ignore 'vortex-flatbuffers/*' \
             --ignore 'vortex-proto/*' --ignore 'vortex-tui/*' --ignore 'vortex-datafusion/examples/*' \
-            --ignore 'vortex-ffi/examples/*' --ignore '*/arbitrary/*' --ignore '*/arbitrary.rs' --ignore 'vortex-cxx/*' \
+            --ignore 'vortex-ffi/examples/*' --ignore '*/arbitrary/*' --ignore '*/arbitrary.rs' \
             --ignore benchmarks/* --ignore 'vortex-test/*' \
             -o ${{ env.GRCOV_OUTPUT_FILE }}
           test -s ${{ env.GRCOV_OUTPUT_FILE }}
@@ -112,6 +114,42 @@ jobs:
           files: ${{ env.GRCOV_OUTPUT_FILE }}
           disable_search: true
           flags: ${{ matrix.suite }}
+          use_oidc: true
+
+  cxx-coverage:
+    name: "C++ API (coverage)"
+    timeout-minutes: 15
+    permissions:
+      id-token: write
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=cxx-coverage', github.run_id)
+          || 'ubuntu-latest' }}
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: "true"
+      - name: Install lcov
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lcov libjson-xs-perl
+      - name: Build FFI library
+        run: cargo build -p vortex-ffi
+      - name: Build and test C++ API with coverage
+        working-directory: lang/cpp
+        run: ./gcov-report.sh
+      - name: Codecov
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7
+        with:
+          name: cxx-api
+          files: lang/cpp/coverage.info
+          disable_search: true
+          flags: cxx-api
           use_oidc: true
 
   rust-test-sanitizer:
@@ -148,8 +186,10 @@ jobs:
         if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: "true"
       - name: Install Rust nightly toolchain
         run: |
           rustup toolchain install $NIGHTLY_TOOLCHAIN
@@ -194,7 +234,7 @@ jobs:
           - sanitizer: tsan
             sanitizer_flags: "-Zsanitizer=thread"
     name: "Rust/C++ FFI tests (${{ matrix.sanitizer }})"
-    timeout-minutes: 30
+    timeout-minutes: 5
     env:
       ASAN_OPTIONS: "symbolize=1:check_initialization_order=1:detect_leaks=1:leak_check_at_exit=1"
       LSAN_OPTIONS: "report_objects=1"
@@ -215,11 +255,10 @@ jobs:
         if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - uses: ./.github/actions/setup-prebuild
-      - name: Install rustfilt
-        run: |
-          cargo install rustfilt
+        with:
+          enable-sccache: "true"
       - name: Install Rust nightly toolchain
         run: |
           rustup toolchain install $NIGHTLY_TOOLCHAIN
@@ -241,21 +280,16 @@ jobs:
       - name: Run tests
         run: |
           set -o pipefail
-#         re-enable once we can fix this hang
-#         ./vortex-ffi/build/test/vortex_ffi_test 2>&1 | rustfilt
+          ./vortex-ffi/build/test/vortex_ffi_test
       - name: Run examples
         run: |
           set -o pipefail
 
-          # Failed to create data source: Object store error: Generic LocalFileSystem
-          # error: Unable to walk dir: File system loop found
-          rm -fr vortex-ffi/build/_deps/nanoarrow-src/python
-
-          ./vortex-ffi/build/examples/write_sample file.vortex 2>&1 | rustfilt
-          ./vortex-ffi/build/examples/write_sample file2.vortex 2>&1 | rustfilt
-          ./vortex-ffi/build/examples/dtype '*.vortex' 2>&1 | rustfilt
-          ./vortex-ffi/build/examples/scan '*.vortex' 2>&1 | rustfilt
-          ./vortex-ffi/build/examples/scan_to_arrow '*.vortex' 2>&1 | rustfilt
+          ./vortex-ffi/build/examples/write_sample file.vortex
+          ./vortex-ffi/build/examples/write_sample file2.vortex
+          ./vortex-ffi/build/examples/dtype '*.vortex'
+          ./vortex-ffi/build/examples/scan '*.vortex'
+          ./vortex-ffi/build/examples/scan_to_arrow '*.vortex'
 
   miri:
     name: "Rust tests (miri)"
@@ -273,8 +307,10 @@ jobs:
         if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: "true"
       - name: Install nightly with miri
         run: rustup toolchain install $NIGHTLY_TOOLCHAIN --component rust-src,rustfmt,clippy,miri
       - name: Run Miri

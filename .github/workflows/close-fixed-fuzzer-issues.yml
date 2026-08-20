@@ -27,7 +27,7 @@ jobs:
         target: [file_io, array_ops, compress_roundtrip]
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=arm64-medium/disk=large/tag=fuzzer-cleanup-{1}', github.run_id, matrix.target)
+          && format('runs-on={0}/runner=arm64-medium/disk=large/extras=s3-cache/tag=fuzzer-cleanup-{1}', github.run_id, matrix.target)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
@@ -36,12 +36,13 @@ jobs:
         with:
           sccache: s3
 
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
+          enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
 
       - name: Install llvm
         uses: aminya/setup-cpp@v1

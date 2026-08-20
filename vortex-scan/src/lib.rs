@@ -24,6 +24,7 @@
 
 pub mod row_mask;
 pub mod selection;
+pub mod strict_sorted_buffer;
 
 use std::any::Any;
 use std::ops::Range;

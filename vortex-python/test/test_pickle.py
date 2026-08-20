@@ -3,9 +3,12 @@
 
 import io
 import pickle
+from pathlib import Path
 from typing import cast
 
 import pyarrow as pa
+import pytest
+from vortex.store import LocalStore
 
 import vortex as vx
 
@@ -130,3 +133,24 @@ def test_pickle_file_api() -> None:
     restored = cast(vx.Array, pickle.Unpickler(file).load())
 
     assert_arrow_array_roundtrip(arr, restored)
+
+
+def test_pickle_vortex_file_reopens_by_path(tmp_path: Path) -> None:
+    path = tmp_path / "roundtrip.vortex"
+    vx.io.write(vx.array([1, 2, 3]), str(path))
+    vxf = vx.open(str(path))
+
+    restored = cast(vx.VortexFile, pickle_roundtrip(vxf))
+
+    assert restored.path == str(path)
+    assert len(restored) == len(vxf)
+    assert restored.scan().read_all().to_arrow_array() == vxf.scan().read_all().to_arrow_array()
+
+
+def test_pickle_vortex_file_rejects_explicit_store(tmp_path: Path) -> None:
+    path = tmp_path / "store.vortex"
+    vx.io.write(vx.array([1, 2, 3]), str(path))
+    vxf = vx.open(str(path), store=LocalStore())
+
+    with pytest.raises(TypeError, match="object stores"):
+        _ = pickle.dumps(vxf)

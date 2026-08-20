@@ -121,6 +121,7 @@ impl MessageDecoder {
                                 .header_as_array_message()
                                 .vortex_expect("header is array");
 
+                            #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
                             let encoding_ids: Arc<_> = header
                                 .encodings()
                                 .iter()
@@ -139,11 +140,11 @@ impl MessageDecoder {
                         MessageHeader::BufferMessage => {
                             let body = bytes.copy_to_aligned(
                                 body_length,
-                                Alignment::from_exponent(
+                                Alignment::try_from_untrusted_exponent(
                                     msg.header_as_buffer_message()
                                         .vortex_expect("header is buffer")
                                         .alignment_exponent(),
-                                ),
+                                )?,
                             );
 
                             self.state = Default::default();

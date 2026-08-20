@@ -18,6 +18,7 @@ use vortex::expr::root;
 use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
+use vortex_arrow::ArrowSessionExt;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
 use vortex_bench::compress::Compressor;
@@ -63,16 +64,19 @@ impl Compressor for VortexCompressor {
         let start = Instant::now();
         let data = Bytes::from(buf);
         let mut scan = SESSION.open_options().open_buffer(data)?.scan()?;
-        let root_columns = scan
-            .dtype()?
+        let source_dtype = scan.dtype()?;
+        let root_columns = source_dtype
             .as_struct_fields_opt()
             .map_or(0, |fields| fields.nfields());
         if let Some(cols) = read_projection(root_columns) {
             // Columns are named "0".."num_columns-1"; project the given subset.
             let names: FieldNames = cols.iter().map(|i| i.to_string()).collect();
-            scan = scan.with_projection(select(names, root()));
+            let projection = select(names, root())
+                .optimize_recursive(&source_dtype)?
+                .bind(&source_dtype)?;
+            scan = scan.with_projection(projection);
         }
-        let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
+        let schema = Arc::new(SESSION.arrow().to_arrow_schema(&scan.dtype()?)?);
 
         let stream = scan.into_record_batch_stream(schema)?;
         pin_mut!(stream);

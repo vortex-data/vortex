@@ -14,7 +14,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.spark.sql.Dataset;
@@ -23,6 +25,7 @@ import org.apache.spark.sql.RowFactory;
 import org.apache.spark.sql.SaveMode;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.MapType;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.junit.jupiter.api.AfterAll;
@@ -127,6 +130,45 @@ public final class VortexDataSourceWriteTest {
 
         // Verify data content
         verifyDataContent(originalDf, readDf);
+    }
+
+    @Test
+    @DisplayName("Write and read Vortex files with a bare path (no URI scheme)")
+    public void testWriteAndReadWithBarePath() throws IOException {
+        int numRows = 50;
+        Dataset<Row> originalDf = createTestDataFrame(numRows);
+
+        // A bare filesystem path, without a file:// scheme.
+        String barePath = tempDir.resolve("bare_path_output").toString();
+        originalDf
+                .write()
+                .format("vortex")
+                .option("path", barePath)
+                .mode(SaveMode.Overwrite)
+                .save();
+
+        assertFalse(findVortexFiles(tempDir.resolve("bare_path_output")).isEmpty(), "Write should create files");
+
+        // Reading a bare directory path exercises schema inference via file listing.
+        Dataset<Row> readDf =
+                spark.read().format("vortex").option("path", barePath).load();
+
+        assertSchemaEquals(originalDf.schema(), readDf.schema());
+        assertEquals(numRows, readDf.count(), "Read DataFrame should have same number of rows as original");
+        verifyDataContent(originalDf, readDf);
+
+        // Overwriting a bare path exercises file listing and deletion of the existing files.
+        Dataset<Row> replacementDf = createTestDataFrame(25);
+        replacementDf
+                .write()
+                .format("vortex")
+                .option("path", barePath)
+                .mode(SaveMode.Overwrite)
+                .save();
+
+        Dataset<Row> reread =
+                spark.read().format("vortex").option("path", barePath).load();
+        assertEquals(25, reread.count(), "Should have data from second write after overwrite");
     }
 
     @Test
@@ -399,6 +441,86 @@ public final class VortexDataSourceWriteTest {
                 .save());
 
         assertFalse(findVortexFiles(outputPath).isEmpty(), "TimestampNTZ write should create Vortex files");
+    }
+
+    @Test
+    @DisplayName("Null array elements round-trip as nulls, not as zeros")
+    public void testWriteArrayWithNullElements() {
+        // A fixed-width element is the interesting case: reading a null slot yields the zeroed
+        // slot, so a missing null check writes 0 with the validity bit set.
+        Dataset<Row> arraysDf = spark.range(0, 1)
+                .selectExpr(
+                        "cast(id as int) as id",
+                        "array(1, cast(null as int), 3) as ints",
+                        "array(cast(null as double), 2.5) as doubles",
+                        "array('a', cast(null as string), 'c') as strings");
+
+        Path outputPath = tempDir.resolve("array_nulls_output");
+        arraysDf.write()
+                .format("vortex")
+                .option("path", outputPath.toUri().toString())
+                .mode(SaveMode.Overwrite)
+                .save();
+
+        Row read = spark.read()
+                .format("vortex")
+                .option("path", outputPath.toUri().toString())
+                .load()
+                .selectExpr("ints", "doubles", "strings")
+                .collectAsList()
+                .get(0);
+
+        assertEquals(Arrays.asList(1, null, 3), read.getList(0));
+        assertEquals(Arrays.asList(null, 2.5d), read.getList(1));
+        assertEquals(Arrays.asList("a", null, "c"), read.getList(2));
+    }
+
+    @Test
+    @DisplayName("Map columns round-trip populated, null, and empty values")
+    public void testWriteAndReadMapColumns() {
+        Dataset<Row> mapsDf = spark.range(0, 3)
+                .selectExpr(
+                        "cast(id as int) as id",
+                        """
+                CASE
+                    WHEN id = 0 THEN map(1, 'one', 2, cast(null as string))
+                    WHEN id = 1 THEN cast(null as map<int, string>)
+                    ELSE map_from_arrays(cast(array() as array<int>), cast(array() as array<string>))
+                END AS attrs""",
+                        "named_struct('attrs', map(cast(id as int), cast(id * 10 as bigint))) AS payload");
+
+        Path outputPath = tempDir.resolve("map_output");
+        mapsDf.write()
+                .format("vortex")
+                .option("path", outputPath.toUri().toString())
+                .mode(SaveMode.Overwrite)
+                .save();
+
+        Dataset<Row> readDf = spark.read()
+                .format("vortex")
+                .option("path", outputPath.toUri().toString())
+                .load()
+                .orderBy("id");
+
+        MapType mapType = (MapType) readDf.schema().apply("attrs").dataType();
+        assertEquals(DataTypes.IntegerType, mapType.keyType());
+        assertEquals(DataTypes.StringType, mapType.valueType());
+        assertTrue(mapType.valueContainsNull());
+
+        List<Row> rows = readDf.collectAsList();
+        Map<Integer, String> expected = new HashMap<>();
+        expected.put(1, "one");
+        expected.put(2, null);
+        assertEquals(expected, rows.get(0).getJavaMap(1));
+        assertTrue(rows.get(1).isNullAt(1));
+        assertTrue(rows.get(2).getJavaMap(1).isEmpty());
+
+        List<Row> nestedRows = readDf.selectExpr("id", "payload.attrs[id] AS nested_value")
+                .orderBy("id")
+                .collectAsList();
+        assertEquals(
+                List.of(0L, 10L, 20L),
+                nestedRows.stream().map(row -> row.getLong(1)).toList());
     }
 
     /** Creates a test DataFrame with monotonically increasing integers and their string representations. */

@@ -118,17 +118,13 @@ pub(crate) fn handle_normal_mode(app: &mut AppState, event: InputEvent) -> Handl
         }
 
         #[cfg(feature = "native")]
-        (InputKeyCode::Char('['), false, false, _) => {
-            if app.current_tab == Tab::Query {
-                app.query_state.prepare_prev_page();
-            }
+        (InputKeyCode::Char('['), false, false, _) if app.current_tab == Tab::Query => {
+            app.query_state.prepare_prev_page();
         }
 
         #[cfg(feature = "native")]
-        (InputKeyCode::Char(']'), false, false, _) => {
-            if app.current_tab == Tab::Query {
-                app.query_state.prepare_next_page();
-            }
+        (InputKeyCode::Char(']'), false, false, _) if app.current_tab == Tab::Query => {
+            app.query_state.prepare_next_page();
         }
 
         (InputKeyCode::Up, ..)
@@ -191,12 +187,12 @@ pub(crate) fn handle_normal_mode(app: &mut AppState, event: InputEvent) -> Handl
                 app.query_state.table_state.select_last();
             }
         },
-        (InputKeyCode::Enter, ..) => {
-            if app.current_tab == Tab::Layout && app.cursor.layout().nchildren() > 0 {
-                let selected = app.layouts_list_state.selected().unwrap_or_default();
-                app.cursor = app.cursor.child(selected);
-                app.reset_layout_view_state();
-            }
+        (InputKeyCode::Enter, ..)
+            if app.current_tab == Tab::Layout && app.cursor.layout().nchildren() > 0 =>
+        {
+            let selected = app.layouts_list_state.selected().unwrap_or_default();
+            app.cursor = app.cursor.child(selected);
+            app.reset_layout_view_state();
         }
         (InputKeyCode::Left, ..)
         | (InputKeyCode::Char('h'), false, false, _)
@@ -244,18 +240,14 @@ pub(crate) fn handle_normal_mode(app: &mut AppState, event: InputEvent) -> Handl
         }
 
         #[cfg(feature = "native")]
-        (InputKeyCode::Char('s'), false, false, _) => {
-            if app.current_tab == Tab::Query {
-                let col = app.query_state.selected_column();
-                app.query_state.prepare_sort(col);
-            }
+        (InputKeyCode::Char('s'), false, false, _) if app.current_tab == Tab::Query => {
+            let col = app.query_state.selected_column();
+            app.query_state.prepare_sort(col);
         }
 
         #[cfg(feature = "native")]
-        (InputKeyCode::Esc, ..) => {
-            if app.current_tab == Tab::Query {
-                app.query_state.toggle_focus();
-            }
+        (InputKeyCode::Esc, ..) if app.current_tab == Tab::Query => {
+            app.query_state.toggle_focus();
         }
 
         _ => {}
@@ -272,35 +264,35 @@ pub(crate) fn handle_search_mode(app: &mut AppState, event: InputEvent) -> Handl
             app.clear_search();
         }
 
-        (InputKeyCode::Up, ..) | (InputKeyCode::Char('p'), true, ..) => {
-            if app.current_tab == Tab::Layout {
-                navigate_layout_up(app, SCROLL_LINE);
-            }
+        (InputKeyCode::Up, ..) | (InputKeyCode::Char('p'), true, ..)
+            if app.current_tab == Tab::Layout =>
+        {
+            navigate_layout_up(app, SCROLL_LINE);
         }
-        (InputKeyCode::Down, ..) | (InputKeyCode::Char('n'), true, ..) => {
-            if app.current_tab == Tab::Layout {
-                navigate_layout_down(app, SCROLL_LINE);
-            }
+        (InputKeyCode::Down, ..) | (InputKeyCode::Char('n'), true, ..)
+            if app.current_tab == Tab::Layout =>
+        {
+            navigate_layout_down(app, SCROLL_LINE);
         }
-        (InputKeyCode::PageUp, ..) | (InputKeyCode::Char('v'), _, true, _) => {
-            if app.current_tab == Tab::Layout {
-                navigate_layout_up(app, SCROLL_PAGE);
-            }
+        (InputKeyCode::PageUp, ..) | (InputKeyCode::Char('v'), _, true, _)
+            if app.current_tab == Tab::Layout =>
+        {
+            navigate_layout_up(app, SCROLL_PAGE);
         }
-        (InputKeyCode::PageDown, ..) | (InputKeyCode::Char('v'), true, ..) => {
-            if app.current_tab == Tab::Layout {
-                navigate_layout_down(app, SCROLL_PAGE);
-            }
+        (InputKeyCode::PageDown, ..) | (InputKeyCode::Char('v'), true, ..)
+            if app.current_tab == Tab::Layout =>
+        {
+            navigate_layout_down(app, SCROLL_PAGE);
         }
-        (InputKeyCode::Home, ..) | (InputKeyCode::Char('<'), _, true, _) => {
-            if app.current_tab == Tab::Layout {
-                app.layouts_list_state.select_first();
-            }
+        (InputKeyCode::Home, ..) | (InputKeyCode::Char('<'), _, true, _)
+            if app.current_tab == Tab::Layout =>
+        {
+            app.layouts_list_state.select_first();
         }
-        (InputKeyCode::End, ..) | (InputKeyCode::Char('>'), _, true, _) => {
-            if app.current_tab == Tab::Layout {
-                app.layouts_list_state.select_last();
-            }
+        (InputKeyCode::End, ..) | (InputKeyCode::Char('>'), _, true, _)
+            if app.current_tab == Tab::Layout =>
+        {
+            app.layouts_list_state.select_last();
         }
 
         (InputKeyCode::Enter, ..) => {

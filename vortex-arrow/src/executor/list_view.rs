@@ -1,0 +1,292 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::sync::Arc;
+
+use arrow_array::GenericListViewArray;
+use arrow_array::OffsetSizeTrait;
+use arrow_schema::FieldRef;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::listview::DEFAULT_REBUILD_DENSITY_THRESHOLD;
+use vortex_array::arrays::listview::DEFAULT_TRIM_ELEMENTS_THRESHOLD;
+use vortex_array::arrays::listview::ListViewArrayExt;
+use vortex_array::arrays::listview::ListViewArraySlotsExt;
+use vortex_array::arrays::listview::ListViewDataParts;
+use vortex_array::arrays::listview::ListViewRebuildMode;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::IntegerPType;
+use vortex_array::dtype::Nullability::NonNullable;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
+
+use crate::executor::validity::to_arrow_null_buffer;
+use crate::session::ArrowSessionExt;
+
+pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
+    array: ArrayRef,
+    elements_field: &FieldRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<arrow_array::ArrayRef> {
+    vortex_ensure!(
+        matches!(array.dtype(), DType::List(..)),
+        "Cannot convert Vortex array with dtype {} to an Arrow list-view array",
+        array.dtype()
+    );
+
+    let array = array.execute::<ListViewArray>(ctx)?;
+
+    // Reclaim unreferenced elements before handing the array to Arrow. Otherwise downstream
+    // consumers hold an elements buffer containing unreferenced data in memory indefinitely, and
+    // any compute pass over that buffer wastes work on data nothing references.
+    let array = if array.is_zero_copy_to_list() {
+        // A zctl array has no overlaps and no interior gaps, so the only unreferenced
+        // elements are leading and trailing. Trimming them is much cheaper than a full rebuild.
+        // Compute the referenced bounds once and reuse them for both the decision and the trim.
+        let n_elts = array.elements().len();
+        if n_elts == 0 || array.is_empty() {
+            array
+        } else {
+            let (start, end) = array.referenced_element_bounds(ctx)?;
+            let waste = (n_elts - (end - start)) as f32 / n_elts as f32;
+            if waste > DEFAULT_TRIM_ELEMENTS_THRESHOLD {
+                // SAFETY: we calculated valid start and end bounds
+                unsafe { array.trim_elements(start, end)? }
+            } else {
+                array
+            }
+        }
+    } else if array.upper_bound_density(ctx)? < DEFAULT_REBUILD_DENSITY_THRESHOLD {
+        // Overlaps, gaps, or garbage may be present, so a full rebuild is needed to reclaim waste.
+        array.rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)?
+    } else {
+        array
+    };
+
+    list_view_to_list_view::<O>(array, elements_field, ctx)
+}
+
+fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
+    array: ListViewArray,
+    elements_field: &FieldRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<arrow_array::ArrayRef> {
+    let ListViewDataParts {
+        elements,
+        offsets,
+        sizes,
+        validity,
+        ..
+    } = array.into_data_parts();
+
+    let n_elements = elements.len();
+    let elements = ctx.session().clone().arrow().execute_arrow(
+        elements,
+        Some(elements_field.as_ref()),
+        ctx,
+    )?;
+    vortex_ensure!(
+        elements_field.is_nullable() || elements.null_count() == 0,
+        "Elements field is non-nullable but elements array contains nulls"
+    );
+    // The unchecked construction below needs the views in bounds of the *exported* elements, so
+    // confirm the export preserved the length the Vortex invariant was checked against.
+    vortex_ensure!(
+        elements.len() == n_elements,
+        "Arrow export changed the elements length: {n_elements} became {}",
+        elements.len()
+    );
+
+    let offsets = offsets
+        .cast(DType::Primitive(O::PTYPE, NonNullable))?
+        .execute::<PrimitiveArray>(ctx)?
+        .to_buffer::<O>()
+        .into_arrow_scalar_buffer();
+    let sizes = sizes
+        .cast(DType::Primitive(O::PTYPE, NonNullable))?
+        .execute::<PrimitiveArray>(ctx)?
+        .to_buffer::<O>()
+        .into_arrow_scalar_buffer();
+
+    let null_buffer = to_arrow_null_buffer(validity, offsets.len(), ctx)?;
+
+    // SAFETY: `ListViewData::validate` guarantees `offsets[i] + sizes[i] <= elements.len()`, and
+    // the length check above carries that across the export. Skips Arrow's unvectorizable re-check.
+    Ok(Arc::new(unsafe {
+        GenericListViewArray::<O>::new_unchecked(
+            Arc::clone(elements_field),
+            offsets,
+            sizes,
+            elements,
+            null_buffer,
+        )
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::LazyLock;
+
+    use arrow_array::Array;
+    use arrow_array::GenericListViewArray;
+    use arrow_schema::DataType;
+    use arrow_schema::Field;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+
+    use crate::ArrowArrayExecutor;
+    use crate::executor::list_view::ListViewArray;
+    use crate::executor::list_view::PrimitiveArray;
+
+    /// A shared session for these list-view-executor tests, used to create execution contexts.
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+
+    #[test]
+    fn trims_zero_copy_with_significant_trailing_waste() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Zero-copy-to-list array with 10 elements but only [0, 4) referenced -> 60% waste.
+        // The conversion should trim the elements buffer down to the referenced range.
+        let elements = PrimitiveArray::new(
+            buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+            Validity::NonNullable,
+        );
+        let offsets = PrimitiveArray::new(buffer![0i32, 2], Validity::NonNullable);
+        let sizes = PrimitiveArray::new(buffer![2i32, 2], Validity::NonNullable);
+        let list_array = unsafe {
+            ListViewArray::new_unchecked(
+                elements.into_array(),
+                offsets.into_array(),
+                sizes.into_array(),
+                Validity::NonNullable,
+            )
+            .with_zero_copy_to_list(true)
+        };
+
+        let field = Field::new("item", DataType::Int32, false);
+        let arrow_dt = DataType::ListView(field.into());
+        let arrow_array = list_array
+            .into_array()
+            .execute_arrow(Some(&arrow_dt), &mut ctx)?;
+
+        let listview = arrow_array
+            .as_any()
+            .downcast_ref::<GenericListViewArray<i32>>()
+            .unwrap();
+        assert_eq!(listview.values().len(), 4);
+        Ok(())
+    }
+
+    #[test]
+    fn test_to_arrow_listview_i32() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Create a ListViewArray with overlapping views: [[1, 2], [2, 3], [3, 4]]
+        let elements = PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable);
+        let offsets = PrimitiveArray::new(buffer![0i32, 1, 2], Validity::NonNullable);
+        let sizes = PrimitiveArray::new(buffer![2i32, 2, 2], Validity::NonNullable);
+
+        let list_array = ListViewArray::new(
+            elements.into_array(),
+            offsets.into_array(),
+            sizes.into_array(),
+            Validity::AllValid,
+        );
+
+        // Convert to Arrow ListView with i32 offsets.
+        let field = Field::new("item", DataType::Int32, false);
+        let arrow_dt = DataType::ListView(field.into());
+        let arrow_array = list_array
+            .into_array()
+            .execute_arrow(Some(&arrow_dt), &mut ctx)?;
+
+        // Verify the type is correct.
+        assert_eq!(arrow_array.data_type(), &arrow_dt);
+
+        // Downcast and verify the structure.
+        let listview = arrow_array
+            .as_any()
+            .downcast_ref::<GenericListViewArray<i32>>()
+            .unwrap();
+
+        assert_eq!(listview.len(), 3);
+
+        // Verify first list view [1, 2].
+        let first_list = listview.value(0);
+        assert_eq!(first_list.len(), 2);
+        let first_values = first_list
+            .as_any()
+            .downcast_ref::<arrow_array::Int32Array>()
+            .unwrap();
+        assert_eq!(first_values.value(0), 1);
+        assert_eq!(first_values.value(1), 2);
+
+        // Verify second list view [2, 3].
+        let second_list = listview.value(1);
+        assert_eq!(second_list.len(), 2);
+        let second_values = second_list
+            .as_any()
+            .downcast_ref::<arrow_array::Int32Array>()
+            .unwrap();
+        assert_eq!(second_values.value(0), 2);
+        assert_eq!(second_values.value(1), 3);
+        Ok(())
+    }
+
+    #[test]
+    fn test_to_arrow_listview_i64() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Create a ListViewArray with nullable elements: [[100], null, [200, 300]]
+        let elements = PrimitiveArray::new(buffer![100i64, 200, 300], Validity::NonNullable);
+        let offsets = PrimitiveArray::new(buffer![0i64, 1, 1], Validity::NonNullable);
+        let sizes = PrimitiveArray::new(buffer![1i64, 0, 2], Validity::NonNullable);
+        let validity = Validity::from_iter([true, false, true]);
+
+        let list_array = unsafe {
+            ListViewArray::new_unchecked(
+                elements.into_array(),
+                offsets.into_array(),
+                sizes.into_array(),
+                validity,
+            )
+            .with_zero_copy_to_list(true)
+        };
+
+        // Convert to Arrow LargeListView with i64 offsets.
+        let field = Field::new("item", DataType::Int64, false);
+        let arrow_dt = DataType::LargeListView(field.into());
+        let arrow_array = list_array
+            .into_array()
+            .execute_arrow(Some(&arrow_dt), &mut ctx)?;
+
+        // Verify the type is correct.
+        assert_eq!(arrow_array.data_type(), &arrow_dt);
+
+        // Downcast and verify the structure.
+        let listview = arrow_array
+            .as_any()
+            .downcast_ref::<GenericListViewArray<i64>>()
+            .unwrap();
+
+        assert_eq!(listview.len(), 3);
+        assert!(!listview.is_null(0));
+        assert!(listview.is_null(1));
+        assert!(!listview.is_null(2));
+
+        // Verify the third list [200, 300].
+        let third_list = listview.value(2);
+        assert_eq!(third_list.len(), 2);
+        let third_values = third_list
+            .as_any()
+            .downcast_ref::<arrow_array::Int64Array>()
+            .unwrap();
+        assert_eq!(third_values.value(0), 200);
+        assert_eq!(third_values.value(1), 300);
+        Ok(())
+    }
+}

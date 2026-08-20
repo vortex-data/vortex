@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::Any;
+use std::borrow::Cow;
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
-use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_error::VortexExpect;
@@ -18,9 +17,13 @@ use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::ScalarFn;
+use crate::arrays::ScalarFnArray;
 use crate::dtype::DType;
+use crate::expr::BoundExpression;
 use crate::expr::Expression;
-use crate::expr::traversal::Node;
+use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::TypedScalarFnInstance;
@@ -67,20 +70,20 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     /// Returns the name of the nth child of the expr.
     fn child_name(&self, options: &Self::Options, child_idx: usize) -> ChildName;
 
-    /// Format this expression in a nice human-readable SQL-style format
+    /// Format an expression tree in a human-readable SQL-style format.
     ///
-    /// The implementation should recursively format child expressions by calling
-    /// `expr.child(i).fmt_sql(f)`.
+    /// The expression may be either an [`Expression`] or a
+    /// [`bound expression`](crate::expr::BoundExpression).
     fn fmt_sql(
         &self,
         options: &Self::Options,
-        expr: &Expression,
+        expr: &dyn ExprDisplay,
         f: &mut Formatter<'_>,
     ) -> fmt::Result {
         write!(f, "{}(", self.id())?;
-        let nchildren = expr.children_count();
-        for (i, child) in expr.children().iter().enumerate() {
-            child.fmt_sql(f)?;
+        let nchildren = expr.display_children_count();
+        for i in 0..nchildren {
+            Display::fmt(expr.display_child(i), f)?;
             if i + 1 < nchildren {
                 write!(f, ", ")?;
             }
@@ -90,19 +93,6 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
             write!(f, ", opts={}", opts)?;
         }
         write!(f, ")")
-    }
-
-    /// Coerce the arguments of this function.
-    ///
-    /// This is optionally used by Vortex users when performing type coercion over a Vortex
-    /// expression. Note that direct Vortex query engine integrations (e.g. DuckDB, DataFusion,
-    /// etc.) do not perform type coercion and rely on the engine's own logical planner.
-    ///
-    /// Note that the default implementation simply returns the arguments without coercion, and it
-    /// is expected that the [`ScalarFnVTable::return_dtype`] call may still fail.
-    fn coerce_args(&self, options: &Self::Options, args: &[DType]) -> VortexResult<Vec<DType>> {
-        let _ = options;
-        Ok(args.to_vec())
     }
 
     /// Compute the return [`DType`] of the expression if evaluated over the given input types.
@@ -138,18 +128,13 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     /// Implement an abstract reduction rule over a tree of scalar functions.
     ///
     /// The [`ReduceNode`] can be used to traverse children, inspect their types, and
-    /// construct the result expression.
+    /// construct the result via [`ReduceNode::new_node`]. The rule is generic over the node
+    /// type and is instantiated once per reducible tree kind (expressions and arrays).
     ///
     /// Return `Ok(None)` if no reduction is possible.
-    fn reduce(
-        &self,
-        options: &Self::Options,
-        node: &dyn ReduceNode,
-        ctx: &dyn ReduceCtx,
-    ) -> VortexResult<Option<ReduceNodeRef>> {
+    fn reduce<T: ReduceNode>(&self, options: &Self::Options, node: &T) -> VortexResult<Option<T>> {
         _ = options;
         _ = node;
-        _ = ctx;
         Ok(None)
     }
 
@@ -192,80 +177,209 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
         Ok(None)
     }
 
-    /// Returns whether this expression itself is null-sensitive. Conservatively default to *true*.
+    /// Returns whether this scalar function is strict.
     ///
-    /// An expression is null-sensitive if it directly operates on null values,
-    /// such as `is_null`. Most expressions are not null-sensitive.
+    /// A strict function returns null for a row when any argument is null for that row. This
+    /// matches [PostgreSQL's `STRICT` convention](https://www.postgresql.org/docs/current/sql-createfunction.html)
+    /// for null propagation.
     ///
-    /// The property we are interested in is if the expression (e) distributes over `mask`.
-    /// Define a `mask(a, m)` expression that applies the boolean array `m` to the validity of the
-    /// array `a`.
+    /// Return `true` only when this holds for every argument. `add` is strict, but Kleene `AND`
+    /// is not because `false AND null` returns `false`. `is_null` is also not strict.
     ///
-    /// A unary expression `e` is not null-sensitive iff forall arrays `a` and masks `m`,
-    /// `e(mask(a, m)) == mask(e(a), m)`.
+    /// Strictness does not require valid inputs to produce a valid output. For example,
+    /// [`crate::expr::list_sum`] returns null for a valid empty list. Implement
+    /// [`ScalarFnVTable::validity`] only when the output validity can be derived without
+    /// evaluation.
     ///
-    /// This can be extended to an n-ary expression.
+    /// [`ScalarFnVTable::return_dtype`] must return a nullable output dtype when any input dtype is
+    /// nullable. A `cast` that forces a non-nullable output dtype is therefore not strict.
     ///
-    /// This method only checks the expression itself, not its children.
-    fn is_null_sensitive(&self, options: &Self::Options) -> bool {
+    /// This property applies only to the scalar function, not its child expressions. Nullary
+    /// functions are vacuously strict. The default is conservatively `false`.
+    fn is_strict(&self, options: &Self::Options) -> bool {
         _ = options;
-        true
+        false
     }
 
-    /// Returns whether this expression is semantically fallible. Conservatively defaults to
-    /// `true`.
+    /// Returns whether this scalar function can raise a semantic error.
     ///
-    /// An expression is semantically fallible if there exists a set of well-typed inputs that
-    /// causes the expression to produce an error as part of its _defined behavior_. For example,
-    /// `checked_add` is fallible because integer overflow is a domain error, and division is
-    /// fallible because of division by zero.
+    /// Return `true` if a well-typed call can error because of its values. `checked_add` is
+    /// fallible on integer overflow, and integer division is fallible when its divisor is zero.
+    /// A null result is not an error: [`crate::expr::list_sum`] is infallible for an empty list.
     ///
-    /// This does **not** include execution errors that are incidental to the implementation, such
-    /// as canonicalization failures, memory allocation errors, or encoding mismatches. Those can
-    /// happen to any expression and are not what this method captures.
+    /// Exclude incidental execution errors, such as canonicalization failures, allocation errors,
+    /// and encoding mismatches. They are not part of the function's semantics.
     ///
-    /// This property is used by optimizations that speculatively evaluate an expression over values
-    /// that may not appear in the actual input. For example, pushing a scalar function down to a
-    /// dictionary's values array is only safe when the function is infallible or all values are
-    /// referenced, since a fallible function might error on a value left unreferenced after
-    /// slicing that would never be encountered during normal evaluation.
+    /// Returning `false` permits optimizations that evaluate the function over values that no input
+    /// row references. Dictionary push-down, for example, evaluates every dictionary value, so a
+    /// fallible function could error on a value that row-wise evaluation would never reach.
     ///
-    /// Note: this is only applicable to expressions that pass type-checking via
-    /// [`ScalarFnVTable::return_dtype`].
+    /// This applies only to the scalar function, not its child expressions, and only to inputs
+    /// accepted by [`ScalarFnVTable::return_dtype`]. The default is conservatively `true`.
     fn is_fallible(&self, options: &Self::Options) -> bool {
         _ = options;
         true
     }
 }
 
-/// Arguments for reduction rules.
-pub trait ReduceCtx {
-    /// Create a new reduction node from the given scalar function and children.
-    fn new_node(
-        &self,
-        scalar_fn: ScalarFnRef,
-        children: &[ReduceNodeRef],
-    ) -> VortexResult<ReduceNodeRef>;
-}
-
-pub type ReduceNodeRef = Arc<dyn ReduceNode>;
-
-/// A node used for implementing abstract reduction rules.
-pub trait ReduceNode {
-    /// Downcast to Any.
-    fn as_any(&self) -> &dyn Any;
-
+/// A node used for implementing abstract reduction rules over a tree of scalar functions.
+///
+/// Reduction rules are generic over the node type, so a rule is written once and monomorphized
+/// per reducible tree kind: [`ExpressionReduceNode`] for expression trees and
+/// [`ArrayReduceNode`] for array trees. Nodes borrow from the tree being reduced, making
+/// traversal allocation-free, while nodes produced by [`ReduceNode::new_node`] own their
+/// freshly-built subtrees.
+pub trait ReduceNode: Clone {
     /// Return the data type of this node.
     fn node_dtype(&self) -> VortexResult<DType>;
 
     /// Return this node's scalar function if it is indeed a scalar fn.
     fn scalar_fn(&self) -> Option<&ScalarFnRef>;
 
-    /// Descend to the child of this handle.
-    fn child(&self, idx: usize) -> ReduceNodeRef;
+    /// Descend to the child of this node.
+    fn child(&self, idx: usize) -> Self;
 
     /// Returns the number of children of this node.
     fn child_count(&self) -> usize;
+
+    /// Create a new node from the given scalar function and children, inheriting this node's
+    /// reduction context (e.g. the expression scope, or the array row count).
+    fn new_node(&self, scalar_fn: ScalarFnRef, children: &[Self]) -> VortexResult<Self>;
+}
+
+/// A [`ReduceNode`] over an expression tree, typed within a scope.
+#[derive(Clone)]
+pub struct ExpressionReduceNode<'a> {
+    expression: Cow<'a, Expression>,
+    scope: &'a DType,
+}
+
+impl<'a> ExpressionReduceNode<'a> {
+    /// Creates a node borrowing the given expression and scope.
+    pub fn new(expression: &'a Expression, scope: &'a DType) -> Self {
+        Self {
+            expression: Cow::Borrowed(expression),
+            scope,
+        }
+    }
+
+    /// Returns the expression backing this node.
+    pub fn expression(&self) -> &Expression {
+        &self.expression
+    }
+
+    /// Consumes this node and returns the backing expression.
+    pub fn into_expression(self) -> Expression {
+        self.expression.into_owned()
+    }
+}
+
+impl ReduceNode for ExpressionReduceNode<'_> {
+    fn node_dtype(&self) -> VortexResult<DType> {
+        self.expression.return_dtype(self.scope)
+    }
+
+    fn scalar_fn(&self) -> Option<&ScalarFnRef> {
+        self.expression.as_scalar()
+    }
+
+    fn child(&self, idx: usize) -> Self {
+        let expression = match &self.expression {
+            Cow::Borrowed(expression) => Cow::Borrowed(expression.child(idx)),
+            Cow::Owned(expression) => Cow::Owned(expression.child(idx).clone()),
+        };
+        Self {
+            expression,
+            scope: self.scope,
+        }
+    }
+
+    fn child_count(&self) -> usize {
+        self.expression.children().len()
+    }
+
+    fn new_node(&self, scalar_fn: ScalarFnRef, children: &[Self]) -> VortexResult<Self> {
+        let expression = Expression::try_new(
+            scalar_fn,
+            children
+                .iter()
+                .map(|c| c.expression.as_ref().clone())
+                .collect::<Vec<_>>(),
+        )?;
+        Ok(Self {
+            expression: Cow::Owned(expression),
+            scope: self.scope,
+        })
+    }
+}
+
+/// A [`ReduceNode`] over an array tree.
+#[derive(Clone)]
+pub struct ArrayReduceNode<'a> {
+    array: Cow<'a, ArrayRef>,
+}
+
+impl<'a> ArrayReduceNode<'a> {
+    /// Creates a node borrowing the given array.
+    pub fn new(array: &'a ArrayRef) -> Self {
+        Self {
+            array: Cow::Borrowed(array),
+        }
+    }
+
+    /// Returns the array backing this node.
+    pub fn array(&self) -> &ArrayRef {
+        &self.array
+    }
+
+    /// Consumes this node and returns the backing array.
+    pub fn into_array(self) -> ArrayRef {
+        self.array.into_owned()
+    }
+}
+
+impl ReduceNode for ArrayReduceNode<'_> {
+    fn node_dtype(&self) -> VortexResult<DType> {
+        Ok(self.array.dtype().clone())
+    }
+
+    fn scalar_fn(&self) -> Option<&ScalarFnRef> {
+        self.array
+            .as_opt::<ScalarFn>()
+            .map(|a| a.data().scalar_fn())
+    }
+
+    fn child(&self, idx: usize) -> Self {
+        let array = match &self.array {
+            Cow::Borrowed(array) => Cow::Borrowed(
+                array
+                    .children_iter()
+                    .nth(idx)
+                    .vortex_expect("child idx out of bounds"),
+            ),
+            Cow::Owned(array) => Cow::Owned(
+                array
+                    .nth_child(idx)
+                    .vortex_expect("child idx out of bounds"),
+            ),
+        };
+        Self { array }
+    }
+
+    fn child_count(&self) -> usize {
+        self.array.nchildren()
+    }
+
+    fn new_node(&self, scalar_fn: ScalarFnRef, children: &[Self]) -> VortexResult<Self> {
+        let array = ScalarFnArray::try_new_with_len(
+            scalar_fn,
+            children.iter().map(|c| c.array.as_ref().clone()).collect(),
+            self.array.len(),
+        )?;
+        Ok(Self {
+            array: Cow::Owned(array.into_array()),
+        })
+    }
 }
 
 /// The arity (number of arguments) of a function.
@@ -392,6 +506,15 @@ pub trait ScalarFnVTableExt: ScalarFnVTable {
         children: impl IntoIterator<Item = Expression>,
     ) -> VortexResult<Expression> {
         Expression::try_new(self.bind(options), children)
+    }
+
+    /// Try to create a bound expression with this vtable, the given options, and bound children.
+    fn try_new_bound_expr(
+        &self,
+        options: Self::Options,
+        children: impl IntoIterator<Item = BoundExpression>,
+    ) -> VortexResult<BoundExpression> {
+        BoundExpression::try_new(self.bind(options), children)
     }
 }
 impl<V: ScalarFnVTable> ScalarFnVTableExt for V {}

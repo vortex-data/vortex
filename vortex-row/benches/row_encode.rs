@@ -30,6 +30,7 @@ use rand::distr::Alphanumeric;
 use rand::rngs::StdRng;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::array_session;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
@@ -39,11 +40,13 @@ use vortex_session::VortexSession;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-const N: usize = 100_000;
+// Sized so the slowest scenario (struct_mixed) stays within the CodSpeed budget.
+const N: usize = 1_000;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 

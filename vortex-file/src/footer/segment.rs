@@ -43,7 +43,32 @@ impl TryFrom<&fb::SegmentSpec> for SegmentSpec {
         Ok(Self {
             offset: value.offset(),
             length: value.length(),
-            alignment: Alignment::from_exponent(value.alignment_exponent()),
+            // The alignment exponent comes from the file and may be corrupt, so validate it rather
+            // than panicking on a too-large shift (see issue #8819).
+            alignment: Alignment::try_from_untrusted_exponent(value.alignment_exponent())?,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_out_of_range_alignment_exponent() {
+        // A fuzzed segment spec can declare an alignment exponent that would overflow a usize
+        // shift. Parsing it must return an error rather than panicking (see issue #8819).
+        let fb_spec = fb::SegmentSpec::new(0, 0, u8::MAX, 0, 0);
+        let err = SegmentSpec::try_from(&fb_spec).unwrap_err();
+        assert!(err.to_string().contains("too large"), "{err}");
+    }
+
+    #[test]
+    fn rejects_excessive_alignment_exponent() {
+        // A representable alignment can still cause an unreasonable allocation when a segment is
+        // copied to satisfy it.
+        let fb_spec = fb::SegmentSpec::new(0, 0, 17, 0, 0);
+        let err = SegmentSpec::try_from(&fb_spec).unwrap_err();
+        assert!(err.to_string().contains("exceeds"), "{err}");
     }
 }

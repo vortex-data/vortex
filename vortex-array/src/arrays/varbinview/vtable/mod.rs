@@ -14,18 +14,19 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::ArrayParts;
 use crate::ArrayRef;
 use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::varbinview::BinaryView;
 use crate::arrays::varbinview::VarBinViewData;
-use crate::arrays::varbinview::array::NUM_SLOTS;
-use crate::arrays::varbinview::array::SLOT_NAMES;
+use crate::arrays::varbinview::array::VarBinViewSlots;
 use crate::arrays::varbinview::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
@@ -33,6 +34,7 @@ use crate::builders::VarBinViewBuilder;
 use crate::dtype::DType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
+use crate::match_each_varbin_builder;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 mod kernel;
@@ -92,8 +94,9 @@ impl VTable for VarBinView {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "VarBinViewArray expected {NUM_SLOTS} slots, found {}",
+            slots.len() == VarBinViewSlots::COUNT,
+            "VarBinViewArray expected {} slots, found {}",
+            VarBinViewSlots::COUNT,
             slots.len()
         );
         vortex_ensure!(
@@ -131,6 +134,26 @@ impl VTable for VarBinView {
         }
     }
 
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        let Some((views, data_buffers)) = buffers.split_last() else {
+            vortex_bail!("Expected at least 1 buffer, got 0");
+        };
+        let data = VarBinViewData::try_new_handle(
+            views.clone(),
+            Arc::from(data_buffers.to_vec()),
+            array.dtype().clone(),
+            array.validity()?,
+        )?;
+        Ok(
+            ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
+                .with_slots(array.slots().iter().cloned().collect()),
+        )
+    }
+
     fn serialize(
         _array: ArrayView<'_, Self>,
         _session: &VortexSession,
@@ -146,8 +169,8 @@ impl VTable for VarBinView {
 
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<crate::array::ArrayParts<Self>> {
+        session: &VortexSession,
+    ) -> VortexResult<ArrayParts<Self>> {
         if !metadata.is_empty() {
             vortex_bail!(
                 "VarBinViewArray expects empty metadata, got {} bytes",
@@ -188,10 +211,7 @@ impl VTable for VarBinView {
                 validity.clone(),
             )?;
             let slots = VarBinViewData::make_slots(&validity, len);
-            return Ok(
-                crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data)
-                    .with_slots(slots),
-            );
+            return Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots));
         }
 
         let data_buffers = data_handles
@@ -205,13 +225,14 @@ impl VTable for VarBinView {
             Arc::from(data_buffers),
             dtype.clone(),
             validity.clone(),
+            &mut session.create_execution_ctx(),
         )?;
         let slots = VarBinViewData::make_slots(&validity, len);
-        Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        VarBinViewSlots::NAMES[idx].to_string()
     }
 
     fn reduce_parent(
@@ -230,9 +251,12 @@ impl VTable for VarBinView {
         if let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() {
             return builder.append_varbinview_array(&array.into_owned(), ctx);
         }
-
-        builder.extend_from_array(array.as_ref());
-        Ok(())
+        if let Some(result) =
+            match_each_varbin_builder!(builder, |builder| builder.append_varbinview(array, ctx))
+        {
+            return result;
+        }
+        vortex_bail!("append_to_builder for VarBinView requires a variable-binary builder")
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

@@ -36,7 +36,7 @@ jobs:
     name: "Minimize ${{ inputs.fuzz_target }}"
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=arm64-medium/disk=large/tag={1}-minimize', github.run_id, inputs.fuzz_target)
+          && format('runs-on={0}/runner=arm64-medium/disk=large/extras=s3-cache/tag={1}-minimize', github.run_id, inputs.fuzz_target)
           || 'ubuntu-latest' }}
     timeout-minutes: 240
     steps:
@@ -51,12 +51,13 @@ jobs:
         with:
           sccache: s3
 
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
+          enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
 
       - name: Install cargo-fuzz
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995

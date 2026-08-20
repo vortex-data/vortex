@@ -3,22 +3,25 @@
 
 //! Sequence integer encoding for sequential patterns.
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
+use vortex_array::VTable;
 use vortex_compressor::builtins::BinaryDictScheme;
 use vortex_compressor::builtins::FloatDictScheme;
 use vortex_compressor::builtins::IntDictScheme;
 use vortex_compressor::builtins::StringDictScheme;
-use vortex_compressor::estimate::CompressionEstimate;
-use vortex_compressor::estimate::DeferredEstimate;
-use vortex_compressor::estimate::EstimateScore;
-use vortex_compressor::estimate::EstimateVerdict;
 use vortex_compressor::scheme::AncestorExclusion;
 use vortex_compressor::scheme::ChildSelection;
+use vortex_compressor::scheme::CompressionEstimate;
+use vortex_compressor::scheme::DeferredEstimate;
+use vortex_compressor::scheme::EstimateScore;
+use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_sequence::Sequence;
 use vortex_sequence::sequence_encode;
 
 use crate::ArrayAndStats;
@@ -38,6 +41,10 @@ impl Scheme for SequenceScheme {
 
     fn matches(&self, canonical: &Canonical) -> bool {
         canonical.dtype().is_int()
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![Sequence.id()]
     }
 
     /// Sequence encoding on dictionary codes just adds a layer of indirection without compressing

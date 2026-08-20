@@ -1,0 +1,13 @@
+---
+source: vortex-btrblocks/tests/golden.rs
+expression: rendered
+---
+input: vortex.timestamp[µs, tz=UTC](i64), len=16384, nbytes=131072
+root: vortex.ext(vortex.timestamp[µs, tz=UTC](i64), len=16384) nbytes=43008
+  metadata: 
+  storage: fastlanes.delta(i64, len=16384) nbytes=43008
+    metadata: offset: 0
+    bases: vortex.primitive(i64, len=256) nbytes=2048
+      metadata: ptype: i64
+    deltas: fastlanes.bitpacked(i64, len=16384) nbytes=40960
+      metadata: bit_width: 20, offset: 0

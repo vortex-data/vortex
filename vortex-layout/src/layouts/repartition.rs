@@ -8,7 +8,6 @@ use async_stream::try_stream;
 use async_trait::async_trait;
 use futures::StreamExt as _;
 use futures::pin_mut;
-use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
@@ -21,6 +20,7 @@ use vortex_session::VortexSession;
 
 use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::LayoutWriterContext;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
@@ -95,7 +95,7 @@ impl RepartitionStrategy {
 impl LayoutStrategy for RepartitionStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         eof: SequencePointer,
@@ -162,7 +162,7 @@ impl LayoutStrategy for RepartitionStrategy {
                 }
                 if canonical_stream.as_mut().peek().await.is_none() {
                     let to_flush = ChunkedArray::try_new(
-                        chunks.data.drain(..).map(|(arr, _)| arr).collect(),
+                        chunks.data.drain(..).map(|(arr, _)| arr),
                         dtype_clone.clone(),
                     )?;
                     if !to_flush.is_empty() {
@@ -185,14 +185,6 @@ impl LayoutStrategy for RepartitionStrategy {
                 session,
             )
             .await
-    }
-
-    fn buffered_bytes(&self) -> u64 {
-        // TODO(os): we should probably add the buffered bytes from this strategy on top,
-        // it is currently better to not add it at all because these buffered arrays are
-        // potentially sliced and uncompressed. They would overestimate the actual bytes
-        // that will end up in the file when flushed.
-        self.child.buffered_bytes()
     }
 }
 
@@ -297,7 +289,7 @@ mod tests {
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
-    use crate::test::SESSION;
+    use crate::test::new_session;
 
     const ONE_MEG: u64 = 1 << 20;
 
@@ -398,10 +390,10 @@ mod tests {
 
         let stream = fsl.into_array().to_array_stream().sequenced(ptr);
         let layout = block_on(|handle| async move {
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             strategy
                 .write_stream(
-                    ctx,
+                    ctx.into(),
                     Arc::<TestSegments>::clone(&segments),
                     stream,
                     eof,
@@ -422,7 +414,7 @@ mod tests {
         assert!(nchildren > 1, "expected multiple chunks, got {nchildren}");
 
         for i in 0..nchildren - 1 {
-            let child = layout.child(i)?;
+            let child = layout.slot(i)?.vortex_expect("chunk slot present");
             assert_eq!(
                 child.row_count(),
                 132,
@@ -432,7 +424,9 @@ mod tests {
         }
 
         // Last child gets the remainder.
-        let last = layout.child(nchildren - 1)?;
+        let last = layout
+            .slot(nchildren - 1)?
+            .vortex_expect("chunk slot present");
         assert_eq!(last.row_count(), 1000 - 132 * (nchildren as u64 - 1));
 
         Ok(())
@@ -463,10 +457,10 @@ mod tests {
 
         let stream = elements.into_array().to_array_stream().sequenced(ptr);
         let layout = block_on(|handle| async move {
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             strategy
                 .write_stream(
-                    ctx,
+                    ctx.into(),
                     Arc::<TestSegments>::clone(&segments),
                     stream,
                     eof,
@@ -477,8 +471,20 @@ mod tests {
 
         assert_eq!(layout.row_count(), num_elements as u64);
         assert_eq!(layout.nchildren(), 2);
-        assert_eq!(layout.child(0)?.row_count(), 8192);
-        assert_eq!(layout.child(1)?.row_count(), 1808);
+        assert_eq!(
+            layout
+                .slot(0)?
+                .vortex_expect("chunk slot present")
+                .row_count(),
+            8192
+        );
+        assert_eq!(
+            layout
+                .slot(1)?
+                .vortex_expect("chunk slot present")
+                .row_count(),
+            1808
+        );
 
         Ok(())
     }

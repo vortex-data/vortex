@@ -16,7 +16,6 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::child_to_validity;
@@ -30,13 +29,8 @@ use vortex_proto::dtype as pb;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::array::METADATA_SLOT;
-use crate::array::NUM_SLOTS;
-use crate::array::ParquetVariantArrayExt;
-use crate::array::SLOT_NAMES;
-use crate::array::TYPED_VALUE_SLOT;
-use crate::array::VALIDITY_SLOT;
-use crate::array::VALUE_SLOT;
+use crate::array::ParquetVariantArraySlotsExt;
+use crate::array::ParquetVariantSlots;
 use crate::array::core_storage_without_typed_value;
 use crate::array::logical_shredded_from_parquet_typed_value;
 
@@ -103,16 +97,20 @@ impl VTable for ParquetVariant {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "ParquetVariantArray expects {NUM_SLOTS} slots, got {}",
+            slots.len() == ParquetVariantSlots::COUNT,
+            "ParquetVariantArray expects {} slots, got {}",
+            ParquetVariantSlots::COUNT,
             slots.len()
         );
-        let validity = child_to_validity(slots[VALIDITY_SLOT].as_ref(), dtype.nullability());
-        let metadata = slots[METADATA_SLOT]
+        let validity = child_to_validity(
+            slots[ParquetVariantSlots::VALIDITY].as_ref(),
+            dtype.nullability(),
+        );
+        let metadata = slots[ParquetVariantSlots::METADATA]
             .as_ref()
             .ok_or_else(|| vortex_err!("ParquetVariantArray metadata slot"))?;
-        let value = slots[VALUE_SLOT].as_ref();
-        let typed_value = slots[TYPED_VALUE_SLOT].as_ref();
+        let value = slots[ParquetVariantSlots::VALUE].as_ref();
+        let typed_value = slots[ParquetVariantSlots::TYPED_VALUE].as_ref();
 
         vortex_ensure!(
             matches!(dtype, DType::Variant(_)),
@@ -171,8 +169,16 @@ impl VTable for ParquetVariant {
         None
     }
 
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        vortex_array::vtable::with_empty_buffers(self, array, buffers)
+    }
+
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        ParquetVariantSlots::NAMES[idx].to_string()
     }
 
     fn serialize(
@@ -180,14 +186,14 @@ impl VTable for ParquetVariant {
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
         let typed_value_dtype = array
-            .typed_value_array()
+            .typed_value()
             .map(|tv| tv.dtype().try_into())
             .transpose()?;
         Ok(Some(
             ParquetVariantMetadataProto {
-                has_value: array.value_array().is_some(),
+                has_value: array.value().is_some(),
                 typed_value_dtype,
-                value_nullable: array.value_array().is_some_and(|v| v.dtype().is_nullable()),
+                value_nullable: array.value().is_some_and(|v| v.dtype().is_nullable()),
             }
             .encode_to_vec(),
         ))
@@ -257,21 +263,22 @@ impl VTable for ParquetVariant {
             None
         };
 
-        let slots = smallvec![
-            validity_to_child(&validity, len),
-            Some(variant_metadata),
+        let slots = ParquetVariantSlots {
+            validity: validity_to_child(&validity, len),
+            metadata: variant_metadata,
             value,
             typed_value,
-        ];
+        }
+        .into_slots();
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData).with_slots(slots))
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let shredded = array
-            .typed_value_array()
+            .typed_value()
             .cloned()
             .map(|typed_value| {
-                logical_shredded_from_parquet_typed_value(array.metadata_array(), typed_value, ctx)
+                logical_shredded_from_parquet_typed_value(array.metadata(), typed_value, ctx)
             })
             .transpose()?;
         let core_storage = core_storage_without_typed_value(&array)?;
@@ -301,24 +308,30 @@ mod tests {
     use vortex_array::Canonical;
     use vortex_array::EqMode;
     use vortex_array::IntoArray;
-    use vortex_array::VTable;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::VariantArray;
-    use vortex_array::arrays::variant::VariantArrayExt;
+    use vortex_array::arrays::variant::VariantArraySlotsExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::session::DTypeSessionExt;
     use vortex_array::serde::SerializeOptions;
     use vortex_array::serde::SerializedArray;
     use vortex_array::session::ArraySessionExt;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
+    use vortex_arrow::ArrowSessionExt;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
+    use vortex_edition::ComponentKind;
+    use vortex_edition::Edition;
+    use vortex_edition::EditionId;
+    use vortex_edition::EditionInclusion;
+    use vortex_edition::EditionSessionExt;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_file::OpenOptionsSessionExt;
@@ -327,11 +340,12 @@ mod tests {
     use vortex_layout::LayoutStrategy;
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     use vortex_layout::session::LayoutSession;
+    use vortex_layout::session::LayoutSessionExt;
     use vortex_session::VortexSession;
     use vortex_session::registry::ReadContext;
 
     use crate::ParquetVariant;
-    use crate::array::ParquetVariantArrayExt;
+    use crate::array::ParquetVariantArraySlotsExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = vortex_array::array_session();
@@ -377,26 +391,83 @@ mod tests {
             None,
         )?;
 
-        ParquetVariant::from_arrow_variant(&ArrowVariantArray::try_new(&arrow_storage)?)
+        ParquetVariant::from_arrow_variant(
+            &ArrowVariantArray::try_new(&arrow_storage)?,
+            &SESSION.arrow(),
+        )
     }
 
     #[fixture]
-    fn parquet_variant_file_session() -> VortexSession {
+    fn parquet_variant_file_session() -> VortexResult<VortexSession> {
+        const TEST_EDITION: EditionId = EditionId::new("test", 2026, 7, 0);
+
         let session = vortex_array::array_session()
             .with::<LayoutSession>()
             .with::<RuntimeSession>();
         vortex_file::register_default_encodings(&session);
         session.arrays().register(ParquetVariant);
+        let editions = session.editions();
+        editions
+            .declare_edition(Edition {
+                id: TEST_EDITION,
+                min_vortex_version: None,
+            })
+            .map_err(|error| vortex_err!("{error}"))?;
+        let component_ids = [
+            (
+                ComponentKind::Array,
+                session
+                    .arrays()
+                    .registry()
+                    .read(|map| map.keys().copied().collect::<Vec<_>>()),
+            ),
+            (
+                ComponentKind::Layout,
+                session
+                    .layouts()
+                    .registry()
+                    .read(|map| map.keys().copied().collect::<Vec<_>>()),
+            ),
+            (
+                ComponentKind::DType,
+                session
+                    .dtypes()
+                    .registry()
+                    .read(|map| map.keys().copied().collect::<Vec<_>>()),
+            ),
+        ];
+        for (kind, ids) in component_ids {
+            for id in ids {
+                editions
+                    .declare_inclusion(EditionInclusion::new(kind, &id, TEST_EDITION))
+                    .map_err(|error| vortex_err!("{error}"))?;
+            }
+        }
+        for id in [
+            "vortex.bounded_max",
+            "vortex.bounded_min",
+            "vortex.max",
+            "vortex.min",
+            "vortex.nan_count",
+            "vortex.null_count",
+        ] {
+            editions
+                .declare_inclusion(EditionInclusion::new(
+                    ComponentKind::Aggregate,
+                    id,
+                    TEST_EDITION,
+                ))
+                .map_err(|error| vortex_err!("{error}"))?;
+        }
         session
+            .enable_edition(TEST_EDITION)
+            .map_err(|error| vortex_err!("{error}"))?;
+        Ok(session)
     }
 
     #[fixture]
     fn write_strategy() -> Arc<dyn LayoutStrategy> {
-        let mut allowed = vortex_file::ALLOWED_ENCODINGS.clone();
-        allowed.insert(ParquetVariant.id());
-        vortex_file::WriteStrategyBuilder::default()
-            .with_allow_encodings(allowed)
-            .build()
+        vortex_file::WriteStrategyBuilder::default().build()
     }
 
     #[test]
@@ -408,7 +479,7 @@ mod tests {
 
         let parquet_variant =
             ParquetVariant::try_new(Validity::NonNullable, metadata, None, Some(typed_value))?;
-        assert!(parquet_variant.typed_value_array().is_some());
+        assert!(parquet_variant.typed_value().is_some());
         let mut ctx = SESSION.create_execution_ctx();
 
         let Canonical::Variant(variant) = parquet_variant
@@ -422,7 +493,7 @@ mod tests {
             .core_storage()
             .as_opt::<ParquetVariant>()
             .ok_or_else(|| vortex_err!("expected parquet variant core storage"))?;
-        assert!(core_storage.typed_value_array().is_none());
+        assert!(core_storage.typed_value().is_none());
         let shredded = variant
             .shredded()
             .ok_or_else(|| vortex_err!("expected canonical shredded child"))?;
@@ -444,9 +515,10 @@ mod tests {
     #[tokio::test]
     async fn test_file_roundtrip_typed_value_variant_with_statistics(
         #[from(typed_value_variant_array)] expected: VortexResult<ArrayRef>,
-        parquet_variant_file_session: VortexSession,
+        parquet_variant_file_session: VortexResult<VortexSession>,
     ) -> VortexResult<()> {
         let expected = expected?;
+        let parquet_variant_file_session = parquet_variant_file_session?;
 
         let mut bytes = ByteBufferMut::empty();
         parquet_variant_file_session
@@ -471,10 +543,11 @@ mod tests {
     #[tokio::test]
     async fn test_file_roundtrip_typed_value_variant_with_zoned_strategy(
         #[from(typed_value_variant_array)] expected: VortexResult<ArrayRef>,
-        parquet_variant_file_session: VortexSession,
+        parquet_variant_file_session: VortexResult<VortexSession>,
         write_strategy: Arc<dyn LayoutStrategy>,
     ) -> VortexResult<()> {
         let expected = expected?;
+        let parquet_variant_file_session = parquet_variant_file_session?;
 
         let mut bytes = ByteBufferMut::empty();
         parquet_variant_file_session
@@ -525,7 +598,7 @@ mod tests {
             .as_opt::<ParquetVariant>()
             .ok_or_else(|| vortex_err!("expected parquet variant array"))?;
         let typed = decoded_pv
-            .typed_value_array()
+            .typed_value()
             .ok_or_else(|| vortex_err!("expected typed_value child"))?;
         assert_eq!(typed.dtype(), &DType::Variant(Nullability::NonNullable));
         Ok(())
@@ -547,8 +620,8 @@ mod tests {
         let decoded_pv = decoded
             .as_opt::<ParquetVariant>()
             .ok_or_else(|| vortex_err!("expected parquet variant array"))?;
-        assert!(decoded_pv.value_array().is_some());
-        assert!(decoded_pv.typed_value_array().is_none());
+        assert!(decoded_pv.value().is_some());
+        assert!(decoded_pv.typed_value().is_none());
         Ok(())
     }
 
@@ -572,7 +645,7 @@ mod tests {
             .as_opt::<ParquetVariant>()
             .ok_or_else(|| vortex_err!("expected parquet variant array"))?;
         let typed = decoded_pv
-            .typed_value_array()
+            .typed_value()
             .ok_or_else(|| vortex_err!("expected typed_value child"))?;
         assert_eq!(
             typed.dtype(),

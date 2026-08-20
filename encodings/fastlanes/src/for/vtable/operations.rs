@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 
 use super::FoR;
 use crate::r#for::array::FoRArrayExt;
+use crate::r#for::array::FoRArraySlotsExt;
 impl OperationsVTable<FoR> for FoR {
     fn scalar_at(
         array: ArrayView<'_, FoR>,
@@ -57,8 +58,13 @@ mod test {
 
     #[test]
     fn for_scalar_at() {
-        let for_arr = FoRData::encode(PrimitiveArray::from_iter([-100, 1100, 1500, 1900])).unwrap();
+        let mut ctx = SESSION.create_execution_ctx();
+        let for_arr = FoRData::encode(
+            PrimitiveArray::from_iter([-100, 1100, 1500, 1900]),
+            &mut ctx,
+        )
+        .unwrap();
         let expected = PrimitiveArray::from_iter([-100, 1100, 1500, 1900]);
-        assert_arrays_eq!(for_arr, expected, &mut SESSION.create_execution_ctx());
+        assert_arrays_eq!(for_arr, expected, &mut ctx);
     }
 }

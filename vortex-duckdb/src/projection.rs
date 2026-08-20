@@ -17,12 +17,14 @@ use vortex::expr::root;
 use vortex::expr::select;
 use vortex::layout::layouts::row_idx::row_idx;
 use vortex::scan::selection::Selection;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::convert::try_from_table_filter;
 use crate::convert::try_from_virtual_column_filter;
 use crate::duckdb::LogicalType;
 use crate::duckdb::TableFilterClass;
 use crate::duckdb::TableFilterSetRef;
+use crate::table_function::ColumnAggregate;
 
 // See MultiFileReader for constants
 
@@ -185,6 +187,42 @@ impl Projection {
             projection,
             file_index_column_pos,
             file_row_number_column_pos,
+        }
+    }
+
+    // Create a projection for aggregate scan
+    pub fn new_aggregate(aggregates: &[ColumnAggregate], fields: &[DuckdbField]) -> Self {
+        let mut exprs = Vec::with_capacity(aggregates.len());
+        let mut seen: HashSet<u64> = HashSet::with_capacity(aggregates.len());
+        let mut has_columns_with_expr = false;
+        for aggregate in aggregates {
+            let ColumnAggregate::Real { projection_id, .. } = aggregate else {
+                continue;
+            };
+            if !seen.insert(*projection_id) {
+                continue;
+            }
+            let projection_id: usize = projection_id.as_();
+            let field = &fields[projection_id];
+            let expr = match &field.projection_expr {
+                None => get_item(field.name.as_str(), root()),
+                Some(func) => {
+                    has_columns_with_expr = true;
+                    func.clone()
+                }
+            };
+            exprs.push((field.name.as_str(), expr));
+        }
+        let projection = if has_columns_with_expr {
+            pack(exprs, false.into())
+        } else {
+            let names = exprs.into_iter().map(|(name, _)| name).collect::<Vec<_>>();
+            select(names, root())
+        };
+        Projection {
+            projection,
+            file_index_column_pos: None,
+            file_row_number_column_pos: None,
         }
     }
 }

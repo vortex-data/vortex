@@ -33,7 +33,6 @@ tui = ["dep:tokio", "dep:vortex-tui"]
 arrow-array = { workspace = true }
 arrow-data = { workspace = true }
 arrow-schema = { workspace = true }
-async-fs = { workspace = true }
 bytes = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
@@ -45,14 +44,24 @@ object_store = { workspace = true, features = [
     "http",
 ] }
 parking_lot = { workspace = true }
+prost = { workspace = true }
 pyo3 = { workspace = true, features = ["abi3", "abi3-py311"] }
 pyo3-bytes = { workspace = true }
 pyo3-log = { workspace = true }
 pyo3-object_store = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"], optional = true }
 url = { workspace = true }
-vortex = { workspace = true, features = ["object_store"] }
+vortex = { workspace = true, features = [
+    "hf",
+    "object_store",
+    "object_store_registry",
+    "opendal",
+] }
+vortex-arrow = { workspace = true }
+vortex-cloud = { workspace = true, features = ["opendal"] }
+vortex-python-abi = { path = "../vortex-python-abi" }
 vortex-tui = { workspace = true, optional = true }
 
 [dev-dependencies]
+rstest = { workspace = true }
 vortex-array = { path = "../vortex-array", features = ["_test-harness"] }

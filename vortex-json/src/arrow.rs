@@ -13,16 +13,15 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
-use vortex_array::arrow::ArrowExport;
-use vortex_array::arrow::ArrowExportVTable;
-use vortex_array::arrow::ArrowImport;
-use vortex_array::arrow::ArrowImportVTable;
-use vortex_array::arrow::ArrowSession;
-use vortex_array::arrow::ArrowSessionExt;
-use vortex_array::arrow::FromArrowArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtVTable;
+use vortex_arrow::ArrowExport;
+use vortex_arrow::ArrowExportVTable;
+use vortex_arrow::ArrowImport;
+use vortex_arrow::ArrowImportVTable;
+use vortex_arrow::ArrowSession;
+use vortex_arrow::ArrowSessionExt;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::registry::CachedId;
@@ -107,7 +106,11 @@ impl ArrowImportVTable for Json {
         *ARROW_JSON
     }
 
-    fn from_arrow_field(&self, field: &Field) -> VortexResult<Option<DType>> {
+    fn from_arrow_field(
+        &self,
+        field: &Field,
+        _session: &ArrowSession,
+    ) -> VortexResult<Option<DType>> {
         if !has_valid_json_extension(field) {
             return Ok(None);
         }
@@ -123,6 +126,7 @@ impl ArrowImportVTable for Json {
         array: ArrowArrayRef,
         field: &Field,
         dtype: &DType,
+        session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
         let DType::Extension(ext_dtype) = dtype else {
             return Ok(ArrowImport::Unsupported(array));
@@ -131,7 +135,7 @@ impl ArrowImportVTable for Json {
             return Ok(ArrowImport::Unsupported(array));
         }
 
-        let storage = ArrayRef::from_arrow(array.as_ref(), field.is_nullable())?;
+        let storage = session.from_arrow_array(array, field.is_nullable())?;
         Ok(ArrowImport::Imported(
             ExtensionArray::new(ext_dtype.clone(), storage).into_array(),
         ))
@@ -156,9 +160,9 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ExtensionArray;
     use vortex_array::arrays::VarBinArray;
-    use vortex_array::arrow::ArrowSessionExt;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::extension::ExtDType;
+    use vortex_arrow::ArrowSessionExt;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
 

@@ -9,6 +9,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_session::registry::CachedId;
 
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -79,7 +80,8 @@ impl ExtVTable for Date {
     type NativeValue<'a> = DateValue;
 
     fn id(&self) -> ExtId {
-        ExtId::new("vortex.date")
+        static ID: CachedId = CachedId::new("vortex.date");
+        *ID
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
@@ -105,29 +107,6 @@ impl ExtVTable for Date {
         );
 
         Ok(())
-    }
-
-    fn can_coerce_from(ext_dtype: &ExtDType<Self>, other: &DType) -> bool {
-        let DType::Extension(other_ext) = other else {
-            return false;
-        };
-        let Some(other_unit) = other_ext.metadata_opt::<Date>() else {
-            return false;
-        };
-        let our_unit = ext_dtype.metadata();
-        // We can coerce from other if our unit is finer (<=) and nullability is compatible.
-        our_unit <= other_unit && (ext_dtype.storage_dtype().is_nullable() || !other.is_nullable())
-    }
-
-    fn least_supertype(ext_dtype: &ExtDType<Self>, other: &DType) -> Option<DType> {
-        let DType::Extension(other_ext) = other else {
-            return None;
-        };
-        let other_unit = other_ext.metadata_opt::<Date>()?;
-        let our_unit = ext_dtype.metadata();
-        let finest = (*our_unit).min(*other_unit);
-        let union_null = ext_dtype.storage_dtype().nullability() | other.nullability();
-        Some(DType::Extension(Date::new(finest, union_null).erased()))
     }
 
     fn unpack_native<'a>(
@@ -188,27 +167,6 @@ mod tests {
 
         let scalar = Scalar::new(dtype, Some(ScalarValue::Primitive(PValue::I32(365))));
         assert_eq!(format!("{}", scalar.as_extension()), "1971-01-01");
-    }
-
-    #[test]
-    fn least_supertype_date_units() {
-        use crate::dtype::Nullability::NonNullable;
-
-        let days = DType::Extension(Date::new(TimeUnit::Days, NonNullable).erased());
-        let ms = DType::Extension(Date::new(TimeUnit::Milliseconds, NonNullable).erased());
-        let expected = DType::Extension(Date::new(TimeUnit::Milliseconds, NonNullable).erased());
-        assert_eq!(days.least_supertype(&ms).unwrap(), expected);
-        assert_eq!(ms.least_supertype(&days).unwrap(), expected);
-    }
-
-    #[test]
-    fn can_coerce_from_date() {
-        use crate::dtype::Nullability::NonNullable;
-
-        let days = DType::Extension(Date::new(TimeUnit::Days, NonNullable).erased());
-        let ms = DType::Extension(Date::new(TimeUnit::Milliseconds, NonNullable).erased());
-        assert!(ms.can_coerce_from(&days));
-        assert!(!days.can_coerce_from(&ms));
     }
 
     #[test]

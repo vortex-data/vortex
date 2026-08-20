@@ -30,18 +30,22 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::filter::execute::bool::BoolArray;
-    #[expect(deprecated)]
-    use crate::canonical::ToCanonical as _;
     use crate::compute::conformance::filter::test_filter_conformance;
 
     #[test]
     fn filter_bool_test() {
+        let mut ctx = array_session().create_execution_ctx();
         let arr = BoolArray::from_iter([true, true, false]);
         let mask = Mask::from_iter([true, false, true]);
 
-        #[expect(deprecated)]
-        let filtered = arr.filter(mask).unwrap().to_bool();
+        let filtered = arr
+            .filter(mask)
+            .unwrap()
+            .execute::<BoolArray>(&mut ctx)
+            .unwrap();
         assert_eq!(2, filtered.len());
 
         assert_eq!(
@@ -58,6 +62,9 @@ mod test {
     #[case(BoolArray::from_iter((0..100).map(|i| i % 2 == 0)))]
     #[case(BoolArray::from_iter((0..1024).map(|i| i % 3 != 0)))]
     fn test_filter_bool_conformance(#[case] array: BoolArray) {
-        test_filter_conformance(&array.into_array());
+        test_filter_conformance(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

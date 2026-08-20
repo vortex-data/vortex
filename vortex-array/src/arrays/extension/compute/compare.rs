@@ -22,6 +22,12 @@ impl CompareKernel for Extension {
         operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        // Storage values are only comparable when both sides share the same extension dtype
+        // (e.g. timestamps in different units must not compare their raw storage).
+        if !lhs.dtype().eq_ignore_nullability(rhs.dtype()) {
+            return Ok(None);
+        }
+
         // If the RHS is a constant, we can extract the storage scalar.
         if let Some(const_ext) = rhs.as_constant() {
             let storage_scalar = const_ext.as_extension().to_storage_scalar();

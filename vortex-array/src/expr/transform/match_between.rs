@@ -125,7 +125,18 @@ fn is_strict_comparison(op: Operator) -> Option<StrictComparison> {
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+
     use super::find_between;
+    use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
+    use crate::arrays::BoolArray;
+    use crate::arrays::StructArray;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::expr::and;
     use crate::expr::between;
     use crate::expr::col;
@@ -134,8 +145,41 @@ mod tests {
     use crate::expr::lit;
     use crate::expr::lt;
     use crate::expr::lt_eq;
+    use crate::scalar::Scalar;
     use crate::scalar_fn::fns::between::BetweenOptions;
     use crate::scalar_fn::fns::between::StrictComparison;
+
+    /// A null literal bound must not change the values of the rewritten expression. Kleene `AND`
+    /// keeps a row false when the surviving comparison is false, so the rewrite cannot null it.
+    #[test]
+    fn test_null_literal_bound_is_value_preserving() -> VortexResult<()> {
+        let session = array_session();
+        let ctx = &mut session.create_execution_ctx();
+        let data = StructArray::from_fields(&[("x", buffer![10, 1].into_array())])?.into_array();
+
+        let null_lit = lit(Scalar::null(DType::Primitive(
+            PType::I32,
+            Nullability::Nullable,
+        )));
+        let expr = and(gt_eq(col("x"), null_lit), lt_eq(col("x"), lit(5i32)));
+
+        let before = data
+            .clone()
+            .apply(&expr)?
+            .execute::<BoolArray>(ctx)?
+            .opt_bool_vec(ctx);
+
+        let after = data
+            .apply(&find_between(expr))?
+            .execute::<BoolArray>(ctx)?
+            .opt_bool_vec(ctx);
+
+        // Row 0 is false rather than null because `$.x <= 5` falsifies it on its own.
+        assert_eq!(before, [Some(false), None]);
+        assert_eq!(before, after);
+
+        Ok(())
+    }
 
     #[test]
     fn test_bad_match() {

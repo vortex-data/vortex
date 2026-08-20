@@ -6,10 +6,10 @@ use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
-use vortex_array::vtable::child_to_validity;
 use vortex_error::VortexResult;
 
 use crate::Pco;
+use crate::PcoArrayExt;
 use crate::PcoData;
 
 impl CastReduce for Pco {
@@ -28,21 +28,24 @@ impl CastReduce for Pco {
             return Ok(None);
         }
 
-        let unsliced_validity =
-            child_to_validity(array.slots()[0].as_ref(), array.dtype().nullability());
+        let unsliced_validity = array.unsliced_validity();
         let Some(new_validity) =
             unsliced_validity.trivially_cast_nullability(dtype.nullability(), array.len())?
         else {
             return Ok(None);
         };
 
-        let data = PcoData::new(
-            array.chunk_metas.clone(),
-            array.pages.clone(),
-            dtype.as_ptype(),
-            array.metadata.clone(),
-            array.unsliced_n_rows(),
-        )
+        // SAFETY: The buffers and metadata come from a validated Pco array, the primitive type is
+        // unchanged, and `Pco::try_new` validates the adjusted nullability and slice below.
+        let data = unsafe {
+            PcoData::new_unchecked(
+                array.chunk_metas.clone(),
+                array.pages.clone(),
+                dtype.as_ptype(),
+                array.metadata.clone(),
+                array.unsliced_n_rows(),
+            )
+        }
         ._slice(array.slice_start(), array.slice_stop());
 
         Ok(Some(
@@ -188,6 +191,6 @@ mod tests {
     fn test_cast_pco_conformance(#[case] values: PrimitiveArray) {
         let mut ctx = SESSION.create_execution_ctx();
         let pco = Pco::from_primitive(values.as_view(), 0, 128, &mut ctx).unwrap();
-        test_cast_conformance(&pco.into_array());
+        test_cast_conformance(&pco.into_array(), &mut ctx);
     }
 }

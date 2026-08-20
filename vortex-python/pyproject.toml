@@ -37,11 +37,14 @@ classifiers = [
 vx = "vortex.cli:main"
 
 [project.optional-dependencies]
+cuda = ["vortex-data-cuda==0.1.0"]
 polars = ["polars>=1.31.0"]
 pandas = ["pandas>=2.2.0"]
 numpy = ["numpy>=1.26.0"]
 duckdb = ["duckdb>=1.1.2"]
 ray = ["ray>=2.48"]
+# The datasets integration relies on private `datasets` APIs, so cap the next major version.
+hf = ["datasets>=4.0.0,<6", "huggingface-hub>=0.34.0"]
 
 [project.urls]
 Documentation = "https://docs.vortex.dev"
@@ -71,7 +74,9 @@ include = [
 
 [dependency-groups]
 dev = [
+    "datasets>=4.0.0,<6",
     "duckdb>=1.1.2",
+    "huggingface-hub>=0.34.0",
     "maturin>=1.10.2",
     "numpy>=2.2.2",
     "pandas-stubs>=2.2.3.241126",

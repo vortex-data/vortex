@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use futures::executor::block_on;
-use parking_lot::RwLock;
 use vortex_array::dtype::DType;
 use vortex_array::memory::MemorySessionExt;
 use vortex_array::session::ArraySessionExt;
@@ -13,6 +12,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_io::VortexReadAt;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::segments::InstrumentedSegmentCache;
@@ -20,6 +20,7 @@ use vortex_layout::segments::NoOpSegmentCache;
 use vortex_layout::segments::SegmentCache;
 use vortex_layout::segments::SegmentCacheSourceAdapter;
 use vortex_layout::segments::SegmentId;
+use vortex_layout::segments::SegmentSource;
 use vortex_layout::segments::SharedSegmentSource;
 use vortex_layout::session::LayoutSessionExt;
 use vortex_metrics::DefaultMetricsRegistry;
@@ -40,6 +41,11 @@ use crate::segments::RequestMetrics;
 
 const INITIAL_READ_SIZE: usize = MAX_POSTSCRIPT_SIZE as usize + EOF_SIZE;
 
+struct FooterRead {
+    footer: Footer,
+    initial_segments: HashMap<SegmentId, ByteBuffer>,
+}
+
 /// Open options for a Vortex file reader.
 ///
 /// Options are session-bound because opening a file may need array, layout, dtype, runtime, and
@@ -47,6 +53,7 @@ const INITIAL_READ_SIZE: usize = MAX_POSTSCRIPT_SIZE as usize + EOF_SIZE;
 ///
 /// The opener first resolves a [`Footer`], then creates a segment source for later scans. Known
 /// file metadata can be supplied up front to avoid IO during footer discovery.
+#[derive(Clone)]
 pub struct VortexOpenOptions {
     /// The session to use for opening the file.
     session: VortexSession,
@@ -60,8 +67,8 @@ pub struct VortexOpenOptions {
     dtype: Option<DType>,
     /// An optional, externally provided, file layout.
     footer: Option<Footer>,
-    /// The segments read during the initial read.
-    initial_read_segments: RwLock<HashMap<SegmentId, ByteBuffer>>,
+    /// Whether to include user-defined metadata segments when opening the file.
+    include_metadata: bool,
     /// A metrics registry for the file.
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
     /// Default labels applied to all the file's metrics
@@ -83,7 +90,7 @@ pub trait OpenOptionsSessionExt:
             file_size: None,
             dtype: None,
             footer: None,
-            initial_read_segments: Default::default(),
+            include_metadata: false,
             metrics_registry: None,
             labels: Vec::default(),
             cache_layout_reader: false,
@@ -96,6 +103,11 @@ impl<S: ArraySessionExt + LayoutSessionExt + RuntimeSessionExt + MemorySessionEx
 }
 
 impl VortexOpenOptions {
+    /// Return the session this opener is bound to.
+    pub fn session(&self) -> &VortexSession {
+        &self.session
+    }
+
     /// Configure how many bytes to read from the end of the file before parsing the footer.
     ///
     /// The actual read is at least large enough to contain the maximum postscript and EOF marker,
@@ -121,6 +133,15 @@ impl VortexOpenOptions {
     /// initial footer read are also inserted into an internal first-read cache.
     pub fn with_segment_cache(mut self, segment_cache: Arc<dyn SegmentCache>) -> Self {
         self.segment_cache = Some(segment_cache);
+        self
+    }
+
+    /// Disable the configured segment cache.
+    ///
+    /// This is useful when deriving an opener for a source whose buffers have different memory
+    /// placement requirements from the configured host cache.
+    pub fn without_segment_cache(mut self) -> Self {
+        self.segment_cache = None;
         self
     }
 
@@ -159,6 +180,25 @@ impl VortexOpenOptions {
     pub fn with_footer(mut self, footer: Footer) -> Self {
         self.dtype = Some(footer.layout().dtype().clone());
         self.footer = Some(footer);
+        self
+    }
+
+    /// Include user-defined metadata segments when opening the file.
+    ///
+    /// By default, opening a file reads only the metadata required to interpret the layout.
+    /// Enabling this option loads all metadata segments named by the postscript, which may require
+    /// additional reads before the footer is returned.
+    pub fn include_metadata(mut self) -> Self {
+        self.include_metadata = true;
+        self
+    }
+
+    /// Configure whether user-defined metadata segments are included when opening the file.
+    ///
+    /// Enabling this option loads all metadata segments named by the postscript, which may require
+    /// additional reads before the footer is returned.
+    pub fn with_include_metadata(mut self, include_metadata: bool) -> Self {
+        self.include_metadata = include_metadata;
         self
     }
 
@@ -211,18 +251,25 @@ impl VortexOpenOptions {
         }
 
         let cache_layout_reader = self.cache_layout_reader;
+        let include_metadata = self.include_metadata;
         let mut opts = self.with_initial_read_size(0);
 
         let footer = match opts.footer.take() {
             Some(footer) => footer,
-            None => block_on(opts.read_footer(&buffer))?,
+            None => block_on(opts.read_footer(&buffer))?.footer,
         };
+        footer.validate_file_size(buffer.len() as u64)?;
 
-        let segment_source = Arc::new(BufferSegmentSource::new(
+        let segment_source: Arc<dyn SegmentSource> = Arc::new(BufferSegmentSource::new(
             buffer,
-            Arc::clone(footer.segment_map()),
+            footer.segment_specs_with_metadata(),
         ));
-        let file = VortexFile::new(footer, segment_source, opts.session);
+        let metadata = if include_metadata {
+            block_on(resolve_metadata(&footer, Arc::clone(&segment_source)))?
+        } else {
+            Arc::new(HashMap::new())
+        };
+        let file = VortexFile::new(footer, segment_source, opts.session).with_metadata(metadata);
         Ok(if cache_layout_reader {
             file.with_caching()
         } else {
@@ -244,15 +291,24 @@ impl VortexOpenOptions {
             .clone()
             .unwrap_or_else(|| Arc::new(DefaultMetricsRegistry::default()));
 
-        let footer = if let Some(footer) = self.footer {
-            footer
+        let FooterRead {
+            footer,
+            initial_segments,
+        } = if let Some(footer) = self.footer {
+            if let Some(file_size) = self.file_size {
+                footer.validate_file_size(file_size)?;
+            }
+            FooterRead {
+                footer,
+                initial_segments: HashMap::default(),
+            }
         } else {
             self.read_footer(&reader).await?
         };
 
         let segment_cache = Arc::new(InstrumentedSegmentCache::new(
             InitialReadSegmentCache {
-                initial: self.initial_read_segments,
+                initial: initial_segments,
                 fallback: segment_cache,
             },
             metrics_registry.as_ref(),
@@ -263,19 +319,25 @@ impl VortexOpenOptions {
 
         // Create a segment source backed by the VortexRead implementation.
         let segment_source = Arc::new(SharedSegmentSource::new(FileSegmentSource::open(
-            Arc::clone(footer.segment_map()),
+            footer.segment_specs_with_metadata(),
             reader,
             self.session.handle(),
             metrics,
         )));
 
         // Wrap up the segment source to first resolve segments from the initial read cache.
-        let segment_source = Arc::new(SegmentCacheSourceAdapter::new(
+        let segment_source: Arc<dyn SegmentSource> = Arc::new(SegmentCacheSourceAdapter::new(
             segment_cache,
             segment_source,
         ));
 
-        let file = VortexFile::new(footer, segment_source, self.session.clone());
+        let metadata = if self.include_metadata {
+            resolve_metadata(&footer, Arc::clone(&segment_source)).await?
+        } else {
+            Arc::new(HashMap::new())
+        };
+        let file =
+            VortexFile::new(footer, segment_source, self.session.clone()).with_metadata(metadata);
         Ok(if self.cache_layout_reader {
             file.with_caching()
         } else {
@@ -283,7 +345,7 @@ impl VortexOpenOptions {
         })
     }
 
-    async fn read_footer(&self, read: &dyn VortexReadAt) -> VortexResult<Footer> {
+    async fn read_footer(&self, read: &dyn VortexReadAt) -> VortexResult<FooterRead> {
         // Fetch the file size and perform the initial read.
         let file_size = match self.file_size {
             None => read.size().await?,
@@ -323,48 +385,104 @@ impl VortexOpenOptions {
             }
         }?;
 
+        // Segment specs describe the data file, not necessarily the byte stream used to
+        // deserialize a standalone cached footer. Validate them here, where we know this is the
+        // size of the actual data source (see issue #8819).
+        footer.validate_file_size(file_size)?;
+
         // If the initial read happened to cover any segments, then we can populate the
         // segment cache
         let initial_offset = file_size - (deserializer.buffer().len() as u64);
-        self.populate_initial_segments(initial_offset, deserializer.buffer(), &footer);
+        let initial_segments =
+            Self::collect_initial_segments(initial_offset, deserializer.buffer(), &footer)?;
 
-        Ok(footer)
+        Ok(FooterRead {
+            footer,
+            initial_segments,
+        })
     }
 
-    /// Populate segments in the cache that were covered by the initial read.
-    fn populate_initial_segments(
-        &self,
+    /// Collect segments that were covered by the initial read.
+    fn collect_initial_segments(
         initial_offset: u64,
         initial_read: &ByteBuffer,
         footer: &Footer,
-    ) {
-        let first_idx = footer
-            .segment_map()
-            .partition_point(|segment| segment.offset < initial_offset);
+    ) -> VortexResult<HashMap<SegmentId, ByteBuffer>> {
+        let mut initial_read_segments = HashMap::default();
 
-        let mut initial_read_segments = self.initial_read_segments.write();
-
-        for idx in first_idx..footer.segment_map().len() {
-            let segment = &footer.segment_map()[idx];
+        // Iterate `segment_specs_with_metadata` (not just the segment map) so metadata segments
+        // covered by the initial read are cached too. Metadata segments are appended and not
+        // offset-sorted, so we skip per-segment rather than partition on offset.
+        for (idx, segment) in footer.segment_specs_with_metadata().iter().enumerate() {
+            if segment.offset < initial_offset {
+                continue;
+            }
             let segment_id =
                 SegmentId::from(u32::try_from(idx).vortex_expect("Invalid segment ID"));
             let offset =
                 usize::try_from(segment.offset - initial_offset).vortex_expect("Invalid offset");
-            let buffer = initial_read
-                .slice(offset..offset + (segment.length as usize))
-                .aligned(segment.alignment);
+            // The segment map is validated against the file size before this method is called, but
+            // still bounds-check here so slicing never depends on that distant validation for panic
+            // safety (see issue #8819).
+            let end = offset
+                .checked_add(segment.length as usize)
+                .filter(|end| *end <= initial_read.len())
+                .ok_or_else(|| {
+                    vortex_err!(
+                        "Segment at offset {} with length {} is out of bounds of the \
+                         {}-byte initial read",
+                        segment.offset,
+                        segment.length,
+                        initial_read.len(),
+                    )
+                })?;
+            let buffer = initial_read.slice(offset..end).aligned(segment.alignment);
             initial_read_segments.insert(segment_id, buffer);
         }
+
+        Ok(initial_read_segments)
     }
+}
+
+async fn resolve_metadata(
+    footer: &Footer,
+    segment_source: Arc<dyn SegmentSource>,
+) -> VortexResult<Arc<HashMap<String, ByteBuffer>>> {
+    let first_metadata_id = footer.segment_map().len();
+    let requests = footer
+        .metadata_segments()
+        .enumerate()
+        .map(|(index, (key, locator))| {
+            let id = u32::try_from(first_metadata_id + index).map(SegmentId::from);
+            let key = key.to_string();
+            let alignment = locator.alignment;
+            let segment_source = Arc::clone(&segment_source);
+            async move {
+                let handle = segment_source.request(id?).await?;
+                let buffer = handle.try_into_host()?.await?;
+                Ok::<_, VortexError>((
+                    key,
+                    ByteBuffer::copy_from_aligned(buffer.as_slice(), alignment),
+                ))
+            }
+        });
+    let metadata = futures::future::try_join_all(requests)
+        .await?
+        .into_iter()
+        .collect::<HashMap<_, _>>();
+
+    Ok(Arc::new(metadata))
 }
 
 #[cfg(feature = "object_store")]
 impl VortexOpenOptions {
     /// Open a Vortex file from an `object_store` backend and path.
+    ///
+    /// `path` is the object's *literal* key, exactly as the store holds it.
     pub async fn open_object_store(
         self,
         object_store: &Arc<dyn object_store::ObjectStore>,
-        path: &str,
+        path: object_store::path::Path,
     ) -> VortexResult<VortexFile> {
         use vortex_io::object_store::ObjectStoreReadAt;
 
@@ -372,7 +490,7 @@ impl VortexOpenOptions {
         let allocator = self.session.allocator();
         let source = Arc::new(ObjectStoreReadAt::new_with_allocator(
             Arc::clone(object_store),
-            path.into(),
+            path,
             handle,
             allocator,
         ));
@@ -386,6 +504,7 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use futures::future::BoxFuture;
+    use parking_lot::Mutex;
     use vortex_array::IntoArray;
     use vortex_array::buffer::BufferHandle;
     use vortex_array::memory::DefaultHostAllocator;
@@ -396,11 +515,24 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::ByteBufferMut;
+    use vortex_error::vortex_bail;
     use vortex_io::session::RuntimeSession;
     use vortex_layout::session::LayoutSession;
+    use vortex_session::registry::Id;
+    use vortex_session::registry::ReadContext;
 
     use super::*;
     use crate::WriteOptionsSessionExt;
+    use crate::footer::SegmentSpec;
+
+    fn test_session() -> VortexSession {
+        let session = vortex_array::array_session()
+            .with::<LayoutSession>()
+            .with::<RuntimeSession>();
+        crate::register_default_encodings(&session);
+        crate::enable_all_registered_array_encodings(&session);
+        session
+    }
 
     #[derive(Clone)]
     // Define CountingRead struct
@@ -408,6 +540,7 @@ mod tests {
         inner: R,
         total_read: Arc<AtomicUsize>,
         first_read_len: Arc<AtomicUsize>,
+        reads: Arc<Mutex<Vec<(u64, usize)>>>,
     }
 
     impl<R: VortexReadAt + Clone> VortexReadAt for CountingRead<R> {
@@ -422,6 +555,7 @@ mod tests {
             alignment: Alignment,
         ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
             self.total_read.fetch_add(length, Ordering::Relaxed);
+            self.reads.lock().push((offset, length));
             let _ = self.first_read_len.compare_exchange(
                 0,
                 length,
@@ -455,6 +589,7 @@ mod tests {
             .with::<RuntimeSession>();
 
         crate::register_default_encodings(&session);
+        crate::enable_all_registered_array_encodings(&session);
 
         // Create a large file (> 1MB)
         let mut buf = ByteBufferMut::empty();
@@ -492,6 +627,7 @@ mod tests {
             inner: buffer,
             total_read: Arc::clone(&total_read),
             first_read_len: Arc::clone(&first_read_len),
+            reads: Arc::new(Mutex::new(Vec::new())),
         };
 
         // Open the file
@@ -508,6 +644,120 @@ mod tests {
         assert!(read < 1024 * 1024, "Read {} bytes, expected < 1MB", read);
     }
 
+    #[tokio::test]
+    async fn test_metadata_outside_initial_read_uses_targeted_read() -> VortexResult<()> {
+        let session = vortex_array::array_session()
+            .with::<LayoutSession>()
+            .with::<RuntimeSession>();
+        crate::register_default_encodings(&session);
+        crate::enable_all_registered_array_encodings(&session);
+
+        let metadata = ByteBuffer::copy_from(vec![0x5a; INITIAL_READ_SIZE * 2]);
+        let mut output = ByteBufferMut::empty();
+        let summary = session
+            .write_options()
+            .with_metadata_segment("outside", metadata.clone())
+            .write(
+                &mut output,
+                Buffer::from(vec![1u32]).into_array().to_array_stream(),
+            )
+            .await?;
+        let locator = *summary
+            .footer()
+            .metadata_segment("outside")
+            .vortex_expect("metadata locator");
+        let bytes = ByteBuffer::from(output);
+        assert!(locator.offset < bytes.len() as u64 - INITIAL_READ_SIZE as u64);
+
+        let default_total = Arc::new(AtomicUsize::new(0));
+        let default_reads = Arc::new(Mutex::new(Vec::new()));
+        let default_reader = CountingRead {
+            inner: bytes.clone(),
+            total_read: Arc::clone(&default_total),
+            first_read_len: Arc::new(AtomicUsize::new(0)),
+            reads: Arc::clone(&default_reads),
+        };
+        let default_file = session.open_options().open_read(default_reader).await?;
+        assert!(default_file.metadata_segment("outside").is_none());
+        assert!(
+            !default_reads
+                .lock()
+                .contains(&(locator.offset, locator.length as usize))
+        );
+        // A default open must not amplify into the metadata: total bytes read stay
+        // below the metadata segment's size (itself 2x the initial read).
+        assert!(
+            default_total.load(Ordering::Relaxed) < metadata.len(),
+            "default open read {} bytes; metadata segment is {}",
+            default_total.load(Ordering::Relaxed),
+            metadata.len()
+        );
+
+        let metadata_reads = Arc::new(Mutex::new(Vec::new()));
+        let metadata_reader = CountingRead {
+            inner: bytes,
+            total_read: Arc::new(AtomicUsize::new(0)),
+            first_read_len: Arc::new(AtomicUsize::new(0)),
+            reads: Arc::clone(&metadata_reads),
+        };
+        let file = session
+            .open_options()
+            .include_metadata()
+            .open_read(metadata_reader)
+            .await?;
+        assert_eq!(
+            file.metadata_segment("outside").map(ByteBuffer::as_slice),
+            Some(metadata.as_slice())
+        );
+        assert!(
+            metadata_reads
+                .lock()
+                .contains(&(locator.offset, locator.length as usize))
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_with_footer_include_metadata_open_buffer_resolves() -> VortexResult<()> {
+        let session = vortex_array::array_session()
+            .with::<LayoutSession>()
+            .with::<RuntimeSession>();
+        crate::register_default_encodings(&session);
+        crate::enable_all_registered_array_encodings(&session);
+
+        let value = ByteBuffer::copy_from(b"supplied-footer metadata");
+        let mut output = ByteBufferMut::empty();
+        let summary = session
+            .write_options()
+            .with_metadata_segment("key", value.clone())
+            .write(
+                &mut output,
+                Buffer::from(vec![1u32]).into_array().to_array_stream(),
+            )
+            .await?;
+        let footer = summary.footer().clone();
+        let bytes = ByteBuffer::from(output);
+
+        let file = session
+            .open_options()
+            .with_footer(footer.clone())
+            .include_metadata()
+            .open_buffer(bytes.clone())?;
+        assert_eq!(
+            file.metadata_segment("key").map(ByteBuffer::as_slice),
+            Some(value.as_slice())
+        );
+
+        let default = session
+            .open_options()
+            .with_footer(footer)
+            .open_buffer(bytes)?;
+        assert!(default.metadata_segment("key").is_none());
+
+        Ok(())
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_open_path_uses_memory_session_allocator() {
@@ -516,6 +766,7 @@ mod tests {
             .with::<RuntimeSession>();
 
         crate::register_default_encodings(&session);
+        crate::enable_all_registered_array_encodings(&session);
 
         let mut buf = ByteBufferMut::empty();
         let array = Buffer::from((0i32..16_384).collect::<Vec<i32>>()).into_array();
@@ -543,5 +794,99 @@ mod tests {
             allocations.load(Ordering::Relaxed) > 0,
             "expected at least one host allocation from MemorySession"
         );
+    }
+
+    /// `collect_initial_segments` must bounds-check the segment map against the initial read rather
+    /// than slicing unchecked, so a segment larger than the read returns an error (see issue #8819).
+    #[tokio::test]
+    async fn collect_initial_segments_rejects_out_of_bounds_segment() -> VortexResult<()> {
+        let session = test_session();
+
+        // A valid root layout is obtained by writing and parsing a small file.
+        // `collect_initial_segments` only consults the segment map, so the layout is irrelevant.
+        let mut buf = ByteBufferMut::empty();
+        let array = Buffer::from((0i32..16).collect::<Vec<i32>>()).into_array();
+        session
+            .write_options()
+            .write(&mut buf, array.to_array_stream())
+            .await?;
+        let footer = session
+            .open_options()
+            .read_footer(&ByteBuffer::from(buf))
+            .await?
+            .footer;
+
+        // Build a footer whose sole segment is far larger than the initial read below.
+        let bad_segments: Arc<[SegmentSpec]> = Arc::from([SegmentSpec {
+            offset: 0,
+            length: 1024,
+            alignment: Alignment::none(),
+        }]);
+        let bad_footer = Footer::new(
+            Arc::clone(footer.layout()),
+            bad_segments,
+            None,
+            ReadContext::new(Vec::<Id>::new()),
+        );
+
+        let initial_read = ByteBuffer::zeroed(16);
+        let Err(err) = VortexOpenOptions::collect_initial_segments(0, &initial_read, &bad_footer)
+        else {
+            vortex_bail!("collecting an out-of-bounds segment must return an error");
+        };
+        assert!(
+            err.to_string().contains("out of bounds"),
+            "unexpected error: {err}"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn standalone_footer_round_trip() -> VortexResult<()> {
+        let session = test_session();
+
+        let mut file_bytes = ByteBufferMut::empty();
+        let values = (0i32..65_536)
+            .map(|value| value.wrapping_mul(1_664_525).wrapping_add(1_013_904_223))
+            .collect::<Vec<_>>();
+        let array = Buffer::from(values).into_array();
+        session
+            .write_options()
+            .write(&mut file_bytes, array.to_array_stream())
+            .await?;
+        let file_bytes = ByteBuffer::from(file_bytes);
+
+        let footer = session
+            .open_options()
+            .open_buffer(file_bytes.clone())?
+            .footer()
+            .clone();
+        let last_segment_end = footer
+            .segment_map()
+            .iter()
+            .map(|segment| segment.offset + u64::from(segment.length))
+            .max()
+            .unwrap_or_default();
+        let serialized_footer = footer.into_serializer().serialize()?;
+        let serialized_footer_size = serialized_footer.iter().map(ByteBuffer::len).sum();
+        assert!(last_segment_end > serialized_footer_size as u64);
+        let mut footer_bytes = ByteBufferMut::with_capacity(serialized_footer_size);
+        for buffer in serialized_footer {
+            footer_bytes.extend_from_slice(&buffer);
+        }
+
+        let mut deserializer = Footer::deserializer(footer_bytes.freeze(), session.clone())
+            .with_size(serialized_footer_size as u64);
+        let DeserializeStep::Done(cached_footer) = deserializer.deserialize()? else {
+            vortex_bail!("standalone footer bytes must be sufficient for deserialization");
+        };
+
+        session
+            .open_options()
+            .with_footer(cached_footer)
+            .open_buffer(file_bytes)?;
+
+        Ok(())
     }
 }

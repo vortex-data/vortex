@@ -14,6 +14,7 @@ use crate::scalar::BoolScalar;
 use crate::scalar::DecimalScalar;
 use crate::scalar::ExtScalar;
 use crate::scalar::ListScalar;
+use crate::scalar::MapScalar;
 use crate::scalar::PrimitiveScalar;
 use crate::scalar::Scalar;
 use crate::scalar::StructScalar;
@@ -92,6 +93,16 @@ impl<'a> TryFrom<&'a Scalar> for ListScalar<'a> {
         value
             .as_list_opt()
             .ok_or_else(|| vortex_err!("Expected list scalar, found {}", value.dtype()))
+    }
+}
+
+impl<'a> TryFrom<&'a Scalar> for MapScalar<'a> {
+    type Error = VortexError;
+
+    fn try_from(value: &'a Scalar) -> VortexResult<Self> {
+        value
+            .as_map_opt()
+            .ok_or_else(|| vortex_err!("Expected map scalar, found {}", value.dtype()))
     }
 }
 

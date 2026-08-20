@@ -23,17 +23,9 @@ impl TakeExecute for ALP {
             .patches()
             .map(|p| p.take(indices, ctx))
             .transpose()?
-            .flatten()
-            .map(|patches| {
-                patches.cast_values(
-                    &array
-                        .dtype()
-                        .with_nullability(taken_encoded.dtype().nullability()),
-                )
-            })
-            .transpose()?;
+            .flatten();
         Ok(Some(
-            ALP::new(taken_encoded, array.exponents(), taken_patches).into_array(),
+            ALP::try_new(taken_encoded, array.exponents(), taken_patches)?.into_array(),
         ))
     }
 }
@@ -59,6 +51,6 @@ mod test {
         let mut ctx = array_session().create_execution_ctx();
         let array_primitive = array.execute::<PrimitiveArray>(&mut ctx).unwrap();
         let alp = alp_encode(array_primitive.as_view(), None, &mut ctx).unwrap();
-        test_take_conformance(&alp.into_array());
+        test_take_conformance(&alp.into_array(), &mut ctx);
     }
 }

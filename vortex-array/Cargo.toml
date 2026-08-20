@@ -23,15 +23,7 @@ workspace = true
 arbitrary = { workspace = true, optional = true }
 arc-swap = { workspace = true }
 arcref = { workspace = true }
-arrow-arith = { workspace = true }
-arrow-array = { workspace = true, features = ["ffi"] }
 arrow-buffer = { workspace = true }
-arrow-cast = { workspace = true }
-arrow-data = { workspace = true }
-arrow-ord = { workspace = true }
-arrow-schema = { workspace = true, features = ["canonical_extension_types"] }
-arrow-select = { workspace = true }
-arrow-string = { workspace = true }
 async-lock = { workspace = true }
 bytes = { workspace = true }
 cfg-if = { workspace = true }
@@ -45,6 +37,7 @@ humansize = { workspace = true }
 inventory = { workspace = true }
 itertools = { workspace = true }
 jiff = { workspace = true }
+memchr = { workspace = true }
 num-traits = { workspace = true }
 num_enum = { workspace = true }
 parking_lot = { workspace = true }
@@ -55,6 +48,8 @@ primitive-types = { workspace = true, optional = true, features = [
 ] }
 prost = { workspace = true }
 rand = { workspace = true }
+regex = { workspace = true }
+regex-syntax = { workspace = true }
 rstest = { workspace = true, optional = true }
 rstest_reuse = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
@@ -65,11 +60,10 @@ static_assertions = { workspace = true }
 tabled = { workspace = true, optional = true, default-features = false, features = [
     "std",
 ] }
-termtree = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
 vortex-array-macros = { workspace = true }
-vortex-buffer = { workspace = true, features = ["arrow"] }
+vortex-buffer = { workspace = true }
 vortex-compute = { workspace = true }
 vortex-error = { workspace = true, features = ["flatbuffers"] }
 vortex-flatbuffers = { workspace = true, features = ["array", "dtype"] }
@@ -85,18 +79,24 @@ cudarc = ["dep:cudarc"]
 table-display = ["dep:tabled"]
 _test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
 serde = ["dep:serde", "vortex-buffer/serde", "vortex-mask/serde"]
+# Exposes experimental row-function APIs without compatibility guarantees.
+unstable_row_fns = []
 
 [dev-dependencies]
-arrow-cast = { workspace = true }
 divan = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 insta = { workspace = true }
+mimalloc = { workspace = true }
 rand_distr = { workspace = true }
 rstest = { workspace = true }
 serde_json = { workspace = true }
 serde_test = { workspace = true }
 test-with = { workspace = true }
-vortex-array = { path = ".", features = ["_test-harness", "table-display"] }
+vortex-array = { path = ".", features = [
+    "_test-harness",
+    "table-display",
+    "unstable_row_fns",
+] }
 
 [[bench]]
 name = "aggregate_max"
@@ -112,6 +112,10 @@ harness = false
 
 [[bench]]
 name = "cast_primitive"
+harness = false
+
+[[bench]]
+name = "cast_decimal"
 harness = false
 
 [[bench]]
@@ -132,6 +136,10 @@ harness = false
 
 [[bench]]
 name = "kleene_bool"
+harness = false
+
+[[bench]]
+name = "like"
 harness = false
 
 [[bench]]
@@ -178,6 +186,11 @@ path = "benches/expr/optimize_bench.rs"
 harness = false
 
 [[bench]]
+name = "expr_optimize_predicate"
+path = "benches/expr/optimize_predicate.rs"
+harness = false
+
+[[bench]]
 name = "chunked_dict_builder"
 harness = false
 required-features = ["_test-harness"]
@@ -197,11 +210,19 @@ name = "dict_mask"
 harness = false
 
 [[bench]]
+name = "validity_is_valid"
+harness = false
+
+[[bench]]
 name = "dict_unreferenced_mask"
 harness = false
 
 [[bench]]
 name = "varbinview_zip"
+harness = false
+
+[[bench]]
+name = "varbinview_try_new"
 harness = false
 
 [[bench]]
@@ -213,7 +234,23 @@ name = "primitive_zip"
 harness = false
 
 [[bench]]
+name = "listview_zip"
+harness = false
+
+[[bench]]
 name = "take_primitive"
+harness = false
+
+[[bench]]
+name = "take_chunked"
+harness = false
+
+[[bench]]
+name = "piecewise_sequence_take_primitive"
+harness = false
+
+[[bench]]
+name = "take_slices_to_buffer_matrix"
 harness = false
 
 [[bench]]
@@ -225,11 +262,27 @@ name = "take_fsl"
 harness = false
 
 [[bench]]
+name = "take_varbin"
+harness = false
+
+[[bench]]
 name = "take_filter"
 harness = false
 
 [[bench]]
 name = "filter_bool"
+harness = false
+
+[[bench]]
+name = "filter_fixed_width"
+harness = false
+
+[[bench]]
+name = "list_length"
+harness = false
+
+[[bench]]
+name = "list_sum"
 harness = false
 
 [[bench]]
@@ -242,8 +295,4 @@ harness = false
 
 [[bench]]
 name = "slice_dict_primitive"
-harness = false
-
-[[bench]]
-name = "to_arrow"
 harness = false

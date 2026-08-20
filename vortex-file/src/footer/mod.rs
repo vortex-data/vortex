@@ -8,6 +8,7 @@
 //!
 //! The byte-level footer and postscript layout is part of the file-format spec; this module exposes
 //! the structured Rust representation and serializer/deserializer state machine.
+mod field_sizes;
 mod file_layout;
 mod file_statistics;
 mod postscript;
@@ -19,6 +20,7 @@ mod serializer;
 pub use serializer::*;
 mod deserializer;
 pub use deserializer::*;
+pub use field_sizes::CompressedFieldSizes;
 pub use file_statistics::FileStatistics;
 use flatbuffers::root;
 use itertools::Itertools;
@@ -37,12 +39,27 @@ use vortex_layout::layout_from_flatbuffer_with_options;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
+/// Maximum number of user-defined metadata segments. Keeps postscript bookkeeping small so the
+/// footer and required segments still fit the initial tail read.
+pub(crate) const MAX_METADATA_SEGMENTS: usize = 16;
+
+/// Maximum length, in UTF-8 bytes, of a user-defined metadata key (keys live in the postscript).
+///
+/// 64 bytes covers reverse-DNS query-engine keys, not just short Iceberg-style keys: e.g.
+/// `org.apache.spark.sql.parquet.row.metadata` (41 bytes), which Spark writes into every Parquet
+/// file. With [`MAX_METADATA_SEGMENTS`] keys this bounds the postscript key budget at 1 KiB.
+pub(crate) const MAX_METADATA_KEY_BYTES: usize = 64;
+
+/// User-defined metadata segment locators stored as `(key, locator)` pairs.
+pub(crate) type MetadataSegments = Arc<[(String, SegmentSpec)]>;
+
 /// Captures the layout information of a Vortex file.
 #[derive(Debug, Clone)]
 pub struct Footer {
     root_layout: LayoutRef,
     segments: Arc<[SegmentSpec]>,
     statistics: Option<FileStatistics>,
+    metadata: Arc<[(String, SegmentSpec)]>,
     // The specific arrays used within the file, in the order they were registered.
     array_read_ctx: ReadContext,
     // The approximate size of the footer in bytes, used for caching and memory management.
@@ -50,7 +67,7 @@ pub struct Footer {
 }
 
 impl Footer {
-    pub(crate) fn new(
+    pub fn new(
         root_layout: LayoutRef,
         segments: Arc<[SegmentSpec]>,
         statistics: Option<FileStatistics>,
@@ -60,6 +77,7 @@ impl Footer {
             root_layout,
             segments,
             statistics,
+            metadata: Arc::from([]),
             array_read_ctx,
             approx_byte_size: None,
         }
@@ -72,17 +90,23 @@ impl Footer {
 
     /// Read the [`Footer`] from a flatbuffer.
     pub(crate) fn from_flatbuffer(
-        footer_bytes: FlatBuffer,
+        footer_bytes: &[u8],
         layout_bytes: FlatBuffer,
         dtype: DType,
         statistics: Option<FileStatistics>,
+        metadata: Arc<[(String, SegmentSpec)]>,
         session: &VortexSession,
     ) -> VortexResult<Self> {
-        let approx_byte_size = footer_bytes.len() + layout_bytes.len();
-        let fb_footer = root::<fb::Footer>(&footer_bytes)?;
+        let metadata_bytes: usize = metadata
+            .iter()
+            .map(|(key, _segment)| key.len() + size_of::<SegmentSpec>())
+            .sum();
+        let approx_byte_size = footer_bytes.len() + layout_bytes.len() + metadata_bytes;
+        let fb_footer = root::<fb::Footer>(footer_bytes)?;
 
         // Create a LayoutContext from the registry.
         let layout_specs = fb_footer.layout_specs();
+        #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
         let layout_ids: Arc<[_]> = layout_specs
             .iter()
             .flat_map(|e| e.iter())
@@ -92,6 +116,7 @@ impl Footer {
 
         // Create an ArrayContext from the registry.
         let array_specs = fb_footer.array_specs();
+        #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
         let array_ids: Arc<[_]> = array_specs
             .iter()
             .flat_map(|e| e.iter())
@@ -124,6 +149,7 @@ impl Footer {
             root_layout,
             segments,
             statistics,
+            metadata,
             array_read_ctx,
             approx_byte_size: Some(approx_byte_size),
         })
@@ -144,6 +170,42 @@ impl Footer {
         self.statistics.as_ref()
     }
 
+    /// Returns the user-defined metadata segment locators stored in the postscript.
+    pub fn metadata_segments(&self) -> impl Iterator<Item = (&str, &SegmentSpec)> {
+        self.metadata
+            .iter()
+            .map(|(key, segment)| (key.as_str(), segment))
+    }
+
+    /// Returns the user-defined metadata segment locator for the given key.
+    pub fn metadata_segment(&self, key: &str) -> Option<&SegmentSpec> {
+        self.metadata
+            .iter()
+            .find_map(|(candidate, segment)| (candidate == key).then_some(segment))
+    }
+
+    pub(crate) fn with_metadata_segments(mut self, metadata: Arc<[(String, SegmentSpec)]>) -> Self {
+        self.metadata = metadata;
+        self
+    }
+
+    pub(crate) fn segment_specs_with_metadata(&self) -> Arc<[SegmentSpec]> {
+        self.segments
+            .iter()
+            .copied()
+            .chain(self.metadata.iter().map(|(_, segment)| *segment))
+            .collect()
+    }
+
+    /// Computes the compressed size in bytes of every field in the file, keyed by field path.
+    ///
+    /// Sizes are derived by attributing each segment in the [segment map][Self::segment_map] to a
+    /// field in the [layout tree][Self::layout]; see [`CompressedFieldSizes`] for the exact
+    /// attribution semantics. No IO is performed.
+    pub fn compressed_field_sizes(&self) -> VortexResult<CompressedFieldSizes> {
+        CompressedFieldSizes::try_new(&self.root_layout, &self.segments)
+    }
+
     /// Returns the [`DType`] of the file.
     pub fn dtype(&self) -> &DType {
         self.root_layout.dtype()
@@ -159,6 +221,11 @@ impl Footer {
         self.root_layout.row_count()
     }
 
+    /// Validate that every segment declared in the footer lies within a file of `file_size` bytes.
+    pub(crate) fn validate_file_size(&self, file_size: u64) -> VortexResult<()> {
+        validate_segments_within_file(&self.segments, file_size)
+    }
+
     /// Returns a serializer for this footer.
     pub fn into_serializer(self) -> FooterSerializer {
         FooterSerializer::new(self)
@@ -167,5 +234,62 @@ impl Footer {
     /// Create a deserializer for a Vortex file footer.
     pub fn deserializer(eof_buffer: ByteBuffer, session: VortexSession) -> FooterDeserializer {
         FooterDeserializer::new(eof_buffer, session)
+    }
+}
+
+/// Validate that every segment declared in the footer lies within a file of `file_size` bytes.
+///
+/// A corrupt or malicious file can declare a segment whose offset or length extends past the end
+/// of the file. Rejecting such files up front ensures that later slicing of the backing buffer
+/// returns a [`VortexError`](vortex_error::VortexError) rather than panicking (see issue #8819).
+fn validate_segments_within_file(segments: &[SegmentSpec], file_size: u64) -> VortexResult<()> {
+    for segment in segments {
+        let within_file = segment
+            .offset
+            .checked_add(segment.length as u64)
+            .is_some_and(|end| end <= file_size);
+        if !within_file {
+            vortex_bail!(
+                "Segment at offset {} with length {} extends past the end of the \
+                 {file_size}-byte file",
+                segment.offset,
+                segment.length,
+            );
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::Alignment;
+
+    use super::*;
+
+    fn segment(offset: u64, length: u32) -> SegmentSpec {
+        SegmentSpec {
+            offset,
+            length,
+            alignment: Alignment::none(),
+        }
+    }
+
+    #[test]
+    fn accepts_segments_within_file() -> VortexResult<()> {
+        validate_segments_within_file(&[segment(0, 100), segment(100, 50)], 150)?;
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_segment_extending_past_end_of_file() {
+        let err =
+            validate_segments_within_file(&[segment(0, 100), segment(100, 51)], 150).unwrap_err();
+        assert!(err.to_string().contains("past the end"), "{err}");
+    }
+
+    #[test]
+    fn rejects_segment_offset_length_overflow() {
+        let err = validate_segments_within_file(&[segment(u64::MAX, 1)], u64::MAX).unwrap_err();
+        assert!(err.to_string().contains("past the end"), "{err}");
     }
 }

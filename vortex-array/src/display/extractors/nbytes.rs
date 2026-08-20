@@ -13,7 +13,7 @@ use crate::display::extractor::TreeExtractor;
 /// Extractor that adds `nbytes=X (Y%)` to the header line.
 pub struct NbytesExtractor;
 
-impl TreeExtractor for NbytesExtractor {
+impl TreeExtractor<ArrayRef, TreeContext> for NbytesExtractor {
     fn write_header(
         &self,
         array: &ArrayRef,

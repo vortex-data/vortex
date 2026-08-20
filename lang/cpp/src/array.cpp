@@ -1,0 +1,358 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+#include "vortex/array.hpp"
+#include "vortex/common.hpp"
+#include "vortex/dtype.hpp"
+#include "vortex/error.hpp"
+#include "vortex/scalar.hpp"
+#include "vortex/session.hpp"
+
+#include <vortex.h>
+
+#include <memory>
+#include <optional>
+#include <string>
+#include <string_view>
+
+namespace vortex {
+
+using detail::Access;
+using detail::throw_on_error;
+
+Validity::Validity(const Validity &other)
+    : type_(other.type_), array_(other.array_ != nullptr ? vx_array_clone(other.array_) : nullptr) {
+}
+
+Validity::Validity(ValidityType type) : type_(type), array_(nullptr) {
+    if (type == ValidityType::FromArray) {
+        throw VortexException("Validity(ValidityType) called with ValidityType::FromArray",
+                              ErrorCode::InvalidArgument);
+    }
+}
+
+Validity Validity::from_array(const Array &bools) {
+    if (!bools.has_dtype(DataTypeVariant::Bool)) {
+        throw VortexException("Validity array isn't a Bool array", ErrorCode::InvalidArgument);
+    }
+    return {ValidityType::FromArray, vx_array_clone(Access::c_ptr(bools))};
+}
+
+Validity::Validity(Validity &&other) noexcept : type_(other.type_), array_(other.array_) {
+    other.array_ = nullptr;
+    other.type_ = ValidityType::NonNullable;
+}
+
+Validity &Validity::operator=(const Validity &other) {
+    if (this != &other) {
+        *this = Validity(other);
+    }
+    return *this;
+}
+
+Validity &Validity::operator=(Validity &&other) noexcept {
+    if (this != &other) {
+        vx_array_free(array_);
+        type_ = other.type_;
+        array_ = other.array_;
+        other.array_ = nullptr;
+        other.type_ = ValidityType::NonNullable;
+    }
+    return *this;
+}
+
+Validity::~Validity() {
+    vx_array_free(array_);
+}
+
+Array Validity::array() const {
+    if (type_ != ValidityType::FromArray || array_ == nullptr) {
+        throw VortexException("validity has no backing array", ErrorCode::InvalidArgument);
+    }
+    return Access::adopt<Array>(vx_array_clone(array_));
+}
+
+namespace detail {
+
+bool ValidityBits::is_null(size_t index) const {
+    if (all_invalid_) {
+        return true;
+    }
+    if (bits_ == nullptr) {
+        return false;
+    }
+    const size_t bit = bit_offset_ + index;
+    return (bits_[bit / 8] >> (bit % 8) & 1) == 0;
+}
+
+ValidityBits::ValidityBits(const Session &session, const vx_array *canonical) {
+    vx_validity raw {};
+    vx_error *error = nullptr;
+    vx_array_get_validity(canonical, &raw, &error);
+    throw_on_error(error);
+
+    switch (static_cast<ValidityType>(raw.type)) {
+    case ValidityType::NonNullable:
+    case ValidityType::AllValid:
+        return;
+    case ValidityType::AllInvalid:
+        all_invalid_ = true;
+        return;
+    case ValidityType::FromArray:
+        break;
+    }
+
+    owner_ = vx_array_canonicalize(Access::c_ptr(session), raw.array, &error);
+    vx_array_free(raw.array);
+    throw_on_error(error);
+
+    bits_ = static_cast<const uint8_t *>(vx_array_data_ptr_bool(owner_, &bit_offset_, &error));
+    if (error != nullptr) {
+        vx_array_free(owner_);
+    }
+    throw_on_error(error);
+}
+
+ValidityBits::ValidityBits(ValidityBits &&other) noexcept
+    : owner_(other.owner_), bits_(other.bits_), bit_offset_(other.bit_offset_),
+      all_invalid_(other.all_invalid_) {
+    other.owner_ = nullptr;
+    other.bits_ = nullptr;
+}
+
+ValidityBits &ValidityBits::operator=(ValidityBits &&other) noexcept {
+    if (this != &other) {
+        vx_array_free(owner_);
+        owner_ = other.owner_;
+        bits_ = other.bits_;
+        bit_offset_ = other.bit_offset_;
+        all_invalid_ = other.all_invalid_;
+        other.owner_ = nullptr;
+        other.bits_ = nullptr;
+    }
+    return *this;
+}
+
+ValidityBits::~ValidityBits() {
+    vx_array_free(owner_);
+}
+} // namespace detail
+
+static const vx_struct_fields *struct_fields_or_throw(const vx_dtype *dtype) {
+    const vx_struct_fields *fields = vx_dtype_struct_dtype(dtype);
+    if (fields == nullptr) {
+        throw VortexException("dtype is not a struct", ErrorCode::MismatchedTypes);
+    }
+    return fields;
+}
+
+void Array::Deleter::operator()(const vx_array *ptr) const noexcept {
+    vx_array_free(ptr);
+}
+
+Array::Array(const Array &other) : handle_(vx_array_clone(other.handle_.get())) {
+}
+
+Array &Array::operator=(const Array &other) {
+    if (this != &other) {
+        handle_.reset(vx_array_clone(other.handle_.get()));
+    }
+    return *this;
+}
+
+Array Array::null(size_t len) {
+    return Access::adopt<Array>(vx_array_new_null(len));
+}
+
+Array Array::primitive_raw(vx_ptype ptype, const void *data, size_t len, const Validity &validity) {
+    std::optional<Array> keep_alive;
+    vx_validity raw {};
+    raw.type = static_cast<vx_validity_type>(validity.type());
+    if (validity.type() == ValidityType::FromArray) {
+        keep_alive = validity.array();
+        raw.array = Access::c_ptr(*keep_alive);
+    }
+
+    vx_error *error = nullptr;
+    const vx_array *out = vx_array_new_primitive(ptype, data, len, &raw, &error);
+    throw_on_error(error);
+    return Access::adopt<Array>(out);
+}
+
+Array Array::from_arrow(const Session &session, ArrowArray *array, ArrowSchema *schema, bool nullable) {
+    vx_error *error = nullptr;
+    const vx_array *out = vx_array_from_arrow(Access::c_ptr(session), array, schema, nullable, &error);
+    throw_on_error(error);
+    return Access::adopt<Array>(out);
+}
+
+size_t Array::size() const {
+    return vx_array_len(handle_.get());
+}
+
+bool Array::nullable() const {
+    return vx_array_is_nullable(handle_.get());
+}
+
+bool Array::has_dtype(DataTypeVariant v) const {
+    return vx_array_has_dtype(handle_.get(), static_cast<vx_dtype_variant>(v));
+}
+
+bool Array::is_primitive(PType p) const {
+    return vx_array_is_primitive(handle_.get(), static_cast<vx_ptype>(p));
+}
+
+DataType Array::dtype() const {
+    return Access::adopt<DataType>(vx_array_dtype(handle_.get()));
+}
+
+Validity Array::validity() const {
+    vx_validity raw {};
+    vx_error *error = nullptr;
+    vx_array_get_validity(handle_.get(), &raw, &error);
+    throw_on_error(error);
+    return Access::adopt<Validity>(static_cast<ValidityType>(raw.type), raw.array);
+}
+
+size_t Array::null_count() const {
+    vx_error *error = nullptr;
+    const size_t count = vx_array_invalid_count(handle_.get(), &error);
+    throw_on_error(error);
+    return count;
+}
+
+Array Array::field(size_t index) const {
+    vx_error *error = nullptr;
+    const vx_array *out = vx_array_get_field(handle_.get(), index, &error);
+    throw_on_error(error);
+    return Access::adopt<Array>(out);
+}
+
+Array Array::field(std::string_view name) const {
+    const DataType dt = dtype();
+    const std::unique_ptr<const vx_struct_fields, decltype(&vx_struct_fields_free)> fields(
+        struct_fields_or_throw(detail::Access::c_ptr(dt)),
+        &vx_struct_fields_free);
+    const uint64_t fields_size = vx_struct_fields_nfields(fields.get());
+    for (uint64_t i = 0; i < fields_size; ++i) {
+        const vx_view field = vx_struct_fields_field_name(fields.get(), i);
+        if (std::string_view {field.ptr, field.len} == name) {
+            return this->field(i);
+        }
+    }
+    throw VortexException("no field named \"" + std::string(name) + "\"", ErrorCode::InvalidArgument);
+}
+
+Array Array::slice(size_t begin, size_t end) const {
+    vx_error *error = nullptr;
+    const vx_array *out = vx_array_slice(handle_.get(), begin, end, &error);
+    throw_on_error(error);
+    return Access::adopt<Array>(out);
+}
+
+Array Array::apply(const Expression &expr) const {
+    vx_error *error = nullptr;
+    const vx_array *out = vx_array_apply(handle_.get(), Access::c_ptr(expr), &error);
+    throw_on_error(error);
+    return Access::adopt<Array>(out);
+}
+
+Array Array::canonicalize(const Session &session) const {
+    vx_error *error = nullptr;
+    const vx_array *out = vx_array_canonicalize(Access::c_ptr(session), handle_.get(), &error);
+    throw_on_error(error);
+    return Access::adopt<Array>(out);
+}
+
+Array make_struct(std::span<const ColumnField> fields, const Validity &validity) {
+    vx_validity raw {};
+    raw.type = static_cast<vx_validity_type>(validity.type());
+
+    std::optional<Array> keep_alive;
+    if (validity.type() == ValidityType::FromArray) {
+        keep_alive = validity.array();
+        raw.array = Access::c_ptr(*keep_alive);
+    }
+
+    std::unique_ptr<vx_struct_column_builder, decltype(&vx_struct_column_builder_free)> handle(
+        vx_struct_column_builder_new(&raw, fields.size()),
+        &vx_struct_column_builder_free);
+
+    vx_error *error = nullptr;
+    for (const auto &[name, array] : fields) {
+        vx_struct_column_builder_add_field(handle.get(), detail::to_view(name), Access::c_ptr(array), &error);
+        throw_on_error(error);
+    }
+
+    const vx_array *out = vx_struct_column_builder_finalize(handle.release(), &error);
+    throw_on_error(error);
+    return Access::adopt<Array>(out);
+}
+
+Array make_struct(std::initializer_list<ColumnField> fields, const Validity &validity) {
+    return make_struct({fields.begin(), fields.end()}, validity);
+}
+
+PrimitiveView<bool> Array::bools(const Session &session) const {
+    Array canonical = canonicalize(session);
+    const vx_array *raw = Access::c_ptr(canonical);
+    if (!vx_array_has_dtype(raw, DTYPE_BOOL)) {
+        throw VortexException("bools(): array is not a Bool array", ErrorCode::MismatchedTypes);
+    }
+    detail::ValidityBits validity(session, raw);
+    const size_t len = vx_array_len(raw);
+    return PrimitiveView<bool>(std::move(canonical), std::move(validity), len);
+}
+
+StringView Array::strings(const Session &session) const {
+    Array canonical = canonicalize(session);
+    const vx_array *raw = Access::c_ptr(canonical);
+    if (!vx_array_has_dtype(raw, DTYPE_UTF8)) {
+        throw VortexException("strings(): array is not a Utf8 array", ErrorCode::MismatchedTypes);
+    }
+    detail::ValidityBits validity(session, raw);
+    const size_t len = vx_array_len(raw);
+    return StringView(std::move(canonical), std::move(validity), len);
+}
+
+BytesView Array::bytes(const Session &session) const {
+    Array canonical = canonicalize(session);
+    const vx_array *raw = Access::c_ptr(canonical);
+    if (!vx_array_has_dtype(raw, DTYPE_BINARY)) {
+        throw VortexException("bytes(): array is not a Binary array", ErrorCode::MismatchedTypes);
+    }
+    detail::ValidityBits validity(session, raw);
+    const size_t len = vx_array_len(raw);
+    return BytesView(std::move(canonical), std::move(validity), len);
+}
+
+Scalar Array::scalar_at(const Session &session, size_t index) const {
+    vx_error *error = nullptr;
+    const vx_scalar *scalar = vx_array_get_scalar(Access::c_ptr(session), handle_.get(), index, &error);
+    throw_on_error(error);
+    return Access::adopt<Scalar>(scalar);
+}
+
+bool PrimitiveView<bool>::value(size_t i) const {
+    if (i >= size_) {
+        throw VortexException("index " + std::to_string(i) + " out of bounds for view of size " +
+                                  std::to_string(size_),
+                              ErrorCode::OutOfBounds);
+    }
+    return vx_array_get_bool(Access::c_ptr(canonical_), i);
+}
+
+std::string_view StringView::operator[](size_t i) const {
+    vx_error *error = nullptr;
+    const vx_view out = vx_array_utf8_at(Access::c_ptr(canonical_), i, &error);
+    throw_on_error(error);
+    return {out.ptr, out.len};
+}
+
+BinaryView BytesView::operator[](size_t i) const {
+    vx_error *error = nullptr;
+    const vx_view out = vx_array_binary_at(Access::c_ptr(canonical_), i, &error);
+    throw_on_error(error);
+    return {reinterpret_cast<const std::byte *>(out.ptr), out.len};
+}
+} // namespace vortex

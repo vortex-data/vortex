@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::convert::Infallible;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Result as FmtResult;
 use std::ops::BitAnd;
 use std::ops::BitOr;
 use std::ops::BitXor;
-use std::ops::Bound;
 use std::ops::Not;
 use std::ops::RangeBounds;
 
 use crate::Alignment;
+use crate::BitBufferMeta;
 use crate::BitBufferMut;
 use crate::Buffer;
 use crate::BufferMut;
@@ -95,6 +96,7 @@ impl BitBuffer {
     /// Create a new `BoolBuffer` backed by a [`ByteBuffer`] with `len` bits in view.
     ///
     /// Panics if the buffer is not large enough to hold `len` bits.
+    #[inline]
     pub fn new(buffer: ByteBuffer, len: usize) -> Self {
         assert!(
             buffer.len() * 8 >= len,
@@ -115,6 +117,7 @@ impl BitBuffer {
     /// the given `offset` (in bits).
     ///
     /// Panics if the buffer is not large enough to hold `len` bits after the offset.
+    #[inline]
     pub fn new_with_offset(buffer: ByteBuffer, len: usize, offset: usize) -> Self {
         assert!(
             len.saturating_add(offset) <= buffer.len().saturating_mul(8),
@@ -142,6 +145,7 @@ impl BitBuffer {
     }
 
     /// Create a new `BoolBuffer` of length `len` where all bits are set (true).
+    #[inline]
     pub fn new_set(len: usize) -> Self {
         let words = len.div_ceil(8);
         let buffer = buffer![0xFF; words];
@@ -154,6 +158,7 @@ impl BitBuffer {
     }
 
     /// Create a new `BoolBuffer` of length `len` where all bits are unset (false).
+    #[inline]
     pub fn new_unset(len: usize) -> Self {
         let words = len.div_ceil(8);
         let buffer = Buffer::zeroed(words);
@@ -171,11 +176,13 @@ impl BitBuffer {
     }
 
     /// Create a new empty `BitBuffer`.
+    #[inline]
     pub fn empty() -> Self {
         Self::new_set(0)
     }
 
     /// Create a new `BitBuffer` of length `len` where all bits are set to `value`.
+    #[inline]
     pub fn full(value: bool, len: usize) -> Self {
         if value {
             Self::new_set(len)
@@ -185,9 +192,41 @@ impl BitBuffer {
     }
 
     /// Invokes `f` with indexes `0..len` collecting the boolean results into a new [`BitBuffer`].
+    ///
+    /// `f` is invoked exactly once per index, in ascending order, and the results are packed
+    /// with the baseline SIMD byte→bit instruction of the target.
+    ///
+    /// # Performance
+    ///
+    /// The packing is a few instructions per 64 bits, so evaluating `f` is usually the
+    /// bottleneck. In particular, a bounds-checked slice access in `f` (`|i| values[i] > x`)
+    /// blocks vectorization of the gather and can cost ~10x the packing itself. Since `f` only
+    /// ever sees indices `0..len`, callers reading from a slice with `len <= values.len()` may
+    /// soundly use `|i| unsafe { *values.get_unchecked(i) }`.
+    ///
+    /// Prefer this entry point for every predicate. Only switch to
+    /// [`Self::collect_bool_multiversioned`] after carefully checking that your specific `f`
+    /// meets its contract (a trivially cheap, bounds-check-free gather or comparison) —
+    /// ideally with a benchmark.
     #[inline]
     pub fn collect_bool<F: FnMut(usize) -> bool>(len: usize, f: F) -> Self {
         BitBufferMut::collect_bool(len, f).freeze()
+    }
+
+    /// Like [`Self::collect_bool`], but compiles the packing loop — with `f` inside it — once
+    /// per CPU feature level (AVX-512BW/AVX2/baseline) and selects a clone by runtime feature
+    /// detection.
+    ///
+    /// Calling this asserts that `f` is small and simple enough (e.g. a bounds-check-free slice
+    /// gather or comparison) that duplicating it per feature level and paying a
+    /// `#[target_feature]` call boundary beats inlining it once into your function. For any
+    /// non-trivial `f` that assertion is false — the boundary deoptimizes the predicate — so
+    /// unless you have carefully checked (ideally benchmarked) that your specific `f`
+    /// qualifies, use [`Self::collect_bool`]. See
+    /// [`collect_bool_words_multiversioned`](crate::bit::collect_bool_words_multiversioned).
+    #[inline]
+    pub fn collect_bool_multiversioned<F: FnMut(usize) -> bool>(len: usize, f: F) -> Self {
+        BitBufferMut::collect_bool_multiversioned(len, f).freeze()
     }
 
     /// Maps over each bit in this buffer, calling `f(index, bit_value)` and collecting results.
@@ -239,6 +278,7 @@ impl BitBuffer {
     }
 
     /// Clear all bits in the buffer, preserving existing capacity.
+    #[inline]
     pub fn clear(&mut self) {
         self.buffer.clear();
         self.len = 0;
@@ -313,26 +353,9 @@ impl BitBuffer {
     /// for `len` bits.
     ///
     /// Panics if the slice would extend beyond the end of the buffer.
+    #[inline]
     pub fn slice(&self, range: impl RangeBounds<usize>) -> Self {
-        let start = match range.start_bound() {
-            Bound::Included(&s) => s,
-            Bound::Excluded(&s) => s + 1,
-            Bound::Unbounded => 0,
-        };
-        let end = match range.end_bound() {
-            Bound::Included(&e) => e + 1,
-            Bound::Excluded(&e) => e,
-            Bound::Unbounded => self.len,
-        };
-
-        assert!(start <= end);
-        assert!(start <= self.len);
-        assert!(end <= self.len);
-        let len = end - start;
-
-        let offset = self.offset + start;
-        let byte_offset = offset / 8;
-        let bit_offset = offset % 8;
+        let (byte_offset, meta) = BitBufferMeta::new(self.offset, self.len).slice(range);
 
         // Trim whole bytes off the front directly rather than going through `new_with_offset`,
         // which would slice (and re-clone) the clone we'd have to pass it.
@@ -344,8 +367,8 @@ impl BitBuffer {
 
         Self {
             buffer,
-            offset: bit_offset,
-            len,
+            offset: meta.offset(),
+            len: meta.len(),
         }
     }
 
@@ -362,6 +385,7 @@ impl BitBuffer {
     }
 
     /// Access chunks of the buffer aligned to 8 byte boundary as [prefix, \<full chunks\>, suffix]
+    #[inline]
     pub fn unaligned_chunks(&self) -> UnalignedBitChunk<'_> {
         UnalignedBitChunk::new(self.buffer.as_slice(), self.offset, self.len)
     }
@@ -369,6 +393,7 @@ impl BitBuffer {
     /// Access chunks of the underlying buffer as 8 byte chunks with a final trailer
     ///
     /// If you're performing operations on a single buffer, prefer [BitBuffer::unaligned_chunks]
+    #[inline]
     pub fn chunks(&self) -> BitChunks<'_> {
         BitChunks::new(self.buffer.as_slice(), self.offset, self.len)
     }
@@ -379,12 +404,27 @@ impl BitBuffer {
         count_ones(self.buffer.as_slice(), self.offset, self.len)
     }
 
+    /// Get the number of set bits in the bit range `[start, end)`.
+    ///
+    /// Unlike `self.slice(start..end).true_count()`, this counts directly over the
+    /// existing backing buffer without allocating or cloning a new [`BitBuffer`],
+    /// making it cheap to call repeatedly over many small ranges.
+    ///
+    /// Panics if `start > end` or `end > len`.
+    #[inline]
+    pub fn count_range(&self, start: usize, end: usize) -> usize {
+        assert!(start <= end, "start {start} exceeds end {end}");
+        assert!(end <= self.len, "end {end} exceeds len {}", self.len);
+        count_ones(self.buffer.as_slice(), self.offset + start, end - start)
+    }
+
     /// Returns the position of the `nth` set bit (0-indexed).
     ///
     /// This is the "select" operation on a bitmap: given a rank `nth`, find
     /// which logical bit position holds that rank.
     ///
     /// Returns `None` if `nth` is greater than or equal to the number of set bits.
+    #[inline]
     pub fn select(&self, nth: usize) -> Option<usize> {
         bit_select(self.buffer.as_slice(), self.offset, self.len, nth)
     }
@@ -396,18 +436,64 @@ impl BitBuffer {
     }
 
     /// Iterator over bits in the buffer
+    #[inline]
     pub fn iter(&self) -> BitIterator<'_> {
         BitIterator::new(self.buffer.as_slice(), self.offset, self.len)
     }
 
     /// Iterator over set indices of the underlying buffer
+    #[inline]
     pub fn set_indices(&self) -> BitIndexIterator<'_> {
         BitIndexIterator::new(self.buffer.as_slice(), self.offset, self.len)
     }
 
     /// Iterator over set slices of the underlying buffer
+    #[inline]
     pub fn set_slices(&self) -> BitSliceIterator<'_> {
         BitSliceIterator::new(self.buffer.as_slice(), self.offset, self.len)
+    }
+
+    /// Invoke `f(index)` for every set bit, in ascending order, processing a `u64`
+    /// word at a time.
+    ///
+    /// This is the fast way to "do something for each set bit": it skips all-zero
+    /// words, fast-paths all-one words, and walks the remaining bits with
+    /// `trailing_zeros`. Prefer it over `for i in 0..len { if buf.value(i) { f(i) } }`
+    /// (which pays a branch per element) and over collecting [`Self::set_indices`]
+    /// (whose per-`next` iterator state does not inline as well).
+    #[inline]
+    pub fn for_each_set_index<F: FnMut(usize)>(&self, mut f: F) {
+        let Ok(()) = self.try_for_each_set_index(|index| {
+            f(index);
+            Ok::<_, Infallible>(())
+        });
+    }
+
+    /// Fallible variant of [`for_each_set_index`](Self::for_each_set_index).
+    ///
+    /// Stops and returns the first error from `f`.
+    #[inline]
+    pub fn try_for_each_set_index<E, F>(&self, mut f: F) -> Result<(), E>
+    where
+        F: FnMut(usize) -> Result<(), E>,
+    {
+        let mut base = 0usize;
+        for word in self.chunks().iter_padded() {
+            if word == u64::MAX {
+                for k in 0..64 {
+                    f(base + k)?;
+                }
+            } else {
+                let mut w = word;
+                while w != 0 {
+                    f(base + w.trailing_zeros() as usize)?;
+                    w &= w - 1;
+                }
+            }
+            base += 64;
+        }
+
+        Ok(())
     }
 
     /// Created a new BitBuffer with offset reset to 0
@@ -429,11 +515,13 @@ impl BitBuffer {
 
 impl BitBuffer {
     /// Returns the offset, len and underlying buffer.
+    #[inline]
     pub fn into_inner(self) -> (usize, usize, ByteBuffer) {
         (self.offset, self.len, self.buffer)
     }
 
     /// Attempt to convert this `BitBuffer` into a mutable version.
+    #[inline]
     pub fn try_into_mut(self) -> Result<BitBufferMut, Self> {
         match self.buffer.try_into_mut() {
             Ok(buffer) => Ok(BitBufferMut::from_buffer(buffer, self.offset, self.len)),
@@ -455,6 +543,7 @@ impl From<Vec<bool>> for BitBuffer {
 }
 
 impl FromIterator<bool> for BitBuffer {
+    #[inline]
     fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
         BitBufferMut::from_iter(iter).freeze()
     }
@@ -854,6 +943,111 @@ mod tests {
         assert_eq!(buf.len(), mapped.len());
         for i in 0..len {
             assert_eq!(!buf.value(i), mapped.value(i), "Mismatch at index {}", i);
+        }
+    }
+
+    #[rstest]
+    #[case(0, 0)]
+    #[case(0, 64)]
+    #[case(5, 70)]
+    #[case(64, 130)]
+    #[case(0, 200)]
+    fn test_count_range(#[case] start: usize, #[case] end: usize) {
+        let len = 200;
+        let buf = BitBuffer::collect_bool(len, |i| i % 3 == 0);
+        let expected = (start..end).filter(|i| i % 3 == 0).count();
+        assert_eq!(buf.count_range(start, end), expected);
+        // Must agree with slicing then counting.
+        assert_eq!(
+            buf.count_range(start, end),
+            buf.slice(start..end).true_count()
+        );
+    }
+
+    #[rstest]
+    #[case(3)]
+    #[case(7)]
+    fn test_count_range_with_offset(#[case] offset: usize) {
+        let len = 150;
+        let buf = BitBuffer::collect_bool(offset + len, |i| i % 2 == 0);
+        let view = BitBuffer::new_with_offset(buf.inner().clone(), len, offset);
+        for (start, end) in [(0, len), (10, 100), (1, 2), (63, 129)] {
+            let expected = (offset + start..offset + end)
+                .filter(|i| i % 2 == 0)
+                .count();
+            assert_eq!(view.count_range(start, end), expected, "[{start}, {end})");
+        }
+    }
+
+    #[rstest]
+    #[case(0)]
+    #[case(1)]
+    #[case(63)]
+    #[case(64)]
+    #[case(65)]
+    #[case(200)]
+    #[case(1000)]
+    fn test_set_index_visitors_match_set_indices(#[case] len: usize) {
+        let buf = BitBuffer::collect_bool(len, |i| i % 5 == 0 || i % 7 == 0);
+        let expected: Vec<usize> = buf.set_indices().collect();
+
+        let mut got = Vec::new();
+        buf.for_each_set_index(|i| got.push(i));
+        assert_eq!(got, expected);
+
+        let mut fallible_got = Vec::new();
+        let result = buf.try_for_each_set_index(|i| {
+            fallible_got.push(i);
+            Ok::<(), ()>(())
+        });
+        assert_eq!(result, Ok(()));
+        assert_eq!(fallible_got, expected);
+    }
+
+    #[rstest]
+    #[case(3, 200)]
+    #[case(7, 130)]
+    fn test_for_each_set_index_with_offset(#[case] offset: usize, #[case] len: usize) {
+        let base = BitBuffer::collect_bool(offset + len, |i| i % 3 == 0);
+        let view = BitBuffer::new_with_offset(base.inner().clone(), len, offset);
+        let expected: Vec<usize> = view.set_indices().collect();
+        let mut got = Vec::new();
+        view.for_each_set_index(|i| got.push(i));
+        assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn test_for_each_set_index_all_set() {
+        let buf = BitBuffer::new_set(130);
+        let mut got = Vec::new();
+        buf.for_each_set_index(|i| got.push(i));
+        assert_eq!(got, (0..130).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_try_for_each_set_index_stops_on_error() {
+        for (buffer, stop) in [
+            (BitBuffer::new_set(130), 65),
+            (BitBuffer::collect_bool(130, |i| i % 3 == 0), 66),
+        ] {
+            let mut visited = Vec::new();
+            let result = buffer.try_for_each_set_index(|index| {
+                visited.push(index);
+                if index == stop {
+                    return Err(index);
+                }
+
+                Ok(())
+            });
+
+            assert_eq!(result, Err(stop));
+            assert_eq!(
+                visited,
+                buffer
+                    .set_indices()
+                    .take_while(|&i| i <= stop)
+                    .collect::<Vec<_>>()
+            );
         }
     }
 

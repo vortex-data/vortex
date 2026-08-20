@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# infinity dates survive the roundtrip, ordering, and filtering
+
+include ../setup.slt.no
+
+statement ok
+CREATE TABLE td(d DATE);
+
+statement ok
+INSERT INTO td VALUES ('infinity'), ('-infinity'), ('2020-01-01');
+
+statement ok
+COPY td TO '${WORK_DIR}/dsv.vortex';
+
+query DD
+SELECT min(d), max(d) FROM td;
+----
+-infinity infinity
+
+query DD
+SELECT min(d), max(d) FROM '${WORK_DIR}/dsv.vortex';
+----
+-infinity infinity
+
+query I
+SELECT count(*) FROM td WHERE d > DATE '2021-01-01';
+----
+1
+
+query I
+SELECT count(*) FROM '${WORK_DIR}/dsv.vortex' WHERE d > DATE '2021-01-01';
+----
+1

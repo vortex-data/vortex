@@ -18,8 +18,10 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
-use vortex_array::arrays::listview::ListViewArrayExt;
+use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
+use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_array::builders::builder_with_capacity;
 use vortex_array::dtype::Nullability;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::validity::Validity;
@@ -130,13 +132,25 @@ pub fn mask_canonical_array(
         Canonical::Struct(array) => {
             let new_validity = mask_validity(&array.validity()?, mask, ctx);
             StructArray::try_new_with_dtype(
-                array.unmasked_fields(),
+                array.iter_unmasked_fields().cloned(),
                 array.struct_fields().clone(),
                 array.len(),
                 new_validity,
             )
             .vortex_expect("StructArray creation should succeed in fuzz test")
             .into_array()
+        }
+        Canonical::Map(array) => {
+            let result_dtype = array.dtype().as_nullable();
+            let mut builder = builder_with_capacity(&result_dtype, array.len());
+            for idx in 0..array.len() {
+                if mask.value(idx) {
+                    builder.append_scalar(&array.execute_scalar(idx, ctx)?.cast(&result_dtype)?)?;
+                } else {
+                    builder.append_null();
+                }
+            }
+            builder.finish()
         }
         Canonical::Extension(array) => {
             // Recursively mask the storage array
@@ -148,6 +162,9 @@ pub fn mask_canonical_array(
                 .ext_dtype()
                 .with_nullability(masked_storage.dtype().nullability());
             ExtensionArray::new(ext_dtype, masked_storage).into_array()
+        }
+        Canonical::Union(_) => {
+            todo!("TODO(connor)[Union]: support Union arrays in the mask fuzzer")
         }
         Canonical::Variant(_) => unreachable!("Variant arrays are not fuzzed"),
     })

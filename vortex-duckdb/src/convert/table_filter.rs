@@ -25,6 +25,7 @@ use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::operators::CompareOperator;
 use vortex::scan::selection::Selection;
+use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
 
 use super::expr::try_from_bound_expression_with_col_sub;
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
@@ -178,7 +179,10 @@ pub fn try_from_virtual_column_filter(
                 .iter()
                 .map(nonnegative_number_from_value)
                 .collect::<VortexResult<Vec<u64>>>()?;
-            Ok((Selection::IncludeByIndex(Buffer::from_iter(indices)), None))
+            Ok((
+                Selection::IncludeByIndex(StrictSortedBuffer::try_new(Buffer::from_iter(indices))?),
+                None,
+            ))
         }
         TableFilterClass::ConstantComparison(const_) => {
             let n = nonnegative_number_from_value(const_.value)?;
@@ -206,8 +210,8 @@ pub fn try_from_virtual_column_filter(
                 let (sel, range) = try_from_virtual_column_filter(child)?;
                 if let Selection::IncludeByIndex(buf) = sel {
                     indices = Some(match indices {
-                        None => buf.iter().copied().collect(),
-                        Some(existing) => intersect_sorted(&existing, buf.as_ref()),
+                        None => buf.as_slice().to_vec(),
+                        Some(existing) => intersect_sorted(&existing, buf.as_slice()),
                     });
                 }
                 if let Some(r) = range {
@@ -217,7 +221,10 @@ pub fn try_from_virtual_column_filter(
             }
             let range = (start < end).then_some(start..end);
             let sel = indices
-                .map(|v| Selection::IncludeByIndex(Buffer::from_iter(v)))
+                .map(|v| {
+                    StrictSortedBuffer::try_new(Buffer::from_iter(v)).map(Selection::IncludeByIndex)
+                })
+                .transpose()?
                 .unwrap_or(Selection::All);
             Ok((sel, range))
         }

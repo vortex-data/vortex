@@ -9,34 +9,32 @@ use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_schema::Schema;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
-use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_panic;
-use vortex::extension::datetime::AnyTemporal;
-use vortex::extension::datetime::Date;
-use vortex::extension::datetime::Time;
-use vortex::extension::datetime::Timestamp;
+use vortex_arrow::ArrowSessionExt;
 
-use crate::arc_wrapper;
+use crate::box_wrapper;
 use crate::error::try_or;
 use crate::error::try_or_default;
 use crate::error::vx_error;
 use crate::ptype::vx_ptype;
-use crate::string::vx_string;
+use crate::session::vx_session;
 use crate::struct_fields::vx_struct_fields;
 
-arc_wrapper!(
-    /// A Vortex data type.
+// DType has Arc fields inside for some enum items
+box_wrapper!(
+    /// A reference-counted Vortex data type.
     ///
-    /// Data types in Vortex are purely logical, meaning they confer no information about how the data
-    /// is physically stored.
+    /// Dtypes in Vortex are purely logical meaning they tell you what the data
+    /// is but but not the encoding in which it's stored physically.
+    ///
+    /// Copying a dtype with vx_dtype_clone is a cheap operation.
     DType,
     vx_dtype
 );
 
 /// The variant tag for a Vortex data type.
-#[expect(non_camel_case_types)]
 #[non_exhaustive]
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,7 +61,7 @@ pub enum vx_dtype_variant {
     DTYPE_FIXED_SIZE_LIST = 9,
 }
 
-// TODO(connor)[Union]: Do we need to add union and variant here?
+// TODO(connor)[Union]
 impl From<&DType> for vx_dtype_variant {
     fn from(value: &DType) -> Self {
         match value {
@@ -76,23 +74,30 @@ impl From<&DType> for vx_dtype_variant {
             DType::List(..) => vx_dtype_variant::DTYPE_LIST,
             DType::FixedSizeList(..) => vx_dtype_variant::DTYPE_FIXED_SIZE_LIST,
             DType::Struct(..) => vx_dtype_variant::DTYPE_STRUCT,
-            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
-            DType::Variant(_) => vortex_panic!("Variant DType is not supported in FFI yet"),
+            DType::Map(..) => vortex_panic!("Map is not supported in FFI yet"),
+            DType::Union(..) => vortex_panic!("Union is not supported in FFI yet"),
+            DType::Variant(_) => vortex_panic!("Variant is not supported in FFI yet"),
             DType::Extension(_) => vx_dtype_variant::DTYPE_EXTENSION,
         }
     }
 }
 
+/// Increase reference count on vx_dtype
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_dtype_clone(ptr: *const vx_dtype) -> *const vx_dtype {
+    vx_dtype::new(vx_dtype::as_ref(ptr).clone())
+}
+
 /// Create a new null data type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_new_null() -> *const vx_dtype {
-    vx_dtype::new(Arc::new(DType::Null))
+    vx_dtype::new(DType::Null)
 }
 
 /// Create a new boolean data type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_new_bool(is_nullable: bool) -> *const vx_dtype {
-    vx_dtype::new(Arc::new(DType::Bool(is_nullable.into())))
+    vx_dtype::new(DType::Bool(is_nullable.into()))
 }
 
 /// Create a new primitive data type.
@@ -101,31 +106,31 @@ pub unsafe extern "C-unwind" fn vx_dtype_new_primitive(
     ptype: vx_ptype,
     is_nullable: bool,
 ) -> *const vx_dtype {
-    vx_dtype::new(Arc::new(DType::Primitive(ptype.into(), is_nullable.into())))
+    vx_dtype::new(DType::Primitive(ptype.into(), is_nullable.into()))
 }
 
 /// Create a new variable length UTF-8 data type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_new_utf8(is_nullable: bool) -> *const vx_dtype {
-    vx_dtype::new(Arc::new(DType::Utf8(is_nullable.into())))
+    vx_dtype::new(DType::Utf8(is_nullable.into()))
 }
 
 /// Create a new variable length binary data type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_new_binary(is_nullable: bool) -> *const vx_dtype {
-    vx_dtype::new(Arc::new(DType::Binary(is_nullable.into())))
+    vx_dtype::new(DType::Binary(is_nullable.into()))
 }
 
 /// Create a new list data type.
 ///
-/// Takes ownership of the `element` pointer.
+/// Takes ownership of "element".
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_new_list(
     element: *const vx_dtype,
     is_nullable: bool,
 ) -> *const vx_dtype {
-    let element = vx_dtype::into_arc(element);
-    vx_dtype::new(Arc::new(DType::List(element, is_nullable.into())))
+    let element = *vx_dtype::into_box(element.cast_mut());
+    vx_dtype::new(DType::List(Arc::new(element), is_nullable.into()))
 }
 
 /// Create a new fixed-size list data type.
@@ -137,12 +142,12 @@ pub unsafe extern "C-unwind" fn vx_dtype_new_fixed_size_list(
     size: u32,
     is_nullable: bool,
 ) -> *const vx_dtype {
-    let element = vx_dtype::into_arc(element);
-    vx_dtype::new(Arc::new(DType::FixedSizeList(
-        element,
+    let element = *vx_dtype::into_box(element.cast_mut());
+    vx_dtype::new(DType::FixedSizeList(
+        Arc::new(element),
         size,
         is_nullable.into(),
-    )))
+    ))
 }
 
 /// Create a new struct data type.
@@ -154,7 +159,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_new_struct(
     is_nullable: bool,
 ) -> *const vx_dtype {
     let struct_dtype = vx_struct_fields::into_box(struct_dtype);
-    vx_dtype::new(Arc::new(DType::Struct(*struct_dtype, is_nullable.into())))
+    vx_dtype::new(DType::Struct(*struct_dtype, is_nullable.into()))
 }
 
 /// Create a new decimal data type.
@@ -164,10 +169,10 @@ pub unsafe extern "C-unwind" fn vx_dtype_new_decimal(
     scale: i8,
     is_nullable: bool,
 ) -> *const vx_dtype {
-    vx_dtype::new(Arc::new(DType::Decimal(
+    vx_dtype::new(DType::Decimal(
         DecimalDType::new(precision, scale),
         is_nullable.into(),
-    )))
+    ))
 }
 
 /// Get the variant of a [`vx_dtype`].
@@ -208,10 +213,9 @@ pub unsafe extern "C-unwind" fn vx_dtype_decimal_scale(dtype: *const vx_dtype) -
         .scale()
 }
 
-/// Return a borrowed reference to the [`vx_struct_fields`] of a struct.
-///
-/// The returned pointer is valid as long as the struct dtype is valid.
-/// Do NOT free the returned pointer - it shares the lifetime of the struct dtype.
+/// If "dtype" is DTYPE_STRUCT, return owned vx_struct_fields for this struct,
+/// return NULL otherwise. Returned vx_struct_fields must be released with
+/// vx_struct_fields_free.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_struct_dtype(
     dtype: *const vx_dtype,
@@ -219,34 +223,28 @@ pub unsafe extern "C-unwind" fn vx_dtype_struct_dtype(
     let Some(struct_dtype) = vx_dtype::as_ref(dtype).as_struct_fields_opt() else {
         return ptr::null();
     };
-    vx_struct_fields::new_ref(struct_dtype)
+    vx_struct_fields::new(struct_dtype.clone())
 }
 
-/// Returns the element type of a list.
-///
-/// The returned pointer is valid as long as the list dtype is valid.
-/// Do NOT free the returned dtype pointer - it shares the lifetime of the list dtype.
+/// If "dtype" is DTYPE_LIST, return its element dtype, return NULL otherwise.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_list_element(dtype: *const vx_dtype) -> *const vx_dtype {
     let Some(element_dtype) = vx_dtype::as_ref(dtype).as_list_element_opt() else {
         return ptr::null();
     };
-    vx_dtype::new_ref(element_dtype)
+    vx_dtype::new(element_dtype.as_ref().clone())
 }
 
-/// Returns the element type of a fixed-size list.
-///
-/// The returned pointer is valid as long as the fixed-size list dtype is valid.
-/// Do NOT free the returned dtype pointer - it shares the lifetime of the fixed-size list dtype.
+/// If "dtype" is DTYPE_FIXED_SIZE_LIST, return its element dtype, return NULL
+/// otherwise.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_fixed_size_list_element(
     dtype: *const vx_dtype,
 ) -> *const vx_dtype {
-    // TODO(joe): propagate this error up instead of expecting
-    let element_dtype = vx_dtype::as_ref(dtype)
-        .as_fixed_size_list_element_opt()
-        .vortex_expect("not a fixed-size list dtype");
-    vx_dtype::new_ref(element_dtype)
+    let Some(element_dtype) = vx_dtype::as_ref(dtype).as_fixed_size_list_element_opt() else {
+        return ptr::null();
+    };
+    vx_dtype::new(element_dtype.as_ref().clone())
 }
 
 /// Returns the size of a fixed-size list.
@@ -259,99 +257,29 @@ pub unsafe extern "C-unwind" fn vx_dtype_fixed_size_list_size(dtype: *const vx_d
     }
 }
 
-/// Checks if the type is time.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_dtype_is_time(dtype: *const DType) -> bool {
-    // TODO(joe): propagate this error up instead of expecting
-    let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
-
-    match dtype {
-        DType::Extension(ext_dtype) => ext_dtype.is::<Time>(),
-        _ => false,
-    }
-}
-
-/// Checks if the type is a date.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_dtype_is_date(dtype: *const DType) -> bool {
-    // TODO(joe): propagate this error up instead of expecting
-    let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
-
-    match dtype {
-        DType::Extension(ext_dtype) => ext_dtype.is::<Date>(),
-        _ => false,
-    }
-}
-
-/// Checks if the type is a timestamp.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_dtype_is_timestamp(dtype: *const DType) -> bool {
-    // TODO(joe): propagate this error up instead of expecting
-    let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
-
-    match dtype {
-        DType::Extension(ext_dtype) => ext_dtype.is::<Timestamp>(),
-        _ => false,
-    }
-}
-
-/// Returns the time unit, assuming the type is time.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_dtype_time_unit(dtype: *const DType) -> u8 {
-    // TODO(joe): propagate this error up instead of expecting
-    let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
-
-    let DType::Extension(ext_dtype) = dtype else {
-        vortex_panic!("DType_time_unit: not a time dtype")
-    };
-
-    let Some(opts) = ext_dtype.metadata_opt::<AnyTemporal>() else {
-        // TODO(ngates): propagate this error up instead of expecting
-        vortex_panic!("DType_time_unit: not a temporal metadata: {ext_dtype:?}")
-    };
-    opts.time_unit().into()
-}
-
-/// Returns the time zone, assuming the type is time. Caller is responsible for freeing the returned pointer.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_dtype_time_zone(dtype: *const DType) -> *const vx_string {
-    // TODO(joe): propagate this error up instead of expecting
-    let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
-
-    let DType::Extension(ext_dtype) = dtype else {
-        vortex_panic!("vx_dtype_time_unit: not a time dtype")
-    };
-
-    let Some(opts) = ext_dtype.metadata_opt::<Timestamp>() else {
-        // TODO(joe): propagate this error up instead of expecting
-        vortex_panic!("DType_time_zone: not a timestamp: {ext_dtype:?}")
-    };
-
-    match opts.tz.as_ref() {
-        Some(zone) => vx_string::new(Arc::clone(zone)),
-        None => ptr::null(),
-    }
-}
-
-/// Convert a dtype to ArrowSchema.
+/// Convert a dtype to ArrowSchema, resolving extension types through `session`'s Arrow
+/// conversion registry.
 /// You can use the dtype after conversion
 /// On success, returns 0. On error, sets err and returns 1.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_to_arrow_schema(
+    session: *const vx_session,
     dtype: *const vx_dtype,
     schema: *mut FFI_ArrowSchema,
     err: *mut *mut vx_error,
 ) -> c_int {
     try_or(err, 1, || {
+        let session = vx_session::as_ref(session);
         let dtype = vx_dtype::as_ref(dtype);
-        let arrow_schema = dtype.to_arrow_schema()?;
+        let arrow_schema = session.arrow().to_arrow_schema(dtype)?;
         let arrow_schema = FFI_ArrowSchema::try_from(&arrow_schema)?;
         unsafe { ptr::write(schema, arrow_schema) };
         Ok(0)
     })
 }
 
-/// Create a Vortex dtype from an Arrow C Data Interface schema.
+/// Create a Vortex dtype from an Arrow C Data Interface schema, resolving extension types
+/// through `session`'s Arrow conversion registry.
 ///
 /// `schema` must point to a valid `ArrowSchema` describing a struct (record-batch) schema. It is
 /// *consumed*: its `release` callback is invoked by this function and the caller must not use or
@@ -361,22 +289,25 @@ pub unsafe extern "C-unwind" fn vx_dtype_to_arrow_schema(
 /// On error, returns NULL and sets `err`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_from_arrow_schema(
+    session: *const vx_session,
     schema: *mut FFI_ArrowSchema,
     err: *mut *mut vx_error,
 ) -> *const vx_dtype {
     try_or_default(err, || {
         vortex_ensure!(!schema.is_null(), "null arrow schema");
+        let session = vx_session::as_ref(session);
         let ffi_schema = unsafe { ptr::replace(schema, FFI_ArrowSchema::empty()) };
         let arrow_schema = Schema::try_from(&ffi_schema)?;
         drop(ffi_schema);
-        Ok(vx_dtype::new(Arc::new(DType::from_arrow(&arrow_schema))))
+        Ok(vx_dtype::new(
+            session.arrow().from_arrow_schema(&arrow_schema)?,
+        ))
     })
 }
 
 #[cfg(test)]
 #[expect(clippy::cast_possible_truncation)]
 mod tests {
-    use std::slice;
 
     use vortex::array::ArrayRef;
     use vortex::array::IntoArray;
@@ -397,9 +328,7 @@ mod tests {
     use crate::dtype::vx_dtype_new_utf8;
     use crate::dtype::vx_dtype_variant;
     use crate::ptype::vx_ptype;
-    use crate::string::vx_string;
-    use crate::string::vx_string_len;
-    use crate::string::vx_string_ptr;
+    use crate::string::vx_view;
     use crate::struct_fields::vx_struct_fields_builder_add_field;
     use crate::struct_fields::vx_struct_fields_builder_finalize;
     use crate::struct_fields::vx_struct_fields_builder_new;
@@ -407,6 +336,8 @@ mod tests {
     use crate::struct_fields::vx_struct_fields_field_name;
     use crate::struct_fields::vx_struct_fields_free;
     use crate::struct_fields::vx_struct_fields_nfields;
+    use crate::vx_session_free;
+    use crate::vx_session_new_with;
 
     #[test]
     fn test_simple() {
@@ -431,23 +362,28 @@ mod tests {
     fn test_struct() {
         unsafe {
             let builder = vx_struct_fields_builder_new();
+            let mut error = ptr::null_mut();
             vx_struct_fields_builder_add_field(
                 builder,
-                vx_string::new("name".into()),
+                vx_view::from_str("name"),
                 vx_dtype_new_utf8(false),
+                &raw mut error,
             );
+            assert!(error.is_null());
             vx_struct_fields_builder_add_field(
                 builder,
-                vx_string::new("age".into()),
+                vx_view::from_str("age"),
                 vx_dtype_new_primitive(vx_ptype::PTYPE_U8, true),
+                &raw mut error,
             );
+            assert!(error.is_null());
             let person = vx_struct_fields_builder_finalize(builder);
             assert_eq!(vx_struct_fields_nfields(person), 2);
 
             let name = vx_struct_fields_field_name(person, 0);
-            assert_eq!(vx_string::as_str(name), "name");
+            assert_eq!(name.as_str().unwrap(), "name");
             let age = vx_struct_fields_field_name(person, 1);
-            assert_eq!(vx_string::as_str(age), "age");
+            assert_eq!(age.as_str().unwrap(), "age");
 
             let dtype0 = vx_struct_fields_field_dtype(person, 0);
             let dtype1 = vx_struct_fields_field_dtype(person, 1);
@@ -457,13 +393,9 @@ mod tests {
                 vx_dtype_variant::DTYPE_PRIMITIVE
             );
 
-            // Field names are now borrowed references - do not free them
-
-            // Free field dtypes (owned references)
             vx_dtype_free(dtype0);
             vx_dtype_free(dtype1);
 
-            // Free struct fields
             vx_struct_fields_free(person);
         }
     }
@@ -517,6 +449,7 @@ mod tests {
                 vx_dtype_variant::DTYPE_PRIMITIVE
             );
             assert_eq!(vx_dtype_primitive_ptype(element), vx_ptype::PTYPE_I32);
+            vx_dtype_free(element);
 
             vx_dtype_free(list_dtype);
         }
@@ -534,15 +467,14 @@ mod tests {
             );
             assert!(vx_dtype_is_nullable(fsl_dtype));
 
-            // Test element accessor
             let element = vx_dtype_fixed_size_list_element(fsl_dtype);
             assert_eq!(
                 vx_dtype_get_variant(element),
                 vx_dtype_variant::DTYPE_PRIMITIVE
             );
             assert_eq!(vx_dtype_primitive_ptype(element), vx_ptype::PTYPE_F64);
+            vx_dtype_free(element);
 
-            // Test size accessor
             let size = vx_dtype_fixed_size_list_size(fsl_dtype);
             assert_eq!(size, 3);
 
@@ -565,6 +497,7 @@ mod tests {
             let element = vx_dtype_fixed_size_list_element(fsl_dtype);
             assert_eq!(vx_dtype_get_variant(element), vx_dtype_variant::DTYPE_UTF8);
             assert!(vx_dtype_is_nullable(element));
+            vx_dtype_free(element);
 
             let size = vx_dtype_fixed_size_list_size(fsl_dtype);
             assert_eq!(size, 10);
@@ -607,6 +540,8 @@ mod tests {
             );
             assert_eq!(vx_dtype_primitive_ptype(innermost), vx_ptype::PTYPE_I32);
 
+            vx_dtype_free(innermost);
+            vx_dtype_free(inner);
             vx_dtype_free(outer_fsl);
         }
     }
@@ -696,15 +631,16 @@ mod tests {
     #[test]
     fn test_struct_introspection_simple() {
         let array = create_test_struct_array();
-        let vx_arr = vx_array::new(Arc::new(array));
+        let vx_arr = vx_array::new(array);
         let dtype_ptr = unsafe { vx_array_dtype(vx_arr) };
 
         let struct_fields_ptr = unsafe { vx_dtype_struct_dtype(dtype_ptr) };
         let n_fields = unsafe { vx_struct_fields_nfields(struct_fields_ptr) };
         assert_eq!(n_fields, 2);
 
-        // Cleanup in reverse order - this is the safest order
         unsafe {
+            vx_struct_fields_free(struct_fields_ptr);
+            vx_dtype_free(dtype_ptr);
             vx_array_free(vx_arr);
         }
     }
@@ -714,24 +650,19 @@ mod tests {
     #[test]
     fn test_field_name_access() {
         let array = create_test_struct_array();
-        let vx_arr = vx_array::new(Arc::new(array));
+        let vx_arr = vx_array::new(array);
         let dtype_ptr = unsafe { vx_array_dtype(vx_arr) };
 
         let struct_fields_ptr = unsafe { vx_dtype_struct_dtype(dtype_ptr) };
 
         // Test field name access
-        let field_name_ptr = unsafe { vx_struct_fields_field_name(struct_fields_ptr, 0) };
-        assert!(!field_name_ptr.is_null());
+        let field_name = unsafe { vx_struct_fields_field_name(struct_fields_ptr, 0) };
+        assert!(!field_name.ptr.is_null());
+        assert_eq!(unsafe { field_name.as_str() }.unwrap(), "nums");
 
-        let name_len = unsafe { vx_string_len(field_name_ptr) };
-        let name_ptr = unsafe { vx_string_ptr(field_name_ptr) };
-        let name_slice = unsafe { slice::from_raw_parts(name_ptr.cast::<u8>(), name_len) };
-        let name_str = str::from_utf8(name_slice).unwrap();
-        assert_eq!(name_str, "nums");
-
-        // Cleanup in careful order
         unsafe {
-            // Field name is now a borrowed reference - do not free it
+            vx_struct_fields_free(struct_fields_ptr);
+            vx_dtype_free(dtype_ptr);
             vx_array_free(vx_arr);
         }
     }
@@ -741,7 +672,7 @@ mod tests {
     #[test]
     fn test_comprehensive_struct_introspection() {
         let array = create_test_struct_array();
-        let vx_arr = vx_array::new(Arc::new(array));
+        let vx_arr = vx_array::new(array);
         let dtype_ptr = unsafe { vx_array_dtype(vx_arr) };
 
         let struct_fields_ptr = unsafe { vx_dtype_struct_dtype(dtype_ptr) };
@@ -750,27 +681,22 @@ mod tests {
 
         // Test both field names
         for i in 0..n_fields {
-            let field_name_ptr =
-                unsafe { vx_struct_fields_field_name(struct_fields_ptr, i as usize) };
-            assert!(!field_name_ptr.is_null());
-
-            let name_len = unsafe { vx_string_len(field_name_ptr) };
-            let name_ptr = unsafe { vx_string_ptr(field_name_ptr) };
-            let name_slice = unsafe { slice::from_raw_parts(name_ptr.cast::<u8>(), name_len) };
-            let name_str = str::from_utf8(name_slice).unwrap();
+            let field_name = unsafe { vx_struct_fields_field_name(struct_fields_ptr, i as usize) };
+            assert!(!field_name.ptr.is_null());
 
             let expected_name = if i == 0 { "nums" } else { "floats" };
-            assert_eq!(name_str, expected_name);
-
-            // Field name is now a borrowed reference - do not free it
+            assert_eq!(unsafe { field_name.as_str() }.unwrap(), expected_name);
         }
 
-        // Cleanup
         unsafe {
+            vx_struct_fields_free(struct_fields_ptr);
+            vx_dtype_free(dtype_ptr);
             vx_array_free(vx_arr);
         }
     }
 
+    // TODO: re-enable under miri once parking_lot_core fixes strict-provenance violations
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_dtype_from_arrow_schema() {
         use arrow_schema::DataType;
@@ -782,8 +708,10 @@ mod tests {
         ]);
         let mut ffi_schema = FFI_ArrowSchema::try_from(&arrow_schema).unwrap();
 
+        let session = vx_session_new_with(|s| s);
         let mut error = ptr::null_mut();
-        let dtype = unsafe { vx_dtype_from_arrow_schema(&raw mut ffi_schema, &raw mut error) };
+        let dtype =
+            unsafe { vx_dtype_from_arrow_schema(session, &raw mut ffi_schema, &raw mut error) };
         assert!(error.is_null());
         assert!(!dtype.is_null());
 
@@ -800,8 +728,10 @@ mod tests {
             let f1 = vx_struct_fields_field_dtype(fields, 1);
             assert_eq!(vx_dtype_get_variant(f1), vx_dtype_variant::DTYPE_UTF8);
             assert!(vx_dtype_is_nullable(f1));
+            vx_struct_fields_free(fields);
             vx_dtype_free(f1);
             vx_dtype_free(dtype);
+            vx_session_free(session);
         }
     }
 }

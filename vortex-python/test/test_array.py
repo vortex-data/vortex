@@ -25,6 +25,24 @@ def test_varbin_array_round_trip():
     assert arr.to_arrow_array() == a
 
 
+@pytest.mark.parametrize(
+    ("source_type", "target_type", "values"),
+    [
+        (pa.string_view(), pa.string(), ["one", None, "three"]),
+        (pa.binary_view(), pa.binary(), [b"one", None, b"three"]),
+    ],
+)
+def test_varbin_offset_arrow_type(
+    source_type: pa.DataType,
+    target_type: pa.DataType,
+    values: list[str | bytes | None],
+):
+    source = pa.array(values, type=source_type)
+    result = vortex.array(source).to_arrow_array(arrow_type=target_type)
+    assert result.type == target_type
+    assert result == pa.array(values, type=target_type)
+
+
 def test_varbin_array_take():
     a = vortex.array(pa.array(["a", "b", "c", "d"], type=pa.string_view()))
     assert a.take(vortex.array(pa.array([0, 2]))).to_arrow_array() == pa.array(
@@ -43,3 +61,19 @@ def test_empty_array():
 def test_scalar_at_out_of_bounds():
     a = vortex.array([10, 42, 999, 1992])
     _s = a.scalar_at(10)
+
+
+@pytest.mark.parametrize(
+    "arrow_type",
+    [
+        pa.duration("us"),
+        pa.month_day_nano_interval(),
+        pa.binary(3),
+    ],
+)
+def test_unsupported_arrow_type_raises_value_error(arrow_type: pa.DataType):
+    # Regression test for https://github.com/vortex-data/vortex/issues/8346:
+    # unsupported Arrow types must surface as a clean ValueError, not a PanicException.
+    table = pa.table({"c0": pa.array([], type=arrow_type)})
+    with pytest.raises(ValueError):
+        _ = vortex.array(table)

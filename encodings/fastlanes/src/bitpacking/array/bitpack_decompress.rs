@@ -203,13 +203,20 @@ pub fn count_exceptions(bit_width: u8, bit_width_freq: &[usize]) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use std::sync::LazyLock;
 
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::ListArray;
+    use vortex_array::arrays::ListViewArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::builders::ListBuilder;
+    use vortex_array::builders::ListViewBuilder;
+    use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::BufferMut;
@@ -264,6 +271,64 @@ mod tests {
         compression_roundtrip(1024);
         compression_roundtrip(10_000);
         compression_roundtrip(10_240);
+    }
+
+    /// List builders bulk-append the source's elements into their internal elements builder.
+    /// Fixed-width builder appends assume the caller reserved capacity, so the list builders
+    /// must grow the elements builder themselves; encoded elements exercise that because
+    /// BitPacked's `append_to_builder` writes through `uninit_range`.
+    #[test]
+    fn test_list_append_grows_elements_builder() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let elements = encode(&PrimitiveArray::from_iter((0..3072u32).map(|i| i % 256)), 8);
+        let element_dtype: Arc<DType> = Arc::new(PType::U32.into());
+
+        // 48 lists of 64 elements each.
+        let offsets = Buffer::from_iter((0..=48u64).map(|i| i * 64)).into_array();
+        let list = ListArray::try_new(
+            elements.clone().into_array(),
+            offsets,
+            Validity::NonNullable,
+        )?;
+
+        let mut listview_builder = ListViewBuilder::<u64, u32>::with_capacity(
+            Arc::clone(&element_dtype),
+            Nullability::NonNullable,
+            0,
+            0,
+        );
+        list.clone()
+            .into_array()
+            .append_to_builder(&mut listview_builder, &mut ctx)?;
+        assert_arrays_eq!(listview_builder.finish(), list, &mut ctx);
+
+        let mut list_builder = ListBuilder::<u64>::with_capacity(
+            Arc::clone(&element_dtype),
+            Nullability::NonNullable,
+            0,
+            0,
+        );
+        list.clone()
+            .into_array()
+            .append_to_builder(&mut list_builder, &mut ctx)?;
+        assert_arrays_eq!(list_builder.finish(), list, &mut ctx);
+
+        // A `ListViewArray` source appended into a `ListBuilder` appends elements list by list.
+        let listview = ListViewArray::try_new(
+            elements.into_array(),
+            Buffer::from_iter((0..48u64).map(|i| i * 64)).into_array(),
+            Buffer::from_iter(std::iter::repeat_n(64u32, 48)).into_array(),
+            Validity::NonNullable,
+        )?;
+        let mut list_builder =
+            ListBuilder::<u64>::with_capacity(element_dtype, Nullability::NonNullable, 0, 0);
+        listview
+            .into_array()
+            .append_to_builder(&mut list_builder, &mut ctx)?;
+        assert_arrays_eq!(list_builder.finish(), list, &mut ctx);
+
+        Ok(())
     }
 
     #[test]

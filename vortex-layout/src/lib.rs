@@ -8,13 +8,14 @@
 //! segment bytes. A [`LayoutReader`] pairs a layout with a [`SegmentSource`](segments::SegmentSource)
 //! and session so scans can evaluate projections and filters.
 //!
-//! Most users enter this crate through file APIs, but extension authors implement [`VTable`],
-//! [`LayoutEncoding`], and [`LayoutStrategy`] to add new on-disk organizations.
+//! Most users enter this crate through file APIs, but extension authors implement [`VTable`] and
+//! [`LayoutStrategy`] to add new on-disk organizations.
 //!
-//! Scanning is built with [`scan::scan_builder::ScanBuilder`]. It accepts a projection expression,
-//! optional filter, optional row range, [`Selection`](vortex_scan::selection::Selection), split
-//! strategy, and task concurrency settings, then produces array streams or iterators.
+//! Scanning is built with [`scan::scan_builder::ScanBuilder`]. It accepts a bound projection,
+//! optional bound filter, optional row range, [`Selection`](vortex_scan::selection::Selection),
+//! split strategy, and task concurrency settings, then produces array streams or iterators.
 pub mod layouts;
+pub mod plan;
 
 pub use children::*;
 pub use encoding::*;
@@ -23,7 +24,7 @@ pub use layout::*;
 pub use reader::*;
 pub use reader_context::*;
 pub use strategy::*;
-use vortex_session::registry::Context;
+use vortex_session::registry::Interner;
 pub use vtable::*;
 pub mod aliases;
 mod children;
@@ -40,6 +41,6 @@ pub mod session;
 mod strategy;
 #[cfg(test)]
 mod test;
-pub mod vtable;
+mod vtable;
 
-pub type LayoutContext = Context<LayoutEncodingRef>;
+pub type LayoutContext = Interner;

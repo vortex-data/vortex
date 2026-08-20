@@ -17,7 +17,9 @@ from .dataset import VortexDataset
 from .scan import RepeatedScan
 from .store import (
     AzureStore,
+    CosStore,
     GCSStore,
+    HfStore,
     HTTPStore,
     LocalStore,
     MemoryStore,
@@ -32,7 +34,7 @@ if TYPE_CHECKING:
 def open(
     path: str,
     *,
-    store: AzureStore | GCSStore | HTTPStore | LocalStore | MemoryStore | S3Store | None = None,
+    store: AzureStore | CosStore | GCSStore | HfStore | HTTPStore | LocalStore | MemoryStore | S3Store | None = None,
     without_segment_cache: bool = False,
 ) -> VortexFile:
     """
@@ -74,6 +76,11 @@ class VortexFile:
     def dtype(self) -> DType:
         """The dtype of the file."""
         return self._file.dtype
+
+    @property
+    def path(self) -> str:
+        """The path or URL this file was opened from."""
+        return self._file.path
 
     def splits(self) -> list[tuple[int, int]]:
         return self._file.splits()
@@ -121,20 +128,20 @@ class VortexFile:
         >>> vxf.scan().read_all().to_arrow_array()
         <pyarrow.lib.StructArray object at ...>
         -- is_valid: all not null
-        -- child 0 type: int64
-          [
-            25,
-            31,
-            null,
-            57,
-            null
-          ]
-        -- child 1 type: string_view
+        -- child 0 type: string_view
           [
             "Joseph",
             null,
             "Angela",
             "Mikhail",
+            null
+          ]
+        -- child 1 type: int64
+          [
+            25,
+            31,
+            null,
+            57,
             null
           ]
 
@@ -158,13 +165,13 @@ class VortexFile:
         >>> vxf.scan(expr=ve.column("age") > 35).read_all().to_arrow_array()
         <pyarrow.lib.StructArray object at ...>
         -- is_valid: all not null
-        -- child 0 type: int64
-          [
-            57
-          ]
-        -- child 1 type: string_view
+        -- child 0 type: string_view
           [
             "Mikhail"
+          ]
+        -- child 1 type: int64
+          [
+            57
           ]
         """
         return self._file.scan(projection, expr=expr, limit=limit, indices=indices, batch_size=batch_size)
@@ -202,6 +209,7 @@ class VortexFile:
         limit: int | None = None,
         expr: Expr | None = None,
         batch_size: int | None = None,
+        schema: pa.Schema | None = None,
     ) -> RecordBatchReader:
         """Scan the Vortex file as a :class:`pyarrow.RecordBatchReader`.
 
@@ -214,9 +222,12 @@ class VortexFile:
             The predicate used to filter rows. The filter columns need not appear in the projection.
         batch_size : :class:`int` | None
             The number of rows to read per chunk.
+        schema : :class:`pyarrow.Schema` | None
+            The Arrow schema to return. Use ``pyarrow.string()`` for ``StringArray`` fields.
+            Use ``pyarrow.binary()`` for ``BinaryArray`` fields.
 
         """
-        return self._file.to_arrow(projection, expr=expr, limit=limit, batch_size=batch_size)
+        return self._file.to_arrow(projection, expr=expr, limit=limit, batch_size=batch_size, schema=schema)
 
     def to_dataset(self) -> VortexDataset:
         """Scan the Vortex file using the :class:`pyarrow.dataset.Dataset` API."""

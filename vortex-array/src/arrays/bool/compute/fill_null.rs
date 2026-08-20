@@ -48,11 +48,11 @@ mod tests {
     use vortex_buffer::bitbuffer;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::bool::BoolArrayExt;
     use crate::builtins::ArrayBuiltins;
-    #[expect(deprecated)]
-    use crate::canonical::ToCanonical as _;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
@@ -62,16 +62,17 @@ mod tests {
     #[case(true, bitbuffer![true, true, false, true])]
     #[case(false, bitbuffer![true, false, false, false])]
     fn bool_fill_null(#[case] fill_value: bool, #[case] expected: BitBuffer) {
+        let mut ctx = array_session().create_execution_ctx();
         let bool_array = BoolArray::new(
             BitBuffer::from_iter([true, true, false, false]),
             Validity::from_iter([true, false, true, false]),
         );
-        #[expect(deprecated)]
         let non_null_array = bool_array
             .into_array()
             .fill_null(Scalar::from(fill_value))
             .unwrap()
-            .to_bool();
+            .execute::<BoolArray>(&mut ctx)
+            .unwrap();
         assert_eq!(non_null_array.to_bit_buffer(), expected);
         assert_eq!(
             non_null_array.dtype(),

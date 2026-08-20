@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
-import org.gradle.kotlin.dsl.support.serviceOf
+import org.gradle.api.tasks.Copy
+import org.gradle.api.tasks.Exec
 
 plugins {
     `java-library`
@@ -111,51 +112,52 @@ tasks.build {
     dependsOn("shadowJar")
 }
 
-tasks.register("makeTestFiles") {
-    description = "Generate files used by unit tests"
+val rustWorkspaceDir = rootProject.projectDir.absoluteFile.parentFile
+val osName = System.getProperty("os.name").lowercase()
+val osArch = System.getProperty("os.arch").lowercase()
+val osShortName =
+    when {
+        osName.contains("mac") -> "darwin"
+        osName.contains("nix") || osName.contains("nux") -> "linux"
+        osName.contains("win") -> "win"
+        else -> throw GradleException("Unsupported OS for makeTestFiles: $osName")
+    }
+val libExt =
+    when (osShortName) {
+        "darwin" -> ".dylib"
+        "linux" -> ".so"
+        "win" -> ".dll"
+        else -> throw GradleException("Unsupported OS short name: $osShortName")
+    }
+val nativeLibrary = rustWorkspaceDir.resolve("target/debug/libvortex_jni$libExt")
+val nativeLibraryDir = "src/main/resources/native/$osShortName-$osArch"
+
+val buildJniLibrary =
+    tasks.register<Exec>("buildJniLibrary") {
+        description = "Build the JNI library for the host architecture"
+        group = "verification"
+
+        // The publish workflow places release, cross-compiled libs for every supported
+        // architecture before invoking shadowJar; rebuilding the host-arch debug lib
+        // here would overwrite them (linux-aarch64 ends up holding a linux-amd64 .so).
+        onlyIf { System.getenv("VORTEX_SKIP_MAKE_TEST_FILES") != "true" }
+
+        workingDir = rustWorkspaceDir
+        executable = "cargo"
+        args("build", "--package", "vortex-jni")
+    }
+
+tasks.register<Copy>("makeTestFiles") {
+    description = "Stage the JNI library used by unit tests"
     group = "verification"
 
-    // The publish workflow places release, cross-compiled libs for every supported
-    // architecture before invoking shadowJar; rebuilding the host-arch debug lib
-    // here would overwrite them (linux-aarch64 ends up holding a linux-amd64 .so).
     onlyIf { System.getenv("VORTEX_SKIP_MAKE_TEST_FILES") != "true" }
+    dependsOn(buildJniLibrary)
 
-    doLast {
-        println("makeTestFiles executed")
-
-        val execOps = serviceOf<ExecOperations>()
-
-        // Build the JNI lib for the host architecture only.
-        execOps.exec {
-            workingDir = rootProject.projectDir.absoluteFile.parentFile
-            executable = "cargo"
-            args("build", "--package", "vortex-jni")
-        }
-
-        val osName = System.getProperty("os.name").lowercase()
-        val osArch = System.getProperty("os.arch").lowercase()
-        val osShortName =
-            when {
-                osName.contains("mac") -> "darwin"
-                osName.contains("nix") || osName.contains("nux") -> "linux"
-                osName.contains("win") -> "win"
-                else -> throw GradleException("Unsupported OS for makeTestFiles: $osName")
-            }
-        val libExt =
-            when (osShortName) {
-                "darwin" -> ".dylib"
-                "linux" -> ".so"
-                "win" -> ".dll"
-                else -> throw GradleException("Unsupported OS short name: $osShortName")
-            }
-
-        // Only populate the host-arch directory so cross-compiled libs for other
-        // architectures (placed by the publish workflow) are preserved.
-        copy {
-            from("${rootProject.projectDir.absoluteFile.parentFile}/target/debug/libvortex_jni$libExt")
-            into("$projectDir/src/main/resources/native/$osShortName-$osArch")
-        }
-    }
+    // Only populate the host-arch directory so cross-compiled libs for other
+    // architectures (placed by the publish workflow) are preserved.
+    from(nativeLibrary)
+    into(nativeLibraryDir)
 }
 
 tasks.named("processResources").configure {

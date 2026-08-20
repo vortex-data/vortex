@@ -3,18 +3,23 @@
 
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::sync::Arc;
 
 use DType::*;
 use itertools::Itertools;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use super::DType;
 use crate::dtype::FieldDType;
 use crate::dtype::FieldName;
+use crate::dtype::MapDType;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
+use crate::dtype::UnionVariants;
 use crate::dtype::decimal::DecimalDType;
 use crate::dtype::decimal::DecimalType;
 use crate::dtype::extension::ExtDTypeRef;
@@ -32,7 +37,7 @@ pub trait NativeDType {
     fn dtype() -> DType;
 }
 
-/// Assert that the size of DType is 16 bytes.
+/// Assert that the size of DType is 24 bytes.
 #[cfg(not(target_arch = "wasm32"))]
 const _: [(); size_of::<DType>()] = [(); 24]; // FIXME(ngates): should we keep this at 16?
 
@@ -62,8 +67,9 @@ impl DType {
             | Binary(null)
             | List(_, null)
             | FixedSizeList(_, _, null)
+            | Map(_, null)
             | Struct(_, null)
-            | Union(null)
+            | Union(_, null)
             | Variant(null) => matches!(null, Nullability::Nullable),
             Extension(ext_dtype) => ext_dtype.storage_dtype().is_nullable(),
         }
@@ -79,9 +85,14 @@ impl DType {
         self.with_nullability(Nullability::Nullable)
     }
 
-    /// Get a new DType with the given nullability (but otherwise the same as `self`)
+    /// Get a new DType with the given nullability (but otherwise the same as `self`).
+    ///
+    /// Invoking .with_nullability(NonNullable) on DType::Null panics.
     pub fn with_nullability(&self, nullability: Nullability) -> Self {
         match self {
+            Null if nullability == Nullability::NonNullable => {
+                vortex_panic!("DType::Null cannot be made non-nullable")
+            }
             Null => Null,
             Bool(_) => Bool(nullability),
             Primitive(pdt, _) => Primitive(*pdt, nullability),
@@ -90,8 +101,9 @@ impl DType {
             Binary(_) => Binary(nullability),
             List(edt, _) => List(Arc::clone(edt), nullability),
             FixedSizeList(edt, size, _) => FixedSizeList(Arc::clone(edt), *size, nullability),
+            Map(map, _) => Map(map.clone(), nullability),
             Struct(sf, _) => Struct(sf.clone(), nullability),
-            Union(_) => Union(nullability),
+            Union(vs, _) => Union(vs.clone(), nullability),
             Variant(_) => Variant(nullability),
             Extension(ext) => Extension(ext.with_nullability(nullability)),
         }
@@ -116,19 +128,36 @@ impl DType {
             (FixedSizeList(lhs_dtype, lhs_size, _), FixedSizeList(rhs_dtype, rhs_size, _)) => {
                 lhs_size == rhs_size && lhs_dtype.eq_ignore_nullability(rhs_dtype)
             }
+            (Map(lhs, _), Map(rhs, _)) => lhs.eq_ignore_nullability(rhs),
             (Struct(lhs_dtype, _), Struct(rhs_dtype, _)) => {
-                (lhs_dtype.names() == rhs_dtype.names())
-                    && (lhs_dtype
-                        .fields()
-                        .zip_eq(rhs_dtype.fields())
-                        .all(|(l, r)| l.eq_ignore_nullability(&r)))
+                lhs_dtype.eq_ignore_nullability(rhs_dtype)
             }
-            (Union(_), Union(_)) => true,
+            (Union(lhs, _), Union(rhs, _)) => lhs.eq_ignore_nullability(rhs),
             (Variant(_), Variant(_)) => true,
             (Extension(lhs_extdtype), Extension(rhs_extdtype)) => {
                 lhs_extdtype.eq_ignore_nullability(rhs_extdtype)
             }
             _ => false,
+        }
+    }
+
+    /// Hash this dtype using the same equivalence relation as [`Self::eq_ignore_nullability`].
+    pub(crate) fn hash_ignore_nullability<H: Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+
+        match self {
+            Null | Bool(_) | Utf8(_) | Binary(_) | Variant(_) => {}
+            Primitive(ptype, _) => ptype.hash(state),
+            Decimal(decimal, _) => decimal.hash(state),
+            List(element, _) => element.hash_ignore_nullability(state),
+            FixedSizeList(element, size, _) => {
+                element.hash_ignore_nullability(state);
+                size.hash(state);
+            }
+            Map(map, _) => map.hash_ignore_nullability(state),
+            Struct(fields, _) => fields.hash_ignore_nullability(state),
+            Union(variants, _) => variants.hash_ignore_nullability(state),
+            Extension(ext) => ext.hash_ignore_nullability(state),
         }
     }
 
@@ -242,6 +271,11 @@ impl DType {
         matches!(self, FixedSizeList(..))
     }
 
+    /// Check if `self` is a [`DType::Map`].
+    pub fn is_map(&self) -> bool {
+        matches!(self, Map(..))
+    }
+
     /// Check if `self` is a [`DType::Struct`]
     pub fn is_struct(&self) -> bool {
         matches!(self, Struct(_, _))
@@ -266,7 +300,7 @@ impl DType {
     /// recursive type.
     pub fn is_nested(&self) -> bool {
         match self {
-            List(..) | FixedSizeList(..) | Struct(..) | Union(..) | Variant(..) => true,
+            List(..) | FixedSizeList(..) | Map(..) | Struct(..) | Union(..) | Variant(..) => true,
             Extension(ext) => ext.storage_dtype().is_nested(),
             _ => false,
         }
@@ -285,7 +319,7 @@ impl DType {
             Decimal(decimal, _) => {
                 Some(DecimalType::smallest_decimal_value_type(decimal).byte_width())
             }
-            Utf8(_) | Binary(_) | List(..) => None,
+            Utf8(_) | Binary(_) | List(..) | Map(..) => None,
             FixedSizeList(elem_dtype, list_size, _) => {
                 elem_dtype.element_size().map(|s| s * *list_size as usize)
             }
@@ -299,7 +333,7 @@ impl DType {
                 }
                 Some(sum)
             }
-            Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+            Union(..) => None,
             Variant(_) => None,
             Extension(ext) => ext.storage_dtype().element_size(),
         }
@@ -359,6 +393,24 @@ impl DType {
     pub fn into_fixed_size_list_element_opt(self) -> Option<Arc<DType>> {
         if let FixedSizeList(edt, ..) = self {
             Some(edt)
+        } else {
+            None
+        }
+    }
+
+    /// Get the [`MapDType`] if `self` is a [`DType::Map`], otherwise `None`.
+    pub fn as_map_opt(&self) -> Option<&MapDType> {
+        if let Map(map, _) = self {
+            Some(map)
+        } else {
+            None
+        }
+    }
+
+    /// Owned version of [Self::as_map_opt].
+    pub fn into_map_opt(self) -> Option<MapDType> {
+        if let Map(map, _) = self {
+            Some(map)
         } else {
             None
         }
@@ -425,6 +477,27 @@ impl DType {
         }
     }
 
+    /// Get the [`UnionVariants`] if `self` is a [`DType::Union`], otherwise [`None`].
+    ///
+    /// This [`Option`] only represents whether the dtype is a union; Union nullability does not
+    /// affect the result.
+    pub fn as_union_variants_opt(&self) -> Option<&UnionVariants> {
+        if let Union(uv, _) = self {
+            Some(uv)
+        } else {
+            None
+        }
+    }
+
+    /// Owned version of [`Self::as_union_variants_opt`].
+    pub fn into_union_variants_opt(self) -> Option<UnionVariants> {
+        if let Union(uv, _) = self {
+            Some(uv)
+        } else {
+            None
+        }
+    }
+
     /// Downcast a `DType` to an `ExtDType`
     pub fn as_extension(&self) -> &ExtDTypeRef {
         let Extension(ext) = self else {
@@ -447,6 +520,23 @@ impl DType {
         List(Arc::new(dtype.into()), nullability)
     }
 
+    /// Convenience method for creating a [`DType::Map`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the key dtype is nullable.
+    pub fn map(
+        key: impl Into<DType>,
+        value: impl Into<DType>,
+        keys_sorted: bool,
+        nullability: Nullability,
+    ) -> VortexResult<Self> {
+        Ok(Map(
+            MapDType::try_new(key.into(), value.into(), keys_sorted)?,
+            nullability,
+        ))
+    }
+
     /// Convenience method for creating a [`DType::Struct`].
     pub fn struct_<I: IntoIterator<Item = (impl Into<FieldName>, impl Into<FieldDType>)>>(
         iter: I,
@@ -467,6 +557,7 @@ impl Display for DType {
             Binary(null) => write!(f, "binary{null}"),
             List(edt, null) => write!(f, "list({edt}){null}"),
             FixedSizeList(edt, size, null) => write!(f, "fixed_size_list({edt})[{size}]{null}"),
+            Map(map, null) => write!(f, "{map}{null}"),
             Struct(sf, null) => write!(
                 f,
                 "{{{}}}{null}",
@@ -476,7 +567,7 @@ impl Display for DType {
                     .map(|(field_null, dt)| format!("{field_null}={dt}"))
                     .join(", "),
             ),
-            Union(null) => write!(f, "union(){null}"),
+            Union(uv, null) => write!(f, "union({uv}){null}"),
             Variant(null) => write!(f, "variant{null}"),
             Extension(ext) => write!(f, "{}", ext),
         }
@@ -485,17 +576,28 @@ impl Display for DType {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::Hasher;
     use std::sync::Arc;
+
+    use vortex_error::VortexResult;
 
     use crate::dtype::DType;
     use crate::dtype::Nullability::NonNullable;
     use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType;
+    use crate::dtype::UnionVariants;
     use crate::dtype::decimal::DecimalDType;
     use crate::extension::datetime::Date;
     use crate::extension::datetime::Time;
     use crate::extension::datetime::TimeUnit;
     use crate::extension::datetime::Timestamp;
+
+    fn hash_ignore_nullability(dtype: &DType) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        dtype.hash_ignore_nullability(&mut hasher);
+        hasher.finish()
+    }
 
     #[test]
     fn test_ext_dtype_eq_ignore_nullability() {
@@ -510,6 +612,58 @@ mod tests {
             Timestamp::new_with_tz(TimeUnit::Seconds, Some("ET".into()), Nullable).erased(),
         );
         assert!(!t1.eq_ignore_nullability(&t2));
+    }
+
+    #[test]
+    fn test_union_dtype_hash_ignores_variant_nullability() -> VortexResult<()> {
+        let lhs = DType::Union(
+            UnionVariants::try_new(
+                ["int", "string"].into(),
+                vec![
+                    DType::Primitive(PType::I32, Nullable),
+                    DType::Utf8(NonNullable),
+                ],
+                vec![5, 9],
+            )?,
+            NonNullable,
+        );
+        let rhs = DType::Union(
+            UnionVariants::try_new(
+                ["int", "string"].into(),
+                vec![
+                    DType::Primitive(PType::I32, NonNullable),
+                    DType::Utf8(Nullable),
+                ],
+                vec![5, 9],
+            )?,
+            NonNullable,
+        );
+
+        assert!(lhs.eq_ignore_nullability(&rhs));
+        assert_eq!(hash_ignore_nullability(&lhs), hash_ignore_nullability(&rhs));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_map_dtype_hash_ignores_entry_nullability() -> VortexResult<()> {
+        let lhs = DType::map(
+            DType::Primitive(PType::I32, NonNullable),
+            DType::Utf8(NonNullable),
+            true,
+            NonNullable,
+        )?;
+        let rhs = DType::map(
+            DType::Primitive(PType::I32, NonNullable),
+            DType::Utf8(Nullable),
+            true,
+            Nullable,
+        )?;
+
+        assert!(lhs.eq_ignore_nullability(&rhs));
+        assert_eq!(hash_ignore_nullability(&lhs), hash_ignore_nullability(&rhs));
+
+        Ok(())
     }
 
     #[test]
@@ -597,5 +751,11 @@ mod tests {
             .element_size(),
             None
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "DType::Null cannot be made non-nullable")]
+    fn null_as_nonnullable_panics() {
+        DType::Null.as_nonnullable();
     }
 }

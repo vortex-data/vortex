@@ -30,6 +30,16 @@ pub fn render_table<W: Write, T: ToTable>(
     all_measurements: Vec<T>,
     targets: &[Target],
 ) -> anyhow::Result<()> {
+    // `all_measurements` is empty for decompress-only runs such as `compress-bench
+    // --gpu-decompress`: every ratio compares vortex against parquet or lance, neither of
+    // which is benchmarked there, so no ratio is recorded even though a baseline target is
+    // still passed. `targets` is instead empty when the caller has no baseline format to
+    // report against. Either way there is no table to draw, and the indexing below would
+    // panic looking up a baseline that has no measurements.
+    if all_measurements.is_empty() || targets.is_empty() {
+        return Ok(());
+    }
+
     let mut measurements: HashMap<Target, Vec<TableValue>> =
         HashMap::with_capacity(all_measurements.len().div_ceil(targets.len()));
 
@@ -105,9 +115,14 @@ pub fn render_table<W: Write, T: ToTable>(
 pub fn print_measurements_json<T: ToJson>(
     writer: &mut dyn Write,
     all_measurements: Vec<T>,
+    doc: &str,
 ) -> anyhow::Result<()> {
     for measurement in all_measurements {
-        writeln!(writer, "{}", measurement.to_json())?;
+        let mut json = measurement.to_json();
+        if let Some(obj) = json.as_object_mut() {
+            obj.insert("doc".to_string(), doc.into());
+        }
+        writeln!(writer, "{json}")?;
     }
 
     Ok(())
@@ -120,5 +135,32 @@ fn color(baseline: MeasurementValue, value: MeasurementValue) -> Color {
         Color::BG_YELLOW | Color::FG_BLACK
     } else {
         Color::BG_BRIGHT_GREEN | Color::FG_BLACK
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+    use crate::Engine;
+    use crate::Format;
+    use crate::measurements::CompressionTimingMeasurement;
+
+    /// Decompress-only runs (`compress-bench --gpu-decompress`) collect no compression ratios,
+    /// and callers pass an empty target list when the baseline format is absent. Both used to
+    /// panic: the first on the missing baseline key, the second on a divide-by-zero capacity.
+    #[rstest]
+    #[case::no_measurements(&[Target::new(Engine::Vortex, Format::OnDiskVortex)])]
+    #[case::no_targets(&[])]
+    fn render_table_without_a_baseline_is_a_noop(#[case] targets: &[Target]) -> anyhow::Result<()> {
+        let mut out = Vec::new();
+        render_table(
+            &mut out,
+            Vec::<CompressionTimingMeasurement>::new(),
+            targets,
+        )?;
+        assert!(out.is_empty());
+        Ok(())
     }
 }

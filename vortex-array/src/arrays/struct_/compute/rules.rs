@@ -102,9 +102,13 @@ impl ArrayParentReduceRule<Struct> for StructGetItemRule {
             })?;
 
         match child.validity()? {
-            Validity::NonNullable | Validity::AllValid => {
-                // If the struct is non-nullable or all valid, the field's validity is unchanged
+            Validity::NonNullable => {
+                // If the struct is non-nullable, the field's validity is unchanged
                 Ok(Some(field.clone()))
+            }
+            Validity::AllValid => {
+                // If struct is nullable, field must also be nullable
+                field.clone().cast(field.dtype().as_nullable()).map(Some)
             }
             Validity::AllInvalid => {
                 // If everything is invalid, the field is also all invalid
@@ -333,7 +337,7 @@ mod tests {
             .unwrap()
             .execute::<StructArray>(&mut SESSION.create_execution_ctx())
             .unwrap();
-        assert_eq!(result.unmasked_fields().len(), 2);
+        assert_eq!(result.iter_unmasked_fields().len(), 2);
         assert_arrays_eq!(
             result.unmasked_field_by_name("a").unwrap(),
             buffer![1i32, 2, 3].into_array(),

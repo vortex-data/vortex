@@ -23,7 +23,6 @@ use crate::ArrayRef;
 use crate::ArraySlots;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
@@ -36,12 +35,12 @@ use crate::dtype::Nullability;
 use crate::dtype::Nullability::NonNullable;
 use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
-use crate::match_each_integer_ptype;
+use crate::legacy_session;
 use crate::match_each_unsigned_integer_ptype;
-use crate::scalar::PValue;
 use crate::scalar::Scalar;
 use crate::search_sorted::SearchResult;
 use crate::search_sorted::SearchSorted;
+use crate::search_sorted::SearchSortedPrimitiveArray;
 use crate::search_sorted::SearchSortedSide;
 use crate::validity::Validity;
 
@@ -238,6 +237,7 @@ pub struct Patches {
 }
 
 impl Patches {
+    #[allow(clippy::disallowed_methods)]
     pub fn new(
         array_len: usize,
         offset: usize,
@@ -266,7 +266,7 @@ impl Patches {
         if indices.is_host() && values.is_host() {
             let max = usize::try_from(&indices.execute_scalar(
                 indices.len() - 1,
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut legacy_session().create_execution_ctx(),
             )?)
             .map_err(|_| vortex_err!("indices must be a number"))?;
             vortex_ensure!(
@@ -276,9 +276,8 @@ impl Patches {
 
             #[cfg(debug_assertions)]
             {
-                use crate::VortexSessionExecute;
                 use crate::aggregate_fn::fns::is_sorted::is_sorted;
-                let mut ctx = LEGACY_SESSION.create_execution_ctx();
+                let mut ctx = legacy_session().create_execution_ctx();
                 assert!(
                     is_sorted(&indices, &mut ctx).unwrap_or(false),
                     "Patch indices must be sorted"
@@ -381,13 +380,14 @@ impl Patches {
     }
 
     #[inline]
+    #[allow(clippy::disallowed_methods)]
     pub fn chunk_offset_at(&self, idx: usize) -> VortexResult<usize> {
         let Some(chunk_offsets) = &self.chunk_offsets else {
             vortex_bail!("chunk_offsets must be set to retrieve offset at index")
         };
 
         chunk_offsets
-            .execute_scalar(idx, &mut LEGACY_SESSION.create_execution_ctx())?
+            .execute_scalar(idx, &mut legacy_session().create_execution_ctx())?
             .as_primitive()
             .as_::<usize>()
             .ok_or_else(|| vortex_err!("chunk offset does not fit in usize"))
@@ -440,27 +440,14 @@ impl Patches {
         ))
     }
 
-    pub fn cast_values(self, values_dtype: &DType) -> VortexResult<Self> {
-        // SAFETY: casting does not affect the relationship between the indices and values
-        unsafe {
-            Ok(Self::new_unchecked(
-                self.array_len,
-                self.offset,
-                self.indices,
-                self.values.cast(values_dtype.clone())?,
-                self.chunk_offsets,
-                self.offset_within_chunk,
-            ))
-        }
-    }
-
     /// Get the patched value at a given index if it exists.
+    #[allow(clippy::disallowed_methods)]
     pub fn get_patched(&self, index: usize) -> VortexResult<Option<Scalar>> {
         self.search_index(index)?
             .to_found()
             .map(|patch_idx| {
                 self.values()
-                    .execute_scalar(patch_idx, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(patch_idx, &mut legacy_session().create_execution_ctx())
             })
             .transpose()
     }
@@ -487,32 +474,7 @@ impl Patches {
             return self.search_index_chunked(index);
         }
 
-        Self::search_index_binary_search(&self.indices, index + self.offset)
-    }
-
-    /// Binary searches for `needle` in the indices array.
-    ///
-    /// # Returns
-    /// [`SearchResult::Found`] with the position if needle exists, or [`SearchResult::NotFound`]
-    /// with the insertion point if not found.
-    fn search_index_binary_search(indices: &ArrayRef, needle: usize) -> VortexResult<SearchResult> {
-        if let Some(primitive) = indices.as_opt::<Primitive>() {
-            match_each_integer_ptype!(primitive.ptype(), |T| {
-                let Ok(needle) = T::try_from(needle) else {
-                    // If the needle is not of type T, then it cannot possibly be in this array.
-                    //
-                    // The needle is a non-negative integer (a usize); therefore, it must be larger
-                    // than all values in this array.
-                    return Ok(SearchResult::NotFound(primitive.len()));
-                };
-                return primitive
-                    .as_slice::<T>()
-                    .search_sorted(&needle, SearchSortedSide::Left);
-            });
-        }
-        indices
-            .as_primitive_typed()
-            .search_sorted(&PValue::U64(needle as u64), SearchSortedSide::Left)
+        search_index_binary_search(&self.indices, index + self.offset)
     }
 
     /// Constant time searches for `index` in the indices array.
@@ -560,7 +522,7 @@ impl Patches {
         };
 
         let chunk_indices = self.indices.slice(patches_start_idx..patches_end_idx)?;
-        let result = Self::search_index_binary_search(&chunk_indices, index + self.offset)?;
+        let result = search_index_binary_search(&chunk_indices, index + self.offset)?;
 
         Ok(match result {
             SearchResult::Found(idx) => SearchResult::Found(patches_start_idx + idx),
@@ -639,10 +601,11 @@ impl Patches {
     }
 
     /// Returns the minimum patch index
+    #[allow(clippy::disallowed_methods)]
     pub fn min_index(&self) -> VortexResult<usize> {
         let first = self
             .indices
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
+            .execute_scalar(0, &mut legacy_session().create_execution_ctx())?
             .as_primitive()
             .as_::<usize>()
             .ok_or_else(|| vortex_err!("index does not fit in usize"))?;
@@ -650,12 +613,13 @@ impl Patches {
     }
 
     /// Returns the maximum patch index
+    #[allow(clippy::disallowed_methods)]
     pub fn max_index(&self) -> VortexResult<usize> {
         let last = self
             .indices
             .execute_scalar(
                 self.indices.len() - 1,
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut legacy_session().create_execution_ctx(),
             )?
             .as_primitive()
             .as_::<usize>()
@@ -693,6 +657,10 @@ impl Patches {
     /// Mask the patches, REMOVING the patches where the mask is true.
     /// Unlike filter, this preserves the patch indices.
     /// Unlike mask on a single array, this does not set masked values to null.
+    ///
+    /// Masking an array always yields a nullable result (see [`crate::scalar_fn::fns::mask`]),
+    /// so the surviving patch values are widened to nullable to match the masked parent. Callers
+    /// therefore receive patches with the correct dtype and do not need to re-cast them.
     // TODO(joe): make this lazy and remove the ctx.
     pub fn mask(&self, mask: &Mask, ctx: &mut ExecutionCtx) -> VortexResult<Option<Self>> {
         if mask.len() != self.array_len {
@@ -705,7 +673,7 @@ impl Patches {
 
         let filter_mask = match mask.bit_buffer() {
             AllOr::All => return Ok(None),
-            AllOr::None => return Ok(Some(self.clone())),
+            AllOr::None => return self.clone().into_nullable_values().map(Some),
             AllOr::Some(masked) => {
                 let patch_indices = self.indices().clone().execute::<PrimitiveArray>(ctx)?;
                 match_each_unsigned_integer_ptype!(patch_indices.ptype(), |P| {
@@ -727,7 +695,7 @@ impl Patches {
         let filtered_indices = self.indices.filter(filter_mask.clone())?;
         let filtered_values = self.values.filter(filter_mask)?;
 
-        Ok(Some(Self {
+        Self {
             array_len: self.array_len,
             offset: self.offset,
             indices: filtered_indices,
@@ -735,10 +703,25 @@ impl Patches {
             // TODO(0ax1): Chunk offsets are invalid after a filter is applied.
             chunk_offsets: None,
             offset_within_chunk: self.offset_within_chunk,
-        }))
+        }
+        .into_nullable_values()
+        .map(Some)
+    }
+
+    /// Widen the patch values to their nullable dtype, leaving indices and offsets untouched.
+    ///
+    /// The values stay logically unchanged (all currently-valid entries remain valid); only the
+    /// dtype's nullability flag is set. Used by [`Self::mask`], whose result must be nullable.
+    fn into_nullable_values(self) -> VortexResult<Self> {
+        if self.values.dtype().is_nullable() {
+            return Ok(self);
+        }
+        let nullable = self.values.dtype().as_nullable();
+        self.map_values(|values| values.cast(nullable))
     }
 
     /// Slice the patches by a range of the patched array.
+    #[allow(clippy::disallowed_methods)]
     pub fn slice(&self, range: Range<usize>) -> VortexResult<Option<Self>> {
         let slice_start_idx = self.search_index(range.start)?.to_index();
         let slice_end_idx = self.search_index(range.end)?.to_index();
@@ -765,7 +748,7 @@ impl Patches {
             .as_ref()
             .map(|new_chunk_offsets| -> VortexResult<usize> {
                 let new_chunk_base = new_chunk_offsets
-                    .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
+                    .execute_scalar(0, &mut legacy_session().create_execution_ctx())?
                     .as_primitive()
                     .as_::<usize>()
                     .ok_or_else(|| vortex_err!("chunk offset does not fit in usize"))?;
@@ -1000,6 +983,41 @@ impl Patches {
     }
 }
 
+/// Binary searches for `needle` in the indices array.
+///
+/// # Returns
+/// [`SearchResult::Found`] with the position if needle exists, or [`SearchResult::NotFound`]
+/// with the insertion point if not found.
+fn search_index_binary_search(indices: &ArrayRef, needle: usize) -> VortexResult<SearchResult> {
+    if let Some(primitive) = indices.as_opt::<Primitive>() {
+        match_each_unsigned_integer_ptype!(primitive.ptype(), |T| {
+            let Ok(needle) = T::try_from(needle) else {
+                // If the needle is not of type T, then it cannot possibly be in this array.
+                //
+                // The needle is a non-negative integer (a usize); therefore, it must be larger
+                // than all values in this array.
+                return Ok(SearchResult::NotFound(primitive.len()));
+            };
+            return primitive
+                .as_slice::<T>()
+                .search_sorted(&needle, SearchSortedSide::Left);
+        });
+    }
+
+    search_index_binary_search_scalar(indices, needle)
+}
+
+#[allow(clippy::disallowed_methods)]
+fn search_index_binary_search_scalar(
+    indices: &ArrayRef,
+    needle: usize,
+) -> VortexResult<SearchResult> {
+    match_each_unsigned_integer_ptype!(indices.dtype().as_ptype(), |T| {
+        SearchSortedPrimitiveArray::<T>::new(indices, &mut legacy_session().create_execution_ctx())
+            .search_sorted(&needle, SearchSortedSide::Left)
+    })
+}
+
 #[expect(clippy::too_many_arguments)] // private function, can clean up one day
 fn take_map<I: NativePType + Hash + Eq + TryFrom<usize>, T: NativePType>(
     indices: &[I],
@@ -1210,8 +1228,6 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::IntoArray;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::assert_arrays_eq;
@@ -1269,10 +1285,16 @@ mod test {
             )
             .unwrap()
             .unwrap();
-        #[expect(deprecated)]
-        let primitive_values = taken.values().to_primitive();
-        #[expect(deprecated)]
-        let primitive_indices = taken.indices().to_primitive();
+        let primitive_values = taken
+            .values()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
+        let primitive_indices = taken
+            .indices()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_eq!(taken.array_len(), 2);
         assert_arrays_eq!(
             primitive_values,
@@ -1316,8 +1338,11 @@ mod test {
             .unwrap()
             .unwrap();
 
-        #[expect(deprecated)]
-        let primitive_values = taken.values().to_primitive();
+        let primitive_values = taken
+            .values()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_eq!(taken.array_len(), 2);
         assert_arrays_eq!(
             primitive_values,
@@ -1519,10 +1544,11 @@ mod test {
         let mask = Mask::new_false(10);
         let masked = patches.mask(&mask, &mut ctx).unwrap().unwrap();
 
-        // No patch values should be masked
+        // Masking widens the surviving (still valid) values to nullable.
+        assert!(masked.values().dtype().is_nullable());
         assert_arrays_eq!(
             masked.values(),
-            PrimitiveArray::from_iter([100i32, 200, 300]),
+            PrimitiveArray::from_option_iter([Some(100i32), Some(200), Some(300)]),
             &mut ctx
         );
         assert!(masked.values().is_valid(0, &mut ctx).unwrap());
@@ -1559,7 +1585,7 @@ mod test {
         assert_eq!(masked.values().len(), 1);
         assert_arrays_eq!(
             masked.values(),
-            PrimitiveArray::from_iter([200i32]),
+            PrimitiveArray::from_option_iter([Some(200i32)]),
             &mut ctx
         );
 
@@ -1598,7 +1624,7 @@ mod test {
         );
         assert_arrays_eq!(
             masked.values(),
-            PrimitiveArray::from_iter([200i32, 300]),
+            PrimitiveArray::from_option_iter([Some(200i32), Some(300)]),
             &mut ctx
         );
     }
@@ -1629,8 +1655,11 @@ mod test {
         );
 
         // Values should be the null and 300
-        #[expect(deprecated)]
-        let masked_values = masked.values().to_primitive();
+        let masked_values = masked
+            .values()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_eq!(masked_values.len(), 2);
         assert!(!masked_values.is_valid(0, &mut ctx).unwrap()); // the null value at index 5
         assert!(masked_values.is_valid(1, &mut ctx).unwrap()); // the 300 value at index 8
@@ -1825,8 +1854,11 @@ mod test {
         )
         .unwrap();
 
-        #[expect(deprecated)]
-        let values = patches.values().to_primitive();
+        let values = patches
+            .values()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_eq!(
             i32::try_from(&values.execute_scalar(0, &mut ctx).unwrap()).unwrap(),
             100i32
@@ -1905,7 +1937,7 @@ mod test {
         );
         assert_arrays_eq!(
             masked.values(),
-            PrimitiveArray::from_iter([200i32]),
+            PrimitiveArray::from_option_iter([Some(200i32)]),
             &mut ctx
         );
     }
@@ -1957,7 +1989,7 @@ mod test {
         );
         assert_arrays_eq!(
             masked.values(),
-            PrimitiveArray::from_iter([100i32, 200, 300]),
+            PrimitiveArray::from_option_iter([Some(100i32), Some(200), Some(300)]),
             &mut ctx
         );
     }
@@ -2016,7 +2048,7 @@ mod test {
         );
         assert_arrays_eq!(
             masked.values(),
-            PrimitiveArray::from_iter([100i32, 400]),
+            PrimitiveArray::from_option_iter([Some(100i32), Some(400)]),
             &mut ctx
         );
     }
@@ -2048,7 +2080,7 @@ mod test {
         );
         assert_arrays_eq!(
             masked.values(),
-            PrimitiveArray::from_iter([100i32, 300]),
+            PrimitiveArray::from_option_iter([Some(100i32), Some(300)]),
             &mut ctx
         );
     }

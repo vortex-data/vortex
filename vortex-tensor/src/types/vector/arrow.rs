@@ -20,17 +20,15 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
-use vortex_array::arrow::ArrowExport;
-use vortex_array::arrow::ArrowExportVTable;
-use vortex_array::arrow::ArrowImport;
-use vortex_array::arrow::ArrowImportVTable;
-use vortex_array::arrow::ArrowSession;
-use vortex_array::arrow::ArrowSessionExt;
-use vortex_array::arrow::FromArrowArray;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::arrow::FromArrowType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtVTable;
+use vortex_arrow::ArrowExport;
+use vortex_arrow::ArrowExportVTable;
+use vortex_arrow::ArrowImport;
+use vortex_arrow::ArrowImportVTable;
+use vortex_arrow::ArrowSession;
+use vortex_arrow::ArrowSessionExt;
 use vortex_error::VortexResult;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
@@ -119,7 +117,11 @@ impl ArrowImportVTable for Vector {
         *ARROW_VECTOR
     }
 
-    fn from_arrow_field(&self, field: &Field) -> VortexResult<Option<DType>> {
+    fn from_arrow_field(
+        &self,
+        field: &Field,
+        session: &ArrowSession,
+    ) -> VortexResult<Option<DType>> {
         if field.extension_type_name() != Some(ARROW_VECTOR_EXTENSION_NAME) {
             return Ok(None);
         }
@@ -131,7 +133,7 @@ impl ArrowImportVTable for Vector {
         }
 
         let storage_dtype = DType::FixedSizeList(
-            Arc::new(DType::from_arrow(elem.as_ref())),
+            Arc::new(session.from_arrow_field(elem.as_ref())?),
             *list_size as u32,
             field.is_nullable().into(),
         );
@@ -145,6 +147,7 @@ impl ArrowImportVTable for Vector {
         array: ArrowArrayRef,
         _field: &Field,
         dtype: &DType,
+        session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
         let DType::Extension(dtype) = dtype else {
             return Ok(ArrowImport::Unsupported(array));
@@ -159,7 +162,7 @@ impl ArrowImportVTable for Vector {
             return Ok(ArrowImport::Unsupported(array));
         }
 
-        let storage = ArrayRef::from_arrow(array.as_ref() as &dyn Array, dtype.is_nullable())?;
+        let storage = session.from_arrow_array(array, dtype.is_nullable())?;
         Ok(ArrowImport::Imported(
             ExtensionArray::try_new(dtype.clone(), storage)?.into_array(),
         ))
@@ -179,10 +182,6 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrow::ArrowExport;
-    use vortex_array::arrow::ArrowImport;
-    use vortex_array::arrow::ArrowSession;
-    use vortex_array::arrow::ArrowSessionExt;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldName;
     use vortex_array::dtype::Nullability;
@@ -190,6 +189,10 @@ mod tests {
     use vortex_array::dtype::StructFields;
     use vortex_array::dtype::extension::ExtDType;
     use vortex_array::validity::Validity;
+    use vortex_arrow::ArrowExport;
+    use vortex_arrow::ArrowImport;
+    use vortex_arrow::ArrowSession;
+    use vortex_arrow::ArrowSessionExt;
     use vortex_buffer::buffer;
 
     use super::*;
@@ -371,8 +374,13 @@ mod tests {
         let field = Field::new("embedding", DataType::Int32, false);
 
         let int_array: ArrowArrayRef = Arc::new(Int32Array::from(vec![1, 2, 3]));
-        let result =
-            <Vector as ArrowImportVTable>::from_arrow_array(&Vector, int_array, &field, &dtype)?;
+        let result = <Vector as ArrowImportVTable>::from_arrow_array(
+            &Vector,
+            int_array,
+            &field,
+            &dtype,
+            &ArrowSession::default(),
+        )?;
         assert!(matches!(result, ArrowImport::Unsupported(_)));
         Ok(())
     }
@@ -396,6 +404,7 @@ mod tests {
             fsl_arrow,
             &field,
             &DType::Extension(uuid_ext),
+            &ArrowSession::default(),
         )?;
         assert!(matches!(result, ArrowImport::Unsupported(_)));
         Ok(())

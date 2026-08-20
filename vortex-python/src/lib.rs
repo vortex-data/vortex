@@ -2,7 +2,16 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::Deref;
+#[cfg(unix)]
+use std::ptr;
+#[cfg(not(unix))]
 use std::sync::LazyLock;
+#[cfg(unix)]
+use std::sync::OnceLock;
+#[cfg(unix)]
+use std::sync::atomic::AtomicPtr;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 use log::LevelFilter;
 use pyo3::exceptions::PyRuntimeError;
@@ -22,9 +31,11 @@ pub(crate) mod dtype;
 mod error;
 mod expr;
 mod file;
+mod hf_store;
 mod io;
 mod iter;
 mod object_store;
+mod opendal_store;
 mod python_repr;
 mod registry;
 mod runtime;
@@ -34,28 +45,137 @@ mod serde;
 mod session;
 mod store;
 
+use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::io::runtime::current::CurrentThreadWorkerPool;
+use vortex::utils::parallelism::get_available_parallelism;
 
-/// Shared current-thread runtime backing Python Vortex operations.
-pub(crate) static RUNTIME: LazyLock<CurrentThreadRuntime> =
-    LazyLock::new(CurrentThreadRuntime::new);
+#[cfg(unix)]
+use crate::session::reset_session_handle;
 
-/// Shared worker pool that drives [`RUNTIME`]'s executor in the background.
+/// The current-thread runtime and its background worker pool.
+struct RuntimeState {
+    runtime: CurrentThreadRuntime,
+    pool: CurrentThreadWorkerPool,
+}
+
+impl RuntimeState {
+    fn new() -> Self {
+        let runtime = CurrentThreadRuntime::new();
+        let pool = runtime.new_pool();
+        pool.set_workers(requested_workers());
+        Self { runtime, pool }
+    }
+}
+
+#[cfg(not(unix))]
+static RUNTIME_STATE: LazyLock<RuntimeState> = LazyLock::new(RuntimeState::new);
+
+/// A process-tagged initialization cell.
 ///
-/// On first access, the pool is sized to `VORTEX_MAX_THREADS` (if set to a
-/// non-negative integer) or otherwise to `available_parallelism() - 1`.
-pub(crate) static POOL: LazyLock<CurrentThreadWorkerPool> = LazyLock::new(|| {
-    let pool = RUNTIME.new_pool();
-    match std::env::var("VORTEX_MAX_THREADS")
+/// The pid is checked before touching `state`, so a child never waits on a `OnceLock` whose
+/// initializer was running on another thread at the instant of `fork(2)`.
+#[cfg(unix)]
+struct RuntimeSlot {
+    pid: u32,
+    state: OnceLock<RuntimeState>,
+}
+
+#[cfg(unix)]
+static RUNTIME_SLOT: AtomicPtr<RuntimeSlot> = AtomicPtr::new(ptr::null_mut());
+
+/// The worker count to give a newly built pool, or [`WORKERS_UNSET`] to derive one.
+///
+/// Held outside the process-local runtime state so that a forked child inherits the parent's
+/// configuration even though it discards the parent's runtime.
+static REQUESTED_WORKERS: AtomicUsize = AtomicUsize::new(WORKERS_UNSET);
+
+const WORKERS_UNSET: usize = usize::MAX;
+
+/// The worker count for a new pool: whatever [`runtime::set_worker_threads`] last requested,
+/// else `VORTEX_MAX_THREADS` if it is set to a non-negative integer, else
+/// `available_parallelism() - 1`.
+fn requested_workers() -> usize {
+    match REQUESTED_WORKERS.load(Ordering::Relaxed) {
+        WORKERS_UNSET => {}
+        workers => return workers,
+    }
+    if let Some(n) = std::env::var("VORTEX_MAX_THREADS")
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
     {
-        Some(n) => pool.set_workers(n),
-        None => pool.set_workers_to_available_parallelism(),
+        return n;
     }
-    pool
-});
+    get_available_parallelism()
+        .map(|n| n.saturating_sub(1).max(1))
+        .unwrap_or(1)
+}
+
+/// Record the worker count requested by the user, so that a forked child inherits it.
+pub(crate) fn set_requested_workers(workers: usize) {
+    REQUESTED_WORKERS.store(workers, Ordering::Relaxed);
+}
+
+#[cfg(unix)]
+fn runtime_slot() -> &'static RuntimeSlot {
+    let pid = std::process::id();
+    loop {
+        let current = RUNTIME_SLOT.load(Ordering::Acquire);
+        if !current.is_null() {
+            // SAFETY: Published slots are never freed or replaced in-place. A forked child may
+            // publish a new slot, but deliberately leaks the inherited allocation.
+            let slot = unsafe { &*current };
+            if slot.pid == pid {
+                return slot;
+            }
+        }
+
+        let fresh = Box::into_raw(Box::new(RuntimeSlot {
+            pid,
+            state: OnceLock::new(),
+        }));
+        match RUNTIME_SLOT.compare_exchange(current, fresh, Ordering::AcqRel, Ordering::Acquire) {
+            Ok(_) => {
+                // SAFETY: `fresh` was just published and published slots are never freed.
+                return unsafe { &*fresh };
+            }
+            Err(_) => {
+                // SAFETY: The failed compare-exchange proves `fresh` was never published.
+                drop(unsafe { Box::from_raw(fresh) });
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+fn runtime_state() -> &'static RuntimeState {
+    runtime_slot().state.get_or_init(|| {
+        let state = RuntimeState::new();
+        // Existing objects hold clones of the shared session, so repoint it before publishing the
+        // new runtime state to callers in this process.
+        reset_session_handle(state.runtime.handle());
+        state
+    })
+}
+
+#[cfg(not(unix))]
+fn runtime_state() -> &'static RuntimeState {
+    &RUNTIME_STATE
+}
+
+/// The current-thread runtime backing Python Vortex operations.
+pub(crate) fn current_runtime() -> CurrentThreadRuntime {
+    runtime_state().runtime.clone()
+}
+
+/// Runs `f` with the worker pool that drives [`current_runtime`]'s executor in the background.
+///
+/// The pool is deliberately not handed out by value: `CurrentThreadWorkerPool` shares its state
+/// between clones but shuts every worker down on `Drop`, so dropping a temporary clone would stop
+/// the whole pool.
+pub(crate) fn with_pool<T>(f: impl FnOnce(&CurrentThreadWorkerPool) -> T) -> T {
+    f(&runtime_state().pool)
+}
 
 /// Vortex is an Apache Arrow-compatible toolkit for working with compressed array data.
 #[cfg(feature = "extension-module")]
@@ -78,8 +198,10 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     dtype::init(py, m)?;
     expr::init(py, m)?;
     file::init(py, m)?;
+    hf_store::init(py, m)?;
     io::init(py, m)?;
     iter::init(py, m)?;
+    opendal_store::init(py, m)?;
     runtime::init(py, m)?;
     store::init(py, m)?;
     registry::init(py, m)?;

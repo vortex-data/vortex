@@ -11,7 +11,7 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;
-use crate::array::RunEndArrayExt;
+use crate::array::RunEndArraySlotsExt;
 
 /// RunEnd-specific is_constant kernel.
 ///

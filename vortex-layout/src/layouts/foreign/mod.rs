@@ -7,10 +7,9 @@ use std::sync::Arc;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
-use crate::Layout;
+use crate::DynLayout;
 use crate::LayoutBuildContext;
 use crate::LayoutChildType;
 use crate::LayoutChildren;
@@ -119,54 +118,53 @@ pub(crate) fn new_foreign_layout(
     ))
 }
 
-impl Layout for ForeignLayout {
+impl DynLayout for ForeignLayout {
     fn as_any(&self) -> &dyn Any {
         self
     }
 
-    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
-        self
-    }
-
-    fn to_layout(&self) -> LayoutRef {
+    fn dyn_to_layout(&self) -> LayoutRef {
         Arc::new(self.clone())
     }
 
-    fn encoding(&self) -> LayoutEncodingRef {
-        self.encoding.clone()
+    fn dyn_encoding_id(&self) -> LayoutEncodingId {
+        self.encoding.id()
     }
 
-    fn row_count(&self) -> u64 {
+    fn dyn_row_count(&self) -> u64 {
         self.row_count
     }
 
-    fn dtype(&self) -> &DType {
+    fn dyn_dtype(&self) -> &DType {
         &self.dtype
     }
 
-    fn nchildren(&self) -> usize {
+    fn dyn_nchildren(&self) -> usize {
         self.children.len()
     }
 
-    fn child(&self, idx: usize) -> VortexResult<LayoutRef> {
-        self.children.get(idx).cloned().ok_or_else(|| {
-            vortex_err!("Child index out of bounds: {} of {}", idx, self.nchildren())
-        })
+    fn dyn_nslots(&self) -> usize {
+        // A foreign layout is opaque: its children are dense, so each slot is always present.
+        self.children.len()
     }
 
-    fn child_type(&self, idx: usize) -> LayoutChildType {
-        LayoutChildType::Auxiliary(format!("[{idx}]").into())
+    fn dyn_slot(&self, slot: usize) -> VortexResult<Option<LayoutRef>> {
+        Ok(self.children.get(slot).cloned())
     }
 
-    fn metadata(&self) -> Vec<u8> {
+    fn dyn_slot_type(&self, slot: usize) -> Option<LayoutChildType> {
+        (slot < self.children.len()).then(|| LayoutChildType::Auxiliary(format!("[{slot}]").into()))
+    }
+
+    fn dyn_metadata(&self) -> Vec<u8> {
         self.metadata.clone()
     }
 
-    fn segment_ids(&self) -> Vec<SegmentId> {
+    fn dyn_segment_ids(&self) -> Vec<SegmentId> {
         self.segment_ids.clone()
     }
 
-    fn new_reader(
+    fn dyn_new_reader(
         &self,
         _name: Arc<str>,
         _segment_source: Arc<dyn SegmentSource>,

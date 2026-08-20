@@ -9,7 +9,6 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrow::ArrowSessionExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::assert_nth_scalar;
 use vortex_array::dtype::DType;
@@ -19,7 +18,7 @@ use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::SerializedArray;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::child_to_validity;
+use vortex_arrow::ArrowSessionExt;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
@@ -28,6 +27,7 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
+use crate::PcoArrayExt;
 use crate::PcoData;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -47,10 +47,7 @@ fn test_compress_decompress() {
     assert!(compressed.pages.len() < array.into_array().nbytes() as usize);
 
     // check full decompression works
-    let unsliced_validity = child_to_validity(
-        compressed.as_ref().slots()[0].as_ref(),
-        compressed.dtype().nullability(),
-    );
+    let unsliced_validity = compressed.unsliced_validity();
     let decompressed = compressed.decompress(&unsliced_validity, &mut ctx).unwrap();
     assert_arrays_eq!(decompressed, PrimitiveArray::from_iter(data), &mut ctx);
 
@@ -82,10 +79,7 @@ fn test_compress_decompress_small() {
     let expected = array.into_array();
     assert_arrays_eq!(compressed, expected, &mut ctx);
 
-    let unsliced_validity = child_to_validity(
-        compressed.as_ref().slots()[0].as_ref(),
-        compressed.dtype().nullability(),
-    );
+    let unsliced_validity = compressed.unsliced_validity();
     let decompressed = compressed.decompress(&unsliced_validity, &mut ctx).unwrap();
     assert_arrays_eq!(decompressed, expected, &mut ctx);
 }
@@ -96,10 +90,7 @@ fn test_empty() {
     let data: Vec<i32> = vec![];
     let array = PrimitiveArray::from_iter(data.clone());
     let compressed = Pco::from_primitive(array.as_view(), 3, 100, &mut ctx).unwrap();
-    let unsliced_validity = child_to_validity(
-        compressed.as_ref().slots()[0].as_ref(),
-        compressed.dtype().nullability(),
-    );
+    let unsliced_validity = compressed.unsliced_validity();
     let primitive = compressed.decompress(&unsliced_validity, &mut ctx).unwrap();
     assert_arrays_eq!(primitive, PrimitiveArray::from_iter(data), &mut ctx);
 }

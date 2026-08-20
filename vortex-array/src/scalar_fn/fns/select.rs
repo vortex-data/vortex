@@ -24,6 +24,7 @@ use crate::arrays::struct_::StructArrayExt;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
+use crate::expr::display::ExprDisplay;
 use crate::expr::expression::Expression;
 use crate::expr::field::DisplayFieldNames;
 use crate::expr::get_item;
@@ -104,10 +105,10 @@ impl ScalarFnVTable for Select {
     fn fmt_sql(
         &self,
         selection: &FieldSelection,
-        expr: &Expression,
+        expr: &dyn ExprDisplay,
         f: &mut Formatter<'_>,
     ) -> std::fmt::Result {
-        expr.child(0).fmt_sql(f)?;
+        Display::fmt(expr.display_child(0), f)?;
         match selection {
             FieldSelection::Include(fields) => {
                 write!(f, "{{{}}}", DisplayFieldNames(fields))
@@ -232,7 +233,7 @@ impl ScalarFnVTable for Select {
         Ok(None)
     }
 
-    fn is_null_sensitive(&self, _instance: &FieldSelection) -> bool {
+    fn is_strict(&self, _options: &FieldSelection) -> bool {
         true
     }
 
@@ -309,8 +310,8 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::struct_::StructArrayExt;
     use crate::dtype::DType;
     use crate::dtype::FieldName;
@@ -336,20 +337,30 @@ mod tests {
 
     #[test]
     pub fn include_columns() {
+        let mut ctx = array_session().create_execution_ctx();
         let st = test_array();
         let select = select(vec![FieldName::from("a")], root());
-        #[expect(deprecated)]
-        let selected = st.into_array().apply(&select).unwrap().to_struct();
+        let selected = st
+            .into_array()
+            .apply(&select)
+            .unwrap()
+            .execute::<StructArray>(&mut ctx)
+            .unwrap();
         let selected_names = selected.names().clone();
         assert_eq!(selected_names.as_ref(), &["a"]);
     }
 
     #[test]
     pub fn exclude_columns() {
+        let mut ctx = array_session().create_execution_ctx();
         let st = test_array();
         let select = select_exclude(vec![FieldName::from("a")], root());
-        #[expect(deprecated)]
-        let selected = st.into_array().apply(&select).unwrap().to_struct();
+        let selected = st
+            .into_array()
+            .apply(&select)
+            .unwrap()
+            .execute::<StructArray>(&mut ctx)
+            .unwrap();
         let selected_names = selected.names().clone();
         assert_eq!(selected_names.as_ref(), &["b"]);
     }

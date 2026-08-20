@@ -4,16 +4,18 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
-use vortex_array::scalar::PValue;
+use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSorted;
+use vortex_array::search_sorted::SearchSortedPrimitiveArray;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;
 use crate::array::RunEndArrayExt;
+use crate::array::RunEndArraySlotsExt;
 
 impl OperationsVTable<RunEnd> for RunEnd {
     fn scalar_at(
@@ -21,9 +23,8 @@ impl OperationsVTable<RunEnd> for RunEnd {
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        array
-            .values()
-            .execute_scalar(array.find_physical_index(index)?, ctx)
+        let physical_index = array.find_physical_index(index, ctx)?;
+        array.values().execute_scalar(physical_index, ctx)
     }
 }
 
@@ -31,10 +32,15 @@ impl OperationsVTable<RunEnd> for RunEnd {
 ///
 /// If the index exists in the array we want to take that position (as we are searching from the right)
 /// otherwise we want to take the next one
-pub(crate) fn find_slice_end_index(array: &ArrayRef, index: usize) -> VortexResult<usize> {
-    let result = array
-        .as_primitive_typed()
-        .search_sorted(&PValue::from(index), SearchSortedSide::Right)?;
+pub fn find_slice_end_index(
+    array: &ArrayRef,
+    index: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<usize> {
+    let result = match_each_unsigned_integer_ptype!(array.dtype().as_ptype(), |T| {
+        SearchSortedPrimitiveArray::<T>::new(array, ctx)
+            .search_sorted(&index, SearchSortedSide::Right)?
+    });
     Ok(match result {
         SearchResult::Found(i) => i,
         SearchResult::NotFound(i) => {
@@ -44,6 +50,19 @@ pub(crate) fn find_slice_end_index(array: &ArrayRef, index: usize) -> VortexResu
                 i + 1
             }
         }
+    })
+}
+
+/// Find the physical index (the run) that contains the logical `index`, given the run `ends`.
+pub fn find_physical_index(
+    array: &ArrayRef,
+    index: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<usize> {
+    match_each_unsigned_integer_ptype!(array.dtype().as_ptype(), |T| {
+        Ok(SearchSortedPrimitiveArray::<T>::new(array, ctx)
+            .search_sorted(&index, SearchSortedSide::Right)?
+            .to_ends_index(array.len()))
     })
 }
 

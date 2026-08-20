@@ -6,7 +6,7 @@ use vortex_error::VortexResult;
 
 use super::Between;
 use super::BetweenOptions;
-use super::precondition;
+use super::short_circuit;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::array::ArrayView;
@@ -70,7 +70,7 @@ where
         let lower = &children[1];
         let upper = &children[2];
         let arr = array.array().clone();
-        if let Some(result) = precondition(&arr, lower, upper)? {
+        if let Some(result) = short_circuit(&arr, lower, upper, parent.options)? {
             return Ok(Some(result));
         }
         <V as BetweenReduce>::between(array, lower, upper, parent.options)
@@ -105,8 +105,11 @@ where
         let lower = &children[1];
         let upper = &children[2];
         let arr = array.array().clone();
-        if let Some(result) = precondition(&arr, lower, upper)? {
-            return Ok(Some(result));
+        if let Some(result) = short_circuit(&arr, lower, upper, parent.options)? {
+            // TODO(joe): return the lazy array directly, blocked on the same executor support as
+            // the fallback in `between_canonical`. The reduce adaptor above already passes it
+            // through unexecuted, since a reduce rule can return a lazy array.
+            return result.execute::<ArrayRef>(ctx).map(Some);
         }
         <V as BetweenKernel>::between(array, lower, upper, parent.options, ctx)
     }

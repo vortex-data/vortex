@@ -97,6 +97,6 @@ mod test {
         DType::Primitive(PType::U8, Nullability::NonNullable)
     ).unwrap().into_array())]
     fn test_cast_chunked_conformance(#[case] array: crate::ArrayRef) {
-        test_cast_conformance(&array);
+        test_cast_conformance(&array, &mut array_session().create_execution_ctx());
     }
 }

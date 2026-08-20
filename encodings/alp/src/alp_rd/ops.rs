@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 
 use crate::ALPRD;
 use crate::ALPRDArrayExt;
+use crate::ALPRDArraySlotsExt;
 
 impl OperationsVTable<ALPRD> for ALPRD {
     fn scalar_at(
@@ -71,12 +72,14 @@ mod test {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::NativePType;
     use vortex_array::scalar::Scalar;
     use vortex_session::VortexSession;
 
     use crate::ALPRDArrayExt;
     use crate::ALPRDFloat;
     use crate::RDEncoder;
+    use crate::RDEncoderExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = vortex_array::array_session();
@@ -87,10 +90,10 @@ mod test {
     #[rstest]
     #[case(0.1f32, 0.2f32, 3e25f32)]
     #[case(0.1f64, 0.2f64, 3e100f64)]
-    fn test_slice<T: ALPRDFloat>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
+    fn test_slice<T: ALPRDFloat + NativePType>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
         let mut ctx = SESSION.create_execution_ctx();
         let array = PrimitiveArray::from_iter([a, b, outlier]);
-        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view(), &mut ctx);
+        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
 
         assert!(encoded.left_parts_patches().is_some());
         assert_arrays_eq!(encoded, array, &mut ctx);
@@ -99,14 +102,14 @@ mod test {
     #[rstest]
     #[case(0.1f32, 0.2f32, 3e25f32)]
     #[case(0.1f64, 0.2f64, 3e100f64)]
-    fn test_scalar_at<T: ALPRDFloat + Into<Scalar>>(
+    fn test_scalar_at<T: ALPRDFloat + NativePType + Into<Scalar>>(
         #[case] a: T,
         #[case] b: T,
         #[case] outlier: T,
     ) {
         let mut ctx = SESSION.create_execution_ctx();
         let array = PrimitiveArray::from_iter([a, b, outlier]);
-        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view(), &mut ctx);
+        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
         assert!(encoded.left_parts_patches().is_some());
         assert_arrays_eq!(encoded, array, &mut ctx);
     }
@@ -118,7 +121,7 @@ mod test {
         let b = 0.2f64;
         let outlier = 3e100f64;
         let array = PrimitiveArray::from_option_iter([Some(a), Some(b), Some(outlier)]);
-        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view(), &mut ctx);
+        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
         assert!(encoded.left_parts_patches().is_some());
         assert_arrays_eq!(
             encoded,

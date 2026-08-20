@@ -58,6 +58,8 @@ fn filter_impl<C: IntegerPType, O: IntegerPType>(
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::compute::conformance::filter::LARGE_SIZE;
     use vortex_array::compute::conformance::filter::MEDIUM_SIZE;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
@@ -80,6 +82,9 @@ mod tests {
     #[case(Sequence::try_new_typed(0u32, 5, Nullability::NonNullable, MEDIUM_SIZE).unwrap())]
     #[case(Sequence::try_new_typed(0u64, 1, Nullability::NonNullable, LARGE_SIZE).unwrap())]
     fn test_filter_sequence_conformance(#[case] array: SequenceArray) {
-        test_filter_conformance(&array.into_array());
+        test_filter_conformance(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

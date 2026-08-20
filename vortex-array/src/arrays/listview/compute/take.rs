@@ -12,7 +12,7 @@ use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::dict::TakeReduce;
-use crate::arrays::listview::ListViewArrayExt;
+use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::Nullability;
 use crate::match_each_integer_ptype;

@@ -18,17 +18,18 @@ use vortex_session::registry::CachedId;
 use crate::AnyCanonical;
 use crate::ArrayEq;
 use crate::ArrayHash;
+use crate::ArrayParts;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::EqMode;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::validity_to_child;
+use crate::array::with_empty_buffers;
 use crate::arrays::ConstantArray;
 use crate::arrays::masked::MaskedArrayExt;
 use crate::arrays::masked::MaskedArraySlotsExt;
@@ -40,6 +41,7 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
+use crate::legacy_session;
 use crate::require_child;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
@@ -71,6 +73,7 @@ impl VTable for Masked {
         *ID
     }
 
+    #[expect(clippy::disallowed_methods)]
     fn validate(
         &self,
         _data: &MaskedData,
@@ -90,6 +93,10 @@ impl VTable for Masked {
             child.dtype().as_nullable() == *dtype,
             "MaskedArray dtype does not match child and validity"
         );
+        vortex_ensure!(
+            child.all_valid(&mut legacy_session().create_execution_ctx())?,
+            "MaskedArray children must not have nulls",
+        );
         Ok(())
     }
 
@@ -105,6 +112,14 @@ impl VTable for Masked {
         None
     }
 
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        with_empty_buffers(self, array, buffers)
+    }
+
     fn serialize(
         _array: ArrayView<'_, Self>,
         _session: &VortexSession,
@@ -112,6 +127,7 @@ impl VTable for Masked {
         Ok(Some(vec![]))
     }
 
+    #[allow(clippy::disallowed_methods)]
     fn deserialize(
         &self,
         dtype: &DType,
@@ -121,7 +137,7 @@ impl VTable for Masked {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<crate::array::ArrayParts<Self>> {
+    ) -> VortexResult<ArrayParts<Self>> {
         if !metadata.is_empty() {
             vortex_bail!(
                 "MaskedArray expects empty metadata, got {} bytes",
@@ -150,13 +166,11 @@ impl VTable for Masked {
         let validity_slot = validity_to_child(&validity, len);
         let data = MaskedData::try_new(
             len,
-            child.all_valid(&mut LEGACY_SESSION.create_execution_ctx())?,
+            child.all_valid(&mut legacy_session().create_execution_ctx())?,
             validity,
         )?;
-        Ok(
-            crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data)
-                .with_slots(smallvec![Some(child), validity_slot]),
-        )
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data)
+            .with_slots(smallvec![Some(child), validity_slot]))
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

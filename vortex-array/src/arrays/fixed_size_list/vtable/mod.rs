@@ -15,6 +15,7 @@ use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
+use crate::ArrayParts;
 use crate::ArrayRef;
 use crate::EqMode;
 use crate::ExecutionCtx;
@@ -23,12 +24,13 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::array::with_empty_buffers;
 use crate::arrays::fixed_size_list::FixedSizeListData;
-use crate::arrays::fixed_size_list::array::ELEMENTS_SLOT;
-use crate::arrays::fixed_size_list::array::NUM_SLOTS;
-use crate::arrays::fixed_size_list::array::SLOT_NAMES;
+use crate::arrays::fixed_size_list::FixedSizeListSlots;
 use crate::arrays::fixed_size_list::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
+use crate::builders::FixedSizeListBuilder;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
@@ -80,6 +82,14 @@ impl VTable for FixedSizeList {
         vortex_panic!("FixedSizeListArray buffer_name index {idx} out of bounds")
     }
 
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        with_empty_buffers(self, array, buffers)
+    }
+
     fn reduce_parent(
         array: ArrayView<'_, Self>,
         parent: &ArrayRef,
@@ -103,14 +113,15 @@ impl VTable for FixedSizeList {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "FixedSizeListArray expected {NUM_SLOTS} slots, found {}",
+            slots.len() == FixedSizeListSlots::COUNT,
+            "FixedSizeListArray expected {} slots, found {}",
+            FixedSizeListSlots::COUNT,
             slots.len()
         );
         let DType::FixedSizeList(_, list_size, nullability) = dtype else {
             vortex_bail!("Expected `DType::FixedSizeList`, got {dtype:?}");
         };
-        let elements = slots[ELEMENTS_SLOT]
+        let elements = slots[FixedSizeListSlots::ELEMENTS]
             .as_ref()
             .vortex_expect("FixedSizeListArray elements slot");
         vortex_ensure!(
@@ -145,7 +156,7 @@ impl VTable for FixedSizeList {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<crate::array::ArrayParts<Self>> {
+    ) -> VortexResult<ArrayParts<Self>> {
         if !metadata.is_empty() {
             vortex_bail!(
                 "FixedSizeListArray expects empty metadata, got {} bytes",
@@ -181,14 +192,25 @@ impl VTable for FixedSizeList {
         let data =
             FixedSizeListData::try_build(elements.clone(), *list_size, validity.clone(), len)?;
         let slots = FixedSizeListData::make_slots(&elements, &validity, len);
-        Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        FixedSizeListSlots::NAMES[idx].to_string()
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
+    }
+
+    fn append_to_builder(
+        array: ArrayView<'_, Self>,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let Some(builder) = builder.as_any_mut().downcast_mut::<FixedSizeListBuilder>() else {
+            vortex_bail!("append_to_builder for FixedSizeList requires a FixedSizeListBuilder");
+        };
+        builder.append_fixed_size_list_array(&array.into_owned(), ctx)
     }
 }

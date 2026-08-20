@@ -16,6 +16,7 @@ use vortex_session::registry::CachedId;
 use crate::AnyCanonical;
 use crate::ArrayEq;
 use crate::ArrayHash;
+use crate::ArrayParts;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::EqMode;
@@ -26,10 +27,10 @@ use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::array::VTable;
 use crate::array::ValidityVTable;
-use crate::arrays::filter::FilterArrayExt;
-use crate::arrays::filter::array::CHILD_SLOT;
+use crate::array::with_empty_buffers;
+use crate::arrays::filter::FilterArraySlotsExt;
 use crate::arrays::filter::array::FilterData;
-use crate::arrays::filter::array::SLOT_NAMES;
+use crate::arrays::filter::array::FilterSlots;
 use crate::arrays::filter::execute::execute_filter;
 use crate::arrays::filter::execute::execute_filter_fast_paths;
 use crate::arrays::filter::rules::PARENT_RULES;
@@ -78,10 +79,10 @@ impl VTable for Filter {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         vortex_ensure!(
-            slots[CHILD_SLOT].is_some(),
+            slots[FilterSlots::CHILD].is_some(),
             "FilterArray child slot must be present"
         );
-        let child = slots[CHILD_SLOT]
+        let child = slots[FilterSlots::CHILD]
             .as_ref()
             .vortex_expect("validated child slot");
         vortex_ensure!(
@@ -117,8 +118,16 @@ impl VTable for Filter {
         None
     }
 
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        with_empty_buffers(self, array, buffers)
+    }
+
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        FilterSlots::NAMES[idx].to_string()
     }
 
     fn serialize(
@@ -138,7 +147,7 @@ impl VTable for Filter {
         _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<crate::array::ArrayParts<Self>> {
+    ) -> VortexResult<ArrayParts<Self>> {
         vortex_bail!("Filter array is not serializable")
     }
 
@@ -151,7 +160,7 @@ impl VTable for Filter {
             _ => unreachable!("`execute_filter_fast_paths` handles AllTrue and AllFalse"),
         };
 
-        let array = require_child!(array, array.child(), CHILD_SLOT => AnyCanonical);
+        let array = require_child!(array, array.child(), FilterSlots::CHILD => AnyCanonical);
 
         // We rely on the optimization pass that runs prior to this execution for filter pushdown,
         // so now we can just execute the filter without worrying.

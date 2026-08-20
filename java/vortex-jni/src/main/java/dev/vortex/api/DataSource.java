@@ -5,6 +5,7 @@ package dev.vortex.api;
 
 import com.google.common.base.Preconditions;
 import dev.vortex.VortexCleaner;
+import dev.vortex.io.NativeReadable;
 import dev.vortex.jni.NativeDataSource;
 import java.util.Arrays;
 import java.util.Collections;
@@ -71,10 +72,55 @@ public final class DataSource {
         return new DataSource(session, pointer);
     }
 
+    /** Open a single file through a caller-provided byte source. See {@link #open(Session, List, int)}. */
+    public static DataSource open(Session session, NativeReadable readable) {
+        return open(session, List.of(readable), 0);
+    }
+
+    /** Open files through caller-provided byte sources with the default read concurrency. */
+    public static DataSource open(Session session, List<NativeReadable> readables) {
+        return open(session, readables, 0);
+    }
+
+    /**
+     * Open one or more files through caller-provided byte sources instead of native storage clients. Every read the
+     * scan performs becomes an upcall into the corresponding {@link NativeReadable}, so this is the integration point
+     * for external I/O abstractions (for example Iceberg's {@code FileIO}). Each file is identified by
+     * {@link NativeReadable#name()}, which must be unique within {@code readables}.
+     *
+     * <p>The readables must remain open until this data source and all scans created from it are closed; native code
+     * never closes them.
+     *
+     * @param session open session
+     * @param readables byte sources
+     * @param readConcurrency maximum in-flight {@code readFully} calls across all files of this data source; {@code 0}
+     *     selects the default. Each in-flight read occupies one native thread and typically one stream on its readable.
+     */
+    public static DataSource open(Session session, List<NativeReadable> readables, int readConcurrency) {
+        Objects.requireNonNull(session, "session");
+        Objects.requireNonNull(readables, "readables");
+        Preconditions.checkArgument(!readables.isEmpty(), "at least one readable is required");
+        Preconditions.checkArgument(readConcurrency >= 0, "readConcurrency must not be negative");
+        Object[] readableArray = readables.toArray();
+        String[] names = new String[readableArray.length];
+        long[] lengths = new long[readableArray.length];
+        for (int i = 0; i < readableArray.length; i++) {
+            Preconditions.checkArgument(readableArray[i] != null, "readables must not contain null values");
+            NativeReadable readable = readables.get(i);
+            names[i] = readable.name();
+            Preconditions.checkArgument(names[i] != null, "readable at index %s returned a null name", i);
+            lengths[i] = readable.length();
+            Preconditions.checkArgument(lengths[i] >= 0, "readable for %s reported negative length", names[i]);
+        }
+        long pointer =
+                NativeDataSource.openFiles(session.nativePointer(), readableArray, names, lengths, readConcurrency);
+        return new DataSource(session, pointer);
+    }
+
     /** Arrow schema of the data source (and of scans produced from it). */
     public Schema arrowSchema(BufferAllocator allocator) {
         try (ArrowSchema schema = ArrowSchema.allocateNew(allocator)) {
-            NativeDataSource.arrowSchema(pointer, schema.memoryAddress());
+            NativeDataSource.arrowSchema(session.nativePointer(), pointer, schema.memoryAddress());
             return Data.importSchema(allocator, schema, null);
         }
     }

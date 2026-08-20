@@ -16,6 +16,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
+use crate::arrays::ScalarFnArray;
 use crate::arrays::masked::mask_validity_canonical;
 use crate::builtins::ArrayBuiltins;
 use crate::child_to_validity;
@@ -31,6 +32,7 @@ use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::SimplifyCtx;
 use crate::scalar_fn::fns::literal::Literal;
 
@@ -40,6 +42,18 @@ use crate::scalar_fn::fns::literal::Literal;
 /// null. In other words, this performs an intersection of the input's validity with the mask.
 #[derive(Clone)]
 pub struct Mask;
+
+impl Mask {
+    /// Creates a lazy mask operation over `input`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the children have different lengths or `mask` is not non-nullable
+    /// boolean data.
+    pub fn try_new(input: ArrayRef, mask: ArrayRef) -> VortexResult<ScalarFnArray> {
+        ScalarFnArray::try_new(Mask.bind(EmptyOptions), vec![input, mask])
+    }
+}
 
 impl ScalarFnVTable for Mask {
     type Options = EmptyOptions;
@@ -132,6 +146,10 @@ impl ScalarFnVTable for Mask {
             expression.child(0).validity()?,
             expression.child(1).clone(),
         )))
+    }
+
+    fn is_strict(&self, _options: &Self::Options) -> bool {
+        true
     }
 }
 

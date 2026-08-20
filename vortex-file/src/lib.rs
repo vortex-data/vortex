@@ -64,6 +64,8 @@
 //! │          Segments          │  serialized array chunks and per-column
 //! │     (data & statistics)    │  statistics, in writer-chosen order
 //! ├────────────────────────────┤
+//! │   User-metadata segments   │  optional; opaque values keyed by the postscript
+//! ├────────────────────────────┤
 //! │      DType flatbuffer      │  optional; omitted via `exclude_dtype`
 //! ├────────────────────────────┤
 //! │      Layout flatbuffer     │  required; the root Layout tree
@@ -73,7 +75,7 @@
 //! │      Footer flatbuffer     │  required; dictionary-encoded segment map
 //! │                            │  and array/layout/compression/encryption specs
 //! ├────────────────────────────┤
-//! │         Postscript         │  offsets of the four footer segments above;
+//! │         Postscript         │  locators for the footer and user-metadata segments;
 //! │                            │  at most 65528 bytes
 //! ├────────────────────────────┤
 //! │     8-byte End of File     │  u16 version, u16 postscript length,
@@ -82,8 +84,12 @@
 //! ```
 //!
 //! The postscript records the offset, length, and alignment of the dtype, layout, statistics, and
-//! footer segments, so a single read of the file tail (defaulting to 64KiB) is enough to locate and
-//! parse the footer. The byte-level format is specified in full at
+//! footer segments, plus any user-defined metadata segments keyed by string, so a single read of the
+//! file tail (defaulting to 64KiB) is enough to locate and parse the footer and metadata locators.
+//! User-metadata values live in their own segments; opening a file reads none of them by default.
+//! [`VortexOpenOptions::include_metadata`] eagerly resolves every locator through the cache-backed
+//! segment source, issuing targeted reads only for values not already covered by the initial read.
+//! The byte-level format is specified in full at
 //! <https://docs.vortex.dev/specs/file-format.html>.
 //!
 //! A Parquet-style file is realized by nesting a chunked layout of struct layouts of chunked layouts
@@ -113,6 +119,7 @@ mod tests;
 pub mod v2;
 mod writer;
 
+pub use counting::CountingVortexWrite;
 pub use file::*;
 pub use footer::*;
 pub use forever_constant::*;
@@ -159,12 +166,11 @@ mod forever_constant {
 
 /// Register the default encodings use in Vortex files with the provided session.
 ///
-/// NOTE: this function will be changed in the future to encapsulate logic for using different
-/// Vortex "Editions" that may support different sets of encodings.
+/// Registration covers reading: a session can decode every encoding registered here. The
+/// writer is gated separately by the editions enabled on its session.
 pub fn register_default_encodings(session: &VortexSession) {
     vortex_bytebool::initialize(session);
     vortex_fsst::initialize(session);
-    #[cfg(feature = "unstable_encodings")]
     vortex_onpair::initialize(session);
     vortex_zigzag::initialize(session);
 
@@ -193,6 +199,82 @@ pub fn register_default_encodings(session: &VortexSession) {
 }
 
 #[cfg(test)]
+pub(crate) fn enable_all_registered_array_encodings(session: &VortexSession) {
+    use vortex_array::dtype::session::DTypeSessionExt;
+    use vortex_edition::ComponentKind;
+    use vortex_edition::Edition;
+    use vortex_edition::EditionId;
+    use vortex_edition::EditionInclusion;
+    use vortex_edition::EditionSessionExt;
+    use vortex_error::VortexExpect;
+    use vortex_error::vortex_err;
+    use vortex_layout::session::LayoutSessionExt;
+
+    const TEST_EDITION: EditionId = EditionId::new("test", 2026, 7, 0);
+
+    let editions = session.editions();
+    editions
+        .declare_edition(Edition {
+            id: TEST_EDITION,
+            min_vortex_version: None,
+        })
+        .map_err(|error| vortex_err!("{error}"))
+        .vortex_expect("test edition is valid");
+    let component_ids = [
+        (
+            ComponentKind::Array,
+            session
+                .arrays()
+                .registry()
+                .read(|map| map.keys().copied().collect::<Vec<_>>()),
+        ),
+        (
+            ComponentKind::Layout,
+            session
+                .layouts()
+                .registry()
+                .read(|map| map.keys().copied().collect::<Vec<_>>()),
+        ),
+        (
+            ComponentKind::DType,
+            session
+                .dtypes()
+                .registry()
+                .read(|map| map.keys().copied().collect::<Vec<_>>()),
+        ),
+    ];
+    for (kind, ids) in component_ids {
+        for id in ids {
+            editions
+                .declare_inclusion(EditionInclusion::new(kind, &id, TEST_EDITION))
+                .map_err(|error| vortex_err!("{error}"))
+                .vortex_expect("registered component has one test-edition inclusion");
+        }
+    }
+    for id in [
+        "vortex.bounded_max",
+        "vortex.bounded_min",
+        "vortex.max",
+        "vortex.min",
+        "vortex.nan_count",
+        "vortex.null_count",
+    ] {
+        editions
+            .declare_inclusion(EditionInclusion::new(
+                ComponentKind::Aggregate,
+                id,
+                TEST_EDITION,
+            ))
+            .map_err(|error| vortex_err!("{error}"))
+            .vortex_expect("default aggregate has one test-edition inclusion");
+    }
+    session
+        .enable_edition(TEST_EDITION)
+        .map_err(|error| vortex_err!("{error}"))
+        .vortex_expect("test edition is registered");
+}
+
+#[cfg(test)]
 mod default_encoding_tests {
     use vortex_array::VTable as _;
     use vortex_array::array_session;
@@ -200,6 +282,7 @@ mod default_encoding_tests {
     use vortex_array::optimizer::kernels::ArrayKernelsExt as _;
     use vortex_array::session::ArraySessionExt as _;
     use vortex_fsst::FSST;
+    use vortex_onpair::OnPair;
 
     use crate::register_default_encodings;
 
@@ -207,12 +290,18 @@ mod default_encoding_tests {
     fn register_default_encodings_registers_external_execute_parent_kernels() {
         let session = array_session();
 
-        assert!(session.arrays().registry().find(&FSST.id()).is_none());
+        assert!(!session.arrays().registry().contains_key(&FSST.id()));
         assert!(!session.kernels().has_execute_parent(Filter.id(), FSST.id()));
 
         register_default_encodings(&session);
 
-        assert!(session.arrays().registry().find(&FSST.id()).is_some());
+        assert!(session.arrays().registry().contains_key(&FSST.id()));
         assert!(session.kernels().has_execute_parent(Filter.id(), FSST.id()));
+        assert!(session.arrays().registry().contains_key(&OnPair.id()));
+        assert!(
+            session
+                .kernels()
+                .has_execute_parent(Filter.id(), OnPair.id())
+        );
     }
 }

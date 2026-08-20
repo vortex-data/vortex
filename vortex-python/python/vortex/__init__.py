@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+import importlib
 import importlib.metadata
+import importlib.util
 
 from . import _lib, arrays, dataset, expr, file, io, ray, registry, scan
 from ._lib.arrays import (  # pyright: ignore[reportMissingModuleSource]
@@ -100,6 +102,34 @@ except importlib.metadata.PackageNotFoundError:
     # If the distribution is not installed, keep the unknown fallback.
     pass
 
+
+def cuda_extension_installed() -> bool:
+    """Return whether the optional Vortex CUDA extension package is importable.
+
+    The base ``vortex-data`` wheel is CPU-only. Optional CUDA functionality is
+    provided by the separate ``vortex-data-cuda`` extension package. This returns
+    ``True`` when the ``vortex_cuda`` import package can be found in the current
+    environment, which is what ``vortex-data[cuda]`` installs.
+
+    This does not probe the CUDA driver or attached devices, and it does not
+    imply that any particular GPU interop API is available. After installing the
+    extension package, use ``vortex_cuda.cuda_available()`` to check whether CUDA
+    is usable at runtime.
+    """
+    return importlib.util.find_spec("vortex_cuda") is not None
+
+
+def __getattr__(name: str):
+    # `datasets` is exposed lazily and deliberately kept out of __all__: importing it pulls in the
+    # optional `vortex-data[hf]` dependencies, so it must not be imported by `from vortex import *`
+    # or by merely importing `vortex`.
+    if name == "datasets":
+        module = importlib.import_module(".datasets", __name__)
+        globals()[name] = module
+        return module
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 __all__ = [
     # --- Modules ---
     "arrays",
@@ -113,6 +143,7 @@ __all__ = [
     # --- Objects and Functions ---
     "array",
     "compress",
+    "cuda_extension_installed",
     # Arrays
     "Array",
     "PyArray",

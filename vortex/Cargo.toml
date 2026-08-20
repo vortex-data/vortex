@@ -16,20 +16,26 @@ version = { workspace = true }
 [package.metadata.docs.rs]
 all-features = true
 
+[package.metadata.cargo-shear]
+ignored = ["vortex-tensor"]
+
 [lints]
 workspace = true
 
 [dependencies]
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
+vortex-arrow = { workspace = true }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-bytebool = { workspace = true }
+vortex-cloud = { workspace = true, optional = true }
 vortex-datetime-parts = { workspace = true }
 vortex-decimal-byte-parts = { workspace = true }
+vortex-edition = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
-vortex-file = { workspace = true, optional = true, default-features = true }
+vortex-file = { workspace = true, optional = true }
 vortex-flatbuffers = { workspace = true }
 vortex-fsst = { workspace = true }
 vortex-io = { workspace = true }
@@ -39,7 +45,7 @@ vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-pco = { workspace = true }
 vortex-proto = { workspace = true, default-features = true }
-vortex-runend = { workspace = true, features = ["arrow"] }
+vortex-runend = { workspace = true }
 vortex-scan = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-session = { workspace = true }
@@ -54,28 +60,43 @@ anyhow = { workspace = true }
 arrow-array = { workspace = true }
 divan = { workspace = true }
 fastlanes = { workspace = true }
-futures = { workspace = true }
 mimalloc = { workspace = true }
 parquet = { workspace = true }
-paste = { workspace = true }
 rand = { workspace = true }
-rand_distr = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 vortex = { path = ".", features = ["tokio"] }
-vortex-tensor = { workspace = true }
 
 [features]
-default = ["files", "zstd"]
+default = ["files", "wasm-bindgen", "zstd"]
 files = ["dep:vortex-file"]
 memmap2 = ["vortex-buffer/memmap2"]
-object_store = ["vortex-file/object_store", "vortex-io/object_store"]
-tokio = ["vortex-file/tokio"]
-zstd = ["dep:vortex-zstd", "vortex-file/zstd"]
+object_store = ["vortex-file?/object_store", "vortex-io/object_store"]
+# The URL -> ObjectStore registry, plus the cloud backends it resolves URLs to.
+object_store_registry = ["object_store", "vortex-cloud/registry"]
+# The Hugging Face Hub (`hf://`) in the object store registry. Served over HTTP, so unlike
+# `opendal` it pulls in no cloud SDK.
+hf = ["object_store_registry", "vortex-cloud/hf"]
+# OpenDAL-backed schemes (`cos://`, `oss://`) in the object store registry.
+opendal = ["object_store_registry", "vortex-cloud/opendal"]
+tokio = [
+    "vortex-error/tokio",
+    "vortex-file?/tokio",
+    "vortex-io/tokio",
+    "vortex-layout/tokio",
+]
+zstd = ["dep:vortex-zstd", "vortex-file?/zstd"]
+wasm-bindgen = [
+    "vortex-file?/wasm-bindgen",
+    "vortex-io/wasm-bindgen",
+    "vortex-layout/wasm-bindgen",
+]
 pretty = ["vortex-array/table-display"]
 serde = ["vortex-array/serde", "vortex-buffer/serde", "vortex-mask/serde"]
+# Exposes experimental row-function APIs without compatibility guarantees.
+unstable_row_fns = ["vortex-array/unstable_row_fns"]
 # This feature enabled unstable encodings for which we don't guarantee stability.
 unstable_encodings = [
     "dep:vortex-tensor",
@@ -91,6 +112,11 @@ test = false
 
 [[bench]]
 name = "common_encoding_tree_throughput"
+harness = false
+test = false
+
+[[bench]]
+name = "take_union"
 harness = false
 test = false
 

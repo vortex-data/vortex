@@ -75,6 +75,14 @@ impl ExtDTypeRef {
                 .eq_ignore_nullability(other.storage_dtype())
     }
 
+    /// Hash this extension dtype using the same equivalence relation as
+    /// [`Self::eq_ignore_nullability`].
+    pub(crate) fn hash_ignore_nullability<H: Hasher>(&self, state: &mut H) {
+        self.id().hash(state);
+        self.0.metadata_hash(state);
+        self.storage_dtype().hash_ignore_nullability(state);
+    }
+
     // TODO(connor): We should add a different type that returns something that can be serialized.
     /// Serialize the metadata into a byte vector.
     pub fn serialize_metadata(&self) -> VortexResult<Vec<u8>> {
@@ -98,21 +106,6 @@ impl ExtDTypeRef {
     /// Validates that the given storage scalar value is valid for this dtype.
     pub(crate) fn validate_storage_value(&self, storage_value: &ScalarValue) -> VortexResult<()> {
         self.0.validate_scalar_value(storage_value)
-    }
-
-    /// Can a value of `other` be implicitly coerced into this extension type?
-    pub fn can_coerce_from(&self, other: &DType) -> bool {
-        self.0.can_coerce_from(other)
-    }
-
-    /// Can this extension type be implicitly coerced into `other`?
-    pub fn can_coerce_to(&self, other: &DType) -> bool {
-        self.0.can_coerce_to(other)
-    }
-
-    /// Compute the least supertype of this extension type and another type.
-    pub fn least_supertype(&self, other: &DType) -> Option<DType> {
-        self.0.least_supertype(other)
     }
 }
 

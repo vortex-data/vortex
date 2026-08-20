@@ -3,7 +3,6 @@
 
 use std::iter::repeat_n;
 
-use arrow_array::cast::AsArray;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::read_u64_le;
@@ -27,8 +26,6 @@ use crate::arrays::ScalarFn;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
-use crate::arrow::ArrowSessionExt;
-use crate::arrow::FromArrowArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -46,7 +43,8 @@ use crate::validity::Validity;
 /// operand without falling back to ordinary execution.
 ///
 /// Vortex's boolean [`Operator::And`] and [`Operator::Or`] variants use Kleene semantics; there is
-/// no separate two-valued boolean operator path to dispatch here.
+/// no separate two-valued boolean operator path to dispatch here. Consequently, they are not
+/// strict: `false AND null` is `false`, and `true OR null` is `true`.
 pub trait BooleanKernel: VTable {
     /// Execute `lhs <operator> rhs` using Kleene boolean semantics.
     fn boolean(
@@ -116,67 +114,32 @@ pub fn or_kleene(lhs: &ArrayRef, rhs: &ArrayRef) -> VortexResult<ArrayRef> {
 /// This is the entry point for boolean operations from the binary expression.
 /// Handles constants and canonical boolean arrays directly, otherwise falls back to Arrow.
 pub(crate) fn execute_boolean(
-    lhs: &ArrayRef,
-    rhs: &ArrayRef,
-    op: Operator,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    let nullable = boolean_nullability(lhs, rhs);
-
-    if lhs.is_empty() {
-        return Ok(Canonical::empty(&DType::Bool(nullable)).into_array());
-    }
-
-    if let Some(result) = constant_boolean(lhs, rhs, op)? {
-        return Ok(result);
-    }
-
-    if let Some(lhs) = lhs.as_opt::<Bool>()
-        && let Some(result) = <Bool as BooleanKernel>::boolean(lhs, rhs, op, ctx)?
-    {
-        return Ok(result);
-    }
-
-    if let Some(rhs) = rhs.as_opt::<Bool>()
-        && let Some(result) = <Bool as BooleanKernel>::boolean(rhs, lhs, op, ctx)?
-    {
-        return Ok(result);
-    }
-
-    arrow_execute_boolean(lhs.clone(), rhs.clone(), op, ctx)
-}
-
-/// Arrow implementation for Kleene boolean operations using [`Operator`].
-fn arrow_execute_boolean(
     lhs: ArrayRef,
     rhs: ArrayRef,
     op: Operator,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let nullable = boolean_nullability(&lhs, &rhs);
-    let session = ctx.session().clone();
 
-    let lhs = session
-        .arrow()
-        .execute_arrow(lhs, None, ctx)?
-        .as_boolean_opt()
-        .ok_or_else(|| vortex_err!("expected lhs to be boolean"))?
-        .clone();
+    if lhs.is_empty() {
+        return Ok(Canonical::empty(&DType::Bool(nullable)).into_array());
+    }
 
-    let rhs = session
-        .arrow()
-        .execute_arrow(rhs, None, ctx)?
-        .as_boolean_opt()
-        .ok_or_else(|| vortex_err!("expected rhs to be boolean"))?
-        .clone();
+    if let Some(result) = constant_boolean(&lhs, &rhs, op)? {
+        return Ok(result);
+    }
 
-    let array = match op {
-        Operator::And => arrow_arith::boolean::and_kleene(&lhs, &rhs)?,
-        Operator::Or => arrow_arith::boolean::or_kleene(&lhs, &rhs)?,
-        other => vortex_bail!("Not a boolean operator: {other}"),
+    let lhs = lhs.execute::<BoolArray>(ctx)?;
+    if let Some(result) = <Bool as BooleanKernel>::boolean(lhs.as_view(), &rhs, op, ctx)? {
+        return Ok(result);
+    }
+
+    let rhs = rhs.execute::<BoolArray>(ctx)?;
+    let Some(result) = <Bool as BooleanKernel>::boolean(rhs.as_view(), &lhs.into_array(), op, ctx)?
+    else {
+        vortex_bail!("No boolean kernel for two BoolArrays");
     };
-
-    ArrayRef::from_arrow(&array, nullable == Nullability::Nullable)
+    Ok(result)
 }
 
 /// Handles boolean operations where at least one operand is a constant array.
@@ -763,8 +726,6 @@ mod tests {
     use crate::arrays::ConstantArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
-    #[expect(deprecated)]
-    use crate::canonical::ToCanonical as _;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
@@ -864,9 +825,9 @@ mod tests {
         BoolArray::from_iter([Some(true), Some(true), Some(false), Some(false)]).into_array(),
     )]
     fn test_or(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
+        let mut ctx = array_session().create_execution_ctx();
         let r = lhs.binary(rhs, Operator::Or).unwrap();
-        #[expect(deprecated)]
-        let r = r.to_bool().into_array();
+        let r = r.execute::<BoolArray>(&mut ctx).unwrap().into_array();
 
         let v0 = r
             .execute_scalar(0, &mut array_session().create_execution_ctx())
@@ -905,11 +866,12 @@ mod tests {
         BoolArray::from_iter([Some(true), Some(true), Some(false), Some(false)]).into_array(),
     )]
     fn test_and(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
-        #[expect(deprecated)]
+        let mut ctx = array_session().create_execution_ctx();
         let r = lhs
             .binary(rhs, Operator::And)
             .unwrap()
-            .to_bool()
+            .execute::<BoolArray>(&mut ctx)
+            .unwrap()
             .into_array();
 
         let v0 = r

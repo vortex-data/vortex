@@ -24,15 +24,14 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
-use crate::arrays::scalar_fn::ScalarFnFactoryExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
+use crate::legacy_session;
 use crate::optimizer::ArrayOptimizer;
 use crate::patches::Patches;
 use crate::scalar::Scalar;
@@ -186,15 +185,17 @@ impl Validity {
     /// Returns whether the `index` item is valid.
     #[deprecated(note = "use `execute_is_valid` with an explicit `ExecutionCtx`")]
     #[inline]
+    #[allow(clippy::disallowed_methods)]
     pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
-        self.execute_is_valid(index, &mut LEGACY_SESSION.create_execution_ctx())
+        self.execute_is_valid(index, &mut legacy_session().create_execution_ctx())
     }
 
     /// Returns whether the `index` item is null.
     #[deprecated(note = "use `execute_is_null` with an explicit `ExecutionCtx`")]
     #[inline]
+    #[allow(clippy::disallowed_methods)]
     pub fn is_null(&self, index: usize) -> VortexResult<bool> {
-        self.execute_is_null(index, &mut LEGACY_SESSION.create_execution_ctx())
+        self.execute_is_null(index, &mut legacy_session().create_execution_ctx())
     }
 
     #[inline]
@@ -320,8 +321,8 @@ impl Validity {
             | (Validity::AllValid, Validity::AllValid) => Validity::AllValid,
             // Here we actually have to do some work
             (Validity::Array(lhs), Validity::Array(rhs)) => Validity::Array(
-                Binary
-                    .try_new_array(lhs.len(), Operator::And, [lhs, rhs])?
+                Binary::try_new(lhs, rhs, Operator::And)?
+                    .into_array()
                     .optimize()?,
             ),
         })
@@ -584,10 +585,7 @@ impl Validity {
         Some(Validity::Array(
             unsafe {
                 ChunkedArray::new_unchecked(
-                    validities
-                        .into_iter()
-                        .map(|(v, len)| v.to_array(len))
-                        .collect(),
+                    validities.into_iter().map(|(v, len)| v.to_array(len)),
                     DType::Bool(Nullability::NonNullable),
                 )
             }

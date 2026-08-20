@@ -1,0 +1,9 @@
+---
+source: vortex-btrblocks/tests/golden.rs
+expression: rendered
+---
+input: f64, len=16384, nbytes=131072
+root: vortex.alp(f64, len=16384) nbytes=47699
+  metadata: exponents: e: 14, f: 12
+  encoded: vortex.pco(i64, len=16384) nbytes=47699
+    metadata: ptype: i64, nrows: 16384, slice: 0..16384

@@ -16,6 +16,7 @@ use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
+use crate::ArrayParts;
 use crate::ArrayRef;
 use crate::EqMode;
 use crate::ExecutionCtx;
@@ -24,18 +25,17 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
-use crate::arrays::listview::ListViewArrayExt;
+use crate::array::with_empty_buffers;
+use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::listview::ListViewData;
-use crate::arrays::listview::array::ELEMENTS_SLOT;
-use crate::arrays::listview::array::NUM_SLOTS;
-use crate::arrays::listview::array::OFFSETS_SLOT;
-use crate::arrays::listview::array::SIZES_SLOT;
-use crate::arrays::listview::array::SLOT_NAMES;
+use crate::arrays::listview::ListViewSlots;
 use crate::arrays::listview::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::match_each_list_builder;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 mod kernel;
@@ -95,6 +95,14 @@ impl VTable for ListView {
         vortex_panic!("ListViewArray buffer_name index {idx} out of bounds")
     }
 
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        with_empty_buffers(self, array, buffers)
+    }
+
     fn serialize(
         array: ArrayView<'_, Self>,
         _session: &VortexSession,
@@ -117,17 +125,18 @@ impl VTable for ListView {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "ListViewArray expected {NUM_SLOTS} slots, found {}",
+            slots.len() == ListViewSlots::COUNT,
+            "ListViewArray expected {} slots, found {}",
+            ListViewSlots::COUNT,
             slots.len()
         );
-        let elements = slots[ELEMENTS_SLOT]
+        let elements = slots[ListViewSlots::ELEMENTS]
             .as_ref()
             .vortex_expect("ListViewArray elements slot");
-        let offsets = slots[OFFSETS_SLOT]
+        let offsets = slots[ListViewSlots::OFFSETS]
             .as_ref()
             .vortex_expect("ListViewArray offsets slot");
-        let sizes = slots[SIZES_SLOT]
+        let sizes = slots[ListViewSlots::SIZES]
             .as_ref()
             .vortex_expect("ListViewArray sizes slot");
         vortex_ensure!(
@@ -157,7 +166,7 @@ impl VTable for ListView {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<crate::array::ArrayParts<Self>> {
+    ) -> VortexResult<ArrayParts<Self>> {
         let metadata = ListViewMetadata::decode(metadata)?;
         vortex_ensure!(
             buffers.is_empty(),
@@ -204,15 +213,32 @@ impl VTable for ListView {
         ListViewData::validate(&elements, &offsets, &sizes, &validity)?;
         let data = ListViewData::try_new()?;
         let slots = ListViewData::make_slots(&elements, &offsets, &sizes, &validity, len);
-        Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        ListViewSlots::NAMES[idx].to_string()
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
+    }
+
+    // The complexity comes from the expansion of `match_each_list_builder!`.
+    #[expect(clippy::cognitive_complexity)]
+    fn append_to_builder(
+        array: ArrayView<'_, Self>,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        match match_each_list_builder!(&mut *builder, |b| b.append_listview_array(array, ctx)) {
+            Some(result) => result,
+            None => vortex_bail!(
+                "cannot append a ListView array of dtype {} to a {} builder",
+                array.dtype(),
+                builder.dtype()
+            ),
+        }
     }
 
     fn reduce_parent(

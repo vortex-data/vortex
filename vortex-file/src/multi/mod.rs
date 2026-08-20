@@ -4,6 +4,7 @@
 //! Builder for constructing a [`MultiLayoutDataSource`] from multiple Vortex files.
 
 mod session;
+mod uri;
 
 use std::sync::Arc;
 
@@ -14,9 +15,11 @@ use futures::stream;
 pub use session::MultiFileSession;
 use session::MultiFileSessionExt;
 use tracing::debug;
+pub use uri::parse_uri_or_path;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_io::VortexReadAt;
 use vortex_io::filesystem::FileListing;
 use vortex_io::filesystem::FileSystemRef;
 use vortex_layout::LayoutReaderRef;
@@ -230,20 +233,37 @@ async fn open_file(
 ) -> VortexResult<VortexFile> {
     tracing::trace!(path = %file.path, "opening vortex file");
 
-    // Open the reader first so we can use its URI as the cache key.
-    // The URI includes the full path (with any filesystem prefix), making it unique
-    // even when different PrefixFileSystem instances strip paths to the same relative name.
     let source = fs.open_read(&file.path).await?;
+    open_cached(session, source, &file.path, file.size, open_options_fn).await
+}
+
+/// Open a single Vortex file through the session's footer cache, so that a later open of the
+/// same file skips the footer read.
+///
+/// The cache is keyed by the source's [`uri`](vortex_io::VortexReadAt::uri) where it reports one,
+/// since that includes the full path (with any filesystem prefix) and so stays unique even when
+/// different filesystems strip paths to the same relative name. `fallback_key` identifies the file
+/// for sources that report no URI, and must be stable and unique within the session — two
+/// different files sharing a key would read each other's footer.
+///
+/// Caching the footer is independent of [`VortexOpenOptions::include_metadata`]: the footer holds
+/// only metadata *locators*, and each open resolves the segments it was asked for.
+pub async fn open_cached(
+    session: &VortexSession,
+    source: Arc<dyn VortexReadAt>,
+    fallback_key: &str,
+    file_size: Option<u64>,
+    open_options_fn: &(dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync),
+) -> VortexResult<VortexFile> {
     let cache_key = source
         .uri()
-        .map(|u| u.to_string())
-        .unwrap_or_else(|| file.path.clone());
+        .map_or_else(|| fallback_key.to_owned(), |uri| uri.to_string());
 
-    // Build open options. The DashMap Ref from multi_file() must not live across an await,
+    // Build open options. The cache guard from multi_file() must not live across an await,
     // so we scope the cache lookup in a block.
     let options = {
         let mut options = open_options_fn(session.open_options());
-        if let Some(size) = file.size {
+        if let Some(size) = file_size {
             options = options.with_file_size(size);
         }
         if let Some(footer) = session.multi_file().get_footer(&cache_key) {
@@ -254,7 +274,7 @@ async fn open_file(
 
     let vortex_file = options.open(source).await?;
 
-    // Store footer in cache (scoped to avoid holding the Ref across subsequent code).
+    // Store footer in cache (scoped to avoid holding the guard across subsequent code).
     session
         .multi_file()
         .put_footer(&cache_key, vortex_file.footer().clone());
@@ -281,5 +301,205 @@ impl LayoutReaderFactory for VortexFileReaderFactory {
         .await?;
 
         Ok(Some(file.layout_reader()?))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fmt;
+
+    use vortex_array::IntoArray;
+    use vortex_array::array_session;
+    use vortex_buffer::ByteBuffer;
+    use vortex_buffer::ByteBufferMut;
+    use vortex_buffer::buffer;
+    use vortex_io::VortexReadAt;
+    use vortex_io::filesystem::FileSystem;
+    use vortex_io::session::RuntimeSession;
+    use vortex_layout::session::LayoutSession;
+
+    use super::*;
+    use crate::WriteOptionsSessionExt;
+
+    struct MetadataFileSystem {
+        bytes: ByteBuffer,
+    }
+
+    impl fmt::Debug for MetadataFileSystem {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("MetadataFileSystem").finish()
+        }
+    }
+
+    #[async_trait]
+    impl FileSystem for MetadataFileSystem {
+        fn list(&self, _prefix: &str) -> stream::BoxStream<'_, VortexResult<FileListing>> {
+            stream::empty().boxed()
+        }
+
+        async fn head(&self, path: &str) -> VortexResult<Option<FileListing>> {
+            Ok((path == "metadata.vortex").then_some(FileListing {
+                path: path.to_string(),
+                size: Some(self.bytes.len() as u64),
+            }))
+        }
+
+        async fn open_read(&self, _path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
+            Ok(Arc::new(self.bytes.clone()))
+        }
+
+        async fn delete(&self, _path: &str) -> VortexResult<()> {
+            Ok(())
+        }
+    }
+
+    async fn assert_cached_footer_metadata_order(default_first: bool) -> VortexResult<()> {
+        let session = array_session()
+            .with::<LayoutSession>()
+            .with::<RuntimeSession>()
+            .with::<MultiFileSession>();
+        crate::register_default_encodings(&session);
+        crate::enable_all_registered_array_encodings(&session);
+
+        let expected = ByteBuffer::copy_from(b"cached metadata");
+        let mut output = ByteBufferMut::empty();
+        session
+            .write_options()
+            .with_metadata_segment("key", expected.clone())
+            .write(&mut output, buffer![1u32].into_array().to_array_stream())
+            .await?;
+        let fs: FileSystemRef = Arc::new(MetadataFileSystem {
+            bytes: ByteBuffer::from(output),
+        });
+        let listing = FileListing {
+            path: "metadata.vortex".to_string(),
+            size: None,
+        };
+        let default_options = |options: VortexOpenOptions| options;
+        let metadata_options = |options: VortexOpenOptions| options.include_metadata();
+
+        if default_first {
+            let default = open_file(&fs, &listing, &session, &default_options).await?;
+            assert!(default.metadata_segment("key").is_none());
+            let included = open_file(&fs, &listing, &session, &metadata_options).await?;
+            assert_eq!(
+                included.metadata_segment("key").map(ByteBuffer::as_slice),
+                Some(expected.as_slice())
+            );
+        } else {
+            let included = open_file(&fs, &listing, &session, &metadata_options).await?;
+            assert_eq!(
+                included.metadata_segment("key").map(ByteBuffer::as_slice),
+                Some(expected.as_slice())
+            );
+            let default = open_file(&fs, &listing, &session, &default_options).await?;
+            assert!(default.metadata_segment("key").is_none());
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cached_footer_default_then_metadata_is_order_independent() -> VortexResult<()> {
+        assert_cached_footer_metadata_order(true).await
+    }
+
+    #[tokio::test]
+    async fn test_cached_footer_metadata_then_default_is_order_independent() -> VortexResult<()> {
+        assert_cached_footer_metadata_order(false).await
+    }
+
+    struct TwoFileSystem {
+        a: ByteBuffer,
+        b: ByteBuffer,
+    }
+
+    impl fmt::Debug for TwoFileSystem {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("TwoFileSystem").finish()
+        }
+    }
+
+    #[async_trait]
+    impl FileSystem for TwoFileSystem {
+        fn list(&self, _prefix: &str) -> stream::BoxStream<'_, VortexResult<FileListing>> {
+            stream::empty().boxed()
+        }
+
+        async fn head(&self, path: &str) -> VortexResult<Option<FileListing>> {
+            let size = match path {
+                "a.vortex" => self.a.len(),
+                "b.vortex" => self.b.len(),
+                _ => return Ok(None),
+            };
+            Ok(Some(FileListing {
+                path: path.to_string(),
+                size: Some(size as u64),
+            }))
+        }
+
+        async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
+            let bytes = match path {
+                "b.vortex" => self.b.clone(),
+                _ => self.a.clone(),
+            };
+            Ok(Arc::new(bytes))
+        }
+
+        async fn delete(&self, _path: &str) -> VortexResult<()> {
+            Ok(())
+        }
+    }
+
+    // Distinct files carry distinct metadata; opening both through the multi-file
+    // cache must not let one file's metadata leak into another (URI isolation).
+    #[tokio::test]
+    async fn test_multi_file_metadata_isolated_per_uri() -> VortexResult<()> {
+        let session = array_session()
+            .with::<LayoutSession>()
+            .with::<RuntimeSession>()
+            .with::<MultiFileSession>();
+        crate::register_default_encodings(&session);
+        crate::enable_all_registered_array_encodings(&session);
+
+        let mut out_a = ByteBufferMut::empty();
+        session
+            .write_options()
+            .with_metadata_segment("k", ByteBuffer::copy_from(b"file-a"))
+            .write(&mut out_a, buffer![1u32].into_array().to_array_stream())
+            .await?;
+        let mut out_b = ByteBufferMut::empty();
+        session
+            .write_options()
+            .with_metadata_segment("k", ByteBuffer::copy_from(b"file-b"))
+            .write(&mut out_b, buffer![2u32].into_array().to_array_stream())
+            .await?;
+
+        let fs: FileSystemRef = Arc::new(TwoFileSystem {
+            a: ByteBuffer::from(out_a),
+            b: ByteBuffer::from(out_b),
+        });
+        let include = |options: VortexOpenOptions| options.include_metadata();
+
+        let a_listing = FileListing {
+            path: "a.vortex".to_string(),
+            size: None,
+        };
+        let b_listing = FileListing {
+            path: "b.vortex".to_string(),
+            size: None,
+        };
+        let fa = open_file(&fs, &a_listing, &session, &include).await?;
+        let fb = open_file(&fs, &b_listing, &session, &include).await?;
+
+        assert_eq!(
+            fa.metadata_segment("k").map(ByteBuffer::as_slice),
+            Some(b"file-a".as_slice())
+        );
+        assert_eq!(
+            fb.metadata_segment("k").map(ByteBuffer::as_slice),
+            Some(b"file-b".as_slice())
+        );
+        Ok(())
     }
 }

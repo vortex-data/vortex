@@ -15,8 +15,9 @@ use datafusion_common::GetExt;
 use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue as DFScalarValue;
 use datafusion_common::Statistics;
+use datafusion_common::config::ConfigExtension;
 use datafusion_common::config::ConfigField;
-use datafusion_common::config_namespace;
+use datafusion_common::extensions_options;
 use datafusion_common::internal_datafusion_err;
 use datafusion_common::not_impl_err;
 use datafusion_common::parsers::CompressionTypeVariant;
@@ -43,7 +44,6 @@ use futures::stream;
 use object_store::ObjectMeta;
 use object_store::ObjectStore;
 use vortex::VortexSessionDefault;
-use vortex::array::arrow::ArrowSessionExt;
 use vortex::array::memory::MemorySessionExt;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
@@ -62,11 +62,13 @@ use vortex::io::session::RuntimeSessionExt;
 use vortex::scalar::Scalar;
 use vortex::scalar::ScalarValue as VortexScalarValue;
 use vortex::session::VortexSession;
+use vortex_arrow::ArrowSessionExt;
 
 use super::cache::CachedVortexMetadata;
 use super::sink::VortexSink;
 use super::source::VortexSource;
 use crate::PrecisionExt as _;
+use crate::convert::ExpressionConvertor;
 use crate::convert::TryToDataFusion;
 use crate::convert::stats::is_constant_to_distinct_count;
 
@@ -122,38 +124,77 @@ const DEFAULT_FOOTER_INITIAL_READ_SIZE_BYTES: usize = MAX_POSTSCRIPT_SIZE as usi
 pub struct VortexFormat {
     session: VortexSession,
     opts: VortexTableOptions,
+    expression_convertor: Option<Arc<dyn ExpressionConvertor>>,
 }
 
 impl Debug for VortexFormat {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("VortexFormat")
             .field("opts", &self.opts)
+            .field(
+                "has_expression_convertor",
+                &self.expression_convertor.is_some(),
+            )
             .finish()
     }
 }
 
-config_namespace! {
+extensions_options! {
     /// Options to configure [`VortexFormat`] and [`VortexSource`].
     ///
-    /// These options are usually set on a [`VortexFormatFactory`] and inherited
-    /// by the `VortexFormat` / `VortexSource` instances created for individual
-    /// tables.
+    /// The API follows DataFusion's built-in Parquet and JSON format factories:
+    /// a format factory may carry customized defaults, the session may carry
+    /// format defaults, and `CREATE EXTERNAL TABLE ... OPTIONS(...)` can
+    /// override individual fields for one table.
+    ///
+    /// [`FileFormatFactory::create`] builds the `VortexTableOptions` copied into
+    /// each [`VortexFormat`] as follows:
+    ///
+    /// 1. If the factory has explicit options from
+    ///    [`VortexFormatFactory::with_options`] or
+    ///    [`VortexFormatFactory::new_with_options`], start from that complete
+    ///    `VortexTableOptions` value. This matches
+    ///    [`ParquetFormatFactory::new_with_options`] and
+    ///    [`JsonFormatFactory::new_with_options`]: factory options replace
+    ///    session defaults; they are not merged with them field-by-field.
+    /// 2. If the factory does not have explicit options, read the session's
+    ///    `vortex` extension at the time `create` is called. This is the value
+    ///    changed by `SET vortex.<option> = ...`.
+    /// 3. If the session has no `vortex` extension, start from
+    ///    `VortexTableOptions::default()`.
+    /// 4. Apply table `OPTIONS(...)` last. Each option overwrites only its
+    ///    matching field, so per-table settings can override either the factory
+    ///    options or the session/default value.
+    ///
+    /// In SQL, session settings use the `vortex.` prefix. Table options use the
+    /// field names directly, the same style as Parquet or JSON table options:
+    ///
+    /// ```text
+    /// SET vortex.predicate_pushdown = false;
+    ///
+    /// CREATE EXTERNAL TABLE t (x BIGINT)
+    /// STORED AS vortex
+    /// LOCATION 's3://bucket/path/'
+    /// OPTIONS(predicate_pushdown 'true');
+    /// ```
     ///
     /// # Example
     ///
     /// ```rust
     /// use vortex_datafusion::{VortexFormatFactory, VortexTableOptions};
     ///
-    /// let factory = VortexFormatFactory::new().with_options(VortexTableOptions {
-    ///     projection_pushdown: true,
-    ///     predicate_pushdown: true,
-    ///     scan_concurrency: Some(8),
-    ///     ..Default::default()
-    /// });
+    /// let mut options = VortexTableOptions::default();
+    /// options.predicate_pushdown = true;
+    /// options.projection_pushdown = true;
+    /// options.scan_concurrency = Some(8);
+    ///
+    /// let factory = VortexFormatFactory::new().with_options(options);
     /// # let _ = factory;
     /// ```
     ///
     /// [`SessionConfig`]: https://docs.rs/datafusion/latest/datafusion/prelude/struct.SessionConfig.html
+    /// [`ParquetFormatFactory::new_with_options`]: https://docs.rs/datafusion/latest/datafusion/datasource/file_format/parquet/struct.ParquetFormatFactory.html#method.new_with_options
+    /// [`JsonFormatFactory::new_with_options`]: https://docs.rs/datafusion/latest/datafusion/datasource/file_format/json/struct.JsonFormatFactory.html#method.new_with_options
     pub struct VortexTableOptions {
         /// The number of bytes to read when parsing a file footer.
         ///
@@ -165,23 +206,33 @@ config_namespace! {
         /// When enabled, projection expressions may be partially evaluated during
         /// the scan. When disabled, Vortex reads only the referenced columns and
         /// all expressions are evaluated after the scan.
+        ///
+        /// Disabled by default.
         pub projection_pushdown: bool, default = false
         /// Whether to enable predicate pushdown into the underlying Vortex scan.
         ///
         /// When enabled, supported filters are evaluated during the scan. When
         /// disabled, DataFusion evaluates filters after the scan, while
         /// `VortexSource` can still use the full predicate for file pruning.
+        ///
+        /// Enabled by default.
         pub predicate_pushdown: bool, default = true
         /// The intra-partition scan concurrency, controlling the number of row splits to process
         /// concurrently per-thread within each file.
         ///
         /// This does not affect the overall parallelism
         /// across partitions, which is controlled by DataFusion's execution configuration.
+        ///
+        /// Leave as `None` to use Vortex's scan default. Override per session
+        /// with `SET vortex.scan_concurrency = <n>`, or per table with
+        /// `OPTIONS(scan_concurrency '<n>')`.
         pub scan_concurrency: Option<usize>, default = None
     }
 }
 
-impl Eq for VortexTableOptions {}
+impl ConfigExtension for VortexTableOptions {
+    const PREFIX: &'static str = "vortex";
+}
 
 /// Registration entry point for the file-backed Vortex integration.
 ///
@@ -189,9 +240,12 @@ impl Eq for VortexTableOptions {}
 /// DataFusion session, and DataFusion will create [`VortexFormat`] values for
 /// `CREATE EXTERNAL TABLE`, [`ListingTable`], and URL-table scans.
 ///
-/// The factory stores a [`VortexSession`] and default [`VortexTableOptions`].
-/// Those defaults are copied into the formats and sources created for each
-/// table.
+/// The factory stores a [`VortexSession`] and optional factory-level
+/// [`VortexTableOptions`]. When options are set on the factory they act like
+/// customized format defaults, matching DataFusion's Parquet and JSON factory
+/// APIs. Otherwise, `VortexFormatFactory::create` uses the session's `vortex`
+/// options. In both cases, table `OPTIONS(...)` are applied last for the table
+/// being created.
 ///
 /// # Example
 ///
@@ -203,11 +257,11 @@ impl Eq for VortexTableOptions {}
 /// use datafusion_common::GetExt;
 /// use vortex_datafusion::{VortexFormatFactory, VortexTableOptions};
 ///
-/// let factory = Arc::new(VortexFormatFactory::new().with_options(VortexTableOptions {
-///     projection_pushdown: true,
-///     predicate_pushdown: true,
-///     ..Default::default()
-/// }));
+/// let mut options = VortexTableOptions::default();
+/// options.predicate_pushdown = true;
+/// options.projection_pushdown = true;
+///
+/// let factory = Arc::new(VortexFormatFactory::new().with_options(options));
 ///
 /// let mut state_builder = SessionStateBuilder::new()
 ///     .with_default_features()
@@ -222,10 +276,23 @@ impl Eq for VortexTableOptions {}
 /// ```
 ///
 /// [`ListingTable`]: https://docs.rs/datafusion/latest/datafusion/datasource/listing/struct.ListingTable.html
-#[derive(Debug)]
 pub struct VortexFormatFactory {
     session: VortexSession,
     options: Option<VortexTableOptions>,
+    expression_convertor: Option<Arc<dyn ExpressionConvertor>>,
+}
+
+impl Debug for VortexFormatFactory {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VortexFormatFactory")
+            .field("session", &self.session)
+            .field("options", &self.options)
+            .field(
+                "has_expression_convertor",
+                &self.expression_convertor.is_some(),
+            )
+            .finish()
+    }
 }
 
 impl GetExt for VortexFormatFactory {
@@ -235,7 +302,12 @@ impl GetExt for VortexFormatFactory {
 }
 
 impl VortexFormatFactory {
-    /// Creates a factory with a default [`VortexSession`] and default options.
+    /// Creates a factory with a default [`VortexSession`] and no factory-level
+    /// options.
+    ///
+    /// Formats created by this factory start from the session's `vortex`
+    /// options, or from [`VortexTableOptions::default`] if the session does not
+    /// contain them. Table-level `OPTIONS(...)` are still applied last.
     #[expect(
         clippy::new_without_default,
         reason = "FormatFactory defines `default` method, so having `Default` implementation is confusing"
@@ -244,40 +316,55 @@ impl VortexFormatFactory {
         Self {
             session: VortexSession::default(),
             options: None,
+            expression_convertor: None,
         }
     }
 
-    /// Creates a factory with an explicit session and default options.
+    /// Creates a factory with an explicit session and factory-level options.
     ///
-    /// The supplied options become the baseline for every [`VortexFormat`]
-    /// created by this factory. DataFusion may still override them with
-    /// table-level options passed into [`FileFormatFactory::create`].
+    /// The supplied options become the complete starting value for every
+    /// [`VortexFormat`] created by this factory. Session `SET vortex.*` values
+    /// are ignored for these formats, matching DataFusion's built-in
+    /// `new_with_options` factories. Table-level `OPTIONS(...)` are still
+    /// applied last.
     pub fn new_with_options(session: VortexSession, options: VortexTableOptions) -> Self {
         Self {
             session,
             options: Some(options),
+            expression_convertor: None,
         }
     }
 
-    /// Overrides the default options for this factory.
+    /// Sets factory-level options.
     ///
-    /// This is the usual way to turn on features such as projection pushdown for
-    /// every table created through the factory.
+    /// This is the usual way to customize Vortex defaults for every table
+    /// created through the factory. These options replace, rather than merge
+    /// with, session `SET vortex.*` values. Table-level `OPTIONS(...)` are still
+    /// applied last.
     ///
     /// # Example
     ///
     /// ```rust
     /// use vortex_datafusion::{VortexFormatFactory, VortexTableOptions};
     ///
-    /// let factory = VortexFormatFactory::new().with_options(VortexTableOptions {
-    ///     projection_pushdown: true,
-    ///     predicate_pushdown: true,
-    ///     ..Default::default()
-    /// });
+    /// let mut options = VortexTableOptions::default();
+    /// options.predicate_pushdown = true;
+    /// options.projection_pushdown = true;
+    ///
+    /// let factory = VortexFormatFactory::new().with_options(options);
     /// # let _ = factory;
     /// ```
     pub fn with_options(mut self, options: VortexTableOptions) -> Self {
         self.options = Some(options);
+        self
+    }
+
+    /// Sets the [`ExpressionConvertor`] used by formats and sources created by this factory.
+    pub fn with_expression_convertor(
+        mut self,
+        expression_convertor: Arc<dyn ExpressionConvertor>,
+    ) -> Self {
+        self.expression_convertor = Some(expression_convertor);
         self
     }
 }
@@ -286,26 +373,50 @@ impl FileFormatFactory for VortexFormatFactory {
     #[expect(clippy::disallowed_types, reason = "required by trait signature")]
     fn create(
         &self,
-        _state: &dyn Session,
+        state: &dyn Session,
         format_options: &std::collections::HashMap<String, String>,
     ) -> DFResult<Arc<dyn FileFormat>> {
-        let mut opts = self.options.clone().unwrap_or_default();
+        // This mirrors DataFusion's Parquet/JSON file-format factories:
+        //
+        // 1. Factory options are a complete customized default when present.
+        // 2. Without factory options, use the session's `vortex` extension
+        //    (`SET vortex.* = ...`), falling back to built-in defaults.
+        // 3. Table-level `CREATE EXTERNAL TABLE ... OPTIONS(...)` values apply
+        //    last. DataFusion prefixes file-format options with `format.`
+        //    before passing them to this factory; SQL users write the field
+        //    name directly, e.g. `OPTIONS(predicate_pushdown 'false')`.
+        let mut opts = self
+            .options
+            .clone()
+            .or_else(|| {
+                state
+                    .config_options()
+                    .extensions
+                    .get::<VortexTableOptions>()
+                    .cloned()
+            })
+            .unwrap_or_default();
         for (key, value) in format_options {
             if let Some(key) = key.strip_prefix("format.") {
-                opts.set(key, value)?;
+                ConfigField::set(&mut opts, key, value)?;
             } else {
                 tracing::trace!("Ignoring option '{key}'");
             }
         }
 
-        Ok(Arc::new(VortexFormat::new_with_options(
-            self.session.clone(),
-            opts,
-        )))
+        let mut format = VortexFormat::new_with_options(self.session.clone(), opts);
+        if let Some(expression_convertor) = &self.expression_convertor {
+            format = format.with_expression_convertor(Arc::clone(expression_convertor));
+        }
+        Ok(Arc::new(format))
     }
 
     fn default(&self) -> Arc<dyn FileFormat> {
-        Arc::new(VortexFormat::new(self.session.clone()))
+        let mut format = VortexFormat::new(self.session.clone());
+        if let Some(expression_convertor) = &self.expression_convertor {
+            format = format.with_expression_convertor(Arc::clone(expression_convertor));
+        }
+        Arc::new(format)
     }
 }
 
@@ -322,13 +433,26 @@ impl VortexFormat {
 
     /// Creates a format with explicit [`VortexTableOptions`].
     pub fn new_with_options(session: VortexSession, opts: VortexTableOptions) -> Self {
-        Self { session, opts }
+        Self {
+            session,
+            opts,
+            expression_convertor: None,
+        }
     }
 
     /// Returns the format-specific configuration that will be copied into the
     /// [`VortexSource`] created for a scan.
     pub fn options(&self) -> &VortexTableOptions {
         &self.opts
+    }
+
+    /// Sets the [`ExpressionConvertor`] used by every [`VortexSource`] created by this format.
+    pub fn with_expression_convertor(
+        mut self,
+        expression_convertor: Arc<dyn ExpressionConvertor>,
+    ) -> Self {
+        self.expression_convertor = Some(expression_convertor);
+        self
     }
 }
 
@@ -626,9 +750,12 @@ impl FileFormat for VortexFormat {
     }
 
     fn file_source(&self, table_schema: TableSchema) -> Arc<dyn FileSource> {
-        Arc::new(
-            VortexSource::new(table_schema, self.session.clone()).with_options(self.opts.clone()),
-        ) as _
+        let mut source =
+            VortexSource::new(table_schema, self.session.clone()).with_options(self.opts.clone());
+        if let Some(expression_convertor) = &self.expression_convertor {
+            source = source.with_expression_convertor(Arc::clone(expression_convertor));
+        }
+        Arc::new(source) as _
     }
 }
 
@@ -654,9 +781,118 @@ fn scalar_stat_to_df(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::Ordering;
+
+    use arrow_array::Int32Array;
+    use arrow_schema::DataType;
+    use arrow_schema::Field;
+    use datafusion_common::ScalarValue;
+    use datafusion_common::config::ConfigOptions;
+    use datafusion_expr::Operator;
+    use datafusion_physical_expr::PhysicalExpr;
+    use datafusion_physical_expr::expressions as df_expr;
+    use datafusion_physical_expr::projection::ProjectionExprs;
+    use datafusion_physical_plan::filter_pushdown::PushedDown;
+    use vortex::expr::Expression;
 
     use super::*;
     use crate::common_tests::TestSessionContext;
+    use crate::convert::DefaultExpressionConvertor;
+    use crate::convert::ProcessedProjection;
+
+    #[derive(Clone, Copy)]
+    enum PushdownMode {
+        Reject,
+        Delegate,
+    }
+
+    #[derive(Default)]
+    struct ExpressionConvertorCalls {
+        can_be_pushed_down: AtomicBool,
+        convert: AtomicBool,
+    }
+
+    impl ExpressionConvertorCalls {
+        fn reset(&self) {
+            self.can_be_pushed_down.store(false, Ordering::Relaxed);
+            self.convert.store(false, Ordering::Relaxed);
+        }
+    }
+
+    struct TestExpressionConvertor {
+        inner: DefaultExpressionConvertor,
+        pushdown_mode: PushdownMode,
+        calls: Arc<ExpressionConvertorCalls>,
+    }
+
+    impl TestExpressionConvertor {
+        fn new(
+            session: VortexSession,
+            pushdown_mode: PushdownMode,
+            calls: Arc<ExpressionConvertorCalls>,
+        ) -> Self {
+            Self {
+                inner: DefaultExpressionConvertor::new(session),
+                pushdown_mode,
+                calls,
+            }
+        }
+    }
+
+    impl ExpressionConvertor for TestExpressionConvertor {
+        fn can_be_pushed_down(&self, expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> bool {
+            self.calls.can_be_pushed_down.store(true, Ordering::Relaxed);
+            match self.pushdown_mode {
+                PushdownMode::Reject => false,
+                PushdownMode::Delegate => self.inner.can_be_pushed_down(expr, schema),
+            }
+        }
+
+        fn convert(&self, expr: &dyn PhysicalExpr) -> DFResult<Expression> {
+            self.calls.convert.store(true, Ordering::Relaxed);
+            self.inner.convert(expr)
+        }
+
+        fn split_projection(
+            &self,
+            source_projection: ProjectionExprs,
+            input_schema: &Schema,
+            output_schema: &Schema,
+        ) -> DFResult<ProcessedProjection> {
+            self.inner
+                .split_projection(source_projection, input_schema, output_schema)
+        }
+    }
+
+    fn expression_convertor_test_schema() -> Arc<Schema> {
+        Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, false)]))
+    }
+
+    fn expression_convertor_test_filter() -> Arc<dyn PhysicalExpr> {
+        let column = Arc::new(df_expr::Column::new("a", 0)) as Arc<dyn PhysicalExpr>;
+        let literal =
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(1)))) as Arc<dyn PhysicalExpr>;
+        Arc::new(df_expr::BinaryExpr::new(column, Operator::Gt, literal))
+    }
+
+    fn assert_rejects_pushdown_with_expression_convertor(
+        format: &dyn FileFormat,
+        calls: &ExpressionConvertorCalls,
+    ) -> anyhow::Result<()> {
+        let source = format.file_source(TableSchema::from_file_schema(
+            expression_convertor_test_schema(),
+        ));
+        let result = source.try_pushdown_filters(
+            vec![expression_convertor_test_filter()],
+            &ConfigOptions::new(),
+        )?;
+
+        assert!(calls.can_be_pushed_down.load(Ordering::Relaxed));
+        assert!(!calls.convert.load(Ordering::Relaxed));
+        assert!(matches!(result.filters.as_slice(), [PushedDown::No]));
+        Ok(())
+    }
 
     #[tokio::test]
     async fn create_table() -> anyhow::Result<()> {
@@ -698,7 +934,7 @@ mod tests {
     #[test]
     fn format_plumbs_footer_initial_read_size() {
         let mut opts = VortexTableOptions::default();
-        opts.set("footer_initial_read_size_bytes", "12345").unwrap();
+        ConfigField::set(&mut opts, "footer_initial_read_size_bytes", "12345").unwrap();
 
         let format = VortexFormat::new_with_options(VortexSession::default(), opts);
         assert_eq!(format.options().footer_initial_read_size_bytes, 12345);
@@ -720,7 +956,91 @@ mod tests {
             .downcast_ref::<VortexSource>()
             .ok_or_else(|| anyhow::anyhow!("expected VortexSource"))?;
 
-        assert_eq!(source.options(), &opts);
+        assert_eq!(
+            source.options().projection_pushdown,
+            opts.projection_pushdown
+        );
+        assert_eq!(source.options().predicate_pushdown, opts.predicate_pushdown);
+        assert_eq!(source.options().scan_concurrency, opts.scan_concurrency);
+        Ok(())
+    }
+
+    #[test]
+    fn format_plumbs_expression_convertor() -> anyhow::Result<()> {
+        let session = VortexSession::default();
+        let calls = Arc::new(ExpressionConvertorCalls::default());
+        let convertor = Arc::new(TestExpressionConvertor::new(
+            session.clone(),
+            PushdownMode::Reject,
+            Arc::clone(&calls),
+        ));
+        let format = VortexFormat::new(session).with_expression_convertor(convertor);
+
+        assert_rejects_pushdown_with_expression_convertor(&format, &calls)
+    }
+
+    #[test]
+    fn factory_plumbs_expression_convertor() -> anyhow::Result<()> {
+        let calls = Arc::new(ExpressionConvertorCalls::default());
+        let convertor = Arc::new(TestExpressionConvertor::new(
+            VortexSession::default(),
+            PushdownMode::Reject,
+            Arc::clone(&calls),
+        ));
+        let factory = VortexFormatFactory::new().with_expression_convertor(convertor);
+        let ctx = TestSessionContext::default();
+
+        let format = factory.create(&ctx.session.state(), &Default::default())?;
+        assert_rejects_pushdown_with_expression_convertor(format.as_ref(), &calls)?;
+
+        calls.reset();
+        let format = FileFormatFactory::default(&factory);
+        assert_rejects_pushdown_with_expression_convertor(format.as_ref(), &calls)
+    }
+
+    #[tokio::test]
+    async fn external_table_query_uses_factory_expression_convertor() -> anyhow::Result<()> {
+        let calls = Arc::new(ExpressionConvertorCalls::default());
+        let convertor = Arc::new(TestExpressionConvertor::new(
+            VortexSession::default(),
+            PushdownMode::Delegate,
+            Arc::clone(&calls),
+        ));
+        let factory = Arc::new(VortexFormatFactory::new().with_expression_convertor(convertor));
+        let ctx = TestSessionContext::new_with_factory(factory);
+
+        ctx.session
+            .sql(
+                "CREATE EXTERNAL TABLE numbers (a INT NOT NULL) \
+                 STORED AS vortex LOCATION '/expression-convertor/'",
+            )
+            .await?;
+        ctx.session
+            .sql("INSERT INTO numbers VALUES (1), (2), (3)")
+            .await?
+            .collect()
+            .await?;
+
+        calls.reset();
+        let batches = ctx
+            .session
+            .sql("SELECT a FROM numbers WHERE a > 1 ORDER BY a")
+            .await?
+            .collect()
+            .await?;
+
+        assert!(calls.can_be_pushed_down.load(Ordering::Relaxed));
+        assert!(calls.convert.load(Ordering::Relaxed));
+        let mut values = Vec::new();
+        for batch in batches {
+            let array = batch
+                .column(0)
+                .as_any()
+                .downcast_ref::<Int32Array>()
+                .ok_or_else(|| anyhow::anyhow!("expected Int32 result column"))?;
+            values.extend(array.values().iter().copied());
+        }
+        assert_eq!(values, vec![2, 3]);
         Ok(())
     }
 }

@@ -32,7 +32,7 @@ def vxf(tmpdir_factory) -> vx.VortexFile:  # pyright: ignore[reportUnknownParame
 
 def test_dtype(vxf: VortexFile):
     assert vxf.dtype.to_arrow_schema() == pa.schema(
-        [("bool", pa.bool_()), ("float", pa.float64()), ("index", pa.int64()), ("string", pa.string_view())]
+        [("index", pa.int64()), ("string", pa.string_view()), ("bool", pa.bool_()), ("float", pa.float64())]
     )
 
 
@@ -60,6 +60,16 @@ def test_to_arrow_batch_size(vxf: VortexFile):
 def test_to_arrow_columns(vxf: VortexFile):
     rbr = vxf.to_arrow(projection=["string", "bool"])
     assert rbr.schema == pa.schema([("string", pa.string_view()), ("bool", pa.bool_())])
+
+
+def test_to_arrow_offset_string_schema(vxf: VortexFile):
+    schema = pa.schema([("string", pa.string())])
+    table = vxf.to_arrow(projection=["string"], schema=schema).read_all()
+    assert table.schema == schema
+    assert table.column("string").combine_chunks() == pa.array(
+        (str(i) for i in range(1_000_000)),
+        type=pa.string(),
+    )
 
 
 def test_empty_file(tmpdir_factory):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]

@@ -45,7 +45,7 @@ static BYTE_COMPRESS_LUT: &[([u8; 8], u8); 256] = &{
 ///
 /// Processes the mask one byte at a time (8 source elements per byte),
 /// using a precomputed permutation to compact selected elements.
-pub(super) fn filter_buffer<T: Copy>(buffer: Buffer<T>, mask: &MaskValues) -> Buffer<T> {
+pub(crate) fn filter_buffer<T: Copy>(buffer: Buffer<T>, mask: &MaskValues) -> Buffer<T> {
     debug_assert_eq!(buffer.len(), mask.len());
 
     let src = buffer.as_slice();

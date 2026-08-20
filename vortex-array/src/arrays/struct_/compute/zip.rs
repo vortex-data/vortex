@@ -37,7 +37,7 @@ impl ZipKernel for Struct {
         let fields = if_true
             .iter_unmasked_fields()
             .zip(if_false.iter_unmasked_fields())
-            .map(|(t, f)| ArrayBuiltins::zip(mask, t.clone(), f.clone()))
+            .map(|(t, f)| mask.zip(t.clone(), f.clone()))
             .collect::<VortexResult<Vec<_>>>()?;
 
         let v1 = if_true.validity()?;
@@ -48,11 +48,11 @@ impl ZipKernel for Struct {
             (Validity::AllInvalid, Validity::AllInvalid) => Validity::AllInvalid,
 
             (v1, v2) => {
-                let mask_mask = mask.try_to_mask_fill_null_false(ctx)?;
+                let mask_mask = mask.clone().null_as_false().execute(ctx)?;
                 let v1m = v1.execute_mask(if_true.len(), ctx)?;
                 let v2m = v2.execute_mask(if_false.len(), ctx)?;
 
-                let combined = (v1m.bitand(&mask_mask)).bitor(&v2m.bitand(&mask_mask.not()));
+                let combined = v1m.bitand(&mask_mask).bitor(&v2m.bitand(&mask_mask.not()));
                 Validity::from_mask(
                     combined,
                     if_true.dtype().nullability() | if_false.dtype().nullability(),

@@ -9,7 +9,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::List;
 use crate::arrays::ListArray;
-use crate::arrays::list::ListArrayExt;
+use crate::arrays::list::ListArraySlotsExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastKernel;
@@ -181,7 +181,7 @@ mod tests {
     #[case(create_nested_list())]
     #[case(create_empty_lists())]
     fn test_cast_list_conformance(#[case] array: ListArray) {
-        test_cast_conformance(&array.into_array());
+        test_cast_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 
     fn create_simple_list() -> ListArray {

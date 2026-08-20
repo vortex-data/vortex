@@ -7,13 +7,15 @@
 //! which is used for GPU-accelerated filtering in Vortex.
 //!
 //! The library is compiled at build time and loaded at runtime via libloading.
-//! This avoids link-time dependencies on CUDA.
+//! This avoids link-time dependencies on CUDA. Relocated executables can bundle the compiled
+//! shared library in the same directory.
 //!
 //! # Platform Support
 //!
 //! CUB is part of the CUDA Toolkit. This crate requires CUDA (nvcc) to be
 //! available at build time.
 
+use std::env;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
@@ -23,6 +25,7 @@ pub mod sys;
 
 mod error;
 pub mod filter;
+pub mod onpair;
 pub mod scan;
 
 pub use error::CubError;
@@ -32,8 +35,13 @@ static CUB_LIB: OnceLock<Result<sys::CubLibrary, String>> = OnceLock::new();
 
 fn load_cub() -> Result<sys::CubLibrary, String> {
     let lib_name = "libvortex_cub.so";
-    let build_lib_dir = env!("OUT_DIR");
-    let lib_path = PathBuf::from(build_lib_dir).join(lib_name);
+    let bundled_lib_path = env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(|parent| parent.join(lib_name)));
+    let build_lib_path = PathBuf::from(env!("OUT_DIR")).join(lib_name);
+    let lib_path = bundled_lib_path
+        .filter(|path| path.is_file())
+        .unwrap_or(build_lib_path);
 
     // SAFETY: The library at the path is a valid vortex_cub shared library
     // compiled during the build process.

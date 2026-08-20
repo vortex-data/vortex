@@ -49,7 +49,7 @@ impl TpcHBenchmark {
                 Url::from_directory_path(&data_dir_with_sf).map_err(|_| {
                     anyhow::anyhow!(
                         "Failed to create URL from directory path: {:?}",
-                        &data_dir_with_sf
+                        data_dir_with_sf
                     )
                 })
             }
@@ -75,6 +75,10 @@ impl TpcHBenchmark {
 
 #[async_trait::async_trait]
 impl Benchmark for TpcHBenchmark {
+    fn doc_path(&self) -> &'static str {
+        "vortex-bench/sql/tpch/README.md"
+    }
+
     fn queries(&self) -> anyhow::Result<Vec<(usize, String)>> {
         Ok(tpch_queries().collect())
     }
@@ -89,8 +93,7 @@ impl Benchmark for TpcHBenchmark {
             .to_file_path()
             .map_err(|_| anyhow::anyhow!("Invalid file URL: {}", self.data_url.as_str()))?;
 
-        let options = TpchGenOptions::new(self.scale_factor.clone(), base_data_dir)
-            .with_max_file_size_mb(Some(600));
+        let options = TpchGenOptions::new(self.scale_factor.clone(), base_data_dir);
 
         tpchgen::generate_tpch_tables(options).await?;
 
@@ -139,7 +142,7 @@ impl Benchmark for TpcHBenchmark {
     #[expect(clippy::expect_used)]
     fn pattern(&self, table_name: &str, format: Format) -> Option<Pattern> {
         Some(
-            format!("{}_*.{}", table_name, format.ext())
+            format!("{}.{}", table_name, format.ext())
                 .parse()
                 .expect("valid glob pattern"),
         )

@@ -140,12 +140,11 @@ mod common_tests {
     use object_store::memory::InMemory;
     use url::Url;
     use vortex::VortexSessionDefault;
-    use vortex::array::ArrayRef;
-    use vortex::array::arrow::FromArrowArray;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::VortexWrite;
     use vortex::io::object_store::ObjectStoreWrite;
     use vortex::session::VortexSession;
+    use vortex_arrow::ArrowSessionExt;
 
     use crate::VortexFormatFactory;
     use crate::VortexTableOptions;
@@ -166,12 +165,18 @@ mod common_tests {
     impl TestSessionContext {
         /// Create a new test session context with the given projection pushdown setting.
         pub fn new(projection_pushdown: bool) -> Self {
-            let store = Arc::new(InMemory::new());
             let opts = VortexTableOptions {
                 projection_pushdown,
                 ..Default::default()
             };
             let factory = Arc::new(VortexFormatFactory::new().with_options(opts));
+
+            Self::new_with_factory(factory)
+        }
+
+        /// Create a new test session context with the given Vortex format factory.
+        pub fn new_with_factory(factory: Arc<VortexFormatFactory>) -> Self {
+            let store = Arc::new(InMemory::new());
             let mut session_state_builder = SessionStateBuilder::new()
                 .with_default_features()
                 .with_table_factory(
@@ -198,7 +203,10 @@ mod common_tests {
         where
             P: Into<object_store::path::Path>,
         {
-            let array = ArrayRef::from_arrow(batch, false)?;
+            let schema = batch.schema();
+            let array = VX_SESSION
+                .arrow()
+                .from_arrow_record_batch(batch.clone(), &schema)?;
             let mut write = ObjectStoreWrite::new(Arc::clone(&self.store), &path.into()).await?;
             VX_SESSION
                 .write_options()

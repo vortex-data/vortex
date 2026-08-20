@@ -1,16 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-#![expect(non_camel_case_types)]
 
-use std::ffi::CStr;
-use std::ffi::c_char;
 use std::ptr;
+use std::ptr::NonNull;
 use std::slice;
 use std::sync::Arc;
 
 use vortex::dtype::FieldName;
 use vortex::error::VortexExpect;
-use vortex::error::vortex_ensure;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::get_item;
@@ -25,23 +22,21 @@ use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::operators::Operator;
 
+use crate::box_wrapper;
 use crate::error::try_or;
 use crate::error::vx_error;
 use crate::scalar::vx_scalar;
+use crate::string::vx_view;
 use crate::to_field_names;
 
 // Expressions are Arc'ed inside
-crate::box_wrapper!(
+box_wrapper!(
     /// A node in a Vortex expression tree.
     ///
     /// Expressions represent scalar computations that can be performed on
     /// data. Each expression consists of an encoding (vtable), heap-allocated
     /// metadata, and child expressions.
     ///
-    /// Unless stated explicitly, all expressions returned are owned and must
-    /// be freed by the caller.
-    /// Unless stated explicitly, if an operation on const vx_expression* is
-    /// passed NULL, NULL is returned.
     /// Operations on expressions don't take ownership of input values, and so
     /// input values must be freed by the caller.
     Expression,
@@ -64,6 +59,14 @@ crate::box_wrapper!(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_expression_root() -> *mut vx_expression {
     vx_expression::new(root())
+}
+
+/// Increase reference count on vx_expression
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_expression_clone(
+    ptr: *const vx_expression,
+) -> *mut vx_expression {
+    vx_expression::new(vx_expression::as_ref(ptr).clone())
 }
 
 /// Create a literal expression from a scalar.
@@ -101,7 +104,6 @@ pub unsafe extern "C-unwind" fn vx_expression_literal(
     err: *mut *mut vx_error,
 ) -> *mut vx_expression {
     try_or(err, ptr::null_mut(), || {
-        vortex_ensure!(!scalar.is_null(), "scalar literal is null");
         Ok(vx_expression::new(lit(vx_scalar::as_ref(scalar).clone())))
     })
 }
@@ -121,13 +123,10 @@ pub unsafe extern "C-unwind" fn vx_expression_literal(
 /// vx_expression_free(root);
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_expression_select(
-    names: *const *const c_char,
+    names: *const vx_view,
     len: usize,
     child: *const vx_expression,
 ) -> *mut vx_expression {
-    if child.is_null() {
-        return ptr::null_mut();
-    }
     let names =
         unsafe { to_field_names(names, len) }.vortex_expect("converting names to field names");
     let expr = select(names, vx_expression::as_ref(child).clone());
@@ -135,16 +134,17 @@ pub unsafe extern "C" fn vx_expression_select(
 }
 
 /// Create an AND expression for multiple child expressions.
-/// If there are no input expressions, returns NULL
+/// If len == 0, returns NULL
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_expression_and(
     expressions: *const *const vx_expression,
     len: usize,
 ) -> *mut vx_expression {
-    if expressions.is_null() {
-        return ptr::null_mut();
-    }
-    let slice = unsafe { slice::from_raw_parts(expressions, len) };
+    let slice = if expressions.is_null() {
+        unsafe { slice::from_raw_parts(NonNull::dangling().as_ptr(), len) }
+    } else {
+        unsafe { slice::from_raw_parts(expressions, len) }
+    };
     match and_collect(slice.iter().map(|x| vx_expression::as_ref(*x).clone())) {
         Some(expr) => vx_expression::new(expr),
         None => ptr::null_mut(),
@@ -152,16 +152,17 @@ pub unsafe extern "C" fn vx_expression_and(
 }
 
 /// Create an OR disjunction expression for multiple child expressions.
-/// If there are no input expressions, returns NULL;
+/// If len == 0, returns NULL
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_expression_or(
     expressions: *const *const vx_expression,
     len: usize,
 ) -> *mut vx_expression {
-    if expressions.is_null() {
-        return ptr::null_mut();
-    }
-    let slice = unsafe { slice::from_raw_parts(expressions, len) };
+    let slice = if expressions.is_null() {
+        unsafe { slice::from_raw_parts(NonNull::dangling().as_ptr(), len) }
+    } else {
+        unsafe { slice::from_raw_parts(expressions, len) }
+    };
     match or_collect(slice.iter().map(|x| vx_expression::as_ref(*x).clone())) {
         Some(expr) => vx_expression::new(expr),
         None => ptr::null_mut(),
@@ -223,7 +224,6 @@ impl From<vx_binary_operator> for Operator {
 }
 
 /// Create a binary expression for two expressions of form lhs OP rhs.
-/// If either input is NULL, returns NULL.
 ///
 /// Example for a binary sum:
 ///
@@ -248,12 +248,6 @@ pub unsafe extern "C" fn vx_expression_binary(
     lhs: *const vx_expression,
     rhs: *const vx_expression,
 ) -> *mut vx_expression {
-    if lhs.is_null() {
-        return ptr::null_mut();
-    }
-    if rhs.is_null() {
-        return ptr::null_mut();
-    }
     let lhs = vx_expression::as_ref(lhs).clone();
     let rhs = vx_expression::as_ref(rhs).clone();
     vx_expression::new(Binary.new_expr(operator.into(), [lhs, rhs]))
@@ -263,10 +257,7 @@ pub unsafe extern "C" fn vx_expression_binary(
 ///
 /// Returns the logical negation of the input boolean expression.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vx_expression_not(child: *const vx_expression) -> *const vx_expression {
-    if child.is_null() {
-        return child;
-    }
+pub unsafe extern "C" fn vx_expression_not(child: *const vx_expression) -> *mut vx_expression {
     vx_expression::new(not(vx_expression::as_ref(child).clone()))
 }
 
@@ -275,9 +266,6 @@ pub unsafe extern "C" fn vx_expression_not(child: *const vx_expression) -> *cons
 /// Returns a boolean array indicating which positions contain null values.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_expression_is_null(child: *const vx_expression) -> *mut vx_expression {
-    if child.is_null() {
-        return ptr::null_mut();
-    }
     vx_expression::new(is_null(vx_expression::as_ref(child).clone()))
 }
 
@@ -289,22 +277,15 @@ pub unsafe extern "C" fn vx_expression_is_null(child: *const vx_expression) -> *
 ///
 /// Example: if child is Struct { name=u8, age=u16 } and we do
 /// vx_expression_get_item("name", child), output type will be DTYPE_U8
+///
+/// "item" is copied. Returns NULL if "item" is not valid UTF-8.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_expression_get_item(
-    item: *const c_char,
+    item: vx_view,
     child: *const vx_expression,
 ) -> *mut vx_expression {
-    if child.is_null() {
+    let Ok(item) = (unsafe { item.as_str() }) else {
         return ptr::null_mut();
-    }
-    if item.is_null() {
-        return ptr::null_mut();
-    }
-    #[expect(clippy::expect_used)]
-    let item = unsafe {
-        CStr::from_ptr(item)
-            .to_str()
-            .expect("converting pointer to str")
     };
     let item: Arc<str> = Arc::from(item);
     let item: FieldName = item.into();
@@ -319,12 +300,6 @@ pub unsafe extern "C" fn vx_expression_list_contains(
     list: *const vx_expression,
     value: *const vx_expression,
 ) -> *mut vx_expression {
-    if list.is_null() {
-        return ptr::null_mut();
-    }
-    if value.is_null() {
-        return ptr::null_mut();
-    }
     let list = vx_expression::as_ref(list).clone();
     let value = vx_expression::as_ref(value).clone();
     vx_expression::new(list_contains(list, value))
@@ -333,7 +308,6 @@ pub unsafe extern "C" fn vx_expression_list_contains(
 #[cfg(test)]
 mod tests {
     use std::ptr;
-    use std::sync::Arc;
 
     use vortex::array::IntoArray;
     use vortex::array::VortexSessionExecute;
@@ -367,6 +341,7 @@ mod tests {
     use crate::expression::vx_expression_select;
     use crate::scalar::vx_scalar_free;
     use crate::scalar::vx_scalar_new_i32;
+    use crate::string::vx_view;
 
     #[test]
     #[cfg_attr(miri, ignore)]
@@ -397,10 +372,10 @@ mod tests {
         let (array, names_array, ages_array) = struct_array();
         unsafe {
             let root = vx_expression_root();
-            let column = vx_expression_get_item(c"age".as_ptr(), root);
+            let column = vx_expression_get_item(vx_view::from_str("age"), root);
             assert_ne!(column, ptr::null_mut());
 
-            let array = vx_array::new(Arc::new(array.into_array()));
+            let array = vx_array::new(array.into_array());
             let mut error = ptr::null_mut();
 
             let applied_array = vx_array_apply(array, column, &raw mut error);
@@ -419,7 +394,7 @@ mod tests {
 
             vx_expression_free(column);
 
-            let column = vx_expression_get_item(c"ololo".as_ptr(), root);
+            let column = vx_expression_get_item(vx_view::from_str("ololo"), root);
             assert_ne!(column, ptr::null_mut());
 
             let applied_array = vx_array_apply(array, column, &raw mut error);
@@ -427,7 +402,7 @@ mod tests {
             assert!(!error.is_null());
             vx_error_free(error);
 
-            let names_array_vx = vx_array::new(Arc::new(names_array.into_array()));
+            let names_array_vx = vx_array::new(names_array.into_array());
             let applied_array = vx_array_apply(names_array_vx, column, &raw mut error);
             assert!(applied_array.is_null());
             assert!(!error.is_null());
@@ -449,7 +424,7 @@ mod tests {
             PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable).into_array();
 
         unsafe {
-            let array = vx_array::new(Arc::new(array));
+            let array = vx_array::new(array);
 
             let value = 2i32;
             let scalar = vx_scalar_new_i32(value, false);
@@ -494,9 +469,9 @@ mod tests {
         unsafe {
             let root = vx_expression_root();
 
-            let array = vx_array::new(Arc::new(array.into_array()));
+            let array = vx_array::new(array.into_array());
 
-            let columns = [c"name".as_ptr(), c"age".as_ptr()];
+            let columns = [vx_view::from_str("name"), vx_view::from_str("age")];
             let column = vx_expression_select(columns.as_ptr(), 2, root);
             assert_ne!(column, ptr::null_mut());
 
@@ -512,7 +487,7 @@ mod tests {
             vx_array_free(applied_array);
             vx_expression_free(column);
 
-            let columns = [c"age".as_ptr(), c"ololo".as_ptr()];
+            let columns = [vx_view::from_str("age"), vx_view::from_str("ololo")];
             let column = vx_expression_select(columns.as_ptr(), 2, root);
             let applied_array = vx_array_apply(array, column, &raw mut error);
             assert!(applied_array.is_null());
@@ -537,12 +512,12 @@ mod tests {
         let array = StructArray::try_new(names, fields, 4, Validity::NonNullable);
 
         unsafe {
-            let array = vx_array::new(Arc::new(array.unwrap().into_array()));
+            let array = vx_array::new(array.unwrap().into_array());
 
             let root = vx_expression_root();
-            let expression_col1 = vx_expression_get_item(c"col1".as_ptr(), root);
-            let expression_col2 = vx_expression_get_item(c"col2".as_ptr(), root);
-            let expression_col3 = vx_expression_get_item(c"col3".as_ptr(), root);
+            let expression_col1 = vx_expression_get_item(vx_view::from_str("col1"), root);
+            let expression_col2 = vx_expression_get_item(vx_view::from_str("col2"), root);
+            let expression_col3 = vx_expression_get_item(vx_view::from_str("col3"), root);
             let expression_12 = vx_expression_binary(
                 vx_binary_operator::VX_OPERATOR_EQ,
                 expression_col1,
@@ -604,21 +579,6 @@ mod tests {
 
     #[test]
     #[cfg_attr(miri, ignore)]
-    fn test_empty_and_or() {
-        unsafe {
-            let root = vx_expression_root();
-
-            let and_empty = vx_expression_and(ptr::null_mut(), 9);
-            assert!(and_empty.is_null());
-            let or_empty = vx_expression_or(ptr::null_mut(), 9);
-            assert!(or_empty.is_null());
-
-            vx_expression_free(root);
-        }
-    }
-
-    #[test]
-    #[cfg_attr(miri, ignore)]
     fn test_list_contains() {
         let mut ctx = array_session().create_execution_ctx();
         let elements = buffer![1i32, 2, 3, 4, 5].into_array();
@@ -627,7 +587,7 @@ mod tests {
 
         unsafe {
             let root = vx_expression_root();
-            let array = vx_array::new(Arc::new(array.into_array()));
+            let array = vx_array::new(array.into_array());
             let value = vx_scalar_new_i32(1, false);
             let mut error = ptr::null_mut();
             let expression_value = vx_expression_literal(value, &raw mut error);

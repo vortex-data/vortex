@@ -22,6 +22,10 @@
 //! ```
 
 pub use array::*;
+use vortex_array::dtype::proto::dtype as pb;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 #[cfg(feature = "unstable_encodings")]
 pub use zstd_buffers::*;
 
@@ -34,6 +38,22 @@ mod zstd_buffers;
 
 #[cfg(test)]
 mod test;
+
+/// Ensure Vortex metadata agrees with the content size declared by a zstd frame.
+pub(crate) fn validate_frame_content_size(
+    frame: &[u8],
+    metadata_size: u64,
+    index: usize,
+) -> VortexResult<()> {
+    let frame_content_size = zstd::zstd_safe::get_frame_content_size(frame)
+        .map_err(|error| vortex_err!("Invalid zstd frame {index}: {error}"))?
+        .ok_or_else(|| vortex_err!("Zstd frame {index} does not declare a content size"))?;
+    vortex_ensure!(
+        metadata_size == frame_content_size,
+        "Zstd frame {index} metadata declares {metadata_size} uncompressed bytes, but its header declares {frame_content_size}"
+    );
+    Ok(())
+}
 
 #[derive(Clone, prost::Message)]
 /// Metadata for one zstd frame.
@@ -73,4 +93,12 @@ pub struct ZstdBuffersMetadata {
     /// Alignment of each buffer in bytes (must be a power of two).
     #[prost(uint32, repeated, tag = "4")]
     pub buffer_alignments: Vec<u32>,
+    /// DType of child arrays. Children belong to inner encodings, and their
+    /// dtypes don't persist after serialization, so we need to retrieve them
+    /// from metadata.
+    #[prost(message, repeated, tag = "5")]
+    pub child_dtypes: Vec<pb::DType>,
+    /// Length of each child array, ordered as "child_dtypes"
+    #[prost(uint64, repeated, tag = "6")]
+    pub child_lens: Vec<u64>,
 }

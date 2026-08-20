@@ -10,7 +10,7 @@ use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::DecimalByteParts;
-use crate::decimal_byte_parts::DecimalBytePartsArrayExt;
+use crate::decimal_byte_parts::DecimalBytePartsArraySlotsExt;
 
 impl CastReduce for DecimalByteParts {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -118,6 +118,9 @@ mod tests {
         DecimalDType::new(10, 2),
     ).unwrap())]
     fn test_cast_decimal_byte_parts_conformance(#[case] array: DecimalBytePartsArray) {
-        test_cast_conformance(&array.into_array());
+        test_cast_conformance(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

@@ -7,7 +7,7 @@ use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
 use vortex::array::arrays::Slice;
-use vortex::array::arrays::slice::SliceArrayExt;
+use vortex::array::arrays::slice::SliceArraySlotsExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 

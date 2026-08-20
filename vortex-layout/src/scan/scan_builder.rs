@@ -16,15 +16,13 @@ use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
-use vortex_array::expr::Expression;
+use vortex_array::expr::BoundExpression;
 use vortex_array::expr::analysis::referenced_field_paths;
-use vortex_array::expr::root;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorAdapter;
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
-use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -34,11 +32,13 @@ use vortex_io::runtime::Task;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_metrics::MetricsRegistry;
 use vortex_scan::selection::Selection;
+use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
+use crate::layouts::row_idx::RowIdx;
 use crate::layouts::row_idx::RowIdxLayoutReader;
 use crate::scan::repeated_scan::RepeatedScan;
 use crate::scan::split_by::SplitBy;
@@ -53,14 +53,13 @@ use crate::scan::splits::attempt_split_ranges;
 /// - [`with_selection`](Self::with_selection) applies a [`Selection`] inside that range.
 /// - [`with_filter`](Self::with_filter) evaluates an expression predicate during execution.
 ///
-/// Projection and filter expressions are optimized against the reader dtype during
-/// [`prepare`](Self::prepare). Work is divided by the configured [`SplitBy`] strategy or by
-/// explicit selection ranges.
+/// Projection and filter expressions must be bound against the reader dtype. Work is divided by
+/// the configured [`SplitBy`] strategy or by explicit selection ranges.
 pub struct ScanBuilder<A> {
     session: VortexSession,
     layout_reader: LayoutReaderRef,
-    projection: Expression,
-    filter: Option<Expression>,
+    projection: BoundExpression,
+    filter: Option<BoundExpression>,
     /// Whether the scan needs to return splits in the order they appear in the file.
     ordered: bool,
     /// Optionally read a subset of the rows in the file.
@@ -70,6 +69,9 @@ pub struct ScanBuilder<A> {
     selection: Selection,
     /// How to split the file for concurrent processing.
     split_by: SplitBy,
+    /// Precomputed full-file natural split boundaries; when set, [`prepare`](Self::prepare)
+    /// uses them instead of walking the layout.
+    natural_splits: Option<Arc<[u64]>>,
     /// The number of splits to make progress on concurrently **per-thread**.
     concurrency: usize,
     /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
@@ -87,15 +89,17 @@ pub struct ScanBuilder<A> {
 impl ScanBuilder<ArrayRef> {
     /// Create a scan builder over `layout_reader` using `session` for runtime and execution state.
     pub fn new(session: VortexSession, layout_reader: Arc<dyn LayoutReader>) -> Self {
+        let projection = BoundExpression::new_root(layout_reader.dtype().clone());
         Self {
             session,
             layout_reader,
-            projection: root(),
+            projection,
             filter: None,
             ordered: true,
             row_range: None,
             selection: Default::default(),
             split_by: SplitBy::Layout,
+            natural_splits: None,
             // We default to four tasks per worker thread, which allows for some I/O lookahead
             // without too much impact on work-stealing.
             concurrency: 4,
@@ -131,20 +135,20 @@ impl ScanBuilder<ArrayRef> {
 }
 
 impl<A: 'static + Send> ScanBuilder<A> {
-    /// Add a filter expression evaluated against the projected row ranges.
-    pub fn with_filter(mut self, filter: Expression) -> Self {
+    /// Add a filter expression bound against the reader dtype.
+    pub fn with_filter(mut self, filter: BoundExpression) -> Self {
         self.filter = Some(filter);
         self
     }
 
-    /// Add or clear the filter expression.
-    pub fn with_some_filter(mut self, filter: Option<Expression>) -> Self {
+    /// Add or clear a filter expression bound against the reader dtype.
+    pub fn with_some_filter(mut self, filter: Option<BoundExpression>) -> Self {
         self.filter = filter;
         self
     }
 
-    /// Set the projection expression for returned rows.
-    pub fn with_projection(mut self, projection: Expression) -> Self {
+    /// Set a projection expression bound against the reader dtype.
+    pub fn with_projection(mut self, projection: BoundExpression) -> Self {
         self.projection = projection;
         self
     }
@@ -172,8 +176,8 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
-    /// Select rows by absolute indices relative to the scan input.
-    pub fn with_row_indices(mut self, row_indices: Buffer<u64>) -> Self {
+    /// Select rows by strictly sorted absolute indices relative to the scan input.
+    pub fn with_row_indices(mut self, row_indices: StrictSortedBuffer<u64>) -> Self {
         self.selection = Selection::IncludeByIndex(row_indices);
         self
     }
@@ -188,6 +192,37 @@ impl<A: 'static + Send> ScanBuilder<A> {
     pub fn with_split_by(mut self, split_by: SplitBy) -> Self {
         self.split_by = split_by;
         self
+    }
+
+    /// Supply precomputed full-file natural split boundaries (see
+    /// [`full_file_splits`](Self::full_file_splits)) so [`prepare`](Self::prepare) reuses them
+    /// instead of walking the layout. Callers translating external partitions into row ranges
+    /// can compute the boundaries once per file and share them across partitions.
+    ///
+    /// Takes precedence over [`with_split_by`](Self::with_split_by); boundaries outside the
+    /// scan's row range are clamped during execution. Boundaries must be strictly increasing.
+    pub fn with_natural_splits(mut self, boundaries: Arc<[u64]>) -> Self {
+        debug_assert!(
+            boundaries.windows(2).all(|w| w[0] < w[1]),
+            "natural split boundaries must be strictly increasing"
+        );
+        self.natural_splits = Some(boundaries);
+        self
+    }
+
+    /// Compute the full-file natural split boundaries for the fields referenced by this scan's
+    /// projection and filter, ignoring any configured row range.
+    ///
+    /// These are the boundaries [`prepare`](Self::prepare) derives for a whole-file scan; hand
+    /// them back via [`with_natural_splits`](Self::with_natural_splits) to skip the layout walk
+    /// in `prepare`.
+    pub fn full_file_splits(&self) -> VortexResult<Vec<u64>> {
+        let field_mask = referenced_field_masks(&self.projection, self.filter.as_ref())?;
+        self.split_by.splits(
+            self.layout_reader.as_ref(),
+            &(0..self.layout_reader.row_count()),
+            &field_mask,
+        )
     }
 
     /// Returns the per-worker row-split concurrency.
@@ -229,7 +264,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
     /// The [`DType`] returned by the scan, after applying the projection.
     pub fn dtype(&self) -> VortexResult<DType> {
-        self.projection.return_dtype(self.layout_reader.dtype())
+        Ok(self.projection.dtype().clone())
     }
 
     /// The session used by the scan.
@@ -252,6 +287,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             row_range: self.row_range,
             selection: self.selection,
             split_by: self.split_by,
+            natural_splits: self.natural_splits,
             concurrency: self.concurrency,
             metrics_registry: self.metrics_registry,
             file_stats: self.file_stats,
@@ -273,47 +309,49 @@ impl<A: 'static + Send> ScanBuilder<A> {
         // conjunction splitting if a filter is provided.
         let mut layout_reader = self.layout_reader;
 
-        // Enrich the layout reader to support RowIdx expressions.
+        // Enrich the layout reader to support RowIdx expressions if scan uses #row_idx.
         // Note that this is applied below the filter layout reader since it can perform
         // better over individual conjunctions.
-        layout_reader = Arc::new(RowIdxLayoutReader::new(
-            self.row_offset,
-            layout_reader,
-            self.session.clone(),
-        ));
+        let mut found_row_idx = self.projection.contains::<RowIdx>()?;
+        if !found_row_idx && let Some(filter) = self.filter.as_ref() {
+            found_row_idx = filter.contains::<RowIdx>()?;
+        }
+        if found_row_idx {
+            layout_reader = Arc::new(RowIdxLayoutReader::new(
+                self.row_offset,
+                layout_reader,
+                self.session.clone(),
+            ));
+        }
 
-        // Normalize and simplify the expressions.
-        let projection = self.projection.optimize_recursive(layout_reader.dtype())?;
+        let bound_projection = self.projection;
+        let bound_filter = self.filter;
 
-        let filter = self
-            .filter
-            .map(|f| f.optimize_recursive(layout_reader.dtype()))
-            .transpose()?;
-
-        // Construct field masks and compute the row splits of the scan.
-        let field_mask =
-            referenced_field_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
-
+        // Compute the row splits of the scan.
         let splits =
             if let Some(ranges) = attempt_split_ranges(&self.selection, self.row_range.as_ref()) {
                 Splits::Ranges(ranges)
+            } else if let Some(boundaries) = self.natural_splits {
+                // Caller-supplied full-file boundaries; execution clamps them to the row range.
+                Splits::Natural(boundaries)
             } else {
+                let field_mask = referenced_field_masks(&bound_projection, bound_filter.as_ref())?;
                 let split_range = self
                     .row_range
                     .clone()
                     .unwrap_or_else(|| 0..layout_reader.row_count());
-                Splits::Natural(self.split_by.splits(
-                    layout_reader.as_ref(),
-                    &split_range,
-                    &field_mask,
-                )?)
+                Splits::Natural(
+                    self.split_by
+                        .splits(layout_reader.as_ref(), &split_range, &field_mask)?
+                        .into(),
+                )
             };
 
         Ok(RepeatedScan::new(
             self.session.clone(),
             layout_reader,
-            projection,
-            filter,
+            bound_projection,
+            bound_filter,
             self.ordered,
             self.row_range,
             self.selection,
@@ -394,9 +432,8 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                     let num_workers = get_available_parallelism().unwrap_or(1);
                     let concurrency = builder.concurrency * num_workers;
                     let handle = builder.session.handle();
-                    let task = handle.spawn_blocking(move || {
-                        builder.prepare().and_then(|scan| scan.execute(None))
-                    });
+                    let task = handle
+                        .spawn_cpu(move || builder.prepare().and_then(|scan| scan.execute(None)));
                     self.state = LazyScanState::Preparing(PreparingScan {
                         ordered,
                         concurrency,
@@ -434,21 +471,25 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
 
 /// Compute masks of field paths referenced by the projection and filter in the scan.
 ///
-/// Projection and filter must be pre-simplified.
+/// Projection and filter must be pre-simplified and bound against the scan dtype.
 pub fn referenced_field_masks(
-    projection: &Expression,
-    filter: Option<&Expression>,
-    dtype: &DType,
+    projection: &BoundExpression,
+    filter: Option<&BoundExpression>,
 ) -> VortexResult<Vec<FieldMask>> {
-    if dtype.as_struct_fields_opt().is_none() {
-        return Ok(vec![FieldMask::All]);
-    }
-
-    let mut field_paths = referenced_field_paths(projection, dtype)?;
+    let mut field_paths = referenced_field_paths(projection)?;
     if let Some(filter) = filter {
-        field_paths.extend(referenced_field_paths(filter, dtype)?);
+        field_paths.extend(referenced_field_paths(filter)?);
     }
-    Ok(field_paths.into_iter().map(FieldMask::Prefix).collect_vec())
+    Ok(field_paths
+        .into_iter()
+        .map(|path| {
+            if path.is_root() {
+                FieldMask::All
+            } else {
+                FieldMask::Prefix(path)
+            }
+        })
+        .collect_vec())
 }
 
 #[cfg(test)]
@@ -477,7 +518,8 @@ mod test {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
-    use vortex_array::expr::Expression;
+    use vortex_array::expr::BoundExpression;
+    use vortex_array::expr::ExactBoundExpr;
     use vortex_array::expr::eq;
     use vortex_array::expr::get_item;
     use vortex_array::expr::is_not_null;
@@ -518,11 +560,39 @@ mod test {
     }
 
     #[test]
-    fn nested_projection_preserves_field_path_in_split_mask() -> VortexResult<()> {
-        let projection = get_item("1", get_item("a", root()));
-        let filter = eq(get_item("2", get_item("a", root())), lit(0_i32));
+    fn bound_setters_preserve_identity() -> VortexResult<()> {
+        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let projection = eq(root(), lit(1_i32)).bind(&dtype)?;
+        let filter = eq(root(), lit(2_i32)).bind(&dtype)?;
+        let expected_projection = ExactBoundExpr(projection.clone());
+        let expected_filter = ExactBoundExpr(filter.clone());
+        let reader = Arc::new(CountingLayoutReader::new(Arc::new(AtomicUsize::new(0))));
 
-        let field_masks = referenced_field_masks(&projection, Some(&filter), &nested_dtype())?;
+        let builder = ScanBuilder::new(SCAN_SESSION.clone(), reader)
+            .with_projection(projection)
+            .with_filter(filter);
+
+        assert_eq!(ExactBoundExpr(builder.projection), expected_projection);
+        assert_eq!(builder.filter.map(ExactBoundExpr), Some(expected_filter));
+        Ok(())
+    }
+
+    #[test]
+    fn root_projection_produces_all_mask() -> VortexResult<()> {
+        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let projection = root().bind(&dtype)?;
+
+        assert_eq!(referenced_field_masks(&projection, None)?, [FieldMask::All]);
+        Ok(())
+    }
+
+    #[test]
+    fn nested_projection_preserves_field_path_in_split_mask() -> VortexResult<()> {
+        let dtype = nested_dtype();
+        let projection = get_item("1", get_item("a", root())).bind(&dtype)?;
+        let filter = eq(get_item("2", get_item("a", root())), lit(0_i32)).bind(&dtype)?;
+
+        let field_masks = referenced_field_masks(&projection, Some(&filter))?;
 
         assert_eq!(field_masks.len(), 2);
         assert!(field_masks.contains(&FieldMask::Prefix(FieldPath::from_name("a").push("1"))));
@@ -532,10 +602,11 @@ mod test {
 
     #[test]
     fn filter_path_covers_nested_projection_path() -> VortexResult<()> {
-        let projection = get_item("1", get_item("a", root()));
-        let filter = is_not_null(get_item("a", root()));
+        let dtype = nested_dtype();
+        let projection = get_item("1", get_item("a", root())).bind(&dtype)?;
+        let filter = is_not_null(get_item("a", root())).bind(&dtype)?;
 
-        let field_masks = referenced_field_masks(&projection, Some(&filter), &nested_dtype())?;
+        let field_masks = referenced_field_masks(&projection, Some(&filter))?;
 
         assert_eq!(field_masks, [FieldMask::Prefix(FieldPath::from_name("a"))]);
         Ok(())
@@ -543,10 +614,11 @@ mod test {
 
     #[test]
     fn parent_projection_path_covers_nested_filter_path() -> VortexResult<()> {
-        let projection = get_item("a", root());
-        let filter = is_not_null(get_item("1", get_item("a", root())));
+        let dtype = nested_dtype();
+        let projection = get_item("a", root()).bind(&dtype)?;
+        let filter = is_not_null(get_item("1", get_item("a", root()))).bind(&dtype)?;
 
-        let field_masks = referenced_field_masks(&projection, Some(&filter), &nested_dtype())?;
+        let field_masks = referenced_field_masks(&projection, Some(&filter))?;
 
         assert_eq!(field_masks, [FieldMask::Prefix(FieldPath::from_name("a"))]);
         Ok(())
@@ -598,7 +670,7 @@ mod test {
         fn pruning_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &Expression,
+            _expr: &BoundExpression,
             _mask: Mask,
         ) -> VortexResult<MaskFuture> {
             unimplemented!("not needed for this test");
@@ -607,7 +679,7 @@ mod test {
         fn filter_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &Expression,
+            _expr: &BoundExpression,
             _mask: MaskFuture,
         ) -> VortexResult<MaskFuture> {
             unimplemented!("not needed for this test");
@@ -616,7 +688,7 @@ mod test {
         fn projection_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &Expression,
+            _expr: &BoundExpression,
             _mask: MaskFuture,
         ) -> VortexResult<ArrayFuture> {
             Ok(Box::pin(async move {
@@ -689,7 +761,7 @@ mod test {
         fn pruning_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &Expression,
+            _expr: &BoundExpression,
             mask: Mask,
         ) -> VortexResult<MaskFuture> {
             Ok(MaskFuture::ready(mask))
@@ -698,7 +770,7 @@ mod test {
         fn filter_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &Expression,
+            _expr: &BoundExpression,
             mask: MaskFuture,
         ) -> VortexResult<MaskFuture> {
             Ok(mask)
@@ -707,7 +779,7 @@ mod test {
         fn projection_evaluation(
             &self,
             row_range: &Range<u64>,
-            _expr: &Expression,
+            _expr: &BoundExpression,
             _mask: MaskFuture,
         ) -> VortexResult<ArrayFuture> {
             let start = usize::try_from(row_range.start)
@@ -749,6 +821,47 @@ mod test {
         assert_eq!(calls.load(Ordering::Relaxed), 1);
         assert_eq!(values.as_ref(), [0, 1, 2, 3]);
 
+        Ok(())
+    }
+
+    #[test]
+    fn supplied_natural_splits_skip_layout_walk() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let reader = Arc::new(SplittingLayoutReader::new(Arc::clone(&calls)));
+
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+
+        let stream = ScanBuilder::new(session, reader)
+            .with_natural_splits(vec![0u64, 2, 4].into())
+            .with_row_range(1..4)
+            .into_stream()?;
+        let mut iter = runtime.block_on_stream(stream);
+
+        let mut chunks = Vec::new();
+        for chunk in &mut iter {
+            let prim = chunk?.execute::<PrimitiveArray>(&mut ctx)?;
+            chunks.push(prim.into_buffer::<i32>().to_vec());
+        }
+
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
+        // Supplied full-file boundaries [0, 2, 4] clamped to rows 1..4.
+        assert_eq!(chunks, [vec![1], vec![2, 3]]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn full_file_splits_ignore_row_range() -> VortexResult<()> {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let reader = Arc::new(SplittingLayoutReader::new(Arc::clone(&calls)));
+
+        let splits = ScanBuilder::new(SCAN_SESSION.clone(), reader)
+            .with_row_range(1..3)
+            .full_file_splits()?;
+
+        assert_eq!(splits, [0, 1, 2, 3, 4]);
         Ok(())
     }
 
@@ -801,7 +914,7 @@ mod test {
         fn pruning_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &Expression,
+            _expr: &BoundExpression,
             _mask: Mask,
         ) -> VortexResult<MaskFuture> {
             unimplemented!("not needed for this test");
@@ -810,7 +923,7 @@ mod test {
         fn filter_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &Expression,
+            _expr: &BoundExpression,
             _mask: MaskFuture,
         ) -> VortexResult<MaskFuture> {
             unimplemented!("not needed for this test");
@@ -819,7 +932,7 @@ mod test {
         fn projection_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &Expression,
+            _expr: &BoundExpression,
             _mask: MaskFuture,
         ) -> VortexResult<ArrayFuture> {
             Ok(Box::pin(async move {

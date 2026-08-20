@@ -1,23 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use arrow_array::RecordBatchReader;
 use arrow_array::ffi_stream::ArrowArrayStreamReader;
-use async_fs::File;
 use pyo3::exceptions::PyTypeError;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::pyfunction;
 use pyo3_object_store::PyObjectStore;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
-use vortex::array::arrow::FromArrowArray;
 use vortex::array::iter::ArrayIterator;
 use vortex::array::iter::ArrayIteratorAdapter;
 use vortex::array::iter::ArrayIteratorExt;
 use vortex::compressor::BtrBlocksCompressorBuilder;
-use vortex::dtype::DType;
-use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::file::WriteOptionsSessionExt;
@@ -25,21 +24,26 @@ use vortex::file::WriteStrategyBuilder;
 use vortex::io::VortexWrite;
 use vortex::io::object_store::ObjectStoreWrite;
 use vortex::io::runtime::BlockingRuntime;
+use vortex::io::std_file::FileWrite;
+use vortex_arrow::ArrowSessionExt;
 
 use crate::PyVortex;
-use crate::RUNTIME;
 use crate::arrays::PyArray;
 use crate::arrays::PyArrayRef;
 use crate::arrow::FromPyArrow;
 use crate::classes::record_batch_reader_class;
 use crate::classes::table_class;
+use crate::current_runtime;
 use crate::dataset::PyVortexDataset;
 use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
+use crate::hf_store::HfStore;
 use crate::install_module;
 use crate::iter::PyArrayIterator;
 use crate::object_store::resolve::ResolvedStore;
 use crate::object_store::resolve::resolve_store;
+use crate::opendal_store::CosStore;
+use crate::opendal_store::GoosefsStore;
 use crate::session::session;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
@@ -61,7 +65,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// ----------
 /// url : str
 ///     The URL to read from.
-/// store : vortex.store.AzureStore | vortex.store.GCSStore | vortex.store.HTTPStore | vortex.store.LocalStore | vortex.store.MemoryStore | vortex.store.S3Store | None
+/// store : vortex.store.AzureStore | vortex.store.CosStore | vortex.store.GCSStore | vortex.store.HfStore | vortex.store.HTTPStore | vortex.store.LocalStore | vortex.store.MemoryStore | vortex.store.S3Store | None
 ///     Pre-configured object store with credentials and settings.
 ///     If provided, uses this store's configuration.
 ///     If None, checks session registry for matching URL pattern.
@@ -114,6 +118,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// ...     secret_access_key="..."
 /// ... )
 /// >>> a = vx.io.read_url("s3://my-bucket/data.vortex", store=store)  # doctest: +SKIP
+
 #[pyfunction]
 #[pyo3(signature = (url, *, store = None, projection = None, row_filter = None, indices = None, row_range = None))]
 pub fn read_url<'py>(
@@ -126,14 +131,65 @@ pub fn read_url<'py>(
     row_range: Option<(u64, u64)>,
 ) -> PyVortexResult<PyArrayRef> {
     let store_arc = if let Some(store_obj) = store {
-        let py_store: PyObjectStore = store_obj.extract()?;
+        let py_store: AnyVortexStore = store_obj.extract()?;
         Some(py_store.into_inner())
     } else {
         None
     };
 
-    let dataset = py.detach(move || RUNTIME.block_on(PyVortexDataset::from_url(url, store_arc)))?;
+    let dataset =
+        py.detach(move || current_runtime().block_on(PyVortexDataset::from_url(url, store_arc)))?;
     dataset.to_array_inner(py, projection, row_filter, indices, row_range)
+}
+
+/// A store object accepted by `read_url` / `write`.
+///
+/// This recognizes the built-in `pyo3-object_store` classes (S3, Azure, GCS, HTTP, Local, Memory)
+/// and Vortex's own classes: the Hugging Face Hub store and the OpenDAL-backed `CosStore` and
+/// `GoosefsStore`.
+pub(crate) enum AnyVortexStore {
+    /// A store extracted from one of the built-in `pyo3-object_store` classes.
+    Builtin(PyObjectStore),
+    /// Vortex's Hugging Face Hub store.
+    Hf(HfStore),
+    /// Vortex's OpenDAL-backed COS store.
+    Cos(CosStore),
+    /// Vortex's OpenDAL-backed GooseFS store.
+    Goosefs(GoosefsStore),
+}
+
+impl AnyVortexStore {
+    /// Consume self and return the underlying `Arc<dyn ObjectStore>`.
+    pub(crate) fn into_inner(self) -> Arc<dyn object_store::ObjectStore> {
+        match self {
+            AnyVortexStore::Builtin(s) => s.into_inner(),
+            AnyVortexStore::Hf(s) => s.to_arc(),
+            AnyVortexStore::Cos(s) => s.to_arc(),
+            AnyVortexStore::Goosefs(s) => s.to_arc(),
+        }
+    }
+}
+
+impl<'py> FromPyObject<'_, 'py> for AnyVortexStore {
+    type Error = PyErr;
+
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+        if let Ok(builtin) = obj.extract::<PyObjectStore>() {
+            return Ok(AnyVortexStore::Builtin(builtin));
+        }
+        if let Ok(hf) = obj.extract::<HfStore>() {
+            return Ok(AnyVortexStore::Hf(hf));
+        }
+        if let Ok(cos) = obj.extract::<CosStore>() {
+            return Ok(AnyVortexStore::Cos(cos));
+        }
+        if let Ok(goosefs) = obj.extract::<GoosefsStore>() {
+            return Ok(AnyVortexStore::Goosefs(goosefs));
+        }
+        Err(PyTypeError::new_err(
+            "Expected an object store instance (S3/Azure/GCS/HTTP/Local/Memory/HF/COS/OSS/GooseFS store)",
+        ))
+    }
 }
 
 /// Write an array to a Vortex file.
@@ -147,7 +203,7 @@ pub fn read_url<'py>(
 /// path : str
 ///     The file path.
 ///
-/// store : vortex.store.AzureStore | vortex.store.GCSStore | vortex.store.HTTPStore | vortex.store.LocalStore | vortex.store.MemoryStore | vortex.store.S3Store | None
+/// store : vortex.store.AzureStore | vortex.store.CosStore | vortex.store.GCSStore | vortex.store.HfStore | vortex.store.HTTPStore | vortex.store.LocalStore | vortex.store.MemoryStore | vortex.store.S3Store | None
 ///     An optional object store configuration to use for writing the output.
 ///
 /// Examples
@@ -189,11 +245,11 @@ pub fn write(
     py: Python,
     iter: PyIntoArrayIterator,
     path: &str,
-    store: Option<PyObjectStore>,
+    store: Option<AnyVortexStore>,
 ) -> PyVortexResult<()> {
     let session = session();
     py.detach(|| {
-        RUNTIME.block_on(async move {
+        current_runtime().block_on(async move {
             match resolve_store(path, store.map(|x| x.into_inner()))? {
                 ResolvedStore::ObjectStore(store, path) => {
                     let mut store = ObjectStoreWrite::new(store, &path).await?;
@@ -205,7 +261,7 @@ pub fn write(
                     VortexResult::Ok(())
                 }
                 ResolvedStore::Path(path) => {
-                    let mut w = File::create(path).await?;
+                    let mut w = FileWrite::create(path, current_runtime().handle()).await?;
                     session
                         .write_options()
                         .write(&mut w, iter.into_inner().into_array_stream())
@@ -257,7 +313,7 @@ impl PyVortexWriteOptions {
     /// >>> vx.io.VortexWriteOptions.default().write(sprl, "chonky.vortex")
     /// >>> import os
     /// >>> os.path.getsize('chonky.vortex')
-    /// 215940
+    /// 215716
     ///
     /// Wow, Vortex manages to use about two bytes per integer! So advanced. So tiny.
     ///
@@ -267,7 +323,7 @@ impl PyVortexWriteOptions {
     ///
     /// >>> vx.io.VortexWriteOptions.compact().write(sprl, "tiny.vortex")
     /// >>> os.path.getsize('tiny.vortex')
-    /// 55068
+    /// 54920
     ///
     /// Random numbers are not (usually) composed of random bytes!
     #[staticmethod]
@@ -289,7 +345,7 @@ impl PyVortexWriteOptions {
     /// path : str
     ///     The file path.
     ///
-    /// store : vortex.store.AzureStore | vortex.store.GCSStore | vortex.store.HTTPStore | vortex.store.LocalStore | vortex.store.MemoryStore | vortex.store.S3Store | None
+    /// store : vortex.store.AzureStore | vortex.store.CosStore | vortex.store.GCSStore | vortex.store.HfStore | vortex.store.HTTPStore | vortex.store.LocalStore | vortex.store.MemoryStore | vortex.store.S3Store | None
     ///     An optional object store configuration to use for writing the output.
     ///
     /// Examples
@@ -318,7 +374,7 @@ impl PyVortexWriteOptions {
         py: Python,
         iter: PyIntoArrayIterator,
         path: &str,
-        store: Option<PyObjectStore>,
+        store: Option<AnyVortexStore>,
     ) -> PyVortexResult<()> {
         let session = session();
         py.detach(|| {
@@ -328,7 +384,7 @@ impl PyVortexWriteOptions {
                     .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact());
             }
             let strategy = strategy.build();
-            RUNTIME.block_on(async move {
+            current_runtime().block_on(async move {
                 match resolve_store(path, store.map(|x| x.into_inner()))? {
                     ResolvedStore::ObjectStore(store, path) => {
                         let mut store = ObjectStoreWrite::new(store, &path).await?;
@@ -341,7 +397,7 @@ impl PyVortexWriteOptions {
                         VortexResult::Ok(())
                     }
                     ResolvedStore::Path(path) => {
-                        let mut w = File::create(path).await?;
+                        let mut w = FileWrite::create(path, current_runtime().handle()).await?;
                         session
                             .write_options()
                             .with_strategy(strategy)
@@ -407,14 +463,18 @@ fn try_arrow_stream_to_iterator(
     if ob.is_instance(pa_table)? || ob.is_instance(pa_record_batch_reader)? {
         // Convert to Arrow stream using FFI
         let arrow_stream = ArrowArrayStreamReader::from_pyarrow(ob)?;
-        let dtype = DType::from_arrow(arrow_stream.schema());
+        let dtype = session()
+            .arrow()
+            .from_arrow_schema(arrow_stream.schema().as_ref())
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
         // Convert Arrow RecordBatch stream to Vortex ArrayIterator
         let vortex_iter = arrow_stream
             .into_iter()
             .map(|batch_result| -> VortexResult<ArrayRef> {
                 let batch = batch_result.map_err(VortexError::from)?;
-                ArrayRef::from_arrow(batch, false)
+                let schema = batch.schema();
+                session().arrow().from_arrow_record_batch(batch, &schema)
             });
 
         Ok(Box::new(ArrayIteratorAdapter::new(dtype, vortex_iter)))

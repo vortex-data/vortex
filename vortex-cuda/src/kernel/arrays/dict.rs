@@ -10,11 +10,13 @@ use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
+use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::VarBinViewArray;
+use vortex::array::arrays::bool::BoolDataParts;
 use vortex::array::arrays::decimal::DecimalDataParts;
 use vortex::array::arrays::dict::DictArraySlotsExt;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
@@ -29,6 +31,7 @@ use vortex::dtype::NativePType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::error::vortex_ensure;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
@@ -55,6 +58,8 @@ impl CudaExecute for DictExecutor {
 
         let values_dtype = dict_array.values().dtype().clone();
         match &values_dtype {
+            // Nullable dictionary values expose their logical validity as a lazy `Dict<bool>`.
+            DType::Bool(..) => execute_dict_bool(dict_array, ctx).await,
             DType::Decimal(..) => execute_dict_decimal(dict_array, ctx).await,
             DType::Primitive(..) => execute_dict_prim(dict_array, ctx).await,
             DType::Utf8(..) | DType::Binary(..) => execute_dict_varbinview(dict_array, ctx).await,
@@ -86,6 +91,79 @@ async fn execute_dict_prim(dict: DictArray, ctx: &mut CudaExecutionCtx) -> Vorte
     })
 }
 
+/// Gather bit-packed boolean values through dictionary codes.
+///
+/// This path is especially important for dictionary validity. When dictionary values are
+/// nullable, `Dict::validity()` represents `take(values_validity, codes)` lazily as a `Dict<bool>`.
+/// Materializing that validity on the GPU therefore requires a boolean dictionary gather even
+/// when the user-visible array contains strings or another non-boolean type.
+async fn execute_dict_bool(dict: DictArray, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
+    let values = dict.values().clone().execute_cuda(ctx).await?.into_bool();
+    let codes = dict
+        .codes()
+        .clone()
+        .execute_cuda(ctx)
+        .await?
+        .into_primitive();
+    let codes_ptype = codes.ptype();
+
+    match_each_integer_ptype!(codes_ptype, |I| {
+        execute_dict_bool_typed::<I>(values, codes, ctx).await
+    })
+}
+
+async fn execute_dict_bool_typed<I: DeviceRepr + NativePType>(
+    values: BoolArray,
+    codes: PrimitiveArray,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<Canonical> {
+    vortex_ensure!(!codes.is_empty(), "cannot CUDA-decode an empty dictionary");
+    let codes_len = codes.len();
+
+    let values_len = values.len();
+    let values_validity = values.validity()?;
+    let BoolDataParts {
+        bits: values_buffer,
+        meta: values_meta,
+    } = values.into_data().into_parts(values_len);
+    let output_validity = values_validity.take(&codes.clone().into_array())?;
+    let PrimitiveDataParts {
+        buffer: codes_buffer,
+        ..
+    } = codes.into_data_parts();
+
+    let values_device = ctx.ensure_on_device(values_buffer).await?;
+    let codes_device = ctx.ensure_on_device(codes_buffer).await?;
+
+    // Each CUDA thread owns complete output bytes, avoiding races between threads writing
+    // different bits in the same byte. The kernel handles the final partial byte explicitly.
+    let output_bytes = codes_len.div_ceil(8);
+    let mut output_slice = ctx.device_alloc::<u8>(output_bytes)?;
+
+    let values_view = values_device.cuda_view::<u8>()?;
+    let codes_view = codes_device.cuda_view::<I>()?;
+    let codes_len_u64 = codes_len as u64;
+    let values_offset_u64 = values_meta.offset() as u64;
+
+    let codes_ptype = I::PTYPE.to_string();
+    let kernel_function = ctx.load_function_with_suffixes("dict", &["bool", &codes_ptype])?;
+    ctx.launch_kernel(&kernel_function, output_bytes, |args| {
+        args.arg(&codes_view)
+            .arg(&codes_len_u64)
+            .arg(&values_view)
+            .arg(&values_offset_u64)
+            .arg(&mut output_slice);
+    })?;
+
+    let output_device = CudaDeviceBuffer::new(output_slice);
+    Ok(Canonical::Bool(BoolArray::new_handle(
+        BufferHandle::new_device(Arc::new(output_device)),
+        0,
+        codes_len,
+        output_validity,
+    )))
+}
+
 async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + NativePType>(
     values: PrimitiveArray,
     codes: PrimitiveArray,
@@ -111,13 +189,11 @@ async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + Na
     let codes_device = ctx.ensure_on_device(codes_buffer).await?;
 
     // Allocate output buffer on device
-    let output_slice = ctx.device_alloc::<V>(codes_len)?;
-    let output_device = CudaDeviceBuffer::new(output_slice);
+    let mut output_slice = ctx.device_alloc::<V>(codes_len)?;
 
     // Get views for kernel launch
     let values_view = values_device.cuda_view::<V>()?;
     let codes_view = codes_device.cuda_view::<I>()?;
-    let output_view = output_device.as_view::<V>();
 
     let codes_len_u64 = codes_len as u64;
 
@@ -126,9 +202,10 @@ async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + Na
         args.arg(&codes_view)
             .arg(&codes_len_u64)
             .arg(&values_view)
-            .arg(&output_view);
+            .arg(&mut output_slice);
     })?;
 
+    let output_device = CudaDeviceBuffer::new(output_slice);
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
         BufferHandle::new_device(Arc::new(output_device)),
         value_ptype,
@@ -194,13 +271,11 @@ async fn execute_dict_decimal_typed<
     let codes_device = ctx.ensure_on_device(codes_buffer).await?;
 
     // Allocate output buffer on device (codes_len * value_byte_width bytes)
-    let output_slice = ctx.device_alloc::<V>(codes_len)?;
-    let output_device = CudaDeviceBuffer::new(output_slice);
+    let mut output_slice = ctx.device_alloc::<V>(codes_len)?;
 
     // Get views for kernel launch
     let values_view = values_device.cuda_view::<V>()?;
     let codes_view = codes_device.cuda_view::<C>()?;
-    let output_view = output_device.as_view::<V>();
 
     // Load kernel function using string suffixes
     let cuda_function = ctx.load_function_with_suffixes(
@@ -212,9 +287,10 @@ async fn execute_dict_decimal_typed<
         args.arg(&codes_view)
             .arg(&codes_len_u64)
             .arg(&values_view)
-            .arg(&output_view);
+            .arg(&mut output_slice);
     })?;
 
+    let output_device = CudaDeviceBuffer::new(output_slice);
     Ok(Canonical::Decimal(DecimalArray::new_handle(
         BufferHandle::new_device(Arc::new(output_device)),
         V::DECIMAL_TYPE,
@@ -259,15 +335,13 @@ async fn execute_dict_varbinview(
     let codes_device = ctx.ensure_on_device(codes_buffer).await?;
 
     // Allocate output: one i128 per code.
-    let output_slice = ctx.device_alloc::<i128>(codes_len)?;
-    let output_device = CudaDeviceBuffer::new(output_slice);
+    let mut output_slice = ctx.device_alloc::<i128>(codes_len)?;
 
     // Dispatch by code type, reusing the existing dict_i128_<code_type> kernel.
     // BinaryView is repr(C, align(16)) and 16 bytes — identical layout to i128.
     match_each_integer_ptype!(codes_ptype, |C| {
         let values_view = values_device.cuda_view::<i128>()?;
         let codes_view = codes_device.cuda_view::<C>()?;
-        let output_view = output_device.as_view::<i128>();
 
         let codes_ptype_str = C::PTYPE.to_string();
         let cuda_function = ctx.load_function_with_suffixes("dict", &["i128", &codes_ptype_str])?;
@@ -278,9 +352,11 @@ async fn execute_dict_varbinview(
             args.arg(&codes_view);
             args.arg(&codes_len_u64);
             args.arg(&values_view);
-            args.arg(&output_view);
+            args.arg(&mut output_slice);
         })?;
     });
+
+    let output_device = CudaDeviceBuffer::new(output_slice);
 
     // Output views gathered by the kernel share the values' data buffers.
     // Outlined views reference into these buffers via buffer_index + offset,
@@ -298,6 +374,7 @@ async fn execute_dict_varbinview(
 #[cfg(test)]
 mod tests {
     use vortex::array::IntoArray;
+    use vortex::array::arrays::BoolArray;
     use vortex::array::arrays::DecimalArray;
     use vortex::array::arrays::DictArray;
     use vortex::array::arrays::PrimitiveArray;
@@ -321,6 +398,43 @@ mod tests {
             prim.ptype(),
             prim.validity()?,
         ))
+    }
+
+    #[crate::test]
+    async fn test_cuda_dict_bool_gathers_packed_validity_bits() -> VortexResult<()> {
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
+            .vortex_expect("failed to create execution context");
+
+        // Slicing leaves the dictionary values at a non-zero bit offset. Thirteen codes also
+        // exercise a final partial output byte.
+        let values = BoolArray::from_iter([
+            false, true, false, true, false, true, true, false, true, false,
+        ])
+        .into_array()
+        .slice(3..8)?;
+        let codes = PrimitiveArray::new(
+            Buffer::from(vec![0u8, 1, 2, 3, 4, 3, 2, 1, 0, 4, 1, 3, 0]),
+            NonNullable,
+        );
+        let expected = DictArray::try_new(codes.clone().into_array(), values.clone())?.into_array();
+
+        let codes_handle = cuda_ctx
+            .ensure_on_device(codes.buffer_handle().clone())
+            .await?;
+        let device_codes =
+            PrimitiveArray::from_buffer_handle(codes_handle, codes.ptype(), codes.validity()?);
+        let dict = DictArray::try_new(device_codes.into_array(), values)?.into_array();
+
+        let actual = DictExecutor
+            .execute(dict, &mut cuda_ctx)
+            .await?
+            .into_host()
+            .await?
+            .into_bool();
+
+        assert_arrays_eq!(actual.into_array(), expected, &mut ctx);
+        Ok(())
     }
 
     #[crate::test]

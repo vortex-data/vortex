@@ -9,22 +9,18 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
-use crate::VortexSessionExecute;
+use crate::arrays::ChunkedArray;
 use crate::arrays::FixedSizeListArray;
-use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
+use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use crate::builders::ArrayBuilder;
+use crate::builders::ChildBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
-use crate::builders::LazyBitBufferBuilder;
-use crate::builders::builder_with_capacity;
+use crate::builders::ValidityBuilder;
 use crate::canonical::Canonical;
-#[expect(deprecated)]
-use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::scalar::ListScalar;
@@ -38,12 +34,12 @@ pub struct FixedSizeListBuilder {
     /// The builder for the underlying elements of the [`FixedSizeListArray`].
     ///
     /// This builder will have a capacity equal to the `list_size * capacity`.
-    elements_builder: Box<dyn ArrayBuilder>,
+    elements_builder: ChildBuilder,
 
     /// The null map builder of the [`FixedSizeListArray`].
     ///
     /// We also use this type to store the length of the final output array.
-    nulls: LazyBitBufferBuilder,
+    nulls: ValidityBuilder,
 }
 
 impl FixedSizeListBuilder {
@@ -66,9 +62,9 @@ impl FixedSizeListBuilder {
     ) -> Self {
         let elements_capacity = capacity * list_size as usize;
 
-        let elements_builder = builder_with_capacity(&element_dtype, elements_capacity);
+        let elements_builder = ChildBuilder::with_capacity(&element_dtype, elements_capacity);
         let fsl_dtype = DType::FixedSizeList(element_dtype, list_size, nullability);
-        let nulls = LazyBitBufferBuilder::new(capacity);
+        let nulls = ValidityBuilder::new(capacity);
 
         Self {
             dtype: fsl_dtype,
@@ -102,9 +98,72 @@ impl FixedSizeListBuilder {
             self.list_size()
         );
 
-        array.append_to_builder(self.elements_builder.as_mut(), ctx)?;
+        self.elements_builder.append_array(array, ctx)?;
         self.nulls.append_non_null();
 
+        Ok(())
+    }
+
+    /// Appends `array` as `n` identical non-null lists.
+    ///
+    /// A fixed-size list array holds its elements back to back, so `n` identical lists are the
+    /// array's elements tiled `n` times - there is no layout that lets the rows share one range of
+    /// elements the way a list view's can. The tiling costs nothing to build even so: the elements
+    /// go in as a [`ChunkedArray`] of `n` clones of the same array, so the tile's values are stored
+    /// once however many rows reference them, and the child holds the whole run as one chunk.
+    ///
+    /// A caller with a run of appends to make should hand over the same `array` each time rather
+    /// than rebuild it, which is the whole reason this takes an array instead of a scalar.
+    pub fn append_array_as_repeated_list(
+        &mut self,
+        array: &ArrayRef,
+        n: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            array.dtype() == self.element_dtype(),
+            "Array dtype {:?} does not match list element dtype {:?}",
+            array.dtype(),
+            self.element_dtype()
+        );
+        vortex_ensure!(
+            array.len() == self.list_size() as usize,
+            "Array length {} does not match fixed list size {}",
+            array.len(),
+            self.list_size()
+        );
+
+        if n == 0 {
+            return Ok(());
+        }
+
+        // SAFETY: every chunk is `array` itself, so they share its dtype and none is empty.
+        let tiled = unsafe {
+            ChunkedArray::new_unchecked(
+                std::iter::repeat_n(array.clone(), n).collect::<Vec<_>>(),
+                self.element_dtype().clone(),
+            )
+        };
+        self.elements_builder
+            .append_array(&tiled.into_array(), ctx)?;
+        self.nulls.append_n_non_nulls(n);
+
+        Ok(())
+    }
+
+    /// Appends the values of a canonical [`FixedSizeListArray`] to the builder, recursing into the
+    /// elements builder.
+    pub(crate) fn append_fixed_size_list_array(
+        &mut self,
+        array: &FixedSizeListArray,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        if array.is_empty() {
+            return Ok(());
+        }
+
+        self.elements_builder.append_array(array.elements(), ctx)?;
+        self.nulls.append_validity(array.validity()?, array.len());
         Ok(())
     }
 
@@ -242,38 +301,17 @@ impl ArrayBuilder for FixedSizeListBuilder {
 
     /// This will increase the capacity if extending with this `array` would go past the original
     /// capacity.
-    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
-        #[expect(deprecated)]
-        let fsl = array.to_fixed_size_list();
-        if fsl.is_empty() {
-            return;
-        }
-
-        self.elements_builder.extend_from_array(fsl.elements());
-        self.nulls.append_validity_mask(
-            &array
-                .validity()
-                .vortex_expect("validity_mask in extend_from_array_unchecked")
-                .execute_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
-                .vortex_expect("Failed to compute validity mask"),
-        );
-    }
-
     fn reserve_exact(&mut self, additional: usize) {
         self.elements_builder
             .reserve_exact(additional * self.list_size() as usize);
         self.nulls.reserve_exact(additional);
     }
 
-    unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        self.nulls = LazyBitBufferBuilder::from_validity_mask(validity);
-    }
-
     fn finish(&mut self) -> ArrayRef {
         self.finish_into_fixed_size_list().into_array()
     }
 
-    fn finish_into_canonical(&mut self) -> Canonical {
+    fn finish_into_canonical(&mut self, _ctx: &mut ExecutionCtx) -> Canonical {
         Canonical::FixedSizeList(self.finish_into_fixed_size_list())
     }
 }
@@ -287,12 +325,11 @@ mod tests {
 
     use super::FixedSizeListBuilder;
     use crate::IntoArray as _;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
+    use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
     use crate::builders::ArrayBuilder;
     use crate::builders::fixed_size_list::FixedSizeListArray;
     use crate::dtype::DType;
@@ -342,8 +379,8 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 2);
 
-        #[expect(deprecated)]
-        let fsl_array = fsl.to_fixed_size_list();
+        let mut ctx = array_session().create_execution_ctx();
+        let fsl_array = fsl.execute::<FixedSizeListArray>(&mut ctx).unwrap();
         assert_eq!(fsl_array.elements().len(), 6);
         assert_eq!(fsl_array.list_size(), 3);
     }
@@ -366,8 +403,8 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 100);
 
-        #[expect(deprecated)]
-        let fsl_array = fsl.to_fixed_size_list();
+        let mut ctx = array_session().create_execution_ctx();
+        let fsl_array = fsl.execute::<FixedSizeListArray>(&mut ctx).unwrap();
         assert_eq!(fsl_array.list_size(), 0);
         // The elements array should be empty since list_size is 0.
         assert_eq!(fsl_array.elements().len(), 0);
@@ -396,8 +433,8 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 100);
 
-        #[expect(deprecated)]
-        let fsl_array = fsl.to_fixed_size_list();
+        let mut ctx = array_session().create_execution_ctx();
+        let fsl_array = fsl.execute::<FixedSizeListArray>(&mut ctx).unwrap();
         assert_eq!(fsl_array.list_size(), 0);
         assert_eq!(fsl_array.elements().len(), 0);
     }
@@ -426,8 +463,8 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 5);
 
-        #[expect(deprecated)]
-        let fsl_array = fsl.to_fixed_size_list();
+        let mut ctx = array_session().create_execution_ctx();
+        let fsl_array = fsl.execute::<FixedSizeListArray>(&mut ctx).unwrap();
         assert_eq!(fsl_array.elements().len(), 10);
     }
 
@@ -440,8 +477,8 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 0);
 
-        #[expect(deprecated)]
-        let fsl_array = fsl.to_fixed_size_list();
+        let mut ctx = array_session().create_execution_ctx();
+        let fsl_array = fsl.execute::<FixedSizeListArray>(&mut ctx).unwrap();
         assert_eq!(fsl_array.list_size(), 100000000);
         assert_eq!(fsl_array.elements().len(), 0);
     }
@@ -474,8 +511,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 3);
 
-        #[expect(deprecated)]
-        let fsl_array = fsl.to_fixed_size_list();
+        let fsl_array = fsl.execute::<FixedSizeListArray>(&mut ctx).unwrap();
         assert!(
             fsl_array
                 .validity()
@@ -538,8 +574,8 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 2);
 
-        #[expect(deprecated)]
-        let fsl_array = fsl.to_fixed_size_list();
+        let mut ctx = array_session().create_execution_ctx();
+        let fsl_array = fsl.execute::<FixedSizeListArray>(&mut ctx).unwrap();
         assert_eq!(fsl_array.elements().len(), 6);
     }
 
@@ -553,14 +589,17 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 5);
 
-        #[expect(deprecated)]
-        let fsl_array = fsl.to_fixed_size_list();
+        let mut ctx = array_session().create_execution_ctx();
+        let fsl_array = fsl.execute::<FixedSizeListArray>(&mut ctx).unwrap();
         assert_eq!(fsl_array.list_size(), 3);
         assert_eq!(fsl_array.elements().len(), 15);
 
         // Check that all elements are zeros.
-        #[expect(deprecated)]
-        let elements_array = fsl_array.elements().to_primitive();
+        let elements_array = fsl_array
+            .elements()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         let elements = elements_array.as_slice::<i32>();
         assert!(elements.iter().all(|&x| x == 0));
     }
@@ -579,8 +618,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 3);
 
-        #[expect(deprecated)]
-        let fsl_array = fsl.to_fixed_size_list();
+        let fsl_array = fsl.execute::<FixedSizeListArray>(&mut ctx).unwrap();
         assert_eq!(fsl_array.list_size(), 2);
 
         // Check that all lists are null.
@@ -611,8 +649,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 1);
 
-        #[expect(deprecated)]
-        let fsl_array = fsl.to_fixed_size_list();
+        let fsl_array = fsl.execute::<FixedSizeListArray>(&mut ctx).unwrap();
         assert_eq!(fsl_array.list_size(), 2);
 
         // Check that all lists are null.
@@ -637,8 +674,8 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 1000);
 
-        #[expect(deprecated)]
-        let fsl_array = fsl.to_fixed_size_list();
+        let mut ctx = array_session().create_execution_ctx();
+        let fsl_array = fsl.execute::<FixedSizeListArray>(&mut ctx).unwrap();
         assert_eq!(fsl_array.list_size(), 0);
         assert_eq!(fsl_array.elements().len(), 0);
     }
@@ -684,14 +721,17 @@ mod tests {
         let mut builder = FixedSizeListBuilder::with_capacity(dtype, 2, Nullable, 0);
 
         let source_array = source.into_array();
-        builder.extend_from_array(&source_array);
-        builder.extend_from_array(&source_array);
+        source_array
+            .append_to_builder(&mut builder, &mut ctx)
+            .unwrap();
+        source_array
+            .append_to_builder(&mut builder, &mut ctx)
+            .unwrap();
 
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 6);
 
-        #[expect(deprecated)]
-        let fsl_array = fsl.to_fixed_size_list();
+        let fsl_array = fsl.execute::<FixedSizeListArray>(&mut ctx).unwrap();
         assert_eq!(fsl_array.elements().len(), 12);
 
         // Check validity pattern is repeated.
@@ -761,14 +801,19 @@ mod tests {
 
         let mut builder = FixedSizeListBuilder::with_capacity(dtype, 0, Nullable, 0);
 
-        builder.extend_from_array(&source1.into_array());
-        builder.extend_from_array(&source2.into_array());
+        source1
+            .into_array()
+            .append_to_builder(&mut builder, &mut ctx)
+            .unwrap();
+        source2
+            .into_array()
+            .append_to_builder(&mut builder, &mut ctx)
+            .unwrap();
 
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 5);
 
-        #[expect(deprecated)]
-        let fsl_array = fsl.to_fixed_size_list();
+        let fsl_array = fsl.execute::<FixedSizeListArray>(&mut ctx).unwrap();
         assert_eq!(fsl_array.list_size(), 0);
         assert_eq!(fsl_array.elements().len(), 0);
 
@@ -812,6 +857,7 @@ mod tests {
 
     #[test]
     fn test_extend_empty_array() {
+        let mut ctx = array_session().create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
 
         // Create an empty source array.
@@ -838,7 +884,10 @@ mod tests {
             .unwrap();
 
         // Extend with empty array (should be no-op).
-        builder.extend_from_array(&source.into_array());
+        source
+            .into_array()
+            .append_to_builder(&mut builder, &mut ctx)
+            .unwrap();
 
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 1);
@@ -876,13 +925,15 @@ mod tests {
             Validity::AllValid,
             1,
         );
-        builder.extend_from_array(&source.into_array());
+        source
+            .into_array()
+            .append_to_builder(&mut builder, &mut ctx)
+            .unwrap();
 
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 6);
 
-        #[expect(deprecated)]
-        let fsl_array = fsl.to_fixed_size_list();
+        let fsl_array = fsl.execute::<FixedSizeListArray>(&mut ctx).unwrap();
         assert_eq!(fsl_array.elements().len(), 12);
 
         // Check validity.
@@ -927,7 +978,7 @@ mod tests {
                 .vortex_expect("fixed-size-list validity should be derivable")
                 .execute_is_valid(5, &mut ctx)
                 .unwrap()
-        ); // extend_from_array
+        );
     }
 
     #[test]
@@ -1043,8 +1094,11 @@ mod tests {
         assert_eq!(fsl.list_size(), 3);
 
         // Verify elements array: [1, 2, 3, 10, 11, 12, 4, 5, 6, 20, 21, 22].
-        #[expect(deprecated)]
-        let elements = fsl.elements().to_primitive();
+        let elements = fsl
+            .elements()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_eq!(
             elements.as_slice::<i32>(),
             &[1, 2, 3, 10, 11, 12, 4, 5, 6, 20, 21, 22]

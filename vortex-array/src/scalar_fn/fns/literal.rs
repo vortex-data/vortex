@@ -16,6 +16,7 @@ use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::dtype::DType;
 use crate::expr::Expression;
+use crate::expr::display::ExprDisplay;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -74,7 +75,7 @@ impl ScalarFnVTable for Literal {
     fn fmt_sql(
         &self,
         scalar: &Scalar,
-        _expr: &Expression,
+        _expr: &dyn ExprDisplay,
         f: &mut Formatter<'_>,
     ) -> std::fmt::Result {
         write!(f, "{}", scalar)
@@ -101,8 +102,8 @@ impl ScalarFnVTable for Literal {
         Ok(Some(lit(scalar.is_valid())))
     }
 
-    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
-        false
+    fn is_strict(&self, _instance: &Self::Options) -> bool {
+        true
     }
 
     fn is_fallible(&self, _instance: &Self::Options) -> bool {

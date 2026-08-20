@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use smallvec::smallvec;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -21,11 +20,13 @@ use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::ValidityVTableFromChild;
-use crate::arrays::extension::array::SLOT_NAMES;
-use crate::arrays::extension::array::STORAGE_SLOT;
+use crate::array::with_empty_buffers;
+use crate::arrays::extension::array::ExtensionSlots;
 use crate::arrays::extension::compute::rules::PARENT_RULES;
 use crate::arrays::extension::compute::rules::RULES;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
+use crate::builders::ExtensionBuilder;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
 
@@ -99,7 +100,7 @@ impl VTable for Extension {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        let storage = slots[STORAGE_SLOT]
+        let storage = slots[ExtensionSlots::STORAGE]
             .as_ref()
             .vortex_expect("ExtensionArray storage slot");
         vortex_ensure_eq!(
@@ -135,6 +136,14 @@ impl VTable for Extension {
         None
     }
 
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        with_empty_buffers(self, array, buffers)
+    }
+
     fn serialize(
         _array: ArrayView<'_, Self>,
         _session: &VortexSession,
@@ -167,16 +176,27 @@ impl VTable for Extension {
         let storage = children.get(0, ext_dtype.storage_dtype(), len)?;
         Ok(
             ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData)
-                .with_slots(smallvec![Some(storage)]),
+                .with_slots(ExtensionSlots { storage }.into_slots()),
         )
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        ExtensionSlots::NAMES[idx].to_string()
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
+    }
+
+    fn append_to_builder(
+        array: ArrayView<'_, Self>,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let Some(builder) = builder.as_any_mut().downcast_mut::<ExtensionBuilder>() else {
+            vortex_bail!("append_to_builder for Extension requires an ExtensionBuilder");
+        };
+        builder.append_extension_array(&array.into_owned(), ctx)
     }
 
     fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {

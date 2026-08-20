@@ -3,8 +3,11 @@
 
 mod array;
 pub use array::ListViewArrayExt;
+pub use array::ListViewArraySlotsExt;
 pub use array::ListViewData;
 pub use array::ListViewDataParts;
+pub use array::ListViewSlots;
+pub use array::ListViewSlotsView;
 pub use vtable::ListViewArray;
 
 pub(crate) mod compute;
@@ -12,7 +15,7 @@ pub(crate) mod compute;
 mod vtable;
 pub use vtable::ListView;
 
-pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+pub(crate) fn initialize(session: &VortexSession) {
     vtable::initialize(session);
 }
 
@@ -25,6 +28,7 @@ mod rebuild;
 pub use rebuild::DEFAULT_REBUILD_DENSITY_THRESHOLD;
 pub use rebuild::DEFAULT_TRIM_ELEMENTS_THRESHOLD;
 pub use rebuild::ListViewRebuildMode;
+use vortex_session::VortexSession;
 
 #[cfg(test)]
 mod tests;

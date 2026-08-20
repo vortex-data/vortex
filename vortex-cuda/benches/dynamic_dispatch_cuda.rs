@@ -7,7 +7,7 @@
 
 mod bench_config;
 
-use std::marker::PhantomData;
+use std::f64::consts::PI;
 use std::mem::size_of;
 use std::os::raw::c_void;
 use std::ptr;
@@ -39,6 +39,7 @@ use vortex::dtype::NativePType;
 use vortex::dtype::PType;
 use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::ALPArrayExt;
+use vortex::encodings::alp::ALPArrayOwnedExt;
 use vortex::encodings::alp::ALPArraySlotsExt;
 use vortex::encodings::alp::ALPFloat;
 use vortex::encodings::alp::Exponents;
@@ -48,13 +49,13 @@ use vortex::encodings::fastlanes::BitPackedArrayExt;
 use vortex::encodings::fastlanes::BitPackedData;
 use vortex::encodings::fastlanes::FoR;
 use vortex::encodings::fastlanes::FoRArrayExt;
+use vortex::encodings::fastlanes::FoRArraySlotsExt;
 use vortex::encodings::fastlanes::FoRData;
 use vortex::encodings::runend::RunEnd;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex_cuda::CudaBufferExt;
-use vortex_cuda::CudaDeviceBuffer;
 use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaExecutionCtx;
 use vortex_cuda::CudaSession;
@@ -76,14 +77,12 @@ use crate::bench_config::BENCH_SIZES;
 fn run_timed<T: DeviceRepr + NativePType>(
     cuda_ctx: &mut CudaExecutionCtx,
     array_len: usize,
-    output_buf: &CudaDeviceBuffer,
+    output_buf: &mut CudaSlice<T>,
     device_plan: &Arc<CudaSlice<u8>>,
     shared_mem_bytes: u32,
 ) -> VortexResult<Duration> {
     let cuda_function = cuda_ctx.load_function("dynamic_dispatch", &[T::PTYPE])?;
     let array_len_u64 = array_len as u64;
-    let output_view = output_buf.as_view::<T>();
-    let (output_ptr, record_output) = output_view.device_ptr(cuda_ctx.stream());
     let (plan_ptr, record_plan) = device_plan.device_ptr(cuda_ctx.stream());
 
     let stream = cuda_ctx.stream();
@@ -96,7 +95,7 @@ fn run_timed<T: DeviceRepr + NativePType>(
         .map_err(|e| vortex_err!("{e:?}"))?;
 
     let mut launch_builder = cuda_ctx.stream().launch_builder(&cuda_function);
-    launch_builder.arg(&output_ptr);
+    launch_builder.arg(output_buf);
     launch_builder.arg(&array_len_u64);
     launch_builder.arg(&plan_ptr);
 
@@ -112,7 +111,7 @@ fn run_timed<T: DeviceRepr + NativePType>(
             .launch(config)
             .map_err(|e| vortex_err!("kernel launch failed: {e}"))?;
     }
-    drop((record_output, record_plan));
+    drop(record_plan);
 
     let stream = cuda_ctx.stream();
     let ctx = stream.context();
@@ -137,9 +136,8 @@ struct BenchRunner<T> {
     smem_bytes: u32,
     len: usize,
     device_plan: Arc<CudaSlice<u8>>,
-    output_buf: CudaDeviceBuffer,
+    output_buf: CudaSlice<T>,
     _plan_buffers: Vec<BufferHandle>,
-    _phantom: PhantomData<T>,
 }
 
 impl<T: DeviceRepr + NativePType> BenchRunner<T> {
@@ -169,22 +167,19 @@ impl<T: DeviceRepr + NativePType> BenchRunner<T> {
             smem_bytes: shared_mem_bytes,
             len,
             device_plan,
-            output_buf: CudaDeviceBuffer::new(
-                cuda_ctx
-                    .device_alloc::<T>(len.next_multiple_of(1024))
-                    .expect("alloc output"),
-            ),
+            output_buf: cuda_ctx
+                .device_alloc::<T>(len.next_multiple_of(1024))
+                .expect("alloc output"),
             _plan_buffers: device_buffers,
-            _phantom: PhantomData,
         }
     }
 
-    fn run(&self, cuda_ctx: &mut CudaExecutionCtx) -> Duration {
+    fn run(&mut self, cuda_ctx: &mut CudaExecutionCtx) -> Duration {
         cuda_ctx.stream().synchronize().unwrap();
         run_timed::<T>(
             cuda_ctx,
             self.len,
-            &self.output_buf,
+            &mut self.output_buf,
             &self.device_plan,
             self.smem_bytes,
         )
@@ -224,7 +219,7 @@ fn bench_for_bitpacked(c: &mut Criterion) {
                 let mut cuda_ctx =
                     CudaSession::create_execution_ctx(&cuda_session()).vortex_expect("ctx");
 
-                let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
+                let mut bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
 
                 b.iter_custom(|iters| {
                     let mut total_time = Duration::ZERO;
@@ -269,7 +264,7 @@ fn bench_dict_bp_codes(c: &mut Criterion) {
                 let mut cuda_ctx =
                     CudaSession::create_execution_ctx(&cuda_session()).vortex_expect("ctx");
 
-                let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
+                let mut bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
 
                 b.iter_custom(|iters| {
                     let mut total_time = Duration::ZERO;
@@ -313,7 +308,7 @@ fn bench_runend(c: &mut Criterion) {
                 let mut cuda_ctx =
                     CudaSession::create_execution_ctx(&cuda_session()).vortex_expect("ctx");
 
-                let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
+                let mut bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
 
                 b.iter_custom(|iters| {
                     let mut total_time = Duration::ZERO;
@@ -359,6 +354,7 @@ fn bench_dict_bp_codes_alp_for_bp_values_dynanmic_dispatch(c: &mut Criterion) {
                 .clone()
                 .execute::<PrimitiveArray>(&mut ctx)
                 .vortex_expect("to primitive"),
+            &mut ctx,
         )
         .vortex_expect("for encode");
         let bp = BitPackedData::encode(for_arr.encoded(), values_bit_width, &mut ctx)
@@ -390,7 +386,7 @@ fn bench_dict_bp_codes_alp_for_bp_values_dynanmic_dispatch(c: &mut Criterion) {
                 let mut cuda_ctx =
                     CudaSession::create_execution_ctx(&cuda_session()).vortex_expect("ctx");
 
-                let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
+                let mut bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
 
                 b.iter_custom(|iters| {
                     let mut total_time = Duration::ZERO;
@@ -420,6 +416,7 @@ mod standalone {
         offset_within_chunk: u32,
         num_patches: u32,
         n_chunks: u32,
+        indices_base: u32,
     }
 
     unsafe impl DeviceRepr for NullGpuPatches {}
@@ -434,16 +431,17 @@ mod standalone {
             offset_within_chunk: 0,
             num_patches: 0,
             n_chunks: 0,
+            indices_base: 0,
         };
     }
 
     pub(super) struct DictAlpForBitpackedRunner {
         values_packed: BufferHandle,
         codes_packed: BufferHandle,
-        values_for_buf: CudaDeviceBuffer,
-        values_alp_buf: CudaDeviceBuffer,
-        codes_buf: CudaDeviceBuffer,
-        output_buf: CudaDeviceBuffer,
+        values_for_buf: CudaSlice<i32>,
+        values_alp_buf: CudaSlice<f32>,
+        codes_buf: CudaSlice<u32>,
+        output_buf: CudaSlice<f32>,
         bit_unpack_fn: CudaFunction,
         alp_fn: CudaFunction,
         dict_fn: CudaFunction,
@@ -481,26 +479,18 @@ mod standalone {
                 .vortex_expect("codes packed");
 
             let values_len = values_bp.len();
-            let values_for_buf = CudaDeviceBuffer::new(
-                cuda_ctx
-                    .device_alloc::<i32>(values_len.next_multiple_of(1024))
-                    .vortex_expect("alloc values for"),
-            );
-            let values_alp_buf = CudaDeviceBuffer::new(
-                cuda_ctx
-                    .device_alloc::<f32>(values_len.next_multiple_of(1024))
-                    .vortex_expect("alloc values alp"),
-            );
-            let codes_buf = CudaDeviceBuffer::new(
-                cuda_ctx
-                    .device_alloc::<u32>(len.next_multiple_of(1024))
-                    .vortex_expect("alloc codes"),
-            );
-            let output_buf = CudaDeviceBuffer::new(
-                cuda_ctx
-                    .device_alloc::<f32>(len)
-                    .vortex_expect("alloc output"),
-            );
+            let values_for_buf = cuda_ctx
+                .device_alloc::<i32>(values_len.next_multiple_of(1024))
+                .vortex_expect("alloc values for");
+            let values_alp_buf = cuda_ctx
+                .device_alloc::<f32>(values_len.next_multiple_of(1024))
+                .vortex_expect("alloc values alp");
+            let codes_buf = cuda_ctx
+                .device_alloc::<u32>(len.next_multiple_of(1024))
+                .vortex_expect("alloc codes");
+            let output_buf = cuda_ctx
+                .device_alloc::<f32>(len)
+                .vortex_expect("alloc output");
 
             cuda_ctx.stream().synchronize().expect("setup sync");
 
@@ -530,15 +520,11 @@ mod standalone {
 
         // Setup owns all allocations and H2D copies; this times only the standalone
         // kernel sequence needed to mirror the fused dynamic-dispatch plan.
-        pub(super) fn run(&self, cuda_ctx: &mut CudaExecutionCtx) -> Duration {
+        pub(super) fn run(&mut self, cuda_ctx: &mut CudaExecutionCtx) -> Duration {
             cuda_ctx.stream().synchronize().unwrap();
 
             let values_packed_view = self.values_packed.cuda_view::<u32>().unwrap();
             let codes_packed_view = self.codes_packed.cuda_view::<u32>().unwrap();
-            let values_for_view = self.values_for_buf.as_view::<i32>();
-            let values_alp_view = self.values_alp_buf.as_view::<f32>();
-            let codes_view = self.codes_buf.as_view::<u32>();
-            let output_view = self.output_buf.as_view::<f32>();
             let patches = NullGpuPatches::NULL;
 
             cuda_ctx.stream().synchronize().unwrap();
@@ -557,7 +543,7 @@ mod standalone {
             {
                 let mut launch = cuda_ctx.stream().launch_builder(&self.bit_unpack_fn);
                 launch.arg(&values_packed_view);
-                launch.arg(&values_for_view);
+                launch.arg(&mut self.values_for_buf);
                 launch.arg(&self.values_reference);
                 launch.arg(&patches);
                 unsafe {
@@ -574,8 +560,8 @@ mod standalone {
             {
                 let mut launch = cuda_ctx.stream().launch_builder(&self.alp_fn);
                 let values_len = self.values_len as u64;
-                launch.arg(&values_for_view);
-                launch.arg(&values_alp_view);
+                launch.arg(&self.values_for_buf);
+                launch.arg(&mut self.values_alp_buf);
                 launch.arg(&self.alp_f);
                 launch.arg(&self.alp_e);
                 launch.arg(&values_len);
@@ -595,7 +581,7 @@ mod standalone {
                 let mut launch = cuda_ctx.stream().launch_builder(&self.bit_unpack_fn);
                 let reference = 0u32;
                 launch.arg(&codes_packed_view);
-                launch.arg(&codes_view);
+                launch.arg(&mut self.codes_buf);
                 launch.arg(&reference);
                 launch.arg(&patches);
                 unsafe {
@@ -612,10 +598,10 @@ mod standalone {
             {
                 let mut launch = cuda_ctx.stream().launch_builder(&self.dict_fn);
                 let codes_len = self.codes_len as u64;
-                launch.arg(&codes_view);
+                launch.arg(&self.codes_buf);
                 launch.arg(&codes_len);
-                launch.arg(&values_alp_view);
-                launch.arg(&output_view);
+                launch.arg(&self.values_alp_buf);
+                launch.arg(&mut self.output_buf);
                 unsafe {
                     launch
                         .launch(LaunchConfig {
@@ -673,7 +659,7 @@ fn bench_dict_bp_codes_alp_for_bp_values_composed_standalone(c: &mut Criterion) 
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)
             .vortex_expect("to primitive");
-        let for_arr = FoRData::encode(alp_encoded.clone()).vortex_expect("for encode");
+        let for_arr = FoRData::encode(alp_encoded.clone(), &mut ctx).vortex_expect("for encode");
         let bp = BitPackedData::encode(for_arr.encoded(), values_bit_width, &mut ctx)
             .vortex_expect("bitpack values");
         let values_bp = bp;
@@ -707,13 +693,13 @@ fn bench_dict_bp_codes_alp_for_bp_values_composed_standalone(c: &mut Criterion) 
                     let mut cuda_ctx = CudaSession::create_execution_ctx(&session)
                         .vortex_expect("ctx")
                         .with_dispatch_mode(CudaDispatchMode::StandaloneOnly);
-                    let bench_runner = standalone::DictAlpForBitpackedRunner::new(
+                    let mut bench_runner = standalone::DictAlpForBitpackedRunner::new(
                         values_bp,
                         *values_reference,
                         exponents,
                         codes_bp,
                         *len,
-                        cuda_session,
+                        &cuda_session,
                         &mut cuda_ctx,
                     );
 
@@ -744,43 +730,54 @@ fn bench_alp_for_bitpacked_f64(c: &mut Criterion) {
     for (len, len_str) in BENCH_SIZES {
         group.throughput(Throughput::Bytes((len * size_of::<f64>()) as u64));
 
-        // Generate f64 values that ALP-encode without patches.
-        let floats: Vec<f64> = (0..*len)
-            .map(|i| <f64 as ALPFloat>::decode_single(10 + (i as i64 % 64), exponents))
-            .collect();
-        let float_prim = PrimitiveArray::new(Buffer::from(floats), NonNullable);
+        for (patch_interval, benchmark_name) in [
+            (None, "cuda/alp_for_bp_6bw_f64/dispatch_f64"),
+            (
+                Some(100),
+                "cuda/alp_for_bp_6bw_f64_1pct_patches/dispatch_f64",
+            ),
+        ] {
+            let floats: Vec<f64> = (0..*len)
+                .map(|i| {
+                    if patch_interval.is_some_and(|interval| i % interval == 0) {
+                        PI
+                    } else {
+                        <f64 as ALPFloat>::decode_single(10 + (i as i64 % 64), exponents)
+                    }
+                })
+                .collect();
+            let float_prim = PrimitiveArray::new(Buffer::from(floats), NonNullable);
 
-        // Encode: ALP → FoR → BitPacked
-        let alp =
-            alp_encode(float_prim.as_view(), Some(exponents), &mut ctx).vortex_expect("alp_encode");
-        assert!(alp.patches().is_none());
-        let for_arr = FoRData::encode(
-            alp.encoded()
-                .clone()
-                .execute::<PrimitiveArray>(&mut ctx)
-                .vortex_expect("to primitive"),
-        )
-        .vortex_expect("for encode");
-        let bp = BitPackedData::encode(for_arr.encoded(), bit_width, &mut ctx)
-            .vortex_expect("bitpack encode");
+            // Encode: ALP → FoR → BitPacked, preserving ALP's exception patches.
+            let alp = alp_encode(float_prim.as_view(), Some(exponents), &mut ctx)
+                .vortex_expect("alp_encode");
+            assert_eq!(alp.patches().is_some(), patch_interval.is_some());
+            let (encoded, alp_exponents, patches) = alp.into_parts();
+            let for_arr = FoRData::encode(
+                encoded
+                    .execute::<PrimitiveArray>(&mut ctx)
+                    .vortex_expect("to primitive"),
+                &mut ctx,
+            )
+            .vortex_expect("for encode");
+            let bp = BitPackedData::encode(for_arr.encoded(), bit_width, &mut ctx)
+                .vortex_expect("bitpack encode");
+            assert!(bp.patches().is_none(), "expected only ALP patches");
 
-        let tree = ALP::new(
-            FoR::try_new(bp.into_array(), for_arr.reference_scalar().clone())
-                .vortex_expect("for_new")
-                .into_array(),
-            exponents,
-            None,
-        );
-        let array = tree.into_array();
+            let tree = ALP::new(
+                FoR::try_new(bp.into_array(), for_arr.reference_scalar().clone())
+                    .vortex_expect("for_new")
+                    .into_array(),
+                alp_exponents,
+                patches,
+            );
+            let array = tree.into_array();
 
-        group.bench_with_input(
-            BenchmarkId::new("cuda/alp_for_bp_6bw_f64/dispatch_f64", len_str),
-            len,
-            |b, &n| {
+            group.bench_with_input(BenchmarkId::new(benchmark_name, len_str), len, |b, &n| {
                 let mut cuda_ctx =
                     CudaSession::create_execution_ctx(&cuda_session()).vortex_expect("ctx");
 
-                let bench_runner = BenchRunner::<u64>::new(&array, n, &mut cuda_ctx);
+                let mut bench_runner = BenchRunner::<u64>::new(&array, n, &mut cuda_ctx);
 
                 b.iter_custom(|iters| {
                     let mut total_time = Duration::ZERO;
@@ -789,8 +786,8 @@ fn bench_alp_for_bitpacked_f64(c: &mut Criterion) {
                     }
                     total_time
                 });
-            },
-        );
+            });
+        }
     }
 
     group.finish();
@@ -837,7 +834,7 @@ fn bench_dict_bp_codes_bp_for_values(c: &mut Criterion) {
                 let mut cuda_ctx =
                     CudaSession::create_execution_ctx(&cuda_session()).vortex_expect("ctx");
 
-                let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
+                let mut bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
 
                 b.iter_custom(|iters| {
                     let mut total_time = Duration::ZERO;
@@ -881,6 +878,7 @@ fn bench_alp_for_bitpacked(c: &mut Criterion) {
                 .clone()
                 .execute::<PrimitiveArray>(&mut ctx)
                 .vortex_expect("to primitive"),
+            &mut ctx,
         )
         .vortex_expect("for encode");
         let bp = BitPackedData::encode(for_arr.encoded(), bit_width, &mut ctx)
@@ -902,7 +900,7 @@ fn bench_alp_for_bitpacked(c: &mut Criterion) {
                 let mut cuda_ctx =
                     CudaSession::create_execution_ctx(&cuda_session()).vortex_expect("ctx");
 
-                let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
+                let mut bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
 
                 b.iter_custom(|iters| {
                     let mut total_time = Duration::ZERO;
@@ -949,7 +947,7 @@ fn bench_dict_bp_u8_codes_u32_values(c: &mut Criterion) {
                 let mut cuda_ctx =
                     CudaSession::create_execution_ctx(&cuda_session()).vortex_expect("ctx");
 
-                let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
+                let mut bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
 
                 b.iter_custom(|iters| {
                     let mut total_time = Duration::ZERO;
@@ -992,7 +990,7 @@ fn bench_dict_bp_u16_codes_u32_values(c: &mut Criterion) {
                 let mut cuda_ctx =
                     CudaSession::create_execution_ctx(&cuda_session()).vortex_expect("ctx");
 
-                let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
+                let mut bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
 
                 b.iter_custom(|iters| {
                     let mut total_time = Duration::ZERO;
@@ -1035,7 +1033,7 @@ fn bench_dict_bp_u32_codes_u32_values(c: &mut Criterion) {
                 let mut cuda_ctx =
                     CudaSession::create_execution_ctx(&cuda_session()).vortex_expect("ctx");
 
-                let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
+                let mut bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
 
                 b.iter_custom(|iters| {
                     let mut total_time = Duration::ZERO;

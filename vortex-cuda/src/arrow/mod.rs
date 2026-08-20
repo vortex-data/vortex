@@ -10,6 +10,7 @@
 
 mod canonical;
 mod list_view;
+mod offsets;
 
 use std::ffi::CString;
 use std::ffi::c_char;
@@ -29,7 +30,10 @@ use async_trait::async_trait;
 pub(crate) use canonical::CanonicalDeviceArrayExport;
 use cudarc::driver::CudaEvent;
 use cudarc::driver::CudaStream;
+use cudarc::driver::DevicePtr;
 use cudarc::runtime::sys::cudaEvent_t;
+pub(crate) use offsets::I32Offsets;
+pub(crate) use offsets::i32_offsets_from_lengths;
 use vortex::array::ArrayRef;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::FixedSizeList;
@@ -37,11 +41,10 @@ use vortex::array::arrays::List;
 use vortex::array::arrays::ListView;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::dict::DictArraySlotsExt;
-use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
-use vortex::array::arrays::list::ListArrayExt;
-use vortex::array::arrays::listview::ListViewArrayExt;
+use vortex::array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
+use vortex::array::arrays::list::ListArraySlotsExt;
+use vortex::array::arrays::listview::ListViewArraySlotsExt;
 use vortex::array::arrays::struct_::StructArrayExt;
-use vortex::array::arrow::ArrowSessionExt;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::stream::SendableArrayStream;
 use vortex::dtype::DType;
@@ -55,9 +58,11 @@ use vortex::error::vortex_err;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::session::VortexSession;
+use vortex_arrow::ArrowSessionExt;
 
 use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
+use crate::VarBinExportLayout;
 
 mod arrow_c_abi {
     #![allow(dead_code)]
@@ -165,9 +170,18 @@ impl PrivateData {
                         // null pointer
                         Ok(ptr::null())
                     }
-                    Some(handle) => usize::try_from(handle.cuda_device_ptr()?)
-                        .map(|ptr| ptr as *const c_void)
-                        .map_err(|_| vortex_err!("CUDA device pointer does not fit in usize")),
+                    Some(handle) => {
+                        // The buffer may have been populated on a different stream (for example,
+                        // pooled file reads use a dedicated H2D stream). Access it through cudarc's
+                        // stream-aware API so this export stream waits for pending writes before
+                        // its Arrow sync event is recorded.
+                        let view = handle.cuda_view::<u8>()?;
+                        let (device_ptr, record_read) = view.device_ptr(ctx.stream());
+                        drop(record_read);
+                        usize::try_from(device_ptr)
+                            .map(|ptr| ptr as *const c_void)
+                            .map_err(|_| vortex_err!("CUDA device pointer does not fit in usize"))
+                    }
                 }
             })
             .collect::<VortexResult<Vec<_>>>()?
@@ -543,14 +557,14 @@ fn released_device_array(device_id: i64) -> ArrowDeviceArray {
 }
 
 /// Release an Arrow C schema if it is live.
-fn release_schema(schema: &mut FFI_ArrowSchema) {
+pub fn release_schema(schema: &mut FFI_ArrowSchema) {
     if let Some(release) = schema.release {
         unsafe { release(schema) };
     }
 }
 
 /// Release an Arrow device array if it is live.
-fn release_device_array(array: &mut ArrowDeviceArray) {
+pub fn release_device_array(array: &mut ArrowDeviceArray) {
     if let Some(release) = array.array.release {
         unsafe { release(&raw mut array.array) };
     }
@@ -814,14 +828,27 @@ fn arrow_device_export_field(
         .arrow()
         .to_arrow_field(name.as_ref(), dtype)?;
 
-    let data_type = match dtype {
-        DType::Binary(_) => DataType::Binary,
-        DType::Decimal(decimal_dtype, _) => arrow_device_export_decimal_data_type(*decimal_dtype),
-        DType::Struct(struct_dtype, _) => {
-            DataType::Struct(arrow_device_export_struct_fields(struct_dtype, ctx)?.into())
-        }
-        _ => return Ok(field),
-    };
+    let data_type =
+        match (ctx.cuda_session().varbin_export_layout(), dtype) {
+            (VarBinExportLayout::VarBin, DType::Utf8(_)) => DataType::Utf8,
+            (VarBinExportLayout::VarBin, DType::Binary(_)) => DataType::Binary,
+            (VarBinExportLayout::VarBinView, DType::Utf8(_)) => DataType::Utf8View,
+            (VarBinExportLayout::VarBinView, DType::Binary(_)) => DataType::BinaryView,
+            (_, DType::Decimal(decimal_dtype, _)) => {
+                arrow_device_export_decimal_data_type(*decimal_dtype)
+            }
+            (_, DType::Struct(struct_dtype, _)) => {
+                DataType::Struct(arrow_device_export_struct_fields(struct_dtype, ctx)?.into())
+            }
+            // List elements are exported through the same layout-dependent paths as top-level
+            // arrays, so their fields must be rebuilt recursively. Without this, an element such
+            // as Utf8 would keep `to_arrow_field`'s Utf8View mapping while the data is exported
+            // with the offset-based layout.
+            (_, DType::List(element_dtype, _)) => DataType::List(Arc::new(
+                arrow_device_export_field(Field::LIST_FIELD_DEFAULT_NAME, element_dtype, ctx)?,
+            )),
+            _ => return Ok(field),
+        };
 
     Ok(
         Field::new(field.name().clone(), data_type, field.is_nullable())
@@ -952,7 +979,7 @@ mod tests {
     #[cuda_test]
     fn test_export_device_array_stream_schema_next_eos_release() -> VortexResult<()> {
         let runtime = CurrentThreadRuntime::new();
-        let session = VortexSession::default().with_some(CudaSession::try_default()?);
+        let session = VortexSession::default().with::<CudaSession>();
         let array = PrimitiveArray::from_iter(0u32..5).into_array();
         let stream = array.to_array_stream().boxed();
         let mut device_stream = stream.export_device_array_stream(&session, &runtime)?;
@@ -1004,7 +1031,7 @@ mod tests {
     #[cuda_test]
     fn test_export_device_array_stream_empty_stream_schema_and_eos() -> VortexResult<()> {
         let runtime = CurrentThreadRuntime::new();
-        let session = VortexSession::default().with_some(CudaSession::try_default()?);
+        let session = VortexSession::default().with::<CudaSession>();
         let dtype = DType::Primitive(PType::U32, Nullability::NonNullable);
         let stream =
             ArrayStreamAdapter::new(dtype, stream::empty::<VortexResult<ArrayRef>>()).boxed();
@@ -1045,7 +1072,7 @@ mod tests {
     #[cuda_test]
     fn test_export_device_array_stream_null_outputs_report_error() -> VortexResult<()> {
         let runtime = CurrentThreadRuntime::new();
-        let session = VortexSession::default().with_some(CudaSession::try_default()?);
+        let session = VortexSession::default().with::<CudaSession>();
         let array = PrimitiveArray::from_iter(0u32..5).into_array();
         let stream = array.to_array_stream().boxed();
         let mut device_stream = stream.export_device_array_stream(&session, &runtime)?;

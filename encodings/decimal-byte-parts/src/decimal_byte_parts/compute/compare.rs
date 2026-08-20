@@ -25,7 +25,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::DecimalByteParts;
-use crate::decimal_byte_parts::DecimalBytePartsArrayExt;
+use crate::decimal_byte_parts::DecimalBytePartsArraySlotsExt;
 use crate::decimal_byte_parts::compute::compare::Sign::Positive;
 
 impl CompareKernel for DecimalByteParts {
@@ -47,10 +47,7 @@ impl CompareKernel for DecimalByteParts {
             .decimal_value()
             .vortex_expect("checked for null in entry func");
 
-        match decimal_value_wrapper_to_primitive(
-            rhs_decimal,
-            lhs.msp().as_primitive_typed().ptype(),
-        ) {
+        match decimal_value_wrapper_to_primitive(rhs_decimal, lhs.msp().dtype().as_ptype()) {
             Ok(value) => {
                 let encoded_scalar = Scalar::try_new(scalar_type, Some(value))?;
                 let encoded_const = ConstantArray::new(encoded_scalar, rhs.len());

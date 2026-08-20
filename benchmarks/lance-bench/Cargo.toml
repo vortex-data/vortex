@@ -15,14 +15,15 @@ version.workspace = true
 publish = false
 
 [dependencies]
-lance = { version = "7", default-features = false }
-lance-encoding = { version = "7" }
+lance = { version = "10", default-features = false }
+lance-encoding = { version = "10" }
 
 anyhow = { workspace = true }
 arrow-cast = { version = "58" }
 async-trait = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 futures = { workspace = true }
+glob = { workspace = true }
 parquet = { version = "58" }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
@@ -31,6 +32,13 @@ vortex-bench = { workspace = true }
 
 [features]
 unstable_encodings = ["vortex-bench/unstable_encodings"]
+
+[lib]
+test = false
+
+[[bin]]
+name = "lance-bench"
+test = false
 
 [lints]
 workspace = true

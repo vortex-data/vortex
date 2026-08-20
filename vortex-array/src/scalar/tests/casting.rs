@@ -17,6 +17,7 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
+    use crate::dtype::UnionVariants;
     use crate::dtype::extension::ExtDType;
     use crate::dtype::extension::ExtId;
     use crate::dtype::extension::ExtVTable;
@@ -32,6 +33,7 @@ mod tests {
         type Metadata = usize;
         type NativeValue<'a> = &'a str;
 
+        #[expect(clippy::disallowed_methods, reason = "test-only id")]
         fn id(&self) -> ExtId {
             ExtId::new("apples")
         }
@@ -247,6 +249,7 @@ mod tests {
             type Metadata = usize;
             type NativeValue<'a> = &'a str;
 
+            #[expect(clippy::disallowed_methods, reason = "test-only id")]
             fn id(&self) -> ExtId {
                 ExtId::new("f16_ext")
             }
@@ -304,6 +307,7 @@ mod tests {
             type Metadata = usize;
             type NativeValue<'a> = &'a str;
 
+            #[expect(clippy::disallowed_methods, reason = "test-only id")]
             fn id(&self) -> ExtId {
                 ExtId::new("struct_ext")
             }
@@ -373,5 +377,239 @@ mod tests {
             list_elems[1].as_primitive().pvalue().unwrap(),
             PValue::F16(f16_value)
         );
+    }
+
+    #[test]
+    fn union_casts_apply_inner_nullability() -> VortexResult<()> {
+        let source_variants = UnionVariants::try_new(
+            ["int", "string"].into(),
+            vec![
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+                DType::Utf8(Nullability::NonNullable),
+            ],
+            vec![5, 9],
+        )?;
+
+        let target_variants = UnionVariants::try_new(
+            ["int", "string"].into(),
+            vec![
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+                DType::Utf8(Nullability::Nullable),
+            ],
+            vec![5, 9],
+        )?;
+        let target_dtype = DType::Union(target_variants, Nullability::NonNullable);
+
+        let unchanged_child = Scalar::union(
+            source_variants.clone(),
+            5,
+            Scalar::primitive(42_i32, Nullability::NonNullable),
+            Nullability::NonNullable,
+        )?;
+        let changed_child = Scalar::union(
+            source_variants,
+            9,
+            Scalar::utf8("hello", Nullability::NonNullable),
+            Nullability::NonNullable,
+        )?;
+
+        let unchanged_child = unchanged_child.cast(&target_dtype)?;
+        let changed_child = changed_child.cast(&target_dtype)?;
+
+        assert_eq!(unchanged_child.dtype(), &target_dtype);
+        assert_eq!(
+            unchanged_child
+                .as_union()
+                .child()
+                .map(|scalar| scalar.dtype().clone()),
+            Some(DType::Primitive(PType::I32, Nullability::NonNullable))
+        );
+        assert_eq!(changed_child.dtype(), &target_dtype);
+        assert_eq!(
+            changed_child
+                .as_union()
+                .child()
+                .map(|scalar| scalar.dtype().clone()),
+            Some(DType::Utf8(Nullability::Nullable))
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn union_cast_rejects_null_for_non_nullable_child() -> VortexResult<()> {
+        let source_variants = UnionVariants::try_new(
+            ["int"].into(),
+            vec![DType::Primitive(PType::I32, Nullability::Nullable)],
+            vec![5],
+        )?;
+        let target_variants = UnionVariants::try_new(
+            ["int"].into(),
+            vec![DType::Primitive(PType::I32, Nullability::NonNullable)],
+            vec![5],
+        )?;
+        let scalar = Scalar::union(
+            source_variants,
+            5,
+            Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
+            Nullability::NonNullable,
+        )?;
+
+        assert!(
+            scalar
+                .cast(&DType::Union(target_variants, Nullability::NonNullable))
+                .is_err()
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn union_cast_widens_outer_nullability_with_selected_inner_null() -> VortexResult<()> {
+        let variants = UnionVariants::try_new(
+            ["int"].into(),
+            vec![DType::Primitive(PType::I32, Nullability::Nullable)],
+            vec![5],
+        )?;
+        let scalar = Scalar::union(
+            variants.clone(),
+            5,
+            Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
+            Nullability::NonNullable,
+        )?;
+        let target_dtype = DType::Union(variants, Nullability::Nullable);
+
+        let cast = scalar.cast(&target_dtype)?;
+        let selected_child = cast
+            .as_union()
+            .child()
+            .vortex_expect("present union must have a selected child");
+
+        assert_eq!(cast.dtype(), &target_dtype);
+        assert!(selected_child.is_null());
+        assert_eq!(
+            selected_child.dtype(),
+            &DType::Primitive(PType::I32, Nullability::Nullable)
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn union_nullability_cast_recurses_inside_list() -> VortexResult<()> {
+        let source_variants = UnionVariants::try_new(
+            ["int"].into(),
+            vec![DType::Primitive(PType::I32, Nullability::NonNullable)],
+            vec![5],
+        )?;
+        let source_union_dtype = DType::Union(source_variants.clone(), Nullability::NonNullable);
+        let scalar = Scalar::list(
+            source_union_dtype,
+            vec![Scalar::union(
+                source_variants,
+                5,
+                Scalar::primitive(42_i32, Nullability::NonNullable),
+                Nullability::NonNullable,
+            )?],
+            Nullability::NonNullable,
+        );
+
+        let target_variants = UnionVariants::try_new(
+            ["int"].into(),
+            vec![DType::Primitive(PType::I32, Nullability::Nullable)],
+            vec![5],
+        )?;
+        let target_union_dtype = DType::Union(target_variants, Nullability::NonNullable);
+        let target_dtype = DType::List(Arc::new(target_union_dtype.clone()), Nullability::Nullable);
+
+        let cast = scalar.cast(&target_dtype)?;
+        let union = cast
+            .as_list()
+            .element(0)
+            .vortex_expect("list must contain its union child");
+
+        assert_eq!(cast.dtype(), &target_dtype);
+        assert_eq!(union.dtype(), &target_union_dtype);
+        assert_eq!(
+            union.as_union().child(),
+            Some(Scalar::primitive(42_i32, Nullability::Nullable))
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn union_cast_rejects_schema_changes() -> VortexResult<()> {
+        let source_variants = UnionVariants::try_new(
+            ["int"].into(),
+            vec![DType::Primitive(PType::I32, Nullability::Nullable)],
+            vec![5],
+        )?;
+        let scalar = Scalar::union(
+            source_variants,
+            5,
+            Scalar::primitive(42_i32, Nullability::Nullable),
+            Nullability::NonNullable,
+        )?;
+
+        let changed_name = UnionVariants::try_new(
+            ["integer"].into(),
+            vec![DType::Primitive(PType::I32, Nullability::NonNullable)],
+            vec![5],
+        )?;
+        let changed_type_id = UnionVariants::try_new(
+            ["int"].into(),
+            vec![DType::Primitive(PType::I32, Nullability::NonNullable)],
+            vec![6],
+        )?;
+        let changed_dtype = UnionVariants::try_new(
+            ["int"].into(),
+            vec![DType::Primitive(PType::I64, Nullability::Nullable)],
+            vec![5],
+        )?;
+
+        for variants in [changed_name, changed_type_id, changed_dtype] {
+            assert!(
+                scalar
+                    .cast(&DType::Union(variants, Nullability::NonNullable))
+                    .is_err()
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn cast_changes_only_outer_union_nullability() -> VortexResult<()> {
+        let variants = UnionVariants::try_new(
+            ["int", "string"].into(),
+            vec![
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+                DType::Utf8(Nullability::NonNullable),
+            ],
+            vec![5, 9],
+        )?;
+        let scalar = Scalar::union(
+            variants.clone(),
+            5,
+            Scalar::primitive(42_i32, Nullability::NonNullable),
+            Nullability::NonNullable,
+        )?;
+
+        let expected = DType::Union(variants, Nullability::Nullable);
+        let nullable = scalar.cast(&expected)?;
+
+        assert_eq!(nullable.dtype(), &expected);
+        assert!(nullable.dtype().is_nullable());
+        assert_eq!(nullable.as_union().type_id(), Some(5));
+        assert_eq!(
+            nullable
+                .as_union()
+                .child()
+                .map(|scalar| scalar.dtype().clone()),
+            Some(DType::Primitive(PType::I32, Nullability::NonNullable))
+        );
+
+        Ok(())
     }
 }

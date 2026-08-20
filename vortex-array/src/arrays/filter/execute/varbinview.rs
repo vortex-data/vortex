@@ -3,48 +3,39 @@
 
 use std::sync::Arc;
 
-use arrow_array::BooleanArray;
-use vortex_error::VortexExpect;
-use vortex_mask::Mask;
+use vortex_buffer::Buffer;
 use vortex_mask::MaskValues;
 
-use crate::ArrayRef;
-use crate::IntoArray;
-use crate::LEGACY_SESSION;
-use crate::VortexSessionExecute;
-use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
-use crate::arrow::ArrowSessionExt;
-use crate::arrow::FromArrowArray;
+use crate::arrays::filter::execute::buffer;
+use crate::arrays::filter::execute::filter_validity;
+use crate::arrays::varbinview::BinaryView;
+use crate::arrays::varbinview::VarBinViewArrayExt;
+use crate::buffer::BufferHandle;
 
 pub fn filter_varbinview(array: &VarBinViewArray, mask: &Arc<MaskValues>) -> VarBinViewArray {
-    // Delegate to the Arrow implementation of filter over `VarBinView`.
-    arrow_filter_fn(&array.clone().into_array(), &Mask::Values(Arc::clone(mask)))
-        .vortex_expect("VarBinViewArray is Arrow-compatible and supports arrow_filter_fn")
-        .as_::<VarBinView>()
-        .into_owned()
-}
+    let filtered_validity = filter_validity(array.varbinview_validity(), mask);
 
-fn arrow_filter_fn(array: &ArrayRef, mask: &Mask) -> vortex_error::VortexResult<ArrayRef> {
-    let values = match &mask {
-        Mask::Values(values) => values,
-        Mask::AllTrue(_) | Mask::AllFalse(_) => unreachable!("check in filter invoke"),
-    };
+    let views = Buffer::<BinaryView>::from_byte_buffer(array.views_handle().as_host().clone());
+    let filtered_views = buffer::filter_buffer(views, mask.as_ref());
 
-    let array_ref = LEGACY_SESSION.arrow().execute_arrow(
-        array.clone(),
-        None,
-        &mut LEGACY_SESSION.create_execution_ctx(),
-    )?;
-    let mask_array = BooleanArray::new(values.bit_buffer().clone().into(), None);
-    let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
-
-    ArrayRef::from_arrow(filtered.as_ref(), array.dtype().is_nullable())
+    // SAFETY: the filtered views are a subset of the original views and reference the same data
+    // buffers, and the validity is filtered by the same mask so lengths stay aligned.
+    unsafe {
+        VarBinViewArray::new_handle_unchecked(
+            BufferHandle::new_host(filtered_views.into_byte_buffer()),
+            Arc::clone(array.data_buffers()),
+            array.dtype().clone(),
+            filtered_validity,
+        )
+    }
 }
 
 #[cfg(test)]
 mod test {
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::VarBinViewArray;
     use crate::compute::conformance::filter::test_filter_conformance;
 
@@ -52,6 +43,7 @@ mod test {
     fn test_filter_varbinview_conformance() {
         test_filter_conformance(
             &VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]).into_array(),
+            &mut array_session().create_execution_ctx(),
         );
 
         test_filter_conformance(
@@ -63,6 +55,7 @@ mod test {
                 Some("five"),
             ])
             .into_array(),
+            &mut array_session().create_execution_ctx(),
         );
     }
 }

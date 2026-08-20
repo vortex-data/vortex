@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 from bench_orchestrator.config import (
+    Benchmark,
     BenchmarkTarget,
     Engine,
     Format,
@@ -25,18 +26,77 @@ def test_parse_formats_json_accepts_ci_format_arrays() -> None:
     assert formats == [Format.PARQUET, Format.VORTEX, Format.DUCKDB]
 
 
+def test_parse_formats_json_accepts_vortex_spatial_native() -> None:
+    formats = parse_formats_json('["parquet","vortex","vortex-spatial-native"]')
+
+    assert formats == [Format.PARQUET, Format.VORTEX, Format.VORTEX_SPATIAL_NATIVE]
+
+
+def test_resolve_axis_targets_offers_vortex_spatial_native_on_duckdb_only() -> None:
+    # vortex-spatial-native is a DuckDB-only lane; the DataFusion axis is dropped as unsupported.
+    targets, warnings = resolve_axis_targets(
+        [Engine.DATAFUSION, Engine.DUCKDB],
+        [Format.VORTEX_SPATIAL_NATIVE],
+    )
+
+    assert targets == [BenchmarkTarget(engine=Engine.DUCKDB, format=Format.VORTEX_SPATIAL_NATIVE)]
+    assert warnings == ["Format vortex-spatial-native is not supported by engine datafusion"]
+
+
 def test_resolve_axis_targets_filters_unsupported_combinations() -> None:
     targets, warnings = resolve_axis_targets(
         [Engine.DATAFUSION, Engine.DUCKDB],
-        [Format.ARROW, Format.PARQUET],
+        [Format.LANCE, Format.PARQUET],
     )
 
     assert targets == [
-        BenchmarkTarget(engine=Engine.DATAFUSION, format=Format.ARROW),
+        BenchmarkTarget(engine=Engine.DATAFUSION, format=Format.LANCE),
         BenchmarkTarget(engine=Engine.DATAFUSION, format=Format.PARQUET),
         BenchmarkTarget(engine=Engine.DUCKDB, format=Format.PARQUET),
     ]
-    assert warnings == ["Format arrow is not supported by engine duckdb"]
+    assert warnings == ["Format lance is not supported by engine duckdb"]
+
+
+def test_resolve_axis_targets_skips_engines_a_benchmark_cannot_run() -> None:
+    # SpatialBench is DuckDB-only (ST_* spatial SQL), so the DataFusion axis is dropped with a warning.
+    targets, warnings = resolve_axis_targets(
+        [Engine.DATAFUSION, Engine.DUCKDB],
+        [Format.PARQUET, Format.VORTEX],
+        Benchmark.SPATIALBENCH,
+    )
+
+    assert targets == [
+        BenchmarkTarget(engine=Engine.DUCKDB, format=Format.PARQUET),
+        BenchmarkTarget(engine=Engine.DUCKDB, format=Format.VORTEX),
+    ]
+    assert warnings == ["Benchmark spatialbench does not support engine datafusion"]
+
+
+def test_resolve_axis_targets_supports_spatialbench_three_lanes() -> None:
+    # The single-command three-lane comparison: parquet, WKB vortex, and native-geometry vortex, all
+    # on DuckDB.
+    targets, warnings = resolve_axis_targets(
+        [Engine.DUCKDB],
+        [Format.PARQUET, Format.VORTEX, Format.VORTEX_SPATIAL_NATIVE],
+        Benchmark.SPATIALBENCH,
+    )
+
+    assert targets == [
+        BenchmarkTarget(engine=Engine.DUCKDB, format=Format.PARQUET),
+        BenchmarkTarget(engine=Engine.DUCKDB, format=Format.VORTEX),
+        BenchmarkTarget(engine=Engine.DUCKDB, format=Format.VORTEX_SPATIAL_NATIVE),
+    ]
+    assert warnings == []
+
+
+def test_validate_targets_rejects_engine_a_benchmark_cannot_run() -> None:
+    errors = validate_targets(
+        [BenchmarkTarget(engine=Engine.DATAFUSION, format=Format.PARQUET)],
+        {},
+        Benchmark.SPATIALBENCH,
+    )
+
+    assert errors == ["Benchmark spatialbench does not support engine datafusion"]
 
 
 def test_validate_targets_rejects_remote_lance() -> None:
@@ -63,3 +123,8 @@ def test_group_targets_by_backend_routes_lance_to_lance_binary() -> None:
         Engine.DUCKDB,
     ]
     assert groups[Engine.LANCE] == [BenchmarkTarget(engine=Engine.DATAFUSION, format=Format.LANCE)]
+
+
+def test_datafusion_package_and_binary_names_match() -> None:
+    assert Engine.DATAFUSION.package_name == "datafusion-bench"
+    assert Engine.DATAFUSION.binary_name == "datafusion-bench"

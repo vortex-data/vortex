@@ -4,6 +4,7 @@
 use std::sync::LazyLock;
 
 use divan::Bencher;
+use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::prelude::StdRng;
@@ -11,28 +12,35 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::array_session;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builders::ArrayBuilder;
+use vortex_array::builders::VarBinBuilder;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
 
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
 const BENCH_ARGS: &[(usize, usize)] = &[
     // length, chunk_count
-    (10, 1000),
-    (100, 100),
+    // Chunk counts sized to keep CodSpeed simulation under 1ms per benchmark.
+    (10, 100),
+    (100, 50),
     (1000, 10),
 ];
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 #[divan::bench(args = BENCH_ARGS)]
 fn chunked_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usize)) {
@@ -121,6 +129,54 @@ fn chunked_varbinview_opt_canonical_into(bencher: Bencher, (len, chunk_count): (
 #[divan::bench(args = BENCH_ARGS)]
 fn chunked_varbinview_opt_into_canonical(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunks = make_string_chunks(true, len, chunk_count);
+
+    bencher
+        .with_inputs(|| (&chunks, SESSION.create_execution_ctx()))
+        .bench_refs(|(chunk, ctx)| (**chunk).clone().execute::<Canonical>(ctx))
+}
+
+// Fewer rows than BENCH_ARGS: decoding VarBin values is the most expensive work in this file.
+const VARBIN_BENCH_ARGS: &[(usize, usize)] = &[
+    // length, chunk_count
+    (10, 100),
+    (500, 2),
+];
+
+#[divan::bench(args = VARBIN_BENCH_ARGS)]
+fn chunked_varbin_to_varbinview_builder(bencher: Bencher, (len, chunk_count): (usize, usize)) {
+    let chunks = make_varbin_chunks(false, len, chunk_count);
+
+    bencher
+        .with_inputs(|| (&chunks, SESSION.create_execution_ctx()))
+        .bench_refs(|(chunk, ctx)| {
+            let mut builder =
+                VarBinViewBuilder::with_capacity(chunk.dtype().clone(), len * chunk_count);
+            chunk
+                .append_to_builder(&mut builder, ctx)
+                .vortex_expect("append failed");
+            builder.finish()
+        })
+}
+
+#[divan::bench(args = VARBIN_BENCH_ARGS)]
+fn chunked_varbin_opt_to_varbinview_builder(bencher: Bencher, (len, chunk_count): (usize, usize)) {
+    let chunks = make_varbin_chunks(true, len, chunk_count);
+
+    bencher
+        .with_inputs(|| (&chunks, SESSION.create_execution_ctx()))
+        .bench_refs(|(chunk, ctx)| {
+            let mut builder =
+                VarBinViewBuilder::with_capacity(chunk.dtype().clone(), len * chunk_count);
+            chunk
+                .append_to_builder(&mut builder, ctx)
+                .vortex_expect("append failed");
+            builder.finish()
+        })
+}
+
+#[divan::bench(args = VARBIN_BENCH_ARGS)]
+fn chunked_varbin_into_canonical(bencher: Bencher, (len, chunk_count): (usize, usize)) {
+    let chunks = make_varbin_chunks(false, len, chunk_count);
 
     bencher
         .with_inputs(|| (&chunks, SESSION.create_execution_ctx()))
@@ -216,6 +272,30 @@ fn make_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {
 
     (0..chunk_count)
         .map(|_| BoolArray::from_iter((0..len).map(|_| rng.random_bool(0.5))).into_array())
+        .collect::<ChunkedArray>()
+        .into_array()
+}
+
+fn make_varbin_chunks(nullable: bool, len: usize, chunk_count: usize) -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(123);
+    let dtype = DType::Utf8(nullable.into());
+
+    (0..chunk_count)
+        .map(|_| {
+            let mut builder = VarBinBuilder::<i32>::with_capacity(dtype.clone(), len);
+            (0..len).for_each(|_| {
+                if nullable && rng.random_bool(0.2) {
+                    builder.push_null()
+                } else {
+                    builder.append_value(
+                        (0..rng.random_range(0..=20))
+                            .map(|_| rng.random_range(b'a'..=b'z'))
+                            .collect::<Vec<u8>>(),
+                    )
+                }
+            });
+            builder.finish()
+        })
         .collect::<ChunkedArray>()
         .into_array()
 }

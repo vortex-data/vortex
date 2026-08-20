@@ -5,18 +5,16 @@ use std::any::Any;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::builders::ArrayBuilder;
+use crate::builders::ChildBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
-use crate::builders::builder_with_capacity;
 use crate::canonical::Canonical;
-#[expect(deprecated)]
-use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::scalar::ExtScalar;
@@ -25,7 +23,7 @@ use crate::scalar::Scalar;
 /// The builder for building a [`ExtensionArray`].
 pub struct ExtensionBuilder {
     dtype: DType,
-    storage: Box<dyn ArrayBuilder>,
+    storage: ChildBuilder,
 }
 
 impl ExtensionBuilder {
@@ -37,7 +35,7 @@ impl ExtensionBuilder {
     /// Creates a new `ExtensionBuilder` with the given `capacity`.
     pub fn with_capacity(ext_dtype: ExtDTypeRef, capacity: usize) -> Self {
         Self {
-            storage: builder_with_capacity(ext_dtype.storage_dtype(), capacity),
+            storage: ChildBuilder::with_capacity(ext_dtype.storage_dtype(), capacity),
             dtype: DType::Extension(ext_dtype),
         }
     }
@@ -45,6 +43,16 @@ impl ExtensionBuilder {
     /// Appends an extension `value` to the builder.
     pub fn append_value(&mut self, value: ExtScalar) -> VortexResult<()> {
         self.storage.append_scalar(&value.to_storage_scalar())
+    }
+
+    /// Appends the values of a canonical [`ExtensionArray`] to the builder by appending its
+    /// storage array to the underlying storage builder.
+    pub(crate) fn append_extension_array(
+        &mut self,
+        array: &ExtensionArray,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        self.storage.append_array(array.storage_array(), ctx)
     }
 
     /// Finishes the builder directly into a [`ExtensionArray`].
@@ -101,25 +109,15 @@ impl ArrayBuilder for ExtensionBuilder {
         self.append_value(scalar.as_extension())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
-        #[expect(deprecated)]
-        let ext_array = array.to_extension();
-        self.storage.extend_from_array(ext_array.storage_array())
-    }
-
     fn reserve_exact(&mut self, capacity: usize) {
         self.storage.reserve_exact(capacity)
-    }
-
-    unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        unsafe { self.storage.set_validity_unchecked(validity) };
     }
 
     fn finish(&mut self) -> ArrayRef {
         self.finish_into_extension().into_array()
     }
 
-    fn finish_into_canonical(&mut self) -> Canonical {
+    fn finish_into_canonical(&mut self, _ctx: &mut ExecutionCtx) -> Canonical {
         Canonical::Extension(self.finish_into_extension())
     }
 }

@@ -37,14 +37,14 @@ def ds(tmpdir_factory) -> vx.dataset.VortexDataset:  # pyright: ignore[reportUnk
 
 def test_schema(ds: pd.Dataset):
     assert ds.schema == pa.schema(
-        [("bool", pa.bool_()), ("float", pa.float64()), ("index", pa.int64()), ("string", pa.string_view())]
+        [("index", pa.int64()), ("string", pa.string_view()), ("bool", pa.bool_()), ("float", pa.float64())]
     )
 
 
 def test_scanner_schema(ds: vx.dataset.VortexDataset):
     scanner = vx.dataset.VortexScanner(ds)
     assert scanner.schema == pa.schema(
-        [("bool", pa.bool_()), ("float", pa.float64()), ("index", pa.int64()), ("string", pa.string_view())]
+        [("index", pa.int64()), ("string", pa.string_view()), ("bool", pa.bool_()), ("float", pa.float64())]
     )
 
 
@@ -197,13 +197,13 @@ def test_duckdb(ds: vx.dataset.VortexDataset):
     tbl = duckdb.execute("select * from ds where string >= '950000' and float < 975.0").arrow().read_all()
     assert len(tbl) == 6176
     assert tbl.schema == pa.schema(
-        [("bool", pa.bool_()), ("float", pa.float64()), ("index", pa.int64()), ("string", pa.utf8())]
+        [("index", pa.int64()), ("string", pa.utf8()), ("bool", pa.bool_()), ("float", pa.float64())]
     )
 
     tbl = duckdb.execute("select * from ds").arrow().read_all()
     assert len(tbl) == 1_000_000
     assert tbl.schema == pa.schema(
-        [("bool", pa.bool_()), ("float", pa.float64()), ("index", pa.int64()), ("string", pa.utf8())]
+        [("index", pa.int64()), ("string", pa.utf8()), ("bool", pa.bool_()), ("float", pa.float64())]
     )
     assert tbl.take([0]).to_pylist()[0] == record(0)
     assert tbl.take([950_000]).to_pylist()[0] == record(950_000)
@@ -217,7 +217,7 @@ def test_fragment_schema(ds: vx.dataset.VortexDataset):
     fragments = ds.get_fragments()
     for i, f in enumerate(fragments):
         assert f.physical_schema == pa.schema(
-            [("bool", pa.bool_()), ("float", pa.float64()), ("index", pa.int64()), ("string", pa.string_view())]
+            [("index", pa.int64()), ("string", pa.string_view()), ("bool", pa.bool_()), ("float", pa.float64())]
         ), (f, i)
 
     assert ds.head(1).to_pylist() == [{"index": 0, "string": "0", "bool": True, "float": 0.0}]

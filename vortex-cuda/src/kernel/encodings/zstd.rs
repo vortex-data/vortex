@@ -331,7 +331,7 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
         .indices()
     {
         AllOr::All => {
-            let (buffers, all_views) = reconstruct_views(&host_buffer, MAX_BUFFER_LEN);
+            let (buffers, all_views) = reconstruct_views(&host_buffer, 0, MAX_BUFFER_LEN);
             let sliced_views = all_views.slice(slice_value_idx_start..slice_value_idx_stop);
 
             Ok(Canonical::VarBinView(unsafe {

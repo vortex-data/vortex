@@ -18,11 +18,11 @@ use vortex_session::VortexSession;
 use crate::FL_CHUNK_SIZE;
 use crate::RLE;
 use crate::rle::RLEArrayExt;
+use crate::rle::RLEArraySlotsExt;
 
 pub(crate) fn initialize(session: &VortexSession) {
-    session
-        .kernels()
-        .register_execute_parent_kernel(Slice.id(), RLE, SliceExecuteAdaptor(RLE));
+    let kernels = session.kernels();
+    kernels.register_execute_parent_kernel(Slice.id(), RLE, SliceExecuteAdaptor(RLE));
 }
 
 impl SliceKernel for RLE {

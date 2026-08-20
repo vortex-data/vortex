@@ -8,7 +8,6 @@ use std::fmt::Formatter;
 
 pub use kernel::*;
 use prost::Message;
-use vortex_array::expr::and;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_proto::expr as pb;
@@ -22,9 +21,11 @@ use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::Decimal;
 use crate::arrays::Primitive;
+use crate::arrays::ScalarFnArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::DType::Bool;
+use crate::expr::display::ExprDisplay;
 use crate::expr::expression::Expression;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
@@ -32,8 +33,7 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::fns::binary::execute_boolean;
-use crate::scalar_fn::fns::operators::CompareOperator;
+use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::operators::Operator;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -68,13 +68,6 @@ pub enum StrictComparison {
 }
 
 impl StrictComparison {
-    pub const fn to_compare_operator(&self) -> CompareOperator {
-        match self {
-            StrictComparison::Strict => CompareOperator::Lt,
-            StrictComparison::NonStrict => CompareOperator::Lte,
-        }
-    }
-
     pub const fn to_operator(&self) -> Operator {
         match self {
             StrictComparison::Strict => Operator::Lt,
@@ -87,15 +80,21 @@ impl StrictComparison {
     }
 }
 
-/// Common preconditions for between operations that apply to all arrays.
+/// Short-circuits between for the inputs that need no encoding-specific work.
 ///
-/// Returns `Some(result)` if the precondition short-circuits the between operation
-/// (empty array, null bounds), or `None` if between should proceed with the
-/// encoding-specific implementation.
-pub(super) fn precondition(
+/// Returns `Some(result)` when the answer is already known (empty array, null bounds), or `None`
+/// when between must proceed with the encoding-specific implementation. Kernels can therefore rely
+/// on both bounds being non-null.
+///
+/// The result can be a lazy [`ScalarFn`] array, so a caller that needs a computed array
+/// **must** execute it.
+///
+/// [`ScalarFn`]: crate::arrays::ScalarFn
+pub(super) fn short_circuit(
     arr: &ArrayRef,
     lower: &ArrayRef,
     upper: &ArrayRef,
+    options: &BetweenOptions,
 ) -> VortexResult<Option<ArrayRef>> {
     let return_dtype =
         Bool(arr.dtype().nullability() | lower.dtype().nullability() | upper.dtype().nullability());
@@ -105,20 +104,43 @@ pub(super) fn precondition(
         return Ok(Some(Canonical::empty(&return_dtype).into_array()));
     }
 
-    if lower.as_constant().is_some_and(|v| v.is_null())
-        || upper.as_constant().is_some_and(|v| v.is_null())
-    {
+    let lower_is_null = lower.as_constant().is_some_and(|v| v.is_null());
+    let upper_is_null = upper.as_constant().is_some_and(|v| v.is_null());
+
+    // `Between` is not strict, and Kleene `AND` gives `null AND false = false`, so a null bound
+    // cannot falsify a row on its own. Every row is null only when both bounds are null.
+    if lower_is_null && upper_is_null {
         return Ok(Some(
             ConstantArray::new(Scalar::null(return_dtype), arr.len()).into_array(),
         ));
     }
 
+    // Every kernel requires non-null constant bounds, so a single null bound leaves nothing to
+    // dispatch to. The two compares keep the surviving bound, which can still falsify rows.
+    if lower_is_null || upper_is_null {
+        return as_two_compares(arr, lower, upper, options).map(Some);
+    }
+
     Ok(None)
+}
+
+/// The two compares that `Between` stands for, combined with Kleene `AND`.
+///
+/// The returned array is lazy, so a reduce rule can call this function.
+fn as_two_compares(
+    arr: &ArrayRef,
+    lower: &ArrayRef,
+    upper: &ArrayRef,
+    options: &BetweenOptions,
+) -> VortexResult<ArrayRef> {
+    let lower_cmp = lower.binary(arr.clone(), options.lower_strict.to_operator())?;
+    let upper_cmp = arr.binary(upper.clone(), options.upper_strict.to_operator())?;
+    lower_cmp.binary(upper_cmp, Operator::And)
 }
 
 /// Between on a canonical array by directly dispatching to the appropriate kernel.
 ///
-/// Falls back to compare + boolean and if no kernel handles the input.
+/// Falls back to [`as_two_compares`] if no kernel handles the input.
 fn between_canonical(
     arr: &ArrayRef,
     lower: &ArrayRef,
@@ -126,8 +148,10 @@ fn between_canonical(
     options: &BetweenOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    if let Some(result) = precondition(arr, lower, upper)? {
-        return Ok(result);
+    if let Some(result) = short_circuit(arr, lower, upper, options)? {
+        // TODO(joe): return the lazy array directly, blocked on the same executor support as the
+        // fallback below. Only the single-null-bound case is lazy, so this forces it for now.
+        return result.execute::<ArrayRef>(ctx);
     }
 
     // Try type-specific kernels
@@ -145,15 +169,7 @@ fn between_canonical(
 
     // TODO(joe): return lazy compare once the executor supports this
     // Fall back to compare + boolean and
-    let lower_cmp = lower.clone().binary(
-        arr.clone(),
-        Operator::from(options.lower_strict.to_compare_operator()),
-    )?;
-    let upper_cmp = arr.clone().binary(
-        upper.clone(),
-        Operator::from(options.upper_strict.to_compare_operator()),
-    )?;
-    execute_boolean(&lower_cmp, &upper_cmp, Operator::And, ctx)
+    as_two_compares(arr, lower, upper, options)?.execute::<ArrayRef>(ctx)
 }
 
 /// An optimized scalar expression to compute whether values fall between two bounds.
@@ -169,6 +185,22 @@ fn between_canonical(
 /// separate comparisons combined with a logical AND.
 #[derive(Clone)]
 pub struct Between;
+
+impl Between {
+    /// Creates a lazy between operation over an array and its bounds.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the children have different lengths or incompatible dtypes.
+    pub fn try_new(
+        array: ArrayRef,
+        lower: ArrayRef,
+        upper: ArrayRef,
+        options: BetweenOptions,
+    ) -> VortexResult<ScalarFnArray> {
+        ScalarFnArray::try_new(Between.bind(options), vec![array, lower, upper])
+    }
+}
 
 impl ScalarFnVTable for Between {
     type Options = BetweenOptions;
@@ -224,7 +256,7 @@ impl ScalarFnVTable for Between {
     fn fmt_sql(
         &self,
         options: &Self::Options,
-        expr: &Expression,
+        expr: &dyn ExprDisplay,
         f: &mut Formatter<'_>,
     ) -> std::fmt::Result {
         let lower_op = if options.lower_strict.is_strict() {
@@ -240,11 +272,11 @@ impl ScalarFnVTable for Between {
         write!(
             f,
             "({} {} {} {} {})",
-            expr.child(1),
+            expr.display_child(1),
             lower_op,
-            expr.child(0),
+            expr.display_child(0),
             upper_op,
-            expr.child(2)
+            expr.display_child(2)
         )
     }
 
@@ -298,15 +330,17 @@ impl ScalarFnVTable for Between {
     fn validity(
         &self,
         _options: &Self::Options,
-        expression: &Expression,
+        _expression: &Expression,
     ) -> VortexResult<Option<Expression>> {
-        let arr = expression.child(0).validity()?;
-        let lower = expression.child(1).validity()?;
-        let upper = expression.child(2).validity()?;
-        Ok(Some(and(and(arr, lower), upper)))
+        // `Between` stands for two compares under Kleene `AND`, and `null AND false` is `false`,
+        // so a null bound does not make a row null. There is no validity expression to derive,
+        // which is also why `Binary` returns `None` for `Operator::And`.
+        Ok(None)
     }
 
-    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
+    fn is_strict(&self, _options: &Self::Options) -> bool {
+        // Not strict for the same reason `validity` returns `None` above: under Kleene `AND` a
+        // null bound does not force a null row.
         false
     }
 
@@ -327,12 +361,15 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::DecimalArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::StructArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::expr::between;
+    use crate::expr::col;
     use crate::expr::get_item;
     use crate::expr::lit;
     use crate::expr::root;
@@ -342,6 +379,71 @@ mod tests {
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+
+    const NON_STRICT: BetweenOptions = BetweenOptions {
+        lower_strict: StrictComparison::NonStrict,
+        upper_strict: StrictComparison::NonStrict,
+    };
+
+    /// `len` null `i32` values held as a [`ConstantArray`], which is what `as_constant` sees.
+    fn null_i32s(len: usize) -> ArrayRef {
+        let null = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
+        ConstantArray::new(null, len).into_array()
+    }
+
+    /// A declared validity expression must agree with the mask of the executed result.
+    ///
+    /// The bounds are columns rather than literals so that a null bound reaches execution
+    /// instead of being intercepted as a constant.
+    #[test]
+    fn validity_agrees_with_execution() -> VortexResult<()> {
+        let ctx = &mut SESSION.create_execution_ctx();
+
+        //  x     lo     hi     expected
+        //  10    null   5      false, since the upper bound alone falsifies the row
+        //  10    null   50     null, since neither bound falsifies the row
+        //  1     0      5      true
+        let x = PrimitiveArray::from_option_iter([Some(10), Some(10), Some(1)]).into_array();
+        let lo = PrimitiveArray::from_option_iter([None, None, Some(0)]).into_array();
+        let hi = PrimitiveArray::from_option_iter([Some(5), Some(50), Some(5)]).into_array();
+        let data = StructArray::from_fields(&[("x", x), ("lo", lo), ("hi", hi)])?.into_array();
+
+        let expr = between(col("x"), col("lo"), col("hi"), NON_STRICT);
+
+        let executed = data
+            .clone()
+            .apply(&expr)?
+            .execute::<BoolArray>(ctx)?
+            .opt_bool_vec(ctx);
+
+        let declared = data
+            .apply(&expr.validity()?)?
+            .execute::<BoolArray>(ctx)?
+            .bool_vec(ctx);
+
+        assert_eq!(executed, [Some(false), None, Some(true)]);
+        assert_eq!(
+            executed.iter().map(Option::is_some).collect::<Vec<_>>(),
+            declared
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn is_not_strict() {
+        let expr = between(
+            root(),
+            lit(0),
+            lit(100),
+            BetweenOptions {
+                lower_strict: StrictComparison::NonStrict,
+                upper_strict: StrictComparison::NonStrict,
+            },
+        );
+
+        assert!(!expr.as_scalar().is_some_and(|f| f.signature().is_strict()));
+    }
 
     #[test]
     fn test_display() {
@@ -428,8 +530,11 @@ mod tests {
         .execute::<BoolArray>(ctx)
         .unwrap();
 
-        let indices = to_int_indices(matches, ctx).unwrap();
-        assert!(indices.is_empty());
+        // The rows the lower bound already falsified stay false rather than becoming null.
+        assert_eq!(
+            matches.opt_bool_vec(ctx),
+            [None, None, Some(false), None, Some(false)]
+        );
 
         // upper is a fixed constant
         let upper = ConstantArray::new(Scalar::from(2), 5).into_array();
@@ -467,6 +572,41 @@ mod tests {
         .unwrap();
         let indices = to_int_indices(matches, ctx).unwrap();
         assert_eq!(indices, vec![0, 1, 2, 3, 4]);
+    }
+
+    /// `Between` is not strict, so a null bound only makes a row null when the surviving
+    /// comparison is not already false. This must not depend on how the bound is encoded, and
+    /// compression stores an all-null chunk as a [`ConstantArray`].
+    #[rstest]
+    #[case::primitive_nulls(PrimitiveArray::from_option_iter([None::<i32>, None]).into_array())]
+    #[case::constant_null(null_i32s(2))]
+    fn null_lower_bound(#[case] lower: ArrayRef) -> VortexResult<()> {
+        let ctx = &mut SESSION.create_execution_ctx();
+        let array = buffer![10, 10].into_array();
+        let upper = buffer![5, 50].into_array();
+
+        let result = between_canonical(&array, &lower, &upper, &NON_STRICT, ctx)?
+            .execute::<BoolArray>(ctx)?;
+
+        // Row 0 stays false because the upper bound falsifies it on its own.
+        assert_eq!(result.opt_bool_vec(ctx), [Some(false), None]);
+
+        Ok(())
+    }
+
+    /// With both bounds null no comparison can falsify a row, so every row is null.
+    #[test]
+    fn both_bounds_null() -> VortexResult<()> {
+        let ctx = &mut SESSION.create_execution_ctx();
+        let array = buffer![10, 10].into_array();
+        let bound = null_i32s(2);
+
+        let result = between_canonical(&array, &bound, &bound, &NON_STRICT, ctx)?
+            .execute::<BoolArray>(ctx)?;
+
+        assert_eq!(result.opt_bool_vec(ctx), [None, None]);
+
+        Ok(())
     }
 
     #[test]

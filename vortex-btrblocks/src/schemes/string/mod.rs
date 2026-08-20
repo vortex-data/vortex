@@ -19,7 +19,6 @@ pub use fsst::FSSTScheme;
 pub use onpair::OnPairScheme;
 pub use sparse::NullDominatedSparseScheme;
 // Re-export builtin schemes from vortex-compressor.
-pub use vortex_compressor::builtins::StringConstantScheme;
 pub use vortex_compressor::builtins::StringDictScheme;
 pub use vortex_compressor::stats::StringStats;
 #[cfg(feature = "zstd")]

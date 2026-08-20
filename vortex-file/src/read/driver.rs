@@ -23,20 +23,19 @@ use crate::segments::ReadEvent;
 use crate::segments::RequestMetrics;
 
 pin_project! {
-    /// A stream that performs coalescing and prioritization of I/O requests.
+    /// Converts request lifecycle events into batches of physical reads.
     ///
-    /// Takes an input stream of [`ReadRequest`]s and buffers all ready requests into local state.
-    /// When polled for the next request, this stream will choose the next best request based on
-    /// an ordering of `(has_been_polled, insertion_order)`, skipping any canceled requests, and
-    /// then coalescing with other nearby requests within the configured `window`.
-    ///
-    /// The output of this stream is expected to be buffered by the desired I/O concurrency, and
-    /// driven to completion.
+    /// Polled requests become eligible in registration order. An eligible request may absorb nearby
+    /// registered requests according to `coalesce_window`. Each poll emits every physical read
+    /// currently available, up to `batch_size`; it never waits for a full batch.
     pub(crate) struct IoRequestStream<S> {
         #[pin]
         events: S,
+        // True after the event source closes; buffered requests may still remain.
         inner_done: bool,
         coalesce_window: Option<CoalesceConfig>,
+        // Maximum physical reads returned by one stream item.
+        batch_size: usize,
         state: State,
     }
 }
@@ -48,15 +47,18 @@ impl<S> IoRequestStream<S> {
         events: S,
         coalesce_window: Option<CoalesceConfig>,
         coalesced_buffer_alignment: Alignment,
+        batch_size: usize,
         metrics: RequestMetrics,
     ) -> Self
     where
         S: Stream<Item = ReadEvent> + Unpin + Send + 'static,
     {
+        assert!(batch_size > 0, "I/O request batch size must be non-zero");
         IoRequestStream {
             events,
             inner_done: false,
             coalesce_window,
+            batch_size,
             state: State::new(metrics, coalesced_buffer_alignment),
         }
     }
@@ -66,12 +68,13 @@ impl<S> Stream for IoRequestStream<S>
 where
     S: Stream<Item = ReadEvent> + Unpin + Send + 'static,
 {
-    type Item = IoRequest;
+    type Item = Vec<IoRequest>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
 
-        // First, try to drain all immediately available requests from the inner stream
+        // Apply all events already available before choosing work. This gives coalescing visibility
+        // into registered neighbors without delaying emission for future events.
         loop {
             match this.events.as_mut().poll_next(cx) {
                 Poll::Ready(Some(event)) => {
@@ -87,17 +90,24 @@ where
             }
         }
 
-        // Try to get a coalesced request
-        if let Some(coalesced) = this.state.next(this.coalesce_window.as_ref()) {
-            return Poll::Ready(Some(coalesced));
+        // Emit a partial batch immediately so the downstream driver can fill free I/O slots.
+        let mut batch = Vec::with_capacity(*this.batch_size);
+        while batch.len() < *this.batch_size {
+            let Some(request) = this.state.next(this.coalesce_window.as_ref()) else {
+                break;
+            };
+            batch.push(request);
+        }
+        if !batch.is_empty() {
+            return Poll::Ready(Some(batch));
         }
 
-        // If the inner stream is done, and we have no more _polled_ requests, we're done
+        // Unpolled requests cannot initiate I/O, so a closed source is done once none are eligible.
         if *this.inner_done && this.state.polled_requests.is_empty() {
             return Poll::Ready(None);
         }
 
-        // Otherwise, we need more data from the inner stream
+        // A new poll/drop/register event will wake us.
         Poll::Pending
     }
 }
@@ -137,7 +147,7 @@ impl State {
         trace!(?event, "Received ReadEvent");
         match event {
             ReadEvent::Request(req) => {
-                if req.callback.is_closed() {
+                if req.callback.is_canceled() {
                     trace!(?req, "ReadRequest dropped before registration");
                     return;
                 }
@@ -146,7 +156,7 @@ impl State {
             }
             ReadEvent::Polled(req_id) => {
                 if let Some(req) = self.requests.remove(&req_id) {
-                    if req.callback.is_closed() {
+                    if req.callback.is_canceled() {
                         self.requests_by_offset.remove(&(req.offset, req_id));
                         trace!(?req, "ReadRequest dropped before poll");
                     } else {
@@ -193,7 +203,7 @@ impl State {
     fn next_uncoalesced(&mut self) -> Option<ReadRequest> {
         while let Some((req_id, req)) = self.polled_requests.pop_first() {
             self.requests_by_offset.remove(&(req.offset, req_id));
-            if req.callback.is_closed() {
+            if req.callback.is_canceled() {
                 trace!("Dropping canceled request");
                 continue;
             }
@@ -251,7 +261,7 @@ impl State {
                     .vortex_expect("Missing request in requests_by_offset");
 
                 // Skip any cancelled requests
-                if req.callback.is_closed() {
+                if req.callback.is_canceled() {
                     if ids_to_remove.insert(req_id) {
                         keys_to_remove.push((req_offset, req_id));
                     }
@@ -326,10 +336,13 @@ impl State {
 #[cfg(test)]
 mod tests {
     use futures::StreamExt;
+    use futures::channel::mpsc;
+    use futures::channel::oneshot;
     use futures::stream;
     use vortex_array::buffer::BufferHandle;
     use vortex_buffer::Alignment;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_panic;
     use vortex_metrics::DefaultMetricsRegistry;
     use vortex_metrics::MetricValue;
     use vortex_metrics::MetricsRegistry;
@@ -374,9 +387,10 @@ mod tests {
             event_stream,
             coalesce_window,
             coalesced_buffer_alignment,
+            1024,
             metrics,
         );
-        io_stream.collect().await
+        io_stream.concat().await
     }
 
     #[tokio::test]
@@ -413,6 +427,65 @@ mod tests {
         // Should be in insertion order, not poll order!
         let offsets: Vec<u64> = outputs.iter().map(|req| req.offset()).collect();
         assert_eq!(offsets, vec![0, 100, 200]); // req1, req2, req3
+    }
+
+    #[tokio::test]
+    async fn test_bounded_request_batches() {
+        let mut events = Vec::new();
+        let mut receivers = Vec::new();
+        for id in 0..5 {
+            let (request, recv) = create_request(id, id as u64 * 10, 10);
+            events.push(ReadEvent::Request(request));
+            events.push(ReadEvent::Polled(id));
+            receivers.push(recv);
+        }
+
+        let metrics_registry = DefaultMetricsRegistry::default();
+        let metrics = RequestMetrics::new(&metrics_registry, vec![]);
+        let batches =
+            IoRequestStream::new(stream::iter(events), None, Alignment::none(), 2, metrics)
+                .collect::<Vec<_>>()
+                .await;
+
+        assert_eq!(receivers.len(), 5);
+        assert_eq!(batches.iter().map(Vec::len).collect::<Vec<_>>(), [2, 2, 1]);
+        assert_eq!(
+            batches
+                .into_iter()
+                .flatten()
+                .map(|request| request.offset())
+                .collect::<Vec<_>>(),
+            [0, 10, 20, 30, 40]
+        );
+    }
+
+    #[test]
+    fn test_partial_batch_emits_without_waiting_for_more_events() {
+        let (sender, receiver) = mpsc::unbounded();
+        let (request, _recv) = create_request(1, 0, 10);
+        assert!(sender.unbounded_send(ReadEvent::Request(request)).is_ok());
+        assert!(sender.unbounded_send(ReadEvent::Polled(1)).is_ok());
+
+        let metrics_registry = DefaultMetricsRegistry::default();
+        let metrics = RequestMetrics::new(&metrics_registry, vec![]);
+        let mut batches = Box::pin(IoRequestStream::new(
+            receiver,
+            None,
+            Alignment::none(),
+            32,
+            metrics,
+        ));
+
+        // Keep `sender` alive: the input is pending, not finished, and the partial batch must still
+        // be returned by the current poll rather than waiting for 31 more requests.
+        let waker = futures::task::noop_waker();
+        let mut context = Context::from_waker(&waker);
+        let Poll::Ready(Some(batch)) = batches.as_mut().poll_next(&mut context) else {
+            vortex_panic!("partial batch was not emitted by the current poll");
+        };
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch[0].offset(), 0);
+        drop(sender);
     }
 
     #[tokio::test]
@@ -734,10 +807,11 @@ mod tests {
                 max_size: 1024,
             }),
             Alignment::none(),
+            1024,
             metrics,
         );
 
-        let outputs: Vec<IoRequest> = io_stream.collect().await;
+        let outputs: Vec<IoRequest> = io_stream.concat().await;
         assert_eq!(outputs.len(), 2);
 
         let snapshot = metrics_registry.snapshot();
@@ -754,10 +828,10 @@ mod tests {
                         coalesced_operations = counter.value();
                     }
                 }
-                MetricValue::Histogram(histogram) => {
-                    if metric.name() == "io.requests.coalesced.num_coalesced" {
-                        coalesced_histogram_count = histogram.count();
-                    }
+                MetricValue::Histogram(histogram)
+                    if metric.name() == "io.requests.coalesced.num_coalesced" =>
+                {
+                    coalesced_histogram_count = histogram.count();
                 }
                 _ => {}
             }
@@ -788,9 +862,9 @@ mod tests {
         let metrics_registry = DefaultMetricsRegistry::default();
         let metrics = RequestMetrics::new(&metrics_registry, vec![]);
         // No coalescing window - should be individual requests
-        let io_stream = IoRequestStream::new(event_stream, None, Alignment::none(), metrics);
+        let io_stream = IoRequestStream::new(event_stream, None, Alignment::none(), 1024, metrics);
 
-        let outputs: Vec<IoRequest> = io_stream.collect().await;
+        let outputs: Vec<IoRequest> = io_stream.concat().await;
         assert_eq!(outputs.len(), 2);
 
         // Check metrics

@@ -11,11 +11,18 @@
 //! * Multi-threaded: work is driven on a pool of threads managed by Vortex.
 //! * Worker Pool: work is driven on a pool of threads provided by the caller.
 //! * Tokio: work is driven on a Tokio runtime provided by the caller.
+//! * WebAssembly: work is driven by `wasm_bindgen_futures`, behind the `wasm-bindgen` feature.
+//!
+//! Callers may also implement [`Executor`] themselves and install it with
+//! `RuntimeSessionExt::with_handle`, which is the only option on `wasm32-unknown-unknown`
+//! without the `wasm-bindgen` feature.
 
 use futures::future::BoxFuture;
 
 mod blocking;
 pub use blocking::*;
+#[cfg(not(target_arch = "wasm32"))]
+mod blocking_pool;
 mod handle;
 pub use handle::*;
 
@@ -31,7 +38,11 @@ mod smol;
 pub mod tokio;
 // target_os = "unknown" matches wasm32-unknown-unknown (browser), excluding WASI targets
 // where wasm-bindgen's JS interop is not available.
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+#[cfg(all(
+    target_arch = "wasm32",
+    target_os = "unknown",
+    feature = "wasm-bindgen"
+))]
 pub mod wasm;
 
 #[cfg(test)]

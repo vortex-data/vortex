@@ -81,11 +81,15 @@ where
             // returned from `T::encode` are relative to the chunk.
             values_idx_offsets.push(value_count_acc as u64);
 
-            let value_count = NativeValue::<T>::encode(
-                input,
-                unsafe { &mut *(rle_vals.as_mut_ptr() as *mut [_; FL_CHUNK_SIZE]) },
-                rle_idxs,
-            );
+            // SAFETY: all three arguments are `FL_CHUNK_SIZE`-element arrays, which is
+            // all `encode_unchecked` requires.
+            let value_count = unsafe {
+                NativeValue::<T>::encode_unchecked(
+                    input,
+                    &mut *(rle_vals.as_mut_ptr() as *mut [_; FL_CHUNK_SIZE]),
+                    rle_idxs,
+                )
+            };
 
             value_count_acc += value_count;
         };
@@ -171,6 +175,7 @@ mod tests {
 
     use super::*;
     use crate::rle::array::RLEArrayExt;
+    use crate::rle::array::RLEArraySlotsExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = vortex_array::array_session();

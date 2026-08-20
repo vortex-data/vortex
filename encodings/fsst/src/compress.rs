@@ -10,6 +10,7 @@
 use std::sync::Arc;
 
 use fsst::Compressor;
+use fsst::Symbol;
 use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
@@ -18,14 +19,14 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinView;
-use vortex_array::arrays::varbin::VarBinArrayExt;
+use vortex_array::arrays::varbin::VarBinArraySlotsExt;
 use vortex_array::arrays::varbin::builder::VarBinBuilder;
 use vortex_array::arrays::varbinview::BinaryView;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::IntegerPType;
+use vortex_array::dtype::OffsetBuilderPType;
 use vortex_array::match_each_integer_ptype;
-use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -35,6 +36,8 @@ use vortex_mask::Mask;
 
 use crate::FSST;
 use crate::FSSTArray;
+use crate::array::FSSTSymbolTable;
+use crate::array::padded_symbol_table;
 
 /// FSST worst case: every input byte expands to an escape + literal (2x).
 const FSST_PER_BYTE_OVERHEAD: usize = 2;
@@ -197,9 +200,13 @@ fn compress_views<O>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<FSSTArray>
 where
-    O: IntegerPType + 'static,
+    O: OffsetBuilderPType + 'static,
 {
-    let mut sink = FsstSink::<O>::with_capacity(strings.len(), compressor);
+    let mut sink = FsstSink::<O>::with_capacity(
+        DType::Binary(strings.dtype().nullability()),
+        strings.len(),
+        compressor,
+    );
     let views = strings.views();
     let buffers = strings.data_buffers();
     match mask.bit_buffer() {
@@ -230,9 +237,13 @@ fn compress_varbin<O>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<FSSTArray>
 where
-    O: IntegerPType + 'static,
+    O: OffsetBuilderPType + 'static,
 {
-    let mut sink = FsstSink::<O>::with_capacity(strings.len(), compressor);
+    let mut sink = FsstSink::<O>::with_capacity(
+        DType::Binary(strings.dtype().nullability()),
+        strings.len(),
+        compressor,
+    );
     let bytes = strings.bytes().as_slice();
     match_each_integer_ptype!(offsets.ptype(), |I| {
         let off = offsets.as_slice::<I>();
@@ -269,18 +280,18 @@ where
 }
 
 /// Per-row output state for an FSST compression pass.
-struct FsstSink<'c, O: IntegerPType + 'static> {
+struct FsstSink<'c, O: OffsetBuilderPType + 'static> {
     buffer: Vec<u8>,
     builder: VarBinBuilder<O>,
     uncompressed_lengths: BufferMut<i32>,
     compressor: &'c Compressor,
 }
 
-impl<'c, O: IntegerPType + 'static> FsstSink<'c, O> {
-    fn with_capacity(len: usize, compressor: &'c Compressor) -> Self {
+impl<'c, O: OffsetBuilderPType + 'static> FsstSink<'c, O> {
+    fn with_capacity(dtype: DType, len: usize, compressor: &'c Compressor) -> Self {
         Self {
             buffer: Vec::with_capacity(DEFAULT_BUFFER_LEN),
-            builder: VarBinBuilder::<O>::with_capacity(len),
+            builder: VarBinBuilder::<O>::with_capacity(dtype, len),
             uncompressed_lengths: BufferMut::with_capacity(len),
             compressor,
         }
@@ -289,7 +300,7 @@ impl<'c, O: IntegerPType + 'static> FsstSink<'c, O> {
     #[inline]
     fn emit(&mut self, row: Option<&[u8]>) {
         let Some(s) = row else {
-            self.builder.append_null();
+            self.builder.push_null();
             self.uncompressed_lengths.push(0);
             return;
         };
@@ -299,23 +310,32 @@ impl<'c, O: IntegerPType + 'static> FsstSink<'c, O> {
             i32::try_from(s.len()).vortex_expect("per-row uncompressed length must fit in i32"),
         );
 
-        let target = FSST_PER_BYTE_OVERHEAD * s.len();
-        if target > self.buffer.len() {
-            self.buffer.reserve(target - self.buffer.len());
-        }
+        // `compress_into` writes into the spare capacity, so the buffer must be emptied first.
+        self.buffer.clear();
+        self.buffer.reserve(FSST_PER_BYTE_OVERHEAD * s.len());
 
         // SAFETY: `self.buffer` has capacity for the FSST worst-case output of `s`.
-        unsafe { self.compressor.compress_into(s, &mut self.buffer) };
+        let written = unsafe {
+            self.compressor
+                .compress_into(s, self.buffer.spare_capacity_mut())
+        };
+        // SAFETY: `compress_into` initialized the first `written` bytes.
+        unsafe { self.buffer.set_len(written) };
 
         self.builder.append_value(&self.buffer);
     }
 
-    fn finish(self, dtype: DType, ctx: &mut ExecutionCtx) -> VortexResult<FSSTArray> {
-        let codes = self.builder.finish(DType::Binary(dtype.nullability()));
-        FSST::try_new(
+    fn finish(mut self, dtype: DType, ctx: &mut ExecutionCtx) -> VortexResult<FSSTArray> {
+        let codes = self.builder.finish_into_varbin();
+        // Pad the symbol table here so that the array can hand it straight to a `Decompressor`
+        // without copying.
+        FSST::try_new_with_symbol_table(
             dtype,
-            Buffer::copy_from(self.compressor.symbol_table()),
-            Buffer::<u8>::copy_from(self.compressor.symbol_lengths()),
+            Arc::new(FSSTSymbolTable::new_padded(
+                padded_symbol_table(self.compressor.symbol_table(), Symbol::ZERO),
+                padded_symbol_table(self.compressor.symbol_lengths(), 0),
+                self.compressor.n_symbols(),
+            )?),
             codes,
             self.uncompressed_lengths.into_array(),
             ctx,
@@ -328,7 +348,7 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
     use vortex_array::arrays::VarBinViewArray;
-    use vortex_array::arrays::varbin::VarBinArrayExt;
+    use vortex_array::arrays::varbin::VarBinArraySlotsExt;
     use vortex_array::dtype::PType;
     use vortex_error::VortexResult;
 

@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::Any;
-use std::sync::Arc;
-
 use itertools::Itertools;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -19,15 +15,11 @@ use crate::arrays::ScalarFnArray;
 use crate::arrays::Slice;
 use crate::arrays::StructArray;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
-use crate::dtype::DType;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
-use crate::scalar_fn::ReduceCtx;
-use crate::scalar_fn::ReduceNode;
-use crate::scalar_fn::ReduceNodeRef;
-use crate::scalar_fn::ScalarFnRef;
+use crate::scalar_fn::ArrayReduceNode;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::validity::Validity;
 
@@ -94,70 +86,11 @@ impl ArrayParentReduceRule<ScalarFn> for ScalarFnSliceReduceRule {
 struct ScalarFnAbstractReduceRule;
 impl ArrayReduceRule<ScalarFn> for ScalarFnAbstractReduceRule {
     fn reduce(&self, array: ArrayView<'_, ScalarFn>) -> VortexResult<Option<ArrayRef>> {
-        if let Some(reduced) = array
-            .scalar_fn()
-            .reduce(array.as_ref(), &ArrayReduceCtx { len: array.len() })?
-        {
-            return Ok(Some(
-                reduced
-                    .as_any()
-                    .downcast_ref::<ArrayRef>()
-                    .vortex_expect("ReduceNode is not an ArrayRef")
-                    .clone(),
-            ));
+        let node = ArrayReduceNode::new(array.as_ref());
+        if let Some(reduced) = array.scalar_fn().reduce_array(&node)? {
+            return Ok(Some(reduced.into_array()));
         }
         Ok(None)
-    }
-}
-
-impl ReduceNode for ArrayRef {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn node_dtype(&self) -> VortexResult<DType> {
-        Ok(self.dtype().clone())
-    }
-
-    fn scalar_fn(&self) -> Option<&ScalarFnRef> {
-        self.as_opt::<ScalarFn>().map(|a| a.data().scalar_fn())
-    }
-
-    fn child(&self, idx: usize) -> ReduceNodeRef {
-        Arc::new(self.nth_child(idx).vortex_expect("child idx out of bounds"))
-    }
-
-    fn child_count(&self) -> usize {
-        self.nchildren()
-    }
-}
-
-struct ArrayReduceCtx {
-    // The length of the array being reduced
-    len: usize,
-}
-impl ReduceCtx for ArrayReduceCtx {
-    fn new_node(
-        &self,
-        scalar_fn: ScalarFnRef,
-        children: &[ReduceNodeRef],
-    ) -> VortexResult<ReduceNodeRef> {
-        Ok(Arc::new(
-            ScalarFnArray::try_new_with_len(
-                scalar_fn,
-                children
-                    .iter()
-                    .map(|c| {
-                        c.as_any()
-                            .downcast_ref::<ArrayRef>()
-                            .vortex_expect("ReduceNode is not an ArrayRef")
-                            .clone()
-                    })
-                    .collect(),
-                self.len,
-            )?
-            .into_array(),
-        ))
     }
 }
 

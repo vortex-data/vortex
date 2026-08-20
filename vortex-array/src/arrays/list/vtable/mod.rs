@@ -25,18 +25,18 @@ use crate::array::ArrayId;
 use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::VTable;
-use crate::arrays::list::ListArrayExt;
+use crate::array::with_empty_buffers;
+use crate::arrays::list::ListArraySlotsExt;
 use crate::arrays::list::ListData;
-use crate::arrays::list::array::ELEMENTS_SLOT;
-use crate::arrays::list::array::NUM_SLOTS;
-use crate::arrays::list::array::OFFSETS_SLOT;
-use crate::arrays::list::array::SLOT_NAMES;
+use crate::arrays::list::ListSlots;
 use crate::arrays::list::compute::rules::PARENT_RULES;
 use crate::arrays::listview::list_view_from_list;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::match_each_list_builder;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 mod operations;
@@ -84,6 +84,14 @@ impl VTable for List {
         vortex_panic!("ListArray buffer_name index {idx} out of bounds")
     }
 
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        with_empty_buffers(self, array, buffers)
+    }
+
     fn reduce_parent(
         array: ArrayView<'_, Self>,
         parent: &ArrayRef,
@@ -113,14 +121,15 @@ impl VTable for List {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "ListArray expected {NUM_SLOTS} slots, found {}",
+            slots.len() == ListSlots::COUNT,
+            "ListArray expected {} slots, found {}",
+            ListSlots::COUNT,
             slots.len()
         );
-        let elements = slots[ELEMENTS_SLOT]
+        let elements = slots[ListSlots::ELEMENTS]
             .as_ref()
             .vortex_expect("ListArray elements slot");
-        let offsets = slots[OFFSETS_SLOT]
+        let offsets = slots[ListSlots::OFFSETS]
             .as_ref()
             .vortex_expect("ListArray offsets slot");
         vortex_ensure!(
@@ -182,13 +191,30 @@ impl VTable for List {
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        ListSlots::NAMES[idx].to_string()
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
             list_view_from_list(array, ctx)?.into_array(),
         ))
+    }
+
+    // The complexity comes from the expansion of `match_each_list_builder!`.
+    #[expect(clippy::cognitive_complexity)]
+    fn append_to_builder(
+        array: ArrayView<'_, Self>,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        match match_each_list_builder!(&mut *builder, |b| b.append_list_array(array, ctx)) {
+            Some(result) => result,
+            None => vortex_bail!(
+                "cannot append a List array of dtype {} to a {} builder",
+                array.dtype(),
+                builder.dtype()
+            ),
+        }
     }
 }
 

@@ -14,12 +14,12 @@ use object_store::ObjectStore;
 use object_store::ObjectStoreExt;
 use object_store::path::Path;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 
 use crate::VortexReadAt;
 use crate::filesystem::FileListing;
 use crate::filesystem::FileSystem;
 use crate::object_store::ObjectStoreReadAt;
+use crate::object_store::object_path_from_literal;
 use crate::runtime::Handle;
 
 /// A [`FileSystem`] backed by an [`ObjectStore`].
@@ -54,21 +54,6 @@ impl ObjectStoreFileSystem {
     }
 }
 
-/// Convert a literal filesystem path into an object-store [`Path`] (key).
-///
-/// Object stores key their objects *literally*: a file named `a~b.vortex` has the key
-/// `a~b.vortex`, and `LocalFileSystem` likewise surfaces real filenames verbatim. [`Path::parse`]
-/// preserves those characters, whereas [`Path::from`] percent-encodes `~`, `%`, `[`, `]`, `#`,
-/// etc. — turning `a~b.vortex` into the key `a%7Eb.vortex`, which no real object has. Using
-/// `parse` keeps inputs and the keys returned by [`list`](FileSystem::list) on the same literal
-/// representation, so a path from `list`/`head` round-trips back through `open_read` unchanged.
-///
-/// `parse` rejects empty, `.`, and `..` segments; for those we fall back to [`Path::from`], which
-/// normalizes them (this never applies to a key `list` produced, so it cannot break a round-trip).
-fn to_object_path(path: &str) -> Path {
-    Path::parse(path).unwrap_or_else(|_| Path::from(path))
-}
-
 fn listing_from_meta(location: &Path, size: u64) -> FileListing {
     FileListing {
         path: location.to_string(),
@@ -82,7 +67,7 @@ impl FileSystem for ObjectStoreFileSystem {
         let path = if prefix.is_empty() {
             None
         } else {
-            Some(to_object_path(prefix))
+            Some(object_path_from_literal(prefix))
         };
         self.store
             .list(path.as_ref())
@@ -97,7 +82,7 @@ impl FileSystem for ObjectStoreFileSystem {
     async fn head(&self, path: &str) -> VortexResult<Option<FileListing>> {
         // `head` issues a single metadata lookup (e.g. an S3 HEAD) for the exact key, unlike
         // `list`, which enumerates by path-segment prefix and never returns the key itself.
-        match self.store.head(&to_object_path(path)).await {
+        match self.store.head(&object_path_from_literal(path)).await {
             Ok(meta) => Ok(Some(listing_from_meta(&meta.location, meta.size))),
             Err(object_store::Error::NotFound { .. }) => Ok(None),
             Err(e) => Err(e.into()),
@@ -107,18 +92,13 @@ impl FileSystem for ObjectStoreFileSystem {
     async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
         Ok(Arc::new(ObjectStoreReadAt::new(
             Arc::clone(&self.store),
-            to_object_path(path),
+            object_path_from_literal(path),
             self.handle.clone(),
         )))
     }
 
     async fn delete(&self, path: &str) -> VortexResult<()> {
-        self.store
-            .delete(
-                &Path::from_url_path(path)
-                    .map_err(|_| vortex_err!("invalid path for url {path}"))?,
-            )
-            .await?;
+        self.store.delete(&object_path_from_literal(path)).await?;
         Ok(())
     }
 }
@@ -140,13 +120,13 @@ mod tests {
 
     /// Build an [`ObjectStoreFileSystem`] over an in-memory store seeded with `(path, size)` files.
     ///
-    /// Keys are written with [`to_object_path`] so the store holds the same literal keys a real
-    /// backend would (e.g. `a~b.vortex`, not the percent-encoded `a%7Eb.vortex`).
+    /// Keys are written with [`object_path_from_literal`] so the store holds the same literal keys
+    /// a real backend would (e.g. `a~b.vortex`, not the percent-encoded `a%7Eb.vortex`).
     async fn memory_fs(files: &[(&str, usize)]) -> VortexResult<ObjectStoreFileSystem> {
         let store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
         for &(path, size) in files {
             store
-                .put(&to_object_path(path), vec![0u8; size].into())
+                .put(&object_path_from_literal(path), vec![0u8; size].into())
                 .await?;
         }
         let handle = Handle::find().expect("tokio runtime available within #[tokio::test]");
@@ -276,6 +256,43 @@ mod tests {
         assert_eq!(exact, vec![expected]);
 
         assert_eq!(fs.open_read("a~b.vortex").await?.size().await?, 5);
+        Ok(())
+    }
+
+    /// `delete` must address the same literal key as the rest of the trait. It used
+    /// `from_url_path`, which percent-*decodes*: given the real object `a%20b.vortex` it resolved
+    /// to `a b.vortex` and deleted a *different* object that happened to exist.
+    #[tokio::test]
+    async fn test_delete_addresses_the_literal_key() -> VortexResult<()> {
+        let fs = memory_fs(&[("dir/a%20b.vortex", 1), ("dir/a b.vortex", 2)]).await?;
+
+        fs.delete("dir/a%20b.vortex").await?;
+
+        assert_eq!(fs.head("dir/a%20b.vortex").await?, None);
+        assert_eq!(
+            fs.head("dir/a b.vortex").await?,
+            Some(FileListing {
+                path: "dir/a b.vortex".to_string(),
+                size: Some(2),
+            }),
+            "deleting the percent-literal key must not touch its decoded neighbour"
+        );
+        Ok(())
+    }
+
+    /// The keys `head`/`open_read` accept must also be the keys `delete` accepts.
+    #[tokio::test]
+    #[rstest]
+    #[case::tilde("dir/a~b.vortex")]
+    #[case::brackets("dir/a[1].vortex")]
+    #[case::hash("dir/a#b.vortex")]
+    #[case::space("dir/a b.vortex")]
+    #[case::plain("dir/plain.vortex")]
+    async fn test_delete_round_trip_special_chars(#[case] path: &str) -> VortexResult<()> {
+        let fs = memory_fs(&[(path, 5)]).await?;
+        assert!(fs.head(path).await?.is_some());
+        fs.delete(path).await?;
+        assert_eq!(fs.head(path).await?, None);
         Ok(())
     }
 

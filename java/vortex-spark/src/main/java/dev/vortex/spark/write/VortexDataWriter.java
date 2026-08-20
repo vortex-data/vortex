@@ -26,6 +26,7 @@ import dev.vortex.relocated.org.apache.arrow.vector.VarBinaryVector;
 import dev.vortex.relocated.org.apache.arrow.vector.VarCharVector;
 import dev.vortex.relocated.org.apache.arrow.vector.VectorSchemaRoot;
 import dev.vortex.relocated.org.apache.arrow.vector.complex.ListVector;
+import dev.vortex.relocated.org.apache.arrow.vector.complex.MapVector;
 import dev.vortex.relocated.org.apache.arrow.vector.complex.StructVector;
 import dev.vortex.spark.VortexSparkSession;
 import java.io.IOException;
@@ -36,6 +37,7 @@ import java.util.List;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.catalyst.expressions.SpecializedGetters;
 import org.apache.spark.sql.catalyst.util.ArrayData;
+import org.apache.spark.sql.catalyst.util.MapData;
 import org.apache.spark.sql.connector.write.DataWriter;
 import org.apache.spark.sql.connector.write.WriterCommitMessage;
 import org.apache.spark.sql.types.ArrayType;
@@ -49,6 +51,7 @@ import org.apache.spark.sql.types.DoubleType;
 import org.apache.spark.sql.types.FloatType;
 import org.apache.spark.sql.types.IntegerType;
 import org.apache.spark.sql.types.LongType;
+import org.apache.spark.sql.types.MapType;
 import org.apache.spark.sql.types.ShortType;
 import org.apache.spark.sql.types.StringType;
 import org.apache.spark.sql.types.StructField;
@@ -123,8 +126,9 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
             var arrowSchema = SparkToArrowSchema.convert(schema);
 
             this.session = VortexSparkSession.get(options.asCaseSensitiveMap());
-            this.vortexWriter =
-                    VortexWriter.create(session, filePath, arrowSchema, options.asCaseSensitiveMap(), allocator);
+            this.vortexWriter = VortexWriter.builder(session, filePath, arrowSchema, allocator)
+                    .options(options.asCaseSensitiveMap())
+                    .build();
             this.vectorSchemaRoot = VectorSchemaRoot.create(arrowSchema, allocator);
 
             logger.debug("Initialized VortexDataWriter for {}", filePath);
@@ -188,9 +192,6 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
         vectorSchemaRoot.setRowCount(batchRows.size());
 
         // Export via Arrow C Data Interface and write to Vortex
-        for (FieldVector vector : vectorSchemaRoot.getFieldVectors()) {
-            bytesWritten += vector.getBufferSize();
-        }
         try (ArrowArray arrowArray = ArrowArray.allocateNew(allocator);
                 ArrowSchema arrowSchema = ArrowSchema.allocateNew(allocator)) {
             Data.exportVectorSchemaRoot(allocator, vectorSchemaRoot, null, arrowArray, arrowSchema);
@@ -249,10 +250,41 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
             ListVector listVector = ((ListVector) vector);
             int writtenElements = listVector.getElementEndIndex(listVector.getLastSet());
             listVector.startNewValue(rowIndex);
+            FieldVector elementVector = listVector.getDataVector();
             for (int i = 0; i < data.numElements(); i++) {
-                populateVector(listVector.getDataVector(), arrayType.elementType(), data, i, writtenElements + i);
+                int elementIndex = writtenElements + i;
+                if (data.isNullAt(i)) {
+                    // Reading a null slot of a fixed-width element returns the zeroed slot, and the
+                    // typed setters mark it valid, so a null element must be written explicitly.
+                    elementVector.setNull(elementIndex);
+                } else {
+                    populateVector(elementVector, arrayType.elementType(), data, i, elementIndex);
+                }
             }
             listVector.endValue(rowIndex, data.numElements());
+        } else if (dataType instanceof MapType mapType) {
+            MapData data = row.getMap(fieldIndex);
+            MapVector mapVector = (MapVector) vector;
+            int writtenEntries = mapVector.getElementEndIndex(mapVector.getLastSet());
+            mapVector.startNewValue(rowIndex);
+
+            StructVector entries = (StructVector) mapVector.getDataVector();
+            FieldVector keyVector = entries.getChild(MapVector.KEY_NAME);
+            FieldVector valueVector = entries.getChild(MapVector.VALUE_NAME);
+            ArrayData keys = data.keyArray();
+            ArrayData values = data.valueArray();
+
+            for (int i = 0; i < data.numElements(); i++) {
+                int entryIndex = writtenEntries + i;
+                entries.setIndexDefined(entryIndex);
+                populateVector(keyVector, mapType.keyType(), keys, i, entryIndex);
+                if (values.isNullAt(i)) {
+                    valueVector.setNull(entryIndex);
+                } else {
+                    populateVector(valueVector, mapType.valueType(), values, i, entryIndex);
+                }
+            }
+            mapVector.endValue(rowIndex, data.numElements());
         } else {
             // For unsupported types, set null
             throw new IllegalArgumentException("Unsupported data type: " + dataType);
@@ -292,10 +324,10 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
                     writeBatch();
                 }
 
-                // Close the Vortex writer to finalize the file
+                // Finalize the file; the summary carries its physical size
                 if (vortexWriter != null) {
                     try {
-                        vortexWriter.close();
+                        bytesWritten = vortexWriter.finish().fileSize();
                     } finally {
                         vortexWriter = null; // Always null out the reference
                     }

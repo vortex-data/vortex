@@ -3,23 +3,26 @@
 
 //! Frame of Reference integer encoding.
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VTable;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_compressor::builtins::BinaryDictScheme;
 use vortex_compressor::builtins::FloatDictScheme;
 use vortex_compressor::builtins::IntDictScheme;
 use vortex_compressor::builtins::StringDictScheme;
-use vortex_compressor::estimate::CompressionEstimate;
-use vortex_compressor::estimate::EstimateVerdict;
 use vortex_compressor::scheme::AncestorExclusion;
 use vortex_compressor::scheme::ChildSelection;
+use vortex_compressor::scheme::CompressionEstimate;
+use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_fastlanes::FoR;
 use vortex_fastlanes::FoRArrayExt;
+use vortex_fastlanes::FoRArraySlotsExt;
 
 use super::BitPackingScheme;
 use crate::ArrayAndStats;
@@ -39,6 +42,10 @@ impl Scheme for FoRScheme {
 
     fn matches(&self, canonical: &Canonical) -> bool {
         canonical.dtype().is_int()
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![FoR.id()]
     }
 
     /// Dict codes always start at 0, so FoR (which subtracts the min) is a no-op.
@@ -123,7 +130,7 @@ impl Scheme for FoRScheme {
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let primitive = data.array().clone().execute::<PrimitiveArray>(exec_ctx)?;
-        let for_array = FoR::encode(primitive)?;
+        let for_array = FoR::encode(primitive, exec_ctx)?;
         let biased = for_array
             .encoded()
             .clone()

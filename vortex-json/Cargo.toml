@@ -21,6 +21,8 @@ arrow-array = { workspace = true }
 arrow-schema = { workspace = true, features = ["canonical_extension_types"] }
 prost = { workspace = true }
 vortex-array = { workspace = true, default-features = false }
+vortex-arrow = { workspace = true }
+vortex-edition = { workspace = true }
 vortex-error = { workspace = true, default-features = false }
 vortex-proto = { workspace = true, features = ["expr"] }
 vortex-session = { workspace = true }

@@ -7,7 +7,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::varbin::VarBinArrayExt;
+use vortex_array::arrays::varbin::VarBinArraySlotsExt;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar_fn::fns::like::LikeKernel;
 use vortex_array::scalar_fn::fns::like::LikeOptions;
@@ -47,11 +47,8 @@ impl LikeKernel for FSST {
             return Ok(None);
         };
 
-        let symbols = array.symbols();
-        let symbol_lengths = array.symbol_lengths();
-
         let Some(matcher) =
-            FsstMatcher::try_new(symbols.as_slice(), symbol_lengths.as_slice(), pattern_bytes)?
+            FsstMatcher::try_new(array.symbols(), array.symbol_lengths(), pattern_bytes)?
         else {
             return Ok(None);
         };
@@ -89,7 +86,6 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::VarBinArray;
-    use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -122,8 +118,7 @@ mod tests {
         let len = array.len();
         let arr = array.into_array();
         let pattern = ConstantArray::new(pattern, len).into_array();
-        let result = Like
-            .try_new_array(len, opts, [arr, pattern])?
+        let result = Like::try_new(arr, pattern, opts)?
             .into_array()
             .execute::<Canonical>(&mut SESSION.create_execution_ctx())?;
         Ok(result.into_bool())

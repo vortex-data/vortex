@@ -62,7 +62,7 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
      *
      * @param options the data source options containing file paths
      * @return the inferred Spark SQL schema
-     * @throws RuntimeException if required path options are missing
+     * @throws IllegalArgumentException if no Vortex files can be found under the supplied paths
      * @throws RuntimeException if there's an error reading the file or converting the schema
      */
     @Override
@@ -87,7 +87,11 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
                             .findFirst();
 
             if (firstFile.isEmpty()) {
-                throw new RuntimeException(String.format("UNABLE_TO_INFER_SCHEMA format: %s", shortName()));
+                throw new IllegalArgumentException(String.format(
+                        "Unable to infer schema for %s: no .vortex files found under path %s. "
+                                + "Check that the path is correct and contains at least one Vortex file, "
+                                + "or provide an explicit schema.",
+                        shortName(), pathToInfer));
             } else {
                 pathToInfer = firstFile.get();
             }
@@ -126,10 +130,14 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
      * explicit partitioning. Returning identity transforms here lets downstream components (notably
      * {@link dev.vortex.spark.read.VortexScanBuilder}) tell which schema columns are encoded in the directory layout
      * rather than stored inside the Vortex files, which matters for predicate pushdown.
+     *
+     * <p>The options may contain no path at all: when a managed table is created ({@code CREATE TABLE ... USING vortex}
+     * without a {@code LOCATION} clause), Spark's session catalog calls this before it has assigned the table's
+     * warehouse location. No transforms are inferred in that case.
      */
     @Override
     public Transform[] inferPartitioning(CaseInsensitiveStringMap options) {
-        var paths = getPaths(options);
+        var paths = getPathsOrEmpty(options);
         if (paths.isEmpty()) {
             return new Transform[0];
         }
@@ -157,16 +165,20 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
      * <p>This method creates a VortexWritableTable that can be used to both read from and write to Vortex files. The
      * partitioning parameter is currently ignored.
      *
+     * <p>The properties may contain no path at all: when a managed table is created ({@code CREATE TABLE ... USING
+     * vortex} without a {@code LOCATION} clause), Spark's session catalog validates the table before it has assigned
+     * the table's warehouse location. The returned table then has no paths; once the table is loaded for reads or
+     * writes, Spark always supplies the resolved table location as the {@code path} property.
+     *
      * @param schema the table schema
      * @param partitioning table partitioning transforms
      * @param properties the table properties containing file paths and other options
      * @return a VortexTable instance for reading and writing data
-     * @throws RuntimeException if required path properties are missing
      */
     @Override
     public Table getTable(StructType schema, Transform[] partitioning, Map<String, String> properties) {
         var uncased = new CaseInsensitiveStringMap(properties);
-        ImmutableList<String> paths = getPaths(uncased);
+        ImmutableList<String> paths = getPathsOrEmpty(uncased);
         return new VortexTable(paths, schema, buildDataSourceOptions(properties), partitioning);
     }
 
@@ -208,6 +220,13 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
         options.putAll(HadoopUtils.azurePropertiesFromHadoopConf(hadoopConf));
 
         return options.build();
+    }
+
+    private static ImmutableList<String> getPathsOrEmpty(CaseInsensitiveStringMap uncased) {
+        if (!uncased.containsKey(PATH_KEY) && !uncased.containsKey(PATHS_KEY)) {
+            return ImmutableList.of();
+        }
+        return getPaths(uncased);
     }
 
     private static ImmutableList<String> getPaths(CaseInsensitiveStringMap uncased) {

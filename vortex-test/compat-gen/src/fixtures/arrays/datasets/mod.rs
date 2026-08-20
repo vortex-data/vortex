@@ -18,6 +18,8 @@ pub fn fixtures() -> Vec<Box<dyn DatasetFixture>> {
 mod tests {
     use vortex::compressor::BtrBlocksCompressorBuilder;
     use vortex::file::WriteStrategyBuilder;
+    use vortex_array::array_session;
+    use vortex_arrow::ArrowSessionExt;
 
     use super::fixtures;
     use crate::adapter;
@@ -28,11 +30,12 @@ mod tests {
 
     #[test]
     fn roundtrip_non_clickbench_fixtures_to_bytes() {
+        let session = array_session();
         for dataset in fixtures()
             .into_iter()
             .filter(|fixture| !is_clickbench_fixture(fixture.name()))
         {
-            let array = dataset.build().unwrap();
+            let array = dataset.build(&session.arrow()).unwrap();
             let regular_bytes = adapter::write_compressed_to_bytes(
                 array.clone(),
                 WriteStrategyBuilder::default().build(),

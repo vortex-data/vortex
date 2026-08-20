@@ -471,7 +471,7 @@ impl MaterializedPlan {
             )));
         }
 
-        let output_buf = CudaDeviceBuffer::new(ctx.device_alloc::<T>(len.next_multiple_of(1024))?);
+        let mut output = ctx.device_alloc::<T>(len.next_multiple_of(1024))?;
 
         // Upload the packed plan bytes to the device.
         let device_plan = Arc::new(
@@ -503,20 +503,20 @@ impl MaterializedPlan {
             .map(|view| view.device_ptr(&stream).1)
             .collect::<Vec<_>>();
 
-        let output_ptr = output_buf.offset_ptr();
         let (plan_ptr, plan_read_record) = device_plan.device_ptr(&stream);
         let array_len_u64 = len as u64;
 
         ctx.launch_kernel_config(&cuda_function, config, len, |args| {
-            args.arg(&output_ptr);
+            args.arg(&mut output);
             args.arg(&array_len_u64);
             args.arg(&plan_ptr);
         })?;
 
         drop((device_buffer_read_records, plan_read_record));
 
+        let output = CudaDeviceBuffer::new(output);
         Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
-            BufferHandle::new_device(output_buf.slice_typed::<T>(0..len)),
+            BufferHandle::new_device(output.slice_typed::<T>(0..len)),
             output_ptype,
             self.validity,
         )))
@@ -560,6 +560,7 @@ mod tests {
     use vortex::encodings::fastlanes::BitPackedArrayExt;
     use vortex::encodings::fastlanes::FoR;
     use vortex::encodings::fastlanes::FoRArrayExt;
+    use vortex::encodings::fastlanes::FoRArraySlotsExt;
     use vortex::encodings::runend::RunEnd;
     use vortex::encodings::sequence::Sequence;
     use vortex::encodings::zigzag::ZigZag;
@@ -576,7 +577,6 @@ mod tests {
     use super::*;
     use crate::CanonicalCudaExt;
     use crate::CudaBufferExt;
-    use crate::CudaDeviceBuffer;
     use crate::CudaExecutionCtx;
     use crate::cuda_session;
     use crate::executor::CudaArrayExt;
@@ -787,12 +787,9 @@ mod tests {
         plan: &CudaDispatchPlan,
         shared_mem_bytes: u32,
     ) -> VortexResult<Vec<u32>> {
-        let output_slice = cuda_ctx
+        let mut output = cuda_ctx
             .device_alloc::<u32>(output_len)
             .vortex_expect("alloc output");
-        let output_buf = CudaDeviceBuffer::new(output_slice);
-        let output_view = output_buf.as_view::<u32>();
-        let (output_ptr, record_output) = output_view.device_ptr(cuda_ctx.stream());
 
         let device_plan = Arc::new(
             cuda_ctx
@@ -812,7 +809,7 @@ mod tests {
             .load_function("dynamic_dispatch", &[PType::U32])
             .vortex_expect("load kernel");
         let mut launch_builder = cuda_ctx.launch_builder(&cuda_function);
-        launch_builder.arg(&output_ptr);
+        launch_builder.arg(&mut output);
         launch_builder.arg(&array_len_u64);
         launch_builder.arg(&plan_ptr);
 
@@ -827,11 +824,11 @@ mod tests {
                 .launch(config)
                 .map_err(|e| vortex_err!("kernel launch: {e}"))?;
         }
-        drop((record_output, record_plan));
+        drop(record_plan);
 
         cuda_ctx
             .stream()
-            .clone_dtoh(&output_buf.as_view::<u32>())
+            .clone_dtoh(&output)
             .map_err(|e| vortex_err!("copy back: {e}"))
     }
 
@@ -967,7 +964,10 @@ mod tests {
 
         let alp = alp_encode(float_prim.as_view(), Some(exponents), &mut ctx)?;
         assert!(alp.patches().is_none());
-        let for_arr = FoR::encode(alp.encoded().clone().execute::<PrimitiveArray>(&mut ctx)?)?;
+        let for_arr = FoR::encode(
+            alp.encoded().clone().execute::<PrimitiveArray>(&mut ctx)?,
+            &mut ctx,
+        )?;
         let bp = BitPacked::encode(for_arr.encoded(), 6, &mut ctx)?;
 
         let tree = ALP::new(
@@ -1897,7 +1897,10 @@ mod tests {
 
         let alp = alp_encode(float_prim.as_view(), Some(exponents), &mut ctx)?;
         assert!(alp.patches().is_none());
-        let for_arr = FoR::encode(alp.encoded().clone().execute::<PrimitiveArray>(&mut ctx)?)?;
+        let for_arr = FoR::encode(
+            alp.encoded().clone().execute::<PrimitiveArray>(&mut ctx)?,
+            &mut ctx,
+        )?;
         let bp = BitPacked::encode(for_arr.encoded(), 6, &mut ctx)?;
 
         let tree = ALP::new(

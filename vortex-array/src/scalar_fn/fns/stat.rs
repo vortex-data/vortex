@@ -20,7 +20,7 @@ use crate::aggregate_fn::fns::all_non_null::AllNonNull;
 use crate::aggregate_fn::fns::all_null::AllNull;
 use crate::arrays::ConstantArray;
 use crate::dtype::DType;
-use crate::expr::Expression;
+use crate::expr::display::ExprDisplay;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
@@ -101,11 +101,11 @@ impl ScalarFnVTable for StatFn {
     fn fmt_sql(
         &self,
         options: &Self::Options,
-        expr: &Expression,
+        expr: &dyn ExprDisplay,
         f: &mut Formatter<'_>,
     ) -> std::fmt::Result {
         write!(f, "stat(")?;
-        expr.child(0).fmt_sql(f)?;
+        Display::fmt(expr.display_child(0), f)?;
         write!(f, ", {})", options.aggregate_fn())
     }
 
@@ -122,6 +122,10 @@ impl ScalarFnVTable for StatFn {
         let input = args.get(0)?;
         let dtype = stat_dtype(options.aggregate_fn(), input.dtype())?;
         stat_array(&input, options.aggregate_fn(), dtype, args.row_count())
+    }
+
+    fn is_strict(&self, _options: &Self::Options) -> bool {
+        false
     }
 }
 

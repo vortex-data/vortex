@@ -5,38 +5,39 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::sync::Arc;
 
-use smallvec::smallvec;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::ArraySlots;
-use crate::LEGACY_SESSION;
-use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
+use crate::array_slots;
 use crate::arrays::FixedSizeList;
 use crate::dtype::DType;
 use crate::validity::Validity;
 
-/// The `elements` data array, where each fixed-size list scalar is a _slice_ of the `elements`
-/// array, and each inner list element is a _scalar_ of the `elements` array.
-///
-/// The fixed-size list scalars are contiguous (regardless of nullability for easy lookups),
-/// each with equal size in memory.
-pub(super) const ELEMENTS_SLOT: usize = 0;
-/// The validity / null map of the array.
-///
-/// Note that this null map refers to which fixed-size list scalars are null, **not** which
-/// sub-elements of fixed-size list scalars are null. The `elements` array will track individual
-/// value nullability.
-pub(super) const VALIDITY_SLOT: usize = 1;
-pub(super) const NUM_SLOTS: usize = 2;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["elements", "validity"];
+#[array_slots(FixedSizeList)]
+pub struct FixedSizeListSlots {
+    /// The `elements` data array, where each fixed-size list scalar is a _slice_ of the `elements`
+    /// array, and each inner list element is a _scalar_ of the `elements` array.
+    ///
+    /// The fixed-size list scalars are contiguous (regardless of nullability for easy lookups),
+    /// each with equal size in memory.
+    #[slot(0)]
+    pub elements: ArrayRef,
+    /// The validity / null map of the array.
+    ///
+    /// Note that this null map refers to which fixed-size list scalars are null, **not** which
+    /// sub-elements of fixed-size list scalars are null. The `elements` array will track
+    /// individual value nullability.
+    #[slot(1)]
+    pub validity: Option<ArrayRef>,
+}
 
 /// The canonical encoding for fixed-size list arrays.
 ///
@@ -112,7 +113,11 @@ pub struct FixedSizeListDataParts {
 
 impl FixedSizeListData {
     pub(crate) fn make_slots(elements: &ArrayRef, validity: &Validity, len: usize) -> ArraySlots {
-        smallvec![Some(elements.clone()), validity_to_child(validity, len)]
+        FixedSizeListSlots {
+            elements: elements.clone(),
+            validity: validity_to_child(validity, len),
+        }
+        .into_slots()
     }
 
     /// Creates a new `FixedSizeListArray`.
@@ -205,7 +210,7 @@ impl FixedSizeListData {
     }
 }
 
-pub trait FixedSizeListArrayExt: TypedArrayRef<FixedSizeList> {
+pub trait FixedSizeListArrayExt: FixedSizeListArraySlotsExt {
     fn dtype_parts(&self) -> (&DType, u32, crate::dtype::Nullability) {
         match self.as_ref().dtype() {
             DType::FixedSizeList(element_dtype, list_size, nullability) => {
@@ -215,12 +220,6 @@ pub trait FixedSizeListArrayExt: TypedArrayRef<FixedSizeList> {
         }
     }
 
-    fn elements(&self) -> &ArrayRef {
-        self.as_ref().slots()[ELEMENTS_SLOT]
-            .as_ref()
-            .vortex_expect("FixedSizeListArray elements slot")
-    }
-
     fn list_size(&self) -> u32 {
         let (_, list_size, _) = self.dtype_parts();
         list_size
@@ -228,9 +227,13 @@ pub trait FixedSizeListArrayExt: TypedArrayRef<FixedSizeList> {
 
     fn fixed_size_list_validity(&self) -> Validity {
         let (_, _, nullability) = self.dtype_parts();
-        child_to_validity(self.as_ref().slots()[VALIDITY_SLOT].as_ref(), nullability)
+        child_to_validity(
+            self.as_ref().slots()[FixedSizeListSlots::VALIDITY].as_ref(),
+            nullability,
+        )
     }
 
+    #[allow(clippy::disallowed_methods)]
     fn fixed_size_list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
         debug_assert!(
             index < self.as_ref().len(),
@@ -238,14 +241,6 @@ pub trait FixedSizeListArrayExt: TypedArrayRef<FixedSizeList> {
             index,
             self.as_ref().len(),
         );
-        #[expect(clippy::debug_assert_with_mut_call)]
-        {
-            debug_assert!(
-                self.fixed_size_list_validity()
-                    .execute_is_valid(index, &mut LEGACY_SESSION.create_execution_ctx())
-                    .unwrap_or(false)
-            );
-        }
 
         let start = self.list_size() as usize * index;
         let end = self.list_size() as usize * (index + 1);
@@ -319,7 +314,7 @@ impl Array<FixedSizeList> {
 
     pub fn into_data_parts(self) -> FixedSizeListDataParts {
         let dtype = self.dtype().clone();
-        let elements = self.slots()[ELEMENTS_SLOT]
+        let elements = self.slots()[FixedSizeListSlots::ELEMENTS]
             .clone()
             .vortex_expect("FixedSizeListArray elements slot");
         let validity = self.fixed_size_list_validity();

@@ -10,7 +10,23 @@ use crate::array::ArrayView;
 use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
 use crate::arrays::dict::TakeExecute;
+use crate::arrays::dict::TakeReduce;
 use crate::arrays::extension::ExtensionArrayExt;
+
+impl TakeReduce for Extension {
+    fn take(array: ArrayView<'_, Extension>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+        let taken_storage = array.storage_array().take(indices.clone())?;
+        Ok(Some(
+            ExtensionArray::new(
+                array
+                    .ext_dtype()
+                    .with_nullability(taken_storage.dtype().nullability()),
+                taken_storage,
+            )
+            .into_array(),
+        ))
+    }
+}
 
 impl TakeExecute for Extension {
     fn take(

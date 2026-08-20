@@ -5,8 +5,10 @@ mod array;
 mod patch;
 
 pub use array::BoolArrayExt;
+pub use array::BoolArraySlotsExt;
 pub use array::BoolData;
 pub use array::BoolDataParts;
+pub use array::BoolSlots;
 
 pub(crate) mod compute;
 

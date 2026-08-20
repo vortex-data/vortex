@@ -19,7 +19,7 @@ use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::arrays::Filter;
-use vortex::array::arrays::filter::FilterArrayExt;
+use vortex::array::arrays::filter::FilterArraySlotsExt;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_decimal_value_type;
 use vortex::array::match_each_native_simd_ptype;
@@ -109,7 +109,7 @@ async fn filter_sized<T: DeviceRepr + CubFilterable + Debug + Send + Sync + 'sta
         T::get_temp_size(len).map_err(|e| vortex_err!("CUB filter_temp_size failed: {}", e))?;
 
     // Allocate device buffers for input, output, mask, and temp space
-    let d_temp = ctx.device_alloc::<u8>(temp_bytes.max(1))?;
+    let mut d_temp = ctx.device_alloc::<u8>(temp_bytes.max(1))?;
     let mut d_output = ctx.device_alloc::<T>(output_len)?;
     let mut d_num_selected = ctx.device_alloc::<i64>(1)?;
     // Get raw pointers for FFI.
@@ -134,7 +134,7 @@ async fn filter_sized<T: DeviceRepr + CubFilterable + Debug + Send + Sync + 'sta
     let d_packed_view = d_packed_cuda.as_view::<u8>();
     let (d_packed_ptr, record_d_packed) = d_packed_view.device_ptr(stream);
 
-    let (d_temp_ptr, record_d_temp) = d_temp.device_ptr(stream);
+    let (d_temp_ptr, record_d_temp) = d_temp.device_ptr_mut(stream);
     let (d_output_ptr, record_d_output) = d_output.device_ptr_mut(stream);
     let (d_num_selected_ptr, record_d_num_selected) = d_num_selected.device_ptr_mut(stream);
 

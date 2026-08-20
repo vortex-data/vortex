@@ -70,6 +70,9 @@ mod builder;
 mod canonical_compressor;
 /// Compression scheme implementations.
 pub mod schemes;
+#[cfg(test)]
+#[cfg(not(codspeed))]
+mod trace_tests;
 
 // Re-export framework types from vortex-compressor for backwards compatibility.
 // Btrblocks-specific exports.
@@ -78,8 +81,8 @@ pub use builder::BtrBlocksCompressorBuilder;
 pub use canonical_compressor::BtrBlocksCompressor;
 pub use schemes::patches::compress_patches;
 pub use vortex_compressor::CascadingCompressor;
-pub use vortex_compressor::ctx::CompressorContext;
-pub use vortex_compressor::ctx::MAX_CASCADE;
+pub use vortex_compressor::scheme::CompressorContext;
+pub use vortex_compressor::scheme::MAX_CASCADE;
 pub use vortex_compressor::scheme::Scheme;
 pub use vortex_compressor::scheme::SchemeExt;
 pub use vortex_compressor::scheme::SchemeId;

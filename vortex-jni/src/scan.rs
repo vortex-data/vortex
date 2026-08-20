@@ -15,11 +15,15 @@ use std::ops::Range;
 use std::ptr;
 use std::sync::Arc;
 
+use arrow_array::Array;
 use arrow_array::RecordBatch;
+use arrow_array::array::make_array;
 use arrow_array::cast::AsArray;
+use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_array::ffi_stream::FFI_ArrowArrayStream;
+use arrow_data::ArrayData;
+use arrow_data::transform::MutableArrayData;
 use arrow_schema::ArrowError;
-use arrow_schema::DataType;
 use arrow_schema::Field;
 use futures::StreamExt;
 use jni::EnvUnowned;
@@ -28,10 +32,7 @@ use jni::objects::JClass;
 use jni::objects::JLongArray;
 use jni::sys::jboolean;
 use jni::sys::jlong;
-use vortex::array::ArrayRef;
-use vortex::array::ExecutionCtx;
 use vortex::array::VortexSessionExecute;
-use vortex::array::arrow::ArrowSessionExt;
 use vortex::array::stream::SendableArrayStream;
 use vortex::buffer::Buffer;
 use vortex::error::VortexResult;
@@ -46,10 +47,12 @@ use vortex::scan::PartitionRef;
 use vortex::scan::PartitionStream;
 use vortex::scan::ScanRequest;
 use vortex::scan::selection::Selection;
+use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
+use vortex_arrow::ArrowSessionExt;
 
+use crate::POOL;
 use crate::RUNTIME;
 use crate::data_source::NativeDataSource;
-use crate::dtype::strip_views;
 use crate::errors::try_or_throw;
 use crate::session::session_ref;
 
@@ -96,8 +99,12 @@ fn build_scan_request(
 
     let selection = match selection_include {
         0 => Selection::All,
-        1 => Selection::IncludeByIndex(Buffer::copy_from(selection_idx)),
-        2 => Selection::ExcludeByIndex(Buffer::copy_from(selection_idx)),
+        1 => Selection::IncludeByIndex(StrictSortedBuffer::try_new(Buffer::copy_from(
+            selection_idx,
+        ))?),
+        2 => Selection::ExcludeByIndex(StrictSortedBuffer::try_new(Buffer::copy_from(
+            selection_idx,
+        ))?),
         3 => Selection::IncludeRoaring(deserialize_roaring_selection(selection_roaring_bitmap)?),
         4 => Selection::ExcludeRoaring(deserialize_roaring_selection(selection_roaring_bitmap)?),
         other => vortex_bail!("unknown selection include code: {other}"),
@@ -205,6 +212,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeScan_free(
 pub extern "system" fn Java_dev_vortex_jni_NativeScan_arrowSchema(
     mut env: EnvUnowned,
     _class: JClass,
+    session_ptr: jlong,
     pointer: jlong,
     schema_addr: jlong,
 ) {
@@ -212,11 +220,16 @@ pub extern "system" fn Java_dev_vortex_jni_NativeScan_arrowSchema(
         if schema_addr == 0 {
             throw_runtime!("null arrow schema address");
         }
+        let session = unsafe { session_ref(session_ptr) };
         let scan = unsafe { &*(pointer as *const NativeScan) };
         let NativeScan::Pending(scan) = scan else {
             throw_runtime!("schema unavailable: scan already started");
         };
-        crate::dtype::export_dtype_to_arrow(scan.dtype(), schema_addr)?;
+        let arrow_schema = session.arrow().to_arrow_schema(scan.dtype())?;
+        let ffi_schema = FFI_ArrowSchema::try_from(&arrow_schema)?;
+        unsafe {
+            ptr::write(schema_addr as *mut FFI_ArrowSchema, ffi_schema);
+        }
         Ok(())
     });
 }
@@ -344,30 +357,32 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_scanArrow(
         let array_stream = partition.execute()?;
         let dtype = array_stream.dtype().clone();
 
-        let raw_schema = dtype.to_arrow_schema()?;
-        let viewless = strip_views(DataType::Struct(raw_schema.fields().clone()));
-        let fields = match viewless {
-            DataType::Struct(fields) => fields,
-            _ => unreachable!("Vortex DType always exports as a struct"),
-        };
-        let schema = Arc::new(arrow_schema::Schema::new(fields));
-        let target = Field::new_struct("", schema.fields().clone(), false);
-
         let session = unsafe { session_ref(session_ptr) };
+        let schema = Arc::new(session.arrow().to_arrow_schema(&dtype)?);
+        let target = Arc::new(Field::new_struct("", schema.fields().clone(), false));
 
         let iter = RUNTIME
-            .block_on_stream_thread_safe(|_handle| array_stream)
-            .map(
-                move |chunk: VortexResult<ArrayRef>| -> VortexResult<RecordBatch> {
-                    let chunk: ArrayRef = chunk?;
-                    let mut ctx: ExecutionCtx = session.create_execution_ctx();
-                    let arrow = session
-                        .arrow()
-                        .execute_arrow(chunk, Some(&target), &mut ctx)?;
-                    Ok(RecordBatch::from(arrow.as_struct().clone()))
-                },
-            )
-            .map(|result| result.map_err(|e| ArrowError::ExternalError(Box::new(e))));
+            .block_on_stream_thread_safe(|handle| {
+                array_stream
+                    .map(move |chunk| {
+                        let session = session.clone();
+                        let target = Arc::clone(&target);
+                        handle.spawn(async move {
+                            let chunk = chunk?;
+                            let mut ctx = session.create_execution_ctx();
+                            let arrow = session.arrow().execute_arrow(
+                                chunk,
+                                Some(target.as_ref()),
+                                &mut ctx,
+                            )?;
+                            rebase_offsets(RecordBatch::from(arrow.as_struct().clone()))
+                        })
+                    })
+                    .buffered(POOL.worker_count().max(1))
+            })
+            .map(|result: VortexResult<RecordBatch>| {
+                result.map_err(|e| ArrowError::ExternalError(Box::new(e)))
+            });
 
         let reader = RecordBatchIteratorAdapter::new(iter, schema);
         let arrow_stream = FFI_ArrowArrayStream::new(Box::new(reader));
@@ -376,4 +391,38 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_scanArrow(
         }
         Ok(())
     });
+}
+
+/// Copy any column carrying a non-zero array offset into an offset-0 equivalent because
+/// arrow-java's C Data importer ignores `offset` (as of 19.0.0).
+fn rebase_offsets(batch: RecordBatch) -> VortexResult<RecordBatch> {
+    let mut rebased = false;
+    let columns = batch
+        .columns()
+        .iter()
+        .map(|column| {
+            let data = column.to_data();
+            if carries_offset(&data) {
+                rebased = true;
+                // `concat` of a single array will not do this: it short-circuits to
+                // `slice(0, len)`, which keeps the offset.
+                let len = data.len();
+                let mut copy = MutableArrayData::new(vec![&data], false, len);
+                copy.extend(0, 0, len);
+                make_array(copy.freeze())
+            } else {
+                Arc::clone(column)
+            }
+        })
+        .collect::<Vec<_>>();
+
+    if !rebased {
+        return Ok(batch);
+    }
+    Ok(RecordBatch::try_new(batch.schema(), columns)?)
+}
+
+/// Whether `data` or any of its descendants carries a non-zero offset.
+fn carries_offset(data: &ArrayData) -> bool {
+    data.offset() != 0 || data.child_data().iter().any(carries_offset)
 }

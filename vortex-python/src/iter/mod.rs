@@ -20,13 +20,12 @@ use pyo3::prelude::*;
 use pyo3::types::PyIterator;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
-use vortex::array::LEGACY_SESSION;
 use vortex::array::VortexSessionExecute;
-use vortex::array::arrow::ArrowSessionExt;
 use vortex::array::iter::ArrayIterator;
 use vortex::array::iter::ArrayIteratorAdapter;
 use vortex::array::iter::ArrayIteratorExt;
 use vortex::dtype::DType;
+use vortex_arrow::ArrowSessionExt;
 
 use crate::arrays::PyArrayRef;
 use crate::arrow::IntoPyArrow;
@@ -114,8 +113,9 @@ impl PyArrayIterator {
     /// Convert the :class:`vortex.ArrayIterator` into a :class:`pyarrow.RecordBatchReader`.
     ///
     /// Note that this performs the conversion on the current thread.
+    #[allow(clippy::disallowed_methods)]
     fn to_arrow(slf: Bound<Self>) -> PyVortexResult<Py<PyAny>> {
-        let schema = Arc::new(slf.get().dtype().to_arrow_schema()?);
+        let schema = Arc::new(session().arrow().to_arrow_schema(slf.get().dtype())?);
         let target = Field::new_struct("", schema.fields().clone(), false);
 
         let iter = slf.get().take().unwrap_or_else(|| {
@@ -132,7 +132,7 @@ impl PyArrayIterator {
                     session().arrow().execute_arrow(
                         chunk?,
                         Some(&target),
-                        &mut LEGACY_SESSION.create_execution_ctx(),
+                        &mut session().create_execution_ctx(),
                     )
                 })
                 .map(|chunk| chunk.map_err(|e| ArrowError::ExternalError(Box::new(e))))

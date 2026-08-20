@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 
 use crate::RunEnd;
 use crate::array::RunEndArrayExt;
+use crate::array::RunEndArraySlotsExt;
 impl CastReduce for RunEnd {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Cast the values array to the target type
@@ -184,6 +185,6 @@ mod tests {
     fn test_cast_runend_conformance(#[case] build: RunEndBuilder) {
         let mut ctx = SESSION.create_execution_ctx();
         let array = build(&mut ctx);
-        test_cast_conformance(&array.into_array());
+        test_cast_conformance(&array.into_array(), &mut ctx);
     }
 }

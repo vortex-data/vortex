@@ -3,5 +3,6 @@
 
 #[cfg(feature = "lance")]
 pub use lance_bench::compress::LanceCompressor;
+pub mod gpu;
 pub mod parquet;
 pub mod vortex;

@@ -2,25 +2,36 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::iter;
+use std::ptr;
 use std::sync::Arc;
 
+use itertools::Itertools as _;
 use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::Columnar;
 use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::arrays::PiecewiseSequence;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::dict::TakeExecute;
+use crate::arrays::piecewise_sequence::constant_unsigned_usize;
+use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::arrays::varbinview::BinaryView;
 use crate::buffer::BufferHandle;
+use crate::dtype::UnsignedPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
+use crate::match_each_unsigned_integer_ptype;
 
 impl TakeExecute for VarBinView {
     /// Take involves creating a new array that references the old array, just with the given set of views.
@@ -29,6 +40,12 @@ impl TakeExecute for VarBinView {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        if let Some(piecewise_indices) = indices.as_opt::<PiecewiseSequence>()
+            && let Some(taken) = take_contiguous_ranges(array, piecewise_indices, indices, ctx)?
+        {
+            return Ok(Some(taken));
+        }
+
         let validity = array.validity()?.take(indices)?;
         let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
 
@@ -54,6 +71,60 @@ impl TakeExecute for VarBinView {
                 .into_array(),
             ))
         }
+    }
+}
+
+fn take_contiguous_ranges(
+    array: ArrayView<'_, VarBinView>,
+    indices: ArrayView<'_, PiecewiseSequence>,
+    indices_ref: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    let Some((starts, lengths)) = maybe_contiguous_slices(indices, ctx)? else {
+        return Ok(None);
+    };
+    let source = array.views();
+    let output_len = indices_ref.len();
+    let views = match lengths {
+        Columnar::Constant(lengths) => {
+            let length = constant_unsigned_usize(&lengths);
+            match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
+                gather_view_slices_constant_length(
+                    source,
+                    starts.as_slice::<S>(),
+                    length,
+                    output_len,
+                )?
+            })
+        }
+        Columnar::Canonical(lengths) => {
+            let lengths = lengths.into_primitive();
+            match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
+                match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
+                    gather_view_slices(
+                        source,
+                        starts.as_slice::<S>(),
+                        lengths.as_slice::<L>(),
+                        output_len,
+                    )?
+                })
+            })
+        }
+    };
+    let validity = array.validity()?.take(indices_ref)?;
+
+    // SAFETY: ranges were validated against the source views, and copied views still reference the
+    // same backing data buffers.
+    unsafe {
+        Ok(Some(
+            VarBinViewArray::new_handle_unchecked(
+                BufferHandle::new_host(views.into_byte_buffer()),
+                Arc::clone(array.data_buffers()),
+                array.dtype().clone(),
+                validity,
+            )
+            .into_array(),
+        ))
     }
 }
 
@@ -85,25 +156,110 @@ fn take_views<I: AsPrimitive<usize>>(
     }
 }
 
+fn gather_view_slices_constant_length<S>(
+    source: &[BinaryView],
+    starts: &[S],
+    length: usize,
+    output_len: usize,
+) -> VortexResult<Buffer<BinaryView>>
+where
+    S: UnsignedPType,
+{
+    let computed_len = starts
+        .len()
+        .checked_mul(length)
+        .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
+    vortex_ensure!(
+        computed_len == output_len,
+        "PiecewiseSequenceArray expanded length {computed_len} does not match declared length {output_len}"
+    );
+
+    let mut views = BufferMut::<BinaryView>::with_capacity(output_len);
+    let spare = &mut views.spare_capacity_mut()[..output_len];
+    let mut cursor = 0usize;
+    for &start in starts {
+        let start = start.as_();
+        let src = &source[start..][..length];
+        // SAFETY: `src` and the checked `spare` range have equal lengths and cannot overlap.
+        unsafe {
+            ptr::copy_nonoverlapping(
+                src.as_ptr(),
+                spare[cursor..][..src.len()]
+                    .as_mut_ptr()
+                    .cast::<BinaryView>(),
+                src.len(),
+            );
+        }
+        cursor += src.len();
+    }
+    // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity.
+    unsafe { views.set_len(cursor) };
+    vortex_ensure!(
+        views.len() == output_len,
+        "PiecewiseSequenceArray expanded length {} does not match declared length {output_len}",
+        views.len()
+    );
+    Ok(views.freeze())
+}
+
+fn gather_view_slices<S, L>(
+    source: &[BinaryView],
+    starts: &[S],
+    lengths: &[L],
+    output_len: usize,
+) -> VortexResult<Buffer<BinaryView>>
+where
+    S: UnsignedPType,
+    L: UnsignedPType,
+{
+    let mut views = BufferMut::<BinaryView>::with_capacity(output_len);
+    let spare = &mut views.spare_capacity_mut()[..output_len];
+    let mut cursor = 0usize;
+    for (&start, &length) in starts.iter().zip_eq(lengths) {
+        let start = start.as_();
+        let length = length.as_();
+        let src = &source[start..][..length];
+        // SAFETY: `src` and the checked `spare` range have equal lengths and cannot overlap.
+        unsafe {
+            ptr::copy_nonoverlapping(
+                src.as_ptr(),
+                spare[cursor..][..src.len()]
+                    .as_mut_ptr()
+                    .cast::<BinaryView>(),
+                src.len(),
+            );
+        }
+        cursor += src.len();
+    }
+    // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity.
+    unsafe { views.set_len(cursor) };
+    vortex_ensure!(
+        views.len() == output_len,
+        "PiecewiseSequenceArray expanded length {} does not match declared length {output_len}",
+        views.len()
+    );
+    Ok(views.freeze())
+}
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
 
     use crate::IntoArray;
-    use crate::accessor::ArrayAccessor;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::varbinview::compute::take::PrimitiveArray;
-    #[expect(deprecated)]
-    use crate::canonical::ToCanonical as _;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::dtype::DType;
     use crate::dtype::Nullability::NonNullable;
     use crate::validity::Validity;
 
     #[test]
-    fn take_nullable() {
+    fn take_nullable() -> VortexResult<()> {
         let arr = VarBinViewArray::from_iter_nullable_str([
             Some("one"),
             None,
@@ -113,19 +269,24 @@ mod tests {
             Some("six"),
         ]);
 
-        let taken = arr.take(buffer![0, 3].into_array()).unwrap();
+        let taken = arr.take(buffer![0, 3].into_array())?;
 
         assert!(taken.dtype().is_nullable());
-        #[expect(deprecated)]
-        let result = taken.to_varbinview().with_iterator(|it| {
-            it.map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))
-                .collect::<Vec<_>>()
-        });
+        let mut ctx = array_session().create_execution_ctx();
+        let taken = taken.execute::<VarBinViewArray>(&mut ctx)?;
+        let mask = taken.validity()?.execute_mask(taken.len(), &mut ctx)?;
+        let result = (0..taken.len())
+            .map(|i| {
+                mask.value(i)
+                    .then(|| unsafe { String::from_utf8_unchecked(taken.bytes_at(i).to_vec()) })
+            })
+            .collect::<Vec<_>>();
         assert_eq!(result, [Some("one".to_string()), Some("four".to_string())]);
+        Ok(())
     }
 
     #[test]
-    fn take_nullable_indices() {
+    fn take_nullable_indices() -> VortexResult<()> {
         let arr = VarBinViewArray::from_iter(["one", "two"].map(Some), DType::Utf8(NonNullable));
 
         let indices = PrimitiveArray::new(
@@ -134,15 +295,20 @@ mod tests {
             Validity::from(BitBuffer::from(vec![true, false])),
         );
 
-        let taken = arr.take(indices.into_array()).unwrap();
+        let taken = arr.take(indices.into_array())?;
 
         assert!(taken.dtype().is_nullable());
-        #[expect(deprecated)]
-        let result = taken.to_varbinview().with_iterator(|it| {
-            it.map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))
-                .collect::<Vec<_>>()
-        });
+        let mut ctx = array_session().create_execution_ctx();
+        let taken = taken.execute::<VarBinViewArray>(&mut ctx)?;
+        let mask = taken.validity()?.execute_mask(taken.len(), &mut ctx)?;
+        let result = (0..taken.len())
+            .map(|i| {
+                mask.value(i)
+                    .then(|| unsafe { String::from_utf8_unchecked(taken.bytes_at(i).to_vec()) })
+            })
+            .collect::<Vec<_>>();
         assert_eq!(result, [Some("two".to_string()), None]);
+        Ok(())
     }
 
     #[rstest]
@@ -163,6 +329,9 @@ mod tests {
     ))]
     #[case(VarBinViewArray::from_iter(["single"].map(Some), DType::Utf8(NonNullable)))]
     fn test_take_varbinview_conformance(#[case] array: VarBinViewArray) {
-        test_take_conformance(&array.into_array());
+        test_take_conformance(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

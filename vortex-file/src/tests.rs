@@ -7,14 +7,16 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use bytes::Bytes;
+use flatbuffers::FlatBufferBuilder;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::pin_mut;
+use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::accessor::ArrayAccessor;
 use vortex_array::array_session;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
@@ -28,12 +30,16 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::assert_arrays_eq;
+use vortex_array::builders::MapBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::MapDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::PType::I32;
 use vortex_array::dtype::StructFields;
+use vortex_array::expr::BoundExpression;
+use vortex_array::expr::Expression;
 use vortex_array::expr::and;
 use vortex_array::expr::cast;
 use vortex_array::expr::col;
@@ -50,6 +56,7 @@ use vortex_array::expr::select;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::extension::datetime::TimestampOptions;
+use vortex_array::field_path;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::fns::pack::Pack;
@@ -58,18 +65,35 @@ use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
+use vortex_btrblocks::BtrBlocksCompressorBuilder;
+use vortex_btrblocks::SchemeExt;
+use vortex_btrblocks::schemes::string::StringDictScheme;
 use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
+use vortex_edition::EditionSession;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_flatbuffers::footer as fb;
 use vortex_io::session::RuntimeSession;
-use vortex_layout::Layout;
+use vortex_layout::DynLayout;
+use vortex_layout::LayoutStrategy;
+use vortex_layout::layouts::buffered::BufferedStrategy;
+use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
+use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
+use vortex_layout::layouts::struct_::StructStrategy;
+use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::zoned::LegacyStats;
 use vortex_layout::layouts::zoned::Zoned;
 use vortex_layout::scan::scan_builder::ScanBuilder;
+use vortex_layout::scan::split_by::SplitBy;
 use vortex_layout::session::LayoutSession;
+use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
+use vortex_zigzag::ZigZag;
 
+use crate::MAX_POSTSCRIPT_SIZE;
 use crate::OpenOptionsSessionExt;
 use crate::V1_FOOTER_FBS_SIZE;
 use crate::VERSION;
@@ -82,9 +106,20 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         .with::<RuntimeSession>();
 
     crate::register_default_encodings(&session);
+    crate::enable_all_registered_array_encodings(&session);
 
     session
 });
+
+fn strict_sorted(indices: Buffer<u64>) -> StrictSortedBuffer<u64> {
+    StrictSortedBuffer::try_new(indices).expect("test indices should be strictly increasing")
+}
+
+fn bind_scan_expr(file: &VortexFile, expr: Expression) -> BoundExpression {
+    expr.optimize_recursive(file.dtype())
+        .and_then(|expr| expr.bind(file.dtype()))
+        .vortex_expect("scan expression should bind")
+}
 
 #[tokio::test]
 async fn test_eof_values() {
@@ -231,16 +266,18 @@ async fn test_read_simple_with_spawn() {
     .into_array();
 
     let lists = ChunkedArray::from_iter([
-        ListArray::from_iter_slow::<i16, _>(
+        ListArray::from_iter_slow::<i32, _>(
             vec![vec![11, 12], vec![21, 22], vec![31, 32], vec![41, 42]],
             Arc::new(I32.into()),
         )
-        .unwrap(),
-        ListArray::from_iter_slow::<i8, _>(
+        .unwrap()
+        .into_array(),
+        ListArray::from_iter_slow::<i64, _>(
             vec![vec![51, 52], vec![61, 62], vec![71, 72], vec![81, 82]],
             Arc::new(I32.into()),
         )
-        .unwrap(),
+        .unwrap()
+        .into_array(),
     ])
     .into_array();
 
@@ -291,7 +328,7 @@ async fn test_read_projection() {
     let array = file
         .scan()
         .unwrap()
-        .with_projection(select(["strings"], root()))
+        .with_projection(bind_scan_expr(&file, select(["strings"], root())))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -317,7 +354,7 @@ async fn test_read_projection() {
     let array = file
         .scan()
         .unwrap()
-        .with_projection(select(["numbers"], root()))
+        .with_projection(bind_scan_expr(&file, select(["numbers"], root())))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -399,15 +436,14 @@ async fn unequal_batches() {
 async fn write_chunked() {
     let strings = VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array();
     let string_dtype = strings.dtype().clone();
-    let strings_chunked = ChunkedArray::try_new(iter::repeat_n(strings, 4).collect(), string_dtype)
+    let strings_chunked = ChunkedArray::try_new(iter::repeat_n(strings, 4), string_dtype)
         .unwrap()
         .into_array();
     let numbers = buffer![1u32, 2, 3, 4].into_array();
     let numbers_dtype = numbers.dtype().clone();
-    let numbers_chunked =
-        ChunkedArray::try_new(iter::repeat_n(numbers, 4).collect(), numbers_dtype)
-            .unwrap()
-            .into_array();
+    let numbers_chunked = ChunkedArray::try_new(iter::repeat_n(numbers, 4), numbers_dtype)
+        .unwrap()
+        .into_array();
     let st = StructArray::try_new(
         ["strings", "numbers"].into(),
         vec![strings_chunked, numbers_chunked],
@@ -418,7 +454,7 @@ async fn write_chunked() {
     .into_array();
     let st_dtype = st.dtype().clone();
 
-    let chunked_st = ChunkedArray::try_new(iter::repeat_n(st, 3).collect(), st_dtype)
+    let chunked_st = ChunkedArray::try_new(iter::repeat_n(st, 3), st_dtype)
         .unwrap()
         .into_array();
     let mut buf = ByteBufferMut::empty();
@@ -489,18 +525,19 @@ async fn issue_5385_filter_casted_column() {
         .await
         .unwrap();
 
-    let result = SESSION
-        .open_options()
-        .open_buffer(buf)
-        .unwrap()
+    let file = SESSION.open_options().open_buffer(buf).unwrap();
+    let result = file
         .scan()
         .unwrap()
-        .with_filter(eq(
-            cast(
-                get_item("x", root()),
-                DType::Primitive(PType::U16, Nullability::NonNullable),
+        .with_filter(bind_scan_expr(
+            &file,
+            eq(
+                cast(
+                    get_item("x", root()),
+                    DType::Primitive(PType::U16, Nullability::NonNullable),
+                ),
+                lit(1u16),
             ),
-            lit(1u16),
         ))
         .into_array_stream()
         .unwrap()
@@ -541,13 +578,14 @@ async fn filter_string() {
         .await
         .unwrap();
 
-    let result: Vec<_> = SESSION
-        .open_options()
-        .open_buffer(buf)
-        .unwrap()
+    let file = SESSION.open_options().open_buffer(buf).unwrap();
+    let result: Vec<_> = file
         .scan()
         .unwrap()
-        .with_filter(eq(get_item("name", root()), lit("Joseph")))
+        .with_filter(bind_scan_expr(
+            &file,
+            eq(get_item("name", root()), lit("Joseph")),
+        ))
         .into_array_stream()
         .unwrap()
         .try_collect()
@@ -601,17 +639,18 @@ async fn filter_or() {
         .await
         .unwrap();
 
-    let result: Vec<_> = SESSION
-        .open_options()
-        .open_buffer(buf)
-        .unwrap()
+    let file = SESSION.open_options().open_buffer(buf).unwrap();
+    let result: Vec<_> = file
         .scan()
         .unwrap()
-        .with_filter(or(
-            eq(get_item("name", root()), lit("Angela")),
-            and(
-                gt_eq(get_item("age", root()), lit(20)),
-                lt_eq(get_item("age", root()), lit(30)),
+        .with_filter(bind_scan_expr(
+            &file,
+            or(
+                eq(get_item("name", root()), lit("Angela")),
+                and(
+                    gt_eq(get_item("age", root()), lit(20)),
+                    lt_eq(get_item("age", root()), lit(30)),
+                ),
             ),
         ))
         .into_array_stream()
@@ -669,15 +708,16 @@ async fn filter_and() {
         .await
         .unwrap();
 
-    let result: Vec<_> = SESSION
-        .open_options()
-        .open_buffer(buf)
-        .unwrap()
+    let file = SESSION.open_options().open_buffer(buf).unwrap();
+    let result: Vec<_> = file
         .scan()
         .unwrap()
-        .with_filter(and(
-            gt(get_item("age", root()), lit(21)),
-            lt_eq(get_item("age", root()), lit(33)),
+        .with_filter(bind_scan_expr(
+            &file,
+            and(
+                gt(get_item("age", root()), lit(21)),
+                lt_eq(get_item("age", root()), lit(33)),
+            ),
         ))
         .into_array_stream()
         .unwrap()
@@ -740,7 +780,7 @@ async fn test_with_indices_simple() {
     let actual_kept_array = file
         .scan()
         .unwrap()
-        .with_row_indices(Buffer::<u64>::empty())
+        .with_row_indices(strict_sorted(Buffer::<u64>::empty()))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -757,7 +797,7 @@ async fn test_with_indices_simple() {
     let actual_kept_array = file
         .scan()
         .unwrap()
-        .with_row_indices(Buffer::from_iter(kept_indices))
+        .with_row_indices(strict_sorted(Buffer::from_iter(kept_indices)))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -782,7 +822,7 @@ async fn test_with_indices_simple() {
     let actual_array = file
         .scan()
         .unwrap()
-        .with_row_indices((0u64..500).collect::<Buffer<_>>())
+        .with_row_indices(strict_sorted((0u64..500).collect::<Buffer<_>>()))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -827,7 +867,7 @@ async fn test_with_indices_on_two_columns() {
     let array = file
         .scan()
         .unwrap()
-        .with_row_indices(Buffer::from_iter(kept_indices))
+        .with_row_indices(strict_sorted(Buffer::from_iter(kept_indices)))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -883,8 +923,11 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let actual_kept_array = file
         .scan()
         .unwrap()
-        .with_filter(gt(get_item("numbers", root()), lit(50_i16)))
-        .with_row_indices(Buffer::empty())
+        .with_filter(bind_scan_expr(
+            &file,
+            gt(get_item("numbers", root()), lit(50_i16)),
+        ))
+        .with_row_indices(strict_sorted(Buffer::empty()))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -901,8 +944,11 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let actual_kept_array = file
         .scan()
         .unwrap()
-        .with_filter(gt(get_item("numbers", root()), lit(50_i16)))
-        .with_row_indices(Buffer::from_iter(kept_indices))
+        .with_filter(bind_scan_expr(
+            &file,
+            gt(get_item("numbers", root()), lit(50_i16)),
+        ))
+        .with_row_indices(strict_sorted(Buffer::from_iter(kept_indices)))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -929,8 +975,11 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let actual_array = file
         .scan()
         .unwrap()
-        .with_filter(gt(get_item("numbers", root()), lit(50_i16)))
-        .with_row_indices((0..500).collect::<Buffer<_>>())
+        .with_filter(bind_scan_expr(
+            &file,
+            gt(get_item("numbers", root()), lit(50_i16)),
+        ))
+        .with_row_indices(strict_sorted((0..500).collect::<Buffer<_>>()))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -991,7 +1040,10 @@ async fn filter_string_chunked() {
     let actual_array = file
         .scan()
         .unwrap()
-        .with_filter(eq(get_item("name", root()), lit("Joseph")))
+        .with_filter(bind_scan_expr(
+            &file,
+            eq(get_item("name", root()), lit("Joseph")),
+        ))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -1081,9 +1133,12 @@ async fn test_pruning_with_or() {
     let actual_array = file
         .scan()
         .unwrap()
-        .with_filter(or(
-            lt_eq(get_item("letter", root()), lit("J")),
-            lt(get_item("number", root()), lit(25)),
+        .with_filter(bind_scan_expr(
+            &file,
+            or(
+                lt_eq(get_item("letter", root()), lit("J")),
+                lt(get_item("number", root()), lit(25)),
+            ),
         ))
         .into_array_stream()
         .unwrap()
@@ -1156,7 +1211,10 @@ async fn test_repeated_projection() {
     let actual = file
         .scan()
         .unwrap()
-        .with_projection(select(["strings", "strings"], root()))
+        .with_projection(bind_scan_expr(
+            &file,
+            select(["strings", "strings"], root()),
+        ))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -1233,7 +1291,7 @@ async fn file_take() -> VortexResult<()> {
     let vxf = chunked_file().await?;
     let result = vxf
         .scan()?
-        .with_row_indices(buffer![0, 1, 8])
+        .with_row_indices(StrictSortedBuffer::try_new(buffer![0, 1, 8])?)
         .into_array_stream()?
         .read_all()
         .await?;
@@ -1270,7 +1328,7 @@ async fn write_nullable_top_level_struct() {
 
 async fn round_trip(
     array: &ArrayRef,
-    f: impl Fn(ScanBuilder<ArrayRef>) -> VortexResult<ScanBuilder<ArrayRef>>,
+    f: impl FnOnce(ScanBuilder<ArrayRef>) -> VortexResult<ScanBuilder<ArrayRef>>,
 ) -> VortexResult<ArrayRef> {
     let mut writer = vec![];
     SESSION
@@ -1333,15 +1391,19 @@ async fn write_nullable_nested_struct() -> VortexResult<()> {
 #[tokio::test]
 async fn scan_empty_fields() -> VortexResult<()> {
     let array = (0..10000).collect::<PrimitiveArray>();
-
-    let result = round_trip(&array.clone().into_array(), |scan| {
-        Ok(scan.with_projection(Pack.new_expr(
+    let projection = Pack
+        .new_expr(
             PackOptions {
                 names: Default::default(),
                 nullability: Nullability::Nullable,
             },
             [],
-        )))
+        )
+        .optimize_recursive(array.dtype())?
+        .bind(array.dtype())?;
+
+    let result = round_trip(&array.clone().into_array(), |scan| {
+        Ok(scan.with_projection(projection))
     })
     .await?;
 
@@ -1364,7 +1426,7 @@ async fn test_into_tokio_array_stream() -> VortexResult<()> {
     ])
     .into_array();
 
-    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
+    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)])?;
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
@@ -1529,6 +1591,143 @@ async fn test_writer_bytes_written() -> VortexResult<()> {
     Ok(())
 }
 
+#[rstest]
+#[case::table_one_leaf(true, 1, false, 32)]
+#[case::table_two_shared_leaves(true, 2, false, 64)]
+#[case::table_field_override(true, 2, true, 64)]
+#[case::struct_default(false, 1, false, 32)]
+#[tokio::test]
+async fn test_writer_buffered_bytes(
+    #[case] use_table_strategy: bool,
+    #[case] leaf_count: usize,
+    #[case] field_override: bool,
+    #[case] expected_buffered_bytes: u64,
+) -> VortexResult<()> {
+    const BUFFER_SIZE: u64 = 16;
+
+    let fields = [
+        ("a", buffer![1u32, 2, 3, 4].into_array()),
+        ("b", buffer![5u32, 6, 7, 8].into_array()),
+    ];
+    let array = StructArray::from_fields(&fields[..leaf_count])?.into_array();
+
+    let new_leaf = || -> Arc<dyn LayoutStrategy> {
+        Arc::new(BufferedStrategy::new(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            BUFFER_SIZE,
+        ))
+    };
+    let validity: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
+    let strategy: Arc<dyn LayoutStrategy> = if use_table_strategy {
+        let mut table = TableStrategy::new(validity, new_leaf());
+        if field_override {
+            table = table.with_field_writer(field_path!(b), new_leaf());
+        }
+        Arc::new(table)
+    } else {
+        Arc::new(StructStrategy::new(validity, new_leaf()))
+    };
+
+    let mut buf = ByteBufferMut::empty();
+    let options = SESSION.write_options().with_strategy(Arc::clone(&strategy));
+    let buffered_bytes = options.buffered_bytes_tracker();
+    let mut writer = options.writer(&mut buf, array.dtype().clone());
+
+    assert_eq!(writer.buffered_bytes(), 0);
+
+    // The third push forces two chunks through the capacity-one input channel while keeping the
+    // writer open. Each physical leaf retains two BUFFER_SIZE chunks while peeking for more input.
+    writer.push(array.clone()).await?;
+    writer.push(array.clone()).await?;
+    writer.push(array).await?;
+
+    assert_eq!(writer.buffered_bytes(), expected_buffered_bytes);
+
+    let summary = writer.finish().await?;
+    assert_eq!(summary.row_count(), 12);
+    assert_eq!(buffered_bytes.buffered_bytes(), 0);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_buffered_bytes_are_writer_scoped() -> VortexResult<()> {
+    const BUFFER_SIZE: u64 = 16;
+
+    let array =
+        StructArray::from_fields(&[("a", buffer![1u32, 2, 3, 4].into_array())])?.into_array();
+    let leaf = Arc::new(BufferedStrategy::new(
+        ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+        BUFFER_SIZE,
+    ));
+    let strategy: Arc<dyn LayoutStrategy> = Arc::new(TableStrategy::new(
+        Arc::new(FlatLayoutStrategy::default()),
+        leaf,
+    ));
+
+    let mut first_buf = ByteBufferMut::empty();
+    let mut first = SESSION
+        .write_options()
+        .with_strategy(Arc::clone(&strategy))
+        .writer(&mut first_buf, array.dtype().clone());
+    let mut second_buf = ByteBufferMut::empty();
+    let mut second = SESSION
+        .write_options()
+        .with_strategy(strategy)
+        .writer(&mut second_buf, array.dtype().clone());
+
+    first.push(array.clone()).await?;
+    first.push(array.clone()).await?;
+    first.push(array.clone()).await?;
+    second.push(array.clone()).await?;
+    second.push(array.clone()).await?;
+    second.push(array).await?;
+
+    assert_eq!(first.buffered_bytes(), 2 * BUFFER_SIZE);
+    assert_eq!(second.buffered_bytes(), 2 * BUFFER_SIZE);
+
+    first.finish().await?;
+    second.finish().await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_encoding_registered_after_write_options() -> VortexResult<()> {
+    // A session that does not know about ZigZag yet.
+    let session = array_session()
+        .with::<EditionSession>()
+        .with::<LayoutSession>()
+        .with::<RuntimeSession>();
+
+    // Configure the options before the encoding is registered; `write` is what snapshots the
+    // session's encodings, so registering in between must still be honoured.
+    let options = session
+        .write_options()
+        .with_strategy(Arc::new(FlatLayoutStrategy::default()));
+    vortex_zigzag::initialize(&session);
+    crate::enable_all_registered_array_encodings(&session);
+
+    let array = ZigZag::try_new(buffer![1u32, 2, 3, 4].into_array())?.into_array();
+    let dtype = array.dtype().clone();
+
+    let mut buf = ByteBufferMut::empty();
+    options.write(&mut buf, array.to_array_stream()).await?;
+
+    let chunks: Vec<_> = session
+        .open_options()
+        .open_buffer(buf)?
+        .scan()?
+        .into_array_stream()?
+        .try_collect()
+        .await?;
+    let read = ChunkedArray::try_new(chunks, dtype)?.into_array();
+    let mut ctx = session.create_execution_ctx();
+    assert_arrays_eq!(read, buffer![-1i32, 1, -2, 2].into_array(), &mut ctx);
+
+    Ok(())
+}
+
 #[tokio::test]
 async fn test_writer_empty_chunks() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
@@ -1610,7 +1809,7 @@ async fn test_writer_with_complex_types() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let strings = VarBinArray::from(vec!["hello", "world", "test"]).into_array();
     let numbers = buffer![100i32, 200, 300].into_array();
-    let lists = ListArray::from_iter_slow::<i16, _>(
+    let lists = ListArray::from_iter_slow::<i32, _>(
         vec![vec![1, 2], vec![3, 4, 5], vec![6]],
         Arc::new(I32.into()),
     )?;
@@ -1642,12 +1841,16 @@ async fn test_writer_with_complex_types() -> VortexResult<()> {
         .execute::<StructArray>(&mut ctx)?
         .unmasked_field_by_name("strings")
         .cloned()?;
-    let strings = strings_field
-        .execute::<VarBinViewArray>(&mut ctx)?
-        .with_iterator(|iter| {
-            iter.map(|s| s.map(|st| unsafe { String::from_utf8_unchecked(st.to_vec()) }))
-                .collect::<Vec<_>>()
-        });
+    let strings_view = strings_field.execute::<VarBinViewArray>(&mut ctx)?;
+    let mask = strings_view
+        .validity()?
+        .execute_mask(strings_view.len(), &mut ctx)?;
+    let strings = (0..strings_view.len())
+        .map(|i| {
+            mask.value(i)
+                .then(|| unsafe { String::from_utf8_unchecked(strings_view.bytes_at(i).to_vec()) })
+        })
+        .collect::<Vec<_>>();
     assert_eq!(
         strings,
         vec![
@@ -1657,6 +1860,154 @@ async fn test_writer_with_complex_types() -> VortexResult<()> {
         ]
     );
 
+    Ok(())
+}
+
+/// Write `array` with list decomposition forced on (through the full compress/zone pipeline) and
+/// read the whole thing back.
+async fn write_read_roundtrip(array: ArrayRef) -> VortexResult<ArrayRef> {
+    write_read_roundtrip_with_layout(array, true).await
+}
+
+async fn write_read_roundtrip_with_layout(
+    array: ArrayRef,
+    use_list_layout: bool,
+) -> VortexResult<ArrayRef> {
+    let strategy = crate::strategy::WriteStrategyBuilder::default()
+        .with_list_layout()
+        .build();
+    let mut buf = ByteBufferMut::empty();
+    if use_list_layout {
+        SESSION
+            .write_options()
+            .with_strategy(strategy)
+            .write(&mut buf, array.to_array_stream())
+            .await?;
+    } else {
+        SESSION
+            .write_options()
+            .write(&mut buf, array.to_array_stream())
+            .await?;
+    }
+    SESSION
+        .open_options()
+        .open_buffer(buf)?
+        .scan()?
+        .into_array_stream()?
+        .read_all()
+        .await
+}
+
+/// A `list<list<i32>>` column round-trips through the `TableStrategy` dispatcher, exercising list
+/// decomposition recursing into itself (the outer list's `elements` are themselves lists).
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn nested_list_of_list_roundtrip() -> VortexResult<()> {
+    let inner = ListArray::try_new(
+        buffer![1i32, 2, 3, 4, 5, 6].into_array(),
+        buffer![0u32, 2, 5, 5, 6].into_array(),
+        Validity::NonNullable,
+    )?
+    .into_array();
+    let outer = ListArray::try_new(
+        inner,
+        buffer![0u32, 2, 4].into_array(),
+        Validity::NonNullable,
+    )?
+    .into_array();
+    let st = StructArray::from_fields(&[("nested", outer)])?.into_array();
+
+    let result = write_read_roundtrip(st.clone()).await?;
+    assert_arrays_eq!(result, st, &mut SESSION.create_execution_ctx());
+    Ok(())
+}
+
+type MapEntryFixture<'a> = (i32, Option<&'a str>);
+type MapRowFixture<'a> = Option<Vec<MapEntryFixture<'a>>>;
+
+fn map_array_from_rows(rows: &[MapRowFixture<'_>], keys_sorted: bool) -> VortexResult<ArrayRef> {
+    let map_dtype = MapDType::try_new(
+        DType::Primitive(I32, Nullability::NonNullable),
+        DType::Utf8(Nullability::Nullable),
+        keys_sorted,
+    )?;
+    let dtype = DType::Map(map_dtype.clone(), Nullability::Nullable);
+    let mut builder =
+        MapBuilder::<u64, u64>::with_capacity(map_dtype, Nullability::Nullable, rows.len());
+
+    for row in rows {
+        let scalar = match row {
+            Some(entries) => {
+                let entries = entries
+                    .iter()
+                    .map(|(key, value)| {
+                        let key = Scalar::primitive(*key, Nullability::NonNullable);
+                        let value = value.map_or_else(
+                            || Scalar::null(DType::Utf8(Nullability::Nullable)),
+                            |value| Scalar::utf8(value, Nullability::Nullable),
+                        );
+                        (key, value)
+                    })
+                    .collect::<Vec<_>>();
+                Scalar::try_map(dtype.clone(), entries)?
+            }
+            None => Scalar::null(dtype.clone()),
+        };
+        builder.append_value(scalar.as_map())?;
+    }
+
+    Ok(builder.finish_into_map().into_array())
+}
+
+/// A struct containing a Map column crosses both the default flat writer and the list layout
+/// strategy without changing map nullability, empty rows, duplicate keys, or scalar values.
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn struct_with_map_column_roundtrip() -> VortexResult<()> {
+    for use_list_layout in [false, true] {
+        let maps = map_array_from_rows(
+            &[
+                Some(vec![(1, Some("one")), (2, None)]),
+                None,
+                Some(vec![]),
+                Some(vec![(1, Some("dup-old")), (1, Some("dup-new"))]),
+            ],
+            false,
+        )?;
+        let st = StructArray::from_fields(&[
+            ("id", buffer![10i32, 20, 30, 40].into_array()),
+            ("attrs", maps),
+        ])?
+        .into_array();
+
+        let result = write_read_roundtrip_with_layout(st.clone(), use_list_layout).await?;
+        assert_arrays_eq!(result, st, &mut SESSION.create_execution_ctx());
+    }
+
+    Ok(())
+}
+
+/// A `struct<{ items: list<struct<{a,b}>>? }>` column round-trips, exercising list decomposition
+/// recursing into struct decomposition (list `elements` are structs) plus a nullable list validity
+/// child.
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn nested_struct_list_struct_roundtrip() -> VortexResult<()> {
+    let inner_struct = StructArray::from_fields(&[
+        ("a", buffer![1i32, 2, 3, 4, 5].into_array()),
+        ("b", buffer![10i32, 20, 30, 40, 50].into_array()),
+    ])?
+    .into_array();
+    let items = ListArray::try_new(
+        inner_struct,
+        buffer![0u32, 2, 5, 5].into_array(),
+        Validity::Array(BoolArray::from_iter([true, false, true]).into_array()),
+    )?
+    .into_array();
+    let st = StructArray::from_fields(&[("items", items)])?.into_array();
+
+    let result = write_read_roundtrip(st.clone()).await?;
+    assert_arrays_eq!(result, st, &mut SESSION.create_execution_ctx());
     Ok(())
 }
 
@@ -1676,6 +2027,177 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
 
     assert!(summary.footer().statistics().is_some());
     assert_eq!(summary.row_count(), 5);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_file_metadata_roundtrip() -> VortexResult<()> {
+    let array =
+        StructArray::from_fields(&[("numbers", buffer![1u32, 2, 3].into_array())])?.into_array();
+    let small = ByteBuffer::copy_from(b"{\"source\":\"test\"}");
+    let large = ByteBuffer::copy_from(vec![7u8; usize::from(MAX_POSTSCRIPT_SIZE) + 1024]);
+    let empty = ByteBuffer::empty_aligned(vortex_buffer::Alignment::new(16));
+    let aligned = ByteBuffer::copy_from_aligned(b"aligned", vortex_buffer::Alignment::new(64));
+
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .with_metadata_segment("json", ByteBuffer::copy_from(b"old"))
+        .with_metadata_segment("json", small.clone()) // last write wins
+        .with_metadata_segment("large", large.clone())
+        .with_metadata_segment("empty", empty)
+        .with_metadata_segment("aligned", aligned.clone())
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+
+    assert_eq!(summary.footer().metadata_segments().count(), 4);
+    // The footer holds only locators, so its size does not grow with the large value.
+    assert!(summary.footer().approx_byte_size().unwrap() < large.len());
+    for (_key, locator) in summary.footer().metadata_segments() {
+        assert!(locator.alignment.is_offset_aligned(locator.offset as usize));
+    }
+
+    let bytes = ByteBuffer::from(buf);
+
+    let default = SESSION.open_options().open_buffer(bytes.clone())?;
+    assert_eq!(default.row_count(), 3);
+    assert_eq!(default.metadata_segments().count(), 0);
+    assert!(default.metadata_segment("json").is_none());
+
+    let file = SESSION
+        .open_options()
+        .include_metadata()
+        .open_buffer(bytes.clone())?;
+    assert_eq!(file.metadata_segments().count(), 4);
+    assert_eq!(
+        file.metadata_segment("json").map(ByteBuffer::as_slice),
+        Some(small.as_slice())
+    );
+    assert_eq!(
+        file.metadata_segment("large").map(ByteBuffer::as_slice),
+        Some(large.as_slice())
+    );
+    assert!(
+        file.metadata_segment("empty")
+            .vortex_expect("empty")
+            .is_empty()
+    );
+    let resolved_aligned = file.metadata_segment("aligned").vortex_expect("aligned");
+    assert_eq!(resolved_aligned.as_slice(), aligned.as_slice());
+    assert!(resolved_aligned.is_aligned(vortex_buffer::Alignment::new(64)));
+    assert!(file.metadata_segment("missing").is_none());
+
+    // Resolved values are copied out, not sliced from the file buffer.
+    let file_range = {
+        let s = bytes.as_ptr() as usize;
+        s..s + bytes.len()
+    };
+    let resolved = file.metadata_segment("json").vortex_expect("json");
+    assert!(!file_range.contains(&(resolved.as_ptr() as usize)));
+
+    Ok(())
+}
+
+fn with_invalid_metadata_alignment(bytes: &ByteBuffer, exponent: u8) -> ByteBuffer {
+    let eof_offset = bytes.len() - crate::EOF_SIZE;
+    let postscript_len =
+        u16::from_le_bytes(bytes[eof_offset + 2..eof_offset + 4].try_into().unwrap()) as usize;
+    let postscript_offset = eof_offset - postscript_len;
+    let old = flatbuffers::root::<fb::Postscript>(&bytes[postscript_offset..eof_offset]).unwrap();
+
+    let copy_segment = |segment: fb::PostscriptSegment<'_>| {
+        (
+            segment.offset(),
+            segment.length(),
+            segment.alignment_exponent(),
+        )
+    };
+    let dtype = old.dtype().map(copy_segment);
+    let layout = copy_segment(old.layout().unwrap());
+    let statistics = old.statistics().map(copy_segment);
+    let footer = copy_segment(old.footer().unwrap());
+    let metadata = old.metadata().unwrap().get(0);
+    let metadata_key = metadata.key().to_string();
+    let metadata_segment = copy_segment(metadata.segment());
+
+    fn create_segment<'a>(
+        fbb: &mut FlatBufferBuilder<'a>,
+        (offset, length, alignment_exponent): (u64, u32, u8),
+    ) -> flatbuffers::WIPOffset<fb::PostscriptSegment<'a>> {
+        fb::PostscriptSegment::create(
+            fbb,
+            &fb::PostscriptSegmentArgs {
+                offset,
+                length,
+                alignment_exponent,
+                _compression: None,
+                _encryption: None,
+            },
+        )
+    }
+
+    let mut fbb = FlatBufferBuilder::new();
+    let dtype = dtype.map(|segment| create_segment(&mut fbb, segment));
+    let layout = create_segment(&mut fbb, layout);
+    let statistics = statistics.map(|segment| create_segment(&mut fbb, segment));
+    let footer = create_segment(&mut fbb, footer);
+    let key = fbb.create_string(&metadata_key);
+    let invalid_segment =
+        create_segment(&mut fbb, (metadata_segment.0, metadata_segment.1, exponent));
+    let metadata = fb::PostscriptMetadata::create(
+        &mut fbb,
+        &fb::PostscriptMetadataArgs {
+            key: Some(key),
+            segment: Some(invalid_segment),
+        },
+    );
+    let metadata = fbb.create_vector(&[metadata]);
+    let postscript = fb::Postscript::create(
+        &mut fbb,
+        &fb::PostscriptArgs {
+            dtype,
+            layout: Some(layout),
+            statistics,
+            footer: Some(footer),
+            metadata: Some(metadata),
+        },
+    );
+    fbb.finish_minimal(postscript);
+    let postscript = fbb.finished_data();
+
+    let mut corrupted =
+        ByteBufferMut::with_capacity(postscript_offset + postscript.len() + crate::EOF_SIZE);
+    corrupted.extend_from_slice(&bytes[..postscript_offset]);
+    corrupted.extend_from_slice(postscript);
+    corrupted.extend_from_slice(&VERSION.to_le_bytes());
+    corrupted.extend_from_slice(&(postscript.len() as u16).to_le_bytes());
+    corrupted.extend_from_slice(&crate::MAGIC_BYTES);
+    corrupted.freeze()
+}
+
+#[tokio::test]
+async fn test_file_metadata_malformed_alignment_returns_error_on_default_open() -> VortexResult<()>
+{
+    let mut output = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .with_metadata_segment("key", ByteBuffer::copy_from(b"value"))
+        .write(&mut output, buffer![1u32].into_array().to_array_stream())
+        .await?;
+    let corrupted = with_invalid_metadata_alignment(&ByteBuffer::from(output), 64);
+
+    for include_metadata in [false, true] {
+        let result = SESSION
+            .open_options()
+            .with_include_metadata(include_metadata)
+            .open_buffer(corrupted.clone());
+        let error = match result {
+            Ok(_) => panic!("invalid alignment exponent must fail open"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("Alignment exponent"));
+    }
 
     Ok(())
 }
@@ -1705,13 +2227,11 @@ async fn timestamp_unit_mismatch() -> Result<(), Box<dyn std::error::Error>> {
         )),
     );
 
-    let mut stream = SESSION
-        .open_options()
-        .open_buffer(buf)?
-        .scan()?
-        .with_filter(filter_expr)
-        .into_array_stream()?;
-
+    let file = SESSION.open_options().open_buffer(buf)?;
+    let filter = filter_expr
+        .optimize_recursive(file.dtype())?
+        .bind(file.dtype())?;
+    let mut stream = file.scan()?.with_filter(filter).into_array_stream()?;
     let result = stream.try_next().await;
 
     assert!(result.is_err());
@@ -1722,15 +2242,12 @@ async fn timestamp_unit_mismatch() -> Result<(), Box<dyn std::error::Error>> {
 /// Regression test: filtering a milliseconds timestamp column with a seconds scalar should
 /// always error, regardless of how the internal children of `DateTimePartsArray` are encoded.
 ///
-/// This test forces `ConstantArray` encoding for the seconds/subseconds children by using a
-/// compressor with Dict excluded (which triggers distinct-value computation, letting
-/// `ConstantScheme` win for `[0, 0, 0]`). The scanner should still detect the time unit
+/// The compressor's built-in constant detection encodes the seconds/subseconds children
+/// (`[0, 0, 0]`) as `ConstantArray`s. The scanner should still detect the time unit
 /// mismatch and error, not silently return wrong results.
 #[tokio::test]
 async fn timestamp_unit_mismatch_errors_with_constant_children()
 -> Result<(), Box<dyn std::error::Error>> {
-    // Build a compressor where ConstantScheme wins for [0, 0, 0] by including Dict
-    // (which enables distinct-value computation).
     let compressor = vortex_btrblocks::BtrBlocksCompressor::default();
 
     // Write file with MILLISECONDS timestamps using this compressor.
@@ -1761,13 +2278,11 @@ async fn timestamp_unit_mismatch_errors_with_constant_children()
         )),
     );
 
-    let stream = SESSION
-        .open_options()
-        .open_buffer(buf)?
-        .scan()?
-        .with_filter(filter_expr)
-        .into_array_stream()?;
-
+    let file = SESSION.open_options().open_buffer(buf)?;
+    let filter = filter_expr
+        .optimize_recursive(file.dtype())?
+        .bind(file.dtype())?;
+    let stream = file.scan()?.with_filter(filter).into_array_stream()?;
     let results = stream.try_collect::<Vec<_>>().await;
 
     assert!(
@@ -1775,21 +2290,21 @@ async fn timestamp_unit_mismatch_errors_with_constant_children()
         "Expected error from timestamp unit mismatch (ms vs s), but got {} results. \
          This indicates the scanner silently applied the filter incorrectly when \
          DateTimePartsArray children use ConstantArray encoding.",
-        results.unwrap().len()
+        results?.len()
     );
 
     Ok(())
 }
 
 /// Collect all segment byte offsets reachable from a layout node.
-fn collect_segment_offsets(layout: &dyn Layout, segment_specs: &[SegmentSpec]) -> Vec<u64> {
+fn collect_segment_offsets(layout: &dyn DynLayout, segment_specs: &[SegmentSpec]) -> Vec<u64> {
     let mut result = Vec::new();
     collect_segment_offsets_inner(layout, segment_specs, &mut result);
     result
 }
 
 fn collect_segment_offsets_inner(
-    layout: &dyn Layout,
+    layout: &dyn DynLayout,
     segment_specs: &[SegmentSpec],
     result: &mut Vec<u64>,
 ) {
@@ -1812,6 +2327,154 @@ fn assert_offsets_ordered(before: &[u64], after: &[u64], context: &str) {
     }
 }
 
+/// Whether any node in the layout tree is a dict layout.
+fn layout_has_dict(layout: &dyn DynLayout) -> bool {
+    layout.encoding_id().as_ref() == "vortex.dict"
+        || layout
+            .children()
+            .unwrap()
+            .iter()
+            .any(|child| layout_has_dict(child.as_ref()))
+}
+
+/// Mirrors the (private) `IDEAL_SPLIT_SIZE` that `SplitBy::Layout` uses to sub-divide wide
+/// chunk-boundary spans: layout splits are never wider than this many rows.
+const MAX_SPLIT_ROWS: u64 = 100_000;
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_large_flat_chunk_scan_subdivides_splits() -> VortexResult<()> {
+    // A single flat (unchunked) 250k-row layout spans the 100k sub-split threshold, so the scan
+    // must decode it as multiple row-range splits.
+    let mut ctx = SESSION.create_execution_ctx();
+    const N_ROWS: u64 = 250_000;
+    let values =
+        Buffer::from_iter((0..N_ROWS as i32).map(|i| if i % 2 == 0 { i } else { -i })).into_array();
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .with_strategy(Arc::new(FlatLayoutStrategy::default()))
+        .write(&mut buf, values.to_array_stream())
+        .await?;
+
+    let file = SESSION.open_options().open_buffer(buf)?;
+
+    // Sub-division caps each split at MAX_SPLIT_ROWS while tiling the file exactly.
+    let splits = file.splits()?;
+    assert!(splits.len() > 1, "expected sub-divided splits: {splits:?}");
+    assert!(splits.iter().all(|r| r.end - r.start <= MAX_SPLIT_ROWS));
+    assert_eq!(splits.first().map(|r| r.start), Some(0));
+    assert_eq!(splits.last().map(|r| r.end), Some(N_ROWS));
+    assert!(splits.windows(2).all(|w| w[0].end == w[1].start));
+
+    // A full scan across the sub-splits returns the original rows.
+    let result = file.scan()?.into_array_stream()?.read_all().await?;
+    assert_arrays_eq!(result, values, &mut ctx);
+
+    // A filtered scan crossing sub-split boundaries selects exactly the matching rows.
+    let result = file
+        .scan()?
+        .with_filter(bind_scan_expr(&file, gt(root(), lit(0i32))))
+        .into_array_stream()?
+        .read_all()
+        .await?;
+    let expected =
+        Buffer::from_iter((0..N_ROWS as i32).filter(|i| i % 2 == 0 && *i > 0)).into_array();
+    assert_arrays_eq!(result, expected, &mut ctx);
+
+    Ok(())
+}
+
+#[rstest]
+#[case::unaligned(33_333)]
+#[case::exceeds_file(300_000)]
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_flat_chunk_scan_with_row_count_splits(
+    #[case] rows_per_split: usize,
+) -> VortexResult<()> {
+    // Fixed-size splits ignore chunk boundaries entirely, so scans must produce identical
+    // results whether the split size straddles the chunk arbitrarily or exceeds the file's
+    // row count (a single split).
+    let mut ctx = SESSION.create_execution_ctx();
+    const N_ROWS: u64 = 250_000;
+    let values =
+        Buffer::from_iter((0..N_ROWS as i32).map(|i| if i % 2 == 0 { i } else { -i })).into_array();
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .with_strategy(Arc::new(FlatLayoutStrategy::default()))
+        .write(&mut buf, values.to_array_stream())
+        .await?;
+
+    let file = SESSION.open_options().open_buffer(buf)?;
+
+    let result = file
+        .scan()?
+        .with_split_by(SplitBy::RowCount(rows_per_split))
+        .into_array_stream()?
+        .read_all()
+        .await?;
+    assert_arrays_eq!(result, values, &mut ctx);
+
+    let result = file
+        .scan()?
+        .with_split_by(SplitBy::RowCount(rows_per_split))
+        .with_filter(bind_scan_expr(&file, gt(root(), lit(0i32))))
+        .into_array_stream()?
+        .read_all()
+        .await?;
+    let expected =
+        Buffer::from_iter((0..N_ROWS as i32).filter(|i| i % 2 == 0 && *i > 0)).into_array();
+    assert_arrays_eq!(result, expected, &mut ctx);
+
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_string_chunks_stay_fine_grained_under_split_cap() -> VortexResult<()> {
+    // Default writing targets ~1MiB uncompressed blocks, so ~120-byte strings chunk at a few
+    // thousand rows (~8k with today's defaults). These natural boundaries sit far below the
+    // sub-split cap, and SplitBy::Layout must pass them through untouched.
+    let mut ctx = SESSION.create_execution_ctx();
+    const N_ROWS: usize = 40_000;
+    let strings = VarBinArray::from_iter(
+        (0..N_ROWS).map(|i| Some(format!("{i:0>120}"))),
+        DType::Utf8(Nullability::Nullable),
+    )
+    .into_array();
+    let st = StructArray::from_fields(&[("s", strings)])?.into_array();
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, st.to_array_stream())
+        .await?;
+
+    let file = SESSION.open_options().open_buffer(buf)?;
+
+    let splits = file.splits()?;
+    assert!(
+        splits.len() > 1,
+        "expected multiple natural chunks: {splits:?}"
+    );
+    assert!(
+        splits.iter().all(|r| r.end - r.start < MAX_SPLIT_ROWS / 4),
+        "string chunks should stay fine-grained, nowhere near the split cap: {splits:?}"
+    );
+    assert_eq!(splits.first().map(|r| r.start), Some(0));
+    assert_eq!(splits.last().map(|r| r.end), Some(N_ROWS as u64));
+    assert!(splits.windows(2).all(|w| w[0].end == w[1].start));
+
+    let result = file.scan()?.into_array_stream()?.read_all().await?;
+    assert_arrays_eq!(result, st, &mut ctx);
+
+    Ok(())
+}
+
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn test_segment_ordering_dict_codes_before_values() -> VortexResult<()> {
@@ -1821,7 +2484,7 @@ async fn test_segment_ordering_dict_codes_before_values() -> VortexResult<()> {
     let strings = VarBinArray::from(values).into_array();
     let numbers = PrimitiveArray::from_iter(0..n as i32).into_array();
 
-    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
+    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)])?;
 
     let mut buf = ByteBufferMut::empty();
     let summary = SESSION
@@ -1835,13 +2498,13 @@ async fn test_segment_ordering_dict_codes_before_values() -> VortexResult<()> {
 
     // Walk the layout tree and find all dict layouts.
     // Verify codes segments come before values segments in byte order within each run.
-    fn check_dict_ordering(layout: &dyn Layout, segment_specs: &[SegmentSpec]) {
+    fn check_dict_ordering(layout: &dyn DynLayout, segment_specs: &[SegmentSpec]) {
         if layout.encoding_id().as_ref() == "vortex.dict" {
             // child 0 = values, child 1 = codes
             let values_offsets =
-                collect_segment_offsets(layout.child(0).unwrap().as_ref(), segment_specs);
+                collect_segment_offsets(layout.slot(0).unwrap().unwrap().as_ref(), segment_specs);
             let codes_offsets =
-                collect_segment_offsets(layout.child(1).unwrap().as_ref(), segment_specs);
+                collect_segment_offsets(layout.slot(1).unwrap().unwrap().as_ref(), segment_specs);
 
             assert_offsets_ordered(
                 &codes_offsets,
@@ -1862,6 +2525,75 @@ async fn test_segment_ordering_dict_codes_before_values() -> VortexResult<()> {
 
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
+async fn dict_probe_honours_configured_compressor() -> VortexResult<()> {
+    // Low-cardinality strings so the default cascade picks a dictionary.
+    let n = 32_768;
+    let values: Vec<&str> = (0..n).map(|i| ["alpha", "beta", "gamma"][i % 3]).collect();
+    let strings = VarBinArray::from(values).into_array();
+
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .with_strategy(crate::strategy::WriteStrategyBuilder::default().build())
+        .write(&mut buf, strings.clone().to_array_stream())
+        .await?;
+    assert!(
+        layout_has_dict(summary.footer().layout().as_ref()),
+        "default builder should produce a dict layout for low-cardinality strings"
+    );
+
+    let no_string_dict =
+        BtrBlocksCompressorBuilder::default().exclude_schemes([StringDictScheme.id()]);
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .with_strategy(
+            crate::strategy::WriteStrategyBuilder::default()
+                .with_btrblocks_builder(no_string_dict)
+                .build(),
+        )
+        .write(&mut buf, strings.to_array_stream())
+        .await?;
+    assert!(
+        !layout_has_dict(summary.footer().layout().as_ref()),
+        "excluding StringDict from the configured compressor should disable the dict layout"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn probe_compressor_override_is_independent() -> VortexResult<()> {
+    // Low-cardinality strings the default cascade would dict-encode.
+    let n = 32_768;
+    let values: Vec<&str> = (0..n).map(|i| ["alpha", "beta", "gamma"][i % 3]).collect();
+    let strings = VarBinArray::from(values).into_array();
+
+    let probe_without_dict = BtrBlocksCompressorBuilder::default()
+        .exclude_schemes([StringDictScheme.id()])
+        .build();
+
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .with_strategy(
+            crate::strategy::WriteStrategyBuilder::default()
+                .with_probe_compressor(probe_without_dict)
+                .build(),
+        )
+        .write(&mut buf, strings.to_array_stream())
+        .await?;
+    assert!(
+        !layout_has_dict(summary.footer().layout().as_ref()),
+        "probe override should disable the dict layout independently of the data/stats compressor"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
 async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
     // Create a multi-column struct with enough rows to produce zone maps.
     let n = 100_000;
@@ -1874,8 +2606,7 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
         ("strings", strings),
         ("numbers", numbers),
         ("floats", floats),
-    ])
-    .unwrap();
+    ])?;
 
     let mut buf = ByteBufferMut::empty();
     let summary = SESSION
@@ -1888,13 +2619,13 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
     let root = footer.layout();
 
     // Find all zoned layouts and verify data segments come before zone map segments.
-    fn check_zoned_ordering(layout: &dyn Layout, segment_specs: &[SegmentSpec]) {
+    fn check_zoned_ordering(layout: &dyn DynLayout, segment_specs: &[SegmentSpec]) {
         if layout.is::<Zoned>() || layout.is::<LegacyStats>() {
             // child 0 = data, child 1 = zones
             let data_offsets =
-                collect_segment_offsets(layout.child(0).unwrap().as_ref(), segment_specs);
+                collect_segment_offsets(layout.slot(0).unwrap().unwrap().as_ref(), segment_specs);
             let zones_offsets =
-                collect_segment_offsets(layout.child(1).unwrap().as_ref(), segment_specs);
+                collect_segment_offsets(layout.slot(1).unwrap().unwrap().as_ref(), segment_specs);
 
             assert_offsets_ordered(
                 &data_offsets,
@@ -1916,7 +2647,7 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
     let mut all_zones_offsets = Vec::new();
 
     fn collect_all_zoned(
-        layout: &dyn Layout,
+        layout: &dyn DynLayout,
         segment_specs: &[SegmentSpec],
         all_data: &mut Vec<u64>,
         all_zones: &mut Vec<u64>,
@@ -1924,11 +2655,11 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
         if layout.is::<Zoned>() || layout.is::<LegacyStats>() {
             // child 0 = data, child 1 = zones
             all_data.extend(collect_segment_offsets(
-                layout.child(0).unwrap().as_ref(),
+                layout.slot(0).unwrap().unwrap().as_ref(),
                 segment_specs,
             ));
             all_zones.extend(collect_segment_offsets(
-                layout.child(1).unwrap().as_ref(),
+                layout.slot(1).unwrap().unwrap().as_ref(),
                 segment_specs,
             ));
             return;
@@ -2054,9 +2785,11 @@ async fn repro_8166_binary_gt_all_ff_max() -> VortexResult<()> {
         )),
     );
 
-    let result = SESSION
-        .open_options()
-        .open_buffer(buf)?
+    let file = SESSION.open_options().open_buffer(buf)?;
+    let filter = filter
+        .optimize_recursive(file.dtype())?
+        .bind(file.dtype())?;
+    let result = file
         .scan()?
         .with_filter(filter)
         .into_array_stream()?

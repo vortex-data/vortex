@@ -10,11 +10,8 @@ use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::sum::sum;
-use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::builders::ArrayBuilder;
@@ -115,7 +112,7 @@ impl StatsAccumulator {
         Ok(())
     }
 
-    fn as_array(&mut self) -> VortexResult<Option<StructArray>> {
+    fn as_array(&mut self, ctx: &mut ExecutionCtx) -> VortexResult<Option<StructArray>> {
         let mut names = Vec::new();
         let mut fields = Vec::new();
 
@@ -128,7 +125,7 @@ impl StatsAccumulator {
             let values = builder.finish();
 
             // We drop any all-null stats columns.
-            if values.all_invalid()? {
+            if values.all_invalid(ctx)? {
                 continue;
             }
 
@@ -146,30 +143,35 @@ impl StatsAccumulator {
     /// Returns an aggregated stats set for the table.
     fn as_stats_set(&mut self, stats: &[Stat], ctx: &mut ExecutionCtx) -> VortexResult<StatsSet> {
         let mut stats_set = StatsSet::default();
-        let Some(array) = self.as_array()? else {
+        let Some(stats_table) = self.as_array(ctx)? else {
             return Ok(stats_set);
         };
 
         for &stat in stats {
-            let Some(array) = array.unmasked_field_by_name_opt(stat.name()) else {
+            let Some(values) = stats_table.unmasked_field_by_name_opt(stat.name()) else {
                 continue;
             };
 
             match stat {
-                Stat::Max if is_varlen_dtype(array.dtype()) && !array.all_valid(ctx)? => {
+                Stat::Max if is_varlen_dtype(values.dtype()) && !values.all_valid(ctx)? => {
                     // A null truncated varlen max can mean either an empty chunk or no finite
                     // upper bound, so aggregating by skipping nulls would be unsound.
                     continue;
                 }
                 Stat::Min | Stat::Max | Stat::Sum => {
-                    if let Some(s) = array.statistics().compute_stat(stat, ctx)?
+                    if let Some(s) = values.statistics().compute_stat(stat, ctx)?
                         && let Some(v) = s.into_value()
                     {
-                        stats_set.set(stat, Precision::exact(v))
+                        let precision = if stat_was_truncated(&stats_table, stat, ctx)? {
+                            Precision::inexact(v)
+                        } else {
+                            Precision::exact(v)
+                        };
+                        stats_set.set(stat, precision)
                     }
                 }
                 Stat::NullCount | Stat::NaNCount | Stat::UncompressedSizeInBytes => {
-                    if let Some(sum_value) = sum(array, ctx)?
+                    if let Some(sum_value) = sum(values, ctx)?
                         .cast(&DType::Primitive(PType::U64, Nullability::Nullable))?
                         .into_value()
                     {
@@ -181,6 +183,26 @@ impl StatsAccumulator {
         }
         Ok(stats_set)
     }
+}
+
+fn stat_was_truncated(
+    stats_table: &StructArray,
+    stat: Stat,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<bool> {
+    let field_name = match stat {
+        Stat::Min => MIN_IS_TRUNCATED,
+        Stat::Max => MAX_IS_TRUNCATED,
+        _ => return Ok(false),
+    };
+    let Some(is_truncated) = stats_table.unmasked_field_by_name_opt(field_name) else {
+        return Ok(false);
+    };
+
+    Ok(is_truncated
+        .statistics()
+        .compute_stat(Stat::Max, ctx)?
+        .is_some_and(|max| max.as_bool().value() == Some(true)))
 }
 
 fn supports_file_stats(dtype: &DType) -> bool {
@@ -236,8 +258,8 @@ struct NamedArrays {
 }
 
 impl NamedArrays {
-    fn all_invalid(&self) -> VortexResult<bool> {
-        self.arrays[0].all_invalid(&mut LEGACY_SESSION.create_execution_ctx())
+    fn all_invalid(&self, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
+        self.arrays[0].all_invalid(ctx)
     }
 }
 
@@ -276,21 +298,9 @@ impl StatsArrayBuilder for StatNameArrayBuilder {
     }
 
     fn finish(&mut self) -> NamedArrays {
-        let array = self.builder.finish();
-        let len = array.len();
-        match self.stat {
-            Stat::Max => NamedArrays {
-                names: vec![self.stat.name().into(), MAX_IS_TRUNCATED.into()],
-                arrays: vec![array, ConstantArray::new(false, len).into_array()],
-            },
-            Stat::Min => NamedArrays {
-                names: vec![self.stat.name().into(), MIN_IS_TRUNCATED.into()],
-                arrays: vec![array, ConstantArray::new(false, len).into_array()],
-            },
-            _ => NamedArrays {
-                names: vec![self.stat.name().into()],
-                arrays: vec![array],
-            },
+        NamedArrays {
+            names: vec![self.stat.name().into()],
+            arrays: vec![self.builder.finish()],
         }
     }
 }
@@ -498,6 +508,7 @@ impl FileStatsAccumulator {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::bool::BoolArrayExt;
@@ -524,7 +535,10 @@ mod tests {
             .vortex_expect("push_chunk should succeed for test data");
         acc.push_chunk(&builder2.finish(), &mut ctx)
             .vortex_expect("push_chunk should succeed for test data");
-        let stats_table = acc.as_array().unwrap().expect("Must have stats table");
+        let stats_table = acc
+            .as_array(&mut ctx)
+            .unwrap()
+            .expect("Must have stats table");
         assert_eq!(
             stats_table.names().as_ref(),
             &[
@@ -554,35 +568,40 @@ mod tests {
         );
     }
 
+    #[rstest]
+    #[case(DType::Utf8(Nullability::NonNullable))]
+    #[case(DType::Binary(Nullability::NonNullable))]
+    fn truncated_accumulated_stats_are_inexact(#[case] dtype: DType) {
+        let mut ctx = array_session().create_execution_ctx();
+        let mut builder = VarBinViewBuilder::with_capacity(dtype, 2);
+        builder.append_value("Value to be truncated");
+        builder.append_value("Another truncated value");
+        let mut acc = StatsAccumulator::new(builder.dtype(), &[Stat::Max, Stat::Min], 12);
+        acc.push_chunk(&builder.finish(), &mut ctx)
+            .vortex_expect("push_chunk should succeed for test data");
+
+        let stats = acc
+            .as_stats_set(&[Stat::Max, Stat::Min], &mut ctx)
+            .vortex_expect("as_stats_set should succeed for test data");
+
+        assert!(matches!(stats.get(Stat::Min), Precision::Inexact(_)));
+        assert!(matches!(stats.get(Stat::Max), Precision::Inexact(_)));
+    }
+
     #[test]
-    fn always_adds_is_truncated_column() {
+    fn fixed_width_stats_omit_is_truncated_columns() {
         let mut ctx = array_session().create_execution_ctx();
         let array = buffer![0, 1, 2].into_array();
         let mut acc = StatsAccumulator::new(array.dtype(), &[Stat::Max, Stat::Min, Stat::Sum], 12);
         acc.push_chunk(&array, &mut ctx)
             .vortex_expect("push_chunk should succeed for test array");
-        let stats_table = acc.as_array().unwrap().expect("Must have stats table");
+        let stats_table = acc
+            .as_array(&mut ctx)
+            .unwrap()
+            .expect("Must have stats table");
         assert_eq!(
             stats_table.names().as_ref(),
-            &[
-                Stat::Max.name(),
-                MAX_IS_TRUNCATED,
-                Stat::Min.name(),
-                MIN_IS_TRUNCATED,
-                Stat::Sum.name(),
-            ]
+            &[Stat::Max.name(), Stat::Min.name(), Stat::Sum.name()]
         );
-        let field1_bool = stats_table
-            .unmasked_field(1)
-            .clone()
-            .execute::<BoolArray>(&mut ctx)
-            .unwrap();
-        assert_eq!(field1_bool.to_bit_buffer(), BitBuffer::from(vec![false]));
-        let field3_bool = stats_table
-            .unmasked_field(3)
-            .clone()
-            .execute::<BoolArray>(&mut ctx)
-            .unwrap();
-        assert_eq!(field3_bool.to_bit_buffer(), BitBuffer::from(vec![false]));
     }
 }

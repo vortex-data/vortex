@@ -4,8 +4,9 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
-use crate::POOL;
 use crate::install_module;
+use crate::set_requested_workers;
+use crate::with_pool;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "runtime")?;
@@ -24,22 +25,27 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 #[pyfunction]
 #[pyo3(signature = (n=None))]
 pub fn set_worker_threads(n: Option<isize>) -> PyResult<()> {
-    match n {
-        Some(n) => {
-            if n < 0 {
-                return Err(PyValueError::new_err(
-                    "worker thread count must be non-negative",
-                ));
-            }
-            POOL.set_workers(n as usize);
-        }
-        None => POOL.set_workers_to_available_parallelism(),
+    if let Some(n) = n
+        && n < 0
+    {
+        return Err(PyValueError::new_err(
+            "worker thread count must be non-negative",
+        ));
     }
+    let workers = with_pool(|pool| {
+        match n {
+            Some(n) => pool.set_workers(n as usize),
+            None => pool.set_workers_to_available_parallelism(),
+        }
+        pool.worker_count()
+    });
+    // Remember the request so that a forked child rebuilds its pool with the same size.
+    set_requested_workers(workers);
     Ok(())
 }
 
 /// Return the current number of background worker threads.
 #[pyfunction]
 pub fn worker_threads() -> usize {
-    POOL.worker_count()
+    with_pool(|pool| pool.worker_count())
 }

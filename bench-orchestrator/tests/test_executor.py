@@ -33,6 +33,19 @@ def test_build_command_adds_duckdb_cleanup_flag() -> None:
     assert "scale-factor=1.0" in cmd
 
 
+def test_build_command_serializes_vortex_spatial_native_format() -> None:
+    executor = BenchmarkExecutor(Path("/tmp/duckdb-bench"), Engine.DUCKDB)
+
+    cmd = executor.build_command(
+        benchmark=Benchmark.SPATIALBENCH,
+        formats=[Format.PARQUET, Format.VORTEX, Format.VORTEX_SPATIAL_NATIVE],
+        iterations=1,
+        options={"scale-factor": "1.0"},
+    )
+
+    assert "parquet,vortex,vortex-spatial-native" in cmd
+
+
 def test_build_command_omits_formats_for_lance_backend() -> None:
     executor = BenchmarkExecutor(Path("/tmp/lance-bench"), Engine.LANCE)
 
@@ -48,21 +61,21 @@ def test_build_command_omits_formats_for_lance_backend() -> None:
     assert "1,3" in cmd
 
 
-def test_build_command_includes_gh_json_v3_when_set() -> None:
+def test_build_command_includes_ingest_output_when_set() -> None:
     executor = BenchmarkExecutor(Path("/tmp/duckdb-bench"), Engine.DUCKDB)
 
     cmd = executor.build_command(
         benchmark=Benchmark.TPCH,
         formats=[Format.PARQUET],
-        gh_json_v3=Path("results.v3.jsonl"),
+        ingest_output=Path("results.ingest.jsonl"),
     )
 
-    assert "--gh-json-v3" in cmd
-    flag_idx = cmd.index("--gh-json-v3")
-    assert cmd[flag_idx + 1] == "results.v3.jsonl"
+    assert "--ingest-jsonl" in cmd
+    flag_idx = cmd.index("--ingest-jsonl")
+    assert cmd[flag_idx + 1] == "results.ingest.jsonl"
 
 
-def test_build_command_omits_gh_json_v3_when_unset() -> None:
+def test_build_command_omits_ingest_output_when_unset() -> None:
     executor = BenchmarkExecutor(Path("/tmp/duckdb-bench"), Engine.DUCKDB)
 
     cmd = executor.build_command(
@@ -70,7 +83,7 @@ def test_build_command_omits_gh_json_v3_when_unset() -> None:
         formats=[Format.PARQUET],
     )
 
-    assert "--gh-json-v3" not in cmd
+    assert "--ingest-jsonl" not in cmd
 
 
 def test_run_streams_logs_without_counting_them(tmp_path: Path) -> None:

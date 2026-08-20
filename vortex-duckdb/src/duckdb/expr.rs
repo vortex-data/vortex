@@ -2,14 +2,17 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ffi::CStr;
-use std::ffi::c_void;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::ptr;
 
 use crate::cpp;
 use crate::cpp::duckdb_vx_expr_class;
+use crate::duckdb::AggregateFunction;
+use crate::duckdb::AggregateFunctionRef;
 use crate::duckdb::DDBString;
+use crate::duckdb::LogicalType;
+use crate::duckdb::LogicalTypeRef;
 use crate::duckdb::ScalarFunction;
 use crate::duckdb::ScalarFunctionRef;
 use crate::duckdb::Value;
@@ -33,10 +36,23 @@ impl ExpressionRef {
         unsafe { cpp::duckdb_vx_expr_get_class(self.as_ptr()) }
     }
 
+    /// The return type of this expression.
+    pub fn return_type(&self) -> &LogicalTypeRef {
+        unsafe { LogicalType::borrow(cpp::duckdb_vx_expr_get_return_type(self.as_ptr())) }
+    }
+
     /// Match the subclass of the expression.
     pub fn as_class(&self) -> Option<ExpressionClass<'_>> {
         Some(
             match unsafe { cpp::duckdb_vx_expr_get_class(self.as_ptr()) } {
+                cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_CAST => {
+                    let child = unsafe {
+                        Expression::borrow(cpp::duckdb_vx_expr_get_bound_cast_child(self.as_ptr()))
+                    };
+                    let is_try =
+                        unsafe { cpp::duckdb_vx_expr_get_bound_cast_is_try(self.as_ptr()) };
+                    ExpressionClass::BoundCast(BoundCast { child, is_try })
+                }
                 cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_COLUMN_REF => {
                     let name = unsafe {
                         let ptr = cpp::duckdb_vx_expr_get_bound_column_ref_get_name(self.as_ptr());
@@ -136,8 +152,14 @@ impl ExpressionRef {
                     ExpressionClass::BoundFunction(BoundFunction {
                         children,
                         scalar_function: unsafe { ScalarFunction::borrow(out.scalar_function) },
-                        bind_info: out.bind_info,
                     })
+                }
+                cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_AGGREGATE => {
+                    let aggregate_function = unsafe {
+                        let ptr = cpp::duckdb_vx_expr_get_bound_aggregate_function(self.as_ptr());
+                        AggregateFunction::borrow(ptr)
+                    };
+                    ExpressionClass::BoundAggregate(BoundAggregate { aggregate_function })
                 }
                 cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_REF => {
                     ExpressionClass::BoundRef
@@ -158,12 +180,23 @@ pub enum ExpressionClass<'a> {
     BoundBetween(BoundBetween<'a>),
     BoundOperator(BoundOperator<'a>),
     BoundFunction(BoundFunction<'a>),
+    BoundCast(BoundCast<'a>),
+    BoundAggregate(BoundAggregate<'a>),
     /// Column inside ExpressionFilter for expression pushed down to Vortex.
     BoundRef,
 }
 
+pub struct BoundCast<'a> {
+    pub child: &'a ExpressionRef,
+    pub is_try: bool,
+}
+
 pub struct BoundColumnRef {
     pub name: DDBString,
+}
+
+pub struct BoundAggregate<'a> {
+    pub aggregate_function: &'a AggregateFunctionRef,
 }
 
 pub struct BoundConstant<'a> {
@@ -215,7 +248,6 @@ impl<'a> BoundOperator<'a> {
 pub struct BoundFunction<'a> {
     children: &'a [cpp::duckdb_vx_expr],
     pub scalar_function: &'a ScalarFunctionRef,
-    pub bind_info: *const c_void,
 }
 
 impl<'a> BoundFunction<'a> {

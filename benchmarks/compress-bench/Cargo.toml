@@ -27,14 +27,26 @@ itertools = { workspace = true }
 lance-bench = { path = "../lance-bench", optional = true }
 parquet = { workspace = true }
 regex = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tempfile = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 vortex = { workspace = true }
+vortex-arrow = { workspace = true }
 vortex-bench = { workspace = true }
+vortex-cuda = { workspace = true, optional = true }
 
 [features]
+cuda = ["dep:tempfile", "dep:vortex-cuda"]
 lance = ["dep:lance-bench"]
-unstable_encodings = ["vortex/unstable_encodings"]
+unstable_encodings = ["vortex/unstable_encodings", "vortex-cuda?/unstable_encodings"]
+
+[[bin]]
+name = "compress-bench"
+test = false
+
+[lib]
 
 [lints]
 workspace = true

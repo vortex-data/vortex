@@ -5,21 +5,21 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::ops::Range;
 
-use smallvec::smallvec;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::TypedArrayRef;
+use crate::array_slots;
 use crate::arrays::Slice;
 
-/// The underlying child array being sliced.
-pub(super) const CHILD_SLOT: usize = 0;
-pub(super) const NUM_SLOTS: usize = 1;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child"];
+#[array_slots(Slice)]
+pub struct SliceSlots {
+    /// The underlying child array being sliced.
+    #[slot(0)]
+    pub child: ArrayRef,
+}
 
 #[derive(Clone, Debug)]
 pub struct SliceData {
@@ -35,15 +35,6 @@ impl Display for SliceData {
 pub struct SliceDataParts {
     pub range: Range<usize>,
 }
-
-pub trait SliceArrayExt: TypedArrayRef<Slice> {
-    fn child(&self) -> &ArrayRef {
-        self.as_ref().slots()[CHILD_SLOT]
-            .as_ref()
-            .vortex_expect("validated slice child slot")
-    }
-}
-impl<T: TypedArrayRef<Slice>> SliceArrayExt for T {}
 
 impl SliceData {
     fn try_new(child_len: usize, range: Range<usize>) -> VortexResult<Self> {
@@ -89,7 +80,8 @@ impl Array<Slice> {
         let data = SliceData::try_new(child.len(), range)?;
         Ok(unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(Slice, dtype, len, data).with_slots(smallvec![Some(child)]),
+                ArrayParts::new(Slice, dtype, len, data)
+                    .with_slots(SliceSlots { child }.into_slots()),
             )
         })
     }
@@ -101,7 +93,8 @@ impl Array<Slice> {
         let data = SliceData::new(range);
         unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(Slice, dtype, len, data).with_slots(smallvec![Some(child)]),
+                ArrayParts::new(Slice, dtype, len, data)
+                    .with_slots(SliceSlots { child }.into_slots()),
             )
         }
     }

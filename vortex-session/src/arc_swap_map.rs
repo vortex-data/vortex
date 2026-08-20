@@ -1,0 +1,248 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! A concurrent, copy-on-write map backed by an [`ArcSwap`].
+
+use std::borrow::Borrow;
+use std::fmt::Debug;
+use std::fmt::Formatter;
+use std::hash::BuildHasher;
+use std::hash::Hash;
+use std::sync::Arc;
+
+use arc_swap::ArcSwap;
+use arc_swap::Guard;
+use vortex_utils::aliases::hash_map::DefaultHashBuilder;
+use vortex_utils::aliases::hash_map::HashMap;
+
+/// A concurrent [`HashMap`] backed by an [`ArcSwap`], offering lock-free reads
+/// and copy-on-write writes.
+///
+/// Reads load the current snapshot without blocking writers. Writes clone the
+/// whole map, apply their change, and atomically publish the new version, so a
+/// reader always observes a consistent snapshot and writers never block readers.
+///
+/// This is the shared building block behind the session-scoped registries (the
+/// plugin registries as well as the optimizer-kernel and aggregate-function
+/// registries) and the [`VortexSession`](crate::VortexSession) type-map itself.
+/// Because every write clones the entire map, it is intended for maps that are
+/// written rarely (typically only while a session is being configured) and read
+/// often.
+///
+/// The map is held behind an [`Arc`] so that [`Clone`] shares the same
+/// underlying cell: a registry mutated through one clone is observed by all
+/// others. Session variables rely on this so that encodings registered after a
+/// session is built remain visible to clones of that session.
+pub struct ArcSwapMap<K, V, S = DefaultHashBuilder> {
+    inner: Arc<ArcSwap<HashMap<K, V, S>>>,
+}
+
+impl<K, V, S: Default> Default for ArcSwapMap<K, V, S> {
+    fn default() -> Self {
+        Self {
+            inner: Arc::new(ArcSwap::from_pointee(HashMap::default())),
+        }
+    }
+}
+
+impl<K, V, S> Clone for ArcSwapMap<K, V, S> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+        }
+    }
+}
+
+impl<K: Debug, V: Debug, S> Debug for ArcSwapMap<K, V, S> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.read(|map| f.debug_tuple("ArcSwapMap").field(map).finish())
+    }
+}
+
+impl<K, V, S> ArcSwapMap<K, V, S> {
+    /// Return the currently published map snapshot.
+    pub fn snapshot(&self) -> Arc<HashMap<K, V, S>> {
+        self.inner.load_full()
+    }
+
+    /// Read the current snapshot, passing it to `f`.
+    ///
+    /// Every lookup inside `f` observes the same snapshot, which matters when a
+    /// single logical read consults more than one key.
+    pub fn read<R>(&self, f: impl FnOnce(&HashMap<K, V, S>) -> R) -> R {
+        f(&self.inner.load())
+    }
+
+    /// Return a lock-free guard to the current snapshot without cloning the
+    /// [`Arc`].
+    ///
+    /// Cheaper than [`snapshot`](Self::snapshot) for short-lived reads, but the
+    /// guard pins an internal arc-swap slot, so it should stay on the stack
+    /// rather than be stored in a long-lived data structure.
+    pub(crate) fn load(&self) -> Guard<Arc<HashMap<K, V, S>>> {
+        self.inner.load()
+    }
+
+    /// Replace the map with the result of applying `f` to a private copy.
+    ///
+    /// Writes are copy-on-write via [`ArcSwap::rcu`], so `f` may run more than
+    /// once under contention and must not move out of its captures.
+    fn modify(&self, f: impl Fn(&mut HashMap<K, V, S>))
+    where
+        K: Clone,
+        V: Clone,
+        S: Clone,
+    {
+        self.inner.rcu(|existing| {
+            let mut map = existing.as_ref().clone();
+            f(&mut map);
+            map
+        });
+    }
+}
+
+impl<K: Eq + Hash, V, S: BuildHasher> ArcSwapMap<K, V, S> {
+    /// Return a clone of the value stored under `key`, if present.
+    pub fn get<Q>(&self, key: &Q) -> Option<V>
+    where
+        K: Borrow<Q>,
+        Q: Eq + Hash + ?Sized,
+        V: Clone,
+    {
+        self.inner.load().get(key).cloned()
+    }
+
+    /// Returns whether a value is stored under `key`.
+    pub fn contains_key<Q>(&self, key: &Q) -> bool
+    where
+        K: Borrow<Q>,
+        Q: Eq + Hash + ?Sized,
+    {
+        self.inner.load().contains_key(key)
+    }
+
+    pub fn insert(&self, key: K, value: V)
+    where
+        K: Clone,
+        V: Clone,
+        S: Clone,
+    {
+        self.modify(|map| {
+            map.insert(key.clone(), value.clone());
+        });
+    }
+
+    /// Insert `value` under `key` only if no value is stored there yet.
+    ///
+    /// If a concurrent writer publishes a value under `key` first, that value
+    /// is kept and `value` is dropped. `value` is constructed by the caller
+    /// before this call, so no user code runs while the map is being updated.
+    pub fn insert_if_absent(&self, key: K, value: V)
+    where
+        K: Clone,
+        V: Clone,
+        S: Clone,
+    {
+        self.modify(|map| {
+            map.entry(key.clone()).or_insert_with(|| value.clone());
+        });
+    }
+}
+
+impl<K: Eq + Hash + Clone, T: Clone, S: BuildHasher + Clone> ArcSwapMap<K, Arc<[T]>, S> {
+    /// Append `values` to the list stored under `key`, creating it if absent.
+    ///
+    /// Each key maps to an immutable `Arc<[T]>`; appending rebuilds that slice
+    /// copy-on-write so existing readers keep their previous snapshot.
+    pub fn extend(&self, key: K, values: &[T]) {
+        self.modify(|map| {
+            let merged: Arc<[T]> = match map.get(&key) {
+                Some(existing) => existing.iter().chain(values).cloned().collect(),
+                None => values.into(),
+            };
+            map.insert(key.clone(), merged);
+        });
+    }
+
+    /// Append a single `value` to the list stored under `key`, creating it if
+    /// absent.
+    pub fn push(&self, key: K, value: T) {
+        self.extend(key, &[value]);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn get_and_insert() {
+        let map = ArcSwapMap::<u32, i32>::default();
+        assert_eq!(map.get(&1), None);
+        assert!(!map.contains_key(&1));
+        map.insert(1, 10);
+        map.insert(1, 20);
+        assert_eq!(map.get(&1), Some(20));
+        assert!(map.contains_key(&1));
+    }
+
+    #[test]
+    fn insert_if_absent_keeps_first_value() {
+        let map = ArcSwapMap::<u32, i32>::default();
+        map.insert_if_absent(1, 10);
+        map.insert_if_absent(1, 20);
+        assert_eq!(map.get(&1), Some(10));
+    }
+
+    #[test]
+    fn extend_appends_per_key() {
+        let map = ArcSwapMap::<u32, Arc<[i32]>>::default();
+        map.extend(1, &[1, 2]);
+        map.extend(1, &[3]);
+        map.extend(2, &[4]);
+        assert_eq!(map.get(&1).as_deref(), Some([1, 2, 3].as_slice()));
+        assert_eq!(map.get(&2).as_deref(), Some([4].as_slice()));
+    }
+
+    #[test]
+    fn push_appends_single_values() {
+        let map = ArcSwapMap::<u32, Arc<[i32]>>::default();
+        map.push(1, 1);
+        map.push(1, 2);
+        assert_eq!(map.get(&1).as_deref(), Some([1, 2].as_slice()));
+    }
+
+    #[test]
+    fn read_observes_a_single_snapshot() {
+        let map = ArcSwapMap::<u32, i32>::default();
+        map.insert(1, 1);
+        map.insert(2, 2);
+        assert_eq!(map.read(|m| m.values().sum::<i32>()), 3);
+    }
+
+    #[test]
+    fn snapshot_keeps_published_view() {
+        let map = ArcSwapMap::<u32, i32>::default();
+        map.insert(1, 10);
+
+        let snapshot = map.snapshot();
+        map.insert(1, 20);
+        map.insert(2, 30);
+
+        assert_eq!(snapshot.get(&1), Some(&10));
+        assert_eq!(snapshot.get(&2), None);
+        assert_eq!(map.get(&1), Some(20));
+        assert_eq!(map.get(&2), Some(30));
+    }
+
+    #[test]
+    fn clone_shares_the_same_cell() {
+        let map = ArcSwapMap::<u32, i32>::default();
+        let clone = map.clone();
+        // A write through one handle is observed through the other.
+        map.insert(1, 10);
+        assert_eq!(clone.get(&1), Some(10));
+        clone.insert(2, 20);
+        assert_eq!(map.get(&2), Some(20));
+    }
+}

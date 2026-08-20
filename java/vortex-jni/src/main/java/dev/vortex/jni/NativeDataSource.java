@@ -22,11 +22,31 @@ public final class NativeDataSource {
      */
     public static native long open(long sessionPointer, String[] uris, Map<String, String> options);
 
+    /**
+     * Open a data source over caller-provided {@link dev.vortex.io.NativeReadable} objects. All reads become upcalls
+     * into the supplied readables; no native storage client is created.
+     *
+     * @param sessionPointer pointer from {@link NativeSession#newSession()}
+     * @param readables one {@link dev.vortex.io.NativeReadable} per file
+     * @param names unique name per file (from {@link dev.vortex.io.NativeReadable#name()}), parallel to
+     *     {@code readables}
+     * @param lengths file sizes in bytes, parallel to {@code readables}
+     * @param readConcurrency maximum in-flight {@code readFully} upcalls across all files of this data source;
+     *     {@code <= 0} selects the default
+     */
+    public static native long openFiles(
+            long sessionPointer, Object[] readables, String[] names, long[] lengths, int readConcurrency);
+
     /** Free a data source pointer. */
     public static native void free(long pointer);
 
-    /** Export the data source's schema into the Arrow C Data Interface struct at {@code schemaAddress}. */
-    public static native void arrowSchema(long pointer, long schemaAddress);
+    /**
+     * Export the data source's schema into the Arrow C Data Interface struct at {@code schemaAddress}. Extension dtypes
+     * are dispatched through the session's registered Arrow export plugins.
+     *
+     * @param sessionPointer pointer from {@link NativeSession#newSession()}
+     */
+    public static native void arrowSchema(long sessionPointer, long pointer, long schemaAddress);
 
     /**
      * Populate {@code out} with {@code [rows, cardinality]}. Cardinality is one of {@code 0=unknown},

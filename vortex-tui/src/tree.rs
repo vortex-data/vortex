@@ -141,7 +141,7 @@ fn layout_to_json(layout: LayoutRef) -> VortexResult<LayoutTreeNode> {
 
     let children_json: Vec<LayoutTreeNodeWithName> = children
         .into_iter()
-        .zip(child_names.into_iter())
+        .zip(child_names)
         .map(|(child, name)| {
             let node = layout_to_json(child)?;
             Ok(LayoutTreeNodeWithName {
@@ -152,7 +152,7 @@ fn layout_to_json(layout: LayoutRef) -> VortexResult<LayoutTreeNode> {
         .collect::<VortexResult<Vec<_>>>()?;
 
     Ok(LayoutTreeNode {
-        encoding: layout.encoding().to_string(),
+        encoding: layout.encoding_id().to_string(),
         dtype: layout.dtype().to_string(),
         row_count: layout.row_count(),
         metadata_bytes: layout.metadata().len(),

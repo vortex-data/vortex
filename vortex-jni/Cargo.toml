@@ -18,8 +18,11 @@ categories = { workspace = true }
 
 [dependencies]
 arrow-array = { workspace = true, features = ["ffi"] }
+arrow-data = { workspace = true }
 arrow-schema = { workspace = true }
 async-fs = { workspace = true }
+async-lock = { workspace = true }
+async-trait = { workspace = true }
 futures = { workspace = true }
 jni = { workspace = true }
 object_store = { workspace = true, features = ["aws", "azure", "gcp"] }
@@ -30,13 +33,16 @@ tracing = { workspace = true, features = ["std", "log"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "files"] }
+vortex-arrow = { workspace = true }
+vortex-cloud = { workspace = true, features = ["hf", "opendal", "registry"] }
 vortex-parquet-variant = { workspace = true }
+vortex-spatial = { workspace = true }
 
 [dev-dependencies]
 jni = { workspace = true, features = ["invocation"] }
 
 [lib]
-crate-type = ["staticlib", "cdylib"]
+crate-type = ["cdylib"]
 
 [lints]
 workspace = true

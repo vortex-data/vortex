@@ -16,6 +16,8 @@ mod tests {
     use vortex_error::VortexError;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::DecimalArray;
     use crate::arrays::FixedSizeListArray;
@@ -171,6 +173,7 @@ mod tests {
             Arc::new([]),
             DType::Utf8(Nullability::NonNullable),
             Validity::NonNullable,
+            &mut array_session().create_execution_ctx(),
         );
         assert!(result.is_ok());
     }
@@ -190,6 +193,7 @@ mod tests {
             buffers,
             DType::Binary(Nullability::NonNullable),
             Validity::NonNullable,
+            &mut array_session().create_execution_ctx(),
         );
 
         assert!(matches!(result, Err(VortexError::InvalidArgument(_, _))));

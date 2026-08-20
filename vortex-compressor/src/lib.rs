@@ -19,7 +19,8 @@
 //! # Example
 //!
 //! A [`CascadingCompressor`] can be created directly with a fixed scheme list. With no schemes it
-//! still canonicalizes supported inputs and recursively handles nested structure, but no leaf
+//! still canonicalizes supported inputs, recursively handles nested structure, and encodes
+//! constant leaves (constant detection is built into the compressor), but no other leaf
 //! compression is selected.
 //!
 //! ```rust
@@ -62,13 +63,10 @@
 //! with a short `jq` query.
 
 pub mod builtins;
-pub mod ctx;
-pub mod estimate;
 pub mod scheme;
 pub mod stats;
 
-mod sample;
-
 mod compressor;
-mod trace;
 pub use compressor::CascadingCompressor;
+
+mod trace;

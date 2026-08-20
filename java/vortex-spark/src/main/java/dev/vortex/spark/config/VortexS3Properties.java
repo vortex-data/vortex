@@ -14,6 +14,7 @@ public final class VortexS3Properties {
     private static final String SESSION_TOKEN = "aws_session_token";
     private static final String REGION = "aws_region";
     private static final String ENDPOINT = "aws_endpoint";
+    private static final String ALLOW_HTTP = "aws_allow_http";
     private static final String SKIP_SIGNATURE = "aws_skip_signature";
 
     private final Map<String, String> properties = Maps.newHashMap();
@@ -60,6 +61,10 @@ public final class VortexS3Properties {
 
     public void setEndpoint(String endpoint) {
         properties.put(ENDPOINT, endpoint);
+    }
+
+    public void setAllowHttp(boolean allowHttp) {
+        properties.put(ALLOW_HTTP, Boolean.toString(allowHttp));
     }
 
     public void setSkipSignature(boolean skipSignature) {

@@ -7,6 +7,7 @@ use std::sync::LazyLock;
 
 use divan::Bencher;
 use itertools::repeat_n;
+use mimalloc::MiMalloc;
 use vortex_array::IntoArray;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
@@ -18,6 +19,12 @@ use vortex_buffer::Buffer;
 use vortex_runend::RunEnd;
 use vortex_runend::compress::runend_encode;
 use vortex_session::VortexSession;
+
+// `runend_encode` allocates its output buffers inside the timed region, so route allocation
+// through vendored mimalloc to keep glibc malloc (which varies across runner images) out of
+// the measured trace.
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();
@@ -33,15 +40,15 @@ const BENCH_ARGS: &[(usize, usize)] = &[
     (1000, 4),
     (1000, 16),
     (1000, 256),
+    (4_000, 4),
+    (4_000, 16),
+    (4_000, 256),
+    (4_000, 1024),
     (10_000, 4),
     (10_000, 16),
     (10_000, 256),
     (10_000, 1024),
-    (100_000, 4),
-    (100_000, 16),
-    (100_000, 256),
-    (100_000, 1024),
-    (100_000, 4096),
+    (10_000, 4096),
 ];
 
 #[divan::bench(args = BENCH_ARGS)]

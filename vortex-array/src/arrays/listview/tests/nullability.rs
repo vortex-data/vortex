@@ -13,6 +13,7 @@ use crate::arrays::BoolArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::listview::ListViewArrayExt;
+use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;

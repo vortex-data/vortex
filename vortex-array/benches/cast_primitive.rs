@@ -10,23 +10,27 @@ use rand::prelude::*;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::array_session;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::expr::stats::Stat;
 use vortex_session::VortexSession;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
 // Sizes used for the fallible-path benches below. Kept small enough to fit in L2 so
-// the kernel cost shows up clearly rather than being hidden by DRAM bandwidth.
-const SIZES: &[usize] = &[65_536];
+// the kernel cost shows up clearly rather than being hidden by DRAM bandwidth, and
+// to keep the CodSpeed simulation under 1ms per benchmark.
+const SIZES: &[usize] = &[8_192];
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 #[divan::bench(args = SIZES)]
 fn cast_u16_to_u32(bencher: Bencher, n: usize) {
@@ -83,5 +87,57 @@ fn cast_i32_to_u32(bencher: Bencher, n: usize) {
             a.cast(DType::Primitive(PType::U32, Nullability::Nullable))
                 .unwrap()
                 .execute::<Canonical>(ctx)
+        });
+}
+
+/// Integer-to-decimal cast at the largest precision that uses an i128 backing buffer. This
+/// exercises the common rescaling path without paying for i256 arithmetic per input value.
+#[divan::bench(args = SIZES)]
+fn cast_i64_to_decimal38_scale2(bencher: Bencher, n: usize) {
+    let arr =
+        PrimitiveArray::from_iter((0..n).map(|value| i64::try_from(value).unwrap())).into_array();
+    bencher
+        .with_inputs(|| (arr.clone(), SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| {
+            a.cast(DType::Decimal(
+                DecimalDType::new(38, 2),
+                Nullability::NonNullable,
+            ))
+            .unwrap()
+            .execute::<Canonical>(ctx)
+        });
+}
+
+/// Common integer-to-decimal cast that rescales directly in its i32 output buffer.
+#[divan::bench(args = SIZES)]
+fn cast_i32_to_decimal9_scale2(bencher: Bencher, n: usize) {
+    let arr =
+        PrimitiveArray::from_iter((0..n).map(|value| i32::try_from(value).unwrap())).into_array();
+    bencher
+        .with_inputs(|| (arr.clone(), SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| {
+            a.cast(DType::Decimal(
+                DecimalDType::new(9, 2),
+                Nullability::NonNullable,
+            ))
+            .unwrap()
+            .execute::<Canonical>(ctx)
+        });
+}
+
+/// Same-width scale-zero cast that validates then reuses the source values buffer.
+#[divan::bench(args = SIZES)]
+fn cast_i32_to_decimal9_scale0(bencher: Bencher, n: usize) {
+    let arr =
+        PrimitiveArray::from_iter((0..n).map(|value| i32::try_from(value).unwrap())).into_array();
+    bencher
+        .with_inputs(|| (arr.clone(), SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| {
+            a.cast(DType::Decimal(
+                DecimalDType::new(9, 0),
+                Nullability::NonNullable,
+            ))
+            .unwrap()
+            .execute::<Canonical>(ctx)
         });
 }

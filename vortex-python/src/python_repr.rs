@@ -80,6 +80,7 @@ impl Display for DTypePythonRepr<'_> {
                 size,
                 n.python_repr()
             ),
+            DType::Map(..) => write!(f, "{dtype}"),
             DType::Struct(st, n) => write!(
                 f,
                 "struct({{{}}}, nullable={})",

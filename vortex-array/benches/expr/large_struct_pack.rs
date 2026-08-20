@@ -17,7 +17,7 @@ fn main() {
     divan::main();
 }
 
-#[divan::bench(args = [100, 500, 1000, 2000])]
+#[divan::bench(args = [100, 200, 350, 500])]
 fn pack_return_dtype(bencher: Bencher, num_fields: usize) {
     // struct with many columns
     let field_names: Vec<FieldName> = (0..num_fields)

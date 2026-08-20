@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use async_fs::OpenOptions;
 use futures::SinkExt;
 use futures::TryStreamExt;
 use futures::channel::mpsc;
 use futures::channel::mpsc::Sender;
+use object_store::ObjectStore;
+use object_store::registry::ObjectStoreRegistry;
 use parking_lot::Mutex;
 use static_assertions::assert_impl_all;
 use vortex::array::ArrayRef;
@@ -17,14 +21,20 @@ use vortex::dtype::Nullability::Nullable;
 use vortex::dtype::StructFields;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteSummary;
+use vortex::file::multi::parse_uri_or_path;
+use vortex::io::VortexWrite;
+use vortex::io::compat::Compat;
+use vortex::io::object_store::ObjectStoreWrite;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::Task;
 use vortex::io::runtime::current::CurrentThreadWorkerPool;
 use vortex::io::session::RuntimeSessionExt;
 
+use crate::REGISTRY;
 use crate::RUNTIME;
 use crate::SESSION;
 use crate::convert::FromLogicalType;
@@ -88,10 +98,22 @@ pub fn copy_to_sink(
         .as_ref()
         .ok_or_else(|| vortex_err!("sink closed early"))?
         .clone();
-    RUNTIME
-        .block_on(sink.send(chunk))
-        .map_err(|e| vortex_err!("send error {e}"))?;
-    Ok(())
+    RUNTIME.block_on(async {
+        // sink.send may error with "receiver is gone" which isn't the
+        // real error
+        if sink.send(chunk).await.is_ok() {
+            return Ok(());
+        }
+        let task;
+        {
+            task = init_global.write_task.lock().take();
+        }
+        if let Some(task) = task {
+            // we can get the real error (i.e invalid path) from here
+            task.await?;
+        }
+        vortex_bail!("Writer stopped before all data was written")
+    })
 }
 
 pub fn copy_to_finalize(init_global: &mut CopyFunctionGlobal) -> VortexResult<()> {
@@ -119,15 +141,35 @@ pub fn copy_to_initialize_global(
 
     let handle = SESSION.handle();
 
-    let write_task = handle.spawn(async move {
-        let writer = OpenOptions::new()
-            .write(true)
-            .truncate(true)
-            .create(true)
-            .open(file_path)
-            .await?;
-        SESSION.write_options().write(writer, array_stream).await
-    });
+    let url = parse_uri_or_path(&file_path)?;
+    let write_task = if url.scheme() == "file" {
+        handle.spawn(async move {
+            let mut writer = OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .create(true)
+                .open(file_path)
+                .await?;
+            let summary = SESSION
+                .write_options()
+                .write(&mut writer, array_stream)
+                .await?;
+            writer.shutdown().await?;
+            Ok(summary)
+        })
+    } else {
+        let (object_store, path) = REGISTRY.resolve(&url)?;
+        let object_store = Arc::new(Compat::new(object_store)) as Arc<dyn ObjectStore>;
+        handle.spawn(async move {
+            let mut writer = ObjectStoreWrite::new(object_store, &path).await?;
+            let summary = SESSION
+                .write_options()
+                .write(&mut writer, array_stream)
+                .await?;
+            writer.shutdown().await?;
+            Ok(summary)
+        })
+    };
 
     let worker_pool = RUNTIME.new_pool();
     worker_pool.set_workers_to_available_parallelism();

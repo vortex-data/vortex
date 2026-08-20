@@ -15,9 +15,7 @@
 
 #[cfg(feature = "arbitrary")]
 mod arbitrary;
-pub mod arrow;
 mod bigint;
-mod coercion;
 mod decimal;
 mod dtype_impl;
 pub mod extension;
@@ -25,12 +23,14 @@ mod f16;
 mod field;
 mod field_mask;
 mod field_names;
+mod map;
 mod native_dtype;
 mod nullability;
 mod ptype;
 pub mod serde;
 pub mod session;
 mod struct_;
+mod union;
 
 use std::sync::Arc;
 
@@ -102,6 +102,12 @@ pub enum DType {
     /// well as a `u32` size that determines the fixed length of each `FixedSizeList` scalar.
     FixedSizeList(Arc<DType>, u32, Nullability),
 
+    /// A logical map type.
+    ///
+    /// Map keys are non-nullable, values may be nullable, and [`MapDType`] stores Arrow's
+    /// `keys_sorted` assertion.
+    Map(MapDType, Nullability),
+
     /// A logical struct type.
     ///
     /// A `Struct` type is composed of an ordered list of fields, each with a corresponding name and
@@ -110,11 +116,14 @@ pub enum DType {
 
     /// A logical union (sum) type.
     ///
-    /// `Union` is reserved for values that are drawn from one of several possible child domains.
-    /// The exact child-type metadata and canonical storage are not yet part of the stable public
-    /// Rust API, so most callers should prefer [`DType::Variant`] for dynamically typed values or
-    /// [`DType::Struct`] for fixed schemas.
-    Union(Nullability),
+    /// A `Union` is composed of one or more **variants**, each with a name and a `DType`. A per-row
+    /// `u8` tag selects which variant is "live" at that row.
+    ///
+    /// A union has independent outer nullability in addition to the nullability of each variant.
+    /// This distinguishes a null union from a non-null union whose selected child is null.
+    ///
+    /// See [`UnionVariants`] for the type-tag conventions and accessors.
+    Union(UnionVariants, Nullability),
 
     /// Dynamically typed values stored as Vortex scalars.
     ///
@@ -144,9 +153,11 @@ impl PartialEq for DType {
             (Self::FixedSizeList(da, sa, na), Self::FixedSizeList(db, sb, nb)) => {
                 sa == sb && na == nb && (Arc::ptr_eq(da, db) || da == db)
             }
+            (Self::Map(ma, na), Self::Map(mb, nb)) => na == nb && ma == mb,
             // StructFields handles its own Arc::ptr_eq in its PartialEq impl.
             (Self::Struct(a, na), Self::Struct(b, nb)) => na == nb && a == b,
-            (Self::Union(a), Self::Union(b)) => a == b,
+            // UnionVariants handles its own Arc::ptr_eq in its PartialEq impl.
+            (Self::Union(a, na), Self::Union(b, nb)) => na == nb && a == b,
             (Self::Variant(a), Self::Variant(b)) => a == b,
             (Self::Extension(a), Self::Extension(b)) => a == b,
             // Every variant is listed in the first position so that adding a new
@@ -159,6 +170,7 @@ impl PartialEq for DType {
             | (Self::Binary(_), _)
             | (Self::List(..), _)
             | (Self::FixedSizeList(..), _)
+            | (Self::Map(..), _)
             | (Self::Struct(..), _)
             | (Self::Union(..), _)
             | (Self::Variant(_), _)
@@ -175,9 +187,11 @@ pub use field::*;
 pub use field_mask::*;
 pub use field_names::*;
 pub use half;
+pub use map::*;
 pub use nullability::*;
 pub use ptype::*;
 pub use struct_::*;
+pub use union::*;
 
 use crate::dtype::extension::ExtDTypeRef;
 

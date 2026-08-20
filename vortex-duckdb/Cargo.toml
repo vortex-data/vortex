@@ -25,7 +25,6 @@ crate-type = ["rlib"]
 
 [dependencies]
 async-fs = { workspace = true }
-async-trait = { workspace = true }
 bitvec = { workspace = true }
 custom-labels = { workspace = true }
 futures = { workspace = true }
@@ -39,12 +38,22 @@ static_assertions = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
-vortex = { workspace = true, features = ["files", "tokio", "object_store"] }
-vortex-geo = { workspace = true }
+vortex = { workspace = true, features = [
+    "files",
+    "hf",
+    "tokio",
+    "object_store",
+    "object_store_registry",
+] }
+vortex-spatial = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }
+
+[features]
+opendal = ["vortex/opendal"]
 
 [dev-dependencies]
 anyhow = { workspace = true }
+divan = { workspace = true }
 geo-types = { workspace = true }
 jiff = { workspace = true }
 rstest = { workspace = true }
@@ -53,6 +62,10 @@ vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-runend = { workspace = true }
 vortex-sequence = { workspace = true }
 wkb = { workspace = true }
+
+[[bench]]
+name = "bool_export"
+harness = false
 
 [lints]
 workspace = true

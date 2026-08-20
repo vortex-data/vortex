@@ -15,9 +15,11 @@ mod vtable;
 
 use std::ops::Range;
 
-pub use array::SliceArrayExt;
+pub use array::SliceArraySlotsExt;
 pub use array::SliceData;
 pub use array::SliceDataParts;
+pub use array::SliceSlots;
+pub use array::SliceSlotsView;
 use vortex_error::VortexResult;
 pub use vtable::*;
 
@@ -64,10 +66,14 @@ pub trait SliceKernel: VTable {
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
-fn precondition<V: VTable>(array: ArrayView<'_, V>, range: &Range<usize>) -> Option<ArrayRef> {
+/// Short-circuits slice for the ranges that need no encoding-specific work.
+///
+/// Returns `Some(result)` when the answer is already known, or `None` when the slice must proceed
+/// normally.
+fn short_circuit<V: VTable>(array: ArrayView<'_, V>, range: &Range<usize>) -> Option<ArrayRef> {
     if range.start == 0 && range.end == array.len() {
         return Some(array.array().clone());
-    };
+    }
     if range.start == range.end {
         return Some(Canonical::empty(array.dtype()).into_array());
     }
@@ -91,7 +97,7 @@ where
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         assert_eq!(child_idx, 0);
-        if let Some(result) = precondition::<V>(array, &parent.range) {
+        if let Some(result) = short_circuit::<V>(array, &parent.range) {
             return Ok(Some(result));
         }
         <V as SliceReduce>::slice(array, parent.range.clone())
@@ -116,7 +122,7 @@ where
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         assert_eq!(child_idx, 0);
-        if let Some(result) = precondition::<V>(array, &parent.range) {
+        if let Some(result) = short_circuit::<V>(array, &parent.range) {
             return Ok(Some(result));
         }
         <V as SliceKernel>::slice(array, parent.range.clone(), ctx)

@@ -18,14 +18,15 @@ workspace = true
 [[bin]]
 name = "vortex-compat"
 path = "src/main.rs"
+test = false
 
 [dependencies]
 # Vortex crates
 vortex = { workspace = true, features = ["files", "tokio", "zstd"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-arrow = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
-vortex-fsst = { workspace = true, features = ["_test-harness"] }
 vortex-session = { workspace = true }
 
 # TPC-H generation

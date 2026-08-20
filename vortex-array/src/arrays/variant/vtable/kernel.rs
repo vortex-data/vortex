@@ -18,9 +18,8 @@ use crate::arrays::Variant;
 use crate::arrays::VariantArray;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
-use crate::arrays::scalar_fn::ScalarFnFactoryExt;
 use crate::arrays::struct_::StructArrayExt;
-use crate::arrays::variant::VariantArrayExt;
+use crate::arrays::variant::VariantArraySlotsExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -33,9 +32,8 @@ use crate::scalar_fn::fns::variant_get::VariantPath;
 use crate::scalar_fn::fns::variant_get::VariantPathElement;
 
 pub(crate) fn initialize(session: &VortexSession) {
-    session
-        .kernels()
-        .register_execute_parent_kernel(VariantGet.id(), Variant, VariantGetKernel);
+    let kernels = session.kernels();
+    kernels.register_execute_parent_kernel(VariantGet.id(), Variant, VariantGetKernel);
 }
 
 #[derive(Default, Debug)]
@@ -61,12 +59,7 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
         // perfectly represented by the canonical shredded tree.
         let core_validity = array.core_storage().validity()?;
         let make_fallback = |ctx: &mut ExecutionCtx| {
-            execute_fallback_variant_get(
-                array.len(),
-                parent.options.clone(),
-                array.core_storage().clone(),
-                ctx,
-            )
+            execute_fallback_variant_get(parent.options.clone(), array.core_storage().clone(), ctx)
         };
 
         // Canonical shredded storage is a logical typed tree. We can only walk object
@@ -96,7 +89,6 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
                 .is_some_and(|dtype| !dtype.is_variant())
         {
             return execute_fallback_variant_get(
-                array.len(),
                 VariantGetOptions::new(VariantPath::root(), parent.options.dtype().cloned()),
                 typed,
                 ctx,
@@ -203,12 +195,11 @@ fn merge_typed_as_variant(
 }
 
 fn execute_fallback_variant_get(
-    len: usize,
     options: VariantGetOptions,
     core_storage: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    VariantGet
-        .try_new_array(len, options, [core_storage])?
+    VariantGet::try_new(core_storage, options)?
+        .into_array()
         .execute::<ArrayRef>(ctx)
 }

@@ -3,19 +3,17 @@
 
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
-use std::sync::atomic::Ordering;
 
 use async_stream::try_stream;
 use async_trait::async_trait;
 use futures::StreamExt as _;
 use futures::pin_mut;
-use vortex_array::ArrayContext;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::LayoutWriterContext;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
@@ -26,7 +24,6 @@ use crate::sequence::SequentialStreamExt as _;
 pub struct BufferedStrategy {
     child: Arc<dyn LayoutStrategy>,
     buffer_size: u64,
-    buffered_bytes: Arc<AtomicU64>,
 }
 
 impl BufferedStrategy {
@@ -34,7 +31,6 @@ impl BufferedStrategy {
         Self {
             child: Arc::new(child),
             buffer_size,
-            buffered_bytes: Arc::new(AtomicU64::new(0)),
         }
     }
 }
@@ -43,7 +39,7 @@ impl BufferedStrategy {
 impl LayoutStrategy for BufferedStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         eof: SequencePointer,
@@ -51,8 +47,8 @@ impl LayoutStrategy for BufferedStrategy {
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let buffer_size = self.buffer_size;
+        let buffered_bytes = ctx.buffered_bytes_tracker().clone();
 
-        let buffered_bytes_counter = Arc::clone(&self.buffered_bytes);
         let buffered_stream = try_stream! {
             let stream = stream.peekable();
             pin_mut!(stream);
@@ -64,14 +60,13 @@ impl LayoutStrategy for BufferedStrategy {
                 let (sequence_id, chunk) = chunk?;
                 let chunk_size = chunk.nbytes();
                 nbytes += chunk_size;
-                buffered_bytes_counter.fetch_add(chunk_size, Ordering::Relaxed);
-                chunks.push_back(chunk);
+                chunks.push_back((chunk, buffered_bytes.reserve(chunk_size)));
 
                 // If this is the last element, flush everything.
                 if stream.as_mut().peek().await.is_none() {
                     let mut sequence_ptr = sequence_id.descend();
-                    while let Some(chunk) = chunks.pop_front() {
-                        buffered_bytes_counter.fetch_sub(chunk.nbytes(), Ordering::Relaxed);
+                    while let Some((chunk, reservation)) = chunks.pop_front() {
+                        drop(reservation);
                         yield (sequence_ptr.advance(), chunk)
                     }
                     break;
@@ -85,12 +80,11 @@ impl LayoutStrategy for BufferedStrategy {
                 // This avoids small tail stragglers being flushed at the end of the file.
                 let mut sequence_ptr = sequence_id.descend();
                 while nbytes > buffer_size {
-                    let Some(chunk) = chunks.pop_front() else {
+                    let Some((chunk, reservation)) = chunks.pop_front() else {
                         break;
                     };
-                    let chunk_size = chunk.nbytes();
-                    nbytes -= chunk_size;
-                    buffered_bytes_counter.fetch_sub(chunk_size, Ordering::Relaxed);
+                    nbytes -= reservation.bytes();
+                    drop(reservation);
                     yield (sequence_ptr.advance(), chunk)
                 }
             }
@@ -105,9 +99,5 @@ impl LayoutStrategy for BufferedStrategy {
                 session,
             )
             .await
-    }
-
-    fn buffered_bytes(&self) -> u64 {
-        self.buffered_bytes.load(Ordering::Relaxed) + self.child.buffered_bytes()
     }
 }

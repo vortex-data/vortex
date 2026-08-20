@@ -63,14 +63,17 @@ async fn execute_typed<T: NativePType + DeviceRepr>(
     nullability: Nullability,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical> {
-    let buffer = ctx.device_alloc::<T>(len)?;
+    let mut buffer = ctx.device_alloc::<T>(len)?;
 
     let len_u64 = len as u64;
 
     let kernel_func = ctx.load_function("sequence", &[T::PTYPE])?;
 
     ctx.launch_kernel(&kernel_func, len, |args| {
-        args.arg(&buffer).arg(&base).arg(&multiplier).arg(&len_u64);
+        args.arg(&mut buffer)
+            .arg(&base)
+            .arg(&multiplier)
+            .arg(&len_u64);
     })?;
 
     let output_buf = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(buffer)));

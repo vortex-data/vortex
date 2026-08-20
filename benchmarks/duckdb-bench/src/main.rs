@@ -26,6 +26,12 @@ use vortex_bench::runner::filter_queries;
 use vortex_bench::setup_logging_and_tracing;
 use vortex_bench::v3;
 
+const S3_HTTP_INIT_SQL: [&str; 3] = [
+    "SET http_retries = 8",
+    "SET http_retry_wait_ms = 250",
+    "SET http_retry_backoff = 2",
+];
+
 /// Common arguments shared across benchmarks
 #[derive(Parser)]
 struct Args {
@@ -59,10 +65,9 @@ struct Args {
     #[arg(short)]
     output_path: Option<PathBuf>,
 
-    /// Additionally write v3 JSONL records to this path. See
-    /// `benchmarks-website/planning/02-contracts.md`.
-    #[arg(long)]
-    gh_json_v3: Option<PathBuf>,
+    /// Additionally write benchmark ingest JSONL records to this path.
+    #[arg(long = "ingest-jsonl")]
+    ingest_output: Option<PathBuf>,
 
     #[arg(long, default_value_t = false)]
     track_memory: bool,
@@ -142,6 +147,7 @@ fn main() -> anyhow::Result<()> {
                     // OnDiskDuckDB tables are created during register_tables by loading from Parquet
                     _ => {}
                 }
+                benchmark.prepare_format(format, &base_path).await?;
             }
 
             anyhow::Ok(())
@@ -158,6 +164,11 @@ fn main() -> anyhow::Result<()> {
     )?;
 
     let benchmark_name = benchmark.dataset().to_string();
+    let mut duckdb_init_sql = Vec::new();
+    if benchmark.data_url().scheme() == "s3" {
+        duckdb_init_sql.extend(S3_HTTP_INIT_SQL.map(String::from));
+    }
+    duckdb_init_sql.extend(benchmark.engine_init_sql(Engine::DuckDB));
 
     let mode = if args.explain {
         BenchmarkMode::Explain
@@ -171,12 +182,13 @@ fn main() -> anyhow::Result<()> {
         &filtered_queries,
         mode,
         |format| {
-            let ctx = DuckClient::new(
+            let mut ctx = DuckClient::new(
                 &*benchmark,
                 format,
                 args.delete_duckdb_database,
                 args.threads,
             )?;
+            ctx.set_init_sql(duckdb_init_sql.clone())?;
             ctx.register_tables(&*benchmark, format)?;
 
             // Duckdb doesn't support octet_length for strings but we need this
@@ -187,6 +199,7 @@ fn main() -> anyhow::Result<()> {
         },
         |ctx, query_idx, format, query| {
             set_global_labels(vec![
+                ("engine", "duckdb".to_string()),
                 ("format", format.to_string()),
                 ("benchmark_name", benchmark_name.clone()),
                 ("query_idx", query_idx.to_string()),
@@ -201,7 +214,7 @@ fn main() -> anyhow::Result<()> {
     )?;
 
     if !args.explain {
-        if let Some(path) = args.gh_json_v3.as_ref() {
+        if let Some(path) = args.ingest_output.as_ref() {
             v3::write_jsonl_to_path(path, &runner.v3_records())?;
         }
 

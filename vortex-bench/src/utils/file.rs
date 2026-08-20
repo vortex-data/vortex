@@ -56,8 +56,12 @@ pub trait IdempotentPath {
     fn to_data_path(&self) -> PathBuf;
 }
 
+pub fn bench_dir() -> PathBuf {
+    workspace_root().join("vortex-bench")
+}
+
 pub fn data_dir() -> PathBuf {
-    workspace_root().join("vortex-bench").join("data")
+    bench_dir().join("data")
 }
 
 /// Find the workspace's root by looking for Cargo's lock file
@@ -126,7 +130,7 @@ pub fn resolve_data_url(remote_data_dir: Option<&str>, local_subdir: &str) -> Re
         None => {
             let data_dir = data_dir().join(local_subdir);
             Url::from_directory_path(&data_dir).map_err(|_| {
-                anyhow::anyhow!("Failed to create URL from directory path: {:?}", &data_dir)
+                anyhow::anyhow!("Failed to create URL from directory path: {:?}", data_dir)
             })
         }
         Some(remote_data_dir) => {
@@ -161,11 +165,13 @@ pub fn resolve_data_url(remote_data_dir: Option<&str>, local_subdir: &str) -> Re
 /// - A storage type string ("s3", "nvme")
 /// - Or an error if the scheme is unknown
 pub fn url_scheme_to_storage(url: &Url) -> Result<String> {
+    use super::constants::STORAGE_GCS;
     use super::constants::STORAGE_NVME;
     use super::constants::STORAGE_S3;
 
     match url.scheme() {
         STORAGE_S3 => Ok(STORAGE_S3.to_owned()),
+        "gs" => Ok(STORAGE_GCS.to_owned()),
         "file" => Ok(STORAGE_NVME.to_owned()),
         otherwise => {
             bail!("unknown URL scheme: {}", otherwise)

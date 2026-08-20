@@ -10,8 +10,10 @@ use vortex_session::VortexSession;
 
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
+use crate::dtype::MapDType;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
+use crate::dtype::UnionVariants;
 use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ForeignExtDType;
 use crate::dtype::field::Field;
@@ -76,6 +78,26 @@ impl DType {
                     nullable,
                 ))
             }
+            DtypeType::Map(map) => Ok(Self::Map(
+                MapDType::try_new(
+                    DType::from_proto(
+                        map.key_type
+                            .as_ref()
+                            .ok_or_else(|| vortex_err!(Serde: "Invalid map key type"))?
+                            .as_ref(),
+                        session,
+                    )?,
+                    DType::from_proto(
+                        map.value_type
+                            .as_ref()
+                            .ok_or_else(|| vortex_err!(Serde: "Invalid map value type"))?
+                            .as_ref(),
+                        session,
+                    )?,
+                    map.keys_sorted,
+                )?,
+                map.nullable.into(),
+            )),
             DtypeType::Struct(s) => Ok(Self::Struct(
                 StructFields::new(
                     s.names.iter().map(|s| s.as_str()).collect(),
@@ -86,9 +108,28 @@ impl DType {
                 ),
                 s.nullable.into(),
             )),
-            DtypeType::Union(u) => Ok(Self::Union(u.nullable.into())),
+            DtypeType::Union(u) => {
+                let names = u.names.iter().map(|s| s.as_str()).collect();
+                let dtypes = u
+                    .dtypes
+                    .iter()
+                    .map(|dt| DType::from_proto(dt, session))
+                    .collect::<VortexResult<Vec<_>>>()?;
+                let type_ids = u
+                    .type_ids
+                    .iter()
+                    .map(|t| {
+                        u8::try_from(*t).map_err(|_| {
+                            vortex_err!("Union type_id {t} somehow does not fit in u8")
+                        })
+                    })
+                    .collect::<VortexResult<Vec<_>>>()?;
+                let variants = UnionVariants::try_new(names, dtypes, type_ids)?;
+                Ok(Self::Union(variants, u.nullable.into()))
+            }
             DtypeType::Variant(v) => Ok(Self::Variant(v.nullable.into())),
             DtypeType::Extension(e) => {
+                #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
                 let id = ExtId::new(e.id.as_str());
                 let storage_dtype = DType::from_proto(
                     e.storage_dtype
@@ -96,7 +137,7 @@ impl DType {
                         .ok_or_else(|| vortex_err!("Extension DType missing storage proto"))?,
                     session,
                 )?;
-                let ext_dtype = if let Some(vtable) = session.dtypes().registry().find(&id) {
+                let ext_dtype = if let Some(vtable) = session.dtypes().registry().get(&id) {
                     vtable.deserialize(e.metadata(), storage_dtype)?
                 } else if session.allows_unknown() {
                     ForeignExtDType::from_parts(id, e.metadata().to_vec(), storage_dtype)?
@@ -145,6 +186,16 @@ impl TryFrom<&DType> for pb::DType {
                         nullable: (*null).into(),
                     }))
                 }
+                DType::Map(map, null) => {
+                    let key_dtype = map.key_dtype();
+                    let value_dtype = map.value_dtype();
+                    DtypeType::Map(Box::new(pb::Map {
+                        key_type: Some(Box::new(Self::try_from(&key_dtype)?)),
+                        value_type: Some(Box::new(Self::try_from(&value_dtype)?)),
+                        keys_sorted: map.keys_sorted(),
+                        nullable: (*null).into(),
+                    }))
+                }
                 DType::Struct(s, null) => DtypeType::Struct(pb::Struct {
                     names: s.names().iter().map(|s| s.as_ref().to_string()).collect(),
                     dtypes: s
@@ -153,7 +204,13 @@ impl TryFrom<&DType> for pb::DType {
                         .collect::<VortexResult<Vec<_>>>()?,
                     nullable: (*null).into(),
                 }),
-                DType::Union(null) => DtypeType::Union(pb::Union {
+                DType::Union(uv, null) => DtypeType::Union(pb::Union {
+                    names: uv.names().iter().map(|n| n.as_ref().to_string()).collect(),
+                    dtypes: uv
+                        .variants()
+                        .map(|d| Self::try_from(&d))
+                        .collect::<VortexResult<Vec<_>>>()?,
+                    type_ids: uv.type_ids().iter().map(|t| *t as i32).collect(),
                     nullable: (*null).into(),
                 }),
                 DType::Variant(null) => DtypeType::Variant(pb::Variant {
@@ -230,6 +287,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+    use crate::array_session;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
     use crate::dtype::Field;
@@ -237,6 +295,7 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
+    use crate::dtype::UnionVariants;
     use crate::dtype::proto::dtype::d_type::DtypeType;
     use crate::dtype::proto::dtype::field::FieldType;
     use crate::dtype::test::SESSION;
@@ -366,6 +425,27 @@ mod tests {
     }
 
     #[test]
+    fn test_nested_map_round_trip() {
+        let inner_map = DType::map(
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            DType::Utf8(Nullability::Nullable),
+            true,
+            Nullability::NonNullable,
+        )
+        .unwrap();
+        let map = DType::map(
+            inner_map,
+            DType::Utf8(Nullability::Nullable),
+            false,
+            Nullability::Nullable,
+        )
+        .unwrap();
+        let dtype = DType::struct_([("map", map)], Nullability::NonNullable);
+
+        assert_eq!(round_trip_dtype(&dtype), dtype);
+    }
+
+    #[test]
     fn test_extension_round_trip() {
         let ext_dtype =
             DType::Extension(Timestamp::new(TimeUnit::Days, Nullability::Nullable).erased());
@@ -377,6 +457,118 @@ mod tests {
     fn test_variant_round_trip() {
         let converted = round_trip_dtype(&DType::Variant(Nullability::Nullable));
         assert_eq!(DType::Variant(Nullability::Nullable), converted);
+    }
+
+    #[test]
+    fn test_union_round_trip_proto() {
+        let variants = UnionVariants::new(
+            ["int", "str"].into(),
+            vec![
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+                DType::Utf8(Nullability::NonNullable),
+            ],
+        )
+        .unwrap();
+        let dtype = DType::Union(variants, Nullability::NonNullable);
+        let converted = round_trip_dtype(&dtype);
+        assert_eq!(dtype, converted);
+    }
+
+    #[test]
+    fn test_union_round_trip_proto_with_inner_and_outer_nullability() {
+        let variants = UnionVariants::new(
+            ["null_variant", "str"].into(),
+            vec![DType::Null, DType::Utf8(Nullability::NonNullable)],
+        )
+        .unwrap();
+
+        let dtype = DType::Union(variants, Nullability::Nullable);
+        let converted = round_trip_dtype(&dtype);
+        assert_eq!(dtype, converted);
+    }
+
+    #[test]
+    fn test_union_round_trip_proto_with_type_id_indirection() {
+        let variants = UnionVariants::try_new(
+            ["a", "b", "c"].into(),
+            vec![
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+                DType::Utf8(Nullability::NonNullable),
+                DType::Bool(Nullability::NonNullable),
+            ],
+            vec![0, 5, 7],
+        )
+        .unwrap();
+
+        let dtype = DType::Union(variants, Nullability::Nullable);
+        let converted = round_trip_dtype(&dtype);
+        assert_eq!(dtype, converted);
+
+        let DType::Union(uv, _) = &converted else {
+            panic!("Expected Union");
+        };
+        assert_eq!(uv.type_ids(), &[0, 5, 7]);
+        assert!(!uv.is_consecutive());
+    }
+
+    #[test]
+    fn test_union_proto_rejects_out_of_range_type_id() {
+        let proto = pb::DType {
+            dtype_type: Some(DtypeType::Union(pb::Union {
+                names: vec!["a".to_string()],
+                dtypes: vec![
+                    pb::DType::try_from(&DType::Primitive(PType::I32, Nullability::NonNullable))
+                        .unwrap(),
+                ],
+                // 256 does not fit in u8.
+                type_ids: vec![256],
+                nullable: false,
+            })),
+        };
+
+        let result = DType::from_proto(&proto, &SESSION);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("does not fit in u8")
+        );
+    }
+
+    #[test]
+    fn test_nested_union_round_trip_proto() {
+        let inner_union = DType::Union(
+            UnionVariants::new(
+                ["a", "b"].into(),
+                vec![
+                    DType::Primitive(PType::I32, Nullability::NonNullable),
+                    DType::Utf8(Nullability::NonNullable),
+                ],
+            )
+            .unwrap(),
+            Nullability::NonNullable,
+        );
+
+        let struct_with_union = DType::Struct(
+            StructFields::from_iter([
+                ("id", DType::Primitive(PType::I64, Nullability::NonNullable)),
+                ("inner", inner_union),
+            ]),
+            Nullability::NonNullable,
+        );
+
+        let outer_union = DType::Union(
+            UnionVariants::new(
+                ["plain", "nested"].into(),
+                vec![DType::Utf8(Nullability::NonNullable), struct_with_union],
+            )
+            .unwrap(),
+            Nullability::Nullable,
+        );
+
+        let converted = round_trip_dtype(&outer_union);
+        assert_eq!(outer_union, converted);
     }
 
     #[test]
@@ -501,7 +693,8 @@ mod tests {
 
     #[test]
     fn test_unknown_extension_allow_unknown() {
-        let session = crate::array_session().allow_unknown();
+        let session = array_session();
+        session.allow_unknown();
         let proto = pb::DType {
             dtype_type: Some(DtypeType::Extension(Box::new(pb::Extension {
                 id: "vortex.test.foreign_ext".to_string(),

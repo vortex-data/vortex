@@ -1,0 +1,44 @@
+# Runs SQL benchmarks once for a pull request.
+# Called from pr-bench-dispatch.yml when SQL benchmark labels are added.
+
+name: PR SQL Benchmarks
+
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{ inputs.matrix_preset || 'pr' }}-${{
+      github.head_ref || github.run_id
+    }}
+  cancel-in-progress: true
+
+on:
+  workflow_call:
+    inputs:
+      matrix_preset:
+        required: false
+        type: string
+        default: "pr"
+  workflow_dispatch:
+    inputs:
+      matrix_preset:
+        description: "SQL benchmark matrix to run"
+        required: false
+        type: choice
+        default: "pr"
+        options:
+          - "pr"
+          - "pr-compact"
+          - "pr-all"
+          - "pr-full"
+
+permissions:
+  contents: read
+  pull-requests: write  # for commenting on PRs
+  id-token: write  # enables AWS-GitHub OIDC
+
+jobs:
+  sql:
+    uses: ./.github/workflows/sql-bench-matrix.yml
+    secrets: inherit
+    with:
+      mode: "pr"
+      matrix_preset: ${{ inputs.matrix_preset }}

@@ -10,18 +10,23 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
-use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::slice::SliceReduce;
+use crate::buffer::BufferHandle;
 
 impl SliceReduce for Bool {
     fn slice(array: ArrayView<'_, Bool>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let bit_buffer = array.to_bit_buffer().slice(range.clone());
+        let (byte_start, meta) = array.meta.slice(range.clone());
+        let byte_end = byte_start + meta.byte_len();
+
+        let bits = if let Some(host) = array.bits.as_host_opt() {
+            BufferHandle::new_host(host.slice_unaligned(byte_start..byte_end))
+        } else {
+            array.bits.slice(byte_start..byte_end)
+        };
         let validity = array.validity()?.slice(range)?;
 
-        // Safety:
-        // range is verified in the callers and is the same for both bits and validity.
-        let array = unsafe { BoolArray::new_unchecked(bit_buffer, validity).into_array() };
+        let array = BoolArray::try_new_from_handle(bits, meta.offset(), meta.len(), validity)?;
 
-        Ok(Some(array))
+        Ok(Some(array.into_array()))
     }
 }

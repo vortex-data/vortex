@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
 use std::fmt::Formatter;
 
+use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -11,20 +13,31 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::ScalarFnArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
-use crate::expr::Expression;
+use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::ScalarFnVTableExt;
 use crate::validity::Validity;
 
 /// Expression that checks for non-null values.
 #[derive(Clone)]
 pub struct IsNotNull;
+
+impl IsNotNull {
+    /// Creates a lazy non-null check over `input`.
+    #[expect(clippy::new_ret_no_self, reason = "constructs the lazy result array")]
+    pub fn new(input: ArrayRef) -> ScalarFnArray {
+        ScalarFnArray::try_new(IsNotNull.bind(EmptyOptions), vec![input])
+            .vortex_expect("IsNotNull has one child and an infallible return dtype")
+    }
+}
 
 impl ScalarFnVTable for IsNotNull {
     type Options = EmptyOptions;
@@ -60,11 +73,11 @@ impl ScalarFnVTable for IsNotNull {
     fn fmt_sql(
         &self,
         _options: &Self::Options,
-        expr: &Expression,
+        expr: &dyn ExprDisplay,
         f: &mut Formatter<'_>,
     ) -> std::fmt::Result {
         write!(f, "is_not_null(")?;
-        expr.child(0).fmt_sql(f)?;
+        Display::fmt(expr.display_child(0), f)?;
         write!(f, ")")
     }
 
@@ -88,8 +101,9 @@ impl ScalarFnVTable for IsNotNull {
         }
     }
 
-    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
-        true
+    fn is_strict(&self, _instance: &Self::Options) -> bool {
+        // Null input produces the non-null boolean value `false`.
+        false
     }
 
     fn is_fallible(&self, _instance: &Self::Options) -> bool {
@@ -244,20 +258,28 @@ mod tests {
     }
 
     #[test]
-    fn test_is_not_null_sensitive() {
-        assert!(is_not_null(col("a")).signature().is_null_sensitive());
+    fn test_is_not_null_is_not_strict() {
+        assert!(
+            !is_not_null(col("a"))
+                .as_scalar()
+                .is_some_and(|f| f.signature().is_strict())
+        );
     }
 
     #[test]
     fn test_is_not_null_falsification() -> VortexResult<()> {
         let expr = is_not_null(col("a"));
+        let dtype = test_harness::struct_dtype();
 
         assert_eq!(
-            expr.falsify(&test_harness::struct_dtype(), &STATS_SESSION)?,
-            Some(or(
-                eq(null_count(col("a")), RowCount.new_expr(EmptyOptions, []),),
-                all_null(col("a")),
-            ))
+            expr.bind(&dtype)?.falsify(&STATS_SESSION)?,
+            Some(
+                or(
+                    eq(null_count(col("a")), RowCount.new_expr(EmptyOptions, []),),
+                    all_null(col("a")),
+                )
+                .bind(&dtype)?
+            )
         );
         Ok(())
     }

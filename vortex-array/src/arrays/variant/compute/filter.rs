@@ -10,7 +10,7 @@ use crate::array::ArrayView;
 use crate::arrays::Variant;
 use crate::arrays::VariantArray;
 use crate::arrays::filter::FilterReduce;
-use crate::arrays::variant::VariantArrayExt;
+use crate::arrays::variant::VariantArraySlotsExt;
 
 impl FilterReduce for Variant {
     fn filter(array: ArrayView<'_, Variant>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {

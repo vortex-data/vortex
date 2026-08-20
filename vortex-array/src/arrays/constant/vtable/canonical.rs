@@ -20,9 +20,11 @@ use crate::arrays::DecimalArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListViewArray;
+use crate::arrays::MapArray;
 use crate::arrays::NullArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
+use crate::arrays::UnionArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VariantArray;
 use crate::arrays::varbinview::BinaryView;
@@ -126,6 +128,16 @@ pub(crate) fn constant_canonicalize(
             ))
         }
         DType::List(..) => Canonical::List(constant_canonical_list_array(scalar, array.len())),
+        DType::Map(map_dtype, nullability) => {
+            let entries_scalar = Scalar::try_new(
+                DType::List(Arc::new(map_dtype.entries_dtype()), *nullability),
+                scalar.value().cloned(),
+            )?;
+            Canonical::Map(MapArray::try_new(
+                map_dtype.clone(),
+                constant_canonical_list_array(&entries_scalar, array.len()),
+            )?)
+        }
         DType::FixedSizeList(element_dtype, list_size, _) => {
             let value = scalar.as_list();
 
@@ -164,7 +176,7 @@ pub(crate) fn constant_canonicalize(
                 StructArray::new_unchecked(fields, struct_dtype.clone(), array.len(), validity)
             })
         }
-        DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+        DType::Union(..) => Canonical::Union(UnionArray::constant(scalar, array.len())?),
         DType::Variant(_) => Canonical::Variant(VariantArray::try_new(
             array.array().clone().into_array(),
             None,
@@ -350,7 +362,8 @@ mod tests {
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
-    use crate::arrays::listview::ListViewArrayExt;
+    use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
+    use crate::arrays::listview::ListViewArraySlotsExt;
     use crate::arrays::listview::ListViewRebuildMode;
     use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;

@@ -14,11 +14,14 @@ use crate::scalar::DecimalScalar;
 use crate::scalar::DecimalValue;
 use crate::scalar::ExtScalar;
 use crate::scalar::ListScalar;
+use crate::scalar::MapScalar;
 use crate::scalar::PValue;
 use crate::scalar::PrimitiveScalar;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::scalar::StructScalar;
+use crate::scalar::UnionScalar;
+use crate::scalar::UnionValue;
 use crate::scalar::Utf8Scalar;
 use crate::scalar::VariantScalar;
 
@@ -135,6 +138,21 @@ impl Scalar {
         ListScalar::try_new(self.dtype(), self.value()).ok()
     }
 
+    /// Returns a view of the scalar as a map scalar.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the scalar does not have a [`Map`](crate::dtype::DType::Map) type.
+    pub fn as_map(&self) -> MapScalar<'_> {
+        self.as_map_opt()
+            .vortex_expect("Failed to convert scalar to map")
+    }
+
+    /// Returns a view of the scalar as a map scalar if it has a map type.
+    pub fn as_map_opt(&self) -> Option<MapScalar<'_>> {
+        MapScalar::try_new(self.dtype(), self.value()).ok()
+    }
+
     /// Returns a view of the scalar as an extension scalar.
     ///
     /// # Panics
@@ -154,6 +172,32 @@ impl Scalar {
         // SAFETY: Because we are a valid Scalar, we have already validated that the value is valid
         // for this extension type.
         Some(ExtScalar::new_unchecked(self.dtype(), self.value()))
+    }
+
+    /// Returns a view of the scalar as a union scalar.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the scalar does not have a [`Union`](crate::dtype::DType::Union) type.
+    pub fn as_union(&self) -> UnionScalar<'_> {
+        self.as_union_opt()
+            .vortex_expect("Failed to convert scalar to union")
+    }
+
+    /// Returns a view of the scalar as a union scalar if it has a union dtype.
+    ///
+    /// [`None`] means the scalar's dtype is not [`DType::Union`](crate::dtype::DType); it does not
+    /// describe the scalar's nullness.
+    ///
+    /// An outer null union still returns `Some(UnionScalar)` and can be inspected with
+    /// [`UnionScalar::is_null`](crate::scalar::UnionScalar::is_null).
+    pub fn as_union_opt(&self) -> Option<UnionScalar<'_>> {
+        if !self.dtype().is_union() {
+            return None;
+        }
+
+        // Scalar construction has already validated the value against this union dtype.
+        Some(UnionScalar::new_unchecked(self.dtype(), self.value()))
     }
 
     /// Returns a view of the scalar as a variant scalar.
@@ -270,6 +314,22 @@ impl ScalarValue {
         match self {
             ScalarValue::Tuple(elements) => elements,
             _ => vortex_panic!("ScalarValue is not a Tuple"),
+        }
+    }
+
+    /// Returns the union value, panicking if the value is not a [`Union`](ScalarValue::Union).
+    pub fn as_union(&self) -> &UnionValue {
+        match self {
+            ScalarValue::Union(value) => value,
+            _ => vortex_panic!("ScalarValue is not a Union"),
+        }
+    }
+
+    /// Returns the union value, panicking if the value is not a [`Union`](ScalarValue::Union).
+    pub fn into_union(self) -> UnionValue {
+        match self {
+            ScalarValue::Union(value) => value,
+            _ => vortex_panic!("ScalarValue is not a Union"),
         }
     }
 

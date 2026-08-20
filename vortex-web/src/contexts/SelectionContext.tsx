@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import { createContext, useContext, useReducer, useCallback, type ReactNode } from 'react';
+import { useReducer, useCallback, type ReactNode } from 'react';
 import type { LayoutTreeNode } from '../components/swimlane/types';
 import { findNodeById } from '../components/swimlane/utils';
+import { SelectionContext } from './SelectionContextCore';
 
 export interface SelectionState {
   selectedNodeId: string | null;
@@ -58,7 +59,7 @@ const initialState: SelectionState = {
   selectedSegmentIndex: null,
 };
 
-interface SelectionContextValue {
+export interface SelectionContextValue {
   state: SelectionState;
   selectNode: (nodeId: string | null) => void;
   hoverNode: (nodeId: string | null) => void;
@@ -66,8 +67,6 @@ interface SelectionContextValue {
   selectSegment: (index: number | null) => void;
   clearSelection: () => void;
 }
-
-const SelectionContext = createContext<SelectionContextValue | null>(null);
 
 export function SelectionProvider({
   tree,
@@ -108,11 +107,3 @@ export function SelectionProvider({
     </SelectionContext.Provider>
   );
 }
-
-export function useSelection(): SelectionContextValue {
-  const ctx = useContext(SelectionContext);
-  if (!ctx) throw new Error('useSelection must be used within SelectionProvider');
-  return ctx;
-}
-
-export { SelectionContext };

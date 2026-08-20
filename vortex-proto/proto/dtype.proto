@@ -75,6 +75,16 @@ message Variant {
 }
 
 message Union {
+  repeated string names = 1;
+  repeated DType dtypes = 2;
+  repeated int32 type_ids = 3; // length must equal dtypes.len(); each value must fit in uint8
+  bool nullable = 4;
+}
+
+message Map {
+  DType key_type = 1;
+  DType value_type = 2;
+  bool keys_sorted = 3;
   bool nullable = 4;
 }
 
@@ -92,6 +102,7 @@ message DType {
     FixedSizeList fixed_size_list = 10; // This is after `Extension` for backwards compatibility.
     Variant variant = 11;
     Union union = 12;
+    Map map = 13;
   }
 }
 

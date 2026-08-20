@@ -18,15 +18,19 @@ use num_traits::CheckedSub;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
 use super::pvalue::CoercePValue;
 use crate::dtype::DType;
+use crate::dtype::DecimalDType;
 use crate::dtype::FromPrimitiveOrF16;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
+use crate::dtype::i256;
 use crate::match_each_native_ptype;
+use crate::scalar::DecimalValue;
 use crate::scalar::NumericOperator;
 use crate::scalar::PValue;
 use crate::scalar::Scalar;
@@ -164,13 +168,21 @@ impl<'a> PrimitiveScalar<'a> {
 
     /// Casts this scalar to the given `dtype`.
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
-        let ptype = PType::try_from(dtype)?;
         let pvalue = self
             .pvalue
             .vortex_expect("nullness handled in Scalar::cast");
-        Ok(match_each_native_ptype!(ptype, |Q| {
-            Scalar::primitive(pvalue.cast::<Q>()?, dtype.nullability())
-        }))
+
+        match dtype {
+            DType::Primitive(ptype, nullability) => Ok(match_each_native_ptype!(*ptype, |Q| {
+                Scalar::primitive(pvalue.cast::<Q>()?, *nullability)
+            })),
+            DType::Decimal(decimal_dtype, nullability) => Ok(Scalar::decimal(
+                pvalue_to_decimal(pvalue, *decimal_dtype)?,
+                *decimal_dtype,
+                *nullability,
+            )),
+            _ => vortex_bail!("Cannot cast primitive scalar to {dtype}"),
+        }
     }
 
     /// Returns true if the scalar is nan.
@@ -265,6 +277,25 @@ impl<'a> PrimitiveScalar<'a> {
             Some(None)
         }
     }
+}
+
+fn pvalue_to_decimal(pvalue: PValue, decimal_dtype: DecimalDType) -> VortexResult<DecimalValue> {
+    let value = match pvalue {
+        PValue::U8(v) => i256::from_i128(i128::from(v)),
+        PValue::U16(v) => i256::from_i128(i128::from(v)),
+        PValue::U32(v) => i256::from_i128(i128::from(v)),
+        PValue::U64(v) => i256::from_i128(i128::from(v)),
+        PValue::I8(v) => i256::from_i128(i128::from(v)),
+        PValue::I16(v) => i256::from_i128(i128::from(v)),
+        PValue::I32(v) => i256::from_i128(i128::from(v)),
+        PValue::I64(v) => i256::from_i128(i128::from(v)),
+        PValue::F16(_) | PValue::F32(_) | PValue::F64(_) => {
+            vortex_bail!("Cannot cast floating primitive {pvalue} to decimal {decimal_dtype}")
+        }
+    };
+
+    let scaled = DecimalValue::rescale_i256(value, 0, decimal_dtype.scale())?;
+    DecimalValue::try_from_i256(scaled, decimal_dtype)
 }
 
 impl Sub for PrimitiveScalar<'_> {

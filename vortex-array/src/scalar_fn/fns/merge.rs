@@ -28,9 +28,7 @@ use crate::expr::lit;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
-use crate::scalar_fn::ReduceCtx;
 use crate::scalar_fn::ReduceNode;
-use crate::scalar_fn::ReduceNodeRef;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
@@ -175,12 +173,7 @@ impl ScalarFnVTable for Merge {
         )
     }
 
-    fn reduce(
-        &self,
-        options: &Self::Options,
-        node: &dyn ReduceNode,
-        ctx: &dyn ReduceCtx,
-    ) -> VortexResult<Option<ReduceNodeRef>> {
+    fn reduce<T: ReduceNode>(&self, options: &Self::Options, node: &T) -> VortexResult<Option<T>> {
         let mut names = Vec::with_capacity(node.child_count() * 2);
         let mut children = Vec::with_capacity(node.child_count() * 2);
         let mut duplicate_names = HashSet::<_>::new();
@@ -201,10 +194,10 @@ impl ScalarFnVTable for Merge {
             for name in child_dtype.names().iter() {
                 if let Some(idx) = names.iter().position(|n| n == name) {
                     duplicate_names.insert(name.clone());
-                    children[idx] = Arc::clone(&child);
+                    children[idx] = child.clone();
                 } else {
                     names.push(name.clone());
-                    children.push(Arc::clone(&child));
+                    children.push(child.clone());
                 }
             }
 
@@ -219,10 +212,10 @@ impl ScalarFnVTable for Merge {
         let pack_children: Vec<_> = names
             .iter()
             .zip(children)
-            .map(|(name, child)| ctx.new_node(GetItem.bind(name.clone()), &[child]))
+            .map(|(name, child)| node.new_node(GetItem.bind(name.clone()), &[child]))
             .try_collect()?;
 
-        let pack_expr = ctx.new_node(
+        let pack_expr = node.new_node(
             Pack.bind(PackOptions {
                 names: FieldNames::from(names),
                 nullability: node.node_dtype()?.nullability(),
@@ -241,7 +234,7 @@ impl ScalarFnVTable for Merge {
         Ok(Some(lit(true)))
     }
 
-    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
+    fn is_strict(&self, _options: &Self::Options) -> bool {
         true
     }
 
@@ -277,8 +270,6 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::PrimitiveArray;
@@ -300,21 +291,27 @@ mod tests {
     use crate::scalar_fn::fns::pack::Pack;
 
     fn primitive_field(array: &ArrayRef, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
+        let mut ctx = array_session().create_execution_ctx();
         let mut field_path = field_path.iter();
 
         let Some(field) = field_path.next() else {
             vortex_bail!("empty field path");
         };
 
-        #[expect(deprecated)]
-        let mut array = array.to_struct().unmasked_field_by_name(field)?.clone();
+        let mut array = array
+            .clone()
+            .execute::<StructArray>(&mut ctx)?
+            .unmasked_field_by_name(field)?
+            .clone();
         for field in field_path {
-            #[expect(deprecated)]
-            let next = array.to_struct().unmasked_field_by_name(field)?.clone();
+            let next = array
+                .clone()
+                .execute::<StructArray>(&mut ctx)?
+                .unmasked_field_by_name(field)?
+                .clone();
             array = next;
         }
-        #[expect(deprecated)]
-        let result = array.to_primitive();
+        let result = array.execute::<PrimitiveArray>(&mut ctx)?;
         Ok(result)
     }
 
@@ -364,7 +361,7 @@ mod tests {
         let actual_array = test_array.apply(&expr).unwrap();
 
         assert_eq!(
-            actual_array.as_struct_typed().names(),
+            actual_array.dtype().as_struct_fields().names(),
             ["a", "b", "c", "d", "e"]
         );
 
@@ -450,7 +447,7 @@ mod tests {
             .into_array();
         let actual_array = test_array.clone().apply(&expr).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
-        assert_eq!(actual_array.as_struct_typed().nfields(), 0);
+        assert_eq!(actual_array.nchildren(), 0);
     }
 
     #[test]
@@ -491,14 +488,19 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        #[expect(deprecated)]
-        let actual_array = test_array.apply(&expr).unwrap().to_struct();
+        let mut ctx = array_session().create_execution_ctx();
+        let actual_array = test_array
+            .apply(&expr)
+            .unwrap()
+            .execute::<StructArray>(&mut ctx)
+            .unwrap();
 
-        #[expect(deprecated)]
         let inner_struct = actual_array
             .unmasked_field_by_name("a")
             .unwrap()
-            .to_struct();
+            .clone()
+            .execute::<StructArray>(&mut ctx)
+            .unwrap();
         assert_eq!(
             inner_struct
                 .names()
@@ -511,6 +513,7 @@ mod tests {
 
     #[test]
     pub fn test_merge_order() {
+        let mut ctx = array_session().create_execution_ctx();
         let expr = merge(vec![get_item("0", root()), get_item("1", root())]);
 
         let test_array = StructArray::from_fields(&[
@@ -535,8 +538,11 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        #[expect(deprecated)]
-        let actual_array = test_array.apply(&expr).unwrap().to_struct();
+        let actual_array = test_array
+            .apply(&expr)
+            .unwrap()
+            .execute::<StructArray>(&mut ctx)
+            .unwrap();
 
         assert_eq!(actual_array.names(), ["a", "c", "b", "d"]);
     }

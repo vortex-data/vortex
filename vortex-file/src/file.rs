@@ -15,6 +15,7 @@ use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_layout::LayoutReader;
 use vortex_layout::scan::layout::LayoutReaderDataSource;
@@ -23,6 +24,7 @@ use vortex_layout::scan::split_by::SplitBy;
 use vortex_layout::segments::SegmentSource;
 use vortex_scan::DataSourceRef;
 use vortex_session::VortexSession;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::FileStatistics;
 use crate::footer::Footer;
@@ -42,6 +44,8 @@ pub struct VortexFile {
     segment_source: Arc<dyn SegmentSource>,
     /// The Vortex session used to open this file.
     session: VortexSession,
+    /// User-defined metadata values resolved for this file open.
+    metadata: Arc<HashMap<String, ByteBuffer>>,
     /// None id LayoutReader caching is turned off
     layout_reader_cache: Option<OnceLock<Arc<dyn LayoutReader>>>,
 }
@@ -78,8 +82,14 @@ impl VortexFile {
             footer,
             segment_source,
             session,
+            metadata: Arc::new(HashMap::new()),
             layout_reader_cache: None,
         }
+    }
+
+    pub(crate) fn with_metadata(mut self, metadata: Arc<HashMap<String, ByteBuffer>>) -> Self {
+        self.metadata = metadata;
+        self
     }
 
     /// Enable layout reader caching.
@@ -91,6 +101,7 @@ impl VortexFile {
             footer: self.footer,
             segment_source: self.segment_source,
             session: self.session,
+            metadata: self.metadata,
             layout_reader_cache: Some(OnceLock::new()),
         }
     }
@@ -117,12 +128,40 @@ impl VortexFile {
         self.footer.statistics()
     }
 
+    /// Returns the user-defined metadata segments loaded for this file.
+    ///
+    /// Metadata is only loaded when requested during open. Iteration order is unspecified.
+    pub fn metadata_segments(&self) -> impl Iterator<Item = (&str, &ByteBuffer)> {
+        self.metadata
+            .iter()
+            .map(|(key, metadata)| (key.as_str(), metadata))
+    }
+
+    /// Returns the loaded user-defined metadata segment for the given key.
+    ///
+    /// Returns `None` when the key is absent or metadata was not loaded.
+    pub fn metadata_segment(&self, key: &str) -> Option<&ByteBuffer> {
+        self.metadata.get(key)
+    }
+
     /// Create a new segment source for reading from the file.
     ///
     /// This may spawn a background I/O driver that will exit when the returned segment source
     /// is dropped.
     pub fn segment_source(&self) -> Arc<dyn SegmentSource> {
         Arc::clone(&self.segment_source)
+    }
+
+    /// Replace the segment source used by this file.
+    ///
+    /// Any cached layout reader is cleared so that subsequent scans construct readers over the
+    /// replacement source.
+    pub fn with_segment_source(mut self, segment_source: Arc<dyn SegmentSource>) -> Self {
+        self.segment_source = segment_source;
+        if self.layout_reader_cache.is_some() {
+            self.layout_reader_cache = Some(OnceLock::new());
+        }
+        self
     }
 
     /// Returns a reference to the Vortex session used to open this file.
@@ -197,8 +236,7 @@ impl VortexFile {
         };
 
         can_prune_file_stats(
-            filter,
-            self.footer.dtype(),
+            &filter.bind(self.footer.dtype())?,
             self.footer.row_count(),
             stats,
             fields,

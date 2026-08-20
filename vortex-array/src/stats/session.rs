@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 use vortex_session::SessionExt;
+use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -74,7 +75,7 @@ impl SessionVar for StatsSession {
 /// Extension trait for accessing stats session data.
 pub trait StatsSessionExt: SessionExt {
     /// Returns the stats session state.
-    fn stats(&self) -> &StatsSession {
+    fn stats(&self) -> SessionGuard<'_, StatsSession> {
         self.get::<StatsSession>()
     }
 }

@@ -32,6 +32,7 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::ValidityChild;
 use crate::array::ValidityVTableFromChild;
+use crate::array::with_empty_buffers;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::patched::PatchedArrayExt;
@@ -129,14 +130,12 @@ impl VTable for Patched {
         vortex_panic!("invalid buffer index for PatchedArray: {idx}");
     }
 
-    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
-        match idx {
-            PatchedSlots::INNER => array.inner().clone(),
-            PatchedSlots::LANE_OFFSETS => array.lane_offsets().clone(),
-            PatchedSlots::PATCH_INDICES => array.patch_indices().clone(),
-            PatchedSlots::PATCH_VALUES => array.patch_values().clone(),
-            _ => vortex_panic!("invalid child index for PatchedArray: {idx}"),
-        }
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        with_empty_buffers(self, array, buffers)
     }
 
     fn serialize(
@@ -201,8 +200,7 @@ impl VTable for Patched {
                 .clone()
                 .execute::<Canonical>(ctx)?
                 .into_array();
-            builder.extend_from_array(&canonical);
-            return Ok(());
+            return canonical.append_to_builder(builder, ctx);
         }
 
         let ptype = dtype.as_ptype();
@@ -350,7 +348,9 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::registry::ReadContext;
 
+    use crate::Array;
     use crate::ArrayContext;
+    use crate::ArrayParts;
     use crate::ArraySlots;
     use crate::Canonical;
     use crate::IntoArray;
@@ -359,7 +359,9 @@ mod tests {
     use crate::arrays::Patched;
     use crate::arrays::PatchedArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::patched::PatchedArrayExt;
     use crate::arrays::patched::PatchedArraySlotsExt;
+    use crate::arrays::patched::PatchedData;
     use crate::arrays::patched::PatchedSlots;
     use crate::arrays::patched::PatchedSlotsView;
     use crate::assert_arrays_eq;
@@ -586,7 +588,12 @@ mod tests {
         let session = array_session();
         session.arrays().register(Patched);
 
-        let ctx = ArrayContext::empty().with_registry(session.arrays().registry().clone());
+        let ctx = ArrayContext::empty().with_allowed_ids(
+            session
+                .arrays()
+                .registry()
+                .read(|map| map.keys().copied().collect()),
+        );
         let serialized = array
             .serialize(&ctx, &session, &SerializeOptions::default())
             .unwrap();
@@ -628,7 +635,9 @@ mod tests {
 
         // Create new PatchedArray with same children using with_slots
         let array_ref = array.into_array();
-        let new_array = array_ref.clone().with_slots(slots.into_slots())?;
+        // SAFETY: the replacement slots are the original children, preserving logical values and
+        // parent statistics.
+        let new_array = unsafe { array_ref.clone().with_slots(slots.into_slots()) }?;
 
         assert!(new_array.is::<Patched>());
         assert_eq!(array_ref.len(), new_array.len());
@@ -645,7 +654,7 @@ mod tests {
     }
 
     #[test]
-    fn test_with_slots_modified_inner() -> VortexResult<()> {
+    fn test_rebuild_modified_inner_from_parts() -> VortexResult<()> {
         let array = make_patched_array(vec![0u16; 10], &[1, 2, 3], &[10, 20, 30])?;
 
         // Create a different inner array (all 5s instead of 0s)
@@ -657,8 +666,15 @@ mod tests {
             patch_values: array.patch_values().clone(),
         };
 
-        let array_ref = array.into_array();
-        let new_array = array_ref.with_slots(slots.into_slots())?;
+        let data = PatchedData {
+            n_lanes: array.n_lanes(),
+            offset: array.offset(),
+        };
+        let new_array = Array::try_from_parts(
+            ArrayParts::new(Patched, array.dtype().clone(), array.len(), data)
+                .with_slots(slots.into_slots()),
+        )?
+        .into_array();
 
         // Execute and verify the inner values changed (except at patch positions)
         let mut ctx = array_session().create_execution_ctx();

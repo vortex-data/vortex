@@ -71,7 +71,7 @@ fn filter_slices(
     let chunk_filters = chunk_filters(array, slices)?;
 
     // Now, apply the chunk filter to every slice.
-    for (chunk, chunk_filter) in array.iter_chunks().zip(chunk_filters.into_iter()) {
+    for (chunk, chunk_filter) in array.iter_chunks().zip(chunk_filters) {
         match chunk_filter {
             // All => preserve the entire chunk unfiltered.
             ChunkFilter::All => result.push(chunk.clone()),
@@ -91,7 +91,7 @@ pub(crate) fn chunk_filters(
     array: ArrayView<'_, Chunked>,
     slices: impl Iterator<Item = (usize, usize)>,
 ) -> VortexResult<Vec<ChunkFilter>> {
-    let chunk_offsets = array.chunk_offsets();
+    let chunk_offsets = array.chunk_offset_values();
 
     let mut chunk_filters = vec![ChunkFilter::None; array.nchunks()];
 
@@ -153,7 +153,7 @@ fn filter_indices(
     let mut current_chunk_id = 0;
     let mut chunk_indices = BufferMut::with_capacity(array.nchunks());
 
-    let chunk_offsets = array.chunk_offsets();
+    let chunk_offsets = array.chunk_offset_values();
 
     for set_index in indices {
         let (chunk_id, index) = find_chunk_idx(set_index, chunk_offsets)?;
@@ -203,6 +203,8 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::filter::test_filter_conformance;
@@ -271,10 +273,13 @@ mod test {
         DType::Primitive(PType::I32, Nullability::NonNullable),
     ).unwrap())]
     #[case(ChunkedArray::try_new(
-        (0..10).map(|i| buffer![i as i64, i as i64 + 10, i as i64 + 20].into_array()).collect(),
+        (0..10).map(|i| buffer![i as i64, i as i64 + 10, i as i64 + 20].into_array()),
         DType::Primitive(PType::I64, Nullability::NonNullable),
     ).unwrap())]
     fn test_filter_chunked_conformance(#[case] chunked: ChunkedArray) {
-        test_filter_conformance(&chunked.into_array());
+        test_filter_conformance(
+            &chunked.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

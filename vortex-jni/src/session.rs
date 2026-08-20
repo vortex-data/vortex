@@ -18,6 +18,7 @@ use crate::RUNTIME;
 pub(crate) fn new_session() -> Box<VortexSession> {
     let session = VortexSession::default().with_handle(RUNTIME.handle());
     vortex_parquet_variant::initialize(&session);
+    vortex_spatial::initialize(&session);
     Box::new(session)
 }
 

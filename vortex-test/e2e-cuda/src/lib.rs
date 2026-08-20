@@ -35,6 +35,7 @@ use futures::executor::block_on;
 use vortex::array::ArrayRef as VortexArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
+use vortex::array::array_session;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::DictArray as VortexDictArray;
@@ -45,9 +46,9 @@ use vortex::array::arrays::StructArray;
 use vortex::array::arrays::TemporalArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::varbinview::BinaryView;
-use vortex::array::arrow::ArrowSessionExt;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::array::validity::Validity;
+use vortex::arrow::ArrowSessionExt;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
@@ -69,7 +70,7 @@ use vortex_cuda::arrow::DeviceArrayStreamExt;
 const PRIMITIVE_DTYPE_ENV: &str = "VORTEX_CUDF_PRIMITIVE_DTYPE";
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    vortex::array::array_session()
+    array_session()
         .with::<LayoutSession>()
         .with::<RuntimeSession>()
         .with::<CudaSession>()
@@ -201,6 +202,7 @@ fn multi_buffer_varbinview(dtype: DType) -> VortexArrayRef {
         Arc::from([first, second]),
         dtype,
         Validity::NonNullable,
+        &mut array_session().create_execution_ctx(),
     )
     .expect("multi-buffer VarBinViewArray")
     .into_array()

@@ -3,17 +3,19 @@
 
 //! Run-length integer encoding and shared RLE compression helpers.
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VTable;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
-use vortex_compressor::estimate::CompressionEstimate;
-use vortex_compressor::estimate::DeferredEstimate;
-use vortex_compressor::estimate::EstimateVerdict;
 use vortex_compressor::scheme::AncestorExclusion;
+use vortex_compressor::scheme::CompressionEstimate;
+use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::DescendantExclusion;
+use vortex_compressor::scheme::EstimateVerdict;
 #[cfg(feature = "unstable_encodings")]
 use vortex_compressor::scheme::SchemeId;
 use vortex_error::VortexResult;
@@ -21,6 +23,7 @@ use vortex_error::VortexResult;
 use vortex_fastlanes::Delta;
 use vortex_fastlanes::RLE;
 use vortex_fastlanes::RLEArrayExt;
+use vortex_fastlanes::RLEArraySlotsExt;
 
 use super::RUN_LENGTH_THRESHOLD;
 use crate::ArrayAndStats;
@@ -154,6 +157,10 @@ impl Scheme for IntRLEScheme {
 
     fn matches(&self, canonical: &Canonical) -> bool {
         canonical.dtype().is_int()
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![RLE.id()]
     }
 
     /// Children: values=0, indices=1, offsets=2.

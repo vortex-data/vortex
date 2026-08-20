@@ -26,7 +26,6 @@ unstable_encodings = ["vortex/unstable_encodings"]
 arc-swap = { workspace = true }
 arrow-schema = { workspace = true, features = ["ffi"] }
 async-trait = { workspace = true }
-bytes = { workspace = true }
 cudarc = { workspace = true, features = ["f16"] }
 futures = { workspace = true, features = ["executor"] }
 itertools = { workspace = true }
@@ -39,10 +38,15 @@ tokio = { workspace = true, features = ["fs"] }
 tracing = { workspace = true, features = ["std", "attributes"] }
 vortex = { workspace = true, features = ["zstd"] }
 vortex-array = { workspace = true, features = ["cudarc"] }
+vortex-arrow = { workspace = true }
 vortex-cub = { path = "cub" }
 vortex-cuda-macros = { workspace = true }
 vortex-error = { workspace = true, features = ["object_store"] }
 vortex-nvcomp = { path = "nvcomp" }
+vortex-onpair = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
@@ -103,6 +107,10 @@ harness = false
 
 [[bench]]
 name = "fsst_cuda"
+harness = false
+
+[[bench]]
+name = "onpair_cuda"
 harness = false
 
 [[bench]]

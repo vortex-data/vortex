@@ -1,0 +1,109 @@
+# Runs the GPU-enabled compression decompression benchmarks for a pull request.
+# Called from pr-bench-dispatch.yml when the `action/bench-gpu-compress` label is added.
+
+name: PR GPU Compression Benchmark
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}-gpu-compress
+  cancel-in-progress: false
+
+on:
+  workflow_call: { }
+  workflow_dispatch: { }
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  gpu-compress-bench:
+    name: GPU Compression
+    timeout-minutes: 120
+    runs-on: >-
+      runs-on=${{ github.run_id }}/family=g5/cpu=8/image=ubuntu24-gpu-x64/extras=s3-cache/tag=gpu-compress-bench
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # `compare-benchmark-jsons.py` resolves its baseline by walking `git rev-list HEAD`,
+          # which reaches only the tip of a shallow clone.
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: "true"
+      - name: Install DuckDB
+        # The Public BI datasets are converted from CSV to Parquet through the DuckDB CLI.
+        # Without it those datasets cannot build their fixture.
+        uses: ./.github/actions/setup-duckdb
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+        with:
+          # Only `.venv-cudf` below is used, so the repository-wide sync would build the
+          # `vortex-python` extension — and its Rust — for nothing.
+          sync: false
+      - name: Install cuDF
+        # The GPU Parquet number is a cuDF `read_parquet`. cuDF ships prebuilt manylinux wheels
+        # on NVIDIA's index, so it stays a runtime dependency and never enters the Rust build.
+        run: |
+          uv venv --python 3.12 .venv-cudf
+          uv pip install --python .venv-cudf \
+            --extra-index-url https://pypi.nvidia.com \
+            cudf-cu12 pandas pyarrow
+          echo "$PWD/.venv-cudf/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/system-info
+      - name: Display NVIDIA GPU details
+        run: |
+          nvidia-smi
+          nvidia-smi -L
+          nvidia-smi -q -d Memory
+      - name: Build GPU compression benchmark
+        shell: bash
+        run: |
+          cargo build --locked --package compress-bench --profile release_debug --features cuda,unstable_encodings
+      - name: Setup benchmark environment
+        run: sudo bash scripts/setup-benchmark.sh
+      - name: Run GPU compression benchmark
+        shell: bash
+        env:
+          RUST_BACKTRACE: full
+          # Do not enable VORTEX_EXPERIMENTAL_PATCHED_ARRAY here: it rewrites interior
+          # `Patches` into a top-level `vortex.patched` array, which has no CUDA decode
+          # kernel and makes GPU decompression fail with "No CUDA kernel for encoding
+          # vortex.patched". Leaving it unset keeps patches inline in the bitpacked array,
+          # which the CUDA bitpacked kernel decodes. This matches the GPU test workflow
+          # (cuda.yaml), which also sets only FLAT_LAYOUT_INLINE_ARRAY_NODE.
+          FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+        run: |
+          bash scripts/bench-taskset.sh target/release_debug/compress-bench \
+            --gpu-decompress -d gh-json -o results.json
+      - name: Publish results
+        shell: bash
+        run: |
+          set -Eeu -o pipefail -x
+
+          python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/data.json.gz \
+            data.json.gz --no-sign-request
+          gzip -d -c data.json.gz > base.json
+
+          uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json \
+            "GPU Compression" > comment.md
+          cat comment.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Comment PR
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
+        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
+        with:
+          file-path: comment.md
+          comment-tag: bench-pr-comment-gpu-compress
+      - name: Comment PR on failure
+        if: failure() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
+        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
+        with:
+          message: |
+            # BENCHMARK FAILED
+
+            GPU Compression failed. Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
+          comment-tag: bench-pr-comment-gpu-compress

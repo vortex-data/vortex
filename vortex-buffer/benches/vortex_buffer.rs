@@ -103,7 +103,11 @@ fn map_each<B: MapEach<i32, u32> + FromIterator<i32>>(bencher: Bencher, n: i32) 
         .bench_values(|buffer| B::map_each(buffer, |i| (i as u32) + 1));
 }
 
-#[divan::bench(args = INPUT_SIZE)]
+/// Element-at-a-time pushes cost tens of nanoseconds each, so cap the top size to keep the
+/// benchmark runtime bounded.
+const PUSH_INPUT_SIZE: &[i32] = &[128, 1024, 2048, 16_384, 32_768];
+
+#[divan::bench(args = PUSH_INPUT_SIZE)]
 fn push_vortex_buffer(bencher: Bencher, length: i32) {
     bencher
         .with_inputs(|| BufferMut::<i32>::with_capacity(length as usize))
@@ -114,7 +118,7 @@ fn push_vortex_buffer(bencher: Bencher, length: i32) {
         });
 }
 
-#[divan::bench(args = INPUT_SIZE)]
+#[divan::bench(args = PUSH_INPUT_SIZE)]
 fn push_arrow_buffer(bencher: Bencher, length: i32) {
     bencher
         .with_inputs(|| {
@@ -170,10 +174,17 @@ fn slice_tight_loop_arrow(bencher: Bencher, len: usize) {
     });
 }
 
+/// Loops like `slice_tight_loop_vortex` above: a single empty slice is a few nanoseconds, far
+/// below the measurement noise floor, so the loop amortizes fixed overhead until the slice
+/// itself dominates.
 #[divan::bench]
-fn slice_empty_vortex(bencher: Bencher) {
+fn slice_empty_tight_loop_vortex(bencher: Bencher) {
     let buf = Buffer::<i32>::from_iter((0..1024).map(|i| i % i32::MAX));
-    bencher.bench(|| divan::black_box(buf.slice(8..8)));
+    bencher.bench(|| {
+        for _ in 0..1024 {
+            divan::black_box(buf.slice(8..8));
+        }
+    });
 }
 
 #[divan::bench(args = INPUT_SIZE)]

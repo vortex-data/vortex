@@ -11,16 +11,15 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::VarBin;
 use vortex_array::arrays::dict::TakeExecute;
+use vortex_array::arrays::varbin::take_varbin;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::scalar::Scalar;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 
 use crate::FSST;
 use crate::FSSTArrayExt;
+use crate::FSSTArraySlotsExt;
 
 impl TakeExecute for FSST {
     fn take(
@@ -35,14 +34,7 @@ impl TakeExecute for FSST {
                     .clone()
                     .union_nullability(indices.dtype().nullability()),
                 array.symbol_table(),
-                {
-                    let codes = array.codes();
-                    let codes = codes.as_view();
-                    <VarBin as TakeExecute>::take(codes, indices, ctx)?
-                        .vortex_expect("VarBin take kernel always returns Some")
-                }
-                .try_downcast::<VarBin>()
-                .map_err(|_| vortex_err!("take for codes must return varbin array"))?,
+                take_varbin(array.codes().as_view(), indices, ctx)?,
                 array
                     .uncompressed_lengths()
                     .take(indices.clone())?
@@ -117,7 +109,7 @@ mod tests {
         let varbin = varbin.into_array();
         let compressor = fsst_train_compressor(&varbin, &mut ctx)?;
         let array = fsst_compress(&varbin, &compressor, &mut ctx)?;
-        test_take_conformance(&array.into_array());
+        test_take_conformance(&array.into_array(), &mut ctx);
         Ok(())
     }
 

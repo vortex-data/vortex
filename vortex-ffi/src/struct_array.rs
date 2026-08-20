@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-use std::ffi::c_char;
 use std::ptr;
-use std::sync::Arc;
 
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
@@ -14,8 +12,10 @@ use vortex::error::vortex_ensure;
 
 use crate::array::vx_array;
 use crate::array::vx_validity;
+use crate::box_wrapper;
 use crate::error::try_or_default;
 use crate::error::vx_error;
+use crate::string::vx_view;
 use crate::to_field_name;
 
 pub(crate) struct StructBuilder {
@@ -24,7 +24,7 @@ pub(crate) struct StructBuilder {
     validity: Validity,
 }
 
-crate::box_wrapper!(StructBuilder, vx_struct_column_builder);
+box_wrapper!(StructBuilder, vx_struct_column_builder);
 
 /// Create a new column-wise struct array builder with given validity and a
 /// capacity hint. validity can't be NULL.
@@ -59,13 +59,12 @@ pub unsafe extern "C" fn vx_struct_column_builder_new(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_struct_column_builder_add_field(
     builder: *mut vx_struct_column_builder,
-    name: *const c_char,
+    name: vx_view,
     field: *const vx_array,
     error: *mut *mut vx_error,
 ) {
     try_or_default(error, || {
         vortex_ensure!(!builder.is_null());
-        vortex_ensure!(!name.is_null());
         vortex_ensure!(!field.is_null());
         let builder = vx_struct_column_builder::as_mut(builder);
 
@@ -121,7 +120,7 @@ pub extern "C-unwind" fn vx_struct_column_builder_finalize(
         };
         let array =
             StructArray::try_new(builder.names.into(), builder.fields, rows, builder.validity)?;
-        Ok(vx_array::new(Arc::new(array.into_array())))
+        Ok(vx_array::new(array.into_array()))
     })
 }
 
@@ -129,7 +128,6 @@ pub extern "C-unwind" fn vx_struct_column_builder_finalize(
 mod tests {
     use std::ffi::c_void;
     use std::ptr;
-    use std::sync::Arc;
 
     use vortex::array::IntoArray;
     use vortex::array::VortexSessionExecute;
@@ -149,6 +147,7 @@ mod tests {
     use crate::array::vx_validity_type;
     use crate::error::vx_error_free;
     use crate::ptype::vx_ptype;
+    use crate::string::vx_view;
     use crate::struct_array::vx_struct_column_builder_add_field;
     use crate::struct_array::vx_struct_column_builder_finalize;
     use crate::struct_array::vx_struct_column_builder_free;
@@ -205,7 +204,7 @@ mod tests {
 
             vx_struct_column_builder_add_field(
                 builder,
-                c"age".as_ptr(),
+                vx_view::from_str("age"),
                 ffi_age_field,
                 &raw mut error,
             );
@@ -215,7 +214,7 @@ mod tests {
             let ffi_null_field = vx_array_new_null(5);
             vx_struct_column_builder_add_field(
                 builder,
-                c"null".as_ptr(),
+                vx_view::from_str("null"),
                 ffi_null_field,
                 &raw mut error,
             );
@@ -224,10 +223,10 @@ mod tests {
             vx_array_free(ffi_null_field);
 
             // Can't create a string array from C API yet.
-            let ffi_name_field = vx_array::new(Arc::new(name_field.into_array()));
+            let ffi_name_field = vx_array::new(name_field.into_array());
             vx_struct_column_builder_add_field(
                 builder,
-                c"name".as_ptr(),
+                vx_view::from_str("name"),
                 ffi_name_field,
                 &raw mut error,
             );

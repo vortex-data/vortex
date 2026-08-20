@@ -74,14 +74,15 @@ const TABLES: &[&str] = &[
 ];
 
 /// Eight join-heavy queries from `duckdb/duckdb:benchmark/appian_benchmarks/queries/`,
-/// stored byte-identically under `vortex-bench/appian/q{1..8}.sql` (sibling of the TPC-H
-/// `tpch/q*.sql` layout). Upstream refreshes are a pure copy into that directory.
+/// stored byte-identically under `vortex-bench/sql/appian/q{1..8}.sql` (sibling of the TPC-H
+/// `sql/tpch/q*.sql` layout). Upstream refreshes are a pure copy into that directory.
 pub fn appian_queries() -> impl Iterator<Item = (usize, String)> {
     (1..=8).map(|q| (q, appian_query(q)))
 }
 
 fn appian_query(query_idx: usize) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("sql")
         .join("appian")
         .join(format!("q{query_idx}"))
         .with_extension("sql");
@@ -120,6 +121,10 @@ impl AppianBenchmark {
 
 #[async_trait::async_trait]
 impl Benchmark for AppianBenchmark {
+    fn doc_path(&self) -> &'static str {
+        "vortex-bench/sql/appian/README.md"
+    }
+
     fn queries(&self) -> anyhow::Result<Vec<(usize, String)>> {
         Ok(appian_queries().collect())
     }

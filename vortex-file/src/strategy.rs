@@ -3,44 +3,17 @@
 
 //! This module defines the default layout strategy for a Vortex file.
 
+use std::num::NonZeroUsize;
 use std::sync::Arc;
-use std::sync::LazyLock;
 
-use vortex_alp::ALP;
-use vortex_alp::ALPRD;
 use vortex_array::ArrayId;
-use vortex_array::VTable;
-use vortex_array::arrays::Bool;
-use vortex_array::arrays::Chunked;
-use vortex_array::arrays::Constant;
-use vortex_array::arrays::Decimal;
-use vortex_array::arrays::Dict;
-use vortex_array::arrays::Extension;
-use vortex_array::arrays::FixedSizeList;
-use vortex_array::arrays::List;
-use vortex_array::arrays::ListView;
-use vortex_array::arrays::Masked;
-use vortex_array::arrays::Null;
-use vortex_array::arrays::Patched;
-use vortex_array::arrays::Primitive;
-use vortex_array::arrays::Struct;
-use vortex_array::arrays::VarBin;
-use vortex_array::arrays::VarBinView;
-use vortex_array::arrays::Variant;
-use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::dtype::FieldPath;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::schemes::integer::IntDictScheme;
-use vortex_bytebool::ByteBool;
-use vortex_datetime_parts::DateTimeParts;
-use vortex_decimal_byte_parts::DecimalByteParts;
-use vortex_fastlanes::BitPacked;
-use vortex_fastlanes::Delta;
-use vortex_fastlanes::FoR;
-use vortex_fastlanes::RLE;
-use vortex_fsst::FSST;
+use vortex_error::VortexExpect;
 use vortex_layout::LayoutStrategy;
+use vortex_layout::LayoutStrategyEncodingValidator;
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::collect::CollectStrategy;
@@ -48,84 +21,17 @@ use vortex_layout::layouts::compressed::CompressingStrategy;
 use vortex_layout::layouts::compressed::CompressorPlugin;
 use vortex_layout::layouts::dict::writer::DictStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
+use vortex_layout::layouts::list::writer::ListLayoutStrategy;
 use vortex_layout::layouts::repartition::RepartitionStrategy;
 use vortex_layout::layouts::repartition::RepartitionWriterOptions;
 use vortex_layout::layouts::table::TableStrategy;
+use vortex_layout::layouts::table::use_experimental_list_layout;
 use vortex_layout::layouts::zoned::writer::ZonedLayoutOptions;
 use vortex_layout::layouts::zoned::writer::ZonedStrategy;
-#[cfg(feature = "unstable_encodings")]
-use vortex_onpair::OnPair;
-use vortex_pco::Pco;
-use vortex_runend::RunEnd;
-use vortex_sequence::Sequence;
-use vortex_sparse::Sparse;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
-use vortex_zigzag::ZigZag;
-#[cfg(feature = "zstd")]
-use vortex_zstd::Zstd;
-#[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
-use vortex_zstd::ZstdBuffers;
 
 const ONE_MEG: u64 = 1 << 20;
-
-/// Static registry of all allowed array encodings for file writing.
-///
-/// This includes all canonical encodings from vortex-array plus all compressed
-/// encodings from the various encoding crates.
-pub static ALLOWED_ENCODINGS: LazyLock<HashSet<ArrayId>> = LazyLock::new(|| {
-    let mut allowed = HashSet::new();
-
-    // Canonical encodings from vortex-array
-    allowed.insert(Null.id());
-    allowed.insert(Bool.id());
-    allowed.insert(Primitive.id());
-    allowed.insert(Decimal.id());
-    allowed.insert(VarBin.id());
-    allowed.insert(VarBinView.id());
-    allowed.insert(List.id());
-    allowed.insert(ListView.id());
-    allowed.insert(FixedSizeList.id());
-    allowed.insert(Struct.id());
-    allowed.insert(Extension.id());
-    allowed.insert(Chunked.id());
-    allowed.insert(Constant.id());
-    allowed.insert(Masked.id());
-    allowed.insert(Dict.id());
-    allowed.insert(Variant.id());
-
-    // Compressed encodings from encoding crates
-    allowed.insert(ALP.id());
-    allowed.insert(ALPRD.id());
-    allowed.insert(BitPacked.id());
-    allowed.insert(ByteBool.id());
-    allowed.insert(DateTimeParts.id());
-    allowed.insert(DecimalByteParts.id());
-    allowed.insert(Delta.id());
-    allowed.insert(FoR.id());
-    allowed.insert(FSST.id());
-    #[cfg(feature = "unstable_encodings")]
-    allowed.insert(OnPair.id());
-    allowed.insert(Pco.id());
-    allowed.insert(RLE.id());
-    allowed.insert(RunEnd.id());
-    allowed.insert(Sequence.id());
-    allowed.insert(Sparse.id());
-    allowed.insert(ZigZag.id());
-
-    // Experimental encodings
-
-    if use_experimental_patches() {
-        allowed.insert(Patched.id());
-    }
-
-    #[cfg(feature = "zstd")]
-    allowed.insert(Zstd.id());
-    #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
-    allowed.insert(ZstdBuffers.id());
-
-    allowed
-});
 
 /// How the compressor was configured on [`WriteStrategyBuilder`].
 enum CompressorConfig {
@@ -151,9 +57,15 @@ enum CompressorConfig {
 pub struct WriteStrategyBuilder {
     compressor: CompressorConfig,
     row_block_size: usize,
+    data_block_target_bytes: Option<u64>,
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
     allow_encodings: Option<HashSet<ArrayId>>,
     flat_strategy: Option<Arc<dyn LayoutStrategy>>,
+    probe_compressor: Option<Arc<dyn CompressorPlugin>>,
+    /// Whether to write list fields using [`ListLayoutStrategy`].
+    ///
+    /// [`ListLayoutStrategy`]: vortex_layout::layouts::list::writer::ListLayoutStrategy
+    use_list_layout: bool,
 }
 
 impl Default for WriteStrategyBuilder {
@@ -163,9 +75,12 @@ impl Default for WriteStrategyBuilder {
         Self {
             compressor: CompressorConfig::BtrBlocks(BtrBlocksCompressorBuilder::default()),
             row_block_size: 8192,
+            data_block_target_bytes: Some(ONE_MEG),
             field_writers: HashMap::new(),
-            allow_encodings: Some(ALLOWED_ENCODINGS.clone()),
+            allow_encodings: None,
             flat_strategy: None,
+            probe_compressor: None,
+            use_list_layout: use_experimental_list_layout(),
         }
     }
 }
@@ -177,6 +92,26 @@ impl WriteStrategyBuilder {
     /// random-access locality.
     pub fn with_row_block_size(mut self, row_block_size: usize) -> Self {
         self.row_block_size = row_block_size;
+        self
+    }
+
+    /// Override the target uncompressed byte size used to coalesce data blocks.
+    ///
+    /// Passing `None` disables byte-size coalescing, so blocks retain the row granularity set by
+    /// [`Self::with_row_block_size`].
+    pub fn with_data_block_target_bytes(mut self, target_bytes: Option<u64>) -> Self {
+        self.data_block_target_bytes = target_bytes;
+        self
+    }
+
+    /// Enable writing list fields with [`ListLayoutStrategy`].
+    ///
+    /// **Note**: this is an unstable and experimental layout that is expected to change.
+    /// Using it may lead to unreadable files in the future.
+    ///
+    /// [`ListLayoutStrategy`]: vortex_layout::layouts::list::writer::ListLayoutStrategy
+    pub fn with_list_layout(mut self) -> Self {
+        self.use_list_layout = true;
         self
     }
 
@@ -193,10 +128,12 @@ impl WriteStrategyBuilder {
         self
     }
 
-    /// Override the allowed array encodings for normalization.
+    /// Override the allowed array encodings for file writing.
     ///
-    /// The flat leaf writer uses this set when deciding whether an existing encoded array can be
-    /// written as-is or must be normalized before serialization.
+    /// The configured flat leaf strategy is wrapped in a [`LayoutStrategyEncodingValidator`]
+    /// that recursively checks every chunk before passing it to the leaf writer. [`build`](Self::build)
+    /// also restricts any [`BtrBlocksCompressorBuilder`] to these encodings, independent of the
+    /// order in which the builder and this policy were configured.
     pub fn with_allow_encodings(mut self, allow_encodings: HashSet<ArrayId>) -> Self {
         self.allow_encodings = Some(allow_encodings);
         self
@@ -214,7 +151,8 @@ impl WriteStrategyBuilder {
     /// Override the default [`BtrBlocksCompressorBuilder`] used for compression.
     ///
     /// The builder is finalized during [`build`](Self::build), producing two compressors: one for
-    /// data (with `IntDictScheme` excluded) and one for stats.
+    /// data (with `IntDictScheme` excluded) and one for stats. Both are restricted to the
+    /// configured allowed encodings at build time.
     pub fn with_btrblocks_builder(mut self, builder: BtrBlocksCompressorBuilder) -> Self {
         self.compressor = CompressorConfig::BtrBlocks(builder);
         self
@@ -229,15 +167,38 @@ impl WriteStrategyBuilder {
         self
     }
 
+    /// Override the compressor used to probe whether a column is dict-eligible.
+    pub fn with_probe_compressor<C: CompressorPlugin>(mut self, compressor: C) -> Self {
+        self.probe_compressor = Some(Arc::new(compressor));
+        self
+    }
+
     /// Builds the canonical [`LayoutStrategy`] implementation, with the configured overrides
     /// applied.
     pub fn build(self) -> Arc<dyn LayoutStrategy> {
         let flat: Arc<dyn LayoutStrategy> = if let Some(flat) = self.flat_strategy {
             flat
-        } else if let Some(allow_encodings) = self.allow_encodings {
-            Arc::new(FlatLayoutStrategy::default().with_allow_encodings(allow_encodings))
         } else {
             Arc::new(FlatLayoutStrategy::default())
+        };
+
+        // Restrict the compressor to the allowed encodings so no compressor derived below (data,
+        // stats, and the defaulted probe compressor) can produce an encoding outside the policy,
+        // regardless of the order in which the builder and the policy were configured.
+        let compressor = match self.compressor {
+            CompressorConfig::BtrBlocks(builder) => {
+                CompressorConfig::BtrBlocks(match &self.allow_encodings {
+                    Some(allow_encodings) => builder.retain_allowed_encodings(allow_encodings),
+                    None => builder,
+                })
+            }
+            opaque => opaque,
+        };
+
+        let flat: Arc<dyn LayoutStrategy> = if let Some(allow_encodings) = self.allow_encodings {
+            Arc::new(LayoutStrategyEncodingValidator::new(flat, allow_encodings))
+        } else {
+            flat
         };
 
         // 7. for each chunk create a flat layout
@@ -249,7 +210,7 @@ impl WriteStrategyBuilder {
         // Exclude IntDictScheme from the data compressor because DictStrategy (step 3) already
         // dictionary-encodes columns. Allowing IntDictScheme here would redundantly
         // dictionary-encode the integer codes produced by that earlier step.
-        let data_compressor: Arc<dyn CompressorPlugin> = match &self.compressor {
+        let data_compressor: Arc<dyn CompressorPlugin> = match &compressor {
             CompressorConfig::BtrBlocks(builder) => Arc::new(
                 builder
                     .clone()
@@ -270,34 +231,42 @@ impl WriteStrategyBuilder {
                 // sufficient read concurrency for the desired throughput. One megabyte is small
                 // enough to achieve this for S3 (Durner et al., "Exploiting Cloud Object Storage for
                 // High-Performance Analytics", VLDB Vol 16, Iss 11).
-                block_size_minimum: ONE_MEG,
+                block_size_minimum: self.data_block_target_bytes.unwrap_or(0),
                 block_len_multiple: self.row_block_size,
-                block_size_target: Some(ONE_MEG),
+                block_size_target: self.data_block_target_bytes,
                 canonicalize: true,
             },
         );
 
         // 2.1. | 3.1. compress stats tables and dict values.
-        let stats_compressor: Arc<dyn CompressorPlugin> = match self.compressor {
+        let stats_compressor: Arc<dyn CompressorPlugin> = match compressor {
             CompressorConfig::BtrBlocks(builder) => Arc::new(builder.build()),
             CompressorConfig::Opaque(compressor) => compressor,
         };
-        let compress_then_flat = CompressingStrategy::new(flat, stats_compressor);
+        let compress_then_flat = CompressingStrategy::new(flat, Arc::clone(&stats_compressor));
 
         // 3. apply dict encoding or fallback
+        let probe_compressor = if let Some(probe_compressor) = self.probe_compressor {
+            probe_compressor
+        } else {
+            Arc::clone(&stats_compressor)
+        };
         let dict = DictStrategy::new(
             coalescing.clone(),
             compress_then_flat.clone(),
             coalescing,
             Default::default(),
+            probe_compressor,
         );
+
+        let row_block_size = NonZeroUsize::new(self.row_block_size).vortex_expect("must be non 0");
 
         // 2. calculate stats for each row group
         let stats = ZonedStrategy::new(
             dict,
             compress_then_flat.clone(),
             ZonedLayoutOptions {
-                block_size: self.row_block_size,
+                block_size: row_block_size,
                 ..Default::default()
             },
         );
@@ -316,11 +285,37 @@ impl WriteStrategyBuilder {
         );
 
         // 0. start with splitting columns
-        let validity_strategy = CollectStrategy::new(compress_then_flat);
+        let validity_strategy = CollectStrategy::new(compress_then_flat.clone());
 
         // Take any field overrides from the builder and apply them to the final strategy.
-        let table_strategy = TableStrategy::new(Arc::new(validity_strategy), Arc::new(repartition))
-            .with_field_writers(self.field_writers);
+        let mut table_strategy =
+            TableStrategy::new(Arc::new(validity_strategy), Arc::new(repartition))
+                .with_field_writers(self.field_writers);
+
+        if self.use_list_layout {
+            // We need a closure here to enable recursive application of list layout.
+            table_strategy = table_strategy.with_list_layout_factory(
+                move |list_layout: ListLayoutStrategy| -> Arc<dyn LayoutStrategy> {
+                    let zoned = ZonedStrategy::new(
+                        list_layout,
+                        compress_then_flat.clone(),
+                        ZonedLayoutOptions {
+                            block_size: row_block_size,
+                            ..Default::default()
+                        },
+                    );
+                    Arc::new(RepartitionStrategy::new(
+                        zoned,
+                        RepartitionWriterOptions {
+                            block_size_minimum: 0,
+                            block_len_multiple: row_block_size.get(),
+                            block_size_target: None,
+                            canonicalize: false,
+                        },
+                    ))
+                },
+            );
+        }
 
         Arc::new(table_strategy)
     }

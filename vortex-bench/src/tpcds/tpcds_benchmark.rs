@@ -39,7 +39,7 @@ impl TpcDsBenchmark {
                 Url::from_directory_path(&data_dir_with_sf).map_err(|_| {
                     anyhow!(
                         "Failed to create URL from directory path: {:?}",
-                        &data_dir_with_sf
+                        data_dir_with_sf
                     )
                 })
             }
@@ -56,6 +56,10 @@ impl TpcDsBenchmark {
 
 #[async_trait::async_trait]
 impl Benchmark for TpcDsBenchmark {
+    fn doc_path(&self) -> &'static str {
+        "vortex-bench/sql/tpcds/README.md"
+    }
+
     fn queries(&self) -> Result<Vec<(usize, String)>> {
         Ok(tpcds_queries().collect())
     }

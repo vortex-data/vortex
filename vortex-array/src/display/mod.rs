@@ -6,6 +6,7 @@ mod extractors;
 mod tree_display;
 
 use std::fmt::Display;
+use std::iter::repeat_n;
 
 pub use extractor::IndentedFormatter;
 pub use extractor::TreeContext;
@@ -19,8 +20,8 @@ use itertools::Itertools as _;
 pub use tree_display::TreeDisplay;
 
 use crate::ArrayRef;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
+use crate::legacy_session;
 
 /// Describe how to convert an array to a string.
 ///
@@ -521,6 +522,7 @@ impl ArrayRef {
         DisplayArrayAs(self, DisplayOptions::TableDisplay)
     }
 
+    #[allow(clippy::disallowed_methods)]
     fn fmt_as(&self, f: &mut std::fmt::Formatter, options: &DisplayOptions) -> std::fmt::Result {
         match options {
             DisplayOptions::MetadataOnly => EncodingSummaryExtractor::write(self, f),
@@ -536,7 +538,7 @@ impl ArrayRef {
                 let is_truncated = self.len() > limit;
 
                 let fmt_scalar = |i| {
-                    self.execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                    self.execute_scalar(i, &mut legacy_session().create_execution_ctx())
                         .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string())
                 };
                 write!(
@@ -544,10 +546,7 @@ impl ArrayRef {
                     "{opening_brace}{}{closing_brace}",
                     (0..limit.saturating_sub(3))
                         .map(fmt_scalar)
-                        .chain(std::iter::repeat_n(
-                            "...".to_string(),
-                            is_truncated as usize
-                        ))
+                        .chain(repeat_n("...".to_string(), is_truncated as usize))
                         .chain((self.len().saturating_sub(3)..self.len()).map(fmt_scalar))
                         .format(sep)
                 )
@@ -557,7 +556,7 @@ impl ArrayRef {
                 metadata,
                 stats,
             } => {
-                let extractors: [(bool, Box<dyn TreeExtractor>); 5] = [
+                let extractors: [(bool, Box<dyn TreeExtractor<ArrayRef, TreeContext>>); 5] = [
                     (true, Box::new(EncodingSummaryExtractor)),
                     (*stats, Box::new(NbytesExtractor)),
                     (*stats, Box::new(StatsExtractor)),
@@ -587,7 +586,7 @@ impl ArrayRef {
 
                 let mut builder = tabled::builder::Builder::default();
                 // Reuse a single execution context across all per-row accesses below.
-                let mut ctx = LEGACY_SESSION.create_execution_ctx();
+                let mut ctx = legacy_session().create_execution_ctx();
 
                 // Special logic for struct arrays.
                 let DType::Struct(sf, _) = self.dtype() else {

@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { useVortexFile } from '../../contexts/VortexFileContext';
-import { useSelection } from '../../contexts/SelectionContext';
+import { useVortexFile } from '../../contexts/VortexFileContextCore';
+import { useSelection } from '../../contexts/SelectionContextCore';
 import {
   flattenTree,
   filterTreeBySearch,

@@ -10,8 +10,9 @@ use num_traits::ToPrimitive as NumToPrimitive;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 
+use super::arithmetic::checked_decimal_numeric;
+use super::arithmetic::decimal_numeric_result_dtype;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::PType;
@@ -69,20 +70,9 @@ impl<'a> DecimalScalar<'a> {
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         match dtype {
             DType::Decimal(target_dtype, target_nullability) => {
-                // Cast between decimal types
-                if self.decimal_type == *target_dtype {
-                    // Same decimal type, just change nullability if needed
-                    return Scalar::try_new(
-                        dtype.clone(),
-                        self.decimal_value.map(ScalarValue::Decimal),
-                    );
-                }
-
-                // TODO(connor): Implement proper decimal scaling logic - whatever that means???
-                // Different precision/scale - need to implement scaling logic
-                // For now, we'll do a simple value preservation without scaling
                 if let Some(value) = &self.decimal_value {
-                    Ok(Scalar::decimal(*value, *target_dtype, *target_nullability))
+                    let value = value.cast_decimal(self.decimal_type, *target_dtype)?;
+                    Ok(Scalar::decimal(value, *target_dtype, *target_nullability))
                 } else {
                     Ok(Scalar::null(dtype.clone()))
                 }
@@ -190,62 +180,58 @@ impl<'a> DecimalScalar<'a> {
 
     /// Apply the (checked) operator to self and other using SQL-style null semantics.
     ///
-    /// If the operation overflows, None is returned.
+    /// Both operands must share the same decimal type `(p, s)`. The result type follows Arrow's
+    /// decimal arithmetic rules, so it is generally *wider* than the operands, and the result is
+    /// therefore an owned [`Scalar`] rather than a view:
     ///
-    /// If the types are incompatible (ignoring nullability and precision/scale), an error is returned.
+    /// | operator | result precision | result scale |
+    /// | -------- | ---------------- | ------------ |
+    /// | Add, Sub | `p + 1`          | `s`          |
+    /// | Mul      | `2p + 1`         | `2s`         |
+    /// | Div      | `p + s + 4`      | `s + 4`      |
+    ///
+    /// Precision saturates at the maximum decimal precision. Mul is exact — the doubled scale
+    /// leaves the raw product of the stored integers correctly scaled — while Div truncates
+    /// toward zero.
     ///
     /// If either value is null, the result is null.
     ///
-    /// The result will have the same decimal type (precision/scale) as `self`, and the result
-    /// is checked to ensure it fits within the precision constraints.
+    /// `Ok(None)` means the operation overflowed the result precision or divided by zero. Note
+    /// that the array kernels raise an error in that situation rather than yielding null.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operands have different decimal types, or if the operation has no
+    /// valid result type: a Mul whose doubled scale is unrepresentable — either above the maximum
+    /// scale or below the minimum an `i8` scale can hold — or a Div whose precision would fall
+    /// outside the legal range.
     pub fn checked_binary_numeric(
         &self,
-        other: &DecimalScalar<'a>,
+        other: &DecimalScalar<'_>,
         op: NumericOperator,
-    ) -> Option<DecimalScalar<'a>> {
+    ) -> VortexResult<Option<Scalar>> {
         // We could have ops between different types but need to add rules for type inference.
         if self.decimal_type != other.decimal_type {
-            vortex_panic!(
+            vortex_bail!(
                 "decimal types must match: {} vs {}",
                 self.decimal_type,
                 other.decimal_type
             );
         }
 
-        // Use the more nullable dtype as the result type
-        let result_dtype = if self.dtype.is_nullable() {
-            self.dtype
-        } else {
-            other.dtype
+        let result_decimal_type = decimal_numeric_result_dtype(self.decimal_type, op)?;
+        let nullability = self.dtype.nullability() | other.dtype.nullability();
+        let result_dtype = DType::Decimal(result_decimal_type, nullability);
+
+        // Handle null cases using SQL semantics.
+        let (Some(lhs), Some(rhs)) = (self.decimal_value, other.decimal_value) else {
+            return Ok(Some(Scalar::null(result_dtype.as_nullable())));
         };
 
-        // Handle null cases using SQL semantics
-        let result_value = match (self.decimal_value, other.decimal_value) {
-            (None, _) | (_, None) => None,
-            (Some(lhs), Some(rhs)) => {
-                // Perform the operation
-                let operation_result = match op {
-                    NumericOperator::Add => lhs.checked_add(&rhs),
-                    NumericOperator::Sub => lhs.checked_sub(&rhs),
-                    NumericOperator::Mul => lhs.checked_mul(&rhs),
-                    NumericOperator::Div => lhs.checked_div(&rhs),
-                }?;
-
-                // Check if the result fits within the precision constraints
-                if operation_result.fits_in_precision(self.decimal_type) {
-                    Some(operation_result)
-                } else {
-                    // Result exceeds precision, return None (overflow)
-                    return None;
-                }
-            }
-        };
-
-        Some(DecimalScalar {
-            dtype: result_dtype,
-            decimal_type: self.decimal_type,
-            decimal_value: result_value,
-        })
+        Ok(
+            checked_decimal_numeric(lhs, rhs, self.decimal_type, result_decimal_type, op)
+                .map(|value| Scalar::decimal(value, result_decimal_type, nullability)),
+        )
     }
 }
 

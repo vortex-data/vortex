@@ -13,8 +13,8 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::expr::Expression;
-use vortex_array::expr::transform::PartitionedExpr;
+use vortex_array::expr::BoundExpression;
+use vortex_array::expr::transform::BoundPartitionedExpr;
 use vortex_array::validity::Validity;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -22,28 +22,29 @@ use vortex_session::VortexSession;
 
 use crate::ArrayFuture;
 
-pub trait PartitionedExprEval<P> {
+/// Evaluates cached bound partitions without rebuilding their expression trees per split.
+pub(crate) trait BoundPartitionedExprEval<P> {
     fn into_mask_future(
         self: Arc<Self>,
         mask: MaskFuture,
-        mask_fn: impl Fn(&P, &Expression, MaskFuture) -> VortexResult<MaskFuture>,
-        array_fn: impl Fn(&P, &Expression, MaskFuture) -> VortexResult<ArrayFuture>,
+        mask_fn: impl Fn(&P, &BoundExpression, MaskFuture) -> VortexResult<MaskFuture>,
+        array_fn: impl Fn(&P, &BoundExpression, MaskFuture) -> VortexResult<ArrayFuture>,
         session: VortexSession,
     ) -> VortexResult<MaskFuture>;
 
     fn into_array_future(
         self: Arc<Self>,
         mask: MaskFuture,
-        array_fn: impl Fn(&P, &Expression, MaskFuture) -> VortexResult<ArrayFuture>,
+        array_fn: impl Fn(&P, &BoundExpression, MaskFuture) -> VortexResult<ArrayFuture>,
     ) -> VortexResult<ArrayFuture>;
 }
 
-impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
+impl<P: Send + Sync + 'static> BoundPartitionedExprEval<P> for BoundPartitionedExpr<P> {
     fn into_mask_future(
         self: Arc<Self>,
         mask: MaskFuture,
-        mask_fn: impl Fn(&P, &Expression, MaskFuture) -> VortexResult<MaskFuture>,
-        array_fn: impl Fn(&P, &Expression, MaskFuture) -> VortexResult<ArrayFuture>,
+        mask_fn: impl Fn(&P, &BoundExpression, MaskFuture) -> VortexResult<MaskFuture>,
+        array_fn: impl Fn(&P, &BoundExpression, MaskFuture) -> VortexResult<ArrayFuture>,
         session: VortexSession,
     ) -> VortexResult<MaskFuture> {
         // Construct evaluations for each child.
@@ -51,22 +52,23 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
             .partition_annotations
             .iter()
             .zip_eq(self.partitions.iter())
-            .zip_eq(self.partition_dtypes.iter())
-            .map(|((annotation, expr), dtype)| {
-                Ok::<_, VortexError>(if matches!(dtype, DType::Bool(Nullability::NonNullable)) {
-                    // If the partition evaluates to a boolean, we can evaluate it as a mask which
-                    // can often be more efficient since nulls are turned into `false` early on,
-                    // and layouts can perform predicate pruning / indexing.
-                    PartitionEval::Mask(mask_fn(annotation, expr, mask.clone())?)
-                } else {
-                    // Otherwise, we evaluate the projection as an array, and combine the results
-                    // at the end.
-                    PartitionEval::Array(array_fn(
-                        annotation,
-                        expr,
-                        MaskFuture::new_true(mask.len()),
-                    )?)
-                })
+            .map(|(annotation, expr)| {
+                Ok::<_, VortexError>(
+                    if matches!(expr.dtype(), DType::Bool(Nullability::NonNullable)) {
+                        // If the partition evaluates to a boolean, we can evaluate it as a mask which
+                        // can often be more efficient since nulls are turned into `false` early on,
+                        // and layouts can perform predicate pruning / indexing.
+                        PartitionEval::Mask(mask_fn(annotation, expr, mask.clone())?)
+                    } else {
+                        // Otherwise, we evaluate the projection as an array, and combine the results
+                        // at the end.
+                        PartitionEval::Array(array_fn(
+                            annotation,
+                            expr,
+                            MaskFuture::new_true(mask.len()),
+                        )?)
+                    },
+                )
             })
             .try_collect()?;
 
@@ -90,7 +92,7 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
 
             let mut ctx = session.create_execution_ctx();
             let root_mask = root_scope
-                .apply(&self.root)?
+                .apply_bound(&self.root)?
                 .null_as_false()
                 .execute(&mut ctx)?;
 
@@ -103,7 +105,7 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
     fn into_array_future(
         self: Arc<Self>,
         mask: MaskFuture,
-        array_fn: impl Fn(&P, &Expression, MaskFuture) -> VortexResult<ArrayFuture>,
+        array_fn: impl Fn(&P, &BoundExpression, MaskFuture) -> VortexResult<ArrayFuture>,
     ) -> VortexResult<ArrayFuture> {
         // Construct evaluations for each child.
         let field_evals: Vec<_> = self
@@ -126,7 +128,7 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
             )?
             .into_array();
 
-            root_scope.apply(&self.root)
+            root_scope.apply_bound(&self.root)
         }))
     }
 }

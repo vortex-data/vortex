@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+query I
+COPY (
+  SELECT id, map(keys, vals) AS attrs
+  FROM (VALUES
+    (1, [1, 2], ['one', CAST(NULL AS VARCHAR)]),
+    (2, [], []),
+    (3, [3], ['three'])
+  ) AS t(id, keys, vals)
+) TO '${WORK_DIR}/datafusion/map_roundtrip/maps.vortex'
+STORED AS VORTEX;
+----
+3
+
+statement ok
+CREATE VIEW map_rows AS SELECT * FROM '${WORK_DIR}/datafusion/map_roundtrip/maps.vortex';
+
+query I? rowsort
+SELECT id, attrs FROM map_rows;
+----
+1 {1: one, 2: NULL}
+2 {}
+3 {3: three}
+
+query II??? rowsort
+SELECT
+  id,
+  cardinality(attrs),
+  map_keys(attrs),
+  map_values(attrs),
+  map_extract(attrs, 2)
+FROM map_rows;
+----
+1 2 [1, 2] [one, NULL] [NULL]
+2 0 [] [] [NULL]
+3 1 [3] [three] [NULL]
+
+statement ok
+DROP VIEW map_rows;

@@ -114,7 +114,7 @@ Supported diagnostics:
 
 - `--formats parquet,vortex,vortex-compact,lance,arrow`;
 - `--queries 6`, `--exclude-queries 1,2`, `--iterations N`, `--display-format gh-json`;
-- `--hide-progress-bar`, `-o /private/tmp/out.jsonl`, `--gh-json-v3 /private/tmp/out.v3.jsonl`;
+- `--hide-progress-bar`, `-o /private/tmp/out.jsonl`, `--ingest-jsonl /private/tmp/out.ingest.jsonl`;
 - `--verbose`, `--tracing`, `--track-memory`, `--runner NAME`, `--opt key=value`;
 - `--explain` prints query plans instead of timing;
 - `--show-metrics` prints Vortex execution-plan metrics after a timed run.
@@ -149,7 +149,7 @@ Supported diagnostics:
 - `--reuse` keeps one DuckDB connection across iterations, useful with Samply to keep work on the
   same threads;
 - common flags: `--queries`, `--exclude-queries`, `--iterations`, `--display-format`,
-  `--hide-progress-bar`, `-o`, `--gh-json-v3`, `--track-memory`, `--verbose`, `--tracing`,
+  `--hide-progress-bar`, `-o`, `--ingest-jsonl`, `--track-memory`, `--verbose`, `--tracing`,
   `--runner`, `--opt`, `--explain`.
 
 Example:
@@ -171,7 +171,7 @@ Important differences:
 - no `--formats`: the binary always generates/registers Lance data and reports `datafusion:lance`;
 - no `--explain` or `--show-metrics` path today;
 - common flags: `--queries`, `--exclude-queries`, `--iterations`, `--display-format`,
-  `--hide-progress-bar`, `-o`, `--gh-json-v3`, `--track-memory`, `--verbose`, `--tracing`,
+  `--hide-progress-bar`, `-o`, `--ingest-jsonl`, `--track-memory`, `--verbose`, `--tracing`,
   `--runner`, `--opt`;
 - `--threads` is parsed but currently not wired into the Lance/DataFusion session.
 

@@ -3,17 +3,19 @@
 
 //! OnPair short-string compression (dict-12).
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VTable;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
-use vortex_compressor::estimate::CompressionEstimate;
-use vortex_compressor::estimate::DeferredEstimate;
+use vortex_compressor::scheme::CompressionEstimate;
+use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::SchemeId;
 use vortex_error::VortexResult;
-use vortex_onpair::DEFAULT_DICT12_CONFIG;
+use vortex_onpair::DEFAULT_CONFIG;
 use vortex_onpair::OnPair;
 use vortex_onpair::OnPairArrayExt;
 use vortex_onpair::OnPairArraySlotsExt;
@@ -47,9 +49,13 @@ impl Scheme for OnPairScheme {
         canonical.dtype().is_utf8()
     }
 
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![OnPair.id()]
+    }
+
     /// 4 primitive slot children flow through the cascading compressor:
     /// `dict_offsets` (u32 → typically `FoR`/`BitPacked`), `codes` (u16 →
-    /// `FastLanes::BitPacked` to exactly `bits` = 12 by default),
+    /// usually `FastLanes::BitPacked` after scheme selection),
     /// `codes_offsets` (u32 → `FoR`), `uncompressed_lengths` (i32 → narrow
     /// + `FoR`). Validity stays untouched.
     fn num_children(&self) -> usize {
@@ -73,7 +79,10 @@ impl Scheme for OnPairScheme {
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let utf8 = data.array_as_varbinview().into_owned();
-        let onpair_array = onpair_compress(&utf8, utf8.len(), utf8.dtype(), DEFAULT_DICT12_CONFIG)?;
+        let encoded = onpair_compress(utf8.as_array(), DEFAULT_CONFIG, exec_ctx)?;
+        let Some(onpair_array) = encoded.as_opt::<OnPair>() else {
+            return Ok(encoded);
+        };
 
         let dict_offsets = compress_offsets_child(
             compressor,
@@ -108,15 +117,14 @@ impl Scheme for OnPairScheme {
             exec_ctx,
         )?;
 
-        Ok(OnPair::try_new(
+        Ok(OnPair::try_new_with_data(
             onpair_array.dtype().clone(),
-            onpair_array.dict_bytes_handle().clone(),
+            onpair_array.data().clone(),
             dict_offsets,
             codes,
             codes_offsets,
             uncompressed_lengths,
             onpair_array.array_validity(),
-            onpair_array.bits(),
         )?
         .into_array())
     }

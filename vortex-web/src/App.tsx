@@ -9,7 +9,7 @@ import type { LayoutTreeNode } from './components/swimlane/types';
 import { arrayTreeToLayoutChildren, findNodeById } from './components/swimlane/utils';
 import { FileDropScreen } from './components/explorer/FileDropScreen';
 import { FileHeader } from './components/explorer/FileHeader';
-import { MainArea } from './components/explorer/MainArea';
+import { MainArea, type MainView } from './components/explorer/MainArea';
 import { StatusBar } from './components/explorer/StatusBar';
 import { VortexWorker } from './workers/VortexWorker';
 
@@ -18,6 +18,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [view, setView] = useState<MainView>('details');
   const dragCounter = useRef(0);
   const workerRef = useRef<VortexWorker | null>(null);
 
@@ -177,8 +178,8 @@ function App() {
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
-          <FileHeader onClose={closeFile} />
-          <MainArea />
+          <FileHeader onClose={closeFile} view={view} onViewChange={setView} />
+          <MainArea view={view} />
           <StatusBar />
           {isDragging && (
             <div className="absolute inset-0 z-50 flex items-center justify-center bg-vortex-black/50 dark:bg-black/50 backdrop-blur-sm pointer-events-none">

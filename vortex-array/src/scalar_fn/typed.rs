@@ -24,12 +24,12 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
 use crate::expr::Expression;
+use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::Arity;
+use crate::scalar_fn::ArrayReduceNode;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
-use crate::scalar_fn::ReduceCtx;
-use crate::scalar_fn::ReduceNode;
-use crate::scalar_fn::ReduceNodeRef;
+use crate::scalar_fn::ExpressionReduceNode;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
@@ -81,19 +81,21 @@ pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
     // Bound methods — options accessed from self
     fn execute(&self, args: &dyn ExecutionArgs, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
     fn return_dtype(&self, arg_types: &[DType]) -> VortexResult<DType>;
-    fn coerce_args(&self, arg_types: &[DType]) -> VortexResult<Vec<DType>>;
-    fn reduce(
+    fn reduce_expression<'a>(
         &self,
-        node: &dyn ReduceNode,
-        ctx: &dyn ReduceCtx,
-    ) -> VortexResult<Option<ReduceNodeRef>>;
+        node: &ExpressionReduceNode<'a>,
+    ) -> VortexResult<Option<ExpressionReduceNode<'a>>>;
+    fn reduce_array<'a>(
+        &self,
+        node: &ArrayReduceNode<'a>,
+    ) -> VortexResult<Option<ArrayReduceNode<'a>>>;
     fn arity(&self) -> Arity;
     fn child_name(&self, child_idx: usize) -> ChildName;
-    fn is_null_sensitive(&self) -> bool;
+    fn is_strict(&self) -> bool;
     fn is_fallible(&self) -> bool;
 
-    // Expression methods — take &Expression for tree traversal
-    fn fmt_sql(&self, expression: &Expression, f: &mut Formatter<'_>) -> fmt::Result;
+    // Expression methods — take expressions for tree traversal
+    fn fmt_sql(&self, expression: &dyn ExprDisplay, f: &mut Formatter<'_>) -> fmt::Result;
     fn simplify(
         &self,
         expression: &Expression,
@@ -164,16 +166,18 @@ impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
         V::return_dtype(&self.vtable, &self.options, arg_dtypes)
     }
 
-    fn coerce_args(&self, arg_types: &[DType]) -> VortexResult<Vec<DType>> {
-        V::coerce_args(&self.vtable, &self.options, arg_types)
+    fn reduce_expression<'a>(
+        &self,
+        node: &ExpressionReduceNode<'a>,
+    ) -> VortexResult<Option<ExpressionReduceNode<'a>>> {
+        V::reduce(&self.vtable, &self.options, node)
     }
 
-    fn reduce(
+    fn reduce_array<'a>(
         &self,
-        node: &dyn ReduceNode,
-        ctx: &dyn ReduceCtx,
-    ) -> VortexResult<Option<ReduceNodeRef>> {
-        V::reduce(&self.vtable, &self.options, node, ctx)
+        node: &ArrayReduceNode<'a>,
+    ) -> VortexResult<Option<ArrayReduceNode<'a>>> {
+        V::reduce(&self.vtable, &self.options, node)
     }
 
     fn arity(&self) -> Arity {
@@ -184,15 +188,15 @@ impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
         V::child_name(&self.vtable, &self.options, child_idx)
     }
 
-    fn is_null_sensitive(&self) -> bool {
-        V::is_null_sensitive(&self.vtable, &self.options)
+    fn is_strict(&self) -> bool {
+        V::is_strict(&self.vtable, &self.options)
     }
 
     fn is_fallible(&self) -> bool {
         V::is_fallible(&self.vtable, &self.options)
     }
 
-    fn fmt_sql(&self, expression: &Expression, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt_sql(&self, expression: &dyn ExprDisplay, f: &mut Formatter<'_>) -> fmt::Result {
         V::fmt_sql(&self.vtable, &self.options, expression, f)
     }
 

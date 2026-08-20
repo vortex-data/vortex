@@ -3,6 +3,9 @@
 
 mod array;
 pub use array::ExtensionArrayExt;
+pub use array::ExtensionArraySlotsExt;
+pub use array::ExtensionSlots;
+pub use array::ExtensionSlotsView;
 pub use vtable::ExtensionArray;
 
 pub(crate) mod compute;

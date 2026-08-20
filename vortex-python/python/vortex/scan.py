@@ -50,15 +50,15 @@ class RepeatedScan:
         >>> scan.execute(row_range=(1, 3)).read_all().to_arrow_array()
         <pyarrow.lib.StructArray object at ...>
         -- is_valid: all not null
-        -- child 0 type: int64
-          [
-            31,
-            null
-          ]
-        -- child 1 type: string_view
+        -- child 0 type: string_view
           [
             null,
             "Angela"
+          ]
+        -- child 1 type: int64
+          [
+            31,
+            null
           ]
         """
         if row_range is None:

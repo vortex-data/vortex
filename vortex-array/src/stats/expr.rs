@@ -3,6 +3,8 @@
 
 //! Expression constructors for statistics backed by aggregate functions.
 
+use vortex_error::VortexExpect;
+
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTableExt;
 use crate::aggregate_fn::EmptyOptions;
@@ -15,6 +17,7 @@ use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::nan_count::NanCount;
 use crate::aggregate_fn::fns::null_count::NullCount;
 use crate::aggregate_fn::fns::sum::Sum;
+use crate::expr::BoundExpression;
 use crate::expr::Expression;
 use crate::scalar_fn::ScalarFnVTableExt;
 pub use crate::scalar_fn::fns::stat::StatFn;
@@ -28,10 +31,20 @@ pub fn stat(expr: Expression, aggregate_fn: AggregateFnRef) -> Expression {
     StatFn.new_expr(StatOptions::new(aggregate_fn), [expr])
 }
 
+fn bound_stat(expr: BoundExpression, aggregate_fn: AggregateFnRef) -> BoundExpression {
+    StatFn
+        .try_new_bound_expr(StatOptions::new(aggregate_fn), [expr])
+        .vortex_expect("stat expressions must use an aggregate supported by the child dtype")
+}
+
 /// Creates `stat(expr, min_max)`, returning a nullable `{ min, max }` struct statistic.
 pub fn min_max(expr: Expression) -> Expression {
     // Statistics follow NaN-skipping semantics; request it explicitly rather than via the default.
     stat(expr, MinMax.bind(NumericalAggregateOpts::skip_nans()))
+}
+
+fn bound_min_max(expr: BoundExpression) -> BoundExpression {
+    bound_stat(expr, MinMax.bind(NumericalAggregateOpts::skip_nans()))
 }
 
 /// Creates `stat(expr, sum)`, returning a nullable sum statistic.
@@ -40,9 +53,17 @@ pub fn sum(expr: Expression) -> Expression {
     stat(expr, Sum.bind(NumericalAggregateOpts::skip_nans()))
 }
 
+fn bound_sum(expr: BoundExpression) -> BoundExpression {
+    bound_stat(expr, Sum.bind(NumericalAggregateOpts::skip_nans()))
+}
+
 /// Creates `stat(expr, null_count)`, returning a nullable null-count statistic.
 pub fn null_count(expr: Expression) -> Expression {
     stat(expr, NullCount.bind(EmptyOptions))
+}
+
+fn bound_null_count(expr: BoundExpression) -> BoundExpression {
+    bound_stat(expr, NullCount.bind(EmptyOptions))
 }
 
 /// Creates `stat(expr, all_null)`, returning a nullable all-null statistic.
@@ -50,9 +71,17 @@ pub fn all_null(expr: Expression) -> Expression {
     stat(expr, AllNull.bind(EmptyOptions))
 }
 
+fn bound_all_null(expr: BoundExpression) -> BoundExpression {
+    bound_stat(expr, AllNull.bind(EmptyOptions))
+}
+
 /// Creates `stat(expr, all_nan)`, returning a nullable all-NaN statistic.
 pub fn all_nan(expr: Expression) -> Expression {
     stat(expr, AllNan.bind(EmptyOptions))
+}
+
+fn bound_all_nan(expr: BoundExpression) -> BoundExpression {
+    bound_stat(expr, AllNan.bind(EmptyOptions))
 }
 
 /// Creates `stat(expr, all_non_null)`, returning a nullable all-non-null statistic.
@@ -60,14 +89,80 @@ pub fn all_non_null(expr: Expression) -> Expression {
     stat(expr, AllNonNull.bind(EmptyOptions))
 }
 
+fn bound_all_non_null(expr: BoundExpression) -> BoundExpression {
+    bound_stat(expr, AllNonNull.bind(EmptyOptions))
+}
+
 /// Creates `stat(expr, all_non_nan)`, returning a nullable all-non-NaN statistic.
 pub fn all_non_nan(expr: Expression) -> Expression {
     stat(expr, AllNonNan.bind(EmptyOptions))
 }
 
+fn bound_all_non_nan(expr: BoundExpression) -> BoundExpression {
+    bound_stat(expr, AllNonNan.bind(EmptyOptions))
+}
+
 /// Creates `stat(expr, nan_count)`, returning a nullable NaN-count statistic.
 pub fn nan_count(expr: Expression) -> Expression {
     stat(expr, NanCount.bind(EmptyOptions))
+}
+
+fn bound_nan_count(expr: BoundExpression) -> BoundExpression {
+    bound_stat(expr, NanCount.bind(EmptyOptions))
+}
+
+/// Constructors for statistic expressions whose input has already been bound.
+///
+/// These mirror the constructors in [`crate::stats`] and panic when the aggregate does not support
+/// the input dtype.
+pub mod bound {
+    use crate::aggregate_fn::AggregateFnRef;
+    use crate::expr::BoundExpression;
+
+    /// Creates a bound expression that reads a stored aggregate statistic.
+    pub fn stat(expr: BoundExpression, aggregate_fn: AggregateFnRef) -> BoundExpression {
+        super::bound_stat(expr, aggregate_fn)
+    }
+
+    /// Creates a bound nullable `{ min, max }` statistic expression.
+    pub fn min_max(expr: BoundExpression) -> BoundExpression {
+        super::bound_min_max(expr)
+    }
+
+    /// Creates a bound nullable sum statistic expression.
+    pub fn sum(expr: BoundExpression) -> BoundExpression {
+        super::bound_sum(expr)
+    }
+
+    /// Creates a bound nullable null-count statistic expression.
+    pub fn null_count(expr: BoundExpression) -> BoundExpression {
+        super::bound_null_count(expr)
+    }
+
+    /// Creates a bound nullable all-null statistic expression.
+    pub fn all_null(expr: BoundExpression) -> BoundExpression {
+        super::bound_all_null(expr)
+    }
+
+    /// Creates a bound nullable all-NaN statistic expression.
+    pub fn all_nan(expr: BoundExpression) -> BoundExpression {
+        super::bound_all_nan(expr)
+    }
+
+    /// Creates a bound nullable all-non-null statistic expression.
+    pub fn all_non_null(expr: BoundExpression) -> BoundExpression {
+        super::bound_all_non_null(expr)
+    }
+
+    /// Creates a bound nullable all-non-NaN statistic expression.
+    pub fn all_non_nan(expr: BoundExpression) -> BoundExpression {
+        super::bound_all_non_nan(expr)
+    }
+
+    /// Creates a bound nullable NaN-count statistic expression.
+    pub fn nan_count(expr: BoundExpression) -> BoundExpression {
+        super::bound_nan_count(expr)
+    }
 }
 
 #[cfg(test)]
@@ -83,6 +178,7 @@ mod tests {
     use super::all_non_nan;
     use super::all_non_null;
     use super::all_null;
+    use super::bound as bound_stats;
     use super::null_count;
     use super::stat;
     use super::sum;
@@ -99,6 +195,7 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::expr::bound as bound_expr;
     use crate::expr::root;
     use crate::expr::stats::Precision;
     use crate::expr::stats::Stat;
@@ -107,6 +204,21 @@ mod tests {
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+
+    #[test]
+    fn bound_stats_constructor_preserves_child_and_dtype() -> VortexResult<()> {
+        let input_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let root = bound_expr::root(input_dtype.clone());
+        let bound = bound_stats::sum(root.clone());
+
+        assert_eq!(bound.children(), &[root]);
+        assert_eq!(
+            bound.dtype(),
+            &DType::Primitive(PType::I64, Nullability::Nullable)
+        );
+        assert_eq!(bound, sum(crate::expr::root()).bind(&input_dtype)?);
+        Ok(())
+    }
 
     #[test]
     fn stat_expr_reads_cached_sum() -> VortexResult<()> {

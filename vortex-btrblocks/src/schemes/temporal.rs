@@ -3,12 +3,12 @@
 
 //! Temporal compression scheme using datetime-part decomposition.
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::aggregate_fn::fns::is_constant::is_constant;
-use vortex_array::arrays::ConstantArray;
+use vortex_array::VTable;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TemporalArray;
@@ -17,8 +17,8 @@ use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::extension::Matcher;
 use vortex_array::extension::datetime::AnyTemporal;
 use vortex_array::extension::datetime::TemporalMetadata;
-use vortex_compressor::estimate::CompressionEstimate;
-use vortex_compressor::estimate::EstimateVerdict;
+use vortex_compressor::scheme::CompressionEstimate;
+use vortex_compressor::scheme::EstimateVerdict;
 use vortex_datetime_parts::DateTimeParts;
 use vortex_datetime_parts::TemporalParts;
 use vortex_datetime_parts::split_temporal;
@@ -55,6 +55,10 @@ impl Scheme for TemporalScheme {
         )
     }
 
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![DateTimeParts.id()]
+    }
+
     /// Children: days=0, seconds=1, subseconds=2.
     fn num_children(&self) -> usize {
         3
@@ -79,17 +83,7 @@ impl Scheme for TemporalScheme {
     ) -> VortexResult<ArrayRef> {
         let array = data.array().clone();
         let ext_array = array.execute::<ExtensionArray>(exec_ctx)?;
-        let temporal_array = TemporalArray::try_from(ext_array.clone().into_array())?;
-
-        // Check for constant array and return early if so.
-        let is_constant = is_constant(&ext_array.clone().into_array(), exec_ctx)?;
-
-        if is_constant {
-            return Ok(
-                ConstantArray::new(ext_array.execute_scalar(0, exec_ctx)?, ext_array.len())
-                    .into_array(),
-            );
-        }
+        let temporal_array = TemporalArray::try_from(ext_array.into_array())?;
 
         let dtype = temporal_array.dtype().clone();
         let TemporalParts {

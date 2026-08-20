@@ -10,7 +10,7 @@ use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::ZigZag;
-use crate::array::ZigZagArrayExt;
+use crate::array::ZigZagArraySlotsExt;
 impl CastReduce for ZigZag {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !dtype.is_signed_int() {
@@ -143,6 +143,6 @@ mod tests {
     #[case(zigzag_encode(PrimitiveArray::from_option_iter([Some(-5i16), None, Some(0), Some(5), None]).as_view()).unwrap())]
     #[case(zigzag_encode(PrimitiveArray::from_iter([i32::MIN, -1, 0, 1, i32::MAX]).as_view()).unwrap())]
     fn test_cast_zigzag_conformance(#[case] array: ZigZagArray) {
-        test_cast_conformance(&array.into_array());
+        test_cast_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

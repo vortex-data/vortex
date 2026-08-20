@@ -191,16 +191,12 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> VortexResult<WIPOffset<fba::ArrayNode<'fb>>> {
-        let encoding_idx = self
-            .ctx
-            .intern(&self.array.encoding_id())
-            // TODO(ngates): write_flatbuffer should return a result if this can fail.
-            .ok_or_else(|| {
-                vortex_err!(
-                    "Array encoding {} not permitted by ctx",
-                    self.array.encoding_id()
-                )
-            })?;
+        let encoding_idx = self.ctx.intern(&self.array.encoding_id()).ok_or_else(|| {
+            vortex_err!(
+                "Array encoding {} not permitted by ctx",
+                self.array.encoding_id()
+            )
+        })?;
 
         let metadata_bytes = self.session.array_serialize(self.array)?.ok_or_else(|| {
             vortex_err!(
@@ -325,11 +321,11 @@ impl SerializedArray {
         let encoding_id = ctx
             .resolve(encoding_idx)
             .ok_or_else(|| vortex_err!("Unknown encoding index: {}", encoding_idx))?;
-        let Some(plugin) = session.arrays().registry().find(&encoding_id) else {
+        let Some(plugin) = session.arrays().registry().get(&encoding_id) else {
             if session.allows_unknown() {
                 return self.decode_foreign(encoding_id, dtype, len, ctx);
             }
-            return Err(vortex_err!("Unknown encoding: {}", encoding_id));
+            vortex_bail!("Unknown encoding: {}", encoding_id);
         };
 
         let children = SerializedArrayChildren {
@@ -613,26 +609,48 @@ impl SerializedArray {
         // SAFETY: fb_buffer was already validated by validate_array_tree above.
         let fb_array = unsafe { fba::root_as_array_unchecked(fb_buffer.as_ref()) };
 
-        let mut offset = 0;
+        let mut offset = 0usize;
         let buffers = fb_array
             .buffers()
             .unwrap_or_default()
             .iter()
             .enumerate()
             .map(|(idx, fb_buf)| {
-                offset += fb_buf.padding() as usize;
-                let buffer_len = fb_buf.length() as usize;
-                let alignment = Alignment::from_exponent(fb_buf.alignment_exponent());
-
                 let idx = u32::try_from(idx).vortex_expect("buffer count must fit in u32");
+
+                // The padding, length, and resulting offsets all come from the flatbuffer, which
+                // may be corrupt. Use checked arithmetic so malformed metadata returns a
+                // `VortexError` rather than panicking (see issue #8819).
+                let buffer_len = fb_buf.length() as usize;
+                let start = offset
+                    .checked_add(fb_buf.padding() as usize)
+                    .ok_or_else(|| {
+                        vortex_err!("Buffer {idx} offset overflows when adding its padding")
+                    })?;
+                let end = start.checked_add(buffer_len).ok_or_else(|| {
+                    vortex_err!("Buffer {idx} offset overflows when adding its length")
+                })?;
+
+                // The alignment exponent comes from the flatbuffer and may be corrupt, so validate
+                // it rather than panicking on a too-large shift (see issue #8819).
+                let alignment =
+                    Alignment::try_from_untrusted_exponent(fb_buf.alignment_exponent())?;
                 let handle = if let Some(host_data) = buffer_overrides.get(&idx) {
                     BufferHandle::new_host(host_data.clone()).ensure_aligned(alignment)?
                 } else {
-                    let buffer = segment.slice(offset..(offset + buffer_len));
-                    buffer.ensure_aligned(alignment)?
+                    // Bounds-check against the segment so an out-of-range buffer returns a
+                    // `VortexError` rather than panicking when slicing (see issue #8819).
+                    if end > segment.len() {
+                        vortex_bail!(
+                            "Buffer {idx} at offset {start} with length {buffer_len} is out of \
+                             bounds of the {}-byte segment",
+                            segment.len(),
+                        );
+                    }
+                    segment.slice(start..end).ensure_aligned(alignment)?
                 };
 
-                offset += buffer_len;
+                offset = end;
                 Ok(handle)
             })
             .collect::<VortexResult<Arc<[_]>>>()?;
@@ -693,5 +711,93 @@ impl TryFrom<BufferHandle> for SerializedArray {
 
     fn try_from(value: BufferHandle) -> Result<Self, Self::Error> {
         Self::try_from(value.try_to_host_sync()?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::ByteBufferMut;
+
+    use super::*;
+    use crate::IntoArray;
+    use crate::array_session;
+    use crate::arrays::PrimitiveArray;
+
+    /// A corrupt array tree can declare a buffer that extends past the backing segment. Slicing
+    /// such a buffer must return a [`VortexError`] rather than panicking (see issue #8819).
+    #[test]
+    fn from_flatbuffer_and_segment_rejects_out_of_bounds_buffer() -> VortexResult<()> {
+        let session = array_session();
+        let array_ctx = ArrayContext::empty();
+
+        // Serialize a simple array so we have a valid array tree flatbuffer whose declared buffer
+        // lengths describe the trailing data segment.
+        let serialized = PrimitiveArray::from_iter([1i32, 2, 3, 4])
+            .into_array()
+            .serialize(&array_ctx, &session, &SerializeOptions::default())?;
+
+        let mut concat = ByteBufferMut::empty();
+        for buf in serialized {
+            concat.extend_from_slice(buf.as_ref());
+        }
+        let value = concat.freeze().aligned(Alignment::none());
+
+        // Split the blob into the trailing flatbuffer and the leading data segment, mirroring
+        // `SerializedArray::try_from`.
+        let fb_length = u32::try_from_le_bytes(&value.as_slice()[value.len() - 4..])? as usize;
+        let fb_offset = value.len() - 4 - fb_length;
+        assert!(
+            fb_offset > 0,
+            "the array must have at least one data buffer"
+        );
+        let array_tree = value.slice(fb_offset..fb_offset + fb_length);
+
+        // Truncate the data segment by one byte so the declared buffer no longer fits.
+        let truncated = BufferHandle::new_host(value.slice(0..fb_offset - 1));
+
+        let Some(err) = SerializedArray::from_flatbuffer_and_segment(array_tree, truncated).err()
+        else {
+            vortex_bail!("out-of-bounds buffer must be rejected");
+        };
+        assert!(
+            err.to_string().contains("out of bounds"),
+            "unexpected error: {err}"
+        );
+
+        Ok(())
+    }
+
+    /// A corrupt array tree can declare a buffer alignment of up to 2^63, which the copy that
+    /// satisfies it allocates as slack. It must be rejected (see issue #8819).
+    #[test]
+    fn from_flatbuffer_and_segment_rejects_excessive_buffer_alignment() -> VortexResult<()> {
+        // Padding and length fit the segment exactly, so the exponent is the only defect.
+        // `validate_array_tree` only requires a root node to be present, so an empty one will do.
+        let mut fbb = FlatBufferBuilder::new();
+        let fb_root = fba::ArrayNode::create(&mut fbb, &fba::ArrayNodeArgs::default());
+        let fb_buffers = fbb.create_vector(&[fba::Buffer::new(0, 40, Compression::None, 4)]);
+        let fb_array = fba::Array::create(
+            &mut fbb,
+            &fba::ArrayArgs {
+                root: Some(fb_root),
+                buffers: Some(fb_buffers),
+            },
+        );
+        fbb.finish_minimal(fb_array);
+        let (fb_vec, fb_start) = fbb.collapse();
+        let fb_end = fb_vec.len();
+        let array_tree = ByteBuffer::from(fb_vec).slice(fb_start..fb_end);
+
+        let segment = BufferHandle::new_host(ByteBuffer::from(vec![0u8; 4]));
+        let Some(err) = SerializedArray::from_flatbuffer_and_segment(array_tree, segment).err()
+        else {
+            vortex_bail!("excessive buffer alignment must be rejected");
+        };
+        assert!(
+            err.to_string().contains("exceeds"),
+            "unexpected error: {err}"
+        );
+
+        Ok(())
     }
 }

@@ -7,35 +7,83 @@ use std::panic::catch_unwind;
 use std::ptr;
 use std::sync::Arc;
 
+use vortex::error::VortexError;
 use vortex::error::VortexResult;
 
 use crate::box_wrapper;
-use crate::string::vx_string;
+use crate::string::vx_view;
 
-pub(crate) struct VortexError {
+/// Error category for vx_error.
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum vx_error_code {
+    /// All other errors
+    VX_ERROR_CODE_OTHER = 0,
+    /// Index out of bounds
+    VX_ERROR_CODE_OUT_OF_BOUNDS = 1,
+    /// Compute kernel execute error
+    VX_ERROR_CODE_COMPUTE = 2,
+    /// An invalid argument was provided.
+    VX_ERROR_CODE_INVALID_ARGUMENT = 3,
+    /// Serialization/deserialization error
+    VX_ERROR_CODE_SERIALIZATION = 4,
+    /// Unimplemented function
+    VX_ERROR_CODE_NOT_IMPLEMENTED = 5,
+    /// Type mismatch
+    VX_ERROR_CODE_MISMATCHED_TYPES = 6,
+    /// Assertion failed
+    VX_ERROR_CODE_ASSERTION_FAILED = 7,
+    /// IO error
+    VX_ERROR_CODE_IO = 8,
+    /// Panic inside FFI
+    VX_ERROR_CODE_PANIC = 9,
+}
+
+fn error_code(error: &VortexError) -> vx_error_code {
+    match error {
+        VortexError::OutOfBounds(..) => vx_error_code::VX_ERROR_CODE_OUT_OF_BOUNDS,
+        VortexError::Compute(..) => vx_error_code::VX_ERROR_CODE_COMPUTE,
+        VortexError::InvalidArgument(..) => vx_error_code::VX_ERROR_CODE_INVALID_ARGUMENT,
+        VortexError::Serde(..) => vx_error_code::VX_ERROR_CODE_SERIALIZATION,
+        VortexError::NotImplemented(..) => vx_error_code::VX_ERROR_CODE_NOT_IMPLEMENTED,
+        VortexError::MismatchedTypes(..) => vx_error_code::VX_ERROR_CODE_MISMATCHED_TYPES,
+        VortexError::AssertionFailed(..) => vx_error_code::VX_ERROR_CODE_ASSERTION_FAILED,
+        VortexError::Io(..) => vx_error_code::VX_ERROR_CODE_IO,
+        VortexError::Context(_, inner) => error_code(inner),
+        VortexError::Shared(inner) => error_code(inner),
+        _ => vx_error_code::VX_ERROR_CODE_OTHER,
+    }
+}
+
+pub(crate) struct VortexFFIError {
     message: Arc<str>,
+    code: vx_error_code,
 }
 
 box_wrapper!(
     /// The error structure populated by fallible Vortex C functions.
-    VortexError,
+    VortexFFIError,
     vx_error
 );
 
-/// Create an owned Vortex FFI error from a message.
-pub(crate) fn vx_error_new(message: &str) -> *mut vx_error {
-    vx_error::new(VortexError {
+fn vx_error_new_with_code(message: &str, code: vx_error_code) -> *mut vx_error {
+    vx_error::new(VortexFFIError {
         message: message.into(),
+        code,
     })
 }
 
 /// Write an error message to `error` which has not been populated before.
 /// A null `error` pointer discards the message.
 pub(crate) fn write_error(error: *mut *mut vx_error, message: &str) {
+    write_error_with_code(error, message, vx_error_code::VX_ERROR_CODE_OTHER);
+}
+
+fn write_error_with_code(error: *mut *mut vx_error, message: &str, code: vx_error_code) {
     if error.is_null() {
         return;
     }
-    unsafe { error.write(vx_error_new(message)) };
+    unsafe { error.write(vx_error_new_with_code(message, code)) };
 }
 
 /// Clear `*error_out` to null unless `error_out` itself is null.
@@ -68,11 +116,15 @@ pub fn try_or_default<T: Default>(
             value
         }
         Ok(Err(err)) => {
-            write_error(error_out, &err.to_string());
+            write_error_with_code(error_out, &err.to_string(), error_code(&err));
             T::default()
         }
         Err(payload) => {
-            write_error(error_out, &panic_message(payload.as_ref()));
+            write_error_with_code(
+                error_out,
+                &panic_message(payload.as_ref()),
+                vx_error_code::VX_ERROR_CODE_PANIC,
+            );
             T::default()
         }
     }
@@ -93,23 +145,31 @@ pub fn try_or<T>(
             value
         }
         Ok(Err(err)) => {
-            write_error(error_out, &err.to_string());
+            write_error_with_code(error_out, &err.to_string(), error_code(&err));
             error_value
         }
         Err(payload) => {
-            write_error(error_out, &panic_message(payload.as_ref()));
+            write_error_with_code(
+                error_out,
+                &panic_message(payload.as_ref()),
+                vx_error_code::VX_ERROR_CODE_PANIC,
+            );
             error_value
         }
     }
 }
 
-/// Returns the error message from the given Vortex error.
-///
-/// The returned pointer is valid as long as the error is valid.
-/// Do NOT free the returned string pointer - it shares the lifetime of the error.
+/// Return error message for this error.
+/// Returned view is valid while "error" is valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_error_get_message(error: *const vx_error) -> *const vx_string {
-    vx_string::new_ref(&vx_error::as_ref(error).message)
+pub unsafe extern "C-unwind" fn vx_error_message(error: *const vx_error) -> vx_view {
+    vx_view::from_str(&vx_error::as_ref(error).message)
+}
+
+/// Return category code for "error".
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_error_get_code(error: *const vx_error) -> vx_error_code {
+    vx_error::as_ref(error).code
 }
 
 #[cfg(test)]
@@ -155,10 +215,34 @@ mod tests {
 
         assert_eq!(try_or(&raw mut error, -1, || panic!("boom")), -1);
         assert!(!error.is_null());
-        let message = unsafe { vx_error_get_message(error) };
+        let message = unsafe { vx_error_message(error) };
         assert_eq!(
-            vx_string::as_ref(message).as_ref(),
+            unsafe { message.as_str() }.unwrap(),
             "panic in Vortex FFI function: boom"
+        );
+        unsafe { vx_error_free(error) };
+    }
+
+    #[test]
+    fn test_error_codes() {
+        let mut error: *mut vx_error = ptr::null_mut();
+
+        assert_eq!(
+            try_or(&raw mut error, -1, || Err::<i32, _>(vortex_err!(
+                OutOfBounds: 5, 0, 3
+            ))),
+            -1
+        );
+        assert_eq!(
+            unsafe { vx_error_get_code(error) },
+            vx_error_code::VX_ERROR_CODE_OUT_OF_BOUNDS
+        );
+        unsafe { vx_error_free(error) };
+
+        assert_eq!(try_or(&raw mut error, -1, || panic!("panic")), -1);
+        assert_eq!(
+            unsafe { vx_error_get_code(error) },
+            vx_error_code::VX_ERROR_CODE_PANIC
         );
         unsafe { vx_error_free(error) };
     }

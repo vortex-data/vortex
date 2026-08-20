@@ -5,9 +5,9 @@ use std::any::Any;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::NullArray;
 use crate::builders::ArrayBuilder;
@@ -69,19 +69,13 @@ impl ArrayBuilder for NullBuilder {
         Ok(())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
-        self.append_nulls(array.len());
-    }
-
     fn reserve_exact(&mut self, _additional: usize) {}
-
-    unsafe fn set_validity_unchecked(&mut self, _validity: Mask) {}
 
     fn finish(&mut self) -> ArrayRef {
         NullArray::new(self.length).into_array()
     }
 
-    fn finish_into_canonical(&mut self) -> Canonical {
+    fn finish_into_canonical(&mut self, _ctx: &mut ExecutionCtx) -> Canonical {
         Canonical::Null(NullArray::new(self.length))
     }
 }

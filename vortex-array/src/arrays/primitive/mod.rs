@@ -3,8 +3,10 @@
 
 mod array;
 pub use array::PrimitiveArrayExt;
+pub use array::PrimitiveArraySlotsExt;
 pub use array::PrimitiveData;
 pub use array::PrimitiveDataParts;
+pub use array::PrimitiveSlots;
 pub use array::chunk_range;
 pub use array::patch_chunk;
 pub use vtable::PrimitiveArray;
@@ -15,12 +17,13 @@ mod vtable;
 pub use compute::rules::PrimitiveMaskedValidityRule;
 pub use vtable::Primitive;
 
-pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+pub(crate) fn initialize(session: &VortexSession) {
     vtable::initialize(session);
 }
 
 mod native_value;
 pub use native_value::NativeValue;
+use vortex_session::VortexSession;
 
 #[cfg(test)]
 mod tests;

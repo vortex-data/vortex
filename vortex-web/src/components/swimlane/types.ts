@@ -61,6 +61,13 @@ export interface SegmentMapEntry {
   layoutPath: string;
 }
 
+/** A segment resolved to its physical byte placement and the dtype that owns it. */
+export interface PhysicalSegment {
+  byteOffset: number;
+  byteLength: number;
+  dtype: string;
+}
+
 export interface FileStructureInfo {
   fileSize: number;
   version: number;
@@ -83,14 +90,7 @@ export interface FlattenedRow {
 
 // Retained from original types
 export type DtypeCategory =
-  | 'bool'
-  | 'int'
-  | 'float'
-  | 'utf8'
-  | 'datetime'
-  | 'struct'
-  | 'list'
-  | 'other';
+  'bool' | 'int' | 'float' | 'utf8' | 'datetime' | 'struct' | 'list' | 'other';
 
 export interface Split {
   id: string;

@@ -6,7 +6,6 @@ use std::fmt::Debug;
 
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
-use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -133,8 +132,10 @@ pub fn search_sorted_canonical_array(
         }
         DType::Utf8(_) | DType::Binary(_) => {
             let utf8 = array.clone().execute::<VarBinViewArray>(ctx)?;
-            let opt_values =
-                utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>());
+            let mask = utf8.validity()?.execute_mask(utf8.len(), ctx)?;
+            let opt_values = (0..utf8.len())
+                .map(|i| mask.value(i).then(|| utf8.bytes_at(i).to_vec()))
+                .collect::<Vec<_>>();
             let to_find = if matches!(array.dtype(), DType::Utf8(_)) {
                 BufferString::try_from(scalar)?.as_str().as_bytes().to_vec()
             } else {
@@ -148,7 +149,11 @@ pub fn search_sorted_canonical_array(
                 .collect::<VortexResult<Vec<_>>>()?;
             scalar_vals.search_sorted(&scalar.cast(array.dtype())?, side)
         }
-        d @ (DType::Null | DType::Union(..) | DType::Variant(_) | DType::Extension(_)) => {
+        d @ (DType::Null
+        | DType::Map(..)
+        | DType::Union(..)
+        | DType::Variant(_)
+        | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }
     }

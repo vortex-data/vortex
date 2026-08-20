@@ -98,7 +98,6 @@ use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::future::try_join_all;
 use vortex::array::VortexSessionExecute;
-use vortex::array::arrow::ArrowSessionExt;
 use vortex::dtype::DType;
 use vortex::dtype::FieldPath;
 use vortex::dtype::Nullability;
@@ -115,6 +114,7 @@ use vortex::io::session::RuntimeSessionExt;
 use vortex::scan::DataSourceRef;
 use vortex::scan::ScanRequest;
 use vortex::session::VortexSession;
+use vortex_arrow::ArrowSessionExt;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::convert::exprs::DefaultExpressionConvertor;
@@ -362,7 +362,7 @@ impl fmt::Debug for VortexDataSource {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("VortexScanSource")
             .field("schema", &self.leftover_schema)
-            .field("projection", &format!("{}", &self.projected_projection))
+            .field("projection", &format!("{}", self.projected_projection))
             .field("filter", &self.filter.as_ref().map(|e| format!("{}", e)))
             .field("limit", &self.limit)
             .finish()

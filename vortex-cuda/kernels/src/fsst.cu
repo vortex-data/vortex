@@ -53,7 +53,9 @@
 // the next add (≤ 8 bytes) within the 24-byte capacity.
 //
 // `codes_offsets` is templated over the four unsigned integer widths
-// (u8/u16/u32/u64). `output_offsets` is uint64_t.
+// (u8/u16/u32/u64). `output_offsets` is uint64_t for the view kernels
+// (`fsst_*`, which also take an optional views pointer) and int32_t Arrow
+// varbin offsets for the bytes-only varbin kernels (`fsst_varbin_*`).
 
 // 24-byte scratch buffer split across three u64 lanes. `cursor` is the
 // number of bytes currently buffered and the next-push offset.
@@ -123,13 +125,18 @@ struct Scratch {
     }
 };
 
-template <typename OffT>
+// Arrow/Vortex variable-length view records are 16 bytes. Values up to 12
+// bytes are stored inline after the u32 length. Longer values store their
+// first four bytes, backing-buffer index, and byte offset.
+constexpr uint32_t MAX_INLINED_SIZE = 12;
+
+template <typename CodeOffsetT, typename OutputOffsetT>
 struct FSSTArgs {
     // Compressed FSST code stream, contiguous across all strings. String
     // `sid`'s codes live in `[codes_offsets[sid], codes_offsets[sid + 1])`.
     const uint8_t *__restrict codes_bytes;
     // Per-string offsets into `codes_bytes`, length `num_strings + 1`.
-    const OffT *__restrict codes_offsets;
+    const CodeOffsetT *__restrict codes_offsets;
     // FSST symbol table.
     const uint64_t *__restrict symbols;
     // Length in bytes (1..=8) of each entry in `symbols`. The remaining bits
@@ -138,19 +145,57 @@ struct FSSTArgs {
     // Buffer to write decoded data into.
     uint8_t *__restrict output_bytes;
     // Per-string offsets into `output_bytes`, length `num_strings + 1`.
-    const uint64_t *__restrict output_offsets;
+    const OutputOffsetT *__restrict output_offsets;
     // Validity of each string.
     const uint8_t *__restrict validity_bits;
+    // Bit offset of string zero within the first validity byte (0..7).
+    uint64_t validity_bit_offset;
+    // Optional output views, one 16-byte uint4 per string. A null pointer
+    // requests bytes-only decoding for heaps that need the host rollover path.
+    uint4 *__restrict output_views;
 };
 
-template <typename OffT>
-__device__ inline void fsst_decode_string(const FSSTArgs<OffT> &args, uint64_t sid) {
-    if (((args.validity_bits[sid >> 3] >> (sid & 7u)) & 1u) == 0u) {
+// Build one BinaryView from the bytes this thread just decoded. The Rust
+// caller only provides output_views when every offset fits in the view's u32
+// fields and the decoded heap is exposed as backing buffer zero.
+template <typename CodeOffsetT, typename OutputOffsetT>
+__device__ inline void fsst_write_view(const FSSTArgs<CodeOffsetT, OutputOffsetT> &args, uint64_t sid) {
+    if (args.output_views == nullptr) {
         return;
     }
 
-    OffT in_pos = args.codes_offsets[sid];
-    const OffT in_end = args.codes_offsets[sid + 1];
+    const uint64_t start = args.output_offsets[sid];
+    const uint32_t len = (uint32_t)(args.output_offsets[sid + 1] - start);
+    if (len <= MAX_INLINED_SIZE) {
+        uint32_t words[3] = {0, 0, 0};
+#pragma unroll
+        for (uint32_t i = 0; i < MAX_INLINED_SIZE; i++) {
+            if (i < len) {
+                words[i >> 2] |= (uint32_t)args.output_bytes[start + i] << (8u * (i & 3u));
+            }
+        }
+        args.output_views[sid] = make_uint4(len, words[0], words[1], words[2]);
+        return;
+    }
+
+    const uint32_t prefix =
+        (uint32_t)args.output_bytes[start] | ((uint32_t)args.output_bytes[start + 1] << 8u) |
+        ((uint32_t)args.output_bytes[start + 2] << 16u) | ((uint32_t)args.output_bytes[start + 3] << 24u);
+    args.output_views[sid] = make_uint4(len, prefix, 0, (uint32_t)start);
+}
+
+template <typename CodeOffsetT, typename OutputOffsetT>
+__device__ inline void fsst_decode_string(const FSSTArgs<CodeOffsetT, OutputOffsetT> &args, uint64_t sid) {
+    const uint64_t validity_index = sid + args.validity_bit_offset;
+    if (((args.validity_bits[validity_index >> 3] >> (validity_index & 7u)) & 1u) == 0u) {
+        if (args.output_views != nullptr) {
+            args.output_views[sid] = make_uint4(0, 0, 0, 0);
+        }
+        return;
+    }
+
+    CodeOffsetT in_pos = args.codes_offsets[sid];
+    const CodeOffsetT in_end = args.codes_offsets[sid + 1];
     uint64_t out_pos = args.output_offsets[sid];
     const uint64_t out_end = args.output_offsets[sid + 1];
 
@@ -181,25 +226,38 @@ __device__ inline void fsst_decode_string(const FSSTArgs<OffT> &args, uint64_t s
         sym &= mask;
 
         scratch.push(sym, len);
-        in_pos += (OffT)consumed;
+        in_pos += (CodeOffsetT)consumed;
     }
 
     // Epilogue: drain everything that's left.
     while (scratch.cursor > 0) {
         scratch.drain(args.output_bytes, out_pos, out_end);
     }
+
+    fsst_write_view(args, sid);
 }
 
-#define GENERATE_FSST_KERNEL(suffix, OffT)                                                                   \
+#define FSST_GRID_STRIDE_LOOP(CodeOffsetT, OutputOffsetT, args)                                              \
+    const uint64_t elements_per_block = (uint64_t)blockDim.x * ELEMENTS_PER_THREAD;                          \
+    const uint64_t block_start = (uint64_t)blockIdx.x * elements_per_block;                                  \
+    const uint64_t block_end =                                                                               \
+        (block_start + elements_per_block < num_strings) ? (block_start + elements_per_block) : num_strings; \
+    for (uint64_t sid = block_start + threadIdx.x; sid < block_end; sid += blockDim.x) {                     \
+        fsst_decode_string<CodeOffsetT, OutputOffsetT>(args, sid);                                           \
+    }
+
+#define GENERATE_FSST_VIEW_KERNEL(suffix, CodeOffsetT)                                                       \
     extern "C" __global__ void fsst_##suffix(const uint8_t *__restrict codes_bytes,                          \
-                                             const OffT *__restrict codes_offsets,                           \
+                                             const CodeOffsetT *__restrict codes_offsets,                    \
                                              const uint64_t *__restrict symbols,                             \
                                              const uint8_t *__restrict symbol_lengths,                       \
                                              const uint64_t *__restrict output_offsets,                      \
                                              const uint8_t *__restrict validity_bits,                        \
+                                             uint64_t validity_bit_offset,                                   \
                                              uint8_t *__restrict output_bytes,                               \
+                                             uint4 *__restrict output_views,                                 \
                                              uint64_t num_strings) {                                         \
-        const FSSTArgs<OffT> args = {                                                                        \
+        const FSSTArgs<CodeOffsetT, uint64_t> args = {                                                       \
             codes_bytes,                                                                                     \
             codes_offsets,                                                                                   \
             symbols,                                                                                         \
@@ -207,20 +265,42 @@ __device__ inline void fsst_decode_string(const FSSTArgs<OffT> &args, uint64_t s
             output_bytes,                                                                                    \
             output_offsets,                                                                                  \
             validity_bits,                                                                                   \
+            validity_bit_offset,                                                                             \
+            output_views,                                                                                    \
         };                                                                                                   \
-                                                                                                             \
-        const uint64_t elements_per_block = (uint64_t)blockDim.x * ELEMENTS_PER_THREAD;                      \
-        const uint64_t block_start = (uint64_t)blockIdx.x * elements_per_block;                              \
-        const uint64_t block_end = (block_start + elements_per_block < num_strings)                          \
-                                       ? (block_start + elements_per_block)                                  \
-                                       : num_strings;                                                        \
-                                                                                                             \
-        for (uint64_t sid = block_start + threadIdx.x; sid < block_end; sid += blockDim.x) {                 \
-            fsst_decode_string<OffT>(args, sid);                                                             \
-        }                                                                                                    \
+        FSST_GRID_STRIDE_LOOP(CodeOffsetT, uint64_t, args)                                                   \
     }
 
-GENERATE_FSST_KERNEL(u8, uint8_t)
-GENERATE_FSST_KERNEL(u16, uint16_t)
-GENERATE_FSST_KERNEL(u32, uint32_t)
-GENERATE_FSST_KERNEL(u64, uint64_t)
+#define GENERATE_FSST_VARBIN_KERNEL(suffix, CodeOffsetT)                                                     \
+    extern "C" __global__ void fsst_varbin_##suffix(const uint8_t *__restrict codes_bytes,                   \
+                                                    const CodeOffsetT *__restrict codes_offsets,             \
+                                                    const uint64_t *__restrict symbols,                      \
+                                                    const uint8_t *__restrict symbol_lengths,                \
+                                                    const int32_t *__restrict output_offsets,                \
+                                                    const uint8_t *__restrict validity_bits,                 \
+                                                    uint64_t validity_bit_offset,                            \
+                                                    uint8_t *__restrict output_bytes,                        \
+                                                    uint64_t num_strings) {                                  \
+        const FSSTArgs<CodeOffsetT, int32_t> args = {                                                        \
+            codes_bytes,                                                                                     \
+            codes_offsets,                                                                                   \
+            symbols,                                                                                         \
+            symbol_lengths,                                                                                  \
+            output_bytes,                                                                                    \
+            output_offsets,                                                                                  \
+            validity_bits,                                                                                   \
+            validity_bit_offset,                                                                             \
+            nullptr,                                                                                         \
+        };                                                                                                   \
+        FSST_GRID_STRIDE_LOOP(CodeOffsetT, int32_t, args)                                                    \
+    }
+
+GENERATE_FSST_VIEW_KERNEL(u8, uint8_t)
+GENERATE_FSST_VIEW_KERNEL(u16, uint16_t)
+GENERATE_FSST_VIEW_KERNEL(u32, uint32_t)
+GENERATE_FSST_VIEW_KERNEL(u64, uint64_t)
+
+GENERATE_FSST_VARBIN_KERNEL(u8, uint8_t)
+GENERATE_FSST_VARBIN_KERNEL(u16, uint16_t)
+GENERATE_FSST_VARBIN_KERNEL(u32, uint32_t)
+GENERATE_FSST_VARBIN_KERNEL(u64, uint64_t)

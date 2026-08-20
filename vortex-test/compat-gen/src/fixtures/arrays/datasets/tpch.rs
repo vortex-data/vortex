@@ -8,19 +8,25 @@ use tpchgen_arrow::RecordBatchIterator;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::arrow::FromArrowArray;
+use vortex_arrow::ArrowSession;
 use vortex_error::VortexResult;
 
 use crate::fixtures::DatasetFixture;
 
 const SCALE_FACTOR: f64 = 0.01;
 
-fn collect_batches_as_vortex(iter: impl RecordBatchIterator) -> VortexResult<ArrayRef> {
+fn collect_batches_as_vortex(
+    iter: impl RecordBatchIterator,
+    arrow: &ArrowSession,
+) -> VortexResult<ArrayRef> {
     let batches: Vec<RecordBatch> = iter.collect();
     Ok(ChunkedArray::from_iter(
         batches
             .into_iter()
-            .map(|batch| ArrayRef::from_arrow(batch, false))
+            .map(|batch| {
+                let schema = batch.schema();
+                arrow.from_arrow_record_batch(batch, &schema)
+            })
             .collect::<VortexResult<Vec<_>>>()?,
     )
     .into_array())
@@ -37,10 +43,10 @@ impl DatasetFixture for TpchLineitemFixture {
         "TPC-H lineitem table at scale factor 0.01 with decimals, dates, and strings"
     }
 
-    fn build(&self) -> VortexResult<ArrayRef> {
+    fn build(&self, arrow: &ArrowSession) -> VortexResult<ArrayRef> {
         let generator = LineItemGenerator::new(SCALE_FACTOR, 1, 1);
         let arrow_iter = tpchgen_arrow::LineItemArrow::new(generator).with_batch_size(65_536);
-        collect_batches_as_vortex(arrow_iter)
+        collect_batches_as_vortex(arrow_iter, arrow)
     }
 }
 
@@ -55,10 +61,10 @@ impl DatasetFixture for TpchOrdersFixture {
         "TPC-H orders table at scale factor 0.01 with decimals, dates, and strings"
     }
 
-    fn build(&self) -> VortexResult<ArrayRef> {
+    fn build(&self, arrow: &ArrowSession) -> VortexResult<ArrayRef> {
         let generator = OrderGenerator::new(SCALE_FACTOR, 1, 1);
         let arrow_iter = tpchgen_arrow::OrderArrow::new(generator).with_batch_size(65_536);
-        collect_batches_as_vortex(arrow_iter)
+        collect_batches_as_vortex(arrow_iter, arrow)
     }
 }
 

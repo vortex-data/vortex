@@ -35,6 +35,9 @@ use vortex::file::VortexWriteOptions;
 use vortex::file::WriteStrategyBuilder;
 use vortex::utils::aliases::hash_map::HashMap;
 
+use crate::spatialbench::SpatialBenchBenchmark;
+use crate::vortex_queries::VortexBenchmark;
+
 pub mod appian;
 pub mod benchmark;
 pub mod clickbench;
@@ -52,12 +55,14 @@ pub mod public_bi;
 pub mod random_access;
 pub mod realnest;
 pub mod runner;
+pub mod spatialbench;
 pub mod statpopgen;
 pub mod tpcds;
 pub mod tpch;
 pub mod utils;
 pub mod v3;
 pub mod vector_dataset;
+pub mod vortex_queries;
 
 pub use benchmark::Benchmark;
 pub use benchmark::TableSpec;
@@ -73,8 +78,11 @@ use vortex::session::VortexSession;
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-pub static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_tokio());
+pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::default().with_tokio();
+    vortex_spatial::initialize(&session);
+    session
+});
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Target {
@@ -133,8 +141,6 @@ impl Display for Target {
 pub enum Format {
     #[clap(name = "csv")]
     Csv,
-    #[clap(name = "arrow")]
-    Arrow,
     #[clap(name = "parquet")]
     Parquet,
     #[clap(name = "vortex")]
@@ -143,6 +149,9 @@ pub enum Format {
     #[clap(name = "vortex-compact")]
     #[serde(rename = "vortex-compact")]
     VortexCompact,
+    #[clap(name = "vortex-spatial-native")]
+    #[serde(rename = "vortex-spatial-native")]
+    VortexSpatialNative,
     #[clap(name = "duckdb")]
     #[serde(rename = "duckdb")]
     OnDiskDuckDB,
@@ -178,10 +187,10 @@ impl Format {
     pub fn name(&self) -> &'static str {
         match self {
             Format::Csv => "csv",
-            Format::Arrow => "arrow",
             Format::Parquet => "parquet",
             Format::OnDiskVortex => "vortex-file-compressed",
             Format::VortexCompact => "vortex-compact",
+            Format::VortexSpatialNative => "vortex-spatial-native",
             Format::OnDiskDuckDB => "duckdb",
             Format::Lance => "lance",
         }
@@ -190,10 +199,10 @@ impl Format {
     pub fn ext(&self) -> &'static str {
         match self {
             Format::Csv => "csv",
-            Format::Arrow => "arrow",
             Format::Parquet => "parquet",
             Format::OnDiskVortex => "vortex",
             Format::VortexCompact => "vortex",
+            Format::VortexSpatialNative => "vortex",
             Format::OnDiskDuckDB => "duckdb",
             Format::Lance => "lance",
         }
@@ -205,7 +214,6 @@ impl Format {
 pub enum Engine {
     #[default]
     Vortex,
-    Arrow,
     #[clap(name = "datafusion")]
     #[serde(rename = "datafusion")]
     DataFusion,
@@ -220,7 +228,6 @@ impl Display for Engine {
             Engine::DataFusion => write!(f, "datafusion"),
             Engine::DuckDB => write!(f, "duckdb"),
             Engine::Vortex => write!(f, "vortex"),
-            Engine::Arrow => write!(f, "arrow"),
         }
     }
 }
@@ -243,6 +250,66 @@ impl CompactionStrategy {
             CompactionStrategy::Default => options,
         }
     }
+}
+
+/// Verify that local data has already been prepared for the requested benchmark formats.
+///
+/// Engine-specific benchmark binaries call this before running queries. Data generation itself
+/// belongs to the `data-gen` binary.
+pub fn require_prepared_data<B>(benchmark: &B, formats: &[Format]) -> anyhow::Result<()>
+where
+    B: Benchmark + ?Sized,
+{
+    if benchmark.data_url().scheme() != "file" {
+        return Ok(());
+    }
+
+    let base_path = benchmark
+        .data_url()
+        .to_file_path()
+        .map_err(|_| anyhow::anyhow!("Invalid file URL: {}", benchmark.data_url()))?;
+
+    let mut missing = Vec::new();
+    for format in formats.iter().copied().unique() {
+        let required_path = match format {
+            Format::Parquet => base_path.join(Format::Parquet.name()),
+            Format::OnDiskVortex => base_path.join(Format::OnDiskVortex.name()),
+            Format::VortexCompact => base_path.join(Format::VortexCompact.name()),
+            Format::OnDiskDuckDB => base_path
+                .join(Format::OnDiskDuckDB.name())
+                .join("duckdb.db"),
+            format => base_path.join(format.name()),
+        };
+
+        if !required_path.exists() {
+            missing.push((format, required_path));
+        }
+    }
+
+    if missing.is_empty() {
+        return Ok(());
+    }
+
+    let missing_data = missing
+        .iter()
+        .map(|(format, path)| format!("{format} ({})", path.display()))
+        .join(", ");
+    let requested_formats = formats
+        .iter()
+        .copied()
+        .unique()
+        .map(|format| format!("\"{format}\""))
+        .join(",");
+
+    anyhow::bail!(
+        "prepared data is missing for {}: {missing_data}. Generate it first with \
+         `vx-bench prepare-data {} --formats-json '[{requested_formats}]'` or \
+         `cargo run --bin data-gen -- {} --formats {}` using the same --opt values.",
+        benchmark.dataset_display(),
+        benchmark.dataset_name(),
+        benchmark.dataset_name(),
+        formats.iter().copied().unique().join(","),
+    );
 }
 
 /// CLI argument for selecting which benchmark to run.
@@ -268,6 +335,10 @@ pub enum BenchmarkArg {
     PolarSignals,
     #[clap(name = "public-bi")]
     PublicBi,
+    #[clap(name = "spatialbench")]
+    SpatialBench,
+    #[clap(name = "vortex")]
+    VortexQueries,
 }
 
 /// Default scale factor for TPC-related benchmarks
@@ -332,6 +403,19 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
                 anyhow::anyhow!("public-bi benchmark requires --opt dataset=<name>")
             })?;
             let benchmark = PublicBiBenchmark::new(dataset)?;
+            Ok(Box::new(benchmark) as _)
+        }
+        BenchmarkArg::SpatialBench => {
+            let scale_factor = opts.get(SCALE_FACTOR_KEY).unwrap_or(DEFAULT_SCALE_FACTOR);
+            let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
+            let benchmark = SpatialBenchBenchmark::new(scale_factor.to_string(), remote_data_dir)?;
+            Ok(Box::new(benchmark) as _)
+        }
+        BenchmarkArg::VortexQueries => {
+            let mut benchmark = VortexBenchmark::new()?;
+            if let Some(query) = opts.get("query") {
+                benchmark = benchmark.with_query(query)?;
+            }
             Ok(Box::new(benchmark) as _)
         }
     }

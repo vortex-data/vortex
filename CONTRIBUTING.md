@@ -34,6 +34,89 @@ The contribution process is outlined below:
    - Disclose LLM usage as described in [AI Assistance](#ai-assistance).
    - CI requires approval from external committers.
 
+## Development Workflows
+
+The repository uses [`uv`](https://docs.astral.sh/uv/) to manage its Python workspace. From the
+repository root, create or update the development environment with:
+
+```bash
+uv sync --all-packages
+```
+
+### Rust toolchain and MSRV
+
+Workspace declares a Minimum Supported Rust Version through `rust-version`
+in the root `Cargo.toml`, which the `Rust (MSRV)` CI job verifies by building
+the publishable crates with exactly that toolchain:
+
+```bash
+cargo hack --rust-version --no-dev-deps --ignore-private check --all-features
+```
+
+Read the [Rust version compatibility policy](README.md#rust-version-compatibility-policy) before
+changing `rust-version`; when the MSRV job fails, the usual fix is in the code or the dependency
+update, not the MSRV.
+
+### Python bindings
+
+`vortex-data` is a mixed Python and Rust package. `uv` manages its Python environment, and
+[Maturin](https://www.maturin.rs/) compiles the PyO3 code in `vortex-python/src/` into the
+`vortex._lib` extension.
+
+Python-only changes do not require an explicit extension rebuild. Run the affected tests directly:
+
+```bash
+uv run --all-packages pytest <changed-python-tests>
+```
+
+After changing the PyO3 Rust code, `vortex-python/Cargo.toml`, or relevant Cargo features, rebuild
+the extension before testing. For a single build-and-test cycle, ask `uv` to reinstall the local
+package, which invokes its Maturin build backend:
+
+```bash
+uv run --all-packages --reinstall-package vortex-data pytest <changed-python-tests>
+```
+
+For repeated Rust edits, install the extension into the development environment explicitly:
+
+```bash
+(cd vortex-python && uv run maturin develop)
+uv run --all-packages pytest <changed-python-tests>
+```
+
+Rerun `maturin develop` after each Rust change. Pass Cargo features through Maturin when needed:
+
+```bash
+(cd vortex-python && uv run maturin develop --features <feature>)
+```
+
+Use one rebuild path per test cycle. Before handing off broad Python binding changes, run the full
+Python check:
+
+```bash
+./vortex-python/check.sh
+```
+
+This synchronizes the workspace, rebuilds the extension, runs Python formatting, linting, type
+checks and tests, and validates the documentation.
+
+### Documentation
+
+Use `docs/Makefile` as the canonical interface for Sphinx. From the repository root, run the full
+clean build and doctest flow with:
+
+```bash
+uv run --all-packages make -C docs check
+```
+
+For live-reloading development, run:
+
+```bash
+make -C docs serve
+```
+
+Use `make -C docs help` to list focused targets, and finish documentation changes with `check`.
+
 ## Governance
 
 Vortex is an independent open-source project and not controlled by any single company. The Vortex Project is a sub-project of the Linux Foundation Projects. As such, the governance is subject to the terms of the [Technical Charter](https://vortex.dev/charter.pdf).
@@ -50,36 +133,43 @@ At the time of writing, the following individuals serve as Committers (non-votin
 
 1. Adam Gutglick
 2. Alexander Droste
-3. Andy Pavlo
-4. Connor Tsui
-5. Daniel King
-6. Dmitrii Blaginin
-7. Joseph Isaacs
-8. Marko Bakovic
-9. Onur Satici
-10. Xinyu Zeng
-11. Alfonso Subiotto
+3. Alfonso Subiotto
+4. Andy Pavlo
+5. Connor Tsui
+6. Daniel King
+7. Dmitrii Blaginin
+8. Lorenz Hübschle
+9. Marko Bakovic
+10. Mikhail Kot
+11. Mosha Pasumansky
+12. Onur Satici
+13. Xinyu Zeng
 
 ### Maintainers
 
 At the time of writing, the following individuals serve as Committers & Maintainers (voting TSC members) on the project:
 
 1. Andrew Duffy
-2. Carlo Curino
-3. Nicholas Gates
-4. Robert Kruszewski
-5. Wes McKinney
-6. Will Manning (chair)
+2. Benjamin Wagner
+3. Carlo Curino
+4. Frederic Branczyk
+5. Joseph Isaacs
+6. Nicholas Gates
+7. Robert Kruszewski
+8. Wes McKinney
+9. Will Manning (chair)
 
 ## Coding style
 
 Our CI process enforces an extensive set of linter (e.g., `clippy`) rules, as well as language-specific formatters (e.g., `cargo fmt`). Beyond that, we document additional style guidelines in [STYLE.md](STYLE.md).
 
-## Reporting Issues
+## Issues and Questions
 
-Bugs should be filed as [GitHub Issues](https://github.com/vortex-data/vortex/issues). Open-ended
-questions and feature requests should be filed as
-[GitHub Discussions](https://github.com/vortex-data/vortex/discussions).
+Bugs, feature requests, and questions should all be filed as
+[GitHub Issues](https://github.com/vortex-data/vortex/issues/new/choose). We strongly prefer that
+you use one of the provided issue templates rather than opening a blank issue; templates make sure
+we get the information needed to act on your report. For quick questions, the
+[Vortex Slack channel](https://vortex.dev/slack) is also a good option.
 
 ## Developer Certificate of Origin (DCO)
 

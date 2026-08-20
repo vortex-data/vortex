@@ -24,9 +24,9 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::chunked::ChunkedArrayExt;
 use vortex::array::arrays::listview::recursive_list_from_list_view;
-use vortex::array::arrow::ArrowSessionExt;
 use vortex::array::validity::Validity;
 use vortex::dtype::FieldNames;
+use vortex_arrow::ArrowSessionExt;
 
 use crate::IdempotentPath;
 use crate::SESSION;
@@ -146,7 +146,7 @@ impl Dataset for StructListOfInts {
 
             for chunk in chunked.iter_chunks() {
                 let converted = recursive_list_from_list_view(chunk.clone(), &mut ctx)?;
-                let schema = converted.dtype().to_arrow_schema()?;
+                let schema = SESSION.arrow().to_arrow_schema(converted.dtype())?;
                 let schema = Field::new_struct("", schema.fields, false);
                 let batch = SESSION
                     .arrow()

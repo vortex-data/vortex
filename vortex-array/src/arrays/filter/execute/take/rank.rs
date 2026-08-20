@@ -82,7 +82,7 @@ pub(in crate::arrays::filter) fn translate_ranks<P: IntegerPType>(
 
     match filter.indices() {
         AllOr::All => translate_ranks_with(ranks, ranks_validity, filtered_len, |rank| rank),
-        AllOr::None => unreachable!("empty filters are handled by take preconditions"),
+        AllOr::None => unreachable!("empty filters are handled by the filter short circuit"),
         AllOr::Some(filter_indices) => {
             translate_ranks_with(ranks, ranks_validity, filtered_len, |rank| unsafe {
                 *filter_indices.get_unchecked(rank)

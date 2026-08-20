@@ -36,7 +36,7 @@ pub struct Buffer<T> {
 /// valid alignment without allocating. A zero-length slice never reads memory, so it may use a
 /// dangling pointer as long as it is non-null and aligned.
 const EMPTY_BACKING: &[u8] = {
-    let addr = 1usize << 20;
+    let addr = 1usize << (usize::BITS - 1);
     assert!(Alignment::MAX.is_offset_aligned(addr));
     // SAFETY: the pointer is non-null and aligned, and the slice is zero-length.
     unsafe { std::slice::from_raw_parts(std::ptr::without_provenance(addr), 0) }
@@ -236,12 +236,7 @@ impl<T> Buffer<T> {
     /// Create a buffer with values from the TrustedLen iterator.
     /// Should be preferred over `from_iter` when the iterator is known to be `TrustedLen`.
     pub fn from_trusted_len_iter<I: TrustedLen<Item = T>>(iter: I) -> Self {
-        let (_, upper_bound) = iter.size_hint();
-        let mut buffer = BufferMut::with_capacity(
-            upper_bound.vortex_expect("TrustedLen iterator has no upper bound"),
-        );
-        buffer.extend_trusted(iter);
-        buffer.freeze()
+        BufferMut::from_trusted_len_iter(iter).freeze()
     }
 
     /// Map each element of the buffer with a closure.
@@ -713,6 +708,11 @@ pub struct BufferIterator<T: Copy> {
     end: *const T,
 }
 
+// SAFETY: `BufferIterator` is a `Buffer<T>` plus two cursors into it, so it can safely be
+// `Send`/`Sync` exactly when `Buffer<T>` is. Same bounds as `std::vec::IntoIter`.
+unsafe impl<T: Copy + Send> Send for BufferIterator<T> {}
+unsafe impl<T: Copy + Sync> Sync for BufferIterator<T> {}
+
 impl<T: Copy> Iterator for BufferIterator<T> {
     type Item = T;
 
@@ -775,6 +775,17 @@ mod test {
         let aligned = buf.aligned(Alignment::new(32));
         assert_eq!(aligned.alignment(), Alignment::new(32));
         assert_eq!(aligned.as_slice(), &[0, 1, 2]);
+    }
+
+    #[test]
+    fn buffer_iterator_send_sync() {
+        fn assert_send_sync<T: Send + Sync>(_: &T) {}
+
+        let mut iter = buffer![0i32, 1, 2, 3].into_iter();
+        assert_send_sync(&iter);
+        iter.next();
+        let remaining: Vec<i32> = std::thread::spawn(move || iter.collect()).join().unwrap();
+        assert_eq!(remaining, vec![1, 2, 3]);
     }
 
     #[test]

@@ -5,8 +5,8 @@
 //!
 //! Canonical arrays are the default uncompressed representation for a logical dtype:
 //! [`NullArray`], [`BoolArray`], [`PrimitiveArray`], [`DecimalArray`], [`VarBinViewArray`],
-//! [`ListViewArray`], [`FixedSizeListArray`], [`StructArray`], [`ExtensionArray`], and
-//! [`VariantArray`].
+//! [`ListViewArray`], [`MapArray`], [`FixedSizeListArray`], [`StructArray`], [`UnionArray`],
+//! [`ExtensionArray`], and [`VariantArray`].
 //!
 //! Utility and lazy arrays represent common transformations without immediately materializing
 //! their result. Examples include [`ChunkedArray`] for concatenation, [`ConstantArray`] for repeated
@@ -60,6 +60,8 @@ pub mod filter;
 pub use filter::Filter;
 pub use filter::FilterArray;
 
+pub(crate) mod fixed_width;
+
 pub mod fixed_size_list;
 pub use fixed_size_list::FixedSizeList;
 pub use fixed_size_list::FixedSizeListArray;
@@ -76,6 +78,10 @@ pub mod listview;
 pub use listview::ListView;
 pub use listview::ListViewArray;
 
+pub mod map;
+pub use map::Map;
+pub use map::MapArray;
+
 pub mod masked;
 pub use masked::Masked;
 pub use masked::MaskedArray;
@@ -87,6 +93,10 @@ pub use null::NullArray;
 pub mod patched;
 pub use patched::Patched;
 pub use patched::PatchedArray;
+
+pub mod piecewise_sequence;
+pub use piecewise_sequence::PiecewiseSequence;
+pub use piecewise_sequence::PiecewiseSequenceArray;
 
 pub mod primitive;
 pub use primitive::Primitive;
@@ -108,6 +118,10 @@ pub mod struct_;
 pub use struct_::Struct;
 pub use struct_::StructArray;
 
+pub mod union;
+pub use union::Union;
+pub use union::UnionArray;
+
 pub mod varbin;
 pub use varbin::VarBin;
 pub use varbin::VarBinArray;
@@ -119,8 +133,9 @@ pub use varbinview::VarBinViewArray;
 pub mod variant;
 pub use variant::Variant;
 pub use variant::VariantArray;
+use vortex_session::VortexSession;
 
-pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+pub(crate) fn initialize(session: &VortexSession) {
     bool::initialize(session);
     chunked::initialize(session);
     decimal::initialize(session);
@@ -130,6 +145,7 @@ pub(crate) fn initialize(session: &vortex_session::VortexSession) {
     fixed_size_list::initialize(session);
     list::initialize(session);
     listview::initialize(session);
+    map::initialize(session);
     patched::initialize(session);
     primitive::initialize(session);
     struct_::initialize(session);

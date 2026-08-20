@@ -4,7 +4,6 @@
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -103,8 +102,10 @@ pub fn take_canonical_array(
         }
         DType::Utf8(_) | DType::Binary(_) => {
             let utf8 = array.clone().execute::<VarBinViewArray>(ctx)?;
-            let values =
-                utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>());
+            let mask = utf8.validity()?.execute_mask(utf8.len(), ctx)?;
+            let values = (0..utf8.len())
+                .map(|i| mask.value(i).then(|| utf8.bytes_at(i).to_vec()))
+                .collect::<Vec<_>>();
             Ok(VarBinViewArray::from_iter(
                 indices
                     .iter()
@@ -146,6 +147,19 @@ pub fn take_canonical_array(
                 validity,
             )
             .map(|a| a.into_array())
+        }
+        DType::Map(..) => {
+            let result_dtype = array.dtype().union_nullability(nullable);
+            let mut builder = builder_with_capacity(&result_dtype, indices.len());
+            for idx in indices {
+                if let Some(idx) = idx {
+                    builder
+                        .append_scalar(&array.execute_scalar(*idx, ctx)?.cast(&result_dtype)?)?;
+                } else {
+                    builder.append_null();
+                }
+            }
+            Ok(builder.finish())
         }
         d @ (DType::Null | DType::Union(..) | DType::Variant(_) | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")

@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![expect(clippy::missing_safety_doc)]
+#![forbid(clippy::todo)]
+#![forbid(clippy::unimplemented)]
 
 use std::ffi::c_char;
 use std::ffi::c_void;
@@ -9,6 +11,7 @@ use std::sync::LazyLock;
 use std::sync::OnceLock;
 
 use vortex::VortexSessionDefault;
+use vortex::cloud::Registry;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::io::runtime::BlockingRuntime;
@@ -18,8 +21,6 @@ use vortex::session::VortexSession;
 
 use crate::duckdb::Database;
 use crate::duckdb::DatabaseRef;
-use crate::duckdb::LogicalType;
-use crate::duckdb::Value;
 
 mod column_statistics;
 mod convert;
@@ -43,9 +44,11 @@ mod e2e_test;
 
 // A global runtime for Vortex operations within DuckDB.
 static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
+/// Process-wide registry, so repeated scans against the same bucket share one client.
+static REGISTRY: LazyLock<Registry> = LazyLock::new(Registry::new);
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::default().with_handle(RUNTIME.handle());
-    vortex_geo::initialize(&session);
+    vortex_spatial::initialize(&session);
     session
 });
 
@@ -67,12 +70,6 @@ fn init_tracing() {
 /// Note: This also registers extension options. If you want to register options
 /// separately (e.g., before creating connections), call `register_extension_options` first.
 pub fn initialize(db: &DatabaseRef) -> VortexResult<()> {
-    db.config().add_extension_options(
-        "vortex_filesystem",
-        "Whether to use Vortex's filesystem ('vortex') or DuckDB's filesystems ('duckdb').",
-        LogicalType::varchar(),
-        Value::from("vortex"),
-    )?;
     db.register_table_functions()?;
     db.register_optimizer_extension()?;
     db.register_copy_function()

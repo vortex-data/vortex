@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 
 use crate::r#for::FoR;
 use crate::r#for::array::FoRArrayExt;
+use crate::r#for::array::FoRArraySlotsExt;
 impl CastReduce for FoR {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // FoR only supports integer types
@@ -118,6 +119,6 @@ mod tests {
         Scalar::from(-100i32)
     ))]
     fn test_cast_for_conformance(#[case] array: FoRArray) {
-        test_cast_conformance(&array.into_array());
+        test_cast_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

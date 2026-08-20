@@ -20,7 +20,7 @@ use crate::arrays::DecimalArray;
 use crate::arrays::Filter;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::decimal::DecimalArrayExt;
-use crate::arrays::filter::FilterArrayExt;
+use crate::arrays::filter::FilterArraySlotsExt;
 use crate::dtype::IntegerPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_decimal_value_type;
@@ -175,7 +175,7 @@ where
                 take_values_by_rank(values, ranks, filtered_len, |idx| idx)
             }
         }
-        AllOr::None => unreachable!("empty filters are handled by take preconditions"),
+        AllOr::None => unreachable!("empty filters are handled by the filter short circuit"),
         AllOr::Some(indices) => {
             if let Some(indices_validity) = indices_validity {
                 take_values_by_rank_nullable(

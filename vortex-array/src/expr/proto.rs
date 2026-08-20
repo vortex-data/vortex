@@ -3,6 +3,7 @@
 
 use itertools::Itertools;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
@@ -17,20 +18,36 @@ pub trait ExprSerializeProtoExt {
     fn serialize_proto(&self) -> VortexResult<pb::Expr>;
 }
 
+/// The wire id for [`Expression::Root`], retained from when `Root` was a scalar function so that
+/// already-serialized expressions keep round-tripping.
+pub(crate) const ROOT_ID: &str = "vortex.root";
+
 impl ExprSerializeProtoExt for Expression {
     fn serialize_proto(&self) -> VortexResult<pb::Expr> {
+        let Some(scalar_fn) = self.as_scalar() else {
+            return Ok(pb::Expr {
+                id: ROOT_ID.to_string(),
+                children: vec![],
+                metadata: Some(vec![]),
+            });
+        };
+
         let children = self
             .children()
             .iter()
             .map(|child| child.serialize_proto())
             .try_collect()?;
 
-        let metadata = self.options().serialize()?.ok_or_else(|| {
-            vortex_err!("Expression '{}' is not serializable: {}", self.id(), self)
+        let metadata = scalar_fn.options().serialize()?.ok_or_else(|| {
+            vortex_err!(
+                "Expression '{}' is not serializable: {}",
+                scalar_fn.id(),
+                self
+            )
         })?;
 
         Ok(pb::Expr {
-            id: self.id().to_string(),
+            id: scalar_fn.id().to_string(),
             children,
             metadata: Some(metadata),
         })
@@ -39,6 +56,17 @@ impl ExprSerializeProtoExt for Expression {
 
 impl Expression {
     pub fn from_proto(expr: &pb::Expr, session: &VortexSession) -> VortexResult<Expression> {
+        // Root is not a registered scalar fn, so it must be resolved before the registry lookup.
+        if expr.id == ROOT_ID {
+            vortex_ensure!(
+                expr.children.is_empty(),
+                "root expression must have no children, got {}",
+                expr.children.len()
+            );
+            return Ok(Expression::Root);
+        }
+
+        #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
         let expr_id = ScalarFnId::new(expr.id.as_str());
         let children = expr
             .children
@@ -46,7 +74,7 @@ impl Expression {
             .map(|e| Expression::from_proto(e, session))
             .collect::<VortexResult<Vec<_>>>()?;
 
-        let scalar_fn = if let Some(vtable) = session.scalar_fns().registry().find(&expr_id) {
+        let scalar_fn = if let Some(vtable) = session.scalar_fns().registry().get(&expr_id) {
             vtable.deserialize(expr.metadata(), session)?
         } else if session.allows_unknown() {
             ForeignScalarFnVTable::make_scalar_fn(expr_id, expr.metadata().to_vec(), children.len())
@@ -115,9 +143,8 @@ mod tests {
 
     #[test]
     fn unknown_expression_id_allow_unknown() {
-        let session = VortexSession::empty()
-            .with::<ScalarFnSession>()
-            .allow_unknown();
+        let session = VortexSession::empty().with::<ScalarFnSession>();
+        session.allow_unknown();
 
         let expr_proto = pb::Expr {
             id: "vortex.test.foreign_scalar_fn".to_string(),
@@ -126,7 +153,10 @@ mod tests {
         };
 
         let expr = Expression::from_proto(&expr_proto, &session).unwrap();
-        assert_eq!(expr.id().as_ref(), "vortex.test.foreign_scalar_fn");
+        assert_eq!(
+            expr.as_scalar().map(|f| f.id().as_ref().to_string()),
+            Some("vortex.test.foreign_scalar_fn".to_string())
+        );
 
         let roundtrip = expr.serialize_proto().unwrap();
         assert_eq!(roundtrip.id, expr_proto.id);

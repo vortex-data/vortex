@@ -25,11 +25,13 @@ use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::split_by::SplitBy;
+use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
+use vortex_arrow::ArrowSessionExt;
 
-use crate::RUNTIME;
 use crate::arrays::PyArrayRef;
 use crate::arrow::IntoPyArrow;
 use crate::arrow::ToPyArrow;
+use crate::current_runtime;
 use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
 use crate::install_module;
@@ -57,6 +59,16 @@ pub fn read_array_from_reader(
     row_range: Option<(u64, u64)>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
+    let projection = projection
+        .optimize_recursive(vortex_file.dtype())?
+        .bind(vortex_file.dtype())?;
+    let filter = filter
+        .map(|filter| {
+            filter
+                .optimize_recursive(vortex_file.dtype())?
+                .bind(vortex_file.dtype())
+        })
+        .transpose()?;
     let mut scan = vortex_file.scan()?.with_projection(projection);
 
     if let Some(filter) = filter {
@@ -66,14 +78,15 @@ pub fn read_array_from_reader(
     if let Some(indices) = indices {
         let primitive = indices.execute::<PrimitiveArray>(ctx)?;
         let indices = primitive.into_buffer();
-        scan = scan.with_row_indices(indices);
+        scan = scan.with_row_indices(StrictSortedBuffer::try_new(indices)?);
     }
 
     if let Some((l, r)) = row_range {
         scan = scan.with_row_range(l..r);
     }
 
-    scan.into_array_iter(&*RUNTIME)?.read_all()
+    let runtime = current_runtime();
+    scan.into_array_iter(&runtime)?.read_all()
 }
 
 fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<Expression> {
@@ -111,7 +124,7 @@ pub struct PyVortexDataset {
 
 impl PyVortexDataset {
     pub fn try_new(vxf: VortexFile) -> VortexResult<Self> {
-        let schema = Arc::new(vxf.dtype().to_arrow_schema()?);
+        let schema = Arc::new(session().arrow().to_arrow_schema(vxf.dtype())?);
         Ok(Self { vxf, schema })
     }
 
@@ -124,7 +137,7 @@ impl PyVortexDataset {
             ResolvedStore::ObjectStore(store, path) => {
                 session
                     .open_options()
-                    .open_object_store(&store, path.as_ref())
+                    .open_object_store(&store, path)
                     .await?
             }
             ResolvedStore::Path(path) => session.open_options().open_path(path).await?,
@@ -184,6 +197,12 @@ impl PyVortexDataset {
         let filter = filter_from_python(row_filter);
 
         let reader = self_.py().detach(move || {
+            let projection = projection
+                .optimize_recursive(vxf.dtype())?
+                .bind(vxf.dtype())?;
+            let filter = filter
+                .map(|filter| filter.optimize_recursive(vxf.dtype())?.bind(vxf.dtype()))
+                .transpose()?;
             let mut scan = vxf
                 .scan()?
                 .with_projection(projection)
@@ -193,9 +212,10 @@ impl PyVortexDataset {
                 scan = scan.with_row_range(l..r);
             }
 
-            let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
+            let schema = Arc::new(session().arrow().to_arrow_schema(&scan.dtype()?)?);
+            let runtime = current_runtime();
             let reader: Box<dyn RecordBatchReader + Send> =
-                Box::new(scan.into_record_batch_reader(schema, &*RUNTIME)?);
+                Box::new(scan.into_record_batch_reader(schema, &runtime)?);
             VortexResult::Ok(reader)
         })?;
 
@@ -223,16 +243,23 @@ impl PyVortexDataset {
         let vxf = self_.vxf.clone();
         let filter = filter_from_python(row_filter);
         let n_rows: usize = self_.py().detach(move || {
+            let projection = select(FieldNames::empty(), root())
+                .optimize_recursive(vxf.dtype())?
+                .bind(vxf.dtype())?;
+            let filter = filter
+                .map(|filter| filter.optimize_recursive(vxf.dtype())?.bind(vxf.dtype()))
+                .transpose()?;
             let mut scan = vxf
                 .scan()?
-                .with_projection(select(FieldNames::empty(), root()))
+                .with_projection(projection)
                 .with_some_filter(filter)
                 .with_split_by(split_by.map(SplitBy::RowCount).unwrap_or(SplitBy::Layout));
             if let Some((l, r)) = row_range {
                 scan = scan.with_row_range(l..r);
             }
 
-            scan.into_array_iter(&*RUNTIME)?
+            let runtime = current_runtime();
+            scan.into_array_iter(&runtime)?
                 .map_ok(|array| array.len())
                 .process_results(|iter| iter.sum())
         })?;
@@ -266,5 +293,5 @@ pub fn dataset_from_url(
         None
     };
 
-    Ok(py.detach(move || RUNTIME.block_on(PyVortexDataset::from_url(url, store_arc)))?)
+    Ok(py.detach(move || current_runtime().block_on(PyVortexDataset::from_url(url, store_arc)))?)
 }

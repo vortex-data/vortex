@@ -25,6 +25,7 @@ use vortex_array::array_slots;
 use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::patches::PatchSlotIndices;
 use vortex_array::patches::Patches;
@@ -100,6 +101,14 @@ impl VTable for ALP {
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
         None
+    }
+
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        vortex_array::vtable::with_empty_buffers(self, array, buffers)
     }
 
     fn serialize(
@@ -192,12 +201,16 @@ impl VTable for ALP {
 #[array_slots(ALP)]
 pub struct ALPSlots {
     /// The ALP-encoded values array.
+    #[slot(0)]
     pub encoded: ArrayRef,
     /// The indices of exception values that could not be ALP-encoded.
+    #[slot(1)]
     pub patch_indices: Option<ArrayRef>,
     /// The exception values that could not be ALP-encoded.
+    #[slot(2)]
     pub patch_values: Option<ArrayRef>,
     /// Chunk offsets for the patch indices/values.
+    #[slot(3)]
     pub patch_chunk_offsets: Option<ArrayRef>,
 }
 
@@ -301,7 +314,10 @@ impl ALPData {
     }
 
     /// Validate that any patches provided are valid for the ALPArray.
-    fn validate_patches<T: ALPFloat>(patches: &Patches, encoded: &ArrayRef) -> VortexResult<()> {
+    fn validate_patches<T: ALPFloat + NativePType>(
+        patches: &Patches,
+        encoded: &ArrayRef,
+    ) -> VortexResult<()> {
         vortex_ensure!(
             patches.array_len() == encoded.len(),
             "patches array_len != encoded len: {} != {}",

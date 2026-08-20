@@ -99,7 +99,7 @@ impl ValueRef {
                 unsafe { cpp::duckdb_free(ptr.cast()) };
                 ExtractedValue::Varchar(string)
             }
-            DUCKDB_TYPE::DUCKDB_TYPE_BLOB => {
+            DUCKDB_TYPE::DUCKDB_TYPE_BLOB | DUCKDB_TYPE::DUCKDB_TYPE_UUID => {
                 ExtractedValue::Blob(unsafe { take_blob(cpp::duckdb_get_blob(self.as_ptr())) })
             }
             DUCKDB_TYPE::DUCKDB_TYPE_GEOMETRY => {
@@ -117,7 +117,7 @@ impl ValueRef {
                 ExtractedValue::Time(unsafe { cpp::duckdb_get_time(self.as_ptr()).micros })
             }
             DUCKDB_TYPE::DUCKDB_TYPE_TIME_NS => {
-                ExtractedValue::Time(unsafe { cpp::duckdb_get_time_ns(self.as_ptr()).nanos })
+                ExtractedValue::TimeNs(unsafe { cpp::duckdb_get_time_ns(self.as_ptr()).nanos })
             }
             DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS => ExtractedValue::TimestampNs(unsafe {
                 cpp::duckdb_get_timestamp_ns(self.as_ptr()).nanos
@@ -131,7 +131,7 @@ impl ValueRef {
             DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S => ExtractedValue::TimestampS(unsafe {
                 cpp::duckdb_get_timestamp_s(self.as_ptr()).seconds
             }),
-            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ => ExtractedValue::TimestampS(unsafe {
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ => ExtractedValue::TimestampTz(unsafe {
                 cpp::duckdb_get_timestamp_tz(self.as_ptr()).micros
             }),
             DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL => {
@@ -163,7 +163,7 @@ impl ValueRef {
                     .collect::<Vec<_>>(),
             ),
             // ...other types remain unimplemented..
-            other => vortex_panic!("Unsupported DuckDB value type {other:?}"),
+            other => ExtractedValue::Unsupported(other),
         }
     }
 }
@@ -190,6 +190,17 @@ impl Value {
 
     pub fn null(logical_type: &LogicalTypeRef) -> Self {
         unsafe { Self::own(cpp::duckdb_vx_value_create_null(logical_type.as_ptr())) }
+    }
+
+    pub fn new_hugeint(value: i128) -> Self {
+        let lower: u64 = value.as_();
+        let upper: i64 = (value >> 64).as_();
+        unsafe {
+            Self::own(cpp::duckdb_create_hugeint(cpp::duckdb_hugeint {
+                lower,
+                upper,
+            }))
+        }
     }
 
     pub fn new_decimal(precision: u8, scale: i8, value: i128) -> Self {
@@ -247,6 +258,10 @@ impl Value {
                 seconds,
             }))
         }
+    }
+
+    pub fn new_time_ns(nanos: i64) -> Self {
+        unsafe { Self::own(cpp::duckdb_create_time_ns(cpp::duckdb_time_ns { nanos })) }
     }
 
     pub fn new_time(micros: i64) -> Self {
@@ -443,13 +458,19 @@ pub enum ExtractedValue {
     Varchar(BufferString),
     Blob(ByteBuffer),
     Date(i32),
+    /// Microseconds since midnight
     Time(i64),
+    /// Nanoseconds since midnight
+    TimeNs(i64),
     TimestampNs(i64),
     Timestamp(i64),
     TimestampMs(i64),
     TimestampS(i64),
+    /// UTC microseconds
+    TimestampTz(i64),
     Decimal(u8, i8, i128),
     List(Vec<Value>),
+    Unsupported(DUCKDB_TYPE),
 }
 
 #[cfg(test)]

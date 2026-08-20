@@ -3,14 +3,10 @@
 
 use async_trait::async_trait;
 use futures::StreamExt;
-use vortex_array::ArrayContext;
-use vortex_array::ArrayId;
 use vortex_array::dtype::DType;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
 use vortex_array::expr::stats::StatsProvider;
-use vortex_array::normalize::NormalizeOptions;
-use vortex_array::normalize::Operation;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarTruncation;
 use vortex_array::scalar::lower_bound;
@@ -24,11 +20,12 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
-use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::LayoutWriterContext;
+use crate::children::OwnedLayoutChildren;
+use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::flat::flat_layout_inline_array_node;
 use crate::segments::SegmentSinkRef;
@@ -41,9 +38,6 @@ pub struct FlatLayoutStrategy {
     pub include_padding: bool,
     /// Maximum length of variable length statistics
     pub max_variable_length_statistics_size: usize,
-    /// Optional set of allowed array encodings for normalization.
-    /// If None, then all are allowed.
-    pub allowed_encodings: Option<HashSet<ArrayId>>,
 }
 
 impl Default for FlatLayoutStrategy {
@@ -51,7 +45,6 @@ impl Default for FlatLayoutStrategy {
         Self {
             include_padding: true,
             max_variable_length_statistics_size: 64,
-            allowed_encodings: None,
         }
     }
 }
@@ -66,12 +59,6 @@ impl FlatLayoutStrategy {
     /// Set the maximum length of variable length statistics.
     pub fn with_max_variable_length_statistics_size(mut self, size: usize) -> Self {
         self.max_variable_length_statistics_size = size;
-        self
-    }
-
-    /// Set the allowed array encodings for normalization.
-    pub fn with_allow_encodings(mut self, allow_encodings: HashSet<ArrayId>) -> Self {
-        self.allowed_encodings = Some(allow_encodings);
         self
     }
 }
@@ -96,15 +83,20 @@ fn truncate_scalar_stat<F: Fn(Scalar) -> Option<(Scalar, bool)>>(
 impl LayoutStrategy for FlatLayoutStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
         mut stream: SendableSequentialStream,
         _eof: SequencePointer,
         session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
-        let ctx = ctx.clone();
         let Some(chunk) = stream.next().await else {
-            vortex_bail!("flat layout needs a single chunk");
+            // an empty input has no segment to write.
+            return Ok(ChunkedLayout::new(
+                0,
+                stream.dtype().clone(),
+                OwnedLayoutChildren::layout_children(vec![]),
+            )
+            .into_layout());
         };
         let (sequence_id, chunk) = chunk?;
 
@@ -150,17 +142,8 @@ impl LayoutStrategy for FlatLayoutStrategy {
             _ => {}
         }
 
-        let chunk = if let Some(allowed) = &self.allowed_encodings {
-            chunk.normalize(&mut NormalizeOptions {
-                allowed,
-                operation: Operation::Error,
-            })?
-        } else {
-            chunk
-        };
-
         let buffers = chunk.serialize(
-            &ctx,
+            ctx.array_ctx(),
             session,
             &SerializeOptions {
                 offset: 0,
@@ -180,15 +163,10 @@ impl LayoutStrategy for FlatLayoutStrategy {
             row_count,
             stream.dtype().clone(),
             segment_id,
-            ReadContext::new(ctx.to_ids()),
+            ReadContext::new(ctx.array_ctx().to_ids()),
             array_node,
         )
         .into_layout())
-    }
-
-    fn buffered_bytes(&self) -> u64 {
-        // FlatLayoutStrategy is a leaf strategy with no child strategies and no buffering
-        0
     }
 }
 
@@ -231,11 +209,13 @@ mod tests {
     use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::LayoutStrategy;
+    use crate::LayoutStrategyEncodingValidator;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
     use crate::test::SESSION;
+    use crate::test::new_session;
 
     // Currently, flat layouts do not force compute stats during write, they only retain
     // pre-computed stats.
@@ -243,14 +223,14 @@ mod tests {
     #[test]
     fn flat_stats() {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
-                    ctx,
+                    ctx.into(),
                     Arc::<TestSegments>::clone(&segments),
                     array.into_array().to_array_stream().sequenced(ptr),
                     eof,
@@ -259,12 +239,14 @@ mod tests {
                 .await
                 .unwrap();
 
-            let result = layout
+            let reader = layout
                 .new_reader("".into(), segments, &SESSION, &Default::default())
-                .unwrap()
+                .unwrap();
+            let expr = root().bind(reader.dtype()).unwrap();
+            let result = reader
                 .projection_evaluation(
                     &(0..layout.row_count()),
-                    &root(),
+                    &expr,
                     MaskFuture::new_true(layout.row_count().try_into().unwrap()),
                 )
                 .unwrap()
@@ -281,7 +263,7 @@ mod tests {
     #[test]
     fn truncates_variable_size_stats() {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -301,7 +283,7 @@ mod tests {
 
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
-                    ctx,
+                    ctx.into(),
                     Arc::<TestSegments>::clone(&segments),
                     array.into_array().to_array_stream().sequenced(ptr),
                     eof,
@@ -310,12 +292,14 @@ mod tests {
                 .await
                 .unwrap();
 
-            let result = layout
+            let reader = layout
                 .new_reader("".into(), segments, &SESSION, &Default::default())
-                .unwrap()
+                .unwrap();
+            let expr = root().bind(reader.dtype()).unwrap();
+            let result = reader
                 .projection_evaluation(
                     &(0..layout.row_count()),
-                    &root(),
+                    &expr,
                     MaskFuture::new_true(layout.row_count().try_into().unwrap()),
                 )
                 .unwrap()
@@ -343,7 +327,7 @@ mod tests {
     fn struct_array_round_trip() {
         block_on(|handle| async {
             let mut ctx_exec = array_session().create_execution_ctx();
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             let mut validity_builder = BitBufferMut::with_capacity(2);
             validity_builder.append(true);
             validity_builder.append(false);
@@ -370,7 +354,7 @@ mod tests {
                 let (ptr, eof) = SequenceId::root().split();
                 let layout = FlatLayoutStrategy::default()
                     .write_stream(
-                        ctx,
+                        ctx.into(),
                         Arc::<TestSegments>::clone(&segments),
                         array.into_array().to_array_stream().sequenced(ptr),
                         eof,
@@ -383,12 +367,14 @@ mod tests {
             };
 
             // We should be able to read the array we just wrote.
-            let result: ArrayRef = layout
+            let reader = layout
                 .new_reader("".into(), segments, &SESSION, &Default::default())
-                .unwrap()
+                .unwrap();
+            let expr = root().bind(reader.dtype()).unwrap();
+            let result: ArrayRef = reader
                 .projection_evaluation(
                     &(0..layout.row_count()),
-                    &root(),
+                    &expr,
                     MaskFuture::new_true(layout.row_count().try_into().unwrap()),
                 )
                 .unwrap()
@@ -429,7 +415,7 @@ mod tests {
     #[test]
     fn flat_invalid_array_fails() -> VortexResult<()> {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             let prim: PrimitiveArray = (0..10).collect();
             let filter = prim.filter(Mask::from_indices(10, vec![2, 3]))?;
 
@@ -441,16 +427,16 @@ mod tests {
                 let (ptr, eof) = SequenceId::root().split();
                 // Disallow all encodings so filter arrays fail normalization immediately.
                 let allowed = HashSet::default();
-                let layout = FlatLayoutStrategy::default()
-                    .with_allow_encodings(allowed)
-                    .write_stream(
-                        ctx,
-                        Arc::<TestSegments>::clone(&segments),
-                        filter.into_array().to_array_stream().sequenced(ptr),
-                        eof,
-                        &session,
-                    )
-                    .await;
+                let layout =
+                    LayoutStrategyEncodingValidator::new(FlatLayoutStrategy::default(), allowed)
+                        .write_stream(
+                            ctx.into(),
+                            Arc::<TestSegments>::clone(&segments),
+                            filter.into_array().to_array_stream().sequenced(ptr),
+                            eof,
+                            &session,
+                        )
+                        .await;
 
                 (layout, segments)
             };
@@ -469,7 +455,7 @@ mod tests {
     #[test]
     fn flat_valid_array_writes() -> VortexResult<()> {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             let codes: PrimitiveArray = (0u32..10).collect();
             let values: PrimitiveArray = (0..10).collect();
             let dict = DictArray::new(codes.into_array(), values.into_array());
@@ -483,16 +469,16 @@ mod tests {
                 // Only allow the dict encoding; canonical primitive children remain permitted.
                 let mut allowed = HashSet::default();
                 allowed.insert(Dict.id());
-                let layout = FlatLayoutStrategy::default()
-                    .with_allow_encodings(allowed)
-                    .write_stream(
-                        ctx,
-                        Arc::<TestSegments>::clone(&segments),
-                        dict.into_array().to_array_stream().sequenced(ptr),
-                        eof,
-                        &session,
-                    )
-                    .await;
+                let layout =
+                    LayoutStrategyEncodingValidator::new(FlatLayoutStrategy::default(), allowed)
+                        .write_stream(
+                            ctx.into(),
+                            Arc::<TestSegments>::clone(&segments),
+                            dict.into_array().to_array_stream().sequenced(ptr),
+                            eof,
+                            &session,
+                        )
+                        .await;
 
                 (layout, segments)
             };

@@ -23,6 +23,8 @@ pub use operations::*;
 pub use validity::*;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
@@ -101,44 +103,17 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// Returns the name of the buffer at the given index, or `None` if unnamed.
     fn buffer_name(array: ArrayView<'_, Self>, idx: usize) -> Option<String>;
 
-    /// Returns the number of children in the array.
+    /// Rebuild this array with replacement top-level buffers.
     ///
-    /// The default counts non-None slots.
-    fn nchildren(array: ArrayView<'_, Self>) -> usize {
-        array.slots().iter().filter(|s| s.is_some()).count()
-    }
-
-    /// Returns the child at the given index.
-    ///
-    /// The default returns the `idx`-th non-None slot.
-    ///
-    /// # Panics
-    /// Panics if `idx >= nchildren(array)`.
-    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
-        array
-            .slots()
-            .iter()
-            .filter_map(|s| s.clone())
-            .nth(idx)
-            .vortex_expect("child index out of bounds")
-    }
-
-    /// Returns the name of the child at the given index.
-    ///
-    /// The default returns the slot name of the `idx`-th non-None slot.
-    ///
-    /// # Panics
-    /// Panics if `idx >= nchildren(array)`.
-    fn child_name(array: ArrayView<'_, Self>, idx: usize) -> String {
-        array
-            .slots()
-            .iter()
-            .enumerate()
-            .filter(|(_, s)| s.is_some())
-            .nth(idx)
-            .map(|(slot_idx, _)| Self::slot_name(array, slot_idx))
-            .vortex_expect("child_name index out of bounds")
-    }
+    /// This is for physical rewrites that preserve `dtype`, `len`, child slots, buffer count, and
+    /// buffer lengths. The caller checks the generic invariants before dispatching here;
+    /// implementations should interpret the replacement buffers for their encoding-specific
+    /// in-memory representation.
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>>;
 
     /// Serialize encoding metadata into a byte buffer for IPC or file storage.
     ///
@@ -152,7 +127,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
 
     /// Deserialize an array from serialized metadata, buffers, and children.
     ///
-    /// The returned [`ArrayParts`](crate::ArrayParts) are still validated by the generic adapter.
+    /// The returned [`ArrayParts`] are still validated by the generic adapter.
     /// Deserializers should use the provided `session` to resolve plugin-owned metadata instead of
     /// relying on global state.
     fn deserialize(
@@ -163,7 +138,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         session: &VortexSession,
-    ) -> VortexResult<crate::array::ArrayParts<Self>>;
+    ) -> VortexResult<ArrayParts<Self>>;
 
     /// Writes the array's logical values into a canonical builder.
     ///
@@ -179,8 +154,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
             .clone()
             .execute::<Canonical>(ctx)?
             .into_array();
-        builder.extend_from_array(&canonical);
-        Ok(())
+        canonical.append_to_builder(builder, ctx)
     }
 
     /// Returns the name of the slot at the given index.
@@ -239,6 +213,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
 pub use VTable as ArrayVTable;
 
 use crate::array::ArrayId;
+use crate::array::ArrayParts;
 
 /// Empty array metadata struct for encodings with no per-array metadata.
 #[derive(Clone, Debug, Default)]
@@ -257,6 +232,40 @@ impl Display for EmptyArrayData {
     fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
         Ok(())
     }
+}
+
+/// Rebuild an array that has no top-level buffers.
+#[inline]
+pub fn with_empty_buffers<V: VTable>(
+    vtable: &V,
+    array: ArrayView<'_, V>,
+    buffers: &[BufferHandle],
+) -> VortexResult<ArrayParts<V>> {
+    vortex_ensure!(
+        buffers.is_empty(),
+        "Array {} expects 0 buffers, got {}",
+        array.encoding_id(),
+        buffers.len()
+    );
+    Ok(ArrayParts::new(
+        vtable.clone(),
+        array.dtype().clone(),
+        array.len(),
+        array.data().clone(),
+    )
+    .with_slots(array.slots().iter().cloned().collect()))
+}
+
+/// Reject buffer replacement for encodings whose exposed buffers are not runtime backing buffers.
+#[inline]
+pub fn unsupported_buffer_replacement<V: VTable>(
+    array: ArrayView<'_, V>,
+    _buffers: &[BufferHandle],
+) -> VortexResult<ArrayParts<V>> {
+    vortex_bail!(
+        "Array {} does not support in-memory buffer replacement",
+        array.encoding_id()
+    )
 }
 
 /// Placeholder type used to indicate when a particular vtable is not supported by the encoding.

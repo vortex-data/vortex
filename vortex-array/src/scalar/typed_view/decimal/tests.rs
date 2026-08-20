@@ -4,17 +4,22 @@
 //! Tests for decimal scalar casting functionality.
 
 use rstest::rstest;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::DecimalType;
+use crate::dtype::MAX_PRECISION;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::i256;
 use crate::scalar::DecimalValue;
+use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
+use crate::scalar::decimal_numeric_result_dtype;
 
 #[rstest]
 #[case(DecimalValue::I8(100), DecimalValue::I8(100))]
@@ -115,7 +120,7 @@ fn test_decimal_cast_between_decimal_types() {
         Nullability::NonNullable,
     );
 
-    // Cast to different decimal type (currently just preserves value)
+    // Cast to different decimal type.
     let result = decimal_scalar
         .cast(&DType::Decimal(
             DecimalDType::new(20, 4),
@@ -123,9 +128,9 @@ fn test_decimal_cast_between_decimal_types() {
         ))
         .unwrap();
 
-    // Value should be preserved (TODO(connor): proper scaling logic - whatever that means???)
+    // 123.45 with scale 2 is represented as 123.4500 with scale 4.
     let decimal_value: Option<DecimalValue> = result.try_into().unwrap();
-    assert_eq!(decimal_value, Some(DecimalValue::I32(12345)));
+    assert_eq!(decimal_value, Some(DecimalValue::I128(1234500)));
 }
 
 #[test]
@@ -309,7 +314,6 @@ fn test_decimal_to_decimal_different_scale() {
     );
 
     // Cast to decimal with scale=4
-    // TODO: This should properly rescale, but for now it preserves the raw value
     let target_dtype = DType::Decimal(DecimalDType::new(10, 4), Nullability::NonNullable);
     let result = decimal.cast(&target_dtype);
     assert!(result.is_ok());
@@ -317,7 +321,85 @@ fn test_decimal_to_decimal_different_scale() {
     let casted = result.unwrap();
     assert_eq!(
         casted.as_decimal().decimal_value(),
-        Some(DecimalValue::I32(10000))
+        Some(DecimalValue::I64(1000000))
+    );
+}
+
+#[test]
+fn test_decimal_to_decimal_lower_scale_exact() {
+    let decimal = Scalar::decimal(
+        DecimalValue::I64(1234500), // 123.4500
+        DecimalDType::new(10, 4),
+        Nullability::NonNullable,
+    );
+
+    let casted = decimal
+        .cast(&DType::Decimal(
+            DecimalDType::new(10, 2),
+            Nullability::NonNullable,
+        ))
+        .unwrap();
+
+    assert_eq!(
+        casted.as_decimal().decimal_value(),
+        Some(DecimalValue::I64(12345))
+    );
+}
+
+#[test]
+fn test_decimal_to_decimal_lower_scale_lossy_fails() {
+    let decimal = Scalar::decimal(
+        DecimalValue::I64(1234567), // 123.4567
+        DecimalDType::new(10, 4),
+        Nullability::NonNullable,
+    );
+
+    let result = decimal.cast(&DType::Decimal(
+        DecimalDType::new(10, 2),
+        Nullability::NonNullable,
+    ));
+
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("would lose precision")
+    );
+}
+
+#[test]
+fn test_primitive_i64_to_decimal_rescales() {
+    let scalar = Scalar::primitive(42i64, Nullability::NonNullable);
+
+    let casted = scalar
+        .cast(&DType::Decimal(
+            DecimalDType::new(21, 2),
+            Nullability::NonNullable,
+        ))
+        .unwrap();
+
+    assert_eq!(
+        casted.as_decimal().decimal_value(),
+        Some(DecimalValue::I128(4200))
+    );
+}
+
+#[test]
+fn test_primitive_to_decimal_precision_checked() {
+    let scalar = Scalar::primitive(1000i32, Nullability::NonNullable);
+
+    let result = scalar.cast(&DType::Decimal(
+        DecimalDType::new(2, 0),
+        Nullability::NonNullable,
+    ));
+
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("does not fit in precision")
     );
 }
 
@@ -755,181 +837,271 @@ fn test_decimal_i256_overflow_cast() {
 }
 
 // Tests for checked_binary_numeric
-#[test]
-fn test_decimal_scalar_checked_add() {
-    use crate::scalar::NumericOperator;
 
-    let decimal1 = Scalar::decimal(
-        DecimalValue::I64(100),
-        DecimalDType::new(10, 2),
-        Nullability::NonNullable,
-    );
-    let scalar1 = decimal1.as_decimal();
+/// Applies `op` to two non-null operands of `dtype`, returning the result value and its dtype.
+fn checked_op(
+    lhs: DecimalValue,
+    rhs: DecimalValue,
+    dtype: DecimalDType,
+    op: NumericOperator,
+) -> VortexResult<Option<(DecimalValue, DecimalDType)>> {
+    let lhs = Scalar::decimal(lhs, dtype, Nullability::NonNullable);
+    let rhs = Scalar::decimal(rhs, dtype, Nullability::NonNullable);
+    let Some(result) = lhs
+        .as_decimal()
+        .checked_binary_numeric(&rhs.as_decimal(), op)?
+    else {
+        return Ok(None);
+    };
+    let result = result.as_decimal();
+    let result_dtype = DecimalDType::try_from(result.dtype())?;
+    Ok(result.decimal_value().map(|value| (value, result_dtype)))
+}
 
-    let decimal2 = Scalar::decimal(
-        DecimalValue::I64(200),
-        DecimalDType::new(10, 2),
-        Nullability::NonNullable,
-    );
-    let scalar2 = decimal2.as_decimal();
+#[rstest]
+#[case::add(
+    NumericOperator::Add,
+    DecimalDType::new(10, 2),
+    Some(DecimalDType::new(11, 2))
+)]
+#[case::sub(
+    NumericOperator::Sub,
+    DecimalDType::new(10, 2),
+    Some(DecimalDType::new(11, 2))
+)]
+#[case::mul(
+    NumericOperator::Mul,
+    DecimalDType::new(10, 2),
+    Some(DecimalDType::new(21, 4))
+)]
+#[case::div(
+    NumericOperator::Div,
+    DecimalDType::new(10, 2),
+    Some(DecimalDType::new(16, 6))
+)]
+#[case::mul_negative_scale(
+    NumericOperator::Mul,
+    DecimalDType::new(10, -2),
+    Some(DecimalDType::new(21, -4))
+)]
+#[case::div_negative_scale(
+    NumericOperator::Div,
+    DecimalDType::new(10, -2),
+    Some(DecimalDType::new(12, 2))
+)]
+#[case::add_saturates_precision(
+    NumericOperator::Add,
+    DecimalDType::new(MAX_PRECISION, 2),
+    Some(DecimalDType::new(MAX_PRECISION, 2))
+)]
+#[case::mul_saturates_precision(
+    NumericOperator::Mul,
+    DecimalDType::new(40, 2),
+    Some(DecimalDType::new(MAX_PRECISION, 4))
+)]
+#[case::mul_scale_exceeds_max(NumericOperator::Mul, DecimalDType::new(MAX_PRECISION, 39), None)]
+// -70 + -70 is -140, which is not representable as an i8 scale.
+#[case::mul_scale_underflows(NumericOperator::Mul, DecimalDType::new(10, -70), None)]
+// -64 + -64 is exactly i8::MIN, the most negative scale that is still representable.
+#[case::mul_scale_reaches_min(
+    NumericOperator::Mul,
+    DecimalDType::new(10, -64),
+    Some(DecimalDType::new(21, -128))
+)]
+#[case::div_precision_underflows(NumericOperator::Div, DecimalDType::new(2, -8), None)]
+fn test_decimal_numeric_result_dtype(
+    #[case] op: NumericOperator,
+    #[case] input: DecimalDType,
+    #[case] expected: Option<DecimalDType>,
+) {
+    assert_eq!(decimal_numeric_result_dtype(input, op).ok(), expected);
+}
 
-    let result = scalar1
-        .checked_binary_numeric(&scalar2, NumericOperator::Add)
-        .unwrap();
+#[rstest]
+#[case::add(DecimalDType::new(10, 2), 100, 200, NumericOperator::Add, Some(300))]
+#[case::sub(DecimalDType::new(10, 2), 500, 200, NumericOperator::Sub, Some(300))]
+// 0.50 * 0.10 = 0.0500, exact at the doubled result scale.
+#[case::mul(DecimalDType::new(10, 2), 50, 10, NumericOperator::Mul, Some(500))]
+// 0.15 * 0.17 = 0.0255, which a result pinned to scale 2 would have had to round away.
+#[case::mul_keeps_every_digit(DecimalDType::new(10, 2), 15, 17, NumericOperator::Mul, Some(255))]
+// 10.00 / 0.10 = 100.000000
+#[case::div(
+    DecimalDType::new(10, 2),
+    1_000,
+    10,
+    NumericOperator::Div,
+    Some(100_000_000)
+)]
+// 10.00 / 3.00 = 3.333333, truncated toward zero at the result scale.
+#[case::div_truncates(
+    DecimalDType::new(10, 2),
+    1_000,
+    300,
+    NumericOperator::Div,
+    Some(3_333_333)
+)]
+#[case::div_truncates_toward_zero(
+    DecimalDType::new(10, 2),
+    -1_000,
+    300,
+    NumericOperator::Div,
+    Some(-3_333_333)
+)]
+#[case::div_by_zero(DecimalDType::new(10, 2), 1_000, 0, NumericOperator::Div, None)]
+// 500 * 300 = 150000, stored at scale -4.
+#[case::mul_negative_scale(DecimalDType::new(10, -2), 5, 3, NumericOperator::Mul, Some(15))]
+// 60000 / 300 = 200.00
+#[case::div_negative_scale(DecimalDType::new(10, -2), 600, 3, NumericOperator::Div, Some(20_000))]
+// 5e12 / 2e8 = 25000, truncated to the result scale of -4.
+#[case::div_negative_result_scale(
+    DecimalDType::new(10, -8),
+    50_000,
+    2,
+    NumericOperator::Div,
+    Some(2)
+)]
+fn test_decimal_scalar_checked_binary_numeric(
+    #[case] dtype: DecimalDType,
+    #[case] lhs: i128,
+    #[case] rhs: i128,
+    #[case] op: NumericOperator,
+    #[case] expected: Option<i128>,
+) -> VortexResult<()> {
+    let result = checked_op(DecimalValue::I128(lhs), DecimalValue::I128(rhs), dtype, op)?;
     assert_eq!(
-        result.decimal_value(),
-        Some(DecimalValue::I256(i256::from_i128(300)))
+        result.map(|(value, _)| value),
+        expected.map(DecimalValue::I128)
     );
+    Ok(())
 }
 
 #[test]
-fn test_decimal_scalar_checked_sub() {
-    use crate::scalar::NumericOperator;
+fn test_decimal_scalar_mul_widens_beyond_operand_storage() -> VortexResult<()> {
+    // 1e17 * 1e17 needs 35 digits, so widening only to the operands' i64 storage would report a
+    // spurious overflow.
+    let dtype = DecimalDType::new(18, 0);
+    let operand = DecimalValue::I64(100_000_000_000_000_000);
 
-    let decimal1 = Scalar::decimal(
-        DecimalValue::I64(500),
-        DecimalDType::new(10, 2),
-        Nullability::NonNullable,
-    );
-    let scalar1 = decimal1.as_decimal();
-
-    let decimal2 = Scalar::decimal(
-        DecimalValue::I64(200),
-        DecimalDType::new(10, 2),
-        Nullability::NonNullable,
-    );
-    let scalar2 = decimal2.as_decimal();
-
-    let result = scalar1
-        .checked_binary_numeric(&scalar2, NumericOperator::Sub)
-        .unwrap();
+    let (value, result_dtype) = checked_op(operand, operand, dtype, NumericOperator::Mul)?
+        .ok_or_else(|| vortex_err!("expected an in-precision product"))?;
+    assert_eq!(result_dtype, DecimalDType::new(37, 0));
     assert_eq!(
-        result.decimal_value(),
-        Some(DecimalValue::I256(i256::from_i128(300)))
+        value,
+        DecimalValue::I128(10_000_000_000_000_000_000_000_000_000_000_000)
     );
+    assert_eq!(value.decimal_type(), DecimalType::I128);
+    Ok(())
 }
 
 #[test]
-fn test_decimal_scalar_checked_mul() {
-    use crate::scalar::NumericOperator;
+fn test_decimal_scalar_add_reserves_carry_digit() -> VortexResult<()> {
+    // 999 + 2 = 1001 exceeds precision 3, but the result reserves a carry digit for it.
+    let dtype = DecimalDType::new(3, 0);
 
-    let decimal1 = Scalar::decimal(
-        DecimalValue::I32(50),
-        DecimalDType::new(10, 2),
-        Nullability::NonNullable,
-    );
-    let scalar1 = decimal1.as_decimal();
-
-    let decimal2 = Scalar::decimal(
-        DecimalValue::I32(10),
-        DecimalDType::new(10, 2),
-        Nullability::NonNullable,
-    );
-    let scalar2 = decimal2.as_decimal();
-
-    let result = scalar1
-        .checked_binary_numeric(&scalar2, NumericOperator::Mul)
-        .unwrap();
-    assert_eq!(
-        result.decimal_value(),
-        Some(DecimalValue::I256(i256::from_i128(500)))
-    );
-}
-
-#[test]
-fn test_decimal_scalar_checked_div() {
-    use crate::scalar::NumericOperator;
-
-    let decimal1 = Scalar::decimal(
-        DecimalValue::I64(1000),
-        DecimalDType::new(10, 2),
-        Nullability::NonNullable,
-    );
-    let scalar1 = decimal1.as_decimal();
-
-    let decimal2 = Scalar::decimal(
-        DecimalValue::I64(10),
-        DecimalDType::new(10, 2),
-        Nullability::NonNullable,
-    );
-    let scalar2 = decimal2.as_decimal();
-
-    let result = scalar1
-        .checked_binary_numeric(&scalar2, NumericOperator::Div)
-        .unwrap();
-    assert_eq!(
-        result.decimal_value(),
-        Some(DecimalValue::I256(i256::from_i128(100)))
-    );
-}
-
-#[test]
-fn test_decimal_scalar_checked_div_by_zero() {
-    use crate::scalar::NumericOperator;
-
-    let decimal1 = Scalar::decimal(
-        DecimalValue::I64(1000),
-        DecimalDType::new(10, 2),
-        Nullability::NonNullable,
-    );
-    let scalar1 = decimal1.as_decimal();
-
-    let decimal2 = Scalar::decimal(
-        DecimalValue::I64(0),
-        DecimalDType::new(10, 2),
-        Nullability::NonNullable,
-    );
-    let scalar2 = decimal2.as_decimal();
-
-    let result = scalar1.checked_binary_numeric(&scalar2, NumericOperator::Div);
-    assert_eq!(result, None);
-}
-
-#[test]
-fn test_decimal_scalar_null_handling() {
-    use crate::scalar::NumericOperator;
-
-    let decimal1 = Scalar::null(DType::Decimal(
-        DecimalDType::new(10, 2),
-        Nullability::Nullable,
-    ));
-    let scalar1 = decimal1.as_decimal();
-
-    let decimal2 = Scalar::decimal(
-        DecimalValue::I64(200),
-        DecimalDType::new(10, 2),
-        Nullability::NonNullable,
-    );
-    let scalar2 = decimal2.as_decimal();
-
-    let result = scalar1
-        .checked_binary_numeric(&scalar2, NumericOperator::Add)
-        .unwrap();
-    assert_eq!(result.decimal_value(), None);
-}
-
-#[test]
-fn test_decimal_scalar_precision_overflow() {
-    use crate::scalar::NumericOperator;
-
-    // Create decimals with precision 3 (max value 999)
-    let decimal1 = Scalar::decimal(
+    let (value, result_dtype) = checked_op(
         DecimalValue::I16(999),
-        DecimalDType::new(3, 0),
-        Nullability::NonNullable,
-    );
-    let scalar1 = decimal1.as_decimal();
-
-    let decimal2 = Scalar::decimal(
         DecimalValue::I16(2),
-        DecimalDType::new(3, 0),
+        dtype,
+        NumericOperator::Add,
+    )?
+    .ok_or_else(|| vortex_err!("expected the carry digit to absorb the result"))?;
+    assert_eq!(result_dtype, DecimalDType::new(4, 0));
+    assert_eq!(value, DecimalValue::I16(1_001));
+    assert_eq!(value.decimal_type(), DecimalType::I16);
+    Ok(())
+}
+
+#[rstest]
+#[case::add(NumericOperator::Add)]
+#[case::mul(NumericOperator::Mul)]
+fn test_decimal_scalar_overflows_saturated_precision(
+    #[case] op: NumericOperator,
+) -> VortexResult<()> {
+    // At MAX_PRECISION the result precision cannot widen any further, so an out-of-range result
+    // is a genuine overflow.
+    let dtype = DecimalDType::new(MAX_PRECISION, 0);
+    let max = DecimalValue::I256(
+        <i256 as NativeDecimalType>::MAX_BY_PRECISION[usize::from(MAX_PRECISION)],
+    );
+
+    assert_eq!(checked_op(max, max, dtype, op)?, None);
+    Ok(())
+}
+
+#[test]
+fn test_decimal_scalar_div_reports_unrepresentable_intermediate() -> VortexResult<()> {
+    // Div scales the dividend by 10^result_scale, which needs p + result_scale digits. Past
+    // MAX_PRECISION there is no wider width to compute in, so 1e79 overflows i256 and the
+    // operation reports overflow even though the quotient 1e9 would have fit the result
+    // precision. The array kernels size their working width identically.
+    let dtype = DecimalDType::new(MAX_PRECISION, 0);
+    let pow10 = |exp: u32| {
+        i256::from_i128(10)
+            .checked_pow(exp)
+            .ok_or_else(|| vortex_err!("10^{exp} is representable as i256"))
+    };
+    let lhs = DecimalValue::I256(pow10(75)?);
+    let rhs = DecimalValue::I256(pow10(70)?);
+
+    assert_eq!(
+        decimal_numeric_result_dtype(dtype, NumericOperator::Div)?,
+        DecimalDType::new(MAX_PRECISION, 4)
+    );
+    assert_eq!(checked_op(lhs, rhs, dtype, NumericOperator::Div)?, None);
+    Ok(())
+}
+
+#[test]
+fn test_decimal_scalar_null_handling() -> VortexResult<()> {
+    let dtype = DecimalDType::new(10, 2);
+    let null = Scalar::null(DType::Decimal(dtype, Nullability::Nullable));
+    let value = Scalar::decimal(DecimalValue::I64(200), dtype, Nullability::NonNullable);
+
+    let result = null
+        .as_decimal()
+        .checked_binary_numeric(&value.as_decimal(), NumericOperator::Add)?
+        .ok_or_else(|| vortex_err!("a null operand yields a null result, not an overflow"))?;
+    assert!(result.is_null());
+    assert_eq!(
+        result.dtype(),
+        &DType::Decimal(DecimalDType::new(11, 2), Nullability::Nullable)
+    );
+    Ok(())
+}
+
+#[test]
+fn test_decimal_scalar_mul_rejects_unrepresentable_scale() {
+    // 2e70 * 3e70 is 6e140, and a scale of -140 has no i8 representation. Saturating it to -128
+    // would have silently returned the raw product 6 as 6e128.
+    let dtype = DecimalDType::new(10, -70);
+    let lhs = Scalar::decimal(DecimalValue::I64(2), dtype, Nullability::NonNullable);
+    let rhs = Scalar::decimal(DecimalValue::I64(3), dtype, Nullability::NonNullable);
+
+    assert!(
+        lhs.as_decimal()
+            .checked_binary_numeric(&rhs.as_decimal(), NumericOperator::Mul)
+            .is_err()
+    );
+}
+
+#[test]
+fn test_decimal_scalar_mismatched_decimal_types() {
+    let lhs = Scalar::decimal(
+        DecimalValue::I64(1),
+        DecimalDType::new(10, 2),
         Nullability::NonNullable,
     );
-    let scalar2 = decimal2.as_decimal();
+    let rhs = Scalar::decimal(
+        DecimalValue::I64(1),
+        DecimalDType::new(10, 3),
+        Nullability::NonNullable,
+    );
 
-    // 999 + 2 = 1001 which exceeds precision 3
-    let result = scalar1.checked_binary_numeric(&scalar2, NumericOperator::Add);
-    assert_eq!(result, None);
+    assert!(
+        lhs.as_decimal()
+            .checked_binary_numeric(&rhs.as_decimal(), NumericOperator::Add)
+            .is_err()
+    );
 }
 
 #[test]

@@ -102,6 +102,7 @@ fn generate_rust_bindings(kernels_dir: &Path, out_dir: &Path) {
         .allowlist_function("filter_bytemask_.*")
         .allowlist_function("filter_bitmask_.*")
         .allowlist_function("scan_exclusive_sum_.*")
+        .allowlist_function("onpair_.*")
         // Allow CUDA types
         .allowlist_type("cudaError_t")
         // Blocklist cudaStream_t and define it manually as an opaque pointer

@@ -26,6 +26,7 @@
 
 mod array;
 mod arrow;
+mod compute;
 #[cfg(test)]
 mod json_to_variant_tests;
 mod kernel;
@@ -36,8 +37,11 @@ mod vtable;
 use std::sync::Arc;
 
 pub use array::ParquetVariantArrayExt;
-use vortex_array::arrow::ArrowSessionExt;
+pub use array::ParquetVariantArraySlotsExt;
+pub use array::ParquetVariantSlots;
+pub use array::ParquetVariantSlotsView;
 use vortex_array::session::ArraySessionExt;
+use vortex_arrow::ArrowSessionExt;
 pub use vortex_json::JsonToVariant;
 pub use vortex_json::JsonToVariantOptions;
 pub use vortex_json::ShreddingSpec;

@@ -8,7 +8,6 @@ use std::env;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
-use vortex_array::DeserializeMetadata;
 use vortex_array::ProstMetadata;
 use vortex_array::dtype::DType;
 use vortex_buffer::ByteBuffer;
@@ -16,20 +15,21 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 use vortex_session::registry::ReadContext;
 
-use crate::LayoutBuildContext;
+use crate::Layout;
 use crate::LayoutChildType;
-use crate::LayoutEncodingRef;
+use crate::LayoutDeserializeArgs;
 use crate::LayoutId;
+use crate::LayoutParts;
+use crate::LayoutReaderContext;
 use crate::LayoutReaderRef;
-use crate::LayoutRef;
 use crate::VTable;
-use crate::children::LayoutChildren;
+use crate::children::OwnedLayoutChildren;
 use crate::layouts::flat::reader::FlatReader;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
-use crate::vtable;
 
 /// Check if inline array node is enabled.
 pub(super) fn flat_layout_inline_array_node() -> bool {
@@ -38,57 +38,80 @@ pub(super) fn flat_layout_inline_array_node() -> bool {
     *FLAT_LAYOUT_INLINE_ARRAY_NODE
 }
 
-vtable!(Flat);
+/// Flat layout vtable.
+#[derive(Clone, Debug)]
+pub struct Flat;
+
+/// Backwards-compatible name for the flat layout plugin.
+pub use Flat as FlatLayoutEncoding;
+
+/// Flat-layout-specific data.
+#[derive(Clone, Debug)]
+pub struct FlatData {
+    segment_id: SegmentId,
+    ctx: ReadContext,
+    array_tree: Option<ByteBuffer>,
+}
+
+/// A terminal layout storing one serialized array segment.
+pub type FlatLayout = Layout<Flat>;
 
 impl VTable for Flat {
-    type Layout = FlatLayout;
-    type Encoding = FlatLayoutEncoding;
+    type LayoutData = FlatData;
     type Metadata = ProstMetadata<FlatLayoutMetadata>;
 
-    fn id(_encoding: &Self::Encoding) -> LayoutId {
-        LayoutId::new("vortex.flat")
+    fn id(&self) -> LayoutId {
+        static ID: CachedId = CachedId::new("vortex.flat");
+        *ID
     }
 
-    fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {
-        LayoutEncodingRef::new_ref(FlatLayoutEncoding.as_ref())
+    /// Flat readers only ever register the end of the requested range, so flat layouts are
+    /// indivisible and split collection can skip materializing flat children.
+    fn is_indivisible(&self) -> bool {
+        true
     }
 
-    fn row_count(layout: &Self::Layout) -> u64 {
-        layout.row_count
-    }
-
-    fn dtype(layout: &Self::Layout) -> &DType {
-        &layout.dtype
-    }
-
-    fn metadata(layout: &Self::Layout) -> Self::Metadata {
+    fn metadata(layout: &Layout<Self>) -> Self::Metadata {
         ProstMetadata(FlatLayoutMetadata {
             array_encoding_tree: layout.array_tree.as_ref().map(|bytes| bytes.to_vec()),
         })
     }
 
-    fn segment_ids(layout: &Self::Layout) -> Vec<SegmentId> {
-        vec![layout.segment_id]
+    fn deserialize(
+        &self,
+        args: &LayoutDeserializeArgs<'_>,
+        metadata: &FlatLayoutMetadata,
+    ) -> VortexResult<Self::LayoutData> {
+        if args.segment_ids.len() != 1 {
+            vortex_bail!("Flat layout must have exactly one segment ID");
+        }
+        if args.children.nchildren() != 0 {
+            vortex_bail!("Flat layout must not have children");
+        }
+        Ok(FlatData {
+            segment_id: args.segment_ids[0],
+            ctx: args.array_read_ctx.clone(),
+            array_tree: metadata
+                .array_encoding_tree
+                .as_ref()
+                .map(|bytes| ByteBuffer::from(bytes.clone())),
+        })
     }
 
-    fn nchildren(_layout: &Self::Layout) -> usize {
-        0
+    fn child_dtype(_layout: &Layout<Self>, idx: usize) -> VortexResult<DType> {
+        vortex_bail!("Flat layout has no child {idx}")
     }
 
-    fn child(_layout: &Self::Layout, _idx: usize) -> VortexResult<LayoutRef> {
-        vortex_bail!("Flat layout has no children");
-    }
-
-    fn child_type(_layout: &Self::Layout, _idx: usize) -> LayoutChildType {
-        vortex_panic!("Flat layout has no children");
+    fn child_type(_layout: &Layout<Self>, idx: usize) -> LayoutChildType {
+        vortex_panic!("Flat layout has no child {idx}")
     }
 
     fn new_reader(
-        layout: &Self::Layout,
+        layout: &Layout<Self>,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
-        _ctx: &crate::LayoutReaderContext,
+        _ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(FlatReader::new(
             layout.clone(),
@@ -97,91 +120,48 @@ impl VTable for Flat {
             session.clone(),
         )))
     }
-
-    fn build(
-        _encoding: &Self::Encoding,
-        dtype: &DType,
-        row_count: u64,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        segment_ids: Vec<SegmentId>,
-        _children: &dyn LayoutChildren,
-        build_ctx: &LayoutBuildContext<'_>,
-    ) -> VortexResult<Self::Layout> {
-        if segment_ids.len() != 1 {
-            vortex_bail!("Flat layout must have exactly one segment ID");
-        }
-        Ok(FlatLayout::new_with_metadata(
-            row_count,
-            dtype.clone(),
-            segment_ids[0],
-            build_ctx.array_read_ctx.clone(),
-            metadata
-                .array_encoding_tree
-                .as_ref()
-                .map(|v| ByteBuffer::from(v.clone())),
-        ))
-    }
-
-    fn with_children(_layout: &mut Self::Layout, children: Vec<LayoutRef>) -> VortexResult<()> {
-        if !children.is_empty() {
-            vortex_bail!("Flat layout has no children, got {}", children.len());
-        }
-        Ok(())
-    }
 }
 
-#[derive(Debug)]
-pub struct FlatLayoutEncoding;
-
-/// The terminal node of a layout tree. Stores a single chunk of array data as one serialized
-/// segment on disk.
-#[derive(Clone, Debug)]
-pub struct FlatLayout {
-    row_count: u64,
-    dtype: DType,
-    segment_id: SegmentId,
-    ctx: ReadContext,
-    array_tree: Option<ByteBuffer>,
-}
-
-impl FlatLayout {
+impl Layout<Flat> {
+    /// Construct a flat layout without an inline array encoding tree.
     pub fn new(row_count: u64, dtype: DType, segment_id: SegmentId, ctx: ReadContext) -> Self {
-        Self {
-            row_count,
-            dtype,
-            segment_id,
-            ctx,
-            array_tree: None,
-        }
+        Self::new_with_metadata(row_count, dtype, segment_id, ctx, None)
     }
 
+    /// Construct a flat layout with optional inline array metadata.
     pub fn new_with_metadata(
         row_count: u64,
         dtype: DType,
         segment_id: SegmentId,
         ctx: ReadContext,
-        metadata: Option<ByteBuffer>,
+        array_tree: Option<ByteBuffer>,
     ) -> Self {
-        Self {
-            row_count,
+        LayoutParts::new(
+            Flat,
             dtype,
-            segment_id,
-            ctx,
-            array_tree: metadata,
-        }
+            row_count,
+            vec![segment_id],
+            OwnedLayoutChildren::layout_children(Vec::new()),
+            FlatData {
+                segment_id,
+                ctx,
+                array_tree,
+            },
+        )
+        .into_typed()
     }
 
-    #[inline]
+    /// Returns the serialized array segment ID.
     pub fn segment_id(&self) -> SegmentId {
         self.segment_id
     }
 
-    #[inline]
+    /// Returns the array read context.
     pub fn array_ctx(&self) -> &ReadContext {
         &self.ctx
     }
 
-    #[inline]
+    /// Returns the optional inline array encoding tree.
     pub fn array_tree(&self) -> Option<&ByteBuffer> {
         self.array_tree.as_ref()
     }
@@ -189,9 +169,6 @@ impl FlatLayout {
 
 #[derive(prost::Message)]
 pub struct FlatLayoutMetadata {
-    // We can optionally store the array encoding tree here to avoid needing to fetch the segment
-    // to plan array deserialization.
-    // This will be a `ArrayNode`.
     #[prost(optional, bytes, tag = "1")]
     pub array_encoding_tree: Option<Vec<u8>>,
 }

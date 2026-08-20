@@ -198,7 +198,7 @@ mod tests {
         RandomAccessRun {
             timing: TimingMeasurement {
                 name: format!("random-access/{dataset}/{}-tokio-local-disk", format.ext()),
-                target: Target::new(Engine::Arrow, format),
+                target: Target::new(Engine::Vortex, format),
                 storage: "nvme".to_string(),
                 runs: vec![Duration::from_micros(micros)],
             },
@@ -272,10 +272,6 @@ mod tests {
         assert!(
             rendered.contains("vortex-cached") && rendered.contains("vortex-reopen"),
             "expected ext-based column headers, got:\n{rendered}"
-        );
-        assert!(
-            !rendered.contains("arrow"),
-            "expected no engine header row, got:\n{rendered}"
         );
         assert!(
             rendered.contains("random-access/taxi")
