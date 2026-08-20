@@ -9538,6 +9538,7 @@ dependencies = [
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
  "vortex-edition",
+ "vortex-elias-fano",
  "vortex-error",
  "vortex-fastlanes",
  "vortex-file",
@@ -10071,6 +10072,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-elias-fano"
+version = "0.1.0"
+dependencies = [
+ "fastlanes",
+ "lending-iterator",
+ "num-traits",
+ "prost 0.14.4",
+ "rstest",
+ "smallvec",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-fastlanes",
+ "vortex-mask",
+ "vortex-proto",
+ "vortex-session",
+]
+
+[[package]]
 name = "vortex-error"
 version = "0.1.0"
 dependencies = [
@@ -10154,6 +10174,7 @@ dependencies = [
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
  "vortex-edition",
+ "vortex-elias-fano",
  "vortex-error",
  "vortex-fastlanes",
  "vortex-flatbuffers",

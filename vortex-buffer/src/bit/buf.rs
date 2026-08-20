@@ -30,6 +30,7 @@ use crate::bit::ops::bitwise_binary_op_lhs_owned;
 use crate::bit::ops::bitwise_unary_op;
 use crate::bit::ops::bitwise_unary_op_copy;
 use crate::bit::select::bit_select;
+use crate::bit::select::bit_select_zero;
 use crate::buffer;
 
 /// An immutable bitset stored as a packed byte buffer.
@@ -427,6 +428,44 @@ impl BitBuffer {
     #[inline]
     pub fn select(&self, nth: usize) -> Option<usize> {
         bit_select(self.buffer.as_slice(), self.offset, self.len, nth)
+    }
+
+    /// Returns the position of the `nth` set bit within the bit range `[start, end)`, relative
+    /// to `start`.
+    ///
+    /// Unlike `self.slice(start..end).select(nth)`, this walks the existing backing buffer
+    /// directly without cloning a new [`BitBuffer`], so it stays cheap when called repeatedly
+    /// over many small windows — the pattern a sampled select index produces.
+    ///
+    /// Panics if `start > end` or `end > len`.
+    #[inline]
+    pub fn select_range(&self, start: usize, end: usize, nth: usize) -> Option<usize> {
+        assert!(start <= end, "start {start} exceeds end {end}");
+        assert!(end <= self.len, "end {end} exceeds len {}", self.len);
+        bit_select(
+            self.buffer.as_slice(),
+            self.offset + start,
+            end - start,
+            nth,
+        )
+    }
+
+    /// Returns the position of the `nth` unset bit within the bit range `[start, end)`, relative
+    /// to `start`.
+    ///
+    /// The complement of [`Self::select_range`]; see it for why the range form exists.
+    ///
+    /// Panics if `start > end` or `end > len`.
+    #[inline]
+    pub fn select_zero_range(&self, start: usize, end: usize, nth: usize) -> Option<usize> {
+        assert!(start <= end, "start {start} exceeds end {end}");
+        assert!(end <= self.len, "end {end} exceeds len {}", self.len);
+        bit_select_zero(
+            self.buffer.as_slice(),
+            self.offset + start,
+            end - start,
+            nth,
+        )
     }
 
     /// Get the number of unset bits in the buffer.
