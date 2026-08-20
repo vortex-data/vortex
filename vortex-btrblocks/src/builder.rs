@@ -185,6 +185,12 @@ impl BtrBlocksCompressorBuilder {
         // displace, since the preset picks encodings rather than merely decoding them.
         #[cfg(feature = "unstable_encodings")]
         excluded.push(integer::DeltaScheme::default().id());
+        // OnPair gained CUDA decode kernels in #8920, but its GPU path is not yet complete: the
+        // executor stages the dictionary through host-only accessors, which panics on
+        // device-resident buffers, and its inner Delta arrays hit the missing kernel above. Keep it
+        // excluded until both are addressed upstream.
+        #[cfg(feature = "unstable_encodings")]
+        excluded.push(string::OnPairScheme.id());
         #[cfg(feature = "pco")]
         excluded.extend([integer::PcoScheme.id(), float::PcoScheme.id()]);
         let builder = self.exclude_schemes(excluded);
@@ -285,6 +291,20 @@ mod tests {
                 "{excluded} should be excluded"
             );
         }
+    }
+
+    /// OnPair's CUDA executor stages its dictionary on the host and emits Delta children that have
+    /// no CUDA kernel, so it must not survive this preset.
+    #[cfg(feature = "unstable_encodings")]
+    #[test]
+    fn cuda_compatible_excludes_onpair() {
+        let builder = BtrBlocksCompressorBuilder::default().only_cuda_compatible();
+        assert!(
+            !builder
+                .schemes
+                .iter()
+                .any(|s| s.id() == string::OnPairScheme.id())
+        );
     }
 
     #[test]
