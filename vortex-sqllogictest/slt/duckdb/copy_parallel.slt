@@ -3,6 +3,7 @@
 
 include ../setup.slt.no
 
+statement ok
 SET preserve_insertion_order = false;
 
 statement ok
