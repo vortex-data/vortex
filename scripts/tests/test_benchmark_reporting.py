@@ -448,8 +448,8 @@ def test_comparison_report_retains_sql_analysis(tmp_path: Path) -> None:
     report = render_report(tmp_path, base_rows, pr_rows, "TPC-H")
 
     assert "**Verdict**:" in report
-    assert "**Vortex (hot geomean)**:" in report
-    assert "**Parquet (hot geomean)**:" in report
+    assert "**Vortex (geomean)**: hot " in report
+    assert "**Parquet (geomean)**: hot " in report
     assert "How to read Verdict and Engines" in report
     assert "<summary>datafusion / vortex-file-compressed / ns " in report
     assert "<summary>datafusion / parquet / ns " in report
@@ -537,7 +537,8 @@ def test_report_splits_cold_and_hot_runs(tmp_path: Path) -> None:
         "0.03 / 0.10 / -75.0%",
     ]
     assert "**Attributed Vortex impact**: -50.0%" in report
-    assert "**Cold run (geomean)**: Vortex 2.000x ❌ · Parquet 1.000x ➖" in report
+    assert "**Vortex (geomean)**: hot 0.500x ✅ · cold 2.000x ❌" in report
+    assert "**Parquet (geomean)**: hot 1.000x ➖ · cold 1.000x ➖" in report
     assert "**Commits**: PR `pr-sha` vs base " in report
 
 
@@ -566,7 +567,7 @@ def test_verdict_ignores_a_cold_start_only_regression(tmp_path: Path) -> None:
     report = render_report(tmp_path, base_rows, pr_rows, "TPC-H")
 
     assert "**Attributed Vortex impact**: +0.0%" in report
-    assert "**Cold run (geomean)**: Vortex 4.000x ❌ · Parquet 1.000x ➖" in report
+    assert "**Vortex (geomean)**: hot 1.000x ➖ · cold 4.000x ❌" in report
     assert markdown_row(report, "tpch_q01/datafusion:vortex-file-compressed") == [
         "tpch_q01/datafusion:vortex-file-compressed",
         "100 / 100 / +0.0%",
@@ -741,3 +742,23 @@ def test_shallow_checkout_fails_instead_of_reporting_no_baseline(tmp_path: Path)
     assert "shallow checkout" in result.stderr
     assert "fetch-depth: 0" in result.stderr
     assert "No baseline is available" not in result.stdout
+
+
+def test_summary_reports_hot_alone_when_no_row_recorded_its_runs(tmp_path: Path) -> None:
+    # Random Access, String Encoding and Compression report one value per row, so
+    # there is no cold geomean to sit beside the hot one.
+    base_rows = [
+        stored_custom_row("base-sha", "random-access/vortex-tokio-local-disk", "ns", 100.0),
+        stored_custom_row("base-sha", "random-access/parquet-tokio-local-disk", "ns", 200.0, file_format="parquet"),
+    ]
+    pr_rows = [
+        stored_custom_row("pr-sha", "random-access/vortex-tokio-local-disk", "ns", 50.0),
+        stored_custom_row("pr-sha", "random-access/parquet-tokio-local-disk", "ns", 200.0, file_format="parquet"),
+    ]
+
+    report = render_report(tmp_path, base_rows, pr_rows, "Random Access")
+
+    summary = report.splitlines()[2]
+    assert "**Vortex (geomean)**: hot 0.500x ✅" in summary
+    assert "**Parquet (geomean)**: hot 1.000x ➖" in summary
+    assert "cold" not in summary
