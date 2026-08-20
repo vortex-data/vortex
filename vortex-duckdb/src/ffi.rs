@@ -12,10 +12,13 @@ use vortex::error::VortexExpect;
 use crate::convert::can_push_expression;
 use crate::copy::CopyFunctionBind;
 use crate::copy::CopyFunctionGlobal;
+use crate::copy::CopyPreparedBatch;
 use crate::copy::copy_to_bind;
 use crate::copy::copy_to_finalize;
 use crate::copy::copy_to_initialize_global;
 use crate::copy::copy_to_sink;
+use crate::copy::flush_batch;
+use crate::copy::prepare_batch_push;
 use crate::cpp;
 use crate::duckdb::AggregatePushdownInput;
 use crate::duckdb::BindInput;
@@ -310,7 +313,7 @@ pub unsafe extern "C-unwind" fn duckdb_copy_function_copy_to_initialize_global(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn duckdb_copy_function_copy_to_sink(
     bind_data: *const c_void,
-    global_data: *mut c_void,
+    global_data: *const c_void,
     data_chunk: cpp::duckdb_data_chunk,
     error_out: *mut cpp::duckdb_vx_error,
 ) {
@@ -332,4 +335,34 @@ pub unsafe extern "C-unwind" fn duckdb_copy_function_copy_to_finalize(
     let global_data = unsafe { global_data.cast::<CopyFunctionGlobal>().as_mut() }
         .vortex_expect("bind_data null pointer");
     try_or(error_out, || copy_to_finalize(global_data))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn duckdb_copy_function_prepare_batch_new() -> cpp::duckdb_vx_data {
+    Data::from(Box::new(CopyPreparedBatch::default())).as_ptr()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn duckdb_copy_function_prepare_batch_push(
+    bind: *const c_void,
+    batch: *mut c_void,
+    chunk: cpp::duckdb_data_chunk,
+    error: *mut cpp::duckdb_vx_error,
+) {
+    let bind = unsafe { bind.cast::<CopyFunctionBind>().as_ref() }.vortex_expect("null pointer");
+    let batch = unsafe { batch.cast::<CopyPreparedBatch>().as_mut() }.vortex_expect("null pointer");
+    let chunk = unsafe { DataChunk::borrow_mut(chunk) };
+    try_or(error, || prepare_batch_push(bind, batch, chunk))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn duckdb_copy_function_flush_batch(
+    global: *const c_void,
+    batch: *const c_void,
+    error: *mut cpp::duckdb_vx_error,
+) {
+    let global =
+        unsafe { global.cast::<CopyFunctionGlobal>().as_ref() }.vortex_expect("null pointer");
+    let batch = unsafe { batch.cast::<CopyPreparedBatch>().as_ref() }.vortex_expect("null pointer");
+    try_or(error, || flush_batch(global, batch))
 }

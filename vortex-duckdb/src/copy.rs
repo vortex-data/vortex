@@ -31,7 +31,6 @@ use vortex::io::compat::Compat;
 use vortex::io::object_store::ObjectStoreWrite;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::Task;
-use vortex::io::runtime::current::CurrentThreadWorkerPool;
 use vortex::io::session::RuntimeSessionExt;
 
 use crate::REGISTRY;
@@ -57,12 +56,6 @@ assert_impl_all!(CopyFunctionBind: Send, Clone);
 pub struct CopyFunctionGlobal {
     write_task: Mutex<Option<Task<VortexResult<WriteSummary>>>>,
     sink: Option<Sender<VortexResult<ArrayRef>>>,
-    // Pool of background workers helping to drive the write task.
-    // Note that this is optional and without it, we would only drive the task when DuckDB calls
-    // into us, and we call `RUNTIME.block_on`.
-    // TODO(myrrc): we should rely only on host threads, remove this
-    #[expect(dead_code)]
-    worker_pool: CurrentThreadWorkerPool,
 }
 assert_impl_all!(CopyFunctionGlobal: Send, Sync);
 
@@ -87,33 +80,58 @@ pub fn copy_to_bind(
     })
 }
 
-pub fn copy_to_sink(
-    bind_data: &CopyFunctionBind,
-    init_global: &CopyFunctionGlobal,
-    chunk: &mut DataChunkRef,
-) -> VortexResult<()> {
-    let chunk = data_chunk_to_vortex(bind_data.fields.names(), chunk);
-    let mut sink = init_global
+fn push_to_writer(global: &CopyFunctionGlobal, array: ArrayRef) -> VortexResult<()> {
+    let mut sink = global
         .sink
         .as_ref()
         .ok_or_else(|| vortex_err!("sink closed early"))?
         .clone();
     RUNTIME.block_on(async {
-        // sink.send may error with "receiver is gone" which isn't the
-        // real error
-        if sink.send(chunk).await.is_ok() {
+        // send may error with "receiver is gone" which isn't the real error
+        if sink.send(Ok(array)).await.is_ok() {
             return Ok(());
         }
-        let task;
-        {
-            task = init_global.write_task.lock().take();
-        }
+        let task = global.write_task.lock().take();
         if let Some(task) = task {
             // we can get the real error (i.e invalid path) from here
             task.await?;
         }
         vortex_bail!("Writer stopped before all data was written")
     })
+}
+
+pub fn copy_to_sink(
+    bind_data: &CopyFunctionBind,
+    init_global: &CopyFunctionGlobal,
+    chunk: &mut DataChunkRef,
+) -> VortexResult<()> {
+    push_to_writer(
+        init_global,
+        data_chunk_to_vortex(bind_data.fields.names(), chunk)?,
+    )
+}
+
+#[derive(Default)]
+pub struct CopyPreparedBatch {
+    arrays: Vec<ArrayRef>,
+}
+
+pub fn prepare_batch_push(
+    bind: &CopyFunctionBind,
+    batch: &mut CopyPreparedBatch,
+    chunk: &DataChunkRef,
+) -> VortexResult<()> {
+    batch
+        .arrays
+        .push(data_chunk_to_vortex(bind.fields.names(), chunk)?);
+    Ok(())
+}
+
+pub fn flush_batch(global: &CopyFunctionGlobal, batch: &CopyPreparedBatch) -> VortexResult<()> {
+    for array in &batch.arrays {
+        push_to_writer(global, array.clone())?;
+    }
+    Ok(())
 }
 
 pub fn copy_to_finalize(init_global: &mut CopyFunctionGlobal) -> VortexResult<()> {
@@ -171,10 +189,7 @@ pub fn copy_to_initialize_global(
         })
     };
 
-    let worker_pool = RUNTIME.new_pool();
-    worker_pool.set_workers_to_available_parallelism();
     Ok(CopyFunctionGlobal {
-        worker_pool,
         write_task: Mutex::new(Some(write_task)),
         sink: Some(sink),
     })

@@ -82,6 +82,13 @@ fn vector_as_slice<T: NativePType>(vector: &VectorRef, len: usize) -> ArrayRef {
     .into_array()
 }
 
+fn vector_i128_values(vector: &VectorRef, len: usize) -> impl Iterator<Item = i128> {
+    let base = unsafe { crate::cpp::duckdb_vector_get_data(vector.as_ptr()) }.cast::<i128>();
+    // In batch copy, columns are 8 byte aligned, so reading vector's values
+    // as &[i128] is UB. Read data unaligned specifically
+    (0..len).map(move |i| unsafe { base.add(i).read_unaligned() })
+}
+
 fn vector_mapped<T, P: NativePType, F: Fn(&T) -> P>(
     vector: &VectorRef,
     len: usize,
@@ -311,18 +318,17 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
                     DecimalArray::try_new(Buffer::copy_from(data), decimal_dtype, validity)
                 }
                 DecimalType::I128 => {
-                    let data = vector.as_slice_with_len::<i128>(len);
-                    DecimalArray::try_new(Buffer::copy_from(data), decimal_dtype, validity)
+                    let data = Buffer::from_iter(vector_i128_values(vector, len));
+                    DecimalArray::try_new(data, decimal_dtype, validity)
                 }
                 _ => vortex_bail!("Unsupported decimal precision: {precision}"),
             }
             .map(|a| a.into_array())
         }
         DUCKDB_TYPE::DUCKDB_TYPE_UUID => {
-            let data = vector.as_slice_with_len::<i128>(len);
             let mut bytes = BufferMut::<u8>::with_capacity(len * 16);
-            for v in data {
-                let be = (*v as u128) ^ (1u128 << 127);
+            for v in vector_i128_values(vector, len) {
+                let be = (v as u128) ^ (1u128 << 127);
                 bytes.extend_from_slice(&be.to_be_bytes());
             }
 

@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+SET preserve_insertion_order = false;
+
+statement ok
+COPY (SELECT range AS j FROM range(100000))
+TO '${WORK_DIR}/copy_parallel.vortex';
+
+query II
+SELECT count(*), sum(j) FROM '${WORK_DIR}/copy_parallel.vortex';
+----
+100000 4999950000
+
+statement ok
+SET preserve_insertion_order = true;

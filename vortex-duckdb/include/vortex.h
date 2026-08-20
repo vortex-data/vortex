@@ -88,11 +88,24 @@ duckdb_vx_data duckdb_copy_function_copy_to_initialize_global(const void *bind_d
 
 extern
 void duckdb_copy_function_copy_to_sink(const void *bind_data,
-                                       void *global_data,
+                                       const void *global_data,
                                        duckdb_data_chunk data_chunk,
                                        duckdb_vx_error *error_out);
 
 extern void duckdb_copy_function_copy_to_finalize(void *global_data, duckdb_vx_error *error_out);
+
+extern duckdb_vx_data duckdb_copy_function_prepare_batch_new(void);
+
+extern
+void duckdb_copy_function_prepare_batch_push(const void *bind,
+                                             void *batch,
+                                             duckdb_data_chunk chunk,
+                                             duckdb_vx_error *error);
+
+extern
+void duckdb_copy_function_flush_batch(const void *global,
+                                      const void *batch,
+                                      duckdb_vx_error *error);
 
 #ifdef __cplusplus
 }  // extern "C"
