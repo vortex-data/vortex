@@ -4,6 +4,7 @@
 //! Split scanning task implementation.
 
 use std::ops::BitAnd;
+use std::ops::Range;
 use std::sync::Arc;
 
 use bit_vec::BitVec;
@@ -70,64 +71,7 @@ pub fn split_exec<A: 'static + Send>(
             let filter = Arc::clone(filter);
             let row_range = row_range.clone();
 
-            MaskFuture::new(row_mask.len(), async move {
-                let mut mask = row_mask;
-                let mut dynamic_versions = vec![None; filter.conjuncts().len()];
-
-                // TODO(ngates): we could use FuturedUnordered to intersect the masks in parallel.
-                for (idx, conjunct) in filter.conjuncts().iter().enumerate() {
-                    if mask.all_false() {
-                        return Ok(mask);
-                    }
-
-                    // Store the latest version of the dynamic expression prior to pruning.
-                    // We will re-run the pruning later if the version has changed in the meantime.
-                    dynamic_versions[idx] = filter.dynamic_updates(idx).map(|du| du.version());
-
-                    let conjunct_mask = reader
-                        .pruning_evaluation(&row_range, conjunct, mask.clone())?
-                        .await?;
-                    mask = mask.bitand(&conjunct_mask);
-                }
-
-                // Now we loop through the conjuncts in the preferred order and evaluate them.
-                let mut remaining = BitVec::from_elem(filter.conjuncts().len(), true);
-                while let Some(idx) = filter.next_conjunct(&remaining) {
-                    remaining.set(idx, false);
-                    if mask.all_false() {
-                        return Ok(mask);
-                    }
-
-                    let conjunct = &filter.conjuncts()[idx];
-
-                    // If the dynamic expression has changed since pruning, re-run the pruning.
-                    // Store the dynamic update once to avoid TOCTOU race condition
-                    let current_version = filter.dynamic_updates(idx).map(|du| du.version());
-                    if let Some(dv) = current_version
-                        && dynamic_versions[idx].is_none_or(|v| v < dv)
-                    {
-                        // The dynamic expression has been updated, re-run the pruning.
-                        dynamic_versions[idx] = Some(dv);
-                        let conjunct_mask = reader
-                            .pruning_evaluation(&row_range, conjunct, mask.clone())?
-                            .await?;
-                        mask = mask.bitand(&conjunct_mask);
-                    }
-                    if mask.all_false() {
-                        return Ok(mask);
-                    }
-
-                    let conjunct_mask = reader
-                        .filter_evaluation(&row_range, conjunct, MaskFuture::ready(mask))?
-                        .await?;
-                    filter.report_selectivity(idx, conjunct_mask.density());
-
-                    // Filter evaluations return a mask already intersected with the input mask.
-                    mask = conjunct_mask;
-                }
-
-                Ok(mask)
-            })
+            chained_filter_mask(reader, filter, row_range, row_mask)?
         }
     };
 
@@ -148,6 +92,104 @@ pub fn split_exec<A: 'static + Send>(
     };
 
     Ok(array_fut.boxed())
+}
+
+/// Builds the filter mask by chaining every conjunct's evaluation at task-construction time.
+///
+/// [`LayoutReader::filter_evaluation`] registers its segment reads when it is *called*, but only
+/// awaits its input mask when it is *polled*. Building the evaluations one at a time — awaiting
+/// each before constructing the next — therefore trickles reads in one conjunct at a time, per
+/// split. Feeding each conjunct's output [`MaskFuture`] straight into the next instead registers
+/// the reads for the whole chain up front, so the IO system can coalesce them, while each
+/// conjunct still receives the mask its predecessor refined.
+///
+/// This matters most for filter columns that are not projected. The projection evaluation is
+/// already built eagerly, so a filter over a projected column has its segments registered either
+/// way; a filter over an unprojected column otherwise has nothing registering them ahead of time.
+///
+/// The evaluation order is taken from [`FilterExpr::next_conjunct`] up front rather than being
+/// re-queried between conjuncts. That ordering is recomputed only when a *completed* conjunct
+/// reports its selectivity, so within a single split it was already fixed; draining it here gives
+/// up nothing but lets the chain be built before anything is awaited. Ordering still adapts
+/// across splits.
+fn chained_filter_mask(
+    reader: Arc<dyn LayoutReader>,
+    filter: Arc<FilterExpr>,
+    row_range: Range<u64>,
+    row_mask: Mask,
+) -> VortexResult<MaskFuture> {
+    let len = row_mask.len();
+    let conjunct_count = filter.conjuncts().len();
+
+    // Each pruning evaluation is fed the original split mask rather than the mask accumulated by
+    // the preceding conjuncts. Pruning masks are folded together with `bitand`, and intersection
+    // is associative and commutative, so the final mask is unchanged.
+    let mut dynamic_versions = Vec::with_capacity(conjunct_count);
+    let mut pruning_evals = Vec::with_capacity(conjunct_count);
+    for (idx, conjunct) in filter.conjuncts().iter().enumerate() {
+        // Store the latest version of the dynamic expression prior to pruning. We re-run the
+        // pruning if the version has changed by the time the task is polled.
+        dynamic_versions.push(filter.dynamic_updates(idx).map(|du| du.version()));
+        pruning_evals.push(reader.pruning_evaluation(&row_range, conjunct, row_mask.clone())?);
+    }
+
+    let pruned = MaskFuture::new(len, {
+        let reader = Arc::clone(&reader);
+        let filter = Arc::clone(&filter);
+        let row_range = row_range.clone();
+        async move {
+            let mut mask = row_mask;
+
+            for pruning_eval in pruning_evals {
+                if mask.all_false() {
+                    // Dropping the remaining evaluations cancels their outstanding reads.
+                    return Ok(mask);
+                }
+                mask = mask.bitand(&pruning_eval.await?);
+            }
+
+            // Re-run the pruning for any conjunct whose dynamic expression has changed since.
+            for (idx, conjunct) in filter.conjuncts().iter().enumerate() {
+                if mask.all_false() {
+                    return Ok(mask);
+                }
+
+                let current_version = filter.dynamic_updates(idx).map(|du| du.version());
+                if let Some(dv) = current_version
+                    && dynamic_versions[idx].is_none_or(|v| v < dv)
+                {
+                    let conjunct_mask = reader
+                        .pruning_evaluation(&row_range, conjunct, mask.clone())?
+                        .await?;
+                    mask = mask.bitand(&conjunct_mask);
+                }
+            }
+
+            Ok(mask)
+        }
+    });
+
+    let mut remaining = BitVec::from_elem(conjunct_count, true);
+    let mut chain = Vec::with_capacity(conjunct_count);
+    let mut mask_fut = pruned;
+    while let Some(idx) = filter.next_conjunct(&remaining) {
+        remaining.set(idx, false);
+        mask_fut = reader.filter_evaluation(&row_range, &filter.conjuncts()[idx], mask_fut)?;
+        chain.push((idx, mask_fut.clone()));
+    }
+
+    Ok(MaskFuture::new(len, async move {
+        // Filter evaluations return a mask already intersected with the input mask, so the tail
+        // of the chain is the fully refined mask.
+        let mask = mask_fut.await?;
+
+        // Every link has resolved by the time the tail has, so these awaits are already complete.
+        for (idx, link) in chain {
+            filter.report_selectivity(idx, link.await?.density());
+        }
+
+        Ok(mask)
+    }))
 }
 
 /// Information needed to execute a single split task.
