@@ -82,15 +82,33 @@ def stored_custom_row(
     }
 
 
+def git_repo_with_one_commit(path: Path) -> Path:
+    """Create a throwaway repository the reporter can walk.
+
+    The reporter resolves its baseline from `git rev-list HEAD`, so the tests
+    need a repository of their own rather than whatever checkout they happen to
+    run inside — a contributor's shallow clone must not change the result.
+    """
+
+    path.mkdir(parents=True)
+    identity = ["-c", "user.name=Vortex Test", "-c", "user.email=test@example.com"]
+    subprocess.run(["git", "init", "--quiet"], cwd=path, check=True)
+    (path / "README.md").write_text("benchmark reporting fixture\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=path, check=True)
+    subprocess.run(["git", *identity, "commit", "--quiet", "-m", "fixture"], cwd=path, check=True)
+    return path
+
+
 def render_report(
     tmp_path: Path,
     base_rows: list[dict[str, object]],
     pr_rows: list[dict[str, object]],
     benchmark_name: str,
 ) -> str:
+    repo = git_repo_with_one_commit(tmp_path / "repo")
     head_commit = subprocess.run(
         ["git", "rev-parse", "HEAD"],
-        cwd=REPO_ROOT,
+        cwd=repo,
         check=True,
         capture_output=True,
         text=True,
@@ -103,6 +121,7 @@ def render_report(
 
     result = subprocess.run(
         [sys.executable, str(COMPARE_SCRIPT), str(base_path), str(pr_path), benchmark_name],
+        cwd=repo,
         check=False,
         capture_output=True,
         text=True,
@@ -682,3 +701,43 @@ def test_capture_file_sizes_emits_shared_benchmark_rows(tmp_path: Path) -> None:
             },
         }
     ]
+
+
+def test_shallow_checkout_fails_instead_of_reporting_no_baseline(tmp_path: Path) -> None:
+    """A shallow clone must fail loudly, not render a baseline-free report.
+
+    `git rev-list HEAD` reaches only the tip of a shallow clone, so every
+    recorded commit looks unreachable. Reporting that as "no baseline yet"
+    hides a real comparison behind a report that merely looks new.
+    """
+
+    origin = git_repo_with_one_commit(tmp_path / "origin")
+    shallow = tmp_path / "shallow"
+    subprocess.run(
+        ["git", "clone", "--quiet", "--depth", "1", "--no-local", f"file://{origin}", str(shallow)],
+        check=True,
+        capture_output=True,
+    )
+    base_path = tmp_path / "base.jsonl"
+    pr_path = tmp_path / "pr.jsonl"
+    base_path.write_text(
+        f"{json.dumps(stored_timing_row('recorded', 'tpch_q01/datafusion:parquet', 100))}\n",
+        encoding="utf-8",
+    )
+    pr_path.write_text(
+        f"{json.dumps(stored_timing_row('pr', 'tpch_q01/datafusion:parquet', 105))}\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [sys.executable, str(COMPARE_SCRIPT), str(base_path), str(pr_path), "TPC-H"],
+        cwd=shallow,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "shallow checkout" in result.stderr
+    assert "fetch-depth: 0" in result.stderr
+    assert "No baseline is available" not in result.stdout

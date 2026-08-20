@@ -231,7 +231,26 @@ def read_jsonl_rows_for_commit(path: str, commit_id: str) -> pd.DataFrame:
 
 
 def git_tree_commit_ids() -> set[str]:
-    """Return every commit reachable from the checked-out branch head."""
+    """Return every commit reachable from the checked-out branch head.
+
+    A shallow checkout reaches only its own tip, so every recorded baseline
+    commit looks unreachable and the report silently degrades into "no
+    baseline is available for this benchmark yet" — indistinguishable from a
+    genuinely new benchmark, and wrong. Refuse the guess and say what to fix.
+    """
+
+    is_shallow = subprocess.run(
+        ["git", "rev-parse", "--is-shallow-repository"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    if is_shallow == "true":
+        raise SystemExit(
+            "Cannot resolve a baseline from a shallow checkout: the baseline is the newest "
+            "recorded commit reachable from HEAD, and a shallow clone reaches only its own "
+            "tip. Check the repository out with `fetch-depth: 0`."
+        )
 
     commits = subprocess.run(
         ["git", "rev-list", "HEAD"],
