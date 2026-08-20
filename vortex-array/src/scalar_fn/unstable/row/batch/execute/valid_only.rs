@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use super::super::RowFnExecutionArgs;
@@ -24,12 +23,7 @@ enum ResolvedValidity {
 }
 
 impl RowFnExecutionArgs {
-    /// Resolve validity, then execute valid rows over the original inputs.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the concrete row signature cannot use direct valid-row execution. Inputs must
-    /// support null-tolerant decoding, and output sinks must initialize skipped rows.
+    /// Resolve validity and try direct valid-row execution before filter-and-scatter.
     pub(super) fn execute_valid_only(
         &self,
         kernel: impl Fn(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
@@ -40,19 +34,18 @@ impl RowFnExecutionArgs {
         ) -> VortexResult<Option<ArrayRef>>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let valid = match self.resolve_validity(&kernel, ctx)? {
+        let original_validity = match self.resolve_validity(&kernel, ctx)? {
             ResolvedValidity::Output(output) => return Ok(output),
-            ResolvedValidity::PartiallyValid(valid) => valid,
+            ResolvedValidity::PartiallyValid(original_validity) => original_validity,
         };
 
-        if let Some(result) = self.try_execute_valid_rows(try_valid_rows, &valid, ctx)? {
-            return Ok(result);
+        let direct_output = self.try_execute_valid_rows(try_valid_rows, &original_validity, ctx)?;
+
+        if let Some(output) = direct_output {
+            return Ok(output);
         }
 
-        vortex_panic!(
-            "valid-only execution requires direct valid-row support; {} selected an unsupported signature",
-            self.id,
-        )
+        self.filter_and_scatter(kernel, &original_validity, ctx)
     }
 
     /// Materialize validity and handle all-valid or all-null batches.
@@ -61,12 +54,12 @@ impl RowFnExecutionArgs {
         kernel: &impl Fn(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ResolvedValidity> {
-        let valid = self.validity.clone().execute_mask(self.row_count, ctx)?;
+        let validity = self.validity.clone().execute_mask(self.row_count, ctx)?;
 
         // An array-backed validity can materialize to all valid even though the cheap checks in
         // `RowFnExecutionArgs::execute` could not prove that. Run the full-row kernel in that
         // case. Check all-true before all-false because an empty mask is both.
-        if valid.all_true() {
+        if validity.all_true() {
             let values = kernel(self.execution_args(&self.inputs, self.row_count), ctx)?;
             let values = self.validate_kernel_output(values, self.row_count, ctx)?;
             let values = self.finalize_output(values, self.row_count)?;
@@ -74,11 +67,11 @@ impl RowFnExecutionArgs {
             return Ok(ResolvedValidity::Output(values));
         }
 
-        if valid.all_false() {
+        if validity.all_false() {
             return Ok(ResolvedValidity::Output(self.all_null()));
         }
 
-        Ok(ResolvedValidity::PartiallyValid(valid))
+        Ok(ResolvedValidity::PartiallyValid(validity))
     }
 
     /// Try execution against the original inputs, then mask a returned full-length result.
@@ -89,21 +82,22 @@ impl RowFnExecutionArgs {
             &Mask,
             &mut ExecutionCtx,
         ) -> VortexResult<Option<ArrayRef>>,
-        valid: &Mask,
+        original_validity: &Mask,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(values) = try_valid_rows(
-            self.execution_args(&self.inputs, self.row_count),
-            valid,
-            ctx,
-        )?
-        else {
+        let row_count = original_validity.len();
+        let args = self.execution_args(&self.inputs, row_count);
+
+        let Some(values) = try_valid_rows(args, original_validity, ctx)? else {
             return Ok(None);
         };
-        let values = self.validate_kernel_output(values, valid.len(), ctx)?;
 
-        let mask = BoolArray::new(valid.to_bit_buffer(), Validity::NonNullable).into_array();
-        self.finalize_output(values.mask(mask)?, valid.len())
-            .map(Some)
+        let values = self.validate_kernel_output(values, row_count, ctx)?;
+
+        let validity_array =
+            BoolArray::new(original_validity.to_bit_buffer(), Validity::NonNullable).into_array();
+        let masked = values.mask(validity_array)?;
+
+        self.finalize_output(masked, row_count).map(Some)
     }
 }

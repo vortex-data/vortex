@@ -133,7 +133,7 @@ pub(crate) enum RowPolicy {
     /// Evaluate all rows and mask the result.
     Dense,
 
-    /// Execute only valid rows over the original inputs.
+    /// Execute only valid rows, filtering inputs if direct execution is unavailable.
     ValidOnly,
 }
 

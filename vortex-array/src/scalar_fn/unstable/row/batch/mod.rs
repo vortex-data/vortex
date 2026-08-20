@@ -40,7 +40,7 @@ pub(crate) struct RowFnExecutionArgs {
     /// The number of rows in the original execution scope.
     row_count: usize,
 
-    /// The input columns, collected once for validity, constant handling, and execution.
+    /// The input columns, collected once for validity, constant folding, filtering, and execution.
     inputs: SmallVec<[ArrayRef; 4]>,
 
     /// The input dtypes, collected with the columns and reused by both planning and execution.

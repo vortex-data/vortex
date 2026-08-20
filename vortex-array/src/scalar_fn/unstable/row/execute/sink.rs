@@ -98,8 +98,8 @@ where
 /// Write only the rows set in `valid`, or decline when the inputs or sink cannot support
 /// skip-invalid execution.
 ///
-/// `Ok(None)` signals that direct skip-invalid execution is unavailable. Batch execution decides
-/// how to handle the decline.
+/// `Ok(None)` signals batch execution to filter every input to the valid rows, run the dense
+/// kernel, and scatter the results back into a null-padded array.
 pub(crate) fn execute_sink_valid_rows<Args, Prepared, Sink, ApplyResult, Options>(
     args: &dyn ExecutionArgs,
     valid: &Mask,
@@ -222,8 +222,8 @@ where
         return Ok(None);
     };
 
-    // Null-tolerant decoding exposes values behind nulls without filtering. Decline when any input
-    // cannot provide those values safely.
+    // Null-tolerant decoding exposes values behind nulls without filtering. Decline so batch
+    // execution can filter when any input cannot provide those values safely.
     let Some(columns) = Args::decode_null_tolerant(args, ctx)? else {
         return Ok(None);
     };

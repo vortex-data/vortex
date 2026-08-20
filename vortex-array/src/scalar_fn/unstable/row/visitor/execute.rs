@@ -4,8 +4,8 @@
 //! Visitors that execute dense and skip-invalid row loops.
 //!
 //! Each visit revalidates its concrete signature and checks that its output dtype and execution
-//! policy match the plan before entering a row loop. [`ExecuteValidRows`] can decline when the
-//! signature cannot execute over the original inputs.
+//! policy match the plan before entering a row loop. [`ExecuteValidRows`] can decline, so the batch
+//! layer filters the inputs and retries with [`ExecuteRows`].
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;

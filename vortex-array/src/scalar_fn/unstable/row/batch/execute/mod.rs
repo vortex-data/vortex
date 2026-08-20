@@ -20,6 +20,7 @@ use crate::validity::Validity;
 
 mod constant;
 mod dense;
+mod filter_scatter;
 mod valid_only;
 
 mod output;
@@ -29,8 +30,9 @@ pub(crate) use output::finalize_kernel_output;
 impl RowFnExecutionArgs {
     /// Apply constant folding and null handling around `kernel`.
     ///
-    /// For a partially valid batch, `try_valid_rows` executes only valid rows over the original
-    /// inputs. Every result is checked against the planned shape and dtype.
+    /// For a partially valid batch, `try_valid_rows` can avoid filtering. `Ok(None)` filters the
+    /// valid rows and scatters the output back. Every result is checked against the planned shape
+    /// and dtype.
     pub(crate) fn execute(
         &self,
         kernel: impl Fn(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,

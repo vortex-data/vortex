@@ -8,6 +8,9 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::registry::CachedId;
 
+use super::BatchPlan;
+use super::RowFnExecutionArgs;
+use super::RowPolicy;
 use super::finalize_kernel_output;
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -21,6 +24,7 @@ use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::scalar::Scalar;
 use crate::scalar_fn::EmptyOptions;
+use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::VecExecutionArgs;
 use crate::scalar_fn::unstable::row::OutputElement;
@@ -179,6 +183,34 @@ fn test_finalize_kernel_output_rejects_nested_dtype_mismatch() -> VortexResult<(
     let mut ctx = array_session().create_execution_ctx();
 
     assert!(finalize_kernel_output(*ID, &result_dtype, 2, values, &mut ctx).is_err());
+    Ok(())
+}
+
+#[test]
+fn test_valid_only_filters_and_scatters() -> VortexResult<()> {
+    static ID: CachedId = CachedId::new("test.filter_and_scatter");
+
+    let input = PrimitiveArray::new(
+        vec![10_i64, 20, 30, 40],
+        Validity::from_iter([true, false, true, false]),
+    )
+    .into_array();
+    let args = VecExecutionArgs::new(vec![input.clone()], 4);
+    let batch = RowFnExecutionArgs::new(*ID, &args, |_| {
+        Ok(BatchPlan {
+            output_dtype: DType::from(i64::PTYPE),
+            policy: RowPolicy::ValidOnly,
+        })
+    })?;
+    let mut ctx = array_session().create_execution_ctx();
+
+    let actual = batch.execute(
+        |args, _ctx| args.get(0),
+        |_args, _valid, _ctx| Ok(None),
+        &mut ctx,
+    )?;
+
+    assert_arrays_eq!(&actual, &input, &mut ctx);
     Ok(())
 }
 
