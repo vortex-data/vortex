@@ -229,7 +229,7 @@ impl LayoutStrategy for StructStrategy {
                 let session = session.clone();
                 let ctx = ctx.clone();
                 let segment_sink = Arc::clone(&segment_sink);
-                handle.spawn_nested(move |h| {
+                handle.spawn_nested(move |_| {
                     // Validity is written through the validity strategy; every other field
                     // resolves to its named override or the default strategy.
                     let writer = if index == 0 && is_nullable {
@@ -240,7 +240,6 @@ impl LayoutStrategy for StructStrategy {
                             .cloned()
                             .unwrap_or_else(|| Arc::clone(&self.default))
                     };
-                    let session = session.with_handle(h);
 
                     async move {
                         writer
