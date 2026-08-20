@@ -18,6 +18,7 @@ PARTS_DIR = Path("parts")
 
 # TODO(myrrc): we should also drop CUDA allocator caches
 
+
 def drop_os_caches() -> None:
     try:
         subprocess.run(["sync"], check=True)
