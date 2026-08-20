@@ -7,6 +7,7 @@
     reason = "benchmark fixtures use indices that fit in the chosen widths"
 )]
 
+use std::mem::size_of;
 use std::sync::LazyLock;
 
 use divan::Bencher;
@@ -39,142 +40,210 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 /// Sized to keep CodSpeed simulation under 1ms per benchmark.
 const LEN: usize = 4_096;
 
+/// Primitive cases process at least this many rows and this many value bytes per varying input.
+/// This lengthens narrow integer cases while keeping the current CodSpeed simulations below 1 ms.
+const MIN_PRIMITIVE_LEN: usize = 16_384;
+const MIN_PRIMITIVE_INPUT_BYTES: usize = 96 * 1_024;
+
+const I8_LEN: usize = primitive_len::<i8>();
+const I16_LEN: usize = primitive_len::<i16>();
+const I32_LEN: usize = primitive_len::<i32>();
+const I64_LEN: usize = primitive_len::<i64>();
+
+const BINARY_SHAPE_CASES: &[(usize, BinaryShape)] = &[
+    (128, BinaryShape::PerRowPerRow),
+    (128, BinaryShape::PerRowConstant),
+    (128, BinaryShape::ConstantPerRow),
+    (128, BinaryShape::PerRowNullableConstant),
+    (I64_LEN, BinaryShape::PerRowPerRow),
+    (I64_LEN, BinaryShape::PerRowConstant),
+    (I64_LEN, BinaryShape::ConstantPerRow),
+    (I64_LEN, BinaryShape::PerRowNullableConstant),
+];
+
+#[derive(Clone, Copy, Debug)]
+enum BinaryShape {
+    PerRowPerRow,
+    PerRowConstant,
+    ConstantPerRow,
+    PerRowNullableConstant,
+}
+
 /// Decimal Mul and Div cost far more per lane than Add, so they run over a shorter array to keep
 /// the instrumented CodSpeed runs quick.
 const DECIMAL_MUL_DIV_LEN: usize = 1_024;
 
+#[divan::bench(args = BINARY_SHAPE_CASES)]
+fn add_shapes(bencher: Bencher, &(len, shape): &(usize, BinaryShape)) {
+    bench_binary_shape(bencher, len, shape, Operator::Add);
+}
+
+#[divan::bench(args = BINARY_SHAPE_CASES)]
+fn subtract_shapes(bencher: Bencher, &(len, shape): &(usize, BinaryShape)) {
+    bench_binary_shape(bencher, len, shape, Operator::Sub);
+}
+
+#[divan::bench(args = BINARY_SHAPE_CASES)]
+fn multiply_shapes(bencher: Bencher, &(len, shape): &(usize, BinaryShape)) {
+    bench_binary_shape(bencher, len, shape, Operator::Mul);
+}
+
+fn bench_binary_shape(bencher: Bencher, len: usize, shape: BinaryShape, operator: Operator) {
+    let per_row =
+        || PrimitiveArray::from_iter((0..len).map(|index| (index % 1_024) as i64 + 1)).into_array();
+    let constant = || ConstantArray::new(17_i64, len).into_array();
+    let nullable_constant = || ConstantArray::new(Some(17_i64), len).into_array();
+
+    let (lhs, rhs) = match shape {
+        BinaryShape::PerRowPerRow => (per_row(), per_row()),
+        BinaryShape::PerRowConstant => (per_row(), constant()),
+        BinaryShape::ConstantPerRow => (constant(), per_row()),
+        BinaryShape::PerRowNullableConstant => (per_row(), nullable_constant()),
+    };
+
+    bench_primitive(bencher, lhs, rhs, operator);
+}
+
 #[divan::bench]
 fn add_i64_nonnull(bencher: Bencher) {
-    let lhs = primitive_nonnull(0).into_array();
-    let rhs = primitive_nonnull(1_000_000).into_array();
+    let lhs = primitive_nonnull(0, I64_LEN).into_array();
+    let rhs = primitive_nonnull(1_000_000, I64_LEN).into_array();
 
     bench_primitive(bencher, lhs, rhs, Operator::Add);
 }
 
 #[divan::bench]
 fn add_i64_nullable(bencher: Bencher) {
-    let lhs = primitive_nullable(0, 7).into_array();
-    let rhs = primitive_nullable(1_000_000, 5).into_array();
+    let lhs = primitive_nullable(0, 7, I64_LEN).into_array();
+    let rhs = primitive_nullable(1_000_000, 5, I64_LEN).into_array();
 
     bench_primitive(bencher, lhs, rhs, Operator::Add);
 }
 
 #[divan::bench]
 fn add_i64_constant(bencher: Bencher) {
-    let lhs = primitive_nonnull(0).into_array();
-    let rhs = ConstantArray::new(1_000_000i64, LEN).into_array();
+    let lhs = primitive_nonnull(0, I64_LEN).into_array();
+    let rhs = ConstantArray::new(1_000_000i64, I64_LEN).into_array();
 
     bench_primitive(bencher, lhs, rhs, Operator::Add);
 }
 
 #[divan::bench]
 fn add_i32_nonnull(bencher: Bencher) {
-    let lhs = primitive_i32_small_nonnull(1).into_array();
-    let rhs = primitive_i32_small_nonnull(17).into_array();
+    let lhs = primitive_i32_small_nonnull(1, I32_LEN).into_array();
+    let rhs = primitive_i32_small_nonnull(17, I32_LEN).into_array();
 
     bench_primitive(bencher, lhs, rhs, Operator::Add);
 }
 
 #[divan::bench]
 fn add_u32_nonnull(bencher: Bencher) {
-    let lhs = primitive_u32_small_nonnull(1).into_array();
-    let rhs = primitive_u32_small_nonnull(17).into_array();
+    let lhs = primitive_u32_small_nonnull(1, I32_LEN).into_array();
+    let rhs = primitive_u32_small_nonnull(17, I32_LEN).into_array();
 
     bench_primitive(bencher, lhs, rhs, Operator::Add);
 }
 
 #[divan::bench]
 fn mul_i64_nonnull(bencher: Bencher) {
-    let lhs = primitive_small_nonnull(1).into_array();
-    let rhs = primitive_small_nonnull(17).into_array();
+    let lhs = primitive_small_nonnull(1, I64_LEN).into_array();
+    let rhs = primitive_small_nonnull(17, I64_LEN).into_array();
 
     bench_primitive(bencher, lhs, rhs, Operator::Mul);
 }
 
 #[divan::bench]
 fn mul_i8_nonnull(bencher: Bencher) {
-    let lhs = primitive_i8_small_nonnull(1).into_array();
-    let rhs = primitive_i8_small_nonnull(7).into_array();
+    let lhs = primitive_i8_small_nonnull(1, I8_LEN).into_array();
+    let rhs = primitive_i8_small_nonnull(7, I8_LEN).into_array();
 
     bench_primitive(bencher, lhs, rhs, Operator::Mul);
 }
 
 #[divan::bench]
 fn mul_u8_nonnull(bencher: Bencher) {
-    let lhs = primitive_u8_small_nonnull(1).into_array();
-    let rhs = primitive_u8_small_nonnull(7).into_array();
+    let lhs = primitive_u8_small_nonnull(1, I8_LEN).into_array();
+    let rhs = primitive_u8_small_nonnull(7, I8_LEN).into_array();
 
     bench_primitive(bencher, lhs, rhs, Operator::Mul);
 }
 
 #[divan::bench]
 fn mul_i16_nonnull(bencher: Bencher) {
-    let lhs = primitive_i16_small_nonnull(1).into_array();
-    let rhs = primitive_i16_small_nonnull(17).into_array();
+    let lhs = primitive_i16_small_nonnull(1, I16_LEN).into_array();
+    let rhs = primitive_i16_small_nonnull(17, I16_LEN).into_array();
 
     bench_primitive(bencher, lhs, rhs, Operator::Mul);
 }
 
 #[divan::bench]
 fn mul_u16_nonnull(bencher: Bencher) {
-    let lhs = primitive_u16_small_nonnull(1).into_array();
-    let rhs = primitive_u16_small_nonnull(17).into_array();
+    let lhs = primitive_u16_small_nonnull(1, I16_LEN).into_array();
+    let rhs = primitive_u16_small_nonnull(17, I16_LEN).into_array();
 
     bench_primitive(bencher, lhs, rhs, Operator::Mul);
 }
 
 #[divan::bench]
 fn mul_i32_nonnull(bencher: Bencher) {
-    let lhs = primitive_i32_small_nonnull(1).into_array();
-    let rhs = primitive_i32_small_nonnull(17).into_array();
+    let lhs = primitive_i32_small_nonnull(1, I32_LEN).into_array();
+    let rhs = primitive_i32_small_nonnull(17, I32_LEN).into_array();
 
     bench_primitive(bencher, lhs, rhs, Operator::Mul);
 }
 
 #[divan::bench]
 fn mul_u32_nonnull(bencher: Bencher) {
-    let lhs = primitive_u32_small_nonnull(1).into_array();
-    let rhs = primitive_u32_small_nonnull(17).into_array();
+    let lhs = primitive_u32_small_nonnull(1, I32_LEN).into_array();
+    let rhs = primitive_u32_small_nonnull(17, I32_LEN).into_array();
 
     bench_primitive(bencher, lhs, rhs, Operator::Mul);
 }
 
 #[divan::bench]
 fn mul_u64_nonnull(bencher: Bencher) {
-    let lhs = primitive_u64_small_nonnull(1).into_array();
-    let rhs = primitive_u64_small_nonnull(17).into_array();
+    let lhs = primitive_u64_small_nonnull(1, I64_LEN).into_array();
+    let rhs = primitive_u64_small_nonnull(17, I64_LEN).into_array();
 
     bench_primitive(bencher, lhs, rhs, Operator::Mul);
 }
 
 #[divan::bench]
 fn mul_i32_nullable(bencher: Bencher) {
-    let lhs = primitive_i32_small_nullable(1, 7).into_array();
-    let rhs = primitive_i32_small_nullable(17, 5).into_array();
+    let lhs = primitive_i32_small_nullable(1, 7, I32_LEN).into_array();
+    let rhs = primitive_i32_small_nullable(17, 5, I32_LEN).into_array();
 
     bench_primitive(bencher, lhs, rhs, Operator::Mul);
 }
 
 #[divan::bench]
 fn mul_i32_constant(bencher: Bencher) {
-    let lhs = primitive_i32_small_nonnull(1).into_array();
-    let rhs = ConstantArray::new(31i32, LEN).into_array();
+    let lhs = primitive_i32_small_nonnull(1, I32_LEN).into_array();
+    let rhs = ConstantArray::new(31i32, I32_LEN).into_array();
 
     bench_primitive(bencher, lhs, rhs, Operator::Mul);
 }
 
 #[divan::bench]
 fn div_i64_nonnull(bencher: Bencher) {
-    let lhs = primitive_nonnull(1_000_000).into_array();
-    let rhs = primitive_nonzero().into_array();
+    let lhs = primitive_nonnull(1_000_000, I64_LEN).into_array();
+    let rhs = primitive_nonzero(I64_LEN).into_array();
+
+    bench_primitive(bencher, lhs, rhs, Operator::Div);
+}
+
+#[divan::bench]
+fn div_i64_nullable(bencher: Bencher) {
+    let lhs = primitive_nullable(1_000_000, 7, I64_LEN).into_array();
+    let rhs = primitive_nullable(17, 5, I64_LEN).into_array();
 
     bench_primitive(bencher, lhs, rhs, Operator::Div);
 }
 
 #[divan::bench]
 fn sub_i64_constant(bencher: Bencher) {
-    let lhs = primitive_nonnull(0).into_array();
-    let rhs = ConstantArray::new(37i64, LEN).into_array();
+    let lhs = primitive_nonnull(0, I64_LEN).into_array();
+    let rhs = ConstantArray::new(37i64, I64_LEN).into_array();
 
     bench_primitive(bencher, lhs, rhs, Operator::Sub);
 }
@@ -229,7 +298,7 @@ fn div_decimal_i128_nullable(bencher: Bencher) {
 
 #[divan::bench]
 fn eq_i64_constant(bencher: Bencher) {
-    let lhs = primitive_nonnull(0).into_array();
+    let lhs = primitive_nonnull(0, LEN).into_array();
     let rhs = ConstantArray::new(1024i64, LEN).into_array();
 
     bench_bool(bencher, lhs, rhs, Operator::Eq);
@@ -237,8 +306,8 @@ fn eq_i64_constant(bencher: Bencher) {
 
 #[divan::bench]
 fn lt_i64_nullable(bencher: Bencher) {
-    let lhs = primitive_nullable(0, 7).into_array();
-    let rhs = primitive_nullable(1_000_000, 5).into_array();
+    let lhs = primitive_nullable(0, 7, LEN).into_array();
+    let rhs = primitive_nullable(1_000_000, 5, LEN).into_array();
 
     bench_bool(bencher, lhs, rhs, Operator::Lt);
 }
@@ -289,8 +358,17 @@ fn bench_binary<T: Executable + 'static>(
     });
 }
 
-fn primitive_nonnull(base: i64) -> PrimitiveArray {
-    PrimitiveArray::from_iter((0..LEN as i64).map(|i| base + i))
+const fn primitive_len<T>() -> usize {
+    let input_len = MIN_PRIMITIVE_INPUT_BYTES / size_of::<T>();
+    if input_len > MIN_PRIMITIVE_LEN {
+        input_len
+    } else {
+        MIN_PRIMITIVE_LEN
+    }
+}
+
+fn primitive_nonnull(base: i64, len: usize) -> PrimitiveArray {
+    PrimitiveArray::from_iter((0..len as i64).map(|i| base + i))
 }
 
 fn decimal_i64_nonnull(base: i64, len: usize) -> DecimalArray {
@@ -304,50 +382,50 @@ fn decimal_i128_nullable(base: i128, null_every: usize, len: usize) -> DecimalAr
     )
 }
 
-fn primitive_small_nonnull(offset: i64) -> PrimitiveArray {
-    PrimitiveArray::from_iter((0..LEN as i64).map(|i| ((i + offset) % 1024) + 1))
+fn primitive_small_nonnull(offset: i64, len: usize) -> PrimitiveArray {
+    PrimitiveArray::from_iter((0..len as i64).map(|i| ((i + offset) % 1024) + 1))
 }
 
-fn primitive_i8_small_nonnull(offset: i8) -> PrimitiveArray {
-    PrimitiveArray::from_iter((0..LEN).map(|i| (((i as i32 + offset as i32) % 21) - 10) as i8))
+fn primitive_i8_small_nonnull(offset: i8, len: usize) -> PrimitiveArray {
+    PrimitiveArray::from_iter((0..len).map(|i| (((i as i32 + offset as i32) % 21) - 10) as i8))
 }
 
-fn primitive_u8_small_nonnull(offset: u8) -> PrimitiveArray {
-    PrimitiveArray::from_iter((0..LEN).map(|i| ((i + offset as usize) % 15 + 1) as u8))
+fn primitive_u8_small_nonnull(offset: u8, len: usize) -> PrimitiveArray {
+    PrimitiveArray::from_iter((0..len).map(|i| ((i + offset as usize) % 15 + 1) as u8))
 }
 
-fn primitive_i16_small_nonnull(offset: i16) -> PrimitiveArray {
-    PrimitiveArray::from_iter((0..LEN).map(|i| (((i as i32 + offset as i32) % 255) - 127) as i16))
+fn primitive_i16_small_nonnull(offset: i16, len: usize) -> PrimitiveArray {
+    PrimitiveArray::from_iter((0..len).map(|i| (((i as i32 + offset as i32) % 255) - 127) as i16))
 }
 
-fn primitive_u16_small_nonnull(offset: u16) -> PrimitiveArray {
-    PrimitiveArray::from_iter((0..LEN).map(|i| ((i + offset as usize) % 251 + 1) as u16))
+fn primitive_u16_small_nonnull(offset: u16, len: usize) -> PrimitiveArray {
+    PrimitiveArray::from_iter((0..len).map(|i| ((i + offset as usize) % 251 + 1) as u16))
 }
 
-fn primitive_i32_small_nonnull(offset: i32) -> PrimitiveArray {
-    PrimitiveArray::from_iter((0..LEN).map(|i| (((i as i64 + offset as i64) % 4096) - 2048) as i32))
+fn primitive_i32_small_nonnull(offset: i32, len: usize) -> PrimitiveArray {
+    PrimitiveArray::from_iter((0..len).map(|i| (((i as i64 + offset as i64) % 4096) - 2048) as i32))
 }
 
-fn primitive_u32_small_nonnull(offset: u32) -> PrimitiveArray {
-    PrimitiveArray::from_iter((0..LEN).map(|i| ((i + offset as usize) % 4096 + 1) as u32))
+fn primitive_u32_small_nonnull(offset: u32, len: usize) -> PrimitiveArray {
+    PrimitiveArray::from_iter((0..len).map(|i| ((i + offset as usize) % 4096 + 1) as u32))
 }
 
-fn primitive_u64_small_nonnull(offset: u64) -> PrimitiveArray {
-    PrimitiveArray::from_iter((0..LEN).map(|i| ((i + offset as usize) % 4096 + 1) as u64))
+fn primitive_u64_small_nonnull(offset: u64, len: usize) -> PrimitiveArray {
+    PrimitiveArray::from_iter((0..len).map(|i| ((i + offset as usize) % 4096 + 1) as u64))
 }
 
-fn primitive_nonzero() -> PrimitiveArray {
-    PrimitiveArray::from_iter((0..LEN as i64).map(|i| (i % 255) + 1))
+fn primitive_nonzero(len: usize) -> PrimitiveArray {
+    PrimitiveArray::from_iter((0..len as i64).map(|i| (i % 255) + 1))
 }
 
-fn primitive_nullable(base: i64, null_every: usize) -> PrimitiveArray {
+fn primitive_nullable(base: i64, null_every: usize, len: usize) -> PrimitiveArray {
     PrimitiveArray::from_option_iter(
-        (0..LEN as i64).map(|i| (!(i as usize).is_multiple_of(null_every)).then_some(base + i)),
+        (0..len as i64).map(|i| (!(i as usize).is_multiple_of(null_every)).then_some(base + i)),
     )
 }
 
-fn primitive_i32_small_nullable(offset: i32, null_every: usize) -> PrimitiveArray {
-    PrimitiveArray::from_option_iter((0..LEN).map(|i| {
+fn primitive_i32_small_nullable(offset: i32, null_every: usize, len: usize) -> PrimitiveArray {
+    PrimitiveArray::from_option_iter((0..len).map(|i| {
         (!i.is_multiple_of(null_every))
             .then_some((((i as i64 + offset as i64) % 4096) - 2048) as i32)
     }))
