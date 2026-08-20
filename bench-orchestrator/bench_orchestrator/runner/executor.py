@@ -31,8 +31,7 @@ class BenchmarkExecutor:
         self,
         benchmark: Benchmark,
         formats: list[Format],
-        queries: list[int] | None = None,
-        exclude_queries: list[int] | None = None,
+        query: int | None = None,
         iterations: int = 5,
         options: dict[str, str] | None = None,
         track_memory: bool = False,
@@ -58,10 +57,8 @@ class BenchmarkExecutor:
         if self.backend == Engine.DUCKDB:
             cmd.append("--delete-duckdb-database")
 
-        if queries:
-            cmd.extend(["--queries", ",".join(map(str, queries))])
-        if exclude_queries:
-            cmd.extend(["--exclude-queries", ",".join(map(str, exclude_queries))])
+        if query is not None:
+            cmd.extend(["--queries", str(query)])
         if track_memory:
             cmd.append("--track-memory")
         if tracing:
@@ -116,8 +113,7 @@ class BenchmarkExecutor:
         self,
         benchmark: Benchmark,
         formats: list[Format],
-        queries: list[int] | None = None,
-        exclude_queries: list[int] | None = None,
+        query: int | None = None,
         iterations: int = 5,
         options: dict[str, str] | None = None,
         track_memory: bool = False,
@@ -134,8 +130,7 @@ class BenchmarkExecutor:
         Args:
             benchmark: The benchmark suite to run
             formats: Data formats to benchmark
-            queries: Specific queries to run (None for all)
-            exclude_queries: Queries to skip
+            query: Specific query to run (None for all)
             iterations: Number of runs per query
             options: Additional options (e.g., scale_factor)
             track_memory: Enable memory tracking
@@ -147,8 +142,7 @@ class BenchmarkExecutor:
         cmd = self.build_command(
             benchmark=benchmark,
             formats=formats,
-            queries=queries,
-            exclude_queries=exclude_queries,
+            query=query,
             iterations=iterations,
             options=options,
             track_memory=track_memory,

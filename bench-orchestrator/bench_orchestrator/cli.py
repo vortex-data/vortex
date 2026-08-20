@@ -379,50 +379,23 @@ def run(
             run_idx = 0
             for backend, backend_targets in backend_groups.items():
                 executor = BenchmarkExecutor(binary_paths[backend], backend, verbose=verbose)
-                per_query = backend in {Engine.DUCKDB, Engine.DATAFUSION}
                 for target in backend_targets:
 
                     def stream(line: str) -> None:
                         write_result_line(line, ctx.write_raw_json, compatibility_file)
 
                     try:
-                        if per_query:
-                            query_ids = executor.list_queries(benchmark, query_list, exclude_list)
-                            for query_id in query_ids:
-                                part_ingest_output = backend_ingest_output_path(ingest_temp_dir, run_idx, backend)
-                                run_idx += 1
-
-                                drop_os_caches()
-
-                                executor.run(
-                                    benchmark=benchmark,
-                                    formats=[target.format],
-                                    queries=[query_id],
-                                    iterations=iterations,
-                                    options=bench_opts,
-                                    track_memory=track_memory,
-                                    samply=samply,
-                                    sample_rate=sample_rate,
-                                    tracing=tracing,
-                                    runner=runner,
-                                    ingest_output=part_ingest_output,
-                                    on_result=stream,
-                                )
-                                if part_ingest_output is not None:
-                                    ingest_output_parts.append(part_ingest_output)
-
-                            console.print(f"[green]{target}: {len(query_ids)} queries[/green]")
-                        else:
+                        query_ids = executor.list_queries(benchmark, query_list, exclude_list)
+                        for query_id in query_ids:
                             part_ingest_output = backend_ingest_output_path(ingest_temp_dir, run_idx, backend)
                             run_idx += 1
 
                             drop_os_caches()
 
-                            results = executor.run(
+                            executor.run(
                                 benchmark=benchmark,
                                 formats=[target.format],
-                                queries=query_list,
-                                exclude_queries=exclude_list,
+                                query=query_id,
                                 iterations=iterations,
                                 options=bench_opts,
                                 track_memory=track_memory,
@@ -435,7 +408,8 @@ def run(
                             )
                             if part_ingest_output is not None:
                                 ingest_output_parts.append(part_ingest_output)
-                            console.print(f"[green]{target}: {len(results)} results[/green]")
+
+                        console.print(f"[green]{target}: {len(query_ids)} queries[/green]")
                     except RuntimeError as exc:
                         ctx.metadata.partial = True
                         if strict_failures:

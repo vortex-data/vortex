@@ -52,13 +52,13 @@ def test_build_command_omits_formats_for_lance_backend() -> None:
     cmd = executor.build_command(
         benchmark=Benchmark.TPCH,
         formats=[Format.LANCE],
-        queries=[1, 3],
+        query=3,
     )
 
     assert cmd[0] == "/tmp/lance-bench"
     assert "--formats" not in cmd
     assert "--queries" in cmd
-    assert "1,3" in cmd
+    assert "3" in cmd
 
 
 def test_build_command_includes_ingest_output_when_set() -> None:

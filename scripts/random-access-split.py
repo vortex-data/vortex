@@ -23,6 +23,18 @@ PATTERNS = ["correlated", "uniform"]
 OPEN_MODES = ["cached", "reopen"]
 
 
+def drop_os_caches() -> None:
+    try:
+        subprocess.run(["sync"], check=True)
+        subprocess.run(
+            ["sudo", "-n", "sh", "-c", "echo 3 > /proc/sys/vm/drop_caches"],
+            check=True,
+            capture_output=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        pass
+
+
 def run_combinations(emit_ingest_records: bool) -> None:
     PARTS_DIR.mkdir(parents=True, exist_ok=True)
     i = 0
@@ -30,6 +42,8 @@ def run_combinations(emit_ingest_records: bool) -> None:
         for fmt in FORMATS:
             for pattern in PATTERNS:
                 for open_mode in OPEN_MODES:
+                    drop_os_caches()
+
                     args = [
                         "bash",
                         str(SCRIPT_DIR / "bench-taskset.sh"),

@@ -89,6 +89,8 @@ struct Args {
     explain: bool,
 
     /// Print the selected query indices, one per line, and exit
+    /// Knowledge of query ids lies only in this binary so we need
+    /// orchestrator to know whan queries to run one by one.
     #[arg(long, default_value_t = false)]
     print_queries: bool,
 
