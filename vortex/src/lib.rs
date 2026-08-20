@@ -255,6 +255,11 @@ pub mod encodings {
         pub use vortex_decimal_byte_parts::*;
     }
 
+    /// Elias-Fano encoding for sorted integer sequences, such as a list column's offsets.
+    pub mod elias_fano {
+        pub use vortex_elias_fano::*;
+    }
+
     /// FastLanes integer encodings: bit-packing, delta, frame-of-reference, and RLE.
     pub mod fastlanes {
         pub use vortex_fastlanes::*;

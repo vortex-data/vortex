@@ -62,6 +62,7 @@ members = [
     "encodings/bytebool",
     "encodings/parquet-variant",
     "encodings/onpair",
+    "encodings/elias-fano",
     # Benchmarks
     "benchmarks/bench-support",
     "benchmarks/lance-bench",
@@ -307,6 +308,7 @@ vortex-datafusion = { version = "0.1.0", path = "./vortex-datafusion", default-f
 vortex-datetime-parts = { version = "0.1.0", path = "./encodings/datetime-parts", default-features = false }
 vortex-decimal-byte-parts = { version = "0.1.0", path = "encodings/decimal-byte-parts", default-features = false }
 vortex-edition = { version = "0.1.0", path = "./vortex-edition", default-features = false }
+vortex-elias-fano = { version = "0.1.0", path = "./encodings/elias-fano", default-features = false }
 vortex-error = { version = "0.1.0", path = "./vortex-error", default-features = false }
 vortex-fastlanes = { version = "0.1.0", path = "./encodings/fastlanes", default-features = false }
 vortex-file = { version = "0.1.0", path = "./vortex-file", default-features = false }

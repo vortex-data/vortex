@@ -189,6 +189,7 @@ pub fn register_default_encodings(session: &VortexSession) {
     vortex_alp::initialize(session);
     vortex_datetime_parts::initialize(session);
     vortex_decimal_byte_parts::initialize(session);
+    vortex_elias_fano::initialize(session);
     vortex_fastlanes::initialize(session);
     vortex_runend::initialize(session);
     vortex_sequence::initialize(session);
