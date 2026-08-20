@@ -98,15 +98,25 @@ jobs:
         run: |
           python3 scripts/random-access-split.py
 
-      - name: Run ${{ inputs.benchmark_name }} benchmark
-        if: inputs.benchmark_id != 'random-access-bench'
+      - name: Run ${{ inputs.benchmark_name }} benchmark (per-dataset)
+        if: inputs.benchmark_id == 'compress-bench'
         shell: bash
         env:
           RUST_BACKTRACE: full
           VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
         run: |
-          bash scripts/bench-taskset.sh target/release_debug/${{ inputs.benchmark_id }} -d gh-json -o results.json
+          python3 scripts/compress-split.py
+
+      - name: Run ${{ inputs.benchmark_name }} benchmark (per-column-encoder)
+        if: inputs.benchmark_id == 'string-bench'
+        shell: bash
+        env:
+          RUST_BACKTRACE: full
+          VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
+          FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+        run: |
+          python3 scripts/string-split.py
 
       - name: Setup AWS CLI
         if: github.event.pull_request.head.repo.fork == false

@@ -73,6 +73,11 @@ struct Args {
     ops: Vec<CompressOp>,
     #[arg(long)]
     datasets: Option<String>,
+    /// Print the dataset names that would run, one per line, and exit.
+    /// Knowledge of datasets lies only in this binary so we need
+    /// orchestrator to know whan queries to run one by one.
+    #[arg(long, default_value_t = false)]
+    print_datasets: bool,
     /// Run GPU decompression for the GPU-supported benchmarks.
     ///
     /// Restricts the suite to datasets with verified CUDA decode support and measures
@@ -147,6 +152,7 @@ async fn main() -> anyhow::Result<()> {
         formats,
         ops,
         mode,
+        args.print_datasets,
         args.display_format,
         args.output_path,
         args.ingest_output,
@@ -206,6 +212,7 @@ async fn run_compress(
     formats: Vec<Format>,
     ops: Vec<CompressOp>,
     mode: BenchMode,
+    print_datasets: bool,
     display_format: DisplayFormat,
     output_path: Option<PathBuf>,
     ingest_output: Option<PathBuf>,
@@ -291,6 +298,13 @@ async fn run_compress(
         }
     })
     .collect();
+
+    if print_datasets {
+        for dataset in &datasets {
+            println!("{}", dataset.name());
+        }
+        return Ok(());
+    }
 
     let progress = ProgressBar::new((datasets.len() * formats.len() * ops.len()) as u64);
 

@@ -48,10 +48,7 @@ jobs:
           - id: compress-bench
             name: Compression
             build_args: "--features lance"
-            run_args: "--formats parquet,lance,vortex --ingest-jsonl results.ingest.jsonl"
             v4_ingest: true
-          # No run_args: the default suite emits the three tracked metrics
-          # (size, write, read). The codec microbenchmark is a local diagnostic.
           - id: string-bench
             name: String Encoding
             v4_ingest: false
@@ -113,16 +110,25 @@ jobs:
         run: |
           python3 scripts/random-access-split.py --emit-ingest-records
 
-      - name: Run ${{ matrix.benchmark.name }} benchmark
-        if: matrix.benchmark.id != 'random-access-bench'
+      - name: Run ${{ matrix.benchmark.name }} benchmark (per-dataset)
+        if: matrix.benchmark.id == 'compress-bench'
         shell: bash
         env:
           RUST_BACKTRACE: full
           VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
         run: |
-          bash scripts/bench-taskset.sh target/release_debug/${{ matrix.benchmark.id }} \
-            ${{ matrix.benchmark.run_args }} -d gh-json -o results.json
+          python3 scripts/compress-split.py --formats parquet,lance,vortex --emit-ingest-records
+
+      - name: Run ${{ matrix.benchmark.name }} benchmark (per-column-encoder)
+        if: matrix.benchmark.id == 'string-bench'
+        shell: bash
+        env:
+          RUST_BACKTRACE: full
+          VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
+          FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+        run: |
+          python3 scripts/string-split.py
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c  # v6
