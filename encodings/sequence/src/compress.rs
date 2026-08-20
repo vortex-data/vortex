@@ -26,6 +26,7 @@ use vortex_error::VortexResult;
 use crate::Sequence;
 use crate::SequenceArray;
 use crate::SequenceData;
+use crate::ptype::match_each_calculation_ptype;
 /// An iterator that yields `base, base + step, base + 2*step, ...` via repeated addition.
 struct SequenceIter<T> {
     acc: T,
@@ -81,7 +82,7 @@ pub fn sequence_decompress(array: &SequenceArray) -> VortexResult<ArrayRef> {
         PrimitiveArray::new(values, Validity::from(nullability))
     }
 
-    let prim = match_each_integer_ptype!(array.calculation_ptype(), |C| {
+    let prim = match_each_calculation_ptype!(array.calculation_ptype(), |C| {
         let base = array.base().cast::<C>()?;
         let multiplier = array.multiplier().cast::<C>()?;
         match_each_integer_ptype!(array.dtype().as_ptype(), |O| {

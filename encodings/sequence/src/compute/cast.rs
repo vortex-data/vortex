@@ -187,8 +187,9 @@ mod tests {
     #[rstest]
     #[case::i32(Sequence::try_new_typed(0i32, 1i32, Nullability::NonNullable, 5).unwrap())]
     #[case::u64(Sequence::try_new_typed(1000u64, 100u64, Nullability::NonNullable, 4).unwrap())]
-    #[case::negative_step(Sequence::try_new_typed(100i32, -10i32, Nullability::NonNullable,
-    5).unwrap())]
+    #[case::negative_step(
+        Sequence::try_new_typed(100i32, -10i32, Nullability::NonNullable, 5).unwrap()
+    )]
     #[case::single(Sequence::try_new_typed(42i64, 0i64, Nullability::NonNullable, 1).unwrap())]
     #[case::constant(Sequence::try_new_typed(
         100i32,

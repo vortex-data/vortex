@@ -17,6 +17,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::Sequence;
+use crate::ptype::match_each_calculation_ptype;
 
 impl FilterKernel for Sequence {
     fn filter(
@@ -25,7 +26,7 @@ impl FilterKernel for Sequence {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let validity = Validity::from(array.dtype().nullability());
-        match_each_integer_ptype!(array.calculation_ptype(), |C| {
+        match_each_calculation_ptype!(array.calculation_ptype(), |C| {
             let mul = array.multiplier().cast::<C>()?;
             let base = array.base().cast::<C>()?;
             match_each_integer_ptype!(array.dtype().as_ptype(), |O| {

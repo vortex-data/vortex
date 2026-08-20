@@ -48,6 +48,7 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::compress::sequence_decompress;
+use crate::ptype::match_each_calculation_ptype;
 use crate::rules::RULES;
 
 /// A [`Sequence`]-encoded Vortex array.
@@ -63,8 +64,15 @@ pub struct SequenceMetadata {
 
 pub(super) const SLOT_NAMES: [&str; 0] = [];
 
-#[derive(Clone, Debug)]
 /// An array representing the equation `A[i] = base + i * multiplier`.
+///
+/// `base` and `multiplier` are stored in, and all arithmetic performed in, an *arithmetic* ptype
+/// that is always `i64` or `u64` - signed if either input was. That is independent of the array's
+/// output ptype, taken from its dtype, which values are exposed in: a descending sequence like
+/// `100, 90, ..., 60` needs signed arithmetic yet is a legal `u8` array. Construction checks the
+/// first and last values against the output ptype, and the sequence is monotonic, so narrowing a
+/// computed value to it afterwards cannot fail.
+#[derive(Clone, Debug)]
 pub struct SequenceData {
     base: PValue,
     multiplier: PValue,
@@ -79,7 +87,7 @@ impl Display for SequenceData {
 pub struct SequenceDataParts {
     pub base: PValue,
     pub multiplier: PValue,
-    pub ptype: PType,
+    pub calculation_ptype: PType,
 }
 
 impl SequenceData {
@@ -98,9 +106,7 @@ impl SequenceData {
         )
     }
 
-    /// Constructs a sequence array using two integer values.
-    ///
-    /// Arithmetic uses an inferred i64/u64 ptype based on base and multiplier.
+    /// Constructs a sequence array using two integer values, validated against output `ptype`.
     pub(crate) fn try_new(
         base: PValue,
         multiplier: PValue,
@@ -130,7 +136,7 @@ impl SequenceData {
         }
 
         vortex_ensure!(length > 0, "SequenceArray length must be greater than zero");
-        let last  =  Self::try_last(base, multiplier,  length).map_err(|e| {
+        let last = Self::try_last(base, multiplier, length).map_err(|e| {
             e.with_context(format!(
                 "final value not expressible, base = {base:?}, multiplier = {multiplier:?}, len = {length} ",
             ))
@@ -157,6 +163,7 @@ impl SequenceData {
         }
     }
 
+    /// Recovers the arithmetic ptype from the signedness of the serialized values.
     fn infer_calculation_ptype_from_proto(
         base: &vortex_proto::scalar::ScalarValue,
         multiplier: &vortex_proto::scalar::ScalarValue,
@@ -180,7 +187,7 @@ impl SequenceData {
 
     fn normalize(base: PValue, multiplier: PValue) -> VortexResult<(PValue, PValue)> {
         let ptype = Self::infer_calculation_ptype(base, multiplier)?;
-        match_each_integer_ptype!(ptype, |P| {
+        match_each_calculation_ptype!(ptype, |P| {
             Ok((
                 PValue::from(base.cast::<P>()?),
                 PValue::from(multiplier.cast::<P>()?),
@@ -199,6 +206,7 @@ impl SequenceData {
         Self { base, multiplier }
     }
 
+    /// The ptype arithmetic is performed in. Not the array's output ptype - see [`SequenceData`].
     pub(crate) fn calculation_ptype(&self) -> PType {
         self.base.ptype()
     }
@@ -219,7 +227,7 @@ impl SequenceData {
         SequenceDataParts {
             base: self.base,
             multiplier: self.multiplier,
-            ptype: self.base.ptype(),
+            calculation_ptype: self.calculation_ptype(),
         }
     }
 
@@ -229,7 +237,7 @@ impl SequenceData {
         length: usize,
     ) -> VortexResult<PValue> {
         let ptype = Self::infer_calculation_ptype(base, multiplier)?;
-        match_each_integer_ptype!(ptype, |P| {
+        match_each_calculation_ptype!(ptype, |P| {
             let len_t = <P>::from_usize(length - 1)
                 .ok_or_else(|| vortex_err!("cannot convert length {} into {}", length, ptype))?;
 
@@ -244,7 +252,7 @@ impl SequenceData {
     }
 
     pub(crate) fn index_value(&self, idx: usize) -> PValue {
-        match_each_integer_ptype!(self.calculation_ptype(), |P| {
+        match_each_calculation_ptype!(self.calculation_ptype(), |P| {
             let base = self.base.cast::<P>().vortex_expect("must be able to cast");
             let multiplier = self
                 .multiplier
@@ -334,6 +342,11 @@ impl VTable for Sequence {
             "SequenceArray expects 0 children, got {}",
             children.len()
         );
+        let DType::Primitive(output_ptype, _) = dtype else {
+            vortex_bail!(
+                "only primitive dtypes are supported in SequenceArray currently, got {dtype}"
+            );
+        };
         let metadata = SequenceMetadata::decode(metadata)?;
 
         let base_metadata = metadata
@@ -346,13 +359,15 @@ impl VTable for Sequence {
             .as_ref()
             .ok_or_else(|| vortex_err!("multiplier required"))?;
 
-        let ptype =
+        // Decoding a proto scalar needs a target dtype, so the arithmetic ptype has to come
+        // first. It cannot be read off `dtype`, whose ptype may have the other signedness.
+        let calculation_ptype =
             SequenceData::infer_calculation_ptype_from_proto(base_metadata, multiplier_metadata)?;
 
         // We go via Scalar to validate that the value is valid for the ptype.
         let base = Scalar::from_proto_value(
             base_metadata,
-            &DType::Primitive(ptype, NonNullable),
+            &DType::Primitive(calculation_ptype, NonNullable),
             session,
         )?
         .as_primitive()
@@ -361,14 +376,15 @@ impl VTable for Sequence {
 
         let multiplier = Scalar::from_proto_value(
             multiplier_metadata,
-            &DType::Primitive(ptype, NonNullable),
+            &DType::Primitive(calculation_ptype, NonNullable),
             session,
         )?
         .as_primitive()
         .pvalue()
         .vortex_expect("sequence array multiplier should be a non-nullable primitive");
 
-        let data = SequenceData::try_new(base, multiplier, ptype, dtype.nullability(), len)?;
+        let data =
+            SequenceData::try_new(base, multiplier, *output_ptype, dtype.nullability(), len)?;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data))
     }
 
@@ -493,17 +509,27 @@ impl Sequence {
 mod tests {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
+    use vortex_array::ArrayContext;
+    use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::expr::stats::Precision as StatPrecision;
     use vortex_array::expr::stats::Stat;
     use vortex_array::expr::stats::StatsProviderExt;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar::ScalarValue;
+    use vortex_array::serde::SerializeOptions;
+    use vortex_array::serde::SerializedArray;
+    use vortex_buffer::ByteBufferMut;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
     use vortex_session::VortexSession;
+    use vortex_session::registry::ReadContext;
 
     use crate::Sequence;
 
@@ -624,6 +650,86 @@ mod tests {
 
         assert_eq!(is_sorted, StatPrecision::Exact(true));
         assert_eq!(is_strict_sorted, StatPrecision::Exact(true));
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::descending_signed_arithmetic_unsigned_output(100i32, -10i32, PType::U8, PType::I64)]
+    #[case::narrow_unsigned(1000u32, 100u32, PType::U16, PType::U64)]
+    #[case::signed_output(0i16, 1i16, PType::I32, PType::I64)]
+    fn serde_roundtrip_preserves_arithmetic_ptype(
+        #[case] base: impl Into<vortex_array::scalar::PValue>,
+        #[case] multiplier: impl Into<vortex_array::scalar::PValue>,
+        #[case] output_ptype: PType,
+        #[case] expected_calculation_ptype: PType,
+    ) -> VortexResult<()> {
+        let array = Sequence::try_new(
+            base.into(),
+            multiplier.into(),
+            output_ptype,
+            Nullability::NonNullable,
+            5,
+        )?;
+        assert_eq!(array.calculation_ptype(), expected_calculation_ptype);
+
+        let dtype = array.dtype().clone();
+        let len = array.len();
+        let ctx = ArrayContext::empty();
+        let serialized =
+            array
+                .clone()
+                .into_array()
+                .serialize(&ctx, &SESSION, &SerializeOptions::default())?;
+
+        let mut concat = ByteBufferMut::empty();
+        for buf in serialized {
+            concat.extend_from_slice(buf.as_ref());
+        }
+
+        let decoded = SerializedArray::try_from(concat.freeze())?.decode(
+            &dtype,
+            len,
+            &ReadContext::new(ctx.to_ids()),
+            &SESSION,
+        )?;
+
+        let decoded_sequence = decoded
+            .as_opt::<Sequence>()
+            .ok_or_else(|| vortex_err!("decoded array should still be a SequenceArray"))?;
+        assert_eq!(
+            decoded_sequence.calculation_ptype(),
+            expected_calculation_ptype
+        );
+        assert_eq!(decoded.dtype(), &dtype);
+        assert_arrays_eq!(decoded, array, &mut SESSION.create_execution_ctx());
+
+        Ok(())
+    }
+
+    #[test]
+    fn deserialize_rejects_values_outside_output_ptype() -> VortexResult<()> {
+        let array = Sequence::try_new_typed(-5i32, 1i32, Nullability::NonNullable, 5)?;
+        let len = array.len();
+        let ctx = ArrayContext::empty();
+        let serialized =
+            array
+                .into_array()
+                .serialize(&ctx, &SESSION, &SerializeOptions::default())?;
+
+        let mut concat = ByteBufferMut::empty();
+        for buf in serialized {
+            concat.extend_from_slice(buf.as_ref());
+        }
+
+        // The sequence starts at -5, so it is not a valid u8 sequence.
+        let decoded = SerializedArray::try_from(concat.freeze())?.decode(
+            &DType::Primitive(PType::U8, Nullability::NonNullable),
+            len,
+            &ReadContext::new(ctx.to_ids()),
+            &SESSION,
+        );
+        assert!(decoded.is_err());
 
         Ok(())
     }

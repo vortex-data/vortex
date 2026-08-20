@@ -5,6 +5,7 @@ mod array;
 mod compress;
 mod compute;
 mod kernel;
+mod ptype;
 mod rules;
 
 /// Represents the equation A\[i\] = a * i + b.

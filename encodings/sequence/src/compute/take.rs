@@ -23,6 +23,7 @@ use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::Sequence;
+use crate::ptype::match_each_calculation_ptype;
 
 fn take_inner<T: IntegerPType, C: IntegerPType, O: IntegerPType>(
     mul: C,
@@ -77,7 +78,7 @@ fn take_with_typed_indices<T: IntegerPType>(
     indices_mask: Mask,
     result_nullability: Nullability,
 ) -> VortexResult<ArrayRef> {
-    match_each_integer_ptype!(array.calculation_ptype(), |C| {
+    match_each_calculation_ptype!(array.calculation_ptype(), |C| {
         let mul = array.multiplier().cast::<C>()?;
         let base = array.base().cast::<C>()?;
 

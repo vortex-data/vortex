@@ -83,3 +83,49 @@ impl DynAggregateKernel for SequenceMinMaxKernel {
         )))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::LazyLock;
+
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::NumericalAggregateOpts;
+    use vortex_array::aggregate_fn::fns::min_max::MinMaxResult;
+    use vortex_array::aggregate_fn::fns::min_max::min_max;
+    use vortex_array::builtins::ArrayBuiltins;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::scalar::Scalar;
+    use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
+    use vortex_session::VortexSession;
+
+    use crate::Sequence;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
+
+    #[test]
+    fn min_max_uses_output_dtype() -> VortexResult<()> {
+        let array = Sequence::try_new_typed(100i32, -10i32, Nullability::NonNullable, 5)?
+            .into_array()
+            .cast(DType::Primitive(PType::U8, Nullability::NonNullable))?;
+
+        let MinMaxResult { min, max } = min_max(
+            &array,
+            &mut SESSION.create_execution_ctx(),
+            NumericalAggregateOpts::default(),
+        )?
+        .ok_or_else(|| vortex_err!("min_max of a non-empty sequence should not be null"))?;
+
+        assert_eq!(min, Scalar::from(60u8));
+        assert_eq!(max, Scalar::from(100u8));
+
+        Ok(())
+    }
+}
