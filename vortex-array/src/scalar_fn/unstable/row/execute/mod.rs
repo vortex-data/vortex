@@ -12,6 +12,9 @@ pub(super) use owned::execute_owned_infallible;
 pub(super) use owned::execute_owned_infallible_valid_rows;
 pub(super) use owned::execute_owned_valid_rows;
 
+mod retry;
+pub(super) use retry::execute_owned_with_retry;
+
 mod sink;
 pub(super) use sink::execute_sink;
 pub(super) use sink::execute_sink_valid_rows;

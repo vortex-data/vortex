@@ -12,6 +12,9 @@ mod execute;
 pub(super) use execute::ExecuteRows;
 pub(super) use execute::ExecuteValidRows;
 
+mod retry;
+pub(super) use retry::ExecuteDenseWithRetry;
+
 mod plan;
 pub(super) use plan::BatchPlan;
 pub(super) use plan::BatchPlanner;

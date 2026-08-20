@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
@@ -30,8 +32,16 @@ use crate::scalar_fn::unstable::row::RowVisitor;
 use crate::scalar_fn::unstable::row::execute_rows;
 use crate::validity::Validity;
 
-#[derive(Clone)]
-struct DeferredAdd;
+#[derive(Clone, Default)]
+struct DeferredAdd {
+    prepare_count: Arc<AtomicUsize>,
+}
+
+impl DeferredAdd {
+    fn prepare_count(&self) -> usize {
+        self.prepare_count.load(Ordering::Relaxed)
+    }
+}
 
 #[derive(Clone)]
 struct ValidOnlyIdentity;
@@ -104,8 +114,13 @@ impl RowFn for DeferredAdd {
         _args: &[DType],
         visitor: V,
     ) -> VortexResult<V::VisitResult> {
-        visitor.visit_deferred::<(i64, i64), i64, bool>(
-            |(lhs, rhs)| lhs.overflowing_add(rhs),
+        let prepare_count = Arc::clone(&self.prepare_count);
+
+        visitor.visit_prepared_deferred::<(i64, i64), i64, (), bool>(
+            move |_| {
+                prepare_count.fetch_add(1, Ordering::Relaxed);
+            },
+            |&(), (lhs, rhs)| lhs.overflowing_add(rhs),
             |overflowed| {
                 if overflowed {
                     vortex_bail!(InvalidArgument: "deferred addition overflowed");
@@ -209,17 +224,53 @@ fn test_kernel_output_rejects_nulls_at_function_boundary() -> VortexResult<()> {
 }
 
 #[test]
-fn test_deferred_owned_execution_skips_invalid_rows() -> VortexResult<()> {
+fn test_deferred_owned_execution_retries_null_row_failure() -> VortexResult<()> {
+    let function = DeferredAdd::default();
     let validity = Validity::from_iter([true, false]);
     let lhs = PrimitiveArray::new(vec![1_i64, i64::MAX], validity.clone()).into_array();
     let rhs = ConstantArray::new(1_i64, 2).into_array();
     let args = VecExecutionArgs::new(vec![lhs, rhs], 2);
     let mut ctx = array_session().create_execution_ctx();
 
-    let actual = execute_rows(&DeferredAdd, &EmptyOptions, &args, &mut ctx)?;
+    let actual = execute_rows(&function, &EmptyOptions, &args, &mut ctx)?;
     let expected = PrimitiveArray::new(vec![2_i64, 0], validity).into_array();
 
     assert_arrays_eq!(&actual, &expected, &mut ctx);
+    assert_eq!(function.prepare_count(), 2);
+    Ok(())
+}
+
+#[test]
+fn test_deferred_owned_execution_does_not_retry_success() -> VortexResult<()> {
+    let function = DeferredAdd::default();
+    let validity = Validity::from_iter([true, false]);
+    let lhs = PrimitiveArray::new(vec![1_i64, 2], validity.clone()).into_array();
+    let rhs = ConstantArray::new(1_i64, 2).into_array();
+    let args = VecExecutionArgs::new(vec![lhs, rhs], 2);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let actual = execute_rows(&function, &EmptyOptions, &args, &mut ctx)?;
+    let expected = PrimitiveArray::new(vec![2_i64, 0], validity).into_array();
+
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+    assert_eq!(function.prepare_count(), 1);
+    Ok(())
+}
+
+#[test]
+fn test_deferred_owned_execution_reports_valid_failure() -> VortexResult<()> {
+    let function = DeferredAdd::default();
+    let validity = Validity::from_iter([true, false]);
+    let lhs = PrimitiveArray::new(vec![i64::MAX, 1], validity).into_array();
+    let rhs = ConstantArray::new(1_i64, 2).into_array();
+    let args = VecExecutionArgs::new(vec![lhs, rhs], 2);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let error = execute_rows(&function, &EmptyOptions, &args, &mut ctx)
+        .expect_err("a valid-row overflow must remain observable");
+
+    assert!(error.to_string().contains("deferred addition overflowed"));
+    assert_eq!(function.prepare_count(), 2);
     Ok(())
 }
 

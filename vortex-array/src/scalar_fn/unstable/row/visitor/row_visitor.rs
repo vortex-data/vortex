@@ -199,6 +199,9 @@ pub trait RowVisitor<Options>: private::Sealed + Sized {
     /// The executor OR-reduces [`FailureEvidence`] across rows and passes the result to
     /// `finish_failure`.
     ///
+    /// If null-row values produce failure evidence, batch execution runs `apply` again over only
+    /// valid rows. A prepared visit also runs `prepare` again for that invocation.
+    ///
     /// [`RowFn::INFALLIBLE`](crate::scalar_fn::unstable::row::RowFn::INFALLIBLE) **must** be `false`.
     /// `Out` must not require drop glue. `Fail` must be no wider than `Out`, or failure tracking
     /// reduces the vector width. The framework checks these requirements.

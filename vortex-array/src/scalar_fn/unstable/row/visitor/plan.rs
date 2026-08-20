@@ -133,6 +133,9 @@ pub(crate) enum RowPolicy {
     /// Evaluate all rows and mask the result.
     Dense,
 
+    /// Evaluate all rows, retrying only valid rows if reduced failure evidence reports an error.
+    DenseWithRetry,
+
     /// Execute only valid rows over the original inputs.
     ValidOnly,
 }
@@ -149,8 +152,11 @@ impl RowPolicy {
 
     /// The policy for an owned output carrying batch-deferred failure evidence.
     pub(crate) const fn for_deferred_output<Args: ElementTuple>() -> Self {
-        let _ = PhantomData::<Args>;
-        Self::ValidOnly
+        if Args::DENSE_SAFE && Args::DECODE_INFALLIBLE {
+            Self::DenseWithRetry
+        } else {
+            Self::ValidOnly
+        }
     }
 
     /// The policy for a sink-writing output.

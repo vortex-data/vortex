@@ -81,6 +81,32 @@ impl RowFnExecutionArgs {
         Ok(ResolvedValidity::PartiallyValid(valid))
     }
 
+    /// Resolve batch validity and retry a dense deferred failure against only observable rows.
+    pub(super) fn retry_valid_rows_after_deferred_failure(
+        &self,
+        kernel: impl Fn(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
+        try_valid_rows: impl FnOnce(
+            BorrowedRowFnArgs<'_>,
+            &Mask,
+            &mut ExecutionCtx,
+        ) -> VortexResult<Option<ArrayRef>>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let valid = match self.resolve_validity(&kernel, ctx)? {
+            ResolvedValidity::Output(output) => return Ok(output),
+            ResolvedValidity::PartiallyValid(valid) => valid,
+        };
+
+        if let Some(result) = self.try_execute_valid_rows(try_valid_rows, &valid, ctx)? {
+            return Ok(result);
+        }
+
+        vortex_panic!(
+            "dense retry requires direct valid-row support after deferred failure, but {} declined it",
+            self.id,
+        )
+    }
+
     /// Try execution against the original inputs, then mask a returned full-length result.
     fn try_execute_valid_rows(
         &self,

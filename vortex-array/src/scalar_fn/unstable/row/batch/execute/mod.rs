@@ -33,6 +33,10 @@ impl RowFnExecutionArgs {
     pub(crate) fn execute(
         &self,
         kernel: impl Fn(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
+        try_dense_rows: impl FnOnce(
+            BorrowedRowFnArgs<'_>,
+            &mut ExecutionCtx,
+        ) -> VortexResult<Option<ArrayRef>>,
         try_valid_rows: impl FnOnce(
             BorrowedRowFnArgs<'_>,
             &Mask,
@@ -70,6 +74,9 @@ impl RowFnExecutionArgs {
 
         match self.policy {
             RowPolicy::Dense => self.execute_dense(kernel, ctx),
+            RowPolicy::DenseWithRetry => {
+                self.execute_dense_with_retry(kernel, try_dense_rows, try_valid_rows, ctx)
+            }
             RowPolicy::ValidOnly => self.execute_valid_only(kernel, try_valid_rows, ctx),
         }
     }

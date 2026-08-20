@@ -17,7 +17,8 @@
 //! only for valid rows without changing row positions.
 //!
 //! Prepared visits move work derived from constant operands outside the hot loop. Deferred visits
-//! reduce compact failure evidence without constructing errors in that loop.
+//! reduce compact failure evidence in that loop. Eligible kernels first evaluate all payloads and
+//! retry only valid rows when null payloads may have caused the failure.
 
 mod execute;
 

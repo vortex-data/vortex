@@ -292,7 +292,7 @@ impl<F: RowFn> RowVisitor<F::Options> for ExecuteValidRows<'_, '_, F> {
     }
 }
 
-fn ensure_plan(
+pub(super) fn ensure_plan(
     planned_output: &DType,
     planned_policy: RowPolicy,
     actual_output: DType,

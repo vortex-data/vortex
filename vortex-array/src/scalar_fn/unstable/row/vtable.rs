@@ -18,6 +18,7 @@ use super::batch::RowFnExecutionArgs;
 use super::batch::finalize_kernel_output;
 use super::row_fn::RowFn;
 use super::visitor::BatchPlanner;
+use super::visitor::ExecuteDenseWithRetry;
 use super::visitor::ExecuteRows;
 use super::visitor::ExecuteValidRows;
 use crate::ArrayRef;
@@ -122,6 +123,7 @@ pub fn execute_rows<F: RowFn>(
     let batch = prepare_batch(function, options, args)?;
     batch.execute(
         |args, ctx| execute_row_kernel(function, options, args, ctx),
+        |args, ctx| try_execute_dense_rows(function, options, args, ctx),
         |args, valid, ctx| try_execute_valid_rows(function, options, args, valid, ctx),
         ctx,
     )
@@ -172,6 +174,19 @@ fn execute_row_kernel<F: RowFn>(
             args.policy(),
             ctx,
         ),
+    )
+}
+
+fn try_execute_dense_rows<F: RowFn>(
+    function: &F,
+    options: &F::Options,
+    args: BorrowedRowFnArgs<'_>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    function.dispatch(
+        options,
+        args.dtypes(),
+        ExecuteDenseWithRetry::<F>::new(&args, options, ctx),
     )
 }
 
@@ -382,7 +397,7 @@ mod tests {
             "unexpected error: {error}",
         );
         assert!(
-            message.contains("planned Dense, got ValidOnly"),
+            message.contains("planned Dense, got DenseWithRetry"),
             "unexpected error: {error}",
         );
         Ok(())
