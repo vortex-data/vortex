@@ -660,6 +660,7 @@ fn main() {
             "cargo:info=Using DuckDB source from DUCKDB_SOURCE_DIR={}",
             source_dir.display()
         );
+        apply_source_patches(&crate_dir, &source_dir);
         bindgen_c2rust(&crate_dir, &duckdb_include_dir);
         cbindgen_rust2c(&crate_dir);
         compile_cpp(&duckdb_include_dir);

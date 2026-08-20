@@ -31,6 +31,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
+use vortex::extension::uuid::Uuid;
 use vortex::metrics::tracing::get_global_labels;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::fns::binary::Binary;
