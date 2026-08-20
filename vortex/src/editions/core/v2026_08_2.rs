@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The August 2026 draft core edition adding Variant arrays and UUID extension dtypes.
+//! The August 2026 draft core edition adding canonical Map arrays.
 
 use vortex_edition::Edition;
 use vortex_edition::EditionDeclaration;
@@ -17,9 +17,5 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         id: CORE_2026_08_2,
         min_vortex_version: None,
     },
-    added: &[
-        EditionMember::array(&"vortex.parquet.variant"),
-        EditionMember::array(&"vortex.variant"),
-        EditionMember::dtype(&"vortex.uuid"),
-    ],
+    added: &[EditionMember::array(&"vortex.map")],
 };

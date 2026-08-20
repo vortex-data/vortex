@@ -36,7 +36,7 @@ pub static DECLARATION_0: EditionDeclaration = EditionDeclaration {
     ],
 };
 
-/// The second August 2026 edition of the `core` family, adding canonical Map arrays.
+/// The second August 2026 edition of the `core` family, adding OnPair arrays.
 pub const CORE_2026_08_1: EditionId = EditionId::new("core", 2026, 8, 1);
 
 /// The declaration of [`CORE_2026_08_1`] and the components that join the family at it.
@@ -45,5 +45,5 @@ pub static DECLARATION_1: EditionDeclaration = EditionDeclaration {
         id: CORE_2026_08_1,
         min_vortex_version: Some("0.84.0"),
     },
-    added: &[EditionMember::array(&"vortex.map")],
+    added: &[EditionMember::array(&"vortex.onpair")],
 };

@@ -102,9 +102,9 @@ fn core_2026_08_1_encoding_set_is_pinned() {
             "vortex.fsst",
             "vortex.list",
             "vortex.listview",
-            "vortex.map",
             "vortex.masked",
             "vortex.null",
+            "vortex.onpair",
             "vortex.pco",
             "vortex.primitive",
             "vortex.runend",
@@ -143,30 +143,18 @@ fn core_2026_08_2_is_draft() {
         session
             .components_in(&CORE_2026_08_2, ComponentKind::Array)
             .iter()
-            .any(|inclusion| inclusion.component_id.as_str() == "vortex.variant")
+            .any(|inclusion| inclusion.component_id.as_str() == "vortex.map")
     );
     assert!(
         session
-            .components_in(&CORE_2026_08_2, ComponentKind::Array)
+            .components_in(&CORE_2026_08_1, ComponentKind::Array)
             .iter()
-            .any(|inclusion| inclusion.component_id.as_str() == "vortex.parquet.variant")
-    );
-    assert!(
-        session
-            .components_in(&PREVIEW_2026_06_0, ComponentKind::Array)
-            .iter()
-            .all(|inclusion| inclusion.component_id.as_str() != "vortex.parquet.variant")
-    );
-    assert!(
-        session
-            .components_in(&CORE_2026_08_2, ComponentKind::DType)
-            .iter()
-            .any(|inclusion| inclusion.component_id.as_str() == "vortex.uuid")
+            .all(|inclusion| inclusion.component_id.as_str() != "vortex.map")
     );
 }
 
 #[test]
-fn core_2026_08_3_adds_onpair() {
+fn core_2026_08_3_adds_variants() {
     let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
     assert!(
         session
@@ -178,13 +166,25 @@ fn core_2026_08_3_adds_onpair() {
         session
             .components_in(&CORE_2026_08_3, ComponentKind::Array)
             .iter()
-            .any(|inclusion| inclusion.component_id.as_str() == "vortex.onpair")
+            .any(|inclusion| inclusion.component_id.as_str() == "vortex.variant")
     );
     assert!(
         session
-            .components_in(&PREVIEW_2026_06_0, ComponentKind::Array)
+            .components_in(&CORE_2026_08_3, ComponentKind::Array)
             .iter()
-            .all(|inclusion| inclusion.component_id.as_str() != "vortex.onpair")
+            .any(|inclusion| inclusion.component_id.as_str() == "vortex.parquet.variant")
+    );
+    assert!(
+        session
+            .components_in(&CORE_2026_08_2, ComponentKind::Array)
+            .iter()
+            .all(|inclusion| inclusion.component_id.as_str() != "vortex.parquet.variant")
+    );
+    assert!(
+        session
+            .components_in(&CORE_2026_08_3, ComponentKind::DType)
+            .iter()
+            .any(|inclusion| inclusion.component_id.as_str() == "vortex.uuid")
     );
 }
 
@@ -226,13 +226,13 @@ fn earlier_editions_are_subsets() {
 }
 
 #[test]
-fn core_2026_08_editions_split_map_from_zoned_components() {
+fn core_2026_08_editions_add_onpair_before_map() {
     let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
     assert!(
         session
             .components_in(&CORE_2026_08_0, ComponentKind::Array)
             .iter()
-            .all(|inclusion| inclusion.component_id.as_str() != "vortex.map")
+            .all(|inclusion| inclusion.component_id.as_str() != "vortex.onpair")
     );
     assert!(
         session
@@ -250,6 +250,18 @@ fn core_2026_08_editions_split_map_from_zoned_components() {
     assert!(
         session
             .components_in(&CORE_2026_08_1, ComponentKind::Array)
+            .iter()
+            .any(|inclusion| inclusion.component_id.as_str() == "vortex.onpair")
+    );
+    assert!(
+        session
+            .components_in(&CORE_2026_08_1, ComponentKind::Array)
+            .iter()
+            .all(|inclusion| inclusion.component_id.as_str() != "vortex.map")
+    );
+    assert!(
+        session
+            .components_in(&CORE_2026_08_2, ComponentKind::Array)
             .iter()
             .any(|inclusion| inclusion.component_id.as_str() == "vortex.map")
     );
