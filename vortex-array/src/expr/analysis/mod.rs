@@ -10,7 +10,7 @@ mod strict;
 
 pub use annotation::*;
 pub use immediate_access::*;
-pub use infallible::label_is_infallible;
+pub use infallible::label_infallible;
 pub use labeling::*;
 pub use referenced_field_paths::referenced_field_paths;
 pub use strict::label_strict;

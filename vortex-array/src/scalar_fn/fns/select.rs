@@ -238,7 +238,7 @@ impl ScalarFnVTable for Select {
     }
 
     fn is_infallible(&self, _instance: &FieldSelection) -> bool {
-        // If this type-checks its infallible.
+        // If this type-checks, it is infallible.
         true
     }
 }
