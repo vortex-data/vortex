@@ -142,7 +142,7 @@ impl SqlBenchmarkRunner {
         let mut runs = Vec::with_capacity(iterations);
         let mut row_count = None;
 
-        for i in 0..iterations {
+        for _ in 0..iterations {
             let start = Instant::now();
             let (timing, result) = f();
             let elapsed = timing.unwrap_or_else(|| start.elapsed());
@@ -150,10 +150,6 @@ impl SqlBenchmarkRunner {
 
             if row_count.is_none() {
                 row_count = Some(result.row_count());
-            }
-
-            if i + 1 < iterations {
-                purge_allocator_cache();
             }
         }
 
@@ -403,7 +399,7 @@ impl SqlBenchmarkRunner {
 
                         tracing::debug!(%format, query_idx, "Running query");
 
-                        for i in 0..iterations {
+                        for _ in 0..iterations {
                             let start = Instant::now();
                             let (timing, result) = execute(query_idx, &ctx, query.as_str())
                                 .await
@@ -415,10 +411,6 @@ impl SqlBenchmarkRunner {
 
                             if row_count.is_none() {
                                 row_count = Some(result.row_count());
-                            }
-
-                            if i + 1 < iterations {
-                                purge_allocator_cache();
                             }
                         }
 
@@ -454,12 +446,6 @@ impl SqlBenchmarkRunner {
 
 fn is_ci() -> bool {
     matches!(std::env::var("CI").as_deref(), Ok("true"))
-}
-
-/// Force mimalloc to return retained memory to the OS between iterations.
-fn purge_allocator_cache() {
-    // SAFETY: mi_collect is safe to call from any thread.
-    unsafe { libmimalloc_sys::mi_collect(true) };
 }
 
 fn validate_benchmark_runner_id(benchmark_runner: &str, is_ci: bool) -> anyhow::Result<()> {
