@@ -11,13 +11,16 @@ use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::buffer::BufferHandle;
-use vortex::array::match_each_native_ptype;
+use vortex::array::match_each_unsigned_integer_ptype;
 use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
+use vortex::dtype::PType;
 use vortex::encodings::sequence::Sequence;
 use vortex::encodings::sequence::SequenceDataParts;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
+use vortex::scalar::PValue;
 
 use crate::CudaDeviceBuffer;
 use crate::CudaExecutionCtx;
@@ -29,6 +32,8 @@ pub(crate) struct SequenceExecutor;
 
 #[async_trait]
 impl CudaExecute for SequenceExecutor {
+    // Truncating `base` and `multiplier` to the output width is the point - see below.
+    #[expect(clippy::cast_possible_truncation)]
     #[instrument(level = "trace", skip_all, fields(executor = ?self))]
     async fn execute(
         &self,
@@ -41,18 +46,40 @@ impl CudaExecute for SequenceExecutor {
 
         let len = array.len();
         let nullability = array.dtype().nullability();
+        let output_ptype = PType::try_from(array.dtype())?;
 
         let SequenceDataParts {
-            base,
-            multiplier,
-            ptype,
+            base, multiplier, ..
         } = array.into_data().into_parts();
 
-        match_each_native_ptype!(ptype, |P| {
-            let base = base.cast::<P>()?;
-            let multiplier = multiplier.cast::<P>()?;
-            execute_typed::<P>(base, multiplier, len, nullability, ctx).await
+        // `base` and `multiplier` are held in the sequence's arithmetic ptype, which may be wider
+        // or of the other signedness than the output ptype. Every value of a valid sequence does
+        // fit the output ptype, and `base + i * multiplier` modulo 2^bits is exact, so computing
+        // it in the unsigned type of the output's width and reinterpreting the bytes as the output
+        // ptype gives the right answer without needing a kernel per (arithmetic, output) pair.
+        let base = wrapping_bits(base)?;
+        let multiplier = wrapping_bits(multiplier)?;
+
+        match_each_unsigned_integer_ptype!(output_ptype.to_unsigned(), |U| {
+            execute_typed::<U>(
+                base as U,
+                multiplier as U,
+                len,
+                output_ptype,
+                nullability,
+                ctx,
+            )
+            .await
         })
+    }
+}
+
+/// The two's-complement bits of a sequence value, which is always an `i64` or a `u64`.
+fn wrapping_bits(value: PValue) -> VortexResult<u64> {
+    match value {
+        PValue::I64(v) => Ok(v as u64),
+        PValue::U64(v) => Ok(v),
+        other => vortex_bail!("sequence arithmetic ptype must be i64 or u64, got {other:?}"),
     }
 }
 
@@ -60,6 +87,7 @@ async fn execute_typed<T: NativePType + DeviceRepr>(
     base: T,
     multiplier: T,
     len: usize,
+    output_ptype: PType,
     nullability: Nullability,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical> {
@@ -80,7 +108,7 @@ async fn execute_typed<T: NativePType + DeviceRepr>(
 
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
         output_buf,
-        T::PTYPE,
+        output_ptype,
         nullability.into(),
     )))
 }
@@ -91,9 +119,13 @@ mod tests {
     use rstest::rstest;
     use vortex::array::IntoArray;
     use vortex::array::assert_arrays_eq;
+    use vortex::array::builtins::ArrayBuiltins;
+    use vortex::dtype::DType;
     use vortex::dtype::NativePType;
     use vortex::dtype::Nullability;
+    use vortex::dtype::PType;
     use vortex::encodings::sequence::Sequence;
+    use vortex::error::VortexResult;
     use vortex::scalar::PValue;
     use vortex_array::VortexSessionExecute;
 
@@ -145,5 +177,28 @@ mod tests {
             .into_array();
 
         assert_arrays_eq!(array, gpu_result, &mut ctx);
+    }
+
+    /// A descending sequence computes in signed space yet is a legal `u8` array, so the kernel has
+    /// to emit the output ptype rather than the ptype the arithmetic happens in.
+    #[crate::test]
+    async fn test_sequence_arithmetic_ptype_differs_from_output() -> VortexResult<()> {
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session()).unwrap();
+
+        let array = Sequence::try_new_typed(100i32, -10i32, Nullability::NonNullable, 5)?
+            .into_array()
+            .cast(DType::Primitive(PType::U8, Nullability::NonNullable))?;
+
+        let gpu_result = SequenceExecutor
+            .execute(array.clone(), &mut cuda_ctx)
+            .await?
+            .into_host()
+            .await?
+            .into_array();
+
+        assert_arrays_eq!(array, gpu_result, &mut ctx);
+
+        Ok(())
     }
 }
