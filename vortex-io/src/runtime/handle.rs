@@ -17,6 +17,7 @@ use vortex_error::vortex_panic;
 
 use crate::runtime::AbortHandleRef;
 use crate::runtime::Executor;
+use crate::runtime::platform;
 
 /// A handle to an active Vortex runtime.
 ///
@@ -58,23 +59,7 @@ impl Handle {
             }
         }
 
-        #[cfg(all(
-            target_arch = "wasm32",
-            target_os = "unknown",
-            feature = "wasm-bindgen"
-        ))]
-        {
-            use crate::runtime::wasm::WasmRuntime;
-
-            return Some(WasmRuntime::handle());
-        }
-
-        #[cfg(not(all(
-            target_arch = "wasm32",
-            target_os = "unknown",
-            feature = "wasm-bindgen"
-        )))]
-        None
+        platform::default_handle()
     }
 
     /// Spawn a new future onto the runtime.

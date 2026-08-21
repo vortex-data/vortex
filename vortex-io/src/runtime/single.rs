@@ -20,6 +20,7 @@ use crate::runtime::BlockingRuntime;
 use crate::runtime::Executor;
 use crate::runtime::Handle;
 use crate::runtime::abort::TaskAbortHandle;
+use crate::runtime::platform;
 
 /// A runtime that drives all work on the current thread.
 ///
@@ -42,21 +43,6 @@ impl Default for SingleThreadRuntime {
         let sender = Arc::new(Sender::new(&executor));
         Self { sender, executor }
     }
-}
-
-/// Drives a future on the current thread until it completes.
-///
-/// Off WebAssembly we use smol's `block_on`, which parks the thread while no task is runnable.
-/// A single-threaded WebAssembly thread cannot park, so there we spin instead, which is sound
-/// because every wake-up must come from this same thread.
-#[cfg(not(target_arch = "wasm32"))]
-fn drive<F: Future>(fut: F) -> F::Output {
-    smol::block_on(fut)
-}
-
-#[cfg(target_arch = "wasm32")]
-fn drive<F: Future>(fut: F) -> F::Output {
-    crate::runtime::inline::block_on(fut)
 }
 
 struct Sender {
@@ -189,7 +175,7 @@ impl BlockingRuntime for SingleThreadRuntime {
     where
         Fut: Future<Output = R>,
     {
-        drive(self.executor.run(fut))
+        platform::block_on(self.executor.run(fut))
     }
 
     fn block_on_stream<'a, S, R>(&self, stream: S) -> Self::BlockingIterator<'a, R>
@@ -276,7 +262,7 @@ impl<T> Iterator for SingleThreadIterator<'_, T> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let fut = self.stream.next();
-        drive(self.executor.run(fut))
+        platform::block_on(self.executor.run(fut))
     }
 }
 

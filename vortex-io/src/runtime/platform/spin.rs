@@ -57,7 +57,7 @@ mod tests {
 
     use futures::future::poll_fn;
 
-    use crate::runtime::inline::block_on;
+    use crate::runtime::platform::spin::block_on;
 
     #[test]
     fn test_block_on_repolls_pending_future() {

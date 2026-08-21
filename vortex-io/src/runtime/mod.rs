@@ -22,20 +22,21 @@ use futures::future::BoxFuture;
 mod abort;
 mod blocking;
 pub use blocking::*;
-#[cfg(not(target_arch = "wasm32"))]
-mod blocking_pool;
 mod handle;
 pub use handle::*;
-#[cfg(any(test, target_arch = "wasm32"))]
-mod inline;
+mod platform;
+pub mod single;
 
+// Runtimes that need threads, and so are unavailable on WebAssembly.
+#[cfg(not(target_arch = "wasm32"))]
+mod blocking_pool;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod current;
 #[cfg(not(target_arch = "wasm32"))]
 mod pool;
-pub mod single;
 #[cfg(not(target_arch = "wasm32"))]
 mod smol;
+
 #[cfg(feature = "tokio")]
 pub mod tokio;
 // target_os = "unknown" matches browser WebAssembly, excluding WASI targets that do not use this
