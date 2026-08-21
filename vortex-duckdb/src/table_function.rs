@@ -61,18 +61,20 @@ use crate::projection::Filter;
 use crate::projection::Projection;
 use crate::projection::is_virtual_column;
 
-// Lifetime of table function:
+// Duckdb has two state machines for an extension. The outer one is the table
+// function state machine which calls the file reader state machine.
 //
-// Plan/optimize:
+// First there's bind and plan optimize phase, called by one thread:
 //
-// pushdown_complex_filter -> pushdown_projection_expression ->
-// pushdown_projection_aggregates -> cardinality -> to_string
+// `pushdown_complex_filter`-> `pushdown_projection_expression` ->
+// `pushdown_projection_aggregates` -> `cardinality` -> `to_string`
 //
-// (called by one thread)
+// Then there's query execute phase:
 //
-// Execute:
-//
-// init_global -> init_local -> finish_reading -> finalize_scan
+// `init_global` (called once) ->
+// `init_local` (called by every thread) ->
+// `finish_reading` (called by every thread when it finishes) ->
+// `finalize_scan` (called by every thread when scan is over)
 
 // Aggregate projection index for count(*). See cpp/aggregate_fn_pushdown.cpp
 pub const COUNT_STAR_PROJ_IDX: u64 = u64::MAX;
@@ -188,8 +190,10 @@ pub enum Cardinality {
     Estimate(u64),
 }
 
-/// Called by thread when work is done. May be called multiple times by same
-/// thread
+/// Called by every thread when all work is done. May be called multiple times
+/// by same thread. Caller (us) must synchronize to ensure the final chunk
+/// population happens only once. Returns true if any data was appended to
+/// "chunk".
 pub fn finalize_scan(global: &GlobalState, chunk: &mut DataChunkRef) -> VortexResult<bool> {
     if global.aggregates.is_empty() {
         return Ok(false);
@@ -227,7 +231,7 @@ pub fn finalize_scan(global: &GlobalState, chunk: &mut DataChunkRef) -> VortexRe
     Ok(true)
 }
 
-/// Called once per thread when it has no more files to read
+/// Called once per thread when it has no more files to read.
 pub fn finish_reading(global: &GlobalState, local: &mut LocalState) {
     if global.aggregates.is_empty() || local.finished {
         return;

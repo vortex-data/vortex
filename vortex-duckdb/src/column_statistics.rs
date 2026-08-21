@@ -24,7 +24,7 @@ pub struct ColumnStatistics {
 }
 
 impl ColumnStatistics {
-    pub fn from(stats: &ColumnStatisticsAggregate, dtype: DType) -> VortexResult<Self> {
+    pub fn try_from(stats: &ColumnStatisticsAggregate, dtype: DType) -> VortexResult<Self> {
         let min = stats.min.as_ref().and_then(|value| {
             Scalar::try_new(dtype.clone(), Some(value.clone()))
                 .and_then(|scalar| scalar.try_to_duckdb_scalar())

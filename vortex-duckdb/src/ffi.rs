@@ -32,7 +32,7 @@ use crate::duckdb::LogicalTypeRef;
 use crate::duckdb::TableInitInput;
 use crate::duckdb::try_or;
 use crate::duckdb::try_or_null;
-use crate::file_reader::File;
+use crate::file_reader::OpenFileReader;
 use crate::file_reader::reader_bind;
 use crate::file_reader::reader_get_progress_in_file;
 use crate::file_reader::reader_get_statistics;
@@ -166,7 +166,8 @@ pub unsafe extern "C-unwind" fn duckdb_reader_bind(
     result: cpp::duckdb_bind_result,
     error_out: *mut cpp::duckdb_vx_error,
 ) -> cpp::duckdb_vx_data {
-    let first_file = unsafe { first_file.cast::<File>().as_ref() }.vortex_expect("null pointer");
+    let first_file =
+        unsafe { first_file.cast::<OpenFileReader>().as_ref() }.vortex_expect("null pointer");
     let mut result = unsafe { BindResult::own(result) };
 
     try_or_null(error_out, || {
@@ -198,7 +199,7 @@ pub unsafe extern "C-unwind" fn duckdb_reader_get_statistics(
     column_name_len: usize,
     stats_out: *mut cpp::duckdb_column_statistics,
 ) -> bool {
-    let file = unsafe { file.cast::<File>().as_ref() }.vortex_expect("null pointer");
+    let file = unsafe { file.cast::<OpenFileReader>().as_ref() }.vortex_expect("null pointer");
     let name_bytes =
         unsafe { std::slice::from_raw_parts(column_name.cast::<u8>(), column_name_len) };
     let bind = unsafe { bind.cast::<BindState>().as_ref() }.vortex_expect("null pointer");
@@ -223,7 +224,7 @@ pub unsafe extern "C-unwind" fn duckdb_reader_initialize(
     error: *mut cpp::duckdb_vx_error,
 ) -> bool {
     let global = unsafe { global.cast::<GlobalState>().as_ref() }.vortex_expect("null pointer");
-    let file = unsafe { file.cast::<File>().as_mut() }.vortex_expect("null pointer");
+    let file = unsafe { file.cast::<OpenFileReader>().as_mut() }.vortex_expect("null pointer");
     try_or(error, || reader_initialize(file, global))
 }
 
@@ -247,7 +248,7 @@ pub unsafe extern "C-unwind" fn duckdb_reader_try_initialize_scan(
     local: *mut c_void,
     file: *mut c_void,
 ) -> bool {
-    let file = unsafe { file.cast::<File>().as_mut() }.vortex_expect("null pointer");
+    let file = unsafe { file.cast::<OpenFileReader>().as_mut() }.vortex_expect("null pointer");
     let local = unsafe { local.cast::<LocalState>().as_mut() }.vortex_expect("null pointer");
     reader_try_initialize_scan(file, local)
 }
@@ -260,7 +261,7 @@ pub unsafe extern "C-unwind" fn duckdb_reader_scan(
     chunk: cpp::duckdb_data_chunk,
     error: *mut cpp::duckdb_vx_error,
 ) -> bool {
-    let file = unsafe { file.cast::<File>().as_ref() }.vortex_expect("null pointer");
+    let file = unsafe { file.cast::<OpenFileReader>().as_ref() }.vortex_expect("null pointer");
     let global = unsafe { global.cast::<GlobalState>().as_ref() }.vortex_expect("null pointer");
     let local = unsafe { local.cast::<LocalState>().as_mut() }.vortex_expect("null pointer");
     let chunk = unsafe { DataChunk::borrow_mut(chunk) };
@@ -269,7 +270,7 @@ pub unsafe extern "C-unwind" fn duckdb_reader_scan(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn duckdb_reader_get_progress_in_file(file: *const c_void) -> f64 {
-    let file = unsafe { file.cast::<File>().as_ref() }.vortex_expect("null pointer");
+    let file = unsafe { file.cast::<OpenFileReader>().as_ref() }.vortex_expect("null pointer");
     reader_get_progress_in_file(file)
 }
 

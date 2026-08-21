@@ -43,10 +43,10 @@ use crate::table_function::LocalState;
 use crate::table_function::Split;
 use crate::table_function::convert_result;
 
-// Duckdb invokes following callbacks under various locks, and information
-// about these locks is not propagated to Rust. We, however, don't want to add
-// excessive synchronisation on our side, so the best we can do is document
-// the invariants here.
+// See src/table_function.rs for definition of table function state machine.
+// Duckdb's inner state machine, called by table function state machine, is
+// file reader state machine. It opens Vortex files, reads their contents
+// and populates output data chunks with data from these files.
 //
 // Definitions:
 // "global lock" - lock over all threads. Only one thread may access some
@@ -54,19 +54,19 @@ use crate::table_function::convert_result;
 // "file-local lock" - multiple threads may access different File's in
 //   parallel, but only one thread can access a single File at a time.
 //
-// Lifetime of file:
+// First there's bind phase in planning, called by one thread on first
+// file expanded from glob, to get scan schema and estimate overall scan
+// cardinality.
 //
-// Bind, first file:
+// `reader_open` -> `reader_bind` -> `reader_get_statistics`
 //
-// reader_open -> reader_bind -> reader_get_statistics
+// Then there's query runtime phase, called for all files in scan:
 //
-// Plan and run:
+// `reader_open` -> `reader_initialize` ->
+// `reader_try_initialize_scan` -> `reader_scan`
 //
-// reader_open (plan time) -> reader_initialize ->
-// reader_try_initialize_scan -> reader_scan
-//
-// reader_get_progress_in_file is called between
-// reader_scan calls from a separate thread.
+// `reader_get_progress_in_file` is called during `reader_scan` calls from a
+// separate thread.
 
 static REGISTRY: LazyLock<Registry> = LazyLock::new(Registry::new);
 
@@ -91,7 +91,7 @@ fn resolve_filesystem(url: &Url) -> VortexResult<(FileSystemRef, String)> {
     ))
 }
 
-pub struct File {
+pub struct OpenFileReader {
     pub reader: LayoutReaderRef,
     /// File splits stored in inverse order
     pub splits: Vec<Split>,
@@ -99,13 +99,13 @@ pub struct File {
     total_splits: usize,
 }
 
-impl File {
+impl OpenFileReader {
     async fn open(file_path: String) -> VortexResult<Self> {
         let url = parse_uri_or_path(&file_path)?;
         let (fs, path) = resolve_filesystem(&url)?;
         let file = fs.open_read(&path).await?;
         let file = open_cached(&SESSION, file, &path, None, &|options| options).await?;
-        Ok(File {
+        Ok(OpenFileReader {
             reader: file.layout_reader()?,
             cache: ConversionCache::default(),
             splits: vec![],
@@ -130,15 +130,15 @@ impl File {
 
 /// Called once per file while initializing the scan under file-local lock.
 /// Files are opened lazily.
-pub fn reader_open(file_path: &str) -> VortexResult<File> {
-    RUNTIME.block_on(File::open(file_path.to_owned()))
+pub fn reader_open(file_path: &str) -> VortexResult<OpenFileReader> {
+    RUNTIME.block_on(OpenFileReader::open(file_path.to_owned()))
 }
 
 /// Called once per scan with first file without locks. Populates "result"
 /// with first file schema which is the scan schema. Unlike Parquet, we don't
 /// support schema evolution, so if any file schema doesn't match first schema,
 /// we break.
-pub fn reader_bind(file: &File, result: &mut BindResultRef) -> VortexResult<BindState> {
+pub fn reader_bind(file: &OpenFileReader, result: &mut BindResultRef) -> VortexResult<BindState> {
     let dtype = file.reader.dtype().clone();
     let columns = extract_schema_from_dtype(&dtype)?;
 
@@ -159,7 +159,7 @@ pub fn reader_bind(file: &File, result: &mut BindResultRef) -> VortexResult<Bind
 /// Called once per file by one thread under file-local lock. Determines
 /// whether the opened file should be skipped. If this function returns false,
 /// duckdb closes the file and doesn't call reader_try_initialize_scan on it.
-pub fn reader_initialize(file: &mut File, global: &GlobalState) -> VortexResult<bool> {
+pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> VortexResult<bool> {
     if file.can_skip(&global.filter)? {
         return Ok(true);
     }
@@ -190,7 +190,7 @@ pub fn reader_initialize(file: &mut File, global: &GlobalState) -> VortexResult<
 /// thread calls reader_scan on this file. If this function returns false,
 /// duckdb thinks file is exhausted, closes the file, and the first thread to
 /// get "false" switches to next file.
-pub fn reader_try_initialize_scan(file: &mut File, local: &mut LocalState) -> bool {
+pub fn reader_try_initialize_scan(file: &mut OpenFileReader, local: &mut LocalState) -> bool {
     let Some(split) = file.splits.pop() else {
         return false;
     };
@@ -202,7 +202,7 @@ pub fn reader_try_initialize_scan(file: &mut File, local: &mut LocalState) -> bo
 /// returns false, duckdb closes the file, and first thread to get "false"
 /// switches to next file.
 pub fn reader_scan(
-    file: &File,
+    file: &OpenFileReader,
     global: &GlobalState,
     local: &mut LocalState,
     chunk: &mut DataChunkRef,
@@ -259,7 +259,7 @@ fn reader_scan_aggregate(global: &GlobalState, local: &mut LocalState) -> Vortex
 /// Called by one thread in plan phase without locks only on the first file
 /// after calling reader_open and reader_bind on it.
 pub fn reader_get_statistics(
-    file: &File,
+    file: &OpenFileReader,
     bind: &BindState,
     column: &str,
 ) -> Option<ColumnStatistics> {
@@ -280,7 +280,7 @@ pub fn reader_get_statistics(
     let dtype = fields.field_by_index(index)?;
 
     let stats = ColumnStatisticsAggregate::new(stats_sets.get(index)?);
-    match ColumnStatistics::from(&stats, dtype) {
+    match ColumnStatistics::try_from(&stats, dtype) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),
     }
@@ -288,7 +288,7 @@ pub fn reader_get_statistics(
 
 /// Called from a separate thread (not related to threads for Vortex
 /// table function) under global lock.
-pub fn reader_get_progress_in_file(file: &File) -> f64 {
+pub fn reader_get_progress_in_file(file: &OpenFileReader) -> f64 {
     let total = file.total_splits;
     let left = file.splits.len();
     let denom = total + (total == 0) as usize;
