@@ -156,9 +156,8 @@ mod tests {
     }
 
     #[test]
-    fn test_cast_sequence_keeps_arithmetic_ptype_but_scalar_uses_output_dtype() -> VortexResult<()>
-    {
-        // Cast the public dtype to u8
+    fn test_cast_sequence_narrows_to_output_dtype() -> VortexResult<()> {
+        // Every value of this descending sequence fits u8, even though its step does not.
         let casted = Sequence::try_new_typed(100i32, -10i32, Nullability::NonNullable, 5)?
             .into_array()
             .cast(DType::Primitive(PType::U8, Nullability::NonNullable))?;
@@ -166,7 +165,8 @@ mod tests {
         let sequence = casted
             .as_typed::<Sequence>()
             .expect("integer sequence cast should preserve SequenceArray");
-        assert_eq!(sequence.calculation_ptype(), PType::I64);
+        assert_eq!(sequence.ptype(), PType::U8);
+        assert_eq!(sequence.multiplier(), (-10i64).into());
         assert_eq!(
             sequence.dtype(),
             &DType::Primitive(PType::U8, Nullability::NonNullable)

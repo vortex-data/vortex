@@ -6,7 +6,6 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use num_traits::cast::FromPrimitive;
 use prost::Message;
 use smallvec::smallvec;
 use vortex_array::Array;
@@ -47,8 +46,9 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::arith;
+use crate::arith::SequenceValue;
 use crate::compress::sequence_decompress;
-use crate::ptype::match_each_calculation_ptype;
 use crate::rules::RULES;
 
 /// A [`Sequence`]-encoded Vortex array.
@@ -66,12 +66,13 @@ pub(super) const SLOT_NAMES: [&str; 0] = [];
 
 /// An array representing the equation `A[i] = base + i * multiplier`.
 ///
-/// `base` and `multiplier` are stored in, and all arithmetic performed in, an *arithmetic* ptype
-/// that is always `i64` or `u64` - signed if either input was. That is independent of the array's
-/// output ptype, taken from its dtype, which values are exposed in: a descending sequence like
-/// `100, 90, ..., 60` needs signed arithmetic yet is a legal `u8` array. Construction checks the
-/// first and last values against the output ptype, and the sequence is monotonic, so narrowing a
-/// computed value to it afterwards cannot fail.
+/// `base` is the array's first value, held in the array's output ptype. `multiplier` is the step
+/// between values, which need not be representable in the output ptype - a descending sequence
+/// like `100, 90, ..., 60` has a negative step yet is a legal `u8` array - so it is held as an
+/// `i64`, or as a `u64` for the steps above `i64::MAX` that no `i64` can express.
+///
+/// Construction validates the first and last values against the output ptype, so every value of
+/// the sequence fits it - see [`crate::arith`] for how values are computed from these two.
 #[derive(Clone, Debug)]
 pub struct SequenceData {
     base: PValue,
@@ -87,7 +88,7 @@ impl Display for SequenceData {
 pub struct SequenceDataParts {
     pub base: PValue,
     pub multiplier: PValue,
-    pub calculation_ptype: PType,
+    pub ptype: PType,
 }
 
 impl SequenceData {
@@ -116,7 +117,7 @@ impl SequenceData {
     ) -> VortexResult<Self> {
         let dtype = DType::Primitive(ptype, nullability);
         Self::validate(base, multiplier, &dtype, length)?;
-        let (base, multiplier) = Self::normalize(base, multiplier)?;
+        let (base, multiplier) = Self::normalize(base, multiplier, ptype)?;
 
         Ok(unsafe { Self::new_unchecked(base, multiplier) })
     }
@@ -136,63 +137,57 @@ impl SequenceData {
         }
 
         vortex_ensure!(length > 0, "SequenceArray length must be greater than zero");
-        let last = Self::try_last(base, multiplier, length).map_err(|e| {
-            e.with_context(format!(
-                "final value not expressible, base = {base:?}, multiplier = {multiplier:?}, len = {length} ",
-            ))
-        })?;
 
-        match_each_integer_ptype!(*ptype, |P| {
-            base.cast::<P>()?;
-            last.cast::<P>()?;
-            VortexResult::Ok(())
-        })?;
+        Self::narrowed_base(base, *ptype)?;
+        Self::last_value(base, multiplier, length)
+            .and_then(|last| arith::narrow(last, *ptype))
+            .ok_or_else(|| {
+                vortex_err!(
+                    "final value not expressible, base = {base:?}, multiplier = {multiplier:?}, len = {length}"
+                )
+            })?;
 
         Ok(())
     }
 
-    fn infer_calculation_ptype(base: PValue, multiplier: PValue) -> VortexResult<PType> {
-        if !base.ptype().is_int() || !multiplier.ptype().is_int() {
-            vortex_bail!("only integer ptypes are supported in SequenceArray currently")
-        }
-
-        if base.ptype().is_signed_int() || multiplier.ptype().is_signed_int() {
-            Ok(PType::I64)
-        } else {
-            Ok(PType::U64)
-        }
-    }
-
-    /// Recovers the arithmetic ptype from the signedness of the serialized values.
-    fn infer_calculation_ptype_from_proto(
-        base: &vortex_proto::scalar::ScalarValue,
+    /// The step's ptype: the serialized form preserves its signedness but not its width.
+    fn multiplier_ptype_from_proto(
         multiplier: &vortex_proto::scalar::ScalarValue,
     ) -> VortexResult<PType> {
         use vortex_proto::scalar::scalar_value::Kind;
-        let base_kind = base
+        match multiplier
             .kind
             .as_ref()
-            .ok_or_else(|| vortex_err!("base value missing kind"))?;
-        let multiplier_kind = multiplier
-            .kind
-            .as_ref()
-            .ok_or_else(|| vortex_err!("multiplier value missing kind"))?;
-
-        match (base_kind, multiplier_kind) {
-            (Kind::Int64Value(_), _) | (_, Kind::Int64Value(_)) => Ok(PType::I64),
-            (Kind::Uint64Value(_), Kind::Uint64Value(_)) => Ok(PType::U64),
+            .ok_or_else(|| vortex_err!("multiplier value missing kind"))?
+        {
+            Kind::Int64Value(_) => Ok(PType::I64),
+            Kind::Uint64Value(_) => Ok(PType::U64),
             _ => vortex_bail!("only integer ptypes are supported in SequenceArray currently"),
         }
     }
 
-    fn normalize(base: PValue, multiplier: PValue) -> VortexResult<(PValue, PValue)> {
-        let ptype = Self::infer_calculation_ptype(base, multiplier)?;
-        match_each_calculation_ptype!(ptype, |P| {
-            Ok((
-                PValue::from(base.cast::<P>()?),
-                PValue::from(multiplier.cast::<P>()?),
-            ))
-        })
+    /// The array's first value, which has to be expressible in the output ptype.
+    fn narrowed_base(base: PValue, ptype: PType) -> VortexResult<PValue> {
+        arith::widen(base)
+            .and_then(|base| arith::narrow(base, ptype))
+            .ok_or_else(|| vortex_err!("base {base:?} is not expressible as {ptype}"))
+    }
+
+    /// Puts `base` into the output ptype and the step into its canonical ptype.
+    fn normalize(base: PValue, multiplier: PValue, ptype: PType) -> VortexResult<(PValue, PValue)> {
+        let base = Self::narrowed_base(base, ptype)?;
+
+        // The step is canonically an `i64`, or a `u64` when it does not fit one, so that a
+        // sequence has one representation whichever ptypes it was built from.
+        let step = arith::widen(multiplier)
+            .ok_or_else(|| vortex_err!("step {multiplier:?} must be an integer"))?;
+        let multiplier = i64::try_from(step).map(PValue::I64).or_else(|_| {
+            u64::try_from(step)
+                .map(PValue::U64)
+                .map_err(|_| vortex_err!("step {step} is not a 64-bit integer"))
+        })?;
+
+        Ok((base, multiplier))
     }
 
     /// Constructs a [`SequenceArray`] payload without validation.
@@ -200,14 +195,16 @@ impl SequenceData {
     /// # Safety
     ///
     /// The caller must ensure that:
-    /// - `base` and `multiplier` are both normalized to the same integer `ptype`.
-    /// - they are logically compatible with the outer dtype and len.
+    /// - `base` is an integer value in the outer dtype's ptype.
+    /// - `multiplier` is an integer value, canonically an `i64` unless the step exceeds
+    ///   `i64::MAX`.
+    /// - the first and last value of the sequence they describe fit the outer dtype's ptype.
     pub(crate) unsafe fn new_unchecked(base: PValue, multiplier: PValue) -> Self {
         Self { base, multiplier }
     }
 
-    /// The ptype arithmetic is performed in. Not the array's output ptype - see [`SequenceData`].
-    pub(crate) fn calculation_ptype(&self) -> PType {
+    /// The array's output ptype, which `base` is held in - see [`SequenceData`].
+    pub fn ptype(&self) -> PType {
         self.base.ptype()
     }
 
@@ -219,62 +216,64 @@ impl SequenceData {
         self.multiplier
     }
 
-    pub(crate) fn cast_value(value: PValue, ptype: PType) -> VortexResult<PValue> {
-        match_each_integer_ptype!(ptype, |O| { Ok(PValue::from(value.cast::<O>()?)) })
+    /// `base` and `multiplier` reduced into `O`, the type the values are computed in.
+    pub(crate) fn wrapping_parts<O: SequenceValue>(&self) -> VortexResult<(O, O)> {
+        arith::wrapping_parts(self.base, self.multiplier).ok_or_else(|| {
+            vortex_err!(
+                "SequenceArray values must be integers, got base {:?} and step {:?}",
+                self.base,
+                self.multiplier
+            )
+        })
+    }
+
+    /// The two's-complement bits of `base` and `multiplier`, widened to 64 bits by sign-extending
+    /// a negative step.
+    ///
+    /// A kernel materializing the sequence computes `base + i * multiplier` from these in an
+    /// integer type at least as wide as the output ptype, wrapping on overflow, and truncates the
+    /// result to the output ptype - see [`crate::arith`].
+    pub fn wrapping_bits(&self) -> VortexResult<(u64, u64)> {
+        self.wrapping_parts::<u64>()
     }
 
     pub fn into_parts(self) -> SequenceDataParts {
         SequenceDataParts {
             base: self.base,
             multiplier: self.multiplier,
-            calculation_ptype: self.calculation_ptype(),
+            ptype: self.ptype(),
         }
     }
 
-    pub(crate) fn try_last(
-        base: PValue,
-        multiplier: PValue,
-        length: usize,
-    ) -> VortexResult<PValue> {
-        let ptype = Self::infer_calculation_ptype(base, multiplier)?;
-        match_each_calculation_ptype!(ptype, |P| {
-            let len_t = <P>::from_usize(length - 1)
-                .ok_or_else(|| vortex_err!("cannot convert length {} into {}", length, ptype))?;
-
-            let base = base.cast::<P>()?;
-            let multiplier = multiplier.cast::<P>()?;
-            let last = len_t
-                .checked_mul(multiplier)
-                .and_then(|offset| offset.checked_add(base))
-                .ok_or_else(|| vortex_err!("last value computation overflows"))?;
-            Ok(PValue::from(last))
-        })
+    /// The exact value of the sequence's last element, computed before any check that it fits the
+    /// output ptype, or `None` if it leaves `i128`.
+    pub(crate) fn last_value(base: PValue, multiplier: PValue, length: usize) -> Option<i128> {
+        arith::exact_value(base, multiplier, length - 1)
     }
 
     pub(crate) fn index_value(&self, idx: usize) -> PValue {
-        match_each_calculation_ptype!(self.calculation_ptype(), |P| {
-            let base = self.base.cast::<P>().vortex_expect("must be able to cast");
-            let multiplier = self
-                .multiplier
-                .cast::<P>()
-                .vortex_expect("must be able to cast");
-            let value = base + (multiplier * <P>::from_usize(idx).vortex_expect("must fit"));
-
-            PValue::from(value)
+        match_each_integer_ptype!(self.ptype(), |O| {
+            let (base, multiplier) = self
+                .wrapping_parts::<O>()
+                .vortex_expect("sequence values are integers");
+            PValue::from(arith::wrapping_value(base, multiplier, idx))
         })
     }
 }
 
+// Sequences are compared and hashed on their exact values: comparing the stored `PValue`s
+// directly panics when one step is a negative `i64` and the other a `u64` above `i64::MAX`.
 impl ArrayHash for SequenceData {
     fn array_hash<H: Hasher>(&self, state: &mut H, _accuracy: EqMode) {
-        self.base.hash(state);
-        self.multiplier.hash(state);
+        arith::widen(self.base).hash(state);
+        arith::widen(self.multiplier).hash(state);
     }
 }
 
 impl ArrayEq for SequenceData {
     fn array_eq(&self, other: &Self, _accuracy: EqMode) -> bool {
-        self.base == other.base && self.multiplier == other.multiplier
+        arith::widen(self.base) == arith::widen(other.base)
+            && arith::widen(self.multiplier) == arith::widen(other.multiplier)
     }
 }
 
@@ -367,24 +366,22 @@ impl VTable for Sequence {
             .as_ref()
             .ok_or_else(|| vortex_err!("multiplier required"))?;
 
-        // Decoding a proto scalar needs a target dtype, so the arithmetic ptype has to come
-        // first. It cannot be read off `dtype`, whose ptype may have the other signedness.
-        let calculation_ptype =
-            SequenceData::infer_calculation_ptype_from_proto(base_metadata, multiplier_metadata)?;
-
         // We go via Scalar to validate that the value is valid for the ptype.
         let base = Scalar::from_proto_value(
             base_metadata,
-            &DType::Primitive(calculation_ptype, NonNullable),
+            &DType::Primitive(*output_ptype, NonNullable),
             session,
         )?
         .as_primitive()
         .pvalue()
         .vortex_expect("sequence array base should be a non-nullable primitive");
 
+        // The step is not necessarily representable in the output ptype, only its signedness is
+        // recovered from the serialized form.
+        let multiplier_ptype = SequenceData::multiplier_ptype_from_proto(multiplier_metadata)?;
         let multiplier = Scalar::from_proto_value(
             multiplier_metadata,
-            &DType::Primitive(calculation_ptype, NonNullable),
+            &DType::Primitive(multiplier_ptype, NonNullable),
             session,
         )?
         .as_primitive()
@@ -419,8 +416,10 @@ impl OperationsVTable<Sequence> for Sequence {
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let value = SequenceData::cast_value(array.index_value(index), array.dtype().as_ptype())?;
-        Scalar::try_new(array.dtype().clone(), Some(ScalarValue::Primitive(value)))
+        Scalar::try_new(
+            array.dtype().clone(),
+            Some(ScalarValue::Primitive(array.index_value(index))),
+        )
     }
 }
 
@@ -458,6 +457,8 @@ impl Sequence {
 
     /// Construct a new [`SequenceArray`] from pre-validated parts.
     ///
+    /// `base` and `multiplier` may be of any integer ptype; they are normalized here.
+    ///
     /// # Safety
     ///
     /// Caller must ensure the sequence is logically compatible with the provided dtype and len.
@@ -469,9 +470,8 @@ impl Sequence {
         length: usize,
     ) -> SequenceArray {
         let dtype = DType::Primitive(ptype, nullability);
-        let (base, multiplier) = SequenceData::normalize(base, multiplier).vortex_expect(
-            "SequenceArray parts must be normalized to the inferred arithmetic ptype",
-        );
+        let (base, multiplier) = SequenceData::normalize(base, multiplier, ptype)
+            .vortex_expect("SequenceArray parts must be representable in the output ptype");
         let stats = Self::stats(multiplier);
         let data = unsafe { SequenceData::new_unchecked(base, multiplier) };
         unsafe { Array::from_parts_unchecked(ArrayParts::new(Sequence, dtype, length, data)) }
@@ -519,6 +519,8 @@ mod tests {
 
     use rstest::rstest;
     use vortex_array::ArrayContext;
+    use vortex_array::ArrayEq;
+    use vortex_array::EqMode;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
@@ -529,6 +531,7 @@ mod tests {
     use vortex_array::expr::stats::Precision as StatPrecision;
     use vortex_array::expr::stats::Stat;
     use vortex_array::expr::stats::StatsProviderExt;
+    use vortex_array::scalar::PValue;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar::ScalarValue;
     use vortex_array::serde::SerializeOptions;
@@ -663,23 +666,18 @@ mod tests {
     }
 
     #[rstest]
-    #[case::descending_signed_arithmetic_unsigned_output(100i32, -10i32, PType::U8, PType::I64)]
-    #[case::narrow_unsigned(1000u32, 100u32, PType::U16, PType::U64)]
-    #[case::signed_output(0i16, 1i16, PType::I32, PType::I64)]
-    fn serde_roundtrip_preserves_arithmetic_ptype(
-        #[case] base: impl Into<vortex_array::scalar::PValue>,
-        #[case] multiplier: impl Into<vortex_array::scalar::PValue>,
+    #[case::descending_step_unsigned_output(PValue::from(100i32), PValue::from(-10i32), PType::U8)]
+    #[case::narrow_unsigned(PValue::from(1000u32), PValue::from(100u32), PType::U16)]
+    #[case::signed_output(PValue::from(0i16), PValue::from(1i16), PType::I32)]
+    #[case::signed_step_past_i64_max(PValue::from(0i64), PValue::from(1i64 << 62), PType::U64)]
+    #[case::unsigned_step_past_i64_max(PValue::from(0u64), PValue::from(u64::MAX / 4), PType::U64)]
+    fn serde_roundtrip_preserves_values(
+        #[case] base: PValue,
+        #[case] multiplier: PValue,
         #[case] output_ptype: PType,
-        #[case] expected_calculation_ptype: PType,
     ) -> VortexResult<()> {
-        let array = Sequence::try_new(
-            base.into(),
-            multiplier.into(),
-            output_ptype,
-            Nullability::NonNullable,
-            5,
-        )?;
-        assert_eq!(array.calculation_ptype(), expected_calculation_ptype);
+        let array = Sequence::try_new(base, multiplier, output_ptype, Nullability::NonNullable, 4)?;
+        assert_eq!(array.ptype(), output_ptype);
 
         let dtype = array.dtype().clone();
         let len = array.len();
@@ -705,12 +703,135 @@ mod tests {
         let decoded_sequence = decoded
             .as_opt::<Sequence>()
             .ok_or_else(|| vortex_err!("decoded array should still be a SequenceArray"))?;
-        assert_eq!(
-            decoded_sequence.calculation_ptype(),
-            expected_calculation_ptype
-        );
+        assert_eq!(decoded_sequence.ptype(), output_ptype);
+        assert_eq!(decoded_sequence.multiplier(), array.multiplier());
         assert_eq!(decoded.dtype(), &dtype);
         assert_arrays_eq!(decoded, array, &mut SESSION.create_execution_ctx());
+
+        Ok(())
+    }
+
+    /// A descending sequence steps by a negative value yet is a legal unsigned array.
+    #[test]
+    fn descending_step_unsigned_output() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = Sequence::try_new(
+            PValue::from(100i32),
+            PValue::from(-10i32),
+            PType::U8,
+            Nullability::NonNullable,
+            5,
+        )?;
+
+        assert_arrays_eq!(
+            array,
+            PrimitiveArray::from_iter([100u8, 90, 80, 70, 60]),
+            &mut ctx
+        );
+        assert_eq!(
+            array.clone().into_array().execute_scalar(1, &mut ctx)?,
+            Scalar::from(90u8)
+        );
+        assert_arrays_eq!(
+            array.slice(3..5)?,
+            PrimitiveArray::from_iter([70u8, 60]),
+            &mut ctx
+        );
+
+        Ok(())
+    }
+
+    /// A step that wraps the whole output range still lands on representable values.
+    #[test]
+    fn step_spanning_output_range() -> VortexResult<()> {
+        let array = Sequence::try_new(
+            PValue::from(255u8),
+            PValue::from(-255i32),
+            PType::U8,
+            Nullability::NonNullable,
+            2,
+        )?;
+
+        assert_arrays_eq!(
+            array,
+            PrimitiveArray::from_iter([255u8, 0]),
+            &mut SESSION.create_execution_ctx()
+        );
+
+        Ok(())
+    }
+
+    /// Values above `i64::MAX` are representable, whatever the step's signedness.
+    #[test]
+    fn values_past_i64_max() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let step = 1u64 << 62;
+        let array = Sequence::try_new(
+            PValue::from(0i64),
+            PValue::from(1i64 << 62),
+            PType::U64,
+            Nullability::NonNullable,
+            4,
+        )?;
+
+        assert_arrays_eq!(
+            array,
+            PrimitiveArray::from_iter([0, step, 2 * step, 3 * step]),
+            &mut ctx
+        );
+        assert_eq!(
+            array.into_array().execute_scalar(3, &mut ctx)?,
+            Scalar::from(3 * step)
+        );
+
+        Ok(())
+    }
+
+    /// A negative step and a step above `i64::MAX` are both legal for a `u64` sequence, and
+    /// comparing the two must not panic.
+    #[test]
+    fn eq_across_step_signedness() -> VortexResult<()> {
+        // The largest base a step of `1 << 63` still fits in `u64` from.
+        let base = PValue::from((1u64 << 63) - 1);
+        let descending = Sequence::try_new(
+            base,
+            PValue::from(-1i64),
+            PType::U64,
+            Nullability::NonNullable,
+            2,
+        )?
+        .into_array();
+        let ascending = Sequence::try_new(
+            base,
+            PValue::from(1u64 << 63),
+            PType::U64,
+            Nullability::NonNullable,
+            2,
+        )?
+        .into_array();
+
+        assert!(descending.array_eq(&descending.clone(), EqMode::Value));
+        assert!(!descending.array_eq(&ascending, EqMode::Value));
+
+        Ok(())
+    }
+
+    /// A constant sequence can be longer than the output ptype's range.
+    #[test]
+    fn constant_sequence_longer_than_output_range() -> VortexResult<()> {
+        let array = Sequence::try_new(
+            PValue::from(7u8),
+            PValue::from(0i32),
+            PType::U8,
+            Nullability::NonNullable,
+            300,
+        )?;
+
+        assert_arrays_eq!(
+            array,
+            PrimitiveArray::from_iter([7u8; 300]),
+            &mut SESSION.create_execution_ctx()
+        );
 
         Ok(())
     }

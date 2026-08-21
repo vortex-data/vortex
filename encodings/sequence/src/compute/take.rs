@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use num_traits::cast::NumCast;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -16,18 +15,18 @@ use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::Sequence;
-use crate::ptype::match_each_calculation_ptype;
+use crate::arith;
+use crate::arith::SequenceValue;
 
-fn take_inner<T: IntegerPType, C: IntegerPType, O: IntegerPType>(
-    mul: C,
-    base: C,
+fn take_inner<T: IntegerPType, O: SequenceValue>(
+    base: O,
+    multiplier: O,
     indices: &[T],
     indices_mask: Mask,
     result_nullability: Nullability,
@@ -39,9 +38,7 @@ fn take_inner<T: IntegerPType, C: IntegerPType, O: IntegerPType>(
                 if i.as_() >= len {
                     vortex_panic!(OutOfBounds: i.as_(), 0, len);
                 }
-                let i = <C as NumCast>::from::<T>(*i).vortex_expect("all indices fit");
-                <O as NumCast>::from(base + i * mul)
-                    .vortex_expect("validated sequence values must fit output ptype")
+                arith::wrapping_value(base, multiplier, i.as_())
             })),
             Validity::from(result_nullability),
         )
@@ -59,10 +56,7 @@ fn take_inner<T: IntegerPType, C: IntegerPType, O: IntegerPType>(
                             vortex_panic!(OutOfBounds: i.as_(), 0, len);
                         }
 
-                        let i =
-                            <C as NumCast>::from::<T>(*i).vortex_expect("all valid indices fit");
-                        <O as NumCast>::from(base + i * mul)
-                            .vortex_expect("validated sequence values must fit output ptype")
+                        arith::wrapping_value(base, multiplier, i.as_())
                     } else {
                         O::zero()
                     }
@@ -78,20 +72,16 @@ fn take_with_typed_indices<T: IntegerPType>(
     indices_mask: Mask,
     result_nullability: Nullability,
 ) -> VortexResult<ArrayRef> {
-    match_each_calculation_ptype!(array.calculation_ptype(), |C| {
-        let mul = array.multiplier().cast::<C>()?;
-        let base = array.base().cast::<C>()?;
-
-        match_each_integer_ptype!(array.dtype().as_ptype(), |O| {
-            Ok(take_inner::<T, C, O>(
-                mul,
-                base,
-                indices,
-                indices_mask,
-                result_nullability,
-                array.len(),
-            ))
-        })
+    match_each_integer_ptype!(array.dtype().as_ptype(), |O| {
+        let (base, multiplier) = array.wrapping_parts::<O>()?;
+        Ok(take_inner::<T, O>(
+            base,
+            multiplier,
+            indices,
+            indices_mask,
+            result_nullability,
+            array.len(),
+        ))
     })
 }
 
@@ -135,6 +125,8 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::scalar::PValue;
 
     use crate::Sequence;
     use crate::SequenceArray;
@@ -187,6 +179,27 @@ mod test {
         1i64,
         Nullability::Nullable,
         1000
+    ).unwrap())]
+    #[case::sequence_descending_u8(Sequence::try_new(
+        PValue::from(200i32),
+        PValue::from(-3i32),
+        PType::U8,
+        Nullability::NonNullable,
+        60
+    ).unwrap())]
+    #[case::sequence_past_i64_max(Sequence::try_new(
+        PValue::from(0i64),
+        PValue::from(1i64 << 62),
+        PType::U64,
+        Nullability::NonNullable,
+        4
+    ).unwrap())]
+    #[case::sequence_constant_longer_than_u8(Sequence::try_new(
+        PValue::from(7u8),
+        PValue::from(0i32),
+        PType::U8,
+        Nullability::NonNullable,
+        500
     ).unwrap())]
     fn sequence_take_conformance(#[case] sequence: SequenceArray) {
         test_take_conformance(

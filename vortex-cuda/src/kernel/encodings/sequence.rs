@@ -16,11 +16,8 @@ use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::encodings::sequence::Sequence;
-use vortex::encodings::sequence::SequenceDataParts;
 use vortex::error::VortexResult;
-use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
-use vortex::scalar::PValue;
 
 use crate::CudaDeviceBuffer;
 use crate::CudaExecutionCtx;
@@ -48,17 +45,11 @@ impl CudaExecute for SequenceExecutor {
         let nullability = array.dtype().nullability();
         let output_ptype = PType::try_from(array.dtype())?;
 
-        let SequenceDataParts {
-            base, multiplier, ..
-        } = array.into_data().into_parts();
-
-        // `base` and `multiplier` are held in the sequence's arithmetic ptype, which may be wider
-        // or of the other signedness than the output ptype. Every value of a valid sequence does
-        // fit the output ptype, and `base + i * multiplier` modulo 2^bits is exact, so computing
-        // it in the unsigned type of the output's width and reinterpreting the bytes as the output
-        // ptype gives the right answer without needing a kernel per (arithmetic, output) pair.
-        let base = wrapping_bits(base)?;
-        let multiplier = wrapping_bits(multiplier)?;
+        // The multiplier may be signed even when the output ptype is not, but every value of a
+        // valid sequence fits the output ptype and `base + i * multiplier` modulo 2^bits is exact.
+        // So the kernel computes in the unsigned type of the output's width and the result bytes
+        // are reinterpreted as the output ptype, rather than needing a kernel per ptype pair.
+        let (base, multiplier) = array.wrapping_bits()?;
 
         match_each_unsigned_integer_ptype!(output_ptype.to_unsigned(), |U| {
             execute_typed::<U>(
@@ -71,15 +62,6 @@ impl CudaExecute for SequenceExecutor {
             )
             .await
         })
-    }
-}
-
-/// The two's-complement bits of a sequence value, which is always an `i64` or a `u64`.
-fn wrapping_bits(value: PValue) -> VortexResult<u64> {
-    match value {
-        PValue::I64(v) => Ok(v as u64),
-        PValue::U64(v) => Ok(v),
-        other => vortex_bail!("sequence arithmetic ptype must be i64 or u64, got {other:?}"),
     }
 }
 

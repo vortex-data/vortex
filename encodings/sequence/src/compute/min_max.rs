@@ -9,14 +9,14 @@ use vortex_array::aggregate_fn::fns::min_max::make_minmax_dtype;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::match_each_pvalue;
-use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use crate::Sequence;
 use crate::SequenceData;
+use crate::arith;
 
 /// Sequence-specific min/max kernel.
 ///
@@ -47,27 +47,25 @@ impl DynAggregateKernel for SequenceMinMaxKernel {
             return Ok(Some(Scalar::null(struct_dtype)));
         }
 
-        let base = seq.base();
-        let last = SequenceData::try_last(base, seq.multiplier(), seq.len())?;
-
-        // Determine min and max based on multiplier direction.
-        // For unsigned types, multiplier is always >= 0.
-        let (min_pvalue, max_pvalue) = match_each_pvalue!(
-            seq.multiplier(),
-            uint: |_v| { (base, last) },
-            int: |v| {
-                if v >= 0 {
-                    (base, last)
-                } else {
-                    (last, base)
-                }
-            },
-            float: |_v| { unreachable!("float multiplier not supported for SequenceArray") }
-        );
-
         let output_ptype = seq.dtype().as_ptype();
-        let min_pvalue = SequenceData::cast_value(min_pvalue, output_ptype)?;
-        let max_pvalue = SequenceData::cast_value(max_pvalue, output_ptype)?;
+
+        // A sequence runs monotonically from its first to its last value, and `base` is already
+        // held in the output ptype.
+        let base = seq.base();
+        let last = SequenceData::last_value(base, seq.multiplier(), seq.len())
+            .and_then(|last| arith::narrow(last, output_ptype))
+            .ok_or_else(|| {
+                vortex_err!("sequence last value is not expressible as {output_ptype}")
+            })?;
+        let ascending = arith::widen(seq.multiplier())
+            .ok_or_else(|| vortex_err!("step {:?} must be an integer", seq.multiplier()))?
+            >= 0;
+
+        let (min_pvalue, max_pvalue) = if ascending {
+            (base, last)
+        } else {
+            (last, base)
+        };
 
         let non_nullable_dtype = DType::Primitive(output_ptype, Nullability::NonNullable);
         let min_scalar = Scalar::try_new(
