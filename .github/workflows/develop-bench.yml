@@ -101,6 +101,14 @@ jobs:
             name: String Encoding
             v4_ingest: false
     steps:
+      # `extras=s3-cache` points ACTIONS_RESULTS_URL at the RunsOn artifact proxy, but only
+      # this action wires the runner up to it. Without it `download-artifact` talks to an
+      # uninitialised proxy and fails ListArtifacts with a non-JSON body. The build job
+      # above already does this, which is why the upload half worked.
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - name: Install DuckDB
