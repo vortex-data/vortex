@@ -95,17 +95,16 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
         Self::with_capacity_in(
             element_dtype,
             nullability,
-            // We arbitrarily choose 2 times the number of list scalars for the capacity of the
-            // elements builder since we cannot know this ahead of time.
-            DEFAULT_BUILDER_CAPACITY * 2,
             DEFAULT_BUILDER_CAPACITY,
             allocator,
         )
     }
 
-    /// Create a new [`ListViewArray`] builder with a with the given `capacity`, as well as an
-    /// initial capacity for the `elements` builder (since we cannot know that ahead of time solely
-    /// based on the outer array `capacity`).
+    /// Create a new [`ListViewArray`] builder with the given `capacity`.
+    ///
+    /// The `elements` builder is left to size itself: how many elements the lists hold is not
+    /// something the outer `capacity` says, and an appended array becomes a chunk of the elements
+    /// rather than a copy into them.
     ///
     /// # Panics
     ///
@@ -114,13 +113,11 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
     pub fn with_capacity(
         element_dtype: Arc<DType>,
         nullability: Nullability,
-        elements_capacity: usize,
         capacity: usize,
     ) -> Self {
         Self::with_capacity_in(
             element_dtype,
             nullability,
-            elements_capacity,
             capacity,
             BufferAllocatorRef::static_ref(),
         )
@@ -134,12 +131,11 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
     pub fn with_capacity_in(
         element_dtype: Arc<DType>,
         nullability: Nullability,
-        elements_capacity: usize,
         capacity: usize,
         allocator: &BufferAllocatorRef,
     ) -> Self {
         let elements_builder =
-            ChildBuilder::with_capacity(&element_dtype, elements_capacity, allocator);
+            ChildBuilder::with_capacity(&element_dtype, 2 * capacity, allocator);
 
         let offsets_builder =
             PrimitiveBuilder::<O>::with_capacity_in(Nullability::NonNullable, capacity, allocator);

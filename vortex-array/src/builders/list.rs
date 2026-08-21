@@ -71,17 +71,16 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
         Self::with_capacity_in(
             value_dtype,
             nullability,
-            // We arbitrarily choose 2 times the number of list scalars for the capacity of the
-            // elements builder since we cannot know this ahead of time.
-            DEFAULT_BUILDER_CAPACITY * 2,
             DEFAULT_BUILDER_CAPACITY,
             allocator,
         )
     }
 
-    /// Create a new [`ListArray`] builder with a with the given `capacity`, as well as an initial
-    /// capacity for the `elements` builder (since we cannot know that ahead of time solely based on
-    /// the outer array `capacity`).
+    /// Create a new [`ListArray`] builder with the given `capacity`.
+    ///
+    /// The `elements` builder is left to size itself: how many elements the lists hold is not
+    /// something the outer `capacity` says, and an appended array becomes a chunk of the elements
+    /// rather than a copy into them.
     ///
     /// # Notes
     ///
@@ -90,13 +89,11 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
     pub fn with_capacity(
         value_dtype: Arc<DType>,
         nullability: Nullability,
-        elements_capacity: usize,
         capacity: usize,
     ) -> Self {
         Self::with_capacity_in(
             value_dtype,
             nullability,
-            elements_capacity,
             capacity,
             BufferAllocatorRef::static_ref(),
         )
@@ -106,12 +103,11 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
     pub fn with_capacity_in(
         value_dtype: Arc<DType>,
         nullability: Nullability,
-        elements_capacity: usize,
         capacity: usize,
         allocator: &BufferAllocatorRef,
     ) -> Self {
         let elements_builder =
-            ChildBuilder::with_capacity(value_dtype.as_ref(), elements_capacity, allocator);
+            ChildBuilder::with_capacity(value_dtype.as_ref(), 2 * capacity, allocator);
         let mut offsets_builder =
             PrimitiveBuilder::<O>::with_capacity_in(NonNullable, capacity + 1, allocator);
 
