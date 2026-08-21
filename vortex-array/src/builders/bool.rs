@@ -79,11 +79,14 @@ impl BoolBuilder {
             "Null count and value count should match when calling BoolBuilder::finish."
         );
 
-        let inner = self.inner.take().freeze();
-        BoolArray::new(
-            inner,
-            self.nulls.finish_with_nullability(self.dtype.nullability()),
-        )
+        // SAFETY: the assert above establishes the only invariant, that the validity covers
+        // exactly the bits appended.
+        unsafe {
+            BoolArray::new_unchecked(
+                self.inner.take().freeze(),
+                self.nulls.finish_with_nullability(self.dtype.nullability()),
+            )
+        }
     }
 
     pub(crate) fn append_bool_array(
