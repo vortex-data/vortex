@@ -21,6 +21,20 @@ bool VortexBindData::Equals(const FunctionData &other_base) const {
     return ffi_bind_data.get() == other.ffi_bind_data.get();
 }
 
+bool SkipMultiFileReaderColumn(size_t i,
+                               optional_idx filename_idx,
+                               const std::vector<HivePartitioningIndex> &hive_indices) {
+    if (filename_idx.IsValid() && i == filename_idx.GetIndex()) {
+        return true;
+    }
+    for (const auto &idx : hive_indices) {
+        if (idx.index == i) {
+            return true;
+        }
+    }
+    return false;
+}
+
 ReaderInitializeType
 VortexMultiFileReader::InitializeReader(MultiFileReaderData &reader_data,
                                         const MultiFileBindData &bind_data,
@@ -39,11 +53,18 @@ VortexMultiFileReader::InitializeReader(MultiFileReaderData &reader_data,
 
     reader.columns = global_columns;
 
+    const optional_idx filename_idx = bind_data.reader_bind.filename_idx;
+    const auto &hive_indices = bind_data.reader_bind.hive_partitioning_indexes;
+
     // Aggregate scan columns are aggregate results so base column mapping is
     // wrong.
     if (!duckdb_reader_is_aggregate(ffi_bind)) {
         // Projection expression pushdown changes types of columns
         for (size_t i = 0; i < global_columns.size(); i++) {
+            if (SkipMultiFileReaderColumn(i, filename_idx, hive_indices)) {
+                continue;
+            }
+
             const duckdb_logical_type type = duckdb_reader_bind_column_type(ffi_bind, i);
             reader.columns[i].type = *reinterpret_cast<const LogicalType *>(type);
         }
@@ -79,12 +100,12 @@ void VortexReaderInterface::BindReader(ClientContext &context,
                                        vector<string> &names,
                                        MultiFileBindData &bind_data) {
     BaseFileReaderOptions options;
-    MultiFileOptions file_options;
+
     VortexBindResult result = {types, names};
 
     VortexBindData &bind = bind_data.bind_data->Cast<VortexBindData>();
     const OpenFileInfo first_file = bind_data.file_list->GetFirstFile();
-    bind_data.initial_reader = CreateReader(context, first_file, options, file_options);
+    bind_data.initial_reader = CreateReader(context, first_file, options, bind_data.file_options);
     VortexBaseReader &initial_reader = bind_data.initial_reader->Cast<VortexBaseReader>();
 
     duckdb_vx_error error = nullptr;
@@ -98,6 +119,14 @@ void VortexReaderInterface::BindReader(ClientContext &context,
 
     bind.ffi_bind_data = unique_ptr<CData>(reinterpret_cast<CData *>(ffi_bind_data));
     initial_reader.ffi_bind = bind.ffi_bind_data->DataPtr();
+
+    // Fills bind_data.file_options which are used for hive partitioning and
+    // "filename" column.
+    bind_data.multi_file_reader->BindOptions(bind_data.file_options,
+                                             *bind_data.file_list,
+                                             types,
+                                             names,
+                                             bind_data.reader_bind);
 }
 
 unique_ptr<GlobalTableFunctionState>
@@ -106,9 +135,19 @@ VortexReaderInterface::InitializeGlobalState(ClientContext &context,
                                              MultiFileGlobalState &input) {
     const VortexBindData &bind = bind_data.bind_data->Cast<VortexBindData>();
 
+    const optional_idx filename_idx = bind_data.reader_bind.filename_idx;
+    const auto &hive_indices = bind_data.reader_bind.hive_partitioning_indexes;
+
     vector<idx_t> column_ids(input.column_indexes.size());
     for (size_t i = 0; i < input.column_indexes.size(); ++i) {
-        column_ids[i] = input.column_indexes[i].GetPrimaryIndex();
+        idx_t storage_index = input.column_indexes[i].GetPrimaryIndex();
+
+        if (SkipMultiFileReaderColumn(storage_index, filename_idx, hive_indices)) {
+            // replace with a virtual column which Vortex filters in Rust
+            storage_index = COLUMN_IDENTIFIER_EMPTY;
+        }
+
+        column_ids[i] = storage_index;
     }
 
     void *const ffi_bind = bind.ffi_bind_data->DataPtr();

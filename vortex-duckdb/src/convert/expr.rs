@@ -588,7 +588,18 @@ fn try_from_expression_inner(
             };
             col.clone()
         }
-        BoundColumnRef(col_ref) => col(col_ref.name.as_ref()),
+        BoundColumnRef(col_ref) => {
+            let name = col_ref.name.as_ref();
+            // Duckdb generates some columns (e.g. hive partitions) after we
+            // load file data, so filters on these columns can't be evaluated
+            if ctx
+                .fields
+                .is_some_and(|fields| !fields.iter().any(|field| field.name == name))
+            {
+                return Ok(None);
+            }
+            col(name)
+        }
         BoundConstant(const_) => lit(Scalar::try_from(const_.value)?),
         BoundComparison(compare) => {
             let operator: Operator = compare.op.try_into()?;

@@ -133,8 +133,9 @@ unique_ptr<MultiFileReader> get_multi_file_reader(const TableFunction &) {
 duckdb_state register_table_function(DatabaseInstance &db, LogicalType parameter, const std::string &name) {
     MultiFileFunction<VortexReaderInterface> fn(name);
     fn.arguments[0] = parameter;
-    // We neither support UNION BY NAME nor hive partitioning as for now
-    fn.named_parameters = {};
+    fn.named_parameters = {{"filename", LogicalType::ANY},
+                           {"allow_empty", LogicalType::BOOLEAN},
+                           {"hive_partitioning", LogicalType::BOOLEAN}};
 
     fn.filter_pushdown = true;
     fn.filter_prune = true;

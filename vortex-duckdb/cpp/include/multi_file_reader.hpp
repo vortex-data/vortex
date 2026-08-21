@@ -154,7 +154,6 @@ struct VortexBaseReader final : BaseFileReader {
     }
 
     unique_ptr<CData> ffi_file;
-    vector<column_t> virtual_ids;
     /*
      * Populated only for first file reader in scan when BindReader() is
      * called on it. Used in GetStatistics() which is called only for first
@@ -162,8 +161,7 @@ struct VortexBaseReader final : BaseFileReader {
      */
     const void *ffi_bind = nullptr;
 
-    inline void AddVirtualColumn(column_t id) override {
-        virtual_ids.push_back(id);
+    inline void AddVirtualColumn(column_t) override {
     }
 
     /*
