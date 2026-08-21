@@ -16,7 +16,7 @@ pub fn filter_bool(array: &BoolArray, mask: &MaskValuesRef) -> BoolArray {
     let filtered_validity = filter_validity(validity, mask);
 
     let bit_buffer = array.to_bit_buffer();
-    let filtered_buffer = bitbuffer::filter_bit_buffer(&bit_buffer, mask);
+    let filtered_buffer = bitbuffer::filter_bit_buffer(&bit_buffer, mask.as_ref());
 
     BoolArray::new(filtered_buffer, filtered_validity)
 }

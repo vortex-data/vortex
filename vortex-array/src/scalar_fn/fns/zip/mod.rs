@@ -12,7 +12,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
-use vortex_mask::MaskValuesRef;
+use vortex_mask::MaskValues;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -215,7 +215,7 @@ pub(crate) fn zip_impl(
     zip_impl_with_builder(
         &if_true,
         &if_false,
-        mask_values,
+        mask_values.as_ref(),
         builder_with_capacity(&return_type, if_true.len()),
         ctx,
     )
@@ -284,7 +284,7 @@ fn zip_nullability_union(lhs: &DType, rhs: &DType) -> Option<DType> {
 fn zip_impl_with_builder(
     if_true: &ArrayRef,
     if_false: &ArrayRef,
-    mask: &MaskValuesRef,
+    mask: &MaskValues,
     mut builder: Box<dyn ArrayBuilder>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {

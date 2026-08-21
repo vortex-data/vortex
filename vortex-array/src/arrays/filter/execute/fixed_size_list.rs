@@ -4,6 +4,7 @@
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 use vortex_mask::MaskIter;
+use vortex_mask::MaskValues;
 use vortex_mask::MaskValuesRef;
 
 use crate::arrays::FixedSizeListArray;
@@ -38,7 +39,8 @@ pub fn filter_fixed_size_list(
     let new_elements = {
         if list_size != 0 {
             // TODO(connor): Push down an indices or slices selection to avoid expanding the mask.
-            let elements_mask = compute_mask_for_fsl_elements(selection_mask, list_size as usize);
+            let elements_mask =
+                compute_mask_for_fsl_elements(selection_mask.as_ref(), list_size as usize);
 
             let new_elements = elements
                 .filter(elements_mask)
@@ -73,7 +75,7 @@ pub fn filter_fixed_size_list(
 /// `list_size` times.
 ///
 /// The output `Mask` is guaranteed to have a length equal to `selection_mask.len() * list_size`.
-fn compute_mask_for_fsl_elements(selection_mask: &MaskValuesRef, list_size: usize) -> Mask {
+fn compute_mask_for_fsl_elements(selection_mask: &MaskValues, list_size: usize) -> Mask {
     let expanded_len = selection_mask.len() * list_size;
 
     // Use threshold_iter to choose the optimal representation based on density.

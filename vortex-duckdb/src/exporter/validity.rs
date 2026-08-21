@@ -4,7 +4,7 @@
 use vortex::array::ExecutionCtx;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
-use vortex::mask::MaskValuesRef;
+use vortex::mask::MaskValues;
 
 use crate::duckdb::ValidityData;
 use crate::duckdb::VectorBuffer;
@@ -28,7 +28,7 @@ struct ValidityExporter {
 /// - Its bit offset is zero.
 /// - Its byte buffer is aligned for `u64`.
 /// - Its byte length is a multiple of `size_of::<u64>()`.
-fn zero_copy_validity(values: &MaskValuesRef) -> Option<ValidityData> {
+fn zero_copy_validity(values: &MaskValues) -> Option<ValidityData> {
     let bit_buffer = values.bit_buffer();
     if bit_buffer.offset() != 0 {
         return None;
@@ -59,7 +59,7 @@ pub(crate) fn new_exporter(
     let zero_copy = match &mask {
         Mask::AllTrue(_) | Mask::AllFalse(0) => return exporter,
         Mask::AllFalse(_) => None,
-        Mask::Values(values) => zero_copy_validity(values),
+        Mask::Values(values) => zero_copy_validity(values.as_ref()),
     };
 
     Box::new(ValidityExporter {

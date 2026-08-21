@@ -11,7 +11,7 @@ use std::ptr;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_mask::MaskIter;
-use vortex_mask::MaskValuesRef;
+use vortex_mask::MaskValues;
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
 pub(super) const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
@@ -20,9 +20,9 @@ pub(super) const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 // Immutable slice filtering
 // ---------------------------------------------------------------------------
 
-/// Filter a slice by [`MaskValuesRef`], dispatching to the indices or slices path based on a
+/// Filter a slice by [`MaskValues`], dispatching to the indices or slices path based on a
 /// selectivity threshold.
-pub(super) fn filter_slice_by_mask_values<T: Copy>(slice: &[T], mask: &MaskValuesRef) -> Buffer<T> {
+pub(super) fn filter_slice_by_mask_values<T: Copy>(slice: &[T], mask: &MaskValues) -> Buffer<T> {
     assert_eq!(
         mask.len(),
         slice.len(),
@@ -56,14 +56,14 @@ fn filter_slice_by_slices<T: Copy>(slice: &[T], slices: &[(usize, usize)]) -> Bu
 // Mutable (in-place) slice filtering
 // ---------------------------------------------------------------------------
 
-/// Filter a mutable slice in-place by [`MaskValuesRef`], returning the new valid length.
+/// Filter a mutable slice in-place by [`MaskValues`], returning the new valid length.
 ///
 /// We always use the slices path here because iterating over indices will have strictly more
 /// loop iterations than slices (more branches), and the overhead of batched `ptr::copy(len)` is
 /// not that high.
 pub(super) fn filter_slice_mut_by_mask_values<T: Copy>(
     slice: &mut [T],
-    mask: &MaskValuesRef,
+    mask: &MaskValues,
 ) -> usize {
     assert_eq!(
         slice.len(),

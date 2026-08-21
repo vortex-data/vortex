@@ -17,7 +17,7 @@ pub fn filter_varbinview(array: &VarBinViewArray, mask: &MaskValuesRef) -> VarBi
     let filtered_validity = filter_validity(array.varbinview_validity(), mask);
 
     let views = Buffer::<BinaryView>::from_byte_buffer(array.views_handle().as_host().clone());
-    let filtered_views = buffer::filter_buffer(views, mask);
+    let filtered_views = buffer::filter_buffer(views, mask.as_ref());
 
     // SAFETY: the filtered views are a subset of the original views and reference the same data
     // buffers, and the validity is filtered by the same mask so lengths stay aligned.

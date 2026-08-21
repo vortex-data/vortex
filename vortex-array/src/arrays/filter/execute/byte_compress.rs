@@ -11,7 +11,7 @@ use std::mem::size_of;
 
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_mask::MaskValuesRef;
+use vortex_mask::MaskValues;
 
 const BYTE_COMPRESS_DENSITY_THRESHOLD: f64 = 0.5;
 
@@ -45,7 +45,7 @@ static BYTE_COMPRESS_LUT: &[([u8; 8], u8); 256] = &{
 ///
 /// Processes the mask one byte at a time (8 source elements per byte),
 /// using a precomputed permutation to compact selected elements.
-pub(crate) fn filter_buffer<T: Copy>(buffer: Buffer<T>, mask: &MaskValuesRef) -> Buffer<T> {
+pub(crate) fn filter_buffer<T: Copy>(buffer: Buffer<T>, mask: &MaskValues) -> Buffer<T> {
     debug_assert_eq!(buffer.len(), mask.len());
 
     let src = buffer.as_slice();
@@ -176,9 +176,9 @@ mod tests {
 
     use super::*;
 
-    fn mask_values(mask: &Mask) -> &MaskValuesRef {
+    fn mask_values(mask: &Mask) -> &MaskValues {
         match mask {
-            Mask::Values(values) => values,
+            Mask::Values(v) => v.as_ref(),
             _ => panic!("expected Mask::Values"),
         }
     }

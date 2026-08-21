@@ -5,6 +5,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
+use vortex_mask::MaskValues;
 use vortex_mask::MaskValuesRef;
 
 use super::FixedWidthArray;
@@ -21,7 +22,7 @@ mod tests;
 
 pub(crate) fn filter<V: FixedWidthArray>(array: &Array<V>, mask: &MaskValuesRef) -> Array<V> {
     let array = array.as_view();
-    let values = filter_records(V::values(array), V::byte_width(array), mask);
+    let values = filter_records(V::values(array), V::byte_width(array), mask.as_ref());
     let validity = filter_validity(
         array
             .validity()
@@ -32,7 +33,7 @@ pub(crate) fn filter<V: FixedWidthArray>(array: &Array<V>, mask: &MaskValuesRef)
         .vortex_expect("filtering fixed-width values preserves array invariants")
 }
 
-fn filter_records(values: ByteBuffer, byte_width: usize, mask: &MaskValuesRef) -> ByteBuffer {
+fn filter_records(values: ByteBuffer, byte_width: usize, mask: &MaskValues) -> ByteBuffer {
     let alignment = values.alignment();
 
     match_each_record_width!(
