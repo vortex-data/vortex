@@ -1,0 +1,68 @@
+# TEMPORARY: A/B proof for the develop-bench "Download benchmark binary" fix.
+# Reproduces the ListArtifacts failure on a runner without `runs-on/action@v2` and
+# shows the same download succeeding with it. Deleted from the branch after one run.
+
+name: Artifact Proxy Proof
+
+on:
+  push:
+    branches: [claude/benchmark-failures-develop-eyj5oi]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    timeout-minutes: 15
+    runs-on: runs-on=${{ github.run_id }}/runner=bench-dedicated/family=c6id.8xlarge/extras=s3-cache/tag=proof-build
+    steps:
+      - uses: runs-on/action@v2
+      - name: Create dummy binary
+        shell: bash
+        run: |
+          mkdir -p target/release_debug
+          echo "artifact-proxy-proof-payload" > target/release_debug/proof-binary
+      - name: Upload benchmark binary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: proof-binary
+          path: target/release_debug/proof-binary
+
+  # Mirrors the broken develop-bench `bench` job: no `runs-on/action@v2`, so the
+  # download talks to the uninitialised RunsOn proxy. This job is green only if the
+  # download fails, i.e. the bug reproduces.
+  repro-without-fix:
+    needs: build
+    timeout-minutes: 15
+    runs-on: runs-on=${{ github.run_id }}/runner=bench-dedicated/family=c6id.8xlarge/extras=s3-cache/tag=proof-broken
+    steps:
+      - name: Download benchmark binary (expected to fail)
+        id: dl
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
+        with:
+          name: proof-binary
+          path: target/release_debug/
+      - name: Assert ListArtifacts failure reproduced
+        shell: bash
+        run: |
+          echo "download outcome: ${{ steps.dl.outcome }}"
+          test "${{ steps.dl.outcome }}" = "failure"
+
+  # Mirrors the fixed `bench` job: `runs-on/action@v2` first, then the same download.
+  proof-with-fix:
+    needs: build
+    timeout-minutes: 15
+    runs-on: runs-on=${{ github.run_id }}/runner=bench-dedicated/family=c6id.8xlarge/extras=s3-cache/tag=proof-fixed
+    steps:
+      - uses: runs-on/action@v2
+      - name: Download benchmark binary
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
+        with:
+          name: proof-binary
+          path: target/release_debug/
+      - name: Assert download succeeded
+        shell: bash
+        run: |
+          ls -la target/release_debug/
+          grep -q "artifact-proxy-proof-payload" target/release_debug/proof-binary
