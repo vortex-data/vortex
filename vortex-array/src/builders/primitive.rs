@@ -134,12 +134,21 @@ impl<T: NativePType> PrimitiveBuilder<T> {
 
     /// Finishes the builder directly into a [`PrimitiveArray`].
     pub fn finish_into_primitive(&mut self) -> PrimitiveArray {
+        let values = self.values.take().freeze();
         let validity = self
             .nulls
             .finish_with_nullability(self.dtype().nullability());
 
-        let values = self.values.take().freeze();
-        PrimitiveArray::new(values, validity)
+        assert!(
+            validity.maybe_len().is_none_or(|len| len == values.len()),
+            "validity of length {:?} does not cover the {} values appended",
+            validity.maybe_len(),
+            values.len()
+        );
+
+        // SAFETY: the assert above establishes the only invariant, that an array-backed validity
+        // covers exactly the values appended. The other validities carry no length at all.
+        unsafe { PrimitiveArray::new_unchecked(values, validity) }
     }
 
     /// Extends the primitive array with an iterator.
