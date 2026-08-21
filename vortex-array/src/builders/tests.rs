@@ -1263,7 +1263,6 @@ fn test_list_builder_offsets_are_rebased_across_element_chunks() -> VortexResult
         element_dtype,
         Nullability::NonNullable,
         0,
-        0,
         BufferAllocatorRef::static_ref(),
     );
     for value in 0..3i32 {

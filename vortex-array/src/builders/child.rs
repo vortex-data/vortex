@@ -43,7 +43,7 @@ pub struct ChildBuilder {
     pending: Option<Box<dyn ArrayBuilder>>,
 
     /// The capacity the scalar builder is materialized with, grown by
-    /// [`reserve_exact`](Self::reserve_exact).
+    /// [`reserve_exact`](Self::reserve_exact) until it is.
     pending_capacity: usize,
 
     allocator: BufferAllocatorRef,
@@ -51,6 +51,9 @@ pub struct ChildBuilder {
 
 impl ChildBuilder {
     /// Creates a child builder with the provided allocator and capacity.
+    ///
+    /// The scalar builder is allocated on first use. Children that only receive whole arrays
+    /// never allocate a scalar builder.
     pub fn with_capacity(dtype: &DType, capacity: usize, allocator: &BufferAllocatorRef) -> Self {
         Self {
             dtype: dtype.clone(),
@@ -395,6 +398,40 @@ mod tests {
 
         let expected = PrimitiveArray::new(buffer![3i32], NonNullable.into()).into_array();
         assert_arrays_eq!(&builder.finish(), &expected, &mut ctx);
+
+        Ok(())
+    }
+
+    /// Reserving is recorded while the scalar builder is unmaterialized and forwarded once it
+    /// exists; either way the scalars appended after it are the ones that come back.
+    #[test]
+    fn test_reserving_before_and_after_the_first_scalar() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let mut builder = ChildBuilder::with_capacity(&DType::from(I32), 0, BufferAllocatorRef::static_ref());
+
+        builder.reserve_exact(2);
+        builder.append_scalar(&1i32.into())?;
+        builder.reserve_exact(2);
+        builder.append_scalar(&2i32.into())?;
+
+        let expected = PrimitiveArray::new(buffer![1i32, 2], NonNullable.into()).into_array();
+        assert_arrays_eq!(&builder.finish(), &expected, &mut ctx);
+
+        Ok(())
+    }
+
+    /// A child that is only ever reserved never materializes a scalar builder, and still finishes
+    /// as an empty array of its own dtype.
+    #[test]
+    fn test_reserving_alone_finishes_empty() -> VortexResult<()> {
+        let mut builder = ChildBuilder::with_capacity(&DType::from(I32), 0, BufferAllocatorRef::static_ref());
+
+        builder.reserve_exact(CHUNK_LEN);
+
+        assert_eq!(builder.len(), 0);
+        let child = builder.finish();
+        assert!(child.is_empty());
+        assert!(child.is::<Primitive>());
 
         Ok(())
     }
