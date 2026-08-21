@@ -4,69 +4,69 @@
 use vortex::array::ExecutionCtx;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
+use vortex::mask::MaskValuesRef;
 
 use crate::duckdb::ValidityData;
 use crate::duckdb::VectorBuffer;
 use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 
-/// A [`ColumnExporter`] that wraps another exporter with a validity
-/// export, allowing you to write data using something else here.
+/// Exports validity before delegating values to another [`ColumnExporter`].
 struct ValidityExporter {
     mask: Mask,
-    /// If the mask's bit buffer is u64-aligned with no sub-byte offset,
-    /// we can zero-copy it into DuckDB. We hold the ValidityData to keep
-    /// the underlying memory alive via DuckDB's ref-counting.
+
+    /// Points into `mask` and keeps its bitmap alive when DuckDB can use it directly.
     zero_copy: Option<ValidityData>,
+
     exporter: Box<dyn ColumnExporter>,
 }
 
-/// Returns true if the bit buffer can be zero-copied as a DuckDB validity mask.
+/// Returns the zero-copy validity data for `values`, if DuckDB can read its bit buffer directly.
 ///
-/// Requirements:
-/// - No sub-byte bit offset (offset == 0)
-/// - The underlying byte buffer is u64-aligned
-/// - The underlying byte buffer length is a multiple of 8 (so u64 reads are in-bounds)
-fn can_zero_copy_validity(mask: &Mask) -> bool {
-    let Mask::Values(values) = mask else {
-        return false;
-    };
-    let bit_buf = values.bit_buffer();
-    if bit_buf.offset() != 0 {
-        return false;
+/// The bit buffer must satisfy these requirements:
+///
+/// - Its bit offset is zero.
+/// - Its byte buffer is aligned for `u64`.
+/// - Its byte length is a multiple of `size_of::<u64>()`.
+fn zero_copy_validity(values: &MaskValuesRef) -> Option<ValidityData> {
+    let bit_buffer = values.bit_buffer();
+    if bit_buffer.offset() != 0 {
+        return None;
     }
-    let inner = bit_buf.inner();
-    let slice = inner.as_slice();
-    // DuckDB reads validity as u64 words, so the buffer must be u64-aligned and
-    // its length must be a multiple of 8 bytes to avoid out-of-bounds reads.
-    (slice.as_ptr() as usize).is_multiple_of(size_of::<u64>())
-        && slice.len().is_multiple_of(size_of::<u64>())
+
+    let buffer = bit_buffer.inner().clone();
+    let bytes = buffer.as_slice();
+    let data_ptr = bytes.as_ptr();
+
+    // DuckDB reads `u64` words. A misaligned pointer causes undefined behavior, and a trailing
+    // partial word can cause an out-of-bounds read.
+    if !(data_ptr as usize).is_multiple_of(size_of::<u64>())
+        || !bytes.len().is_multiple_of(size_of::<u64>())
+    {
+        return None;
+    }
+
+    Some(ValidityData {
+        shared_buffer: VectorBuffer::new(buffer),
+        data_ptr,
+    })
 }
 
 pub(crate) fn new_exporter(
     mask: Mask,
     exporter: Box<dyn ColumnExporter>,
 ) -> Box<dyn ColumnExporter> {
-    if mask.all_true() {
-        exporter
-    } else {
-        let zero_copy = can_zero_copy_validity(&mask).then(|| {
-            let Mask::Values(values) = &mask else {
-                unreachable!()
-            };
-            let buffer = values.bit_buffer().inner().clone();
-            let data_ptr = buffer.as_slice().as_ptr();
-            ValidityData {
-                shared_buffer: VectorBuffer::new(buffer),
-                data_ptr,
-            }
-        });
-        Box::new(ValidityExporter {
-            mask,
-            zero_copy,
-            exporter,
-        })
-    }
+    let zero_copy = match &mask {
+        Mask::AllTrue(_) | Mask::AllFalse(0) => return exporter,
+        Mask::AllFalse(_) => None,
+        Mask::Values(values) => zero_copy_validity(values),
+    };
+
+    Box::new(ValidityExporter {
+        mask,
+        zero_copy,
+        exporter,
+    })
 }
 
 impl ColumnExporter for ValidityExporter {
@@ -85,6 +85,7 @@ impl ColumnExporter for ValidityExporter {
             offset + len <= self.mask.len(),
             "cannot access outside of array"
         );
+
         if unsafe {
             vector.set_validity_zero_copy(&self.mask, offset, len, self.zero_copy.as_ref())
         } {

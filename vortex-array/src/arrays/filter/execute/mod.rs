@@ -5,12 +5,10 @@
 //!
 //! The main entrypoint is [`execute_filter`] which filters any [`Canonical`] array.
 
-use std::sync::Arc;
-
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_mask::MaskValues;
+use vortex_mask::MaskValuesRef;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -25,7 +23,6 @@ use crate::arrays::MapArray;
 use crate::arrays::NullArray;
 use crate::arrays::VariantArray;
 use crate::arrays::extension::ExtensionArrayExt;
-use crate::arrays::filter::FilterArraySlotsExt;
 use crate::arrays::filter::FilterReduce;
 use crate::arrays::fixed_width;
 use crate::arrays::variant::VariantArraySlotsExt;
@@ -44,41 +41,28 @@ mod take;
 mod union;
 mod varbinview;
 
-/// A helper function that lazily filters a [`Validity`] with selection mask values.
-pub(crate) fn filter_validity(validity: Validity, mask: &Arc<MaskValues>) -> Validity {
+/// Lazily filters a [`Validity`] with a partially selective mask.
+pub(crate) fn filter_validity(validity: Validity, mask: &MaskValuesRef) -> Validity {
     validity
-        .filter(&Mask::Values(Arc::clone(mask)))
-        .vortex_expect("Somehow unable to wrap filter around a validity array")
+        .filter(&Mask::Values(MaskValuesRef::clone(mask)))
+        .vortex_expect("filtering validity with a partially selective mask is valid")
 }
 
-/// Check for some fast-path execution conditions before calling [`execute_filter`].
-pub(super) fn execute_filter_fast_paths(
+/// Returns an all-null result when the child contains no valid values.
+pub(super) fn execute_all_null_filter_fast_path(
     array: ArrayView<'_, Filter>,
+    selected_count: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
-    let true_count = array.mask.true_count();
-
-    // If the mask selects nothing, the output is empty.
-    if true_count == 0 {
-        return Ok(Some(Canonical::empty(array.dtype()).into_array()));
-    }
-
-    // If the mask selects everything, then we can just fully decompress the whole thing.
-    if true_count == array.mask.len() {
-        return Ok(Some(array.child().clone()));
-    }
-
-    // Also check if the array itself is completely null, in which case we only care about the total
-    // number of nulls, not the values.
-    let child_arr = array.array();
-    if child_arr
+    let child = array.array();
+    if child
         .validity()?
-        .execute_mask(child_arr.len(), ctx)?
+        .execute_mask(child.len(), ctx)?
         .true_count()
         == 0
     {
         return Ok(Some(
-            ConstantArray::new(Scalar::null(array.dtype().clone()), true_count).into_array(),
+            ConstantArray::new(Scalar::null(array.dtype().clone()), selected_count).into_array(),
         ));
     }
 
@@ -86,7 +70,7 @@ pub(super) fn execute_filter_fast_paths(
 }
 
 /// Filter a canonical array by a mask, returning a new canonical array.
-pub(super) fn execute_filter(canonical: Canonical, mask: &Arc<MaskValues>) -> Canonical {
+pub(super) fn execute_filter(canonical: Canonical, mask: &MaskValuesRef) -> Canonical {
     match canonical {
         Canonical::Null(_) => Canonical::Null(NullArray::new(mask.true_count())),
         Canonical::Bool(a) => Canonical::Bool(bool::filter_bool(&a, mask)),
@@ -103,12 +87,12 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Arc<MaskValues>) -> Ca
         Canonical::Extension(a) => {
             let filtered_storage = a
                 .storage_array()
-                .filter(Mask::Values(Arc::clone(mask)))
+                .filter(Mask::Values(MaskValuesRef::clone(mask)))
                 .vortex_expect("ExtensionArray storage type somehow could not be filtered");
             Canonical::Extension(ExtensionArray::new(a.ext_dtype().clone(), filtered_storage))
         }
         Canonical::Variant(a) => {
-            let filter_mask = Mask::Values(Arc::clone(mask));
+            let filter_mask = Mask::Values(MaskValuesRef::clone(mask));
             let filtered_core_storage = a
                 .core_storage()
                 .filter(filter_mask.clone())
@@ -126,8 +110,8 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Arc<MaskValues>) -> Ca
     }
 }
 
-fn filter_map(array: &MapArray, mask: &Arc<MaskValues>) -> MapArray {
-    let filter_mask = Mask::Values(Arc::clone(mask));
+fn filter_map(array: &MapArray, mask: &MaskValuesRef) -> MapArray {
+    let filter_mask = Mask::Values(MaskValuesRef::clone(mask));
     let filtered = <Map as FilterReduce>::filter(array.as_view(), &filter_mask)
         .vortex_expect("MapArray somehow could not be filtered")
         .vortex_expect("Map filter reduce always produces an array");

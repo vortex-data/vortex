@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hasher;
-use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -10,6 +9,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
+use vortex_mask::MaskValuesRef;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -31,8 +31,8 @@ use crate::array::with_empty_buffers;
 use crate::arrays::filter::FilterArraySlotsExt;
 use crate::arrays::filter::array::FilterData;
 use crate::arrays::filter::array::FilterSlots;
+use crate::arrays::filter::execute::execute_all_null_filter_fast_path;
 use crate::arrays::filter::execute::execute_filter;
-use crate::arrays::filter::execute::execute_filter_fast_paths;
 use crate::arrays::filter::rules::PARENT_RULES;
 use crate::arrays::filter::rules::RULES;
 use crate::buffer::BufferHandle;
@@ -152,13 +152,23 @@ impl VTable for Filter {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        if let Some(canonical) = execute_filter_fast_paths(array.as_view(), ctx)? {
+        // Match the mask once. A zero-length mask is both all true and all false, so check the
+        // empty output before the unfiltered one.
+        let mask_values = match &array.mask {
+            Mask::AllFalse(_) | Mask::AllTrue(0) => {
+                return Ok(ExecutionResult::done(
+                    Canonical::empty(array.dtype()).into_array(),
+                ));
+            }
+            Mask::AllTrue(_) => return Ok(ExecutionResult::done(array.child().clone())),
+            Mask::Values(values) => MaskValuesRef::clone(values),
+        };
+
+        if let Some(canonical) =
+            execute_all_null_filter_fast_path(array.as_view(), mask_values.true_count(), ctx)?
+        {
             return Ok(ExecutionResult::done(canonical));
         }
-        let mask_values = match &array.mask {
-            Mask::Values(v) => Arc::clone(v),
-            _ => unreachable!("`execute_filter_fast_paths` handles AllTrue and AllFalse"),
-        };
 
         let array = require_child!(array, array.child(), FilterSlots::CHILD => AnyCanonical);
 
