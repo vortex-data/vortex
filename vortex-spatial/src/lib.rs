@@ -102,6 +102,11 @@ pub fn initialize(session: &VortexSession) {
         .is_none()
     {
         session
+            .editions()
+            .declare_family(&editions::FAMILY)
+            .map_err(|error| vortex_err!("{error}"))
+            .vortex_expect("spatial edition family is valid");
+        session
             .register_edition(&editions::DECLARATION)
             .map_err(|error| vortex_err!("{error}"))
             .vortex_expect("spatial edition declaration is valid");

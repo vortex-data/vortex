@@ -9,8 +9,18 @@
 
 use vortex_edition::Edition;
 use vortex_edition::EditionDeclaration;
+use vortex_edition::EditionFamily;
 use vortex_edition::EditionId;
 use vortex_edition::EditionMember;
+
+/// The `json` family: the JSON extension dtype, declared here rather than in `core` because
+/// a reader without this crate cannot resolve it.
+pub static FAMILY: EditionFamily = EditionFamily {
+    name: "json",
+    doc: "The JSON extension dtype. JSON support is opt-in: a reader built without \
+`vortex-json` cannot resolve `vortex.json`, so the dtype is versioned independently of \
+`core` and a session enables this family only by initializing the crate.",
+};
 
 /// The August 2026 draft edition of the `json` family.
 pub const JSON_2026_08: EditionId = EditionId::new("json", 2026, 8, 0);
