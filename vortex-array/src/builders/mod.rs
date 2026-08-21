@@ -434,7 +434,6 @@ pub fn builder_with_capacity_in(
         DType::List(dtype, n) => Box::new(ListViewBuilder::<u64, u64>::with_capacity_in(
             Arc::clone(dtype),
             *n,
-            2 * capacity, // Arbitrarily choose 2 times the `offsets` capacity here.
             capacity,
             allocator,
         )),
