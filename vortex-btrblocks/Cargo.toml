@@ -26,6 +26,7 @@ vortex-buffer = { workspace = true }
 vortex-compressor = { workspace = true }
 vortex-datetime-parts = { workspace = true }
 vortex-decimal-byte-parts = { workspace = true }
+vortex-elias-fano = { workspace = true, optional = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-fsst = { workspace = true }
@@ -53,7 +54,11 @@ vortex-session = { workspace = true }
 
 [features]
 # This feature enabled unstable encodings for which we don't guarantee stability.
-unstable_encodings = ["dep:vortex-onpair", "vortex-zstd?/unstable_encodings"]
+unstable_encodings = [
+    "dep:vortex-elias-fano",
+    "dep:vortex-onpair",
+    "vortex-zstd?/unstable_encodings",
+]
 pco = ["dep:pco", "dep:vortex-pco"]
 zstd = ["dep:vortex-zstd"]
 

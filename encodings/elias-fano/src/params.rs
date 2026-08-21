@@ -100,6 +100,54 @@ pub(crate) fn num_samples0(span: u64, lower_width: u8) -> u64 {
     ((span >> lower_width).saturating_add(1)) >> LOG_SAMPLING0
 }
 
+/// The size of the low-bits slot when `lower_width == 0`.
+///
+/// That slot is `ConstantArray::new(0u64, n)`, whose single buffer is the scalar encoded as
+/// protobuf: one tag byte and one varint. Pinned by
+/// `tests::test_encoded_bit_size_matches_encoder`, which fails if that encoding ever changes.
+const CONSTANT_LOWER_BYTES: u64 = 2;
+
+/// The exact size in bits of the buffers an Elias-Fano encoding of `n` values spanning `span`
+/// occupies, without building one.
+///
+/// This is what the compressor prices a candidate column at. It is exact rather than asymptotic:
+/// the upper array rounded up to whole bytes, both sample tables, and the FastLanes-padded
+/// low-bits child. It equals `8 * array.nbytes()` for the array [`crate::elias_fano_encode`]
+/// produces from the same `(span, n)`, which `tests::test_encoded_bit_size_matches_encoder` pins.
+///
+/// The literature's `n * (log2(u / n) + 2)` is the asymptotic form of the same quantity. This
+/// includes the constant overheads a real column of a few thousand values actually pays, which is
+/// what a cost model has to compare against bit-packing.
+pub fn encoded_bit_size(span: u64, n: usize) -> VortexResult<u64> {
+    if n == 0 {
+        // The degenerate array `compress::empty` builds: a two-bit upper array, and nothing else.
+        return Ok(8);
+    }
+
+    let lower_width = lower_width(span, n);
+    let upper_len = upper_len(span, n, lower_width)?;
+
+    // The upper array is byte-padded on disk.
+    let upper_bytes = upper_len.div_ceil(8);
+
+    // One sample per `1 << LOG_SAMPLING0` unset bits, and one per `1 << LOG_SAMPLING1` set bits
+    // above the first: `UpperBuilder::push` never samples rank 0, so the one-samples are counted
+    // over ranks `1..n`.
+    let samples = num_samples0(span, lower_width) + ((n as u64 - 1) >> LOG_SAMPLING1);
+    let sample_bytes = samples * size_of::<u64>() as u64;
+
+    // A zero-width low part is a `ConstantArray` of `0u64`, whose only buffer is the scalar as
+    // protobuf. Otherwise FastLanes packs whole 1024-element blocks, padding the tail; see
+    // `BitPackedArray`'s buffer length.
+    let lower_bytes = if lower_width == 0 {
+        CONSTANT_LOWER_BYTES
+    } else {
+        (n.div_ceil(1024) as u64) * 128 * u64::from(lower_width)
+    };
+
+    Ok((upper_bytes + sample_bytes + lower_bytes) * 8)
+}
+
 #[inline]
 pub(crate) fn lower_mask(lower_width: u8) -> u64 {
     if lower_width == 0 {

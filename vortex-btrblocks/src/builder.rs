@@ -39,6 +39,11 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     // Prefer all other schemes above delta, for now (since its slower to decompress).
     #[cfg(feature = "unstable_encodings")]
     &integer::DeltaScheme::new(1.25),
+    // NOTE: Elias-Fano goes last in the integer block on purpose. A point lookup costs a sampled
+    // select, so on a tie we would rather keep the cheaper random access of the schemes above; the
+    // order of this list is the tie-break order.
+    #[cfg(feature = "unstable_encodings")]
+    &integer::EliasFanoScheme::new(1.2),
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // Float schemes.
     ////////////////////////////////////////////////////////////////////////////////////////////////

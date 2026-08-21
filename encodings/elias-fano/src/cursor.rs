@@ -82,19 +82,140 @@ enum Bound {
     Above,
 }
 
+/// A FastLanes-packed low-bits child that can be read in place, with the offsets a read needs.
+///
+/// [`packed_in_place`] is the only constructor, so the conditions that make an in-place read sound
+/// are stated once and both readers — the cursor and [`access_at`] — inherit them.
+#[derive(Clone, Copy)]
+struct PackedLower<'a> {
+    packed: &'a [u64],
+    bit_width: usize,
+    /// The child's own sub-block offset, which `unpack_single_primitive` does not apply itself
+    /// (unlike `unpack_single`). Forgetting it is a silent wrong answer, not a panic.
+    child_offset: usize,
+}
+
+impl PackedLower<'_> {
+    /// Where in the child the element of absolute rank `rank` sits.
+    #[inline]
+    fn index_of(&self, rank: u64) -> usize {
+        rank as usize + self.child_offset
+    }
+
+    /// One value unpacked on its own, without a scratch block.
+    #[inline]
+    fn unpack_one(&self, index: usize) -> u64 {
+        // SAFETY: `packed` is `BitPackedData`'s own buffer, whose length the child's validation
+        // already tied to `bit_width` and a whole number of blocks, and `index` is within the
+        // child's length because `validate_parts` ties `first_rank + len` to it.
+        unsafe { unpack_single_primitive::<u64>(self.packed, self.bit_width, index) }
+    }
+}
+
+/// The low-bits child as a packed slice, if it can be read in place: FastLanes-packed, unpatched,
+/// host-resident and `u64`-aligned. `None` means the low bits have to be materialised instead.
+fn packed_in_place(lower: &ArrayRef) -> Option<PackedLower<'_>> {
+    // `as_opt`, never `as_`: with the experimental patched-array plugin enabled the slot comes back
+    // from a file as `Patched(BitPacked)`, and a rewrite may replace it outright.
+    let packed = lower.as_opt::<BitPacked>()?;
+    if packed.patches().is_some()
+        || !packed
+            .packed()
+            .as_host_opt()
+            .is_some_and(|buffer| buffer.is_aligned(Alignment::of::<u64>()))
+    {
+        return None;
+    }
+    Some(PackedLower {
+        // `.data()` rather than the `Deref`, which would borrow the view rather than the array
+        // behind it and so not live long enough.
+        packed: packed.data().packed_slice::<u64>(),
+        bit_width: packed.bit_width() as usize,
+        child_offset: packed.offset() as usize,
+    })
+}
+
+/// The value at logical `index`, read without building a cursor.
+///
+/// A cursor earns its setup back over a stream of probes — the seat, the memoised answer and the
+/// bulk-unpack scratch all amortise — and every batched path builds one and reuses it. A point
+/// lookup through `OperationsVTable::scalar_at` amortises none of it, so it does just the two reads
+/// an access needs: one sampled `select1` for the high part, and one low-bits read.
+///
+/// The two readers must agree, and share only the layout; `tests::check_access` runs them against
+/// each other over every shape the suite covers.
+pub(crate) fn access_at(
+    array: ArrayView<'_, EliasFano>,
+    index: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Scalar> {
+    let len = array.len();
+    if index >= len {
+        vortex_bail!(OutOfBounds: index, 0usize, len);
+    }
+    let data = array.data();
+    let lower_width = data.lower_width();
+    let rank = data.first_rank() + index as u64;
+
+    let (_, samples1) = data.sample_bytes()?;
+    let upper = data.upper_bits()?;
+    let upper_len = usize::try_from(data.upper_len())?;
+    let position = position_of_rank(&upper, samples1, upper_len, rank)?;
+    // The inverse of the encoder's `position = (element >> lower_width) + rank + 1`. Checked for
+    // the same reason as in `EliasFanoCursor::reseat`: the upper buffer's contents are never
+    // validated, so a corrupt one has to raise rather than underflow.
+    let high = (position as u64).checked_sub(rank + 1).ok_or_else(|| {
+        vortex_err!(
+            "Elias-Fano upper array is malformed: the element of rank {rank} sits at bit \
+             {position}, at or below its own rank"
+        )
+    })?;
+
+    // The slots view borrows the array behind the `ArrayView`; the `lower()` accessor would borrow
+    // the (`Copy`, stack-local) view itself.
+    let lower = EliasFanoSlotsView::from_slots(array.slots()).lower;
+    let element = (high << lower_width) | lower_at_rank(lower, lower_width, rank, ctx)?;
+    scalar_from_bits(array.dtype(), data.reference_bits().wrapping_add(element))
+}
+
+/// The low bits of the element at absolute rank `rank`, for a reader that will only ask once.
+///
+/// Masked for the same reason as [`EliasFanoCursor::lower_at`]: only a bit-packed child's width is
+/// checkable at construction, so a patched or rewritten slot can carry bits above `lower_width`,
+/// and those would bleed into the high part.
+///
+/// The fallback windows to the single rank rather than to the whole slice as
+/// [`LowerBits::try_new`] does, so one probe against a child that cannot be read in place
+/// materialises one value rather than `len` of them.
+fn lower_at_rank(
+    lower: &ArrayRef,
+    lower_width: u8,
+    rank: u64,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<u64> {
+    if lower_width == 0 {
+        return Ok(0);
+    }
+    let bits = match packed_in_place(lower) {
+        Some(packed) => packed.unpack_one(packed.index_of(rank)),
+        None => {
+            let index = usize::try_from(rank)?;
+            lower
+                .slice(index..index + 1)?
+                .execute::<PrimitiveArray>(ctx)?
+                .into_buffer::<u64>()[0]
+        }
+    };
+    Ok(bits & lower_mask(lower_width))
+}
+
 /// How the low bits of each element can be read.
 enum LowerBits<'a> {
     /// The width is zero, so there are no low bits to read and nothing is stored.
     Zero,
     /// The normal case, where the low bits are read straight out of the FastLanes-packed child in
     /// place.
-    Packed {
-        packed: &'a [u64],
-        bit_width: usize,
-        /// The child's own sub-block offset, which `unpack_single_primitive` does not apply
-        /// itself (unlike `unpack_single`). Forgetting it is a silent wrong answer, not a panic.
-        child_offset: usize,
-    },
+    Packed(PackedLower<'a>),
     /// The fallback for a child that cannot be read in place — patches, device memory,
     /// under-aligned, or a slot some rewrite replaced. The low bits are materialised once, up
     /// front.
@@ -459,17 +580,13 @@ impl<'a> EliasFanoCursor<'a> {
     fn lower_at_unmasked(&mut self, rank: u64) -> u64 {
         // Copy the descriptor out before touching the scratch buffer: the packed slice borrows the
         // array, not `self`, so this keeps the borrow checker out of the way.
-        let (packed, bit_width, child_offset) = match &self.lower {
+        let packed = match &self.lower {
             LowerBits::Zero => return 0,
             LowerBits::Dense { values, base } => return values[(rank - base) as usize],
-            LowerBits::Packed {
-                packed,
-                bit_width,
-                child_offset,
-            } => (*packed, *bit_width, *child_offset),
+            LowerBits::Packed(packed) => *packed,
         };
 
-        let index = rank as usize + child_offset;
+        let index = packed.index_of(rank);
         let chunk = index / FL_CHUNK_SIZE;
         let within_chunk = index % FL_CHUNK_SIZE;
 
@@ -484,23 +601,22 @@ impl<'a> EliasFanoCursor<'a> {
             self.hot_reads = 1;
         }
 
-        let elems_per_chunk = 128 * bit_width / size_of::<u64>();
+        let elems_per_chunk = 128 * packed.bit_width / size_of::<u64>();
         if self.hot_reads > BULK_UNPACK_THRESHOLD {
-            let block = &packed[chunk * elems_per_chunk..][..elems_per_chunk];
+            let block = &packed.packed[chunk * elems_per_chunk..][..elems_per_chunk];
             let scratch = self
                 .scratch
                 .get_or_insert_with(|| Box::new([0u64; FL_CHUNK_SIZE]));
             // SAFETY: `block` is exactly `elems_per_chunk` packed values, and `scratch` is exactly
             // one FastLanes block of 1024 values, which is what `unchecked_unpack` requires.
-            unsafe { BitPacking::unchecked_unpack(bit_width, block, scratch.as_mut_slice()) };
+            unsafe {
+                BitPacking::unchecked_unpack(packed.bit_width, block, scratch.as_mut_slice())
+            };
             self.scratch_chunk = Some(chunk);
             return self.scratch_slice()[within_chunk];
         }
 
-        // SAFETY: `packed` is `BitPackedData`'s own buffer, whose length the array's validation
-        // already tied to `bit_width` and a whole number of blocks, and `index` is within the
-        // child's length because `first_rank + len` is validated against it.
-        unsafe { unpack_single_primitive::<u64>(packed, bit_width, index) }
+        packed.unpack_one(index)
     }
 
     fn scratch_slice(&self) -> &[u64; FL_CHUNK_SIZE] {
@@ -546,22 +662,8 @@ impl<'a> LowerBits<'a> {
         if lower_width == 0 {
             return Ok(LowerBits::Zero);
         }
-        // `as_opt`, never `as_`: with the experimental patched-array plugin enabled the slot comes
-        // back from a file as `Patched(BitPacked)`, and a rewrite may replace it outright.
-        if let Some(packed) = lower.as_opt::<BitPacked>()
-            && packed.patches().is_none()
-            && packed
-                .packed()
-                .as_host_opt()
-                .is_some_and(|buffer| buffer.is_aligned(Alignment::of::<u64>()))
-        {
-            return Ok(LowerBits::Packed {
-                // `.data()` rather than the `Deref`, which would borrow the view rather than the
-                // array behind it and so not live long enough.
-                packed: packed.data().packed_slice::<u64>(),
-                bit_width: packed.bit_width() as usize,
-                child_offset: packed.offset() as usize,
-            });
+        if let Some(packed) = packed_in_place(lower) {
+            return Ok(LowerBits::Packed(packed));
         }
         // Window before executing: the child spans the whole encoded sequence, and a cursor only
         // ever asks for ranks inside its own slice.

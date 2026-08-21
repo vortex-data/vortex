@@ -121,6 +121,17 @@ fn check_access(array: &EliasFanoArray, expected: &[Scalar], seed: u64) -> Vorte
     for (index, want) in expected.iter().enumerate() {
         assert_eq!(&cursor.access(index)?, want, "sequential index {index}");
     }
+    // And through `scalar_at`, which builds no cursor at all and so shares only the layout with the
+    // two loops above. Every shape the suite covers therefore checks the two readers against each
+    // other, including the low-bits children a rewrite can leave behind. Order is irrelevant here:
+    // the path is stateless.
+    for (index, want) in expected.iter().enumerate() {
+        assert_eq!(
+            &array.execute_scalar(index, &mut ctx)?,
+            want,
+            "scalar_at index {index}"
+        );
+    }
     Ok(())
 }
 
@@ -270,6 +281,47 @@ fn test_sample_tables_are_exercised() -> VortexResult<()> {
     let num_samples0 = encoded.num_samples0() as usize;
     assert_eq!(num_samples0, 15, "zero-samples");
     assert_eq!(samples - num_samples0, 19, "one-samples");
+    Ok(())
+}
+
+/// [`params::encoded_bit_size`] is the compressor's cost model, so it has to agree with the
+/// encoder exactly rather than approximately. The shapes below are the layout-relevant ones: no low
+/// bits, a partial FastLanes block, an exact block, and both sample tables populated.
+#[rstest]
+#[case::one(1, 0)]
+#[case::dense(1000, 999)]
+#[case::all_equal(500, 0)]
+#[case::sparse(1000, 1 << 20)]
+#[case::block_low(1023, 1 << 20)]
+#[case::block_exact(1024, 1 << 20)]
+#[case::block_high(1025, 1 << 20)]
+#[case::one_sample_exact(256, 1 << 16)]
+#[case::one_sample_over(257, 1 << 16)]
+#[case::sampled(5000, 1 << 30)]
+#[case::sampled_dense(5000, 6000)]
+fn test_encoded_bit_size_matches_encoder(#[case] n: usize, #[case] span: u64) -> VortexResult<()> {
+    let values = sorted_values(n, span, 0x5126_0001 ^ n as u64);
+    let encoded = encode(&values)?;
+
+    // The generator draws within `span`, so the sequence's own span is what the encoder saw.
+    let actual_span = values[n - 1] - values[0];
+    let estimated = params::encoded_bit_size(actual_span, n)?;
+
+    assert_eq!(
+        estimated,
+        encoded.into_array().nbytes() * 8,
+        "n {n}, span {actual_span}"
+    );
+    Ok(())
+}
+
+#[test]
+fn test_encoded_bit_size_of_empty() -> VortexResult<()> {
+    let encoded = encode::<u64>(&[])?;
+    assert_eq!(
+        params::encoded_bit_size(0, 0)?,
+        encoded.into_array().nbytes() * 8
+    );
     Ok(())
 }
 
@@ -424,7 +476,10 @@ fn test_signed_next_geq() -> VortexResult<()> {
     check!(PType::I8, [i8::MIN, -100, -7, -7, 0, 1, 100, i8::MAX]);
     check!(PType::I16, [i16::MIN, -3000, -7, -7, 0, 9, i16::MAX]);
     check!(PType::I32, [i32::MIN, -70_000, -7, -7, 0, 5000, i32::MAX]);
-    check!(PType::I64, [i64::MIN, -1 << 40, -7, -7, 0, 1 << 40, i64::MAX]);
+    check!(
+        PType::I64,
+        [i64::MIN, -1 << 40, -7, -7, 0, 1 << 40, i64::MAX]
+    );
     // A reference above zero, so the element domain does not wrap and the negative probes below it
     // all classify as `Bound::Below`.
     check!(PType::I32, [5i32, 5, 900, 1_000_000, i32::MAX]);
@@ -908,7 +963,10 @@ fn test_is_sorted_stat(#[case] n: usize, #[case] span: u64) -> VortexResult<()> 
         );
         // Strictness is declined rather than answered, so it must come back from the generic path
         // with the same answer the decoded array gives.
-        let decoded = array.clone().execute::<PrimitiveArray>(&mut ctx)?.into_array();
+        let decoded = array
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?
+            .into_array();
         assert_eq!(
             array.statistics().compute_is_strict_sorted(&mut ctx),
             decoded.statistics().compute_is_strict_sorted(&mut ctx),
@@ -945,7 +1003,10 @@ fn test_min_max_kernel(#[case] n: usize, #[case] span: u64) -> VortexResult<()> 
     for (array, expected) in arrays {
         // The oracle is the decoded array, so the kernel is checked against the generic path and
         // not only against the input it was built from.
-        let decoded = array.clone().execute::<PrimitiveArray>(&mut ctx)?.into_array();
+        let decoded = array
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?
+            .into_array();
         let len = array.len();
         for (name, got, oracle, want) in [
             (
@@ -962,7 +1023,10 @@ fn test_min_max_kernel(#[case] n: usize, #[case] span: u64) -> VortexResult<()> 
             ),
         ] {
             assert_eq!(got, want, "{name} over {len} elements");
-            assert_eq!(got, oracle, "{name} disagrees with the generic path over {len}");
+            assert_eq!(
+                got, oracle,
+                "{name} disagrees with the generic path over {len}"
+            );
         }
     }
     Ok(())
@@ -979,7 +1043,10 @@ fn test_min_max_kernel_signed() -> VortexResult<()> {
         vec![i32::MIN, i32::MAX],
     ] {
         let encoded = encode(&values)?.into_array();
-        let decoded = encoded.clone().execute::<PrimitiveArray>(&mut ctx)?.into_array();
+        let decoded = encoded
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?
+            .into_array();
         assert_eq!(
             encoded.statistics().compute_min::<i32>(&mut ctx),
             Some(values[0]),
@@ -1067,11 +1134,7 @@ fn test_sparse_take_and_filter(#[case] n: usize, #[case] span: u64) -> VortexRes
         );
 
         let mask = Mask::from_indices(array.len(), picks.iter().copied());
-        assert_arrays_eq!(
-            array.filter(mask.clone())?,
-            decoded.filter(mask)?,
-            &mut ctx
-        );
+        assert_arrays_eq!(array.filter(mask.clone())?, decoded.filter(mask)?, &mut ctx);
     }
     Ok(())
 }
@@ -1160,7 +1223,10 @@ fn test_compare_matches_decoded(#[case] n: usize, #[case] span: u64) -> VortexRe
     let mut ctx = SESSION.create_execution_ctx();
     for array in &arrays {
         // The oracle: the same array, decoded, compared by the generic path.
-        let decoded = array.clone().execute::<PrimitiveArray>(&mut ctx)?.into_array();
+        let decoded = array
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?
+            .into_array();
         for &probe in &probes {
             // A nullable literal must not change which rows match, but it does make the result
             // nullable — which a comparison of set bits alone would not notice.
@@ -1168,7 +1234,10 @@ fn test_compare_matches_decoded(#[case] n: usize, #[case] span: u64) -> VortexRe
                 for op in COMPARISONS {
                     let expr = op(root(), lit(literal.clone()));
                     let pushed = array.clone().apply(&expr)?.execute::<ArrayRef>(&mut ctx)?;
-                    let expected = decoded.clone().apply(&expr)?.execute::<ArrayRef>(&mut ctx)?;
+                    let expected = decoded
+                        .clone()
+                        .apply(&expr)?
+                        .execute::<ArrayRef>(&mut ctx)?;
                     assert_eq!(
                         pushed.dtype(),
                         expected.dtype(),
@@ -1213,8 +1282,14 @@ fn test_compare_at_the_top_of_the_universe() -> VortexResult<()> {
     for probe in [u64::MAX, u64::MAX - 1, 0] {
         for op in COMPARISONS {
             let expr = op(root(), lit(Scalar::from(probe)));
-            let pushed = encoded.clone().apply(&expr)?.execute::<ArrayRef>(&mut ctx)?;
-            let expected = decoded.clone().apply(&expr)?.execute::<ArrayRef>(&mut ctx)?;
+            let pushed = encoded
+                .clone()
+                .apply(&expr)?
+                .execute::<ArrayRef>(&mut ctx)?;
+            let expected = decoded
+                .clone()
+                .apply(&expr)?
+                .execute::<ArrayRef>(&mut ctx)?;
             assert_eq!(pushed.dtype(), expected.dtype(), "dtype for probe {probe}");
             assert_arrays_eq!(pushed, expected, &mut ctx);
         }
@@ -1236,12 +1311,28 @@ fn test_compare_signed_narrow_column() -> VortexResult<()> {
         .execute::<PrimitiveArray>(&mut ctx)?
         .into_array();
 
-    for probe in [i32::MIN, i32::MIN + 1, -8, -7, -6, 0, 89, i32::MAX - 1, i32::MAX] {
+    for probe in [
+        i32::MIN,
+        i32::MIN + 1,
+        -8,
+        -7,
+        -6,
+        0,
+        89,
+        i32::MAX - 1,
+        i32::MAX,
+    ] {
         for literal in nullabilities(Scalar::from(probe))? {
             for op in COMPARISONS {
                 let expr = op(root(), lit(literal.clone()));
-                let pushed = encoded.clone().apply(&expr)?.execute::<ArrayRef>(&mut ctx)?;
-                let expected = decoded.clone().apply(&expr)?.execute::<ArrayRef>(&mut ctx)?;
+                let pushed = encoded
+                    .clone()
+                    .apply(&expr)?
+                    .execute::<ArrayRef>(&mut ctx)?;
+                let expected = decoded
+                    .clone()
+                    .apply(&expr)?
+                    .execute::<ArrayRef>(&mut ctx)?;
                 assert_eq!(pushed.dtype(), expected.dtype(), "dtype for {literal}");
                 assert_arrays_eq!(pushed, expected, &mut ctx);
             }
@@ -1267,7 +1358,10 @@ fn test_compare_is_pushed_down() -> VortexResult<()> {
         (gt_eq(root(), minimum.clone()), true),
         (lt(root(), minimum), false),
     ] {
-        let result = encoded.clone().apply(&expr)?.execute::<ArrayRef>(&mut ctx)?;
+        let result = encoded
+            .clone()
+            .apply(&expr)?
+            .execute::<ArrayRef>(&mut ctx)?;
         let constant = result
             .as_constant()
             .vortex_expect("an all-or-nothing comparison must reduce to a constant");
@@ -1421,9 +1515,9 @@ fn test_corrupt_upper_array_raises() -> VortexResult<()> {
     )?;
     let rebuilt = EliasFano::try_new(data, encoded.lower().clone(), encoded.len())?;
 
-    // Both entry points must return an error. Each recovers a high part by subtracting a rank from
-    // a bit position, which this input drives negative, so an unchecked subtraction would panic in
-    // debug and hand back wrong values in release.
+    // All three entry points must return an error. Each recovers a high part by subtracting a rank
+    // from a bit position, which this input drives negative, so an unchecked subtraction would
+    // panic in debug and hand back wrong values in release.
     assert!(
         rebuilt
             .clone()
@@ -1437,7 +1531,9 @@ fn test_corrupt_upper_array_raises() -> VortexResult<()> {
         cursor.access(0).is_err(),
         "cursor access into a malformed upper array must raise"
     );
+    assert!(
+        rebuilt.execute_scalar(0, &mut ctx).is_err(),
+        "scalar_at into a malformed upper array must raise"
+    );
     Ok(())
 }
-
-

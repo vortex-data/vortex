@@ -38,6 +38,7 @@ pub use array::EliasFanoMetadata;
 pub use array::EliasFanoSlots;
 pub use compress::elias_fano_encode;
 pub use cursor::EliasFanoCursor;
+pub use params::encoded_bit_size;
 use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
@@ -63,9 +64,6 @@ pub fn initialize(session: &VortexSession) {
         &compute::is_sorted::EliasFanoIsSortedKernel,
     );
 }
-
-// TODO(reza): add an integer scheme in `vortex-btrblocks`, so the compressor can choose this
-//  encoding itself rather than it having to be applied explicitly.
 
 #[cfg(test)]
 mod tests;

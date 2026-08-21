@@ -6,6 +6,8 @@
 mod bitpacking;
 #[cfg(feature = "unstable_encodings")]
 mod delta;
+#[cfg(feature = "unstable_encodings")]
+mod elias_fano;
 mod for_;
 mod rle;
 mod runend;
@@ -19,6 +21,8 @@ mod pco;
 pub use bitpacking::BitPackingScheme;
 #[cfg(feature = "unstable_encodings")]
 pub use delta::DeltaScheme;
+#[cfg(feature = "unstable_encodings")]
+pub use elias_fano::EliasFanoScheme;
 pub use for_::FoRScheme;
 #[cfg(feature = "pco")]
 pub use pco::PcoScheme;

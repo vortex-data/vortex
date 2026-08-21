@@ -7,6 +7,8 @@ use std::iter;
 use std::sync::LazyLock;
 
 use rand::Rng;
+#[cfg(feature = "unstable_encodings")]
+use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::IntoArray;
@@ -192,6 +194,137 @@ fn test_delta_compressed() -> VortexResult<()> {
         compressed.display_tree()
     );
     assert_arrays_eq!(compressed, array.into_array(), &mut ctx);
+    Ok(())
+}
+
+/// A sorted, non-nullable, sparse column: Elias-Fano's habitat. Sparse enough that
+/// `log2(universe / n) + 2` is well below the bit-packed width, all-unique so RunEnd and Dict skip,
+/// and not an arithmetic progression so Sequence skips.
+#[cfg(feature = "unstable_encodings")]
+fn sorted_sparse_u32(n: usize, seed: u64) -> Vec<u32> {
+    let mut rng = StdRng::seed_from_u64(seed);
+    let mut values: Vec<u32> = (0..n).map(|_| rng.random_range(0..(1u32 << 24))).collect();
+    values.sort_unstable();
+    values
+}
+
+#[cfg(feature = "unstable_encodings")]
+#[test]
+fn test_elias_fano_compressed() -> VortexResult<()> {
+    use vortex_array::assert_arrays_eq;
+    use vortex_elias_fano::EliasFano;
+
+    let values = sorted_sparse_u32(4096, 21u64);
+    let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
+
+    let btr = BtrBlocksCompressor::default();
+    let compressed = btr.compress(
+        &array.clone().into_array(),
+        &mut SESSION.create_execution_ctx(),
+    )?;
+    assert!(
+        compressed.is::<EliasFano>(),
+        "expected EliasFano, got tree:\n{}",
+        compressed.display_tree()
+    );
+    assert_arrays_eq!(
+        compressed,
+        array.into_array(),
+        &mut SESSION.create_execution_ctx()
+    );
+    Ok(())
+}
+
+/// The same values in a shuffled order. Elias-Fano needs a non-decreasing sequence, so the
+/// estimate's sortedness check must reject this even though the span and density are identical.
+#[cfg(feature = "unstable_encodings")]
+#[test]
+fn test_elias_fano_skips_unsorted() -> VortexResult<()> {
+    use vortex_elias_fano::EliasFano;
+
+    let mut values = sorted_sparse_u32(4096, 22u64);
+    let mut rng = StdRng::seed_from_u64(23u64);
+    for i in (1..values.len()).rev() {
+        values.swap(i, rng.random_range(0..=i));
+    }
+    let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
+
+    let btr = BtrBlocksCompressor::default();
+    let compressed = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
+    assert!(
+        !compressed.is::<EliasFano>(),
+        "Elias-Fano must not be selected for unsorted input, got tree:\n{}",
+        compressed.display_tree()
+    );
+    Ok(())
+}
+
+/// A nullable dtype with no actual nulls. Elias-Fano reports `Validity::NonNullable`
+/// unconditionally, so it cannot represent this column's dtype and `matches` has to decline it
+/// whatever the null count.
+#[cfg(feature = "unstable_encodings")]
+#[test]
+fn test_elias_fano_skips_nullable_dtype() -> VortexResult<()> {
+    use vortex_elias_fano::EliasFano;
+
+    let values = sorted_sparse_u32(4096, 24u64);
+    let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::AllValid);
+
+    let btr = BtrBlocksCompressor::default();
+    let compressed = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
+    assert!(
+        !compressed.is::<EliasFano>(),
+        "Elias-Fano must not be selected for a nullable dtype, got tree:\n{}",
+        compressed.display_tree()
+    );
+    Ok(())
+}
+
+/// A list column's offsets are the case Elias-Fano exists for: strictly increasing, non-nullable,
+/// and spanning the whole elements array. `compress_list_array` resets them to start at zero and
+/// narrows the ptype before the integer schemes see them, and `ListArray::try_new` then requires
+/// the compressed offsets to report `Stat::IsSorted` — which Elias-Fano answers from its layout.
+#[cfg(feature = "unstable_encodings")]
+#[test]
+fn test_elias_fano_compresses_list_offsets() -> VortexResult<()> {
+    use vortex_array::arrays::List;
+    use vortex_array::arrays::ListArray;
+    use vortex_array::arrays::list::ListArraySlotsExt;
+    use vortex_array::assert_arrays_eq;
+    use vortex_elias_fano::EliasFano;
+    use vortex_error::vortex_err;
+
+    const LISTS: usize = 4096;
+
+    let mut rng = StdRng::seed_from_u64(25u64);
+    let mut offsets: Vec<u32> = Vec::with_capacity(LISTS + 1);
+    let mut offset = 0u32;
+    offsets.push(offset);
+    for _ in 0..LISTS {
+        offset += rng.random_range(1..20);
+        offsets.push(offset);
+    }
+    let elements = PrimitiveArray::new((0..offset).collect::<Buffer<u32>>(), Validity::NonNullable);
+    let offsets = PrimitiveArray::new(Buffer::copy_from(&offsets), Validity::NonNullable);
+    let list = ListArray::try_new(
+        elements.into_array(),
+        offsets.into_array(),
+        Validity::NonNullable,
+    )?
+    .into_array();
+
+    let btr = BtrBlocksCompressor::default();
+    let compressed = btr.compress(&list, &mut SESSION.create_execution_ctx())?;
+
+    let list_view = compressed
+        .as_opt::<List>()
+        .ok_or_else(|| vortex_err!("expected a List root"))?;
+    assert!(
+        list_view.offsets().is::<EliasFano>(),
+        "expected Elias-Fano offsets, got tree:\n{}",
+        compressed.display_tree()
+    );
+    assert_arrays_eq!(compressed, list, &mut SESSION.create_execution_ctx());
     Ok(())
 }
 

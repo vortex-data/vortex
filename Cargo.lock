@@ -9769,6 +9769,7 @@ dependencies = [
  "vortex-compressor",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
+ "vortex-elias-fano",
  "vortex-error",
  "vortex-fastlanes",
  "vortex-fsst",

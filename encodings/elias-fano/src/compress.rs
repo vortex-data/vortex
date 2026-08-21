@@ -5,8 +5,6 @@
 //!
 //! See [`crate::params`] for the layout both directions read and write.
 
-use std::iter;
-
 use lending_iterator::prelude::LendingIterator;
 use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
@@ -24,13 +22,11 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
-use vortex_buffer::BitIndexIterator;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::BitPackedArrayExt;
 use vortex_fastlanes::bitpack_compress::bitpack_encode_unchecked;
@@ -159,6 +155,53 @@ pub(crate) fn elias_fano_decompress(
     }))
 }
 
+/// A resumable walk over the set bits of the upper window, a `u64` word at a time.
+///
+/// This is the shape the decode loop wants and a pull iterator is not: the walk holds only two
+/// values, so a caller can lift them into locals for the length of one FastLanes block and pay
+/// nothing per element beyond a `trailing_zeros` and a clear-lowest-bit. The words are materialised
+/// once by [`window_words`] so this can index a slice instead of driving a shifting iterator.
+struct Ones<'a> {
+    words: &'a [u64],
+    /// Index of the word `current` was taken from.
+    word: usize,
+    /// The bits of that word not yet returned.
+    current: u64,
+}
+
+impl<'a> Ones<'a> {
+    fn new(words: &'a [u64]) -> Self {
+        Self {
+            words,
+            word: 0,
+            current: words.first().copied().unwrap_or(0),
+        }
+    }
+
+    /// The next set bit's index within the window, or `None` once the words run out.
+    ///
+    /// `decode` establishes that the window holds exactly as many set bits as there are elements,
+    /// so on a well-formed array this never returns `None` before the last element.
+    #[inline]
+    fn next(&mut self) -> Option<usize> {
+        while self.current == 0 {
+            self.word += 1;
+            self.current = *self.words.get(self.word)?;
+        }
+        let bit = self.current.trailing_zeros() as usize;
+        self.current &= self.current - 1;
+        Some(self.word * u64::BITS as usize + bit)
+    }
+}
+
+/// The window's bits as whole `u64` words, shifted to a zero bit offset once.
+///
+/// The upper array runs at roughly two bits per element, so this is `n / 32` words — a few KB for a
+/// whole chunk, against the half-megabyte a materialised copy of the low bits would cost.
+fn window_words(window: &BitBuffer) -> Buffer<u64> {
+    window.chunks().iter_padded().collect()
+}
+
 /// Reassembles elements from the two halves of the layout, in the column's own width.
 struct Fold {
     /// Bit position the upper window starts at, which its set-bit indices are relative to.
@@ -172,6 +215,15 @@ struct Fold {
 impl Fold {
     /// Decode `len` elements, taking high parts from `window`'s set bits and low parts from
     /// `lower`, which is read one FastLanes block at a time.
+    ///
+    /// The two invariants the per-element loop relies on are established once here rather than
+    /// re-tested for every element. `validate` does not read the upper buffer's contents, so a
+    /// corrupt file can still violate them — it just fails once, up front, instead of `len` times:
+    ///
+    /// * the window holds exactly `len` set bits, so the walk cannot run dry; and
+    /// * `start > first_rank`, which gives `position >= rank + 1` for every element, because
+    ///   the `i`-th set bit of the window sits at window index `>= i` while its rank is
+    ///   `first_rank + i`.
     fn decode<P: NativePType>(
         &self,
         window: &BitBuffer,
@@ -182,13 +234,29 @@ impl Fold {
     where
         u64: AsPrimitive<P>,
     {
-        let mut values = BufferMut::<P>::with_capacity(len);
-        let mut ones = window.set_indices();
+        let ones_in_window = window.true_count();
+        vortex_ensure!(
+            ones_in_window == len,
+            "Elias-Fano upper array is malformed: expected exactly {len} set bits above their own \
+             ranks, found {ones_in_window}"
+        );
+        vortex_ensure!(
+            self.start as u64 > self.first_rank,
+            "Elias-Fano upper array is malformed: the element of rank {} sits at bit {}, at or \
+             below its own rank",
+            self.first_rank,
+            self.start
+        );
+
+        let words = window_words(window);
+        let mut ones = Ones::new(words.as_slice());
+        let mut values = BufferMut::<P>::zeroed(len);
+        let mut rank = 0usize;
 
         if self.lower_width == 0 {
             // Nothing is stored, so do not execute the slot just to read `len` zeros.
-            self.segment(&mut values, &mut ones, iter::repeat_n(0, len))?;
-            return self.finish(values, ones, len);
+            self.segment(values.as_mut_slice(), &mut ones, &mut rank, None, len);
+            return self.finish(values, rank, len);
         }
 
         // Window before reading: the child spans the whole encoded sequence, and a decode only ever
@@ -207,80 +275,108 @@ impl Fold {
         {
             let mut chunks = packed.unpacked_chunks::<u64>()?;
             if let Some(initial) = chunks.initial() {
-                self.segment(&mut values, &mut ones, initial.iter().copied())?;
+                self.segment(
+                    values.as_mut_slice(),
+                    &mut ones,
+                    &mut rank,
+                    Some(initial),
+                    len,
+                );
             }
             // A single-block child is covered by `initial` alone, and the later phases would hand
             // that same block back.
-            if values.len() < len {
+            if rank < len {
                 let mut full = chunks.full_chunks();
                 while let Some(chunk) = full.next() {
-                    self.segment(&mut values, &mut ones, chunk.iter().copied())?;
+                    self.segment(
+                        values.as_mut_slice(),
+                        &mut ones,
+                        &mut rank,
+                        Some(chunk),
+                        len,
+                    );
                 }
             }
-            if values.len() < len
+            if rank < len
                 && let Some(trailer) = chunks.trailer()
             {
-                self.segment(&mut values, &mut ones, trailer.iter().copied())?;
+                self.segment(
+                    values.as_mut_slice(),
+                    &mut ones,
+                    &mut rank,
+                    Some(trailer),
+                    len,
+                );
             }
         } else {
             // The slot is patched, device-resident, or some other encoding after a rewrite.
             let dense = window_lower.execute::<PrimitiveArray>(ctx)?;
-            self.segment(&mut values, &mut ones, dense.as_slice::<u64>().iter().copied())?;
+            self.segment(
+                values.as_mut_slice(),
+                &mut ones,
+                &mut rank,
+                Some(dense.as_slice::<u64>()),
+                len,
+            );
         }
 
-        self.finish(values, ones, len)
+        self.finish(values, rank, len)
     }
 
-    /// Fold one run of consecutive low parts onto the end of `values`.
-    fn segment<P: NativePType, L: Iterator<Item = u64>>(
+    /// Fold one run of consecutive low parts into `out`, starting at `rank`.
+    ///
+    /// `lows` of `None` is the `lower_width == 0` layout, where every low part is zero. Nothing here
+    /// can fail: `decode` has already established both invariants, and a walk that runs dry early
+    /// leaves `rank` short for `finish` to reject.
+    fn segment<P: NativePType>(
         &self,
-        values: &mut BufferMut<P>,
-        ones: &mut BitIndexIterator<'_>,
-        lows: L,
-    ) -> VortexResult<()>
-    where
+        out: &mut [P],
+        ones: &mut Ones<'_>,
+        rank: &mut usize,
+        lows: Option<&[u64]>,
+        len: usize,
+    ) where
         u64: AsPrimitive<P>,
     {
-        for low in lows {
-            let rank = self.first_rank + values.len() as u64;
-            let position = ones.next().ok_or_else(|| {
-                vortex_err!("Elias-Fano upper array holds no element of rank {rank}")
-            })?;
-            let position = self.start + position;
-            // The inverse of the encoder's `position = (element >> lower_width) + rank + 1`.
-            let high = (position as u64).checked_sub(rank + 1).ok_or_else(|| {
-                vortex_err!(
-                    "Elias-Fano upper array is malformed: the element of rank {rank} sits at bit \
-                     {position}, at or below its own rank"
-                )
-            })?;
+        let remaining = len - *rank;
+        let take = lows.map_or(remaining, |lows| lows.len().min(remaining));
+
+        for offset in 0..take {
+            let index = *rank + offset;
+            let Some(position) = ones.next() else {
+                *rank = index;
+                return;
+            };
+            // The inverse of the encoder's `position = (element >> lower_width) + rank + 1`. The
+            // subtraction is non-negative by `decode`'s second invariant.
+            let high = (self.start + position) as u64 - (self.first_rank + index as u64 + 1);
             // The low bits are masked for the same reason as in the cursor's `lower_at`: only a
             // bit-packed child's width is checkable at construction, so a patched or rewritten slot
             // could otherwise carry bits above `lower_width` into the high part.
+            let low = lows.map_or(0, |lows| lows[offset] & self.lower_mask);
             let bits = self
                 .reference_bits
-                .wrapping_add((high << self.lower_width) | (low & self.lower_mask));
+                .wrapping_add((high << self.lower_width) | low);
             // Truncating the pattern to the column's width is exactly the two's complement result,
             // signed or unsigned, because the reference was added in the same modular arithmetic.
-            values.push(bits.as_());
+            out[index] = bits.as_();
         }
-        Ok(())
+
+        *rank += take;
     }
 
-    /// The window holds exactly `len` set bits, and the child exactly `len` low parts, for any
-    /// array this crate builds — but `validate` does not check the upper buffer's contents, so a
-    /// corrupt file can hold a different number of either.
+    /// The child holds exactly `len` low parts for any array this crate builds, but `validate` does
+    /// not check that, so a corrupt file can hand back fewer.
     fn finish<P: NativePType>(
         &self,
         values: BufferMut<P>,
-        mut ones: BitIndexIterator<'_>,
+        rank: usize,
         len: usize,
     ) -> VortexResult<Buffer<P>> {
         vortex_ensure!(
-            values.len() == len && ones.next().is_none(),
+            rank == len,
             "Elias-Fano upper array is malformed: expected exactly {len} set bits above their own \
-             ranks, found {}",
-            values.len()
+             ranks, found {rank}"
         );
         Ok(values.freeze())
     }
@@ -363,7 +459,6 @@ fn pack_lower(lower: Buffer<u64>, lower_width: u8, n: usize) -> VortexResult<Arr
     // histogram to rediscover what the encoder already guaranteed.
     Ok(unsafe { bitpack_encode_unchecked(lower, lower_width) }?.into_array())
 }
-
 
 /// The degenerate zero-element array.
 ///

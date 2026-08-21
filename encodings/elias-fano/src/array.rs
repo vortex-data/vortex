@@ -52,7 +52,7 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::compress::elias_fano_decompress;
-use crate::cursor::EliasFanoCursor;
+use crate::cursor::access_at;
 use crate::params;
 use crate::params::LOG_SAMPLING0;
 use crate::params::LOG_SAMPLING1;
@@ -529,12 +529,16 @@ impl VTable for EliasFano {
 }
 
 impl OperationsVTable<EliasFano> for EliasFano {
+    /// A single access, without a cursor: nothing a cursor carries survives to the next call, and
+    /// every batched path builds its own and keeps it. A caller making a stream of probes wants
+    /// [`EliasFanoCursor`](crate::EliasFanoCursor) directly, which amortises the setup and
+    /// remembers where it stopped.
     fn scalar_at(
         array: ArrayView<'_, EliasFano>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        EliasFanoCursor::try_new(array, ctx)?.access(index)
+        access_at(array, index, ctx)
     }
 }
 
