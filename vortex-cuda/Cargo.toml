@@ -66,6 +66,10 @@ name = "for_cuda"
 harness = false
 
 [[bench]]
+name = "delta_cuda"
+harness = false
+
+[[bench]]
 name = "dict_cuda"
 harness = false
 
