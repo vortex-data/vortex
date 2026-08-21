@@ -157,7 +157,6 @@ mod tests {
 
     #[test]
     fn test_cast_sequence_narrows_to_output_dtype() -> VortexResult<()> {
-        // Every value of this descending sequence fits u8, even though its step does not.
         let casted = Sequence::try_new_typed(100i32, -10i32, Nullability::NonNullable, 5)?
             .into_array()
             .cast(DType::Primitive(PType::U8, Nullability::NonNullable))?;

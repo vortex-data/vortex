@@ -29,7 +29,7 @@ pub(crate) struct SequenceExecutor;
 
 #[async_trait]
 impl CudaExecute for SequenceExecutor {
-    // Truncating `base` and `multiplier` to the output width is the point - see below.
+    // The kernel intentionally truncates both operands to the output width.
     #[expect(clippy::cast_possible_truncation)]
     #[instrument(level = "trace", skip_all, fields(executor = ?self))]
     async fn execute(
@@ -45,10 +45,7 @@ impl CudaExecute for SequenceExecutor {
         let nullability = array.dtype().nullability();
         let output_ptype = PType::try_from(array.dtype())?;
 
-        // The multiplier may be signed even when the output ptype is not, but every value of a
-        // valid sequence fits the output ptype and `base + i * multiplier` modulo 2^bits is exact.
-        // So the kernel computes in the unsigned type of the output's width and the result bytes
-        // are reinterpreted as the output ptype, rather than needing a kernel per ptype pair.
+        // Unsigned wrapping arithmetic handles every signedness pair at the output width.
         let (base, multiplier) = array.wrapping_bits()?;
 
         match_each_unsigned_integer_ptype!(output_ptype.to_unsigned(), |U| {
@@ -161,8 +158,6 @@ mod tests {
         assert_arrays_eq!(array, gpu_result, &mut ctx);
     }
 
-    /// A descending sequence computes in signed space yet is a legal `u8` array, so the kernel has
-    /// to emit the output ptype rather than the ptype the arithmetic happens in.
     #[crate::test]
     async fn test_sequence_arithmetic_ptype_differs_from_output() -> VortexResult<()> {
         let mut ctx = vortex_array::array_session().create_execution_ctx();

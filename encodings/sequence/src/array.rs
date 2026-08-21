@@ -67,13 +67,8 @@ pub(super) const SLOT_NAMES: [&str; 0] = [];
 
 /// An array representing the equation `A[i] = base + i * multiplier`.
 ///
-/// `base` is the array's first value, held in the array's output ptype. `multiplier` is the step
-/// between values, which need not be representable in the output ptype - a descending sequence
-/// like `100, 90, ..., 60` has a negative step yet is a legal `u8` array - so it is held as an
-/// `i64`, or as a `u64` for the steps above `i64::MAX` that no `i64` can express.
-///
-/// Construction validates the first and last values against the output ptype, so every value of
-/// the sequence fits it - see [`crate::eval`] for how values are computed from these two.
+/// The base uses the output ptype, while the step is normalized to `i64` or `u64` and may fall
+/// outside that ptype. Construction ensures every sequence value fits the output ptype.
 #[derive(Clone, Debug)]
 pub struct SequenceData {
     base: PValue,
@@ -143,11 +138,7 @@ impl SequenceData {
         Self::ensure_last_expressible(base, multiplier, *ptype, length)
     }
 
-    /// Checks that the last value `base + (length - 1) * multiplier` fits `ptype`, without
-    /// computing it: the steps the sequence takes must not exceed the room between `base` and the
-    /// ptype's boundary in the step's direction. A ptype's full range spans at most `u64::MAX`,
-    /// so the room, like the step's magnitude, is exact in `u64` - no arithmetic wider than 64
-    /// bits is needed, even for values above `i64::MAX`.
+    /// Ensures the final value fits `ptype` without overflowing intermediate arithmetic.
     fn ensure_last_expressible(
         base: PValue,
         multiplier: PValue,
@@ -161,9 +152,7 @@ impl SequenceData {
             return Ok(());
         }
 
-        // `base` fits `ptype` (checked in `narrowed_base`), so it casts into the domain of the
-        // ptype's signedness: `u64` for unsigned ptypes - keeping bases above `i64::MAX` exact -
-        // and `i64` for signed ones.
+        // Measure room in the ptype's signedness so large `u64` bases remain exact.
         let room = if ptype.is_signed_int() {
             let base = base.cast::<i64>()?;
             let max = i64::try_from(ptype.max_value_as_u64())
@@ -201,7 +190,6 @@ impl SequenceData {
         }
     }
 
-    /// The array's first value, which has to be expressible in the output ptype.
     fn narrowed_base(base: PValue, ptype: PType) -> VortexResult<PValue> {
         vortex_ensure!(base.ptype().is_int(), "base {base} must be an integer");
         match_each_integer_ptype!(ptype, |P| { Ok(PValue::from(base.cast::<P>()?)) })
@@ -211,8 +199,7 @@ impl SequenceData {
     fn normalize(base: PValue, multiplier: PValue, ptype: PType) -> VortexResult<(PValue, PValue)> {
         let base = Self::narrowed_base(base, ptype)?;
 
-        // The step is canonically an `i64`, or a `u64` when it does not fit one, so that a
-        // sequence has one representation whichever ptypes it was built from.
+        // Give equivalent steps the same representation.
         let multiplier = match_each_pvalue!(
             multiplier,
             uint: |v| {
@@ -234,15 +221,14 @@ impl SequenceData {
     /// # Safety
     ///
     /// The caller must ensure that:
-    /// - `base` is an integer value in the outer dtype's ptype.
-    /// - `multiplier` is an integer value, canonically an `i64` unless the step exceeds
-    ///   `i64::MAX`.
-    /// - the first and last value of the sequence they describe fit the outer dtype's ptype.
+    /// - `base` uses the outer dtype's integer ptype.
+    /// - `multiplier` is a canonical `i64` or `u64`.
+    /// - every sequence value fits the outer dtype's ptype.
     pub(crate) unsafe fn new_unchecked(base: PValue, multiplier: PValue) -> Self {
         Self { base, multiplier }
     }
 
-    /// The array's output ptype, which `base` is held in - see [`SequenceData`].
+    /// The array's output ptype.
     pub fn ptype(&self) -> PType {
         self.base.ptype()
     }
@@ -266,12 +252,7 @@ impl SequenceData {
         })
     }
 
-    /// The two's-complement bits of `base` and `multiplier`, widened to 64 bits by sign-extending
-    /// a negative step.
-    ///
-    /// A kernel materializing the sequence computes `base + i * multiplier` from these in an
-    /// integer type at least as wide as the output ptype, wrapping on overflow, and truncates the
-    /// result to the output ptype - see [`crate::eval`].
+    /// The two's-complement bits of `base` and `multiplier`, widened to 64 bits.
     pub fn wrapping_bits(&self) -> VortexResult<(u64, u64)> {
         self.wrapping_parts::<u64>()
     }
@@ -294,10 +275,8 @@ impl SequenceData {
     }
 }
 
-// `base` is held in the array's output ptype and the step canonically as an `i64`, or a `u64`
-// above `i64::MAX`, so equal sequences hold identically-tagged values. Comparing the tags first
-// also keeps `PValue`'s `PartialEq` - which panics comparing a negative `i64` against a `u64`
-// above `i64::MAX` - on same-signedness pairs it can handle.
+// Normalization gives equal sequences the same value tags. Compare tags first because `PValue`
+// equality can panic for mixed signedness outside the `i64` range.
 impl ArrayHash for SequenceData {
     fn array_hash<H: Hasher>(&self, state: &mut H, _accuracy: EqMode) {
         self.base.hash(state);
@@ -413,8 +392,7 @@ impl VTable for Sequence {
         .pvalue()
         .vortex_expect("sequence array base should be a non-nullable primitive");
 
-        // The step is not necessarily representable in the output ptype, only its signedness is
-        // recovered from the serialized form.
+        // The serialized step preserves signedness independently of the output ptype.
         let multiplier_ptype = SequenceData::multiplier_ptype_from_proto(multiplier_metadata)?;
         let multiplier = Scalar::from_proto_value(
             multiplier_metadata,
@@ -494,7 +472,7 @@ impl Sequence {
 
     /// Construct a new [`SequenceArray`] from pre-validated parts.
     ///
-    /// `base` and `multiplier` may be of any integer ptype; they are normalized here.
+    /// Arguments are normalized before constructing the array.
     ///
     /// # Safety
     ///
@@ -748,7 +726,6 @@ mod tests {
         Ok(())
     }
 
-    /// A descending sequence steps by a negative value yet is a legal unsigned array.
     #[test]
     fn descending_step_unsigned_output() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
@@ -778,7 +755,6 @@ mod tests {
         Ok(())
     }
 
-    /// A step that wraps the whole output range still lands on representable values.
     #[test]
     fn step_spanning_output_range() -> VortexResult<()> {
         let array = Sequence::try_new(
@@ -798,7 +774,6 @@ mod tests {
         Ok(())
     }
 
-    /// Values above `i64::MAX` are representable, whatever the step's signedness.
     #[test]
     fn values_past_i64_max() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
@@ -824,11 +799,8 @@ mod tests {
         Ok(())
     }
 
-    /// A negative step and a step above `i64::MAX` are both legal for a `u64` sequence, and
-    /// comparing the two must not panic.
     #[test]
     fn eq_across_step_signedness() -> VortexResult<()> {
-        // The largest base a step of `1 << 63` still fits in `u64` from.
         let base = PValue::from((1u64 << 63) - 1);
         let descending = Sequence::try_new(
             base,
@@ -853,7 +825,6 @@ mod tests {
         Ok(())
     }
 
-    /// A constant sequence can be longer than the output ptype's range.
     #[test]
     fn constant_sequence_longer_than_output_range() -> VortexResult<()> {
         let array = Sequence::try_new(
@@ -888,7 +859,6 @@ mod tests {
             concat.extend_from_slice(buf.as_ref());
         }
 
-        // The sequence starts at -5, so it is not a valid u8 sequence.
         let decoded = SerializedArray::try_from(concat.freeze())?.decode(
             &DType::Primitive(PType::U8, Nullability::NonNullable),
             len,

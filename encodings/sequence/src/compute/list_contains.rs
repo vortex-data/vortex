@@ -42,11 +42,9 @@ impl ListContainsElementReduce for Sequence {
                 element.len(),
                 intercept,
             ) {
-                // A non-integer element matches nothing; a well-typed list of an integer sequence
-                // holds integers.
+                // Non-integer elements do not match the sequence.
                 None | Some(Intersection::None) => {}
                 Some(Intersection::At(idx)) => set_indices.push(idx),
-                // A constant sequence whose value the list contains: every element matches.
                 Some(Intersection::All) => {
                     return Ok(Some(
                         ConstantArray::new(Scalar::bool(true, nullability), element.len())
@@ -124,7 +122,6 @@ mod tests {
         }
     }
 
-    /// A list containing a constant sequence's value contains every element of it.
     #[test]
     fn test_list_contains_constant_sequence() {
         let list_scalar = Scalar::list(

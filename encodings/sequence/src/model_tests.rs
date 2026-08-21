@@ -2,10 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Differential tests of sequence construction and its kernels against an exact `i128` model.
-//!
-//! Every combination of base, step, output ptype and length is either rejected by construction or
-//! materializes exactly the values the model computes - in particular for the cases where the step
-//! is not representable in the output ptype, and where the values run past `i64::MAX`.
 
 use num_traits::Bounded;
 use num_traits::ToPrimitive;
@@ -35,10 +31,7 @@ use vortex_mask::Mask;
 
 use crate::Sequence;
 
-// The oracle deliberately computes in `i128`, wider than anything the production code uses, so
-// that it stays independent of the 64-bit formulation it checks.
-
-/// Widens an integer [`PValue`] to `i128`, or `None` for a float.
+// Keep the `i128` oracle independent of the production code's 64-bit arithmetic.
 fn widen(value: PValue) -> Option<i128> {
     vortex_array::match_each_pvalue!(
         value,
@@ -48,14 +41,12 @@ fn widen(value: PValue) -> Option<i128> {
     )
 }
 
-/// Narrows an exact value into `ptype`, or `None` if it is not representable there.
 fn narrow(value: i128, ptype: PType) -> Option<PValue> {
     match_each_integer_ptype!(ptype, |O| {
         num_traits::cast::<i128, O>(value).map(PValue::from)
     })
 }
 
-/// The exact value of the sequence element at `index`, or `None` if it leaves `i128`.
 fn exact_value(base: PValue, multiplier: PValue, index: usize) -> Option<i128> {
     let base = widen(base)?;
     let multiplier = widen(multiplier)?;
@@ -96,7 +87,6 @@ const PTYPES: [PType; 8] = [
 
 const LENGTHS: [usize; 4] = [1, 2, 5, 300];
 
-/// The exact values of the sequence, or `None` if any of them leaves `ptype`'s range.
 fn model(base: PValue, multiplier: PValue, ptype: PType, length: usize) -> Option<Vec<i128>> {
     let (min, max) = match_each_integer_ptype!(ptype, |P| {
         (
@@ -200,7 +190,6 @@ fn sequence_kernels_match_exact_model() -> VortexResult<()> {
                         "max: {case}"
                     );
 
-                    // Equality against a value the sequence holds, and one it does not.
                     let held = expected[length / 2];
                     for value in [Some(held), held.checked_add(1).filter(|v| *v != held)] {
                         let Some(value) = value.filter(|value| model_holds(ptype, *value)) else {
@@ -227,7 +216,6 @@ fn sequence_kernels_match_exact_model() -> VortexResult<()> {
     Ok(())
 }
 
-/// Whether `value` is representable in `ptype`.
 fn model_holds(ptype: PType, value: i128) -> bool {
     narrow(value, ptype).is_some()
 }

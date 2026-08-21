@@ -3,15 +3,8 @@
 
 //! Evaluation of the sequence equation `A[i] = base + i * multiplier`.
 //!
-//! All arithmetic stays within 64 bits, kept exact for `u64` values above `i64::MAX` by never
-//! routing them through a signed type: unsigned quantities and step magnitudes are handled as
-//! `u64`, signed values as `i64`. Construction checks that a sequence is expressible by counting
-//! the steps that fit between `base` and the output ptype's boundary rather than by computing the
-//! last value in a wider type - see `SequenceData::validate`. The sequence runs monotonically
-//! from its first to its last value, so every element of a validated sequence fits the output
-//! ptype. Arithmetic modulo `2^bits` agrees with exact arithmetic on values that fit, so kernels
-//! materialize the sequence in the output ptype itself, wrapping on overflow - see
-//! [`wrapping_value`].
+//! Arithmetic remains exact within 64 bits by keeping unsigned values out of signed types.
+//! Materialization uses wrapping arithmetic in the output ptype.
 
 use num_traits::AsPrimitive;
 use num_traits::WrappingAdd;
@@ -55,11 +48,7 @@ where
     }
 }
 
-/// `base` and `multiplier` reduced into `O`, the type the sequence's values are computed in.
-///
-/// `O` is the output ptype in the kernels here. A wider `O` works too - the values then come out
-/// correct modulo `2^O::BITS` and have to be truncated to the output ptype, which is what
-/// [`SequenceData::wrapping_bits`](crate::SequenceData::wrapping_bits) leaves to its caller.
+/// Reduces `base` and `multiplier` into the arithmetic type `O`.
 pub(crate) fn wrapping_parts<O: SequenceValue>(base: PValue, multiplier: PValue) -> Option<(O, O)> {
     Some((wrapping_from(base)?, wrapping_from(multiplier)?))
 }
@@ -74,10 +63,7 @@ fn wrapping_from<O: SequenceValue>(value: PValue) -> Option<O> {
     )
 }
 
-/// A step's direction and magnitude: whether it is non-negative, and its absolute value.
-///
-/// The magnitude is exact even for steps above `i64::MAX`, which stay `u64` throughout.
-/// Returns `None` for a float, which no sequence holds.
+/// Returns an integer step's direction and magnitude.
 pub(crate) fn step_parts(step: PValue) -> Option<(bool, u64)> {
     match_each_pvalue!(
         step,

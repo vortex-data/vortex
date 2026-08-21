@@ -24,8 +24,7 @@ use crate::SequenceArray;
 use crate::SequenceData;
 use crate::eval::SequenceValue;
 
-/// An iterator that yields `base, base + step, base + 2*step, ...` via repeated wrapping addition,
-/// which is exact for the values of a validated sequence - see [`crate::eval`].
+/// Iterates a sequence using wrapping addition.
 struct SequenceIter<T> {
     acc: T,
     step: T,
@@ -129,8 +128,7 @@ fn encode_primitive_array<P: NativePType + Into<PValue> + CheckedAdd + CheckedSu
         return Ok(None);
     }
 
-    // A sequence leaving `P`'s range cannot be encoded. The window scan below would reject it
-    // too, but only after walking the whole slice.
+    // Reject an out-of-range sequence before scanning the slice.
     if SequenceData::validate(
         base.into(),
         multiplier.into(),

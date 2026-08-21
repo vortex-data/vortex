@@ -40,8 +40,7 @@ impl CompareKernel for Sequence {
             .pvalue()
             .vortex_expect("null constant handled in adaptor");
 
-        // A non-integer constant, say a float compared against an integer sequence, is left to
-        // the canonical compare.
+        // Fall back for non-integer constants.
         let Some(intersection) = find_intersection(lhs.base(), lhs.multiplier(), lhs.len(), value)
         else {
             return Ok(None);
@@ -71,20 +70,14 @@ impl CompareKernel for Sequence {
     }
 }
 
-/// Which elements of a sequence equal a given value.
+/// The intersection of a sequence with a value.
 pub(crate) enum Intersection {
-    /// No element of the sequence equals the value.
     None,
-    /// Only the element at this index equals the value.
     At(usize),
-    /// Every element equals the value, i.e. the sequence is constant.
     All,
 }
 
-/// Finds the elements of `base + i * multiplier`, `i` in `0..len`, that equal `value`.
-///
-/// Returns `None` if any of the values is not an integer, when the caller has to fall back to
-/// comparing the sequence's values.
+/// Finds where a sequence equals `value`, or returns `None` for non-integer inputs.
 pub(crate) fn find_intersection(
     base: PValue,
     multiplier: PValue,
@@ -96,9 +89,7 @@ pub(crate) fn find_intersection(
     }
     let (ascending, magnitude) = eval::step_parts(multiplier)?;
 
-    // Work in the domain of `base`'s ptype signedness, which every sequence value fits: `u64`
-    // for unsigned ptypes - keeping values above `i64::MAX` exact - and `i64` for signed ones.
-    // A `value` outside that domain cannot equal any sequence value.
+    // Use the base's signedness to preserve values above `i64::MAX`.
     let (towards, offset) = if base.ptype().is_signed_int() {
         let base = base.cast::<i64>().vortex_expect("base fits its ptype");
         let Ok(value) = value.cast::<i64>() else {
@@ -114,7 +105,6 @@ pub(crate) fn find_intersection(
     };
 
     if offset == 0 {
-        // `value` is the first element, which a non-constant sequence never revisits.
         return Some(if magnitude == 0 {
             Intersection::All
         } else {
@@ -193,7 +183,6 @@ mod tests {
         assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
     }
 
-    /// A step that is not representable in the output ptype still intersects exactly.
     #[test]
     fn test_compare_descending_unsigned() -> VortexResult<()> {
         let lhs = Sequence::try_new(
@@ -211,7 +200,6 @@ mod tests {
         Ok(())
     }
 
-    /// A base and step above `i64::MAX` intersect exactly, without being routed through `i64`.
     #[test]
     fn test_compare_past_i64_max() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
@@ -238,7 +226,6 @@ mod tests {
         Ok(())
     }
 
-    /// Every element of a constant sequence equals its base.
     #[test]
     fn test_compare_constant_sequence() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
