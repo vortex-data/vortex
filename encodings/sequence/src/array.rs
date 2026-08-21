@@ -47,9 +47,9 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::arith;
-use crate::arith::SequenceValue;
 use crate::compress::sequence_decompress;
+use crate::eval;
+use crate::eval::SequenceValue;
 use crate::rules::RULES;
 
 /// A [`Sequence`]-encoded Vortex array.
@@ -73,7 +73,7 @@ pub(super) const SLOT_NAMES: [&str; 0] = [];
 /// `i64`, or as a `u64` for the steps above `i64::MAX` that no `i64` can express.
 ///
 /// Construction validates the first and last values against the output ptype, so every value of
-/// the sequence fits it - see [`crate::arith`] for how values are computed from these two.
+/// the sequence fits it - see [`crate::eval`] for how values are computed from these two.
 #[derive(Clone, Debug)]
 pub struct SequenceData {
     base: PValue,
@@ -155,7 +155,7 @@ impl SequenceData {
         length: usize,
     ) -> VortexResult<()> {
         let steps = (length - 1) as u64;
-        let (ascending, magnitude) = arith::step_parts(multiplier)
+        let (ascending, magnitude) = eval::step_parts(multiplier)
             .ok_or_else(|| vortex_err!("step {multiplier} must be an integer"))?;
         if steps == 0 || magnitude == 0 {
             return Ok(());
@@ -257,7 +257,7 @@ impl SequenceData {
 
     /// `base` and `multiplier` reduced into `O`, the type the values are computed in.
     pub(crate) fn wrapping_parts<O: SequenceValue>(&self) -> VortexResult<(O, O)> {
-        arith::wrapping_parts(self.base, self.multiplier).ok_or_else(|| {
+        eval::wrapping_parts(self.base, self.multiplier).ok_or_else(|| {
             vortex_err!(
                 "SequenceArray values must be integers, got base {:?} and step {:?}",
                 self.base,
@@ -271,7 +271,7 @@ impl SequenceData {
     ///
     /// A kernel materializing the sequence computes `base + i * multiplier` from these in an
     /// integer type at least as wide as the output ptype, wrapping on overflow, and truncates the
-    /// result to the output ptype - see [`crate::arith`].
+    /// result to the output ptype - see [`crate::eval`].
     pub fn wrapping_bits(&self) -> VortexResult<(u64, u64)> {
         self.wrapping_parts::<u64>()
     }
@@ -289,7 +289,7 @@ impl SequenceData {
             let (base, multiplier) = self
                 .wrapping_parts::<O>()
                 .vortex_expect("sequence values are integers");
-            PValue::from(arith::wrapping_value(base, multiplier, idx))
+            PValue::from(eval::wrapping_value(base, multiplier, idx))
         })
     }
 }

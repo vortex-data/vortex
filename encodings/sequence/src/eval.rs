@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Arithmetic over the values of a [`SequenceData`](crate::SequenceData).
+//! Evaluation of the sequence equation `A[i] = base + i * multiplier`.
 //!
 //! All arithmetic stays within 64 bits, kept exact for `u64` values above `i64::MAX` by never
 //! routing them through a signed type: unsigned quantities and step magnitudes are handled as

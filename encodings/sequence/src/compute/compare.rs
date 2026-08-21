@@ -16,8 +16,8 @@ use vortex_buffer::BitBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use crate::arith;
 use crate::array::Sequence;
+use crate::eval;
 
 impl CompareKernel for Sequence {
     fn compare(
@@ -94,7 +94,7 @@ pub(crate) fn find_intersection(
     if !value.ptype().is_int() || len == 0 {
         return (len == 0).then_some(Intersection::None);
     }
-    let (ascending, magnitude) = arith::step_parts(multiplier)?;
+    let (ascending, magnitude) = eval::step_parts(multiplier)?;
 
     // Work in the domain of `base`'s ptype signedness, which every sequence value fits: `u64`
     // for unsigned ptypes - keeping values above `i64::MAX` exact - and `i64` for signed ones.

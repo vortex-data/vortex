@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod arith;
 mod array;
 mod compress;
 mod compute;
+mod eval;
 mod kernel;
 #[cfg(test)]
 mod model_tests;

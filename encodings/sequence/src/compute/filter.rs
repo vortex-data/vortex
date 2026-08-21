@@ -15,8 +15,8 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::Sequence;
-use crate::arith;
-use crate::arith::SequenceValue;
+use crate::eval;
+use crate::eval::SequenceValue;
 
 impl FilterKernel for Sequence {
     fn filter(
@@ -46,7 +46,7 @@ fn filter_impl<O: SequenceValue>(
         mask_values
             .indices()
             .iter()
-            .map(|&idx| arith::wrapping_value(base, multiplier, idx)),
+            .map(|&idx| eval::wrapping_value(base, multiplier, idx)),
     );
     PrimitiveArray::new(buffer.freeze(), validity).into_array()
 }

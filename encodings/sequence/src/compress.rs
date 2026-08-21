@@ -22,10 +22,10 @@ use vortex_error::VortexResult;
 use crate::Sequence;
 use crate::SequenceArray;
 use crate::SequenceData;
-use crate::arith::SequenceValue;
+use crate::eval::SequenceValue;
 
 /// An iterator that yields `base, base + step, base + 2*step, ...` via repeated wrapping addition,
-/// which is exact for the values of a validated sequence - see [`crate::arith`].
+/// which is exact for the values of a validated sequence - see [`crate::eval`].
 struct SequenceIter<T> {
     acc: T,
     step: T,

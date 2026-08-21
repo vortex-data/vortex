@@ -21,8 +21,8 @@ use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::Sequence;
-use crate::arith;
-use crate::arith::SequenceValue;
+use crate::eval;
+use crate::eval::SequenceValue;
 
 fn take_inner<T: IntegerPType, O: SequenceValue>(
     base: O,
@@ -38,7 +38,7 @@ fn take_inner<T: IntegerPType, O: SequenceValue>(
                 if i.as_() >= len {
                     vortex_panic!(OutOfBounds: i.as_(), 0, len);
                 }
-                arith::wrapping_value(base, multiplier, i.as_())
+                eval::wrapping_value(base, multiplier, i.as_())
             })),
             Validity::from(result_nullability),
         )
@@ -56,7 +56,7 @@ fn take_inner<T: IntegerPType, O: SequenceValue>(
                             vortex_panic!(OutOfBounds: i.as_(), 0, len);
                         }
 
-                        arith::wrapping_value(base, multiplier, i.as_())
+                        eval::wrapping_value(base, multiplier, i.as_())
                     } else {
                         O::zero()
                     }
