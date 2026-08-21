@@ -26,7 +26,11 @@ impl RowFnExecutionArgs {
         self.finalize_dense_output(values, ctx)
     }
 
-    /// Run every stored payload, resolving a deferred error against input validity.
+    /// Run all stored payloads, retrying valid rows only when reduced failure evidence is rejected.
+    ///
+    /// Validity stays lazy on success because masking makes null-row values unobservable. Rejected
+    /// evidence loses which row failed, so validity decides whether to return, suppress, or
+    /// recompute the error.
     pub(super) fn execute_dense_with_retry(
         &self,
         execute_dense_attempt: impl FnOnce(

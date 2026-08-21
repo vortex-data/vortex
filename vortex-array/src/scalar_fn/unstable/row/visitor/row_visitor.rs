@@ -199,10 +199,10 @@ pub trait RowVisitor<Options>: private::Sealed + Sized {
     /// The executor OR-reduces [`FailureEvidence`] across rows and passes the result to
     /// `finish_failure`.
     ///
-    /// If `finish_failure` rejects the evidence from dense execution, batch execution materializes
-    /// input validity. It returns the error for an all-valid batch, returns an all-null output for
-    /// an all-null batch, and runs `apply` again over valid rows for a partially valid batch. A
-    /// prepared retry also runs `prepare` again.
+    /// If `finish_failure` rejects dense evidence, reduction has lost which row failed. Batch
+    /// execution therefore resolves input validity: it preserves the error for all-valid input,
+    /// suppresses it for all-null input, and retries `apply` over valid rows for partially valid
+    /// input. A prepared retry also runs `prepare` again.
     ///
     /// [`RowFn::INFALLIBLE`](crate::scalar_fn::unstable::row::RowFn::INFALLIBLE) **must** be
     /// `false`. `Out` must not require drop glue. `Fail` must be no wider than `Out`, or failure
