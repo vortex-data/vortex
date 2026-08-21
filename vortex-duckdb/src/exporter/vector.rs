@@ -16,7 +16,8 @@ impl VectorRef {
     ///
     /// # Safety
     ///
-    /// See [`set_validity_zero_copy`](Self::set_validity_zero_copy).
+    /// - `offset + len` must not exceed `mask.len()`.
+    /// - `len` must not exceed the vector capacity.
     pub unsafe fn set_validity(&mut self, mask: &Mask, offset: usize, len: usize) -> bool {
         unsafe { self.set_validity_zero_copy(mask, offset, len, None) }
     }
