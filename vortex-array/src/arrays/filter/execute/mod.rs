@@ -88,8 +88,9 @@ fn contiguous_values_range(mask: &MaskValues) -> Option<Range<usize>> {
         return None;
     }
 
-    // Bound uncached work by probing the candidate run from the cheaper side.
-    let contiguous = if true_count <= mask.len() / 2 {
+    // Bound uncached work by probing the candidate run from the cheaper side: counting scans
+    // the run itself while the backward scan covers at most the tail after it.
+    let contiguous = if end - start <= mask.len() - end {
         mask.bit_buffer().count_range(start, end) == true_count
     } else {
         mask.bit_buffer().last_set_index() == Some(end - 1)
@@ -217,6 +218,12 @@ mod tests {
                     (0..128).map(|index| (3..125).contains(&index)),
                 )),
                 Some(3..125),
+            ),
+            (
+                Mask::from_buffer(BitBuffer::from_iter(
+                    (0..128).map(|index| (100..128).contains(&index)),
+                )),
+                Some(100..128),
             ),
             (
                 Mask::from_buffer(BitBuffer::from_iter(
