@@ -168,6 +168,7 @@ jobs:
           RUSTFLAGS: ${{ matrix.rustflags }}
           VORTEX_BENCH_VARIANT: ${{ matrix.features }}
           VORTEX_BENCH_PREFIX: "${{ matrix.features }}::"
+          VORTEX_BENCH_SUFFIX: "_${{ matrix.features }}"
         run: |
           cargo codspeed build --locked -m walltime --profile bench \
             ${{ steps.select.outputs.packages }}

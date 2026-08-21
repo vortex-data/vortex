@@ -15,10 +15,11 @@ use syn::parse_macro_input;
 /// Measure this benchmark on every walltime CPU-feature leg instead of in simulation.
 ///
 /// Takes no argument: the benchmark runs on all of them. Write it *above* `#[divan::bench]`,
-/// whose arguments it fills in — the name is qualified with the leg that produced it, so the
-/// legs report one series each rather than fighting over a shared name, and `ignore` takes
-/// the benchmark out of the sharded simulation job. A plain `cargo bench` runs it as before,
-/// under its bare name.
+/// whose arguments it fills in — the name is qualified with the leg that produced it, both as
+/// a `::` component the CI filter selects on and as a suffix on the leaf name CodSpeed
+/// reports under, so the legs report one series each rather than fighting over a shared name.
+/// `ignore` takes the benchmark out of the sharded simulation job. A plain `cargo bench` runs
+/// it as before, under its bare name.
 ///
 /// ```ignore
 /// #[vortex_bench_support::cpu_features]
@@ -95,6 +96,12 @@ pub fn cpu_features(attr: TokenStream, item: TokenStream) -> TokenStream {
     // Skipping simulation, rather than naming the legs to run on, is what keeps the leg list
     // in the workflow alone. `env!` rather than reading the environment during expansion:
     // rustc records it as a dependency of the crate, so changing legs rebuilds the benchmarks.
+    //
+    // The leg lands in the name twice, and each copy earns its place. The prefix is a `::`
+    // component, which is what the workflow's filter selects on. The suffix is part of the
+    // leaf name, which is the only part CodSpeed keeps: its walltime reports identify a
+    // benchmark by leaf name and arguments, so without the suffix every leg would report
+    // into one `words_gather_dispatch[65536]` series instead of one series each.
     let name = function.sig.ident.to_string();
     let separator = if existing.is_empty() {
         quote!()
@@ -105,7 +112,11 @@ pub fn cpu_features(attr: TokenStream, item: TokenStream) -> TokenStream {
     bench.meta = syn::parse_quote! {
         #bench_path(
             #existing #separator
-            name = concat!(env!("VORTEX_BENCH_PREFIX"), #name),
+            name = concat!(
+                env!("VORTEX_BENCH_PREFIX"),
+                #name,
+                env!("VORTEX_BENCH_SUFFIX"),
+            ),
             ignore = env!("VORTEX_BENCH_VARIANT") == "simulation",
         )
     };
