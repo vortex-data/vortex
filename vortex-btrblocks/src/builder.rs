@@ -178,8 +178,10 @@ impl BtrBlocksCompressorBuilder {
             string::StringDictScheme.id(),
             binary::BinaryDictScheme.id(),
         ];
-        // Delta has no GPU decode kernel and its prefix-sum decode is inherently sequential, so it
-        // is incompatible with pure-GPU decompression paths.
+        // Delta now has a CUDA decode kernel, so arrays that reach the GPU already encoded with
+        // it — the Delta children OnPair emits, for instance — decode there. It stays excluded
+        // from this preset until GPU delta decode is benchmarked against the schemes it would
+        // displace, since the preset picks encodings rather than merely decoding them.
         #[cfg(feature = "unstable_encodings")]
         excluded.push(integer::DeltaScheme::default().id());
         #[cfg(feature = "pco")]
