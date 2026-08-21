@@ -107,10 +107,18 @@ fn pack_variant_chunks(
 
 #[cfg(test)]
 mod tests {
+    use std::alloc::Layout;
+    use std::ptr::NonNull;
     use std::sync::Arc;
     use std::sync::LazyLock;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
 
+    use allocator_api2::alloc::AllocError;
+    use allocator_api2::alloc::Allocator;
+    use allocator_api2::alloc::Global;
     use rstest::rstest;
+    use vortex_buffer::BufferAllocatorRef;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
@@ -146,11 +154,30 @@ mod tests {
     use crate::dtype::DType::Variant as VariantDType;
     use crate::dtype::Nullability::NonNullable;
     use crate::dtype::PType::I32;
+    use crate::memory::MemorySessionExt;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     /// A shared session for these chunked-array tests, used to create execution contexts.
     static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+
+    #[derive(Debug)]
+    struct CountingAllocator {
+        allocations: Arc<AtomicUsize>,
+    }
+
+    // SAFETY: this forwards memory operations to Global and only counts allocations.
+    unsafe impl Allocator for CountingAllocator {
+        fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
+            self.allocations.fetch_add(1, Ordering::Relaxed);
+            Global.allocate(layout)
+        }
+
+        unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
+            // SAFETY: ptr and layout came from Global.
+            unsafe { Global.deallocate(ptr, layout) }
+        }
+    }
 
     fn variant_scalar(value: i32) -> Scalar {
         Scalar::variant(Scalar::primitive(value, NonNullable))
@@ -516,5 +543,41 @@ mod tests {
         assert_arrays_eq!(&canonical, &expected, &mut ctx);
 
         Ok(())
+    }
+
+    #[test]
+    fn list_canonicalize_uses_memory_session_allocator() {
+        let allocations = Arc::new(AtomicUsize::new(0));
+        let session =
+            crate::array_session().with_allocator(BufferAllocatorRef::new(CountingAllocator {
+                allocations: Arc::clone(&allocations),
+            }));
+        let mut ctx = session.create_execution_ctx();
+
+        let l1 = ListArray::try_new(
+            buffer![1, 2, 3, 4].into_array(),
+            buffer![0, 3].into_array(),
+            Validity::NonNullable,
+        )
+        .unwrap();
+        let l2 = ListArray::try_new(
+            buffer![5, 6].into_array(),
+            buffer![0, 2].into_array(),
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        let chunked_list = ChunkedArray::try_new(
+            vec![l1.into_array(), l2.into_array()],
+            List(Arc::new(Primitive(I32, NonNullable)), NonNullable),
+        )
+        .unwrap()
+        .into_array();
+
+        drop(chunked_list.execute::<Canonical>(&mut ctx).unwrap());
+        assert!(
+            allocations.load(Ordering::Relaxed) >= 2,
+            "expected offset+size allocations through MemorySession"
+        );
     }
 }

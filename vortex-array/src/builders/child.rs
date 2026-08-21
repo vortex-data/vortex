@@ -168,7 +168,9 @@ impl ChildBuilder {
     /// The scalar builder, materialized on first use.
     fn pending(&mut self) -> &mut dyn ArrayBuilder {
         self.pending
-            .get_or_insert_with(|| builder_with_capacity_in(&self.dtype, self.pending_capacity, &self.allocator))
+            .get_or_insert_with(|| {
+                builder_with_capacity_in(&self.dtype, self.pending_capacity, &self.allocator)
+            })
             .as_mut()
     }
 
@@ -407,7 +409,8 @@ mod tests {
     #[test]
     fn test_reserving_before_and_after_the_first_scalar() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
-        let mut builder = ChildBuilder::with_capacity(&DType::from(I32), 0, BufferAllocatorRef::static_ref());
+        let mut builder =
+            ChildBuilder::with_capacity(&DType::from(I32), 0, BufferAllocatorRef::static_ref());
 
         builder.reserve_exact(2);
         builder.append_scalar(&1i32.into())?;
@@ -424,7 +427,8 @@ mod tests {
     /// as an empty array of its own dtype.
     #[test]
     fn test_reserving_alone_finishes_empty() -> VortexResult<()> {
-        let mut builder = ChildBuilder::with_capacity(&DType::from(I32), 0, BufferAllocatorRef::static_ref());
+        let mut builder =
+            ChildBuilder::with_capacity(&DType::from(I32), 0, BufferAllocatorRef::static_ref());
 
         builder.reserve_exact(CHUNK_LEN);
 

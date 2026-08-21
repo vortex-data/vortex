@@ -109,6 +109,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
     pub fn with_capacity(
         element_dtype: Arc<DType>,
         nullability: Nullability,
+        _elements_capacity: usize,
         capacity: usize,
     ) -> Self {
         Self::with_capacity_in(
@@ -119,7 +120,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
         )
     }
 
-    /// Creates a list-view builder with the given capacities using `allocator`.
+    /// Creates a list-view builder with the given capacity using `allocator`.
     ///
     /// # Panics
     ///
@@ -130,8 +131,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
         capacity: usize,
         allocator: &BufferAllocatorRef,
     ) -> Self {
-        let elements_builder =
-            ChildBuilder::with_capacity(&element_dtype, 2 * capacity, allocator);
+        let elements_builder = ChildBuilder::with_capacity(&element_dtype, 2 * capacity, allocator);
 
         let offsets_builder =
             PrimitiveBuilder::<O>::with_capacity_in(Nullability::NonNullable, capacity, allocator);

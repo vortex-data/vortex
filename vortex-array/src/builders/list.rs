@@ -85,6 +85,7 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
     pub fn with_capacity(
         value_dtype: Arc<DType>,
         nullability: Nullability,
+        _elements_capacity: usize,
         capacity: usize,
     ) -> Self {
         Self::with_capacity_in(
@@ -95,7 +96,7 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
         )
     }
 
-    /// Creates a list builder with the given capacities using `allocator`.
+    /// Creates a list builder with the given capacity using `allocator`.
     pub fn with_capacity_in(
         value_dtype: Arc<DType>,
         nullability: Nullability,
@@ -181,12 +182,19 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
             "offsets length must be one more than nulls length."
         );
 
-        ListArray::try_new(
-            self.elements_builder.finish(),
-            self.offsets_builder.finish(),
-            self.nulls.finish_with_nullability(self.dtype.nullability()),
-        )
-        .vortex_expect("Buffer, offsets, and validity must have same length.")
+        // SAFETY:
+        // - The offsets come from a non-nullable integer builder seeded with a leading zero, so
+        //   they are a non-nullable integer array of at least one non-negative value.
+        // - Every append records `elements_builder.len()` after appending its elements, so the
+        //   offsets increase monotonically and the last one is exactly the elements length.
+        // - The assert above pairs one validity entry with each list.
+        unsafe {
+            ListArray::new_unchecked(
+                self.elements_builder.finish(),
+                self.offsets_builder.finish(),
+                self.nulls.finish_with_nullability(self.dtype.nullability()),
+            )
+        }
     }
 
     /// The [`DType`] of the inner elements. Note that this is **not** the same as the [`DType`] of

@@ -5,7 +5,6 @@ use std::any::Any;
 use std::sync::Arc;
 
 use vortex_buffer::BufferAllocatorRef;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -246,6 +245,8 @@ impl FixedSizeListBuilder {
             "elements length must be equal to the array length times the list size"
         );
 
+        // SAFETY: the assert above checks the element count, and every append records one
+        // validity entry per list. The child builder preserves the element dtype.
         unsafe {
             FixedSizeListArray::new_unchecked(
                 self.elements_builder.finish(),
