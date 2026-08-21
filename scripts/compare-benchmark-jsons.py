@@ -1098,7 +1098,8 @@ def format_report_help() -> str:
             "- **Hot vs cold**: Every measurement is run several times. The first run is "
             "reported as the cold run, and the median of the runs after it is reported as "
             "the hot run. The verdict and significance use hot runs; each target's "
-            "geomean reports hot and cold beside each other, the cold column shows "
+            "geomean reports hot and cold beside each other where the individual runs "
+            "were recorded and hot alone where they were not, the cold column shows "
             "first-run cost per row, and `hot/cold` is how much of "
             "each run the warm path saves. Rows whose results predate per-run reporting "
             "show only one value, taken from the value the runner reported.",
