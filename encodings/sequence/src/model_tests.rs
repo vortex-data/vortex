@@ -34,7 +34,36 @@ use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
 use crate::Sequence;
-use crate::arith;
+
+// The oracle deliberately computes in `i128`, wider than anything the production code uses, so
+// that it stays independent of the 64-bit formulation it checks.
+
+/// Widens an integer [`PValue`] to `i128`, or `None` for a float.
+fn widen(value: PValue) -> Option<i128> {
+    vortex_array::match_each_pvalue!(
+        value,
+        uint: |v| { Some(i128::from(v)) },
+        int: |v| { Some(i128::from(v)) },
+        float: |_v| { None }
+    )
+}
+
+/// Narrows an exact value into `ptype`, or `None` if it is not representable there.
+fn narrow(value: i128, ptype: PType) -> Option<PValue> {
+    match_each_integer_ptype!(ptype, |O| {
+        num_traits::cast::<i128, O>(value).map(PValue::from)
+    })
+}
+
+/// The exact value of the sequence element at `index`, or `None` if it leaves `i128`.
+fn exact_value(base: PValue, multiplier: PValue, index: usize) -> Option<i128> {
+    let base = widen(base)?;
+    let multiplier = widen(multiplier)?;
+    i128::try_from(index)
+        .ok()
+        .and_then(|index| multiplier.checked_mul(index))
+        .and_then(|offset| base.checked_add(offset))
+}
 
 const VALUES: [PValue; 15] = [
     PValue::I8(i8::MIN),
@@ -77,9 +106,7 @@ fn model(base: PValue, multiplier: PValue, ptype: PType, length: usize) -> Optio
     });
 
     (0..length)
-        .map(|idx| {
-            arith::exact_value(base, multiplier, idx).filter(|value| (min..=max).contains(value))
-        })
+        .map(|idx| exact_value(base, multiplier, idx).filter(|value| (min..=max).contains(value)))
         .collect()
 }
 
@@ -95,7 +122,7 @@ fn values(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Vec<i128>> {
 }
 
 fn constant(value: i128, ptype: PType, len: usize) -> VortexResult<ArrayRef> {
-    let value = arith::narrow(value, ptype)
+    let value = narrow(value, ptype)
         .ok_or_else(|| vortex_err!("{value} is not representable in {ptype}"))?;
     let scalar = Scalar::try_new(
         DType::Primitive(ptype, NonNullable),
@@ -134,7 +161,7 @@ fn sequence_kernels_match_exact_model() -> VortexResult<()> {
                         let scalar = array.clone().execute_scalar(idx, &mut ctx)?;
                         assert_eq!(scalar.dtype(), array.dtype(), "scalar dtype: {case}");
                         assert_eq!(
-                            arith::widen(scalar.as_primitive().pvalue().unwrap()).unwrap(),
+                            widen(scalar.as_primitive().pvalue().unwrap()).unwrap(),
                             expected[idx],
                             "scalar at {idx}: {case}"
                         );
@@ -163,12 +190,12 @@ fn sequence_kernels_match_exact_model() -> VortexResult<()> {
                         min_max(&array, &mut ctx, NumericalAggregateOpts::default())?
                             .expect("min_max of a non-empty sequence is not null");
                     assert_eq!(
-                        arith::widen(min.as_primitive().pvalue().unwrap()).unwrap(),
+                        widen(min.as_primitive().pvalue().unwrap()).unwrap(),
                         *expected.iter().min().unwrap(),
                         "min: {case}"
                     );
                     assert_eq!(
-                        arith::widen(max.as_primitive().pvalue().unwrap()).unwrap(),
+                        widen(max.as_primitive().pvalue().unwrap()).unwrap(),
                         *expected.iter().max().unwrap(),
                         "max: {case}"
                     );
@@ -202,5 +229,5 @@ fn sequence_kernels_match_exact_model() -> VortexResult<()> {
 
 /// Whether `value` is representable in `ptype`.
 fn model_holds(ptype: PType, value: i128) -> bool {
-    arith::narrow(value, ptype).is_some()
+    narrow(value, ptype).is_some()
 }

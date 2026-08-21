@@ -91,28 +91,41 @@ pub(crate) fn find_intersection(
     len: usize,
     value: PValue,
 ) -> Option<Intersection> {
-    let base = arith::widen(base)?;
-    let multiplier = arith::widen(multiplier)?;
-    let value = arith::widen(value)?;
-
-    if len == 0 {
-        return Some(Intersection::None);
+    if !value.ptype().is_int() || len == 0 {
+        return (len == 0).then_some(Intersection::None);
     }
+    let (ascending, magnitude) = arith::step_parts(multiplier)?;
 
-    if multiplier == 0 {
-        return Some(if value == base {
+    // Work in the domain of `base`'s ptype signedness, which every sequence value fits: `u64`
+    // for unsigned ptypes - keeping values above `i64::MAX` exact - and `i64` for signed ones.
+    // A `value` outside that domain cannot equal any sequence value.
+    let (towards, offset) = if base.ptype().is_signed_int() {
+        let base = base.cast::<i64>().vortex_expect("base fits its ptype");
+        let Ok(value) = value.cast::<i64>() else {
+            return Some(Intersection::None);
+        };
+        (value >= base, base.abs_diff(value))
+    } else {
+        let base = base.cast::<u64>().vortex_expect("base fits its ptype");
+        let Ok(value) = value.cast::<u64>() else {
+            return Some(Intersection::None);
+        };
+        (value >= base, base.abs_diff(value))
+    };
+
+    if offset == 0 {
+        // `value` is the first element, which a non-constant sequence never revisits.
+        return Some(if magnitude == 0 {
             Intersection::All
         } else {
-            Intersection::None
+            Intersection::At(0)
         });
     }
-
-    let offset = value - base;
-    if offset % multiplier != 0 {
+    if magnitude == 0 || towards != ascending || offset % magnitude != 0 {
         return Some(Intersection::None);
     }
 
-    Some(match usize::try_from(offset / multiplier) {
+    Some(match usize::try_from(offset / magnitude) {
         Ok(idx) if idx < len => Intersection::At(idx),
         _ => Intersection::None,
     })
@@ -194,6 +207,33 @@ mod tests {
         let result = lhs.into_array().binary(rhs.into_array(), Operator::Eq)?;
         let expected = BoolArray::from_iter([false, false, true, false, false]);
         assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
+
+        Ok(())
+    }
+
+    /// A base and step above `i64::MAX` intersect exactly, without being routed through `i64`.
+    #[test]
+    fn test_compare_past_i64_max() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let step = (1u64 << 63) + 1;
+        let lhs = Sequence::try_new(
+            PValue::from(1u64 << 62),
+            PValue::from(step),
+            PType::U64,
+            NonNullable,
+            2,
+        )?;
+
+        let hit = lhs.clone().into_array().binary(
+            ConstantArray::new((1u64 << 62) + step, lhs.len()).into_array(),
+            Operator::Eq,
+        )?;
+        assert_arrays_eq!(hit, BoolArray::from_iter([false, true]), &mut ctx);
+
+        let miss = lhs
+            .into_array()
+            .binary(ConstantArray::new(u64::MAX, 2).into_array(), Operator::Eq)?;
+        assert_arrays_eq!(miss, BoolArray::from_iter([false, false]), &mut ctx);
 
         Ok(())
     }

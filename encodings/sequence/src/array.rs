@@ -6,6 +6,7 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 
+use num_traits::AsPrimitive;
 use prost::Message;
 use smallvec::smallvec;
 use vortex_array::Array;
@@ -139,14 +140,48 @@ impl SequenceData {
         vortex_ensure!(length > 0, "SequenceArray length must be greater than zero");
 
         Self::narrowed_base(base, *ptype)?;
-        Self::last_value(base, multiplier, length)
-            .and_then(|last| arith::narrow(last, *ptype))
-            .ok_or_else(|| {
-                vortex_err!(
-                    "final value not expressible, base = {base:?}, multiplier = {multiplier:?}, len = {length}"
-                )
-            })?;
+        Self::ensure_last_expressible(base, multiplier, *ptype, length)
+    }
 
+    /// Checks that the last value `base + (length - 1) * multiplier` fits `ptype`, without
+    /// computing it: the steps the sequence takes must not exceed the room between `base` and the
+    /// ptype's boundary in the step's direction. A ptype's full range spans at most `u64::MAX`,
+    /// so the room, like the step's magnitude, is exact in `u64` - no arithmetic wider than 64
+    /// bits is needed, even for values above `i64::MAX`.
+    fn ensure_last_expressible(
+        base: PValue,
+        multiplier: PValue,
+        ptype: PType,
+        length: usize,
+    ) -> VortexResult<()> {
+        let steps = (length - 1) as u64;
+        let (ascending, magnitude) = arith::step_parts(multiplier)
+            .ok_or_else(|| vortex_err!("step {multiplier} must be an integer"))?;
+        if steps == 0 || magnitude == 0 {
+            return Ok(());
+        }
+
+        // `base` fits `ptype` (checked in `narrowed_base`), so it casts into the domain of the
+        // ptype's signedness: `u64` for unsigned ptypes - keeping bases above `i64::MAX` exact -
+        // and `i64` for signed ones.
+        let room = if ptype.is_signed_int() {
+            let base = base.cast::<i64>()?;
+            let max = i64::try_from(ptype.max_value_as_u64())
+                .vortex_expect("a signed ptype's max fits i64");
+            base.abs_diff(if ascending { max } else { -max - 1 })
+        } else {
+            let base = base.cast::<u64>()?;
+            if ascending {
+                ptype.max_value_as_u64() - base
+            } else {
+                base
+            }
+        };
+
+        vortex_ensure!(
+            steps <= room / magnitude,
+            "final value not expressible, base = {base:?}, multiplier = {multiplier:?}, len = {length}"
+        );
         Ok(())
     }
 
@@ -168,9 +203,8 @@ impl SequenceData {
 
     /// The array's first value, which has to be expressible in the output ptype.
     fn narrowed_base(base: PValue, ptype: PType) -> VortexResult<PValue> {
-        arith::widen(base)
-            .and_then(|base| arith::narrow(base, ptype))
-            .ok_or_else(|| vortex_err!("base {base:?} is not expressible as {ptype}"))
+        vortex_ensure!(base.ptype().is_int(), "base {base} must be an integer");
+        match_each_integer_ptype!(ptype, |P| { Ok(PValue::from(base.cast::<P>()?)) })
     }
 
     /// Puts `base` into the output ptype and the step into its canonical ptype.
@@ -179,13 +213,18 @@ impl SequenceData {
 
         // The step is canonically an `i64`, or a `u64` when it does not fit one, so that a
         // sequence has one representation whichever ptypes it was built from.
-        let step = arith::widen(multiplier)
-            .ok_or_else(|| vortex_err!("step {multiplier:?} must be an integer"))?;
-        let multiplier = i64::try_from(step).map(PValue::I64).or_else(|_| {
-            u64::try_from(step)
-                .map(PValue::U64)
-                .map_err(|_| vortex_err!("step {step} is not a 64-bit integer"))
-        })?;
+        let multiplier = match_each_pvalue!(
+            multiplier,
+            uint: |v| {
+                let v: u64 = v.as_();
+                i64::try_from(v).map(PValue::from).unwrap_or(PValue::U64(v))
+            },
+            int: |v| {
+                let v: i64 = v.as_();
+                PValue::from(v)
+            },
+            float: |v| { vortex_bail!("step {v} must be an integer") }
+        );
 
         Ok((base, multiplier))
     }
@@ -245,12 +284,6 @@ impl SequenceData {
         }
     }
 
-    /// The exact value of the sequence's last element, computed before any check that it fits the
-    /// output ptype, or `None` if it leaves `i128`.
-    pub(crate) fn last_value(base: PValue, multiplier: PValue, length: usize) -> Option<i128> {
-        arith::exact_value(base, multiplier, length - 1)
-    }
-
     pub(crate) fn index_value(&self, idx: usize) -> PValue {
         match_each_integer_ptype!(self.ptype(), |O| {
             let (base, multiplier) = self
@@ -261,19 +294,23 @@ impl SequenceData {
     }
 }
 
-// Sequences are compared and hashed on their exact values: comparing the stored `PValue`s
-// directly panics when one step is a negative `i64` and the other a `u64` above `i64::MAX`.
+// `base` is held in the array's output ptype and the step canonically as an `i64`, or a `u64`
+// above `i64::MAX`, so equal sequences hold identically-tagged values. Comparing the tags first
+// also keeps `PValue`'s `PartialEq` - which panics comparing a negative `i64` against a `u64`
+// above `i64::MAX` - on same-signedness pairs it can handle.
 impl ArrayHash for SequenceData {
     fn array_hash<H: Hasher>(&self, state: &mut H, _accuracy: EqMode) {
-        arith::widen(self.base).hash(state);
-        arith::widen(self.multiplier).hash(state);
+        self.base.hash(state);
+        self.multiplier.hash(state);
     }
 }
 
 impl ArrayEq for SequenceData {
     fn array_eq(&self, other: &Self, _accuracy: EqMode) -> bool {
-        arith::widen(self.base) == arith::widen(other.base)
-            && arith::widen(self.multiplier) == arith::widen(other.multiplier)
+        self.base.ptype() == other.base.ptype()
+            && self.multiplier.ptype() == other.multiplier.ptype()
+            && self.base == other.base
+            && self.multiplier == other.multiplier
     }
 }
 

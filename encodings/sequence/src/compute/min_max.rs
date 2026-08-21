@@ -15,7 +15,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::Sequence;
-use crate::SequenceData;
 use crate::arith;
 
 /// Sequence-specific min/max kernel.
@@ -49,22 +48,16 @@ impl DynAggregateKernel for SequenceMinMaxKernel {
 
         let output_ptype = seq.dtype().as_ptype();
 
-        // A sequence runs monotonically from its first to its last value, and `base` is already
-        // held in the output ptype.
-        let base = seq.base();
-        let last = SequenceData::last_value(base, seq.multiplier(), seq.len())
-            .and_then(|last| arith::narrow(last, output_ptype))
-            .ok_or_else(|| {
-                vortex_err!("sequence last value is not expressible as {output_ptype}")
-            })?;
-        let ascending = arith::widen(seq.multiplier())
-            .ok_or_else(|| vortex_err!("step {:?} must be an integer", seq.multiplier()))?
-            >= 0;
+        // A sequence runs monotonically from its first to its last value, both of which fit the
+        // output ptype that `base` is held in.
+        let last = seq.index_value(seq.len() - 1);
+        let (ascending, _) = arith::step_parts(seq.multiplier())
+            .ok_or_else(|| vortex_err!("step {} must be an integer", seq.multiplier()))?;
 
         let (min_pvalue, max_pvalue) = if ascending {
-            (base, last)
+            (seq.base(), last)
         } else {
-            (last, base)
+            (last, seq.base())
         };
 
         let non_nullable_dtype = DType::Primitive(output_ptype, Nullability::NonNullable);
