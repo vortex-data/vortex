@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use num_traits::Zero;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
@@ -10,7 +8,7 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_mask::MaskIter;
-use vortex_mask::MaskValues;
+use vortex_mask::MaskValuesRef;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -37,7 +35,7 @@ const MASK_EXPANSION_DENSITY_THRESHOLD: f64 = 0.05;
 /// Construct an element mask from contiguous list offsets and a selection mask.
 pub fn element_mask_from_offsets<O: IntegerPType>(
     offsets: &[O],
-    selection: &Arc<MaskValues>,
+    selection: &MaskValuesRef,
 ) -> Mask {
     let first_offset = offsets.first().map_or(0, |first_offset| first_offset.as_());
     let last_offset = offsets.last().map_or(0, |last_offset| last_offset.as_());
@@ -102,7 +100,7 @@ impl FilterKernel for List {
     ) -> VortexResult<Option<ArrayRef>> {
         let selection = match mask {
             Mask::AllTrue(_) | Mask::AllFalse(_) => return Ok(None),
-            Mask::Values(v) => v,
+            Mask::Values(values) => values,
         };
 
         let new_validity = match array.validity()? {

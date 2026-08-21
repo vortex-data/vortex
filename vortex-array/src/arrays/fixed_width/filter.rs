@@ -1,13 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
-use vortex_mask::MaskValues;
+use vortex_mask::MaskValuesRef;
 
 use super::FixedWidthArray;
 use super::match_each_record_width;
@@ -21,20 +19,20 @@ use crate::arrays::filter::filter_validity;
 #[expect(clippy::cast_possible_truncation)]
 mod tests;
 
-pub(crate) fn filter<V: FixedWidthArray>(array: &Array<V>, mask: &Arc<MaskValues>) -> Array<V> {
+pub(crate) fn filter<V: FixedWidthArray>(array: &Array<V>, mask: &MaskValuesRef) -> Array<V> {
     let array = array.as_view();
     let values = filter_records(V::values(array), V::byte_width(array), mask);
     let validity = filter_validity(
         array
             .validity()
-            .vortex_expect("fixed-width validity should be derivable"),
+            .vortex_expect("validity is derivable for a valid fixed-width array"),
         mask,
     );
     with_values(array, values, mask.true_count(), validity)
         .vortex_expect("filtering fixed-width values preserves array invariants")
 }
 
-fn filter_records(values: ByteBuffer, byte_width: usize, mask: &MaskValues) -> ByteBuffer {
+fn filter_records(values: ByteBuffer, byte_width: usize, mask: &MaskValuesRef) -> ByteBuffer {
     let alignment = values.alignment();
 
     match_each_record_width!(

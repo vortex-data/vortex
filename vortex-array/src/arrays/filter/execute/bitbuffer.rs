@@ -4,12 +4,12 @@
 //! [`BitBuffer`] filtering algorithms.
 
 use vortex_buffer::BitBuffer;
-use vortex_mask::MaskValues;
+use vortex_mask::MaskValuesRef;
 
 use crate::arrays::bool::compute::filter::filter_bitbuffer_by_mask;
 
-/// Filter a [`BitBuffer`] by [`MaskValues`], returning a new [`BitBuffer`].
-pub(super) fn filter_bit_buffer(bb: &BitBuffer, mask: &MaskValues) -> BitBuffer {
+/// Filter a [`BitBuffer`] by [`MaskValuesRef`], returning a new [`BitBuffer`].
+pub(super) fn filter_bit_buffer(bb: &BitBuffer, mask: &MaskValuesRef) -> BitBuffer {
     assert_eq!(
         mask.len(),
         bb.len(),
@@ -30,7 +30,9 @@ mod tests {
     fn filter_bool_by_mask_test() {
         let buf = bitbuffer![1 1 0];
         let mask = Mask::from_iter([true, false, true]);
-        let mask_values = mask.values().unwrap();
+        let Mask::Values(mask_values) = &mask else {
+            panic!("a partially selective mask must contain mask values");
+        };
         let filtered = filter_bit_buffer(&buf, mask_values);
         assert_eq!(2, filtered.len());
         assert_eq!(filtered, bitbuffer![1 0])

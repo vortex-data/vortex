@@ -3,19 +3,19 @@
 
 //! Buffer-level filter dispatch.
 //!
-//! Provides [`filter_buffer`] which filters a [`Buffer<T>`] by [`MaskValues`], attempting an
+//! Provides [`filter_buffer`] which filters a [`Buffer<T>`] by [`MaskValuesRef`], attempting an
 //! in-place filter when the buffer has exclusive ownership.
 
 use vortex_buffer::Buffer;
-use vortex_mask::MaskValues;
+use vortex_mask::MaskValuesRef;
 
 use crate::arrays::filter::execute::slice;
 
-/// Filter a [`Buffer<T>`] by [`MaskValues`], returning a new buffer.
+/// Filter a [`Buffer<T>`] by [`MaskValuesRef`], returning a new buffer.
 ///
 /// This will attempt to filter in-place (via [`Buffer::try_into_mut`]) when the buffer has
 /// exclusive ownership, avoiding an extra allocation.
-pub(crate) fn filter_buffer<T: Copy>(buffer: Buffer<T>, mask: &MaskValues) -> Buffer<T> {
+pub(crate) fn filter_buffer<T: Copy>(buffer: Buffer<T>, mask: &MaskValuesRef) -> Buffer<T> {
     match buffer.try_into_mut() {
         Ok(mut buffer_mut) => {
             let new_len = slice::filter_slice_mut_by_mask_values(buffer_mut.as_mut_slice(), mask);
@@ -35,10 +35,9 @@ mod tests {
 
     use super::*;
 
-    // Helper to get `MaskValues` from a `Mask`.
-    fn mask_values(mask: &Mask) -> &MaskValues {
+    fn mask_values(mask: &Mask) -> &MaskValuesRef {
         match mask {
-            Mask::Values(v) => v.as_ref(),
+            Mask::Values(values) => values,
             _ => panic!("expected Mask::Values"),
         }
     }

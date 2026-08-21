@@ -5,10 +5,10 @@ use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::CpuKernel;
 use vortex_buffer::get_bit;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_mask::MaskValues;
+use vortex_mask::MaskValuesRef;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -26,9 +26,9 @@ impl FilterReduce for Bool {
     fn filter(array: ArrayView<'_, Bool>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         let validity = array.validity()?.filter(mask)?;
 
-        let mask_values = mask
-            .values()
-            .vortex_expect("AllTrue and AllFalse are handled by filter fn");
+        let Mask::Values(mask_values) = mask else {
+            vortex_panic!("Bool FilterReduce requires Mask::Values, got {mask:?}");
+        };
 
         let src = array.to_bit_buffer();
         let density = mask_values.density();
@@ -42,7 +42,7 @@ impl FilterReduce for Bool {
     }
 }
 
-fn filter_sparse(src: &BitBuffer, mask_values: &MaskValues, true_count: usize) -> BitBuffer {
+fn filter_sparse(src: &BitBuffer, mask_values: &MaskValuesRef, true_count: usize) -> BitBuffer {
     if let Some(slices) = mask_values.cached_slices() {
         filter_slices(src, true_count, slices.iter().copied())
     } else if let Some(indices) = mask_values.cached_indices() {

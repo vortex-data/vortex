@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::mem::MaybeUninit;
-use std::sync::Arc;
 
 use fastlanes::BitPacking;
 use vortex_array::ArrayRef;
@@ -20,7 +19,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_mask::MaskValues;
+use vortex_mask::MaskValuesRef;
 
 use super::chunked_indices;
 use super::take::UNPACK_CHUNK_THRESHOLD;
@@ -82,7 +81,7 @@ impl FilterKernel for BitPacked {
 
         let patches = array
             .patches()
-            .map(|patches| patches.filter(&Mask::Values(Arc::clone(values)), ctx))
+            .map(|patches| patches.filter(&Mask::Values(MaskValuesRef::clone(values)), ctx))
             .transpose()?
             .flatten();
 
@@ -109,12 +108,12 @@ impl FilterKernel for BitPacked {
 /// Returns a tuple of (values buffer, validity mask).
 fn filter_primitive_without_patches<U: UnsignedPType + BitPacking>(
     array: ArrayView<'_, BitPacked>,
-    selection: &Arc<MaskValues>,
+    selection: &MaskValuesRef,
 ) -> VortexResult<(Buffer<U>, Validity)> {
     let values = filter_with_indices(array.data(), selection.indices());
     let validity = array
         .validity()?
-        .filter(&Mask::Values(Arc::clone(selection)))?;
+        .filter(&Mask::Values(MaskValuesRef::clone(selection)))?;
 
     Ok((values.freeze(), validity))
 }
@@ -176,7 +175,7 @@ fn filter_with_indices<T: NativePType + BitPacking>(
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::sync::LazyLock;
 
     use vortex_array::IntoArray as _;

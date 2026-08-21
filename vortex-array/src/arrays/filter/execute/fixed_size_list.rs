@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 use vortex_mask::MaskIter;
-use vortex_mask::MaskValues;
+use vortex_mask::MaskValuesRef;
 
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::filter::execute::filter_validity;
@@ -24,12 +22,12 @@ const MASK_EXPANSION_DENSITY_THRESHOLD: f64 = 0.05;
 /// mask down to the child elements array.
 pub fn filter_fixed_size_list(
     array: &FixedSizeListArray,
-    selection_mask: &Arc<MaskValues>,
+    selection_mask: &MaskValuesRef,
 ) -> FixedSizeListArray {
     let filtered_validity = filter_validity(
         array
             .validity()
-            .vortex_expect("fixed-size-list validity should be derivable"),
+            .vortex_expect("validity is derivable for a valid FixedSizeListArray"),
         selection_mask,
     );
 
@@ -38,13 +36,10 @@ pub fn filter_fixed_size_list(
     let list_size = array.list_size();
 
     let new_elements = {
-        // We want to create a new mask specialized to the underlying `elements` of the array.
         if list_size != 0 {
-            // TODO(connor): If we can push down a "indices" or "slices" selection instead that
-            // would be much more performant.
+            // TODO(connor): Push down an indices or slices selection to avoid expanding the mask.
             let elements_mask = compute_mask_for_fsl_elements(selection_mask, list_size as usize);
 
-            // Allow the child array to filter itself.
             let new_elements = elements
                 .filter(elements_mask)
                 .vortex_expect("FixedSizeListArray elements are guaranteed to support filter");
@@ -59,22 +54,14 @@ pub fn filter_fixed_size_list(
                 "degenerate FixedSizeListArray is invalid"
             );
 
-            // NB: The safety comment for the `list_size == 0` case is here for clarity.
-
-            // SAFETY: We have verified that when `list_size == 0`
-            // - `elements` has length 0 (since it came from a valid `FixedSizeListArray`)
-            // - `filtered_validity` has the correct length because we filter with the same
-            //   `selection_mask` as the array itself
             elements.clone()
         }
     };
 
-    // SAFETY: We have verified that
-    // - The case when `list_size == 0` is safe (see above)
-    // - The `new_elements` array is guaranteed to have a length that is a multiple of
-    //   `list_size`
-    // - `filtered_validity` has the correct length because we filter with the same
-    //   `selection_mask` as the array itself
+    // SAFETY:
+    // - A valid zero-width array has no elements, which the zero-width branch preserves.
+    // - Otherwise, the expanded selection retains `list_size` elements for each selected list.
+    // - Filtering validity with `selection_mask` gives it the required `new_len`.
     unsafe {
         FixedSizeListArray::new_unchecked(new_elements, list_size, filtered_validity, new_len)
     }
@@ -86,7 +73,7 @@ pub fn filter_fixed_size_list(
 /// `list_size` times.
 ///
 /// The output `Mask` is guaranteed to have a length equal to `selection_mask.len() * list_size`.
-fn compute_mask_for_fsl_elements(selection_mask: &MaskValues, list_size: usize) -> Mask {
+fn compute_mask_for_fsl_elements(selection_mask: &MaskValuesRef, list_size: usize) -> Mask {
     let expanded_len = selection_mask.len() * list_size;
 
     // Use threshold_iter to choose the optimal representation based on density.
@@ -120,7 +107,7 @@ fn compute_mask_for_fsl_elements(selection_mask: &MaskValues, list_size: usize) 
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
