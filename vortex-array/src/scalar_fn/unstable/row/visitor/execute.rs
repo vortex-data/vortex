@@ -8,7 +8,6 @@
 //! signature cannot execute over the original inputs.
 
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure_eq;
 use vortex_mask::Mask;
 
 use super::RowPolicy;
@@ -18,6 +17,7 @@ use super::check::assert_owned_visit_contract;
 use super::check::assert_sink_visit_contract;
 use super::check::validate_owned_visit;
 use super::check::validate_sink_visit;
+use super::ensure_plan;
 use super::row_visitor::private;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -290,24 +290,4 @@ impl<F: RowFn> RowVisitor<F::Options> for ExecuteValidRows<'_, '_, F> {
             finish_failure,
         )
     }
-}
-
-pub(super) fn ensure_plan(
-    planned_output: &DType,
-    planned_policy: RowPolicy,
-    actual_output: DType,
-    actual_policy: RowPolicy,
-) -> VortexResult<()> {
-    vortex_ensure_eq!(
-        actual_policy,
-        planned_policy,
-        "row dispatch must select the planned nullable execution policy: planned {planned_policy:?}, got {actual_policy:?}",
-    );
-    vortex_ensure_eq!(
-        actual_output,
-        *planned_output,
-        "row dispatch must select the planned output dtype: planned {planned_output}, got {actual_output}",
-    );
-
-    Ok(())
 }

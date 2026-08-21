@@ -133,7 +133,8 @@ pub(crate) enum RowPolicy {
     /// Evaluate all rows and mask the result.
     Dense,
 
-    /// Evaluate all rows, retrying only valid rows if reduced failure evidence reports an error.
+    /// Evaluate all rows, then retry a partially valid batch if reduced failure evidence reports an
+    /// error.
     DenseWithRetry,
 
     /// Execute only valid rows over the original inputs.

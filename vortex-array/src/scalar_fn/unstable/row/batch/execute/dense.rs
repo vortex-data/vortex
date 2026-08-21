@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use super::super::RowFnExecutionArgs;
@@ -9,6 +11,7 @@ use super::super::args::BorrowedRowFnArgs;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::builtins::ArrayBuiltins;
+use crate::scalar_fn::unstable::row::execute::DenseAttempt;
 use crate::validity::Validity;
 
 impl RowFnExecutionArgs {
@@ -23,15 +26,13 @@ impl RowFnExecutionArgs {
         self.finalize_dense_output(values, ctx)
     }
 
-    /// Run every stored payload and retry valid rows if the dense attempt rejects its reduced
-    /// failure evidence.
+    /// Run every stored payload, resolving a deferred error against input validity.
     pub(super) fn execute_dense_with_retry(
         &self,
-        kernel: impl Fn(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
-        try_dense_rows: impl FnOnce(
+        execute_dense_attempt: impl FnOnce(
             BorrowedRowFnArgs<'_>,
             &mut ExecutionCtx,
-        ) -> VortexResult<Option<ArrayRef>>,
+        ) -> VortexResult<DenseAttempt>,
         try_valid_rows: impl FnOnce(
             BorrowedRowFnArgs<'_>,
             &Mask,
@@ -39,12 +40,53 @@ impl RowFnExecutionArgs {
         ) -> VortexResult<Option<ArrayRef>>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let Some(values) = try_dense_rows(self.execution_args(&self.inputs, self.row_count), ctx)?
-        else {
-            return self.retry_valid_rows_after_deferred_failure(kernel, try_valid_rows, ctx);
-        };
+        let attempt =
+            execute_dense_attempt(self.execution_args(&self.inputs, self.row_count), ctx)?;
 
-        self.finalize_dense_output(values, ctx)
+        match attempt {
+            DenseAttempt::Values(values) => self.finalize_dense_output(values, ctx),
+            DenseAttempt::DeferredError(error) => {
+                self.resolve_deferred_error(error, try_valid_rows, ctx)
+            }
+        }
+    }
+
+    fn resolve_deferred_error(
+        &self,
+        deferred_error: VortexError,
+        try_valid_rows: impl FnOnce(
+            BorrowedRowFnArgs<'_>,
+            &Mask,
+            &mut ExecutionCtx,
+        ) -> VortexResult<Option<ArrayRef>>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let valid_rows = self.validity.execute_mask(self.row_count, ctx)?;
+
+        // An array-backed validity can materialize to all valid even though the cheap checks in
+        // `RowFnExecutionArgs::execute` could not prove that. The deferred error therefore came
+        // from an observable row and remains terminal. Check all-true before all-false because an
+        // empty mask is both.
+        if valid_rows.all_true() {
+            return Err(deferred_error);
+        }
+
+        if valid_rows.all_false() {
+            return Ok(self.all_null());
+        }
+
+        // Reduced evidence does not identify which rows failed. Discard the dense error before
+        // retrying only observable rows.
+        drop(deferred_error);
+
+        if let Some(result) = self.try_execute_valid_rows(try_valid_rows, &valid_rows, ctx)? {
+            return Ok(result);
+        }
+
+        vortex_panic!(
+            "dense retry requires direct valid-row support after a deferred error, but {} declined it",
+            self.id,
+        )
     }
 
     fn finalize_dense_output(

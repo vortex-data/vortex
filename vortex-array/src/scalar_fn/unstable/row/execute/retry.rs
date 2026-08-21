@@ -3,12 +3,13 @@
 
 //! Dense owned execution that can request a valid-row retry.
 //!
-//! [`execute_owned_with_retry`] decodes and evaluates every row while reducing compact failure
-//! evidence. Accepted evidence returns the dense output. Rejected evidence discards that output
-//! and tells batch execution to retry only the valid rows. Decode, validation, and allocation
-//! errors remain terminal.
+//! [`execute_owned_dense_attempt`] decodes and evaluates every row while reducing compact failure
+//! evidence. Accepted evidence returns dense values. Rejected evidence discards those values and
+//! preserves the error while batch execution resolves input validity. Decode, validation, and
+//! allocation errors remain terminal.
 
 use vortex_compute::lane_kernels::IndexedSourceExt;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -20,26 +21,43 @@ use crate::scalar_fn::unstable::row::IndexedElementTuple;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::scalar_fn::unstable::row::visitor::assert_owned_output_needs_no_drop;
 
+/// The result of attempting dense execution for a deferred row kernel.
+pub(in crate::scalar_fn::unstable::row) enum DenseAttempt {
+    /// Dense values whose reduced failure evidence was accepted.
+    ///
+    /// Batch execution must still validate these values and attach input validity.
+    Values(ArrayRef),
+
+    /// An error produced from the reduced failure evidence.
+    ///
+    /// Batch execution must resolve input validity before deciding whether this error is
+    /// observable.
+    DeferredError(VortexError),
+}
+
 /// Decode every input column and report rejected failure evidence to the batch executor.
 ///
-/// Returns `None` only when `finish_failure` rejects the reduced evidence. Decode, validation, and
-/// allocation errors remain ordinary [`VortexResult`] errors.
-pub(crate) fn execute_owned_with_retry<Args, Out, Prepared, Fail>(
+/// Returns [`DenseAttempt::DeferredError`] only when `finish_failure` rejects the reduced
+/// evidence. Decode, validation, and allocation errors remain ordinary [`VortexResult`] errors.
+pub(in crate::scalar_fn::unstable::row) fn execute_owned_dense_attempt<Args, Out, Prepared, Fail>(
     args: &dyn ExecutionArgs,
     ctx: &mut ExecutionCtx,
     prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
     apply: impl Fn(&Prepared, Args::Elems<'_>) -> (Out, Fail),
     finish_failure: impl FnOnce(Fail) -> VortexResult<()>,
-) -> VortexResult<Option<ArrayRef>>
+) -> VortexResult<DenseAttempt>
 where
     Args: IndexedElementTuple,
     Out: OutputElement,
     Fail: FailureEvidence,
 {
-    // Keep this loop separate from `execute_owned`. Returning its state through a shared helper
-    // changes the optimized dense kernel even when the helper is inlined.
+    // The output vector stays at length zero until every slot is initialized so that an unwind
+    // abandons partially initialized spare capacity. This no-drop assertion proves that no
+    // initialized value requires a destructor to run.
     const { assert_owned_output_needs_no_drop::<Out>() };
 
+    // Keep this dense row loop separate from `execute_owned`. Factoring their shared state into a
+    // helper changes LLVM's optimized dense kernel even when the helper is inlined.
     let columns = Args::decode(args, ctx)?;
     let prepared = prepare(Args::const_values(&columns));
 
@@ -88,7 +106,7 @@ where
     unsafe { values.set_len(row_count) };
 
     match finish_failure(failure_evidence) {
-        Ok(()) => Ok(Some(Out::build(values))),
-        Err(_) => Ok(None),
+        Ok(()) => Ok(DenseAttempt::Values(Out::build(values))),
+        Err(error) => Ok(DenseAttempt::DeferredError(error)),
     }
 }

@@ -34,6 +34,7 @@ use crate::validity::Validity;
 
 #[derive(Clone, Default)]
 struct DeferredAdd {
+    /// The number of preparations across the dense attempt and any valid-row retry.
     prepare_count: Arc<AtomicUsize>,
 }
 
@@ -241,7 +242,7 @@ fn test_deferred_owned_execution_retries_null_row_failure() -> VortexResult<()> 
 }
 
 #[test]
-fn test_deferred_owned_execution_does_not_retry_success() -> VortexResult<()> {
+fn test_deferred_owned_execution_does_not_retry_partially_valid_success() -> VortexResult<()> {
     let function = DeferredAdd::default();
     let validity = Validity::from_iter([true, false]);
     let lhs = PrimitiveArray::new(vec![1_i64, 2], validity.clone()).into_array();
@@ -258,7 +259,7 @@ fn test_deferred_owned_execution_does_not_retry_success() -> VortexResult<()> {
 }
 
 #[test]
-fn test_deferred_owned_execution_reports_valid_failure() -> VortexResult<()> {
+fn test_deferred_owned_execution_retries_and_reports_valid_row_failure() -> VortexResult<()> {
     let function = DeferredAdd::default();
     let validity = Validity::from_iter([true, false]);
     let lhs = PrimitiveArray::new(vec![i64::MAX, 1], validity).into_array();
@@ -268,9 +269,34 @@ fn test_deferred_owned_execution_reports_valid_failure() -> VortexResult<()> {
 
     let error = execute_rows(&function, &EmptyOptions, &args, &mut ctx)
         .expect_err("a valid-row overflow must remain observable");
+    let error = error.to_string();
 
-    assert!(error.to_string().contains("deferred addition overflowed"));
+    assert!(
+        error.contains("deferred addition overflowed"),
+        "the valid-row retry must report its deferred error, got {error}",
+    );
     assert_eq!(function.prepare_count(), 2);
+    Ok(())
+}
+
+#[test]
+fn test_deferred_owned_array_backed_all_valid_error_does_not_retry() -> VortexResult<()> {
+    let function = DeferredAdd::default();
+    let validity = Validity::Array(ConstantArray::new(true, 2).into_array());
+    let lhs = PrimitiveArray::new(vec![i64::MAX, 1], validity).into_array();
+    let rhs = ConstantArray::new(1_i64, 2).into_array();
+    let args = VecExecutionArgs::new(vec![lhs, rhs], 2);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let error = execute_rows(&function, &EmptyOptions, &args, &mut ctx)
+        .expect_err("an all-valid deferred error must remain observable");
+    let error = error.to_string();
+
+    assert!(
+        error.contains("deferred addition overflowed"),
+        "the dense attempt must return its original deferred error, got {error}",
+    );
+    assert_eq!(function.prepare_count(), 1);
     Ok(())
 }
 
