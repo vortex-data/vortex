@@ -15,7 +15,7 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::TemporalArray;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::buffer::BufferHandle;
-use vortex::array::match_each_signed_integer_ptype;
+use vortex::array::match_each_integer_ptype;
 use vortex::array::validity::Validity;
 use vortex::dtype::DType;
 use vortex::dtype::NativePType;
@@ -110,9 +110,9 @@ impl CudaExecute for DateTimePartsExecutor {
         let seconds_ptype = seconds_prim.ptype();
         let subseconds_ptype = subseconds_prim.ptype();
 
-        match_each_signed_integer_ptype!(days_ptype, |DaysT| {
-            match_each_signed_integer_ptype!(seconds_ptype, |SecondsT| {
-                match_each_signed_integer_ptype!(subseconds_ptype, |SubsecondsT| {
+        match_each_integer_ptype!(days_ptype, |DaysT| {
+            match_each_integer_ptype!(seconds_ptype, |SecondsT| {
+                match_each_integer_ptype!(subseconds_ptype, |SubsecondsT| {
                     decode_datetimeparts_typed::<DaysT, SecondsT, SubsecondsT>(
                         days_prim,
                         seconds_prim,
@@ -294,6 +294,42 @@ mod tests {
 
         assert_arrays_eq!(dtp_array, gpu_result, &mut ctx);
 
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_cuda_datetimeparts_unsigned_components() -> VortexResult<()> {
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
+            .vortex_expect("failed to create execution context");
+
+        let len = 3;
+        let temporal = TemporalArray::new_timestamp(
+            PrimitiveArray::new(buffer![0i64; len], Validity::NonNullable).into_array(),
+            TimeUnit::Nanoseconds,
+            None,
+        );
+        let dtp_array = DateTimeParts::try_new(
+            temporal.dtype().clone(),
+            PrimitiveArray::new(buffer![20_000u16, 20_001, 20_002], Validity::NonNullable)
+                .into_array(),
+            PrimitiveArray::new(buffer![80_000u32, 80_001, 80_002], Validity::NonNullable)
+                .into_array(),
+            PrimitiveArray::new(
+                buffer![900_000_000u32, 900_000_001, 900_000_002],
+                Validity::NonNullable,
+            )
+            .into_array(),
+        )?;
+
+        let gpu_result = DateTimePartsExecutor
+            .execute(dtp_array.clone().into_array(), &mut cuda_ctx)
+            .await?
+            .into_host()
+            .await?
+            .into_array();
+
+        assert_arrays_eq!(dtp_array, gpu_result, &mut ctx);
         Ok(())
     }
 
