@@ -1,23 +1,21 @@
-## Rationale for this change
+## Summary
 
 <!--
-Why are you proposing this change, and what is its impact? 
-Is it part of a long term effort, or a bigger change?
+Explain the rationale for this change and its impact. Is it part of a longer effort, or a bigger change? Larger PRs deserve larger summaries, and there is no need to duplicate an attached issue or discussion, but clarity is preferred over brevity.
 
-If this PR is related to a tracked effort or an open issue, please link to the relevant issue.
+Link the tracked effort or open issue below, or delete the line if there is none.
 -->
 
-- Closes: #000
+- Tracking Issue: #000
 
-## What changes are included in this PR?
+## Changes
+
 <!--
-No need to duplicate information from the previous section, but if you're touching many
-parts of the code base, its worth explicitly noting the important changes or how they are tested.
+Summarize what changed and why, calling out the important parts when the PR spans many crates. Describe how the change is tested.
 -->
 
-## What APIs are changed? Are there any user-facing changes?
-
 <!--
-Are there any user-facing changes that might require documentation updates
-Is any public API changed?
+## API Changes
+
+Uncomment this section if there are user-facing changes, such as a broken public API or a change in the behavior of an engine integration. A breaking change also needs the `changelog/break` label.
 -->
