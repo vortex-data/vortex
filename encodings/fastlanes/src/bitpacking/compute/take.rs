@@ -99,11 +99,10 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
         let packed = &packed[chunk_idx * chunk_len..][..chunk_len];
 
         let mut have_unpacked = false;
-        let mut offset_chunk_iter = indices_within_chunk.chunks_exact(UNPACK_CHUNK_THRESHOLD);
+        let (offset_chunks, remainder) = indices_within_chunk.as_chunks::<UNPACK_CHUNK_THRESHOLD>();
 
         // this loop only runs if we have at least UNPACK_CHUNK_THRESHOLD offsets
-        for offset_chunk in &mut offset_chunk_iter {
-            assert_eq!(offset_chunk.len(), UNPACK_CHUNK_THRESHOLD); // let compiler know slice length
+        for offset_chunk in offset_chunks {
             if !have_unpacked {
                 unsafe {
                     let dst: &mut [MaybeUninit<T>] = &mut unpacked;
@@ -119,16 +118,16 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
         }
 
         // if we have a remainder (i.e., < UNPACK_CHUNK_THRESHOLD leftover offsets), we need to handle it
-        if !offset_chunk_iter.remainder().is_empty() {
+        if !remainder.is_empty() {
             if have_unpacked {
                 // we already bulk unpacked this chunk, so we can just push the remaining elements
-                for &index in offset_chunk_iter.remainder() {
+                for &index in remainder {
                     output.push(unsafe { unpacked[index].assume_init() });
                 }
             } else {
                 // we had fewer than UNPACK_CHUNK_THRESHOLD offsets in the first place,
                 // so we need to unpack each one individually
-                for &index in offset_chunk_iter.remainder() {
+                for &index in remainder {
                     output.push(unsafe {
                         bitpack_decompress::unpack_single_primitive::<T>(packed, bit_width, index)
                     });

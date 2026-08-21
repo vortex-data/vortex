@@ -68,7 +68,7 @@ impl ColumnExporter for UuidExporter {
         let src = &self.bytes[offset * UUID_BYTE_LEN..(offset + len) * UUID_BYTE_LEN];
         let dest = unsafe { vector.as_slice_mut::<i128>(len) };
 
-        for (chunk, out) in src.chunks_exact(UUID_BYTE_LEN).zip(dest) {
+        for (chunk, out) in src.as_chunks::<UUID_BYTE_LEN>().0.iter().zip(dest) {
             let mut be_bytes = [0u8; UUID_BYTE_LEN];
             be_bytes.copy_from_slice(chunk);
             let be = u128::from_be_bytes(be_bytes);
@@ -152,7 +152,7 @@ mod tests {
         chunk.set_len(3);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk).unwrap()),
+            String::try_from(&*chunk).unwrap(),
             r#"Chunk - [1 Columns]
 - FLAT UUID: 3 = [ 550e8400-e29b-41d4-a716-446655440000, 00000000-0000-0000-0000-000000000000, ffffffff-ffff-ffff-ffff-ffffffffffff]
 "#
@@ -177,7 +177,7 @@ mod tests {
         chunk.set_len(3);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk).unwrap()),
+            String::try_from(&*chunk).unwrap(),
             r#"Chunk - [1 Columns]
 - FLAT UUID: 3 = [ 550e8400-e29b-41d4-a716-446655440000, NULL, ffffffff-ffff-ffff-ffff-ffffffffffff]
 "#

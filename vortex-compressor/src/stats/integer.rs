@@ -381,17 +381,12 @@ where
     };
 
     let sliced = buffer.slice(head_idx..array.len());
-    let mut chunks = sliced.as_slice().chunks_exact(64);
+    let (chunks, remainder) = sliced.as_slice().as_chunks::<64>();
     match validity.bit_buffer() {
         AllOr::All => {
-            for chunk in &mut chunks {
-                inner_loop_nonnull(
-                    chunk.try_into().ok().vortex_expect("chunk size must be 64"),
-                    count_distinct_values,
-                    &mut loop_state,
-                )
+            for chunk in chunks {
+                inner_loop_nonnull(chunk, count_distinct_values, &mut loop_state)
             }
-            let remainder = chunks.remainder();
             inner_loop_naive(
                 remainder,
                 count_distinct_values,
@@ -403,7 +398,7 @@ where
         AllOr::Some(v) => {
             let mask = v.slice(head_idx..array.len());
             let mut offset = 0;
-            for chunk in &mut chunks {
+            for chunk in chunks {
                 let validity = mask.slice(offset..(offset + 64));
                 offset += 64;
 
@@ -411,14 +406,10 @@ where
                     // All nulls -> no stats to update.
                     0 => continue,
                     // Inner loop for when validity check can be elided.
-                    64 => inner_loop_nonnull(
-                        chunk.try_into().ok().vortex_expect("chunk size must be 64"),
-                        count_distinct_values,
-                        &mut loop_state,
-                    ),
+                    64 => inner_loop_nonnull(chunk, count_distinct_values, &mut loop_state),
                     // Inner loop for when we need to check validity.
                     _ => inner_loop_nullable(
-                        chunk.try_into().ok().vortex_expect("chunk size must be 64"),
+                        chunk,
                         count_distinct_values,
                         &validity,
                         &mut loop_state,
@@ -426,7 +417,6 @@ where
                 }
             }
             // Final iteration, run naive loop.
-            let remainder = chunks.remainder();
             inner_loop_naive(
                 remainder,
                 count_distinct_values,

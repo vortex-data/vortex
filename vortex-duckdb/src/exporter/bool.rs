@@ -86,7 +86,7 @@ mod tests {
         chunk.set_len(2);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk).unwrap()),
+            String::try_from(&*chunk).unwrap(),
             r#"Chunk - [1 Columns]
 - FLAT BOOLEAN: 2 = [ false, true]
 "#
@@ -107,7 +107,7 @@ mod tests {
         chunk.set_len(65);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk).unwrap()),
+            String::try_from(&*chunk).unwrap(),
             format!(
                 r#"Chunk - [1 Columns]
 - FLAT BOOLEAN: 65 = [ {}]
@@ -131,7 +131,7 @@ mod tests {
         chunk.set_len(2);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk).unwrap()),
+            String::try_from(&*chunk).unwrap(),
             r#"Chunk - [1 Columns]
 - FLAT BOOLEAN: 2 = [ NULL, false]
 "#
@@ -152,7 +152,7 @@ mod tests {
         chunk.set_len(2);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk).unwrap()),
+            String::try_from(&*chunk).unwrap(),
             r#"Chunk - [1 Columns]
 - CONSTANT BOOLEAN: 2 = [ NULL]
 "#

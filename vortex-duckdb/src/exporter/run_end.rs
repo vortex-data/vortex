@@ -182,7 +182,7 @@ mod tests {
 
         assert!(exporter.export(&mut chunk, None, None)?);
         assert_eq!(
-            format!("{}", String::try_from(&*chunk)?),
+            String::try_from(&*chunk)?,
             r#"Chunk - [1 Columns]
 - DICTIONARY INTEGER: 2 = [ 10, 20]
 "#

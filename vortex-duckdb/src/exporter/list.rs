@@ -187,7 +187,7 @@ mod tests {
         chunk.set_len(0);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk)?),
+            String::try_from(&*chunk)?,
             r#"Chunk - [1 Columns]
 - FLAT UINTEGER[]: 0 = [ ]
 "#
@@ -224,7 +224,7 @@ mod tests {
         chunk.set_len(5);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk)?),
+            String::try_from(&*chunk)?,
             r#"Chunk - [1 Columns]
 - FLAT UBIGINT[]: 5 = [ [1], [2], [3], [4], [5]]
 "#
@@ -250,7 +250,7 @@ mod tests {
         chunk.set_len(2);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk)?),
+            String::try_from(&*chunk)?,
             r#"Chunk - [1 Columns]
 - FLAT UBIGINT[]: 2 = [ [1], [2, 8]]
 "#
@@ -272,7 +272,7 @@ mod tests {
         chunk.set_len(3);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk)?),
+            String::try_from(&*chunk)?,
             r#"Chunk - [1 Columns]
 - FLAT UBIGINT[]: 3 = [ [3], [4], [5]]
 "#
@@ -308,7 +308,7 @@ mod tests {
         chunk.set_len(2);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk)?),
+            String::try_from(&*chunk)?,
             r#"Chunk - [1 Columns]
 - FLAT FLOAT[]: 2 = [ [100.0, 100.0], [200.0, 200.0, 200.0]]
 "#
@@ -345,7 +345,7 @@ mod tests {
         chunk.set_len(4);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk)?),
+            String::try_from(&*chunk)?,
             r#"Chunk - [1 Columns]
 - FLAT VARCHAR[]: 4 = [ [abc], [def], NULL, [ghi]]
 "#

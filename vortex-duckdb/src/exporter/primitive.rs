@@ -89,7 +89,7 @@ mod tests {
         chunk.set_len(3);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk).unwrap()),
+            String::try_from(&*chunk).unwrap(),
             r#"Chunk - [1 Columns]
 - FLAT INTEGER: 3 = [ 0, 1, 2]
 "#
@@ -110,7 +110,7 @@ mod tests {
         chunk.set_len(5);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk).unwrap()),
+            String::try_from(&*chunk).unwrap(),
             r#"Chunk - [1 Columns]
 - FLAT INTEGER: 5 = [ 10, NULL, 30, NULL, 50]
 "#
@@ -195,12 +195,12 @@ mod tests {
                 chunk[i].set_len(vector_size);
 
                 assert_eq!(
-                    format!("{}", String::try_from(&*chunk[i]).unwrap()),
+                    String::try_from(&*chunk[i]).unwrap(),
                     format!(
                         r#"Chunk - [1 Columns]
 - FLAT INTEGER: {vector_size} = [ {}]
 "#,
-                        &(i * vector_size..(i + 1) * vector_size)
+                        (i * vector_size..(i + 1) * vector_size)
                             .map(|i| i.to_string())
                             .collect::<Vec<String>>()
                             .join(", ")
