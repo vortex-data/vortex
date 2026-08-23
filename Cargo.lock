@@ -11578,6 +11578,7 @@ dependencies = [
  "arrow-schema 59.3.0",
  "codspeed-divan-compat",
  "mimalloc",
+ "num-traits",
  "rand 0.10.2",
  "rstest",
  "smallvec",

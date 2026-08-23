@@ -13,13 +13,18 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::MapArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::listview::ListViewArrayExt;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::MapDType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
+use vortex_array::dtype::i256;
 use vortex_array::extension::datetime::Date;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::validity::Validity;
@@ -598,25 +603,87 @@ fn primitive_f16_sort_order() -> VortexResult<()> {
     Ok(())
 }
 
-#[test]
-fn reject_list_dtype_early() {
-    use vortex_array::ArrayRef;
-    use vortex_array::arrays::ListArray;
-    use vortex_array::validity::Validity;
-    use vortex_buffer::buffer;
-
+#[rstest]
+#[case::ascending(RowSortField::ascending(), vec![4, 2, 1, 0, 5, 3])]
+#[case::descending_nulls_last(
+    RowSortField::descending().nulls_last(),
+    vec![3, 5, 0, 1, 2, 4]
+)]
+fn variable_list_sort_order(
+    #[case] field: RowSortField,
+    #[case] expected_indices: Vec<usize>,
+) -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
-    let offsets = PrimitiveArray::new(buffer![0u32, 1, 2], Validity::NonNullable).into_array();
-    let elements = PrimitiveArray::from_iter([10i32, 20]).into_array();
-    let list: ArrayRef = ListArray::try_new(elements, offsets, Validity::NonNullable)
-        .unwrap()
-        .into_array();
-    let err = convert_columns(&[list], &[RowSortField::default()], &mut ctx)
-        .expect_err("List should not be accepted");
-    assert!(
-        err.to_string().contains("List"),
-        "expected error mentioning List, got: {err}"
+    // [[1, 2], [1], [], [2], null, [1, 3]]
+    let elements = PrimitiveArray::from_iter([1i32, 2, 2, 1, 3]).into_array();
+    let offsets = buffer![0u32, 0, 0, 2, 0, 3].into_array();
+    let sizes = buffer![2u32, 1, 0, 1, 2, 2].into_array();
+    let list = ListViewArray::new(
+        elements,
+        offsets,
+        sizes,
+        Validity::from_iter([true, true, true, true, false, true]),
     );
+
+    let rows = collect_row_bytes(&convert_columns(&[list.into_array()], &[field], &mut ctx)?);
+    let mut actual_indices: Vec<usize> = (0..rows.len()).collect();
+    actual_indices.sort_by(|&a, &b| rows[a].cmp(&rows[b]));
+    assert_eq!(actual_indices, expected_indices);
+    Ok(())
+}
+
+#[test]
+fn variable_list_prefix_order_precedes_following_column() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    // The second column deliberately has the opposite order. The list terminator must decide
+    // [1] < [1, 2] before comparison can observe that following column.
+    let lists = ListViewArray::new(
+        PrimitiveArray::from_iter([1i32, 2]).into_array(),
+        buffer![0u32, 0].into_array(),
+        buffer![1u32, 2].into_array(),
+        Validity::NonNullable,
+    )
+    .into_array();
+    let suffix = PrimitiveArray::from_iter([i64::MAX, i64::MIN]).into_array();
+    let rows = collect_row_bytes(&convert_columns(
+        &[lists, suffix],
+        &[RowSortField::ascending(), RowSortField::ascending()],
+        &mut ctx,
+    )?);
+
+    assert!(rows[0] < rows[1]);
+    Ok(())
+}
+
+#[test]
+fn map_sort_order() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let map_dtype = MapDType::try_new(
+        DType::Primitive(PType::I32, Nullability::NonNullable),
+        DType::Primitive(PType::I32, Nullability::NonNullable),
+        false,
+    )?;
+    let keys = PrimitiveArray::from_iter([1i32, 2, 2]).into_array();
+    let values = PrimitiveArray::from_iter([10i32, 20, 0]).into_array();
+    let entries = StructArray::from_fields(&[("key", keys), ("value", values)])?.into_array();
+    // [{1: 10, 2: 20}, {1: 10}, {}, {2: 0}, null]
+    let entry_lists = ListViewArray::new(
+        entries,
+        buffer![0u32, 0, 0, 2, 0].into_array(),
+        buffer![2u32, 1, 0, 1, 2].into_array(),
+        Validity::from_iter([true, true, true, true, false]),
+    );
+    let maps = MapArray::new(map_dtype, entry_lists).into_array();
+
+    let rows = collect_row_bytes(&convert_columns(
+        &[maps],
+        &[RowSortField::ascending()],
+        &mut ctx,
+    )?);
+    let mut actual_indices: Vec<usize> = (0..rows.len()).collect();
+    actual_indices.sort_by(|&a, &b| rows[a].cmp(&rows[b]));
+    assert_eq!(actual_indices, vec![4, 2, 1, 0, 3]);
+    Ok(())
 }
 
 /// Chunks of one decimal column can compress to different physical value widths. The key
@@ -691,4 +758,33 @@ fn decimal_value_not_fitting_key_width_errors() {
         err.to_string().contains("does not fit"),
         "expected a does-not-fit error, got: {err}"
     );
+}
+
+#[rstest]
+#[case::ascending(false)]
+#[case::descending(true)]
+fn decimal256_sort_order(#[case] descending: bool) -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let large = i256::from_parts(0, 1);
+    let values = vec![
+        large,
+        -large,
+        i256::from_i128(-1),
+        i256::ZERO,
+        i256::from_i128(1),
+    ];
+    let decimal = DecimalArray::from_iter(values.clone(), DecimalDType::new(76, 0)).into_array();
+    let field = RowSortField::new(descending, true);
+    let rows = collect_row_bytes(&convert_columns(&[decimal], &[field], &mut ctx)?);
+
+    assert!(rows.iter().all(|row| row.len() == 33));
+    let mut actual_indices: Vec<usize> = (0..rows.len()).collect();
+    actual_indices.sort_by(|&a, &b| rows[a].cmp(&rows[b]));
+    let mut expected_indices: Vec<usize> = (0..values.len()).collect();
+    expected_indices.sort_by(|&a, &b| {
+        let order = values[a].cmp(&values[b]);
+        if descending { order.reverse() } else { order }
+    });
+    assert_eq!(actual_indices, expected_indices);
+    Ok(())
 }
