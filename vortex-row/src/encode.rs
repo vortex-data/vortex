@@ -231,6 +231,9 @@ fn execute_row_encode(
                 before_varlen: true,
                 ..
             } => {
+                let canonical = canonical
+                    .as_canonical()
+                    .vortex_expect("fixed-width field must retain its canonical array");
                 codec::field_encode_fixed_arithmetic(
                     canonical,
                     options.fields[i],
@@ -243,7 +246,7 @@ fn execute_row_encode(
                 )?;
             }
             ColKind::Fixed { .. } | ColKind::Variable { .. } => {
-                codec::field_encode(
+                codec::field_encode_prepared(
                     canonical,
                     options.fields[i],
                     listview_offsets_slice,

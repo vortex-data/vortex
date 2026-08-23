@@ -403,13 +403,19 @@ A variable-size list is ordered lexicographically by its elements. Null and empt
 the variable-width sentinels. A non-empty list is encoded as:
 
 ```text
-varlen_non_empty_sentinel || escaped_elements || list_terminator
+varlen_non_empty_sentinel
+    || element_marker || encoded_element_0
+    || element_marker || encoded_element_1
+    || ...
+    || list_terminator
 ```
 
-Each byte of each recursively encoded element is escaped as `0x01 || byte`. The terminator is
-`0x00` for ascending fields and `0x02` for descending fields. This makes a shorter list that
-is an element-wise prefix sort before the longer list in ascending order and after it in
-descending order, without allowing a following column to affect that comparison.
+The element marker is `0x01`. Element row keys are self-delimiting and prefix-safe, so their
+bytes are copied without further escaping. The terminator is `0x00` for ascending fields and
+`0x02` for descending fields. It therefore sorts before or after the next element marker,
+making a shorter list that is an element-wise prefix sort before the longer list in ascending
+order and after it in descending order, without allowing a following column to affect that
+comparison.
 
 Element encodings use the same `RowSortField` as the list. Consequently, nested null placement
 remains independent of sort direction, consistent with structs and fixed-size lists.
