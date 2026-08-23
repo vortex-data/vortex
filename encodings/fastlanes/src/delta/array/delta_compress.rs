@@ -95,7 +95,10 @@ where
 
     // Pad the remainder to 1024 elements and process as a full chunk.
     if !remainder.is_empty() {
-        let mut padded_chunk = [T::default(); FL_CHUNK_SIZE];
+        // Repeat the last value for padding to prevent a value-to-zero step from producing
+        // huge wrapping deltas in the padded tail (same rationale as RLE compression).
+        let last = *remainder.last().unwrap_or(&T::default());
+        let mut padded_chunk = [last; FL_CHUNK_SIZE];
         padded_chunk[..remainder.len()].copy_from_slice(remainder);
         process_chunk(&padded_chunk, &mut output_deltas[full_chunks.len()]);
     }
@@ -166,6 +169,29 @@ mod tests {
         assert_eq!(delta.len(), array.len());
         let decompressed = delta_decompress(&delta, &mut SESSION.create_execution_ctx())?;
         assert_arrays_eq!(decompressed, array, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    /// Zero-padding the trailing chunk inflated delta span on unaligned monotone columns,
+    /// causing DeltaScheme to reject encoding. Pad positions must repeat the last value.
+    #[test]
+    fn remainder_pad_preserves_small_delta_span() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        for n in [1025usize, 2049] {
+            let array = PrimitiveArray::from_iter((0..n as u32).map(|i| 1000 + i));
+            let (_bases, deltas) = delta_compress(&array, &mut ctx)?;
+            let d = deltas.as_slice::<u32>();
+            let min = *d.iter().min().unwrap();
+            let max = *d.iter().max().unwrap();
+            assert!(
+                max - min <= 1,
+                "n={n}: delta span should stay O(1), got min={min} max={max}",
+            );
+            assert!(
+                !d.iter().any(|&v| v > u32::MAX / 2),
+                "n={n}: padding must not produce wrapping deltas",
+            );
+        }
         Ok(())
     }
 

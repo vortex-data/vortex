@@ -195,6 +195,39 @@ fn test_delta_compressed() -> VortexResult<()> {
     Ok(())
 }
 
+/// Same as [`test_delta_compressed`], but with a length that is not a multiple of 1024.
+/// Zero-padding the trailing chunk used to inflate the delta span and cause DeltaScheme to skip.
+#[cfg(feature = "unstable_encodings")]
+#[test]
+fn test_delta_compressed_unaligned_length() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    use vortex_array::assert_arrays_eq;
+    use vortex_fastlanes::Delta;
+
+    let mut rng = StdRng::seed_from_u64(7u64);
+    let mut value = 500_000i32;
+    let values: Vec<i32> = (0..1025)
+        .map(|_| {
+            value += 1 + (rng.next_u32() % 6) as i32;
+            value
+        })
+        .collect();
+    let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
+
+    let btr = BtrBlocksCompressor::default();
+    let compressed = btr.compress(
+        &array.clone().into_array(),
+        &mut SESSION.create_execution_ctx(),
+    )?;
+    assert!(
+        compressed.is::<Delta>(),
+        "expected Delta for unaligned near-monotone column, got tree:\n{}",
+        compressed.display_tree()
+    );
+    assert_arrays_eq!(compressed, array.into_array(), &mut ctx);
+    Ok(())
+}
+
 /// Returns true if any `Delta` array appears below an ancestor `Delta` in the tree.
 #[cfg(feature = "unstable_encodings")]
 fn has_nested_delta(array: &vortex_array::ArrayRef, under_delta: bool) -> bool {
