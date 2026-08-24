@@ -19,8 +19,26 @@ rootProject.name = "vortex-root"
 
 // API bindings
 include("vortex-jni")
-include("vortex-spark_2.12")
-project(":vortex-spark_2.12").projectDir = file("vortex-spark")
 
-include("vortex-spark_2.13")
-project(":vortex-spark_2.13").projectDir = file("vortex-spark")
+val sparkModules =
+    mapOf(
+        "3.5" to listOf("2.12", "2.13"),
+        "4.0" to listOf("2.13"),
+    )
+val requestedSparkVersions =
+    System
+        .getProperty("sparkVersions")
+        ?.split(',')
+        ?.map(String::trim)
+        ?.filter(String::isNotEmpty)
+        ?.toSet()
+
+sparkModules.forEach { (sparkVersion, scalaVersions) ->
+    if (requestedSparkVersions == null || sparkVersion in requestedSparkVersions) {
+        scalaVersions.forEach { scalaVersion ->
+            val projectName = "vortex-spark-${sparkVersion}_$scalaVersion"
+            include(projectName)
+            project(":$projectName").projectDir = file("vortex-spark/v$sparkVersion")
+        }
+    }
+}

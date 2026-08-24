@@ -8,7 +8,7 @@ import org.gradle.api.tasks.Exec
 plugins {
     `java-library`
     `jvm-test-suite`
-    id("com.gradleup.shadow") version "9.4.2"
+    id("com.gradleup.shadow")
 }
 
 dependencies {
@@ -162,6 +162,11 @@ tasks.register<Copy>("makeTestFiles") {
 
 tasks.named("processResources").configure {
     dependsOn("makeTestFiles")
+}
+
+// The sources jar packages src/main/resources, where makeTestFiles stages the native library.
+tasks.withType<Jar>().configureEach {
+    mustRunAfter("makeTestFiles")
 }
 
 tasks.withType<Test>().all {
