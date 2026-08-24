@@ -344,6 +344,7 @@ mod tests {
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = vortex_array::array_session();
         crate::initialize(&session);
+        vortex_uuid::initialize(&session);
         session
     });
 
@@ -355,8 +356,8 @@ mod tests {
         use arrow_schema::extension::ExtensionType;
         use arrow_schema::extension::Uuid as ArrowUuid;
         use vortex_array::dtype::extension::ExtDType;
-        use vortex_array::extension::uuid::Uuid;
-        use vortex_array::extension::uuid::UuidMetadata;
+        use vortex_uuid::Uuid;
+        use vortex_uuid::UuidMetadata;
 
         let storage = VortexDType::FixedSizeList(
             Arc::new(VortexDType::Primitive(PType::U8, Nullability::NonNullable)),

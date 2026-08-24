@@ -1,8 +1,8 @@
 [package]
-name = "vortex-parquet-variant"
+name = "vortex-uuid"
 authors = { workspace = true }
 categories = { workspace = true }
-description = "Vortex Parquet Variant array"
+description = "Vortex UUID extension type"
 edition = { workspace = true }
 homepage = { workspace = true }
 include = { workspace = true }
@@ -18,26 +18,16 @@ workspace = true
 
 [dependencies]
 arrow-array = { workspace = true }
-arrow-buffer = { workspace = true }
-arrow-schema = { workspace = true }
-chrono = { workspace = true }
-parquet-variant = { workspace = true }
-parquet-variant-compute = { workspace = true }
-prost = { workspace = true }
+arrow-schema = { workspace = true, features = ["canonical_extension_types"] }
+uuid = { workspace = true }
 vortex-array = { workspace = true }
 vortex-arrow = { workspace = true }
-vortex-buffer = { workspace = true }
+vortex-buffer = { workspace = true, features = ["arrow"] }
 vortex-error = { workspace = true }
-vortex-json = { workspace = true }
-vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 
 [dev-dependencies]
-vortex-edition = { workspace = true }
+arrow-array = { workspace = true, features = ["ffi"] }
+arrow-buffer = { workspace = true }
 rstest = { workspace = true }
-tokio = { workspace = true, features = ["full"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
-vortex-file = { workspace = true, features = ["tokio"] }
-vortex-io = { workspace = true, features = ["tokio"] }
-vortex-layout = { workspace = true }
-vortex-uuid = { workspace = true }

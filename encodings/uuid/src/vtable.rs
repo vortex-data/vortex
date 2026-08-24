@@ -1,7 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use uuid;
+//! The extension dtype vtable for UUIDs.
+
+use vortex_array::dtype::DType;
+use vortex_array::dtype::PType;
+use vortex_array::dtype::extension::ExtDType;
+use vortex_array::dtype::extension::ExtId;
+use vortex_array::dtype::extension::ExtVTable;
+use vortex_array::scalar::PValue;
+use vortex_array::scalar::ScalarValue;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -9,16 +17,9 @@ use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 
-use crate::dtype::DType;
-use crate::dtype::PType;
-use crate::dtype::extension::ExtDType;
-use crate::dtype::extension::ExtId;
-use crate::dtype::extension::ExtVTable;
-use crate::extension::uuid::Uuid;
-use crate::extension::uuid::UuidMetadata;
-use crate::extension::uuid::metadata::u8_to_version;
-use crate::scalar::PValue;
-use crate::scalar::ScalarValue;
+use crate::Uuid;
+use crate::UuidMetadata;
+use crate::metadata::u8_to_version;
 
 /// The number of bytes in a UUID.
 pub(crate) const UUID_BYTE_LEN: usize = 16;
@@ -132,18 +133,18 @@ mod tests {
 
     use rstest::rstest;
     use uuid::Version;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::dtype::extension::ExtVTable;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::scalar::ScalarValue;
     use vortex_error::VortexResult;
 
-    use crate::dtype::DType;
-    use crate::dtype::Nullability;
-    use crate::dtype::PType;
-    use crate::dtype::extension::ExtDType;
-    use crate::dtype::extension::ExtVTable;
-    use crate::extension::uuid::Uuid;
-    use crate::extension::uuid::UuidMetadata;
-    use crate::extension::uuid::vtable::UUID_BYTE_LEN;
-    use crate::scalar::Scalar;
-    use crate::scalar::ScalarValue;
+    use crate::Uuid;
+    use crate::UuidMetadata;
+    use crate::vtable::UUID_BYTE_LEN;
 
     #[rstest]
     #[case::no_version(None)]

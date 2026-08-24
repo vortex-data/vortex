@@ -89,8 +89,8 @@ mod tests {
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::validity::Validity;
     use vortex::dtype::extension::ExtDType;
-    use vortex::extension::uuid::Uuid;
-    use vortex::extension::uuid::UuidMetadata;
+    use vortex::encodings::uuid::Uuid;
+    use vortex::encodings::uuid::UuidMetadata;
 
     use super::*;
     use crate::SESSION;

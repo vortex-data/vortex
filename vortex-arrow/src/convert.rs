@@ -702,7 +702,13 @@ impl<K: ArrowDictionaryKeyType> FromArrowArray<&DictionaryArray<K>> for DictArra
     }
 }
 
-pub(crate) fn nulls(nulls: Option<&NullBuffer>, nullable: bool) -> VortexResult<Validity> {
+/// Convert an Arrow [`NullBuffer`] into a Vortex [`Validity`] for an array of the given
+/// nullability.
+///
+/// # Errors
+///
+/// Returns an error if `nullable` is false but the null buffer contains nulls.
+pub fn nulls(nulls: Option<&NullBuffer>, nullable: bool) -> VortexResult<Validity> {
     if nullable {
         Ok(nulls
             .map(|nulls| {
