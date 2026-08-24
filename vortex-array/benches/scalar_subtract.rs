@@ -29,6 +29,7 @@ fn main() {
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
+#[vortex_bench_support::cpu_features]
 #[divan::bench]
 fn scalar_subtract(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
