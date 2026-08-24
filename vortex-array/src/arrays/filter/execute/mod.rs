@@ -4,7 +4,9 @@
 //! Execution logic for [`super::FilterArray`].
 //!
 //! The main entrypoint is [`execute_filter`] which filters any [`Canonical`] array.
-//! Before canonical execution, [`execute_filter_fast_paths`] tries these cases in order:
+//! Before canonical execution, the [`Filter`] implementation of
+//! [`VTable::execute`](crate::array::vtable::VTable::execute) tries these cases in order, the
+//! last of which is [`execute_all_null_filter_fast_path`]:
 //!
 //! | Condition                       | Result                |
 //! | ------------------------------- | --------------------- |
