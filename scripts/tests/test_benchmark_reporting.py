@@ -662,6 +662,29 @@ def test_file_size_report_ignores_baseline_rows_outside_pr_scope() -> None:
     assert "| part-0.vortex | 1.0 |" not in report
 
 
+def test_file_size_report_omits_formats_the_pr_run_skipped() -> None:
+    compare = load_compare_module()
+
+    report = compare.format_file_size_report(
+        pd.DataFrame(
+            [
+                file_size_record_for("base-sha", 100, "tpch", "10", "vortex-file-compressed", "part-0.vortex"),
+                file_size_record_for("base-sha", 80, "tpch", "10", "vortex-compact", "part-0.vortex"),
+                file_size_record_for("base-sha", 5, "tpch", "10", "vortex-compact", "duckdb.db"),
+            ]
+        ),
+        pd.DataFrame(
+            [
+                file_size_record_for("pr-sha", 125, "tpch", "10", "vortex-file-compressed", "part-0.vortex"),
+            ]
+        ),
+    )
+
+    assert "<summary>File Size Changes (1 files changed, +25.0% overall, 1↑ 0↓)</summary>" in report
+    assert "vortex-compact" not in report
+    assert "-100.0%" not in report
+
+
 def test_capture_file_sizes_emits_shared_benchmark_rows(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     format_dir = data_dir / "tpch" / "10" / "vortex-file-compressed"
