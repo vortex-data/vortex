@@ -4,14 +4,15 @@
 //! Return types for row closures.
 //!
 //! [`FailureEvidence`] represents deferred failures from owned row closures. [`SinkResult`] lets
-//! the executor handle initialized sinks and sinks that require an [`InitializedElement`] token,
-//! with either infallible or immediate-error callbacks.
+//! the executor handle initialized sinks and sinks that require an [`InitializedElement`] or
+//! [`InitializedRow`] token, with either infallible or immediate-error callbacks.
 
 use std::ops::BitOrAssign;
 
 use vortex_error::VortexResult;
 
 use super::InitializedElement;
+use super::InitializedRow;
 
 /// Compact failure evidence that can be OR-reduced across rows.
 ///
@@ -50,6 +51,17 @@ impl private::Sealed for InitializedElement {}
 
 impl SinkResult for InitializedElement {
     type WriteToken = InitializedElement;
+    const INFALLIBLE: bool = true;
+
+    fn into_result(self) -> VortexResult<()> {
+        Ok(())
+    }
+}
+
+impl private::Sealed for InitializedRow {}
+
+impl SinkResult for InitializedRow {
+    type WriteToken = InitializedRow;
     const INFALLIBLE: bool = true;
 
     fn into_result(self) -> VortexResult<()> {

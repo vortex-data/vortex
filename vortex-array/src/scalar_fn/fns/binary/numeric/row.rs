@@ -116,7 +116,7 @@ where
     // vectorization. Check each divide immediately and stop at the first failure.
     // Dense execution leaves output uninitialized. Nullable branches fill placeholders only when
     // they need to skip invalid rows.
-    visitor.visit_into::<(T, T), UninitElementSink<T>, _>(|(lhs, rhs), output| {
+    visitor.visit_into::<(T, T), UninitElementSink<T>, _>((), |(lhs, rhs), output| {
         let (value, failed) = CheckedDiv::apply(lhs, rhs);
         if failed {
             return Err(numeric_error(<CheckedDiv as CheckedPrimitiveOp<T>>::ERROR));

@@ -9,6 +9,8 @@ use rstest::rstest;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 
 use super::finalize_kernel_output;
@@ -18,6 +20,7 @@ use crate::VortexSessionExecute;
 use crate::array_session;
 use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
+use crate::arrays::FixedSizeListArray;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::dtype::DType;
@@ -30,6 +33,8 @@ use crate::scalar::Scalar;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::VecExecutionArgs;
+use crate::scalar_fn::unstable::row::FixedSizeListSink;
+use crate::scalar_fn::unstable::row::InitializedRow;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::scalar_fn::unstable::row::OutputSink;
 use crate::scalar_fn::unstable::row::RowFn;
@@ -78,15 +83,16 @@ struct I64Sink(BufferMut<i64>);
 // SAFETY: every row is initialized by `BufferMut::zeroed`, and the sink exposes exactly that
 // initialized slice. The `()` write token therefore proves no additional invariant.
 unsafe impl OutputSink for I64Sink {
+    type Params = ();
     type Rows<'a> = &'a mut [i64];
     type Row<'a> = &'a mut i64;
     type WriteToken = ();
 
-    fn storage_dtype() -> DType {
+    fn storage_dtype(_params: &Self::Params) -> DType {
         DType::from(i64::PTYPE)
     }
 
-    fn with_capacity(rows: usize) -> VortexResult<Self> {
+    fn with_capacity(rows: usize, _params: &Self::Params) -> VortexResult<Self> {
         Ok(Self(BufferMut::zeroed(rows)))
     }
 
@@ -101,6 +107,38 @@ unsafe impl OutputSink for I64Sink {
 
     unsafe fn finish(self) -> VortexResult<ArrayRef> {
         Ok(PrimitiveArray::new(self.0.freeze(), Validity::NonNullable).into_array())
+    }
+}
+
+#[derive(Clone)]
+struct RepeatValue;
+
+impl RowFn for RepeatValue {
+    type Options = usize;
+
+    const ARG_NAMES: &'static [&'static str] = &["value"];
+    const INFALLIBLE: bool = true;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("test.repeat_value");
+        *ID
+    }
+
+    fn dispatch<V: RowVisitor>(
+        &self,
+        width: &Self::Options,
+        _args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        vortex_ensure!(
+            u32::try_from(*width).is_ok(),
+            InvalidArgument:
+            "test.repeat_value width must fit in the fixed-size-list u32 list size, got {width}",
+        );
+
+        visitor.visit_into::<(i64,), FixedSizeListSink<i64>, _>(*width, |(value,), row| {
+            InitializedRow::fill(row, |_| value)
+        })
     }
 }
 
@@ -156,7 +194,7 @@ impl RowFn for ValidOnlyIdentity {
         _args: &[DType],
         visitor: V,
     ) -> VortexResult<V::VisitResult> {
-        visitor.visit_into::<(i64,), I64Sink, VortexResult<()>>(|(value,), output| {
+        visitor.visit_into::<(i64,), I64Sink, VortexResult<()>>((), |(value,), output| {
             *output = value;
             Ok(())
         })
@@ -182,6 +220,58 @@ impl RowFn for InvalidKernelOutput {
     ) -> VortexResult<V::VisitResult> {
         visitor.visit::<(i64,), NullProducingI64>(|(value,)| NullProducingI64(value))
     }
+}
+
+#[rstest]
+#[case::dense_width_two(
+    vec![1_i64, 2],
+    Validity::NonNullable,
+    2,
+    vec![1_i64, 1, 2, 2],
+)]
+#[case::dense_width_four(
+    vec![3_i64, 4],
+    Validity::NonNullable,
+    4,
+    vec![3_i64, 3, 3, 3, 4, 4, 4, 4],
+)]
+#[case::empty(vec![], Validity::NonNullable, 3, vec![])]
+#[case::zero_width(vec![3_i64, 4], Validity::NonNullable, 0, vec![])]
+#[case::all_null(
+    vec![5_i64, 6],
+    Validity::AllInvalid,
+    2,
+    vec![0_i64, 0, 0, 0],
+)]
+#[case::partially_valid(
+    vec![7_i64, 8, 9],
+    Validity::from_iter([true, false, true]),
+    3,
+    vec![7_i64, 7, 7, 0, 0, 0, 9, 9, 9],
+)]
+fn test_fixed_size_list_sink_uses_runtime_width(
+    #[case] input_values: Vec<i64>,
+    #[case] validity: Validity,
+    #[case] width: usize,
+    #[case] expected_elements: Vec<i64>,
+) -> VortexResult<()> {
+    let row_count = input_values.len();
+    let input = PrimitiveArray::new(input_values, validity.clone()).into_array();
+    let args = VecExecutionArgs::new(vec![input], row_count);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let actual = execute_rows(&RepeatValue, &width, &args, &mut ctx)?;
+    let expected = FixedSizeListArray::new(
+        PrimitiveArray::from_iter(expected_elements).into_array(),
+        u32::try_from(width)
+            .map_err(|_| vortex_err!(InvalidArgument: "test width must fit in u32, got {width}"))?,
+        validity,
+        row_count,
+    )
+    .into_array();
+
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+    Ok(())
 }
 
 #[test]
@@ -403,7 +493,7 @@ impl RowFn for DeclaredSinkOutput {
     ) -> VortexResult<V::VisitResult> {
         visitor
             .with_output_dtype(timestamp_dtype(Nullability::NonNullable))
-            .visit_into::<(i64,), I64Sink, VortexResult<()>>(|(value,), output| {
+            .visit_into::<(i64,), I64Sink, VortexResult<()>>((), |(value,), output| {
                 *output = value;
                 Ok(())
             })

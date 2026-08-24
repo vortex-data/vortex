@@ -102,6 +102,7 @@ impl<F: RowFn> RowVisitor for ExecuteDenseWithRetry<'_, '_, '_, F> {
 
     fn visit_prepared_into<Args, Sink, Prepared, ApplyResult>(
         self,
+        params: Sink::Params,
         prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
         apply: impl Fn(&Prepared, Args::Elems<'_>, Sink::Row<'_>) -> ApplyResult,
     ) -> VortexResult<Self::VisitResult>
@@ -112,14 +113,16 @@ impl<F: RowFn> RowVisitor for ExecuteDenseWithRetry<'_, '_, '_, F> {
     {
         const { assert_sink_visit_contract::<F, Args, ApplyResult>() };
         let visited = BatchPlan::new(
-            validate_sink_visit::<Args, Sink>(self.args.dtypes())?,
+            validate_sink_visit::<Args, Sink>(self.args.dtypes(), &params)?,
             self.output_dtype,
             RowPolicy::for_sink::<Args, ApplyResult>(),
         )?;
         self.args.plan().ensure_reproduced_by(&visited)?;
 
-        execute_sink::<Args, Prepared, Sink, ApplyResult>(self.args, self.ctx, prepare, apply)
-            .map(DenseAttempt::Values)
+        execute_sink::<Args, Prepared, Sink, ApplyResult>(
+            self.args, &params, self.ctx, prepare, apply,
+        )
+        .map(DenseAttempt::Values)
     }
 
     fn visit_prepared_deferred<Args, Out, Prepared, Fail>(

@@ -110,6 +110,7 @@ impl<F: RowFn> RowVisitor for ExecuteRows<'_, '_, F> {
 
     fn visit_prepared_into<Args, Sink, Prepared, ApplyResult>(
         self,
+        params: Sink::Params,
         prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
         apply: impl Fn(&Prepared, Args::Elems<'_>, Sink::Row<'_>) -> ApplyResult,
     ) -> VortexResult<Self::VisitResult>
@@ -120,13 +121,15 @@ impl<F: RowFn> RowVisitor for ExecuteRows<'_, '_, F> {
     {
         const { assert_sink_visit_contract::<F, Args, ApplyResult>() };
         let visited = BatchPlan::new(
-            validate_sink_visit::<Args, Sink>(self.dtypes)?,
+            validate_sink_visit::<Args, Sink>(self.dtypes, &params)?,
             self.output_dtype,
             RowPolicy::for_sink::<Args, ApplyResult>(),
         )?;
         self.plan.ensure_reproduced_by(&visited)?;
 
-        execute_sink::<Args, Prepared, Sink, ApplyResult>(self.args, self.ctx, prepare, apply)
+        execute_sink::<Args, Prepared, Sink, ApplyResult>(
+            self.args, &params, self.ctx, prepare, apply,
+        )
     }
 
     fn visit_prepared_deferred<Args, Out, Prepared, Fail>(
@@ -243,6 +246,7 @@ impl<F: RowFn> RowVisitor for ExecuteValidRows<'_, '_, F> {
 
     fn visit_prepared_into<Args, Sink, Prepared, ApplyResult>(
         self,
+        params: Sink::Params,
         prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
         apply: impl Fn(&Prepared, Args::Elems<'_>, Sink::Row<'_>) -> ApplyResult,
     ) -> VortexResult<Self::VisitResult>
@@ -253,7 +257,7 @@ impl<F: RowFn> RowVisitor for ExecuteValidRows<'_, '_, F> {
     {
         const { assert_sink_visit_contract::<F, Args, ApplyResult>() };
         let visited = BatchPlan::new(
-            validate_sink_visit::<Args, Sink>(self.dtypes)?,
+            validate_sink_visit::<Args, Sink>(self.dtypes, &params)?,
             self.output_dtype,
             RowPolicy::for_sink::<Args, ApplyResult>(),
         )?;
@@ -262,6 +266,7 @@ impl<F: RowFn> RowVisitor for ExecuteValidRows<'_, '_, F> {
         execute_sink_valid_rows::<Args, Prepared, Sink, ApplyResult>(
             self.args,
             &self.valid,
+            &params,
             self.ctx,
             prepare,
             apply,

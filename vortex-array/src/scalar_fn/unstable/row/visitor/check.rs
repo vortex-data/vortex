@@ -96,14 +96,17 @@ pub(super) fn validate_owned_visit<Args: ElementTuple, Out: OutputElement>(
     Ok(dtype)
 }
 
-pub(super) fn validate_sink_visit<Args, Sink>(dtypes: &[DType]) -> VortexResult<DType>
+pub(super) fn validate_sink_visit<Args, Sink>(
+    dtypes: &[DType],
+    params: &Sink::Params,
+) -> VortexResult<DType>
 where
     Args: ElementTuple,
     Sink: OutputSink,
 {
     Args::validate(dtypes)?;
 
-    let dtype = Sink::storage_dtype();
+    let dtype = Sink::storage_dtype(params);
     vortex_ensure!(
         !dtype.is_nullable(),
         "row output sinks must declare a non-nullable dtype, got {dtype}",

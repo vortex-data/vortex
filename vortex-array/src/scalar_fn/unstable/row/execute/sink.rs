@@ -28,6 +28,7 @@ use crate::scalar_fn::unstable::row::ViewLen;
 /// mutable closure state, which can prevent LLVM from treating that metadata as loop-invariant.
 pub(crate) fn execute_sink<Args, Prepared, Sink, ApplyResult>(
     args: &dyn ExecutionArgs,
+    params: &Sink::Params,
     ctx: &mut ExecutionCtx,
     prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
     apply: impl Fn(&Prepared, Args::Elems<'_>, Sink::Row<'_>) -> ApplyResult,
@@ -43,7 +44,7 @@ where
     let const_values = Args::const_values(&columns);
     let prepared = prepare(const_values);
 
-    let mut sink = Sink::with_capacity(row_count)?;
+    let mut sink = Sink::with_capacity(row_count, params)?;
 
     // Keep `rows` scoped so its borrow ends before `finish`, which consumes the sink.
     {
@@ -100,6 +101,7 @@ where
 pub(crate) fn execute_sink_valid_rows<Args, Prepared, Sink, ApplyResult>(
     args: &dyn ExecutionArgs,
     valid: &MaskValuesRef,
+    params: &Sink::Params,
     ctx: &mut ExecutionCtx,
     prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
     apply: impl Fn(&Prepared, Args::Elems<'_>, Sink::Row<'_>) -> ApplyResult,
@@ -115,7 +117,7 @@ where
         valid_rows,
         row_count,
         mut sink,
-    }) = setup_sink_valid_rows::<Args, Sink>(args, valid, ctx)?
+    }) = setup_sink_valid_rows::<Args, Sink>(args, valid, params, ctx)?
     else {
         return Ok(None);
     };
@@ -205,6 +207,7 @@ where
 fn setup_sink_valid_rows<'valid, Args, Sink>(
     args: &dyn ExecutionArgs,
     valid: &'valid MaskValuesRef,
+    params: &Sink::Params,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ValidRowsSetup<'valid, Args, Sink>>>
 where
@@ -227,7 +230,7 @@ where
     // Keep allocation before the validity and length checks. With multiple CGUs and no LTO,
     // moving it later inlines `Args::get` into every sparse callback, duplicating its bounds
     // checks.
-    let sink = Sink::with_capacity(row_count)?;
+    let sink = Sink::with_capacity(row_count, params)?;
 
     let valid_rows = valid.bit_buffer();
     vortex_ensure_eq!(
@@ -272,15 +275,16 @@ mod tests {
     // SAFETY: `with_capacity` always returns an error, so no sink value can reach `rows`, `row`, or
     // `finish` through the executor. The row-initialization requirements are therefore vacuous.
     unsafe impl OutputSink for NonSkippingSink {
+        type Params = ();
         type Rows<'a> = ();
         type Row<'a> = ();
         type WriteToken = ();
 
-        fn storage_dtype() -> DType {
+        fn storage_dtype(_params: &Self::Params) -> DType {
             DType::from(i64::PTYPE)
         }
 
-        fn with_capacity(_rows: usize) -> VortexResult<Self> {
+        fn with_capacity(_rows: usize, _params: &Self::Params) -> VortexResult<Self> {
             Err(vortex_err!(
                 "a non-skipping sink must decline before allocation"
             ))
@@ -300,6 +304,7 @@ mod tests {
     // post-initialization length check. If execution incorrectly continues, safe indexing in
     // `row_unchecked` panics instead of accessing invalid memory.
     unsafe impl OutputSink for ShrinkingSink {
+        type Params = ();
         type Rows<'a> = &'a mut Vec<i64>;
         type Row<'a> = &'a mut i64;
         type WriteToken = ();
@@ -310,11 +315,11 @@ mod tests {
             })
         }
 
-        fn storage_dtype() -> DType {
+        fn storage_dtype(_params: &Self::Params) -> DType {
             DType::from(i64::PTYPE)
         }
 
-        fn with_capacity(rows: usize) -> VortexResult<Self> {
+        fn with_capacity(rows: usize, _params: &Self::Params) -> VortexResult<Self> {
             Ok(Self(vec![0; rows]))
         }
 
@@ -343,6 +348,7 @@ mod tests {
         let execution = execute_sink_valid_rows::<(i64,), (), NonSkippingSink, ()>(
             &args,
             &valid,
+            &(),
             &mut ctx,
             |_| (),
             |_, _, _| (),
@@ -365,6 +371,7 @@ mod tests {
         let result = execute_sink_valid_rows::<(i64,), (), ShrinkingSink, ()>(
             &args,
             &valid,
+            &(),
             &mut ctx,
             |_| (),
             |_, (value,), output| {

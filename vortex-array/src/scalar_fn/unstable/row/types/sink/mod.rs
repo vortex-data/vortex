@@ -3,18 +3,22 @@
 
 //! Output builders for row kernels that cannot return independent owned values.
 //!
-//! [`OutputSink`] allocates batch-wide state and lends one row handle to each callback.
-//! [`UninitElementSink`] is the fixed-width implementation used when avoiding output
-//! initialization matters.
-
-use std::mem::MaybeUninit;
+//! [`OutputSink`] owns the shared lifecycle and safety contract. [`UninitElementSink`] provides
+//! uninitialized scalar storage, while [`FixedSizeListSink`] provides runtime-width row storage.
 
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::dtype::DType;
-use crate::scalar_fn::unstable::row::OutputElement;
 use crate::scalar_fn::unstable::row::ViewLen;
+
+mod fixed_size_list;
+pub use fixed_size_list::FixedSizeListSink;
+pub use fixed_size_list::InitializedRow;
+
+mod uninit_element;
+pub use uninit_element::InitializedElement;
+pub use uninit_element::UninitElementSink;
 
 /// A column allocated once per batch that a row closure writes into, one row at a time.
 ///
@@ -64,6 +68,12 @@ use crate::scalar_fn::unstable::row::ViewLen;
 /// [`SinkResult`]: crate::scalar_fn::unstable::row::SinkResult
 /// [`skipped_rows_initializer`]: Self::skipped_rows_initializer
 pub unsafe trait OutputSink: 'static + Sized {
+    /// Physical parameters required to construct this sink before the row loop.
+    ///
+    /// This type describes only physical storage. A logical output dtype belongs on
+    /// [`RowVisitor::with_output_dtype`](crate::scalar_fn::unstable::row::RowVisitor::with_output_dtype).
+    type Params: 'static;
+
     /// A loop-local view of all output rows.
     ///
     /// Borrowed once before execution so the sink's buffer descriptor and shape become loop
@@ -97,16 +107,12 @@ pub unsafe trait OutputSink: 'static + Sized {
 
     /// The dtype of the column this sink builds.
     ///
-    /// Because this method takes no arguments, the dtype must be a property of the Rust type. An
-    /// output dtype that depends on the function options or argument dtypes is declared by
-    /// [`RowVisitor::with_output_dtype`](crate::scalar_fn::unstable::row::RowVisitor::with_output_dtype).
-    ///
     /// **Must** be non-nullable: batch execution derives nullability from the inputs, widens the
     /// result, and masks the null rows.
-    fn storage_dtype() -> DType;
+    fn storage_dtype(params: &Self::Params) -> DType;
 
     /// Allocate a sink for `rows` rows.
-    fn with_capacity(rows: usize) -> VortexResult<Self>;
+    fn with_capacity(rows: usize, params: &Self::Params) -> VortexResult<Self>;
 
     /// Borrow all output rows for the hot loop.
     fn rows(&mut self) -> Self::Rows<'_>;
@@ -119,7 +125,8 @@ pub unsafe trait OutputSink: 'static + Sized {
     unsafe fn row_unchecked<'a>(rows: &'a mut Self::Rows<'_>, index: usize) -> Self::Row<'a>;
 
     /// Finish into the built column, whose dtype **must** be this sink's
-    /// [`storage_dtype`](Self::storage_dtype). Called once per batch.
+    /// [`storage_dtype`](Self::storage_dtype) for the parameters passed to
+    /// [`with_capacity`](Self::with_capacity). Called once per batch.
     ///
     /// # Safety
     ///
@@ -128,97 +135,4 @@ pub unsafe trait OutputSink: 'static + Sized {
     /// the initializer returned by
     /// [`skipped_rows_initializer`](Self::skipped_rows_initializer) must have run before traversal.
     unsafe fn finish(self) -> VortexResult<ArrayRef>;
-}
-
-/// Proof that one uninitialized element row was initialized.
-///
-/// The private field prevents safe construction without calling [`write`](Self::write):
-///
-/// ```compile_fail,E0423
-/// use vortex_array::scalar_fn::unstable::row::InitializedElement;
-///
-/// let _evidence = InitializedElement(());
-/// ```
-#[must_use = "return this token from the row closure to prove that it initialized the output"]
-pub struct InitializedElement(
-    /// Private so constructing initialization evidence requires an unsafe operation.
-    (),
-);
-
-impl InitializedElement {
-    /// Write `value` into an uninitialized row and return its proof token.
-    ///
-    /// # Safety
-    ///
-    /// `row` must be the [`UninitElementSink`] row supplied to the current callback. The caller
-    /// must return the token from that callback. Using another row or returning the token from
-    /// another callback can cause undefined behavior.
-    #[inline]
-    pub unsafe fn write<T>(row: &mut MaybeUninit<T>, value: T) -> Self {
-        row.write(value);
-
-        Self(())
-    }
-}
-
-/// An element sink that leaves dense output uninitialized before the row loop.
-///
-/// The row closure must return the [`InitializedElement`] from [`InitializedElement::write`] on
-/// success. The token is zero-sized, so the proof adds no runtime row state.
-///
-/// When execution omits invalid rows, it initializes placeholders first. Errors and unwinds are
-/// safe because `values` keeps length zero until `finish`. The `T: Copy` bound means that
-/// initialized spare-capacity elements require no destruction.
-pub struct UninitElementSink<T> {
-    /// Spare storage written in increasing row order.
-    values: Vec<T>,
-
-    /// The number of slots exposed to the row loop and initialized before finishing.
-    row_count: usize,
-}
-
-// SAFETY: the row slice covers exactly the reserved spare-capacity range, so each accepted index
-// names one distinct slot. Safe code cannot construct `InitializedElement`. Its unsafe constructor
-// writes the supplied slot and requires the caller to return that exact evidence. The
-// skipped-row initializer writes `T::default()` into every slot before masked traversal.
-unsafe impl<T: OutputElement + Copy + Default> OutputSink for UninitElementSink<T> {
-    type Rows<'a> = &'a mut [MaybeUninit<T>];
-    type Row<'a> = &'a mut MaybeUninit<T>;
-    type WriteToken = InitializedElement;
-
-    fn skipped_rows_initializer() -> Option<for<'a> fn(&mut Self::Rows<'a>)> {
-        Some(|rows| {
-            for row in rows.iter_mut() {
-                row.write(T::default());
-            }
-        })
-    }
-
-    fn storage_dtype() -> DType {
-        T::element_dtype()
-    }
-
-    fn with_capacity(rows: usize) -> VortexResult<Self> {
-        Ok(Self {
-            values: Vec::with_capacity(rows),
-            row_count: rows,
-        })
-    }
-
-    fn rows(&mut self) -> Self::Rows<'_> {
-        &mut self.values.spare_capacity_mut()[..self.row_count]
-    }
-
-    unsafe fn row_unchecked<'a>(rows: &'a mut Self::Rows<'_>, index: usize) -> Self::Row<'a> {
-        // SAFETY: required by this method's contract.
-        unsafe { rows.get_unchecked_mut(index) }
-    }
-
-    unsafe fn finish(mut self) -> VortexResult<ArrayRef> {
-        // SAFETY: the caller guarantees every slot in `0..row_count` was initialized, and
-        // `with_capacity` reserved every slot in that range.
-        unsafe { self.values.set_len(self.row_count) };
-
-        Ok(T::build(self.values))
-    }
 }

@@ -170,6 +170,7 @@ pub trait RowVisitor: private::Sealed + Sized {
     /// }
     ///
     /// visitor.visit_into::<(i64, i64), UninitElementSink<i64>, _>(
+    ///     (),
     ///     |(lhs, rhs), output| {
     ///         let Some(value) = lhs.checked_div(rhs) else {
     ///             return Err(integer_division_error());
@@ -182,6 +183,7 @@ pub trait RowVisitor: private::Sealed + Sized {
     /// ```
     fn visit_into<Args, Sink, ApplyResult>(
         self,
+        params: Sink::Params,
         apply: impl Fn(Args::Elems<'_>, Sink::Row<'_>) -> ApplyResult,
     ) -> VortexResult<Self::VisitResult>
     where
@@ -190,6 +192,7 @@ pub trait RowVisitor: private::Sealed + Sized {
         ApplyResult: SinkResult<WriteToken = Sink::WriteToken>,
     {
         self.visit_prepared_into::<Args, Sink, (), ApplyResult>(
+            params,
             |_| (),
             move |&(), args, row| apply(args, row),
         )
@@ -209,6 +212,7 @@ pub trait RowVisitor: private::Sealed + Sized {
     ///     ConstVectorMagnitudes<T>,
     ///     InitializedElement,
     /// >(
+    ///     (),
     ///     |(lhs, rhs)| ConstVectorMagnitudes {
     ///         lhs: lhs.map(vector_magnitude),
     ///         rhs: rhs.map(vector_magnitude),
@@ -224,6 +228,7 @@ pub trait RowVisitor: private::Sealed + Sized {
     /// ```
     fn visit_prepared_into<Args, Sink, Prepared, ApplyResult>(
         self,
+        params: Sink::Params,
         prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
         apply: impl Fn(&Prepared, Args::Elems<'_>, Sink::Row<'_>) -> ApplyResult,
     ) -> VortexResult<Self::VisitResult>
