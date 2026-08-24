@@ -3,13 +3,31 @@ source: vortex-btrblocks/tests/golden.rs
 expression: rendered
 ---
 input: utf8, len=16384, nbytes=653785
-root: vortex.fsst(utf8, len=16384) nbytes=151382
+root: vortex.fsst(utf8, len=16384) nbytes=121766
   metadata: len: 16384, nsymbols: 223
-  uncompressed_lengths: vortex.sparse(u8, len=16384) nbytes=3154
+  uncompressed_lengths: vortex.sparse(u8, len=16384) nbytes=1802
     metadata: fill_value: 24u8
-    patch_indices: vortex.primitive(u16, len=1575) nbytes=3150
-      metadata: ptype: u16
+    patch_indices: fastlanes.delta(u16, len=1575) nbytes=1798
+      metadata: offset: 0
+      bases: vortex.primitive(u16, len=128) nbytes=256
+        metadata: ptype: u16
+      deltas: fastlanes.bitpacked(u16, len=2048) nbytes=1542
+        metadata: bit_width: 6, offset: 0
+        patch_indices: vortex.primitive(u16, len=1) nbytes=2
+          metadata: ptype: u16
+        patch_values: vortex.constant(u16, len=1) nbytes=2
+          metadata: scalar: 67u16
+        patch_chunk_offsets: vortex.primitive(u8, len=2) nbytes=2
+          metadata: ptype: u8
     patch_values: vortex.constant(u8, len=1575) nbytes=2
       metadata: scalar: 23u8
-  codes_offsets: fastlanes.bitpacked(u32, len=16385) nbytes=36992
-    metadata: bit_width: 17, offset: 0
+  codes_offsets: fastlanes.delta(u32, len=16385) nbytes=8728
+    metadata: offset: 0
+    bases: vortex.primitive(u32, len=544) nbytes=2176
+      metadata: ptype: u32
+    deltas: vortex.dict(u32, len=17408) nbytes=6552
+      metadata: all_values_referenced: true
+      codes: fastlanes.bitpacked(u8, len=17408) nbytes=6528
+        metadata: bit_width: 3, offset: 0
+      values: vortex.primitive(u32, len=6) nbytes=24
+        metadata: ptype: u32

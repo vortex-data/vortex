@@ -228,6 +228,37 @@ fn test_delta_compressed_unaligned_length() -> VortexResult<()> {
     Ok(())
 }
 
+/// Nullable unaligned monotone must round-trip through Delta (and a cascaded residual).
+///
+/// Mirrors `duckdb/aggregate_pushdown.slt`: `NULL` then `1..=100000` (length 100001).
+#[cfg(feature = "unstable_encodings")]
+#[test]
+fn test_delta_nullable_unaligned_sum() -> VortexResult<()> {
+    use vortex_array::aggregate_fn::fns::sum::sum;
+    use vortex_array::assert_arrays_eq;
+    use vortex_fastlanes::Delta;
+
+    let mut ctx = SESSION.create_execution_ctx();
+    let array =
+        PrimitiveArray::from_option_iter(iter::once(None).chain((1i32..=100_000).map(Some)));
+
+    let btr = BtrBlocksCompressor::default();
+    let compressed = btr.compress(&array.clone().into_array(), &mut ctx)?;
+    assert!(
+        compressed.is::<Delta>(),
+        "expected Delta, got tree:\n{}",
+        compressed.display_tree()
+    );
+    assert_arrays_eq!(compressed, array.into_array(), &mut ctx);
+
+    let expected_sum: i64 = (1i64..=100_000).sum();
+    assert_eq!(
+        sum(&compressed, &mut ctx)?.as_primitive().as_::<i64>(),
+        Some(expected_sum),
+    );
+    Ok(())
+}
+
 /// Returns true if any `Delta` array appears below an ancestor `Delta` in the tree.
 #[cfg(feature = "unstable_encodings")]
 fn has_nested_delta(array: &vortex_array::ArrayRef, under_delta: bool) -> bool {
