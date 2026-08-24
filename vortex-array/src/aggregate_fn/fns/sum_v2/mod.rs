@@ -156,7 +156,6 @@ impl AggregateFnVTable for SumV2 {
         partial.is_empty = true;
     }
 
-    #[inline]
     fn is_saturated(&self, partial: &Self::Partial) -> bool {
         partial.is_overflow || matches!(&partial.sum, SumState::Float(value) if value.is_nan())
     }
@@ -372,7 +371,6 @@ fn sum_state_scalar(partial: &SumV2Partial, nullability: Nullability) -> Scalar 
     }
 }
 
-#[inline(always)]
 fn checked_add_u64(sum: &mut u64, value: u64) -> bool {
     match sum.checked_add(value) {
         Some(result) => {
@@ -383,7 +381,6 @@ fn checked_add_u64(sum: &mut u64, value: u64) -> bool {
     }
 }
 
-#[inline(always)]
 fn checked_add_i64(sum: &mut i64, value: i64) -> bool {
     match sum.checked_add(value) {
         Some(result) => {
