@@ -38,7 +38,6 @@ use vortex_arrow::ArrowImport;
 use vortex_arrow::ArrowImportVTable;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
-use vortex_arrow::has_valid_extension_type;
 use vortex_arrow::nulls;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
@@ -111,7 +110,7 @@ impl ArrowImportVTable for Uuid {
         field: &Field,
         _session: &ArrowSession,
     ) -> VortexResult<Option<DType>> {
-        if !has_valid_extension_type::<ArrowUuid>(field) {
+        if !field.has_valid_extension_type::<ArrowUuid>() {
             return Ok(None);
         }
 
@@ -260,7 +259,7 @@ mod tests {
         let vortex_session = uuid_session();
         let session = vortex_session.arrow();
         let field = session.to_arrow_field("id", &uuid_dtype(false))?;
-        assert!(has_valid_extension_type::<ArrowUuid>(&field));
+        assert!(field.has_valid_extension_type::<ArrowUuid>());
         Ok(())
     }
 
@@ -278,7 +277,7 @@ mod tests {
         };
         assert_eq!(inner.len(), 1);
         assert_eq!(inner[0].data_type(), &DataType::FixedSizeBinary(16));
-        assert!(has_valid_extension_type::<ArrowUuid>(&inner[0]));
+        assert!(inner[0].has_valid_extension_type::<ArrowUuid>());
         Ok(())
     }
 
@@ -291,7 +290,7 @@ mod tests {
         let DataType::List(elem) = field.data_type() else {
             panic!("expected List, got {:?}", field.data_type());
         };
-        assert!(has_valid_extension_type::<ArrowUuid>(elem));
+        assert!(elem.has_valid_extension_type::<ArrowUuid>());
         Ok(())
     }
 
@@ -305,7 +304,7 @@ mod tests {
             panic!("expected FixedSizeList, got {:?}", field.data_type());
         };
         assert_eq!(*size, 3);
-        assert!(has_valid_extension_type::<ArrowUuid>(elem));
+        assert!(elem.has_valid_extension_type::<ArrowUuid>());
         Ok(())
     }
 
@@ -335,8 +334,8 @@ mod tests {
         let DataType::Struct(fields) = entries.data_type() else {
             panic!("expected map entries struct, got {:?}", entries.data_type());
         };
-        assert!(has_valid_extension_type::<ArrowUuid>(&fields[0]));
-        assert!(has_valid_extension_type::<ArrowUuid>(&fields[1]));
+        assert!(fields[0].has_valid_extension_type::<ArrowUuid>());
+        assert!(fields[1].has_valid_extension_type::<ArrowUuid>());
         assert!(!fields[0].is_nullable());
         assert!(fields[1].is_nullable());
 
@@ -361,7 +360,7 @@ mod tests {
         let DataType::Struct(inner_fields) = payload.data_type() else {
             panic!("expected Struct, got {:?}", payload.data_type());
         };
-        assert!(has_valid_extension_type::<ArrowUuid>(&inner_fields[0]));
+        assert!(inner_fields[0].has_valid_extension_type::<ArrowUuid>());
         Ok(())
     }
 
@@ -497,7 +496,7 @@ mod tests {
             panic!("expected Struct, got {:?}", exported.data_type());
         };
         assert_eq!(fields[0].data_type(), &DataType::FixedSizeBinary(16));
-        assert!(has_valid_extension_type::<ArrowUuid>(&fields[0]));
+        assert!(fields[0].has_valid_extension_type::<ArrowUuid>());
 
         let uuids = exported.as_struct().column(0).as_fixed_size_binary();
         assert_eq!(uuids.value(0), b"0123456789abcdef");
@@ -525,7 +524,7 @@ mod tests {
             panic!("expected List, got {:?}", exported.data_type());
         };
         assert_eq!(elem.data_type(), &DataType::FixedSizeBinary(16));
-        assert!(has_valid_extension_type::<ArrowUuid>(elem));
+        assert!(elem.has_valid_extension_type::<ArrowUuid>());
 
         let uuids = exported.as_list::<i32>().values().as_fixed_size_binary();
         assert_eq!(uuids.value(0), b"0123456789abcdef");

@@ -40,7 +40,6 @@ use arrow_schema::FieldRef;
 use arrow_schema::Fields;
 use arrow_schema::Schema;
 use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
-use arrow_schema::extension::ExtensionType;
 use tracing::debug;
 use tracing::trace;
 use vortex_array::ArrayRef;
@@ -801,18 +800,6 @@ fn run_end_values_field(values_field: &FieldRef, nullability: Nullability) -> Fi
         .as_ref()
         .clone()
         .with_nullable(nullability.into())
-}
-
-/// Returns whether `field` carries the extension type `E` and its metadata parses.
-// NOTE(aduffy): We should remove this once we bump Arrow to 0.59.0. This is replicating the
-//  `Field::has_valid_extension_type` method on Arrow added in 58.2.0, we polyfill it here so that
-//  this crate can build with minimal-versions declared.
-pub fn has_valid_extension_type<E: ExtensionType>(field: &Field) -> bool {
-    if field.extension_type_name() != Some(E::NAME) {
-        return false;
-    }
-
-    E::try_new_from_field_metadata(field.data_type(), field.metadata()).is_ok()
 }
 
 impl SessionVar for ArrowSession {

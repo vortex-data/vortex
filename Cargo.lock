@@ -10565,6 +10565,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arrow-array 59.3.0",
+ "arrow-schema 59.3.0",
  "codspeed-divan-compat",
  "fastlanes 0.7.2",
  "mimalloc",
@@ -11800,9 +11801,9 @@ dependencies = [
 name = "vortex-uuid"
 version = "0.1.0"
 dependencies = [
- "arrow-array 58.4.0",
- "arrow-buffer 58.4.0",
- "arrow-schema 58.4.0",
+ "arrow-array 59.3.0",
+ "arrow-buffer 59.3.0",
+ "arrow-schema 59.3.0",
  "rstest",
  "uuid",
  "vortex-array",
