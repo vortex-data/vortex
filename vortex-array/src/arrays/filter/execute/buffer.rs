@@ -125,7 +125,7 @@ fn byte_compress_density_threshold<T>() -> f64 {
 }
 
 /// Materialize sparse indices when enough sibling arrays will reuse the same mask.
-pub(super) fn prepare_mask_for_reuse(mask: &MaskValues, consumers: usize) {
+pub(crate) fn prepare_mask_for_reuse(mask: &MaskValues, consumers: usize) {
     if consumers <= 1 || mask.cached_indices().is_some() || mask.cached_slices().is_some() {
         return;
     }
@@ -153,7 +153,7 @@ mod tests {
 
     fn mask_values(mask: &Mask) -> &MaskValues {
         match mask {
-            Mask::Values(v) => v.as_ref(),
+            Mask::Values(v) => v,
             _ => panic!("expected Mask::Values"),
         }
     }

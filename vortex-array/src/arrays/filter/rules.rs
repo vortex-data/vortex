@@ -14,7 +14,7 @@ use crate::arrays::StructArray;
 use crate::arrays::filter::FilterArraySlotsExt;
 use crate::arrays::filter::FilterReduce;
 use crate::arrays::filter::FilterReduceAdaptor;
-use crate::arrays::filter::execute::prepare_mask_for_reuse;
+use crate::arrays::filter::execute::buffer::prepare_mask_for_reuse;
 use crate::arrays::struct_::StructDataParts;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
@@ -68,7 +68,8 @@ impl ArrayReduceRule<Filter> for FilterStructRule {
         } = struct_array.into_owned().into_data_parts();
 
         if let Some(values) = mask.values() {
-            prepare_mask_for_reuse(values, fields.len());
+            let consumers = fields.len();
+            prepare_mask_for_reuse(values, consumers);
         }
 
         let filtered_validity = validity.filter(mask)?;

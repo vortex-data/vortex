@@ -15,9 +15,12 @@
 //!
 //! Fixed-width canonical arrays then use the strategy ladder in [`buffer`].
 
+use std::ops::Range;
+
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_mask::MaskValues;
 use vortex_mask::MaskValuesRef;
 
 use crate::ArrayRef;
@@ -63,7 +66,7 @@ pub(super) fn contiguous_filter_range(mask: &Mask) -> Option<Range<usize>> {
     match mask {
         Mask::AllTrue(len) => (*len > 0).then_some(0..*len),
         Mask::AllFalse(_) => None,
-        Mask::Values(values) => contiguous_values_range(values),
+        Mask::Values(values) => contiguous_values_range(values.as_ref()),
     }
 }
 
@@ -96,10 +99,6 @@ fn contiguous_values_range(mask: &MaskValues) -> Option<Range<usize>> {
         mask.bit_buffer().last_set_index() == Some(end - 1)
     };
     contiguous.then_some(start..end)
-}
-
-pub(super) fn prepare_mask_for_reuse(mask: &MaskValues, consumers: usize) {
-    buffer::prepare_mask_for_reuse(mask, consumers);
 }
 
 /// Check for some fast-path execution conditions before calling [`execute_filter`].
