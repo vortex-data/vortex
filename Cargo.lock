@@ -9631,6 +9631,7 @@ dependencies = [
  "uuid",
  "vortex-array",
  "vortex-array-macros",
+ "vortex-bench-support",
  "vortex-buffer",
  "vortex-compute",
  "vortex-error",
