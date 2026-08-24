@@ -19,6 +19,13 @@
 //! through `cfg(target_feature)`, and how well the scalar loop auto-vectorizes depends on
 //! the build. Comparing them across legs is the point.
 //!
+//! The public entry points are measured twice, under two names. `collect_bool_u32_gt` and
+//! `from_bool_slice` stay untagged and keep their simulation history; the `*_dispatch` siblings
+//! carry `#[cpu_features]` and measure the same call on the walltime legs, where predicate
+//! evaluation and allocation sit alongside the pack loop as they do in shipped code. Splitting
+//! them rather than tagging the originals is what keeps both modes: a tagged benchmark is
+//! skipped in simulation, so one name cannot serve both.
+//!
 //! The hand-written per-kernel benchmarks are not tagged. Each one needs an instruction set
 //! extension the other legs do not build for, so they stay out of CodSpeed entirely and
 //! remain local A/B tools, as do the historical bit-at-a-time baselines.
@@ -194,10 +201,21 @@ fn from_bool_slice_old_scalar(bencher: Bencher, len: usize) {
         .bench_refs(|words| collect_bool_words_old(words, len, |i| bools[i]));
 }
 
-#[divan::bench(args = INPUT_SIZE)]
-fn from_bool_slice(bencher: Bencher, len: usize) {
+/// The shipped `&[bool]` conversion: gather, multiversioned pack, and allocation together.
+fn bench_from_bool_slice(bencher: Bencher, len: usize) {
     let bools = make_bools(len);
     bencher.bench(|| vortex_buffer::BitBufferMut::from(bools.as_slice()));
+}
+
+#[divan::bench(args = INPUT_SIZE)]
+fn from_bool_slice(bencher: Bencher, len: usize) {
+    bench_from_bool_slice(bencher, len);
+}
+
+#[vortex_bench_support::cpu_features]
+#[divan::bench(args = INPUT_SIZE)]
+fn from_bool_slice_dispatch(bencher: Bencher, len: usize) {
+    bench_from_bool_slice(bencher, len);
 }
 
 #[cfg(not(codspeed))]
@@ -209,8 +227,20 @@ fn collect_bool_u32_gt_old_scalar(bencher: Bencher, len: usize) {
         .bench_refs(|words| collect_bool_words_old(words, len, |i| values[i] > u32::MAX / 2));
 }
 
-#[divan::bench(args = INPUT_SIZE)]
-fn collect_bool_u32_gt(bencher: Bencher, len: usize) {
+/// The shipped `BitBuffer::collect_bool` entry point under a `u32` comparison predicate:
+/// predicate evaluation, the multiversioned pack loop, and allocation together.
+fn bench_collect_bool_u32_gt(bencher: Bencher, len: usize) {
     let values = make_u32s(len);
     bencher.bench(|| BitBuffer::collect_bool(len, |i| values[i] > u32::MAX / 2));
+}
+
+#[divan::bench(args = INPUT_SIZE)]
+fn collect_bool_u32_gt(bencher: Bencher, len: usize) {
+    bench_collect_bool_u32_gt(bencher, len);
+}
+
+#[vortex_bench_support::cpu_features]
+#[divan::bench(args = INPUT_SIZE)]
+fn collect_bool_u32_gt_dispatch(bencher: Bencher, len: usize) {
+    bench_collect_bool_u32_gt(bencher, len);
 }

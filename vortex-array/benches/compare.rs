@@ -130,44 +130,49 @@ fn compare_bool_constant(bencher: Bencher) {
     bench_compare(bencher, arr, constant, Operator::Eq);
 }
 
-#[divan::bench]
-fn compare_int(bencher: Bencher) {
+/// Every comparison operator, because the primitive kernel dispatches on the operator outside
+/// the lane loop: each one is a separate instantiation that vectorizes on its own terms, and
+/// measuring `Gte` alone said nothing about the other five.
+const COMPARE_OPERATORS: &[Operator] = &[
+    Operator::Eq,
+    Operator::NotEq,
+    Operator::Gt,
+    Operator::Gte,
+    Operator::Lt,
+    Operator::Lte,
+];
+
+#[divan::bench(args = COMPARE_OPERATORS)]
+fn compare_int(bencher: Bencher, op: Operator) {
     let mut rng = StdRng::seed_from_u64(0);
     let arr1 = int_array(&mut rng);
     let arr2 = int_array(&mut rng);
-    bench_compare(bencher, arr1, arr2, Operator::Gte);
+    bench_compare(bencher, arr1, arr2, op);
 }
 
-#[divan::bench]
-fn compare_int_nullable(bencher: Bencher) {
+#[divan::bench(args = COMPARE_OPERATORS)]
+fn compare_int_nullable(bencher: Bencher, op: Operator) {
     let mut rng = StdRng::seed_from_u64(0);
     let arr1 = int_array_nullable(&mut rng);
     let arr2 = int_array_nullable(&mut rng);
-    bench_compare(bencher, arr1, arr2, Operator::Gte);
+    bench_compare(bencher, arr1, arr2, op);
 }
 
-#[divan::bench]
-fn compare_int_constant(bencher: Bencher) {
+#[divan::bench(args = COMPARE_OPERATORS)]
+fn compare_int_constant(bencher: Bencher, op: Operator) {
     let mut rng = StdRng::seed_from_u64(0);
     let arr = int_array(&mut rng);
     let constant = ConstantArray::new(50_000_000i64, ARRAY_SIZE).into_array();
-    bench_compare(bencher, arr, constant, Operator::Gte);
+    bench_compare(bencher, arr, constant, op);
 }
 
-#[divan::bench]
-fn compare_int_eq(bencher: Bencher) {
-    let mut rng = StdRng::seed_from_u64(0);
-    let arr1 = int_array(&mut rng);
-    let arr2 = int_array(&mut rng);
-    bench_compare(bencher, arr1, arr2, Operator::Eq);
-}
-
-#[divan::bench]
-fn compare_float(bencher: Bencher) {
+/// Float lanes carry Vortex's total ordering, so the predicate is more than a machine compare.
+#[divan::bench(args = COMPARE_OPERATORS)]
+fn compare_float(bencher: Bencher, op: Operator) {
     let mut rng = StdRng::seed_from_u64(0);
     let arr1 = float_array(&mut rng);
     let arr2 = float_array(&mut rng);
-    bench_compare(bencher, arr1, arr2, Operator::Gte);
+    bench_compare(bencher, arr1, arr2, op);
 }
 
 #[divan::bench]

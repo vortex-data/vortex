@@ -28,10 +28,15 @@ arrow-schema = { workspace = true }
 divan = { workspace = true }
 num-traits = { workspace = true }
 rand = { workspace = true }
+vortex-bench-support = { workspace = true }
 
 [lints]
 workspace = true
 
 [[bench]]
 name = "lane_kernels"
+harness = false
+
+[[bench]]
+name = "compare_bits"
 harness = false

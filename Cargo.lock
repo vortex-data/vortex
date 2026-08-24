@@ -9891,6 +9891,7 @@ dependencies = [
  "codspeed-divan-compat",
  "num-traits",
  "rand 0.10.2",
+ "vortex-bench-support",
  "vortex-buffer",
 ]
 
