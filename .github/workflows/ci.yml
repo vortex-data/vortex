@@ -645,6 +645,48 @@ jobs:
           command: "cargo nextest run --cargo-profile ci -p vortex-sqllogictest --no-run"
           message-format-flag: "--cargo-message-format"
 
+  duckdb-s3-test:
+    name: "DuckDB S3 tests"
+    needs: duckdb-ready
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=duckdb-s3-test', github.run_id)
+          || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: "true"
+      - name: Build DuckDB tests
+        shell: bash
+        run: |
+          cargo nextest run --cargo-profile ci --locked -p vortex-duckdb --no-run
+      - name: Start MinIO
+        shell: bash
+        run: |
+          curl -sSL https://dl.min.io/server/minio/release/linux-amd64/minio -o "${RUNNER_TEMP}/minio"
+          chmod +x "${RUNNER_TEMP}/minio"
+          mkdir -p "${RUNNER_TEMP}/minio-data/vortex-test"
+          MINIO_ROOT_USER=minioadmin MINIO_ROOT_PASSWORD=minioadmin \
+            "${RUNNER_TEMP}/minio" server "${RUNNER_TEMP}/minio-data" --address 127.0.0.1:9000 &
+          until curl -sf http://127.0.0.1:9000/minio/health/live; do sleep 1; done
+      - name: Run tests
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: minioadmin
+          AWS_SECRET_ACCESS_KEY: minioadmin
+          AWS_ENDPOINT: "http://127.0.0.1:9000"
+          AWS_REGION: "us-east-1"
+          AWS_ALLOW_HTTP: "true"
+          VORTEX_DUCKDB_S3_URI: "s3://vortex-test/duckdb"
+        run: |
+          cargo nextest run --cargo-profile ci --locked -p vortex-duckdb --run-ignored all s3_
+
   wasm-integration:
     name: "WASM integration smoke test"
     timeout-minutes: 30
