@@ -60,6 +60,10 @@ impl FlatLayoutFixture for PcoFixture {
             })
             .collect();
         let narrow_i16: PrimitiveArray = (0..N as i16).map(|i| (i % 17) - 8).collect();
+        let gradient_u8: PrimitiveArray = (0..N).map(|i| (i % 251) as u8).collect();
+        let nullable_i8 = PrimitiveArray::from_option_iter(
+            (0..N).map(|i| (i % 5 != 0).then_some((-64 + (i % 129) as i32) as i8)),
+        );
 
         let arr = StructArray::try_new(
             FieldNames::from([
@@ -71,6 +75,8 @@ impl FlatLayoutFixture for PcoFixture {
                 "constant_u16",
                 "spike_outliers",
                 "narrow_i16",
+                "gradient_u8",
+                "nullable_i8",
             ]),
             vec![
                 Pco::from_primitive(irregular_i64.as_view(), 8, 0, ctx)?.into_array(),
@@ -81,6 +87,8 @@ impl FlatLayoutFixture for PcoFixture {
                 Pco::from_primitive(constant_u16.as_view(), 8, 0, ctx)?.into_array(),
                 Pco::from_primitive(spike_outliers.as_view(), 8, 0, ctx)?.into_array(),
                 Pco::from_primitive(narrow_i16.as_view(), 8, 0, ctx)?.into_array(),
+                Pco::from_primitive(gradient_u8.as_view(), 8, 0, ctx)?.into_array(),
+                Pco::from_primitive(nullable_i8.as_view(), 8, 0, ctx)?.into_array(),
             ],
             N,
             Validity::NonNullable,

@@ -276,13 +276,14 @@ pub(crate) fn number_type_from_ptype(ptype: PType) -> NumberType {
         PType::F16 => NumberType::F16,
         PType::F32 => NumberType::F32,
         PType::F64 => NumberType::F64,
+        PType::I8 => NumberType::I8,
         PType::I16 => NumberType::I16,
         PType::I32 => NumberType::I32,
         PType::I64 => NumberType::I64,
+        PType::U8 => NumberType::U8,
         PType::U16 => NumberType::U16,
         PType::U32 => NumberType::U32,
         PType::U64 => NumberType::U64,
-        _ => unreachable!("PType not supported by Pco: {:?}", ptype),
     }
 }
 
@@ -398,7 +399,6 @@ impl Display for PcoData {
 impl PcoData {
     /// Validate dtype, validity, slice, and Pco component invariants.
     pub fn validate(&self, dtype: &DType, len: usize, validity: &Validity) -> VortexResult<()> {
-        let _ = number_type_from_ptype(self.ptype);
         vortex_ensure!(
             dtype.as_ptype() == self.ptype,
             "expected ptype {}, got {}",
@@ -543,7 +543,12 @@ impl PcoData {
         // perhaps one day we can make this more configurable
         let chunk_config = ChunkConfig::default()
             .with_compression_level(level)
-            .with_paging_spec(PagingSpec::EqualPagesUpTo(values_per_page));
+            .with_paging_spec(PagingSpec::EqualPagesUpTo(values_per_page))
+            // Pco refuses 8-bit types by default to stop callers compressing symbolic data such
+            // as UTF-8 text. Vortex only ever reaches here with a numeric primitive array, so the
+            // guard does not apply; whether Pco is the right scheme for a given 8-bit array is
+            // decided by the compressor's sampling estimate.
+            .with_enable_8_bit(true);
 
         let values = collect_valid(parray, ctx)?;
         let n_values = values.len();

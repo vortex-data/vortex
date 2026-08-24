@@ -11,7 +11,6 @@ use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
-use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
 
 use crate::ArrayAndStats;
@@ -38,17 +37,10 @@ impl Scheme for PcoScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &ArrayAndStats,
+        _data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
-        use vortex_array::dtype::PType;
-
-        // Pco does not support I8 or U8.
-        if matches!(data.array_as_primitive().ptype(), PType::I8 | PType::U8) {
-            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
-        }
-
         CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
