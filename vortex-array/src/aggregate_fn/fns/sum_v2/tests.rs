@@ -28,9 +28,11 @@ use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::StructArray;
 use crate::assert_arrays_eq;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
+use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::Nullability::Nullable;
 use crate::dtype::PType;
@@ -261,5 +263,41 @@ fn grouped_bool_fallback_tracks_empty_groups() -> VortexResult<()> {
     let result = accumulator.finish()?;
     let expected = PrimitiveArray::from_option_iter([Some(2u64), None, None]).into_array();
     assert_arrays_eq!(&result, &expected, &mut ctx);
+    Ok(())
+}
+
+#[rstest]
+#[case::all_valid(
+    Validity::AllValid,
+    [Some(10i64), None, None, Some(40)]
+)]
+#[case::all_invalid(Validity::AllInvalid, [None, None, None, None])]
+#[case::some_invalid(
+    Validity::from_iter([true, true, true, false]),
+    [Some(10i64), None, None, None]
+)]
+fn finalize_struct_applies_partial_and_struct_validity(
+    #[case] validity: Validity,
+    #[case] expected: [Option<i64>; 4],
+) -> VortexResult<()> {
+    let partials = StructArray::try_new(
+        FieldNames::from(["sum", "is_overflow", "is_empty"]),
+        vec![
+            PrimitiveArray::from_iter([10i64, 20, 30, 40]).into_array(),
+            BoolArray::from_iter([false, true, false, false]).into_array(),
+            BoolArray::from_iter([false, false, true, false]).into_array(),
+        ],
+        4,
+        validity,
+    )?
+    .into_array();
+
+    let result = SumV2.finalize(partials)?;
+    let expected = PrimitiveArray::from_option_iter(expected).into_array();
+    assert_arrays_eq!(
+        &result,
+        &expected,
+        &mut array_session().create_execution_ctx()
+    );
     Ok(())
 }

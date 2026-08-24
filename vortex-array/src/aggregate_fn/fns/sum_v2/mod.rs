@@ -12,6 +12,7 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
+use crate::ArrayView;
 use crate::Canonical;
 use crate::Columnar;
 use crate::ExecutionCtx;
@@ -27,6 +28,8 @@ use crate::aggregate_fn::fns::sum::accumulate_decimal;
 use crate::aggregate_fn::fns::sum::accumulate_primitive;
 use crate::aggregate_fn::fns::sum::make_zero_state;
 use crate::aggregate_fn::fns::sum::multiply_constant;
+use crate::arrays::Struct;
+use crate::arrays::struct_::StructArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
@@ -39,6 +42,7 @@ use crate::expr::stats::StatsProviderExt;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::operators::Operator;
+use crate::validity::Validity;
 
 const SUM_FIELD: &str = "sum";
 const IS_OVERFLOW_FIELD: &str = "is_overflow";
@@ -244,6 +248,10 @@ impl AggregateFnVTable for SumV2 {
     }
 
     fn finalize(&self, partials: ArrayRef) -> VortexResult<ArrayRef> {
+        if let Some(partials) = partials.as_opt::<Struct>() {
+            return finalize_struct(partials);
+        }
+
         let sum = partials.get_item(SUM_FIELD)?;
         let is_invalid = partials
             .get_item(IS_OVERFLOW_FIELD)?
@@ -258,6 +266,25 @@ impl AggregateFnVTable for SumV2 {
         }
         Ok(sum_state_scalar(partial, Nullability::Nullable))
     }
+}
+
+fn finalize_struct(partials: ArrayView<'_, Struct>) -> VortexResult<ArrayRef> {
+    let sum = partials.unmasked_field_by_name(SUM_FIELD)?.clone();
+    let is_overflow = partials.unmasked_field_by_name(IS_OVERFLOW_FIELD)?.clone();
+    let is_empty = partials.unmasked_field_by_name(IS_EMPTY_FIELD)?.clone();
+
+    let is_invalid = is_overflow
+        .binary(is_empty, Operator::Or)?
+        .fill_null(true)?;
+    let mut is_valid = is_invalid.not()?;
+    match partials.struct_validity() {
+        Validity::NonNullable | Validity::AllValid => {}
+        validity => {
+            is_valid = is_valid.binary(validity.to_array(partials.len()), Operator::And)?;
+        }
+    }
+
+    sum.mask(is_valid)
 }
 
 /// In-memory state for SumV2 accumulation.
