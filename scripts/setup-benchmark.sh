@@ -98,9 +98,26 @@ else
     BENCH_CPUS="$(IFS=,; echo "${bench[*]}")"
 fi
 
-# Pin all IRQs to housekeeping CPUs. Some IRQs are kernel-managed and reject writes
-# with EPERM even as root.
+# Don't pin NIC queue IRQs. Pinning them serializes packet processing, and for
+# S3 tests like fineweb-s3 network is the bottlenenck.
+declare -A NET_IRQS=()
+bench_cpu_arr=()
+while IFS= read -r cpu; do bench_cpu_arr+=("$cpu"); done < <(expand_cpulist "$BENCH_CPUS")
+i=0
+for msi in /sys/class/net/*/device/msi_irqs/*; do
+  [[ -e "$msi" && ${#bench_cpu_arr[@]} -gt 0 ]] || continue
+  irq="${msi##*/}"
+  NET_IRQS["$irq"]=1
+  echo "${bench_cpu_arr[i % ${#bench_cpu_arr[@]}]}" > "/proc/irq/$irq/smp_affinity_list" 2>/dev/null || true
+  i=$((i + 1))
+done
+
+# Pin all non-NIC queue IRQs to housekeeping CPUs. Some IRQs are kernel-managed
+# and reject writes with EPERM even as root.
 for f in /proc/irq/[0-9]*/smp_affinity_list; do
+  irq="${f#/proc/irq/}"
+  irq="${irq%%/*}"
+  [[ -n "${NET_IRQS[$irq]:-}" ]] && continue
   echo "$HOUSEKEEPING_CPUS" > "$f" 2>/dev/null || true
 done
 
