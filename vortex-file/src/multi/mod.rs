@@ -91,9 +91,18 @@ impl MultiFileDataSource {
     /// filesystem to use the local filesystem (auto-created in [`Self::build`]).
     ///
     /// Relative paths are resolved against the process working directory.
+    ///
+    /// With the `object_store_registry` feature enabled, an object-store URL (`s3://`, `gs://`,
+    /// `az://`, `https://`, ...) passed with `None` is instead resolved through the
+    /// `vortex-cloud` registry, configured from environment variables.
     pub fn with_glob(mut self, glob: impl Into<String>, fs: Option<FileSystemRef>) -> Self {
         let glob = glob.into();
-        let glob = if fs.is_none() && std::path::Path::new(&glob).is_relative() {
+        let glob = if object_store_url(&glob).is_some() {
+            // Object-store URLs are resolved against the registry in
+            // `build`; joining them onto the working directory or trimming
+            // leading slashes would corrupt them.
+            glob
+        } else if fs.is_none() && std::path::Path::new(&glob).is_relative() {
             std::env::current_dir()
                 .map(|cwd| cwd.join(&glob).to_string_lossy().into_owned())
                 .unwrap_or(glob)
@@ -142,12 +151,26 @@ impl MultiFileDataSource {
             stream::iter(self.glob_sources.into_iter().map(|(glob, maybe_fs)| {
                 // Use the provided filesystem, or fall back to the local filesystem.
                 // We know local_fs is Some when maybe_fs is None (by construction above).
-                let fs = maybe_fs
-                    .or_else(|| local_fs.as_ref().map(Arc::clone))
-                    .unwrap_or_else(|| {
+                let local_fs = local_fs.clone();
+                let session = self.session.clone();
+                async move {
+                    // An object-store URL without an explicit filesystem is
+                    // resolved through the shared registry; everything else
+                    // falls back to the local filesystem as before.
+                    let (glob, maybe_fs) = if maybe_fs.is_none() {
+                        match object_store_url(&glob) {
+                            Some(url) => {
+                                let (store_path, fs) = registry_filesystem(&url, &session)?;
+                                (store_path, Some(fs))
+                            }
+                            None => (glob, None),
+                        }
+                    } else {
+                        (glob, maybe_fs)
+                    };
+                    let fs = maybe_fs.or(local_fs).unwrap_or_else(|| {
                         unreachable!("local_fs is set when any glob lacks a filesystem")
                     });
-                async move {
                     let files: Vec<FileListing> = fs.glob(&glob)?.try_collect().await?;
                     Ok::<_, VortexError>(
                         files
@@ -200,6 +223,54 @@ impl MultiFileDataSource {
 
         Ok(inner)
     }
+}
+
+/// Parse `glob` as an object-store URL, mirroring the resolution of the
+/// Python binding's `resolve_store`: a parse failure or a `file` scheme is a
+/// local path. Single-character schemes are also treated as local so Windows
+/// drive paths (`C:/data.vortex`) never match.
+#[cfg(feature = "object_store_registry")]
+fn object_store_url(glob: &str) -> Option<url::Url> {
+    let url = url::Url::parse(glob).ok()?;
+    (url.scheme().len() > 1 && url.scheme() != "file").then_some(url)
+}
+
+#[cfg(not(feature = "object_store_registry"))]
+fn object_store_url(_glob: &str) -> Option<url::Url> {
+    None
+}
+
+/// Resolve `url` through the shared [`vortex_cloud::Registry`], returning the
+/// store-relative path and a filesystem over the store. The store's I/O is
+/// bridged onto a tokio-compatible thread via `Compat`, as in the Python
+/// binding.
+#[cfg(feature = "object_store_registry")]
+fn registry_filesystem(
+    url: &url::Url,
+    session: &VortexSession,
+) -> VortexResult<(String, FileSystemRef)> {
+    use std::sync::LazyLock;
+
+    use object_store::registry::ObjectStoreRegistry;
+    use vortex_cloud::Registry;
+    use vortex_io::compat::Compat;
+    use vortex_io::object_store::ObjectStoreFileSystem;
+    use vortex_io::session::RuntimeSessionExt;
+
+    static REGISTRY: LazyLock<Registry> = LazyLock::new(Registry::default);
+
+    let (store, path) = REGISTRY.resolve(url)?;
+    let store = Arc::new(Compat::new(store));
+    let fs: FileSystemRef = Arc::new(ObjectStoreFileSystem::new(store, session.handle()));
+    Ok((path.to_string(), fs))
+}
+
+#[cfg(not(feature = "object_store_registry"))]
+fn registry_filesystem(
+    _url: &url::Url,
+    _session: &VortexSession,
+) -> VortexResult<(String, FileSystemRef)> {
+    unreachable!("object_store_url returns None without the object_store_registry feature")
 }
 
 /// Creates a local filesystem backed by `object_store::local::LocalFileSystem`.
@@ -501,5 +572,31 @@ mod tests {
             Some(b"file-b".as_slice())
         );
         Ok(())
+    }
+
+    #[cfg(feature = "object_store_registry")]
+    #[tokio::test]
+    async fn test_object_store_url_resolution() {
+        let session = array_session()
+            .with::<LayoutSession>()
+            .with::<RuntimeSession>()
+            .with::<MultiFileSession>();
+
+        // A URL scheme resolves through the registry, not the local
+        // filesystem. The Azure builder deterministically fails without
+        // configuration, and that failure can only arise on the registry
+        // path — local-path handling would report an unmatched glob.
+        let message = match MultiFileDataSource::new(session)
+            .with_glob("az://account/container/missing.vortex", None)
+            .build()
+            .await
+        {
+            Ok(_) => panic!("unconfigured az:// URL must not resolve"),
+            Err(e) => e.to_string(),
+        };
+        assert!(
+            !message.contains("glob"),
+            "URL was resolved as a local path: {message}"
+        );
     }
 }

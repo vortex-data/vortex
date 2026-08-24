@@ -10151,6 +10151,7 @@ dependencies = [
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-bytebool",
+ "vortex-cloud",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
  "vortex-edition",
