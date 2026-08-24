@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
+use rstest::rstest;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -16,11 +17,15 @@ use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::array_session;
 use crate::arrays::ConstantArray;
+use crate::arrays::ExtensionArray;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
+use crate::dtype::extension::ExtDTypeRef;
+use crate::extension::datetime::TimeUnit;
+use crate::extension::datetime::Timestamp;
 use crate::scalar::Scalar;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ScalarFnId;
@@ -30,6 +35,7 @@ use crate::scalar_fn::unstable::row::OutputSink;
 use crate::scalar_fn::unstable::row::RowFn;
 use crate::scalar_fn::unstable::row::RowVisitor;
 use crate::scalar_fn::unstable::row::execute_rows;
+use crate::scalar_fn::unstable::row::row_fn_return_dtype;
 use crate::validity::Validity;
 
 #[derive(Clone, Default)]
@@ -71,13 +77,13 @@ struct I64Sink(BufferMut<i64>);
 
 // SAFETY: every row is initialized by `BufferMut::zeroed`, and the sink exposes exactly that
 // initialized slice. The `()` write token therefore proves no additional invariant.
-unsafe impl<Options> OutputSink<Options> for I64Sink {
+unsafe impl OutputSink for I64Sink {
     type Rows<'a> = &'a mut [i64];
     type Row<'a> = &'a mut i64;
     type WriteToken = ();
 
-    fn return_dtype(_options: &Options) -> VortexResult<DType> {
-        Ok(DType::from(i64::PTYPE))
+    fn storage_dtype() -> DType {
+        DType::from(i64::PTYPE)
     }
 
     fn with_capacity(rows: usize) -> VortexResult<Self> {
@@ -109,7 +115,7 @@ impl RowFn for DeferredAdd {
         *ID
     }
 
-    fn dispatch<V: RowVisitor<Self::Options>>(
+    fn dispatch<V: RowVisitor>(
         &self,
         _options: &Self::Options,
         _args: &[DType],
@@ -144,7 +150,7 @@ impl RowFn for ValidOnlyIdentity {
         *ID
     }
 
-    fn dispatch<V: RowVisitor<Self::Options>>(
+    fn dispatch<V: RowVisitor>(
         &self,
         _options: &Self::Options,
         _args: &[DType],
@@ -168,7 +174,7 @@ impl RowFn for InvalidKernelOutput {
         *ID
     }
 
-    fn dispatch<V: RowVisitor<Self::Options>>(
+    fn dispatch<V: RowVisitor>(
         &self,
         _options: &Self::Options,
         _args: &[DType],
@@ -310,5 +316,337 @@ fn test_valid_only_empty_batch_preserves_nonnullable_dtype() -> VortexResult<()>
 
     assert_eq!(actual.len(), 0);
     assert_eq!(actual.dtype(), &DType::from(i64::PTYPE));
+    Ok(())
+}
+
+/// A timestamp extension dtype over `i64` storage of the given nullability.
+fn timestamp_ext(nullability: Nullability) -> ExtDTypeRef {
+    Timestamp::new(TimeUnit::Seconds, nullability).erased()
+}
+
+/// The output dtype a declaring dispatch labels onto its `i64` storage.
+fn timestamp_dtype(nullability: Nullability) -> DType {
+    DType::Extension(timestamp_ext(nullability))
+}
+
+/// Build the timestamp column a labelled dispatch is expected to produce.
+fn expected_timestamps(values: Vec<i64>, validity: Validity) -> VortexResult<ArrayRef> {
+    let storage = PrimitiveArray::new(values, validity).into_array();
+    let ext_dtype = timestamp_ext(storage.dtype().nullability());
+
+    Ok(ExtensionArray::try_new(ext_dtype, storage)?.into_array())
+}
+
+/// Returns its input unchanged under the output dtype each dispatch declares.
+///
+/// `declared` is `None` to leave the storage dtype in place, so one function covers both the
+/// labelled and unlabelled paths and every rejected label.
+#[derive(Clone)]
+struct DeclaredOutput {
+    declared: Option<DType>,
+}
+
+impl DeclaredOutput {
+    fn timestamps() -> Self {
+        Self {
+            declared: Some(timestamp_dtype(Nullability::NonNullable)),
+        }
+    }
+}
+
+impl RowFn for DeclaredOutput {
+    type Options = EmptyOptions;
+
+    const ARG_NAMES: &'static [&'static str] = &["value"];
+    const INFALLIBLE: bool = true;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("test.declared_output");
+        *ID
+    }
+
+    fn dispatch<V: RowVisitor>(
+        &self,
+        _options: &Self::Options,
+        _args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        let visitor = match &self.declared {
+            Some(declared) => visitor.with_output_dtype(declared.clone()),
+            None => visitor,
+        };
+
+        visitor.visit::<(i64,), i64>(|(value,)| value)
+    }
+}
+
+/// Labels the output of a sink-writing dispatch, which plans [`RowPolicy::ValidOnly`].
+#[derive(Clone)]
+struct DeclaredSinkOutput;
+
+impl RowFn for DeclaredSinkOutput {
+    type Options = EmptyOptions;
+
+    const ARG_NAMES: &'static [&'static str] = &["value"];
+    const INFALLIBLE: bool = false;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("test.declared_sink_output");
+        *ID
+    }
+
+    fn dispatch<V: RowVisitor>(
+        &self,
+        _options: &Self::Options,
+        _args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        visitor
+            .with_output_dtype(timestamp_dtype(Nullability::NonNullable))
+            .visit_into::<(i64,), I64Sink, VortexResult<()>>(|(value,), output| {
+                *output = value;
+                Ok(())
+            })
+    }
+}
+
+/// Declares a different output dtype on its second dispatch, which execution must reject.
+#[derive(Clone)]
+struct ChangingOutputDType {
+    dispatches: Arc<AtomicUsize>,
+}
+
+impl RowFn for ChangingOutputDType {
+    type Options = EmptyOptions;
+
+    const ARG_NAMES: &'static [&'static str] = &["value"];
+    const INFALLIBLE: bool = true;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("test.changing_output_dtype");
+        *ID
+    }
+
+    fn dispatch<V: RowVisitor>(
+        &self,
+        _options: &Self::Options,
+        _args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        let visitor = if self.dispatches.fetch_add(1, Ordering::Relaxed) == 0 {
+            visitor.with_output_dtype(timestamp_dtype(Nullability::NonNullable))
+        } else {
+            visitor
+        };
+
+        visitor.visit::<(i64,), i64>(|(value,)| value)
+    }
+}
+
+#[rstest]
+#[case::all_valid(Validity::NonNullable)]
+#[case::partially_valid(Validity::from_iter([true, false, true]))]
+#[case::array_backed_all_valid(Validity::Array(ConstantArray::new(true, 3).into_array()))]
+fn test_declared_output_dtype_labels_batch(#[case] validity: Validity) -> VortexResult<()> {
+    let values = vec![1_i64, 2, 3];
+    let input = PrimitiveArray::new(values.clone(), validity.clone()).into_array();
+    let args = VecExecutionArgs::new(vec![input], 3);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let actual = execute_rows(
+        &DeclaredOutput::timestamps(),
+        &EmptyOptions,
+        &args,
+        &mut ctx,
+    )?;
+    let expected = expected_timestamps(values, validity)?;
+
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_declared_output_dtype_labels_sink_output() -> VortexResult<()> {
+    // `I64Sink` declines skip-invalid execution, so this batch stays all-valid. The masked path is
+    // covered by the owned-output cases above.
+    let values = vec![1_i64, 2, 3];
+    let input = PrimitiveArray::new(values.clone(), Validity::NonNullable).into_array();
+    let args = VecExecutionArgs::new(vec![input], 3);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let actual = execute_rows(&DeclaredSinkOutput, &EmptyOptions, &args, &mut ctx)?;
+    let expected = expected_timestamps(values, Validity::NonNullable)?;
+
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_declared_output_dtype_labels_empty_batch() -> VortexResult<()> {
+    let input = PrimitiveArray::from_iter(std::iter::empty::<i64>()).into_array();
+    let args = VecExecutionArgs::new(vec![input], 0);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let actual = execute_rows(
+        &DeclaredOutput::timestamps(),
+        &EmptyOptions,
+        &args,
+        &mut ctx,
+    )?;
+
+    assert_eq!(actual.len(), 0);
+    assert_eq!(actual.dtype(), &timestamp_dtype(Nullability::NonNullable));
+    Ok(())
+}
+
+#[test]
+fn test_declared_output_dtype_labels_all_null_batch() -> VortexResult<()> {
+    let null_i64 = Scalar::null(DType::Primitive(i64::PTYPE, Nullability::Nullable));
+    let input = ConstantArray::new(null_i64, 3).into_array();
+    let args = VecExecutionArgs::new(vec![input], 3);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let actual = execute_rows(
+        &DeclaredOutput::timestamps(),
+        &EmptyOptions,
+        &args,
+        &mut ctx,
+    )?;
+    let expected =
+        ConstantArray::new(Scalar::null(timestamp_dtype(Nullability::Nullable)), 3).into_array();
+
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_declared_output_dtype_labels_constant_batch() -> VortexResult<()> {
+    let input = ConstantArray::new(7_i64, 3).into_array();
+    let args = VecExecutionArgs::new(vec![input], 3);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let actual = execute_rows(
+        &DeclaredOutput::timestamps(),
+        &EmptyOptions,
+        &args,
+        &mut ctx,
+    )?;
+    let expected = expected_timestamps(vec![7, 7, 7], Validity::NonNullable)?;
+
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_declared_output_dtype_reaches_planning() -> VortexResult<()> {
+    let args = [DType::Primitive(i64::PTYPE, Nullability::Nullable)];
+
+    let dtype = row_fn_return_dtype(&DeclaredOutput::timestamps(), &EmptyOptions, &args)?;
+
+    assert_eq!(dtype, timestamp_dtype(Nullability::Nullable));
+    Ok(())
+}
+
+#[rstest]
+#[case::nullable(timestamp_dtype(Nullability::Nullable), "must be non-nullable")]
+#[case::not_an_extension(DType::from(u64::PTYPE), "must label the storage dtype")]
+fn test_declared_output_dtype_rejects_bad_label(
+    #[case] declared: DType,
+    #[case] expected_message: &str,
+) -> VortexResult<()> {
+    let function = DeclaredOutput {
+        declared: Some(declared),
+    };
+    let input = PrimitiveArray::from_iter(vec![1_i64, 2]).into_array();
+    let args = VecExecutionArgs::new(vec![input], 2);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let error = execute_rows(&function, &EmptyOptions, &args, &mut ctx)
+        .expect_err("an invalid output dtype must be rejected")
+        .to_string();
+
+    assert!(
+        error.contains(expected_message),
+        "the label error must contain {expected_message:?}, got {error}",
+    );
+    Ok(())
+}
+
+/// Declares a timestamp output dtype over `u64` storage, which its `i64` storage cannot match.
+#[derive(Clone)]
+struct MismatchedStorage;
+
+impl RowFn for MismatchedStorage {
+    type Options = EmptyOptions;
+
+    const ARG_NAMES: &'static [&'static str] = &["value"];
+    const INFALLIBLE: bool = true;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("test.mismatched_storage");
+        *ID
+    }
+
+    fn dispatch<V: RowVisitor>(
+        &self,
+        _options: &Self::Options,
+        _args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        visitor
+            .with_output_dtype(timestamp_dtype(Nullability::NonNullable))
+            .visit::<(u64,), u64>(|(value,)| value)
+    }
+}
+
+#[test]
+fn test_declared_output_dtype_rejects_mismatched_storage() -> VortexResult<()> {
+    let input = PrimitiveArray::from_iter(vec![1_u64, 2]).into_array();
+    let args = VecExecutionArgs::new(vec![input], 2);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let error = execute_rows(&MismatchedStorage, &EmptyOptions, &args, &mut ctx)
+        .expect_err("an extension label over another storage dtype must be rejected")
+        .to_string();
+
+    assert!(
+        error.contains("must store"),
+        "the label error must report the expected storage dtype, got {error}",
+    );
+    Ok(())
+}
+
+#[test]
+fn test_execution_rejects_a_changed_output_dtype() -> VortexResult<()> {
+    let function = ChangingOutputDType {
+        dispatches: Arc::new(AtomicUsize::new(0)),
+    };
+    let input = PrimitiveArray::from_iter(vec![1_i64, 2]).into_array();
+    let args = VecExecutionArgs::new(vec![input], 2);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let error = execute_rows(&function, &EmptyOptions, &args, &mut ctx)
+        .expect_err("an execution dispatch must declare the planned output dtype")
+        .to_string();
+
+    assert!(
+        error.contains("must declare the planned output dtype"),
+        "execution must reject a changed output dtype, got {error}",
+    );
+    Ok(())
+}
+
+#[test]
+fn test_undeclared_output_dtype_keeps_the_storage_dtype() -> VortexResult<()> {
+    let function = DeclaredOutput { declared: None };
+    let values = vec![1_i64, 2];
+    let input = PrimitiveArray::from_iter(values.clone()).into_array();
+    let args = VecExecutionArgs::new(vec![input], 2);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let actual = execute_rows(&function, &EmptyOptions, &args, &mut ctx)?;
+    let expected = PrimitiveArray::from_iter(values).into_array();
+
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
     Ok(())
 }

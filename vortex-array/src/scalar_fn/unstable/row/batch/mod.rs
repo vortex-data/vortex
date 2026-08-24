@@ -49,15 +49,12 @@ pub(crate) struct RowFnExecutionArgs {
     /// input. Conjoining is lazy, and null handling materializes the mask only when required.
     validity: Validity,
 
-    /// The declared output dtype, widened to nullable when any input is nullable. Kernel output is
+    /// The output dtype, widened to nullable when any input is nullable. The finished column is
     /// reconciled against this dtype.
     result_dtype: DType,
 
-    /// The non-nullable dtype the dispatched output capability builds, computed while planning.
-    output_dtype: DType,
-
-    /// How the concrete dispatch executes nullable rows.
-    policy: RowPolicy,
+    /// The storage dtype, output label, and null-handling policy selected while planning.
+    plan: BatchPlan,
 }
 
 #[cfg(test)]

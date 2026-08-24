@@ -18,8 +18,13 @@ use crate::scalar_fn::unstable::row::ViewLen;
 
 /// A column allocated once per batch that a row closure writes into, one row at a time.
 ///
-/// A sink can use function options to build a runtime-shaped output or own shared batch state. The
-/// executor passes each row slot into an [`Fn`] closure.
+/// A sink owns batch-wide state that an independent owned value cannot express, such as
+/// uninitialized storage or a row handle covering more than one element. The executor passes each
+/// row slot into an [`Fn`] closure.
+///
+/// A sink describes only how rows are physically written. An output dtype derived from the
+/// function options or argument dtypes is declared by [`RowVisitor::with_output_dtype`], which
+/// labels the column this sink builds.
 ///
 /// Rows arrive in increasing index order. Ordinary execution visits `0..row_count` exactly once.
 /// Execution can omit invalid rows when [`skipped_rows_initializer`] returns an initializer.
@@ -55,9 +60,10 @@ use crate::scalar_fn::unstable::row::ViewLen;
 /// [`WriteToken`]: Self::WriteToken
 /// [`finish`]: Self::finish
 /// [`RowFn::INFALLIBLE`]: crate::scalar_fn::unstable::row::RowFn::INFALLIBLE
+/// [`RowVisitor::with_output_dtype`]: crate::scalar_fn::unstable::row::RowVisitor::with_output_dtype
 /// [`SinkResult`]: crate::scalar_fn::unstable::row::SinkResult
 /// [`skipped_rows_initializer`]: Self::skipped_rows_initializer
-pub unsafe trait OutputSink<Options>: 'static + Sized {
+pub unsafe trait OutputSink: 'static + Sized {
     /// A loop-local view of all output rows.
     ///
     /// Borrowed once before execution so the sink's buffer descriptor and shape become loop
@@ -89,11 +95,15 @@ pub unsafe trait OutputSink<Options>: 'static + Sized {
         None
     }
 
-    /// The dtype of the column this sink builds, given the function options.
+    /// The dtype of the column this sink builds.
+    ///
+    /// Because this method takes no arguments, the dtype must be a property of the Rust type. An
+    /// output dtype that depends on the function options or argument dtypes is declared by
+    /// [`RowVisitor::with_output_dtype`](crate::scalar_fn::unstable::row::RowVisitor::with_output_dtype).
     ///
     /// **Must** be non-nullable: batch execution derives nullability from the inputs, widens the
     /// result, and masks the null rows.
-    fn return_dtype(options: &Options) -> VortexResult<DType>;
+    fn storage_dtype() -> DType;
 
     /// Allocate a sink for `rows` rows.
     fn with_capacity(rows: usize) -> VortexResult<Self>;
@@ -109,7 +119,7 @@ pub unsafe trait OutputSink<Options>: 'static + Sized {
     unsafe fn row_unchecked<'a>(rows: &'a mut Self::Rows<'_>, index: usize) -> Self::Row<'a>;
 
     /// Finish into the built column, whose dtype **must** be this sink's
-    /// [`return_dtype`](Self::return_dtype). Called once per batch.
+    /// [`storage_dtype`](Self::storage_dtype). Called once per batch.
     ///
     /// # Safety
     ///
@@ -171,9 +181,7 @@ pub struct UninitElementSink<T> {
 // names one distinct slot. Safe code cannot construct `InitializedElement`. Its unsafe constructor
 // writes the supplied slot and requires the caller to return that exact evidence. The
 // skipped-row initializer writes `T::default()` into every slot before masked traversal.
-unsafe impl<T: OutputElement + Copy + Default, Options> OutputSink<Options>
-    for UninitElementSink<T>
-{
+unsafe impl<T: OutputElement + Copy + Default> OutputSink for UninitElementSink<T> {
     type Rows<'a> = &'a mut [MaybeUninit<T>];
     type Row<'a> = &'a mut MaybeUninit<T>;
     type WriteToken = InitializedElement;
@@ -186,8 +194,8 @@ unsafe impl<T: OutputElement + Copy + Default, Options> OutputSink<Options>
         })
     }
 
-    fn return_dtype(_options: &Options) -> VortexResult<DType> {
-        Ok(T::element_dtype())
+    fn storage_dtype() -> DType {
+        T::element_dtype()
     }
 
     fn with_capacity(rows: usize) -> VortexResult<Self> {

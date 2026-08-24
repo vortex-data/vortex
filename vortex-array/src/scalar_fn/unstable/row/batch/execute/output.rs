@@ -20,25 +20,37 @@ impl RowFnExecutionArgs {
         ConstantArray::new(Scalar::null(self.result_dtype.clone()), self.row_count).into_array()
     }
 
-    /// Validate the finished output and apply the row function's logical outer nullability.
+    /// Label the finished column, validate it, and apply the row function's logical outer
+    /// nullability.
     pub(super) fn finalize_output(
         &self,
         values: ArrayRef,
         expected_len: usize,
     ) -> VortexResult<ArrayRef> {
+        // Label before validation so the checks below see the dtype this function returns. Every
+        // batch strategy reaches this method after masking, so an empty, all-null, constant, or
+        // partially valid batch carries the same metadata as a dense one.
+        let values = self.plan.relabel_output(values)?;
+
         validate_output(self.id, &self.result_dtype, expected_len, &values)?;
 
         cast_output_nullability(&self.result_dtype, values)
     }
 
-    /// Validate the output from a row function before batch validity is attached.
+    /// Validate the unlabelled output from a row function before batch validity is attached.
     pub(super) fn validate_kernel_output(
         &self,
         values: ArrayRef,
         expected_len: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        finalize_kernel_output(self.id, &self.output_dtype, expected_len, values, ctx)
+        finalize_kernel_output(
+            self.id,
+            self.plan.storage_dtype(),
+            expected_len,
+            values,
+            ctx,
+        )
     }
 }
 

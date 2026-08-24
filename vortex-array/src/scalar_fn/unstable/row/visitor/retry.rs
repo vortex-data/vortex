@@ -7,8 +7,11 @@
 //! dense attempt containing either unvalidated values or an error that batch execution resolves
 //! against input validity.
 
+use std::marker::PhantomData;
+
 use vortex_error::VortexResult;
 
+use super::BatchPlan;
 use super::RowPolicy;
 use super::RowVisitor;
 use super::check::assert_deferred_visit_contract;
@@ -16,9 +19,9 @@ use super::check::assert_owned_visit_contract;
 use super::check::assert_sink_visit_contract;
 use super::check::validate_owned_visit;
 use super::check::validate_sink_visit;
-use super::ensure_plan;
 use super::row_visitor::private;
 use crate::ExecutionCtx;
+use crate::dtype::DType;
 use crate::scalar_fn::unstable::row::ElementTuple;
 use crate::scalar_fn::unstable::row::FailureEvidence;
 use crate::scalar_fn::unstable::row::IndexedElementTuple;
@@ -42,27 +45,39 @@ pub(in crate::scalar_fn::unstable::row) struct ExecuteDenseWithRetry<
     /// The inputs and planning metadata for this dense attempt.
     args: &'visit BorrowedRowFnArgs<'inputs>,
 
-    /// The function options used to derive a sink's runtime dtype.
-    options: &'visit F::Options,
+    /// The output dtype declared by [`RowVisitor::with_output_dtype`], if any.
+    output_dtype: Option<DType>,
 
     /// The execution context used to decode the input columns.
     ctx: &'ctx mut ExecutionCtx,
+
+    /// Ties this visit to the function used by its compile-time contract checks.
+    function: PhantomData<F>,
 }
 
 impl<'visit, 'inputs, 'ctx, F: RowFn> ExecuteDenseWithRetry<'visit, 'inputs, 'ctx, F> {
     pub(in crate::scalar_fn::unstable::row) fn new(
         args: &'visit BorrowedRowFnArgs<'inputs>,
-        options: &'visit F::Options,
         ctx: &'ctx mut ExecutionCtx,
     ) -> Self {
-        Self { args, options, ctx }
+        Self {
+            args,
+            output_dtype: None,
+            ctx,
+            function: PhantomData,
+        }
     }
 }
 
 impl<F: RowFn> private::Sealed for ExecuteDenseWithRetry<'_, '_, '_, F> {}
 
-impl<F: RowFn> RowVisitor<F::Options> for ExecuteDenseWithRetry<'_, '_, '_, F> {
+impl<F: RowFn> RowVisitor for ExecuteDenseWithRetry<'_, '_, '_, F> {
     type VisitResult = DenseAttempt;
+
+    fn with_output_dtype(mut self, dtype: DType) -> Self {
+        self.output_dtype = Some(dtype);
+        self
+    }
 
     fn visit_prepared<Args, Out, Prepared>(
         self,
@@ -74,12 +89,12 @@ impl<F: RowFn> RowVisitor<F::Options> for ExecuteDenseWithRetry<'_, '_, '_, F> {
         Out: OutputElement,
     {
         const { assert_owned_visit_contract::<F, Args, Out>() };
-        ensure_plan(
-            self.args.output_dtype(),
-            self.args.policy(),
+        let visited = BatchPlan::new(
             validate_owned_visit::<Args, Out>(self.args.dtypes())?,
+            self.output_dtype,
             RowPolicy::for_owned_output::<Args>(),
         )?;
+        self.args.plan().ensure_reproduced_by(&visited)?;
 
         execute_owned_infallible::<Args, Out, Prepared>(self.args, self.ctx, prepare, apply)
             .map(DenseAttempt::Values)
@@ -88,29 +103,23 @@ impl<F: RowFn> RowVisitor<F::Options> for ExecuteDenseWithRetry<'_, '_, '_, F> {
     fn visit_prepared_into<Args, Sink, Prepared, ApplyResult>(
         self,
         prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
-        apply: impl Fn(
-            &Prepared,
-            Args::Elems<'_>,
-            <Sink as OutputSink<F::Options>>::Row<'_>,
-        ) -> ApplyResult,
+        apply: impl Fn(&Prepared, Args::Elems<'_>, Sink::Row<'_>) -> ApplyResult,
     ) -> VortexResult<Self::VisitResult>
     where
         Args: ElementTuple,
-        Sink: OutputSink<F::Options>,
-        ApplyResult: SinkResult<WriteToken = <Sink as OutputSink<F::Options>>::WriteToken>,
+        Sink: OutputSink,
+        ApplyResult: SinkResult<WriteToken = Sink::WriteToken>,
     {
         const { assert_sink_visit_contract::<F, Args, ApplyResult>() };
-        ensure_plan(
-            self.args.output_dtype(),
-            self.args.policy(),
-            validate_sink_visit::<Args, Sink, F::Options>(self.options, self.args.dtypes())?,
+        let visited = BatchPlan::new(
+            validate_sink_visit::<Args, Sink>(self.args.dtypes())?,
+            self.output_dtype,
             RowPolicy::for_sink::<Args, ApplyResult>(),
         )?;
+        self.args.plan().ensure_reproduced_by(&visited)?;
 
-        execute_sink::<Args, Prepared, Sink, ApplyResult, F::Options>(
-            self.args, self.ctx, prepare, apply,
-        )
-        .map(DenseAttempt::Values)
+        execute_sink::<Args, Prepared, Sink, ApplyResult>(self.args, self.ctx, prepare, apply)
+            .map(DenseAttempt::Values)
     }
 
     fn visit_prepared_deferred<Args, Out, Prepared, Fail>(
@@ -125,12 +134,12 @@ impl<F: RowFn> RowVisitor<F::Options> for ExecuteDenseWithRetry<'_, '_, '_, F> {
         Fail: FailureEvidence,
     {
         const { assert_deferred_visit_contract::<F, Args, Out, Fail>() };
-        ensure_plan(
-            self.args.output_dtype(),
-            self.args.policy(),
+        let visited = BatchPlan::new(
             validate_owned_visit::<Args, Out>(self.args.dtypes())?,
+            self.output_dtype,
             RowPolicy::for_deferred_output::<Args>(),
         )?;
+        self.args.plan().ensure_reproduced_by(&visited)?;
 
         execute_owned_dense_attempt::<Args, Out, Prepared, Fail>(
             self.args,

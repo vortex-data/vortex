@@ -26,16 +26,16 @@ use crate::scalar_fn::unstable::row::ViewLen;
 /// The executor owns the sink and passes each output row to `apply`. This keeps `apply` as [`Fn`].
 /// Capturing the sink would require [`FnMut`] and put its buffer metadata behind loop-carried
 /// mutable closure state, which can prevent LLVM from treating that metadata as loop-invariant.
-pub(crate) fn execute_sink<Args, Prepared, Sink, ApplyResult, Options>(
+pub(crate) fn execute_sink<Args, Prepared, Sink, ApplyResult>(
     args: &dyn ExecutionArgs,
     ctx: &mut ExecutionCtx,
     prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
-    apply: impl Fn(&Prepared, Args::Elems<'_>, <Sink as OutputSink<Options>>::Row<'_>) -> ApplyResult,
+    apply: impl Fn(&Prepared, Args::Elems<'_>, Sink::Row<'_>) -> ApplyResult,
 ) -> VortexResult<ArrayRef>
 where
     Args: ElementTuple,
-    Sink: OutputSink<Options>,
-    ApplyResult: SinkResult<WriteToken = <Sink as OutputSink<Options>>::WriteToken>,
+    Sink: OutputSink,
+    ApplyResult: SinkResult<WriteToken = Sink::WriteToken>,
 {
     let columns = Args::decode(args, ctx)?;
 
@@ -43,11 +43,11 @@ where
     let const_values = Args::const_values(&columns);
     let prepared = prepare(const_values);
 
-    let mut sink = <Sink as OutputSink<Options>>::with_capacity(row_count)?;
+    let mut sink = Sink::with_capacity(row_count)?;
 
     // Keep `rows` scoped so its borrow ends before `finish`, which consumes the sink.
     {
-        let mut rows = <Sink as OutputSink<Options>>::rows(&mut sink);
+        let mut rows = Sink::rows(&mut sink);
 
         // This equality proves to LLVM that `0..row_count` is in bounds for `rows`.
         let sink_row_count = rows.len();
@@ -68,8 +68,7 @@ where
                 // `row_count` rows before the loop.
                 let elements = unsafe { Args::get_from_views_unchecked(&views, index) };
                 // SAFETY: the sink row-count check above proved every loop index is in bounds.
-                let output =
-                    unsafe { <Sink as OutputSink<Options>>::row_unchecked(&mut rows, index) };
+                let output = unsafe { Sink::row_unchecked(&mut rows, index) };
 
                 apply(&prepared, elements, output).into_result()?;
             }
@@ -80,8 +79,7 @@ where
 
             for index in 0..row_count {
                 // SAFETY: the sink row-count check above proved every loop index is in bounds.
-                let output =
-                    unsafe { <Sink as OutputSink<Options>>::row_unchecked(&mut rows, index) };
+                let output = unsafe { Sink::row_unchecked(&mut rows, index) };
 
                 // LLVM unswitches the batch-constant checks in `Args::get` before vectorizing the
                 // loop.
@@ -91,7 +89,7 @@ where
     }
 
     // SAFETY: every row callback completed successfully, so each returned the required write token.
-    unsafe { <Sink as OutputSink<Options>>::finish(sink) }
+    unsafe { Sink::finish(sink) }
 }
 
 /// Write only the rows set in `valid`, or decline when the inputs or sink cannot support
@@ -99,17 +97,17 @@ where
 ///
 /// `Ok(None)` signals that direct skip-invalid execution is unavailable. Batch execution decides
 /// how to handle the decline.
-pub(crate) fn execute_sink_valid_rows<Args, Prepared, Sink, ApplyResult, Options>(
+pub(crate) fn execute_sink_valid_rows<Args, Prepared, Sink, ApplyResult>(
     args: &dyn ExecutionArgs,
     valid: &MaskValuesRef,
     ctx: &mut ExecutionCtx,
     prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
-    apply: impl Fn(&Prepared, Args::Elems<'_>, <Sink as OutputSink<Options>>::Row<'_>) -> ApplyResult,
+    apply: impl Fn(&Prepared, Args::Elems<'_>, Sink::Row<'_>) -> ApplyResult,
 ) -> VortexResult<Option<ArrayRef>>
 where
     Args: ElementTuple,
-    Sink: OutputSink<Options>,
-    ApplyResult: SinkResult<WriteToken = <Sink as OutputSink<Options>>::WriteToken>,
+    Sink: OutputSink,
+    ApplyResult: SinkResult<WriteToken = Sink::WriteToken>,
 {
     let Some(ValidRowsSetup {
         initialize_skipped_rows,
@@ -117,7 +115,7 @@ where
         valid_rows,
         row_count,
         mut sink,
-    }) = setup_sink_valid_rows::<Args, Sink, Options>(args, valid, ctx)?
+    }) = setup_sink_valid_rows::<Args, Sink>(args, valid, ctx)?
     else {
         return Ok(None);
     };
@@ -130,7 +128,7 @@ where
     // `drop(rows)` duplicates `Args::get` in every sparse callback.
     {
         // Initialize every slot before visiting only valid rows.
-        let mut rows = <Sink as OutputSink<Options>>::rows(&mut sink);
+        let mut rows = Sink::rows(&mut sink);
         initialize_skipped_rows(&mut rows);
 
         // The initializer can change addressability. Recheck it so LLVM can prove every mask
@@ -150,8 +148,7 @@ where
             valid_rows.try_for_each_set_index(|index| {
                 // SAFETY: the post-initialization row-count check proved that the sink addresses
                 // every mask index, which is below the mask's validated `row_count`.
-                let output =
-                    unsafe { <Sink as OutputSink<Options>>::row_unchecked(&mut rows, index) };
+                let output = unsafe { Sink::row_unchecked(&mut rows, index) };
 
                 // SAFETY: `view_lens_match` checked that these exact retained views address
                 // `row_count` rows, and mask indices are below `row_count`.
@@ -167,8 +164,7 @@ where
             valid_rows.try_for_each_set_index(|index| {
                 // SAFETY: the post-initialization row-count check proved that the sink addresses
                 // every mask index, which is below the mask's validated `row_count`.
-                let output =
-                    unsafe { <Sink as OutputSink<Options>>::row_unchecked(&mut rows, index) };
+                let output = unsafe { Sink::row_unchecked(&mut rows, index) };
 
                 apply(&prepared, Args::get(&columns, index), output).into_result()
             })?;
@@ -177,7 +173,7 @@ where
 
     // SAFETY: the initializer completed before traversal, and every visited callback completed
     // successfully and returned the required write token.
-    unsafe { <Sink as OutputSink<Options>>::finish(sink) }.map(Some)
+    unsafe { Sink::finish(sink) }.map(Some)
 }
 
 /// Construct a decoded-length error outside the traversal branches.
@@ -193,12 +189,12 @@ fn decoded_length_error(row_count: usize) -> VortexResult<()> {
 }
 
 /// State resolved before preparing the skip-invalid row loop.
-struct ValidRowsSetup<'valid, Args, Sink, Options>
+struct ValidRowsSetup<'valid, Args, Sink>
 where
     Args: ElementTuple,
-    Sink: OutputSink<Options>,
+    Sink: OutputSink,
 {
-    initialize_skipped_rows: for<'rows> fn(&mut <Sink as OutputSink<Options>>::Rows<'rows>),
+    initialize_skipped_rows: for<'rows> fn(&mut Sink::Rows<'rows>),
     columns: Args::Columns,
     valid_rows: &'valid BitBuffer,
     row_count: usize,
@@ -206,18 +202,17 @@ where
 }
 
 /// Resolve the capabilities, inputs, sink, and validity mask for skip-invalid execution.
-fn setup_sink_valid_rows<'valid, Args, Sink, Options>(
+fn setup_sink_valid_rows<'valid, Args, Sink>(
     args: &dyn ExecutionArgs,
     valid: &'valid MaskValuesRef,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<ValidRowsSetup<'valid, Args, Sink, Options>>>
+) -> VortexResult<Option<ValidRowsSetup<'valid, Args, Sink>>>
 where
     Args: ElementTuple,
-    Sink: OutputSink<Options>,
+    Sink: OutputSink,
 {
     // The initializer both declares support for skipping rows and initializes those rows.
-    let Some(initialize_skipped_rows) = <Sink as OutputSink<Options>>::skipped_rows_initializer()
-    else {
+    let Some(initialize_skipped_rows) = Sink::skipped_rows_initializer() else {
         return Ok(None);
     };
 
@@ -232,7 +227,7 @@ where
     // Keep allocation before the validity and length checks. With multiple CGUs and no LTO,
     // moving it later inlines `Args::get` into every sparse callback, duplicating its bounds
     // checks.
-    let sink = <Sink as OutputSink<Options>>::with_capacity(row_count)?;
+    let sink = Sink::with_capacity(row_count)?;
 
     let valid_rows = valid.bit_buffer();
     vortex_ensure_eq!(
@@ -266,7 +261,6 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::dtype::DType;
     use crate::dtype::NativePType;
-    use crate::scalar_fn::EmptyOptions;
     use crate::scalar_fn::VecExecutionArgs;
     use crate::scalar_fn::unstable::row::OutputSink;
     use crate::validity::Validity;
@@ -277,13 +271,13 @@ mod tests {
 
     // SAFETY: `with_capacity` always returns an error, so no sink value can reach `rows`, `row`, or
     // `finish` through the executor. The row-initialization requirements are therefore vacuous.
-    unsafe impl<Options> OutputSink<Options> for NonSkippingSink {
+    unsafe impl OutputSink for NonSkippingSink {
         type Rows<'a> = ();
         type Row<'a> = ();
         type WriteToken = ();
 
-        fn return_dtype(_options: &Options) -> VortexResult<DType> {
-            Ok(DType::from(i64::PTYPE))
+        fn storage_dtype() -> DType {
+            DType::from(i64::PTYPE)
         }
 
         fn with_capacity(_rows: usize) -> VortexResult<Self> {
@@ -305,7 +299,7 @@ mod tests {
     // SAFETY: the initializer deliberately shrinks the row collection to exercise the executor's
     // post-initialization length check. If execution incorrectly continues, safe indexing in
     // `row_unchecked` panics instead of accessing invalid memory.
-    unsafe impl<Options> OutputSink<Options> for ShrinkingSink {
+    unsafe impl OutputSink for ShrinkingSink {
         type Rows<'a> = &'a mut Vec<i64>;
         type Row<'a> = &'a mut i64;
         type WriteToken = ();
@@ -316,8 +310,8 @@ mod tests {
             })
         }
 
-        fn return_dtype(_options: &Options) -> VortexResult<DType> {
-            Ok(DType::from(i64::PTYPE))
+        fn storage_dtype() -> DType {
+            DType::from(i64::PTYPE)
         }
 
         fn with_capacity(rows: usize) -> VortexResult<Self> {
@@ -346,7 +340,7 @@ mod tests {
         };
         let mut ctx = array_session().create_execution_ctx();
 
-        let execution = execute_sink_valid_rows::<(i64,), (), NonSkippingSink, (), EmptyOptions>(
+        let execution = execute_sink_valid_rows::<(i64,), (), NonSkippingSink, ()>(
             &args,
             &valid,
             &mut ctx,
@@ -368,7 +362,7 @@ mod tests {
         };
         let mut ctx = array_session().create_execution_ctx();
 
-        let result = execute_sink_valid_rows::<(i64,), (), ShrinkingSink, (), EmptyOptions>(
+        let result = execute_sink_valid_rows::<(i64,), (), ShrinkingSink, ()>(
             &args,
             &valid,
             &mut ctx,
