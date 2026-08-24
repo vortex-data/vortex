@@ -236,12 +236,15 @@ impl BatchPlan {
 
 /// Validate a declared output dtype and return the label to apply to the storage column.
 ///
-/// A declared dtype **must** be non-nullable and **must** leave every value unchanged, which
-/// restricts it to `storage_dtype` itself or to an extension dtype storing exactly that dtype.
-/// Returning `None` for the former keeps [`BatchPlan::relabel_output`] a no-op for it.
+/// A declared dtype **must** be non-nullable and **must** apply by wrapping the finished column,
+/// which restricts it to `storage_dtype` itself or to an extension dtype storing exactly that
+/// dtype. An extension array holds its storage column as a child, so wrapping costs nothing and
+/// works for any encoding. Returning `None` for the former keeps [`BatchPlan::relabel_output`] a
+/// no-op for it.
 ///
 /// This is the single validation point for that relationship, which
-/// [`BatchPlan::relabel_output`] relies on.
+/// [`BatchPlan::relabel_output`] relies on. It compares dtypes only. An extension type that
+/// constrains its storage values trusts the row kernel to produce values that satisfy it.
 fn validate_output_label(
     storage_dtype: &DType,
     output_dtype: DType,
@@ -257,8 +260,8 @@ fn validate_output_label(
 
     let DType::Extension(output_label) = output_dtype else {
         vortex_bail!(
-            "a declared row output dtype must label the storage dtype {storage_dtype} without \
-             changing any value, got {output_dtype}",
+            "a declared row output dtype must be an extension dtype over the storage dtype \
+             {storage_dtype}, got {output_dtype}",
         );
     };
     vortex_ensure_eq!(

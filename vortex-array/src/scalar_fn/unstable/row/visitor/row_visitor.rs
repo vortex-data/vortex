@@ -46,10 +46,16 @@ pub trait RowVisitor: private::Sealed + Sized {
     /// Batch execution applies the label after deriving nullability and masking null rows, so an
     /// empty or all-null batch carries the same metadata as a populated one.
     ///
-    /// `dtype` **must** be non-nullable, and **must** label the storage dtype without changing any
-    /// value. That restricts it to the storage dtype itself or to an extension dtype storing it.
-    /// The visit validates both, and execution checks that this dispatch declares the dtype
-    /// planning selected.
+    /// `dtype` **must** be non-nullable, and **must** apply by wrapping the finished column. That
+    /// restricts it to the storage dtype itself or to an extension dtype storing it, because an
+    /// extension array holds its storage column as a child whatever that column's encoding. The
+    /// visit validates both, and execution checks that this dispatch declares the dtype planning
+    /// selected.
+    ///
+    /// Labelling validates dtypes and not values. An extension type can constrain its storage
+    /// values through [`ExtVTable::validate_scalar_value`], so a dispatch that declares one
+    /// **must** produce values that satisfy it. This is the same trust the framework places in
+    /// [`OutputElement::element_dtype`].
     ///
     /// # Examples
     ///
@@ -66,6 +72,8 @@ pub trait RowVisitor: private::Sealed + Sized {
     ///     ))
     ///     .visit::<(TimestampRow,), i64>(move |(value,)| value - value.rem_euclid(ticks))
     /// ```
+    /// [`ExtVTable::validate_scalar_value`]: crate::dtype::extension::ExtVTable::validate_scalar_value
+    /// [`OutputElement::element_dtype`]: crate::scalar_fn::unstable::row::OutputElement::element_dtype
     fn with_output_dtype(self, dtype: DType) -> Self;
 
     /// Visit an infallible row computation that returns one output value per row.

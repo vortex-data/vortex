@@ -549,7 +549,7 @@ fn test_declared_output_dtype_reaches_planning() -> VortexResult<()> {
 
 #[rstest]
 #[case::nullable(timestamp_dtype(Nullability::Nullable), "must be non-nullable")]
-#[case::not_an_extension(DType::from(u64::PTYPE), "must label the storage dtype")]
+#[case::not_an_extension(DType::from(u64::PTYPE), "must be an extension dtype")]
 fn test_declared_output_dtype_rejects_bad_label(
     #[case] declared: DType,
     #[case] expected_message: &str,
