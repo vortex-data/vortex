@@ -163,8 +163,8 @@ impl BtrBlocksCompressorBuilder {
     /// This preset is intended for files that will be decoded by CUDA kernels. It may choose a
     /// larger encoded representation than the default compressor.
     pub fn only_cuda_compatible(self) -> Self {
-        // Keep FSST, which has a CUDA decoder and direct Arrow offset-based export. Other
-        // string fragmentation and dictionary schemes still require unsupported decode paths.
+        // Keep FSST and OnPair, which have CUDA decoders and direct Arrow export. String
+        // dictionary schemes still require unsupported decode paths.
         #[cfg_attr(
             not(any(feature = "pco", feature = "unstable_encodings")),
             allow(unused_mut)
@@ -269,13 +269,20 @@ mod tests {
     }
 
     #[test]
-    fn cuda_compatible_uses_fsst_for_strings() {
+    fn cuda_compatible_uses_gpu_string_encodings() {
         let builder = BtrBlocksCompressorBuilder::default().only_cuda_compatible();
         assert!(
             builder
                 .schemes
                 .iter()
                 .any(|scheme| scheme.id() == string::FSSTScheme.id())
+        );
+        #[cfg(feature = "unstable_encodings")]
+        assert!(
+            builder
+                .schemes
+                .iter()
+                .any(|scheme| scheme.id() == string::OnPairScheme.id())
         );
         #[cfg(feature = "zstd")]
         assert!(

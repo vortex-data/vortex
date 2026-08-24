@@ -49,6 +49,7 @@ use num_traits::AsPrimitive;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
+use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
@@ -73,6 +74,7 @@ use vortex_onpair::OnPair;
 use vortex_onpair::OnPairArray;
 use vortex_onpair::OnPairArrayExt;
 use vortex_onpair::OnPairArraySlotsExt;
+use vortex_onpair::OnPairData;
 use vortex_onpair::dict_view;
 
 use crate::CanonicalCudaExt;
@@ -321,7 +323,27 @@ async fn stage_dict(
     onpair: ArrayView<'_, OnPair>,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<StagedDict> {
-    let dict = dict_view(onpair, ctx.execution_ctx())?;
+    let dict_offsets = decode_primitive_child(onpair.dict_offsets().clone(), ctx).await?;
+    let dict_offsets = Canonical::Primitive(dict_offsets)
+        .into_host()
+        .await?
+        .into_array();
+    let dict_bytes = onpair
+        .data()
+        .dict_bytes_handle()
+        .clone()
+        .try_to_host()?
+        .await?;
+    let host_onpair = OnPair::try_new_with_data(
+        onpair.dtype().clone(),
+        OnPairData::new(BufferHandle::new_host(dict_bytes)),
+        dict_offsets,
+        onpair.codes().clone(),
+        onpair.codes_offsets().clone(),
+        onpair.uncompressed_lengths().clone(),
+        onpair.array_validity(),
+    )?;
+    let dict = dict_view(host_onpair.as_view(), ctx.execution_ctx())?;
     let dict_size = dict.num_tokens();
     let dict_size_u32 = u32::try_from(dict_size)?;
     let mut dict_padded = vec![0u8; dict_size * MAX_TOKEN_SIZE];
