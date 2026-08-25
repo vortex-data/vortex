@@ -47,6 +47,9 @@ pub unsafe trait InputElement: 'static {
     /// Whether [`decode`](Self::decode) is infallible for _legal_ input data.
     ///
     /// This excludes infrastructural failures such as IO or allocation.
+    /// It is independent of
+    /// [`RowFn::INFALLIBLE`](crate::scalar_fn::unstable::row::RowFn::INFALLIBLE), which describes
+    /// the row operation rather than input decoding.
     const DECODE_INFALLIBLE: bool;
 
     /// Validate that `dtype` is an acceptable input column dtype for this element type.

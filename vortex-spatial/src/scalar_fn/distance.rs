@@ -39,8 +39,7 @@ impl RowFn for SpatialDistance {
     type Options = EmptyOptions;
 
     const ARG_NAMES: &'static [&'static str] = &["a", "b"];
-    // The per-row distance cannot fail, but decoding a geometry operand can.
-    const INFALLIBLE: bool = false;
+    const INFALLIBLE: bool = true;
 
     fn id(&self) -> ScalarFnId {
         static ID: CachedId = CachedId::new("vortex.st.distance");

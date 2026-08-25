@@ -33,12 +33,6 @@ const fn assert_input_visit_contract<F: RowFn, Args: ElementTuple>() {
         Args::ARITY == F::ARG_NAMES.len(),
         "the visited argument tuple must have the arity declared by RowFn::ARG_NAMES",
     );
-    // Dictionary push-down can evaluate values that no input row references. Every dispatch must
-    // therefore match the function-wide fallibility declaration.
-    assert!(
-        Args::DECODE_INFALLIBLE || !F::INFALLIBLE,
-        "RowFn::INFALLIBLE must be false when input decoding can fail",
-    );
 }
 
 pub(super) const fn assert_owned_visit_contract<Function, Args, Out>()

@@ -47,12 +47,15 @@ pub trait RowFn: 'static + Sized + Clone + Send + Sync {
     /// The arguments in display order. Its length is the function's exact arity.
     const ARG_NAMES: &'static [&'static str];
 
-    /// Whether every dispatch is infallible.
+    /// Whether the row operation selected by every dispatch is infallible.
     ///
     /// See [`ScalarFnVTable::is_infallible`](crate::scalar_fn::ScalarFnVTable::is_infallible) for
     /// a more detailed explanation of semantic errors.
     ///
-    /// The framework checks dispatched element and result types. A conservative `false` is allowed.
+    /// Input decoding fallibility is declared separately by
+    /// [`InputElement::DECODE_INFALLIBLE`](crate::scalar_fn::unstable::row::InputElement::DECODE_INFALLIBLE)
+    /// and does not affect this flag. The framework checks dispatched result types. A conservative
+    /// `false` is allowed.
     const INFALLIBLE: bool;
 
     /// Returns the ID of the scalar function.

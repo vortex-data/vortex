@@ -22,7 +22,8 @@ use crate::scalar_fn::unstable::row::SinkResult;
 ///
 /// Only the framework implements this trait. The `visit_prepared*` methods derive shared state
 /// from constant arguments before visiting any rows. Every visit verifies that the argument tuple
-/// matches [`RowFn::ARG_NAMES`] and that fallible decoding agrees with [`RowFn::INFALLIBLE`].
+/// matches [`RowFn::ARG_NAMES`] and that row-result fallibility agrees with
+/// [`RowFn::INFALLIBLE`]. Input decoding declares its fallibility independently.
 ///
 /// A visit selects the _storage dtype_, the dtype the chosen [`OutputElement`] or [`OutputSink`]
 /// physically builds. [`with_output_dtype`](Self::with_output_dtype) declares the _output dtype_,
