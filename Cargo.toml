@@ -126,7 +126,7 @@ bytes = "1.11.1"
 bzip2 = "0.6.0"
 cbindgen = "0.29.0"
 cc = "1.2"
-cfg-if = "1.0.1"
+cfg-if = "1.0.4"
 chrono = "0.4.44"
 clap = "4.5"
 criterion = { package = "codspeed-criterion-compat-walltime", version = "5.0.0" }
