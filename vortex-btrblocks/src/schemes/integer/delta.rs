@@ -23,6 +23,7 @@ use vortex_compressor::scheme::EstimateScore;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
 use vortex_fastlanes::Delta;
+use vortex_fastlanes::FL_CHUNK_SIZE;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
@@ -70,6 +71,22 @@ const DELTA_PENALTY: f64 = 0.95;
 
 /// Minimum length before Delta is worth considering (one FastLanes chunk).
 const MIN_DELTA_LEN: usize = 1024;
+
+/// Penalized compression ratio for `len` values of `full_width` bits whose transposed residuals
+/// need `delta_bits` bits each.
+///
+/// Delta writes two children and both are sized by the padded length, since `delta_compress`
+/// rounds the input up to whole [`FL_CHUNK_SIZE`] chunks. The deltas child holds `padded_len`
+/// residuals of `delta_bits`; the bases child holds one base per lane per chunk, and a chunk of
+/// `W`-bit values has `FL_CHUNK_SIZE / W` lanes, so its bases occupy [`FL_CHUNK_SIZE`] bits per
+/// chunk whatever `W` is: one further bit per residual. Charging the bases at full width is an
+/// upper bound, as the cascade compresses that child like any other.
+///
+/// `len` must be non-zero; callers gate on [`MIN_DELTA_LEN`].
+fn penalized_ratio(len: usize, full_width: f64, delta_bits: f64) -> f64 {
+    let padded_len = len.next_multiple_of(FL_CHUNK_SIZE) as f64;
+    (len as f64) * full_width / (padded_len * (delta_bits + 1.0)) * DELTA_PENALTY
+}
 
 impl Scheme for DeltaScheme {
     fn scheme_name(&self) -> &'static str {
@@ -142,11 +159,12 @@ impl Scheme for DeltaScheme {
             move |_compressor, data, best_so_far, _ctx, exec_ctx| {
                 let primitive = data.array().clone().execute::<PrimitiveArray>(exec_ctx)?;
                 let full_width = primitive.ptype().bit_width() as f64;
+                let len = primitive.len();
 
                 // Delta's best case is residuals collapsing to a single bit. If even that, after
                 // the penalty, can't beat the incumbent, skip before doing the encode work.
                 let threshold = best_so_far.and_then(EstimateScore::finite_ratio);
-                if threshold.is_some_and(|t| full_width * DELTA_PENALTY <= t) {
+                if threshold.is_some_and(|t| penalized_ratio(len, full_width, 1.0) <= t) {
                     return Ok(EstimateVerdict::Skip);
                 }
 
@@ -165,7 +183,7 @@ impl Scheme for DeltaScheme {
                     None => return Ok(EstimateVerdict::Skip),
                 };
 
-                let ratio = full_width / delta_bits * DELTA_PENALTY;
+                let ratio = penalized_ratio(len, full_width, delta_bits);
                 if ratio <= min_ratio {
                     return Ok(EstimateVerdict::Skip);
                 }
