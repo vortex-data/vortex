@@ -222,6 +222,7 @@ impl BtrBlocksCompressorBuilder {
 #[cfg(test)]
 mod tests {
     use vortex_array::VTable;
+    use vortex_fastlanes::BlockedFoR;
     use vortex_fastlanes::FoR;
 
     use super::*;
@@ -240,13 +241,23 @@ mod tests {
 
     #[test]
     fn retain_allowed_encodings_filters_schemes() {
-        let allowed: HashSet<ArrayId> = [FoR.id()].into_iter().collect();
+        let allowed: HashSet<ArrayId> = [BlockedFoR.id(), FoR.id()].into_iter().collect();
         let builder = BtrBlocksCompressorBuilder::default().retain_allowed_encodings(&allowed);
-        assert_eq!(builder.schemes.len(), 1);
-        assert_eq!(builder.schemes[0].id(), integer::FoRScheme.id());
+        let ids: Vec<_> = builder.schemes.iter().map(|s| s.id()).collect();
+        assert!(ids.contains(&integer::FoRScheme.id()));
 
         let none = BtrBlocksCompressorBuilder::default().retain_allowed_encodings(&HashSet::new());
         assert!(none.schemes.is_empty());
+    }
+
+    /// A policy that permits `fastlanes.for` but not `fastlanes.blockedfor` — every core edition
+    /// today — must keep a frame of reference rather than losing it with the blocked scheme.
+    #[test]
+    fn retain_allowed_encodings_keeps_global_for_without_blocked() {
+        let allowed: HashSet<ArrayId> = [FoR.id()].into_iter().collect();
+        let builder = BtrBlocksCompressorBuilder::default().retain_allowed_encodings(&allowed);
+        let ids: Vec<_> = builder.schemes.iter().map(|s| s.id()).collect();
+        assert_eq!(ids, vec![integer::FoRScheme.id()]);
     }
 
     #[test]
@@ -267,6 +278,26 @@ mod tests {
                 .schemes
                 .iter()
                 .any(|s| s.id() == float::ALPRDScheme.id())
+        );
+    }
+
+    /// BlockedFoR writes an encoding that only the `preview` edition permits, so it must never
+    /// be in the default set: a write path that does not restrict encodings would otherwise
+    /// produce an array the file writer cannot serialize.
+    #[test]
+    fn default_schemes_exclude_blocked_for() {
+        let builder = BtrBlocksCompressorBuilder::default();
+        assert!(
+            !builder
+                .schemes
+                .iter()
+                .any(|s| s.id() == integer::BlockedFoRScheme.id())
+        );
+        assert!(
+            builder
+                .schemes
+                .iter()
+                .any(|s| s.id() == integer::FoRScheme.id())
         );
     }
 

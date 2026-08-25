@@ -4,6 +4,7 @@
 //! Integer compression schemes.
 
 mod bitpacking;
+mod blocked_for;
 #[cfg(feature = "unstable_encodings")]
 mod delta;
 mod for_;
@@ -17,6 +18,7 @@ mod zigzag;
 mod pco;
 
 pub use bitpacking::BitPackingScheme;
+pub use blocked_for::BlockedFoRScheme;
 #[cfg(feature = "unstable_encodings")]
 pub use delta::DeltaScheme;
 pub use for_::FoRScheme;

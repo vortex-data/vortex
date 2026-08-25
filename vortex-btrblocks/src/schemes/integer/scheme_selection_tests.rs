@@ -9,6 +9,8 @@ use std::sync::LazyLock;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
+#[cfg(feature = "unstable_encodings")]
+use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Constant;
@@ -21,6 +23,8 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_fastlanes::BitPacked;
+#[cfg(not(any(feature = "unstable_encodings", feature = "pco")))]
+use vortex_fastlanes::BlockedFoR;
 use vortex_fastlanes::FoR;
 use vortex_runend::RunEnd;
 use vortex_sequence::Sequence;
@@ -28,6 +32,11 @@ use vortex_session::VortexSession;
 use vortex_sparse::Sparse;
 
 use crate::BtrBlocksCompressor;
+#[cfg(not(any(feature = "unstable_encodings", feature = "pco")))]
+use crate::BtrBlocksCompressorBuilder;
+#[cfg(not(any(feature = "unstable_encodings", feature = "pco")))]
+use crate::schemes::integer::BlockedFoRScheme;
+
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 #[test]
@@ -42,7 +51,43 @@ fn test_constant_compressed() -> VortexResult<()> {
 
 #[test]
 fn test_for_compressed() -> VortexResult<()> {
+    // Fewer than 1024 values, so the blocked scheme falls back to a single global reference.
     let values: Vec<i32> = (0..1000).map(|i| 1_000_000 + ((i * 37) % 100)).collect();
+    let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
+    let btr = BtrBlocksCompressor::default();
+    let compressed = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
+    assert!(compressed.is::<FoR>());
+    Ok(())
+}
+
+/// BlockedFoR is opt-in rather than part of [`crate::ALL_SCHEMES`], so the caller adds it.
+///
+/// Restricted to the default scheme set: `Delta` and `Pco` model this same shape and beat the
+/// blocked scheme on it, so with those compiled in the choice says nothing about this scheme.
+/// The bit-width property it exists for is covered feature-independently in `vortex-fastlanes`.
+#[cfg(not(any(feature = "unstable_encodings", feature = "pco")))]
+#[test]
+fn test_blocked_for_compressed() -> VortexResult<()> {
+    // Values that stay tightly clustered within each 1024-value block but drift far apart over
+    // the array: the shape a single global reference cannot capture.
+    let values: Vec<i64> = (0..16_384)
+        .map(|i| 1_000_000 + (i / 1024) * 1_000_000 + ((i * 7919) % 101))
+        .collect();
+    let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable).into_array();
+
+    let btr = BtrBlocksCompressorBuilder::default()
+        .with_new_scheme(&BlockedFoRScheme)
+        .build();
+    let compressed = btr.compress(&array, &mut SESSION.create_execution_ctx())?;
+    assert!(compressed.is::<BlockedFoR>());
+    Ok(())
+}
+
+/// Per-block references cost more than they save when every block spans the same range as the
+/// whole array, so the blocked scheme must stand aside and let global FoR take the array.
+#[test]
+fn test_blocked_for_falls_back_to_global_for() -> VortexResult<()> {
+    let values: Vec<i32> = (0..16_384).map(|i| 1_000_000 + ((i * 37) % 100)).collect();
     let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
     let btr = BtrBlocksCompressor::default();
     let compressed = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
@@ -261,7 +306,7 @@ fn test_delta_nullable_unaligned_sum() -> VortexResult<()> {
 
 /// Returns true if any `Delta` array appears below an ancestor `Delta` in the tree.
 #[cfg(feature = "unstable_encodings")]
-fn has_nested_delta(array: &vortex_array::ArrayRef, under_delta: bool) -> bool {
+fn has_nested_delta(array: &ArrayRef, under_delta: bool) -> bool {
     use vortex_fastlanes::Delta;
 
     let is_delta = array.is::<Delta>();

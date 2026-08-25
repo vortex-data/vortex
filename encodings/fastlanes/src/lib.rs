@@ -10,6 +10,7 @@
 //! - [`BitPacked`] stores fixed-width integer values using the minimum bit width plus optional
 //!   patches.
 //! - [`FoR`] stores frame-of-reference deltas from a base value.
+//! - [`BlockedFoR`] stores frame-of-reference deltas from a base value per 1024-value block.
 //! - [`Delta`] stores adjacent deltas in chunked form.
 //! - [`RLE`] stores repeated runs.
 //!
@@ -27,6 +28,7 @@
 //! but are not fully binary compatible. See the underlying [fastlanes](https://github.com/spiraldb/fastlanes) crate for more details.
 
 pub use bitpacking::*;
+pub use blocked_for::*;
 pub use delta::*;
 pub use r#for::*;
 pub use rle::*;
@@ -41,6 +43,7 @@ use vortex_error::VortexResult;
 
 pub mod bit_transpose;
 mod bitpacking;
+mod blocked_for;
 mod delta;
 mod r#for;
 mod rle;
@@ -69,6 +72,7 @@ pub fn initialize(session: &VortexSession) {
     } else {
         session.arrays().register(BitPacked);
     }
+    session.arrays().register(BlockedFoR);
     session.arrays().register(Delta);
     session.arrays().register(FoR);
     session.arrays().register(RLE);
