@@ -40,6 +40,7 @@ vortex-spatial = { workspace = true }
 
 [dev-dependencies]
 jni = { workspace = true, features = ["invocation"] }
+rstest = { workspace = true }
 
 [lib]
 crate-type = ["cdylib"]

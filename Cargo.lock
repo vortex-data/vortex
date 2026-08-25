@@ -11206,6 +11206,7 @@ dependencies = [
  "object_store",
  "parking_lot",
  "roaring",
+ "rstest",
  "thiserror 2.0.20",
  "tracing",
  "tracing-subscriber",

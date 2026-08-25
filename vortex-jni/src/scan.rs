@@ -15,14 +15,10 @@ use std::ops::Range;
 use std::ptr;
 use std::sync::Arc;
 
-use arrow_array::Array;
 use arrow_array::RecordBatch;
-use arrow_array::array::make_array;
 use arrow_array::cast::AsArray;
 use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_array::ffi_stream::FFI_ArrowArrayStream;
-use arrow_data::ArrayData;
-use arrow_data::transform::MutableArrayData;
 use arrow_schema::ArrowError;
 use arrow_schema::Field;
 use futures::StreamExt;
@@ -52,6 +48,8 @@ use vortex_arrow::ArrowSessionExt;
 
 use crate::POOL;
 use crate::RUNTIME;
+use crate::arrow_compat::rebase_offsets;
+use crate::arrow_compat::widen_small_decimals;
 use crate::data_source::NativeDataSource;
 use crate::errors::try_or_throw;
 use crate::session::session_ref;
@@ -225,7 +223,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeScan_arrowSchema(
         let NativeScan::Pending(scan) = scan else {
             throw_runtime!("schema unavailable: scan already started");
         };
-        let arrow_schema = session.arrow().to_arrow_schema(scan.dtype())?;
+        let arrow_schema = widen_small_decimals(session.arrow().to_arrow_schema(scan.dtype())?);
         let ffi_schema = FFI_ArrowSchema::try_from(&arrow_schema)?;
         unsafe {
             ptr::write(schema_addr as *mut FFI_ArrowSchema, ffi_schema);
@@ -358,7 +356,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_scanArrow(
         let dtype = array_stream.dtype().clone();
 
         let session = unsafe { session_ref(session_ptr) };
-        let schema = Arc::new(session.arrow().to_arrow_schema(&dtype)?);
+        let schema = Arc::new(widen_small_decimals(
+            session.arrow().to_arrow_schema(&dtype)?,
+        ));
         let target = Arc::new(Field::new_struct("", schema.fields().clone(), false));
 
         let iter = RUNTIME
@@ -391,38 +391,4 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_scanArrow(
         }
         Ok(())
     });
-}
-
-/// Copy any column carrying a non-zero array offset into an offset-0 equivalent because
-/// arrow-java's C Data importer ignores `offset` (as of 19.0.0).
-fn rebase_offsets(batch: RecordBatch) -> VortexResult<RecordBatch> {
-    let mut rebased = false;
-    let columns = batch
-        .columns()
-        .iter()
-        .map(|column| {
-            let data = column.to_data();
-            if carries_offset(&data) {
-                rebased = true;
-                // `concat` of a single array will not do this: it short-circuits to
-                // `slice(0, len)`, which keeps the offset.
-                let len = data.len();
-                let mut copy = MutableArrayData::new(vec![&data], false, len);
-                copy.try_extend(0, 0, len)?;
-                Ok(make_array(copy.freeze()))
-            } else {
-                Ok(Arc::clone(column))
-            }
-        })
-        .collect::<VortexResult<Vec<_>>>()?;
-
-    if !rebased {
-        return Ok(batch);
-    }
-    Ok(RecordBatch::try_new(batch.schema(), columns)?)
-}
-
-/// Whether `data` or any of its descendants carries a non-zero offset.
-fn carries_offset(data: &ArrayData) -> bool {
-    data.offset() != 0 || data.child_data().iter().any(carries_offset)
 }
