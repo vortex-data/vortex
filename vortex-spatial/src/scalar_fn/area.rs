@@ -5,41 +5,18 @@
 
 use geo::Area;
 use vortex_array::ArrayRef;
-use vortex_array::ExecutionCtx;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::PType;
-use vortex_array::expr::Expression;
-use vortex_array::expr::union_child_validities;
-use vortex_array::scalar_fn::Arity;
-use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
-use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
-use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::TypedScalarFnInstance;
+use vortex_array::scalar_fn::unstable::row::RowFn;
+use vortex_array::scalar_fn::unstable::row::RowVisitor;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::extension::is_native_geometry;
-use crate::scalar_fn::execute::execute_unary_geo_types;
-
-/// Validate the native geometry operand accepted by `ST_Area`.
-fn validate_area_operand(dtypes: &[DType]) -> VortexResult<()> {
-    vortex_ensure!(
-        dtypes.len() == 1,
-        "spatial: area requires exactly one geometry operand, got {}",
-        dtypes.len()
-    );
-    vortex_ensure!(
-        is_native_geometry(&dtypes[0]),
-        "spatial: area operand {} is not a native geometry",
-        dtypes[0]
-    );
-    Ok(())
-}
+use crate::scalar_fn::row::GeometryRow;
 
 /// Unsigned planar `ST_Area` of native geometries.
 ///
@@ -58,8 +35,11 @@ impl SpatialArea {
     }
 }
 
-impl ScalarFnVTable for SpatialArea {
+impl RowFn for SpatialArea {
     type Options = EmptyOptions;
+
+    const ARG_NAMES: &'static [&'static str] = &["geometry"];
+    const INFALLIBLE: bool = true;
 
     fn id(&self) -> ScalarFnId {
         static ID: CachedId = CachedId::new("vortex.st.area");
@@ -74,46 +54,13 @@ impl ScalarFnVTable for SpatialArea {
         Ok(EmptyOptions)
     }
 
-    fn arity(&self, _: &Self::Options) -> Arity {
-        Arity::Exact(1)
-    }
-
-    fn child_name(&self, _: &Self::Options, child_idx: usize) -> ChildName {
-        match child_idx {
-            0 => ChildName::from("geometry"),
-            _ => unreachable!("area has exactly one child"),
-        }
-    }
-
-    fn return_dtype(&self, _: &Self::Options, dtypes: &[DType]) -> VortexResult<DType> {
-        validate_area_operand(dtypes)?;
-        Ok(DType::Primitive(PType::F64, dtypes[0].nullability()))
-    }
-
-    fn execute(
+    fn dispatch<V: RowVisitor>(
         &self,
-        _: &Self::Options,
-        args: &dyn ExecutionArgs,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        let array = args.get(0)?;
-        execute_unary_geo_types(&array, Area::unsigned_area, ctx)
-    }
-
-    fn validity(
-        &self,
-        _: &Self::Options,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        union_child_validities(expression)
-    }
-
-    fn is_strict(&self, _: &Self::Options) -> bool {
-        true
-    }
-
-    fn is_infallible(&self, _: &Self::Options) -> bool {
-        true
+        _options: &Self::Options,
+        _args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        visitor.visit::<(GeometryRow,), f64>(|(geometry,)| geometry.unsigned_area())
     }
 }
 

@@ -11,13 +11,12 @@ use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::extension::ExtensionType;
+use geo::HasDimensions;
 use geo_traits::to_geo::ToGeoGeometry;
 use geo_types::Geometry;
-use geoarrow::array::GeoArrowArray;
 use geoarrow::array::GeoArrowArrayAccessor;
 use geoarrow::array::IntoArrow;
 use geoarrow::array::PolygonArray;
-use geoarrow::array::PolygonBuilder;
 use geoarrow::datatypes::CoordType;
 use geoarrow::datatypes::PolygonType;
 use prost::Message;
@@ -25,14 +24,17 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::ListArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::StructArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
-use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::scalar::ScalarValue;
+use vortex_array::validity::Validity;
 use vortex_arrow::ArrowExport;
 use vortex_arrow::ArrowExportVTable;
 use vortex_arrow::ArrowImport;
@@ -115,25 +117,49 @@ fn polygon_type(spatial_metadata: &SpatialMetadata, dimension: Dimension) -> Pol
     PolygonType::new(dimension.into(), geoarrow_metadata(spatial_metadata))
 }
 
-/// Build a native 2-D [`Polygon`] array from row-oriented `geo_types` polygons.
-pub(crate) fn build_polygon_array(
-    polygons: &[Option<geo_types::Polygon<f64>>],
-    metadata: SpatialMetadata,
-    nullability: Nullability,
-    session: &ArrowSession,
+/// Build canonical non-nullable 2-D polygon storage from row-oriented `geo_types` polygons.
+pub(crate) fn build_polygon_storage(
+    polygons: &[geo_types::Polygon<f64>],
 ) -> VortexResult<ArrayRef> {
-    let polygons =
-        PolygonBuilder::from_nullable_polygons(polygons, polygon_type(&metadata, Dimension::Xy))
-            .finish();
-    let storage_dtype = polygon_storage_dtype(Dimension::Xy, nullability);
-    let storage = session
-        .from_arrow_array(
-            polygons.to_array_ref(),
-            nullability == Nullability::Nullable,
-        )?
-        .cast(storage_dtype.clone())?;
-    let ext_dtype = ExtDType::<Polygon>::try_new(metadata, storage_dtype)?;
-    Ok(ExtensionArray::try_new(ext_dtype.erased(), storage)?.into_array())
+    let mut xs = Vec::new();
+    let mut ys = Vec::new();
+    let mut ring_offsets = vec![0_u64];
+    let mut polygon_offsets = vec![0_u64];
+
+    for polygon in polygons {
+        let exterior = (!polygon.exterior().is_empty()).then_some(polygon.exterior());
+        for ring in exterior.into_iter().chain(polygon.interiors()) {
+            xs.extend(ring.0.iter().map(|coord| coord.x));
+            ys.extend(ring.0.iter().map(|coord| coord.y));
+            ring_offsets.push(
+                u64::try_from(xs.len())
+                    .map_err(|_| vortex_err!("spatial: polygon coordinate count exceeds u64"))?,
+            );
+        }
+        polygon_offsets.push(
+            u64::try_from(ring_offsets.len() - 1)
+                .map_err(|_| vortex_err!("spatial: polygon ring count exceeds u64"))?,
+        );
+    }
+
+    let coordinates = StructArray::from_fields(&[
+        ("x", PrimitiveArray::from_iter(xs).into_array()),
+        ("y", PrimitiveArray::from_iter(ys).into_array()),
+    ])?
+    .into_array();
+    let rings = ListArray::try_new(
+        coordinates,
+        PrimitiveArray::from_iter(ring_offsets).into_array(),
+        Validity::NonNullable,
+    )?
+    .into_array();
+    let storage = ListArray::try_new(
+        rings,
+        PrimitiveArray::from_iter(polygon_offsets).into_array(),
+        Validity::NonNullable,
+    )?
+    .into_array();
+    Ok(storage)
 }
 
 /// Decode `Polygon` storage (`List<List<coordinate>>`) to `geo_types` polygons, for the spatial scalar
