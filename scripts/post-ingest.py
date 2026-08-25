@@ -187,9 +187,7 @@ _RECORD_FIELDS: dict[str, tuple[frozenset[str], frozenset[str]]] = {
         frozenset({"dataset_variant", "env_triple"}),
     ),
     "compression_size": (
-        frozenset(
-            {"commit_sha", "dataset", "format", "value_bytes", "uncompressed_bytes"}
-        ),
+        frozenset({"commit_sha", "dataset", "format", "value_bytes", "uncompressed_bytes"}),
         frozenset({"dataset_variant"}),
     ),
     "random_access_time": (
