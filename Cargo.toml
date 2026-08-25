@@ -127,7 +127,7 @@ bzip2 = "0.6.0"
 cbindgen = "0.29.0"
 cc = "1.2"
 cfg-if = "1.0.4"
-chrono = "0.4.44"
+chrono = "0.4.45"
 clap = "4.5"
 criterion = { package = "codspeed-criterion-compat-walltime", version = "5.0.0" }
 crossbeam-channel = "0.5.16"
@@ -191,7 +191,7 @@ libfuzzer-sys = "0.4"
 libloading = "0.8"
 liblzma = "0.4"
 log = { version = "0.4.21" }
-memchr = "2.8.0"
+memchr = "2.8.1"
 memmap2 = "0.9.5"
 mimalloc = "0.1.42"
 moka = { version = "0.12.10", default-features = false }
@@ -262,7 +262,7 @@ spatialbench-parquet = { package = "parquet", version = "56", features = [
 ] }
 static_assertions = "1.1"
 strum = "0.28"
-syn = { version = "3.0.0", features = ["full"] }
+syn = { version = "3.0.2", features = ["full"] }
 sysinfo = "0.38.0"
 tabled = { version = "0.21.0", default-features = false }
 taffy = "0.12"
