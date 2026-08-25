@@ -15,6 +15,7 @@ use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::validity::Validity;
+use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
@@ -40,6 +41,20 @@ pub fn delta_compress(
         let validity = match validity {
             Validity::Array(mask) => {
                 let bits = mask.execute::<BoolArray>(ctx)?.into_bit_buffer();
+                let pad = bits.len().next_multiple_of(FL_CHUNK_SIZE) - bits.len();
+                // Pad remainder bits as valid to match last-value remainder padding.
+                // `transpose_bitbuffer` would otherwise zero-fill, and those nulls scatter
+                // onto real residual slots (bit-transpose ≠ integer-transpose), where
+                // bitpacking would then skip their patches.
+                let bits = if pad == 0 {
+                    bits
+                } else {
+                    // `sliced` first so the copy covers only the logical range, not whatever
+                    // wider buffer the mask was sliced out of.
+                    let mut padded = BitBufferMut::copy_from(&bits.sliced());
+                    padded.append_n(true, pad);
+                    padded.freeze()
+                };
                 Validity::Array(
                     BoolArray::new(transpose_bitbuffer(bits), Validity::NonNullable).into_array(),
                 )
@@ -94,8 +109,10 @@ where
     }
 
     // Pad the remainder to 1024 elements and process as a full chunk.
-    if !remainder.is_empty() {
-        let mut padded_chunk = [T::default(); FL_CHUNK_SIZE];
+    if let Some(&last) = remainder.last() {
+        // Repeat the last value for padding to prevent a value-to-zero step from producing
+        // huge wrapping deltas in the padded tail (same rationale as RLE compression).
+        let mut padded_chunk = [last; FL_CHUNK_SIZE];
         padded_chunk[..remainder.len()].copy_from_slice(remainder);
         process_chunk(&padded_chunk, &mut output_deltas[full_chunks.len()]);
     }
@@ -110,12 +127,14 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::iter;
     use std::sync::LazyLock;
 
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::Bool;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
@@ -125,6 +144,8 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::Delta;
+    use crate::FL_CHUNK_SIZE;
+    use crate::bit_transpose::untranspose_bitbuffer;
     use crate::bitpack_compress::bitpack_encode;
     use crate::delta::array::delta_decompress::delta_decompress;
     use crate::delta_compress;
@@ -166,6 +187,83 @@ mod tests {
         assert_eq!(delta.len(), array.len());
         let decompressed = delta_decompress(&delta, &mut SESSION.create_execution_ctx())?;
         assert_arrays_eq!(decompressed, array, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    /// Zero-padding the trailing chunk inflated delta span on unaligned monotone columns,
+    /// causing DeltaScheme to reject encoding. Pad positions must repeat the last value.
+    #[test]
+    fn remainder_pad_preserves_small_delta_span() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        for n in [1025usize, 2049] {
+            let array = PrimitiveArray::from_iter((0..n as u32).map(|i| 1000 + i));
+            let (_bases, deltas) = delta_compress(&array, &mut ctx)?;
+            let d = deltas.as_slice::<u32>();
+            let min = *d.iter().min().unwrap();
+            let max = *d.iter().max().unwrap();
+            assert!(
+                max - min <= 1,
+                "n={n}: delta span should stay O(1), got min={min} max={max}",
+            );
+            assert!(
+                !d.iter().any(|&v| v > u32::MAX / 2),
+                "n={n}: padding must not produce wrapping deltas",
+            );
+        }
+        Ok(())
+    }
+
+    /// Padding remainder validity with `true` must not change logical nulls, including leading
+    /// and trailing nulls in the unaligned tail. After untranspose, pad bits are valid and are
+    /// sliced off by `logical_len`.
+    ///
+    /// The bit transpose is not the integer transpose, so which physical slots the pad bits land
+    /// on varies with the remainder length; cover several, plus an aligned length that pads
+    /// nothing at all.
+    #[rstest]
+    #[case::one_row_remainder(1025)]
+    #[case::mid_chunk_remainder(1500)]
+    #[case::two_chunks_plus_one(2049)]
+    #[case::one_row_short_of_aligned(3071)]
+    #[case::already_aligned(2048)]
+    fn remainder_validity_pad_does_not_clobber_logical_nulls(
+        #[case] len: usize,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Nulls at both ends, so a leading null and a null inside the padded tail are covered.
+        let array = PrimitiveArray::from_option_iter(
+            iter::once(None)
+                .chain((1..len as i32 - 1).map(Some))
+                .chain(iter::once(None)),
+        );
+        assert_eq!(array.len(), len);
+
+        let (bases, deltas) = delta_compress(&array, &mut ctx)?;
+        let padded_len = len.next_multiple_of(FL_CHUNK_SIZE);
+        assert_eq!(deltas.len(), padded_len);
+
+        let Validity::Array(storage) = deltas.validity()? else {
+            vortex_bail!("expected array-backed storage validity")
+        };
+        let sequential =
+            untranspose_bitbuffer(storage.execute::<BoolArray>(&mut ctx)?.into_bit_buffer());
+        assert_eq!(sequential.len(), padded_len);
+        for i in 0..len {
+            assert_eq!(
+                sequential.value(i),
+                array.is_valid(i, &mut ctx)?,
+                "logical validity changed at {i}"
+            );
+        }
+        for i in len..padded_len {
+            assert!(sequential.value(i), "pad bit {i} should be valid");
+        }
+
+        let delta = Delta::try_new(bases.into_array(), deltas.into_array(), 0, len)?;
+        assert_eq!(delta.len(), len);
+        assert!(!delta.is_valid(0, &mut ctx)?);
+        assert!(!delta.is_valid(len - 1, &mut ctx)?);
+        assert_arrays_eq!(delta, array, &mut ctx);
         Ok(())
     }
 

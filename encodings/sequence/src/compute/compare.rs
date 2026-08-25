@@ -7,9 +7,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
-use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::binary::CompareKernel;
@@ -17,10 +15,9 @@ use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 
 use crate::array::Sequence;
+use crate::eval;
 
 impl CompareKernel for Sequence {
     fn compare(
@@ -38,16 +35,16 @@ impl CompareKernel for Sequence {
             return Ok(None);
         };
 
-        // Check if there exists an integer solution to const = base + (0..len) * multiplier.
-        let set_idx = find_intersection_scalar(
-            lhs.base(),
-            lhs.multiplier(),
-            lhs.len(),
-            constant
-                .as_primitive()
-                .pvalue()
-                .vortex_expect("null constant handled in adaptor"),
-        );
+        let value = constant
+            .as_primitive()
+            .pvalue()
+            .vortex_expect("null constant handled in adaptor");
+
+        // Fall back for non-integer constants.
+        let Some(intersection) = find_intersection(lhs.base(), lhs.multiplier(), lhs.len(), value)
+        else {
+            return Ok(None);
+        };
 
         let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
         let validity = match nullability {
@@ -55,84 +52,73 @@ impl CompareKernel for Sequence {
             Nullability::Nullable => vortex_array::validity::Validity::AllValid,
         };
 
-        if let Ok(set_idx) = set_idx {
-            let mut buffer = BitBufferMut::new_unset(lhs.len());
-            buffer.set(set_idx);
-            let buffer = buffer.freeze();
-            Ok(Some(BoolArray::new(buffer, validity).into_array()))
-        } else {
-            Ok(Some(
-                ConstantArray::new(Scalar::bool(false, nullability), lhs.len()).into_array(),
-            ))
-        }
+        let array = match intersection {
+            Intersection::None => {
+                ConstantArray::new(Scalar::bool(false, nullability), lhs.len()).into_array()
+            }
+            Intersection::All => {
+                ConstantArray::new(Scalar::bool(true, nullability), lhs.len()).into_array()
+            }
+            Intersection::At(idx) => {
+                let mut buffer = BitBufferMut::new_unset(lhs.len());
+                buffer.set(idx);
+                BoolArray::new(buffer.freeze(), validity).into_array()
+            }
+        };
+
+        Ok(Some(array))
     }
 }
 
-/// Find the index where `base + idx * multiplier == intercept`, if one exists.
-///
-/// # Errors
-/// Return `VortexError` if:
-/// - `len` is 0
-/// - `intercept` or `multiplier` can't be cast to `base`'s PType
-/// - `intercept` is outside the range of the sequence
-/// - `intercept` doesn't fall exactly on a sequence value
-pub(crate) fn find_intersection_scalar(
+/// The intersection of a sequence with a value.
+pub(crate) enum Intersection {
+    None,
+    At(usize),
+    All,
+}
+
+/// Finds where a sequence equals `value`, or returns `None` for non-integer inputs.
+pub(crate) fn find_intersection(
     base: PValue,
     multiplier: PValue,
     len: usize,
-    intercept: PValue,
-) -> VortexResult<usize> {
-    match_each_integer_ptype!(base.ptype(), |P| {
-        let intercept = intercept.cast::<P>()?;
-        let base = base.cast::<P>()?;
-        let multiplier = multiplier.cast::<P>()?;
-        find_intersection(base, multiplier, len, intercept)
-    })
-}
-
-fn find_intersection<P: NativePType>(
-    base: P,
-    multiplier: P,
-    len: usize,
-    intercept: P,
-) -> VortexResult<usize> {
-    if len == 0 {
-        vortex_bail!("len == 0")
+    value: PValue,
+) -> Option<Intersection> {
+    if !value.ptype().is_int() || len == 0 {
+        return (len == 0).then_some(Intersection::None);
     }
+    let (ascending, magnitude) = eval::step_parts(multiplier)?;
 
-    let count = P::from_usize(len - 1).vortex_expect("idx must fit into type");
-    let end_element = base + (multiplier * count);
-
-    // Handle ascending vs descending sequences
-    let (min_val, max_val) = if multiplier.is_ge(P::zero()) {
-        (base, end_element)
+    // Use the base's signedness to preserve values above `i64::MAX`.
+    let (towards, offset) = if base.ptype().is_signed_int() {
+        let base = base.cast::<i64>().vortex_expect("base fits its ptype");
+        let Ok(value) = value.cast::<i64>() else {
+            return Some(Intersection::None);
+        };
+        (value >= base, base.abs_diff(value))
     } else {
-        (end_element, base)
+        let base = base.cast::<u64>().vortex_expect("base fits its ptype");
+        let Ok(value) = value.cast::<u64>() else {
+            return Some(Intersection::None);
+        };
+        (value >= base, base.abs_diff(value))
     };
 
-    // Check if intercept is in range
-    if !intercept.is_ge(min_val) || !intercept.is_le(max_val) {
-        vortex_bail!("{intercept} is outside of ({min_val}, {max_val}) range")
-    }
-
-    // Handle zero multiplier (constant sequence)
-    if multiplier == P::zero() {
-        if intercept == base {
-            return Ok(0);
+    if offset == 0 {
+        return Some(if magnitude == 0 {
+            Intersection::All
         } else {
-            vortex_bail!("{intercept} != {base} with zero multiplier")
-        }
+            Intersection::At(0)
+        });
+    }
+    if magnitude == 0 || towards != ascending || offset % magnitude != 0 {
+        return Some(Intersection::None);
     }
 
-    // Check if (intercept - base) is evenly divisible by multiplier
-    let diff = intercept - base;
-    if diff % multiplier != P::zero() {
-        vortex_bail!("{diff} % {multiplier} != 0")
-    }
-
-    let idx = diff / multiplier;
-    idx.to_usize()
-        .ok_or_else(|| vortex_err!("Cannot represent {idx} as usize"))
+    Some(match usize::try_from(offset / magnitude) {
+        Ok(idx) if idx < len => Intersection::At(idx),
+        _ => Intersection::None,
+    })
 }
 
 #[cfg(test)]
@@ -147,7 +133,10 @@ mod tests {
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::Nullability::Nullable;
+    use vortex_array::dtype::PType;
+    use vortex_array::scalar::PValue;
     use vortex_array::scalar_fn::fns::operators::Operator;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::Sequence;
@@ -192,5 +181,67 @@ mod tests {
             .unwrap();
         let expected = BoolArray::from_iter([false, false, false, false]);
         assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
+    }
+
+    #[test]
+    fn test_compare_descending_unsigned() -> VortexResult<()> {
+        let lhs = Sequence::try_new(
+            PValue::from(100i32),
+            PValue::from(-10i32),
+            PType::U8,
+            NonNullable,
+            5,
+        )?;
+        let rhs = ConstantArray::new(80u8, lhs.len());
+        let result = lhs.into_array().binary(rhs.into_array(), Operator::Eq)?;
+        let expected = BoolArray::from_iter([false, false, true, false, false]);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_compare_past_i64_max() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let step = (1u64 << 63) + 1;
+        let lhs = Sequence::try_new(
+            PValue::from(1u64 << 62),
+            PValue::from(step),
+            PType::U64,
+            NonNullable,
+            2,
+        )?;
+
+        let hit = lhs.clone().into_array().binary(
+            ConstantArray::new((1u64 << 62) + step, lhs.len()).into_array(),
+            Operator::Eq,
+        )?;
+        assert_arrays_eq!(hit, BoolArray::from_iter([false, true]), &mut ctx);
+
+        let miss = lhs
+            .into_array()
+            .binary(ConstantArray::new(u64::MAX, 2).into_array(), Operator::Eq)?;
+        assert_arrays_eq!(miss, BoolArray::from_iter([false, false]), &mut ctx);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_compare_constant_sequence() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let lhs = Sequence::try_new_typed(100i32, 0i32, NonNullable, 5)?;
+
+        let matches = lhs.clone().into_array().binary(
+            ConstantArray::new(100i32, lhs.len()).into_array(),
+            Operator::Eq,
+        )?;
+        assert_arrays_eq!(matches, BoolArray::from_iter([true; 5]), &mut ctx);
+
+        let misses = lhs
+            .into_array()
+            .binary(ConstantArray::new(7i32, 5).into_array(), Operator::Eq)?;
+        assert_arrays_eq!(misses, BoolArray::from_iter([false; 5]), &mut ctx);
+
+        Ok(())
     }
 }

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Add;
-
 use num_traits::CheckedAdd;
 use num_traits::CheckedSub;
 use vortex_array::ArrayRef;
@@ -11,10 +9,10 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::match_each_integer_ptype;
-use vortex_array::match_each_native_ptype;
 use vortex_array::scalar::PValue;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
@@ -24,14 +22,16 @@ use vortex_error::VortexResult;
 use crate::Sequence;
 use crate::SequenceArray;
 use crate::SequenceData;
-/// An iterator that yields `base, base + step, base + 2*step, ...` via repeated addition.
+use crate::eval::SequenceValue;
+
+/// Iterates a sequence using wrapping addition.
 struct SequenceIter<T> {
     acc: T,
     step: T,
     remaining: usize,
 }
 
-impl<T: Copy + Add<Output = T>> Iterator for SequenceIter<T> {
+impl<T: SequenceValue> Iterator for SequenceIter<T> {
     type Item = T;
 
     #[inline]
@@ -41,9 +41,7 @@ impl<T: Copy + Add<Output = T>> Iterator for SequenceIter<T> {
         }
         let val = self.acc;
         self.remaining -= 1;
-        if self.remaining > 0 {
-            self.acc = self.acc + self.step;
-        }
+        self.acc = self.acc.wrapping_add(&self.step);
         Some(val)
     }
 
@@ -54,14 +52,14 @@ impl<T: Copy + Add<Output = T>> Iterator for SequenceIter<T> {
 }
 
 // SAFETY: `size_hint` returns an exact count and `next` yields exactly that many items.
-unsafe impl<T: Copy + Add<Output = T>> TrustedLen for SequenceIter<T> {}
+unsafe impl<T: SequenceValue> TrustedLen for SequenceIter<T> {}
 
 /// Decompresses a [`SequenceArray`] into a [`PrimitiveArray`].
 #[inline]
 pub fn sequence_decompress(array: &SequenceArray) -> VortexResult<ArrayRef> {
-    fn decompress_inner<P: NativePType>(
-        base: P,
-        multiplier: P,
+    fn decompress_inner<O: SequenceValue>(
+        base: O,
+        multiplier: O,
         len: usize,
         nullability: Nullability,
     ) -> PrimitiveArray {
@@ -73,9 +71,8 @@ pub fn sequence_decompress(array: &SequenceArray) -> VortexResult<ArrayRef> {
         PrimitiveArray::new(values, Validity::from(nullability))
     }
 
-    let prim = match_each_native_ptype!(array.ptype(), |P| {
-        let base = array.base().cast::<P>()?;
-        let multiplier = array.multiplier().cast::<P>()?;
+    let prim = match_each_integer_ptype!(array.dtype().as_ptype(), |O| {
+        let (base, multiplier) = array.wrapping_parts::<O>()?;
         decompress_inner(base, multiplier, array.len(), array.dtype().nullability())
     });
     Ok(prim.into_array())
@@ -131,8 +128,15 @@ fn encode_primitive_array<P: NativePType + Into<PValue> + CheckedAdd + CheckedSu
         return Ok(None);
     }
 
-    if SequenceData::try_last(base.into(), multiplier.into(), P::PTYPE, slice.len()).is_err() {
-        // If the last value is out of range, we cannot encode
+    // Reject an out-of-range sequence before scanning the slice.
+    if SequenceData::validate(
+        base.into(),
+        multiplier.into(),
+        &DType::Primitive(P::PTYPE, nullability),
+        slice.len(),
+    )
+    .is_err()
+    {
         return Ok(None);
     }
 

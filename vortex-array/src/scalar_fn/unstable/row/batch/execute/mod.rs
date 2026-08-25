@@ -73,7 +73,7 @@ impl RowFnExecutionArgs {
             return self.execute_dense(kernel, ctx);
         }
 
-        match self.policy {
+        match self.plan.policy() {
             RowPolicy::Dense => self.execute_dense(kernel, ctx),
             RowPolicy::DenseWithRetry => {
                 self.execute_dense_with_retry(execute_dense_attempt, try_valid_rows, ctx)

@@ -10,6 +10,7 @@
 
 use vortex_error::VortexResult;
 
+use crate::dtype::DType;
 use crate::scalar_fn::unstable::row::ElementTuple;
 use crate::scalar_fn::unstable::row::FailureEvidence;
 use crate::scalar_fn::unstable::row::IndexedElementTuple;
@@ -23,13 +24,57 @@ use crate::scalar_fn::unstable::row::SinkResult;
 /// from constant arguments before visiting any rows. Every visit verifies that the argument tuple
 /// matches [`RowFn::ARG_NAMES`] and that fallible decoding agrees with [`RowFn::INFALLIBLE`].
 ///
+/// A visit selects the _storage dtype_, the dtype the chosen [`OutputElement`] or [`OutputSink`]
+/// physically builds. [`with_output_dtype`](Self::with_output_dtype) declares the _output dtype_,
+/// the dtype the function returns, which defaults to the storage dtype.
+///
 /// [`RowFn::ARG_NAMES`]: crate::scalar_fn::unstable::row::RowFn::ARG_NAMES
 /// [`RowFn::INFALLIBLE`]: crate::scalar_fn::unstable::row::RowFn::INFALLIBLE
-pub trait RowVisitor<Options>: private::Sealed + Sized {
+pub trait RowVisitor: private::Sealed + Sized {
     /// The framework result of visiting one concrete row signature.
     ///
     /// This is a batch plan or execution result, not a per-row output.
     type VisitResult;
+
+    /// Declare the dtype this dispatch labels onto the column it builds, replacing the storage
+    /// dtype as the function's output dtype.
+    ///
+    /// Use this for an output dtype derived from the function options or the argument dtypes. A
+    /// dtype that is a property of the Rust type belongs on [`OutputElement::element_dtype`] or
+    /// [`OutputSink::storage_dtype`] instead.
+    ///
+    /// Batch execution applies the label after deriving nullability and masking null rows, so an
+    /// empty or all-null batch carries the same metadata as a populated one.
+    ///
+    /// `dtype` **must** be non-nullable, and **must** apply by wrapping the finished column. That
+    /// restricts it to the storage dtype itself or to an extension dtype storing it, because an
+    /// extension array holds its storage column as a child whatever that column's encoding. The
+    /// visit validates both, and execution checks that this dispatch declares the dtype planning
+    /// selected.
+    ///
+    /// Labelling validates dtypes and not values. An extension type can constrain its storage
+    /// values through [`ExtVTable::validate_scalar_value`], so a dispatch that declares one
+    /// **must** produce values that satisfy it. This is the same trust the framework places in
+    /// [`OutputElement::element_dtype`].
+    ///
+    /// # Examples
+    ///
+    /// Truncate each timestamp to a granularity while preserving its unit and timezone. Deriving
+    /// the unit once feeds both the output dtype and the row kernel, so the two cannot disagree.
+    ///
+    /// ```ignore
+    /// let (ext_dtype, unit) = timestamp_dtype(&args[0])?;
+    /// let ticks = options.ticks_in(unit)?;
+    ///
+    /// visitor
+    ///     .with_output_dtype(DType::Extension(
+    ///         ext_dtype.with_nullability(Nullability::NonNullable),
+    ///     ))
+    ///     .visit::<(TimestampRow,), i64>(move |(value,)| value - value.rem_euclid(ticks))
+    /// ```
+    /// [`ExtVTable::validate_scalar_value`]: crate::dtype::extension::ExtVTable::validate_scalar_value
+    /// [`OutputElement::element_dtype`]: crate::scalar_fn::unstable::row::OutputElement::element_dtype
+    fn with_output_dtype(self, dtype: DType) -> Self;
 
     /// Visit an infallible row computation that returns one output value per row.
     ///
@@ -49,10 +94,10 @@ pub trait RowVisitor<Options>: private::Sealed + Sized {
     /// Dispatch an equality helper over its primitive element type.
     ///
     /// ```ignore
-    /// fn visit_equal<T, Options, V>(visitor: V) -> VortexResult<V::VisitResult>
+    /// fn visit_equal<T, V>(visitor: V) -> VortexResult<V::VisitResult>
     /// where
     ///     T: NativePType,
-    ///     V: RowVisitor<Options>,
+    ///     V: RowVisitor,
     /// {
     ///     visitor.visit::<(T, T), bool>(|(lhs, rhs)| lhs.is_eq(rhs))
     /// }
@@ -137,12 +182,12 @@ pub trait RowVisitor<Options>: private::Sealed + Sized {
     /// ```
     fn visit_into<Args, Sink, ApplyResult>(
         self,
-        apply: impl Fn(Args::Elems<'_>, <Sink as OutputSink<Options>>::Row<'_>) -> ApplyResult,
+        apply: impl Fn(Args::Elems<'_>, Sink::Row<'_>) -> ApplyResult,
     ) -> VortexResult<Self::VisitResult>
     where
         Args: ElementTuple,
-        Sink: OutputSink<Options>,
-        ApplyResult: SinkResult<WriteToken = <Sink as OutputSink<Options>>::WriteToken>,
+        Sink: OutputSink,
+        ApplyResult: SinkResult<WriteToken = Sink::WriteToken>,
     {
         self.visit_prepared_into::<Args, Sink, (), ApplyResult>(
             |_| (),
@@ -180,16 +225,12 @@ pub trait RowVisitor<Options>: private::Sealed + Sized {
     fn visit_prepared_into<Args, Sink, Prepared, ApplyResult>(
         self,
         prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
-        apply: impl Fn(
-            &Prepared,
-            Args::Elems<'_>,
-            <Sink as OutputSink<Options>>::Row<'_>,
-        ) -> ApplyResult,
+        apply: impl Fn(&Prepared, Args::Elems<'_>, Sink::Row<'_>) -> ApplyResult,
     ) -> VortexResult<Self::VisitResult>
     where
         Args: ElementTuple,
-        Sink: OutputSink<Options>,
-        ApplyResult: SinkResult<WriteToken = <Sink as OutputSink<Options>>::WriteToken>;
+        Sink: OutputSink,
+        ApplyResult: SinkResult<WriteToken = Sink::WriteToken>;
 
     /// Visit a row computation that returns an owned output value and deferred failure evidence.
     ///

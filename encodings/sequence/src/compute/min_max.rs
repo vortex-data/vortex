@@ -9,14 +9,13 @@ use vortex_array::aggregate_fn::fns::min_max::make_minmax_dtype;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::match_each_pvalue;
-use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use crate::Sequence;
-use crate::SequenceData;
+use crate::eval;
 
 /// Sequence-specific min/max kernel.
 ///
@@ -47,25 +46,20 @@ impl DynAggregateKernel for SequenceMinMaxKernel {
             return Ok(Some(Scalar::null(struct_dtype)));
         }
 
-        let base = seq.base();
-        let last = SequenceData::try_last(base, seq.multiplier(), seq.ptype(), seq.len())?;
+        let output_ptype = seq.dtype().as_ptype();
 
-        // Determine min and max based on multiplier direction.
-        // For unsigned types, multiplier is always >= 0.
-        let (min_pvalue, max_pvalue) = match_each_pvalue!(
-            seq.multiplier(),
-            uint: |_v| { (base, last) },
-            int: |v| {
-                if v >= 0 {
-                    (base, last)
-                } else {
-                    (last, base)
-                }
-            },
-            float: |_v| { unreachable!("float multiplier not supported for SequenceArray") }
-        );
+        // A sequence's extrema are its first and last values.
+        let last = seq.index_value(seq.len() - 1);
+        let (ascending, _) = eval::step_parts(seq.multiplier())
+            .ok_or_else(|| vortex_err!("step {} must be an integer", seq.multiplier()))?;
 
-        let non_nullable_dtype = DType::Primitive(seq.ptype(), Nullability::NonNullable);
+        let (min_pvalue, max_pvalue) = if ascending {
+            (seq.base(), last)
+        } else {
+            (last, seq.base())
+        };
+
+        let non_nullable_dtype = DType::Primitive(output_ptype, Nullability::NonNullable);
         let min_scalar = Scalar::try_new(
             non_nullable_dtype.clone(),
             Some(ScalarValue::Primitive(min_pvalue)),
@@ -77,5 +71,51 @@ impl DynAggregateKernel for SequenceMinMaxKernel {
             struct_dtype,
             vec![min_scalar, max_scalar],
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::LazyLock;
+
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::NumericalAggregateOpts;
+    use vortex_array::aggregate_fn::fns::min_max::MinMaxResult;
+    use vortex_array::aggregate_fn::fns::min_max::min_max;
+    use vortex_array::builtins::ArrayBuiltins;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::scalar::Scalar;
+    use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
+    use vortex_session::VortexSession;
+
+    use crate::Sequence;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
+
+    #[test]
+    fn min_max_uses_output_dtype() -> VortexResult<()> {
+        let array = Sequence::try_new_typed(100i32, -10i32, Nullability::NonNullable, 5)?
+            .into_array()
+            .cast(DType::Primitive(PType::U8, Nullability::NonNullable))?;
+
+        let MinMaxResult { min, max } = min_max(
+            &array,
+            &mut SESSION.create_execution_ctx(),
+            NumericalAggregateOpts::default(),
+        )?
+        .ok_or_else(|| vortex_err!("min_max of a non-empty sequence should not be null"))?;
+
+        assert_eq!(min, Scalar::from(60u8));
+        assert_eq!(max, Scalar::from(100u8));
+
+        Ok(())
     }
 }

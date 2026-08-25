@@ -3,22 +3,22 @@
 
 //! Execution arguments paired with the metadata selected during planning.
 //!
-//! [`BorrowedRowFnArgs`] can point at original or sliced arrays while retaining the dtypes,
-//! output dtype, and execution policy of the original batch plan.
+//! [`BorrowedRowFnArgs`] can point at original or sliced arrays while retaining the dtypes and
+//! [`BatchPlan`] of the original batch.
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
-use super::RowPolicy;
+use super::BatchPlan;
 use crate::ArrayRef;
 use crate::dtype::DType;
 use crate::scalar_fn::ExecutionArgs;
 
 /// A borrowed [`ExecutionArgs`] view with the metadata selected for its row function.
 ///
-/// `arrays` can be sliced, while `dtypes` and `output_dtype` always describe the original planned
-/// batch. Keeping them together prevents an execution path from pairing an input view with
-/// unrelated planning metadata.
+/// `arrays` can be sliced, while `dtypes` and `plan` always describe the original planned batch.
+/// Keeping them together prevents an execution path from pairing an input view with unrelated
+/// planning metadata.
 #[derive(Clone, Copy)]
 pub(crate) struct BorrowedRowFnArgs<'a> {
     /// The input arrays for this row-function invocation.
@@ -30,11 +30,8 @@ pub(crate) struct BorrowedRowFnArgs<'a> {
     /// The original input dtypes used to select the row implementation.
     dtypes: &'a [DType],
 
-    /// The non-nullable dtype built by the selected output capability.
-    output_dtype: &'a DType,
-
-    /// The nullable execution policy selected during planning.
-    policy: RowPolicy,
+    /// The plan an executing dispatch must reproduce.
+    plan: &'a BatchPlan,
 }
 
 impl<'a> BorrowedRowFnArgs<'a> {
@@ -43,15 +40,13 @@ impl<'a> BorrowedRowFnArgs<'a> {
         arrays: &'a [ArrayRef],
         row_count: usize,
         dtypes: &'a [DType],
-        output_dtype: &'a DType,
-        policy: RowPolicy,
+        plan: &'a BatchPlan,
     ) -> Self {
         Self {
             arrays,
             row_count,
             dtypes,
-            output_dtype,
-            policy,
+            plan,
         }
     }
 
@@ -60,14 +55,9 @@ impl<'a> BorrowedRowFnArgs<'a> {
         self.dtypes
     }
 
-    /// Return the non-nullable dtype built by the selected output capability.
-    pub(crate) fn output_dtype(&self) -> &'a DType {
-        self.output_dtype
-    }
-
-    /// Return the nullable execution policy selected during planning.
-    pub(crate) fn policy(&self) -> RowPolicy {
-        self.policy
+    /// Return the plan an executing dispatch must reproduce.
+    pub(crate) fn plan(&self) -> &'a BatchPlan {
+        self.plan
     }
 }
 

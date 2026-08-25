@@ -55,8 +55,7 @@ impl RowFnExecutionArgs {
             arg_dtypes,
             validity,
             result_dtype,
-            output_dtype: plan.output_dtype,
-            policy: plan.policy,
+            plan,
         })
     }
 
@@ -66,12 +65,6 @@ impl RowFnExecutionArgs {
         arrays: &'b [ArrayRef],
         row_count: usize,
     ) -> BorrowedRowFnArgs<'b> {
-        BorrowedRowFnArgs::new(
-            arrays,
-            row_count,
-            &self.arg_dtypes,
-            &self.output_dtype,
-            self.policy,
-        )
+        BorrowedRowFnArgs::new(arrays, row_count, &self.arg_dtypes, &self.plan)
     }
 }
