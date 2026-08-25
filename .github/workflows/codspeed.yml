@@ -233,6 +233,7 @@ jobs:
             --bench date_time_parts_cuda \
             --bench dict_cuda \
             --bench fsst_cuda \
+            --bench onpair_cuda \
             --bench runend_cuda \
             --profile bench
       - name: Package CUB shared library
@@ -256,7 +257,7 @@ jobs:
         include:
           - { shard: 1, name: "Bitpacked", benches: "bitpacked_cuda" }
           - { shard: 2, name: "Dynamic dispatch", benches: "dynamic_dispatch_cuda" }
-          - { shard: 3, name: "Standalone kernels", benches: "alp_cuda date_time_parts_cuda dict_cuda fsst_cuda runend_cuda" }
+          - { shard: 3, name: "Standalone kernels", benches: "alp_cuda date_time_parts_cuda dict_cuda fsst_cuda onpair_cuda runend_cuda" }
     name: "Benchmark with Codspeed (CUDA Shard #${{ matrix.shard }} - ${{ matrix.name }})"
     timeout-minutes: 30
     runs-on: >-

@@ -24,6 +24,9 @@ use vortex::dtype::Nullability;
 use vortex::error::VortexExpect;
 use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaSession;
+use vortex_cuda::VarBinExportLayout;
+use vortex_cuda::arrow::DeviceArrayExt;
+use vortex_cuda::arrow::release_device_array;
 use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
@@ -36,6 +39,14 @@ use crate::timed_launch_strategy::TimedLaunchStrategy;
 // URL-shaped string, much heavier per-element than the fixed-width primitives
 // other kernels benchmark.
 const BENCH_SIZES: &[(usize, &str)] = &[(10_000_000, "10M")];
+
+fn session_with_varbin_layout(layout: VarBinExportLayout) -> vortex::session::VortexSession {
+    vortex::array::array_session().with_some(
+        CudaSession::try_default()
+            .vortex_expect("failed to create CUDA session")
+            .with_varbin_export_layout(layout),
+    )
+}
 
 struct OnPairBenchFixture {
     array: ArrayRef,
@@ -87,6 +98,30 @@ fn benchmark_onpair_cuda_decompress(c: &mut Criterion) {
 
                     for _ in 0..iters {
                         block_on(onpair_array.clone().execute_cuda(&mut cuda_ctx)).unwrap();
+                    }
+                    Duration::from_nanos(timer.load(Ordering::Relaxed))
+                });
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("cuda/onpair/decompress_to_varbin", len_str),
+            &fixture.array,
+            |b, onpair_array| {
+                b.iter_custom(|iters| {
+                    let timed = TimedLaunchStrategy::default();
+                    let timer = timed.timer();
+                    let session = session_with_varbin_layout(VarBinExportLayout::VarBin);
+                    let mut cuda_ctx = CudaSession::create_execution_ctx(&session)
+                        .vortex_expect("failed to create execution context")
+                        .with_dispatch_mode(CudaDispatchMode::StandaloneOnly)
+                        .with_launch_strategy(Arc::new(timed));
+
+                    for _ in 0..iters {
+                        let mut exported =
+                            block_on(onpair_array.clone().export_device_array(&mut cuda_ctx))
+                                .vortex_expect("export OnPair device array");
+                        release_device_array(&mut exported);
                     }
                     Duration::from_nanos(timer.load(Ordering::Relaxed))
                 });
