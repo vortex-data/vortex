@@ -65,6 +65,19 @@ bool duckdb_reader_get_statistics(const void *file,
                                   size_t column_name_len,
                                   duckdb_column_statistics *stats_out);
 
+extern bool duckdb_table_function_has_pushed_filters(const void *bind);
+
+extern
+duckdb_vx_data duckdb_footer_open(const char *path,
+                                  size_t len,
+                                  uint64_t *row_count_out,
+                                  duckdb_vx_error *error);
+
+extern
+bool duckdb_footer_get_statistics(const void *footer,
+                                  size_t column_index,
+                                  duckdb_column_statistics *stats_out);
+
 extern bool duckdb_reader_initialize(const void *global, void *file, duckdb_vx_error *error);
 
 extern duckdb_logical_type duckdb_reader_bind_column_type(const void *bind, size_t index);

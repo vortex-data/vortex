@@ -3,9 +3,12 @@
 #pragma once
 
 #include "data.hpp"
+#include "table_function.h"
 #include "duckdb/common/multi_file/multi_file_function.hpp"
 
 using namespace duckdb;
+
+unique_ptr<BaseStatistics> to_duckdb_statistics(duckdb_column_statistics &statistics);
 
 struct VortexBindData final : TableFunctionData {
     VortexBindData() = default;
@@ -13,6 +16,7 @@ struct VortexBindData final : TableFunctionData {
     bool Equals(const FunctionData &other) const override;
 
     unique_ptr<CData> ffi_bind_data;
+    bool attempted_to_load_caches = false;
 };
 
 struct VortexBindResult {

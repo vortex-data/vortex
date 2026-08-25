@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "data.hpp"
 #include "duckdb.h"
 #include "duckdb/function/function.hpp"
 #include "duckdb/function/table_function.hpp"
@@ -30,3 +31,16 @@ struct TableFunctionUngroupedAggregateInput {
 };
 
 bool aggregate_pushdown(ClientContext &context, const TableFunctionUngroupedAggregateInput &input);
+
+// Vortex "row group" is a file
+struct VortexRowGroup final : PartitionRowGroup {
+    explicit VortexRowGroup(unique_ptr<CData> ffi_footer) : ffi_footer(std::move(ffi_footer)) {
+    }
+
+    unique_ptr<CData> ffi_footer;
+
+    unique_ptr<BaseStatistics> GetColumnStatistics(const StorageIndex &storage_index) override;
+    bool MinMaxIsExact(const BaseStatistics &, const StorageIndex &) override {
+        return true;
+    }
+};

@@ -4,6 +4,9 @@
 include ../setup.slt.no
 
 statement ok
+SET disabled_optimizers='statistics_propagation';
+
+statement ok
 COPY (
 WITH cte AS (SELECT generate_series AS i FROM generate_series(100000))
 SELECT (CASE WHEN i > 0 THEN i::INTEGER ELSE NULL END) AS i FROM cte

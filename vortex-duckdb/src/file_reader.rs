@@ -16,16 +16,20 @@ use vortex::dtype::DType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_panic;
+use vortex::file::Footer;
+use vortex::file::multi::MultiFileSession;
 use vortex::file::multi::open_cached;
 use vortex::file::multi::parse_uri_or_path;
 use vortex::file::v2::FileStatsLayoutReader;
 use vortex::io::compat::Compat;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::io::object_store::ObjectStoreFileSystem;
+use vortex::io::object_store::object_path_from_literal;
 use vortex::io::runtime::BlockingRuntime as _;
 use vortex::layout::LayoutReaderRef;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::mask::Mask;
+use vortex::session::SessionExt as _;
 
 use crate::RUNTIME;
 use crate::SESSION;
@@ -89,6 +93,14 @@ fn resolve_filesystem(url: &Url) -> VortexResult<(FileSystemRef, String)> {
         )),
         path.to_string(),
     ))
+}
+
+/// Same as resolve_filesystem, but doesn't create filesystem object
+fn resolve_path(url: &Url) -> VortexResult<String> {
+    if url.scheme() == "file" {
+        return Ok(url.path().to_string());
+    }
+    Ok(REGISTRY.resolve(url)?.1.to_string())
 }
 
 pub struct OpenFileReader {
@@ -267,6 +279,11 @@ pub fn reader_get_statistics(
         return None;
     }
 
+    let DType::Struct(fields, _) = &file.reader.dtype() else {
+        return None;
+    };
+    let index = fields.find(column)?;
+
     let reader = file
         .reader
         .as_any()
@@ -276,7 +293,6 @@ pub fn reader_get_statistics(
     let DType::Struct(fields, _) = &file.reader.dtype() else {
         return None;
     };
-    let index = fields.find(column)?;
     let dtype = fields.field_by_index(index)?;
 
     let stats = ColumnStatisticsAggregate::new(stats_sets.get(index)?);
@@ -293,4 +309,25 @@ pub fn reader_get_progress_in_file(file: &OpenFileReader) -> f64 {
     let left = file.splits.len();
     let denom = total + (total == 0) as usize;
     100.0 * (total - left) as f64 / denom as f64
+}
+
+pub fn footer_open(path: &str) -> VortexResult<Option<Footer>> {
+    let url = parse_uri_or_path(path)?;
+    let path = resolve_path(&url)?;
+    let key = object_path_from_literal(&path).to_string();
+    Ok(SESSION.get::<MultiFileSession>().get_footer(&key))
+}
+
+pub fn footer_get_statistics(footer: &Footer, index: usize) -> Option<ColumnStatistics> {
+    let DType::Struct(fields, _) = footer.dtype() else {
+        return None;
+    };
+    let stats = footer.statistics()?;
+    let dtype = fields.field_by_index(index)?;
+    let stats = stats.stats_sets().get(index)?;
+    let stats = ColumnStatisticsAggregate::new(stats);
+    match ColumnStatistics::try_from(&stats, dtype) {
+        Ok(stats) => Some(stats),
+        Err(e) => vortex_panic!(e),
+    }
 }

@@ -55,7 +55,7 @@ impl Debug for MultiFileSession {
 
 impl MultiFileSession {
     /// Retrieve a cached footer for the given file path.
-    pub(crate) fn get_footer(&self, path: &str) -> Option<Footer> {
+    pub fn get_footer(&self, path: &str) -> Option<Footer> {
         self.footer_cache.get(path)
     }
 

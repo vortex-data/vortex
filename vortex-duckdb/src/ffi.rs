@@ -9,6 +9,7 @@ use std::ptr;
 use num_traits::AsPrimitive;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
+use vortex::file::Footer;
 
 use crate::convert::can_push_expression;
 use crate::copy::CopyFunctionBind;
@@ -33,6 +34,8 @@ use crate::duckdb::TableInitInput;
 use crate::duckdb::try_or;
 use crate::duckdb::try_or_null;
 use crate::file_reader::OpenFileReader;
+use crate::file_reader::footer_get_statistics;
+use crate::file_reader::footer_open;
 use crate::file_reader::reader_bind;
 use crate::file_reader::reader_get_progress_in_file;
 use crate::file_reader::reader_get_statistics;
@@ -206,6 +209,53 @@ pub unsafe extern "C-unwind" fn duckdb_reader_get_statistics(
     let name = String::from_utf8_lossy(name_bytes);
 
     let Some(stats) = reader_get_statistics(file, bind, &name) else {
+        return false;
+    };
+    let stats_out = unsafe { &mut *stats_out };
+    stats_out.min = stats.min.map_or(ptr::null_mut(), |v| v.into_ptr());
+    stats_out.max = stats.max.map_or(ptr::null_mut(), |v| v.into_ptr());
+    stats_out.max_string_length = stats.max_string_length;
+    stats_out.has_null = stats.has_null;
+    stats_out.type_ = stats.logical_type.into_ptr();
+    true
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn duckdb_table_function_has_pushed_filters(
+    bind: *const c_void,
+) -> bool {
+    let bind = unsafe { bind.cast::<BindState>().as_ref() }.vortex_expect("null pointer");
+    !bind.filters.is_empty()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn duckdb_footer_open(
+    path: *const c_char,
+    len: usize,
+    row_count_out: *mut u64,
+    error: *mut cpp::duckdb_vx_error,
+) -> cpp::duckdb_vx_data {
+    let path = unsafe { std::slice::from_raw_parts(path.cast::<u8>(), len) };
+    try_or_null(error, || {
+        let path = str::from_utf8(path).map_err(|_| vortex_err!("invalid utf-8"))?;
+        Ok(match footer_open(path)? {
+            Some(footer) => {
+                unsafe { *row_count_out = footer.row_count() };
+                Data::from(Box::new(footer)).as_ptr()
+            }
+            None => ptr::null_mut(),
+        })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn duckdb_footer_get_statistics(
+    footer: *const c_void,
+    column_index: usize,
+    stats_out: *mut cpp::duckdb_column_statistics,
+) -> bool {
+    let footer = unsafe { footer.cast::<Footer>().as_ref() }.vortex_expect("null pointer");
+    let Some(stats) = footer_get_statistics(footer, column_index) else {
         return false;
     };
     let stats_out = unsafe { &mut *stats_out };
