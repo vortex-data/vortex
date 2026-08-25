@@ -9,12 +9,12 @@
 //! `vortex/editions/core/core2025.05.0.toml` — mirroring the declarations in
 //! `vortex-edition/src/declarations`, since families version independently.
 //!
-//! A record's mutability follows its edition. A draft is still being assembled, so its record
-//! changes with it. Freezing — recording a `min_vortex_version` — turns the record into a
-//! contract carrying a read-forever guarantee, and from then on it may never change again. CI
-//! enforces that against git history with `cargo run -p xtask -- check-editions`; this
-//! exporter enforces the two rules that history cannot see, refusing to delete a record or to
-//! unfreeze one.
+//! A draft record carries no compatibility guarantee. Its serialization may still be evolving,
+//! or a stable edition may be waiting for its release to be cut. A stable edition can freeze in
+//! that release; once the release version is known, `min_vortex_version` is backfilled to document
+//! the freeze. The record then carries a read-forever guarantee and may never change again. CI
+//! enforces that against git history with `cargo run -p xtask -- check-editions`; this exporter
+//! enforces the two rules that history cannot see, refusing to delete a record or to unfreeze one.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -38,9 +38,9 @@ const FROZEN_NOTE: &str = "\
 # editing or deleting a frozen one is rejected by CI.";
 
 const DRAFT_NOTE: &str = "\
-# This edition is a draft: it carries no guarantee and is still being assembled, so this
-# record changes with it. Recording a min_vortex_version freezes the edition, after which
-# this file may never change again.";
+# This edition record has no documented compatibility guarantee. Its serialization may still be
+# evolving, or it may be waiting for its release to be cut. After the release version is known,
+# min_vortex_version is backfilled to document the freeze. A frozen record never changes.";
 
 /// The file recording what a family is, beside that family's editions.
 pub const FAMILY_FILE: &str = "family.toml";
@@ -183,7 +183,7 @@ fn existing_records(dir: &Path) -> anyhow::Result<BTreeSet<String>> {
     Ok(records)
 }
 
-/// A record carries a `min_vortex_version` exactly when the edition it records is frozen.
+/// A record carries a `min_vortex_version` once its freeze has been documented.
 fn records_a_frozen_edition(contents: &str) -> bool {
     contents
         .lines()

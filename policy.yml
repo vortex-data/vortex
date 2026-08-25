@@ -8,6 +8,7 @@ policy:
         - a vortex committer has approved
         - an untouched renovate pull request has an allowed approval
     - claude or codex authored pull requests have two committer approvals
+    - core edition changes have an edition owner approval
   disapproval:
     options:
       methods:
@@ -86,3 +87,15 @@ approval_rules:
       count: 2
       teams:
         - "vortex-data/committers"
+
+  - name: core edition changes have an edition owner approval
+    description: "Changes to core edition declarations require an edition owner."
+    if:
+      changed_files:
+        paths:
+          - "^vortex-edition/src/declarations/core/.*$"
+    requires:
+      count: 1
+      users:
+        - "robert3005"
+        - "joseph-isaacs"

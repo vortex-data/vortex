@@ -69,9 +69,11 @@ zone-map pruning rather than causing the file to be rejected.
 
 ## Writing with an edition
 
-By default, the Vortex facade targets the newest frozen `core` edition. New components may first appear in a draft
-edition before joining a later frozen `core` edition. If serialization would use a component outside the selected
-editions, the write fails immediately.
+By default, the Vortex facade targets the newest frozen `core` edition. Components maintained as part of Vortex first
+belong to `preview` while their serialization is evolving. Components supplied by an optional plugin instead belong to
+that plugin's standalone edition family, such as `spatial` or `json`. Once a non-plugin component's serialization is
+stable, it moves into a new draft `core` edition. If serialization would use a component outside the selected editions,
+the write fails immediately.
 
 Edition configuration belongs to the writer's Vortex session. Registering an edition makes its declaration available to
 the session; enabling it allows the writer to use its components. Enabling another edition in the same family replaces
@@ -89,9 +91,14 @@ selected editions.
 
 ## How editions change
 
-A frozen edition never changes: neither its component list nor the meaning of its component IDs may be altered. New
-components are staged in a **draft** edition, whose contents may change. They become part of the compatibility guarantee
-only when that draft is frozen as the next edition in its family.
+A frozen edition never changes: neither its component list nor the meaning of its component IDs may be altered. A
+component maintained as part of Vortex is staged in `preview` until its serialization is stable, then moves into a new
+draft `core` edition. A component supplied by an optional plugin stays in that plugin's independently versioned family.
+
+A new stable `core` or plugin edition may freeze in the release in which it first ships. Until that release is cut, its
+version is not known and the declaration keeps `min_vortex_version: None`. After the release is cut, the declaration is
+updated with that newly released version, usually during development of the next release. This backfills the documented
+minimum reader version; it does not delay the freeze or its read-forever compatibility guarantee.
 
 A component may later be deprecated, meaning that writers stop using it. Readers must continue to support it, so
 deprecation does not invalidate existing files.
@@ -180,16 +187,17 @@ selected editions, the write fails.
 
 ## The `preview` family
 
-Alongside `core` there is a `preview` family, holding components that are still being
-evaluated. It is the exception to everything above: every `preview` edition is a permanent
-draft, so the family never freezes and carries no read-compatibility guarantee at all. A file
-written with these components is readable only by a build that knows them, and a future release
-may stop supporting one.
+Alongside `core` there is a `preview` family, holding non-plugin components whose serialization
+is still being evaluated. It is the exception to everything above: every `preview` edition is a
+permanent draft, so the family never freezes and carries no read-compatibility guarantee at all.
+A file written with these components is readable only by a build that knows them, and a future
+release may stop supporting one.
 
 Because of that, the writer only emits them when you opt in — the default session enables the
 newest `preview` edition solely when the `unstable_encodings` cargo feature is selected.
-Components graduate by being declared in a new `core` edition, which is where they pick up the
-read-forever guarantee.
+Once a component's serialization is stable, it graduates by moving into a new `core` edition.
+Components owned by optional plugins do not use `preview`; they live in standalone families such
+as `spatial` and `json`, because a reader without the plugin cannot resolve them.
 
 ## Declaring, freezing, and the edition records
 
@@ -203,20 +211,27 @@ cargo run -p xtask -- generate-editions
 
 Changing the declarations follows the edition's lifecycle:
 
-1. **Declare a draft.** Add a module declaring the new edition with `min_vortex_version: None`
-   and the members that join the family at it, then regenerate the records. A draft carries no
-   guarantee, so its declaration and record may change freely — or be dropped — while it is
-   assembled.
-2. **Freeze it.** Once a release ships readers for every member, record that release as the
-   edition's `min_vortex_version` and regenerate the records. Freezing is the act of
-   publishing the read-forever guarantee.
-3. **Never touch it again.** A frozen record is immutable: CI
+1. **Incubate the component.** Put a non-plugin component in `preview` while its serialization
+   can still change. Put a component supplied by an optional plugin in that plugin's standalone
+   family instead. These editions have `min_vortex_version: None` and carry no guarantee.
+2. **Cut a stable edition.** Once a non-plugin component's serialization is stable, move it into
+   a new `core` edition. A stable plugin component remains in its plugin family. Declare the new
+   edition with `min_vortex_version: None`, regenerate the records, and ship it in a release. The
+   edition freezes as part of that release. For a core edition, its date is the freeze date. Its
+   minimum Vortex version cannot be populated yet because the release version is not known until
+   the release is cut.
+3. **Backfill the released version.** After cutting the release, set `min_vortex_version` to that
+   newly released Vortex version — the version that first shipped readers for every member — and
+   regenerate the records. This update usually lands during development of the next release, but
+   it documents the freeze that already happened; it does not freeze the edition later.
+4. **Never touch it again.** A frozen record is immutable: CI
    (`cargo run -p xtask -- check-editions`) rejects any change that edits, renames, unfreezes,
    or deletes a frozen record, and rejects new editions that do not extend their family's
    chronology. To change what writers may emit, declare the next edition instead.
 
-The record files are the reviewable contract, so changes under `vortex/editions/` and
-`vortex-edition/src/declarations/` additionally require two approvals to merge.
+Changes under `vortex-edition/src/declarations/core/` require approval from `robert3005` or
+`joseph-isaacs`. Generated records under `vortex/editions/core/` use the repository's normal
+approval policy.
 
 ## Edition registry
 
@@ -261,7 +276,7 @@ Minimum Vortex release: `0.84.0`.
 
 Minimum Vortex release: `0.84.0`.
 
-- `array`: `vortex.map`
+- `array`: `vortex.onpair`
 
 ### Draft editions
 
@@ -269,12 +284,12 @@ Draft component lists may change and have no minimum reader or permanent compati
 
 #### `core2026.08.2`
 
-- `array`: `vortex.parquet.variant`, `vortex.variant`
-- `dtype`: `vortex.uuid`
+- `array`: `vortex.map`
 
 #### `core2026.08.3`
 
-- `array`: `vortex.onpair`
+- `array`: `vortex.parquet.variant`, `vortex.variant`
+- `dtype`: `vortex.uuid`
 
 #### `preview2025.05.0`
 

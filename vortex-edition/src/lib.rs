@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Definitions of Vortex *editions*: named, frozen sets of components that a writer may put
-//! in a file, carrying a forever read-compatibility guarantee.
+//! Definitions of Vortex *editions*: named sets of components that a writer may put in a
+//! file. Frozen editions carry a forever read-compatibility guarantee; draft editions do not.
 //!
 //! Editions live on the session, like encodings do: [`EditionSession`] holds the registered
 //! editions and [`EnabledEditions`] selects which of them a writer may emit. Declarations
@@ -16,15 +16,16 @@
 //! arrays, layouts, extension dtypes, and aggregates it writes from separate id sets, never one
 //! untyped set.
 //!
-//! An edition is a **draft** until its [`Edition::min_vortex_version`] is recorded —
-//! recording it is the act of freezing. The per-edition member sets are computed from the
-//! registered declarations by [`EditionSession::components_in`], and correctness is enforced
-//! by unit tests: [`EditionSession::validate`] checks a whole registry, and
-//! [`test_harness::validate_edition`] validates one edition's constraints — call it once in
+//! An edition is represented as a **draft** until its [`Edition::min_vortex_version`] is
+//! recorded. A stable edition may freeze in the release that cuts it; once that release version
+//! is known, the field is backfilled to document the freeze. The per-edition member sets are
+//! computed from the registered declarations by [`EditionSession::components_in`], and
+//! correctness is enforced by unit tests: [`EditionSession::validate`] checks a whole registry,
+//! and [`test_harness::validate_edition`] validates one edition's constraints — call it once in
 //! the `#[cfg(test)]` module of each edition definition.
 //!
-//! The first-party edition declarations live in the public `vortex` crate, which registers
-//! and enables them on the default session. See the published spec at
+//! The first-party edition declarations live in this crate. The public `vortex` crate
+//! re-exports them and registers and enables them on the default session. See the published spec at
 //! <https://docs.vortex.dev/specs/editions.html>.
 
 pub mod declarations;
@@ -49,17 +50,18 @@ use vortex_session::registry::Id;
 /// The identifier of an edition, e.g. `core2026.07.0`.
 ///
 /// The `family` names an independently versioned, additive group of components (`core` is the
-/// set the default writer emits). The date components record when the edition was frozen and
-/// order editions chronologically *within* a family; there is no ordering across families.
+/// set the default writer emits). For `core`, the date components record when the edition freezes;
+/// that date is prospective while the edition is still a draft. Dates order editions
+/// chronologically *within* a family; there is no ordering across families.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct EditionId {
     /// The edition family, e.g. `core`.
     pub family: &'static str,
-    /// Year the edition was cut.
+    /// Year in the edition date. For `core`, this is the freeze year.
     pub year: u16,
-    /// Month the edition was cut.
+    /// Month in the edition date. For `core`, this is the freeze month.
     pub month: u8,
-    /// Distinguishes editions cut in the same month; normally `0`.
+    /// Distinguishes editions with the same family, year, and month; normally `0`.
     pub version: u8,
 }
 
@@ -182,18 +184,19 @@ impl Display for ComponentKind {
     }
 }
 
-/// An edition: a named set of components with a read-compatibility guarantee, registered with
-/// [`EditionSession::declare_edition`]. The set itself is computed from the registered
-/// [`EditionInclusion`]s by [`EditionSession::components_in`].
+/// An edition: a named set of components that can acquire a read-compatibility guarantee,
+/// registered with [`EditionSession::declare_edition`]. The set itself is computed from the
+/// registered [`EditionInclusion`]s by [`EditionSession::components_in`].
 #[derive(Clone, Copy, Debug)]
 pub struct Edition {
-    /// The edition identifier. Also carries the freeze date: `core2026.07.0` freezes in
-    /// 2026-07.
+    /// The edition identifier. For a `core` edition, its date records when it freezes.
     pub id: EditionId,
     /// The minimum Vortex version whose reader supports every member of this edition.
     ///
-    /// Recording this is the act of freezing: an edition with `None` is a **draft** — being
-    /// assembled, carrying no guarantee, free to change, never the default write target.
+    /// A stable edition may freeze in the release that cuts it. Until that release is cut, its
+    /// version is not known and this remains `None`. The version is then backfilled to document
+    /// the already completed freeze and identify the first released reader supporting every
+    /// member. Preview editions remain drafts permanently.
     /// Validated against the members' [`EditionInclusion::required_vortex_release`] values:
     /// no member may require a version newer than the edition declares.
     pub min_vortex_version: Option<&'static str>,

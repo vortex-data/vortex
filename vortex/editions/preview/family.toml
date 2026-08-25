@@ -5,9 +5,11 @@
 name = "preview"
 
 doc = """
-Opt-in components that are still being evaluated. Every preview edition stays a draft, so
-the family never freezes and carries no compatibility guarantee: a file written with these
-components is readable only by a build that knows them, and a later release may stop
-supporting one. The writer emits them only when the `unstable_encodings` feature is
-selected. A component graduates by joining a core edition.
+Opt-in, non-plugin components whose serialization is still being evaluated. Every preview
+edition stays a draft, so the family never freezes and carries no compatibility guarantee: a
+file written with these components is readable only by a build that knows them, and a later
+release may stop supporting one. The writer emits them only when the `unstable_encodings`
+feature is selected. Once a component's serialization is stable, it moves into a core
+edition. Components supplied by optional plugins instead live in standalone families such as
+spatial and json.
 """

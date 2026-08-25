@@ -7,6 +7,7 @@ name = "core"
 doc = """
 The serialized components the default file writer emits. Every core edition freezes, and a
 frozen edition carries a read-forever guarantee: a file written with it stays readable by
-every later Vortex release. New components join by being declared in a new edition; an
-edition that has frozen never changes again.
+every later Vortex release. A non-plugin component joins core once its serialization is
+stable. Its edition may freeze in the release that cuts it; after that release version is
+known, the declaration is backfilled with it as the minimum. A frozen edition never changes.
 """

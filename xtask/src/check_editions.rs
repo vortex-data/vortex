@@ -3,11 +3,12 @@
 
 //! Check that frozen edition records under `vortex/editions` never change.
 //!
-//! A record's mutability follows its edition. A draft is still being assembled, so its record
-//! may change, be renamed, or be dropped. Freezing — recording a `min_vortex_version` — turns
-//! the record into a read-forever contract, and from then on it may never change again.
-//! Whether a record was frozen is read from the base revision, so a change cannot unfreeze an
-//! edition and edit it in the same diff.
+//! A draft record carries no compatibility guarantee and may change, be renamed, or be dropped.
+//! Its serialization may still be evolving, or a stable edition may be waiting for its release to
+//! be cut. A stable edition can freeze in that release; once the release version is known,
+//! `min_vortex_version` is backfilled to document the freeze. The record then carries a
+//! read-forever guarantee and may never change again. Whether a record was frozen is read from the
+//! base revision, so a change cannot unfreeze an edition and edit it in the same diff.
 //!
 //! A newly added record must also be newer than every edition already recorded for its
 //! family: editions are only ever added going forward. Records are grouped by family, so
@@ -35,7 +36,7 @@ use toml::Table;
 use crate::generate_editions::FAMILY_FILE;
 use crate::generate_editions::RECORD_DIR;
 
-/// A record carries this key exactly when the edition it records is frozen.
+/// A record carries this key once the edition's freeze has been documented.
 const FROZEN_MARKER: &str = "min_vortex_version";
 
 const REMEDY: &str = "\
