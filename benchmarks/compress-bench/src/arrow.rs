@@ -20,12 +20,12 @@ use vortex_bench::compress::Compressor;
 use vortex_bench::compress::read_projection;
 
 /// Uncompressed Arrow IPC file baseline.
-pub struct ArrowCompressor;
+pub struct ArrowIpcCompressor;
 
 #[async_trait]
-impl Compressor for ArrowCompressor {
+impl Compressor for ArrowIpcCompressor {
     fn format(&self) -> Format {
-        Format::Arrow
+        Format::ArrowIpc
     }
 
     async fn compress(&self, parquet_path: &Path) -> anyhow::Result<(u64, Duration)> {

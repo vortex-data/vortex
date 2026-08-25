@@ -36,7 +36,7 @@ from pathlib import Path
 # MUST equal `benchmarks-website/web/lib/schema-version.ts::SCHEMA_VERSION`.
 # Bumping this is a coordinated change across the website contract, v3.rs, and
 # this script.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def parse_args() -> argparse.Namespace:
@@ -187,7 +187,9 @@ _RECORD_FIELDS: dict[str, tuple[frozenset[str], frozenset[str]]] = {
         frozenset({"dataset_variant", "env_triple"}),
     ),
     "compression_size": (
-        frozenset({"commit_sha", "dataset", "format", "value_bytes"}),
+        frozenset(
+            {"commit_sha", "dataset", "format", "value_bytes", "uncompressed_bytes"}
+        ),
         frozenset({"dataset_variant"}),
     ),
     "random_access_time": (
@@ -388,6 +390,7 @@ _FIELD_TYPES: dict[str, tuple[tuple[str, str], ...]] = {
         ("dataset_variant", "opt_str"),
         ("format", "str"),
         ("value_bytes", "i64"),
+        ("uncompressed_bytes", "i64"),
     ),
     "random_access_time": (
         ("commit_sha", "str"),
@@ -581,11 +584,12 @@ def _insert_compression_size(conn, mid_mod, r: dict) -> bool:
         """
         INSERT INTO compression_sizes (
             measurement_id, commit_sha, dataset, dataset_variant,
-            format, value_bytes
-        ) VALUES (%s, %s, %s, %s, %s, %s)
+            format, value_bytes, uncompressed_bytes
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (measurement_id) DO UPDATE SET
-            commit_sha   = excluded.commit_sha,
-            value_bytes  = excluded.value_bytes
+            commit_sha          = excluded.commit_sha,
+            value_bytes         = excluded.value_bytes,
+            uncompressed_bytes  = excluded.uncompressed_bytes
         RETURNING (xmax = 0) AS inserted
         """,
         (
@@ -595,6 +599,7 @@ def _insert_compression_size(conn, mid_mod, r: dict) -> bool:
             r.get("dataset_variant"),
             r["format"],
             r["value_bytes"],
+            r["uncompressed_bytes"],
         ),
     )
 

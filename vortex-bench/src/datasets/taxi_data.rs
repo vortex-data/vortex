@@ -61,9 +61,9 @@ impl BenchDataset for TaxiData {
 
     async fn path(&self, format: Format) -> Result<PathBuf> {
         match format {
-            Format::Arrow => {
+            Format::ArrowIpc => {
                 let parquet_path = taxi_data_parquet().await?;
-                parquet_to_arrow_file(parquet_path, data_path(DATASET, Format::Arrow))
+                parquet_to_arrow_file(parquet_path, data_path(DATASET, Format::ArrowIpc))
             }
             Format::OnDiskVortex => taxi_data_vortex().await,
             Format::VortexCompact => taxi_data_vortex_compact().await,

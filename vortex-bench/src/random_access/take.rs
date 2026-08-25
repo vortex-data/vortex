@@ -40,14 +40,14 @@ use crate::random_access::RandomAccessor;
 use crate::random_access::RandomAccessorRet;
 
 /// Random accessor for uncompressed Arrow IPC files.
-pub struct ArrowRandomAccessor {
+pub struct ArrowIpcRandomAccessor {
     name: String,
     reader: Mutex<FileReader<StdFile>>,
     row_offsets: Vec<u64>,
     schema: arrow_schema::SchemaRef,
 }
 
-impl ArrowRandomAccessor {
+impl ArrowIpcRandomAccessor {
     pub fn open(path: PathBuf, name: impl Into<String>) -> anyhow::Result<Self> {
         let reader = FileReader::try_new(StdFile::open(path)?, None)?;
         let row_offsets = reader
@@ -80,9 +80,9 @@ impl ArrowRandomAccessor {
 }
 
 #[async_trait]
-impl RandomAccessor for ArrowRandomAccessor {
+impl RandomAccessor for ArrowIpcRandomAccessor {
     fn format(&self) -> Format {
-        Format::Arrow
+        Format::ArrowIpc
     }
 
     fn name(&self) -> &str {
@@ -292,7 +292,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn arrow_random_accessor_takes_rows_across_record_batches() -> anyhow::Result<()> {
+    async fn arrow_ipc_random_accessor_takes_rows_across_record_batches() -> anyhow::Result<()> {
         let file = tempfile::NamedTempFile::new()?;
         let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
         {
@@ -309,7 +309,7 @@ mod tests {
             writer.finish()?;
         }
 
-        let accessor = ArrowRandomAccessor::open(file.path().to_path_buf(), "arrow")?;
+        let accessor = ArrowIpcRandomAccessor::open(file.path().to_path_buf(), "arrow-ipc")?;
         let RandomAccessorRet::RecordBatch(actual) = accessor.take(&[1, 3, 4]).await? else {
             anyhow::bail!("Arrow accessor returned a Vortex array")
         };

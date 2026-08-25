@@ -83,7 +83,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--formats",
-        default="arrow,parquet,vortex",
+        default="arrow-ipc,parquet,vortex",
         help="comma-separated formats to forward to compress-bench",
     )
     parser.add_argument(

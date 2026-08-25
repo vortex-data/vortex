@@ -47,9 +47,9 @@ impl BenchDataset for FeatureVectorsData {
 
     async fn path(&self, format: Format) -> Result<PathBuf> {
         match format {
-            Format::Arrow => {
+            Format::ArrowIpc => {
                 let parquet_path = feature_vectors_parquet().await?;
-                parquet_to_arrow_file(parquet_path, data_path(DATASET, Format::Arrow))
+                parquet_to_arrow_file(parquet_path, data_path(DATASET, Format::ArrowIpc))
             }
             Format::OnDiskVortex => feature_vectors_vortex().await,
             Format::VortexCompact => feature_vectors_vortex_compact().await,

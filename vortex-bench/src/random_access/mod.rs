@@ -18,7 +18,7 @@ use crate::idempotent;
 pub mod take;
 
 // Re-export implementations
-pub use take::ArrowRandomAccessor;
+pub use take::ArrowIpcRandomAccessor;
 pub use take::ParquetRandomAccessor;
 pub use take::VortexRandomAccessor;
 
