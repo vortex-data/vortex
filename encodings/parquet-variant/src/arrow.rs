@@ -715,7 +715,6 @@ mod tests {
 
         let actual = session.arrow().from_arrow_array(exported, &field)?;
 
-        assert_arrays_eq!(actual, expected, &mut ctx);
-        Ok(())
+        assert_variant_scalars_eq(&actual, &expected, &session)
     }
 }

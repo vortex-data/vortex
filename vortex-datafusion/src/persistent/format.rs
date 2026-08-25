@@ -107,7 +107,7 @@ const DEFAULT_FOOTER_INITIAL_READ_SIZE_BYTES: usize = MAX_POSTSCRIPT_SIZE as usi
 /// let table_url = ListingTableUrl::parse(dir.path().to_str().unwrap())?;
 /// let config = ListingTableConfig::new(table_url)
 ///     .with_listing_options(
-///         ListingOptions::new(format).with_session_config_options(ctx.state().config()),
+///         ListingOptions::new(format),
 ///     )
 ///     .infer_schema(&ctx.state())
 ///     .await?;

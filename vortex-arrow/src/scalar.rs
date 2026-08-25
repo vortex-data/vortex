@@ -117,19 +117,41 @@ fn decimal_to_arrow(scalar: DecimalScalar<'_>) -> Result<Arc<dyn Datum>, VortexE
     };
     let precision = decimal_dtype.precision();
     let scale = decimal_dtype.scale();
-    // TODO(joe): Replace with decimal32, etc. once Arrow supports them.
     match scalar.decimal_value() {
         Some(value) => {
             let value = value.as_i256();
-            if precision <= 38 {
-                let value = value.maybe_i128().ok_or_else(|| {
+            match precision {
+                0..=9 => {
+                    let value = value
+                        .maybe_i128()
+                        .and_then(|value| i32::try_from(value).ok())
+                        .ok_or_else(|| {
+                            vortex_err!(
+                                "Decimal value {value} cannot fit in Arrow Decimal32 for precision {precision}"
+                            )
+                        })?;
+                    decimal32_scalar(value, precision, scale)
+                }
+                10..=18 => {
+                    let value = value
+                        .maybe_i128()
+                        .and_then(|value| i64::try_from(value).ok())
+                        .ok_or_else(|| {
+                            vortex_err!(
+                                "Decimal value {value} cannot fit in Arrow Decimal64 for precision {precision}"
+                            )
+                        })?;
+                    decimal64_scalar(value, precision, scale)
+                }
+                19..=38 => {
+                    let value = value.maybe_i128().ok_or_else(|| {
                     vortex_err!(
                         "Decimal value {value} cannot fit in Arrow Decimal128 for precision {precision}"
                     )
                 })?;
-                decimal128_scalar(value, precision, scale)
-            } else {
-                decimal256_scalar(value, precision, scale)
+                    decimal128_scalar(value, precision, scale)
+                }
+                39.. => decimal256_scalar(value, precision, scale),
             }
         }
         None => {
@@ -140,6 +162,20 @@ fn decimal_to_arrow(scalar: DecimalScalar<'_>) -> Result<Arc<dyn Datum>, VortexE
             ))))
         }
     }
+}
+
+fn decimal32_scalar(value: i32, precision: u8, scale: i8) -> Result<Arc<dyn Datum>, VortexError> {
+    let array = Decimal32Array::new_scalar(value)
+        .into_inner()
+        .with_precision_and_scale(precision, scale)?;
+    Ok(Arc::new(ArrowScalar::new(array)))
+}
+
+fn decimal64_scalar(value: i64, precision: u8, scale: i8) -> Result<Arc<dyn Datum>, VortexError> {
+    let array = Decimal64Array::new_scalar(value)
+        .into_inner()
+        .with_precision_and_scale(precision, scale)?;
+    Ok(Arc::new(ArrowScalar::new(array)))
 }
 
 fn decimal128_scalar(value: i128, precision: u8, scale: i8) -> Result<Arc<dyn Datum>, VortexError> {
@@ -308,7 +344,7 @@ mod tests {
     use std::sync::Arc;
 
     use arrow_array::Array;
-    use arrow_array::Decimal128Array;
+    use arrow_array::Decimal64Array;
     use arrow_array::Int32Array;
     use arrow_array::MapArray;
     use arrow_array::StringViewArray;
@@ -492,35 +528,35 @@ mod tests {
             decimal_dtype,
             Nullability::NonNullable,
         );
-        assert_arrow_scalar_data_type(&scalar_i8, DataType::Decimal128(5, 2))?;
+        assert_arrow_scalar_data_type(&scalar_i8, DataType::Decimal32(5, 2))?;
 
         let scalar_i16 = Scalar::decimal(
             DecimalValue::I16(10000),
             decimal_dtype,
             Nullability::NonNullable,
         );
-        assert_arrow_scalar_data_type(&scalar_i16, DataType::Decimal128(5, 2))?;
+        assert_arrow_scalar_data_type(&scalar_i16, DataType::Decimal32(5, 2))?;
 
         let scalar_i32 = Scalar::decimal(
             DecimalValue::I32(99999),
             decimal_dtype,
             Nullability::NonNullable,
         );
-        assert_arrow_scalar_data_type(&scalar_i32, DataType::Decimal128(5, 2))?;
+        assert_arrow_scalar_data_type(&scalar_i32, DataType::Decimal32(5, 2))?;
 
         let scalar_i64 = Scalar::decimal(
             DecimalValue::I64(99999),
             decimal_dtype,
             Nullability::NonNullable,
         );
-        assert_arrow_scalar_data_type(&scalar_i64, DataType::Decimal128(5, 2))?;
+        assert_arrow_scalar_data_type(&scalar_i64, DataType::Decimal32(5, 2))?;
 
         let scalar_i128 = Scalar::decimal(
             DecimalValue::I128(99999),
             decimal_dtype,
             Nullability::NonNullable,
         );
-        assert_arrow_scalar_data_type(&scalar_i128, DataType::Decimal128(5, 2))?;
+        assert_arrow_scalar_data_type(&scalar_i128, DataType::Decimal32(5, 2))?;
 
         let value_i256 = i256::from_i128(99999);
         let scalar_i256 = Scalar::decimal(
@@ -528,7 +564,7 @@ mod tests {
             decimal_dtype,
             Nullability::NonNullable,
         );
-        assert_arrow_scalar_data_type(&scalar_i256, DataType::Decimal128(5, 2))?;
+        assert_arrow_scalar_data_type(&scalar_i256, DataType::Decimal32(5, 2))?;
 
         Ok(())
     }
@@ -545,21 +581,21 @@ mod tests {
     }
 
     #[test]
-    fn decimal_i256_with_narrow_precision_exports_decimal128() -> VortexResult<()> {
+    fn decimal_i256_exports_decimal128() -> VortexResult<()> {
         let scalar = Scalar::decimal(
             DecimalValue::I256(i256::from_i128(1234)),
-            DecimalDType::new(4, 2),
+            DecimalDType::new(19, 2),
             Nullability::NonNullable,
         );
 
-        assert_arrow_scalar_data_type(&scalar, DataType::Decimal128(4, 2))
+        assert_arrow_scalar_data_type(&scalar, DataType::Decimal128(19, 2))
     }
 
     #[test]
     fn test_null_decimal_to_arrow() -> VortexResult<()> {
         let decimal_dtype = DecimalDType::new(10, 2);
         let scalar = Scalar::null(DType::Decimal(decimal_dtype, Nullability::Nullable));
-        assert_arrow_scalar_data_type(&scalar, DataType::Decimal128(10, 2))?;
+        assert_arrow_scalar_data_type(&scalar, DataType::Decimal64(10, 2))?;
 
         let decimal_dtype = DecimalDType::new(39, 2);
         let scalar = Scalar::null(DType::Decimal(decimal_dtype, Nullability::Nullable));
@@ -580,8 +616,8 @@ mod tests {
         assert!(is_scalar);
         let decimal = array
             .as_any()
-            .downcast_ref::<Decimal128Array>()
-            .expect("decimal scalar should convert to Decimal128");
+            .downcast_ref::<Decimal64Array>()
+            .expect("decimal scalar should convert to Decimal64");
         assert_eq!(decimal.precision(), 12);
         assert_eq!(decimal.scale(), 3);
 
@@ -667,7 +703,7 @@ mod tests {
             .as_any()
             .downcast_ref::<MapArray>()
             .expect("map scalar should convert to MapArray");
-        assert_eq!(map.values().data_type(), &DataType::Decimal128(9, 2));
+        assert_eq!(map.values().data_type(), &DataType::Decimal32(9, 2));
 
         let wide_decimal_dtype = DecimalDType::new(39, 2);
         let dtype = DType::map(

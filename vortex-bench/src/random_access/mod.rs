@@ -90,6 +90,7 @@ pub trait BenchDataset: Send + Sync {
 pub enum RandomAccessorRet {
     RecordBatch(RecordBatch),
     ArrayRef(ArrayRef),
+    Native(Box<dyn std::any::Any + Send>),
 }
 
 /// Trait for format-specific random access (take) operations.
