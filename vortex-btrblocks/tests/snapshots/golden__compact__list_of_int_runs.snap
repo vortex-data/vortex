@@ -3,15 +3,11 @@ source: vortex-btrblocks/tests/golden.rs
 expression: rendered
 ---
 input: list(i32), len=4066, nbytes=81804
-root: vortex.list(list(i32), len=4066) nbytes=4748
+root: vortex.list(list(i32), len=4066) nbytes=4434
   metadata: 
   elements: vortex.zigzag(i32, len=16384) nbytes=2969
     metadata: 
     encoded: vortex.pco(u32, len=16384) nbytes=2969
       metadata: ptype: u32, nrows: 16384, slice: 0..16384
-  offsets: fastlanes.delta(u16, len=4067) nbytes=1779
-    metadata: offset: 0
-    bases: vortex.pco(u16, len=256) nbytes=243
-      metadata: ptype: u16, nrows: 256, slice: 0..256
-    deltas: fastlanes.bitpacked(u16, len=4096) nbytes=1536
-      metadata: bit_width: 3, offset: 0
+  offsets: vortex.pco(u16, len=4067) nbytes=1465
+    metadata: ptype: u16, nrows: 4067, slice: 0..4067
