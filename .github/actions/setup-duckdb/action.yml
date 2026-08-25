@@ -1,0 +1,17 @@
+name: "Setup DuckDB"
+description: "Download the DuckDB CLI and put it on PATH"
+inputs:
+  duckdb_version:
+    description: "Version of the DuckDB CLI"
+    default: "1.5.5"
+runs:
+  using: "composite"
+  steps:
+    - name: Download DuckDB
+      shell: bash
+      run: |
+        wget -qO- \
+          "https://github.com/duckdb/duckdb/releases/download/v${{ inputs.duckdb_version }}/duckdb_cli-linux-amd64.zip" \
+          | funzip > duckdb
+        chmod +x duckdb
+        echo "$PWD" >> "$GITHUB_PATH"

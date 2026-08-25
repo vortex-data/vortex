@@ -130,17 +130,17 @@ fn scalar_functions_run_on_rect() -> VortexResult<()> {
     let points = point_column(vec![5.0, 20.0], vec![5.0, 20.0])?;
 
     // Distance: 0 to the interior point, >0 to the exterior point.
-    let distance = SpatialDistance::try_new_array(bbox.clone(), points.clone())?.into_array();
+    let distance = SpatialDistance::try_new(bbox.clone(), points.clone())?.into_array();
     let distance = distance.execute::<Canonical>(&mut ctx)?.into_primitive();
     let distances = distance.as_slice::<f64>();
     assert_eq!(distances[0], 0.0);
     assert!(distances[1] > 0.0);
 
     // Intersects / Contains: true for the interior point, false for the exterior one.
-    let intersects = SpatialIntersects::try_new_array(bbox.clone(), points.clone())?.into_array();
+    let intersects = SpatialIntersects::try_new(bbox.clone(), points.clone())?.into_array();
     assert_arrays_eq!(intersects, BoolArray::from_iter([true, false]), &mut ctx);
 
-    let contains = SpatialContains::try_new_array(bbox, points)?.into_array();
+    let contains = SpatialContains::try_new(bbox, points)?.into_array();
     assert_arrays_eq!(contains, BoolArray::from_iter([true, false]), &mut ctx);
     Ok(())
 }

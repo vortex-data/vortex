@@ -105,12 +105,9 @@ fn execute(distance: VortexResult<impl IntoArray>, ctx: &mut ExecutionCtx) -> Ar
 fn bench_distance(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef) {
     let rows = lhs.len();
     let mut ctx = SESSION.create_execution_ctx();
-    bencher.counter(ItemsCount::new(rows)).bench_local(|| {
-        execute(
-            SpatialDistance::try_new_array(lhs.clone(), rhs.clone()),
-            &mut ctx,
-        )
-    });
+    bencher
+        .counter(ItemsCount::new(rows))
+        .bench_local(|| execute(SpatialDistance::try_new(lhs.clone(), rhs.clone()), &mut ctx));
 }
 
 #[divan::bench]

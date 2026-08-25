@@ -41,11 +41,11 @@ fn main() {
 }
 
 /// Total `f64` elements per operand, held constant across widths: the row count is
-/// `ELEMENTS / width`. This budget is a quarter of the one the other tensor benches use, because
+/// `ELEMENTS / width`. This budget is well below the one the other tensor benches use, because
 /// the constant arms recompute the broadcast vector's norm per row and cost roughly ten times the
 /// column arms per element. It is what keeps every arm inside the 1 ms per-iteration limit from
 /// `docs/developer-guide/benchmarking.md`, measured against CodSpeed's CPU simulation.
-const ELEMENTS: usize = 2_048;
+const ELEMENTS: usize = 1_024;
 
 /// Widths chosen to separate the two costs, as in `l2_norm.rs`: the redundant norm pass is
 /// `O(rows * width)`, one third of the closure's arithmetic, so wide tensors show the hoist
@@ -85,7 +85,7 @@ fn bench_cosine(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef) {
     bencher
         .with_inputs(|| {
             (
-                CosineSimilarity::try_new_array(lhs.clone(), rhs.clone())
+                CosineSimilarity::try_new(lhs.clone(), rhs.clone())
                     .unwrap()
                     .into_array(),
                 session.create_execution_ctx(),

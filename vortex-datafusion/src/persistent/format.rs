@@ -320,6 +320,19 @@ impl VortexFormatFactory {
         }
     }
 
+    /// Creates a factory with an explicit session and session-driven table options.
+    ///
+    /// Formats created by this factory start from the DataFusion session's `vortex` options,
+    /// falling back to [`VortexTableOptions::default`]. Table-level `OPTIONS(...)` are still
+    /// applied last.
+    pub fn new_with_session(session: VortexSession) -> Self {
+        Self {
+            session,
+            options: None,
+            expression_convertor: None,
+        }
+    }
+
     /// Creates a factory with an explicit session and factory-level options.
     ///
     /// The supplied options become the complete starting value for every

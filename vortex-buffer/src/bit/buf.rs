@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::convert::Infallible;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Result as FmtResult;
@@ -462,21 +463,37 @@ impl BitBuffer {
     /// (whose per-`next` iterator state does not inline as well).
     #[inline]
     pub fn for_each_set_index<F: FnMut(usize)>(&self, mut f: F) {
+        let Ok(()) = self.try_for_each_set_index(|index| {
+            f(index);
+            Ok::<_, Infallible>(())
+        });
+    }
+
+    /// Fallible variant of [`for_each_set_index`](Self::for_each_set_index).
+    ///
+    /// Stops and returns the first error from `f`.
+    #[inline]
+    pub fn try_for_each_set_index<E, F>(&self, mut f: F) -> Result<(), E>
+    where
+        F: FnMut(usize) -> Result<(), E>,
+    {
         let mut base = 0usize;
         for word in self.chunks().iter_padded() {
             if word == u64::MAX {
                 for k in 0..64 {
-                    f(base + k);
+                    f(base + k)?;
                 }
             } else {
                 let mut w = word;
                 while w != 0 {
-                    f(base + w.trailing_zeros() as usize);
+                    f(base + w.trailing_zeros() as usize)?;
                     w &= w - 1;
                 }
             }
             base += 64;
         }
+
+        Ok(())
     }
 
     /// Created a new BitBuffer with offset reset to 0
@@ -970,12 +987,21 @@ mod tests {
     #[case(65)]
     #[case(200)]
     #[case(1000)]
-    fn test_for_each_set_index_matches_set_indices(#[case] len: usize) {
+    fn test_set_index_visitors_match_set_indices(#[case] len: usize) {
         let buf = BitBuffer::collect_bool(len, |i| i % 5 == 0 || i % 7 == 0);
         let expected: Vec<usize> = buf.set_indices().collect();
+
         let mut got = Vec::new();
         buf.for_each_set_index(|i| got.push(i));
         assert_eq!(got, expected);
+
+        let mut fallible_got = Vec::new();
+        let result = buf.try_for_each_set_index(|i| {
+            fallible_got.push(i);
+            Ok::<(), ()>(())
+        });
+        assert_eq!(result, Ok(()));
+        assert_eq!(fallible_got, expected);
     }
 
     #[rstest]
@@ -996,6 +1022,33 @@ mod tests {
         let mut got = Vec::new();
         buf.for_each_set_index(|i| got.push(i));
         assert_eq!(got, (0..130).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_try_for_each_set_index_stops_on_error() {
+        for (buffer, stop) in [
+            (BitBuffer::new_set(130), 65),
+            (BitBuffer::collect_bool(130, |i| i % 3 == 0), 66),
+        ] {
+            let mut visited = Vec::new();
+            let result = buffer.try_for_each_set_index(|index| {
+                visited.push(index);
+                if index == stop {
+                    return Err(index);
+                }
+
+                Ok(())
+            });
+
+            assert_eq!(result, Err(stop));
+            assert_eq!(
+                visited,
+                buffer
+                    .set_indices()
+                    .take_while(|&i| i <= stop)
+                    .collect::<Vec<_>>()
+            );
+        }
     }
 
     #[test]

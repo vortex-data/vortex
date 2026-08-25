@@ -46,3 +46,8 @@ SPDX-License-Identifier = "Apache-2.0"
 path = "vortex-cuda/src/arrow/reference/arrow_c_device.h"
 SPDX-FileCopyrightText = "2016-2025 Copyright The Apache Software Foundation"
 SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "vortex-duckdb/patches/**"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "CC-BY-4.0"

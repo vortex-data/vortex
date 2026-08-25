@@ -86,7 +86,6 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::VarBinArray;
-    use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -119,8 +118,7 @@ mod tests {
         let len = array.len();
         let arr = array.into_array();
         let pattern = ConstantArray::new(pattern, len).into_array();
-        let result = Like
-            .try_new_array(len, opts, [arr, pattern])?
+        let result = Like::try_new(arr, pattern, opts)?
             .into_array()
             .execute::<Canonical>(&mut SESSION.create_execution_ctx())?;
         Ok(result.into_bool())

@@ -541,8 +541,7 @@ fn can_be_pushed_down_impl(expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> boo
     } else if let Some(col) = expr.downcast_ref::<df_expr::Column>() {
         schema
             .field_with_name(col.name())
-            .ok()
-            .is_some_and(|field| supported_data_types(field.data_type()))
+            .is_ok_and(|field| supported_data_types(field.data_type()))
     } else if let Some(like) = expr.downcast_ref::<df_expr::LikeExpr>() {
         can_be_pushed_down_impl(like.expr(), schema)
             && can_be_pushed_down_impl(like.pattern(), schema)

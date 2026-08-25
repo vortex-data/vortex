@@ -8,6 +8,7 @@
 
 mod element_tuple;
 pub use element_tuple::ElementTuple;
+pub use element_tuple::batch_const;
 
 mod indexed;
 pub use indexed::IndexedElementTuple;

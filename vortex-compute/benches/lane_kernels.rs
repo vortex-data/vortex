@@ -12,6 +12,11 @@
 //! Each Vortex kernel bench has a sibling `arrow_*` baseline bench using the
 //! equivalent arrow-rs kernel over the same data shape, so the divan report
 //! lines up side-by-side.
+//!
+//! The checked-add pair carries `#[cpu_features]`, so both are measured on every
+//! walltime CPU-feature leg rather than in simulation: they are one lane loop
+//! compiled differently per leg, and comparing them against arrow-rs is only
+//! meaningful under the same build flags. The cast benches stay in simulation.
 
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::clone_on_ref_ptr)]
@@ -49,7 +54,7 @@ fn main() {
     divan::main();
 }
 
-const SIZES: &[usize] = &[65_536];
+const SIZES: &[usize] = &[16_384];
 
 // -----------------------------------------------------------------------------
 // Cast fixture (u64/u16/i32 lanes + a single validity mask).
@@ -324,6 +329,7 @@ fn add_fixture(n: usize) -> AddFixture {
     }
 }
 
+#[vortex_bench_support::cpu_features]
 #[divan::bench(args = SIZES)]
 fn lanezip_checked_add_u32(bencher: Bencher, n: usize) {
     let f = add_fixture(n);
@@ -346,6 +352,7 @@ fn lanezip_checked_add_u32(bencher: Bencher, n: usize) {
         });
 }
 
+#[vortex_bench_support::cpu_features]
 #[divan::bench(args = SIZES)]
 fn arrow_checked_add_u32(bencher: Bencher, n: usize) {
     let f = add_fixture(n);

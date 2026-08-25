@@ -1,26 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
-use vortex_mask::MaskValues;
+use vortex_mask::MaskValuesRef;
 
 use crate::ArrayRef;
 use crate::arrays::StructArray;
 use crate::arrays::filter::execute::filter_validity;
 use crate::arrays::struct_::StructArrayExt;
 
-pub fn filter_struct(array: &StructArray, mask: &Arc<MaskValues>) -> StructArray {
+pub fn filter_struct(array: &StructArray, mask: &MaskValuesRef) -> StructArray {
     let filtered_validity = filter_validity(
         array
             .validity()
-            .vortex_expect("struct validity should be derivable"),
+            .vortex_expect("validity is derivable for a valid StructArray"),
         mask,
     );
 
-    let mask_for_filter = Mask::Values(Arc::clone(mask));
+    let mask_for_filter = Mask::Values(MaskValuesRef::clone(mask));
     let fields: Vec<ArrayRef> = array
         .iter_unmasked_fields()
         .map(|field| {
@@ -45,7 +43,7 @@ pub fn filter_struct(array: &StructArray, mask: &Arc<MaskValues>) -> StructArray
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use vortex_mask::Mask;
 
     use crate::IntoArray;

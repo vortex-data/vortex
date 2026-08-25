@@ -293,7 +293,7 @@ pub(super) fn bit_buffer_from_words(words: BufferMut<u64>, len: usize) -> BitBuf
 pub(super) fn collect_zip_bits<T: Copy>(
     lhs: &[T],
     rhs: &[T],
-    mut f: impl FnMut(T, T) -> bool,
+    f: impl Fn(T, T) -> bool,
 ) -> BitBuffer {
     let len = lhs.len();
     let mut words = BufferMut::<u64>::zeroed(len.div_ceil(64));
@@ -302,7 +302,7 @@ pub(super) fn collect_zip_bits<T: Copy>(
 }
 
 /// Bit-pack the predicate `f(values[i])` over a slice into a [`BitBuffer`].
-pub(super) fn collect_bits<T: Copy>(values: &[T], f: impl FnMut(T) -> bool) -> BitBuffer {
+pub(super) fn collect_bits<T: Copy>(values: &[T], f: impl Fn(T) -> bool) -> BitBuffer {
     let len = values.len();
     let mut words = BufferMut::<u64>::zeroed(len.div_ceil(64));
     values.map_bits_into(words.as_mut_slice(), f);

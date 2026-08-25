@@ -11,13 +11,14 @@ use vortex_compute::lane_kernels::LaneZip;
 
 use super::ElementTuple;
 use crate::scalar_fn::unstable::row::InputElement;
+use crate::scalar_fn::unstable::row::ViewLen;
 
 /// An argument tuple that supports a validated dense indexed traversal.
 ///
 /// Every [`ElementTuple`] implements this trait. Its source delegates each lane read to the tuple's
 /// unchecked view access after batch execution validates every decoded column length once.
 pub trait IndexedElementTuple: ElementTuple {
-    /// The source shared execution uses for a dense all-per-row loop.
+    /// The source used when no input is batch-constant.
     ///
     /// Its length must be the common view length. For every valid index it must preserve row order,
     /// return the same value as [`ElementTuple::get_from_views`], and uphold the unchecked read
@@ -48,7 +49,7 @@ impl<'a, T: InputElement> IndexedSource for ElementSource<'a, T> {
     type Item = T::Elem<'a>;
 
     fn len(&self) -> usize {
-        T::view_len(&self.view)
+        self.view.len()
     }
 
     unsafe fn get_unchecked(&self, index: usize) -> Self::Item {

@@ -238,8 +238,8 @@ impl ScalarFnVTable for Merge {
         true
     }
 
-    fn is_fallible(&self, instance: &Self::Options) -> bool {
-        matches!(instance, DuplicateHandling::Error)
+    fn is_infallible(&self, instance: &Self::Options) -> bool {
+        !matches!(instance, DuplicateHandling::Error)
     }
 }
 

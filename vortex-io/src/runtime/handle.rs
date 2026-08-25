@@ -11,11 +11,13 @@ use std::task::Poll;
 use std::task::ready;
 
 use futures::FutureExt;
+use futures::channel::oneshot;
 use tracing::Instrument;
 use vortex_error::vortex_panic;
 
 use crate::runtime::AbortHandleRef;
 use crate::runtime::Executor;
+use crate::runtime::platform;
 
 /// A handle to an active Vortex runtime.
 ///
@@ -43,7 +45,9 @@ impl Handle {
     /// Returns a handle to the current runtime, if such a reasonable choice exists.
     ///
     /// For example, if called from within a Tokio context this will return a
-    /// `TokioRuntime` handle.
+    /// `TokioRuntime` handle. On browser WebAssembly with the `wasm-bindgen` feature this returns
+    /// the global `WasmRuntime` handle; without it there is no event loop to schedule onto, and
+    /// callers must drive a `SingleThreadRuntime` and install its handle themselves.
     pub fn find() -> Option<Self> {
         #[cfg(feature = "tokio")]
         {
@@ -55,7 +59,7 @@ impl Handle {
             }
         }
 
-        None
+        platform::default_handle()
     }
 
     /// Spawn a new future onto the runtime.
@@ -89,7 +93,7 @@ impl Handle {
             .boxed(),
         );
         Task {
-            recv: recv.into_future(),
+            recv,
             abort_handle: Some(abort_handle),
         }
     }
@@ -130,7 +134,7 @@ impl Handle {
             .boxed(),
         );
         Task {
-            recv: recv.into_future(),
+            recv,
             abort_handle: Some(abort_handle),
         }
     }
@@ -154,7 +158,7 @@ impl Handle {
         let abort_handle = self.runtime().spawn_cpu(Box::new(move || {
             let _guard = span.enter();
             // Optimistically avoid the work if the result won't be used.
-            if !send.is_closed() {
+            if !send.is_canceled() {
                 // Catch a panic so it re-raises on the joining side (see `Task::poll`).
                 let output = std::panic::catch_unwind(AssertUnwindSafe(f));
                 // Task::detach allows the receiver to be dropped, so we ignore send errors.
@@ -162,7 +166,7 @@ impl Handle {
             }
         }));
         Task {
-            recv: recv.into_future(),
+            recv,
             abort_handle: Some(abort_handle),
         }
     }
@@ -178,7 +182,7 @@ impl Handle {
         let abort_handle = self.runtime().spawn_blocking_io(Box::new(move || {
             let _guard = span.enter();
             // Optimistically avoid the work if the result won't be used.
-            if !send.is_closed() {
+            if !send.is_canceled() {
                 // Catch a panic so it re-raises on the joining side (see `Task::poll`).
                 let output = std::panic::catch_unwind(AssertUnwindSafe(f));
                 // Task::detach allows the receiver to be dropped, so we ignore send errors.
@@ -186,7 +190,7 @@ impl Handle {
             }
         }));
         Task {
-            recv: recv.into_future(),
+            recv,
             abort_handle: Some(abort_handle),
         }
     }
@@ -215,7 +219,7 @@ pub enum JoinOutcome<T> {
 /// continue running in the background, call [`Task::detach`].
 #[must_use = "When a Task is dropped without being awaited, it is cancelled"]
 pub struct Task<T> {
-    recv: oneshot::AsyncReceiver<TaskOutput<T>>,
+    recv: oneshot::Receiver<TaskOutput<T>>,
     abort_handle: Option<AbortHandleRef>,
 }
 
@@ -292,7 +296,7 @@ mod tests {
         drop(send);
 
         let mut task = Task::<()> {
-            recv: recv.into_future(),
+            recv,
             abort_handle: None,
         };
 
@@ -312,7 +316,7 @@ mod tests {
         drop(send.send(Ok(7)));
 
         let mut task = Task::<u32> {
-            recv: recv.into_future(),
+            recv,
             abort_handle: None,
         };
 

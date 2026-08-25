@@ -175,7 +175,7 @@ where
                 take_values_by_rank(values, ranks, filtered_len, |idx| idx)
             }
         }
-        AllOr::None => unreachable!("empty filters are handled by take preconditions"),
+        AllOr::None => unreachable!("empty filters are handled by the filter short circuit"),
         AllOr::Some(indices) => {
             if let Some(indices_validity) = indices_validity {
                 take_values_by_rank_nullable(

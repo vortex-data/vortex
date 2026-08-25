@@ -28,10 +28,32 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # `compare-benchmark-jsons.py` resolves its baseline by walking `git rev-list HEAD`,
+          # which reaches only the tip of a shallow clone.
+          fetch-depth: 0
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           enable-sccache: "true"
+      - name: Install DuckDB
+        # The Public BI datasets are converted from CSV to Parquet through the DuckDB CLI.
+        # Without it those datasets cannot build their fixture.
+        uses: ./.github/actions/setup-duckdb
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+        with:
+          # Only `.venv-cudf` below is used, so the repository-wide sync would build the
+          # `vortex-python` extension — and its Rust — for nothing.
+          sync: false
+      - name: Install cuDF
+        # The GPU Parquet number is a cuDF `read_parquet`. cuDF ships prebuilt manylinux wheels
+        # on NVIDIA's index, so it stays a runtime dependency and never enters the Rust build.
+        run: |
+          uv venv --python 3.12 .venv-cudf
+          uv pip install --python .venv-cudf \
+            --extra-index-url https://pypi.nvidia.com \
+            cudf-cu12 pandas pyarrow
+          echo "$PWD/.venv-cudf/bin" >> "$GITHUB_PATH"
       - uses: ./.github/actions/system-info
       - name: Display NVIDIA GPU details
         run: |
@@ -56,19 +78,18 @@ jobs:
           # (cuda.yaml), which also sets only FLAT_LAYOUT_INLINE_ARRAY_NODE.
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
         run: |
-          bash scripts/bench-taskset.sh target/release_debug/compress-bench \
-            --gpu-decompress -d table > gpu-compress.txt
-          cat gpu-compress.txt
+          python3 scripts/compress-split.py --gpu-decompress
       - name: Publish results
         shell: bash
         run: |
-          {
-            echo "# GPU Compression"
-            echo
-            echo '```text'
-            cat gpu-compress.txt
-            echo '```'
-          } > comment.md
+          set -Eeu -o pipefail -x
+
+          python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/data.json.gz \
+            data.json.gz --no-sign-request
+          gzip -d -c data.json.gz > base.json
+
+          uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json \
+            "GPU Compression" > comment.md
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
       - name: Comment PR
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false

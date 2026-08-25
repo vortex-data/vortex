@@ -201,10 +201,6 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         self.nulls.reserve_exact(additional);
     }
 
-    unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        self.nulls = LazyBitBufferBuilder::from_validity_mask(validity);
-    }
-
     fn finish(&mut self) -> ArrayRef {
         self.finish_into_primitive().into_array()
     }

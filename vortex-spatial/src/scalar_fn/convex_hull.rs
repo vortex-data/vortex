@@ -127,7 +127,7 @@ pub struct SpatialConvexHull;
 
 impl SpatialConvexHull {
     /// A lazy `ScalarFnArray` computing a polygon hull for each native `MultiPoint` row.
-    pub fn try_new_array(array: ArrayRef) -> VortexResult<ScalarFnArray> {
+    pub fn try_new(array: ArrayRef) -> VortexResult<ScalarFnArray> {
         ScalarFnArray::try_new(
             TypedScalarFnInstance::new(SpatialConvexHull, EmptyOptions).erased(),
             vec![array],
@@ -194,8 +194,8 @@ impl ScalarFnVTable for SpatialConvexHull {
         true
     }
 
-    fn is_fallible(&self, _: &Self::Options) -> bool {
-        false
+    fn is_infallible(&self, _: &Self::Options) -> bool {
+        true
     }
 }
 
@@ -240,7 +240,7 @@ mod tests {
             (0.0, 0.0),
             (2.0, 0.0),
         ]]])?;
-        let result = SpatialConvexHull::try_new_array(input)?.into_array();
+        let result = SpatialConvexHull::try_new(input)?.into_array();
         let mut ctx = vortex_array::array_session().create_execution_ctx();
 
         assert_arrays_eq!(result, expected, &mut ctx);
@@ -263,7 +263,7 @@ mod tests {
     ) -> VortexResult<()> {
         let input = multipoint_column(vec![points])?;
         let expected = polygon_column(vec![expected_rings])?;
-        let result = SpatialConvexHull::try_new_array(input)?.into_array();
+        let result = SpatialConvexHull::try_new(input)?.into_array();
         let mut ctx = vortex_array::array_session().create_execution_ctx();
 
         assert_arrays_eq!(result, expected, &mut ctx);
@@ -288,7 +288,7 @@ mod tests {
             Validity::from_iter([true, false]),
         )?
         .into_array();
-        let result = SpatialConvexHull::try_new_array(input)?.into_array();
+        let result = SpatialConvexHull::try_new(input)?.into_array();
         let mut ctx = vortex_array::array_session().create_execution_ctx();
 
         assert_arrays_eq!(result, expected, &mut ctx);
@@ -302,7 +302,7 @@ mod tests {
             .execute_scalar(0, &mut ctx)?;
         let input = ConstantArray::new(scalar, 3).into_array();
 
-        let result = SpatialConvexHull::try_new_array(input)?.into_array();
+        let result = SpatialConvexHull::try_new(input)?.into_array();
         let Columnar::Constant(constant) = result.clone().execute::<Columnar>(&mut ctx)? else {
             return Err(vortex_err!(
                 "convex_hull of a constant should remain constant"
@@ -328,9 +328,9 @@ mod tests {
         )?
         .into_array();
 
-        let collected = SpatialCollect::try_new_array(point_lists)?.into_array();
-        let hulls = SpatialConvexHull::try_new_array(collected)?.into_array();
-        let areas = SpatialArea::try_new_array(hulls)?.into_array();
+        let collected = SpatialCollect::try_new(point_lists)?.into_array();
+        let hulls = SpatialConvexHull::try_new(collected)?.into_array();
+        let areas = SpatialArea::try_new(hulls)?.into_array();
         let expected = PrimitiveArray::from_iter([4.0_f64, 0.0]).into_array();
         let mut ctx = vortex_array::array_session().create_execution_ctx();
 
@@ -354,7 +354,7 @@ mod tests {
     #[test]
     fn rejects_non_multipoint_input() -> VortexResult<()> {
         let input: ArrayRef = point_column(vec![0.0], vec![0.0])?;
-        assert!(SpatialConvexHull::try_new_array(input).is_err());
+        assert!(SpatialConvexHull::try_new(input).is_err());
         Ok(())
     }
 }

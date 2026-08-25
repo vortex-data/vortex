@@ -28,11 +28,11 @@ permissions:
   id-token: write  # enables AWS-GitHub OIDC
 
 jobs:
-  bench:
-    timeout-minutes: 120
+  build:
+    timeout-minutes: 60
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=bench-dedicated/family=c6id.metal/tag={1}{2}', github.run_id, inputs.benchmark_id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
+          && format('runs-on={0}/runner=bench-dedicated/family=c6id.8xlarge/tag=build-{1}{2}', github.run_id, inputs.benchmark_id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -47,15 +47,6 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           enable-sccache: ${{ github.event.pull_request.head.repo.fork == false && 'true' || 'false' }}
-
-      - name: Install DuckDB
-        run: |
-          wget -qO- https://github.com/duckdb/duckdb/releases/download/v1.5.5/duckdb_cli-linux-amd64.zip | funzip > duckdb
-          chmod +x duckdb
-          echo "$PWD" >> "$GITHUB_PATH"
-
-      - uses: ./.github/actions/system-info
-
       - name: Build binary
         shell: bash
         env:
@@ -63,7 +54,6 @@ jobs:
         run: |
           cargo build --package ${{ inputs.benchmark_id }} --profile release_debug \
             --features ${{ inputs.with_lance && 'lance,' || '' }}unstable_encodings
-
       - name: Pre-upload benchmark debuginfo to Polar Signals
         if: github.event.pull_request.head.repo.fork == false
         uses: ./.github/actions/upload-parca-debuginfo
@@ -73,6 +63,50 @@ jobs:
             target/release_debug/${{ inputs.benchmark_id }}
           polarsignals-cloud-token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
           project-id: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
+      - name: Upload benchmark binary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: ${{ inputs.benchmark_id }}-binary
+          path: target/release_debug/${{ inputs.benchmark_id }}
+
+  bench:
+    needs: build
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    timeout-minutes: 120
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=bench-dedicated/family=c6id.metal/tag={1}{2}', github.run_id, inputs.benchmark_id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
+          || 'ubuntu-latest' }}
+    steps:
+      # `extras=s3-cache` points ACTIONS_RESULTS_URL at the RunsOn artifact proxy, but only
+      # this action wires the runner up to it. Without it `download-artifact` talks to an
+      # uninitialised proxy and fails ListArtifacts with a non-JSON body. The build job
+      # above already does this, which is why the upload half worked.
+      - uses: runs-on/action@v2
+        if: github.event.pull_request.head.repo.fork == false
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # `compare-benchmark-jsons.py` resolves its baseline by walking `git rev-list HEAD`,
+          # which reaches only the tip of a shallow clone.
+          fetch-depth: 0
+
+      - name: Install DuckDB
+        uses: ./.github/actions/setup-duckdb
+
+      - uses: ./.github/actions/system-info
+
+      - name: Download benchmark binary
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
+        with:
+          name: ${{ inputs.benchmark_id }}-binary
+          path: target/release_debug/
+
+      - name: Make benchmark binary executable
+        shell: bash
+        run: chmod +x target/release_debug/${{ inputs.benchmark_id }}
 
       - name: Setup Polar Signals
         if: github.event.pull_request.head.repo.fork == false
@@ -101,15 +135,25 @@ jobs:
         run: |
           python3 scripts/random-access-split.py
 
-      - name: Run ${{ inputs.benchmark_name }} benchmark
-        if: inputs.benchmark_id != 'random-access-bench'
+      - name: Run ${{ inputs.benchmark_name }} benchmark (per-dataset)
+        if: inputs.benchmark_id == 'compress-bench'
         shell: bash
         env:
           RUST_BACKTRACE: full
           VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
         run: |
-          bash scripts/bench-taskset.sh target/release_debug/${{ inputs.benchmark_id }} -d gh-json -o results.json
+          python3 scripts/compress-split.py
+
+      - name: Run ${{ inputs.benchmark_name }} benchmark (per-column-encoder)
+        if: inputs.benchmark_id == 'string-bench'
+        shell: bash
+        env:
+          RUST_BACKTRACE: full
+          VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
+          FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+        run: |
+          python3 scripts/string-split.py
 
       - name: Setup AWS CLI
         if: github.event.pull_request.head.repo.fork == false

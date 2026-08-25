@@ -4,24 +4,27 @@
 use vortex::array::stats::StatsSet;
 use vortex::dtype::DType;
 use vortex::error::VortexExpect as _;
+use vortex::error::VortexResult;
 use vortex::expr::stats::Precision;
 use vortex::expr::stats::Stat;
 use vortex::scalar::Scalar;
 use vortex::scalar::ScalarValue;
 
 use crate::convert::ToDuckDBScalar as _;
+use crate::duckdb::LogicalType;
 use crate::duckdb::Value;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ColumnStatistics {
     pub min: Option<Value>,
     pub max: Option<Value>,
     pub max_string_length: u64,
     pub has_null: bool,
+    pub logical_type: LogicalType,
 }
 
 impl ColumnStatistics {
-    pub fn from(stats: &ColumnStatisticsAggregate, dtype: DType) -> Self {
+    pub fn try_from(stats: &ColumnStatisticsAggregate, dtype: DType) -> VortexResult<Self> {
         let min = stats.min.as_ref().and_then(|value| {
             Scalar::try_new(dtype.clone(), Some(value.clone()))
                 .and_then(|scalar| scalar.try_to_duckdb_scalar())
@@ -40,12 +43,15 @@ impl ColumnStatistics {
         // Useful estimate if we didn't get null count stats
         let has_null = stats.has_null && dtype.is_nullable();
 
-        Self {
+        let logical_type = LogicalType::try_from(dtype)?;
+
+        Ok(Self {
             min,
             max,
             max_string_length,
             has_null,
-        }
+            logical_type,
+        })
     }
 }
 

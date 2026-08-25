@@ -7,7 +7,6 @@
 //! null-handling policy that execution must reproduce.
 
 use std::marker::PhantomData;
-use std::ops::BitOrAssign;
 
 use vortex_error::VortexResult;
 
@@ -21,6 +20,7 @@ use super::row_visitor::private;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::scalar_fn::unstable::row::ElementTuple;
+use crate::scalar_fn::unstable::row::FailureEvidence;
 use crate::scalar_fn::unstable::row::IndexedElementTuple;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::scalar_fn::unstable::row::OutputSink;
@@ -98,7 +98,7 @@ impl<F: RowFn> RowVisitor<F::Options> for BatchPlanner<'_, F> {
     where
         Args: IndexedElementTuple,
         Out: OutputElement,
-        Fail: Copy + Default + BitOrAssign,
+        Fail: FailureEvidence,
     {
         const { assert_deferred_visit_contract::<F, Args, Out, Fail>() };
         Ok(BatchPlan {
@@ -114,15 +114,12 @@ pub(crate) struct BatchPlan {
     pub(crate) output_dtype: DType,
 
     /// How this concrete dispatch executes nullable rows.
-    // TODO(connor)[RowFn]: Remove this allowance when the execution backend from #9130 consumes
-    // this policy.
-    #[allow(dead_code)]
     pub(crate) policy: RowPolicy,
 }
 
 impl BatchPlan {
     /// Return the output dtype widened with strict input nullability.
-    pub(crate) fn result_dtype(self, args: &[DType]) -> DType {
+    pub(crate) fn result_dtype(&self, args: &[DType]) -> DType {
         let nullability = self.output_dtype.nullability()
             | Nullability::from(args.iter().any(DType::is_nullable));
 
@@ -136,17 +133,18 @@ pub(crate) enum RowPolicy {
     /// Evaluate all rows and mask the result.
     Dense,
 
-    /// Evaluate all rows, retrying only valid rows if a deferred error is raised.
+    /// Evaluate all rows, then retry a partially valid batch if reduced failure evidence reports an
+    /// error.
     DenseWithRetry,
 
-    /// Execute only valid rows, trying skip-invalid execution before filtering.
+    /// Execute only valid rows over the original inputs.
     ValidOnly,
 }
 
 impl RowPolicy {
     /// The policy for an infallible owned output.
     pub(crate) const fn for_owned_output<Args: ElementTuple>() -> Self {
-        if Args::DENSE_SAFE && !Args::DECODE_FALLIBLE {
+        if Args::DENSE_SAFE && Args::DECODE_INFALLIBLE {
             Self::Dense
         } else {
             Self::ValidOnly
@@ -155,7 +153,7 @@ impl RowPolicy {
 
     /// The policy for an owned output carrying batch-deferred failure evidence.
     pub(crate) const fn for_deferred_output<Args: ElementTuple>() -> Self {
-        if Args::DENSE_SAFE && !Args::DECODE_FALLIBLE {
+        if Args::DENSE_SAFE && Args::DECODE_INFALLIBLE {
             Self::DenseWithRetry
         } else {
             Self::ValidOnly
@@ -164,7 +162,7 @@ impl RowPolicy {
 
     /// The policy for a sink-writing output.
     pub(crate) const fn for_sink<Args: ElementTuple, ApplyResult: SinkResult>() -> Self {
-        if Args::DENSE_SAFE && !Args::DECODE_FALLIBLE && !ApplyResult::FALLIBLE {
+        if Args::DENSE_SAFE && Args::DECODE_INFALLIBLE && ApplyResult::INFALLIBLE {
             Self::Dense
         } else {
             Self::ValidOnly

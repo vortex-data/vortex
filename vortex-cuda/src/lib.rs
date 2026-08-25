@@ -48,6 +48,7 @@ use kernel::FSSTExecutor;
 use kernel::FilterExecutor;
 use kernel::FoRExecutor;
 pub use kernel::LaunchStrategy;
+use kernel::OnPairExecutor;
 use kernel::RunEndExecutor;
 use kernel::SharedExecutor;
 pub use kernel::TracingLaunchStrategy;
@@ -90,6 +91,7 @@ use vortex::encodings::zstd::ZstdBuffers;
 #[cfg(test)]
 use vortex_cuda_macros::test;
 pub use vortex_nvcomp as nvcomp;
+use vortex_onpair::OnPair;
 
 use crate::kernel::SequenceExecutor;
 use crate::kernel::SliceExecutor;
@@ -118,6 +120,7 @@ pub fn initialize_cuda(session: &CudaSession) {
     session.register_kernel(Shared.id(), &SharedExecutor);
     session.register_kernel(FoR.id(), &FoRExecutor);
     session.register_kernel(FSST.id(), &FSSTExecutor);
+    session.register_kernel(OnPair.id(), &OnPairExecutor);
     session.register_kernel(RunEnd.id(), &RunEndExecutor);
     session.register_kernel(Sequence.id(), &SequenceExecutor);
     session.register_kernel(ZigZag.id(), &ZigZagExecutor);

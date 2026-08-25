@@ -456,17 +456,6 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
         }
     }
 
-    fn replace_validity(&mut self, validity: Mask) {
-        self.validity = match validity {
-            Mask::AllTrue(len) => BitBufferMut::new_set(len),
-            Mask::AllFalse(len) => BitBufferMut::new_unset(len),
-            values @ Mask::Values(_) => values
-                .into_bit_buffer()
-                .try_into_mut()
-                .unwrap_or_else(|buffer| BitBufferMut::copy_from(&buffer)),
-        };
-    }
-
     /// Appends `count` end offsets derived from `end_offsets`, shifted past the current data end.
     ///
     /// `end_offsets` must be monotonically non-decreasing and end at exactly `num_bytes`. Offsets
@@ -628,10 +617,6 @@ impl<O: OffsetBuilderPType> ArrayBuilder for VarBinBuilder<O> {
     fn reserve_exact(&mut self, additional: usize) {
         self.offsets.reserve(additional);
         self.validity.reserve(additional);
-    }
-
-    unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        self.replace_validity(validity)
     }
 
     fn finish(&mut self) -> ArrayRef {
@@ -938,22 +923,19 @@ mod tests {
     #[case(true)]
     fn test_array_builder_methods(#[case] large_offsets: bool) -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
-        for validity in [
-            Mask::new_true(3),
-            Mask::new_false(3),
-            Mask::from_iter([true, false, true]),
-        ] {
-            let result = with_offsets(large_offsets, DType::Utf8(Nullable), |builder| {
-                builder.reserve_exact(3);
-                builder.append_zero();
-                builder.append_scalar(&Scalar::utf8("hello", Nullable))?;
-                builder.append_null();
-                assert_eq!(builder.len(), 3);
-                builder.set_validity(validity.clone());
-                Ok(())
-            })?;
-            assert_eq!(result.validity()?.execute_mask(3, &mut ctx)?, validity);
-        }
+        let result = with_offsets(large_offsets, DType::Utf8(Nullable), |builder| {
+            builder.reserve_exact(3);
+            builder.append_zero();
+            builder.append_scalar(&Scalar::utf8("hello", Nullable))?;
+            builder.append_null();
+            assert_eq!(builder.len(), 3);
+            Ok(())
+        })?;
+
+        assert_eq!(
+            result.validity()?.execute_mask(3, &mut ctx)?,
+            Mask::from_iter([true, true, false])
+        );
         Ok(())
     }
 

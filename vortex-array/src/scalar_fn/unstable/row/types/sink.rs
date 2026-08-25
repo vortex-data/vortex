@@ -14,42 +14,47 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::dtype::DType;
 use crate::scalar_fn::unstable::row::OutputElement;
+use crate::scalar_fn::unstable::row::ViewLen;
 
 /// A column allocated once per batch that a row closure writes into, one row at a time.
 ///
-/// A sink can use function options and input dtypes to build a runtime-shaped output or own shared
-/// batch state. The executor passes each row slot into an [`Fn`] closure.
+/// A sink can use function options to build a runtime-shaped output or own shared batch state. The
+/// executor passes each row slot into an [`Fn`] closure.
 ///
 /// Rows arrive in increasing index order. Ordinary execution visits `0..row_count` exactly once.
-/// Skip-invalid execution can omit invalid rows when [`skipped_rows_initializer`] returns an
-/// initializer.
+/// Execution can omit invalid rows when [`skipped_rows_initializer`] returns an initializer.
 ///
 /// # Errors
 ///
 /// Lifecycle methods report only incidental failures such as allocation. A semantic error that
 /// depends on input values **must** come from the row callback through a fallible [`SinkResult`],
-/// or [`RowFn::FALLIBLE`] cannot protect optimizations such as dictionary push-down.
+/// or [`RowFn::INFALLIBLE`] cannot protect optimizations such as dictionary push-down.
 ///
 /// # Safety
 ///
 /// An implementation must uphold all of these requirements:
 ///
-/// - Every index in `0..row_count(rows)` **must** identify one distinct row owned by this sink.
+/// - Every index below [`ViewLen::len`] for [`Rows`] **must** identify one distinct row owned by
+///   this sink.
+/// - A borrowed [`Rows`] view **must** retain its length and index-to-row mapping until it is
+///   dropped. Calls to [`row_unchecked`](Self::row_unchecked) and safe uses of a returned
+///   [`Row`](Self::Row) **must** preserve both properties.
+/// - [`skipped_rows_initializer`] is the only exception to this stability requirement. The executor
+///   checks the length again after the initializer. The initializer **must** initialize every row.
 /// - A row must either be initialized before the callback or require a
 ///   [`WriteToken`] that safe code cannot produce without initializing that exact row. Evidence for
 ///   an uninitialized row **must not** be safely forgeable, reusable, or substitutable.
-/// - An initializer returned by [`skipped_rows_initializer`] **must** initialize every row.
 /// - `Self` and every borrowed [`Rows`] view **must** remain safe to drop if decoding,
 ///   preparation, skipped-row initialization, or a row callback returns an error or unwinds. The
 ///   executor can abandon a sink after any prefix of rows.
 /// - [`finish`] **must** be sound once every visited callback returned its required token and the
 ///   skipped-row initializer, when present, ran successfully.
+/// - Violating these requirements can cause undefined behavior.
 ///
 /// [`Rows`]: Self::Rows
 /// [`WriteToken`]: Self::WriteToken
 /// [`finish`]: Self::finish
-/// [`row_count`]: Self::row_count
-/// [`RowFn::FALLIBLE`]: crate::scalar_fn::unstable::row::RowFn::FALLIBLE
+/// [`RowFn::INFALLIBLE`]: crate::scalar_fn::unstable::row::RowFn::INFALLIBLE
 /// [`SinkResult`]: crate::scalar_fn::unstable::row::SinkResult
 /// [`skipped_rows_initializer`]: Self::skipped_rows_initializer
 pub unsafe trait OutputSink<Options>: 'static + Sized {
@@ -57,7 +62,7 @@ pub unsafe trait OutputSink<Options>: 'static + Sized {
     ///
     /// Borrowed once before execution so the sink's buffer descriptor and shape become loop
     /// invariants rather than being re-read through `&mut Self` for every row.
-    type Rows<'a>
+    type Rows<'a>: ViewLen
     where
         Self: 'a;
 
@@ -73,21 +78,22 @@ pub unsafe trait OutputSink<Options>: 'static + Sized {
     /// **must not** be able to construct one without establishing the invariant.
     type WriteToken: 'static;
 
-    /// The operation that initializes every output position before skip-invalid execution.
+    /// The operation that initializes every output position before
+    /// [skip-invalid execution](crate::scalar_fn::unstable::row).
     ///
-    /// `Some` enables skip-invalid execution. The initializer **must** make every row safe to
-    /// finish. Callbacks overwrite valid rows, and batch execution masks skipped rows.
+    /// `Some` enables this strategy. The initializer **must** make every row safe to finish.
+    /// Callbacks overwrite valid rows, and batch execution masks skipped rows.
     ///
-    /// `None` makes the executor fall back to filtering the inputs.
+    /// `None` makes skip-invalid execution unavailable for this sink.
     fn skipped_rows_initializer() -> Option<for<'a> fn(&mut Self::Rows<'a>)> {
         None
     }
 
-    /// The dtype of the column this sink builds, given the function options and input dtypes.
+    /// The dtype of the column this sink builds, given the function options.
     ///
     /// **Must** be non-nullable: batch execution derives nullability from the inputs, widens the
     /// result, and masks the null rows.
-    fn output_dtype(options: &Options, args: &[DType]) -> VortexResult<DType>;
+    fn return_dtype(options: &Options) -> VortexResult<DType>;
 
     /// Allocate a sink for `rows` rows.
     fn with_capacity(rows: usize) -> VortexResult<Self>;
@@ -95,18 +101,15 @@ pub unsafe trait OutputSink<Options>: 'static + Sized {
     /// Borrow all output rows for the hot loop.
     fn rows(&mut self) -> Self::Rows<'_>;
 
-    /// The number of rows addressable through [`row_unchecked`](Self::row_unchecked).
-    fn row_count(rows: &Self::Rows<'_>) -> usize;
-
     /// Hand out the place to write row `index`. Must be `O(1)`: it is called in the row loop.
     ///
     /// # Safety
     ///
-    /// `index` must be less than [`row_count`](Self::row_count) for `rows`.
+    /// `index` must be less than [`ViewLen::len`] for `rows`.
     unsafe fn row_unchecked<'a>(rows: &'a mut Self::Rows<'_>, index: usize) -> Self::Row<'a>;
 
     /// Finish into the built column, whose dtype **must** be this sink's
-    /// [`output_dtype`](Self::output_dtype). Called once per batch.
+    /// [`return_dtype`](Self::return_dtype). Called once per batch.
     ///
     /// # Safety
     ///
@@ -153,7 +156,7 @@ impl InitializedElement {
 /// The row closure must return the [`InitializedElement`] from [`InitializedElement::write`] on
 /// success. The token is zero-sized, so the proof adds no runtime row state.
 ///
-/// Skip-invalid execution initializes placeholders before omitting rows. Errors and unwinds are
+/// When execution omits invalid rows, it initializes placeholders first. Errors and unwinds are
 /// safe because `values` keeps length zero until `finish`. The `T: Copy` bound means that
 /// initialized spare-capacity elements require no destruction.
 pub struct UninitElementSink<T> {
@@ -183,7 +186,7 @@ unsafe impl<T: OutputElement + Copy + Default, Options> OutputSink<Options>
         })
     }
 
-    fn output_dtype(_options: &Options, _args: &[DType]) -> VortexResult<DType> {
+    fn return_dtype(_options: &Options) -> VortexResult<DType> {
         Ok(T::element_dtype())
     }
 
@@ -196,10 +199,6 @@ unsafe impl<T: OutputElement + Copy + Default, Options> OutputSink<Options>
 
     fn rows(&mut self) -> Self::Rows<'_> {
         &mut self.values.spare_capacity_mut()[..self.row_count]
-    }
-
-    fn row_count(rows: &Self::Rows<'_>) -> usize {
-        rows.len()
     }
 
     unsafe fn row_unchecked<'a>(rows: &'a mut Self::Rows<'_>, index: usize) -> Self::Row<'a> {

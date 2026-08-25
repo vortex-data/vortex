@@ -5,8 +5,8 @@
 //!
 //! Spatial support is opt-in: a reader without this crate cannot resolve `vortex.st.*`, so
 //! spatial members live in their own family rather than in `core`. [`crate::initialize`]
-//! registers and enables the edition, because a session that registers the AABB zone stat and
-//! is then forbidden from writing it would compute pruning statistics it must throw away.
+//! registers and enables the edition so the writer can serialize spatial dtypes and the AABB
+//! zone stat registered by the crate.
 
 use vortex_edition::Edition;
 use vortex_edition::EditionDeclaration;
@@ -18,15 +18,24 @@ pub const SPATIAL_2026_08: EditionId = EditionId::new("spatial", 2026, 8, 0);
 
 /// The declaration of [`SPATIAL_2026_08`] and the components that join the family at it.
 ///
-/// A draft: no Vortex release yet guarantees these members forever. The AABB aggregate is
-/// recorded in the zone maps of geometry columns, so it must be a member for a session with
-/// spatial support to write those columns.
+/// A draft: no Vortex release yet guarantees these members forever. The dtype members appear in
+/// file schemas, and the AABB aggregate is recorded in the zone maps of geometry columns.
 pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: SPATIAL_2026_08,
         min_vortex_version: None,
     },
-    added: &[EditionMember::aggregate(&"vortex.st.aabb")],
+    added: &[
+        EditionMember::dtype(&"vortex.st.box"),
+        EditionMember::dtype(&"vortex.st.linestring"),
+        EditionMember::dtype(&"vortex.st.multilinestring"),
+        EditionMember::dtype(&"vortex.st.multipoint"),
+        EditionMember::dtype(&"vortex.st.multipolygon"),
+        EditionMember::dtype(&"vortex.st.point"),
+        EditionMember::dtype(&"vortex.st.polygon"),
+        EditionMember::dtype(&"vortex.st.wkb"),
+        EditionMember::aggregate(&"vortex.st.aabb"),
+    ],
 };
 
 #[cfg(test)]
@@ -54,5 +63,13 @@ mod tests {
             enabled.iter().any(|id| id.as_str() == "vortex.st.aabb"),
             "spatial session permits {enabled:?}"
         );
+    }
+
+    #[test]
+    fn initialize_permits_spatial_dtypes() {
+        let session = crate::test_harness::spatial_session();
+        let enabled = session.enabled_component_ids(ComponentKind::DType);
+        assert_eq!(enabled.len(), 8);
+        assert!(enabled.iter().any(|id| id.as_str() == "vortex.st.point"));
     }
 }

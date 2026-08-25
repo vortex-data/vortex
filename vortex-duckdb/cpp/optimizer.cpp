@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 #include "optimizer.hpp"
+#include "multi_file_reader.hpp"
 #include "table_function.hpp"
 
 #include "duckdb/planner/expression/bound_columnref_expression.hpp"
@@ -12,7 +13,7 @@ void FindGetsAndProjections(LogicalOperator &op, Analyses &analyses, Projections
     using enum LogicalOperatorType;
     switch (op.type) {
     case LOGICAL_GET: {
-        if (auto &get = op.Cast<LogicalGet>(); get.function.bind == duckdb_vx_table_function_bind) {
+        if (auto &get = op.Cast<LogicalGet>(); is_vortex_scan(get.function)) {
             analyses.emplace(get.table_index, GetAnalysis {get, {}});
         }
         break;
@@ -37,7 +38,7 @@ void FindGetsAndProjections(LogicalOperator &op, Analyses &analyses, Projections
             get = &child.Cast<LogicalGet>();
         }
 
-        if (get != nullptr && get->function.bind == duckdb_vx_table_function_bind) {
+        if (get != nullptr && is_vortex_scan(get->function)) {
             projections.emplace(projection.table_index, projection);
         }
         break;

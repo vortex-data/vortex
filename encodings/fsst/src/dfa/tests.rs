@@ -14,7 +14,6 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::VarBinArray;
-use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -279,10 +278,8 @@ fn make_fsst_str(strings: &[Option<&str>]) -> FSSTArray {
 }
 
 fn run_like(array: FSSTArray, pattern_arr: ArrayRef) -> VortexResult<BoolArray> {
-    let len = array.len();
     let arr: ArrayRef = array.into_array();
-    let result = Like
-        .try_new_array(len, LikeOptions::default(), [arr, pattern_arr])?
+    let result = Like::try_new(arr, pattern_arr, LikeOptions::default())?
         .into_array()
         .execute::<Canonical>(&mut SESSION.create_execution_ctx())?;
     Ok(result.into_bool())

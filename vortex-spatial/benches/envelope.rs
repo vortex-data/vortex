@@ -49,7 +49,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(spatial_session);
 
 /// Every case has the same row count so results are comparable across shapes: differences then
 /// reflect per-row cost (nesting depth, validity handling) rather than input size.
-const ROWS: usize = 1 << 9;
+const ROWS: usize = 1 << 8;
 
 /// Deterministic pseudo-random ordinate in `[0, 1000)`.
 fn ordinate(i: usize) -> f64 {
@@ -64,7 +64,7 @@ fn coin(i: usize) -> bool {
 
 /// Execute the envelope of `column` to completion.
 fn envelope(column: &ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
-    SpatialEnvelope::try_new_array(column.clone())
+    SpatialEnvelope::try_new(column.clone())
         .unwrap()
         .into_array()
         .execute::<Canonical>(ctx)

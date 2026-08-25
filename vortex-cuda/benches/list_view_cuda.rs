@@ -5,7 +5,6 @@
 
 #![expect(clippy::cast_possible_truncation)]
 
-#[allow(dead_code)]
 mod bench_config;
 mod timed_launch_strategy;
 

@@ -53,11 +53,11 @@ pub trait TakeExecute: VTable {
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
-/// Common preconditions for take operations that apply to all arrays.
+/// Short-circuits take for the inputs that need no encoding-specific work.
 ///
-/// Returns `Some(result)` if the precondition short-circuits the take operation,
-/// or `None` if the take should proceed normally.
-fn precondition<V: VTable>(array: ArrayView<'_, V>, indices: &ArrayRef) -> Option<ArrayRef> {
+/// Returns `Some(result)` when the answer is already known, or `None` when take must proceed
+/// normally.
+fn short_circuit<V: VTable>(array: ArrayView<'_, V>, indices: &ArrayRef) -> Option<ArrayRef> {
     // Fast-path for empty indices.
     if indices.is_empty() {
         let result_dtype = array
@@ -97,7 +97,7 @@ where
         if child_idx != 1 {
             return Ok(None);
         }
-        if let Some(result) = precondition::<V>(array, parent.codes()) {
+        if let Some(result) = short_circuit::<V>(array, parent.codes()) {
             return Ok(Some(result));
         }
         let result = <V as TakeReduce>::take(array, parent.codes())?;
@@ -128,7 +128,7 @@ where
         if child_idx != 1 {
             return Ok(None);
         }
-        if let Some(result) = precondition::<V>(array, parent.codes()) {
+        if let Some(result) = short_circuit::<V>(array, parent.codes()) {
             return Ok(Some(result));
         }
         let result = <V as TakeExecute>::take(array, parent.codes(), ctx)?;

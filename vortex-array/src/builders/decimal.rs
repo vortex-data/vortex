@@ -9,7 +9,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -217,10 +216,6 @@ impl ArrayBuilder for DecimalBuilder {
     fn reserve_exact(&mut self, additional: usize) {
         self.values.reserve(additional);
         self.nulls.reserve_exact(additional);
-    }
-
-    unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        self.nulls = LazyBitBufferBuilder::from_validity_mask(validity);
     }
 
     fn finish(&mut self) -> ArrayRef {

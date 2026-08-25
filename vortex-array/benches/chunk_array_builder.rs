@@ -34,8 +34,9 @@ fn main() {
 
 const BENCH_ARGS: &[(usize, usize)] = &[
     // length, chunk_count
-    (10, 1000),
-    (100, 100),
+    // Chunk counts sized to keep CodSpeed simulation under 1ms per benchmark.
+    (10, 100),
+    (100, 50),
     (1000, 10),
 ];
 

@@ -15,10 +15,14 @@ use std::ops::Range;
 use std::ptr;
 use std::sync::Arc;
 
+use arrow_array::Array;
 use arrow_array::RecordBatch;
+use arrow_array::array::make_array;
 use arrow_array::cast::AsArray;
 use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_array::ffi_stream::FFI_ArrowArrayStream;
+use arrow_data::ArrayData;
+use arrow_data::transform::MutableArrayData;
 use arrow_schema::ArrowError;
 use arrow_schema::Field;
 use futures::StreamExt;
@@ -371,7 +375,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_scanArrow(
                                 Some(target.as_ref()),
                                 &mut ctx,
                             )?;
-                            Ok(RecordBatch::from(arrow.as_struct().clone()))
+                            rebase_offsets(RecordBatch::from(arrow.as_struct().clone()))
                         })
                     })
                     .buffered(POOL.worker_count().max(1))
@@ -387,4 +391,38 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_scanArrow(
         }
         Ok(())
     });
+}
+
+/// Copy any column carrying a non-zero array offset into an offset-0 equivalent because
+/// arrow-java's C Data importer ignores `offset` (as of 19.0.0).
+fn rebase_offsets(batch: RecordBatch) -> VortexResult<RecordBatch> {
+    let mut rebased = false;
+    let columns = batch
+        .columns()
+        .iter()
+        .map(|column| {
+            let data = column.to_data();
+            if carries_offset(&data) {
+                rebased = true;
+                // `concat` of a single array will not do this: it short-circuits to
+                // `slice(0, len)`, which keeps the offset.
+                let len = data.len();
+                let mut copy = MutableArrayData::new(vec![&data], false, len);
+                copy.extend(0, 0, len);
+                make_array(copy.freeze())
+            } else {
+                Arc::clone(column)
+            }
+        })
+        .collect::<Vec<_>>();
+
+    if !rebased {
+        return Ok(batch);
+    }
+    Ok(RecordBatch::try_new(batch.schema(), columns)?)
+}
+
+/// Whether `data` or any of its descendants carries a non-zero offset.
+fn carries_offset(data: &ArrayData) -> bool {
+    data.offset() != 0 || data.child_data().iter().any(carries_offset)
 }

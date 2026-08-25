@@ -161,6 +161,21 @@ jobs:
           uv run --no-project --with pytest --with xxhash \
             pytest scripts/tests/test_measurement_id.py
 
+  benchmark-reporting:
+    name: "Benchmark reporting"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      # sync: false -- the tests run via `uv run --no-project` and need no workspace packages.
+      - uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+        with:
+          sync: false
+      - name: Pytest - benchmark reporting
+        run: |
+          uv run --no-project --with pytest --with pandas --with numpy --with orjson \
+            --with tabulate pytest scripts/tests/test_benchmark_reporting.py
+
   python-cuda-test:
     name: "Python CUDA (test)"
     if: github.repository == 'vortex-data/vortex'

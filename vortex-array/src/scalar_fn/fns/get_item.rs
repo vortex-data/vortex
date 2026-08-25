@@ -13,6 +13,7 @@ use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::arrays::ScalarFnArray;
 use crate::arrays::StructArray;
 use crate::arrays::struct_::StructArrayExt;
 use crate::builtins::ArrayBuiltins;
@@ -37,6 +38,20 @@ use crate::scalar_fn::fns::pack::Pack;
 
 #[derive(Clone)]
 pub struct GetItem;
+
+impl GetItem {
+    /// Creates a lazy projection of `field_name` from `input`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a struct or does not contain `field_name`.
+    pub fn try_new(
+        input: ArrayRef,
+        field_name: impl Into<FieldName>,
+    ) -> VortexResult<ScalarFnArray> {
+        ScalarFnArray::try_new(GetItem.bind(field_name.into()), vec![input])
+    }
+}
 
 impl ScalarFnVTable for GetItem {
     type Options = FieldName;
@@ -184,9 +199,9 @@ impl ScalarFnVTable for GetItem {
         true
     }
 
-    fn is_fallible(&self, _field_name: &FieldName) -> bool {
-        // If this type-checks its infallible.
-        false
+    fn is_infallible(&self, _field_name: &FieldName) -> bool {
+        // If this type-checks, it is infallible.
+        true
     }
 }
 

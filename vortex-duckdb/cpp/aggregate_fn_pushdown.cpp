@@ -87,22 +87,26 @@ LogicalOperatorPtr TryReplaceAggregate(ClientContext &context,
         return op;
     }
 
-    // GET now returns one column per aggregate. Expand existing columns
-    auto &column_ids = get->GetMutableColumnIds();
-    get->types.resize(aggregates_len);
-    get->returned_types.resize(aggregates_len);
-    column_ids.resize(aggregates_len);
-
     vector<string> names(aggregates_len); // need a copy because we reference original names
 
+    const vector<ColumnIndex> original_column_ids = get->GetColumnIds();
     for (idx_t i = 0; i < aggregates_len; i++) {
         const auto &[column_index, expr] = input[i];
         if (column_index == COUNT_STAR_PROJ_IDX) {
             names[i] = "count_star()";
         } else {
-            const TableColumnStorageIndex storage_index = get->GetColumnIds()[column_index].GetPrimaryIndex();
+            const TableColumnStorageIndex storage_index = original_column_ids[column_index].GetPrimaryIndex();
             names[i] = get->names[storage_index];
         }
+    }
+
+    // GET now returns one column per aggregate.
+    auto &column_ids = get->GetMutableColumnIds();
+    get->types.resize(aggregates_len);
+    get->returned_types.resize(aggregates_len);
+    column_ids.resize(aggregates_len);
+    for (idx_t i = 0; i < aggregates_len; i++) {
+        const auto &[_, expr] = input[i];
         get->types[i] = expr.return_type;
         get->returned_types[i] = expr.return_type;
         column_ids[i] = ColumnIndex {i};
@@ -136,5 +140,5 @@ LogicalGet *GetChildGet(const LogicalAggregate &agg) {
         return nullptr;
     }
     LogicalGet &get = op->Cast<LogicalGet>();
-    return get.function.bind == duckdb_vx_table_function_bind ? &get : nullptr;
+    return is_vortex_scan(get.function) ? &get : nullptr;
 }

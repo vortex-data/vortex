@@ -50,7 +50,7 @@ jobs:
       FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=bench-dedicated/family={1}/tag=build{2}', github.run_id, inputs.machine_type, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
+          && format('runs-on={0}/runner=bench-dedicated/family=c6id.8xlarge/tag=build{1}', github.run_id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -133,10 +133,7 @@ jobs:
           sync: false
 
       - name: Install DuckDB
-        run: |
-          wget -qO- https://github.com/duckdb/duckdb/releases/download/v1.5.5/duckdb_cli-linux-amd64.zip | funzip > duckdb
-          chmod +x duckdb
-          echo "$PWD" >> "$GITHUB_PATH"
+        uses: ./.github/actions/setup-duckdb
 
       - uses: ./.github/actions/system-info
 

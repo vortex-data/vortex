@@ -52,7 +52,7 @@ pub struct SpatialDistance;
 impl SpatialDistance {
     /// A lazy `ScalarFnArray` computing the per-row distance between operands `a` and `b`; either may
     /// be constant. The output length is taken from `a`.
-    pub fn try_new_array(a: ArrayRef, b: ArrayRef) -> VortexResult<ScalarFnArray> {
+    pub fn try_new(a: ArrayRef, b: ArrayRef) -> VortexResult<ScalarFnArray> {
         ScalarFnArray::try_new(
             TypedScalarFnInstance::new(SpatialDistance, EmptyOptions).erased(),
             vec![a, b],
@@ -118,8 +118,8 @@ impl ScalarFnVTable for SpatialDistance {
         true
     }
 
-    fn is_fallible(&self, _: &Self::Options) -> bool {
-        false
+    fn is_infallible(&self, _: &Self::Options) -> bool {
+        true
     }
 }
 
@@ -176,7 +176,7 @@ mod tests {
 
         let a = point_column(vec![0.0, 3.0, 0.0, 3.0], vec![0.0, 0.0, 4.0, 4.0])?;
         let b = point_constant(0.0, 0.0, 4, &mut ctx)?;
-        let distance = SpatialDistance::try_new_array(a, b)?.into_array();
+        let distance = SpatialDistance::try_new(a, b)?.into_array();
 
         assert_eq!(distances(distance, &mut ctx)?, vec![0.0, 3.0, 4.0, 5.0]);
         Ok(())
@@ -190,7 +190,7 @@ mod tests {
 
         let a = point_column(vec![0.0, 1.0], vec![0.0, 1.0])?;
         let b = point_column(vec![3.0, 1.0], vec![4.0, 1.0])?;
-        let distance = SpatialDistance::try_new_array(a, b)?.into_array();
+        let distance = SpatialDistance::try_new(a, b)?.into_array();
 
         assert_eq!(distances(distance, &mut ctx)?, vec![5.0, 0.0]);
         Ok(())
@@ -207,7 +207,7 @@ mod tests {
         let single = polygon_column(vec![vec![ring]])?.execute_scalar(0, &mut ctx)?;
         let square = ConstantArray::new(single, 2).into_array();
         let points = point_column(vec![7.0, 2.0], vec![2.0, 2.0])?;
-        let distance = SpatialDistance::try_new_array(points, square)?.into_array();
+        let distance = SpatialDistance::try_new(points, square)?.into_array();
 
         assert_eq!(distances(distance, &mut ctx)?, vec![3.0, 0.0]);
         Ok(())
@@ -221,7 +221,7 @@ mod tests {
 
         let a = point_constant(0.0, 0.0, 4, &mut ctx)?;
         let b = point_column(vec![0.0, 3.0, 0.0, 3.0], vec![0.0, 0.0, 4.0, 4.0])?;
-        let distance = SpatialDistance::try_new_array(a, b)?.into_array();
+        let distance = SpatialDistance::try_new(a, b)?.into_array();
 
         assert_eq!(distances(distance, &mut ctx)?, vec![0.0, 3.0, 4.0, 5.0]);
         Ok(())
@@ -235,7 +235,7 @@ mod tests {
 
         let a = point_constant(0.0, 0.0, 3, &mut ctx)?;
         let b = point_constant(3.0, 4.0, 3, &mut ctx)?;
-        let distance = SpatialDistance::try_new_array(a, b)?.into_array();
+        let distance = SpatialDistance::try_new(a, b)?.into_array();
 
         assert_eq!(distances(distance, &mut ctx)?, vec![5.0, 5.0, 5.0]);
         Ok(())
@@ -263,7 +263,7 @@ mod tests {
 
         let a = nullable_point_column(vec![Some((0.0, 0.0)), None, Some((3.0, 4.0))])?;
         let b = point_constant(0.0, 0.0, 3, &mut ctx)?;
-        let distance = SpatialDistance::try_new_array(a, b)?.into_array();
+        let distance = SpatialDistance::try_new(a, b)?.into_array();
 
         let expected = PrimitiveArray::new(
             vec![0.0f64, 0.0, 5.0],
@@ -282,7 +282,7 @@ mod tests {
 
         let a = nullable_point_column(vec![Some((0.0, 0.0)), None, Some((0.0, 0.0))])?;
         let b = nullable_point_column(vec![Some((3.0, 4.0)), Some((1.0, 1.0)), None])?;
-        let distance = SpatialDistance::try_new_array(a, b)?.into_array();
+        let distance = SpatialDistance::try_new(a, b)?.into_array();
 
         let expected = PrimitiveArray::new(
             vec![5.0f64, 0.0, 0.0],
@@ -302,7 +302,7 @@ mod tests {
         let point_dtype = point_column(vec![0.0], vec![0.0])?.dtype().as_nullable();
         let null_const = ConstantArray::new(Scalar::null(point_dtype), 3).into_array();
         let b = point_column(vec![0.0, 3.0, 0.0], vec![0.0, 0.0, 4.0])?;
-        let distance = SpatialDistance::try_new_array(null_const, b)?.into_array();
+        let distance = SpatialDistance::try_new(null_const, b)?.into_array();
 
         let expected = PrimitiveArray::new(vec![0.0f64; 3], Validity::AllInvalid).into_array();
         assert_arrays_eq!(distance, expected, &mut ctx);
@@ -317,7 +317,7 @@ mod tests {
 
         let a = nullable_point_column(vec![None, None])?;
         let b = point_constant(0.0, 0.0, 2, &mut ctx)?;
-        let distance = SpatialDistance::try_new_array(a, b)?.into_array();
+        let distance = SpatialDistance::try_new(a, b)?.into_array();
 
         let expected = PrimitiveArray::new(vec![0.0f64; 2], Validity::AllInvalid).into_array();
         assert_arrays_eq!(distance, expected, &mut ctx);
@@ -333,7 +333,7 @@ mod tests {
 
         let a = nullable_point_column(vec![Some((0.0, 0.0)), None])?;
         let b = nullable_point_column(vec![None, Some((1.0, 1.0))])?;
-        let distance = SpatialDistance::try_new_array(a, b)?.into_array();
+        let distance = SpatialDistance::try_new(a, b)?.into_array();
 
         let expected = PrimitiveArray::new(vec![0.0f64; 2], Validity::AllInvalid).into_array();
         assert_arrays_eq!(distance, expected, &mut ctx);
@@ -350,7 +350,7 @@ mod tests {
 
         let a = point_column(vec![], vec![])?;
         let b = point_column(vec![], vec![])?;
-        let result = SpatialDistance::try_new_array(a, b)?
+        let result = SpatialDistance::try_new(a, b)?
             .into_array()
             .execute::<Canonical>(&mut ctx)?
             .into_array();

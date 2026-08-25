@@ -201,7 +201,7 @@ fn i32_large(bencher: Bencher) {
 
 #[divan::bench]
 fn varbinview_large(bencher: Bencher) {
-    let lv = make_varbinview_lv(5, 1_024, 1_024);
+    let lv = make_varbinview_lv(4, 512, 512);
     bencher
         .with_inputs(|| (&lv, SESSION.create_execution_ctx()))
         .bench_refs(|(lv, ctx)| {

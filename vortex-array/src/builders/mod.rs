@@ -6,6 +6,12 @@
 //! Every logical type in Vortex has a canonical (uncompressed) in-memory encoding. This module
 //! provides pre-allocated builders to construct new canonical arrays.
 //!
+//! Canonical form is not recursive, and neither are these builders: appending an array to a nested
+//! builder keeps the child in the encoding it arrived in instead of decoding it. The fields of a
+//! [`StructArray`](crate::arrays::StructArray), the elements of a list, and the storage of an
+//! [`ExtensionArray`](crate::arrays::ExtensionArray) may therefore come back compressed, or as a
+//! [`ChunkedArray`](crate::arrays::ChunkedArray) when several arrays were appended in turn.
+//!
 //! ## Example:
 //!
 //! ```
@@ -34,7 +40,6 @@ use std::any::Any;
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -49,6 +54,7 @@ mod lazy_null_builder;
 pub(crate) use lazy_null_builder::LazyBitBufferBuilder;
 
 mod bool;
+mod child;
 mod decimal;
 pub mod dict;
 mod extension;
@@ -59,9 +65,11 @@ mod map;
 mod null;
 mod primitive;
 mod struct_;
+mod validity;
 mod varbinview;
 
 pub use bool::*;
+pub(crate) use child::ChildBuilder;
 pub use decimal::*;
 pub use extension::*;
 pub use fixed_size_list::*;
@@ -71,6 +79,7 @@ pub use map::*;
 pub use null::*;
 pub use primitive::*;
 pub use struct_::*;
+pub(crate) use validity::ValidityBuilder;
 pub use varbinview::*;
 
 pub use crate::arrays::varbin::builder::VarBinBuilder;
@@ -160,25 +169,10 @@ pub trait ArrayBuilder: Send {
     /// Allocate space for extra `additional` items
     fn reserve_exact(&mut self, additional: usize);
 
-    /// Override builders validity with the one provided.
-    ///
-    /// Note that this will have no effect on the final array if the array builder is non-nullable.
-    fn set_validity(&mut self, validity: Mask) {
-        if !self.dtype().is_nullable() {
-            return;
-        }
-        assert_eq!(self.len(), validity.len());
-        unsafe { self.set_validity_unchecked(validity) }
-    }
-
-    /// override validity with the one provided, without checking lengths
-    ///
-    /// # Safety
-    ///
-    /// Given validity must have an equal length to [`self.len()`](Self::len).
-    unsafe fn set_validity_unchecked(&mut self, validity: Mask);
-
     /// Constructs an Array from the builder components.
+    ///
+    /// The returned array is canonical at the top level only; its children keep whatever encoding
+    /// they were appended with.
     ///
     /// # Panics
     ///
@@ -225,6 +219,24 @@ macro_rules! match_each_list_builder {
                 [u32, u64, i32, i64]
             ),
         }
+    }};
+}
+
+/// Matches a `&mut dyn ArrayBuilder` against every concrete [`ListViewBuilder`]`<O, S>`
+/// instantiation over the [`OffsetBuilderPType`](crate::dtype::OffsetBuilderPType) offset/size
+/// types (`u32`, `u64`, `i32`, `i64`), and only those.
+///
+/// Binds the downcast builder as `$builder` and evaluates `$body` with it, yielding
+/// `Some($body)`; yields `None` when the builder is not a list-view builder - including when it
+/// is a [`ListBuilder`]. Callers reach for this instead of
+/// [`match_each_list_builder!`](crate::match_each_list_builder) when the body needs methods only
+/// a list-view builder has, such as
+/// [`append_array_as_repeated_list`](ListViewBuilder::append_array_as_repeated_list).
+#[macro_export]
+macro_rules! match_each_listview_builder {
+    ($dyn_builder:expr, | $builder:ident | $body:expr) => {{
+        let __dyn_builder: &mut dyn $crate::builders::ArrayBuilder = $dyn_builder;
+        $crate::__match_each_listview_builder!(__dyn_builder, $builder, $body, [u32, u64, i32, i64])
     }};
 }
 

@@ -10,12 +10,15 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::registry::CachedId;
 
+use crate::plan::Eval;
+use crate::plan::EvalPlan;
 use crate::plan::Plan;
 use crate::plan::PlanChildren;
 use crate::plan::PlanId;
 use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
+use crate::plan::optimizer::PlanParentReduceRule;
 
 /// Concatenates its children row-wise.
 #[derive(Clone, Debug)]
@@ -138,5 +141,30 @@ impl PlanVTable for Concat {
 
     fn child_name(_plan: &Plan<Self>, index: usize) -> Cow<'_, str> {
         Cow::Owned(format!("chunks[{index}]"))
+    }
+}
+
+/// Pushes an expression into every chunk of a [`Concat`].
+#[derive(Debug)]
+pub(crate) struct ExpressionConcatRule;
+
+impl PlanParentReduceRule<Concat> for ExpressionConcatRule {
+    type Parent = Eval;
+
+    fn reduce_parent(
+        &self,
+        child: &Plan<Concat>,
+        parent: &Plan<Eval>,
+        _child_idx: usize,
+    ) -> VortexResult<Option<PlanRef>> {
+        let expression = parent.expression();
+        let chunks = child
+            .children()
+            .iter()
+            .map(|chunk| Ok(EvalPlan::try_new(expression.clone(), chunk?)?.into_plan()))
+            .collect::<VortexResult<Vec<_>>>()?;
+        Ok(Some(
+            ConcatPlan::try_new(expression.dtype().clone(), chunks)?.into_plan(),
+        ))
     }
 }

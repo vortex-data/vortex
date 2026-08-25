@@ -19,12 +19,24 @@ use super::visitor::RowVisitor;
 use crate::dtype::DType;
 use crate::scalar_fn::ScalarFnId;
 
-/// A scalar function computed one row at a time.
+/// A strict scalar function whose row kernel cannot produce null from valid inputs.
+///
+/// This is stronger than
+/// [`ScalarFnVTable::is_strict`](crate::scalar_fn::ScalarFnVTable::is_strict), which requires null
+/// propagation but permits valid inputs to produce null. The framework derives output validity
+/// only from input validity.
+///
+/// A dispatched [`OutputElement`] or [`OutputSink`] describes the non-nullable values produced for
+/// valid rows. The framework widens that dtype when an input dtype is nullable, attaches the
+/// input-derived validity, and casts the finished array to the widened dtype. Implementations do
+/// not construct nullable placeholders for invalid rows.
 ///
 /// Declare argument names and use [`dispatch`](Self::dispatch) to select element and output types.
 /// Every implementation receives the standard [`ScalarFnVTable`]. A public type that needs custom
 /// vtable hooks can delegate its row kernel through [`row_fn_return_dtype`] and [`execute_rows`].
 ///
+/// [`OutputElement`]: crate::scalar_fn::unstable::row::OutputElement
+/// [`OutputSink`]: crate::scalar_fn::unstable::row::OutputSink
 /// [`ScalarFnVTable`]: crate::scalar_fn::ScalarFnVTable
 /// [`execute_rows`]: crate::scalar_fn::unstable::row::execute_rows
 /// [`row_fn_return_dtype`]: crate::scalar_fn::unstable::row::row_fn_return_dtype
@@ -35,13 +47,13 @@ pub trait RowFn: 'static + Sized + Clone + Send + Sync {
     /// The arguments in display order. Its length is the function's exact arity.
     const ARG_NAMES: &'static [&'static str];
 
-    /// Whether any dispatch can raise a semantic error.
+    /// Whether every dispatch is infallible.
     ///
-    /// See [`ScalarFnVTable::is_fallible`](crate::scalar_fn::ScalarFnVTable::is_fallible) for a
-    /// more detailed explanation of semantic errors.
+    /// See [`ScalarFnVTable::is_infallible`](crate::scalar_fn::ScalarFnVTable::is_infallible) for
+    /// a more detailed explanation of semantic errors.
     ///
-    /// The framework checks dispatched element and result types. A conservative `true` is allowed.
-    const FALLIBLE: bool;
+    /// The framework checks dispatched element and result types. A conservative `false` is allowed.
+    const INFALLIBLE: bool;
 
     /// Returns the ID of the scalar function.
     fn id(&self) -> ScalarFnId;

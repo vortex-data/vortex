@@ -348,6 +348,8 @@ mod tests {
     use vortex::VortexSessionDefault;
     use vortex::array::Canonical;
     use vortex::array::VortexSessionExecute;
+    use vortex::editions::CORE_2026_08_3;
+    use vortex::editions::EditionSessionExt;
     use vortex::io::runtime::BlockingRuntime;
     use vortex::io::runtime::current::CurrentThreadRuntime;
     use vortex::io::session::RuntimeSessionExt;
@@ -404,6 +406,7 @@ mod tests {
         let (column, expected_uncompressed_bytes) = crate::repeated_fixture();
         let runtime = CurrentThreadRuntime::new();
         let session = VortexSession::default().with_handle(runtime.handle());
+        session.enable_edition(CORE_2026_08_3)?;
 
         for (encoder, expected_label) in [
             (StringEncoder::OnPair, "onpair-12"),

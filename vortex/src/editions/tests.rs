@@ -44,12 +44,14 @@ use vortex_session::registry::Id;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use super::CORE_2025_05_0;
-use super::CORE_2026_07_0;
-use super::CORE_2026_08;
+use super::CORE_2026_08_0;
+use super::CORE_2026_08_1;
+use super::CORE_2026_08_2;
+use super::CORE_2026_08_3;
 use super::DEFAULT_CORE_EDITION;
-use super::DEFAULT_UNSTABLE_EDITION;
+use super::DEFAULT_PREVIEW_EDITION;
 use super::EDITION_DECLARATIONS;
-use super::UNSTABLE_2026_06_0;
+use super::PREVIEW_2026_06_0;
 
 fn session() -> Result<EditionSession, EditionError> {
     let session = EditionSession::empty();
@@ -72,9 +74,9 @@ fn every_declared_edition_validates() -> Result<(), EditionError> {
 /// way it may change is by declaring a *new* edition, so a failure here means a frozen
 /// declaration was edited.
 #[test]
-fn core_2026_07_encoding_set_is_pinned() {
+fn core_2026_08_1_encoding_set_is_pinned() {
     let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
-    let encodings = session.components_in(&CORE_2026_07_0, ComponentKind::Array);
+    let encodings = session.components_in(&CORE_2026_08_1, ComponentKind::Array);
     let ids: Vec<&str> = encodings
         .iter()
         .map(|inclusion| inclusion.component_id.as_str())
@@ -102,6 +104,7 @@ fn core_2026_07_encoding_set_is_pinned() {
             "vortex.listview",
             "vortex.masked",
             "vortex.null",
+            "vortex.onpair",
             "vortex.pco",
             "vortex.primitive",
             "vortex.runend",
@@ -110,7 +113,6 @@ fn core_2026_07_encoding_set_is_pinned() {
             "vortex.struct",
             "vortex.varbin",
             "vortex.varbinview",
-            "vortex.variant",
             "vortex.zigzag",
             "vortex.zstd",
         ]
@@ -118,17 +120,86 @@ fn core_2026_07_encoding_set_is_pinned() {
 }
 
 #[test]
+fn core_2026_08_1_dtype_set_is_pinned() {
+    let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
+    let dtypes = session.components_in(&CORE_2026_08_1, ComponentKind::DType);
+    let ids: Vec<&str> = dtypes
+        .iter()
+        .map(|inclusion| inclusion.component_id.as_str())
+        .collect();
+    assert_eq!(ids, ["vortex.date", "vortex.time", "vortex.timestamp"]);
+}
+
+#[test]
+fn core_2026_08_2_is_draft() {
+    let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
+    assert!(
+        session
+            .find(&CORE_2026_08_2)
+            .unwrap_or_else(|| panic!("{CORE_2026_08_2} is not registered"))
+            .is_draft()
+    );
+    assert!(
+        session
+            .components_in(&CORE_2026_08_2, ComponentKind::Array)
+            .iter()
+            .any(|inclusion| inclusion.component_id.as_str() == "vortex.map")
+    );
+    assert!(
+        session
+            .components_in(&CORE_2026_08_1, ComponentKind::Array)
+            .iter()
+            .all(|inclusion| inclusion.component_id.as_str() != "vortex.map")
+    );
+}
+
+#[test]
+fn core_2026_08_3_adds_variants() {
+    let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
+    assert!(
+        session
+            .find(&CORE_2026_08_3)
+            .unwrap_or_else(|| panic!("{CORE_2026_08_3} is not registered"))
+            .is_draft()
+    );
+    assert!(
+        session
+            .components_in(&CORE_2026_08_3, ComponentKind::Array)
+            .iter()
+            .any(|inclusion| inclusion.component_id.as_str() == "vortex.variant")
+    );
+    assert!(
+        session
+            .components_in(&CORE_2026_08_3, ComponentKind::Array)
+            .iter()
+            .any(|inclusion| inclusion.component_id.as_str() == "vortex.parquet.variant")
+    );
+    assert!(
+        session
+            .components_in(&CORE_2026_08_2, ComponentKind::Array)
+            .iter()
+            .all(|inclusion| inclusion.component_id.as_str() != "vortex.parquet.variant")
+    );
+    assert!(
+        session
+            .components_in(&CORE_2026_08_3, ComponentKind::DType)
+            .iter()
+            .any(|inclusion| inclusion.component_id.as_str() == "vortex.uuid")
+    );
+}
+
+#[test]
 fn encodings_in_editions_unions_families() {
     let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
     let core_only: Vec<_> = session
-        .components_in(&CORE_2026_07_0, ComponentKind::Array)
+        .components_in(&CORE_2026_08_1, ComponentKind::Array)
         .into_iter()
         .map(|inclusion| inclusion.component_id)
         .collect();
     let mut both = core_only.clone();
     both.extend(
         session
-            .components_in(&UNSTABLE_2026_06_0, ComponentKind::Array)
+            .components_in(&PREVIEW_2026_06_0, ComponentKind::Array)
             .into_iter()
             .map(|inclusion| inclusion.component_id),
     );
@@ -137,7 +208,7 @@ fn encodings_in_editions_unions_families() {
 
     assert!(both.len() > core_only.len());
     assert!(both.iter().any(|id| id.as_str() == "fastlanes.delta"));
-    assert!(both.iter().any(|id| id.as_str() == "vortex.onpair"));
+    assert!(both.iter().any(|id| id.as_str() == "vortex.zstd_buffers"));
     assert!(core_only.iter().all(|id| both.contains(id)));
 }
 
@@ -145,13 +216,55 @@ fn encodings_in_editions_unions_families() {
 fn earlier_editions_are_subsets() {
     let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
     let first = session.components_in(&CORE_2025_05_0, ComponentKind::Array);
-    let latest = session.components_in(&CORE_2026_08, ComponentKind::Array);
+    let latest = session.components_in(&CORE_2026_08_1, ComponentKind::Array);
     assert!(first.iter().all(|inclusion| {
         latest
             .iter()
             .any(|latest| latest.component_id == inclusion.component_id)
     }));
     assert!(first.len() < latest.len());
+}
+
+#[test]
+fn core_2026_08_editions_add_onpair_before_map() {
+    let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
+    assert!(
+        session
+            .components_in(&CORE_2026_08_0, ComponentKind::Array)
+            .iter()
+            .all(|inclusion| inclusion.component_id.as_str() != "vortex.onpair")
+    );
+    assert!(
+        session
+            .components_in(&CORE_2026_08_0, ComponentKind::Layout)
+            .iter()
+            .any(|inclusion| inclusion.component_id.as_str() == "vortex.zoned")
+    );
+    assert!(
+        session
+            .components_in(&CORE_2026_08_0, ComponentKind::Aggregate)
+            .iter()
+            .any(|inclusion| inclusion.component_id.as_str() == "vortex.min")
+    );
+
+    assert!(
+        session
+            .components_in(&CORE_2026_08_1, ComponentKind::Array)
+            .iter()
+            .any(|inclusion| inclusion.component_id.as_str() == "vortex.onpair")
+    );
+    assert!(
+        session
+            .components_in(&CORE_2026_08_1, ComponentKind::Array)
+            .iter()
+            .all(|inclusion| inclusion.component_id.as_str() != "vortex.map")
+    );
+    assert!(
+        session
+            .components_in(&CORE_2026_08_2, ComponentKind::Array)
+            .iter()
+            .any(|inclusion| inclusion.component_id.as_str() == "vortex.map")
+    );
 }
 
 #[test]
@@ -163,9 +276,9 @@ fn default_session_enables_the_write_editions() {
     assert!(enabled.contains(&DEFAULT_CORE_EDITION));
 
     #[cfg(feature = "unstable_encodings")]
-    assert!(enabled.contains(&DEFAULT_UNSTABLE_EDITION));
+    assert!(enabled.contains(&DEFAULT_PREVIEW_EDITION));
     #[cfg(not(feature = "unstable_encodings"))]
-    assert!(!enabled.contains(&DEFAULT_UNSTABLE_EDITION));
+    assert!(!enabled.contains(&DEFAULT_PREVIEW_EDITION));
 }
 
 #[test]
@@ -178,11 +291,31 @@ fn core_edition_ids_are_registered_array_encodings() {
     let registry = session.arrays().registry().clone();
     for inclusion in session
         .editions()
-        .components_in(&CORE_2026_08, ComponentKind::Array)
+        .components_in(&CORE_2026_08_1, ComponentKind::Array)
     {
         assert!(
             registry.contains_key(&inclusion.component_id),
             "{} is declared in core but not registered as an array encoding",
+            inclusion.component_id
+        );
+    }
+}
+
+#[test]
+fn core_dtype_ids_are_registered_extension_dtypes() {
+    use vortex_array::dtype::session::DTypeSessionExt;
+
+    use crate::VortexSessionDefault;
+
+    let session = VortexSession::default();
+    let registry = session.dtypes().registry().clone();
+    for inclusion in session
+        .editions()
+        .components_in(&CORE_2026_08_1, ComponentKind::DType)
+    {
+        assert!(
+            registry.contains_key(&inclusion.component_id),
+            "{} is declared in core but not registered as an extension dtype",
             inclusion.component_id
         );
     }
@@ -199,7 +332,7 @@ fn core_aggregate_ids_are_registered_aggregate_fns() {
     let session = VortexSession::default();
     let declared = session
         .editions()
-        .components_in(&CORE_2026_08, ComponentKind::Aggregate);
+        .components_in(&CORE_2026_08_1, ComponentKind::Aggregate);
     assert!(
         declared
             .iter()
@@ -269,12 +402,42 @@ async fn default_session_writes_every_default_zone_aggregate() -> VortexResult<(
     Ok(())
 }
 
-fn baseline_core_session() -> VortexResult<VortexSession> {
-    use crate::VortexSessionDefault;
+/// Restrict arrays to the baseline core edition while allowing the modern zoned components that
+/// the current default layout strategy writes.
+fn baseline_core_array_session() -> VortexResult<VortexSession> {
+    const SUPPORT_EDITION: EditionId = EditionId::new("writer-support", 2026, 8, 0);
+    static SUPPORT_DECLARATION: EditionDeclaration = EditionDeclaration {
+        edition: Edition {
+            id: SUPPORT_EDITION,
+            min_vortex_version: None,
+        },
+        added: &[
+            EditionMember::layout(&"vortex.zoned"),
+            EditionMember::aggregate(&"vortex.bounded_max"),
+            EditionMember::aggregate(&"vortex.bounded_min"),
+            EditionMember::aggregate(&"vortex.max"),
+            EditionMember::aggregate(&"vortex.min"),
+            EditionMember::aggregate(&"vortex.nan_count"),
+            EditionMember::aggregate(&"vortex.null_count"),
+        ],
+    };
 
-    let session = VortexSession::default();
+    let session = array_session()
+        .with::<EditionSession>()
+        .with::<LayoutSession>()
+        .with::<RuntimeSession>();
+    vortex_file::register_default_encodings(&session);
+    session
+        .register_edition(&super::core::v2025_05::DECLARATION)
+        .map_err(|error| vortex_err!("{error}"))?;
+    session
+        .register_edition(&SUPPORT_DECLARATION)
+        .map_err(|error| vortex_err!("{error}"))?;
     session
         .enable_edition(CORE_2025_05_0)
+        .map_err(|error| vortex_err!("{error}"))?;
+    session
+        .enable_edition(SUPPORT_EDITION)
         .map_err(|error| vortex_err!("{error}"))?;
     Ok(session)
 }
@@ -295,6 +458,19 @@ static WRITER_TEST_DECLARATION: EditionDeclaration = EditionDeclaration {
         EditionMember::array(&"vortex.constant"),
         EditionMember::array(&"vortex.primitive"),
         EditionMember::array(&"vortex.struct"),
+        EditionMember::layout(&"vortex.chunked"),
+        EditionMember::layout(&"vortex.dict"),
+        EditionMember::layout(&"vortex.flat"),
+        EditionMember::layout(&"vortex.list"),
+        EditionMember::layout(&"vortex.stats"),
+        EditionMember::layout(&"vortex.struct"),
+        EditionMember::layout(&"vortex.zoned"),
+        EditionMember::aggregate(&"vortex.bounded_max"),
+        EditionMember::aggregate(&"vortex.bounded_min"),
+        EditionMember::aggregate(&"vortex.max"),
+        EditionMember::aggregate(&"vortex.min"),
+        EditionMember::aggregate(&"vortex.nan_count"),
+        EditionMember::aggregate(&"vortex.null_count"),
     ],
 };
 
@@ -337,10 +513,18 @@ fn written_layout_ids(session: &VortexSession, buffer: ByteBufferMut) -> VortexR
     Ok(ids)
 }
 
-/// A session enabling a draft edition that declares every registered array, plus the given
-/// members of other kinds.
+/// A session enabling a draft edition that declares every registered array, every aggregate the
+/// default writer records, plus the given members of other kinds.
 fn session_declaring(members: &[(ComponentKind, Id)]) -> VortexResult<VortexSession> {
     const EDITION: EditionId = EditionId::new("kind-test", 2026, 8, 0);
+    const AGGREGATES: [&str; 6] = [
+        "vortex.bounded_max",
+        "vortex.bounded_min",
+        "vortex.max",
+        "vortex.min",
+        "vortex.nan_count",
+        "vortex.null_count",
+    ];
 
     let session = array_session()
         .with::<EditionSession>()
@@ -361,6 +545,11 @@ fn session_declaring(members: &[(ComponentKind, Id)]) -> VortexResult<VortexSess
         .iter()
         .map(|id| EditionInclusion::array(id, EDITION))
         .chain(
+            AGGREGATES
+                .into_iter()
+                .map(|id| EditionInclusion::new(ComponentKind::Aggregate, id, EDITION)),
+        )
+        .chain(
             members
                 .iter()
                 .map(|(kind, id)| EditionInclusion::new(*kind, id, EDITION)),
@@ -376,19 +565,30 @@ fn session_declaring(members: &[(ComponentKind, Id)]) -> VortexResult<VortexSess
     Ok(session)
 }
 
-/// A kind with no declared members is unrestricted, and declaring the layouts a write emits
-/// permits it; declaring only some of them fails the write instead of silently writing a
-/// layout an older reader could not decode.
+/// Every layout a write emits must be declared; declaring none or only some of them fails the
+/// write instead of silently writing a layout an older reader could not decode.
 #[tokio::test]
 async fn writer_restricts_layouts_to_the_enabled_editions() -> VortexResult<()> {
     let array = sequential_integers().into_array();
 
-    // No layout members declared: the layout filter stays disarmed.
+    // No layout members declared: the first layout fails the write.
     let session = session_declaring(&[])?;
-    let written = written_layout_ids(&session, write_with(&session, array.clone()).await?)?;
+    let error = write_with(&session, array.clone())
+        .await
+        .expect_err("a write with no declared layouts must fail");
+    assert!(
+        error.to_string().contains("not permitted by ctx"),
+        "unexpected error: {error}"
+    );
+
+    // Discover the layout tree through the fully declared core edition.
+    use crate::VortexSessionDefault;
+
+    let baseline = VortexSession::default();
+    let written = written_layout_ids(&baseline, write_with(&baseline, array.clone()).await?)?;
     assert!(written.len() > 1, "expected a layout tree, got {written:?}");
 
-    // Declaring every layout the write emits permits exactly the same file.
+    // Declaring every layout the write emits permits the file.
     let members: Vec<_> = written
         .iter()
         .map(|id| (ComponentKind::Layout, *id))
@@ -593,7 +793,7 @@ async fn probe_compressor_round_trip_uses_only_enabled_encodings() -> VortexResu
 
 #[tokio::test]
 async fn default_writer_filters_compressor_to_enabled_editions() -> VortexResult<()> {
-    let session = baseline_core_session()?;
+    let session = baseline_core_array_session()?;
     let mut buffer = ByteBufferMut::empty();
 
     session
@@ -609,7 +809,7 @@ async fn default_writer_filters_compressor_to_enabled_editions() -> VortexResult
 
 #[tokio::test]
 async fn configured_btrblocks_builder_uses_enabled_editions_in_either_order() -> VortexResult<()> {
-    let session = baseline_core_session()?;
+    let session = baseline_core_array_session()?;
     let allowed: HashSet<_> = session
         .enabled_component_ids(ComponentKind::Array)
         .into_iter()
@@ -642,7 +842,7 @@ async fn configured_btrblocks_builder_uses_enabled_editions_in_either_order() ->
 
 #[tokio::test]
 async fn opaque_compressor_cannot_write_outside_enabled_editions() -> VortexResult<()> {
-    let session = baseline_core_session()?;
+    let session = baseline_core_array_session()?;
     let allowed = session
         .enabled_component_ids(ComponentKind::Array)
         .into_iter()

@@ -10,6 +10,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use futures::FutureExt;
+use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use tempfile::NamedTempFile;
 use vortex_array::buffer::BufferHandle;

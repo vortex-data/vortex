@@ -156,8 +156,8 @@ impl ScalarFnVTable for Pack {
         false
     }
 
-    fn is_fallible(&self, _instance: &Self::Options) -> bool {
-        false
+    fn is_infallible(&self, _instance: &Self::Options) -> bool {
+        true
     }
 }
 

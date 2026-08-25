@@ -60,7 +60,7 @@ fn bench_l2_norm(bencher: Bencher, input: ArrayRef) {
         .counter(ItemsCount::new(input.len()))
         .with_inputs(|| {
             (
-                L2Norm::try_new_array(input.clone()).unwrap().into_array(),
+                L2Norm::try_new(input.clone()).unwrap().into_array(),
                 session.create_execution_ctx(),
             )
         })

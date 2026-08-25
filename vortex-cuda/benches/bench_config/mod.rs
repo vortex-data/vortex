@@ -9,6 +9,10 @@ use criterion::Criterion;
 ///
 /// 100M elements keeps every kernel above ~500 µs, well above the
 /// ~15 µs CUDA driver noise floor that caused 15-45% swings at 10M.
+// Each bench binary includes this module textually, and the string-heavy
+// benches (fsst, onpair, arrow_binary, list_view) define their own smaller
+// sizes instead of this const — allow it to go unused in those binaries.
+#[allow(dead_code)]
 pub const BENCH_SIZES: &[(usize, &str)] = &[(100_000_000, "100M")];
 
 /// Returns a [`Criterion`] configuration tuned for CUDA benchmarks.

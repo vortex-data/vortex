@@ -301,6 +301,10 @@ impl ArrayRef {
 
     /// Returns whether all items in the array are valid.
     pub fn all_valid(&self, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
+        if self.is_empty() {
+            return Ok(true);
+        }
+
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(true),
             Validity::AllInvalid => Ok(false),
@@ -310,6 +314,10 @@ impl ArrayRef {
 
     /// Returns whether the array is all invalid.
     pub fn all_invalid(&self, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
+        if self.is_empty() {
+            return Ok(true);
+        }
+
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(false),
             Validity::AllInvalid => Ok(true),

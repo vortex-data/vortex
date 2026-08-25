@@ -8,11 +8,10 @@
 //!
 //! [`RowFn`]: crate::scalar_fn::unstable::row::RowFn
 
-use std::ops::BitOrAssign;
-
 use vortex_error::VortexResult;
 
 use crate::scalar_fn::unstable::row::ElementTuple;
+use crate::scalar_fn::unstable::row::FailureEvidence;
 use crate::scalar_fn::unstable::row::IndexedElementTuple;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::scalar_fn::unstable::row::OutputSink;
@@ -22,10 +21,10 @@ use crate::scalar_fn::unstable::row::SinkResult;
 ///
 /// Only the framework implements this trait. The `visit_prepared*` methods derive shared state
 /// from constant arguments before visiting any rows. Every visit verifies that the argument tuple
-/// matches [`RowFn::ARG_NAMES`] and that fallible decoding agrees with [`RowFn::FALLIBLE`].
+/// matches [`RowFn::ARG_NAMES`] and that fallible decoding agrees with [`RowFn::INFALLIBLE`].
 ///
 /// [`RowFn::ARG_NAMES`]: crate::scalar_fn::unstable::row::RowFn::ARG_NAMES
-/// [`RowFn::FALLIBLE`]: crate::scalar_fn::unstable::row::RowFn::FALLIBLE
+/// [`RowFn::INFALLIBLE`]: crate::scalar_fn::unstable::row::RowFn::INFALLIBLE
 pub trait RowVisitor<Options>: private::Sealed + Sized {
     /// The framework result of visiting one concrete row signature.
     ///
@@ -74,7 +73,8 @@ pub trait RowVisitor<Options>: private::Sealed + Sized {
     /// # Examples
     ///
     /// Test whether each string occurs in its allowed-values list. The prepare closure builds one
-    /// lookup table for a batch-constant list. The row closure scans a varying list directly.
+    /// lookup table for a batch-constant list. The row closure scans the current list from the
+    /// input column directly.
     ///
     /// ```ignore
     /// visitor.visit_prepared::<
@@ -109,7 +109,7 @@ pub trait RowVisitor<Options>: private::Sealed + Sized {
     /// another row, sink, or local cell can violate the safety contract of [`OutputSink::finish`].
     ///
     /// A fallible `ApplyResult` requires
-    /// [`RowFn::FALLIBLE`](crate::scalar_fn::unstable::row::RowFn::FALLIBLE) to be `true`.
+    /// [`RowFn::INFALLIBLE`](crate::scalar_fn::unstable::row::RowFn::INFALLIBLE) to be `false`.
     ///
     /// # Examples
     ///
@@ -161,16 +161,16 @@ pub trait RowVisitor<Options>: private::Sealed + Sized {
     /// visitor.visit_prepared_into::<
     ///     (TensorRow<T>, TensorRow<T>),
     ///     UninitElementSink<T>,
-    ///     ConstantVectorMagnitudes<T>,
+    ///     ConstVectorMagnitudes<T>,
     ///     InitializedElement,
     /// >(
-    ///     |(lhs, rhs)| ConstantVectorMagnitudes {
+    ///     |(lhs, rhs)| ConstVectorMagnitudes {
     ///         lhs: lhs.map(vector_magnitude),
     ///         rhs: rhs.map(vector_magnitude),
     ///     },
-    ///     |constant_magnitudes, (lhs, rhs), output| {
+    ///     |const_magnitudes, (lhs, rhs), output| {
     ///         let similarity =
-    ///             cosine_similarity_with_constant_magnitudes(constant_magnitudes, lhs, rhs);
+    ///             cosine_similarity_with_const_magnitudes(const_magnitudes, lhs, rhs);
     ///
     ///         // SAFETY: `output` is the `UninitElementSink` row supplied for this callback.
     ///         unsafe { InitializedElement::write(output, similarity) }
@@ -196,13 +196,17 @@ pub trait RowVisitor<Options>: private::Sealed + Sized {
     /// `apply` must not panic or have side effects. Dense execution can pass unspecified values
     /// from null rows.
     ///
-    /// The executor OR-reduces `Fail` across rows and passes the result to `finish_failure`.
-    /// [`Default::default`] **must** mean success, including for an empty batch. The compiler
-    /// cannot check this requirement.
+    /// The executor OR-reduces [`FailureEvidence`] across rows and passes the result to
+    /// `finish_failure`.
     ///
-    /// [`RowFn::FALLIBLE`](crate::scalar_fn::unstable::row::RowFn::FALLIBLE) **must** be `true`.
-    /// `Out` must not require drop glue. `Fail` must be no wider than `Out`, or failure tracking
-    /// reduces the vector width. The framework checks these requirements.
+    /// If `finish_failure` rejects dense evidence, reduction has lost which row failed. Batch
+    /// execution therefore resolves input validity: it preserves the error for all-valid input,
+    /// suppresses it for all-null input, and retries `apply` over valid rows for partially valid
+    /// input. A prepared retry also runs `prepare` again.
+    ///
+    /// [`RowFn::INFALLIBLE`](crate::scalar_fn::unstable::row::RowFn::INFALLIBLE) **must** be
+    /// `false`. `Out` must not require drop glue. `Fail` must be no wider than `Out`, or failure
+    /// tracking reduces the vector width. The framework checks these requirements.
     ///
     /// # Examples
     ///
@@ -237,7 +241,7 @@ pub trait RowVisitor<Options>: private::Sealed + Sized {
     where
         Args: IndexedElementTuple,
         Out: OutputElement,
-        Fail: Copy + Default + BitOrAssign,
+        Fail: FailureEvidence,
     {
         self.visit_prepared_deferred::<Args, Out, (), Fail>(
             |_| (),
@@ -290,7 +294,7 @@ pub trait RowVisitor<Options>: private::Sealed + Sized {
     where
         Args: IndexedElementTuple,
         Out: OutputElement,
-        Fail: Copy + Default + BitOrAssign;
+        Fail: FailureEvidence;
 }
 
 pub(super) mod private {

@@ -29,10 +29,11 @@ fn main() {
 
 const ARGS: &[(usize, usize)] = &[
     // (output_size, buffer_utilization_pct)
-    (1 << 12, 10),
-    (1 << 12, 90),
-    (1 << 14, 10),
-    (1 << 14, 90),
+    // Output sizes sized to keep CodSpeed simulation under 1ms per benchmark.
+    (1 << 10, 10),
+    (1 << 10, 90),
+    (1 << 11, 10),
+    (1 << 11, 90),
 ];
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);

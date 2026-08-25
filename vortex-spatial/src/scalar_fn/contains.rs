@@ -51,7 +51,7 @@ pub struct SpatialContains;
 impl SpatialContains {
     /// A lazy `ScalarFnArray` computing per-row whether operand `a` contains operand `b`;
     /// either may be constant. The output length is taken from `a`.
-    pub fn try_new_array(a: ArrayRef, b: ArrayRef) -> VortexResult<ScalarFnArray> {
+    pub fn try_new(a: ArrayRef, b: ArrayRef) -> VortexResult<ScalarFnArray> {
         ScalarFnArray::try_new(
             TypedScalarFnInstance::new(SpatialContains, EmptyOptions).erased(),
             vec![a, b],
@@ -125,8 +125,8 @@ impl ScalarFnVTable for SpatialContains {
         true
     }
 
-    fn is_fallible(&self, _: &Self::Options) -> bool {
-        false
+    fn is_infallible(&self, _: &Self::Options) -> bool {
+        true
     }
 }
 
@@ -196,7 +196,7 @@ mod tests {
     ) -> VortexResult<()> {
         let session = vortex_array::array_session();
         let mut ctx = session.create_execution_ctx();
-        let contains = SpatialContains::try_new_array(a, b)?.into_array();
+        let contains = SpatialContains::try_new(a, b)?.into_array();
         assert_arrays_eq!(contains, BoolArray::from_iter(expected), &mut ctx);
         Ok(())
     }
@@ -318,7 +318,7 @@ mod tests {
 
         let container = geometry_constant(&Geometry::Polygon(rect_polygon(0.0, 0.0, 4.0, 4.0)), 3)?;
         let points = nullable_point_column(vec![Some((2.0, 2.0)), None, Some((10.0, 10.0))])?;
-        let contains = SpatialContains::try_new_array(container, points)?.into_array();
+        let contains = SpatialContains::try_new(container, points)?.into_array();
 
         let expected = BoolArray::new(
             BitBuffer::from_iter([true, false, false]),
@@ -338,7 +338,7 @@ mod tests {
         let point_dtype = point_column(vec![0.0], vec![0.0])?.dtype().as_nullable();
         let null_const = ConstantArray::new(Scalar::null(point_dtype), 2).into_array();
         let points = point_column(vec![2.0, 10.0], vec![2.0, 10.0])?;
-        let contains = SpatialContains::try_new_array(null_const, points)?.into_array();
+        let contains = SpatialContains::try_new(null_const, points)?.into_array();
 
         let expected =
             BoolArray::new(BitBuffer::from_iter([false, false]), Validity::AllInvalid).into_array();
@@ -366,7 +366,7 @@ mod tests {
             None,
             Some((4.0, 4.0)),
         ])?;
-        let contains = SpatialContains::try_new_array(container, contained)?.into_array();
+        let contains = SpatialContains::try_new(container, contained)?.into_array();
 
         let expected = BoolArray::new(
             BitBuffer::from_iter([true, false, false, false]),
@@ -385,7 +385,7 @@ mod tests {
 
         let container = geometry_constant(&Geometry::Polygon(rect_polygon(0.0, 0.0, 4.0, 4.0)), 2)?;
         let points = nullable_point_column(vec![None, None])?;
-        let contains = SpatialContains::try_new_array(container, points)?.into_array();
+        let contains = SpatialContains::try_new(container, points)?.into_array();
 
         let expected =
             BoolArray::new(BitBuffer::from_iter([false, false]), Validity::AllInvalid).into_array();
@@ -402,7 +402,7 @@ mod tests {
 
         let container = nullable_point_column(vec![Some((1.0, 1.0)), None])?;
         let contained = nullable_point_column(vec![None, Some((2.0, 2.0))])?;
-        let contains = SpatialContains::try_new_array(container, contained)?.into_array();
+        let contains = SpatialContains::try_new(container, contained)?.into_array();
 
         let expected =
             BoolArray::new(BitBuffer::from_iter([false, false]), Validity::AllInvalid).into_array();

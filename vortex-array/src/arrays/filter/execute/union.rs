@@ -1,19 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
-use vortex_mask::MaskValues;
+use vortex_mask::MaskValuesRef;
 
 use crate::ArrayRef;
 use crate::arrays::UnionArray;
 use crate::arrays::union::UnionArrayExt;
 use crate::arrays::union::UnionArraySlotsExt;
 
-pub fn filter_union(array: &UnionArray, mask: &Arc<MaskValues>) -> UnionArray {
-    let filter_mask = Mask::Values(Arc::clone(mask));
+pub fn filter_union(array: &UnionArray, mask: &MaskValuesRef) -> UnionArray {
+    let filter_mask = Mask::Values(MaskValuesRef::clone(mask));
 
     let type_ids = array
         .type_ids()

@@ -1,9 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Benchmarks for the binary comparison path, over every array kind it accepts.
+//!
+//! The primitive cases carry `#[cpu_features]`, so they are measured on every walltime
+//! CPU-feature leg rather than in simulation. Each is written once and compiled differently
+//! per leg: today the primitive comparison path is a portable lane kernel, and how well it
+//! auto-vectorizes is decided by the build. That is the baseline a hand-written kernel
+//! selected through `cfg(target_feature)` has to beat, measured on the silicon it would run
+//! on.
+//!
+//! The boolean, decimal, string, and struct cases are not tagged. A wider vector register is
+//! not what decides them: booleans are already word-at-a-time over a bitmap, decimals are
+//! `i128`, and the string and struct cases are dominated by view chasing and per-field
+//! dispatch. They stay in simulation.
+
 #![expect(clippy::unwrap_used)]
 
 use divan::Bencher;
+use divan::counter::ItemsCount;
 use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
@@ -33,11 +48,15 @@ fn main() {
     divan::main();
 }
 
-const ARRAY_SIZE: usize = 65_536;
+// Sized to keep CodSpeed simulation under 1ms per benchmark.
+const ARRAY_SIZE: usize = 8_192;
 
 fn bench_compare(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, op: Operator) {
     let session = vortex_array::array_session();
+    let len = lhs.len();
+
     bencher
+        .counter(ItemsCount::new(len))
         .with_inputs(|| (&lhs, &rhs, session.create_execution_ctx()))
         .bench_refs(|input| {
             input
@@ -87,6 +106,27 @@ fn float_array(rng: &mut StdRng) -> ArrayRef {
         .into_array()
 }
 
+fn u8_array(rng: &mut StdRng) -> ArrayRef {
+    (0..ARRAY_SIZE)
+        .map(|_| rng.random::<u8>())
+        .collect::<Buffer<_>>()
+        .into_array()
+}
+
+fn u64_array(rng: &mut StdRng) -> ArrayRef {
+    (0..ARRAY_SIZE)
+        .map(|_| rng.random::<u64>())
+        .collect::<Buffer<_>>()
+        .into_array()
+}
+
+fn f32_array(rng: &mut StdRng) -> ArrayRef {
+    (0..ARRAY_SIZE)
+        .map(|_| rng.random_range(0.0f32..1.0))
+        .collect::<Buffer<_>>()
+        .into_array()
+}
+
 fn string_array(rng: &mut StdRng) -> ArrayRef {
     VarBinViewArray::from_iter_str((0..ARRAY_SIZE).map(|_| {
         let len = rng.random_range(1usize..24);
@@ -129,6 +169,7 @@ fn compare_bool_constant(bencher: Bencher) {
     bench_compare(bencher, arr, constant, Operator::Eq);
 }
 
+#[vortex_bench_support::cpu_features]
 #[divan::bench]
 fn compare_int(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
@@ -137,6 +178,7 @@ fn compare_int(bencher: Bencher) {
     bench_compare(bencher, arr1, arr2, Operator::Gte);
 }
 
+#[vortex_bench_support::cpu_features]
 #[divan::bench]
 fn compare_int_nullable(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
@@ -145,6 +187,7 @@ fn compare_int_nullable(bencher: Bencher) {
     bench_compare(bencher, arr1, arr2, Operator::Gte);
 }
 
+#[vortex_bench_support::cpu_features]
 #[divan::bench]
 fn compare_int_constant(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
@@ -153,6 +196,43 @@ fn compare_int_constant(bencher: Bencher) {
     bench_compare(bencher, arr, constant, Operator::Gte);
 }
 
+#[vortex_bench_support::cpu_features]
+#[divan::bench]
+fn compare_int_constant_left(bencher: Bencher) {
+    let mut rng = StdRng::seed_from_u64(0);
+    let constant = ConstantArray::new(50_000_000i64, ARRAY_SIZE).into_array();
+    let arr = int_array(&mut rng);
+    bench_compare(bencher, constant, arr, Operator::Lte);
+}
+
+#[vortex_bench_support::cpu_features]
+#[divan::bench]
+fn compare_u8(bencher: Bencher) {
+    let mut rng = StdRng::seed_from_u64(0);
+    let arr1 = u8_array(&mut rng);
+    let arr2 = u8_array(&mut rng);
+    bench_compare(bencher, arr1, arr2, Operator::Gte);
+}
+
+#[vortex_bench_support::cpu_features]
+#[divan::bench]
+fn compare_u64(bencher: Bencher) {
+    let mut rng = StdRng::seed_from_u64(0);
+    let arr1 = u64_array(&mut rng);
+    let arr2 = u64_array(&mut rng);
+    bench_compare(bencher, arr1, arr2, Operator::Gte);
+}
+
+#[vortex_bench_support::cpu_features]
+#[divan::bench]
+fn compare_f32(bencher: Bencher) {
+    let mut rng = StdRng::seed_from_u64(0);
+    let arr1 = f32_array(&mut rng);
+    let arr2 = f32_array(&mut rng);
+    bench_compare(bencher, arr1, arr2, Operator::Gte);
+}
+
+#[vortex_bench_support::cpu_features]
 #[divan::bench]
 fn compare_int_eq(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
@@ -161,6 +241,7 @@ fn compare_int_eq(bencher: Bencher) {
     bench_compare(bencher, arr1, arr2, Operator::Eq);
 }
 
+#[vortex_bench_support::cpu_features]
 #[divan::bench]
 fn compare_float(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);

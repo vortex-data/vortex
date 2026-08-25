@@ -95,19 +95,6 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
         write!(f, ")")
     }
 
-    /// Coerce the arguments of this function.
-    ///
-    /// This is optionally used by Vortex users when performing type coercion over a Vortex
-    /// expression. Note that direct Vortex query engine integrations (e.g. DuckDB, DataFusion,
-    /// etc.) do not perform type coercion and rely on the engine's own logical planner.
-    ///
-    /// Note that the default implementation simply returns the arguments without coercion, and it
-    /// is expected that the [`ScalarFnVTable::return_dtype`] call may still fail.
-    fn coerce_args(&self, options: &Self::Options, args: &[DType]) -> VortexResult<Vec<DType>> {
-        let _ = options;
-        Ok(args.to_vec())
-    }
-
     /// Compute the return [`DType`] of the expression if evaluated over the given input types.
     ///
     /// # Preconditions
@@ -214,24 +201,24 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
         false
     }
 
-    /// Returns whether this scalar function can raise a semantic error.
+    /// Returns whether this scalar function can never raise a semantic error.
     ///
-    /// Return `true` if a well-typed call can error because of its values. `checked_add` is
-    /// fallible on integer overflow, and integer division is fallible when its divisor is zero.
+    /// Return `true` only when a well-typed call cannot error because of its values. `checked_add`
+    /// is fallible on integer overflow, and integer division is fallible when its divisor is zero.
     /// A null result is not an error: [`crate::expr::list_sum`] is infallible for an empty list.
     ///
-    /// Exclude incidental execution errors, such as canonicalization failures, allocation errors,
+    /// Ignore incidental execution errors, such as canonicalization failures, allocation errors,
     /// and encoding mismatches. They are not part of the function's semantics.
     ///
-    /// Returning `false` permits optimizations that evaluate the function over values that no input
+    /// Returning `true` permits optimizations that evaluate the function over values that no input
     /// row references. Dictionary push-down, for example, evaluates every dictionary value, so a
     /// fallible function could error on a value that row-wise evaluation would never reach.
     ///
     /// This applies only to the scalar function, not its child expressions, and only to inputs
-    /// accepted by [`ScalarFnVTable::return_dtype`]. The default is conservatively `true`.
-    fn is_fallible(&self, options: &Self::Options) -> bool {
+    /// accepted by [`ScalarFnVTable::return_dtype`]. The default is conservatively `false`.
+    fn is_infallible(&self, options: &Self::Options) -> bool {
         _ = options;
-        true
+        false
     }
 }
 

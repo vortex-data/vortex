@@ -60,6 +60,26 @@ SELECT count(), count(), count() FROM '${WORK_DIR}/agg-pushdown.vortex';
 ----
 100001 100001 100001
 
+query TT
+EXPLAIN SELECT min(i), min(i) FROM '${WORK_DIR}/agg-pushdown.vortex';
+----
+<!REGEX>:.*UNGROUPED_AGGREGATE.*
+
+query II
+SELECT min(i), min(i) FROM '${WORK_DIR}/agg-pushdown.vortex';
+----
+1 1
+
+query III
+SELECT min(i), max(i), min(i) FROM '${WORK_DIR}/agg-pushdown.vortex';
+----
+1 100000 1
+
+query IIII
+SELECT sum(i), sum(i), count(i), count(i) FROM '${WORK_DIR}/agg-pushdown.vortex';
+----
+5000050000 5000050000 100000 100000
+
 statement ok
 COPY (SELECT * FROM (VALUES (9223372036854775807::BIGINT), (9223372036854775807::BIGINT)) t(i))
 TO '${WORK_DIR}/agg-pushdown-h.vortex';

@@ -29,16 +29,18 @@ fn main() {
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
+#[vortex_bench_support::cpu_features]
 #[divan::bench]
 fn scalar_subtract(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
     let range = Uniform::new(0i64, 100_000_000).unwrap();
-    let data1 = (0..100_000)
+    // Chunks sized to keep the CodSpeed simulation under 1ms.
+    let data1 = (0..4_000)
         .map(|_| rng.sample(range))
         .collect::<Buffer<i64>>()
         .into_array();
 
-    let data2 = (0..100_000)
+    let data2 = (0..4_000)
         .map(|_| rng.sample(range))
         .collect::<Buffer<i64>>()
         .into_array();

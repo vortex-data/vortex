@@ -36,7 +36,8 @@ fn main() {
 static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 // Keep each case small: the sweep has 24 cases and the targeted sections add only seven more.
-const LEN: usize = 16_384;
+// Sized to keep CodSpeed simulation under 1ms per benchmark.
+const LEN: usize = 4_096;
 const DENSITIES: &[f64] = &[0.01, 0.5, 0.8, 0.95];
 const CACHED_DENSITIES: &[f64] = &[0.01, 0.1];
 

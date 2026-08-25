@@ -20,6 +20,7 @@ mod sequence;
 mod spatial;
 mod struct_;
 mod temporal;
+mod uuid;
 mod validity;
 mod varbinview;
 mod vector;
@@ -79,13 +80,12 @@ impl ArrayExporter {
         })
     }
 
-    /// Export the data into the next chunk.
-    ///
-    /// Returns `true` if a chunk was exported, `false` if all rows have been exported.
+    /// Export data into current chunk.
+    /// Returns true if there is data to be written into next chunk or false if
+    /// this exporter is exhausted.
     pub fn export(
         &mut self,
         chunk: &mut DataChunkRef,
-        file_index_column_pos: Option<usize>,
         file_row_number_column_pos: Option<usize>,
     ) -> VortexResult<bool> {
         chunk.reset();
@@ -96,7 +96,7 @@ impl ArrayExporter {
         let zero_projection = self.fields.is_empty();
 
         // file_row_number column is already populated in scan construction
-        let expected_cols = self.fields.len() + file_index_column_pos.is_some() as usize;
+        let expected_cols = self.fields.len();
         let chunk_cols = chunk.column_count();
         if !zero_projection && chunk_cols != expected_cols {
             vortex_bail!("Expected {expected_cols} columns in output chunk, got {chunk_cols}");
@@ -143,14 +143,6 @@ impl ArrayExporter {
         }
 
         for i in 0..chunk_cols {
-            // file_index column: skip index - it will be filled after
-            // chunk export.
-            if let Some(pos) = file_index_column_pos
-                && i == pos
-            {
-                continue;
-            }
-
             // file_row_number column: skip index, already filled
             if let Some(pos) = file_row_number_column_pos
                 && i == pos

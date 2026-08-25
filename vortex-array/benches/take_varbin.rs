@@ -27,7 +27,8 @@ fn main() {
 static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 const ARRAY_SIZE: usize = 20_000;
-const TAKE_SIZE: usize = 8_000;
+// Sized to keep CodSpeed simulation under 1ms.
+const TAKE_SIZE: usize = 3_000;
 
 #[divan::bench]
 fn take_varbin(bencher: Bencher) {

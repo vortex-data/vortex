@@ -21,6 +21,10 @@ use sqllogictest::harness::Arguments;
 use sqllogictest::harness::Failed;
 use sqllogictest::harness::Trial;
 use sqllogictest::strict_column_validator;
+use vortex::VortexSessionDefault;
+use vortex::editions::CORE_2026_08_3;
+use vortex::editions::EditionSessionExt;
+use vortex::session::VortexSession;
 use vortex_datafusion::VortexFormatFactory;
 use vortex_datafusion::VortexTableOptions;
 use vortex_sqllogictest::duckdb::DuckDB;
@@ -64,7 +68,9 @@ fn drive_datafusion(path: &Path, work_dir: &Path, mode: Mode) -> anyhow::Result<
     let rt = build_runtime()?;
     rt.block_on(async {
         let config = SessionConfig::default().with_option_extension(VortexTableOptions::default());
-        let factory = Arc::new(VortexFormatFactory::new());
+        let vortex_session = VortexSession::default();
+        vortex_session.enable_edition(CORE_2026_08_3)?;
+        let factory = Arc::new(VortexFormatFactory::new_with_session(vortex_session));
         let session_state_builder = SessionStateBuilder::new()
             .with_config(config)
             .with_default_features()

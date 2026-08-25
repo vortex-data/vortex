@@ -20,14 +20,17 @@ timeout = 3600
 PYO3_ENVIRONMENT_SIGNATURE = { value = "cpython-3.11-64bit", force = true }
 # Read by benchmarks marked `#[cpu_features]` (see the `vortex-bench-support` crate), which
 # expands to code reading both with `env!`. VORTEX_BENCH_VARIANT names the run: the benchmark
-# is skipped when it is "simulation", and runs otherwise. VORTEX_BENCH_PREFIX is prepended to
-# the benchmark's name, so a CI leg can label the numbers it produced.
+# is skipped when it is "simulation", and runs otherwise. VORTEX_BENCH_PREFIX and
+# VORTEX_BENCH_SUFFIX wrap the benchmark's name, so a CI leg can label the numbers it produced:
+# the prefix is the `::` component the leg's benchmark filter selects on, and the suffix is on
+# the leaf name, which is the part CodSpeed reports under.
 #
 # The values below are what a plain `cargo bench` wants: nothing skipped, names left bare. The
-# per-feature-set jobs in `.github/workflows/codspeed.yml` set their own. Neither is `force`d,
+# per-feature-set jobs in `.github/workflows/codspeed.yml` set their own. None of them is `force`d,
 # so the value those jobs export wins over the one here.
 VORTEX_BENCH_VARIANT = "local"
 VORTEX_BENCH_PREFIX = ""
+VORTEX_BENCH_SUFFIX = ""
 
 [cache.global-clean]
 # Anything older than this duration will be deleted in the source cache.

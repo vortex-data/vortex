@@ -19,6 +19,7 @@ use crate::ExecutionCtx;
 use crate::arrays::Bool;
 use crate::arrays::Decimal;
 use crate::arrays::Primitive;
+use crate::arrays::ScalarFnArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::expr::Expression;
@@ -29,10 +30,22 @@ use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::ScalarFnVTableExt;
 
 /// An expression that replaces null values in the input with a fill value.
 #[derive(Clone)]
 pub struct FillNull;
+
+impl FillNull {
+    /// Creates a lazy operation that replaces null input values with `fill_value`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the children have different lengths or incompatible dtypes.
+    pub fn try_new(input: ArrayRef, fill_value: ArrayRef) -> VortexResult<ScalarFnArray> {
+        ScalarFnArray::try_new(FillNull.bind(EmptyOptions), vec![input, fill_value])
+    }
+}
 
 impl ScalarFnVTable for FillNull {
     type Options = EmptyOptions;
@@ -137,8 +150,8 @@ impl ScalarFnVTable for FillNull {
         false
     }
 
-    fn is_fallible(&self, _options: &Self::Options) -> bool {
-        false
+    fn is_infallible(&self, _options: &Self::Options) -> bool {
+        true
     }
 }
 
@@ -151,9 +164,8 @@ fn fill_null_canonical(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let arr = canonical.to_array_ref();
-    if let Some(result) = precondition(&arr, fill_value)? {
-        // The result of precondition may return another ScalarFn, in which case we should
-        // apply it immediately.
+    if let Some(result) = short_circuit(&arr, fill_value)? {
+        // The short circuit can return a lazy `ScalarFn`, so this forces it for now.
         // TODO(aduffy): Remove this once we have better driver check. We're also implicitly
         //  relying on the fact that Cast execution will do an optimize on its result.
         return result.execute::<ArrayRef>(ctx);

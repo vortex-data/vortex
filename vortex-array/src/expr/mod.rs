@@ -24,12 +24,12 @@
 //! together, before any data is materialized. The deferred tree is executed toward canonical form
 //! only when a result is actually required.
 //!
-//! # Typing and coercion
+//! # Type checking
 //!
 //! Expressions are strictly typed: an input array's dtype must match the function signature exactly,
-//! so callers perform any required type coercion themselves before building the expression (see the
-//! [`transform`] passes). The one relaxation is null-coercion — for example, equality may compare a
-//! `u32` against a `u32?`, but never a `u32` against an `i32`.
+//! so callers perform any required casts themselves before building the expression. The one
+//! relaxation is nullability—for example, equality may compare a `u32` against a `u32?`, but never
+//! a `u32` against an `i32`.
 //!
 //! Filter expressions are decomposed into independent conjuncts with [`split_conjunction`] so that
 //! scans can evaluate and reorder the most selective predicates first.

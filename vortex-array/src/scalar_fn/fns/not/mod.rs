@@ -15,6 +15,7 @@ use crate::IntoArray;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::ScalarFnArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -25,10 +26,22 @@ use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::ScalarFnVTableExt;
 
 /// Expression that logically inverts boolean values.
 #[derive(Clone)]
 pub struct Not;
+
+impl Not {
+    /// Creates a lazy boolean inversion of `input`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not boolean data.
+    pub fn try_new(input: ArrayRef) -> VortexResult<ScalarFnArray> {
+        ScalarFnArray::try_new(Not.bind(EmptyOptions), vec![input])
+    }
+}
 
 impl ScalarFnVTable for Not {
     type Options = EmptyOptions;
@@ -102,8 +115,8 @@ impl ScalarFnVTable for Not {
         true
     }
 
-    fn is_fallible(&self, _options: &Self::Options) -> bool {
-        false
+    fn is_infallible(&self, _options: &Self::Options) -> bool {
+        true
     }
 }
 

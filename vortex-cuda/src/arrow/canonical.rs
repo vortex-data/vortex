@@ -55,12 +55,12 @@ use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::dtype::i256;
 use vortex::encodings::fsst::FSST;
-use vortex::encodings::fsst::FSSTArray;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex::extension::datetime::AnyTemporal;
+use vortex_onpair::OnPair;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
@@ -81,8 +81,9 @@ use crate::cub::exclusive_sum_i32;
 use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
 use crate::executor::CudaArrayExt;
 use crate::executor::execute_validity_cuda;
-use crate::kernel::FSSTVarBin;
+use crate::kernel::DecodedVarBin;
 use crate::kernel::decode_fsst_varbin;
+use crate::kernel::decode_onpair_varbin;
 
 /// An implementation of `ExportDeviceArray` that exports Vortex arrays to `ArrowDeviceArray` by
 /// first decoding the array on the GPU and then converting the canonical type to the nearest
@@ -229,9 +230,21 @@ fn export_array(
         // `CudaDispatchMode` only governs `execute_cuda`'s fused-vs-standalone planning.
         let array = match array.try_downcast::<FSST>() {
             Ok(fsst) if ctx.cuda_session().varbin_export_layout() == VarBinExportLayout::VarBin => {
-                return export_fsst_varbin(fsst, ctx).await;
+                let decoded = decode_fsst_varbin(fsst, ctx).await?;
+                return export_decoded_varbin(decoded, ctx).await;
             }
             Ok(fsst) => fsst.into_array(),
+            Err(array) => array,
+        };
+        // OnPair takes the same offset-based export shortcut as FSST.
+        let array = match array.try_downcast::<OnPair>() {
+            Ok(onpair)
+                if ctx.cuda_session().varbin_export_layout() == VarBinExportLayout::VarBin =>
+            {
+                let decoded = decode_onpair_varbin(onpair, ctx).await?;
+                return export_decoded_varbin(decoded, ctx).await;
+            }
+            Ok(onpair) => onpair.into_array(),
             Err(array) => array,
         };
 
@@ -581,20 +594,22 @@ async fn export_varbin(
     export_varbin_buffers(len, validity_buffer, null_count, offsets, values, ctx)
 }
 
-async fn export_fsst_varbin(
-    fsst: FSSTArray,
+/// Export an offset-based decompression result (FSST or OnPair) with the
+/// standard Arrow `Utf8`/`Binary` layout.
+async fn export_decoded_varbin(
+    decoded: DecodedVarBin,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<(ArrowArray, SyncEvent)> {
-    let FSSTVarBin {
+    let DecodedVarBin {
         dtype,
         len,
         offsets,
         values,
         validity,
-    } = decode_fsst_varbin(fsst, ctx).await?;
+    } = decoded;
     vortex_ensure!(
         matches!(dtype, DType::Utf8(_) | DType::Binary(_)),
-        "FSST produced invalid variable-length dtype {dtype}"
+        "offset-based decode produced invalid variable-length dtype {dtype}"
     );
     let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
     export_varbin_buffers(len, validity_buffer, null_count, offsets, values, ctx)
@@ -1439,6 +1454,8 @@ mod tests {
     use rstest::rstest;
     use vortex::array::ArrayRef;
     use vortex::array::IntoArray;
+    use vortex::array::VortexSessionExecute;
+    use vortex::array::array_session;
     use vortex::array::arrays::BoolArray;
     use vortex::array::arrays::ChunkedArray;
     use vortex::array::arrays::DecimalArray;
@@ -1501,7 +1518,7 @@ mod tests {
     }
 
     fn cuda_ctx_with_varbin_layout(layout: VarBinExportLayout) -> VortexResult<CudaExecutionCtx> {
-        let session = vortex::array::array_session()
+        let session = array_session()
             .with_some(CudaSession::try_default()?.with_varbin_export_layout(layout));
         CudaSession::create_execution_ctx(&session)
     }
@@ -1669,6 +1686,7 @@ mod tests {
             Arc::from([first, second]),
             dtype,
             Validity::NonNullable,
+            &mut array_session().create_execution_ctx(),
         )
         .vortex_expect("valid multi-buffer VarBinViewArray")
         .into_array();

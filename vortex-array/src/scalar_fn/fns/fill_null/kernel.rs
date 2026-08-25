@@ -55,11 +55,16 @@ pub trait FillNullKernel: VTable {
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
-/// Common preconditions for fill_null operations that apply to all arrays.
+/// Short-circuits fill_null for the inputs that need no encoding-specific work.
 ///
-/// Returns `Some(result)` if the precondition short-circuits the fill_null operation,
-/// or `None` if fill_null should proceed with the encoding-specific implementation.
-pub(super) fn precondition(
+/// Returns `Some(result)` when the answer is already known, or `None` when fill_null must proceed
+/// with the encoding-specific implementation. Kernels can therefore rely on a non-null fill value.
+///
+/// The result can be a lazy [`ScalarFn`] array, so a caller that needs a computed array
+/// **must** execute it.
+///
+/// [`ScalarFn`]: crate::arrays::ScalarFn
+pub(super) fn short_circuit(
     array: &ArrayRef,
     fill_value: &Scalar,
 ) -> VortexResult<Option<ArrayRef>> {
@@ -130,7 +135,7 @@ where
             .as_constant()
             .vortex_expect("fill_null fill_value must be constant");
         let arr = array.array().clone();
-        if let Some(result) = precondition(&arr, &fill_value)? {
+        if let Some(result) = short_circuit(&arr, &fill_value)? {
             return Ok(Some(result));
         }
         <V as FillNullReduce>::fill_null(array, &fill_value)
@@ -166,7 +171,7 @@ where
             .as_constant()
             .vortex_expect("fill_null fill_value must be constant");
         let arr = array.array().clone();
-        if let Some(result) = precondition(&arr, &fill_value)? {
+        if let Some(result) = short_circuit(&arr, &fill_value)? {
             return Ok(Some(result));
         }
         <V as FillNullKernel>::fill_null(array, &fill_value, ctx)

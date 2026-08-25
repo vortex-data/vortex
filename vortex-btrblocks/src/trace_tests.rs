@@ -30,7 +30,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::Struct;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::patched::use_experimental_patches;
-use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
@@ -175,11 +174,12 @@ fn shipdate_predicate(column: ArrayRef, len: usize) -> VortexResult<ArrayRef> {
         ext,
         Scalar::primitive_value(PValue::I32(8766), PType::I32, Nullability::NonNullable),
     );
-    Binary.try_new_array(
-        len,
+    Binary::try_new(
+        column,
+        ConstantArray::new(cutoff, len).into_array(),
         Operator::Gte,
-        [column, ConstantArray::new(cutoff, len).into_array()],
     )
+    .map(IntoArray::into_array)
 }
 
 #[test]
@@ -226,11 +226,12 @@ fn quantity_predicate(column: ArrayRef, len: usize) -> VortexResult<ArrayRef> {
         DecimalDType::new(15, 2),
         Nullability::NonNullable,
     );
-    Binary.try_new_array(
-        len,
+    Binary::try_new(
+        column,
+        ConstantArray::new(cutoff, len).into_array(),
         Operator::Lt,
-        [column, ConstantArray::new(cutoff, len).into_array()],
     )
+    .map(IntoArray::into_array)
 }
 
 #[test]
@@ -283,14 +284,12 @@ fn trace_scan_compare_on_compressed_quantity() -> VortexResult<()> {
 ///
 /// The column compresses to `dict -> {bitpacked codes, fsst values}`.
 fn shipmode_predicate(column: ArrayRef, len: usize) -> VortexResult<ArrayRef> {
-    Binary.try_new_array(
-        len,
+    Binary::try_new(
+        column,
+        ConstantArray::new(Scalar::from("AIR"), len).into_array(),
         Operator::Eq,
-        [
-            column,
-            ConstantArray::new(Scalar::from("AIR"), len).into_array(),
-        ],
     )
+    .map(IntoArray::into_array)
 }
 
 #[test]
@@ -336,17 +335,15 @@ fn trace_scan_compare_on_compressed_shipmode() -> VortexResult<()> {
 ///
 /// The column compresses to `fsst -> bitpacked lengths/offsets`.
 fn comment_predicate(column: ArrayRef, len: usize) -> VortexResult<ArrayRef> {
-    Like.try_new_array(
-        len,
+    Like::try_new(
+        column,
+        ConstantArray::new(Scalar::from("%special%"), len).into_array(),
         LikeOptions {
             negated: false,
             case_insensitive: false,
         },
-        [
-            column,
-            ConstantArray::new(Scalar::from("%special%"), len).into_array(),
-        ],
     )
+    .map(IntoArray::into_array)
 }
 
 #[test]

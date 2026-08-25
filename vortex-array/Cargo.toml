@@ -97,6 +97,7 @@ vortex-array = { path = ".", features = [
     "table-display",
     "unstable_row_fns",
 ] }
+vortex-bench-support = { workspace = true }
 
 [[bench]]
 name = "aggregate_max"
@@ -219,6 +220,10 @@ harness = false
 
 [[bench]]
 name = "varbinview_zip"
+harness = false
+
+[[bench]]
+name = "varbinview_try_new"
 harness = false
 
 [[bench]]

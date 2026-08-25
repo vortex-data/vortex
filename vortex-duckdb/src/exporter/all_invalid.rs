@@ -51,7 +51,7 @@ mod tests {
         chunk.set_len(3);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk).unwrap()),
+            String::try_from(&*chunk).unwrap(),
             r#"Chunk - [1 Columns]
 - CONSTANT INTEGER: 3 = [ NULL]
 "#

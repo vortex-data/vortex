@@ -63,4 +63,5 @@ vortex-python-abi = { path = "../vortex-python-abi" }
 vortex-tui = { workspace = true, optional = true }
 
 [dev-dependencies]
+rstest = { workspace = true }
 vortex-array = { path = "../vortex-array", features = ["_test-harness"] }

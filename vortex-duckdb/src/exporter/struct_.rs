@@ -127,7 +127,7 @@ mod tests {
         chunk.set_len(10);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk).unwrap()),
+            String::try_from(&*chunk).unwrap(),
             r#"Chunk - [1 Columns]
 - FLAT STRUCT(col1 INTEGER, col2 VARCHAR): 10 = [ {'col1': 0, 'col2': a}, {'col1': 1, 'col2': b}, {'col1': 2, 'col2': c}, {'col1': 3, 'col2': d}, {'col1': 4, 'col2': e}, {'col1': 5, 'col2': f}, {'col1': 6, 'col2': g}, {'col1': 7, 'col2': h}, {'col1': 8, 'col2': i}, {'col1': 9, 'col2': j}]
 "#
@@ -188,7 +188,7 @@ mod tests {
         chunk.set_len(10);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk).unwrap()),
+            String::try_from(&*chunk).unwrap(),
             r#"Chunk - [1 Columns]
 - FLAT STRUCT(col1 INTEGER, col2 VARCHAR): 10 = [ {'col1': 1, 'col2': NULL}, {'col1': NULL, 'col2': b}, {'col1': 2, 'col2': c}, NULL, NULL, NULL, {'col1': 4, 'col2': g}, {'col1': NULL, 'col2': h}, {'col1': 5, 'col2': NULL}, {'col1': NULL, 'col2': j}]
 "#
@@ -230,7 +230,7 @@ mod tests {
         chunk.set_len(10);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk).unwrap()),
+            String::try_from(&*chunk).unwrap(),
             r#"Chunk - [1 Columns]
 - FLAT STRUCT(col1 INTEGER, col2 VARCHAR): 10 = [ {'col1': 42, 'col2': b}, {'col1': 42, 'col2': c}, {'col1': 42, 'col2': c}, NULL, NULL, NULL, {'col1': 42, 'col2': d}, {'col1': 42, 'col2': g}, {'col1': 42, 'col2': g}, {'col1': 42, 'col2': h}]
 "#

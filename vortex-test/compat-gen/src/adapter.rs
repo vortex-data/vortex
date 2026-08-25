@@ -88,10 +88,20 @@ pub fn write_compressed_to_bytes(
     chunk: ArrayRef,
     strategy: Arc<dyn LayoutStrategy>,
 ) -> VortexResult<ByteBuffer> {
-    let stream = ArrayStreamAdapter::new(chunk.dtype().clone(), stream::iter([Ok(chunk)]));
+    write_compressed_to_bytes_with_session(&VortexSession::default(), chunk, strategy)
+}
 
-    runtime()?.block_on(async {
-        let session = VortexSession::default().with_tokio();
+/// Write a `.vortex` file into memory using a caller-provided session and layout strategy.
+pub fn write_compressed_to_bytes_with_session(
+    session: &VortexSession,
+    chunk: ArrayRef,
+    strategy: Arc<dyn LayoutStrategy>,
+) -> VortexResult<ByteBuffer> {
+    let stream = ArrayStreamAdapter::new(chunk.dtype().clone(), stream::iter([Ok(chunk)]));
+    let session = session.clone();
+
+    runtime()?.block_on(async move {
+        let session = session.with_tokio();
         let mut bytes = Vec::new();
         let _summary = session
             .write_options()

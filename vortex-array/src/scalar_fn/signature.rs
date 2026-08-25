@@ -27,9 +27,9 @@ impl ScalarFnSignature<'_> {
         self.inner.is_strict()
     }
 
-    /// Returns whether this expression itself is fallible.
-    /// See [`crate::scalar_fn::ScalarFnVTable::is_fallible`].
-    pub fn is_fallible(&self) -> bool {
-        self.inner.is_fallible()
+    /// Returns whether this expression itself is infallible.
+    /// See [`crate::scalar_fn::ScalarFnVTable::is_infallible`].
+    pub fn is_infallible(&self) -> bool {
+        self.inner.is_infallible()
     }
 }

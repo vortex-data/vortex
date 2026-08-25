@@ -116,7 +116,10 @@ impl BoundExpression {
         scalar_fn: ScalarFnRef,
         children: impl IntoIterator<Item = BoundExpression>,
     ) -> VortexResult<Self> {
-        let children = Vec::from_iter(children);
+        Self::try_new_vec(scalar_fn, children.into_iter().collect())
+    }
+
+    fn try_new_vec(scalar_fn: ScalarFnRef, children: Vec<BoundExpression>) -> VortexResult<Self> {
         vortex_ensure!(
             scalar_fn.signature().arity().matches(children.len()),
             "Expression arity mismatch: expected {} children but got {}",
@@ -152,7 +155,7 @@ impl BoundExpression {
             return Ok(self);
         };
 
-        Self::try_new(scalar_fn.clone(), children)
+        Self::try_new_vec(scalar_fn.clone(), children)
     }
 
     /// The dtype this expression evaluates to.

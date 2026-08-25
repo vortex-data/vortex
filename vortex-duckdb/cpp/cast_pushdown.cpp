@@ -25,7 +25,7 @@ static bool ReachesPushdownGet(const LogicalOperator &op) {
         cur = cur->children[0].get();
         switch (cur->type) {
         case LogicalOperatorType::LOGICAL_GET:
-            return cur->Cast<LogicalGet>().function.bind == duckdb_vx_table_function_bind;
+            return is_vortex_scan(cur->Cast<LogicalGet>().function);
         case LogicalOperatorType::LOGICAL_PROJECTION:
             continue;
         default:

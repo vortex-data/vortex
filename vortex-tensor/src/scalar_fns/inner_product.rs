@@ -26,7 +26,7 @@ use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
-use vortex_array::scalar_fn::TypedScalarFnInstance;
+use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::serde::ArrayChildren;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
@@ -56,11 +56,6 @@ use crate::utils::validate_binary_tensor_float_inputs;
 pub struct InnerProduct;
 
 impl InnerProduct {
-    /// Creates a new [`TypedScalarFnInstance`] wrapping the inner product operation.
-    pub fn new() -> TypedScalarFnInstance<InnerProduct> {
-        TypedScalarFnInstance::new(InnerProduct, EmptyOptions)
-    }
-
     /// Constructs a [`ScalarFnArray`] that lazily computes the inner product between `lhs` and
     /// `rhs`.
     ///
@@ -68,8 +63,8 @@ impl InnerProduct {
     ///
     /// Returns an error if the [`ScalarFnArray`] cannot be constructed (e.g. due to dtype
     /// mismatches).
-    pub fn try_new_array(lhs: ArrayRef, rhs: ArrayRef) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(InnerProduct::new().erased(), vec![lhs, rhs])
+    pub fn try_new(lhs: ArrayRef, rhs: ArrayRef) -> VortexResult<ScalarFnArray> {
+        ScalarFnArray::try_new(InnerProduct.bind(EmptyOptions), vec![lhs, rhs])
     }
 }
 
@@ -174,8 +169,8 @@ impl ScalarFnVTable for InnerProduct {
         true
     }
 
-    fn is_fallible(&self, _options: &Self::Options) -> bool {
-        false
+    fn is_infallible(&self, _options: &Self::Options) -> bool {
+        true
     }
 }
 
@@ -224,7 +219,7 @@ impl InnerProduct {
         let norms_l: PrimitiveArray = norms_l.execute(ctx)?;
         let norms_r: PrimitiveArray = norms_r.execute(ctx)?;
 
-        let dot: PrimitiveArray = InnerProduct::try_new_array(normalized_l, normalized_r)?
+        let dot: PrimitiveArray = InnerProduct::try_new(normalized_l, normalized_r)?
             .into_array()
             .execute(ctx)?;
 
@@ -256,7 +251,7 @@ impl InnerProduct {
         let (normalized, norms) = extract_normalized_children(normalized_ref);
         let normalized_norms: PrimitiveArray = norms.execute(ctx)?;
 
-        let dot: PrimitiveArray = InnerProduct::try_new_array(normalized, plain_ref.clone())?
+        let dot: PrimitiveArray = InnerProduct::try_new(normalized, plain_ref.clone())?
             .into_array()
             .execute(ctx)?;
 
@@ -291,7 +286,6 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::MaskedArray;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::ScalarFnArray;
     use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
@@ -306,8 +300,7 @@ mod tests {
 
     /// Evaluates inner product between two tensor arrays and returns the result as `Vec<f64>`.
     fn eval_inner_product(lhs: ArrayRef, rhs: ArrayRef) -> VortexResult<Vec<f64>> {
-        let scalar_fn = InnerProduct::new().erased();
-        let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs])?;
+        let result = InnerProduct::try_new(lhs, rhs)?;
         let mut ctx = SESSION.create_execution_ctx();
         let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
         Ok(prim.as_slice::<f64>().to_vec())
@@ -384,8 +377,7 @@ mod tests {
         let rhs = tensor_array(&[2], &[7.0, 8.0, 9.0, 10.0, 11.0, 12.0])?;
         let lhs = MaskedArray::try_new(lhs, Validity::from_iter([true, false, true]))?.into_array();
 
-        let scalar_fn = InnerProduct::new().erased();
-        let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs])?;
+        let result = InnerProduct::try_new(lhs, rhs)?;
         let mut ctx = SESSION.create_execution_ctx();
         let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
 
@@ -402,7 +394,7 @@ mod tests {
     fn rejects_non_extension_dtype() {
         let lhs = PrimitiveArray::from_iter([1.0_f64, 2.0]).into_array();
         let rhs = PrimitiveArray::from_iter([3.0_f64, 4.0]).into_array();
-        let result = InnerProduct::try_new_array(lhs, rhs);
+        let result = InnerProduct::try_new(lhs, rhs);
         assert!(result.is_err());
     }
 
@@ -410,7 +402,7 @@ mod tests {
     fn rejects_mismatched_dtypes() -> VortexResult<()> {
         let lhs = tensor_array(&[2], &[1.0_f64, 2.0])?;
         let rhs = vector_array(2, &[3.0_f64, 4.0])?;
-        let result = InnerProduct::try_new_array(lhs, rhs);
+        let result = InnerProduct::try_new(lhs, rhs);
         assert!(result.is_err());
         Ok(())
     }
@@ -477,8 +469,7 @@ mod tests {
         let lhs = Normalized::try_new(normalized_l, norms_l, validity, &mut ctx)?.into_array();
         let rhs = normalized_array(&[2], &[0.6, 0.8, 1.0, 0.0], &[5.0, 1.0], &mut ctx)?;
 
-        let scalar_fn = InnerProduct::new().erased();
-        let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs])?;
+        let result = InnerProduct::try_new(lhs, rhs)?;
         let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
 
         // Row 0: 5.0 * 5.0 * dot([0.6, 0.8], [0.6, 0.8]) = 25.0, row 1: null.
@@ -492,7 +483,7 @@ mod tests {
     #[case::vector(inner_product_vector_lhs(), inner_product_vector_rhs())]
     #[case::fixed_shape_tensor(inner_product_tensor_lhs(), inner_product_tensor_rhs())]
     fn serde_round_trip(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) -> VortexResult<()> {
-        let original = InnerProduct::try_new_array(lhs.clone(), rhs.clone())?.into_array();
+        let original = InnerProduct::try_new(lhs.clone(), rhs.clone())?.into_array();
 
         let plugin = ScalarFnArrayPlugin::new(InnerProduct);
         let metadata = plugin

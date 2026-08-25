@@ -50,7 +50,7 @@ pub struct SpatialIntersects;
 impl SpatialIntersects {
     /// A lazy `ScalarFnArray` computing per-row whether operands `a` and `b` intersect; either may
     /// be constant. The output length is taken from `a`.
-    pub fn try_new_array(a: ArrayRef, b: ArrayRef) -> VortexResult<ScalarFnArray> {
+    pub fn try_new(a: ArrayRef, b: ArrayRef) -> VortexResult<ScalarFnArray> {
         ScalarFnArray::try_new(
             TypedScalarFnInstance::new(SpatialIntersects, EmptyOptions).erased(),
             vec![a, b],
@@ -123,8 +123,8 @@ impl ScalarFnVTable for SpatialIntersects {
         true
     }
 
-    fn is_fallible(&self, _: &Self::Options) -> bool {
-        false
+    fn is_infallible(&self, _: &Self::Options) -> bool {
+        true
     }
 }
 
@@ -216,7 +216,7 @@ mod tests {
     ) -> VortexResult<()> {
         let session = vortex_array::array_session();
         let mut ctx = session.create_execution_ctx();
-        let intersects = SpatialIntersects::try_new_array(a, b)?.into_array();
+        let intersects = SpatialIntersects::try_new(a, b)?.into_array();
         assert_arrays_eq!(intersects, BoolArray::from_iter(expected), &mut ctx);
         Ok(())
     }
@@ -302,9 +302,8 @@ mod tests {
         let constant = geometry_constant(&donut(), 4)?;
         let column = materialize(constant.clone(), &mut ctx)?;
 
-        let against_constant =
-            SpatialIntersects::try_new_array(donut_probes()?, constant)?.into_array();
-        let pairwise = SpatialIntersects::try_new_array(donut_probes()?, column)?.into_array();
+        let against_constant = SpatialIntersects::try_new(donut_probes()?, constant)?.into_array();
+        let pairwise = SpatialIntersects::try_new(donut_probes()?, column)?.into_array();
 
         assert_arrays_eq!(against_constant, pairwise, &mut ctx);
         Ok(())
@@ -341,7 +340,7 @@ mod tests {
 
         let points = nullable_point_column(vec![Some((2.0, 2.0)), None, Some((20.0, 20.0))])?;
         let query = geometry_constant(&donut(), 3)?;
-        let intersects = SpatialIntersects::try_new_array(points, query)?.into_array();
+        let intersects = SpatialIntersects::try_new(points, query)?.into_array();
 
         let expected = BoolArray::new(
             BitBuffer::from_iter([true, false, false]),
@@ -361,7 +360,7 @@ mod tests {
         let point_dtype = point_column(vec![0.0], vec![0.0])?.dtype().as_nullable();
         let null_const = ConstantArray::new(Scalar::null(point_dtype), 2).into_array();
         let points = point_column(vec![2.0, 20.0], vec![2.0, 20.0])?;
-        let intersects = SpatialIntersects::try_new_array(null_const, points)?.into_array();
+        let intersects = SpatialIntersects::try_new(null_const, points)?.into_array();
 
         let expected =
             BoolArray::new(BitBuffer::from_iter([false, false]), Validity::AllInvalid).into_array();
@@ -388,7 +387,7 @@ mod tests {
             None,
             Some((9.0, 9.0)),
         ])?;
-        let intersects = SpatialIntersects::try_new_array(a, b)?.into_array();
+        let intersects = SpatialIntersects::try_new(a, b)?.into_array();
 
         let expected = BoolArray::new(
             BitBuffer::from_iter([true, false, false, false]),
@@ -407,7 +406,7 @@ mod tests {
 
         let points = nullable_point_column(vec![None, None])?;
         let query = geometry_constant(&donut(), 2)?;
-        let intersects = SpatialIntersects::try_new_array(points, query)?.into_array();
+        let intersects = SpatialIntersects::try_new(points, query)?.into_array();
 
         let expected =
             BoolArray::new(BitBuffer::from_iter([false, false]), Validity::AllInvalid).into_array();
@@ -424,7 +423,7 @@ mod tests {
 
         let a = nullable_point_column(vec![Some((0.0, 0.0)), None])?;
         let b = nullable_point_column(vec![None, Some((1.0, 1.0))])?;
-        let intersects = SpatialIntersects::try_new_array(a, b)?.into_array();
+        let intersects = SpatialIntersects::try_new(a, b)?.into_array();
 
         let expected =
             BoolArray::new(BitBuffer::from_iter([false, false]), Validity::AllInvalid).into_array();

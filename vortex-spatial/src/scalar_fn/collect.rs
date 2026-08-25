@@ -250,7 +250,7 @@ pub struct SpatialCollect;
 
 impl SpatialCollect {
     /// Create a lazy scalar array that converts each geometry-list row to one multi-geometry row.
-    pub fn try_new_array(geometry_lists: ArrayRef) -> VortexResult<ScalarFnArray> {
+    pub fn try_new(geometry_lists: ArrayRef) -> VortexResult<ScalarFnArray> {
         ScalarFnArray::try_new(
             TypedScalarFnInstance::new(SpatialCollect, EmptyOptions).erased(),
             vec![geometry_lists],
@@ -317,8 +317,8 @@ impl ScalarFnVTable for SpatialCollect {
         true
     }
 
-    fn is_fallible(&self, _: &Self::Options) -> bool {
-        false
+    fn is_infallible(&self, _: &Self::Options) -> bool {
+        true
     }
 }
 
@@ -376,7 +376,7 @@ mod tests {
     /// Assert that `ST_Collect` of `input` equals `expected`.
     fn assert_collects(input: ArrayRef, expected: ArrayRef) -> VortexResult<()> {
         let mut ctx = vortex_array::array_session().create_execution_ctx();
-        let result = SpatialCollect::try_new_array(input)?.into_array();
+        let result = SpatialCollect::try_new(input)?.into_array();
 
         assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
@@ -427,7 +427,7 @@ mod tests {
             .clone();
         let input = list(points, &[0, 2, 3])?;
 
-        let result = SpatialCollect::try_new_array(input)?
+        let result = SpatialCollect::try_new(input)?
             .into_array()
             .execute::<ExtensionArray>(&mut ctx)?;
         let result_storage = result
@@ -460,7 +460,7 @@ mod tests {
             "a list column reaches collect as an exact list view"
         );
 
-        let storage = SpatialCollect::try_new_array(input)?
+        let storage = SpatialCollect::try_new(input)?
             .into_array()
             .execute::<ExtensionArray>(&mut ctx)?
             .storage_array()
@@ -513,7 +513,7 @@ mod tests {
         let scalar = input.execute_scalar(0, &mut ctx)?;
         let input = ConstantArray::new(scalar, 3).into_array();
 
-        let result = SpatialCollect::try_new_array(input)?.into_array();
+        let result = SpatialCollect::try_new(input)?.into_array();
         let Columnar::Constant(constant) = result.clone().execute::<Columnar>(&mut ctx)? else {
             return Err(vortex_err!(
                 "collect of a constant list should remain constant"
@@ -565,10 +565,10 @@ mod tests {
     #[test]
     fn rejects_unsupported_inputs() -> VortexResult<()> {
         let point = point_column(vec![0.0], vec![0.0])?;
-        assert!(SpatialCollect::try_new_array(point).is_err());
+        assert!(SpatialCollect::try_new(point).is_err());
 
         let multipoints = multipoint_column(vec![vec![(0.0, 0.0)]])?;
-        assert!(SpatialCollect::try_new_array(list(multipoints, &[0, 1])?).is_err());
+        assert!(SpatialCollect::try_new(list(multipoints, &[0, 1])?).is_err());
 
         let primitive = DType::Primitive(PType::F64, Nullability::NonNullable);
         assert!(

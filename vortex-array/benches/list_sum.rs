@@ -37,9 +37,10 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_sess
 
 const BASE_LIST_SIZE: usize = 8;
 
+// Sized to keep the CodSpeed simulation under 1ms per benchmark.
 const SMALL: usize = 100;
-const MEDIUM: usize = 10_000;
-const LARGE: usize = 1_000_000;
+const MEDIUM: usize = 250;
+const LARGE: usize = 500;
 
 /// A uniformly-random partition of `num_lists * BASE_LIST_SIZE` elements into `num_lists`
 /// lists, plus a validity mask with ~1/8 of lists null at random positions.

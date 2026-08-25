@@ -103,7 +103,11 @@ fn map_each<B: MapEach<i32, u32> + FromIterator<i32>>(bencher: Bencher, n: i32) 
         .bench_values(|buffer| B::map_each(buffer, |i| (i as u32) + 1));
 }
 
-#[divan::bench(args = INPUT_SIZE)]
+/// Element-at-a-time pushes cost tens of nanoseconds each, so cap the top size to keep the
+/// benchmark runtime bounded.
+const PUSH_INPUT_SIZE: &[i32] = &[128, 1024, 2048, 16_384, 32_768];
+
+#[divan::bench(args = PUSH_INPUT_SIZE)]
 fn push_vortex_buffer(bencher: Bencher, length: i32) {
     bencher
         .with_inputs(|| BufferMut::<i32>::with_capacity(length as usize))
@@ -114,7 +118,7 @@ fn push_vortex_buffer(bencher: Bencher, length: i32) {
         });
 }
 
-#[divan::bench(args = INPUT_SIZE)]
+#[divan::bench(args = PUSH_INPUT_SIZE)]
 fn push_arrow_buffer(bencher: Bencher, length: i32) {
     bencher
         .with_inputs(|| {

@@ -35,15 +35,21 @@ static GLOBAL: MiMalloc = MiMalloc;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(spatial_session);
 
-const ROWS: usize = 512;
+/// Hull cost under CodSpeed's CPU simulation is a few microseconds per row and grows with points
+/// per row, so each case sizes its row count to stay inside the 1 ms per-iteration budget from
+/// `docs/developer-guide/benchmarking.md`.
+const ROWS: usize = 64;
+
+/// Row count for the 64-point case, whose per-row hull costs roughly four times the 8-point one.
+const LARGE_HULL_ROWS: usize = 16;
 
 fn main() {
     divan::main();
 }
 
-fn multipoints(points_per_row: usize) -> ArrayRef {
+fn multipoints(rows: usize, points_per_row: usize) -> ArrayRef {
     multipoint_column(
-        (0..ROWS)
+        (0..rows)
             .map(|row| {
                 (0..points_per_row)
                     .map(|point| {
@@ -59,7 +65,7 @@ fn multipoints(points_per_row: usize) -> ArrayRef {
 }
 
 fn hulls(input: &ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
-    SpatialConvexHull::try_new_array(input.clone())
+    SpatialConvexHull::try_new(input.clone())
         .unwrap()
         .into_array()
         .execute::<Canonical>(ctx)
@@ -70,24 +76,24 @@ fn hulls(input: &ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
 fn bench_hulls(bencher: Bencher, input: ArrayRef) {
     let mut ctx = SESSION.create_execution_ctx();
     bencher
-        .counter(ItemsCount::new(ROWS))
+        .counter(ItemsCount::new(input.len()))
         .bench_local(|| hulls(&input, &mut ctx));
 }
 
 #[divan::bench]
 fn eight_points(bencher: Bencher) {
-    bench_hulls(bencher, multipoints(8));
+    bench_hulls(bencher, multipoints(ROWS, 8));
 }
 
 #[divan::bench]
 fn sixty_four_points(bencher: Bencher) {
-    bench_hulls(bencher, multipoints(64));
+    bench_hulls(bencher, multipoints(LARGE_HULL_ROWS, 64));
 }
 
 #[divan::bench]
 fn nullable_eight_points(bencher: Bencher) {
     let input = MaskedArray::try_new(
-        multipoints(8),
+        multipoints(ROWS, 8),
         Validity::from_iter((0..ROWS).map(|row| !row.is_multiple_of(8))),
     )
     .unwrap()

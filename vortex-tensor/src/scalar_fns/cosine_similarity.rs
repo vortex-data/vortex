@@ -23,7 +23,7 @@ use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
-use vortex_array::scalar_fn::TypedScalarFnInstance;
+use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::serde::ArrayChildren;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
@@ -59,11 +59,6 @@ use crate::utils::validate_binary_tensor_float_inputs;
 pub struct CosineSimilarity;
 
 impl CosineSimilarity {
-    /// Creates a new [`TypedScalarFnInstance`] wrapping the cosine similarity operation.
-    pub fn new() -> TypedScalarFnInstance<CosineSimilarity> {
-        TypedScalarFnInstance::new(CosineSimilarity, EmptyOptions)
-    }
-
     /// Constructs a [`ScalarFnArray`] that lazily computes the cosine similarity between `lhs` and
     /// `rhs`.
     ///
@@ -71,8 +66,8 @@ impl CosineSimilarity {
     ///
     /// Returns an error if the [`ScalarFnArray`] cannot be constructed (e.g. due to dtype
     /// mismatches).
-    pub fn try_new_array(lhs: ArrayRef, rhs: ArrayRef) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(CosineSimilarity::new().erased(), vec![lhs, rhs])
+    pub fn try_new(lhs: ArrayRef, rhs: ArrayRef) -> VortexResult<ScalarFnArray> {
+        ScalarFnArray::try_new(CosineSimilarity.bind(EmptyOptions), vec![lhs, rhs])
     }
 }
 
@@ -142,9 +137,9 @@ impl ScalarFnVTable for CosineSimilarity {
         let validity = lhs_ref.validity()?.and(rhs_ref.validity()?)?;
 
         // Compute inner product and norms as columnar operations, and propagate the options.
-        let norm_lhs_arr = L2Norm::try_new_array(lhs_ref.clone())?;
-        let norm_rhs_arr = L2Norm::try_new_array(rhs_ref.clone())?;
-        let dot_arr = InnerProduct::try_new_array(lhs_ref, rhs_ref)?;
+        let norm_lhs_arr = L2Norm::try_new(lhs_ref.clone())?;
+        let norm_rhs_arr = L2Norm::try_new(rhs_ref.clone())?;
+        let dot_arr = InnerProduct::try_new(lhs_ref, rhs_ref)?;
 
         // Execute to get the inner product and norms of the arrays. We only fully decompress
         // because we need to perform special logic (guard against 0) during division.
@@ -188,8 +183,8 @@ impl ScalarFnVTable for CosineSimilarity {
         true
     }
 
-    fn is_fallible(&self, _options: &Self::Options) -> bool {
-        false
+    fn is_infallible(&self, _options: &Self::Options) -> bool {
+        true
     }
 }
 
@@ -239,7 +234,7 @@ impl CosineSimilarity {
         // `Normalized` makes the normalized children authoritative, so their dot product is the
         // cosine similarity even for lossy storage wrappers, except that a zero stored norm still
         // represents a zero vector.
-        let dot: PrimitiveArray = InnerProduct::try_new_array(normalized_l, normalized_r)?
+        let dot: PrimitiveArray = InnerProduct::try_new(normalized_l, normalized_r)?
             .into_array()
             .execute(ctx)?;
         let norms_l: PrimitiveArray = norms_l.execute(ctx)?;
@@ -281,12 +276,12 @@ impl CosineSimilarity {
 
         let (normalized, normalized_norms) = extract_normalized_children(normalized_ref);
 
-        let dot_arr = InnerProduct::try_new_array(normalized, plain_ref.clone())?;
+        let dot_arr = InnerProduct::try_new(normalized, plain_ref.clone())?;
         let dot: PrimitiveArray = dot_arr.into_array().execute(ctx)?;
 
         let normalized_norms: PrimitiveArray = normalized_norms.execute(ctx)?;
 
-        let norm_arr = L2Norm::try_new_array(plain_ref.clone())?;
+        let norm_arr = L2Norm::try_new(plain_ref.clone())?;
         let plain_norm: PrimitiveArray = norm_arr.into_array().execute(ctx)?;
 
         // TODO(connor): Ideally we would have a `SafeDiv` binary numeric operation.
@@ -321,7 +316,6 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::MaskedArray;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::ScalarFnArray;
     use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
@@ -338,8 +332,7 @@ mod tests {
 
     /// Evaluates cosine similarity between two tensor arrays and returns the result as `Vec<f64>`.
     fn eval_cosine_similarity(lhs: ArrayRef, rhs: ArrayRef) -> VortexResult<Vec<f64>> {
-        let scalar_fn = CosineSimilarity::new().erased();
-        let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs])?;
+        let result = CosineSimilarity::try_new(lhs, rhs)?;
         let mut ctx = SESSION.create_execution_ctx();
         let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
         Ok(prim.as_slice::<f64>().to_vec())
@@ -503,8 +496,7 @@ mod tests {
         let rhs = tensor_array(&[2], &[3.0, 4.0, 0.0, 1.0])?;
         let rhs = MaskedArray::try_new(rhs, Validity::from_iter([true, false]))?.into_array();
 
-        let scalar_fn = CosineSimilarity::new().erased();
-        let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs])?;
+        let result = CosineSimilarity::try_new(lhs, rhs)?;
         let mut ctx = SESSION.create_execution_ctx();
         let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
 
@@ -587,8 +579,7 @@ mod tests {
         let validity = Validity::from_iter([true, false]);
         let rhs = Normalized::try_new(normalized_r, norms_r, validity, &mut ctx)?.into_array();
 
-        let scalar_fn = CosineSimilarity::new().erased();
-        let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs])?;
+        let result = CosineSimilarity::try_new(lhs, rhs)?;
         let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
 
         assert!(prim.is_valid(0, &mut ctx)?);
@@ -761,7 +752,7 @@ mod tests {
     #[case::vector(cosine_vector_lhs(), cosine_vector_rhs())]
     #[case::fixed_shape_tensor(cosine_tensor_lhs(), cosine_tensor_rhs())]
     fn serde_round_trip(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) -> VortexResult<()> {
-        let original = CosineSimilarity::try_new_array(lhs.clone(), rhs.clone())?.into_array();
+        let original = CosineSimilarity::try_new(lhs.clone(), rhs.clone())?.into_array();
 
         let plugin = ScalarFnArrayPlugin::new(CosineSimilarity);
         let metadata = plugin

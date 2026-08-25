@@ -89,7 +89,7 @@ pub fn open(
 
             match resolve_store(path, store.map(|x| x.into_inner()))? {
                 ResolvedStore::ObjectStore(store, path) => {
-                    options.open_object_store(&store, path.as_ref()).await
+                    options.open_object_store(&store, path).await
                 }
                 ResolvedStore::Path(path) => options.open_path(path).await,
             }

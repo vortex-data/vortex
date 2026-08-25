@@ -29,7 +29,6 @@ itertools = { workspace = true }
 kanal = { workspace = true }
 moka = { workspace = true, features = ["future"] }
 once_cell = { workspace = true, features = ["parking_lot"] }
-oneshot = { workspace = true }
 parking_lot = { workspace = true }
 paste = { workspace = true }
 pin-project-lite = { workspace = true }
@@ -55,6 +54,7 @@ vortex-session = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }
 
 [dev-dependencies]
+divan = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 insta = { workspace = true }
 rstest = { workspace = true }
@@ -64,8 +64,20 @@ vortex-array = { path = "../vortex-array", features = ["_test-harness"] }
 vortex-io = { path = "../vortex-io", features = ["tokio"] }
 
 [features]
+default = ["wasm-bindgen"]
 _test-harness = []
 tokio = ["dep:tokio", "vortex-error/tokio"]
+# `moka` enables uuid's `v4`, which needs a randomness source on wasm32-unknown-unknown.
+# Disable this to supply your own instead, by depending on uuid from your own manifest with
+# one of `js`, `rng-getrandom` (plus a getrandom backend), or `rng-rand` enabled.
+wasm-bindgen = ["dep:uuid"]
+
+[[bench]]
+name = "zone_map_prune"
+harness = false
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+uuid = { workspace = true, features = ["js"], optional = true }
 
 [lints]
 workspace = true

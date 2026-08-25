@@ -19,7 +19,8 @@ fn main() {
 
 const ARRAY_LEN: usize = 1_000_000;
 const NUM_PATCHES: usize = 100;
-const NUM_QUERIES: usize = 1_000;
+// Sized to keep CodSpeed simulation under 1ms per benchmark.
+const NUM_QUERIES: usize = 100;
 
 const PATCH_LOW: usize = 100_000;
 const PATCH_HIGH: usize = 110_000;

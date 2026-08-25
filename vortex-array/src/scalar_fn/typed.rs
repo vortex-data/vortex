@@ -81,7 +81,6 @@ pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
     // Bound methods — options accessed from self
     fn execute(&self, args: &dyn ExecutionArgs, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
     fn return_dtype(&self, arg_types: &[DType]) -> VortexResult<DType>;
-    fn coerce_args(&self, arg_types: &[DType]) -> VortexResult<Vec<DType>>;
     fn reduce_expression<'a>(
         &self,
         node: &ExpressionReduceNode<'a>,
@@ -93,7 +92,7 @@ pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
     fn arity(&self) -> Arity;
     fn child_name(&self, child_idx: usize) -> ChildName;
     fn is_strict(&self) -> bool;
-    fn is_fallible(&self) -> bool;
+    fn is_infallible(&self) -> bool;
 
     // Expression methods — take expressions for tree traversal
     fn fmt_sql(&self, expression: &dyn ExprDisplay, f: &mut Formatter<'_>) -> fmt::Result;
@@ -167,10 +166,6 @@ impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
         V::return_dtype(&self.vtable, &self.options, arg_dtypes)
     }
 
-    fn coerce_args(&self, arg_types: &[DType]) -> VortexResult<Vec<DType>> {
-        V::coerce_args(&self.vtable, &self.options, arg_types)
-    }
-
     fn reduce_expression<'a>(
         &self,
         node: &ExpressionReduceNode<'a>,
@@ -197,8 +192,8 @@ impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
         V::is_strict(&self.vtable, &self.options)
     }
 
-    fn is_fallible(&self) -> bool {
-        V::is_fallible(&self.vtable, &self.options)
+    fn is_infallible(&self) -> bool {
+        V::is_infallible(&self.vtable, &self.options)
     }
 
     fn fmt_sql(&self, expression: &dyn ExprDisplay, f: &mut Formatter<'_>) -> fmt::Result {

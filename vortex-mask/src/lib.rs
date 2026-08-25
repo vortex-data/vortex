@@ -109,7 +109,7 @@ pub enum Mask {
     /// No values are included.
     AllFalse(usize),
     /// Some values are included, represented as a [`BitBuffer`].
-    Values(Arc<MaskValues>),
+    Values(MaskValuesRef),
 }
 
 impl Debug for Mask {
@@ -145,6 +145,9 @@ pub struct MaskValues {
     // i.e., the fraction of values that are true
     density: f64,
 }
+
+/// A shared reference to [`MaskValues`].
+pub type MaskValuesRef = Arc<MaskValues>;
 
 impl Debug for MaskValues {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

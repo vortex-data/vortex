@@ -27,6 +27,8 @@ itertools = { workspace = true }
 lance-bench = { path = "../lance-bench", optional = true }
 parquet = { workspace = true }
 regex = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 tempfile = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
@@ -45,7 +47,6 @@ name = "compress-bench"
 test = false
 
 [lib]
-test = false
 
 [lints]
 workspace = true

@@ -17,6 +17,7 @@ use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
 use crate::plan::check_child_count;
+use crate::plan::optimizer::PlanReduceRule;
 
 /// Applies an expression to the output of its child.
 #[derive(Clone, Debug)]
@@ -122,4 +123,18 @@ fn validate_expression_child(expression: &BoundExpression, child: &PlanRef) -> V
         );
     }
     Ok(())
+}
+
+/// Removes an [`Eval`] whose expression is the identity expression.
+#[derive(Debug)]
+pub(crate) struct EvalIdentityRule;
+
+impl PlanReduceRule<Eval> for EvalIdentityRule {
+    fn reduce(&self, plan: &Plan<Eval>) -> VortexResult<Option<PlanRef>> {
+        if plan.expression().is_root() {
+            Ok(Some(plan.child_plan()?))
+        } else {
+            Ok(None)
+        }
+    }
 }

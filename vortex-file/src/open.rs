@@ -477,10 +477,12 @@ async fn resolve_metadata(
 #[cfg(feature = "object_store")]
 impl VortexOpenOptions {
     /// Open a Vortex file from an `object_store` backend and path.
+    ///
+    /// `path` is the object's *literal* key, exactly as the store holds it.
     pub async fn open_object_store(
         self,
         object_store: &Arc<dyn object_store::ObjectStore>,
-        path: &str,
+        path: object_store::path::Path,
     ) -> VortexResult<VortexFile> {
         use vortex_io::object_store::ObjectStoreReadAt;
 
@@ -488,7 +490,7 @@ impl VortexOpenOptions {
         let allocator = self.session.allocator();
         let source = Arc::new(ObjectStoreReadAt::new_with_allocator(
             Arc::clone(object_store),
-            path.into(),
+            path,
             handle,
             allocator,
         ));

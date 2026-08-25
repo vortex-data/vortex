@@ -16,10 +16,15 @@ pub fn fixtures() -> Vec<Box<dyn DatasetFixture>> {
 
 #[cfg(test)]
 mod tests {
+    use vortex::VortexSessionDefault;
     use vortex::compressor::BtrBlocksCompressorBuilder;
+    use vortex::editions::CORE_2026_08_3;
+    use vortex::editions::EditionSessionExt;
     use vortex::file::WriteStrategyBuilder;
-    use vortex_array::array_session;
+    use vortex::session::VortexSession;
     use vortex_arrow::ArrowSessionExt;
+    use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
 
     use super::fixtures;
     use crate::adapter;
@@ -29,28 +34,32 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_non_clickbench_fixtures_to_bytes() {
-        let session = array_session();
+    fn roundtrip_non_clickbench_fixtures_to_bytes() -> VortexResult<()> {
+        let session = VortexSession::default();
+        session
+            .enable_edition(CORE_2026_08_3)
+            .map_err(|error| vortex_err!("{error}"))?;
         for dataset in fixtures()
             .into_iter()
             .filter(|fixture| !is_clickbench_fixture(fixture.name()))
         {
-            let array = dataset.build(&session.arrow()).unwrap();
-            let regular_bytes = adapter::write_compressed_to_bytes(
+            let array = dataset.build(&session.arrow())?;
+            let regular_bytes = adapter::write_compressed_to_bytes_with_session(
+                &session,
                 array.clone(),
                 WriteStrategyBuilder::default().build(),
-            )
-            .unwrap();
-            let _regular = adapter::read_file(regular_bytes).unwrap();
+            )?;
+            let _regular = adapter::read_file(regular_bytes)?;
 
-            let compact_bytes = adapter::write_compressed_to_bytes(
+            let compact_bytes = adapter::write_compressed_to_bytes_with_session(
+                &session,
                 array,
                 WriteStrategyBuilder::default()
                     .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact())
                     .build(),
-            )
-            .unwrap();
-            let _compact = adapter::read_file(compact_bytes).unwrap();
+            )?;
+            let _compact = adapter::read_file(compact_bytes)?;
         }
+        Ok(())
     }
 }

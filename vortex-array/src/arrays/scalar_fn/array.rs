@@ -87,13 +87,16 @@ impl Array<ScalarFn> {
         children: Vec<ArrayRef>,
         len: usize,
     ) -> VortexResult<Self> {
+        Self::validate_arity(&scalar_fn, children.len())?;
         Self::validate_children_len(&children, len)?;
+
         let arg_dtypes: Vec<_> = children.iter().map(|c| c.dtype().clone()).collect();
         let dtype = scalar_fn.return_dtype(&arg_dtypes)?;
         let data = ScalarFnData {
             scalar_fn: scalar_fn.clone(),
         };
         let vtable = ScalarFn { id: scalar_fn.id() };
+
         Ok(unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(vtable, dtype, len, data)
@@ -107,6 +110,15 @@ impl Array<ScalarFn> {
             vortex_bail!("ScalarFnArray length cannot be inferred without children");
         };
         Ok(child.len())
+    }
+
+    fn validate_arity(scalar_fn: &ScalarFnRef, child_count: usize) -> VortexResult<()> {
+        let arity = scalar_fn.signature().arity();
+        vortex_ensure!(
+            arity.matches(child_count),
+            "ScalarFnArray requires {arity} children, got {child_count}"
+        );
+        Ok(())
     }
 
     fn validate_children_len(children: &[ArrayRef], len: usize) -> VortexResult<()> {

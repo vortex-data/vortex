@@ -12,7 +12,6 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::Scalar;
@@ -47,7 +46,7 @@ fn runend_array() -> VortexResult<ArrayRef> {
 fn trace_compare_on_runend() -> VortexResult<()> {
     let runend = runend_array()?;
     let rhs = ConstantArray::new(Scalar::from(2i32), runend.len()).into_array();
-    let compared = Binary.try_new_array(runend.len(), Operator::Eq, [runend, rhs])?;
+    let compared = Binary::try_new(runend, rhs, Operator::Eq)?.into_array();
 
     let traced = trace_op(|| compared.optimize())?;
     insta::assert_snapshot!(traced.trace.to_string(), @"

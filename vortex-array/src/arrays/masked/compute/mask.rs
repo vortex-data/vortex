@@ -4,11 +4,10 @@
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Masked;
 use crate::arrays::masked::MaskedArraySlotsExt;
-use crate::arrays::scalar_fn::ScalarFnFactoryExt;
-use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::fns::mask::Mask as MaskExpr;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
@@ -20,11 +19,7 @@ impl MaskReduce for Masked {
             .validity()?
             .and(Validity::Array(mask.clone()))?
             .to_array(array.len());
-        let masked_child = MaskExpr.try_new_array(
-            array.child().len(),
-            EmptyOptions,
-            [array.child().clone(), combined_mask],
-        )?;
+        let masked_child = MaskExpr::try_new(array.child().clone(), combined_mask)?.into_array();
         Ok(Some(masked_child))
     }
 }

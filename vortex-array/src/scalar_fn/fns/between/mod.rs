@@ -21,6 +21,7 @@ use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::Decimal;
 use crate::arrays::Primitive;
+use crate::arrays::ScalarFnArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::DType::Bool;
@@ -32,7 +33,7 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::fns::operators::CompareOperator;
+use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::operators::Operator;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -67,13 +68,6 @@ pub enum StrictComparison {
 }
 
 impl StrictComparison {
-    pub const fn to_compare_operator(&self) -> CompareOperator {
-        match self {
-            StrictComparison::Strict => CompareOperator::Lt,
-            StrictComparison::NonStrict => CompareOperator::Lte,
-        }
-    }
-
     pub const fn to_operator(&self) -> Operator {
         match self {
             StrictComparison::Strict => Operator::Lt,
@@ -86,18 +80,17 @@ impl StrictComparison {
     }
 }
 
-/// Common preconditions for between operations that apply to all arrays.
+/// Short-circuits between for the inputs that need no encoding-specific work.
 ///
-/// Returns `Some(result)` if the precondition short-circuits the between operation
-/// (empty array, null bounds), or `None` if between must proceed with the
-/// encoding-specific implementation. Kernels can therefore rely on both bounds being
-/// non-null.
+/// Returns `Some(result)` when the answer is already known (empty array, null bounds), or `None`
+/// when between must proceed with the encoding-specific implementation. Kernels can therefore rely
+/// on both bounds being non-null.
 ///
 /// The result can be a lazy [`ScalarFn`] array, so a caller that needs a computed array
 /// **must** execute it.
 ///
 /// [`ScalarFn`]: crate::arrays::ScalarFn
-pub(super) fn precondition(
+pub(super) fn short_circuit(
     arr: &ArrayRef,
     lower: &ArrayRef,
     upper: &ArrayRef,
@@ -155,7 +148,7 @@ fn between_canonical(
     options: &BetweenOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    if let Some(result) = precondition(arr, lower, upper, options)? {
+    if let Some(result) = short_circuit(arr, lower, upper, options)? {
         // TODO(joe): return the lazy array directly, blocked on the same executor support as the
         // fallback below. Only the single-null-bound case is lazy, so this forces it for now.
         return result.execute::<ArrayRef>(ctx);
@@ -192,6 +185,22 @@ fn between_canonical(
 /// separate comparisons combined with a logical AND.
 #[derive(Clone)]
 pub struct Between;
+
+impl Between {
+    /// Creates a lazy between operation over an array and its bounds.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the children have different lengths or incompatible dtypes.
+    pub fn try_new(
+        array: ArrayRef,
+        lower: ArrayRef,
+        upper: ArrayRef,
+        options: BetweenOptions,
+    ) -> VortexResult<ScalarFnArray> {
+        ScalarFnArray::try_new(Between.bind(options), vec![array, lower, upper])
+    }
+}
 
 impl ScalarFnVTable for Between {
     type Options = BetweenOptions;
@@ -335,8 +344,8 @@ impl ScalarFnVTable for Between {
         false
     }
 
-    fn is_fallible(&self, _options: &Self::Options) -> bool {
-        false
+    fn is_infallible(&self, _options: &Self::Options) -> bool {
+        true
     }
 }
 

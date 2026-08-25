@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use futures::future::BoxFuture;
+use futures::future::abortable;
 use wasm_bindgen_futures::spawn_local;
 
 use crate::runtime::AbortHandle;
@@ -12,7 +13,10 @@ use crate::runtime::AbortHandleRef;
 use crate::runtime::Executor;
 use crate::runtime::Handle;
 
-/// A Vortex runtime that drives work in a WebAssembly environment.
+/// A Vortex runtime that drives work on the JavaScript event loop.
+///
+/// This requires the `wasm-bindgen` feature. In a WebAssembly environment with no JavaScript
+/// event loop, drive a [`crate::runtime::single::SingleThreadRuntime`] instead.
 pub struct WasmRuntime;
 
 impl WasmRuntime {
@@ -25,13 +29,16 @@ impl WasmRuntime {
 
 impl Executor for WasmRuntime {
     fn spawn(&self, fut: BoxFuture<'static, ()>) -> AbortHandleRef {
-        spawn_local(fut);
-        Box::new(NoOpAbortHandle)
+        // `spawn_local` is fire-and-forget, so make the future abortable to keep the
+        // cancel-on-drop semantics of the other runtimes.
+        let (fut, handle) = abortable(fut);
+        spawn_local(async move {
+            let _ = fut.await;
+        });
+        Box::new(FuturesAbortHandle(handle))
     }
 
     fn spawn_cpu(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
-        // TODO(ngates): we could in-theory use the abort-handle to cancel the CPU work if we
-        //  are aborted before we start running.
         spawn_local(async move { task() });
         Box::new(NoOpAbortHandle)
     }
@@ -39,6 +46,18 @@ impl Executor for WasmRuntime {
     fn spawn_blocking_io(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
         spawn_local(async move { task() });
         Box::new(NoOpAbortHandle)
+    }
+}
+
+/// An abort handle for a future spawned onto the JavaScript event loop.
+///
+/// [`futures::future::AbortHandle`] already matches this crate's semantics: dropping it detaches
+/// the future, while aborting wakes it so the event loop drops it on the next poll.
+struct FuturesAbortHandle(futures::future::AbortHandle);
+
+impl AbortHandle for FuturesAbortHandle {
+    fn abort(self: Box<Self>) {
+        self.0.abort();
     }
 }
 

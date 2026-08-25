@@ -3,6 +3,7 @@
 
 import importlib.util
 import json
+import math
 import subprocess
 import sys
 from pathlib import Path
@@ -26,10 +27,10 @@ def load_compare_module():
 def timing_row(name: str, base: int, pr: int) -> dict[str, object]:
     return {
         "name": name,
-        "value_base": base,
-        "value_pr": pr,
-        "all_runtimes_base": [base, base, base],
-        "all_runtimes_pr": [pr, pr, pr],
+        "hot_value_base": base,
+        "hot_value_pr": pr,
+        "hot_runtimes_base": [base, base, base],
+        "hot_runtimes_pr": [pr, pr, pr],
     }
 
 
@@ -41,12 +42,19 @@ def stored_timing_row(
     dataset: dict[str, object] | None = None,
     engine: str = "datafusion",
     file_format: str = "parquet",
+    cold: int | None = None,
 ) -> dict[str, object]:
+    """Build a runner result row whose first run is the cold one.
+
+    `value` stays the median across all runs, which is what the benchmark binary
+    writes, so the reporter has to derive the hot median from `all_runtimes`.
+    """
+
     row: dict[str, object] = {
         "name": name,
         "unit": "ns",
         "value": value,
-        "all_runtimes": [value, value, value],
+        "all_runtimes": [value if cold is None else cold, value, value],
         "commit_id": commit,
         "target": {"engine": engine, "format": file_format},
     }
@@ -74,15 +82,33 @@ def stored_custom_row(
     }
 
 
+def git_repo_with_one_commit(path: Path) -> Path:
+    """Create a throwaway repository the reporter can walk.
+
+    The reporter resolves its baseline from `git rev-list HEAD`, so the tests
+    need a repository of their own rather than whatever checkout they happen to
+    run inside — a contributor's shallow clone must not change the result.
+    """
+
+    path.mkdir(parents=True)
+    identity = ["-c", "user.name=Vortex Test", "-c", "user.email=test@example.com"]
+    subprocess.run(["git", "init", "--quiet"], cwd=path, check=True)
+    (path / "README.md").write_text("benchmark reporting fixture\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=path, check=True)
+    subprocess.run(["git", *identity, "commit", "--quiet", "-m", "fixture"], cwd=path, check=True)
+    return path
+
+
 def render_report(
     tmp_path: Path,
     base_rows: list[dict[str, object]],
     pr_rows: list[dict[str, object]],
     benchmark_name: str,
 ) -> str:
+    repo = git_repo_with_one_commit(tmp_path / "repo")
     head_commit = subprocess.run(
         ["git", "rev-parse", "HEAD"],
-        cwd=REPO_ROOT,
+        cwd=repo,
         check=True,
         capture_output=True,
         text=True,
@@ -95,6 +121,7 @@ def render_report(
 
     result = subprocess.run(
         [sys.executable, str(COMPARE_SCRIPT), str(base_path), str(pr_path), benchmark_name],
+        cwd=repo,
         check=False,
         capture_output=True,
         text=True,
@@ -359,18 +386,19 @@ def test_comparison_report_groups_by_target_and_unit(tmp_path: Path) -> None:
 
     assert "unknown / unknown" not in report
     assert "How to read Verdict and Engines" not in report
+    # These measurements report a single number, so there is no cold run to split out.
+    assert "cold" not in report
+    assert "hot" not in report
     assert "<summary>vortex / vortex-file-compressed / ms " in report
     assert "<summary>vortex / vortex-file-compressed / % " in report
     assert "<summary>vortex / vortex-file-compressed / ratio " in report
     assert "<summary>vortex / parquet / ms " in report
-    assert markdown_row(report, "timing/fixture") == ["timing/fixture", "11.75", "12.5", "0.94"]
-    assert markdown_row(report, "size/fixture") == ["size/fixture", "44.5", "45.25", "0.98"]
-    assert markdown_row(report, "ratio/fixture") == ["ratio/fixture", "0.8", "0.75", "1.07"]
+    assert markdown_row(report, "timing/fixture") == ["timing/fixture", "11.75 / 12.5 / -6.0%"]
+    assert markdown_row(report, "size/fixture") == ["size/fixture", "44.5 / 45.25 / -1.7%"]
+    assert markdown_row(report, "ratio/fixture") == ["ratio/fixture", "0.8 / 0.75 / +6.7%"]
     assert markdown_row(report, "new timing/fixture") == [
         "new timing/fixture",
-        "3.125",
-        "—",
-        "no baseline",
+        "3.125 / — / no baseline",
     ]
 
 
@@ -381,12 +409,10 @@ def test_comparison_report_handles_missing_benchmark_baseline(tmp_path: Path) ->
     report = render_report(tmp_path, base_rows, pr_rows, "New benchmark")
 
     assert "No baseline is available for this benchmark yet" in report
-    assert "base none (ms)" in report
+    assert "vs base `none`" in report
     assert markdown_row(report, "new timing/fixture") == [
         "new timing/fixture",
-        "3.125",
-        "—",
-        "no baseline",
+        "3.125 / — / no baseline",
     ]
 
 
@@ -401,9 +427,7 @@ def test_comparison_report_handles_mixed_query_types_in_baseline(tmp_path: Path)
 
     assert markdown_row(report, "random-access/fixture") == [
         "random-access/fixture",
-        "13",
-        "12.5",
-        "1.04",
+        "13 / 12.5 / +4.0%",
     ]
 
 
@@ -424,12 +448,132 @@ def test_comparison_report_retains_sql_analysis(tmp_path: Path) -> None:
     report = render_report(tmp_path, base_rows, pr_rows, "TPC-H")
 
     assert "**Verdict**:" in report
-    assert "**Vortex (geomean)**:" in report
-    assert "**Parquet (geomean)**:" in report
+    assert "**Vortex (geomean)**: hot " in report
+    assert "**Parquet (geomean)**: hot " in report
     assert "How to read Verdict and Engines" in report
     assert "<summary>datafusion / vortex-file-compressed / ns " in report
     assert "<summary>datafusion / parquet / ns " in report
     assert "unknown / unknown" not in report
+
+
+def test_large_hot_medians_render_without_scientific_notation() -> None:
+    compare = load_compare_module()
+
+    # A median over two runs can land on a half nanosecond; at this magnitude "%g"
+    # would switch to scientific notation and stop matching the baseline column.
+    assert compare.format_measurement_value(1478968300.5) == "1478968300"
+    assert compare.format_measurement_value(8228437.5) == "8228438"
+    assert compare.format_measurement_value(12.5) == "12.5"
+    assert compare.format_measurement_value(100) == "100"
+
+
+def test_cold_and_hot_runtimes_split_the_first_run_from_the_rest() -> None:
+    compare = load_compare_module()
+
+    assert compare.cold_runtime([7, 9, 11]) == 7
+    assert compare.hot_runtimes([7, 9, 11]) == [9, 11]
+    assert compare.hot_runtime([7, 9, 11], 9) == 10
+
+
+def test_hot_runtime_falls_back_to_the_reported_value_without_later_runs() -> None:
+    compare = load_compare_module()
+
+    assert math.isnan(compare.cold_runtime(None))
+    assert compare.hot_runtimes(None) == []
+    assert compare.hot_runtime(None, 42) == 42
+    assert compare.hot_runtime([7], 7) == 7
+    assert math.isnan(compare.hot_runtime(None, None))
+
+
+def test_only_changes_past_the_suite_threshold_are_marked(tmp_path: Path) -> None:
+    # TPC-H runs at a 10% threshold, so 9% is noise here and 11% is not.
+    base_rows = [
+        stored_timing_row("base-sha", "tpch_q01/datafusion:vortex-file-compressed", 100, file_format="vortex"),
+        stored_timing_row("base-sha", "tpch_q02/datafusion:vortex-file-compressed", 100, file_format="vortex"),
+        stored_timing_row("base-sha", "tpch_q03/datafusion:vortex-file-compressed", 100, file_format="vortex"),
+    ]
+    pr_rows = [
+        stored_timing_row("pr-sha", "tpch_q01/datafusion:vortex-file-compressed", 109, file_format="vortex"),
+        stored_timing_row("pr-sha", "tpch_q02/datafusion:vortex-file-compressed", 111, file_format="vortex"),
+        stored_timing_row("pr-sha", "tpch_q03/datafusion:vortex-file-compressed", 89, file_format="vortex"),
+    ]
+
+    report = render_report(tmp_path, base_rows, pr_rows, "TPC-H")
+
+    assert markdown_row(report, "tpch_q01/datafusion:vortex-file-compressed")[1] == "109 / 100 / +9.0%"
+    assert markdown_row(report, "tpch_q02/datafusion:vortex-file-compressed")[1] == "111 / 100 / +11.0% 🔴"
+    assert markdown_row(report, "tpch_q03/datafusion:vortex-file-compressed")[1] == "89 / 100 / -11.0% 🟢"
+
+
+def test_report_splits_cold_and_hot_runs(tmp_path: Path) -> None:
+    base_rows = [
+        stored_timing_row("base-sha", "tpch_q01/datafusion:parquet", 100, cold=1000),
+        stored_timing_row(
+            "base-sha",
+            "tpch_q01/datafusion:vortex-file-compressed",
+            100,
+            file_format="vortex",
+            cold=1000,
+        ),
+    ]
+    pr_rows = [
+        stored_timing_row("pr-sha", "tpch_q01/datafusion:parquet", 100, cold=1000),
+        stored_timing_row(
+            "pr-sha",
+            "tpch_q01/datafusion:vortex-file-compressed",
+            50,
+            file_format="vortex",
+            cold=2000,
+        ),
+    ]
+
+    report = render_report(tmp_path, base_rows, pr_rows, "TPC-H")
+
+    # The marks sit on the numbers that moved, not on the benchmark name.
+    assert markdown_row(report, "tpch_q01/datafusion:vortex-file-compressed") == [
+        "tpch_q01/datafusion:vortex-file-compressed",
+        "50 / 100 / -50.0% 🟢",
+        "2000 / 1000 / +100.0% 🔴",
+        "0.03 / 0.10 / -75.0%",
+    ]
+    assert "**Attributed Vortex impact**: -50.0%" in report
+    assert "**Vortex (geomean)**: hot 0.500x ✅ · cold 2.000x ❌" in report
+    assert "**Parquet (geomean)**: hot 1.000x ➖ · cold 1.000x ➖" in report
+    assert "**Commits**: PR `pr-sha` vs base " in report
+
+
+def test_verdict_ignores_a_cold_start_only_regression(tmp_path: Path) -> None:
+    base_rows = [
+        stored_timing_row("base-sha", "tpch_q01/datafusion:parquet", 100, cold=100),
+        stored_timing_row(
+            "base-sha",
+            "tpch_q01/datafusion:vortex-file-compressed",
+            100,
+            file_format="vortex",
+            cold=100,
+        ),
+    ]
+    pr_rows = [
+        stored_timing_row("pr-sha", "tpch_q01/datafusion:parquet", 100, cold=100),
+        stored_timing_row(
+            "pr-sha",
+            "tpch_q01/datafusion:vortex-file-compressed",
+            100,
+            file_format="vortex",
+            cold=400,
+        ),
+    ]
+
+    report = render_report(tmp_path, base_rows, pr_rows, "TPC-H")
+
+    assert "**Attributed Vortex impact**: +0.0%" in report
+    assert "**Vortex (geomean)**: hot 1.000x ➖ · cold 4.000x ❌" in report
+    assert markdown_row(report, "tpch_q01/datafusion:vortex-file-compressed") == [
+        "tpch_q01/datafusion:vortex-file-compressed",
+        "100 / 100 / +0.0%",
+        "400 / 100 / +300.0% 🔴",
+        "0.25 / 1.00 / -75.0%",
+    ]
 
 
 def file_size_record(commit: str, size: int) -> dict[str, object]:
@@ -558,3 +702,63 @@ def test_capture_file_sizes_emits_shared_benchmark_rows(tmp_path: Path) -> None:
             },
         }
     ]
+
+
+def test_shallow_checkout_fails_instead_of_reporting_no_baseline(tmp_path: Path) -> None:
+    """A shallow clone must fail loudly, not render a baseline-free report.
+
+    `git rev-list HEAD` reaches only the tip of a shallow clone, so every
+    recorded commit looks unreachable. Reporting that as "no baseline yet"
+    hides a real comparison behind a report that merely looks new.
+    """
+
+    origin = git_repo_with_one_commit(tmp_path / "origin")
+    shallow = tmp_path / "shallow"
+    subprocess.run(
+        ["git", "clone", "--quiet", "--depth", "1", "--no-local", f"file://{origin}", str(shallow)],
+        check=True,
+        capture_output=True,
+    )
+    base_path = tmp_path / "base.jsonl"
+    pr_path = tmp_path / "pr.jsonl"
+    base_path.write_text(
+        f"{json.dumps(stored_timing_row('recorded', 'tpch_q01/datafusion:parquet', 100))}\n",
+        encoding="utf-8",
+    )
+    pr_path.write_text(
+        f"{json.dumps(stored_timing_row('pr', 'tpch_q01/datafusion:parquet', 105))}\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [sys.executable, str(COMPARE_SCRIPT), str(base_path), str(pr_path), "TPC-H"],
+        cwd=shallow,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "shallow checkout" in result.stderr
+    assert "fetch-depth: 0" in result.stderr
+    assert "No baseline is available" not in result.stdout
+
+
+def test_summary_reports_hot_alone_when_no_row_recorded_its_runs(tmp_path: Path) -> None:
+    # Random Access, String Encoding and Compression report one value per row, so
+    # there is no cold geomean to sit beside the hot one.
+    base_rows = [
+        stored_custom_row("base-sha", "random-access/vortex-tokio-local-disk", "ns", 100.0),
+        stored_custom_row("base-sha", "random-access/parquet-tokio-local-disk", "ns", 200.0, file_format="parquet"),
+    ]
+    pr_rows = [
+        stored_custom_row("pr-sha", "random-access/vortex-tokio-local-disk", "ns", 50.0),
+        stored_custom_row("pr-sha", "random-access/parquet-tokio-local-disk", "ns", 200.0, file_format="parquet"),
+    ]
+
+    report = render_report(tmp_path, base_rows, pr_rows, "Random Access")
+
+    summary = report.splitlines()[2]
+    assert "**Vortex (geomean)**: hot 0.500x ✅" in summary
+    assert "**Parquet (geomean)**: hot 1.000x ➖" in summary
+    assert "cold" not in summary

@@ -14,6 +14,7 @@ use vortex_error::VortexExpect;
 
 use crate::Mask;
 use crate::MaskValues;
+use crate::MaskValuesRef;
 
 trait DepositBits {
     /// Whether the implementation benefits from short-circuiting on `rank_bits == 0`
@@ -442,18 +443,18 @@ where
     intersect_mask_driven::<Portable, _>(self_buffer, mask_indices, true_count)
 }
 
-/// Check if a mask is sparse.
+/// Returns whether a mask is sparse.
 ///
-/// BitBuffer traversal uses u64, hence we conclude that one or fewer values per u64 is sparse
-fn mask_is_sparse(values: &Arc<MaskValues>) -> bool {
+/// [`BitBuffer`] traversal uses `u64` words, so fewer than one selected value per word is sparse.
+fn mask_is_sparse(values: &MaskValuesRef) -> bool {
     values.true_count().saturating_mul(64) < values.len()
 }
 
-/// Check if a rank mask is sparse
+/// Returns whether a rank mask is sparse.
 ///
-/// The mask-driven path becomes worthwhile around ~3% mask density: each set
-/// bit costs a select and push, but we save a per-self-chunk popcount + deposit.
-fn rank_mask_is_sparse(values: &Arc<MaskValues>) -> bool {
+/// The mask-driven path becomes worthwhile at approximately 3% mask density. Each set bit costs a
+/// select and push, but this avoids a popcount and deposit for each chunk of `self`.
+fn rank_mask_is_sparse(values: &MaskValuesRef) -> bool {
     values.true_count().saturating_mul(32) < values.len()
 }
 
@@ -557,7 +558,7 @@ impl Mask {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
 

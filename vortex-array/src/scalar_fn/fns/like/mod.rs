@@ -25,6 +25,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::ScalarFnArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
 use crate::dtype::DType;
@@ -38,6 +39,7 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::ScalarFnVTableExt;
 
 /// Options for SQL LIKE function
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -62,6 +64,21 @@ impl Display for LikeOptions {
 /// Expression that performs SQL LIKE pattern matching.
 #[derive(Clone)]
 pub struct Like;
+
+impl Like {
+    /// Creates a lazy SQL `LIKE` operation over `input` and `pattern`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the children have different lengths or are not UTF-8 arrays.
+    pub fn try_new(
+        input: ArrayRef,
+        pattern: ArrayRef,
+        options: LikeOptions,
+    ) -> VortexResult<ScalarFnArray> {
+        ScalarFnArray::try_new(Like.bind(options), vec![input, pattern])
+    }
+}
 
 impl ScalarFnVTable for Like {
     type Options = LikeOptions;
@@ -169,8 +186,8 @@ impl ScalarFnVTable for Like {
         true
     }
 
-    fn is_fallible(&self, _options: &Self::Options) -> bool {
-        false
+    fn is_infallible(&self, _options: &Self::Options) -> bool {
+        true
     }
 }
 
@@ -490,7 +507,6 @@ mod tests {
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
-    use crate::arrays::scalar_fn::ScalarFnFactoryExt;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -510,8 +526,7 @@ mod tests {
         pattern: crate::ArrayRef,
         options: LikeOptions,
     ) -> crate::ArrayRef {
-        let len = array.len();
-        Like.try_new_array(len, options, [array, pattern]).unwrap()
+        Like::try_new(array, pattern, options).unwrap().into_array()
     }
 
     #[rstest]
@@ -730,9 +745,9 @@ mod tests {
                 .is_some_and(|f| f.signature().is_strict())
         );
         assert!(
-            !like_expr
+            like_expr
                 .as_scalar()
-                .is_some_and(|f| f.signature().is_fallible())
+                .is_some_and(|f| f.signature().is_infallible())
         );
     }
 

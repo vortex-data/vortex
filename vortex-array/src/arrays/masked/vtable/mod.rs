@@ -73,6 +73,7 @@ impl VTable for Masked {
         *ID
     }
 
+    #[expect(clippy::disallowed_methods)]
     fn validate(
         &self,
         _data: &MaskedData,
@@ -91,6 +92,10 @@ impl VTable for Masked {
         vortex_ensure!(
             child.dtype().as_nullable() == *dtype,
             "MaskedArray dtype does not match child and validity"
+        );
+        vortex_ensure!(
+            child.all_valid(&mut legacy_session().create_execution_ctx())?,
+            "MaskedArray children must not have nulls",
         );
         Ok(())
     }

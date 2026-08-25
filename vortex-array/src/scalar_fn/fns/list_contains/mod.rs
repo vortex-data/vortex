@@ -25,10 +25,10 @@ use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::ScalarFnArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::primitive::PrimitiveArrayExt;
-use crate::arrays::scalar_fn::ScalarFnFactoryExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
@@ -43,12 +43,24 @@ use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
 
 #[derive(Clone)]
 pub struct ListContains;
+
+impl ListContains {
+    /// Creates a lazy list membership check for `needle` in `list`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the children have different lengths or `list` is not a list array.
+    pub fn try_new(list: ArrayRef, needle: ArrayRef) -> VortexResult<ScalarFnArray> {
+        ScalarFnArray::try_new(ListContains.bind(EmptyOptions), vec![list, needle])
+    }
+}
 
 impl ScalarFnVTable for ListContains {
     type Options = EmptyOptions;
@@ -126,8 +138,8 @@ impl ScalarFnVTable for ListContains {
         false
     }
 
-    fn is_fallible(&self, _options: &Self::Options) -> bool {
-        false
+    fn is_infallible(&self, _options: &Self::Options) -> bool {
+        true
     }
 }
 
@@ -197,16 +209,13 @@ fn constant_list_scalar_contains(
     let result = elements
         .iter()
         .map(|element| {
-            Binary
-                .try_new_array(
-                    len,
-                    Operator::Eq,
-                    [
-                        ConstantArray::new(element.clone(), len).into_array(),
-                        values.clone(),
-                    ],
-                )?
-                .fill_null(false_scalar.clone())
+            Binary::try_new(
+                ConstantArray::new(element.clone(), len).into_array(),
+                values.clone(),
+                Operator::Eq,
+            )?
+            .into_array()
+            .fill_null(false_scalar.clone())
         })
         .collect::<VortexResult<Vec<_>>>()?
         .into_iter()
@@ -237,11 +246,8 @@ fn list_contains_scalar(
     }
 
     let rhs = ConstantArray::new(value.clone(), elems.len());
-    let matching_elements = Binary.try_new_array(
-        elems.len(),
-        Operator::Eq,
-        &[elems.clone(), rhs.clone().into_array()],
-    )?;
+    let matching_elements =
+        Binary::try_new(elems.clone(), rhs.clone().into_array(), Operator::Eq)?.into_array();
 
     // TODO(ngates): we should execute this into a Columnar and check for constant.
     let matches = matching_elements.execute::<BoolArray>(ctx)?;

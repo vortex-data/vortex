@@ -18,6 +18,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 vortex = { path = "../../vortex", default-features = false, features = [
     "files",
+    "wasm-bindgen",
 ] }
 vortex-arrow = { workspace = true }
 

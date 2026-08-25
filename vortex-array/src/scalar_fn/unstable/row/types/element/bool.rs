@@ -15,7 +15,7 @@ use crate::scalar_fn::unstable::row::InputElement;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::validity::Validity;
 
-// SAFETY: the per-row view is a bit buffer, and its reported length is the buffer length.
+// SAFETY: the view is a bit buffer, and its reported length is the buffer length.
 unsafe impl InputElement for bool {
     type Column = BitBuffer;
     type View<'a> = &'a BitBuffer;
@@ -23,7 +23,7 @@ unsafe impl InputElement for bool {
 
     // Every bit of the buffer is readable, valid or not.
     const DENSE_SAFE: bool = true;
-    const DECODE_FALLIBLE: bool = false;
+    const DECODE_INFALLIBLE: bool = true;
 
     fn validate(dtype: &DType) -> VortexResult<()> {
         vortex_ensure!(
@@ -47,10 +47,6 @@ unsafe impl InputElement for bool {
 
     fn view(column: &Self::Column) -> Self::View<'_> {
         column
-    }
-
-    fn view_len(view: &Self::View<'_>) -> usize {
-        view.len()
     }
 
     fn get_from_view<'a>(view: &Self::View<'a>, index: usize) -> bool

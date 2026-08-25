@@ -115,7 +115,7 @@ fn polygon_lists() -> ArrayRef {
 }
 
 fn collect_list_rows(geometry_lists: &ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
-    SpatialCollect::try_new_array(geometry_lists.clone())
+    SpatialCollect::try_new(geometry_lists.clone())
         .unwrap()
         .into_array()
         .execute::<Canonical>(ctx)
@@ -156,10 +156,8 @@ fn nullable_points(bencher: Bencher) {
 /// whether the output still reports itself zero-copy to a list. `ST_Envelope` reaches that path via
 /// `flatten_row_offsets` and re-gathers the whole payload when the flag is missing.
 fn envelope_of_collect(input: &ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
-    let collected = SpatialCollect::try_new_array(input.clone())
-        .unwrap()
-        .into_array();
-    SpatialEnvelope::try_new_array(collected)
+    let collected = SpatialCollect::try_new(input.clone()).unwrap().into_array();
+    SpatialEnvelope::try_new(collected)
         .unwrap()
         .into_array()
         .execute::<Canonical>(ctx)

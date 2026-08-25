@@ -13,8 +13,8 @@
 //!
 //! Every membership is typed by a [`ComponentKind`], and members are resolved one kind at a
 //! time with [`EditionSessionExt::enabled_component_ids`]: the file writer restricts the
-//! arrays, layouts, and aggregates it writes from three separate id sets, never one untyped
-//! set.
+//! arrays, layouts, extension dtypes, and aggregates it writes from separate id sets, never one
+//! untyped set.
 //!
 //! An edition is a **draft** until its [`Edition::min_vortex_version`] is recorded —
 //! recording it is the act of freezing. The per-edition member sets are computed from the
@@ -45,7 +45,7 @@ use vortex_session::registry::Id;
 
 /// The identifier of an edition, e.g. `core2026.07.0`.
 ///
-/// The `family` names an independently versioned, additive group of encodings (`core` is the
+/// The `family` names an independently versioned, additive group of components (`core` is the
 /// set the default writer emits). The date components record when the edition was frozen and
 /// order editions chronologically *within* a family; there is no ordering across families.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -126,6 +126,8 @@ pub enum ComponentKind {
     Array,
     /// A layout encoding, e.g. `vortex.flat`, registered in the session's layout registry.
     Layout,
+    /// An extension dtype, e.g. `vortex.timestamp`, registered in the session's dtype registry.
+    DType,
     /// An aggregate function, e.g. `vortex.min`, written into zone maps and registered in
     /// the session's aggregate function registry.
     Aggregate,
@@ -136,6 +138,7 @@ impl Display for ComponentKind {
         f.write_str(match self {
             Self::Array => "array",
             Self::Layout => "layout",
+            Self::DType => "dtype",
             Self::Aggregate => "aggregate",
         })
     }
@@ -244,6 +247,14 @@ impl EditionMember {
         }
     }
 
+    /// An extension dtype member, e.g. `vortex.timestamp`.
+    pub const fn dtype(component: &'static dyn AsComponentId) -> Self {
+        Self {
+            kind: ComponentKind::DType,
+            component,
+        }
+    }
+
     /// An aggregate function member, e.g. `vortex.min`.
     pub const fn aggregate(component: &'static dyn AsComponentId) -> Self {
         Self {
@@ -285,6 +296,12 @@ impl EditionInclusion {
     /// same family.
     pub fn array<C: AsComponentId + ?Sized>(encoding: &C, since: EditionId) -> Self {
         Self::new(ComponentKind::Array, encoding, since)
+    }
+
+    /// Declare that an extension dtype is a member of `since` and every later edition of the
+    /// same family.
+    pub fn dtype<C: AsComponentId + ?Sized>(dtype: &C, since: EditionId) -> Self {
+        Self::new(ComponentKind::DType, dtype, since)
     }
 
     /// Validate the declaration's form: a lowercase `namespace.name` component id and, if

@@ -233,6 +233,10 @@ impl LogicalType {
 }
 
 impl LogicalTypeRef {
+    pub fn to_owned(&self) -> LogicalType {
+        unsafe { LogicalType::own(duckdb_vx_logical_type_copy(self.as_ptr())) }
+    }
+
     pub fn as_type_id(&self) -> DUCKDB_TYPE {
         unsafe { duckdb_get_type_id(self.as_ptr()) }
     }

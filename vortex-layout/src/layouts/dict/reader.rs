@@ -195,7 +195,7 @@ fn split_expression_for_pushdown(
             return vec![];
         };
         let signature = scalar_fn.signature();
-        if !signature.is_fallible()
+        if signature.is_infallible()
             && signature.is_strict()
             && is_negative_cost(scalar_fn.id())
             && references_root

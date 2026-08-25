@@ -1,7 +1,7 @@
 [package]
 name = "vortex-edition"
 authors.workspace = true
-description = "Definitions of Vortex editions: named, frozen sets of encodings with a read-compatibility guarantee"
+description = "Definitions of Vortex editions: named, frozen sets of serialized components with a read-compatibility guarantee"
 edition = { workspace = true }
 homepage = { workspace = true }
 categories = { workspace = true }

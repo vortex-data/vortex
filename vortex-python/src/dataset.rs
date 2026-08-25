@@ -137,7 +137,7 @@ impl PyVortexDataset {
             ResolvedStore::ObjectStore(store, path) => {
                 session
                     .open_options()
-                    .open_object_store(&store, path.as_ref())
+                    .open_object_store(&store, path)
                     .await?
             }
             ResolvedStore::Path(path) => session.open_options().open_path(path).await?,

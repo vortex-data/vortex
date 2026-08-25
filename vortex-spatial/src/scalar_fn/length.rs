@@ -99,7 +99,7 @@ pub struct SpatialLength;
 
 impl SpatialLength {
     /// A lazy `ScalarFnArray` computing the per-row length of a line string operand.
-    pub fn try_new_array(array: ArrayRef) -> VortexResult<ScalarFnArray> {
+    pub fn try_new(array: ArrayRef) -> VortexResult<ScalarFnArray> {
         ScalarFnArray::try_new(
             TypedScalarFnInstance::new(SpatialLength, EmptyOptions).erased(),
             vec![array],
@@ -166,8 +166,8 @@ impl ScalarFnVTable for SpatialLength {
         true
     }
 
-    fn is_fallible(&self, _: &Self::Options) -> bool {
-        false
+    fn is_infallible(&self, _: &Self::Options) -> bool {
+        true
     }
 }
 
@@ -216,7 +216,7 @@ mod tests {
             vec![],
         ])?;
 
-        let lengths = SpatialLength::try_new_array(lines)?.into_array();
+        let lengths = SpatialLength::try_new(lines)?.into_array();
         let expected = PrimitiveArray::from_iter([5.0f64, 9.0, 0.0, 0.0]).into_array();
 
         assert_arrays_eq!(lengths, expected, &mut ctx);
@@ -229,7 +229,7 @@ mod tests {
         let mut ctx = session.create_execution_ctx();
         let lines = line_constant(vec![(0.0, 0.0), (3.0, 4.0), (3.0, 8.0)], 3, &mut ctx)?;
 
-        let result = SpatialLength::try_new_array(lines)?
+        let result = SpatialLength::try_new(lines)?
             .into_array()
             .execute::<Columnar>(&mut ctx)?;
         let Columnar::Constant(lengths) = result else {
@@ -247,7 +247,7 @@ mod tests {
         let dtype = linestring_column(vec![vec![]])?.dtype().as_nullable();
         let lines = ConstantArray::new(Scalar::null(dtype), 2).into_array();
 
-        let result = SpatialLength::try_new_array(lines)?
+        let result = SpatialLength::try_new(lines)?
             .into_array()
             .execute::<Columnar>(&mut ctx)?;
         let Columnar::Constant(lengths) = result else {
@@ -279,7 +279,7 @@ mod tests {
             Validity::from_iter([true, false, true]),
         )
         .into_array();
-        let lengths = SpatialLength::try_new_array(lines)?.into_array();
+        let lengths = SpatialLength::try_new(lines)?.into_array();
         assert_arrays_eq!(lengths, expected, &mut ctx);
         Ok(())
     }
@@ -299,7 +299,7 @@ mod tests {
         let expected =
             PrimitiveArray::new(vec![0.0, 0.0], Validity::from_iter([false, false])).into_array();
 
-        let lengths = SpatialLength::try_new_array(lines)?.into_array();
+        let lengths = SpatialLength::try_new(lines)?.into_array();
 
         assert_arrays_eq!(lengths, expected, &mut ctx);
         Ok(())

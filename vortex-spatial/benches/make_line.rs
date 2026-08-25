@@ -83,7 +83,7 @@ fn point_constant(ctx: &mut ExecutionCtx) -> ArrayRef {
 }
 
 fn make_lines(starts: &ArrayRef, ends: &ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
-    SpatialMakeLine::try_new_array(starts.clone(), ends.clone())
+    SpatialMakeLine::try_new(starts.clone(), ends.clone())
         .unwrap()
         .into_array()
         .execute::<Canonical>(ctx)
