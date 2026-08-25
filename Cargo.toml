@@ -158,7 +158,8 @@ datafusion-sqllogictest = { version = "54" }
 divan = { package = "codspeed-divan-compat", version = "5.0.0" }
 enum-iterator = "2.0.0"
 env_logger = "0.11"
-fastlanes = "0.6.0"
+# Pinned: fastlanes 0.6.2 changed the bit-transpose API and breaks the lock-free wasm-test build.
+fastlanes = "=0.6.1"
 flatbuffers = "25.2.10"
 fsst-rs = "0.6.0"
 futures = { version = "0.3.31", default-features = false }
