@@ -6,6 +6,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use rstest::rstest;
+use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -15,9 +16,11 @@ use vortex_session::registry::CachedId;
 
 use super::finalize_kernel_output;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::array_session;
+use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
@@ -35,6 +38,7 @@ use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::VecExecutionArgs;
 use crate::scalar_fn::unstable::row::FixedSizeListSink;
 use crate::scalar_fn::unstable::row::InitializedRow;
+use crate::scalar_fn::unstable::row::InputElement;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::scalar_fn::unstable::row::OutputSink;
 use crate::scalar_fn::unstable::row::RowFn;
@@ -60,6 +64,51 @@ struct ValidOnlyIdentity;
 
 #[derive(Clone)]
 struct InvalidKernelOutput;
+
+#[derive(Clone)]
+struct PackedPositive;
+
+#[derive(Clone)]
+struct ValidOnlyPositive;
+
+#[derive(Clone)]
+struct NullaryTrue;
+
+struct ValidOnlyI64;
+
+// SAFETY: the view is a slice, and its reported length is the buffer length.
+unsafe impl InputElement for ValidOnlyI64 {
+    type Column = Buffer<i64>;
+    type View<'a> = &'a [i64];
+    type Elem<'a> = i64;
+
+    const DENSE_SAFE: bool = false;
+    const DECODE_INFALLIBLE: bool = true;
+
+    fn validate(dtype: &DType) -> VortexResult<()> {
+        <i64 as InputElement>::validate(dtype)
+    }
+
+    fn decode(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self::Column> {
+        <i64 as InputElement>::decode(array, ctx)
+    }
+
+    fn can_decode_null_tolerant(_array: &ArrayRef) -> VortexResult<bool> {
+        Ok(true)
+    }
+
+    fn get(column: &Self::Column, index: usize) -> Self::Elem<'_> {
+        column[index]
+    }
+
+    fn view(column: &Self::Column) -> Self::View<'_> {
+        column.as_slice()
+    }
+
+    fn get_from_view<'a>(view: &Self::View<'a>, index: usize) -> Self::Elem<'a> {
+        view[index]
+    }
+}
 
 /// Produces a null row to exercise output validation at the row-function boundary.
 #[derive(Default)]
@@ -274,6 +323,72 @@ fn test_fixed_size_list_sink_uses_runtime_width(
     Ok(())
 }
 
+impl RowFn for PackedPositive {
+    type Options = EmptyOptions;
+
+    const ARG_NAMES: &'static [&'static str] = &["value"];
+    const INFALLIBLE: bool = true;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("test.packed_positive");
+        *ID
+    }
+
+    fn dispatch<V: RowVisitor>(
+        &self,
+        _options: &Self::Options,
+        _args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        visitor.visit::<(i64,), bool>(|(value,)| value > 0)
+    }
+}
+
+impl RowFn for ValidOnlyPositive {
+    type Options = EmptyOptions;
+
+    const ARG_NAMES: &'static [&'static str] = &["value"];
+    const INFALLIBLE: bool = true;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("test.valid_only_positive");
+        *ID
+    }
+
+    fn dispatch<V: RowVisitor>(
+        &self,
+        _options: &Self::Options,
+        _args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        visitor.visit::<(ValidOnlyI64,), bool>(|(value,)| {
+            assert_ne!(value, i64::MIN, "an invalid row was evaluated");
+            value > 0
+        })
+    }
+}
+
+impl RowFn for NullaryTrue {
+    type Options = EmptyOptions;
+
+    const ARG_NAMES: &'static [&'static str] = &[];
+    const INFALLIBLE: bool = true;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("test.nullary_true");
+        *ID
+    }
+
+    fn dispatch<V: RowVisitor>(
+        &self,
+        _options: &Self::Options,
+        _args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        visitor.visit::<(), bool>(|()| true)
+    }
+}
+
 #[test]
 fn test_finalize_kernel_output_rejects_nested_dtype_mismatch() -> VortexResult<()> {
     static ID: CachedId = CachedId::new("test.finalize_kernel_output");
@@ -317,6 +432,73 @@ fn test_kernel_output_rejects_nulls_at_function_boundary() -> VortexResult<()> {
         error.contains("row kernel must produce only valid rows"),
         "the boundary error must identify invalid row output, got {error}",
     );
+    Ok(())
+}
+
+#[test]
+fn test_bool_output_builds_packed_values() -> VortexResult<()> {
+    let input = PrimitiveArray::new(
+        vec![1_i64, -1, 2, 0, 3],
+        Validity::from_iter([true, true, false, true, true]),
+    )
+    .into_array();
+    let args = VecExecutionArgs::new(vec![input], 5);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let actual = execute_rows(&PackedPositive, &EmptyOptions, &args, &mut ctx)?;
+    let expected =
+        BoolArray::from_iter([Some(true), Some(false), None, Some(false), Some(true)]).into_array();
+
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+    Ok(())
+}
+
+#[rstest]
+#[case::empty(0)]
+#[case::one(1)]
+#[case::below_word(63)]
+#[case::exact_word(64)]
+#[case::above_word(65)]
+#[case::multiword_remainder(130)]
+fn test_bool_output_word_boundaries(#[case] len: usize) -> VortexResult<()> {
+    let values: Vec<_> = (0..len).map(|index| index as i64 - 32).collect();
+    let input = PrimitiveArray::from_iter(values.iter().copied()).into_array();
+    let args = VecExecutionArgs::new(vec![input], len);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let actual = execute_rows(&PackedPositive, &EmptyOptions, &args, &mut ctx)?;
+    let expected = BoolArray::from_iter(values.iter().map(|value| *value > 0)).into_array();
+
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_bool_output_handles_nullary_rows() -> VortexResult<()> {
+    let args = VecExecutionArgs::new(vec![], 65);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let actual = execute_rows(&NullaryTrue, &EmptyOptions, &args, &mut ctx)?;
+    let expected = BoolArray::from_iter(std::iter::repeat_n(true, 65)).into_array();
+
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_valid_only_bool_output_skips_invalid_rows() -> VortexResult<()> {
+    let input = PrimitiveArray::new(
+        vec![1_i64, i64::MIN, -1],
+        Validity::from_iter([true, false, true]),
+    )
+    .into_array();
+    let args = VecExecutionArgs::new(vec![input], 3);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let actual = execute_rows(&ValidOnlyPositive, &EmptyOptions, &args, &mut ctx)?;
+    let expected = BoolArray::from_iter([Some(true), None, Some(false)]).into_array();
+
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
     Ok(())
 }
 
