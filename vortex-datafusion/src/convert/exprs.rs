@@ -423,13 +423,6 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
                 if let Some(scalar_fn_expr) = node.downcast_ref::<ScalarFunctionExpr>()
                     && !can_scalar_fn_be_pushed_down(scalar_fn_expr, input_schema)
                 {
-                    scan_projection.extend(
-                        collect_columns(node)
-                            .into_iter()
-                            .map(|c| (c.name().to_string(), get_item(c.name(), root()))),
-                    );
-
-                    leftover_projection.push(projection_expr.clone());
                     return Ok(TreeNodeRecursion::Stop);
                 }
 
@@ -440,33 +433,39 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
                     && binary_expr.left().data_type(input_schema)?.is_decimal()
                     && binary_expr.right().data_type(input_schema)?.is_decimal()
                 {
-                    scan_projection.extend(
-                        collect_columns(node)
-                            .into_iter()
-                            .map(|c| (c.name().to_string(), get_item(c.name(), root()))),
-                    );
+                    return Ok(TreeNodeRecursion::Stop);
+                }
 
-                    leftover_projection.push(projection_expr.clone());
+                if let Some(cast_expr) = node.downcast_ref::<df_expr::CastExpr>()
+                    && !can_cast_be_pushed_down(cast_expr, input_schema)
+                {
                     return Ok(TreeNodeRecursion::Stop);
                 }
 
                 Ok(TreeNodeRecursion::Continue)
             })?;
 
-            // if we didn't stop early
-            if matches!(r, TreeNodeRecursion::Continue) {
-                scan_projection.push((
-                    projection_expr.alias.clone(),
-                    self.convert(projection_expr.expr.as_ref())?,
-                ));
-                leftover_projection.push(ProjectionExpr {
-                    expr: Arc::new(df_expr::Column::new_with_schema(
-                        projection_expr.alias.as_str(),
-                        output_schema,
-                    )?),
-                    alias: projection_expr.alias.clone(),
-                });
+            if matches!(r, TreeNodeRecursion::Stop) {
+                scan_projection.extend(
+                    collect_columns(&projection_expr.expr)
+                        .into_iter()
+                        .map(|c| (c.name().to_string(), get_item(c.name(), root()))),
+                );
+                leftover_projection.push(projection_expr.clone());
+                continue;
             }
+
+            scan_projection.push((
+                projection_expr.alias.clone(),
+                self.convert(projection_expr.expr.as_ref())?,
+            ));
+            leftover_projection.push(ProjectionExpr {
+                expr: Arc::new(df_expr::Column::new_with_schema(
+                    projection_expr.alias.as_str(),
+                    output_schema,
+                )?),
+                alias: projection_expr.alias.clone(),
+            });
         }
 
         Ok(ProcessedProjection {
@@ -548,8 +547,7 @@ fn can_be_pushed_down_impl(expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> boo
     } else if let Some(lit) = expr.downcast_ref::<df_expr::Literal>() {
         supported_data_types(&lit.value().data_type())
     } else if let Some(cast_expr) = expr.downcast_ref::<df_expr::CastExpr>() {
-        // CastExpr child must be an expression type that convert() can handle
-        is_convertible_expr(cast_expr.expr())
+        can_cast_be_pushed_down(cast_expr, schema)
     } else if let Some(is_null) = expr.downcast_ref::<df_expr::IsNullExpr>() {
         can_be_pushed_down_impl(is_null.arg(), schema)
     } else if let Some(is_not_null) = expr.downcast_ref::<df_expr::IsNotNullExpr>() {
@@ -568,6 +566,18 @@ fn can_be_pushed_down_impl(expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> boo
         tracing::debug!(%expr, "DataFusion expression can't be pushed down");
         false
     }
+}
+
+fn can_cast_be_pushed_down(cast_expr: &df_expr::CastExpr, schema: &Schema) -> bool {
+    if !is_convertible_expr(cast_expr.expr()) {
+        return false;
+    }
+
+    cast_expr.expr().data_type(schema).is_ok_and(|source_type| {
+        !source_type.is_decimal()
+            || cast_expr.cast_type().is_decimal()
+            || matches!(cast_expr.cast_type(), DataType::Float64)
+    })
 }
 
 /// Checks if an expression type is one that convert() can handle.
@@ -1077,6 +1087,57 @@ mod tests {
             as Arc<dyn PhysicalExpr>;
 
         assert!(!can_be_pushed_down_impl(&binary_expr, &test_schema));
+    }
+
+    #[test]
+    fn test_can_be_pushed_down_decimal_to_integer_cast() {
+        let schema = Schema::new(vec![Field::new(
+            "amount",
+            DataType::Decimal64(15, 2),
+            false,
+        )]);
+        let amount = Arc::new(df_expr::Column::new("amount", 0)) as Arc<dyn PhysicalExpr>;
+        let cast = Arc::new(df_expr::CastExpr::new(amount, DataType::Int64, None))
+            as Arc<dyn PhysicalExpr>;
+
+        assert!(!can_be_pushed_down_impl(&cast, &schema));
+    }
+
+    #[test]
+    fn test_split_projection_keeps_decimal_to_integer_cast_in_datafusion() -> anyhow::Result<()> {
+        let schema = Schema::new(vec![
+            Field::new("price", DataType::Decimal64(15, 2), false),
+            Field::new("discount", DataType::Decimal64(15, 2), false),
+        ]);
+        let price = Arc::new(df_expr::Column::new("price", 0)) as Arc<dyn PhysicalExpr>;
+        let price =
+            Arc::new(df_expr::CastExpr::new(price, DataType::Int64, None)) as Arc<dyn PhysicalExpr>;
+        let discount = Arc::new(df_expr::Column::new("discount", 1)) as Arc<dyn PhysicalExpr>;
+        let discount = Arc::new(df_expr::CastExpr::new(discount, DataType::Int64, None))
+            as Arc<dyn PhysicalExpr>;
+        let product = Arc::new(df_expr::BinaryExpr::new(
+            price,
+            DFOperator::Multiply,
+            discount,
+        )) as Arc<dyn PhysicalExpr>;
+        let projection = ProjectionExprs::new([ProjectionExpr::new(product, "product")]);
+        let output_schema = projection.project_schema(&schema)?;
+
+        let processed = DefaultExpressionConvertor::default().split_projection(
+            projection,
+            &schema,
+            &output_schema,
+        )?;
+
+        let scan_projection = processed.scan_projection.display_tree().to_string();
+        assert!(scan_projection.contains("vortex.get_item(price)"));
+        assert!(scan_projection.contains("vortex.get_item(discount)"));
+        assert!(!scan_projection.contains("vortex.cast"));
+        assert!(matches!(
+            processed.leftover_projection.as_ref(),
+            [ProjectionExpr { expr, .. }] if expr.downcast_ref::<df_expr::BinaryExpr>().is_some()
+        ));
+        Ok(())
     }
 
     #[rstest]
