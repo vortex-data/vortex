@@ -861,9 +861,7 @@ def format_file_size_report(base_rows: pd.DataFrame, pr_rows: pd.DataFrame) -> s
         return ""
 
     base_data = {key: value for key, value in base_data.items() if key not in ignored}
-    # Scope the baseline to (benchmark, scale factor, format) combinations the PR run
-    # produced. A format the PR run skipped entirely (for example vortex-compact) would
-    # otherwise render every one of its baseline files as shrinking to 0 B.
+    # Omit baseline files whose (benchmark, scale factor, format) the PR run skipped entirely.
     pr_scopes = {(benchmark, scale_factor, file_format) for benchmark, scale_factor, file_format, _file_name in pr_data}
     base_data = {key: value for key, value in base_data.items() if key[:3] in pr_scopes}
     if not base_data:
