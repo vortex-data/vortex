@@ -150,24 +150,20 @@ async fn benchmark_random_access(
     let time_limit = Duration::from_secs(time_limit_secs);
     let overall_start = Instant::now();
     let mut runs = Vec::new();
-    let cached_accessor = if reopen {
-        None
-    } else {
-        Some(open_accessor(dataset, format).await?)
-    };
+    let mut accessor = open_accessor(dataset, format).await?;
 
     loop {
         let start = Instant::now();
-        let arr = if let Some(accessor) = &cached_accessor {
-            accessor.take(indices).await?
-        } else {
-            open_accessor(dataset, format).await?.take(indices).await?
-        };
+        let arr = accessor.take(indices).await?;
         runs.push(start.elapsed());
         drop(arr);
 
         if overall_start.elapsed() >= time_limit {
             break;
+        }
+
+        if reopen {
+            accessor = open_accessor(dataset, format).await?;
         }
     }
 
