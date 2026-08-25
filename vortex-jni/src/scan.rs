@@ -408,13 +408,13 @@ fn rebase_offsets(batch: RecordBatch) -> VortexResult<RecordBatch> {
                 // `slice(0, len)`, which keeps the offset.
                 let len = data.len();
                 let mut copy = MutableArrayData::new(vec![&data], false, len);
-                copy.extend(0, 0, len);
-                make_array(copy.freeze())
+                copy.try_extend(0, 0, len)?;
+                Ok(make_array(copy.freeze()))
             } else {
-                Arc::clone(column)
+                Ok(Arc::clone(column))
             }
         })
-        .collect::<Vec<_>>();
+        .collect::<VortexResult<Vec<_>>>()?;
 
     if !rebased {
         return Ok(batch);
