@@ -225,6 +225,10 @@ async fn run_compress(
         .filter(|format| **format != Format::ArrowIpc)
         .map(|f| Target::new(Engine::default(), *f))
         .collect_vec();
+    let size_targets = formats
+        .iter()
+        .map(|f| Target::new(Engine::default(), *f))
+        .collect_vec();
 
     let structlistofints = [
         StructListOfInts::new(100, 1000, 1),
@@ -365,15 +369,7 @@ async fn run_compress(
     match display_format {
         DisplayFormat::Table => {
             render_table(&mut writer, measurements.timings, &timing_targets)?;
-            render_table(
-                &mut writer,
-                measurements.ratios,
-                &if formats.contains(&Format::OnDiskVortex) {
-                    vec![Target::new(Engine::default(), Format::OnDiskVortex)]
-                } else {
-                    vec![]
-                },
-            )?;
+            render_table(&mut writer, measurements.ratios, &size_targets)?;
         }
         DisplayFormat::GhJson => {
             print_measurements_json(&mut writer, measurements.timings, DOC_PATH)?;
