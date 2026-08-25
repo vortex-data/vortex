@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+COPY (SELECT range % 3 AS i, range AS j FROM range(4))
+TO '${WORK_DIR}/agg-virtual' (FORMAT vortex, PARTITION_BY (i));
+
+# sanity check, computed on Duckdb side
+query II
+SELECT count(file_index), sum(file_index)
+FROM '${WORK_DIR}/agg-virtual/**/*.vortex';
+----
+4 3
+
+query II
+SELECT count(file_row_number), sum(file_row_number)
+FROM '${WORK_DIR}/agg-virtual/**/*.vortex';
+----
+4 1
+
+# i is a hive-partitioned column
+query II
+SELECT count(*), sum(i)
+FROM '${WORK_DIR}/agg-virtual/**/*.vortex'
+WHERE file_row_number < 2;
+----
+4 3
+
+query II
+SELECT count(*), sum(j)
+FROM '${WORK_DIR}/agg-virtual/**/*.vortex'
+WHERE file_row_number < 2;
+----
+4 6
+
+query I
+SELECT sum(file_row_number)
+FROM '${WORK_DIR}/agg-virtual/**/*.vortex'
+WHERE file_row_number < 2;
+----
+1
+
+query I
+SELECT i
+FROM '${WORK_DIR}/agg-virtual/**/*.vortex'
+WHERE file_row_number < 2
+ORDER BY i;
+----
+0
+0
+1
+2

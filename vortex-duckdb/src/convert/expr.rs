@@ -42,6 +42,7 @@ use vortex::expr::lit;
 use vortex::expr::not;
 use vortex::expr::or_collect;
 use vortex::expr::root;
+use vortex::layout::layouts::row_idx::row_idx;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::EmptyOptions as ScalarEmptyOptions;
 use vortex::scalar_fn::ScalarFnVTableExt;
@@ -590,6 +591,10 @@ fn try_from_expression_inner(
         }
         BoundColumnRef(col_ref) => {
             let name = col_ref.name.as_ref();
+            if name == "file_row_number" {
+                return Ok(Some(row_idx()));
+            }
+
             // Duckdb generates some columns (e.g. hive partitions) after we
             // load file data, so filters on these columns can't be evaluated
             if ctx
