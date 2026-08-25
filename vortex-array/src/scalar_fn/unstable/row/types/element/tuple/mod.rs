@@ -12,6 +12,7 @@ pub use element_tuple::batch_const;
 
 mod indexed;
 pub use indexed::IndexedElementTuple;
+pub(in crate::scalar_fn::unstable::row) use indexed::decoded_source;
 
 #[cfg(test)]
 mod tests;

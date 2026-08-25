@@ -24,10 +24,10 @@ use crate::scalar_fn::unstable::row::ViewLen;
 /// One decoded input, collapsed to a single row when it is constant for the batch.
 pub struct ArgColumn<T: InputElement>(
     /// The decoded argument, classified by how the row loop addresses it.
-    ArgColumnKind<T>,
+    pub(super) ArgColumnKind<T>,
 );
 
-enum ArgColumnKind<T: InputElement> {
+pub(super) enum ArgColumnKind<T: InputElement> {
     /// A decoded column covering the full batch; executors validate its length before traversal.
     Column(T::Column),
 

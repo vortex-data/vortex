@@ -10,6 +10,8 @@ use vortex_compute::lane_kernels::IndexedSource;
 use vortex_compute::lane_kernels::LaneZip;
 
 use super::ElementTuple;
+use super::element_tuple::ArgColumn;
+use super::element_tuple::ArgColumnKind;
 use crate::scalar_fn::unstable::row::InputElement;
 use crate::scalar_fn::unstable::row::ViewLen;
 
@@ -17,7 +19,7 @@ use crate::scalar_fn::unstable::row::ViewLen;
 ///
 /// Every [`ElementTuple`] implements this trait. Its source delegates each lane read to the tuple's
 /// unchecked view access after batch execution validates every decoded column length once.
-pub trait IndexedElementTuple: ElementTuple {
+pub trait IndexedElementTuple: ElementTuple + private::DecodedSource {
     /// The source used when no input is batch-constant.
     ///
     /// Its length must be the common view length. For every valid index it must preserve row order,
@@ -32,6 +34,78 @@ pub trait IndexedElementTuple: ElementTuple {
     /// Every view in `views` **must** address exactly `row_count` rows. Violating this requirement
     /// can make a safe lane kernel read outside a column's allocation.
     unsafe fn indexed_source<'a>(views: Self::Views<'a>, row_count: usize) -> Self::Source<'a>;
+}
+
+pub(in crate::scalar_fn::unstable::row) fn decoded_source<'a, Args: IndexedElementTuple>(
+    columns: &'a Args::Columns,
+    row_count: usize,
+) -> Option<impl IndexedSource<Item = Args::Elems<'a>>> {
+    <Args as private::DecodedSource>::decoded_source(columns, row_count)
+}
+
+/// Indexed access to one decoded [`ArgColumn`].
+///
+/// [`ArgColumn`] already records whether an input is row-wise or batch-constant. Keeping that choice
+/// in each argument source lets LLVM unswitch it before vectorizing Boolean collection into packed
+/// words. Routing every input through [`ElementTuple::get`] obscures the independent choices inside
+/// the row loop.
+enum ArgColumnSource<'a, T: InputElement> {
+    Rows(T::View<'a>),
+    Constant {
+        column: &'a T::Column,
+        row_count: usize,
+    },
+}
+
+impl<'a, T: InputElement> ArgColumnSource<'a, T> {
+    fn try_new(column: &'a ArgColumn<T>, row_count: usize) -> Option<Self> {
+        match &column.0 {
+            ArgColumnKind::Column(column) => {
+                let view = T::view(column);
+                (view.len() == row_count).then_some(Self::Rows(view))
+            }
+            ArgColumnKind::Const(column) => Some(Self::Constant { column, row_count }),
+        }
+    }
+}
+
+impl<'a, T: InputElement> IndexedSource for ArgColumnSource<'a, T> {
+    type Item = T::Elem<'a>;
+
+    fn len(&self) -> usize {
+        match self {
+            Self::Rows(view) => view.len(),
+            Self::Constant { row_count, .. } => *row_count,
+        }
+    }
+
+    unsafe fn get_unchecked(&self, index: usize) -> Self::Item {
+        match self {
+            Self::Rows(view) => {
+                // SAFETY: `try_new` checked that this retained view has `row_count` rows, and the
+                // caller guarantees that `index` is below the source length.
+                unsafe { T::get_from_view_unchecked(view, index) }
+            }
+            // `ArgColumn::try_from_const` validated row zero when it constructed this column.
+            Self::Constant { column, .. } => T::get(column, 0),
+        }
+    }
+}
+
+/// Indexed access to a tuple of decoded argument sources.
+struct ArgTupleSource<Sources> {
+    sources: Sources,
+    row_count: usize,
+}
+
+impl IndexedSource for ArgTupleSource<()> {
+    type Item = ();
+
+    fn len(&self) -> usize {
+        self.row_count
+    }
+
+    unsafe fn get_unchecked(&self, _index: usize) -> Self::Item {}
 }
 
 /// Indexed access to one element view.
@@ -103,11 +177,35 @@ impl IndexedElementTuple for () {
     }
 }
 
+impl private::DecodedSource for () {
+    fn decoded_source<'a>(
+        _columns: &'a Self::Columns,
+        row_count: usize,
+    ) -> Option<impl IndexedSource<Item = Self::Elems<'a>>> {
+        Some(ArgTupleSource {
+            sources: (),
+            row_count,
+        })
+    }
+}
+
 impl<A: InputElement> IndexedElementTuple for (A,) {
     type Source<'a> = UnaryTupleSource<ElementSource<'a, A>>;
 
     unsafe fn indexed_source<'a>(views: Self::Views<'a>, _row_count: usize) -> Self::Source<'a> {
         UnaryTupleSource(ElementSource::new(views.0))
+    }
+}
+
+impl<A: InputElement> private::DecodedSource for (A,) {
+    fn decoded_source<'a>(
+        columns: &'a Self::Columns,
+        row_count: usize,
+    ) -> Option<impl IndexedSource<Item = Self::Elems<'a>>> {
+        Some(ArgTupleSource {
+            sources: (ArgColumnSource::try_new(&columns.0, row_count)?,),
+            row_count,
+        })
     }
 }
 
@@ -119,8 +217,56 @@ impl<A: InputElement, B: InputElement> IndexedElementTuple for (A, B) {
     }
 }
 
+impl<A: InputElement, B: InputElement> private::DecodedSource for (A, B) {
+    fn decoded_source<'a>(
+        columns: &'a Self::Columns,
+        row_count: usize,
+    ) -> Option<impl IndexedSource<Item = Self::Elems<'a>>> {
+        Some(ArgTupleSource {
+            sources: (
+                ArgColumnSource::try_new(&columns.0, row_count)?,
+                ArgColumnSource::try_new(&columns.1, row_count)?,
+            ),
+            row_count,
+        })
+    }
+}
+
+macro_rules! arg_tuple_source {
+    ($($source:ident: $idx:tt),+) => {
+        impl<$($source: IndexedSource),+> IndexedSource
+            for ArgTupleSource<($($source,)+)>
+        {
+            type Item = ($($source::Item,)+);
+
+            fn len(&self) -> usize {
+                self.row_count
+            }
+
+            unsafe fn get_unchecked(&self, index: usize) -> Self::Item {
+                // SAFETY: forwarded from this method's contract. Every source has `row_count`
+                // rows by construction.
+                ($(unsafe { self.sources.$idx.get_unchecked(index) },)+)
+            }
+        }
+    };
+}
+
+arg_tuple_source!(A: 0);
+arg_tuple_source!(A: 0, B: 1);
+arg_tuple_source!(A: 0, B: 1, C: 2);
+arg_tuple_source!(A: 0, B: 1, C: 2, D: 3);
+arg_tuple_source!(A: 0, B: 1, C: 2, D: 3, E: 4);
+arg_tuple_source!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5);
+arg_tuple_source!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6);
+arg_tuple_source!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7);
+arg_tuple_source!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7, I: 8);
+arg_tuple_source!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7, I: 8, J: 9);
+arg_tuple_source!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7, I: 8, J: 9, K: 10);
+arg_tuple_source!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7, I: 8, J: 9, K: 10, L: 11);
+
 macro_rules! indexed_element_tuple {
-    ($($t:ident),+) => {
+    ($($t:ident: $idx:tt),+) => {
         impl<$($t: InputElement),+> IndexedElementTuple for ($($t,)+) {
             type Source<'a> = ElementTupleSource<'a, ($($t,)+)>;
 
@@ -131,16 +277,48 @@ macro_rules! indexed_element_tuple {
                 ElementTupleSource { views, row_count }
             }
         }
+
+        impl<$($t: InputElement),+> private::DecodedSource for ($($t,)+) {
+            fn decoded_source<'a>(
+                columns: &'a Self::Columns,
+                row_count: usize,
+            ) -> Option<impl IndexedSource<Item = Self::Elems<'a>>> {
+                Some(ArgTupleSource {
+                    sources: ($(ArgColumnSource::try_new(
+                        &columns.$idx,
+                        row_count,
+                    )?,)+),
+                    row_count,
+                })
+            }
+        }
     };
 }
 
-indexed_element_tuple!(A, B, C);
-indexed_element_tuple!(A, B, C, D);
-indexed_element_tuple!(A, B, C, D, E);
-indexed_element_tuple!(A, B, C, D, E, F);
-indexed_element_tuple!(A, B, C, D, E, F, G);
-indexed_element_tuple!(A, B, C, D, E, F, G, H);
-indexed_element_tuple!(A, B, C, D, E, F, G, H, I);
-indexed_element_tuple!(A, B, C, D, E, F, G, H, I, J);
-indexed_element_tuple!(A, B, C, D, E, F, G, H, I, J, K);
-indexed_element_tuple!(A, B, C, D, E, F, G, H, I, J, K, L);
+indexed_element_tuple!(A: 0, B: 1, C: 2);
+indexed_element_tuple!(A: 0, B: 1, C: 2, D: 3);
+indexed_element_tuple!(A: 0, B: 1, C: 2, D: 3, E: 4);
+indexed_element_tuple!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5);
+indexed_element_tuple!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6);
+indexed_element_tuple!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7);
+indexed_element_tuple!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7, I: 8);
+indexed_element_tuple!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7, I: 8, J: 9);
+indexed_element_tuple!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7, I: 8, J: 9, K: 10);
+indexed_element_tuple!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7, I: 8, J: 9, K: 10, L: 11);
+
+mod private {
+    use vortex_compute::lane_kernels::IndexedSource;
+
+    use super::ElementTuple;
+
+    /// The crate-private half of [`super::IndexedElementTuple`].
+    ///
+    /// Rust trait methods have the visibility of their trait. This companion keeps source
+    /// construction from decoded columns out of the public unstable API.
+    pub trait DecodedSource: ElementTuple {
+        fn decoded_source<'a>(
+            columns: &'a Self::Columns,
+            row_count: usize,
+        ) -> Option<impl IndexedSource<Item = Self::Elems<'a>>>;
+    }
+}

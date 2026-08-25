@@ -5,12 +5,13 @@
 //!
 //! [`execute_owned`] writes fallible row results into spare vector capacity and reduces compact
 //! failure evidence outside the hot loop. [`execute_owned_infallible`] lets the output type map a
-//! validated non-constant row source directly into its physical representation.
+//! validated row source directly into its physical representation.
 
 use std::ops::BitOrAssign;
 
 use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_mask::MaskValuesRef;
@@ -21,6 +22,7 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::unstable::row::FailureEvidence;
 use crate::scalar_fn::unstable::row::IndexedElementTuple;
 use crate::scalar_fn::unstable::row::OutputElement;
+use crate::scalar_fn::unstable::row::types::decoded_source;
 use crate::scalar_fn::unstable::row::visitor::assert_owned_output_needs_no_drop;
 
 /// Zero-sized failure accumulator for infallible owned visits.
@@ -48,38 +50,13 @@ where
     let prepared = prepare(Args::const_values(&columns));
     let row_count = args.row_count();
 
-    if let Some(views) = Args::views_if_no_consts(&columns) {
-        vortex_ensure!(
-            Args::view_lens_match(&views, row_count),
-            "a decoded row input does not address exactly {row_count} rows",
-        );
+    let Some(source) = decoded_source::<Args>(&columns, row_count) else {
+        vortex_bail!("a decoded row input does not address exactly {row_count} rows");
+    };
 
-        // SAFETY: `view_lens_match` checked that these exact retained views address `row_count`
-        // rows.
-        let source = unsafe { Args::indexed_source(views, row_count) };
-
-        return Ok(Out::build_from(source, |elements| {
-            apply(&prepared, elements)
-        }));
-    }
-
-    vortex_ensure!(
-        Args::decoded_lens_match(&columns, row_count),
-        "a decoded row input does not address exactly {row_count} rows",
-    );
-
-    let mut values = Vec::<Out>::with_capacity(row_count);
-    let output = &mut values.spare_capacity_mut()[..row_count];
-
-    for (index, slot) in output.iter_mut().enumerate() {
-        slot.write(apply(&prepared, Args::get(&columns, index)));
-    }
-
-    // SAFETY: normal completion initializes every output slot exactly once, and `values` was
-    // allocated with at least `row_count` capacity.
-    unsafe { values.set_len(row_count) };
-
-    Ok(Out::build(values))
+    Ok(Out::build_from(source, |elements| {
+        apply(&prepared, elements)
+    }))
 }
 
 /// Decode nullable inputs, then store one output for each valid row from an infallible kernel.

@@ -69,6 +69,9 @@ struct InvalidKernelOutput;
 struct PackedPositive;
 
 #[derive(Clone)]
+struct PackedGreaterThan;
+
+#[derive(Clone)]
 struct ValidOnlyPositive;
 
 #[derive(Clone)]
@@ -344,6 +347,27 @@ impl RowFn for PackedPositive {
     }
 }
 
+impl RowFn for PackedGreaterThan {
+    type Options = EmptyOptions;
+
+    const ARG_NAMES: &'static [&'static str] = &["lhs", "rhs"];
+    const INFALLIBLE: bool = true;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("test.packed_greater_than");
+        *ID
+    }
+
+    fn dispatch<V: RowVisitor>(
+        &self,
+        _options: &Self::Options,
+        _args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        visitor.visit::<(i64, i64), bool>(|(lhs, rhs)| lhs > rhs)
+    }
+}
+
 impl RowFn for ValidOnlyPositive {
     type Options = EmptyOptions;
 
@@ -468,6 +492,39 @@ fn test_bool_output_word_boundaries(#[case] len: usize) -> VortexResult<()> {
 
     let actual = execute_rows(&PackedPositive, &EmptyOptions, &args, &mut ctx)?;
     let expected = BoolArray::from_iter(values.iter().map(|value| *value > 0)).into_array();
+
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_bool_output_handles_partial_constants() -> VortexResult<()> {
+    let values: Vec<_> = (0_i64..65).collect();
+    let varying = PrimitiveArray::from_iter(values.iter().copied()).into_array();
+    let constant = ConstantArray::new(32_i64, values.len()).into_array();
+    let mut ctx = array_session().create_execution_ctx();
+
+    let lhs_varying = VecExecutionArgs::new(vec![varying.clone(), constant.clone()], values.len());
+    let actual = execute_rows(&PackedGreaterThan, &EmptyOptions, &lhs_varying, &mut ctx)?;
+    let expected = BoolArray::from_iter(values.iter().map(|value| *value > 32)).into_array();
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+
+    let rhs_varying = VecExecutionArgs::new(vec![constant, varying], values.len());
+    let actual = execute_rows(&PackedGreaterThan, &EmptyOptions, &rhs_varying, &mut ctx)?;
+    let expected = BoolArray::from_iter(values.iter().map(|value| 32 > *value)).into_array();
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+
+    Ok(())
+}
+
+#[test]
+fn test_bool_output_handles_all_constant_input() -> VortexResult<()> {
+    let input = ConstantArray::new(7_i64, 65).into_array();
+    let args = VecExecutionArgs::new(vec![input], 65);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let actual = execute_rows(&PackedPositive, &EmptyOptions, &args, &mut ctx)?;
+    let expected = BoolArray::from_iter(std::iter::repeat_n(true, 65)).into_array();
 
     assert_arrays_eq!(&actual, &expected, &mut ctx);
     Ok(())
