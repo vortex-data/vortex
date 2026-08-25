@@ -13,3 +13,4 @@ mod execute;
 pub mod intersects;
 pub mod length;
 pub mod make_line;
+pub(crate) mod row;
