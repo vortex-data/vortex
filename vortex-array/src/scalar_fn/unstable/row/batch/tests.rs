@@ -81,6 +81,9 @@ struct PackedPositive;
 struct PackedGreaterThan;
 
 #[derive(Clone)]
+struct DeferredGreaterThan;
+
+#[derive(Clone)]
 struct ValidOnlyPositive;
 
 #[derive(Clone)]
@@ -528,6 +531,35 @@ impl RowFn for PackedGreaterThan {
     }
 }
 
+impl RowFn for DeferredGreaterThan {
+    type Options = EmptyOptions;
+
+    const ARG_NAMES: &'static [&'static str] = &["lhs", "rhs"];
+    const INFALLIBLE: bool = false;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("test.deferred_greater_than");
+        *ID
+    }
+
+    fn dispatch<V: RowVisitor>(
+        &self,
+        _options: &Self::Options,
+        _args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        visitor.visit_deferred::<(i64, i64), bool, bool>(
+            |(lhs, rhs)| (lhs > rhs, lhs == i64::MIN),
+            |failed| {
+                if failed {
+                    vortex_bail!(InvalidArgument: "deferred comparison failed");
+                }
+
+                Ok(())
+            },
+        )
+    }
+}
 impl RowFn for ValidOnlyPositive {
     type Options = EmptyOptions;
 
@@ -757,6 +789,60 @@ fn test_filter_and_scatter_preserves_runtime_sink_params(
     .into_array();
 
     assert_arrays_eq!(&actual, &expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_deferred_bool_output_builds_packed_values() -> VortexResult<()> {
+    let values: Vec<_> = (0_i64..65).collect();
+    let lhs = PrimitiveArray::from_iter(values.iter().copied()).into_array();
+    let rhs = PrimitiveArray::from_iter(std::iter::repeat_n(32_i64, values.len())).into_array();
+    let args = VecExecutionArgs::new(vec![lhs, rhs], values.len());
+    let mut ctx = array_session().create_execution_ctx();
+
+    let actual = execute_rows(&DeferredGreaterThan, &EmptyOptions, &args, &mut ctx)?;
+    let expected = BoolArray::from_iter(values.iter().map(|value| *value > 32)).into_array();
+
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_deferred_bool_output_handles_partial_constants() -> VortexResult<()> {
+    let values: Vec<_> = (0_i64..65).collect();
+    let varying = PrimitiveArray::from_iter(values.iter().copied()).into_array();
+    let constant = ConstantArray::new(32_i64, values.len()).into_array();
+    let mut ctx = array_session().create_execution_ctx();
+
+    let lhs_varying = VecExecutionArgs::new(vec![varying.clone(), constant.clone()], values.len());
+    let actual = execute_rows(&DeferredGreaterThan, &EmptyOptions, &lhs_varying, &mut ctx)?;
+    let expected = BoolArray::from_iter(values.iter().map(|value| *value > 32)).into_array();
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+
+    let rhs_varying = VecExecutionArgs::new(vec![constant, varying], values.len());
+    let actual = execute_rows(&DeferredGreaterThan, &EmptyOptions, &rhs_varying, &mut ctx)?;
+    let expected = BoolArray::from_iter(values.iter().map(|value| 32 > *value)).into_array();
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+
+    Ok(())
+}
+
+#[test]
+fn test_deferred_bool_output_reports_valid_row_failure() -> VortexResult<()> {
+    let lhs = PrimitiveArray::from_iter([1_i64, i64::MIN, -1]).into_array();
+    let rhs = ConstantArray::new(0_i64, 3).into_array();
+    let args = VecExecutionArgs::new(vec![lhs, rhs], 3);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let error = match execute_rows(&DeferredGreaterThan, &EmptyOptions, &args, &mut ctx) {
+        Err(error) => error.to_string(),
+        Ok(_) => vortex_bail!("a valid-row deferred failure was not reported"),
+    };
+
+    assert!(
+        error.contains("deferred comparison failed"),
+        "fallible execution must report its deferred error, got {error}",
+    );
     Ok(())
 }
 

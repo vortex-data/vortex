@@ -3,13 +3,12 @@
 
 //! Executes row kernels that return one independent owned value per row.
 //!
-//! [`execute_owned`] writes fallible row results into spare vector capacity and reduces compact
-//! failure evidence outside the hot loop. [`execute_owned_infallible`] lets the output type map a
-//! validated row source directly into its physical representation.
+//! [`execute_owned`] and [`execute_owned_infallible`] let the output type map a validated row
+//! source directly into its physical representation. [`execute_owned`] also reduces compact
+//! failure evidence while collecting the output, before constructing an error.
 
 use std::ops::BitOrAssign;
 
-use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -165,29 +164,18 @@ where
     Out: OutputElement,
     Fail: FailureEvidence,
 {
-    // The output vector stays at length zero until every slot is initialized so that an unwind
-    // abandons partially initialized spare capacity. This no-drop assertion proves that no
-    // initialized value requires a destructor to run.
     const { assert_owned_output_needs_no_drop::<Out>() };
 
     let columns = Args::decode(args, ctx)?;
     let prepared = prepare(Args::const_values(&columns));
-
     let row_count = args.row_count();
-    let mut values = Vec::<Out>::with_capacity(row_count);
-    let output = &mut values.spare_capacity_mut()[..row_count];
 
     let Some(source) = decoded_source::<Args>(&columns, row_count) else {
         vortex_bail!("a decoded row input does not address exactly {row_count} rows");
     };
-    let failure = source.map_checked_into(output, |elements| apply(&prepared, elements));
-
-    // SAFETY: normal completion initializes `0..row_count` exactly once, and `values` was
-    // allocated with at least `row_count` capacity.
-    unsafe { values.set_len(row_count) };
-
+    let (output, failure) = Out::build_from_deferred(source, |elements| apply(&prepared, elements));
     // Defer rich error construction until after the row loop.
     finish_failure(failure)?;
 
-    Ok(Out::build(values))
+    Ok(output)
 }

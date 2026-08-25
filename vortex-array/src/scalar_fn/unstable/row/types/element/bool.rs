@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::mem::size_of;
+
 use vortex_buffer::BitBuffer;
 use vortex_compute::lane_kernels::IndexedSource;
 use vortex_error::VortexResult;
@@ -12,6 +14,7 @@ use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
+use crate::scalar_fn::unstable::row::FailureEvidence;
 use crate::scalar_fn::unstable::row::InputElement;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::validity::Validity;
@@ -89,5 +92,34 @@ impl OutputElement for bool {
         });
 
         BoolArray::new(values, Validity::NonNullable).into_array()
+    }
+
+    fn build_from_deferred<S, F, Fail>(source: S, apply: F) -> (ArrayRef, Fail)
+    where
+        S: IndexedSource,
+        F: Fn(S::Item) -> (Self, Fail),
+        Fail: FailureEvidence,
+    {
+        const {
+            assert!(
+                size_of::<Fail>() <= size_of::<Self>(),
+                "failure evidence must be no wider than the value, or it bounds the vector width"
+            )
+        };
+
+        let len = source.len();
+        let mut failure = Fail::default();
+        let values = BitBuffer::collect_bool(len, |index| {
+            // SAFETY: `collect_bool` only invokes this closure with `index < len`, and
+            // `len` is `source.len()`.
+            let (value, row_failure) = apply(unsafe { source.get_unchecked(index) });
+            failure |= row_failure;
+            value
+        });
+
+        (
+            BoolArray::new(values, Validity::NonNullable).into_array(),
+            failure,
+        )
     }
 }
