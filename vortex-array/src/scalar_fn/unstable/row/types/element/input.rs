@@ -90,12 +90,11 @@ pub unsafe trait InputElement: 'static {
     /// Read one row without repeating batch-constant work from [`decode`](Self::decode).
     fn get(column: &Self::Column, index: usize) -> Self::Elem<'_>;
 
-    /// Borrow the representation used when this argument varies within the batch.
+    /// Borrow the representation used inside the row loop.
     ///
-    /// Called once before the hot loop. Constants do not use this view because the tuple adapter
-    /// keeps their one-row decoded representation separate. For every index below the returned
-    /// view's length, [`get_from_view`](Self::get_from_view) must produce the same element as
-    /// [`get`](Self::get) on `column`.
+    /// Executors call this before the hot loop. For every index below the returned view's length,
+    /// [`get_from_view`](Self::get_from_view) must produce the same element as [`get`](Self::get) on
+    /// `column`.
     fn view(column: &Self::Column) -> Self::View<'_>;
 
     /// Read one row from a [`View`](Self::View).

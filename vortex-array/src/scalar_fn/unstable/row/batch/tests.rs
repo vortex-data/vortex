@@ -761,6 +761,20 @@ fn test_filter_and_scatter_preserves_runtime_sink_params(
 }
 
 #[test]
+fn test_deferred_owned_execution_handles_constant_lhs() -> VortexResult<()> {
+    let lhs = ConstantArray::new(10_i64, 3).into_array();
+    let rhs = PrimitiveArray::from_iter([1_i64, 2, 3]).into_array();
+    let args = VecExecutionArgs::new(vec![lhs, rhs], 3);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let actual = execute_rows(&DeferredAdd::default(), &EmptyOptions, &args, &mut ctx)?;
+    let expected = PrimitiveArray::from_iter([11_i64, 12, 13]).into_array();
+
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
 fn test_deferred_owned_execution_retries_null_row_failure() -> VortexResult<()> {
     let function = DeferredAdd::default();
     let validity = Validity::from_iter([true, false]);
