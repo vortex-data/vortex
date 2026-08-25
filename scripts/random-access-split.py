@@ -18,7 +18,7 @@ BINARY = "target/release_debug/random-access-bench"
 PARTS_DIR = Path("parts")
 
 DATASETS = ["taxi", "feature-vectors", "nested-lists", "nested-structs"]
-FORMATS = ["parquet", "lance", "vortex"]
+FORMATS = ["arrow", "parquet", "lance", "vortex"]
 PATTERNS = ["correlated", "uniform"]
 OPEN_MODES = ["cached", "reopen"]
 

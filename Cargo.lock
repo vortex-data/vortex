@@ -1568,6 +1568,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arrow-array 58.4.0",
+ "arrow-ipc 58.4.0",
  "arrow-schema 58.4.0",
  "async-trait",
  "bytes",
@@ -9684,6 +9685,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arrow-array 58.4.0",
+ "arrow-ipc 58.4.0",
  "arrow-schema 58.4.0",
  "arrow-select 58.4.0",
  "async-trait",
@@ -9718,6 +9720,7 @@ dependencies = [
  "sysinfo",
  "tabled",
  "target-lexicon",
+ "tempfile",
  "tokio",
  "tokio-stream",
  "tokio-util",

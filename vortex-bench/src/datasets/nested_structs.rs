@@ -25,6 +25,7 @@ use crate::conversions::write_parquet_as_vortex;
 use crate::idempotent_async;
 use crate::random_access::BenchDataset;
 use crate::random_access::data_path;
+use crate::random_access::parquet_to_arrow_file;
 
 /// Dataset identifier used for data path generation.
 pub const DATASET: &str = "nested_structs";
@@ -46,6 +47,10 @@ impl BenchDataset for NestedStructsData {
 
     async fn path(&self, format: Format) -> Result<PathBuf> {
         match format {
+            Format::Arrow => {
+                let parquet_path = nested_structs_parquet().await?;
+                parquet_to_arrow_file(parquet_path, data_path(DATASET, Format::Arrow))
+            }
             Format::OnDiskVortex => nested_structs_vortex().await,
             Format::VortexCompact => nested_structs_vortex_compact().await,
             Format::Parquet => nested_structs_parquet().await,

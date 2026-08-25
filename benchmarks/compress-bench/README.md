@@ -1,7 +1,8 @@
 # Compression benchmark
 
 Measures compression and decompression throughput, plus resulting file sizes, for Vortex
-versus Parquet (and optionally Lance) across a range of datasets: NYC taxi data, several
+versus Parquet and optionally Lance. The size results also include uncompressed Arrow IPC files.
+The suite covers NYC taxi data and several
 [Public BI](https://github.com/cwida/public_bi_benchmark) tables (Arade, Bimbo,
 CMSprovider, Euro2016, Food, HashTags), TPC-H `l_comment` variants, and synthetic nested
 data. This is the workload behind the `Compression` PR comment.

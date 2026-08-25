@@ -10,6 +10,7 @@ use anyhow::Context;
 use clap::Parser;
 #[cfg(feature = "lance")]
 use compress_bench::LanceCompressor;
+use compress_bench::arrow::ArrowCompressor;
 use compress_bench::gpu::GpuCodec;
 use compress_bench::gpu::GpuOptions;
 use compress_bench::gpu::compressor as gpu_compressor;
@@ -58,7 +59,7 @@ struct Args {
         long,
         value_delimiter = ',',
         value_enum,
-        default_values_t = vec![Format::Parquet, Format::OnDiskVortex]
+        default_values_t = vec![Format::Arrow, Format::Parquet, Format::OnDiskVortex]
     )]
     formats: Vec<Format>,
     #[arg(short, long, default_value_t = 5)]
@@ -188,6 +189,7 @@ fn get_compressor(format: Format, mode: BenchMode) -> Box<dyn Compressor> {
     }
 
     match format {
+        Format::Arrow => Box::new(ArrowCompressor),
         Format::OnDiskVortex => Box::new(VortexCompressor),
         Format::Parquet => Box::new(ParquetCompressor::new()),
         #[cfg(feature = "lance")]
@@ -217,8 +219,9 @@ async fn run_compress(
     output_path: Option<PathBuf>,
     ingest_output: Option<PathBuf>,
 ) -> anyhow::Result<()> {
-    let targets = formats
+    let timing_targets = formats
         .iter()
+        .filter(|format| **format != Format::Arrow)
         .map(|f| Target::new(Engine::default(), *f))
         .collect_vec();
 
@@ -360,7 +363,7 @@ async fn run_compress(
     // publishes the numbers for the datasets that did decode.
     match display_format {
         DisplayFormat::Table => {
-            render_table(&mut writer, measurements.timings, &targets)?;
+            render_table(&mut writer, measurements.timings, &timing_targets)?;
             render_table(
                 &mut writer,
                 measurements.ratios,
@@ -430,6 +433,28 @@ async fn run_benchmark_for_dataset(
 
     for format in formats {
         let compressor = get_compressor(*format, mode);
+
+        // Arrow is an uncompressed size baseline. Do not add its serialization timings to the
+        // compression-throughput suite.
+        if *format == Format::Arrow {
+            if ops.contains(&CompressOp::Compress) {
+                let result = benchmark_compress(compressor.as_ref(), &parquet_path, 1, bench_name)
+                    .await
+                    .with_context(|| {
+                        format!("Arrow serialization failed for {bench_name} as {format}")
+                    })?;
+                compressed_sizes.insert(*format, result.compressed_size);
+                v3_records.push(v3::compression_size_record(
+                    v3_dataset,
+                    v3_variant,
+                    *format,
+                    result.compressed_size,
+                ));
+                ratios.extend(result.ratios);
+            }
+            progress.inc(ops.len() as u64);
+            continue;
+        }
 
         for op in ops {
             let time = match op {
