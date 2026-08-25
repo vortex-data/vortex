@@ -18,6 +18,7 @@ mod for_;
 mod fsst;
 mod patched;
 mod pco;
+mod pco_8bit;
 mod rle;
 mod runend;
 mod sequence;
@@ -46,6 +47,7 @@ pub fn fixtures() -> Vec<Box<dyn FlatLayoutFixture>> {
         // TODO(aduffy): add back once we stabilized Patched array
         // Box::new(patched::PatchedFixture),
         Box::new(pco::PcoFixture),
+        Box::new(pco_8bit::Pco8BitFixture),
         Box::new(rle::RleFixture),
         Box::new(runend::RunEndFixture),
         Box::new(sequence::SequenceFixture),
