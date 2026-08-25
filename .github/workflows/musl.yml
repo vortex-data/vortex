@@ -71,6 +71,26 @@ jobs:
             --exclude vortex-bench --exclude lance-bench --exclude datafusion-bench --exclude vortex-datafusion \
             --exclude compress-bench --exclude random-access-bench --exclude vortex-bench-server
 
+      # The multi-GiB regression tests are `#[ignore]`d, so every test job skips them by
+      # default and this step is the only place they run. This job is the one that covers
+      # every event: `Rust tests (linux-arm64)` is gated to the upstream repository and is
+      # skipped on pushes to develop, so gating them there would leave forks and develop
+      # untested. They are named explicitly rather than run with a bare `--run-ignored`,
+      # which would also un-ignore the CUDA tests that have no GPU here, and the cargo
+      # arguments match the step above so that nothing is rebuilt. The `slow-multi-gib`
+      # nextest test group keeps them from running concurrently, since each holds several
+      # GiB live.
+      - name: Run multi-GiB regression tests
+        shell: bash
+        run: |
+          cargo nextest run --cargo-profile ci --locked --workspace --no-fail-fast --run-ignored only \
+            --exclude vortex-cuda --exclude vortex-cub --exclude vortex-nvcomp \
+            --exclude gpu-scan-cli --exclude vortex-test-e2e-cuda --exclude vortex-python-cuda \
+            --exclude vortex-duckdb --exclude duckdb-bench --exclude vortex-sqllogictest \
+            --exclude vortex-bench --exclude lance-bench --exclude datafusion-bench --exclude vortex-datafusion \
+            --exclude compress-bench --exclude random-access-bench --exclude vortex-bench-server \
+            -E 'test(build_views_offsets_overflow_i32) + test(compress_large_int) + test(fsst_compress_offsets_overflow_i32)'
+
       - name: Alert incident.io
         if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/develop'
         uses: ./.github/actions/alert-incident-io

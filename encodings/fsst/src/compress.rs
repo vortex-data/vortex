@@ -368,8 +368,22 @@ mod tests {
         assert!(!fsst_output_fits_in_i32_offsets(usize::MAX));
     }
 
+    /// The i64 codes-offsets path must build a valid array. Driving `compress_views::<i64>`
+    /// directly covers the branch on a three-string input, so day-to-day coverage of it does not
+    /// depend on the multi-GiB `tests::fsst_compress_offsets_overflow_i32`.
+    #[test]
+    fn codes_offsets_i64_path_roundtrips() -> VortexResult<()> {
+        let array = VarBinViewArray::from_iter_str(["hello", "world", "fsst encoded"]);
+        let mut ctx = array_session().create_execution_ctx();
+        let compressor = fsst_train_compressor(array.as_array(), &mut ctx)?;
+        let mask = array.validity()?.execute_mask(array.len(), &mut ctx)?;
+        let fsst = super::compress_views::<i64>(array.as_view(), &mask, &compressor, &mut ctx)?;
+        assert_eq!(fsst.codes().offsets().dtype().as_ptype(), PType::I64);
+        assert_eq!(fsst.len(), array.len());
+        Ok(())
+    }
+
     /// Small inputs fit the i32 bound, so `fsst_compress` must pick i32 offsets.
-    /// The i64 branch is covered by `tests::fsst_compress_offsets_overflow_i32`.
     #[test]
     fn codes_offsets_dtype_small_input_is_i32() -> VortexResult<()> {
         let array = VarBinViewArray::from_iter_str(["hello", "world", "fsst encoded"]);

@@ -442,3 +442,8 @@ incremental = false
 # This improved build times significantly for default common cases that we use locally
 [profile.dev.package.vortex-fastlanes]
 debug = false
+
+# FSST's compression kernel is hot enough that an unoptimized build dominates the runtime of the
+# multi-GiB `fsst_compress_offsets_overflow_i32` regression (106s -> 64s locally when optimized).
+[profile.ci.package.fsst-rs]
+opt-level = 3

@@ -126,8 +126,6 @@ fn test_fsst_array_ops() {
     assert_arrays_eq!(fsst_array, canonical_array, &mut ctx);
 }
 
-// TODO(someone): ideally CI would run this in release mode as well since debug builds make the
-// allocation and compression loop substantially slower.
 /// Regression for #7833: [`fsst_compress`] must accept inputs whose cumulative compressed
 /// bytes exceed [`i32::MAX`]. Before the fix, the compress path hardcoded
 /// [`VarBinBuilder<i32>`] for the FSST output and panicked in
@@ -141,17 +139,20 @@ fn test_fsst_array_ops() {
 /// is on the FSST output side. After the fix the test must succeed with the row count
 /// preserved.
 ///
-/// Allocates ~1.1 GiB for the input and ~2.1 GiB for the FSST output (~3.2 GiB total), so
-/// it is gated to CI runs and skipped when `VORTEX_SKIP_SLOW_TESTS` is set. To run it
-/// locally:
+/// Allocates ~1.1 GiB for the input and ~2.1 GiB for the FSST output (~3.2 GiB total), so it is
+/// ignored by default and run only by the "Rust tests (linux-musl)" CI job. Setting
+/// `VORTEX_SKIP_SLOW_TESTS` at build time drops it from the binary, which is how the sanitizer
+/// jobs avoid compiling it at all. To run it locally (release mode, since debug builds make the
+/// allocation and compression loop substantially slower):
 ///
 /// ```text
-/// CI=1 cargo test --release -p vortex-fsst fsst_compress_offsets
+/// cargo test --release -p vortex-fsst fsst_compress_offsets -- --ignored
 /// ```
 ///
 /// [`fsst_compress`]: crate::compress::fsst_compress
-#[test_with::env(CI)]
 #[test_with::no_env(VORTEX_SKIP_SLOW_TESTS)]
+#[test]
+#[ignore = "slow: allocates ~3.2 GiB, run by the \"Rust tests (linux-musl)\" CI job"]
 fn fsst_compress_offsets_overflow_i32() {
     const STRING_LEN: usize = 64 * 1024;
     // Escape coding doubles every byte, so ~1.06 GiB of input compresses to ~2.13 GiB,

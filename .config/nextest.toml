@@ -1,6 +1,14 @@
 [profile.default]
 slow-timeout = { period = "30s", terminate-after = 5 }
 
+# The multi-GiB regression tests are `#[ignore]`d, so only the "Rust tests (linux-musl)" job
+# runs them. Each holds several GiB live, so they are held to one at a time and given far more
+# than the default time budget.
+[test-groups.slow-multi-gib]
+max-threads = 1
+
 [[profile.default.overrides]]
-filter = 'test(compress_large_int | fsst_compress_offsets_overflow_i32)'
+filter = 'test(build_views_offsets_overflow_i32) + test(compress_large_int) + test(fsst_compress_offsets_overflow_i32)'
+test-group = 'slow-multi-gib'
+slow-timeout = { period = "60s", terminate-after = 20 }
 priority = 100

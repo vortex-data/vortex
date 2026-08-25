@@ -177,6 +177,7 @@ jobs:
       MSAN_SYMBOLIZER_PATH: "/usr/bin/llvm-symbolizer"
       TSAN_OPTIONS: "symbolize=1:suppressions=${{ github.workspace }}/vortex-ffi/tsan_suppressions.txt"
       TSAN_SYMBOLIZER_PATH: "/usr/bin/llvm-symbolizer"
+      # Compiles the multi-GiB tests out of the sanitizer build entirely.
       VORTEX_SKIP_SLOW_TESTS: "1"
       # -Cunsafe-allow-abi-mismatch=sanitizer: libraries like compiler_builtins
       # unset -Zsanitizer flag and we should allow that.
@@ -243,6 +244,7 @@ jobs:
       MSAN_SYMBOLIZER_PATH: "/usr/bin/llvm-symbolizer"
       TSAN_OPTIONS: "symbolize=1:suppressions=${{ github.workspace }}/vortex-ffi/tsan_suppressions.txt"
       TSAN_SYMBOLIZER_PATH: "/usr/bin/llvm-symbolizer"
+      # Compiles the multi-GiB tests out of the sanitizer build entirely.
       VORTEX_SKIP_SLOW_TESTS: "1"
       # -Cunsafe-allow-abi-mismatch=sanitizer: libraries like compiler_builtins
       # unset -Zsanitizer flag and we should allow that.

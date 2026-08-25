@@ -492,8 +492,6 @@ mod tests {
         build_views(0, MAX_BUFFER_LEN, bytes, &[31u32]);
     }
 
-    // TODO(someone): ideally CI would run this in release mode as well, since debug builds make the
-    // ~2.25 GiB allocation and fill loop substantially slower.
     /// Slow regression for the single-buffer fast-path guard. The fast path is only valid when the
     /// whole heap fits in one buffer (`bytes.len() <= max_buffer_len`); once the heap exceeds
     /// [`MAX_BUFFER_LEN`] (`i32::MAX`, ~2.0 GiB) `build_views` must roll the heap into multiple
@@ -506,15 +504,19 @@ mod tests {
     /// the fast path swallowed the whole heap, it would emit a single >2 GiB buffer with offsets past
     /// `i32::MAX`, which the buffer-count and buffer-size assertions catch.
     ///
-    /// Allocates ~2.25 GiB, so it is gated to CI and skipped when `VORTEX_SKIP_SLOW_TESTS` is set:
+    /// Allocates ~2.25 GiB, so it is ignored by default and run only by the "Rust tests
+    /// (linux-musl)" CI job. Setting `VORTEX_SKIP_SLOW_TESTS` at build time drops it from the
+    /// binary, which is how the sanitizer jobs avoid compiling it at all. To run it locally
+    /// (release mode, since debug builds make the allocation and fill loop substantially slower):
     ///
     /// ```text
-    /// CI=1 cargo test --release -p vortex-array build_views_offsets_overflow
+    /// cargo test --release -p vortex-array build_views_offsets_overflow -- --ignored
     /// ```
     ///
     /// [`MAX_BUFFER_LEN`]: super::MAX_BUFFER_LEN
-    #[test_with::env(CI)]
     #[test_with::no_env(VORTEX_SKIP_SLOW_TESTS)]
+    #[test]
+    #[ignore = "slow: allocates ~2.25 GiB, run by the \"Rust tests (linux-musl)\" CI job"]
     fn build_views_offsets_overflow_i32() {
         const STRING_LEN: usize = 64 * 1024;
         // Comfortably past MAX_BUFFER_LEN (`i32::MAX` ~= 2.0 GiB) so the heap must roll over.

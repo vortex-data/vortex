@@ -15,11 +15,13 @@ use vortex_array::arrays::Dict;
 use vortex_array::arrays::Masked;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
+use vortex_array::dtype::PType;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::buffer;
 use vortex_compressor::CascadingCompressor;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_fastlanes::RLE;
 use vortex_sequence::Sequence;
@@ -128,8 +130,16 @@ fn test_rle_compression() -> VortexResult<()> {
     Ok(())
 }
 
-#[test_with::env(CI)]
+/// Compresses 50M values, so it is ignored by default and run only by the "Rust tests
+/// (linux-musl)" CI job. Setting `VORTEX_SKIP_SLOW_TESTS` at build time drops it from the
+/// binary, which is how the sanitizer jobs avoid compiling it at all. To run it locally:
+///
+/// ```text
+/// cargo test --release -p vortex-btrblocks compress_large_int -- --ignored
+/// ```
 #[test_with::no_env(VORTEX_SKIP_SLOW_TESTS)]
+#[test]
+#[ignore = "slow: compresses 50M values, run by the \"Rust tests (linux-musl)\" CI job"]
 fn compress_large_int() -> VortexResult<()> {
     const NUM_LISTS: usize = 10_000;
     const ELEMENTS_PER_LIST: usize = 5_000;
@@ -144,5 +154,47 @@ fn compress_large_int() -> VortexResult<()> {
     let btr = BtrBlocksCompressor::default();
     btr.compress(&prim, &mut SESSION.create_execution_ctx())?;
 
+    Ok(())
+}
+
+/// The compressor picks ALP exponents from a sample, so values the sample did not represent must
+/// be stored as patches, indexed per chunk. This is the structure `compress_large_int` reaches
+/// only by scale; here the misfit values are placed deliberately, which also pins the
+/// `patch_chunk_offsets` width across the three magnitudes it is chosen from.
+#[rstest::rstest]
+#[case::sparse_patches(200_000, 1_000, PType::U8)]
+#[case::dense_patches(200_000, 100, PType::U16)]
+#[case::many_patches(1_000_000, 10, PType::U32)]
+fn alp_patches_are_chunk_indexed(
+    #[case] len: usize,
+    #[case] patch_every: usize,
+    #[case] chunk_offsets_ptype: PType,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+
+    // Whole numbers dominate, so the sampled exponents encode them exactly; the sprinkled values
+    // need more decimal digits than those exponents can represent and must be patched.
+    let values = (0..len)
+        .map(|i| {
+            if i % patch_every == patch_every - 1 {
+                i as f64 + 0.123_456_789_012_345
+            } else {
+                i as f64
+            }
+        })
+        .collect::<PrimitiveArray>()
+        .into_array();
+
+    let compressed = BtrBlocksCompressor::default().compress(&values, &mut ctx)?;
+
+    let offsets = compressed
+        .children_names()
+        .iter()
+        .position(|name| name == "patch_chunk_offsets")
+        .map(|idx| compressed.children()[idx].clone())
+        .vortex_expect("compressed array must carry chunk-indexed ALP patches");
+    assert_eq!(offsets.dtype().as_ptype(), chunk_offsets_ptype);
+
+    assert_arrays_eq!(compressed, values, &mut ctx);
     Ok(())
 }
