@@ -222,7 +222,6 @@ async fn run_compress(
 ) -> anyhow::Result<()> {
     let timing_targets = formats
         .iter()
-        .filter(|format| **format != Format::ArrowIpc)
         .map(|f| Target::new(Engine::default(), *f))
         .collect_vec();
     let size_targets = formats
@@ -369,7 +368,15 @@ async fn run_compress(
     match display_format {
         DisplayFormat::Table => {
             render_table(&mut writer, measurements.timings, &timing_targets)?;
-            render_table(&mut writer, measurements.ratios, &size_targets)?;
+            render_table(
+                &mut writer,
+                measurements
+                    .ratios
+                    .into_iter()
+                    .filter(|measurement| measurement.unit == "bytes")
+                    .collect(),
+                &size_targets,
+            )?;
         }
         DisplayFormat::GhJson => {
             print_measurements_json(&mut writer, measurements.timings, DOC_PATH)?;
@@ -435,29 +442,6 @@ async fn run_benchmark_for_dataset(
 
     for format in formats {
         let compressor = get_compressor(*format, mode);
-
-        // Arrow IPC is a file-size baseline. Do not add its serialization timings to the
-        // compression-throughput suite.
-        if *format == Format::ArrowIpc {
-            if ops.contains(&CompressOp::Compress) {
-                let result = benchmark_compress(compressor.as_ref(), &parquet_path, 1, bench_name)
-                    .await
-                    .with_context(|| {
-                        format!("Arrow IPC serialization failed for {bench_name} as {format}")
-                    })?;
-                compressed_sizes.insert(*format, result.compressed_size);
-                v3_records.push(v3::compression_size_record(
-                    v3_dataset,
-                    v3_variant,
-                    *format,
-                    result.compressed_size,
-                    uncompressed_size.context("compression size requires Arrow memory size")?,
-                ));
-                ratios.extend(result.ratios);
-            }
-            progress.inc(ops.len() as u64);
-            continue;
-        }
 
         for op in ops {
             let time = match op {
