@@ -217,6 +217,87 @@ fn empty_chunk_is_a_merge_identity() -> VortexResult<()> {
 }
 
 #[test]
+fn combine_partials_empty_is_identity() -> VortexResult<()> {
+    let dtype = DType::Primitive(PType::I64, Nullability::NonNullable);
+    let mut empty = Accumulator::try_new(SumV2, NumericalAggregateOpts::default(), dtype.clone())?;
+    let empty_partial = empty.partial_scalar()?;
+
+    empty.combine_partials(empty_partial.clone())?;
+    assert!(empty.final_scalar()?.is_null());
+
+    let mut value = Accumulator::try_new(SumV2, NumericalAggregateOpts::default(), dtype.clone())?;
+    let batch = PrimitiveArray::from_iter([7i64]).into_array();
+    value.accumulate(&batch, &mut array_session().create_execution_ctx())?;
+    let value_partial = value.partial_scalar()?;
+
+    empty.combine_partials(value_partial.clone())?;
+    assert_eq!(
+        empty.final_scalar()?.as_primitive().typed_value::<i64>(),
+        Some(7)
+    );
+
+    let mut value_then_empty =
+        Accumulator::try_new(SumV2, NumericalAggregateOpts::default(), dtype)?;
+    value_then_empty.combine_partials(value_partial)?;
+    value_then_empty.combine_partials(empty_partial)?;
+    assert_eq!(
+        value_then_empty
+            .final_scalar()?
+            .as_primitive()
+            .typed_value::<i64>(),
+        Some(7)
+    );
+    Ok(())
+}
+
+#[test]
+fn combine_partials_overflow_is_absorbing() -> VortexResult<()> {
+    let dtype = DType::Primitive(PType::I64, Nullability::NonNullable);
+    let mut max = Accumulator::try_new(SumV2, NumericalAggregateOpts::default(), dtype.clone())?;
+    let max_batch = PrimitiveArray::from_iter([i64::MAX]).into_array();
+    max.accumulate(&max_batch, &mut array_session().create_execution_ctx())?;
+
+    let mut one = Accumulator::try_new(SumV2, NumericalAggregateOpts::default(), dtype.clone())?;
+    let one_batch = PrimitiveArray::from_iter([1i64]).into_array();
+    one.accumulate(&one_batch, &mut array_session().create_execution_ctx())?;
+
+    let mut combined =
+        Accumulator::try_new(SumV2, NumericalAggregateOpts::default(), dtype.clone())?;
+    combined.combine_partials(max.partial_scalar()?)?;
+    combined.combine_partials(one.partial_scalar()?)?;
+    assert!(combined.is_saturated());
+    assert!(combined.final_scalar()?.is_null());
+
+    combined.combine_partials(max.partial_scalar()?)?;
+    let overflow_partial = combined.partial_scalar()?;
+    let fields = overflow_partial.as_struct();
+    assert_eq!(
+        fields
+            .field("sum")
+            .and_then(|sum| sum.as_primitive().typed_value::<i64>()),
+        Some(i64::MAX)
+    );
+    assert_eq!(
+        fields
+            .field("is_overflow")
+            .and_then(|flag| flag.as_bool().value()),
+        Some(true)
+    );
+    assert_eq!(
+        fields
+            .field("is_empty")
+            .and_then(|flag| flag.as_bool().value()),
+        Some(false)
+    );
+
+    let mut propagated = Accumulator::try_new(SumV2, NumericalAggregateOpts::default(), dtype)?;
+    propagated.combine_partials(overflow_partial)?;
+    assert!(propagated.is_saturated());
+    assert!(propagated.final_scalar()?.is_null());
+    Ok(())
+}
+
+#[test]
 fn grouped_primitive_tracks_empty_overflow_and_null_groups() -> VortexResult<()> {
     let elements =
         PrimitiveArray::from_option_iter([Some(5i64), None, Some(i64::MAX), Some(1)]).into_array();
