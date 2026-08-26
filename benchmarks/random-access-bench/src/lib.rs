@@ -138,7 +138,8 @@ pub enum OpenMode {
 /// Runs the take operation repeatedly until the time limit is reached and
 /// collects timing for each run. Cached mode performs an untimed warm-up first
 /// so that host page-cache state does not affect the recorded measurements.
-/// Reopen mode creates the accessor inside each timed iteration.
+/// Both modes prepare the format file before timing starts. Reopen mode creates
+/// the accessor inside each timed iteration.
 #[expect(clippy::too_many_arguments)]
 async fn benchmark_random_access(
     dataset: &dyn BenchDataset,
@@ -152,11 +153,8 @@ async fn benchmark_random_access(
 ) -> Result<RandomAccessRun> {
     let time_limit = Duration::from_secs(time_limit_secs);
     let mut runs = Vec::new();
-    let cached_accessor = if reopen {
-        None
-    } else {
-        Some(open_accessor(dataset, format).await?)
-    };
+    let prepared_accessor = open_accessor(dataset, format).await?;
+    let cached_accessor = (!reopen).then_some(prepared_accessor);
 
     if let Some(accessor) = &cached_accessor {
         let warmup_start = Instant::now();
