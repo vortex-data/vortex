@@ -9,12 +9,23 @@ mod sample;
 mod select;
 mod structural;
 
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+use vortex_array::ArrayId;
+
 use crate::builtins::IntDictScheme;
 use crate::scheme::ChildSelection;
 use crate::scheme::DescendantExclusion;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
 use crate::scheme::SchemeId;
+
+/// The maximum compatible writer version enabled for each array encoding.
+///
+/// This is a write-time policy. It is consulted before a scheme is estimated or run and is never
+/// stored in an array or used to select a reader.
+pub type ArrayWriterVersions = BTreeMap<ArrayId, u16>;
 
 /// Synthetic scheme ID used for the compressor's own root-level cascading.
 pub(crate) const ROOT_SCHEME_ID: SchemeId = SchemeId {
@@ -46,6 +57,9 @@ pub struct CascadingCompressor {
     /// Descendant exclusion rules for the compressor's own cascading (e.g. excluding Dict from
     /// list offsets).
     root_exclusions: Vec<DescendantExclusion>,
+
+    /// Per-array writer ceilings, when compression is constrained for serialization.
+    array_writer_versions: Option<Arc<ArrayWriterVersions>>,
 }
 
 impl CascadingCompressor {
@@ -63,7 +77,34 @@ impl CascadingCompressor {
         Self {
             schemes,
             root_exclusions,
+            array_writer_versions: None,
         }
+    }
+
+    /// Constrains schemes to serialized features allowed by these per-array writer versions.
+    ///
+    /// Schemes whose required version is absent or newer than the configured ceiling are removed
+    /// before statistics, estimation, sampling, or compression. Without this policy, compression
+    /// is intended for in-memory use and all registered scheme versions remain eligible.
+    pub fn with_array_writer_versions(mut self, versions: ArrayWriterVersions) -> Self {
+        self.array_writer_versions = Some(Arc::new(versions));
+        self
+    }
+
+    /// Whether `scheme` can produce its representation of `canonical` under the writer policy.
+    fn writer_version_allows(
+        &self,
+        scheme: &dyn Scheme,
+        canonical: &vortex_array::Canonical,
+    ) -> bool {
+        let Some(enabled) = &self.array_writer_versions else {
+            return true;
+        };
+
+        scheme
+            .required_array_writer_versions(canonical)
+            .into_iter()
+            .all(|(id, required)| enabled.get(&id).is_some_and(|enabled| *enabled >= required))
     }
 }
 

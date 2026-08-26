@@ -1,17 +1,22 @@
 # Editions
 
 Vortex files contain several kinds of serialized **component**: array encodings, layout encodings, extension dtypes, and
-aggregate functions. An **edition** is a named set of these components. It controls what a writer may put in a file and,
-once frozen, identifies the earliest Vortex release that supports every component in the set.
+aggregate functions. An **edition** is a named set of these components. For each array encoding, it also pins an
+**array writer version**: the compatible serialized features that compression schemes may produce under that array ID.
+An edition controls what a writer may put in a file and, once frozen, identifies the earliest Vortex release that
+supports every component and writer feature in the set.
 
-Each component consists of a kind, an ID, and the wire contract for its metadata and payload. The compatibility
-guarantee applies to that serialized contract, not to the in-memory implementation that reads or writes it.
+An array writer version is only a write-time capability ceiling. It is not an in-memory array version, is not written as
+a version tag, and never selects a reader. Each array ID has exactly one registered reader. A higher writer version may
+authorize a compression scheme to populate compatible optional fields or properties that an earlier writer never
+produced. An incompatible representation is a new array encoding with a new ID.
 
 Editions belong to independently versioned families and are cumulative within a family. Each edition includes all
-components from the preceding edition in that family, plus any newly added components. A writer selects at most one
-edition from each family and may use the union of their components. For example, selecting `core2026.08.1` and
-`preview2026.06.0` allows stable components released through August 2026 and preview components released through
-June 2026.
+components and writer versions from the preceding edition in that family, plus any additions. A writer selects at most
+one edition from each family and may use the union of their components. If enabled families mention the same array ID,
+the writer resolves one effective version: the highest permitted writer version. It does not retain multiple array
+versions. For example, selecting `core2026.08.1` and `preview2026.06.0` allows stable components released through August
+2026 and preview components released through June 2026.
 
 The first frozen edition, `core2025.05.0`, contains the components that Vortex `0.36.0` could write. This marks the
 start of the Vortex file format's stability guarantee. Every Vortex release from `0.36.0` onward can read
@@ -23,16 +28,16 @@ guarantee for any draft components written to the file.
 
 ## What an edition contains
 
-An edition records every component by kind and ID. IDs are unique within a kind, but not across kinds: a layout named
-`vortex.flat` and an array encoding with the same ID are distinct components. The writer therefore builds and enforces a
-separate allowlist for each kind:
+An edition records every component by kind and ID. Array entries additionally record one writer version. IDs are unique
+within a kind, but not across kinds: a layout named `vortex.flat` and an array encoding with the same ID are distinct
+components. The writer therefore builds and enforces a separate allowlist for each kind:
 
-| Kind        | Written                                    | Enforced at                  |
-|-------------|--------------------------------------------|------------------------------|
-| `array`     | every serialized array                     | array serialization context  |
-| `layout`    | the footer's layout tree                   | layout serialization context |
-| `dtype`     | extension dtypes nested in the file schema | file writer                  |
-| `aggregate` | zone maps in zoned layouts                 | the layout writer context    |
+| Kind        | What it identifies                          | Used at                       |
+|-------------|---------------------------------------------|-------------------------------|
+| `array`     | every serialized array and its writer limit | compression and serialization |
+| `layout`    | the footer's layout tree                    | layout serialization context  |
+| `dtype`     | extension dtypes nested in the file schema  | file writer                   |
+| `aggregate` | zone maps in zoned layouts                  | layout writer context         |
 
 Writing a component that is absent from the selected editions fails the write. This rule applies to every kind,
 including aggregates. Although a zone map is only an optimization and could be dropped, doing so would silently change
@@ -42,7 +47,9 @@ Only aggregates that would actually be written are checked. If a column's dtype 
 omits it and there is no edition violation.
 
 An empty allowlist permits no encodings. Collectively, the selected editions must declare every array encoding, layout
-encoding, extension dtype, and aggregate function that the writer serializes.
+encoding, extension dtype, and aggregate function that the writer serializes. For a given array ID, the resolved edition
+set supplies exactly one writer ceiling. Compression schemes declare the minimum writer version required for the
+specific representation they would produce and are filtered against that ceiling before doing expensive work.
 
 For example, `core2026.08.0` declares the aggregate functions that the default writer may store in zone maps: `min`,
 `max`, `bounded_min`, `bounded_max`, `nan_count`, and `null_count`. It does not declare `sum`, because the writer does
@@ -69,11 +76,11 @@ zone-map pruning rather than causing the file to be rejected.
 
 ## Writing with an edition
 
-By default, the Vortex facade targets the newest frozen `core` edition. Components maintained as part of Vortex first
-belong to `preview` while their serialization is evolving. Components supplied by an optional plugin instead belong to
-that plugin's standalone edition family, such as `spatial` or `json`. Once a non-plugin component's serialization is
-stable, it moves into a new draft `core` edition. If serialization would use a component outside the selected editions,
-the write fails immediately.
+By default, the Vortex facade targets the newest frozen `core` edition. A new encoding or serialization feature that is
+still evolving gets a new draft edition; later additions create later editions rather than changing an already
+published feature set. Once a core-maintained feature is stable, it can join `preview` for explicit adoption without
+changing the default writer. Components supplied by an optional plugin instead belong to that plugin's standalone
+edition family, such as `spatial` or `json`.
 
 Edition configuration belongs to the writer's Vortex session. Registering an edition makes its declaration available to
 the session; enabling it allows the writer to use its components. Enabling another edition in the same family replaces
@@ -89,11 +96,19 @@ Sessions created without the Vortex facade must register and enable their editio
 `with_allow_encodings` policy can further restrict array encodings, but cannot permit an encoding excluded by the
 selected editions.
 
+The default file writer passes the resolved array writer versions into BtrBlocks. For each canonical input, BtrBlocks
+removes a scheme if the representation it would produce needs an absent or newer writer version. This happens before
+statistics generation, ratio estimation, sampling, and compression, so the writer does not compress an array and only
+then discover that its selected edition forbids the result. The array allowlist remains a final check on the output.
+
 ## How editions change
 
-A frozen edition never changes: neither its component list nor the meaning of its component IDs may be altered. A
-component maintained as part of Vortex is staged in `preview` until its serialization is stable, then moves into a new
-draft `core` edition. A component supplied by an optional plugin stays in that plugin's independently versioned family.
+A frozen edition never changes: neither its membership list nor the meaning of its component IDs or writer versions may
+be altered. A new encoding or added encoding capability that has not stabilized gets its own new draft edition. Once a
+component maintained as part of core is stable, it may join `preview`. Preview is an adoption boundary, not an
+experimentation boundary: its serialized behavior should change only to fix a defect serious enough to block promotion
+into core. Promotion into the default compatibility set happens through a later `core` edition. A component supplied by
+an optional plugin stays in that plugin's independently versioned family.
 
 A new stable `core` or plugin edition may freeze in the release in which it first ships. Until that release is cut, its
 version is not known and the declaration keeps `min_vortex_version: None`. After the release is cut, the declaration is
@@ -103,27 +118,38 @@ minimum reader version; it does not delay the freeze or its read-forever compati
 A component may later be deprecated, meaning that writers stop using it. Readers must continue to support it, so
 deprecation does not invalidate existing files.
 
+Writer behavior evolves independently. Adding a compatible optional field to an array lets the one reader for that ID
+understand the field, but does not authorize existing writers to populate it. A new edition raises that array's writer
+version. Sessions targeting the earlier edition retain the earlier output behavior; users opt in by selecting the newer
+edition. If the change is incompatible, it is a new array ID instead of a writer-version increase.
+
 ## How serialized components evolve
 
 Editions govern serialized components, not in-memory representations. An in-memory representation may gain capabilities
-or be replaced without changing an edition. On read, the plugin registered for a component ID constructs the current
-in-memory representation. On write, the implementation selects a component that can represent the value and is allowed
-by the selected editions.
+or be replaced without changing an edition. On read, the single plugin registered for a component ID constructs the
+current in-memory representation. On write, the implementation selects a component and writer behavior allowed by the
+selected editions.
 
 An in-memory representation often has a single serialized component and uses the same ID in memory and on disk, but this
 is not required. Multiple component IDs may deserialize into the same in-memory representation. Editions constrain the
 ID stored in the file, because that is what the reader must understand.
 
-### Compatible evolution keeps the ID
+### Additive evolution keeps the ID
 
-A component may keep its ID only if changes to its wire format are both **backward and forward compatible**: a new
-reader must correctly interpret data from an old writer, and an old reader must correctly interpret data from a new
-writer. For example, adding an optional field is compatible only if old readers can safely ignore it and new readers use
-the correct default when it is absent.
+A component may keep its ID when the new form is an additive, unambiguous extension of its serialized contract. The one
+current reader must interpret every historical form correctly, using information already present in the array such as
+its dtype or optional metadata fields. A new reader must use the old default when an optional field is absent. An older
+reader may reject a form introduced by a later edition, but it must not silently misinterpret it; the later edition
+identifies the newer minimum reader.
 
-Compatible evolution may broaden what the wire format accepts, but it cannot change the meaning of data that existing
-readers already accept. Removing or repurposing a field, redefining existing bytes, and requiring information that old
-writers did not provide are all incompatible changes.
+Additive evolution may broaden what the wire format accepts, but it cannot change the meaning of data that existing
+readers already accept. Removing or repurposing a field, redefining existing bytes, or making interpretation depend on a
+separate reader-version choice are incompatible changes.
+
+Reader and writer evolution are deliberately asymmetric. The one reader for an array ID may start accepting a compatible
+optional field when the old default is well-defined. Existing edition selections must continue producing their old
+form. A higher array writer version opts into populating the field, so upgrading Vortex alone does not silently change a
+user's files.
 
 ### Incompatible evolution requires a new ID
 
@@ -158,7 +184,12 @@ interior patches is read as a `Patched` array around a patch-free ALP array. Sim
 Readers do not negotiate versions. They resolve the component ID and deserialize it, or report an
 [unknown-component error](#resolving-an-unknown-component-error).
 
-### Writing: select a permitted component
+In particular, an array writer version does not create `v1` and `v2` reader registrations. A file contains its array ID,
+dtype, metadata, children, and buffers. The reader resolves that ID once and the resulting plugin interprets the actual
+serialized form. If a change would require selecting a different interpretation for the same bytes, it is incompatible
+and needs a new array ID.
+
+### Writing: select a permitted component and writer behavior
 
 Writers choose a component that both represents the current value and belongs to the selected editions. This need not be
 the newest component: if an older component can represent the value exactly, the writer may continue to use it. If the
@@ -167,16 +198,17 @@ preferred component is not permitted, the writer has two options:
 1. **Translate.** If the value has a lossless translation to a permitted component, use that component. For example, a
    newer layout may write its zone statistics using an older statistics schema.
 2. **Convert to canonical and recompress.** Otherwise, decompress the data to a canonical representation and recompress
-   it with the configured compressors, restricted to the selected editions. This is how arrays are handled today: the
+   it with the configured schemes, restricted to the selected editions. This is how arrays are handled today: the
    writer normalizes each chunk to a canonical representation, then lets the edition-filtered compressor choose the
-   final encoding.
+   final encoding and compatible serialized features.
 
 Both paths use the normal write pipeline and its configured compressors. If neither can express the data using the
 selected editions, the write fails.
 
 ### What this means for each kind
 
-- **Arrays.** The array serialization context permits only encodings from the selected editions.
+- **Arrays.** The array serialization context permits only encodings from the selected editions. BtrBlocks additionally
+  checks the required writer version for each candidate representation before evaluating its scheme.
 - **Layouts.** The layout strategy builds the layout tree at write time. When targeting an older edition, it must use
   structures available in that edition, such as plain chunked data in place of newer auxiliary layouts.
 - **Extension dtypes.** Before writing any bytes, the file writer recursively validates every extension dtype in the
@@ -187,17 +219,19 @@ selected editions, the write fails.
 
 ## The `preview` family
 
-Alongside `core` there is a `preview` family, holding non-plugin components whose serialization
-is still being evaluated. It is the exception to everything above: every `preview` edition is a
-permanent draft, so the family never freezes and carries no read-compatibility guarantee at all.
-A file written with these components is readable only by a build that knows them, and a future
-release may stop supporting one.
+Alongside `core` there is a `preview` family for stabilized, core-maintained components and array writer-version
+increases that are ready for explicit adoption but are not yet part of the default core writer. Preview behavior is
+expected to remain compatible and should change only to fix a defect serious enough to block promotion into core. It
+does not yet carry core's unconditional read-forever guarantee.
 
-Because of that, the writer only emits them when you opt in — the default session enables the
-newest `preview` edition solely when the `unstable_encodings` cargo feature is selected.
-Once a component's serialization is stable, it graduates by moving into a new `core` edition.
-Components owned by optional plugins do not use `preview`; they live in standalone families such
-as `spatial` and `json`, because a reader without the plugin cannot resolve them.
+The default writer does not adopt a higher writer version merely because its reader understands the corresponding
+optional features. Users opt in by enabling the preview edition that raises the version. Today, builds using the
+`unstable_encodings` Cargo feature also opt into registration and availability of the newest preview component set.
+
+Components that are still evolving belong to new draft editions rather than `preview`; each added
+feature advances the edition so a file's capability set remains identifiable. Components owned by
+optional plugins do not use `preview`; they live in standalone families such as `spatial` and
+`json`, because a reader without the plugin cannot resolve them.
 
 ## Declaring, freezing, and the edition records
 
@@ -211,20 +245,24 @@ cargo run -p xtask -- generate-editions
 
 Changing the declarations follows the edition's lifecycle:
 
-1. **Incubate the component.** Put a non-plugin component in `preview` while its serialization
-   can still change. Put a component supplied by an optional plugin in that plugin's standalone
-   family instead. These editions have `min_vortex_version: None` and carry no guarantee.
-2. **Cut a stable edition.** Once a non-plugin component's serialization is stable, move it into
-   a new `core` edition. A stable plugin component remains in its plugin family. Declare the new
-   edition with `min_vortex_version: None`, regenerate the records, and ship it in a release. The
-   edition freezes as part of that release. For a core edition, its date is the freeze date. Its
-   minimum Vortex version cannot be populated yet because the release version is not known until
-   the release is cut.
-3. **Backfill the released version.** After cutting the release, set `min_vortex_version` to that
+1. **Create a draft feature edition.** A new, not-yet-stable encoding or added capability gets a
+   new edition. Further capabilities advance to another edition instead of silently expanding an
+   existing record. A component supplied by an optional plugin uses that plugin's standalone
+   family.
+2. **Publish stabilized core work in preview.** Once a core-maintained serialized feature is
+   stable, add it to a new `preview` edition. If compression schemes should begin populating a
+   compatible optional feature of an existing array, raise that array's writer version in the
+   preview edition. The core edition continues selecting the earlier version until the feature is
+   deliberately promoted.
+3. **Cut a core edition.** Promote adopted preview members into a new `core` edition with
+   `min_vortex_version: None`, regenerate the records, and ship it in a release. The edition
+   freezes as part of that release. Its minimum Vortex version cannot be populated yet because the
+   release version is not known until the release is cut.
+4. **Backfill the released version.** After cutting the release, set `min_vortex_version` to that
    newly released Vortex version — the version that first shipped readers for every member — and
    regenerate the records. This update usually lands during development of the next release, but
    it documents the freeze that already happened; it does not freeze the edition later.
-4. **Never touch it again.** A frozen record is immutable: CI
+5. **Never touch it again.** A frozen record is immutable: CI
    (`cargo run -p xtask -- check-editions`) rejects any change that edits, renames, unfreezes,
    or deletes a frozen record, and rejects new editions that do not extend their family's
    chronology. To change what writers may emit, declare the next edition instead.
@@ -252,6 +290,8 @@ Minimum Vortex release: `0.36.0`.
 - `layout`: `vortex.chunked`, `vortex.dict`, `vortex.flat`, `vortex.stats`, `vortex.struct`
 - `dtype`: `vortex.date`, `vortex.time`, `vortex.timestamp`
 
+All array entries currently use writer version 1 unless a later edition explicitly raises one.
+
 #### `core2025.06.0`
 
 Minimum Vortex release: `0.40.0`.
@@ -278,9 +318,11 @@ Minimum Vortex release: `0.84.0`.
 
 - `array`: `vortex.onpair`
 
-### Draft editions
+### Editions without a frozen core guarantee
 
-Draft component lists may change and have no minimum reader or permanent compatibility guarantee.
+These editions have no minimum reader version. Evolving features advance through new draft editions; stabilized preview
+features are expected to remain compatible unless a defect is serious enough to block promotion into core. Optional
+plugin families state their own policy.
 
 #### `core2026.08.2`
 

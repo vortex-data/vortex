@@ -41,10 +41,10 @@ struct Inner {
     families: BTreeMap<String, EditionFamily>,
     /// Keyed by the display form of the edition id.
     editions: BTreeMap<String, Edition>,
-    /// One map per component kind, each keyed by interned component id, because ids are
-    /// only unique within a kind. Resolving a kind scans that kind's map alone, never the
-    /// other kinds' entries. Ordered by kind, then by the id's string form.
-    inclusions: BTreeMap<ComponentKind, BTreeMap<Id, EditionInclusion>>,
+    /// One map per member kind, each keyed by interned member id, because ids are only unique
+    /// within a kind. An id has one inclusion history per family; array histories may contain
+    /// successive writer versions. Ordered by kind, then by the id's string form.
+    inclusions: BTreeMap<ComponentKind, BTreeMap<Id, Vec<EditionInclusion>>>,
 }
 
 /// Registry of enabled editions, keyed by interned edition family.
@@ -85,17 +85,16 @@ impl EditionSession {
         }
     }
 
-    /// Declare an edition together with the components that join the family at it. Each
-    /// added member's membership (`since`) is the declared edition; members of earlier
-    /// editions are inherited and must not be restated.
+    /// Declare an edition together with the members and array writer-version increases added at
+    /// it. Each entry's membership (`since`) is the declared edition; earlier entries are
+    /// inherited and must not be restated.
     pub fn declare(&self, declaration: &EditionDeclaration) -> Result<(), EditionError> {
         self.declare_edition(declaration.edition)?;
         for member in declaration.added {
-            self.declare_inclusion(EditionInclusion::new(
-                member.kind,
-                member.component,
-                declaration.edition.id,
-            ))?;
+            self.declare_inclusion(EditionInclusion {
+                array_writer_version: member.array_writer_version,
+                ..EditionInclusion::new(member.kind, member.component, declaration.edition.id)
+            })?;
         }
         Ok(())
     }
@@ -136,19 +135,53 @@ impl EditionSession {
         Ok(())
     }
 
-    /// Declare an edition inclusion. Errors if the component already has one: a component
-    /// belongs to exactly one family, with one membership interval. Kind is part of the
-    /// key, so an array encoding and a layout may share an id.
+    /// Declare an edition inclusion. A component may belong to multiple families. Within one
+    /// family, non-array members join once, while an array may be redeclared only with a larger
+    /// writer version in a later edition. Kind is part of the key, so an array encoding
+    /// and a layout may share an id.
     pub fn declare_inclusion(&self, inclusion: EditionInclusion) -> Result<(), EditionError> {
         let mut inner = self.inner.write();
         let by_id = inner.inclusions.entry(inclusion.kind).or_default();
-        if by_id.contains_key(&inclusion.component_id) {
-            return Err(EditionError::new(format!(
-                "duplicate edition inclusion for {} {}",
-                inclusion.kind, inclusion.component_id
-            )));
+        let history = by_id.entry(inclusion.component_id).or_default();
+        let previous = history
+            .iter()
+            .filter(|existing| existing.since.family == inclusion.since.family)
+            .max_by_key(|existing| {
+                (
+                    existing.since.year,
+                    existing.since.month,
+                    existing.since.version,
+                )
+            });
+
+        if let Some(previous) = previous {
+            let is_later = previous.since != inclusion.since
+                && previous.since.is_at_or_before(&inclusion.since);
+            let is_array_upgrade = match (
+                inclusion.kind,
+                previous.array_writer_version,
+                inclusion.array_writer_version,
+            ) {
+                (ComponentKind::Array, Some(previous), Some(next)) => next > previous,
+                _ => false,
+            };
+            if !is_later || !is_array_upgrade {
+                return Err(EditionError::new(format!(
+                    "{} {} already has a membership in family {}; only a later, higher array \
+                     writer version may supersede it",
+                    inclusion.kind, inclusion.component_id, inclusion.since.family
+                )));
+            }
         }
-        by_id.insert(inclusion.component_id, inclusion);
+        history.push(inclusion);
+        history.sort_by_key(|entry| {
+            (
+                entry.since.family,
+                entry.since.year,
+                entry.since.month,
+                entry.since.version,
+            )
+        });
         Ok(())
     }
 
@@ -173,9 +206,10 @@ impl EditionSession {
             .rfind(|e| e.id.family == family && !e.is_draft())
     }
 
-    /// Compute an edition's members of one kind: every declared inclusion of that kind in
-    /// the edition's family whose `since` is at or before it, sorted by component id. Only
-    /// that kind's declarations are scanned.
+    /// Compute an edition's members of one kind, sorted by component id. For each id, this returns
+    /// the newest inclusion in the edition's family whose `since` is at or before it. An array
+    /// writer-version upgrade therefore supersedes the older version without changing the array
+    /// ID or its single registered reader. Only that kind's declarations are scanned.
     pub fn components_in(&self, edition: &EditionId, kind: ComponentKind) -> Vec<EditionInclusion> {
         let inner = self.inner.read();
         let Some(by_id) = inner.inclusions.get(&kind) else {
@@ -183,8 +217,19 @@ impl EditionSession {
         };
         by_id
             .values()
-            .filter(|inclusion| inclusion.since.is_at_or_before(edition))
-            .copied()
+            .filter_map(|history| {
+                history
+                    .iter()
+                    .filter(|inclusion| inclusion.since.is_at_or_before(edition))
+                    .max_by_key(|inclusion| {
+                        (
+                            inclusion.since.year,
+                            inclusion.since.month,
+                            inclusion.since.version,
+                        )
+                    })
+                    .copied()
+            })
             .collect()
     }
 
@@ -231,7 +276,12 @@ impl EditionSession {
         }
 
         let inner = self.inner.read();
-        for inclusion in inner.inclusions.values().flat_map(|by_id| by_id.values()) {
+        for inclusion in inner
+            .inclusions
+            .values()
+            .flat_map(|by_id| by_id.values())
+            .flatten()
+        {
             inclusion.validate()?;
 
             let Some(edition) = inner.editions.get(&inclusion.since.to_string()) else {
@@ -315,8 +365,8 @@ pub trait EditionSessionExt: SessionExt {
         Ok(())
     }
 
-    /// Resolve the ids of one [`ComponentKind`] across all enabled editions: what a writer
-    /// may emit for that kind.
+    /// Resolve the ids of one [`ComponentKind`] across all enabled editions: what a writer may
+    /// emit for that kind.
     ///
     /// Ids are only unique within a kind, so this never mixes kinds. An empty result means the
     /// enabled editions permit no components of this kind.
@@ -334,6 +384,32 @@ pub trait EditionSessionExt: SessionExt {
         ids.sort_unstable();
         ids.dedup();
         ids
+    }
+
+    /// Resolve one effective array writer version for every array ID across the enabled editions.
+    ///
+    /// Compression schemes use this map before sampling or compressing an array. An absent id is
+    /// not writable, and a writer-version upgrade in an opt-in family overrides an older core
+    /// version. The version is never used while reading; each array ID has one registered reader.
+    fn enabled_array_writer_versions(&self) -> BTreeMap<Id, u16> {
+        let Some(enabled) = self.get_opt::<EnabledEditions>() else {
+            return BTreeMap::new();
+        };
+        let editions = self.editions();
+        let mut versions = BTreeMap::new();
+        for inclusion in enabled
+            .editions()
+            .iter()
+            .flat_map(|edition| editions.components_in(edition, ComponentKind::Array))
+        {
+            if let Some(version) = inclusion.array_writer_version {
+                versions
+                    .entry(inclusion.component_id)
+                    .and_modify(|enabled: &mut u16| *enabled = (*enabled).max(version))
+                    .or_insert(version);
+            }
+        }
+        versions
     }
 }
 

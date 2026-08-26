@@ -43,7 +43,10 @@ static DECLARATIONS: &[EditionDeclaration] = &[
             id: SECOND,
             min_vortex_version: None,
         },
-        added: &[EditionMember::array(&"test.gamma")],
+        added: &[
+            EditionMember::array_writer_version(&"test.alpha", 2),
+            EditionMember::array(&"test.gamma"),
+        ],
     },
 ];
 
@@ -72,24 +75,30 @@ fn editions_pass_the_test_harness() -> Result<(), crate::EditionError> {
 }
 
 #[test]
-fn membership_is_transitive() {
+fn membership_is_transitive() -> Result<(), crate::EditionError> {
     let editions = session();
 
     let first = editions.components_in(&FIRST, ComponentKind::Array);
     let ids: Vec<&str> = first.iter().map(|i| i.component_id.as_str()).collect();
     assert_eq!(ids, ["test.alpha", "test.beta"]);
 
-    // Members of the first edition are members of the second by inheritance, with their
-    // `since` still recording the edition they actually joined in.
+    // Members of the first edition are members of the second by inheritance. Alpha's writer v2
+    // supersedes v1 without changing its array id or introducing read-time dispatch.
     let second = editions.components_in(&SECOND, ComponentKind::Array);
     let ids: Vec<&str> = second.iter().map(|i| i.component_id.as_str()).collect();
     assert_eq!(ids, ["test.alpha", "test.beta", "test.gamma"]);
-    assert!(
-        second
-            .iter()
-            .filter(|i| i.component_id.as_str() != "test.gamma")
-            .all(|i| i.since == FIRST)
-    );
+    let alpha = second
+        .iter()
+        .find(|i| i.component_id.as_str() == "test.alpha")
+        .ok_or_else(|| crate::EditionError::new("test.alpha is a member"))?;
+    assert_eq!(alpha.since, SECOND);
+    assert_eq!(alpha.array_writer_version, Some(2));
+    let beta = second
+        .iter()
+        .find(|i| i.component_id.as_str() == "test.beta")
+        .ok_or_else(|| crate::EditionError::new("test.beta is a member"))?;
+    assert_eq!(beta.since, FIRST);
+    assert_eq!(beta.array_writer_version, Some(1));
 
     // The second edition's delta is exactly the members declared at it.
     let added: Vec<&str> = second
@@ -97,7 +106,7 @@ fn membership_is_transitive() {
         .filter(|i| i.since == SECOND)
         .map(|i| i.component_id.as_str())
         .collect();
-    assert_eq!(added, ["test.gamma"]);
+    assert_eq!(added, ["test.alpha", "test.gamma"]);
 
     // Inheritance never flows backwards, extends to later editions of the family, and
     // never crosses families.
@@ -113,6 +122,7 @@ fn membership_is_transitive() {
             .components_in(&other, ComponentKind::Array)
             .is_empty()
     );
+    Ok(())
 }
 
 #[test]
@@ -176,10 +186,22 @@ fn registered_and_enabled_editions_are_separate() -> Result<(), crate::EditionEr
             .collect::<Vec<_>>(),
         ["test.alpha", "test.beta"]
     );
+    assert_eq!(
+        session
+            .enabled_array_writer_versions()
+            .get(&"test.alpha".into()),
+        Some(&1)
+    );
 
     session.enable_edition(SECOND)?;
     assert_eq!(session.enabled_editions().editions(), [SECOND]);
     assert_eq!(session.enabled_component_ids(ComponentKind::Array).len(), 3);
+    assert_eq!(
+        session
+            .enabled_array_writer_versions()
+            .get(&"test.alpha".into()),
+        Some(&2)
+    );
 
     // Selecting an older edition in the same family replaces the newer one and removes
     // encodings that joined after it.
@@ -222,6 +244,40 @@ fn enabled_editions_are_independent_across_families() -> Result<(), crate::Editi
     enabled.sort_unstable();
     assert_eq!(enabled, [OTHER, FIRST]);
     assert_eq!(session.enabled_component_ids(ComponentKind::Array).len(), 3);
+    Ok(())
+}
+
+#[test]
+fn array_writer_versions_can_be_upgraded_by_an_opt_in_family() -> Result<(), crate::EditionError> {
+    const PREVIEW: EditionId = EditionId::new("other", 2026, 8, 0);
+    static PREVIEW_DECLARATION: EditionDeclaration = EditionDeclaration {
+        edition: Edition {
+            id: PREVIEW,
+            min_vortex_version: None,
+        },
+        added: &[EditionMember::array_writer_version(&"test.alpha", 2)],
+    };
+
+    let session = VortexSession::empty().with::<EditionSession>();
+    session.editions().declare_family(&TEST_FAMILY)?;
+    session.editions().declare_family(&OTHER_FAMILY)?;
+    session.register_edition(&DECLARATIONS[0])?;
+    session.register_edition(&PREVIEW_DECLARATION)?;
+    session.editions().validate()?;
+    session.enable_edition(FIRST)?;
+    session.enable_edition(PREVIEW)?;
+
+    let versions = session.enabled_array_writer_versions();
+    assert_eq!(versions.get(&"test.alpha".into()), Some(&2));
+    assert_eq!(versions.get(&"test.beta".into()), Some(&1));
+    assert_eq!(
+        session
+            .enabled_component_ids(ComponentKind::Array)
+            .iter()
+            .map(|id| id.as_str())
+            .collect::<Vec<_>>(),
+        ["test.alpha", "test.beta"]
+    );
     Ok(())
 }
 
@@ -289,6 +345,19 @@ fn validate_rejects_inconsistent_declarations() -> Result<(), crate::EditionErro
         min_vortex_version: None,
     })?;
     editions.declare_inclusion(EditionInclusion::array("Test.ALPHA", FIRST))?;
+    assert!(editions.validate().is_err());
+
+    // Array writer versions start at one.
+    let editions = EditionSession::empty();
+    editions.declare_edition(Edition {
+        id: FIRST,
+        min_vortex_version: None,
+    })?;
+    editions.declare_inclusion(EditionInclusion::array_writer_version(
+        "test.alpha",
+        0,
+        FIRST,
+    ))?;
     assert!(editions.validate().is_err());
 
     Ok(())

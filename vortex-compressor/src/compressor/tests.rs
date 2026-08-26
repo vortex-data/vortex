@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::LazyLock;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use parking_lot::Mutex;
 use vortex_array::ArrayId;
@@ -9,11 +11,13 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VTable;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::Map;
 use vortex_array::arrays::NullArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::builders::MapBuilder;
@@ -58,6 +62,49 @@ fn estimate_test_data() -> ArrayAndStats {
 
 fn matches_integer_primitive(canonical: &Canonical) -> bool {
     matches!(canonical, Canonical::Primitive(primitive) if primitive.ptype().is_int())
+}
+
+static WRITER_V2_WAS_ESTIMATED: AtomicBool = AtomicBool::new(false);
+
+#[derive(Debug)]
+struct WriterV2Scheme;
+
+impl Scheme for WriterV2Scheme {
+    fn scheme_name(&self) -> &'static str {
+        "test.writer_v2"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        matches_integer_primitive(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![Primitive.id()]
+    }
+
+    fn required_array_writer_versions(&self, _canonical: &Canonical) -> Vec<(ArrayId, u16)> {
+        vec![(Primitive.id(), 2)]
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        WRITER_V2_WAS_ESTIMATED.store(true, Ordering::Relaxed);
+        CompressionEstimate::Verdict(EstimateVerdict::Skip)
+    }
+
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unreachable!("the test scheme always skips")
+    }
 }
 
 #[derive(Debug)]
@@ -694,6 +741,24 @@ fn ratio_tie_between_immediate_and_deferred_favors_immediate() -> VortexResult<(
         Some((scheme, WinnerEstimate::Score(EstimateScore::FiniteCompression(r))))
             if scheme.id() == DirectRatioScheme.id() && r == 2.0
     ));
+    Ok(())
+}
+
+#[test]
+fn writer_versions_filter_schemes_before_estimation() -> VortexResult<()> {
+    let array = PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable).into_array();
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    WRITER_V2_WAS_ESTIMATED.store(false, Ordering::Relaxed);
+    CascadingCompressor::new(vec![&WriterV2Scheme])
+        .with_array_writer_versions([(Primitive.id(), 1)].into_iter().collect())
+        .compress(&array, &mut exec_ctx)?;
+    assert!(!WRITER_V2_WAS_ESTIMATED.load(Ordering::Relaxed));
+
+    CascadingCompressor::new(vec![&WriterV2Scheme])
+        .with_array_writer_versions([(Primitive.id(), 2)].into_iter().collect())
+        .compress(&array, &mut exec_ctx)?;
+    assert!(WRITER_V2_WAS_ESTIMATED.load(Ordering::Relaxed));
     Ok(())
 }
 

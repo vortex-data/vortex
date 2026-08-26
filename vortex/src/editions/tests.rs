@@ -85,6 +85,24 @@ fn core_2026_08_1_dtype_set_is_pinned() {
 }
 
 #[test]
+fn core_array_writer_versions_are_pinned() {
+    let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
+    let arrays = session.components_in(&CORE_2026_08_1, ComponentKind::Array);
+    assert_eq!(
+        arrays
+            .iter()
+            .find(|inclusion| inclusion.component_id.as_str() == "vortex.pco")
+            .and_then(|inclusion| inclusion.array_writer_version),
+        Some(1)
+    );
+    assert!(
+        arrays
+            .iter()
+            .all(|inclusion| inclusion.array_writer_version == Some(1))
+    );
+}
+
+#[test]
 fn core_2026_08_2_is_draft() {
     let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
     assert!(
@@ -228,6 +246,12 @@ fn default_session_enables_the_write_editions() {
     let session = VortexSession::default();
     let enabled = session.enabled_editions().editions();
     assert!(enabled.contains(&DEFAULT_CORE_EDITION));
+    assert_eq!(
+        session
+            .enabled_array_writer_versions()
+            .get(&Id::from("vortex.pco")),
+        Some(&1)
+    );
 
     #[cfg(feature = "unstable_encodings")]
     assert!(enabled.contains(&DEFAULT_PREVIEW_EDITION));

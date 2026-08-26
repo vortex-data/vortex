@@ -3,12 +3,14 @@
 
 //! Check that frozen edition records under `vortex/editions` never change.
 //!
-//! A draft record carries no compatibility guarantee and may change, be renamed, or be dropped.
-//! Its serialization may still be evolving, or a stable edition may be waiting for its release to
-//! be cut. A stable edition can freeze in that release; once the release version is known,
-//! `min_vortex_version` is backfilled to document the freeze. The record then carries a
-//! read-forever guarantee and may never change again. Whether a record was frozen is read from the
-//! base revision, so a change cannot unfreeze an edition and edit it in the same diff.
+//! A draft record carries no core read-forever guarantee and is not mechanically locked by this
+//! check. It may describe evolving work, stabilized preview functionality awaiting adoption, or a
+//! stable edition waiting for its release to be cut. Normal feature additions advance to a new
+//! edition; exceptional corrections remain possible before a core freeze. A stable edition can
+//! freeze in its release; once the release version is known, `min_vortex_version` is backfilled to
+//! document the freeze. The record then carries a read-forever guarantee and may never change
+//! again. Whether a record was frozen is read from the base revision, so a change cannot unfreeze
+//! an edition and edit it in the same diff.
 //!
 //! A newly added record must also be newer than every edition already recorded for its
 //! family: editions are only ever added going forward. Records are grouped by family, so
@@ -40,7 +42,7 @@ use crate::generate_editions::RECORD_DIR;
 const FROZEN_MARKER: &str = "min_vortex_version";
 
 const REMEDY: &str = "\
-A frozen edition is immutable. To add encodings, declare a NEW edition in
+A frozen edition is immutable. To add components or array writer versions, declare a NEW edition in
   vortex-edition/src/declarations/<family>/ and regenerate the records with
   `cargo run -p xtask -- generate-editions`.";
 

@@ -8,7 +8,7 @@ edition = "core2026.08.0"
 family = "core"
 min_vortex_version = "0.84.0"
 
-# The components that join the family at this edition.
+# Components and array writer-version increases added by this edition.
 [added]
 arrays = []
 layouts = [
@@ -24,40 +24,40 @@ aggregates = [
     "vortex.null_count",
 ]
 
-# The edition's full membership: the components above, plus every member of earlier
+# The edition's full membership: the members above, plus every member of earlier
 # editions of the family.
 [components]
 arrays = [
-    "fastlanes.bitpacked",
-    "fastlanes.for",
-    "fastlanes.rle",
-    "vortex.alp",
-    "vortex.alprd",
-    "vortex.bool",
-    "vortex.bytebool",
-    "vortex.chunked",
-    "vortex.constant",
-    "vortex.datetimeparts",
-    "vortex.decimal",
-    "vortex.decimal_byte_parts",
-    "vortex.dict",
-    "vortex.ext",
-    "vortex.fixed_size_list",
-    "vortex.fsst",
-    "vortex.list",
-    "vortex.listview",
-    "vortex.masked",
-    "vortex.null",
-    "vortex.pco",
-    "vortex.primitive",
-    "vortex.runend",
-    "vortex.sequence",
-    "vortex.sparse",
-    "vortex.struct",
-    "vortex.varbin",
-    "vortex.varbinview",
-    "vortex.zigzag",
-    "vortex.zstd",
+    { id = "fastlanes.bitpacked", writer_version = 1 },
+    { id = "fastlanes.for", writer_version = 1 },
+    { id = "fastlanes.rle", writer_version = 1 },
+    { id = "vortex.alp", writer_version = 1 },
+    { id = "vortex.alprd", writer_version = 1 },
+    { id = "vortex.bool", writer_version = 1 },
+    { id = "vortex.bytebool", writer_version = 1 },
+    { id = "vortex.chunked", writer_version = 1 },
+    { id = "vortex.constant", writer_version = 1 },
+    { id = "vortex.datetimeparts", writer_version = 1 },
+    { id = "vortex.decimal", writer_version = 1 },
+    { id = "vortex.decimal_byte_parts", writer_version = 1 },
+    { id = "vortex.dict", writer_version = 1 },
+    { id = "vortex.ext", writer_version = 1 },
+    { id = "vortex.fixed_size_list", writer_version = 1 },
+    { id = "vortex.fsst", writer_version = 1 },
+    { id = "vortex.list", writer_version = 1 },
+    { id = "vortex.listview", writer_version = 1 },
+    { id = "vortex.masked", writer_version = 1 },
+    { id = "vortex.null", writer_version = 1 },
+    { id = "vortex.pco", writer_version = 1 },
+    { id = "vortex.primitive", writer_version = 1 },
+    { id = "vortex.runend", writer_version = 1 },
+    { id = "vortex.sequence", writer_version = 1 },
+    { id = "vortex.sparse", writer_version = 1 },
+    { id = "vortex.struct", writer_version = 1 },
+    { id = "vortex.varbin", writer_version = 1 },
+    { id = "vortex.varbinview", writer_version = 1 },
+    { id = "vortex.zigzag", writer_version = 1 },
+    { id = "vortex.zstd", writer_version = 1 },
 ]
 layouts = [
     "vortex.chunked",

@@ -67,6 +67,7 @@ pub mod scheme;
 pub mod stats;
 
 mod compressor;
+pub use compressor::ArrayWriterVersions;
 pub use compressor::CascadingCompressor;
 
 mod trace;

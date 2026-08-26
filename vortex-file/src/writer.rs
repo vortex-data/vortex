@@ -68,9 +68,10 @@ use crate::segments::writer::BufferedSegmentSink;
 /// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink
 /// that implements [`VortexWrite`].
 ///
-/// All write strategies are restricted to the components in the session's enabled editions: an
-/// array, layout, extension dtype, or zone-map aggregate outside them fails the write. An empty
-/// component set therefore forbids writing any component of that kind.
+/// The default write strategy is restricted to the components and array writer versions in the
+/// session's enabled editions. An array, layout, extension dtype, or zone-map aggregate outside
+/// them fails the write. An empty component set therefore forbids writing any component of that
+/// kind.
 ///
 /// Construct with [`WriteOptionsSessionExt::write_options`] for normal use so the writer inherits
 /// the session's runtime, array registry, and memory configuration.
@@ -97,12 +98,7 @@ impl VortexWriteOptions {
     /// Create a new [`VortexWriteOptions`] with the given session.
     pub fn new(session: VortexSession) -> Self {
         let strategy = WriteStrategyBuilder::default()
-            .with_allow_encodings(
-                session
-                    .enabled_component_ids(ComponentKind::Array)
-                    .into_iter()
-                    .collect(),
-            )
+            .with_array_writer_versions(session.enabled_array_writer_versions())
             .build();
         VortexWriteOptions {
             strategy,
@@ -119,7 +115,9 @@ impl VortexWriteOptions {
     ///
     /// The strategy controls repartitioning, statistics layout, compression, and leaf segment
     /// emission. Use [`WriteStrategyBuilder`] when only a small part of the default strategy needs
-    /// customization. Replacing the strategy does not change the enabled-edition encoding policy.
+    /// customization. The final serializers still enforce the enabled-edition component IDs, but
+    /// a replacement compressor is responsible for applying array writer versions before it does
+    /// expensive work.
     pub fn with_strategy(mut self, strategy: Arc<dyn LayoutStrategy>) -> Self {
         self.strategy = strategy;
         self

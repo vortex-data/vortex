@@ -19,6 +19,8 @@
 //! - **Cascaded Encoding**: Multiple compression layers can be applied for optimal results.
 //! - **Statistical Analysis**: Uses data sampling and statistics to predict compression ratios.
 //! - **Recursive Structure Handling**: Compresses nested structures like structs and lists.
+//! - **Writer Compatibility**: Can reject schemes whose output needs a newer per-array writer
+//!   version before estimation or compression begins.
 //!
 //! # How It Works
 //!
@@ -80,6 +82,7 @@ pub use builder::ALL_SCHEMES;
 pub use builder::BtrBlocksCompressorBuilder;
 pub use canonical_compressor::BtrBlocksCompressor;
 pub use schemes::patches::compress_patches;
+pub use vortex_compressor::ArrayWriterVersions;
 pub use vortex_compressor::CascadingCompressor;
 pub use vortex_compressor::scheme::CompressorContext;
 pub use vortex_compressor::scheme::MAX_CASCADE;

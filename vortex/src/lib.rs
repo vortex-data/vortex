@@ -149,7 +149,7 @@ pub mod compressor {
     pub use vortex_btrblocks::SchemeId;
 }
 
-/// Vortex editions: named, frozen sets of encodings with a read-compatibility guarantee.
+/// Vortex editions: versioned sets of serialized components.
 pub mod editions;
 
 pub mod dtype {
