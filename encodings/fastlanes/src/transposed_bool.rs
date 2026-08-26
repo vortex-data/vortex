@@ -43,6 +43,7 @@ use vortex_session::registry::CachedId;
 
 use crate::FL_CHUNK_SIZE;
 use crate::bit_transpose::untranspose_bitbuffer;
+use crate::untranspose_idx;
 
 /// A non-nullable boolean array stored in FastLanes-transposed order.
 pub type TransposedBoolArray = Array<TransposedBool>;
@@ -260,9 +261,9 @@ impl OperationsVTable<TransposedBool> for TransposedBool {
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let physical_index = array.offset() + index;
-        let chunk_start = physical_index / FL_CHUNK_SIZE * FL_CHUNK_SIZE;
-        let transposed_index = chunk_start + fastlanes::transpose(physical_index % FL_CHUNK_SIZE);
+        let logical_index = array.offset() + index;
+        let chunk_start = logical_index / FL_CHUNK_SIZE * FL_CHUNK_SIZE;
+        let transposed_index = chunk_start + untranspose_idx(logical_index % FL_CHUNK_SIZE);
         array.transposed().execute_scalar(transposed_index, ctx)
     }
 }

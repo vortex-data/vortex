@@ -8,7 +8,7 @@
 //! FastLanes [`BitPackingCompare::unchecked_unpack_cmp`] kernel, which compares each value against
 //! the constant *as it is unpacked*, accumulating the boolean results straight into a 1024-bit
 //! mask (`[u64; 16]`) in transposed FastLanes lane order - one register-resident word per lane, no
-//! `[bool; 1024]` or `[T; 1024]` scratch. A single SIMD [`untranspose_bits`] per block then rotates
+//! `[bool; 1024]` or `[T; 1024]` scratch. A single SIMD [`transpose_bits`] per block then rotates
 //! that mask into logical row order.
 //!
 //! The packed blocks are walked through the regular [`crate::unpack_iter::BitUnpackedChunks`]
@@ -17,7 +17,7 @@
 //!
 //! Slicing is handled by working in *padded* coordinates: bit `offset + i` holds element `i`. The
 //! output buffer is over-allocated to whole 1024-bit blocks, so every block - the sliced first
-//! block, the body, and the trailing partial - untransposes straight into a 64-bit-word-aligned
+//! block, the body, and the trailing partial - transposes straight into a 64-bit-word-aligned
 //! slot with no per-block temporary and only one shared scratch `[u64; 16]`. The leading `offset`
 //! garbage rows are represented as the final [`BitBuffer`] bit offset, which naturally handles
 //! sub-byte slices without copy-aligning. Inline patches are spliced in afterwards by overwriting

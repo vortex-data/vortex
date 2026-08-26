@@ -43,9 +43,9 @@ pub fn delta_compress(
                 let bits = mask.execute::<BoolArray>(ctx)?.into_bit_buffer();
                 let pad = bits.len().next_multiple_of(FL_CHUNK_SIZE) - bits.len();
                 // Pad remainder bits as valid to match last-value remainder padding.
-                // `transpose_bitbuffer` would otherwise zero-fill, and those nulls scatter
-                // onto real residual slots (bit-transpose ≠ integer-transpose), where
-                // bitpacking would then skip their patches.
+                // `transpose_bitbuffer` uses the same element order as the value transpose, so
+                // the pad bits land on exactly the padded value slots; zero-filling them would
+                // mark those slots null and bitpacking would then skip their patches.
                 let bits = if pad == 0 {
                     bits
                 } else {
@@ -217,9 +217,8 @@ mod tests {
     /// and trailing nulls in the unaligned tail. After untranspose, pad bits are valid and are
     /// sliced off by `logical_len`.
     ///
-    /// The bit transpose is not the integer transpose, so which physical slots the pad bits land
-    /// on varies with the remainder length; cover several, plus an aligned length that pads
-    /// nothing at all.
+    /// Which transposed slots the pad bits land on varies with the remainder length, so cover
+    /// several, plus an aligned length that pads nothing at all.
     #[rstest]
     #[case::one_row_remainder(1025)]
     #[case::mid_chunk_remainder(1500)]
@@ -264,6 +263,38 @@ mod tests {
         assert!(!delta.is_valid(0, &mut ctx)?);
         assert!(!delta.is_valid(len - 1, &mut ctx)?);
         assert_arrays_eq!(delta, array, &mut ctx);
+        Ok(())
+    }
+
+    /// The transposed validity must line up slot for slot with the transposed delta values:
+    /// storage slot `j` describes logical row `transpose(j)`, the position `Transpose::transpose`
+    /// put that row's delta in. `fastlanes` unified the element order of the bit and value
+    /// transposes; before that these two permutations disagreed.
+    #[test]
+    fn storage_validity_aligns_with_transposed_value_slots() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Chunk-aligned, so no remainder padding takes part.
+        const LEN: usize = 2 * FL_CHUNK_SIZE;
+        let valid = |i: usize| !i.is_multiple_of(3);
+        let array =
+            PrimitiveArray::from_option_iter((0..LEN).map(|i| valid(i).then_some(i as u32)));
+
+        let (_bases, deltas) = delta_compress(&array, &mut ctx)?;
+        let Validity::Array(storage) = deltas.validity()? else {
+            vortex_bail!("expected array-backed storage validity")
+        };
+        let bits = storage.execute::<BoolArray>(&mut ctx)?.into_bit_buffer();
+
+        for chunk in 0..LEN / FL_CHUNK_SIZE {
+            let base = chunk * FL_CHUNK_SIZE;
+            for slot in 0..FL_CHUNK_SIZE {
+                assert_eq!(
+                    bits.value(base + slot),
+                    valid(base + fastlanes::transpose(slot)),
+                    "chunk={chunk} slot={slot}"
+                );
+            }
+        }
         Ok(())
     }
 

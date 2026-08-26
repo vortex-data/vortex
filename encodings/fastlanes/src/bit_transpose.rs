@@ -13,6 +13,10 @@ use vortex_error::VortexExpect;
 use crate::FL_CHUNK_SIZE;
 
 /// Transposes `bits` into FastLanes order, padding the result to whole 1,024-bit chunks.
+///
+/// Bit `i` of the result holds logical bit [`fastlanes::transpose(i)`](fastlanes::transpose), the
+/// same element order [`fastlanes::Transpose::transpose`] gives a value vector. To address the
+/// result by logical index instead, invert that with `crate::untranspose_idx`.
 pub fn transpose_bitbuffer(bits: BitBuffer) -> BitBuffer {
     bits_op(bits, fastlanes::transpose_bits::<u64>)
 }
