@@ -11,8 +11,9 @@ Two access patterns are generated with a fixed seed (see [`src/main.rs`](./src/m
   simulating lookups with no locality.
 
 Each pattern runs over four datasets (`taxi`, `feature-vectors`, `nested-lists`,
-`nested-structs`) in Parquet, Lance, and Vortex, both with a cached open file handle and
-reopening the file per lookup. CI drives the full matrix via
+`nested-structs`) in Parquet, Lance, and Vortex. Cached mode performs a one-second untimed
+warm-up, then reuses the open file handle. Reopen mode includes file open and metadata work
+in each timed iteration. CI drives the full matrix via
 [`scripts/random-access-split.py`](../../scripts/random-access-split.py).
 
 ## Running locally
