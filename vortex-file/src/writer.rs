@@ -580,7 +580,7 @@ impl<'rt, B: BlockingRuntime> BlockingWrite<'rt, B> {
     ///
     /// The iterator is converted to an [`ArrayStream`] and driven to completion on
     /// the configured blocking runtime.
-    pub fn write<W: Write + Unpin>(
+    pub fn write<W: Write + Unpin + Send>(
         self,
         write: W,
         iter: impl ArrayIterator + Send + 'static,
@@ -593,7 +593,7 @@ impl<'rt, B: BlockingRuntime> BlockingWrite<'rt, B> {
     }
 
     /// Create a blocking push-based writer for chunks with dtype `dtype`.
-    pub fn writer<'w, W: Write + Unpin + 'w>(
+    pub fn writer<'w, W: Write + Unpin + Send + 'w>(
         self,
         write: W,
         dtype: DType,
@@ -636,17 +636,17 @@ impl<B: BlockingRuntime> BlockingWriter<'_, '_, B> {
 // TODO(ngates): this blocking API may change, for now we just run blocking I/O inline.
 struct BlockingWriteAdapter<W>(W);
 
-impl<W: Write + Unpin> VortexWrite for BlockingWriteAdapter<W> {
+impl<W: Write + Unpin + Send> VortexWrite for BlockingWriteAdapter<W> {
     async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {
         self.0.write_all(buffer.as_slice())?;
         Ok(buffer)
     }
 
-    fn flush(&mut self) -> impl Future<Output = io::Result<()>> {
+    fn flush(&mut self) -> impl Future<Output = io::Result<()>> + Send {
         ready(self.0.flush())
     }
 
-    fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> {
+    fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> + Send {
         ready(Ok(()))
     }
 }

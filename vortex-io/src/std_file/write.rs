@@ -33,7 +33,7 @@ impl FileWrite {
 }
 
 impl VortexWrite for FileWrite {
-    fn write_all<B: IoBuf>(&mut self, buffer: B) -> impl Future<Output = io::Result<B>> {
+    fn write_all<B: IoBuf>(&mut self, buffer: B) -> impl Future<Output = io::Result<B>> + Send {
         let file = Arc::clone(&self.file);
         let handle = self.handle.clone();
         async move {
@@ -46,13 +46,13 @@ impl VortexWrite for FileWrite {
         }
     }
 
-    fn flush(&mut self) -> impl Future<Output = io::Result<()>> {
+    fn flush(&mut self) -> impl Future<Output = io::Result<()>> + Send {
         let file = Arc::clone(&self.file);
         let handle = self.handle.clone();
         async move { handle.spawn_blocking(move || file.lock().flush()).await }
     }
 
-    fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> {
+    fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> + Send {
         self.flush()
     }
 }
