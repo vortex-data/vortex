@@ -3,11 +3,13 @@
 
 include ../setup.slt.no
 
+# Byte sizes are matched as `\d+`: they depend on which encodings are compiled in, so the same write
+# produces a different size under `--all-features` than under the default feature set.
 query TIII??
 COPY (SELECT * FROM (VALUES (1, 'a', 1.5), (2, 'b', NULL)) t(i, s, d))
 TO '${WORK_DIR}/copy_return_stats.vortex' (FORMAT vortex, RETURN_STATS);
 ----
-${WORK_DIR}/copy_return_stats.vortex 2 4324 0 {'"d"'={column_size_bytes=580, max=1.5, min=1.5, null_count=1, num_values=2}, '"i"'={column_size_bytes=440, max=2, min=1, null_count=0, num_values=2}, '"s"'={column_size_bytes=724, max=b, min=a, null_count=0, num_values=2}} NULL
+<REGEX>:\$\{WORK_DIR\}/copy_return_stats\.vortex 2 \d+ 0 \{'"d"'=\{column_size_bytes=\d+, max=1\.5, min=1\.5, null_count=1, num_values=2\}, '"i"'=\{column_size_bytes=\d+, max=2, min=1, null_count=0, num_values=2\}, '"s"'=\{column_size_bytes=\d+, max=b, min=a, null_count=0, num_values=2\}\} NULL
 
 # Vortex reports statistics per top-level field, so nested columns are covered by the file-level
 # counts only; the COPY must still succeed.
@@ -15,4 +17,4 @@ query TIII??
 COPY (SELECT {'a': 1, 'b': 2} AS st, [1, 2, 3] AS lst, 7 AS i)
 TO '${WORK_DIR}/copy_return_stats_nested.vortex' (FORMAT vortex, RETURN_STATS);
 ----
-${WORK_DIR}/copy_return_stats_nested.vortex 1 4632 0 {'"i"'={column_size_bytes=380, max=7, min=7, null_count=0, num_values=1}, '"lst"'={column_size_bytes=560, null_count=0, num_values=1}, '"st"'={column_size_bytes=872, null_count=0, num_values=1}} NULL
+<REGEX>:\$\{WORK_DIR\}/copy_return_stats_nested\.vortex 1 \d+ 0 \{'"i"'=\{column_size_bytes=\d+, max=7, min=7, null_count=0, num_values=1\}, '"lst"'=\{column_size_bytes=\d+, null_count=0, num_values=1\}, '"st"'=\{column_size_bytes=\d+, null_count=0, num_values=1\}\} NULL
