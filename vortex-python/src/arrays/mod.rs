@@ -33,6 +33,7 @@ use pyo3::types::PyRange;
 use pyo3::types::PyRangeMethods;
 use pyo3::types::PyTuple;
 use pyo3_bytes::PyBytes as PyBufferBytes;
+use vortex::array::ArrayContext;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
@@ -147,23 +148,27 @@ fn array_metadata_tuple<'py>(
     py: Python<'py>,
     array: &ArrayRef,
 ) -> PyVortexResult<Bound<'py, PyTuple>> {
-    let metadata = session().array_serialize(array)?.ok_or_else(|| {
-        PyValueError::new_err(format!(
-            "Array {} does not support metadata serialization",
-            array.encoding_id()
-        ))
-    })?;
+    let serialization = session()
+        .array_serialize(array, &ArrayContext::empty())?
+        .ok_or_else(|| {
+            PyValueError::new_err(format!(
+                "Array {} does not support serialization",
+                array.encoding_id()
+            ))
+        })?;
     let dtype = array.dtype().write_flatbuffer_bytes()?;
 
-    let buffers = array
-        .buffer_handles()
+    let buffers = serialization
+        .buffers
         .iter()
-        .map(|handle| export_buffer(py, handle).map(|cap| cap.into_any()))
+        .map(|buffer| {
+            export_buffer(py, &BufferHandle::new_host(buffer.clone())).map(|cap| cap.into_any())
+        })
         .collect::<PyResult<Vec<_>>>()?;
     let buffers = PyList::new(py, buffers)?;
 
-    let children = array
-        .children()
+    let children = serialization
+        .children
         .iter()
         .map(|child| array_metadata_tuple(py, child).map(|tuple| tuple.into_any()))
         .collect::<PyVortexResult<Vec<_>>>()?;
@@ -172,10 +177,12 @@ fn array_metadata_tuple<'py>(
     PyTuple::new(
         py,
         [
-            array.encoding_id().to_string().into_py_any(py)?,
+            serialization.serialized_id.to_string().into_py_any(py)?,
             PyBytes::new(py, dtype.as_slice()).into_any().into(),
             array.len().into_py_any(py)?,
-            PyBytes::new(py, metadata.as_slice()).into_any().into(),
+            PyBytes::new(py, serialization.metadata.as_slice())
+                .into_any()
+                .into(),
             buffers.into_any().into(),
             children.into_any().into(),
         ],

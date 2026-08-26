@@ -10,6 +10,8 @@ use std::sync::Arc;
 
 use prost::Message as _;
 use vortex_array::Array;
+use vortex_array::ArrayContext;
+use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
@@ -60,43 +62,38 @@ impl ZstdBuffers {
 
     /// Compress every top-level buffer of `array` independently with zstd.
     ///
-    /// Children are preserved as slots and the wrapped array's serialized metadata is stored so the
-    /// original array can be rebuilt after decompression.
+    /// The wrapped array's earliest lossless serialized representation is captured so it can be
+    /// rebuilt after decompression, including any buffers or children selected by its serializer.
     pub fn compress(
         array: &ArrayRef,
         level: i32,
         session: &VortexSession,
     ) -> VortexResult<ZstdBuffersArray> {
-        let encoding_id = array.encoding_id();
-        let metadata = session
-            .array_serialize(array)?
+        let serialization = session
+            .array_serialize(array, &ArrayContext::empty())?
             .ok_or_else(|| vortex_err!("[ZstdBuffers]: Array does not support serialization"))?;
-        let buffer_handles = array.buffer_handles();
-        let children = array.children();
 
-        let mut compressed_buffers = Vec::with_capacity(buffer_handles.len());
-        let mut uncompressed_sizes = Vec::with_capacity(buffer_handles.len());
-        let mut buffer_alignments = Vec::with_capacity(buffer_handles.len());
+        let mut compressed_buffers = Vec::with_capacity(serialization.buffers.len());
+        let mut uncompressed_sizes = Vec::with_capacity(serialization.buffers.len());
+        let mut buffer_alignments = Vec::with_capacity(serialization.buffers.len());
 
         let mut compressor = zstd::bulk::Compressor::new(level)?;
-        // Compression is currently CPU-only, so we gather all buffers on the host.
-        for handle in &buffer_handles {
-            buffer_alignments.push(u32::from(handle.alignment()));
-            let host_buf = handle.clone().try_to_host_sync()?;
-            uncompressed_sizes.push(host_buf.len() as u64);
-            let mut compressed = compressor.compress(&host_buf)?;
+        for buffer in &serialization.buffers {
+            buffer_alignments.push(u32::from(buffer.alignment()));
+            uncompressed_sizes.push(buffer.len() as u64);
+            let mut compressed = compressor.compress(buffer)?;
             compressed.shrink_to_fit();
             compressed_buffers.push(BufferHandle::new_host(ByteBuffer::from(compressed)));
         }
 
         let data = ZstdBuffersData {
-            inner_encoding_id: encoding_id,
-            inner_metadata: metadata,
+            inner_encoding_id: serialization.serialized_id,
+            inner_metadata: serialization.metadata,
             compressed_buffers,
             uncompressed_sizes,
             buffer_alignments,
         };
-        let slots: ArraySlots = children.into_iter().map(Some).collect();
+        let slots: ArraySlots = serialization.children.into_iter().map(Some).collect();
         let compressed = Array::try_from_parts(
             ArrayParts::new(ZstdBuffers, array.dtype().clone(), array.len(), data)
                 .with_slots(slots),
@@ -121,11 +118,14 @@ impl ZstdBuffers {
 
         let children: Vec<ArrayRef> = array.slots().iter().flatten().cloned().collect();
         inner_vtable.deserialize(
-            array.dtype(),
-            array.len(),
-            &array.data().inner_metadata,
-            buffer_handles,
-            &children.as_slice(),
+            ArrayDeserialization::new(
+                array.data().inner_encoding_id,
+                array.dtype(),
+                array.len(),
+                &array.data().inner_metadata,
+                buffer_handles,
+                &children.as_slice(),
+            ),
             session,
         )
     }

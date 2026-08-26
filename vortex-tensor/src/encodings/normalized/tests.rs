@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use rstest::rstest;
+use vortex_array::ArrayContext;
+use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayVTable;
@@ -652,16 +654,19 @@ fn serde_round_trip(#[case] input: ArrayRef) -> VortexResult<()> {
     let original = normalize(input, &mut ctx)?.into_array();
     let children: Vec<ArrayRef> = original.children();
 
-    let metadata = SESSION
-        .array_serialize(&original)?
+    let serialization = SESSION
+        .array_serialize(&original, &ArrayContext::empty())?
         .expect("Normalized must serialize");
     let recovered = ArrayPlugin::deserialize(
         &Normalized,
-        original.dtype(),
-        original.len(),
-        &metadata,
-        &[],
-        &children,
+        ArrayDeserialization::new(
+            ArrayVTable::id(&Normalized),
+            original.dtype(),
+            original.len(),
+            &serialization.metadata,
+            &[],
+            &children,
+        ),
         &SESSION,
     )?;
 
@@ -678,10 +683,13 @@ fn serialization_carries_no_metadata() -> VortexResult<()> {
     let non_nullable = normalize(vector_array(2, &[3.0, 4.0, 1.0, 0.0])?, &mut ctx)?.into_array();
 
     for array in [&nullable, &non_nullable] {
-        let bytes = SESSION
-            .array_serialize(array)?
+        let serialization = SESSION
+            .array_serialize(array, &ArrayContext::empty())?
             .expect("Normalized must serialize");
-        assert!(bytes.is_empty(), "Normalized must not serialize metadata");
+        assert!(
+            serialization.metadata.is_empty(),
+            "Normalized must not serialize metadata"
+        );
     }
 
     assert_eq!(nullable.nchildren(), NormalizedSlots::COUNT);
@@ -705,16 +713,19 @@ fn serde_round_trip_of_a_nullable_column_with_no_null_rows() -> VortexResult<()>
     assert!(original.dtype().is_nullable());
     assert_eq!(children.len(), NormalizedSlots::COUNT - 1);
 
-    let metadata = SESSION
-        .array_serialize(&original)?
+    let serialization = SESSION
+        .array_serialize(&original, &ArrayContext::empty())?
         .expect("Normalized must serialize");
     let recovered = ArrayPlugin::deserialize(
         &Normalized,
-        original.dtype(),
-        original.len(),
-        &metadata,
-        &[],
-        &children,
+        ArrayDeserialization::new(
+            ArrayVTable::id(&Normalized),
+            original.dtype(),
+            original.len(),
+            &serialization.metadata,
+            &[],
+            &children,
+        ),
         &SESSION,
     )?;
 
@@ -734,8 +745,12 @@ fn deserialize_rejects_validity_child_for_non_nullable_dtype() -> VortexResult<(
         BoolArray::from_iter([true, false]).into_array(),
     ];
 
-    let error = ArrayPlugin::deserialize(&Normalized, &dtype, 2, &[], &[], &children, &SESSION)
-        .unwrap_err();
+    let error = ArrayPlugin::deserialize(
+        &Normalized,
+        ArrayDeserialization::new(ArrayVTable::id(&Normalized), &dtype, 2, &[], &[], &children),
+        &SESSION,
+    )
+    .unwrap_err();
 
     assert!(
         error

@@ -79,7 +79,7 @@ fn enable_all_registered_array_encodings(session: &VortexSession) {
     editions
         .declare_edition(Edition {
             id: BENCH_EDITION,
-            min_vortex_version: None,
+            min_library_version: None,
         })
         .unwrap();
     let component_ids = [

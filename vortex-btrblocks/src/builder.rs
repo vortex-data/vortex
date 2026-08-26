@@ -4,7 +4,6 @@
 //! Builder for configuring `BtrBlocksCompressor` instances.
 
 use vortex_array::ArrayId;
-use vortex_compressor::ArrayWriterVersions;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::BtrBlocksCompressor;
@@ -92,14 +91,12 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
 #[derive(Debug, Clone)]
 pub struct BtrBlocksCompressorBuilder {
     schemes: Vec<&'static dyn Scheme>,
-    array_writer_versions: Option<ArrayWriterVersions>,
 }
 
 impl Default for BtrBlocksCompressorBuilder {
     fn default() -> Self {
         Self {
             schemes: ALL_SCHEMES.to_vec(),
-            array_writer_versions: None,
         }
     }
 }
@@ -111,7 +108,6 @@ impl BtrBlocksCompressorBuilder {
     pub fn empty() -> Self {
         Self {
             schemes: Vec::new(),
-            array_writer_versions: None,
         }
     }
 
@@ -218,24 +214,9 @@ impl BtrBlocksCompressorBuilder {
         self
     }
 
-    /// Constrains scheme selection to the enabled writer version of each array encoding.
-    ///
-    /// A scheme requiring an absent or newer version is rejected before it computes statistics,
-    /// estimates, samples, or compresses its input. This policy affects serialized output only;
-    /// it neither versions in-memory arrays nor changes reader registration.
-    pub fn with_array_writer_versions(mut self, versions: ArrayWriterVersions) -> Self {
-        self.array_writer_versions = Some(versions);
-        self
-    }
-
     /// Builds the configured [`BtrBlocksCompressor`].
     pub fn build(self) -> BtrBlocksCompressor {
-        let compressor = CascadingCompressor::new(self.schemes);
-        let compressor = match self.array_writer_versions {
-            Some(versions) => compressor.with_array_writer_versions(versions),
-            None => compressor,
-        };
-        BtrBlocksCompressor(compressor)
+        BtrBlocksCompressor(CascadingCompressor::new(self.schemes))
     }
 }
 

@@ -2,20 +2,20 @@
 #
 # This edition record has no core read-forever guarantee. It may describe an evolving feature,
 # stabilized preview functionality awaiting adoption, or a release waiting to be cut. New
-# capabilities advance to a new edition; after a core release is known, min_vortex_version is
+# capabilities advance to a new edition; after a core release is known, min_library_version is
 # backfilled to document its freeze. A frozen record never changes.
 
 edition = "preview2026.04.0"
 family = "preview"
 
-# Components and array writer-version increases added by this edition.
+# Components added by this edition.
 [added]
 arrays = [
-    { id = "vortex.patched", writer_version = 1 },
-    { id = "vortex.tensor.cosine_similarity", writer_version = 1 },
-    { id = "vortex.tensor.inner_product", writer_version = 1 },
-    { id = "vortex.tensor.l2_norm", writer_version = 1 },
-    { id = "vortex.tensor.normalized", writer_version = 1 },
+    "vortex.patched",
+    "vortex.tensor.cosine_similarity",
+    "vortex.tensor.inner_product",
+    "vortex.tensor.l2_norm",
+    "vortex.tensor.normalized",
 ]
 layouts = []
 dtypes = [
@@ -28,13 +28,13 @@ aggregates = []
 # editions of the family.
 [components]
 arrays = [
-    { id = "fastlanes.delta", writer_version = 1 },
-    { id = "vortex.patched", writer_version = 1 },
-    { id = "vortex.tensor.cosine_similarity", writer_version = 1 },
-    { id = "vortex.tensor.inner_product", writer_version = 1 },
-    { id = "vortex.tensor.l2_norm", writer_version = 1 },
-    { id = "vortex.tensor.normalized", writer_version = 1 },
-    { id = "vortex.zstd_buffers", writer_version = 1 },
+    "fastlanes.delta",
+    "vortex.patched",
+    "vortex.tensor.cosine_similarity",
+    "vortex.tensor.inner_product",
+    "vortex.tensor.l2_norm",
+    "vortex.tensor.normalized",
+    "vortex.zstd_buffers",
 ]
 layouts = []
 dtypes = [

@@ -15,7 +15,7 @@ pub const PREVIEW_2026_04_0: EditionId = EditionId::new("preview", 2026, 4, 0);
 pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: PREVIEW_2026_04_0,
-        min_vortex_version: None,
+        min_library_version: None,
     },
     added: &[
         EditionMember::array(&"vortex.patched"),

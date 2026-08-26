@@ -222,9 +222,9 @@ impl CascadingCompressor {
 
     /// The main scheme-selection entry point for a single leaf array.
     ///
-    /// Filters allowed schemes by [`matches`], writer-version requirements, and exclusion rules,
-    /// merges their [`stats_options`] into a single [`GenerateStatsOptions`], and picks the winner
-    /// by estimated compression ratio.
+    /// Filters allowed schemes by [`matches`] and exclusion rules, merges their [`stats_options`]
+    /// into a single [`GenerateStatsOptions`], and picks the winner by estimated compression
+    /// ratio.
     ///
     /// If a winner is found and its compressed output is actually smaller, that output is
     /// returned. Otherwise, the original array is returned unchanged.
@@ -244,11 +244,7 @@ impl CascadingCompressor {
             .schemes
             .iter()
             .copied()
-            .filter(|s| {
-                s.matches(&canonical)
-                    && self.writer_version_allows(*s, &canonical)
-                    && !self.is_excluded(*s, &compress_ctx)
-            })
+            .filter(|s| s.matches(&canonical) && !self.is_excluded(*s, &compress_ctx))
             .collect();
 
         let array: ArrayRef = canonical.into();

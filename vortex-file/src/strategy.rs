@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use vortex_array::ArrayId;
 use vortex_array::dtype::FieldPath;
-use vortex_btrblocks::ArrayWriterVersions;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::schemes::integer::IntDictScheme;
@@ -61,7 +60,6 @@ pub struct WriteStrategyBuilder {
     data_block_target_bytes: Option<u64>,
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
     allow_encodings: Option<HashSet<ArrayId>>,
-    array_writer_versions: Option<ArrayWriterVersions>,
     flat_strategy: Option<Arc<dyn LayoutStrategy>>,
     probe_compressor: Option<Arc<dyn CompressorPlugin>>,
     /// Whether to write list fields using [`ListLayoutStrategy`].
@@ -80,7 +78,6 @@ impl Default for WriteStrategyBuilder {
             data_block_target_bytes: Some(ONE_MEG),
             field_writers: HashMap::new(),
             allow_encodings: None,
-            array_writer_versions: None,
             flat_strategy: None,
             probe_compressor: None,
             use_list_layout: use_experimental_list_layout(),
@@ -142,19 +139,6 @@ impl WriteStrategyBuilder {
         self
     }
 
-    /// Configure the compatible serialized features the writer may produce for each array ID.
-    ///
-    /// The map's keys become the allowed array encodings. For the built-in BtrBlocks compressor,
-    /// schemes requiring an absent or newer writer version are excluded before estimation,
-    /// sampling, and compression. The flat writer validates every final array ID, including
-    /// output from an opaque custom compressor; an opaque compressor remains responsible for
-    /// honoring the writer versions because they are not read-time array tags.
-    pub fn with_array_writer_versions(mut self, versions: ArrayWriterVersions) -> Self {
-        self.allow_encodings = Some(versions.keys().copied().collect());
-        self.array_writer_versions = Some(versions);
-        self
-    }
-
     /// Override the flat layout strategy used for leaf chunks.
     ///
     /// By default, this uses [`FlatLayoutStrategy`]. This can be used to substitute a custom
@@ -203,10 +187,6 @@ impl WriteStrategyBuilder {
         // regardless of the order in which the builder and the policy were configured.
         let compressor = match self.compressor {
             CompressorConfig::BtrBlocks(builder) => {
-                let builder = match self.array_writer_versions {
-                    Some(versions) => builder.with_array_writer_versions(versions),
-                    None => builder,
-                };
                 CompressorConfig::BtrBlocks(match &self.allow_encodings {
                     Some(allow_encodings) => builder.retain_allowed_encodings(allow_encodings),
                     None => builder,

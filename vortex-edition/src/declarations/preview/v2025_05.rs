@@ -15,7 +15,7 @@ pub const PREVIEW_2025_05_0: EditionId = EditionId::new("preview", 2025, 5, 0);
 pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: PREVIEW_2025_05_0,
-        min_vortex_version: None,
+        min_library_version: None,
     },
     added: &[EditionMember::array(&"fastlanes.delta")],
 };

@@ -207,11 +207,19 @@ impl Interner {
         self
     }
 
+    /// Returns whether `id` may be interned by this context.
+    ///
+    /// An unrestricted context permits every ID. This check does not mutate the interner, so
+    /// serializers can probe compatible wire representations without recording failed choices.
+    pub fn is_allowed(&self, id: &Id) -> bool {
+        self.allowed
+            .as_ref()
+            .is_none_or(|allowed| allowed.contains(id))
+    }
+
     /// Intern an ID, returning its index.
     pub fn intern(&self, id: &Id) -> Option<u16> {
-        if let Some(allowed) = &self.allowed
-            && !allowed.contains(id)
-        {
+        if !self.is_allowed(id) {
             // ID not permitted, cannot intern.
             return None;
         }

@@ -410,7 +410,7 @@ mod tests {
         editions
             .declare_edition(Edition {
                 id: TEST_EDITION,
-                min_vortex_version: None,
+                min_library_version: None,
             })
             .map_err(|error| vortex_err!("{error}"))?;
         let component_ids = [

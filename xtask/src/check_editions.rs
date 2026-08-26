@@ -7,7 +7,7 @@
 //! check. It may describe evolving work, stabilized preview functionality awaiting adoption, or a
 //! stable edition waiting for its release to be cut. Normal feature additions advance to a new
 //! edition; exceptional corrections remain possible before a core freeze. A stable edition can
-//! freeze in its release; once the release version is known, `min_vortex_version` is backfilled to
+//! freeze in its release; once the release version is known, `min_library_version` is backfilled to
 //! document the freeze. The record then carries a read-forever guarantee and may never change
 //! again. Whether a record was frozen is read from the base revision, so a change cannot unfreeze
 //! an edition and edit it in the same diff.
@@ -39,10 +39,10 @@ use crate::generate_editions::FAMILY_FILE;
 use crate::generate_editions::RECORD_DIR;
 
 /// A record carries this key once the edition's freeze has been documented.
-const FROZEN_MARKER: &str = "min_vortex_version";
+const FROZEN_MARKER: &str = "min_library_version";
 
 const REMEDY: &str = "\
-A frozen edition is immutable. To add components or array writer versions, declare a NEW edition in
+A frozen edition is immutable. To add component IDs, declare a NEW edition in
   vortex-edition/src/declarations/<family>/ and regenerate the records with
   `cargo run -p xtask -- generate-editions`.";
 

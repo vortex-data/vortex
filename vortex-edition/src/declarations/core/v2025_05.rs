@@ -15,7 +15,7 @@ pub const CORE_2025_05_0: EditionId = EditionId::new("core", 2025, 5, 0);
 pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: CORE_2025_05_0,
-        min_vortex_version: Some("0.36.0"),
+        min_library_version: Some("0.36.0"),
     },
     added: &[
         EditionMember::array(&"fastlanes.bitpacked"),

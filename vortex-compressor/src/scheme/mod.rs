@@ -56,9 +56,9 @@ impl fmt::Display for SchemeId {
 // TODO(connor): Remove all default implemented methods.
 /// A single compression encoding that the [`CascadingCompressor`] can select from.
 ///
-/// The compressor evaluates every registered scheme whose [`matches`] returns `true` and whose
-/// [`required_array_writer_versions`] fit the configured write policy, picks the one with the
-/// highest [`expected_compression_ratio`], and calls [`compress`] on the winner.
+/// The compressor evaluates every registered scheme whose [`matches`] returns `true` for a given
+/// array, picks the one with the highest [`expected_compression_ratio`], and calls [`compress`] on
+/// the winner.
 ///
 /// One of the key features of the compressor in this crate is that schemes may "cascade". A
 /// scheme's [`compress`] can call back into the compressor via
@@ -113,7 +113,6 @@ impl fmt::Display for SchemeId {
 /// [`matches`]: Scheme::matches
 /// [`compress`]: Scheme::compress
 /// [`expected_compression_ratio`]: Scheme::expected_compression_ratio
-/// [`required_array_writer_versions`]: Scheme::required_array_writer_versions
 /// [`stats_options`]: Scheme::stats_options
 /// [`num_children`]: Scheme::num_children
 /// [`descendant_exclusions`]: Scheme::descendant_exclusions
@@ -131,23 +130,6 @@ pub trait Scheme: Debug + Send + Sync {
     /// so only encodings constructed directly by [`compress`](Scheme::compress) belong here.
     /// Canonical arrays the scheme merely rearranges do not need to be declared.
     fn produced_encodings(&self) -> Vec<ArrayId>;
-
-    /// The minimum writer version required for each array encoding this scheme would produce for
-    /// `canonical`.
-    ///
-    /// The default requires writer version 1 for every [`produced_encodings`](Self::produced_encodings)
-    /// entry. Override this when the same reader-compatible array encoding has optional serialized
-    /// fields or properties that only newer writers may populate. The compressor checks these
-    /// requirements before statistics, estimation, sampling, or compression. An incompatible
-    /// serialized representation must use a new array ID instead of a higher writer version.
-    /// This method must be cheap; if the exact output depends on later analysis, report the newest
-    /// version the scheme might produce.
-    fn required_array_writer_versions(&self, _canonical: &Canonical) -> Vec<(ArrayId, u16)> {
-        self.produced_encodings()
-            .into_iter()
-            .map(|id| (id, 1))
-            .collect()
-    }
 
     /// Returns the stats generation options this scheme requires. The compressor merges all
     /// eligible schemes' options before generating stats so that a single stats pass satisfies

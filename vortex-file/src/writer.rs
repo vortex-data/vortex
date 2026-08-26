@@ -68,10 +68,9 @@ use crate::segments::writer::BufferedSegmentSink;
 /// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink
 /// that implements [`VortexWrite`].
 ///
-/// The default write strategy is restricted to the components and array writer versions in the
-/// session's enabled editions. An array, layout, extension dtype, or zone-map aggregate outside
-/// them fails the write. An empty component set therefore forbids writing any component of that
-/// kind.
+/// Serialized arrays, layouts, extension dtypes, and zone-map aggregates are restricted to the
+/// component IDs in the session's enabled editions. An empty component set therefore forbids
+/// writing any component of that kind.
 ///
 /// Construct with [`WriteOptionsSessionExt::write_options`] for normal use so the writer inherits
 /// the session's runtime, array registry, and memory configuration.
@@ -97,9 +96,7 @@ impl<S: SessionExt> WriteOptionsSessionExt for S {}
 impl VortexWriteOptions {
     /// Create a new [`VortexWriteOptions`] with the given session.
     pub fn new(session: VortexSession) -> Self {
-        let strategy = WriteStrategyBuilder::default()
-            .with_array_writer_versions(session.enabled_array_writer_versions())
-            .build();
+        let strategy = WriteStrategyBuilder::default().build();
         VortexWriteOptions {
             strategy,
             buffered_bytes: BufferedBytesTracker::new(),
@@ -115,9 +112,8 @@ impl VortexWriteOptions {
     ///
     /// The strategy controls repartitioning, statistics layout, compression, and leaf segment
     /// emission. Use [`WriteStrategyBuilder`] when only a small part of the default strategy needs
-    /// customization. The final serializers still enforce the enabled-edition component IDs, but
-    /// a replacement compressor is responsible for applying array writer versions before it does
-    /// expensive work.
+    /// customization. The final serializers still select only serialized array IDs permitted by
+    /// the enabled editions, independently of which in-memory encodings a compressor produces.
     pub fn with_strategy(mut self, strategy: Arc<dyn LayoutStrategy>) -> Self {
         self.strategy = strategy;
         self
@@ -354,14 +350,14 @@ impl VortexWriteOptions {
 }
 
 fn new_array_context(session: &VortexSession) -> ArrayContext {
-    // NOTE(os): Set up an array context with all enabled encodings pre-populated.
+    // NOTE(os): Set up an array context with all enabled serialized IDs pre-populated.
     // This is preferred for now over having an empty context here, because only the
     // serialised array order is deterministic. The serialisation of arrays are done
     // parallel and with an empty context they can register their encodings to the context
     // in different order, changing the written bytes from run to run.
     let enabled_encoding_ids = session.enabled_component_ids(ComponentKind::Array);
     ArrayContext::new(enabled_encoding_ids.iter().cloned().sorted().collect())
-        // Only permit encodings in the enabled editions.
+        // Only permit serialized IDs in the enabled editions.
         .with_allowed_ids(enabled_encoding_ids.into_iter().collect())
 }
 
@@ -724,7 +720,7 @@ mod tests {
         static DECLARATION: EditionDeclaration = EditionDeclaration {
             edition: Edition {
                 id: EDITION,
-                min_vortex_version: None,
+                min_library_version: None,
             },
             added: &[EditionMember::array(&"vortex.primitive")],
         };
@@ -748,7 +744,7 @@ mod tests {
         static ARRAYS_ONLY: EditionDeclaration = EditionDeclaration {
             edition: Edition {
                 id: EDITION,
-                min_vortex_version: None,
+                min_library_version: None,
             },
             added: &[EditionMember::array(&"vortex.primitive")],
         };
@@ -787,7 +783,7 @@ mod tests {
         static DECLARATION: EditionDeclaration = EditionDeclaration {
             edition: Edition {
                 id: EDITION,
-                min_vortex_version: None,
+                min_library_version: None,
             },
             added: &[EditionMember::dtype(&"vortex.date")],
         };

@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Definitions of Vortex *editions*: named sets of serialized components and the writer versions
-//! compression schemes may produce for each array encoding. Frozen editions carry a forever
-//! read-compatibility guarantee; draft editions do not.
+//! Definitions of Vortex *editions*: named sets of serialized component IDs. Frozen editions
+//! carry a forever read-compatibility guarantee; draft editions do not.
 //!
 //! Editions live on the session, like encodings do: [`EditionSession`] holds the registered
 //! editions and [`EnabledEditions`] selects which of them a writer may emit. Declarations
@@ -15,13 +14,12 @@
 //! Every membership is typed by a [`ComponentKind`], and members are resolved one kind at a
 //! time with [`EditionSessionExt::enabled_component_ids`]: the file writer restricts the
 //! arrays, layouts, extension dtypes, and aggregates it writes from separate id sets. Array
-//! memberships additionally carry a writer version. Compression schemes consult that version
-//! before estimating or producing an array, so a compatible reader extension does not silently
-//! change existing writer output. Writer versions are not stored in files and do not select a
-//! reader: every array ID has exactly one registered reader. An incompatible serialized form must
-//! therefore use a new array ID.
+//! memberships name wire IDs rather than in-memory array representations. An array plugin may
+//! serialize one current in-memory representation under several historical IDs, choosing the
+//! oldest permitted lossless representation. Readers resolve the ID stored in the file and either
+//! deserialize it into the current representation or reject it as unknown.
 //!
-//! An edition is represented as a **draft** until its [`Edition::min_vortex_version`] is
+//! An edition is represented as a **draft** until its [`Edition::min_library_version`] is
 //! recorded. A stable edition may freeze in the release that cuts it; once that release version
 //! is known, the field is backfilled to document the freeze. The per-edition member sets are
 //! computed from the registered declarations by [`EditionSession::components_in`], and
@@ -167,7 +165,8 @@ impl EditionFamily {
 /// written layouts. Further kinds (scalar functions, say) can be added the same way.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ComponentKind {
-    /// An array encoding, e.g. `vortex.alp`, registered in the session's array registry.
+    /// A serialized array representation, e.g. `vortex.alp`, registered in the session's array
+    /// registry.
     Array,
     /// A layout encoding, e.g. `vortex.flat`, registered in the session's layout registry.
     Layout,
@@ -189,18 +188,15 @@ impl Display for ComponentKind {
     }
 }
 
-/// The writer version assigned when an array encoding first joins an edition family.
-pub const INITIAL_ARRAY_WRITER_VERSION: u16 = 1;
-
-/// An edition: a named set of serialized components and array writer versions that can
-/// acquire a read-compatibility guarantee, registered with [`EditionSession::declare_edition`].
+/// An edition: a named set of serialized components that can acquire a read-compatibility
+/// guarantee, registered with [`EditionSession::declare_edition`].
 /// The set itself is computed from the registered [`EditionInclusion`]s by
 /// [`EditionSession::components_in`].
 #[derive(Clone, Copy, Debug)]
 pub struct Edition {
     /// The edition identifier. For a `core` edition, its date records when it freezes.
     pub id: EditionId,
-    /// The minimum Vortex version whose reader supports every member of this edition.
+    /// The minimum library version whose reader supports every member of this edition.
     ///
     /// A stable edition may freeze in the release that cuts it. Until that release is cut, its
     /// version is not known and this remains `None`. The version is then backfilled to document
@@ -210,22 +206,21 @@ pub struct Edition {
     /// to change.
     /// Validated against the members' [`EditionInclusion::required_vortex_release`] values:
     /// no member may require a version newer than the edition declares.
-    pub min_vortex_version: Option<&'static str>,
+    pub min_library_version: Option<&'static str>,
 }
 
 impl Edition {
-    /// A draft is an edition whose `min_vortex_version` has not been recorded yet.
+    /// A draft is an edition whose `min_library_version` has not been recorded yet.
     ///
     /// This describes the absence of a frozen core compatibility guarantee, not necessarily the
     /// implementation stability of its members. Stabilized preview editions are drafts too.
     pub fn is_draft(&self) -> bool {
-        self.min_vortex_version.is_none()
+        self.min_library_version.is_none()
     }
 }
 
 /// Declares that a serialized component is a member of an edition — and of every later edition of
-/// the same family. Array components may be redeclared in a later edition with a higher writer
-/// version. Registered with [`EditionSession::declare_inclusion`].
+/// the same family. Registered with [`EditionSession::declare_inclusion`].
 #[derive(Clone, Copy, Debug)]
 pub struct EditionInclusion {
     /// What the membership covers. Ids are unique per kind, so this is part of the
@@ -233,12 +228,6 @@ pub struct EditionInclusion {
     pub kind: ComponentKind,
     /// The interned component id, e.g. `vortex.alp`.
     pub component_id: Id,
-    /// The compatible serialized features this edition permits writers to produce for an array.
-    ///
-    /// `None` for non-array members. This is a write-time capability ceiling, not a version of the
-    /// in-memory array or a read-time dispatch key. Each array ID has one reader; an incompatible
-    /// serialized form requires a new array ID.
-    pub array_writer_version: Option<u16>,
     /// The first edition this component is a member of.
     pub since: EditionId,
     /// The earliest Vortex release supporting this member, recorded from evidence (e.g.
@@ -290,29 +279,14 @@ pub struct EditionMember {
     pub kind: ComponentKind,
     /// The member, named by id string or by vtable.
     pub component: &'static dyn AsComponentId,
-    /// The writer version permitted for an array member, or `None` for every other kind.
-    pub array_writer_version: Option<u16>,
 }
 
 impl EditionMember {
     /// An array encoding member, e.g. `vortex.alp`.
     pub const fn array(component: &'static dyn AsComponentId) -> Self {
-        Self::array_writer_version(component, INITIAL_ARRAY_WRITER_VERSION)
-    }
-
-    /// An array encoding member at a specific writer version.
-    ///
-    /// Use a later edition and a larger version when a writer may begin producing a new optional
-    /// field or another compatible serialized property that earlier writers never emitted. A
-    /// change requiring a different reader is a new array encoding, not a version increase.
-    pub const fn array_writer_version(
-        component: &'static dyn AsComponentId,
-        writer_version: u16,
-    ) -> Self {
         Self {
             kind: ComponentKind::Array,
             component,
-            array_writer_version: Some(writer_version),
         }
     }
 
@@ -321,7 +295,6 @@ impl EditionMember {
         Self {
             kind: ComponentKind::Layout,
             component,
-            array_writer_version: None,
         }
     }
 
@@ -330,7 +303,6 @@ impl EditionMember {
         Self {
             kind: ComponentKind::DType,
             component,
-            array_writer_version: None,
         }
     }
 
@@ -339,20 +311,19 @@ impl EditionMember {
         Self {
             kind: ComponentKind::Aggregate,
             component,
-            array_writer_version: None,
         }
     }
 }
 
-/// Declares an edition together with its new members and array writer-version increases, in one
-/// block. Registered with [`EditionSession::declare`], which derives each entry's membership
-/// (`since` = the declared edition) from the block structure.
+/// Declares an edition together with its new members in one block. Registered with
+/// [`EditionSession::declare`], which derives each entry's membership (`since` = the declared
+/// edition) from the block structure.
 #[derive(Clone, Copy, Debug)]
 pub struct EditionDeclaration {
     /// The edition being declared.
     pub edition: Edition,
-    /// The members that join the family and array writer versions raised by this edition, each
-    /// tagged with its [`ComponentKind`]. Earlier entries are inherited and never restated.
+    /// The members that join the family at this edition, each tagged with its [`ComponentKind`].
+    /// Earlier entries are inherited and never restated.
     pub added: &'static [EditionMember],
 }
 
@@ -367,8 +338,6 @@ impl EditionInclusion {
         Self {
             kind,
             component_id: component.component_id(),
-            array_writer_version: (kind == ComponentKind::Array)
-                .then_some(INITIAL_ARRAY_WRITER_VERSION),
             since,
             required_vortex_release: None,
         }
@@ -378,19 +347,6 @@ impl EditionInclusion {
     /// same family.
     pub fn array<C: AsComponentId + ?Sized>(encoding: &C, since: EditionId) -> Self {
         Self::new(ComponentKind::Array, encoding, since)
-    }
-
-    /// Declare that an array writer version is available in `since` and every later edition of
-    /// the same family, until superseded by a later writer version.
-    pub fn array_writer_version<C: AsComponentId + ?Sized>(
-        encoding: &C,
-        writer_version: u16,
-        since: EditionId,
-    ) -> Self {
-        Self {
-            array_writer_version: Some(writer_version),
-            ..Self::new(ComponentKind::Array, encoding, since)
-        }
     }
 
     /// Declare that an extension dtype is a member of `since` and every later edition of the
@@ -415,26 +371,6 @@ impl EditionInclusion {
                 "invalid {} id {id:?}: expected lowercase `namespace.name`, e.g. `vortex.alp`",
                 self.kind
             )));
-        }
-        match (self.kind, self.array_writer_version) {
-            (ComponentKind::Array, Some(0)) => {
-                return Err(EditionError::new(format!(
-                    "array {id} must have a non-zero writer version"
-                )));
-            }
-            (ComponentKind::Array, Some(_)) => {}
-            (ComponentKind::Array, None) => {
-                return Err(EditionError::new(format!(
-                    "array {id} must declare a writer version"
-                )));
-            }
-            (_, Some(version)) => {
-                return Err(EditionError::new(format!(
-                    "{} {id} cannot declare array writer version {version}",
-                    self.kind
-                )));
-            }
-            (_, None) => {}
         }
         if let Some(release) = self.required_vortex_release
             && parse_release(release).is_none()

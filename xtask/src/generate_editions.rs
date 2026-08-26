@@ -4,15 +4,14 @@
 //! Export the edition records under `vortex/editions`.
 //!
 //! Every declared edition gets one TOML file recording what it contains: the identifier, the
-//! minimum Vortex version whose reader supports it once frozen, and its full member set. Array
-//! members also record the writer version compression schemes may produce. Records are grouped by
-//! family —
+//! minimum library version whose reader supports it once frozen, and its full member set. Records
+//! are grouped by family —
 //! `vortex/editions/core/core2025.05.0.toml` — mirroring the declarations in
 //! `vortex-edition/src/declarations`, since families version independently.
 //!
 //! A draft record carries no compatibility guarantee. Its serialization may still be evolving,
 //! or a stable edition may be waiting for its release to be cut. A stable edition can freeze in
-//! that release; once the release version is known, `min_vortex_version` is backfilled to document
+//! that release; once the release version is known, `min_library_version` is backfilled to document
 //! the freeze. The record then carries a read-forever guarantee and may never change again. CI
 //! enforces that against git history with `cargo run -p xtask -- check-editions`; this exporter
 //! enforces the two rules that history cannot see, refusing to delete a record or to unfreeze one.
@@ -42,7 +41,7 @@ const FROZEN_NOTE: &str = "\
 const DRAFT_NOTE: &str = "\
 # This edition record has no core read-forever guarantee. It may describe an evolving feature,
 # stabilized preview functionality awaiting adoption, or a release waiting to be cut. New
-# capabilities advance to a new edition; after a core release is known, min_vortex_version is
+# capabilities advance to a new edition; after a core release is known, min_library_version is
 # backfilled to document its freeze. A frozen record never changes.";
 
 /// The file recording what a family is, beside that family's editions.
@@ -94,8 +93,7 @@ const KINDS: [(ComponentKind, &str); 4] = [
     (ComponentKind::Aggregate, "aggregates"),
 ];
 
-/// Render one TOML list per component kind, each sorted by component id. Array entries also pin
-/// the writer version that compression schemes may produce.
+/// Render one TOML list per component kind, each sorted by component id.
 fn kind_lists(
     lines: &mut Vec<String>,
     inclusions_of: impl Fn(ComponentKind) -> Vec<EditionInclusion>,
@@ -108,23 +106,11 @@ fn kind_lists(
             continue;
         }
         lines.push(format!("{key} = ["));
-        if kind == ComponentKind::Array {
-            lines.extend(inclusions.iter().map(|inclusion| {
-                let Some(writer_version) = inclusion.array_writer_version else {
-                    unreachable!("validated array inclusion has a writer version")
-                };
-                format!(
-                    "    {{ id = \"{}\", writer_version = {} }},",
-                    inclusion.component_id, writer_version
-                )
-            }));
-        } else {
-            lines.extend(
-                inclusions
-                    .iter()
-                    .map(|inclusion| format!("    \"{}\",", inclusion.component_id)),
-            );
-        }
+        lines.extend(
+            inclusions
+                .iter()
+                .map(|inclusion| format!("    \"{}\",", inclusion.component_id)),
+        );
         lines.push("]".to_string());
     }
 }
@@ -144,12 +130,12 @@ fn record(session: &EditionSession, edition: &Edition) -> String {
         format!("edition = \"{}\"", edition.id),
         format!("family = \"{}\"", edition.id.family),
     ];
-    if let Some(min_vortex_version) = edition.min_vortex_version {
-        lines.push(format!("min_vortex_version = \"{min_vortex_version}\""));
+    if let Some(min_library_version) = edition.min_library_version {
+        lines.push(format!("min_library_version = \"{min_library_version}\""));
     }
     lines.extend([
         String::new(),
-        "# Components and array writer-version increases added by this edition.".to_string(),
+        "# Components added by this edition.".to_string(),
         "[added]".to_string(),
     ]);
     kind_lists(&mut lines, |kind| {
@@ -200,11 +186,11 @@ fn existing_records(dir: &Path) -> anyhow::Result<BTreeSet<String>> {
     Ok(records)
 }
 
-/// A record carries a `min_vortex_version` once its freeze has been documented.
+/// A record carries a `min_library_version` once its freeze has been documented.
 fn records_a_frozen_edition(contents: &str) -> bool {
     contents
         .lines()
-        .any(|line| line.starts_with("min_vortex_version = "))
+        .any(|line| line.starts_with("min_library_version = "))
 }
 
 pub fn generate_editions() -> anyhow::Result<()> {
@@ -254,7 +240,7 @@ pub fn generate_editions() -> anyhow::Result<()> {
         {
             return Err(anyhow!(
                 "{} is recorded as frozen but its declaration is now a draft.\n\
-                 An edition that recorded a min_vortex_version carries a read-forever \
+                 An edition that recorded a min_library_version carries a read-forever \
                  guarantee and may never return to draft.",
                 edition.id,
             ));

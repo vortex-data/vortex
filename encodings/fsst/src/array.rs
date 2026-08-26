@@ -1033,6 +1033,7 @@ mod test {
     use fsst::Compressor;
     use fsst::Symbol;
     use prost::Message;
+    use vortex_array::ArrayDeserialization;
     use vortex_array::ArrayPlugin;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
@@ -1158,19 +1159,22 @@ mod test {
 
         let deserialized = ArrayPlugin::deserialize(
             &FSST,
-            &DType::Utf8(Nullability::NonNullable),
-            2,
-            &FSSTMetadata {
-                uncompressed_lengths_ptype: fsst_array
-                    .uncompressed_lengths()
-                    .dtype()
-                    .as_ptype()
-                    .into(),
-                codes_offsets_ptype: fsst_array.codes_offsets().dtype().as_ptype().into(),
-            }
-            .encode_to_vec(),
-            &buffers,
-            &children.as_slice(),
+            ArrayDeserialization::new(
+                vortex_array::ArrayVTable::id(&FSST),
+                &DType::Utf8(Nullability::NonNullable),
+                2,
+                &FSSTMetadata {
+                    uncompressed_lengths_ptype: fsst_array
+                        .uncompressed_lengths()
+                        .dtype()
+                        .as_ptype()
+                        .into(),
+                    codes_offsets_ptype: fsst_array.codes_offsets().dtype().as_ptype().into(),
+                }
+                .encode_to_vec(),
+                &buffers,
+                &children.as_slice(),
+            ),
             &array_session(),
         )?;
 
@@ -1304,20 +1308,23 @@ mod test {
 
         let fsst = ArrayPlugin::deserialize(
             &FSST,
-            &DType::Utf8(Nullability::NonNullable),
-            2,
-            &FSSTMetadata {
-                uncompressed_lengths_ptype: fsst_array
-                    .uncompressed_lengths()
-                    .dtype()
-                    .as_ptype()
-                    .into(),
-                // Legacy array did not store this field, use Protobuf default of 0.
-                codes_offsets_ptype: 0,
-            }
-            .encode_to_vec(),
-            &buffers,
-            &children.as_slice(),
+            ArrayDeserialization::new(
+                vortex_array::ArrayVTable::id(&FSST),
+                &DType::Utf8(Nullability::NonNullable),
+                2,
+                &FSSTMetadata {
+                    uncompressed_lengths_ptype: fsst_array
+                        .uncompressed_lengths()
+                        .dtype()
+                        .as_ptype()
+                        .into(),
+                    // Legacy array did not store this field, use Protobuf default of 0.
+                    codes_offsets_ptype: 0,
+                }
+                .encode_to_vec(),
+                &buffers,
+                &children.as_slice(),
+            ),
             &array_session(),
         )?;
 
