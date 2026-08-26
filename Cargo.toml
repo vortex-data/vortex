@@ -140,21 +140,21 @@ cudarc = { version = "0.19.0", features = [
 ] }
 custom-labels = "0.4.4"
 dashmap = "6.1.0"
-datafusion = { version = "54", default-features = false, features = ["sql"] }
-datafusion-catalog = { version = "54" }
-datafusion-common = { version = "54" }
-datafusion-common-runtime = { version = "54" }
-datafusion-datasource = { version = "54", default-features = false }
-datafusion-execution = { version = "54" }
-datafusion-expr = { version = "54" }
-datafusion-functions = { version = "54" }
-datafusion-functions-nested = { version = "54" }
-datafusion-physical-expr = { version = "54" }
-datafusion-physical-expr-adapter = { version = "54" }
-datafusion-physical-expr-common = { version = "54" }
-datafusion-physical-plan = { version = "54" }
-datafusion-pruning = { version = "54" }
-datafusion-sqllogictest = { version = "54" }
+datafusion = { version = "55", default-features = false, features = ["sql"] }
+datafusion-catalog = { version = "55" }
+datafusion-common = { version = "55" }
+datafusion-common-runtime = { version = "55" }
+datafusion-datasource = { version = "55", default-features = false }
+datafusion-execution = { version = "55" }
+datafusion-expr = { version = "55" }
+datafusion-functions = { version = "55" }
+datafusion-functions-nested = { version = "55" }
+datafusion-physical-expr = { version = "55" }
+datafusion-physical-expr-adapter = { version = "55" }
+datafusion-physical-expr-common = { version = "55" }
+datafusion-physical-plan = { version = "55" }
+datafusion-pruning = { version = "55" }
+datafusion-sqllogictest = { version = "55" }
 divan = { package = "codspeed-divan-compat", version = "5.0.0" }
 enum-iterator = "2.0.0"
 env_logger = "0.11"
