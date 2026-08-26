@@ -60,3 +60,19 @@ def test_every_fact_table_is_covered():
 
     covered_tables = {vector["table"] for vector in golden["vectors"]}
     assert covered_tables == set(module.MEASUREMENT_ID_BY_TABLE)
+
+
+def test_random_access_open_mode_preserves_cached_ids_and_separates_reopen():
+    module = load_measurement_id_module()
+    dimensions = {
+        "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+        "dataset": "taxi",
+        "format": "parquet",
+    }
+
+    historical = module.measurement_id_random_access(**dimensions)
+    cached = module.measurement_id_random_access(**dimensions, open_mode="cached")
+    reopen = module.measurement_id_random_access(**dimensions, open_mode="reopen")
+
+    assert cached == historical
+    assert reopen != cached

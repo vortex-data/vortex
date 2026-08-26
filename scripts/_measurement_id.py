@@ -178,13 +178,17 @@ def measurement_id_random_access(
     commit_sha: str,
     dataset: str,
     format: str,
+    open_mode: str = "cached",
 ) -> int:
     """`measurement_id` for a `random_access_times` row. Mirrors
-    `db.rs::measurement_id_random_access`. Note: no `dataset_variant`."""
+    `db.rs::measurement_id_random_access`. Cached IDs preserve the historical
+    `(commit_sha, dataset, format)` hash. Reopen IDs append `open_mode`."""
     buf = _hasher_buf(_TAG_RANDOM_ACCESS_TIMES)
     _write_str(buf, commit_sha)
     _write_str(buf, dataset)
     _write_str(buf, format)
+    if open_mode != "cached":
+        _write_str(buf, open_mode)
     return _finish(buf)
 
 

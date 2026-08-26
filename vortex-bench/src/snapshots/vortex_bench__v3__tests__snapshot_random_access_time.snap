@@ -7,6 +7,7 @@ expression: render(&record)
   "commit_sha": "<commit-sha>",
   "dataset": "taxi",
   "format": "parquet",
+  "open_mode": "cached",
   "value_ns": 850000,
   "all_runtimes_ns": [
     800000,

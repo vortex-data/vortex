@@ -219,12 +219,9 @@ fn v3_random_access_dataset_name(dataset: &str, pattern: Option<AccessPattern>) 
 }
 
 fn push_v3_random_access_record(records: &mut Vec<v3::V3Record>, run: &RandomAccessRun) {
-    if run.reopen {
-        return;
-    }
-
     let dataset = v3_random_access_dataset_name(&run.dataset, run.pattern);
-    records.push(v3::random_access_record(&run.timing, &dataset));
+    let open_mode = if run.reopen { "reopen" } else { "cached" };
+    records.push(v3::random_access_record(&run.timing, &dataset, open_mode));
 }
 
 /// Open a random accessor for any supported format.
@@ -446,7 +443,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_random_access_records_skip_reopen_variants() {
+    fn v3_random_access_records_include_open_modes() {
         let mut records = Vec::new();
 
         push_v3_random_access_record(&mut records, &fake_run("taxi", None, false));
@@ -459,13 +456,26 @@ mod tests {
             &fake_run("taxi", Some(AccessPattern::Correlated), true),
         );
 
-        assert_eq!(records.len(), 2);
+        assert_eq!(records.len(), 3);
         match &records[0] {
-            v3::V3Record::RandomAccessTime(record) => assert_eq!(record.dataset, "taxi"),
+            v3::V3Record::RandomAccessTime(record) => {
+                assert_eq!(record.dataset, "taxi");
+                assert_eq!(record.open_mode, "cached");
+            }
             other => panic!("expected random-access record, got {other:?}"),
         }
         match &records[1] {
-            v3::V3Record::RandomAccessTime(record) => assert_eq!(record.dataset, "taxi/uniform"),
+            v3::V3Record::RandomAccessTime(record) => {
+                assert_eq!(record.dataset, "taxi/uniform");
+                assert_eq!(record.open_mode, "cached");
+            }
+            other => panic!("expected random-access record, got {other:?}"),
+        }
+        match &records[2] {
+            v3::V3Record::RandomAccessTime(record) => {
+                assert_eq!(record.dataset, "taxi/correlated");
+                assert_eq!(record.open_mode, "reopen");
+            }
             other => panic!("expected random-access record, got {other:?}"),
         }
     }
