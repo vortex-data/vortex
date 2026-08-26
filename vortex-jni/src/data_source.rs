@@ -33,7 +33,6 @@ use vortex::scan::DataSourceRef;
 use vortex_arrow::ArrowSessionExt;
 
 use crate::RUNTIME;
-use crate::arrow_compat::widen_small_decimals;
 use crate::errors::try_or_throw;
 use crate::file::extract_properties;
 use crate::io::JavaFileSystem;
@@ -205,7 +204,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDataSource_arrowSchema(
         }
         let session = unsafe { session_ref(session_ptr) };
         let ds = unsafe { NativeDataSource::from_ptr(pointer) };
-        let arrow_schema = widen_small_decimals(session.arrow().to_arrow_schema(ds.inner.dtype())?);
+        let arrow_schema = session.arrow().to_arrow_schema(ds.inner.dtype())?;
         let ffi_schema = FFI_ArrowSchema::try_from(&arrow_schema)?;
         unsafe {
             ptr::write(schema_addr as *mut FFI_ArrowSchema, ffi_schema);

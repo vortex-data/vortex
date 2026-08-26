@@ -49,7 +49,6 @@ use vortex_arrow::ArrowSessionExt;
 use crate::POOL;
 use crate::RUNTIME;
 use crate::arrow_compat::rebase_offsets;
-use crate::arrow_compat::widen_small_decimals;
 use crate::data_source::NativeDataSource;
 use crate::errors::try_or_throw;
 use crate::session::session_ref;
@@ -223,7 +222,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeScan_arrowSchema(
         let NativeScan::Pending(scan) = scan else {
             throw_runtime!("schema unavailable: scan already started");
         };
-        let arrow_schema = widen_small_decimals(session.arrow().to_arrow_schema(scan.dtype())?);
+        let arrow_schema = session.arrow().to_arrow_schema(scan.dtype())?;
         let ffi_schema = FFI_ArrowSchema::try_from(&arrow_schema)?;
         unsafe {
             ptr::write(schema_addr as *mut FFI_ArrowSchema, ffi_schema);
@@ -356,9 +355,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_scanArrow(
         let dtype = array_stream.dtype().clone();
 
         let session = unsafe { session_ref(session_ptr) };
-        let schema = Arc::new(widen_small_decimals(
-            session.arrow().to_arrow_schema(&dtype)?,
-        ));
+        let schema = Arc::new(session.arrow().to_arrow_schema(&dtype)?);
         let target = Arc::new(Field::new_struct("", schema.fields().clone(), false));
 
         let iter = RUNTIME
