@@ -10,6 +10,7 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::dtype::DType;
+use crate::scalar_fn::unstable::row::FillDefault;
 use crate::scalar_fn::unstable::row::ViewLen;
 
 mod fixed_size_list;
@@ -31,7 +32,7 @@ pub use uninit_element::UninitElementSink;
 /// labels the column this sink builds.
 ///
 /// Rows arrive in increasing index order. Ordinary execution visits `0..row_count` exactly once.
-/// Execution can omit invalid rows when [`skipped_rows_initializer`] returns an initializer.
+/// Skip-invalid execution runs [`initialize_skipped_rows`] first and then visits only valid rows.
 ///
 /// # Errors
 ///
@@ -48,7 +49,7 @@ pub use uninit_element::UninitElementSink;
 /// - A borrowed [`Rows`] view **must** retain its length and index-to-row mapping until it is
 ///   dropped. Calls to [`row_unchecked`](Self::row_unchecked) and safe uses of a returned
 ///   [`Row`](Self::Row) **must** preserve both properties.
-/// - [`skipped_rows_initializer`] is the only exception to this stability requirement. The executor
+/// - [`initialize_skipped_rows`] is the only exception to this stability requirement. The executor
 ///   checks the length again after the initializer. The initializer **must** initialize every row.
 /// - A row must either be initialized before the callback or require a
 ///   [`WriteToken`] that safe code cannot produce without initializing that exact row. Evidence for
@@ -56,8 +57,8 @@ pub use uninit_element::UninitElementSink;
 /// - `Self` and every borrowed [`Rows`] view **must** remain safe to drop if decoding,
 ///   preparation, skipped-row initialization, or a row callback returns an error or unwinds. The
 ///   executor can abandon a sink after any prefix of rows.
-/// - [`finish`] **must** be sound once every visited callback returned its required token and the
-///   skipped-row initializer, when present, ran successfully.
+/// - [`finish`] **must** be sound once every visited callback returned its required token and, for
+///   a skip-invalid traversal, [`initialize_skipped_rows`] ran successfully first.
 /// - Violating these requirements can cause undefined behavior.
 ///
 /// [`Rows`]: Self::Rows
@@ -66,7 +67,7 @@ pub use uninit_element::UninitElementSink;
 /// [`RowFn::INFALLIBLE`]: crate::scalar_fn::unstable::row::RowFn::INFALLIBLE
 /// [`RowVisitor::with_output_dtype`]: crate::scalar_fn::unstable::row::RowVisitor::with_output_dtype
 /// [`SinkResult`]: crate::scalar_fn::unstable::row::SinkResult
-/// [`skipped_rows_initializer`]: Self::skipped_rows_initializer
+/// [`initialize_skipped_rows`]: Self::initialize_skipped_rows
 pub unsafe trait OutputSink: 'static + Sized {
     /// Physical parameters required to construct this sink before the row loop.
     ///
@@ -77,8 +78,11 @@ pub unsafe trait OutputSink: 'static + Sized {
     /// A loop-local view of all output rows.
     ///
     /// Borrowed once before execution so the sink's buffer descriptor and shape become loop
-    /// invariants rather than being re-read through `&mut Self` for every row.
-    type Rows<'a>: ViewLen
+    /// invariants rather than being re-read through `&mut Self` for every row. The [`FillDefault`]
+    /// bound lets the default [`initialize_skipped_rows`](Self::initialize_skipped_rows)
+    /// zero-initialize the rows; storage that is fully initialized at construction can wrap itself
+    /// in [`Preinitialized`](super::Preinitialized) to make that a no-op.
+    type Rows<'a>: ViewLen + FillDefault
     where
         Self: 'a;
 
@@ -94,18 +98,23 @@ pub unsafe trait OutputSink: 'static + Sized {
     /// **must not** be able to construct one without establishing the invariant.
     type WriteToken: 'static;
 
-    /// The operation that initializes every output position before
+    /// Initialize every output position before
     /// [skip-invalid execution](crate::scalar_fn::unstable::row).
     ///
-    /// `Some` enables this strategy. The initializer **must** make every row safe to finish.
-    /// Callbacks overwrite valid rows, and batch execution masks skipped rows.
+    /// This **must** make every row safe to finish. The values are placeholders only: callbacks
+    /// overwrite valid rows, and batch execution masks skipped rows before the output is
+    /// observable, so any well-formed value works. Sink storage is non-nullable, so nulls do not
+    /// exist at this level.
     ///
-    /// `None` makes skip-invalid execution unavailable, so a partially valid batch fails: every
-    /// skip-invalid strategy writes into the original row domain and initializes the skipped rows
-    /// through this method. A sink used only by dense-safe, infallible dispatches never skips rows
-    /// and can return `None`.
-    fn skipped_rows_initializer() -> Option<for<'a> fn(&mut Self::Rows<'a>)> {
-        None
+    /// The default implementation zero-initializes the rows through [`FillDefault`], which
+    /// [`Rows`](Self::Rows) provides: a plain slice of `Default` elements fills itself, a custom
+    /// row view implements the filling for its own storage, and rows that are fully initialized at
+    /// construction wrap themselves in [`Preinitialized`](super::Preinitialized) to skip it.
+    /// Override this method only when one batch-wide pass over the rows is the wrong operation.
+    ///
+    /// Dense execution never calls this method because it visits every row.
+    fn initialize_skipped_rows(rows: &mut Self::Rows<'_>) {
+        rows.fill_default();
     }
 
     /// The dtype of the column this sink builds.
@@ -134,8 +143,7 @@ pub unsafe trait OutputSink: 'static + Sized {
     /// # Safety
     ///
     /// The executor must have completed every row callback successfully, and each callback must
-    /// have returned this sink's [`WriteToken`](Self::WriteToken). When skipped rows are allowed,
-    /// the initializer returned by
-    /// [`skipped_rows_initializer`](Self::skipped_rows_initializer) must have run before traversal.
+    /// have returned this sink's [`WriteToken`](Self::WriteToken). When rows are skipped,
+    /// [`initialize_skipped_rows`](Self::initialize_skipped_rows) must have run before traversal.
     unsafe fn finish(self) -> VortexResult<ArrayRef>;
 }

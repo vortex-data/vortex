@@ -13,7 +13,9 @@ use vortex_error::VortexResult;
 use super::OutputSink;
 use crate::ArrayRef;
 use crate::dtype::DType;
+use crate::scalar_fn::unstable::row::FillDefault;
 use crate::scalar_fn::unstable::row::OutputElement;
+use crate::scalar_fn::unstable::row::ViewLen;
 
 /// Proof that one uninitialized element row was initialized.
 ///
@@ -62,23 +64,37 @@ pub struct UninitElementSink<T> {
     row_count: usize,
 }
 
+/// A loop-local view of the uninitialized row slots of an [`UninitElementSink`].
+///
+/// This wrapper carries the [`FillDefault`] behavior a raw `MaybeUninit` slice cannot: coherence
+/// with the initialized-slice blanket rules that implementation out, and filling with
+/// `MaybeUninit::uninit()` would be wrong anyway. Filling writes `T::default()` into every slot.
+pub struct UninitElementRows<'a, T>(&'a mut [MaybeUninit<T>]);
+
+impl<T> ViewLen for UninitElementRows<'_, T> {
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl<T: Copy + Default> FillDefault for UninitElementRows<'_, T> {
+    fn fill_default(&mut self) {
+        for slot in self.0.iter_mut() {
+            slot.write(T::default());
+        }
+    }
+}
+
 // SAFETY: the row slice covers exactly the reserved spare-capacity range, so each accepted index
 // names one distinct slot. Safe code cannot construct `InitializedElement`. Its unsafe constructor
-// writes the supplied slot and requires the caller to return that exact evidence. The
-// skipped-row initializer writes `T::default()` into every slot before masked traversal.
+// writes the supplied slot and requires the caller to return that exact evidence. The default
+// skipped-row initializer fills every slot with `T::default()` through
+// `UninitElementRows::fill_default` before masked traversal.
 unsafe impl<T: OutputElement + Copy + Default> OutputSink for UninitElementSink<T> {
     type Params = ();
-    type Rows<'a> = &'a mut [MaybeUninit<T>];
+    type Rows<'a> = UninitElementRows<'a, T>;
     type Row<'a> = &'a mut MaybeUninit<T>;
     type WriteToken = InitializedElement;
-
-    fn skipped_rows_initializer() -> Option<for<'a> fn(&mut Self::Rows<'a>)> {
-        Some(|rows| {
-            for row in rows.iter_mut() {
-                row.write(T::default());
-            }
-        })
-    }
 
     fn storage_dtype(_params: &Self::Params) -> DType {
         T::element_dtype()
@@ -92,12 +108,12 @@ unsafe impl<T: OutputElement + Copy + Default> OutputSink for UninitElementSink<
     }
 
     fn rows(&mut self) -> Self::Rows<'_> {
-        &mut self.values.spare_capacity_mut()[..self.row_count]
+        UninitElementRows(&mut self.values.spare_capacity_mut()[..self.row_count])
     }
 
     unsafe fn row_unchecked<'a>(rows: &'a mut Self::Rows<'_>, index: usize) -> Self::Row<'a> {
         // SAFETY: required by this method's contract.
-        unsafe { rows.get_unchecked_mut(index) }
+        unsafe { rows.0.get_unchecked_mut(index) }
     }
 
     unsafe fn finish(mut self) -> VortexResult<ArrayRef> {

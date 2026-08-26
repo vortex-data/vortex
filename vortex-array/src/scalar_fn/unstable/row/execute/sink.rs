@@ -6,8 +6,7 @@
 //! Dense execution visits every row. Skip-invalid execution initializes skipped output rows and
 //! visits only rows that are valid in every input. Direct skip-invalid execution declines when the
 //! input representation cannot decode null payloads; filtered execution then reads inputs filtered
-//! to the valid rows while still writing into the original row domain. Both skip-invalid paths
-//! require the sink's skipped-row initializer.
+//! to the valid rows while still writing into the original row domain.
 
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
@@ -95,7 +94,7 @@ where
     unsafe { Sink::finish(sink) }
 }
 
-/// Write only the rows set in `valid`, or decline when the inputs or sink cannot support
+/// Write only the rows set in `valid`, or decline when the inputs cannot support direct
 /// skip-invalid execution.
 ///
 /// `Ok(None)` signals that direct skip-invalid execution is unavailable. Batch execution decides
@@ -114,7 +113,6 @@ where
     ApplyResult: SinkResult<WriteToken = Sink::WriteToken>,
 {
     let Some(ValidRowsSetup {
-        initialize_skipped_rows,
         columns,
         valid_rows,
         row_count,
@@ -133,7 +131,7 @@ where
     {
         // Initialize every slot before visiting only valid rows.
         let mut rows = Sink::rows(&mut sink);
-        initialize_skipped_rows(&mut rows);
+        Sink::initialize_skipped_rows(&mut rows);
 
         // The initializer can change addressability. Recheck it so LLVM can prove every mask
         // index is in bounds.
@@ -184,9 +182,8 @@ where
 ///
 /// `args` addresses only the valid rows of the original batch, in order. The sink covers the
 /// original row domain: each set position of `valid` receives the output of the next filtered
-/// row, and the skipped-row initializer makes unset positions safe to finish before batch
-/// execution masks them. A sink without an initializer cannot represent skipped rows, and there
-/// is no compact execution to scatter, so this execution fails.
+/// row, and [`OutputSink::initialize_skipped_rows`] makes unset positions safe to finish before
+/// batch execution masks them.
 pub(crate) fn execute_sink_filtered<Args, Prepared, Sink, ApplyResult>(
     args: &dyn ExecutionArgs,
     valid: &MaskValuesRef,
@@ -200,13 +197,6 @@ where
     Sink: OutputSink,
     ApplyResult: SinkResult<WriteToken = Sink::WriteToken>,
 {
-    let Some(initialize_skipped_rows) = Sink::skipped_rows_initializer() else {
-        vortex_bail!(
-            "the output sink cannot initialize skipped rows, which a partially valid batch \
-             requires",
-        );
-    };
-
     let columns = Args::decode(args, ctx)?;
 
     let filtered_len = args.row_count();
@@ -229,7 +219,7 @@ where
     {
         // Initialize every slot before visiting only valid rows.
         let mut rows = Sink::rows(&mut sink);
-        initialize_skipped_rows(&mut rows);
+        Sink::initialize_skipped_rows(&mut rows);
 
         // The initializer can change addressability. Recheck it so LLVM can prove every mask
         // index is in bounds.
@@ -299,14 +289,13 @@ where
     Args: ElementTuple,
     Sink: OutputSink,
 {
-    initialize_skipped_rows: for<'rows> fn(&mut Sink::Rows<'rows>),
     columns: Args::Columns,
     valid_rows: &'valid BitBuffer,
     row_count: usize,
     sink: Sink,
 }
 
-/// Resolve the capabilities, inputs, sink, and validity mask for skip-invalid execution.
+/// Resolve the inputs, sink, and validity mask for direct skip-invalid execution.
 fn setup_sink_valid_rows<'valid, Args, Sink>(
     args: &dyn ExecutionArgs,
     valid: &'valid MaskValuesRef,
@@ -317,11 +306,6 @@ where
     Args: ElementTuple,
     Sink: OutputSink,
 {
-    // The initializer both declares support for skipping rows and initializes those rows.
-    let Some(initialize_skipped_rows) = Sink::skipped_rows_initializer() else {
-        return Ok(None);
-    };
-
     // Null-tolerant decoding exposes values behind nulls without filtering. Decline when any input
     // cannot provide those values safely.
     let Some(columns) = Args::decode_null_tolerant(args, ctx)? else {
@@ -344,7 +328,6 @@ where
     );
 
     Ok(Some(ValidRowsSetup {
-        initialize_skipped_rows,
         columns,
         valid_rows,
         row_count,
@@ -356,7 +339,6 @@ where
 mod tests {
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
-    use vortex_error::vortex_err;
     use vortex_mask::Mask;
 
     use super::execute_sink_valid_rows;
@@ -369,39 +351,8 @@ mod tests {
     use crate::dtype::NativePType;
     use crate::scalar_fn::VecExecutionArgs;
     use crate::scalar_fn::unstable::row::OutputSink;
-    use crate::validity::Validity;
-
-    struct NonSkippingSink;
 
     struct ShrinkingSink(Vec<i64>);
-
-    // SAFETY: `with_capacity` always returns an error, so no sink value can reach `rows`, `row`, or
-    // `finish` through the executor. The row-initialization requirements are therefore vacuous.
-    unsafe impl OutputSink for NonSkippingSink {
-        type Params = ();
-        type Rows<'a> = ();
-        type Row<'a> = ();
-        type WriteToken = ();
-
-        fn storage_dtype(_params: &Self::Params) -> DType {
-            DType::from(i64::PTYPE)
-        }
-
-        fn with_capacity(_rows: usize, _params: &Self::Params) -> VortexResult<Self> {
-            Err(vortex_err!(
-                "a non-skipping sink must decline before allocation"
-            ))
-        }
-
-        fn rows(&mut self) -> Self::Rows<'_> {}
-
-        unsafe fn row_unchecked<'a>(_rows: &'a mut Self::Rows<'_>, _index: usize) -> Self::Row<'a> {
-        }
-
-        unsafe fn finish(self) -> VortexResult<ArrayRef> {
-            Err(vortex_err!("a non-skipping sink must not finish"))
-        }
-    }
 
     // SAFETY: the initializer deliberately shrinks the row collection to exercise the executor's
     // post-initialization length check. If execution incorrectly continues, safe indexing in
@@ -412,10 +363,8 @@ mod tests {
         type Row<'a> = &'a mut i64;
         type WriteToken = ();
 
-        fn skipped_rows_initializer() -> Option<for<'a> fn(&mut Self::Rows<'a>)> {
-            Some(|rows| {
-                rows.pop();
-            })
+        fn initialize_skipped_rows(rows: &mut Self::Rows<'_>) {
+            rows.pop();
         }
 
         fn storage_dtype(_params: &Self::Params) -> DType {
@@ -437,29 +386,6 @@ mod tests {
         unsafe fn finish(self) -> VortexResult<ArrayRef> {
             Ok(PrimitiveArray::from_iter(self.0).into_array())
         }
-    }
-
-    #[test]
-    fn test_non_skipping_sink_declines_before_allocation() -> VortexResult<()> {
-        let input = PrimitiveArray::new(vec![1_i64, 2], Validity::NonNullable).into_array();
-        let args = VecExecutionArgs::new(vec![input], 2);
-        let Mask::Values(valid) = Mask::from_iter([true, false]) else {
-            vortex_bail!("the test validity must be partially valid");
-        };
-        let mut ctx = array_session().create_execution_ctx();
-
-        let execution = execute_sink_valid_rows::<(i64,), (), NonSkippingSink, ()>(
-            &args,
-            &valid,
-            &(),
-            &mut ctx,
-            |_| (),
-            |_, _, _| (),
-        )?;
-
-        assert!(execution.is_none());
-
-        Ok(())
     }
 
     #[test]
