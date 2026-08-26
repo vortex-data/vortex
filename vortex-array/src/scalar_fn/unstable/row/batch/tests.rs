@@ -63,13 +63,13 @@ impl DeferredAdd {
 struct ValidOnlyIdentity;
 
 #[derive(Clone)]
-struct FilterAndScatterIdentity;
+struct FilteredIdentity;
 
 #[derive(Clone)]
 struct DenseRetryIncrement;
 
 #[derive(Clone)]
-struct FilterAndScatterRepeat;
+struct FilteredRepeat;
 
 #[derive(Clone)]
 struct InvalidKernelOutput;
@@ -245,8 +245,46 @@ impl OutputElement for NullProducingI64 {
 struct I64Sink(BufferMut<i64>);
 
 // SAFETY: every row is initialized by `BufferMut::zeroed`, and the sink exposes exactly that
-// initialized slice. The `()` write token therefore proves no additional invariant.
+// initialized slice. The `()` write token therefore proves no additional invariant, and the
+// skipped-row initializer has nothing left to initialize.
 unsafe impl OutputSink for I64Sink {
+    type Params = ();
+    type Rows<'a> = &'a mut [i64];
+    type Row<'a> = &'a mut i64;
+    type WriteToken = ();
+
+    fn skipped_rows_initializer() -> Option<for<'a> fn(&mut Self::Rows<'a>)> {
+        Some(|_| {})
+    }
+
+    fn storage_dtype(_params: &Self::Params) -> DType {
+        DType::from(i64::PTYPE)
+    }
+
+    fn with_capacity(rows: usize, _params: &Self::Params) -> VortexResult<Self> {
+        Ok(Self(BufferMut::zeroed(rows)))
+    }
+
+    fn rows(&mut self) -> Self::Rows<'_> {
+        self.0.as_mut_slice()
+    }
+
+    unsafe fn row_unchecked<'a>(rows: &'a mut Self::Rows<'_>, index: usize) -> Self::Row<'a> {
+        // SAFETY: required by this method's contract.
+        unsafe { rows.get_unchecked_mut(index) }
+    }
+
+    unsafe fn finish(self) -> VortexResult<ArrayRef> {
+        Ok(PrimitiveArray::new(self.0.freeze(), Validity::NonNullable).into_array())
+    }
+}
+
+/// An [`I64Sink`] without a skipped-row initializer, so it cannot skip invalid rows.
+struct NoSkipI64Sink(BufferMut<i64>);
+
+// SAFETY: every row is initialized by `BufferMut::zeroed`, and the sink exposes exactly that
+// initialized slice. The `()` write token therefore proves no additional invariant.
+unsafe impl OutputSink for NoSkipI64Sink {
     type Params = ();
     type Rows<'a> = &'a mut [i64];
     type Row<'a> = &'a mut i64;
@@ -271,6 +309,33 @@ unsafe impl OutputSink for I64Sink {
 
     unsafe fn finish(self) -> VortexResult<ArrayRef> {
         Ok(PrimitiveArray::new(self.0.freeze(), Validity::NonNullable).into_array())
+    }
+}
+
+#[derive(Clone)]
+struct NoSkipIdentity;
+
+impl RowFn for NoSkipIdentity {
+    type Options = EmptyOptions;
+
+    const ARG_NAMES: &'static [&'static str] = &["value"];
+    const INFALLIBLE: bool = false;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("test.no_skip_identity");
+        *ID
+    }
+
+    fn dispatch<V: RowVisitor>(
+        &self,
+        _options: &Self::Options,
+        _args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        visitor.visit_into::<(i64,), NoSkipI64Sink, VortexResult<()>>((), |(value,), output| {
+            *output = value;
+            Ok(())
+        })
     }
 }
 
@@ -365,14 +430,14 @@ impl RowFn for ValidOnlyIdentity {
     }
 }
 
-impl RowFn for FilterAndScatterIdentity {
+impl RowFn for FilteredIdentity {
     type Options = EmptyOptions;
 
     const ARG_NAMES: &'static [&'static str] = &["value"];
     const INFALLIBLE: bool = false;
 
     fn id(&self) -> ScalarFnId {
-        static ID: CachedId = CachedId::new("test.filter_and_scatter_identity");
+        static ID: CachedId = CachedId::new("test.filtered_identity");
         *ID
     }
 
@@ -416,14 +481,14 @@ impl RowFn for DenseRetryIncrement {
     }
 }
 
-impl RowFn for FilterAndScatterRepeat {
+impl RowFn for FilteredRepeat {
     type Options = usize;
 
     const ARG_NAMES: &'static [&'static str] = &["value"];
     const INFALLIBLE: bool = true;
 
     fn id(&self) -> ScalarFnId {
-        static ID: CachedId = CachedId::new("test.filter_and_scatter_repeat");
+        static ID: CachedId = CachedId::new("test.filtered_repeat");
         *ID
     }
 
@@ -436,7 +501,7 @@ impl RowFn for FilterAndScatterRepeat {
         vortex_ensure!(
             u32::try_from(*width).is_ok(),
             InvalidArgument:
-            "test.filter_and_scatter_repeat width must fit in u32, got {width}",
+            "test.filtered_repeat width must fit in u32, got {width}",
         );
 
         visitor
@@ -789,14 +854,14 @@ fn test_valid_only_bool_output_skips_invalid_rows() -> VortexResult<()> {
 }
 
 #[test]
-fn test_filter_and_scatter_skips_invalid_decode_payloads() -> VortexResult<()> {
+fn test_filtered_execution_skips_invalid_decode_payloads() -> VortexResult<()> {
     let validity = Validity::from_iter([false, true, false, true]);
     let input =
         PrimitiveArray::new(vec![i64::MIN, 10, i64::MIN, 30], validity.clone()).into_array();
     let args = VecExecutionArgs::new(vec![input], 4);
     let mut ctx = array_session().create_execution_ctx();
 
-    let actual = execute_rows(&FilterAndScatterIdentity, &EmptyOptions, &args, &mut ctx)?;
+    let actual = execute_rows(&FilteredIdentity, &EmptyOptions, &args, &mut ctx)?;
     let expected = PrimitiveArray::new(vec![0_i64, 10, 0, 30], validity).into_array();
 
     assert_arrays_eq!(&actual, &expected, &mut ctx);
@@ -806,7 +871,7 @@ fn test_filter_and_scatter_skips_invalid_decode_payloads() -> VortexResult<()> {
 #[rstest]
 #[case::width_two(2, vec![0_i64, 0, 7, 7])]
 #[case::zero_width(0, vec![])]
-fn test_filter_and_scatter_preserves_runtime_sink_params(
+fn test_filtered_execution_preserves_runtime_sink_params(
     #[case] width: usize,
     #[case] expected_elements: Vec<i64>,
 ) -> VortexResult<()> {
@@ -815,7 +880,7 @@ fn test_filter_and_scatter_preserves_runtime_sink_params(
     let args = VecExecutionArgs::new(vec![input], 2);
     let mut ctx = array_session().create_execution_ctx();
 
-    let actual = execute_rows(&FilterAndScatterRepeat, &width, &args, &mut ctx)?;
+    let actual = execute_rows(&FilteredRepeat, &width, &args, &mut ctx)?;
     let expected = FixedSizeListArray::new(
         PrimitiveArray::from_iter(expected_elements).into_array(),
         u32::try_from(width)
@@ -895,6 +960,37 @@ fn test_deferred_owned_execution_handles_constant_lhs() -> VortexResult<()> {
     let expected = PrimitiveArray::from_iter([11_i64, 12, 13]).into_array();
 
     assert_arrays_eq!(&actual, &expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_no_skip_sink_executes_all_valid_batch() -> VortexResult<()> {
+    let values = vec![1_i64, 2];
+    let input = PrimitiveArray::from_iter(values.clone()).into_array();
+    let args = VecExecutionArgs::new(vec![input], 2);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let actual = execute_rows(&NoSkipIdentity, &EmptyOptions, &args, &mut ctx)?;
+    let expected = PrimitiveArray::from_iter(values).into_array();
+
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_partially_valid_batch_requires_sink_skipped_row_initializer() -> VortexResult<()> {
+    let input =
+        PrimitiveArray::new(vec![1_i64, 2], Validity::from_iter([true, false])).into_array();
+    let args = VecExecutionArgs::new(vec![input], 2);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let error = execute_rows(&NoSkipIdentity, &EmptyOptions, &args, &mut ctx)
+        .expect_err("a sink without a skipped-row initializer must reject a partially valid batch");
+
+    assert!(
+        error.to_string().contains("cannot initialize skipped rows"),
+        "unexpected error: {error}",
+    );
     Ok(())
 }
 

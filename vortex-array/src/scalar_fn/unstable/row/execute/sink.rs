@@ -4,8 +4,10 @@
 //! Executes row kernels that write through an [`OutputSink`].
 //!
 //! Dense execution visits every row. Skip-invalid execution initializes skipped output rows and
-//! visits only rows that are valid in every input. Skip-invalid execution declines when either the
-//! input representation or sink cannot support that path.
+//! visits only rows that are valid in every input. Direct skip-invalid execution declines when the
+//! input representation cannot decode null payloads; filtered execution then reads inputs filtered
+//! to the valid rows while still writing into the original row domain. Both skip-invalid paths
+//! require the sink's skipped-row initializer.
 
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
@@ -176,6 +178,107 @@ where
     // SAFETY: the initializer completed before traversal, and every visited callback completed
     // successfully and returned the required write token.
     unsafe { Sink::finish(sink) }.map(Some)
+}
+
+/// Decode inputs filtered to valid rows, then write one sink row per valid row while iterating.
+///
+/// `args` addresses only the valid rows of the original batch, in order. The sink covers the
+/// original row domain: each set position of `valid` receives the output of the next filtered
+/// row, and the skipped-row initializer makes unset positions safe to finish before batch
+/// execution masks them. A sink without an initializer cannot represent skipped rows, and there
+/// is no compact execution to scatter, so this execution fails.
+pub(crate) fn execute_sink_filtered<Args, Prepared, Sink, ApplyResult>(
+    args: &dyn ExecutionArgs,
+    valid: &MaskValuesRef,
+    params: &Sink::Params,
+    ctx: &mut ExecutionCtx,
+    prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
+    apply: impl Fn(&Prepared, Args::Elems<'_>, Sink::Row<'_>) -> ApplyResult,
+) -> VortexResult<ArrayRef>
+where
+    Args: ElementTuple,
+    Sink: OutputSink,
+    ApplyResult: SinkResult<WriteToken = Sink::WriteToken>,
+{
+    let Some(initialize_skipped_rows) = Sink::skipped_rows_initializer() else {
+        vortex_bail!(
+            "the output sink cannot initialize skipped rows, which a partially valid batch \
+             requires",
+        );
+    };
+
+    let columns = Args::decode(args, ctx)?;
+
+    let filtered_len = args.row_count();
+    vortex_ensure_eq!(
+        valid.true_count(),
+        filtered_len,
+        "the filtered batch must contain one row per valid row: {} valid rows, got {filtered_len}",
+        valid.true_count(),
+    );
+
+    let original_len = valid.len();
+    let mut sink = Sink::with_capacity(original_len, params)?;
+
+    let valid_rows = valid.bit_buffer();
+    let views = Args::views_if_no_consts(&columns);
+    let const_values = Args::const_values(&columns);
+    let prepared = prepare(const_values);
+
+    // Keep `rows` scoped so its borrow ends before `finish`, which consumes the sink.
+    {
+        // Initialize every slot before visiting only valid rows.
+        let mut rows = Sink::rows(&mut sink);
+        initialize_skipped_rows(&mut rows);
+
+        // The initializer can change addressability. Recheck it so LLVM can prove every mask
+        // index is in bounds.
+        let initialized_row_count = rows.len();
+        vortex_ensure_eq!(
+            initialized_row_count,
+            original_len,
+            "the initialized output sink must address exactly {original_len} rows, got {initialized_row_count}",
+        );
+
+        let mut filtered_index = 0;
+        if let Some(views) = views {
+            if !Args::view_lens_match(&views, filtered_len) {
+                decoded_length_error(filtered_len)?;
+            }
+
+            valid_rows.try_for_each_set_index(|index| {
+                // SAFETY: the post-initialization row-count check proved that the sink addresses
+                // every mask index, which is below the mask's length.
+                let output = unsafe { Sink::row_unchecked(&mut rows, index) };
+
+                // SAFETY: the ascending set-index traversal runs at most `true_count` times, and
+                // the checks above proved every view addresses `filtered_len == true_count` rows.
+                let elements = unsafe { Args::get_from_views_unchecked(&views, filtered_index) };
+                filtered_index += 1;
+
+                apply(&prepared, elements, output).into_result()
+            })?;
+        } else {
+            if !Args::decoded_lens_match(&columns, filtered_len) {
+                decoded_length_error(filtered_len)?;
+            }
+
+            valid_rows.try_for_each_set_index(|index| {
+                // SAFETY: the post-initialization row-count check proved that the sink addresses
+                // every mask index, which is below the mask's length.
+                let output = unsafe { Sink::row_unchecked(&mut rows, index) };
+
+                let elements = Args::get(&columns, filtered_index);
+                filtered_index += 1;
+
+                apply(&prepared, elements, output).into_result()
+            })?;
+        }
+    }
+
+    // SAFETY: the initializer completed before traversal, and every visited callback completed
+    // successfully and returned the required write token.
+    unsafe { Sink::finish(sink) }
 }
 
 /// Construct a decoded-length error outside the traversal branches.

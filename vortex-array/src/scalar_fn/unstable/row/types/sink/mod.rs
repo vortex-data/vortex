@@ -100,8 +100,10 @@ pub unsafe trait OutputSink: 'static + Sized {
     /// `Some` enables this strategy. The initializer **must** make every row safe to finish.
     /// Callbacks overwrite valid rows, and batch execution masks skipped rows.
     ///
-    /// `None` makes direct skip-invalid execution unavailable. Batch execution can instead filter
-    /// its inputs and run the ordinary dense sink over only valid rows.
+    /// `None` makes skip-invalid execution unavailable, so a partially valid batch fails: every
+    /// skip-invalid strategy writes into the original row domain and initializes the skipped rows
+    /// through this method. A sink used only by dense-safe, infallible dispatches never skips rows
+    /// and can return `None`.
     fn skipped_rows_initializer() -> Option<for<'a> fn(&mut Self::Rows<'a>)> {
         None
     }
