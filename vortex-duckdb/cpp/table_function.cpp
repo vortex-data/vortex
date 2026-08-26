@@ -145,7 +145,7 @@ unique_ptr<BaseStatistics> VortexRowGroup::GetColumnStatistics(const StorageInde
 static vector<PartitionStatistics> get_partition_stats(ClientContext &, GetPartitionStatsInput &input) {
     const MultiFileBindData &bind_data = input.bind_data->Cast<MultiFileBindData>();
     VortexBindData &bind = bind_data.bind_data->Cast<VortexBindData>();
-    if (bind.attempted_to_load_caches) {
+    if (bind.no_footer_caches) {
         return {};
     }
     if (duckdb_table_function_has_pushed_filters(bind.ffi_bind_data->DataPtr())) {
@@ -165,7 +165,7 @@ static vector<PartitionStatistics> get_partition_stats(ClientContext &, GetParti
             throw BinderException(IntoErrString(error));
         }
         if (!cdata) {
-            bind.attempted_to_load_caches = true;
+            bind.no_footer_caches = true;
             return {};
         }
 

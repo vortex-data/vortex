@@ -279,20 +279,17 @@ pub fn reader_get_statistics(
         return None;
     }
 
-    let DType::Struct(fields, _) = &file.reader.dtype() else {
-        return None;
-    };
-    let index = fields.find(column)?;
-
     let reader = file
         .reader
         .as_any()
         .downcast_ref::<FileStatsLayoutReader>()?;
-    let stats_sets = reader.file_stats().stats_sets();
 
     let DType::Struct(fields, _) = &file.reader.dtype() else {
         return None;
     };
+    let index = fields.find(column)?;
+    let stats_sets = reader.file_stats().stats_sets();
+
     let dtype = fields.field_by_index(index)?;
 
     let stats = ColumnStatisticsAggregate::new(stats_sets.get(index)?);

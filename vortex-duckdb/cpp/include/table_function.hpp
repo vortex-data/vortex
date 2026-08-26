@@ -41,6 +41,8 @@ struct VortexRowGroup final : PartitionRowGroup {
 
     unique_ptr<BaseStatistics> GetColumnStatistics(const StorageIndex &storage_index) override;
     bool MinMaxIsExact(const BaseStatistics &, const StorageIndex &) override {
+        // TODO(myrrc): in duckdb 2.0 we should report false for strings and
+        // also add TRUNCATED_STATS type for them
         return true;
     }
 };
