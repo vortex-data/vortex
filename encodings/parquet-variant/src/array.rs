@@ -137,15 +137,15 @@ impl ParquetVariant {
                 Validity::NonNullable
             });
         let metadata = session
-            .from_arrow_array(ArrowArrayRef::clone(arrow_variant.metadata_field()), false)?;
+            .from_arrow_array(ArrowArrayRef::clone(arrow_variant.metadata_column()), false)?;
 
-        let value = arrow_variant
-            .value_field()
-            .map(|v| session.from_arrow_array(ArrowArrayRef::clone(v), value_nullable))
-            .transpose()?;
+        let value = Some(session.from_arrow_array(
+            ArrowArrayRef::clone(arrow_variant.value_column()),
+            value_nullable,
+        )?);
 
         let typed_value = arrow_variant
-            .typed_value_field()
+            .typed_value_column()
             .map(|tv| session.from_arrow_array(ArrowArrayRef::clone(tv), typed_value_nullable))
             .transpose()?;
         ParquetVariant::try_new(validity, metadata, value, typed_value).map(IntoArray::into_array)
@@ -692,7 +692,7 @@ mod tests {
     }
 
     #[test]
-    fn test_arrow_variant_import_typed_value_only_preserves_storage() -> VortexResult<()> {
+    fn test_arrow_variant_import_typed_value_only_normalizes_storage() -> VortexResult<()> {
         let metadata = binary_view_array([b"\x01\x00", b"\x01\x00", b"\x01\x00"]);
         let typed_value: ArrowArrayRef = Arc::new(Int32Array::from(vec![10, 20, 30]));
 
@@ -711,17 +711,21 @@ mod tests {
         let parquet_array = vortex_arr
             .as_opt::<ParquetVariant>()
             .ok_or_else(|| vortex_err!("expected parquet variant array"))?;
-        assert!(parquet_array.value().is_none());
+        let mut ctx = SESSION.create_execution_ctx();
+        let value = parquet_array
+            .value()
+            .ok_or_else(|| vortex_err!("expected synthesized value child"))?;
+        assert!(value.all_invalid(&mut ctx)?);
 
         let typed_value = parquet_array
             .typed_value()
             .ok_or_else(|| vortex_err!("expected typed_value child"))?
             .clone()
-            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
+            .execute::<PrimitiveArray>(&mut ctx)?;
         assert_arrays_eq!(
             typed_value,
-            PrimitiveArray::from_iter([10i32, 20, 30]),
-            &mut SESSION.create_execution_ctx()
+            PrimitiveArray::from_option_iter([Some(10i32), Some(20), Some(30)]),
+            &mut ctx
         );
         Ok(())
     }

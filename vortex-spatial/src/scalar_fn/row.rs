@@ -1,25 +1,57 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! What the geo scalar functions add to the row-function machinery: an element type that decodes a
-//! native geometry column into `geo_types` geometries.
+//! Row-function adapters for `geo_types` computation over native geometry columns.
 
+use geo::BoundingRect;
 use geo_types::Geometry;
+use geo_types::Polygon as GeoPolygon;
+use geo_types::Rect;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_array::scalar_fn::unstable::row::InputElement;
+use vortex_array::scalar_fn::unstable::row::OutputSink;
+use vortex_array::scalar_fn::unstable::row::RowVisitor;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 
+use crate::extension::build_polygon_storage;
+use crate::extension::coordinate::Dimension;
 use crate::extension::geometries;
 use crate::extension::is_native_geometry;
+use crate::extension::polygon_storage_dtype;
 
-/// The geometry a null row decodes to. Arbitrary: valid-row execution never reads null slots. A
-/// point is the cheapest well-formed variant (no allocation).
-fn placeholder_geometry() -> Geometry<f64> {
-    Geometry::Point(geo_types::Point::new(0.0, 0.0))
+type ConstBoundingRects = (Option<Option<Rect<f64>>>, Option<Option<Rect<f64>>>);
+
+/// Visit a binary geometry predicate, hoisting the bounding rectangle of a single constant
+/// operand out of the row loop.
+pub(crate) fn visit_binary_geo_predicate<V: RowVisitor>(
+    visitor: V,
+    compute: fn(&Geometry<f64>, &Geometry<f64>) -> bool,
+    precheck: fn(&Rect<f64>, &Rect<f64>) -> Option<bool>,
+) -> VortexResult<V::VisitResult> {
+    visitor.visit_prepared::<(GeometryRow, GeometryRow), bool, ConstBoundingRects>(
+        |(left, right)| {
+            (
+                left.map(BoundingRect::bounding_rect),
+                right.map(BoundingRect::bounding_rect),
+            )
+        },
+        move |constant_bounds, (left, right)| {
+            let result = match constant_bounds {
+                (Some(Some(left_bounds)), None) => right
+                    .bounding_rect()
+                    .and_then(|right_bounds| precheck(left_bounds, &right_bounds)),
+                (None, Some(Some(right_bounds))) => left
+                    .bounding_rect()
+                    .and_then(|left_bounds| precheck(&left_bounds, right_bounds)),
+                _ => None,
+            };
+            result.unwrap_or_else(|| compute(left, right))
+        },
+    )
 }
 
 /// Marker for native geometry input elements: accepts any native geometry column and presents each
@@ -56,40 +88,6 @@ unsafe impl InputElement for GeometryRow {
         geometries(&array, ctx)
     }
 
-    // Every native geometry type decodes null rows to a placeholder.
-    fn can_decode_null_tolerant(_array: &ArrayRef) -> VortexResult<bool> {
-        Ok(true)
-    }
-
-    /// Null rows decode to [`placeholder_geometry`], which the branch-and-skip row loop never
-    /// reads. Null rows are filtered out before decoding, so their storage — which can hold
-    /// arbitrary payloads — is never interpreted; the placeholders keep the column indexed by row.
-    fn decode_null_tolerant(
-        array: ArrayRef,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Self::Column>> {
-        let valid = array.validity()?.execute_mask(array.len(), ctx)?;
-        if valid.all_true() {
-            return geometries(&array, ctx).map(Some);
-        }
-
-        let mut decoded = geometries(&array.filter(valid.clone())?, ctx)?.into_iter();
-        valid
-            .to_bit_buffer()
-            .iter()
-            .map(|is_valid| {
-                if is_valid {
-                    decoded.next().ok_or_else(|| {
-                        vortex_err!("spatial: filtered geometry column dropped a valid row")
-                    })
-                } else {
-                    Ok(placeholder_geometry())
-                }
-            })
-            .collect::<VortexResult<Vec<_>>>()
-            .map(Some)
-    }
-
     fn get(column: &Self::Column, index: usize) -> &Geometry<f64> {
         &column[index]
     }
@@ -112,5 +110,51 @@ unsafe impl InputElement for GeometryRow {
         // SAFETY: The caller established that `index` is below `ViewLen::len` for this view, which
         // is the geometry slice length.
         unsafe { view.get_unchecked(index) }
+    }
+}
+
+/// Row output for native 2-D polygons.
+pub(crate) struct PolygonSink {
+    polygons: Vec<GeoPolygon<f64>>,
+}
+
+fn empty_polygon() -> GeoPolygon<f64> {
+    GeoPolygon::new(geo_types::LineString::new(vec![]), vec![])
+}
+
+// SAFETY: `with_capacity` creates one initialized polygon per output row, and `Rows` is the
+// corresponding mutable slice. Every in-bounds index therefore names one distinct initialized
+// polygon. The sink remains safe to finish or drop after any row prefix.
+unsafe impl OutputSink for PolygonSink {
+    type Params = ();
+    type Rows<'a> = &'a mut [GeoPolygon<f64>];
+    type Row<'a> = &'a mut GeoPolygon<f64>;
+    type WriteToken = ();
+
+    fn skipped_rows_initializer() -> Option<for<'a> fn(&mut Self::Rows<'a>)> {
+        Some(|_| {})
+    }
+
+    fn storage_dtype((): &Self::Params) -> DType {
+        polygon_storage_dtype(Dimension::Xy, Nullability::NonNullable)
+    }
+
+    fn with_capacity(rows: usize, (): &Self::Params) -> VortexResult<Self> {
+        Ok(Self {
+            polygons: vec![empty_polygon(); rows],
+        })
+    }
+
+    fn rows(&mut self) -> Self::Rows<'_> {
+        self.polygons.as_mut_slice()
+    }
+
+    unsafe fn row_unchecked<'a>(rows: &'a mut Self::Rows<'_>, index: usize) -> Self::Row<'a> {
+        // SAFETY: required by this method's contract.
+        unsafe { rows.get_unchecked_mut(index) }
+    }
+
+    unsafe fn finish(self) -> VortexResult<ArrayRef> {
+        build_polygon_storage(&self.polygons)
     }
 }

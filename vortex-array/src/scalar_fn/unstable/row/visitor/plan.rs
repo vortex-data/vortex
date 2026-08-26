@@ -285,7 +285,7 @@ pub(crate) enum RowPolicy {
     /// error.
     DenseWithRetry,
 
-    /// Execute only valid rows over the original inputs.
+    /// Execute only valid rows, filtering inputs if direct execution is unavailable.
     ValidOnly,
 }
 

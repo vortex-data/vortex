@@ -69,9 +69,7 @@ pub async fn create_vortex_context(
     // it for query must not require a `.vortex` extension. This is safe because the
     // canonical path above keeps us on the single-file path, so no directory listing
     // happens that an empty extension could over-match.
-    let listing_options = ListingOptions::new(format)
-        .with_file_extension("")
-        .with_session_config_options(ctx.state().config());
+    let listing_options = ListingOptions::new(format).with_file_extension("");
 
     let config = ListingTableConfig::new(table_url)
         .with_listing_options(listing_options)

@@ -11,9 +11,7 @@ use datafusion::datasource::file_format::csv::CsvFormat;
 use datafusion::datasource::file_format::parquet::ParquetFormat;
 use datafusion::datasource::provider::DefaultTableFactory;
 use datafusion::execution::SessionStateBuilder;
-use datafusion::execution::cache::DefaultListFilesCache;
 use datafusion::execution::cache::cache_manager::CacheManagerConfig;
-use datafusion::execution::cache::file_statistics_cache::DefaultFileStatisticsCache;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::prelude::SessionConfig;
 use datafusion::prelude::SessionContext;
@@ -33,12 +31,7 @@ use vortex_datafusion::VortexTableOptions;
 pub fn get_session_context() -> SessionContext {
     let mut rt_builder = RuntimeEnvBuilder::new();
 
-    let file_static_cache = Arc::new(DefaultFileStatisticsCache::default());
-    let list_file_cache = Arc::new(DefaultListFilesCache::default());
-    let cache_config = CacheManagerConfig::default()
-        .with_file_statistics_cache(Some(file_static_cache))
-        .with_list_files_cache(Some(list_file_cache));
-    rt_builder = rt_builder.with_cache_manager(cache_config);
+    rt_builder = rt_builder.with_cache_manager(CacheManagerConfig::default());
 
     let rt = rt_builder
         .build_arc()
@@ -112,7 +105,7 @@ pub fn format_to_df_format(format: Format) -> Arc<dyn FileFormat> {
         Format::OnDiskVortex | Format::VortexCompact | Format::VortexSpatialNative => Arc::new(
             VortexFormat::new_with_options(SESSION.clone(), vortex_table_options()),
         ),
-        Format::OnDiskDuckDB | Format::Lance => {
+        Format::ArrowIpc | Format::OnDiskDuckDB | Format::Lance => {
             unimplemented!("Format {format} cannot be turned into a DataFusion `FileFormat`")
         }
     }

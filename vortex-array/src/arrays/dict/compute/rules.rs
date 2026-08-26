@@ -106,101 +106,104 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnValuesPushDownRule {
         parent: ArrayView<'_, ScalarFn>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        // Check that the scalar function can actually be pushed down.
-        let sig = parent.scalar_fn().signature();
+        let scalar_fn = parent.scalar_fn();
+        let signature = scalar_fn.signature();
 
-        // Don't push down pack expressions since we might want to unpack them in exporters
-        // later.
-        if parent.scalar_fn().is::<Pack>() {
+        // Preserve pack expressions so exporters can unpack them later.
+        if scalar_fn.is::<Pack>() {
             return Ok(None);
         }
 
-        // Don't push down cast operations — CastReduceAdaptor handles these eagerly.
-        // If it declined (returned None), we must fall through to the canonical path
-        // rather than creating a lazy cast inside the dictionary values.
-        if parent.scalar_fn().is::<Cast>() {
+        // CastReduceAdaptor handles casts eagerly. If it declines the rewrite, leave the cast on
+        // the dictionary instead of creating a lazy cast over its values.
+        if scalar_fn.is::<Cast>() {
             return Ok(None);
         }
 
-        // If the dictionary has less codes than values don't push down this might
-        // happen if the dictionary is sliced.
+        // A sliced dictionary can have more values than code rows. Do not increase the work in
+        // that case.
         if array.values().len() > array.codes().len() {
             return Ok(None);
         }
 
-        // If the scalar function is fallible, we cannot push it down since it may fail over a
-        // value that isn't referenced by any code.
-        if !array.all_values_referenced && !sig.is_infallible() {
+        // A fallible function could fail on an unreferenced value that row-wise evaluation would
+        // never visit.
+        if !array.has_all_values_referenced() && !signature.is_infallible() {
             tracing::trace!(
                 "Not pushing down fallible scalar function {} over dictionary with sparse codes {}",
-                parent.scalar_fn(),
+                scalar_fn,
                 Dict.id(),
             );
             return Ok(None);
         }
 
-        // Check that all siblings are constant
-        // TODO(ngates): we can also support other dictionaries if the values are the same!
-        if !parent
+        // TODO(ngates): Support dictionary siblings when their values match.
+        let other_children_are_constant = parent
             .iter_children()
             .enumerate()
-            .all(|(idx, c)| idx == child_idx || c.is::<Constant>())
-        {
+            .all(|(idx, child)| idx == child_idx || child.is::<Constant>());
+        if !other_children_are_constant {
             return Ok(None);
         }
 
         // Before this rewrite, a null code supplies null for this argument while the constant
         // arguments retain their values. After the rewrite, the null code masks the function's
         // result. Those are equivalent only for a strict function.
-        if array.codes().dtype().is_nullable()
+        let codes_have_nulls = array.codes().dtype().is_nullable()
             && !matches!(
                 array.codes().validity()?,
                 Validity::NonNullable | Validity::AllValid
-            )
-            && !sig.is_strict()
-        {
+            );
+        if codes_have_nulls && !signature.is_strict() {
             tracing::trace!(
                 "Not pushing down non-strict scalar function {} over dictionary with null codes {}",
-                parent.scalar_fn(),
+                scalar_fn,
                 Dict.id(),
             );
             return Ok(None);
         }
 
-        // Now we push the parent scalar function into the dictionary values.
         let values_len = array.values().len();
-        let mut new_children = Vec::with_capacity(parent.nchildren());
+        let mut value_children = Vec::with_capacity(parent.nchildren());
         for (idx, child) in parent.iter_children().enumerate() {
             if idx == child_idx {
-                new_children.push(array.values().clone());
+                value_children.push(array.values().clone());
             } else {
                 let scalar = child.as_::<Constant>().scalar().clone();
-                new_children.push(ConstantArray::new(scalar, values_len).into_array());
+                value_children.push(ConstantArray::new(scalar, values_len).into_array());
             }
         }
 
-        let new_values = ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children)?
+        let transformed_values = ScalarFnArray::try_new(scalar_fn.clone(), value_children)?
             .into_array()
             .optimize()?;
 
         // A non-strict function reaches this point only when the codes are all valid, but their
         // dtype may still be nullable. Remove that declared nullability while rebuilding the
         // dictionary, then cast its output to the function's declared dtype.
-        if !sig.is_strict() && array.codes().dtype().is_nullable() {
-            let new_codes = array.codes().cast(array.codes().dtype().as_nonnullable())?;
-            let new_dict = unsafe {
-                DictArray::new_unchecked(new_codes, new_values)
+        if !signature.is_strict() && array.codes().dtype().is_nullable() {
+            let non_nullable_codes = array.codes().cast(array.codes().dtype().as_nonnullable())?;
+
+            // SAFETY: The validity guard proves that the codes contain no nulls. Removing their
+            // declared nullability preserves every code, and `transformed_values` has one entry
+            // for each original dictionary value.
+            let transformed_dict = unsafe {
+                DictArray::new_unchecked(non_nullable_codes, transformed_values)
                     .set_all_values_referenced(array.has_all_values_referenced())
             }
             .into_array();
-            return Ok(Some(new_dict.cast(parent.dtype().clone())?));
+
+            return Ok(Some(transformed_dict.cast(parent.dtype().clone())?));
         }
 
-        Ok(Some(unsafe {
-            DictArray::new_unchecked(array.codes().clone(), new_values)
+        // SAFETY: The codes are unchanged and `transformed_values` has one entry for each original
+        // dictionary value, so code bounds and `all_values_referenced` remain unchanged.
+        let transformed_dict = unsafe {
+            DictArray::new_unchecked(array.codes().clone(), transformed_values)
                 .set_all_values_referenced(array.has_all_values_referenced())
-                .into_array()
-        }))
+        };
+
+        Ok(Some(transformed_dict.into_array()))
     }
 }
 

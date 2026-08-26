@@ -33,6 +33,7 @@ vortex-tensor = { workspace = true } # TODO(connor): In the future, this might b
 
 anyhow = { workspace = true }
 arrow-array = { workspace = true }
+arrow-ipc = { workspace = true }
 arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
 async-trait = { workspace = true }
@@ -84,6 +85,7 @@ wkb = { workspace = true }
 [dev-dependencies]
 insta = { workspace = true }
 rstest = { workspace = true }
+tempfile = { workspace = true }
 
 [features]
 unstable_encodings = ["vortex/unstable_encodings"]

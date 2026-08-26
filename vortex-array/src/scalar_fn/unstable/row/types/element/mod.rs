@@ -21,3 +21,4 @@ mod tuple;
 pub use tuple::ElementTuple;
 pub use tuple::IndexedElementTuple;
 pub use tuple::batch_const;
+pub(in crate::scalar_fn::unstable::row) use tuple::decoded_source;

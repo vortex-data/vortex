@@ -139,6 +139,8 @@ impl Display for Target {
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Format {
+    #[clap(name = "arrow-ipc")]
+    ArrowIpc,
     #[clap(name = "csv")]
     Csv,
     #[clap(name = "parquet")]
@@ -167,10 +169,15 @@ impl Display for Format {
 }
 
 /// Allowed formats for benchmark CLI arguments.
-pub const ALLOWED_FORMATS: &[Format] = &[Format::Parquet, Format::OnDiskVortex, Format::Lance];
+pub const ALLOWED_FORMATS: &[Format] = &[
+    Format::ArrowIpc,
+    Format::Parquet,
+    Format::OnDiskVortex,
+    Format::Lance,
+];
 
 impl Format {
-    /// Clap value parser that only accepts parquet, vortex, and lance.
+    /// Clap value parser that only accepts formats supported by random-access benchmarks.
     pub fn parse_allowed(s: &str) -> Result<Format, String> {
         let format = Format::from_str(s, true)?;
         if ALLOWED_FORMATS.contains(&format) {
@@ -186,6 +193,7 @@ impl Format {
 
     pub fn name(&self) -> &'static str {
         match self {
+            Format::ArrowIpc => "arrow-ipc",
             Format::Csv => "csv",
             Format::Parquet => "parquet",
             Format::OnDiskVortex => "vortex-file-compressed",
@@ -198,6 +206,7 @@ impl Format {
 
     pub fn ext(&self) -> &'static str {
         match self {
+            Format::ArrowIpc => "arrow",
             Format::Csv => "csv",
             Format::Parquet => "parquet",
             Format::OnDiskVortex => "vortex",

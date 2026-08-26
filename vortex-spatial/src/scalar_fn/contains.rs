@@ -5,42 +5,18 @@
 
 use geo::Contains;
 use vortex_array::ArrayRef;
-use vortex_array::ExecutionCtx;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
-use vortex_array::expr::Expression;
-use vortex_array::expr::union_child_validities;
-use vortex_array::scalar_fn::Arity;
-use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
-use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
-use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::TypedScalarFnInstance;
+use vortex_array::scalar_fn::unstable::row::RowFn;
+use vortex_array::scalar_fn::unstable::row::RowVisitor;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::extension::is_native_geometry;
-use crate::scalar_fn::execute::execute_binary_geo_types;
-
-/// Validate the two native geometry operands accepted by `ST_Contains`.
-fn validate_contains_operands(dtypes: &[DType]) -> VortexResult<()> {
-    vortex_ensure!(
-        dtypes.len() == 2,
-        "spatial: contains requires exactly two geometry operands, got {}",
-        dtypes.len()
-    );
-    for dtype in dtypes {
-        vortex_ensure!(
-            is_native_geometry(dtype),
-            "spatial: contains operand {dtype} is not a native geometry type"
-        );
-    }
-    Ok(())
-}
+use crate::scalar_fn::row::visit_binary_geo_predicate;
 
 /// OGC `ST_Contains` between two native geometry operands, each a column or a constant
 /// literal: true where operand `b` lies completely inside operand `a` (boundary contact alone
@@ -59,8 +35,11 @@ impl SpatialContains {
     }
 }
 
-impl ScalarFnVTable for SpatialContains {
+impl RowFn for SpatialContains {
     type Options = EmptyOptions;
+
+    const ARG_NAMES: &'static [&'static str] = &["a", "b"];
+    const INFALLIBLE: bool = true;
 
     fn id(&self) -> ScalarFnId {
         static ID: CachedId = CachedId::new("vortex.st.contains");
@@ -75,58 +54,20 @@ impl ScalarFnVTable for SpatialContains {
         Ok(EmptyOptions)
     }
 
-    fn arity(&self, _: &Self::Options) -> Arity {
-        Arity::Exact(2)
-    }
-
-    fn child_name(&self, _: &Self::Options, child_idx: usize) -> ChildName {
-        match child_idx {
-            0 => ChildName::from("a"),
-            1 => ChildName::from("b"),
-            _ => unreachable!("contains has exactly two children"),
-        }
-    }
-
-    fn return_dtype(&self, _: &Self::Options, dtypes: &[DType]) -> VortexResult<DType> {
-        validate_contains_operands(dtypes)?;
-        let nullability = Nullability::from(dtypes.iter().any(DType::is_nullable));
-        Ok(DType::Bool(nullability))
-    }
-
-    fn execute(
+    fn dispatch<V: RowVisitor>(
         &self,
-        _: &Self::Options,
-        args: &dyn ExecutionArgs,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        let a = args.get(0)?;
-        let b = args.get(1)?;
+        _options: &Self::Options,
+        _args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
         // Containment is not symmetric: `a` is always the container and `b` the contained. A
         // container's rect must cover the contained's rect (`Rect::contains` is the closed
         // test), so a contained rect poking outside proves the row false.
-        execute_binary_geo_types(
-            &a,
-            &b,
+        visit_binary_geo_predicate(
+            visitor,
             |a, b| a.contains(b),
-            Some(|ra, rb| (!ra.contains(rb)).then_some(false)),
-            ctx,
+            |a, b| (!a.contains(b)).then_some(false),
         )
-    }
-
-    fn validity(
-        &self,
-        _: &Self::Options,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        union_child_validities(expression)
-    }
-
-    fn is_strict(&self, _: &Self::Options) -> bool {
-        true
-    }
-
-    fn is_infallible(&self, _: &Self::Options) -> bool {
-        true
     }
 }
 
@@ -200,8 +141,6 @@ mod tests {
         assert_arrays_eq!(contains, BoolArray::from_iter(expected), &mut ctx);
         Ok(())
     }
-
-    // The tests cover each `execute` dispatch arm in match order, then the edge cases.
 
     /// Constant vs constant: a polygon contains a nested polygon but not a partially
     /// overlapping or disjoint one; every output row carries the same verdict.

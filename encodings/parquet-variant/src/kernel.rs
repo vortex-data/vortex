@@ -841,17 +841,13 @@ mod tests {
 
         let metadata = SESSION
             .arrow()
-            .from_arrow_array(ArrowArrayRef::clone(arrow_variant.metadata_field()), false)?;
-        let value = arrow_variant
-            .value_field()
-            .map(|value| {
-                SESSION
-                    .arrow()
-                    .from_arrow_array(ArrowArrayRef::clone(value), value_nullable)
-            })
-            .transpose()?;
+            .from_arrow_array(ArrowArrayRef::clone(arrow_variant.metadata_column()), false)?;
+        let value = Some(SESSION.arrow().from_arrow_array(
+            ArrowArrayRef::clone(arrow_variant.value_column()),
+            value_nullable,
+        )?);
         let typed_value = arrow_variant
-            .typed_value_field()
+            .typed_value_column()
             .map(|typed_value| {
                 SESSION
                     .arrow()

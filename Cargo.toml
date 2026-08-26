@@ -102,16 +102,16 @@ anyhow = "1.0.100"
 arbitrary = "1.3.2"
 arc-swap = "1.9"
 arcref = "0.2.0"
-arrow-arith = "58.3"
-arrow-array = "58.3"
-arrow-buffer = "58.3"
-arrow-cast = "58.3"
-arrow-data = "58.3"
-arrow-ipc = "58.3"
-arrow-row = "58.3"
-arrow-schema = "58.3"
-arrow-select = "58.3"
-arrow-string = "58.3"
+arrow-arith = "59.2"
+arrow-array = "59.2"
+arrow-buffer = "59.2"
+arrow-cast = "59.2"
+arrow-data = "59.2"
+arrow-ipc = "59.2"
+arrow-row = "59.2"
+arrow-schema = "59.2"
+arrow-select = "59.2"
+arrow-string = "59.2"
 async-executor = "1.14.0"
 async-fs = "2.2.0"
 async-lock = "3.4"
@@ -126,8 +126,8 @@ bytes = "1.11.1"
 bzip2 = "0.6.0"
 cbindgen = "0.29.0"
 cc = "1.2"
-cfg-if = "1.0.1"
-chrono = "0.4.44"
+cfg-if = "1.0.4"
+chrono = "0.4.45"
 clap = "4.5"
 criterion = { package = "codspeed-criterion-compat-walltime", version = "5.0.0" }
 crossbeam-channel = "0.5.16"
@@ -139,27 +139,28 @@ cudarc = { version = "0.19.0", features = [
     "cuda-12050",
 ] }
 custom-labels = "0.4.4"
-dashmap = "6.1.0"
-datafusion = { version = "54", default-features = false, features = ["sql"] }
-datafusion-catalog = { version = "54" }
-datafusion-common = { version = "54" }
-datafusion-common-runtime = { version = "54" }
-datafusion-datasource = { version = "54", default-features = false }
-datafusion-execution = { version = "54" }
-datafusion-expr = { version = "54" }
-datafusion-functions = { version = "54" }
-datafusion-functions-nested = { version = "54" }
-datafusion-physical-expr = { version = "54" }
-datafusion-physical-expr-adapter = { version = "54" }
-datafusion-physical-expr-common = { version = "54" }
-datafusion-physical-plan = { version = "54" }
-datafusion-pruning = { version = "54" }
-datafusion-sqllogictest = { version = "54" }
+dashmap = "6.2.1"
+datafusion = { version = "55.0.0", default-features = false, features = [
+    "sql",
+] }
+datafusion-catalog = { version = "55.0.0" }
+datafusion-common = { version = "55.0.0" }
+datafusion-common-runtime = { version = "55.0.0" }
+datafusion-datasource = { version = "55.0.0", default-features = false }
+datafusion-execution = { version = "55.0.0" }
+datafusion-expr = { version = "55.0.0" }
+datafusion-functions = { version = "55.0.0" }
+datafusion-functions-nested = { version = "55.0.0" }
+datafusion-physical-expr = { version = "55.0.0" }
+datafusion-physical-expr-adapter = { version = "55.0.0" }
+datafusion-physical-expr-common = { version = "55.0.0" }
+datafusion-physical-plan = { version = "55.0.0" }
+datafusion-pruning = { version = "55.0.0" }
+datafusion-sqllogictest = { version = "55.0.0" }
 divan = { package = "codspeed-divan-compat", version = "5.0.0" }
 enum-iterator = "2.0.0"
 env_logger = "0.11"
-# Pinned: fastlanes 0.6.2 changed the bit-transpose API and breaks the lock-free wasm-test build.
-fastlanes = "=0.6.1"
+fastlanes = "0.7.0"
 flatbuffers = "25.2.10"
 fsst-rs = "0.6.0"
 futures = { version = "0.3.31", default-features = false }
@@ -189,7 +190,7 @@ libfuzzer-sys = "0.4"
 libloading = "0.8"
 liblzma = "0.4"
 log = { version = "0.4.21" }
-memchr = "2.8.0"
+memchr = "2.8.1"
 memmap2 = "0.9.5"
 mimalloc = "0.1.42"
 moka = { version = "0.12.10", default-features = false }
@@ -199,16 +200,16 @@ num-traits = "0.2.19"
 num_enum = { version = "0.7.3", default-features = false }
 object_store = { version = "0.13.2", default-features = false }
 object_store_opendal = "0.58.0"
-once_cell = "1.21"
+once_cell = "1.21.4"
 onpair = "0.2.0"
 opendal = { version = "0.58.1", default-features = false }
 opentelemetry = "0.32.0"
 opentelemetry-otlp = "0.32.0"
 opentelemetry_sdk = "0.32.0"
 parking_lot = { version = "0.12.3", features = ["nightly"] }
-parquet = "58.3"
-parquet-variant = "58.3"
-parquet-variant-compute = "58.3"
+parquet = "59.2"
+parquet-variant = "59.2"
+parquet-variant-compute = "59.2"
 paste = "1.0.15"
 pco = "1.0.1"
 percent-encoding = "2.3.2"
@@ -260,7 +261,7 @@ spatialbench-parquet = { package = "parquet", version = "56", features = [
 ] }
 static_assertions = "1.1"
 strum = "0.28"
-syn = { version = "3.0.0", features = ["full"] }
+syn = { version = "3.0.2", features = ["full"] }
 sysinfo = "0.38.0"
 tabled = { version = "0.21.0", default-features = false }
 taffy = "0.12"
@@ -275,10 +276,8 @@ thiserror = "2.0.3"
 tokio = { version = "1.52" }
 tokio-stream = "0.1.17"
 tokio-util = "0.7.17"
-vortex-array-macros = { version = "0.1.0", path = "./vortex-array-macros" }
-# Pull these into non-public crates to support DF 58
-tpchgen = { version = "2.0.2", git = "https://github.com/clflushopt/tpchgen-rs.git", rev = "438e9c2dbc25b2fff82c0efc08b3f13b5707874f" }
-tpchgen-arrow = { version = "2.0.2", git = "https://github.com/clflushopt/tpchgen-rs.git", rev = "438e9c2dbc25b2fff82c0efc08b3f13b5707874f" }
+tpchgen = "3.0.0"
+tpchgen-arrow = "3.0.0"
 tracing = { version = "0.1.41", default-features = false }
 tracing-perfetto = "0.1.5"
 tracing-subscriber = "0.3"
@@ -297,6 +296,7 @@ zstd = { version = "0.13.3", default-features = false, features = [
 vortex = { version = "0.1.0", path = "./vortex" }
 vortex-alp = { version = "0.1.0", path = "./encodings/alp", default-features = false }
 vortex-array = { version = "0.1.0", path = "./vortex-array", default-features = false }
+vortex-array-macros = { version = "0.1.0", path = "./vortex-array-macros" }
 vortex-arrow = { version = "0.1.0", path = "./vortex-arrow", default-features = false }
 vortex-btrblocks = { version = "0.1.0", path = "./vortex-btrblocks", default-features = false }
 vortex-buffer = { version = "0.1.0", path = "./vortex-buffer", default-features = false }
@@ -443,3 +443,9 @@ incremental = false
 # This improved build times significantly for default common cases that we use locally
 [profile.dev.package.vortex-fastlanes]
 debug = false
+
+[patch.crates-io]
+geoarrow = { version = "=0.8.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "855d2e138e54ce503c4488d5bb795ca1ea880d1f" }
+geoarrow-array = { version = "=0.8.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "855d2e138e54ce503c4488d5bb795ca1ea880d1f" }
+geoarrow-cast = { version = "=0.8.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "855d2e138e54ce503c4488d5bb795ca1ea880d1f" }
+geoarrow-schema = { version = "=0.8.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "855d2e138e54ce503c4488d5bb795ca1ea880d1f" }

@@ -20,6 +20,7 @@ use vortex_bench::create_output_writer;
 use vortex_bench::display::DisplayFormat;
 use vortex_bench::display::print_measurements_json;
 use vortex_bench::measurements::TimingMeasurement;
+use vortex_bench::random_access::ArrowIpcRandomAccessor;
 use vortex_bench::random_access::BenchDataset;
 use vortex_bench::random_access::ParquetRandomAccessor;
 use vortex_bench::random_access::RandomAccessor;
@@ -258,6 +259,10 @@ async fn open_accessor(
         format.ext()
     );
     match format {
+        Format::ArrowIpc => {
+            let path = dataset.path(format).await?;
+            Ok(Box::new(ArrowIpcRandomAccessor::open(path, name)?))
+        }
         Format::OnDiskVortex | Format::VortexCompact => {
             let path = dataset.path(format).await?;
             Ok(Box::new(

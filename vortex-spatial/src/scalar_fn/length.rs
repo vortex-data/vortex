@@ -1,17 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! `ST_Length`: planar (Euclidean) length of native line strings.
+//! `ST_Length`: planar (Euclidean) length of native lineal geometries.
 
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::ListArray;
+use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::ScalarFnArray;
+use vortex_array::arrays::StructArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
+use vortex_array::arrays::list::ListArraySlotsExt;
+use vortex_array::arrays::listview::list_from_list_view;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::expr::Expression;
 use vortex_array::expr::union_child_validities;
@@ -26,55 +33,99 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::extension::LineString;
+use crate::extension::MultiLineString;
 use crate::extension::coordinate::ordinates;
 use crate::extension::flatten_row_offsets;
 use crate::scalar_fn::execute::Execution;
 use crate::scalar_fn::execute::Operand;
 use crate::scalar_fn::execute::dispatch_unary;
 
-/// Validate the native line-string operand accepted by `ST_Length`.
+/// Validate the native lineal operand accepted by `ST_Length`.
 fn validate_length_operands(dtypes: &[DType]) -> VortexResult<()> {
     vortex_ensure!(
         dtypes.len() == 1,
-        "spatial: length requires exactly one line string operand, got {}",
+        "spatial: length requires exactly one lineal operand, got {}",
         dtypes.len()
     );
     vortex_ensure!(
-        dtypes[0]
-            .as_extension_opt()
-            .is_some_and(|extension| extension.is::<LineString>()),
-        "spatial: length operand {} is not a native line string",
+        dtypes[0].as_extension_opt().is_some_and(|extension| {
+            extension.is::<LineString>() || extension.is::<MultiLineString>()
+        }),
+        "spatial: length operand {} is not a native LineString or MultiLineString",
         dtypes[0]
     );
     Ok(())
 }
 
-/// Compute planar lengths directly over native line-string offsets and coordinate buffers.
+fn list_offsets(list: &ListArray, ctx: &mut ExecutionCtx) -> VortexResult<Vec<usize>> {
+    list.offsets()
+        .clone()
+        .cast(DType::Primitive(PType::U64, Nullability::NonNullable))?
+        .execute::<Buffer<u64>>(ctx)?
+        .iter()
+        .map(|&offset| {
+            usize::try_from(offset).map_err(|_| vortex_err!("spatial: list offset exceeds usize"))
+        })
+        .collect()
+}
+
+fn linestring_length(xs: &[f64], ys: &[f64]) -> f64 {
+    xs.windows(2)
+        .zip(ys.windows(2))
+        .map(|(x, y)| (x[1] - x[0]).hypot(y[1] - y[0]))
+        .fold(0.0, |length, segment| length + segment)
+}
+
+fn linestring_lengths(storage: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Buffer<f64>> {
+    let (row_offsets, coords) = flatten_row_offsets(storage, ctx)?;
+    let xs = ordinates(&coords, "x", ctx)?;
+    let ys = ordinates(&coords, "y", ctx)?;
+    Ok(Buffer::from_iter(row_offsets.windows(2).map(|offsets| {
+        linestring_length(&xs[offsets[0]..offsets[1]], &ys[offsets[0]..offsets[1]])
+    })))
+}
+
+fn multilinestring_lengths(storage: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Buffer<f64>> {
+    let rows = list_from_list_view(storage.execute::<ListViewArray>(ctx)?, ctx)?;
+    let row_offsets = list_offsets(&rows, ctx)?;
+    let lines = list_from_list_view(rows.elements().clone().execute::<ListViewArray>(ctx)?, ctx)?;
+    let line_offsets = list_offsets(&lines, ctx)?;
+    let coords = lines.elements().clone().execute::<StructArray>(ctx)?;
+    let xs = ordinates(&coords, "x", ctx)?;
+    let ys = ordinates(&coords, "y", ctx)?;
+
+    Ok(Buffer::from_iter(row_offsets.windows(2).map(|row| {
+        line_offsets[row[0]..=row[1]]
+            .windows(2)
+            .map(|line| linestring_length(&xs[line[0]..line[1]], &ys[line[0]..line[1]]))
+            .fold(0.0, |length, line| length + line)
+    })))
+}
+
+/// Compute planar lengths directly over native lineal offsets and coordinate buffers.
 fn length_array(
     array: ArrayRef,
     validity: Validity,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
+    let is_linestring = array
+        .dtype()
+        .as_extension_opt()
+        .is_some_and(|extension| extension.is::<LineString>());
     let storage = array
         .execute::<ExtensionArray>(ctx)?
         .storage_array()
         .clone();
-    let (row_offsets, coords) = flatten_row_offsets(storage, ctx)?;
-    let xs = ordinates(&coords, "x", ctx)?;
-    let ys = ordinates(&coords, "y", ctx)?;
-    let lengths = Buffer::from_iter(row_offsets.iter().zip(&row_offsets[1..]).map(
-        |(&start, &end)| {
-            xs[start..end]
-                .windows(2)
-                .zip(ys[start..end].windows(2))
-                .map(|(x, y)| (x[1] - x[0]).hypot(y[1] - y[0]))
-                .fold(0.0, |length, segment| length + segment)
-        },
-    ));
+    let lengths = if is_linestring {
+        linestring_lengths(storage, ctx)?
+    } else {
+        multilinestring_lengths(storage, ctx)?
+    };
     Ok(PrimitiveArray::new(lengths, validity).into_array())
 }
 
@@ -93,12 +144,12 @@ fn execute_length(
     }
 }
 
-/// Planar (Euclidean) `ST_Length` (no geodesic correction) of native line strings.
+/// Planar (Euclidean) `ST_Length` (no geodesic correction) of native lineal geometries.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct SpatialLength;
 
 impl SpatialLength {
-    /// A lazy `ScalarFnArray` computing the per-row length of a line string operand.
+    /// A lazy `ScalarFnArray` computing the per-row length of a lineal geometry operand.
     pub fn try_new(array: ArrayRef) -> VortexResult<ScalarFnArray> {
         ScalarFnArray::try_new(
             TypedScalarFnInstance::new(SpatialLength, EmptyOptions).erased(),
@@ -194,6 +245,7 @@ mod tests {
 
     use super::SpatialLength;
     use crate::test_harness::linestring_column;
+    use crate::test_harness::multilinestring_column;
     use crate::test_harness::point_column;
 
     fn line_constant(
@@ -218,6 +270,51 @@ mod tests {
 
         let lengths = SpatialLength::try_new(lines)?.into_array();
         let expected = PrimitiveArray::from_iter([5.0f64, 9.0, 0.0, 0.0]).into_array();
+
+        assert_arrays_eq!(lengths, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn measures_each_multilinestring() -> VortexResult<()> {
+        let session = vortex_array::array_session();
+        let mut ctx = session.create_execution_ctx();
+        let lines = multilinestring_column(vec![
+            vec![
+                vec![(0.0, 0.0), (3.0, 4.0)],
+                vec![(10.0, 10.0), (10.0, 14.0)],
+            ],
+            vec![],
+            vec![vec![], vec![(1.0, 2.0)], vec![(0.0, 0.0), (0.0, 5.0)]],
+        ])?;
+
+        let lengths = SpatialLength::try_new(lines)?.into_array();
+        let expected = PrimitiveArray::from_iter([9.0f64, 0.0, 5.0]).into_array();
+
+        assert_arrays_eq!(lengths, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn propagates_nullable_multilinestring_rows() -> VortexResult<()> {
+        let session = vortex_array::array_session();
+        let mut ctx = session.create_execution_ctx();
+        let lines = MaskedArray::try_new(
+            multilinestring_column(vec![
+                vec![vec![(0.0, 0.0), (3.0, 4.0)]],
+                vec![vec![(0.0, 0.0), (1.0, 1.0)]],
+                vec![vec![(0.0, 0.0), (0.0, 5.0)]],
+            ])?,
+            Validity::from_iter([true, false, true]),
+        )?
+        .into_array();
+
+        let expected = PrimitiveArray::new(
+            vec![5.0, 0.0, 5.0],
+            Validity::from_iter([true, false, true]),
+        )
+        .into_array();
+        let lengths = SpatialLength::try_new(lines)?.into_array();
 
         assert_arrays_eq!(lengths, expected, &mut ctx);
         Ok(())
@@ -306,7 +403,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_linestring_dtype() -> VortexResult<()> {
+    fn rejects_non_lineal_dtype() -> VortexResult<()> {
         let point = point_column(vec![0.0], vec![0.0])?;
         assert!(
             SpatialLength

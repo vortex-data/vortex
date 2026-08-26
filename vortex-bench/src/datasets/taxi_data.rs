@@ -23,6 +23,8 @@ use crate::datasets::Dataset;
 use crate::datasets::data_downloads::download_data;
 use crate::idempotent_async;
 use crate::random_access::BenchDataset;
+use crate::random_access::data_path;
+use crate::random_access::parquet_to_arrow_file;
 
 /// Dataset identifier used for data path generation.
 pub const DATASET: &str = "taxi";
@@ -59,6 +61,10 @@ impl BenchDataset for TaxiData {
 
     async fn path(&self, format: Format) -> Result<PathBuf> {
         match format {
+            Format::ArrowIpc => {
+                let parquet_path = taxi_data_parquet().await?;
+                parquet_to_arrow_file(parquet_path, data_path(DATASET, Format::ArrowIpc))
+            }
             Format::OnDiskVortex => taxi_data_vortex().await,
             Format::VortexCompact => taxi_data_vortex_compact().await,
             Format::Parquet => taxi_data_parquet().await,

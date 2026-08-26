@@ -260,8 +260,7 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
             let table_url = ListingTableUrl::try_new(benchmark_base.clone(), pattern)?
                 .with_table_ref(table_ref.clone());
 
-            let listing_options = ListingOptions::new(Arc::clone(&file_format))
-                .with_session_config_options(session.state().config());
+            let listing_options = ListingOptions::new(Arc::clone(&file_format));
             let mut config =
                 ListingTableConfig::new(table_url).with_listing_options(listing_options);
 

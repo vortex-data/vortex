@@ -21,6 +21,7 @@ use crate::validity::Validity;
 
 mod constant;
 mod dense;
+mod filter_scatter;
 mod valid_only;
 
 mod output;
@@ -29,8 +30,9 @@ pub(crate) use output::finalize_kernel_output;
 impl RowFnExecutionArgs {
     /// Apply constant folding and null handling around `kernel`.
     ///
-    /// For a partially valid batch, `try_valid_rows` executes only valid rows over the original
-    /// inputs. Every result is checked against the planned shape and dtype.
+    /// For a partially valid batch, `try_valid_rows` can avoid filtering. `Ok(None)` filters the
+    /// valid rows and scatters the output back. Every result is checked against the planned shape
+    /// and dtype.
     pub(crate) fn execute(
         &self,
         kernel: impl Fn(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
@@ -76,7 +78,7 @@ impl RowFnExecutionArgs {
         match self.plan.policy() {
             RowPolicy::Dense => self.execute_dense(kernel, ctx),
             RowPolicy::DenseWithRetry => {
-                self.execute_dense_with_retry(execute_dense_attempt, try_valid_rows, ctx)
+                self.execute_dense_with_retry(kernel, execute_dense_attempt, try_valid_rows, ctx)
             }
             RowPolicy::ValidOnly => self.execute_valid_only(kernel, try_valid_rows, ctx),
         }

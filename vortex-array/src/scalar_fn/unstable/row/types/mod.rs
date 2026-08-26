@@ -14,6 +14,7 @@ pub use element::IndexedElementTuple;
 pub use element::InputElement;
 pub use element::OutputElement;
 pub(super) use element::batch_const;
+pub(in crate::scalar_fn::unstable::row) use element::decoded_source;
 
 mod result;
 pub use result::FailureEvidence;

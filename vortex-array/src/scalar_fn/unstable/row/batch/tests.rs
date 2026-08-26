@@ -6,6 +6,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use rstest::rstest;
+use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -15,9 +16,11 @@ use vortex_session::registry::CachedId;
 
 use super::finalize_kernel_output;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::array_session;
+use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
@@ -35,6 +38,7 @@ use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::VecExecutionArgs;
 use crate::scalar_fn::unstable::row::FixedSizeListSink;
 use crate::scalar_fn::unstable::row::InitializedRow;
+use crate::scalar_fn::unstable::row::InputElement;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::scalar_fn::unstable::row::OutputSink;
 use crate::scalar_fn::unstable::row::RowFn;
@@ -59,7 +63,134 @@ impl DeferredAdd {
 struct ValidOnlyIdentity;
 
 #[derive(Clone)]
+struct FilterAndScatterIdentity;
+
+#[derive(Clone)]
+struct DenseRetryIncrement;
+
+#[derive(Clone)]
+struct FilterAndScatterRepeat;
+
+#[derive(Clone)]
 struct InvalidKernelOutput;
+
+#[derive(Clone)]
+struct PackedPositive;
+
+#[derive(Clone)]
+struct PackedGreaterThan;
+
+#[derive(Clone)]
+struct ValidOnlyPositive;
+
+#[derive(Clone)]
+struct NullaryTrue;
+
+struct ValidOnlyI64;
+
+struct FilterOnlyI64;
+
+struct DenseRetryI64;
+
+// SAFETY: the view is a slice, and its reported length is the buffer length.
+unsafe impl InputElement for ValidOnlyI64 {
+    type Column = Buffer<i64>;
+    type View<'a> = &'a [i64];
+    type Elem<'a> = i64;
+
+    const DENSE_SAFE: bool = false;
+    const DECODE_INFALLIBLE: bool = true;
+
+    fn validate(dtype: &DType) -> VortexResult<()> {
+        <i64 as InputElement>::validate(dtype)
+    }
+
+    fn decode(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self::Column> {
+        <i64 as InputElement>::decode(array, ctx)
+    }
+
+    fn can_decode_null_tolerant(_array: &ArrayRef) -> VortexResult<bool> {
+        Ok(true)
+    }
+
+    fn get(column: &Self::Column, index: usize) -> Self::Elem<'_> {
+        column[index]
+    }
+
+    fn view(column: &Self::Column) -> Self::View<'_> {
+        column.as_slice()
+    }
+
+    fn get_from_view<'a>(view: &Self::View<'a>, index: usize) -> Self::Elem<'a> {
+        view[index]
+    }
+}
+
+// SAFETY: the view is a slice, and its reported length is the buffer length.
+unsafe impl InputElement for FilterOnlyI64 {
+    type Column = Buffer<i64>;
+    type View<'a> = &'a [i64];
+    type Elem<'a> = i64;
+
+    const DENSE_SAFE: bool = false;
+    const DECODE_INFALLIBLE: bool = false;
+
+    fn validate(dtype: &DType) -> VortexResult<()> {
+        <i64 as InputElement>::validate(dtype)
+    }
+
+    fn decode(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self::Column> {
+        let values = <i64 as InputElement>::decode(array, ctx)?;
+        vortex_ensure!(
+            !values.as_slice().contains(&i64::MIN),
+            "test input contains an invalid payload",
+        );
+
+        Ok(values)
+    }
+
+    fn get(column: &Self::Column, index: usize) -> Self::Elem<'_> {
+        column[index]
+    }
+
+    fn view(column: &Self::Column) -> Self::View<'_> {
+        column.as_slice()
+    }
+
+    fn get_from_view<'a>(view: &Self::View<'a>, index: usize) -> Self::Elem<'a> {
+        view[index]
+    }
+}
+
+// SAFETY: the view is a slice, and its reported length is the buffer length.
+unsafe impl InputElement for DenseRetryI64 {
+    type Column = Buffer<i64>;
+    type View<'a> = &'a [i64];
+    type Elem<'a> = i64;
+
+    const DENSE_SAFE: bool = true;
+    const DECODE_INFALLIBLE: bool = true;
+
+    fn validate(dtype: &DType) -> VortexResult<()> {
+        <i64 as InputElement>::validate(dtype)
+    }
+
+    fn decode(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self::Column> {
+        <i64 as InputElement>::decode(array, ctx)
+    }
+
+    fn get(column: &Self::Column, index: usize) -> Self::Elem<'_> {
+        column[index]
+    }
+
+    fn view(column: &Self::Column) -> Self::View<'_> {
+        column.as_slice()
+    }
+
+    fn get_from_view<'a>(view: &Self::View<'a>, index: usize) -> Self::Elem<'a> {
+        view[index]
+    }
+}
 
 /// Produces a null row to exercise output validation at the row-function boundary.
 #[derive(Default)]
@@ -201,6 +332,87 @@ impl RowFn for ValidOnlyIdentity {
     }
 }
 
+impl RowFn for FilterAndScatterIdentity {
+    type Options = EmptyOptions;
+
+    const ARG_NAMES: &'static [&'static str] = &["value"];
+    const INFALLIBLE: bool = false;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("test.filter_and_scatter_identity");
+        *ID
+    }
+
+    fn dispatch<V: RowVisitor>(
+        &self,
+        _options: &Self::Options,
+        _args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        visitor.visit::<(FilterOnlyI64,), i64>(|(value,)| value)
+    }
+}
+
+impl RowFn for DenseRetryIncrement {
+    type Options = EmptyOptions;
+
+    const ARG_NAMES: &'static [&'static str] = &["value"];
+    const INFALLIBLE: bool = false;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("test.dense_retry_increment");
+        *ID
+    }
+
+    fn dispatch<V: RowVisitor>(
+        &self,
+        _options: &Self::Options,
+        _args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        visitor.visit_deferred::<(DenseRetryI64,), i64, bool>(
+            |(value,)| value.overflowing_add(1),
+            |overflowed| {
+                if overflowed {
+                    vortex_bail!(InvalidArgument: "deferred increment overflowed");
+                }
+
+                Ok(())
+            },
+        )
+    }
+}
+
+impl RowFn for FilterAndScatterRepeat {
+    type Options = usize;
+
+    const ARG_NAMES: &'static [&'static str] = &["value"];
+    const INFALLIBLE: bool = true;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("test.filter_and_scatter_repeat");
+        *ID
+    }
+
+    fn dispatch<V: RowVisitor>(
+        &self,
+        width: &Self::Options,
+        _args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        vortex_ensure!(
+            u32::try_from(*width).is_ok(),
+            InvalidArgument:
+            "test.filter_and_scatter_repeat width must fit in u32, got {width}",
+        );
+
+        visitor
+            .visit_into::<(FilterOnlyI64,), FixedSizeListSink<i64>, _>(*width, |(value,), row| {
+                InitializedRow::fill(row, |_| value)
+            })
+    }
+}
+
 impl RowFn for InvalidKernelOutput {
     type Options = EmptyOptions;
 
@@ -274,6 +486,93 @@ fn test_fixed_size_list_sink_uses_runtime_width(
     Ok(())
 }
 
+impl RowFn for PackedPositive {
+    type Options = EmptyOptions;
+
+    const ARG_NAMES: &'static [&'static str] = &["value"];
+    const INFALLIBLE: bool = true;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("test.packed_positive");
+        *ID
+    }
+
+    fn dispatch<V: RowVisitor>(
+        &self,
+        _options: &Self::Options,
+        _args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        visitor.visit::<(i64,), bool>(|(value,)| value > 0)
+    }
+}
+
+impl RowFn for PackedGreaterThan {
+    type Options = EmptyOptions;
+
+    const ARG_NAMES: &'static [&'static str] = &["lhs", "rhs"];
+    const INFALLIBLE: bool = true;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("test.packed_greater_than");
+        *ID
+    }
+
+    fn dispatch<V: RowVisitor>(
+        &self,
+        _options: &Self::Options,
+        _args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        visitor.visit::<(i64, i64), bool>(|(lhs, rhs)| lhs > rhs)
+    }
+}
+
+impl RowFn for ValidOnlyPositive {
+    type Options = EmptyOptions;
+
+    const ARG_NAMES: &'static [&'static str] = &["value"];
+    const INFALLIBLE: bool = true;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("test.valid_only_positive");
+        *ID
+    }
+
+    fn dispatch<V: RowVisitor>(
+        &self,
+        _options: &Self::Options,
+        _args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        visitor.visit::<(ValidOnlyI64,), bool>(|(value,)| {
+            assert_ne!(value, i64::MIN, "an invalid row was evaluated");
+            value > 0
+        })
+    }
+}
+
+impl RowFn for NullaryTrue {
+    type Options = EmptyOptions;
+
+    const ARG_NAMES: &'static [&'static str] = &[];
+    const INFALLIBLE: bool = true;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("test.nullary_true");
+        *ID
+    }
+
+    fn dispatch<V: RowVisitor>(
+        &self,
+        _options: &Self::Options,
+        _args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        visitor.visit::<(), bool>(|()| true)
+    }
+}
+
 #[test]
 fn test_finalize_kernel_output_rejects_nested_dtype_mismatch() -> VortexResult<()> {
     static ID: CachedId = CachedId::new("test.finalize_kernel_output");
@@ -321,6 +620,147 @@ fn test_kernel_output_rejects_nulls_at_function_boundary() -> VortexResult<()> {
 }
 
 #[test]
+fn test_bool_output_builds_packed_values() -> VortexResult<()> {
+    let input = PrimitiveArray::new(
+        vec![1_i64, -1, 2, 0, 3],
+        Validity::from_iter([true, true, false, true, true]),
+    )
+    .into_array();
+    let args = VecExecutionArgs::new(vec![input], 5);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let actual = execute_rows(&PackedPositive, &EmptyOptions, &args, &mut ctx)?;
+    let expected =
+        BoolArray::from_iter([Some(true), Some(false), None, Some(false), Some(true)]).into_array();
+
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+    Ok(())
+}
+
+#[rstest]
+#[case::empty(0)]
+#[case::one(1)]
+#[case::below_word(63)]
+#[case::exact_word(64)]
+#[case::above_word(65)]
+#[case::multiword_remainder(130)]
+fn test_bool_output_word_boundaries(#[case] len: usize) -> VortexResult<()> {
+    let values: Vec<_> = (0..len).map(|index| index as i64 - 32).collect();
+    let input = PrimitiveArray::from_iter(values.iter().copied()).into_array();
+    let args = VecExecutionArgs::new(vec![input], len);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let actual = execute_rows(&PackedPositive, &EmptyOptions, &args, &mut ctx)?;
+    let expected = BoolArray::from_iter(values.iter().map(|value| *value > 0)).into_array();
+
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_bool_output_handles_partial_constants() -> VortexResult<()> {
+    let values: Vec<_> = (0_i64..65).collect();
+    let varying = PrimitiveArray::from_iter(values.iter().copied()).into_array();
+    let constant = ConstantArray::new(32_i64, values.len()).into_array();
+    let mut ctx = array_session().create_execution_ctx();
+
+    let lhs_varying = VecExecutionArgs::new(vec![varying.clone(), constant.clone()], values.len());
+    let actual = execute_rows(&PackedGreaterThan, &EmptyOptions, &lhs_varying, &mut ctx)?;
+    let expected = BoolArray::from_iter(values.iter().map(|value| *value > 32)).into_array();
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+
+    let rhs_varying = VecExecutionArgs::new(vec![constant, varying], values.len());
+    let actual = execute_rows(&PackedGreaterThan, &EmptyOptions, &rhs_varying, &mut ctx)?;
+    let expected = BoolArray::from_iter(values.iter().map(|value| 32 > *value)).into_array();
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+
+    Ok(())
+}
+
+#[test]
+fn test_bool_output_handles_all_constant_input() -> VortexResult<()> {
+    let input = ConstantArray::new(7_i64, 65).into_array();
+    let args = VecExecutionArgs::new(vec![input], 65);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let actual = execute_rows(&PackedPositive, &EmptyOptions, &args, &mut ctx)?;
+    let expected = BoolArray::from_iter(std::iter::repeat_n(true, 65)).into_array();
+
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_bool_output_handles_nullary_rows() -> VortexResult<()> {
+    let args = VecExecutionArgs::new(vec![], 65);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let actual = execute_rows(&NullaryTrue, &EmptyOptions, &args, &mut ctx)?;
+    let expected = BoolArray::from_iter(std::iter::repeat_n(true, 65)).into_array();
+
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_valid_only_bool_output_skips_invalid_rows() -> VortexResult<()> {
+    let input = PrimitiveArray::new(
+        vec![1_i64, i64::MIN, -1],
+        Validity::from_iter([true, false, true]),
+    )
+    .into_array();
+    let args = VecExecutionArgs::new(vec![input], 3);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let actual = execute_rows(&ValidOnlyPositive, &EmptyOptions, &args, &mut ctx)?;
+    let expected = BoolArray::from_iter([Some(true), None, Some(false)]).into_array();
+
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_filter_and_scatter_skips_invalid_decode_payloads() -> VortexResult<()> {
+    let validity = Validity::from_iter([false, true, false, true]);
+    let input =
+        PrimitiveArray::new(vec![i64::MIN, 10, i64::MIN, 30], validity.clone()).into_array();
+    let args = VecExecutionArgs::new(vec![input], 4);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let actual = execute_rows(&FilterAndScatterIdentity, &EmptyOptions, &args, &mut ctx)?;
+    let expected = PrimitiveArray::new(vec![0_i64, 10, 0, 30], validity).into_array();
+
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+    Ok(())
+}
+
+#[rstest]
+#[case::width_two(2, vec![0_i64, 0, 7, 7])]
+#[case::zero_width(0, vec![])]
+fn test_filter_and_scatter_preserves_runtime_sink_params(
+    #[case] width: usize,
+    #[case] expected_elements: Vec<i64>,
+) -> VortexResult<()> {
+    let validity = Validity::from_iter([false, true]);
+    let input = PrimitiveArray::new(vec![i64::MIN, 7], validity.clone()).into_array();
+    let args = VecExecutionArgs::new(vec![input], 2);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let actual = execute_rows(&FilterAndScatterRepeat, &width, &args, &mut ctx)?;
+    let expected = FixedSizeListArray::new(
+        PrimitiveArray::from_iter(expected_elements).into_array(),
+        u32::try_from(width)
+            .map_err(|_| vortex_err!(InvalidArgument: "test width must fit in u32, got {width}"))?,
+        validity,
+        2,
+    )
+    .into_array();
+
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
 fn test_deferred_owned_execution_retries_null_row_failure() -> VortexResult<()> {
     let function = DeferredAdd::default();
     let validity = Validity::from_iter([true, false]);
@@ -334,6 +774,20 @@ fn test_deferred_owned_execution_retries_null_row_failure() -> VortexResult<()> 
 
     assert_arrays_eq!(&actual, &expected, &mut ctx);
     assert_eq!(function.prepare_count(), 2);
+    Ok(())
+}
+
+#[test]
+fn test_dense_retry_filters_when_direct_valid_rows_are_unavailable() -> VortexResult<()> {
+    let validity = Validity::from_iter([true, false, true]);
+    let input = PrimitiveArray::new(vec![1_i64, i64::MAX, 3], validity.clone()).into_array();
+    let args = VecExecutionArgs::new(vec![input], 3);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let actual = execute_rows(&DenseRetryIncrement, &EmptyOptions, &args, &mut ctx)?;
+    let expected = PrimitiveArray::new(vec![2_i64, 0, 4], validity).into_array();
+
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
     Ok(())
 }
 
@@ -555,17 +1009,17 @@ fn test_declared_output_dtype_labels_batch(#[case] validity: Validity) -> Vortex
     Ok(())
 }
 
-#[test]
-fn test_declared_output_dtype_labels_sink_output() -> VortexResult<()> {
-    // `I64Sink` declines skip-invalid execution, so this batch stays all-valid. The masked path is
-    // covered by the owned-output cases above.
+#[rstest]
+#[case::all_valid(Validity::NonNullable)]
+#[case::partially_valid(Validity::from_iter([true, false, true]))]
+fn test_declared_output_dtype_labels_sink_output(#[case] validity: Validity) -> VortexResult<()> {
     let values = vec![1_i64, 2, 3];
-    let input = PrimitiveArray::new(values.clone(), Validity::NonNullable).into_array();
+    let input = PrimitiveArray::new(values.clone(), validity.clone()).into_array();
     let args = VecExecutionArgs::new(vec![input], 3);
     let mut ctx = array_session().create_execution_ctx();
 
     let actual = execute_rows(&DeclaredSinkOutput, &EmptyOptions, &args, &mut ctx)?;
-    let expected = expected_timestamps(values, Validity::NonNullable)?;
+    let expected = expected_timestamps(values, validity)?;
 
     assert_arrays_eq!(&actual, &expected, &mut ctx);
     Ok(())

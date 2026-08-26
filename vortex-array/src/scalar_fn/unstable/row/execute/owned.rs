@@ -3,14 +3,15 @@
 
 //! Executes row kernels that return one independent owned value per row.
 //!
-//! [`execute_owned`] decodes inputs once, prepares constant state, writes into spare vector
-//! capacity, and reduces compact failure evidence without putting error construction in the hot
-//! loop. [`execute_owned_infallible`] removes that failure path for infallible kernels.
+//! [`execute_owned`] writes fallible row results into spare vector capacity and reduces compact
+//! failure evidence outside the hot loop. [`execute_owned_infallible`] lets the output type map a
+//! validated row source directly into its physical representation.
 
 use std::ops::BitOrAssign;
 
 use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_mask::MaskValuesRef;
@@ -21,6 +22,7 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::unstable::row::FailureEvidence;
 use crate::scalar_fn::unstable::row::IndexedElementTuple;
 use crate::scalar_fn::unstable::row::OutputElement;
+use crate::scalar_fn::unstable::row::types::decoded_source;
 use crate::scalar_fn::unstable::row::visitor::assert_owned_output_needs_no_drop;
 
 /// Zero-sized failure accumulator for infallible owned visits.
@@ -42,13 +44,19 @@ where
     Args: IndexedElementTuple,
     Out: OutputElement,
 {
-    execute_owned::<Args, Out, Prepared, NoFailure>(
-        args,
-        ctx,
-        prepare,
-        move |prepared, args| (apply(prepared, args), NoFailure),
-        |_| Ok(()),
-    )
+    const { assert_owned_output_needs_no_drop::<Out>() };
+
+    let columns = Args::decode(args, ctx)?;
+    let prepared = prepare(Args::const_values(&columns));
+    let row_count = args.row_count();
+
+    let Some(source) = decoded_source::<Args>(&columns, row_count) else {
+        vortex_bail!("a decoded row input does not address exactly {row_count} rows");
+    };
+
+    Ok(Out::build_from(source, |elements| {
+        apply(&prepared, elements)
+    }))
 }
 
 /// Decode nullable inputs, then store one output for each valid row from an infallible kernel.

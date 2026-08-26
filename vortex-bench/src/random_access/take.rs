@@ -1,17 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::BTreeMap;
+use std::fs::File as StdFile;
 use std::iter::once;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use anyhow::Context;
 use arrow_array::PrimitiveArray;
 use arrow_array::types::Int64Type;
+use arrow_ipc::reader::FileReader;
 use arrow_select::concat::concat_batches;
 use arrow_select::take::take_record_batch;
 use async_trait::async_trait;
 use futures::stream;
 use itertools::Itertools;
+use parking_lot::Mutex;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::arrow_reader::ArrowReaderMetadata;
 use parquet::arrow::arrow_reader::ArrowReaderOptions;
@@ -30,8 +35,92 @@ use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::Format;
 use crate::SESSION;
+use crate::random_access::ARROW_ROW_OFFSETS_METADATA_KEY;
 use crate::random_access::RandomAccessor;
 use crate::random_access::RandomAccessorRet;
+
+/// Random accessor for uncompressed Arrow IPC files.
+pub struct ArrowIpcRandomAccessor {
+    name: String,
+    reader: Mutex<FileReader<StdFile>>,
+    row_offsets: Vec<u64>,
+    schema: arrow_schema::SchemaRef,
+}
+
+impl ArrowIpcRandomAccessor {
+    pub fn open(path: PathBuf, name: impl Into<String>) -> anyhow::Result<Self> {
+        let reader = FileReader::try_new(StdFile::open(path)?, None)?;
+        let row_offsets = reader
+            .custom_metadata()
+            .get(ARROW_ROW_OFFSETS_METADATA_KEY)
+            .context("Arrow IPC file is missing row-offset metadata")?
+            .split(',')
+            .map(str::parse)
+            .collect::<Result<Vec<u64>, _>>()?;
+        anyhow::ensure!(
+            row_offsets.len() == reader.num_batches() + 1,
+            "Arrow IPC row-offset metadata does not match the record batches"
+        );
+        anyhow::ensure!(
+            row_offsets.first() == Some(&0),
+            "Arrow IPC row offsets must start at zero"
+        );
+        anyhow::ensure!(
+            row_offsets.windows(2).all(|window| window[0] <= window[1]),
+            "Arrow IPC row offsets must be sorted"
+        );
+        let schema = reader.schema();
+        Ok(Self {
+            name: name.into(),
+            reader: Mutex::new(reader),
+            row_offsets,
+            schema,
+        })
+    }
+}
+
+#[async_trait]
+impl RandomAccessor for ArrowIpcRandomAccessor {
+    fn format(&self) -> Format {
+        Format::ArrowIpc
+    }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    async fn take(&self, indices: &[u64]) -> anyhow::Result<RandomAccessorRet> {
+        let mut by_batch = BTreeMap::<usize, Vec<i64>>::new();
+        for &index in indices {
+            let batch_idx = self.row_offsets.partition_point(|offset| *offset <= index);
+            anyhow::ensure!(
+                batch_idx > 0 && batch_idx < self.row_offsets.len(),
+                "Arrow row index {index} is out of bounds"
+            );
+            let batch_idx = batch_idx - 1;
+            by_batch
+                .entry(batch_idx)
+                .or_default()
+                .push(i64::try_from(index - self.row_offsets[batch_idx])?);
+        }
+
+        let mut reader = self.reader.lock();
+        let mut batches = Vec::with_capacity(by_batch.len());
+        for (batch_idx, local_indices) in by_batch {
+            reader.set_index(batch_idx)?;
+            let batch = reader
+                .next()
+                .context("Arrow IPC record batch is missing")??;
+            let indices = PrimitiveArray::<Int64Type>::from(local_indices);
+            batches.push(take_record_batch(&batch, &indices)?);
+        }
+
+        Ok(RandomAccessorRet::RecordBatch(concat_batches(
+            &self.schema,
+            &batches,
+        )?))
+    }
+}
 
 /// Random accessor for Vortex format files.
 ///
@@ -188,5 +277,45 @@ impl RandomAccessor for ParquetRandomAccessor {
 
         let result = concat_batches(&schema, &batches)?;
         Ok(RandomAccessorRet::RecordBatch(result))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use arrow_array::Int64Array;
+    use arrow_array::RecordBatch;
+    use arrow_ipc::writer::FileWriter;
+    use arrow_schema::DataType;
+    use arrow_schema::Field;
+    use arrow_schema::Schema;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn arrow_ipc_random_accessor_takes_rows_across_record_batches() -> anyhow::Result<()> {
+        let file = tempfile::NamedTempFile::new()?;
+        let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
+        {
+            let mut writer = FileWriter::try_new(file.reopen()?, schema.as_ref())?;
+            writer.write(&RecordBatch::try_new(
+                Arc::clone(&schema),
+                vec![Arc::new(Int64Array::from(vec![0, 1]))],
+            )?)?;
+            writer.write(&RecordBatch::try_new(
+                Arc::clone(&schema),
+                vec![Arc::new(Int64Array::from(vec![2, 3, 4]))],
+            )?)?;
+            writer.write_metadata(ARROW_ROW_OFFSETS_METADATA_KEY, "0,2,5");
+            writer.finish()?;
+        }
+
+        let accessor = ArrowIpcRandomAccessor::open(file.path().to_path_buf(), "arrow-ipc")?;
+        let RandomAccessorRet::RecordBatch(actual) = accessor.take(&[1, 3, 4]).await? else {
+            anyhow::bail!("Arrow accessor returned a Vortex array")
+        };
+        let expected =
+            RecordBatch::try_new(schema, vec![Arc::new(Int64Array::from(vec![1, 3, 4]))])?;
+        assert_eq!(actual, expected);
+        Ok(())
     }
 }

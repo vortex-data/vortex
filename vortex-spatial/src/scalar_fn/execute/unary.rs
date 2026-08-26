@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Unary operand dispatch, plus an adapter for row-oriented `geo_types` kernels.
+//! Unary constant/column dispatch for native columnar geometry kernels.
 
-use geo_types::Geometry;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -16,9 +15,6 @@ use vortex_error::VortexResult;
 
 use super::Execution;
 use super::Operand;
-use super::geo_types::GeoTypesOutput;
-use super::geo_types::eval_column;
-use crate::extension::single_geometry;
 
 /// Dispatch a unary strict geometry kernel over a constant or column.
 ///
@@ -60,42 +56,6 @@ where
             valid,
             len,
             nullability: output_dtype.nullability(),
-        },
-        ctx,
-    )
-}
-
-/// Run a unary row-oriented kernel whose input is decoded to `geo_types::Geometry`.
-///
-/// The `geo_types` name describes the value passed to `compute`, not the output. `T` is converted
-/// into a Vortex array before this function returns. A constant is decoded and computed once
-/// before broadcast; a column is decoded only for its valid rows.
-pub(crate) fn execute_unary_geo_types<T, F>(
-    array: &ArrayRef,
-    compute: F,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef>
-where
-    T: GeoTypesOutput,
-    F: Fn(&Geometry<f64>) -> T,
-{
-    let nullability = array.dtype().nullability();
-    dispatch_unary(
-        array,
-        T::dtype(nullability),
-        |execution, ctx| match execution.operands {
-            [Operand::Constant(scalar)] => {
-                let geometry = single_geometry(&scalar, ctx)?;
-                Ok(ConstantArray::new(
-                    compute(&geometry).into_scalar(execution.nullability),
-                    execution.len,
-                )
-                .into_array())
-            }
-            [Operand::Column(array)] => {
-                let valid = execution.valid.execute_mask(execution.len, ctx)?;
-                eval_column(&array, &valid, compute, execution.nullability, ctx)
-            }
         },
         ctx,
     )

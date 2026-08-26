@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BitBuffer;
+use vortex_compute::lane_kernels::IndexedSource;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -73,5 +74,20 @@ impl OutputElement for bool {
     fn build(values: Vec<Self>) -> ArrayRef {
         // `From<Vec<bool>>` uses the bulk bit-packing path.
         BoolArray::new(BitBuffer::from(values), Validity::NonNullable).into_array()
+    }
+
+    fn build_from<S, F>(source: S, apply: F) -> ArrayRef
+    where
+        S: IndexedSource,
+        F: Fn(S::Item) -> Self,
+    {
+        let len = source.len();
+        let values = BitBuffer::collect_bool(len, |index| {
+            // SAFETY: `collect_bool` only invokes this closure with `index < len`, and
+            // `len` is `source.len()`.
+            apply(unsafe { source.get_unchecked(index) })
+        });
+
+        BoolArray::new(values, Validity::NonNullable).into_array()
     }
 }

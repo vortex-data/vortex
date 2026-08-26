@@ -10,10 +10,12 @@ use anyhow::Context;
 use clap::Parser;
 #[cfg(feature = "lance")]
 use compress_bench::LanceCompressor;
+use compress_bench::arrow::ArrowIpcCompressor;
 use compress_bench::gpu::GpuCodec;
 use compress_bench::gpu::GpuOptions;
 use compress_bench::gpu::compressor as gpu_compressor;
 use compress_bench::parquet::ParquetCompressor;
+use compress_bench::parquet::arrow_uncompressed_size;
 use compress_bench::vortex::VortexCompressor;
 use futures::FutureExt;
 use indicatif::ProgressBar;
@@ -58,7 +60,7 @@ struct Args {
         long,
         value_delimiter = ',',
         value_enum,
-        default_values_t = vec![Format::Parquet, Format::OnDiskVortex]
+        default_values_t = vec![Format::ArrowIpc, Format::Parquet, Format::OnDiskVortex]
     )]
     formats: Vec<Format>,
     #[arg(short, long, default_value_t = 5)]
@@ -188,6 +190,7 @@ fn get_compressor(format: Format, mode: BenchMode) -> Box<dyn Compressor> {
     }
 
     match format {
+        Format::ArrowIpc => Box::new(ArrowIpcCompressor),
         Format::OnDiskVortex => Box::new(VortexCompressor),
         Format::Parquet => Box::new(ParquetCompressor::new()),
         #[cfg(feature = "lance")]
@@ -217,7 +220,11 @@ async fn run_compress(
     output_path: Option<PathBuf>,
     ingest_output: Option<PathBuf>,
 ) -> anyhow::Result<()> {
-    let targets = formats
+    let timing_targets = formats
+        .iter()
+        .map(|f| Target::new(Engine::default(), *f))
+        .collect_vec();
+    let size_targets = formats
         .iter()
         .map(|f| Target::new(Engine::default(), *f))
         .collect_vec();
@@ -360,15 +367,15 @@ async fn run_compress(
     // publishes the numbers for the datasets that did decode.
     match display_format {
         DisplayFormat::Table => {
-            render_table(&mut writer, measurements.timings, &targets)?;
+            render_table(&mut writer, measurements.timings, &timing_targets)?;
             render_table(
                 &mut writer,
-                measurements.ratios,
-                &if formats.contains(&Format::OnDiskVortex) {
-                    vec![Target::new(Engine::default(), Format::OnDiskVortex)]
-                } else {
-                    vec![]
-                },
+                measurements
+                    .ratios
+                    .into_iter()
+                    .filter(|measurement| measurement.unit == "bytes")
+                    .collect(),
+                &size_targets,
             )?;
         }
         DisplayFormat::GhJson => {
@@ -421,6 +428,11 @@ async fn run_benchmark_for_dataset(
 
     // Get the parquet file path for this dataset
     let parquet_path = dataset_handle.to_parquet_path().await?;
+    let uncompressed_size = ops
+        .contains(&CompressOp::Compress)
+        .then(|| arrow_uncompressed_size(&parquet_path))
+        .transpose()
+        .with_context(|| format!("measuring Arrow memory size for {bench_name}"))?;
 
     let mut ratios = Vec::new();
     let mut timings = Vec::new();
@@ -460,6 +472,7 @@ async fn run_benchmark_for_dataset(
                         v3_variant,
                         *format,
                         result.compressed_size,
+                        uncompressed_size.context("compression size requires Arrow memory size")?,
                     ));
                     ratios.extend(result.ratios);
                     timings.push(result.timing);
