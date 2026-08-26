@@ -2,6 +2,13 @@
 
 Measures compression and decompression throughput, plus resulting file sizes, for Vortex,
 Parquet, uncompressed Arrow IPC, and optionally Lance.
+
+[Arrow IPC](https://arrow.apache.org/docs/format/Columnar.html#ipc-file-format) is Apache
+Arrow's built-in file format, formerly called Feather V2. This suite writes it without
+optional buffer compression. Its timings therefore isolate serialization and deserialization
+without codec cost. Its file size provides the approximately 1x baseline for compression
+ratios. Parquet provides the established reference for a compressed columnar representation.
+
 The suite covers NYC taxi data and several
 [Public BI](https://github.com/cwida/public_bi_benchmark) tables (Arade, Bimbo,
 CMSprovider, Euro2016, Food, HashTags), TPC-H `l_comment` variants, and synthetic nested

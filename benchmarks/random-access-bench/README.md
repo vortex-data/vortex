@@ -3,6 +3,12 @@
 Measures point-lookup latency: fetching individual rows by index from a file, rather than
 scanning it. This is the workload behind the `Random Access` PR comment.
 
+[Arrow IPC](https://arrow.apache.org/docs/format/Columnar.html#ipc-file-format) is Apache
+Arrow's built-in file format, formerly called Feather V2. This suite writes it without
+optional buffer compression, so it provides the established constant-time access reference.
+Parquet provides the established reference for a compressed columnar representation. Together,
+they let the suite compare Vortex and Lance against both ends of the storage trade-off.
+
 Two access patterns are generated with a fixed seed (see [`src/main.rs`](./src/main.rs)):
 
 - **correlated**: several clusters of consecutive indices scattered across the dataset,
