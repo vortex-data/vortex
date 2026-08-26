@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+COPY (SELECT * FROM (VALUES (1::INTEGER), (2), (3)) t(i))
+TO '${WORK_DIR}/agg_partition_stats_1.vortex';
+
+statement ok
+COPY (SELECT * FROM (VALUES (4::INTEGER), (5), (6)) t(i))
+TO '${WORK_DIR}/agg_partition_stats_2.vortex';
+
+query I
+SELECT count(*) FROM '${WORK_DIR}/agg_partition_stats_*.vortex';
+----
+6
+
+query TT
+EXPLAIN SELECT count(*) FROM '${WORK_DIR}/agg_partition_stats_*.vortex';
+----
+<REGEX>:.*COLUMN_DATA_SCAN.*
+
+query TT
+EXPLAIN SELECT count(*) FROM '${WORK_DIR}/agg_partition_stats_*.vortex';
+----
+<!REGEX>:.*(READ_VORTEX|AGGREGATE).*
+
+query III
+SELECT count(*), min(i), max(i)
+FROM '${WORK_DIR}/agg_partition_stats_*.vortex';
+----
+6 1 6
