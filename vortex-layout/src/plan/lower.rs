@@ -24,6 +24,7 @@ use crate::layouts::list::OFFSETS_CHILD_INDEX;
 use crate::layouts::list::VALIDITY_CHILD_INDEX;
 use crate::layouts::struct_::Struct;
 use crate::layouts::struct_::StructLayout;
+use crate::layouts::struct_::StructLayoutExt;
 use crate::plan::ConcatPlan;
 use crate::plan::ListPackPlan;
 use crate::plan::PackPlan;

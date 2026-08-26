@@ -1,0 +1,41 @@
+[package]
+name = "vortex-layout-commons"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Core traits and types for Vortex layouts"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true
+
+[dependencies]
+arcref = { workspace = true }
+async-trait = { workspace = true }
+flatbuffers = { workspace = true }
+futures = { workspace = true, features = ["alloc", "async-await"] }
+itertools = { workspace = true }
+once_cell = { workspace = true, features = ["parking_lot"] }
+parking_lot = { workspace = true }
+pin-project-lite = { workspace = true }
+termtree = { workspace = true }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-flatbuffers = { workspace = true, features = ["layout"] }
+vortex-mask = { workspace = true }
+vortex-session = { workspace = true }
+vortex-utils = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+
+[lints]
+workspace = true

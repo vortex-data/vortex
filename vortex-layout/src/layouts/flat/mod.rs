@@ -10,6 +10,7 @@ use std::sync::LazyLock;
 
 use vortex_array::ProstMetadata;
 use vortex_array::dtype::DType;
+use vortex_array::serde::SerializedArray;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -106,6 +107,16 @@ impl VTable for Flat {
         vortex_panic!("Flat layout has no child {idx}")
     }
 
+    fn inlined_segment_buffer_sizes(layout: &Layout<Self>) -> Vec<(SegmentId, Vec<usize>)> {
+        layout
+            .array_tree()
+            .and_then(|array_tree| {
+                SerializedArray::from_array_tree(array_tree.as_ref().to_vec()).ok()
+            })
+            .map(|parts| vec![(layout.segment_id(), parts.buffer_lengths())])
+            .unwrap_or_default()
+    }
+
     fn new_reader(
         layout: &Layout<Self>,
         name: Arc<str>,
@@ -122,14 +133,27 @@ impl VTable for Flat {
     }
 }
 
-impl Layout<Flat> {
+/// Constructors for [`FlatLayout`].
+pub trait FlatLayoutExt: Sized {
     /// Construct a flat layout without an inline array encoding tree.
-    pub fn new(row_count: u64, dtype: DType, segment_id: SegmentId, ctx: ReadContext) -> Self {
+    fn new(row_count: u64, dtype: DType, segment_id: SegmentId, ctx: ReadContext) -> Self;
+
+    /// Construct a flat layout with optional inline array metadata.
+    fn new_with_metadata(
+        row_count: u64,
+        dtype: DType,
+        segment_id: SegmentId,
+        ctx: ReadContext,
+        array_tree: Option<ByteBuffer>,
+    ) -> Self;
+}
+
+impl FlatLayoutExt for FlatLayout {
+    fn new(row_count: u64, dtype: DType, segment_id: SegmentId, ctx: ReadContext) -> Self {
         Self::new_with_metadata(row_count, dtype, segment_id, ctx, None)
     }
 
-    /// Construct a flat layout with optional inline array metadata.
-    pub fn new_with_metadata(
+    fn new_with_metadata(
         row_count: u64,
         dtype: DType,
         segment_id: SegmentId,
@@ -150,7 +174,9 @@ impl Layout<Flat> {
         )
         .into_typed()
     }
+}
 
+impl FlatData {
     /// Returns the serialized array segment ID.
     pub fn segment_id(&self) -> SegmentId {
         self.segment_id

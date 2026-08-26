@@ -174,7 +174,9 @@ mod tests {
     use vortex::array::dtype::StructFields;
     use vortex::buffer::ByteBuffer;
     use vortex::layout::layouts::flat::FlatLayout;
+    use vortex::layout::layouts::flat::FlatLayoutExt;
     use vortex::layout::layouts::zoned::ZonedLayout;
+    use vortex::layout::layouts::zoned::ZonedLayoutExt;
     use vortex::session::registry::ReadContext;
 
     use super::*;

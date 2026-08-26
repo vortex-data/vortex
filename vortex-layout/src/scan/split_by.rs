@@ -47,7 +47,7 @@ impl SplitBy {
             SplitBy::Layout => {
                 // We usually have under 100 splits so reserving upfront saves
                 // us some allocations
-                let mut row_splits = RowSplits::new_capacity(128);
+                let mut row_splits = RowSplits::with_capacity(128);
                 row_splits.push(row_range.start);
                 layout_reader.register_splits(
                     field_mask,

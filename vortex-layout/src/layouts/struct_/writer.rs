@@ -42,6 +42,7 @@ use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
 use crate::layouts::struct_::StructLayout;
+use crate::layouts::struct_::StructLayoutExt;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequenceId;

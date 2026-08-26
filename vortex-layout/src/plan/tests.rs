@@ -26,12 +26,17 @@ use super::*;
 use crate::LayoutRef;
 use crate::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
+use crate::layouts::chunked::ChunkedLayoutExt;
 use crate::layouts::dict::DictLayout;
+use crate::layouts::dict::DictLayoutExt;
 use crate::layouts::flat::FlatLayout;
+use crate::layouts::flat::FlatLayoutExt;
 use crate::layouts::foreign::new_foreign_layout;
 use crate::layouts::list::ListLayout;
+use crate::layouts::list::ListLayoutExt;
 use crate::layouts::row_idx::row_idx;
 use crate::layouts::struct_::StructLayout;
+use crate::layouts::struct_::StructLayoutExt;
 use crate::segments::SegmentId;
 
 fn primitive(ptype: PType, nullability: Nullability) -> DType {

@@ -26,7 +26,9 @@ use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
 use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
+use crate::layouts::chunked::ChunkedLayoutExt;
 use crate::layouts::flat::FlatLayout;
+use crate::layouts::flat::FlatLayoutExt;
 use crate::layouts::flat::flat_layout_inline_array_node;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
@@ -196,6 +198,7 @@ mod tests {
     use vortex_array::expr::stats::Precision;
     use vortex_array::expr::stats::Stat;
     use vortex_array::expr::stats::StatsProviderExt;
+    use vortex_array::serde::SerializeOptions;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::VTable;
     use vortex_buffer::BitBufferMut;
@@ -206,16 +209,71 @@ mod tests {
     use vortex_io::session::RuntimeSessionExt;
     use vortex_mask::AllOr;
     use vortex_mask::Mask;
+    use vortex_session::registry::ReadContext;
     use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::LayoutStrategy;
     use crate::LayoutStrategyEncodingValidator;
+    use crate::layouts::flat::FlatLayout;
+    use crate::layouts::flat::FlatLayoutExt;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::segments::SegmentId;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
     use crate::test::SESSION;
     use crate::test::new_session;
+
+    #[test]
+    fn inline_array_tree_display_preserves_buffer_sizes() -> VortexResult<()> {
+        let session = new_session();
+        let ctx = ArrayContext::empty();
+        let array = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable).into_array();
+        let buffers = array.serialize(&ctx, &session, &SerializeOptions::default())?;
+        let array_tree = buffers[buffers.len() - 2].clone();
+        let layout = FlatLayout::new_with_metadata(
+            3,
+            array.dtype().clone(),
+            SegmentId::from(0),
+            ReadContext::new(ctx.to_ids()),
+            Some(array_tree),
+        );
+
+        assert_eq!(
+            layout.to_layout().display_tree().to_string(),
+            "vortex.flat, dtype: i32, segment 0, buffers=[12B], total=12B\n"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn segment_display_fetches_buffer_sizes() {
+        block_on(|handle| async move {
+            let session = new_session().with_handle(handle);
+            let segments = Arc::new(TestSegments::default());
+            let (pointer, eof) = SequenceId::root().split();
+            let array = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable);
+            let layout = FlatLayoutStrategy::default()
+                .write_stream(
+                    ArrayContext::empty().into(),
+                    Arc::<TestSegments>::clone(&segments),
+                    array.into_array().to_array_stream().sequenced(pointer),
+                    eof,
+                    &session,
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(
+                layout
+                    .display_tree_with_segments(segments)
+                    .await
+                    .unwrap()
+                    .to_string(),
+                "vortex.flat, dtype: i32, rows: 3, segment 0, buffers=[12B], total=12B\n"
+            );
+        })
+    }
 
     // Currently, flat layouts do not force compute stats during write, they only retain
     // pre-computed stats.

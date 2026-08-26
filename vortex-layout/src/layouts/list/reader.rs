@@ -35,6 +35,7 @@ use crate::LayoutReaderRef;
 use crate::RowSplits;
 use crate::SplitRange;
 use crate::layouts::list::ListLayout;
+use crate::layouts::list::ListLayoutExt;
 use crate::layouts::list::expr::ListChildrenNeeded;
 use crate::layouts::list::expr::get_necessary_bound_list_children;
 use crate::layouts::list::expr::rewrite_offsets_expr;
@@ -368,7 +369,7 @@ impl LayoutReader for ListReader {
 
         let element_row_count = self.elements.row_count();
         if element_row_count != 0 {
-            let mut element_splits = RowSplits::new_capacity(128);
+            let mut element_splits = RowSplits::with_capacity(128);
             self.elements.register_splits(
                 &[FieldMask::All],
                 &SplitRange::root(0..element_row_count)?,

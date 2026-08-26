@@ -63,7 +63,7 @@ impl VTable for Struct {
         args: &LayoutDeserializeArgs<'_>,
         _metadata: &EmptyMetadata,
     ) -> VortexResult<Self::LayoutData> {
-        Layout::<Struct>::validate_children(args.dtype, args.children.nchildren())?;
+        validate_children(args.dtype, args.children.nchildren())?;
 
         for idx in 0..args.children.nchildren() {
             let child_row_count = args.children.child_row_count(idx);
@@ -90,7 +90,7 @@ impl VTable for Struct {
     }
 
     fn child_dtype(layout: &Layout<Self>, slot: usize) -> VortexResult<DType> {
-        StructLayout::slot_dtype(layout.dtype(), slot)
+        slot_dtype(layout.dtype(), slot)
     }
 
     fn child_type(layout: &Layout<Self>, slot: usize) -> LayoutChildType {
@@ -124,10 +124,23 @@ impl VTable for Struct {
     }
 }
 
-impl Layout<Struct> {
+/// Convenience methods for [`StructLayout`].
+pub trait StructLayoutExt: Sized {
     /// Construct a struct layout from owned children.
-    pub fn new(row_count: u64, dtype: DType, children: Vec<LayoutRef>) -> Self {
-        Self::validate_children(&dtype, children.len()).vortex_expect("invalid struct children");
+    fn new(row_count: u64, dtype: DType, children: Vec<LayoutRef>) -> Self;
+
+    /// Returns the struct fields.
+    fn struct_fields(&self) -> &StructFields;
+
+    /// Invokes `per_child` for fields selected by `field_mask`.
+    fn matching_fields<F>(&self, field_mask: &[FieldMask], per_child: F) -> VortexResult<()>
+    where
+        F: FnMut(FieldMask, usize) -> VortexResult<()>;
+}
+
+impl StructLayoutExt for StructLayout {
+    fn new(row_count: u64, dtype: DType, children: Vec<LayoutRef>) -> Self {
+        validate_children(&dtype, children.len()).vortex_expect("invalid struct children");
         LayoutParts::new(
             Struct,
             dtype,
@@ -140,14 +153,14 @@ impl Layout<Struct> {
     }
 
     /// Returns the struct fields.
-    pub fn struct_fields(&self) -> &StructFields {
+    fn struct_fields(&self) -> &StructFields {
         self.dtype()
             .as_struct_fields_opt()
             .vortex_expect("Struct layout dtype must be a struct")
     }
 
     /// Invokes `per_child` for fields selected by `field_mask`.
-    pub fn matching_fields<F>(&self, field_mask: &[FieldMask], mut per_child: F) -> VortexResult<()>
+    fn matching_fields<F>(&self, field_mask: &[FieldMask], mut per_child: F) -> VortexResult<()>
     where
         F: FnMut(FieldMask, usize) -> VortexResult<()>,
     {
@@ -173,30 +186,28 @@ impl Layout<Struct> {
         }
         Ok(())
     }
+}
 
-    fn validate_children(dtype: &DType, nchildren: usize) -> VortexResult<()> {
-        let fields = dtype
+fn validate_children(dtype: &DType, nchildren: usize) -> VortexResult<()> {
+    let fields = dtype
+        .as_struct_fields_opt()
+        .ok_or_else(|| vortex_err!("Expected struct dtype"))?;
+    let expected = fields.nfields() + usize::from(dtype.is_nullable());
+    vortex_ensure!(
+        nchildren == expected,
+        "Struct layout has {nchildren} children, expected {expected}"
+    );
+    Ok(())
+}
+
+fn slot_dtype(dtype: &DType, slot: usize) -> VortexResult<DType> {
+    if slot == 0 {
+        Ok(DType::Bool(Nullability::NonNullable))
+    } else {
+        dtype
             .as_struct_fields_opt()
-            .ok_or_else(|| vortex_err!("Expected struct dtype"))?;
-        let expected = fields.nfields() + usize::from(dtype.is_nullable());
-        vortex_ensure!(
-            nchildren == expected,
-            "Struct layout has {nchildren} children, expected {expected}"
-        );
-        Ok(())
-    }
-
-    /// Returns the dtype of the child in logical `slot`: slot 0 is the non-nullable validity
-    /// bitmap, and slot `i + 1` is struct field `i`.
-    fn slot_dtype(dtype: &DType, slot: usize) -> VortexResult<DType> {
-        if slot == 0 {
-            Ok(DType::Bool(Nullability::NonNullable))
-        } else {
-            dtype
-                .as_struct_fields_opt()
-                .and_then(|fields| fields.field_by_index(slot - 1))
-                .ok_or_else(|| vortex_err!("Missing field {}", slot - 1))
-        }
+            .and_then(|fields| fields.field_by_index(slot - 1))
+            .ok_or_else(|| vortex_err!("Missing field {}", slot - 1))
     }
 }
 
@@ -208,6 +219,7 @@ mod tests {
 
     use super::*;
     use crate::layouts::flat::FlatLayout;
+    use crate::layouts::flat::FlatLayoutExt;
     use crate::segments::SegmentId;
 
     fn flat_child(dtype: DType, segment: u32) -> LayoutRef {

@@ -10326,7 +10326,6 @@ dependencies = [
 name = "vortex-layout"
 version = "0.1.0"
 dependencies = [
- "arcref",
  "arrow-array 58.4.0",
  "arrow-schema 58.4.0",
  "async-stream",
@@ -10342,13 +10341,10 @@ dependencies = [
  "once_cell",
  "parking_lot",
  "paste",
- "pin-project-lite",
  "prost 0.14.4",
  "rstest",
  "rustc-hash",
  "sketches-ddsketch",
- "temp-env",
- "termtree",
  "tokio",
  "tracing",
  "uuid",
@@ -10359,11 +10355,35 @@ dependencies = [
  "vortex-error",
  "vortex-flatbuffers",
  "vortex-io",
+ "vortex-layout-commons",
  "vortex-mask",
  "vortex-metrics",
  "vortex-runend",
  "vortex-scan",
  "vortex-sequence",
+ "vortex-session",
+ "vortex-utils",
+]
+
+[[package]]
+name = "vortex-layout-commons"
+version = "0.1.0"
+dependencies = [
+ "arcref",
+ "async-trait",
+ "flatbuffers",
+ "futures",
+ "itertools 0.14.0",
+ "once_cell",
+ "parking_lot",
+ "pin-project-lite",
+ "rstest",
+ "termtree",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-flatbuffers",
+ "vortex-mask",
  "vortex-session",
  "vortex-utils",
 ]

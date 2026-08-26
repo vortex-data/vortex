@@ -105,6 +105,14 @@ pub trait VTable: 'static + Clone + Send + Sync + Debug {
     /// Returns the relationship between the child in logical `slot` and its parent.
     fn child_type(layout: &Layout<Self>, slot: usize) -> LayoutChildType;
 
+    /// Returns buffer sizes available from inline layout metadata.
+    ///
+    /// This is used by layout tree displays to avoid fetching segments whose serialized array
+    /// metadata is already embedded in the layout.
+    fn inlined_segment_buffer_sizes(_layout: &Layout<Self>) -> Vec<(SegmentId, Vec<usize>)> {
+        Vec::new()
+    }
+
     /// Construct a reader for this layout.
     fn new_reader(
         layout: &Layout<Self>,

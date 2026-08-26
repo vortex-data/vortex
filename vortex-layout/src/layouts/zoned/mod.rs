@@ -166,7 +166,7 @@ impl VTable for Zoned {
         session: &VortexSession,
         ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef> {
-        layout.zoned_reader(name, segment_source, session, ctx)
+        zoned_reader(layout, name, segment_source, session, ctx)
     }
 }
 
@@ -234,43 +234,7 @@ impl VTable for LegacyStats {
         session: &VortexSession,
         ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef> {
-        layout.zoned_reader(name, segment_source, session, ctx)
-    }
-}
-
-impl LegacyStatsLayout {
-    fn zoned_reader(
-        &self,
-        name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-        session: &VortexSession,
-        ctx: &LayoutReaderContext,
-    ) -> VortexResult<LayoutReaderRef> {
-        if self.zone_len == 0 {
-            return self
-                .slot(0)?
-                .vortex_expect("ZonedLayout always has a data child")
-                .new_reader(name, segment_source, session, ctx);
-        }
-
-        Ok(Arc::new(ZonedReader::try_new(
-            self.clone(),
-            self.nzones(),
-            name,
-            segment_source,
-            session.clone(),
-            ctx.clone(),
-        )?))
-    }
-
-    pub fn nzones(&self) -> usize {
-        usize::try_from(self.children().child_row_count(1))
-            .vortex_expect("Invalid number of zones, cannot handle more than usize zones")
-    }
-
-    /// Returns display names for the zone-map aggregates stored by this layout.
-    pub fn present_aggregates(&self) -> Arc<[String]> {
-        present_aggregates(&self.zone_map_schema)
+        zoned_reader(layout, name, segment_source, session, ctx)
     }
 }
 
@@ -280,10 +244,23 @@ pub(crate) enum ZoneMapSchema {
     AggregateFns(Arc<[AggregateFnRef]>),
 }
 
-impl ZonedLayout {
+/// Constructor for [`ZonedLayout`].
+pub trait ZonedLayoutExt: Sized {
     /// Create a zoned layout from a data child, a zone-map child, a zone length, and the aggregate
     /// functions stored in the zone map.
-    pub fn try_new(
+    fn try_new(
+        data: LayoutRef,
+        zones: LayoutRef,
+        zone_len: NonZeroUsize,
+        aggregate_fns: Arc<[AggregateFnRef]>,
+    ) -> VortexResult<Self>;
+
+    /// Returns the number of zones in the layout.
+    fn nzones(&self) -> usize;
+}
+
+impl ZonedLayoutExt for ZonedLayout {
+    fn try_new(
         data: LayoutRef,
         zones: LayoutRef,
         zone_len: NonZeroUsize,
@@ -314,6 +291,12 @@ impl ZonedLayout {
         .into_typed())
     }
 
+    fn nzones(&self) -> usize {
+        nzones(self)
+    }
+}
+
+impl ZonedData {
     pub fn zone_len(&self) -> usize {
         self.zone_len
     }
@@ -323,41 +306,6 @@ impl ZonedLayout {
         present_aggregates(&self.zone_map_schema)
     }
 
-    /// Builds a reader for a zoned layout, bypassing [`ZonedReader`] when the zone map is empty
-    /// (`zone_len == 0`) and reading the data child directly, since there is nothing to prune with.
-    /// This covers both legacy zero-length zones and layouts whose aggregates the session cannot
-    /// reconstruct.
-    fn zoned_reader(
-        &self,
-        name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-        session: &VortexSession,
-        ctx: &LayoutReaderContext,
-    ) -> VortexResult<LayoutReaderRef> {
-        if self.zone_len == 0 {
-            return self
-                .slot(0)?
-                .vortex_expect("ZonedLayout always has a data child")
-                .new_reader(name, segment_source, session, ctx);
-        }
-
-        Ok(Arc::new(ZonedReader::try_new(
-            self.clone(),
-            self.nzones(),
-            name,
-            segment_source,
-            session.clone(),
-            ctx.clone(),
-        )?))
-    }
-
-    pub fn nzones(&self) -> usize {
-        usize::try_from(self.children().child_row_count(1))
-            .vortex_expect("Invalid number of zones, cannot handle more than usize zones")
-    }
-}
-
-impl ZonedData {
     fn aggregate_fns(&self) -> Arc<[AggregateFnRef]> {
         match &self.zone_map_schema {
             ZoneMapSchema::LegacyStats(stats) => stats
@@ -368,6 +316,38 @@ impl ZonedData {
             ZoneMapSchema::AggregateFns(aggregate_fns) => Arc::clone(aggregate_fns),
         }
     }
+}
+
+fn zoned_reader<V>(
+    layout: &Layout<V>,
+    name: Arc<str>,
+    segment_source: Arc<dyn SegmentSource>,
+    session: &VortexSession,
+    ctx: &LayoutReaderContext,
+) -> VortexResult<LayoutReaderRef>
+where
+    V: VTable<LayoutData = ZonedData>,
+{
+    if layout.zone_len == 0 {
+        return layout
+            .slot(0)?
+            .vortex_expect("ZonedLayout always has a data child")
+            .new_reader(name, segment_source, session, ctx);
+    }
+
+    Ok(Arc::new(ZonedReader::try_new(
+        layout.clone(),
+        nzones(layout),
+        name,
+        segment_source,
+        session.clone(),
+        ctx.clone(),
+    )?))
+}
+
+fn nzones<V: VTable<LayoutData = ZonedData>>(layout: &Layout<V>) -> usize {
+    usize::try_from(layout.children().child_row_count(1))
+        .vortex_expect("Invalid number of zones, cannot handle more than usize zones")
 }
 
 fn present_aggregates(schema: &ZoneMapSchema) -> Arc<[String]> {
@@ -510,6 +490,7 @@ mod tests {
     use crate::LayoutBuildContext;
     use crate::children::OwnedLayoutChildren;
     use crate::layouts::flat::FlatLayout;
+    use crate::layouts::flat::FlatLayoutExt;
     use crate::segments::SegmentId;
 
     fn aggregate_spec(aggregate_fn: AggregateFnRef) -> AggregateSpecProto {

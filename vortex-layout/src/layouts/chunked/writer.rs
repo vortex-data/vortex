@@ -18,6 +18,7 @@ use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
 use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
+use crate::layouts::chunked::ChunkedLayoutExt;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;

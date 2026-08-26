@@ -35,6 +35,7 @@ use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
 use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::layouts::list::ListLayout;
+use crate::layouts::list::ListLayoutExt;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequenceId;

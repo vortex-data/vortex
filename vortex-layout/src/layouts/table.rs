@@ -360,6 +360,7 @@ mod tests {
     use crate::layouts::repartition::RepartitionWriterOptions;
     use crate::layouts::table::TableStrategy;
     use crate::layouts::zoned::Zoned;
+    use crate::layouts::zoned::ZonedLayoutExt;
     use crate::layouts::zoned::writer::ZonedLayoutOptions;
     use crate::layouts::zoned::writer::ZonedStrategy;
     use crate::segments::TestSegments;

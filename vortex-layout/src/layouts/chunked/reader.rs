@@ -448,8 +448,10 @@ mod test {
     use crate::LayoutStrategy;
     use crate::OwnedLayoutChildren;
     use crate::layouts::chunked::ChunkedLayout;
+    use crate::layouts::chunked::ChunkedLayoutExt;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::FlatLayout;
+    use crate::layouts::flat::FlatLayoutExt;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::scan::split_by::SplitBy;
     use crate::segments::SegmentId;

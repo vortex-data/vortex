@@ -162,8 +162,8 @@ impl RowSplits {
         self.splits.reserve(additional);
     }
 
-    /// Create a new RowSplits with preallocated "capacity"
-    pub(crate) fn new_capacity(capacity: usize) -> Self {
+    /// Creates an empty collection with space for at least `capacity` split points.
+    pub fn with_capacity(capacity: usize) -> Self {
         Self {
             splits: Vec::with_capacity(capacity),
             run_start: 0,
@@ -171,7 +171,8 @@ impl RowSplits {
         }
     }
 
-    pub(crate) fn into_sorted_deduped(mut self) -> Vec<u64> {
+    /// Returns the split points in ascending order with duplicates removed.
+    pub fn into_sorted_deduped(mut self) -> Vec<u64> {
         let final_run_dropped = self.drop_repeated_run();
         // Surviving runs always have a descent between them, so the boundaries are ascending
         // iff a single run survived: no run before the final one (`prev_run_start == 0`) and
@@ -413,7 +414,7 @@ mod tests {
     // No pushes at all.
     #[case(vec![])]
     fn into_sorted_deduped_matches_model(#[case] runs: Vec<Vec<u64>>) {
-        let mut splits = RowSplits::new_capacity(16);
+        let mut splits = RowSplits::with_capacity(16);
         let mut model = Vec::new();
         for run in &runs {
             for &row in run {

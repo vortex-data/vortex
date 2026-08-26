@@ -37,6 +37,7 @@ use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
 use crate::layouts::zoned::AggregateStatsAccumulator;
 use crate::layouts::zoned::ZonedLayout;
+use crate::layouts::zoned::ZonedLayoutExt;
 use crate::layouts::zoned::aggregate_partials;
 use crate::layouts::zoned::schema::default_bounded_stat_max_bytes;
 use crate::segments::SegmentSinkRef;

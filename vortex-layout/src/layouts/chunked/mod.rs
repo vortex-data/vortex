@@ -95,9 +95,17 @@ impl VTable for Chunked {
     }
 }
 
-impl Layout<Chunked> {
+/// Convenience methods for [`ChunkedLayout`].
+pub trait ChunkedLayoutExt: Sized {
     /// Construct a chunked layout.
-    pub fn new(row_count: u64, dtype: DType, children: Arc<dyn LayoutChildren>) -> Self {
+    fn new(row_count: u64, dtype: DType, children: Arc<dyn LayoutChildren>) -> Self;
+
+    /// Rebuild this layout with owned children.
+    fn with_children(&self, children: Vec<LayoutRef>) -> Self;
+}
+
+impl ChunkedLayoutExt for ChunkedLayout {
+    fn new(row_count: u64, dtype: DType, children: Arc<dyn LayoutChildren>) -> Self {
         let offsets = chunk_offsets(children.as_ref()).vortex_expect("chunk row counts overflow");
         assert_eq!(
             offsets.last().copied(),
@@ -117,8 +125,7 @@ impl Layout<Chunked> {
         .into_typed()
     }
 
-    /// Rebuild this layout with owned children.
-    pub fn with_children(&self, children: Vec<LayoutRef>) -> Self {
+    fn with_children(&self, children: Vec<LayoutRef>) -> Self {
         Self::new(
             self.row_count(),
             self.dtype().clone(),

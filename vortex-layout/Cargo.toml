@@ -17,7 +17,6 @@ version = { workspace = true }
 all-features = true
 
 [dependencies]
-arcref = { workspace = true }
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
 async-stream = { workspace = true }
@@ -31,11 +30,9 @@ moka = { workspace = true, features = ["future"] }
 once_cell = { workspace = true, features = ["parking_lot"] }
 parking_lot = { workspace = true }
 paste = { workspace = true }
-pin-project-lite = { workspace = true }
 prost = { workspace = true }
 rustc-hash = { workspace = true }
 sketches-ddsketch = { workspace = true }
-termtree = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 tracing = { workspace = true }
 vortex-array = { workspace = true }
@@ -45,6 +42,7 @@ vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["layout"] }
 vortex-io = { workspace = true }
+vortex-layout-commons = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-runend = { workspace = true }
@@ -58,7 +56,6 @@ divan = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 insta = { workspace = true }
 rstest = { workspace = true }
-temp-env = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
 vortex-array = { path = "../vortex-array", features = ["_test-harness"] }
 vortex-io = { path = "../vortex-io", features = ["tokio"] }

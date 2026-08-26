@@ -125,8 +125,18 @@ impl VTable for Dict {
     }
 }
 
-impl Layout<Dict> {
-    pub(crate) fn new(values: LayoutRef, codes: LayoutRef) -> Self {
+pub(crate) trait DictLayoutExt: Sized {
+    fn new(values: LayoutRef, codes: LayoutRef) -> Self;
+
+    fn new_with_all_values_referenced(
+        values: LayoutRef,
+        codes: LayoutRef,
+        all_values_referenced: bool,
+    ) -> Self;
+}
+
+impl DictLayoutExt for DictLayout {
+    fn new(values: LayoutRef, codes: LayoutRef) -> Self {
         Self::new_with_all_values_referenced(values, codes, false)
     }
 
@@ -151,7 +161,9 @@ impl Layout<Dict> {
         )
         .into_typed()
     }
+}
 
+impl DictData {
     /// Returns whether every dictionary value is known to be referenced.
     pub fn has_all_values_referenced(&self) -> bool {
         self.all_values_referenced

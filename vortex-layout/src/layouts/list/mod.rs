@@ -78,7 +78,7 @@ impl VTable for List {
         args: &LayoutDeserializeArgs<'_>,
         metadata: &ListLayoutMetadata,
     ) -> VortexResult<Self::LayoutData> {
-        ListLayout::validate_children(args.dtype, args.children.nchildren())?;
+        validate_children(args.dtype, args.children.nchildren())?;
         let elements_dtype = args
             .dtype
             .as_list_element_opt()
@@ -163,9 +163,31 @@ impl VTable for List {
     }
 }
 
-impl Layout<List> {
+/// Convenience methods for [`ListLayout`].
+pub trait ListLayoutExt: Sized {
     /// Construct a list layout from its children.
-    pub fn new(
+    fn new(
+        dtype: DType,
+        elements: LayoutRef,
+        offsets: LayoutRef,
+        validity: Option<LayoutRef>,
+    ) -> Self;
+
+    /// Returns the elements child.
+    fn elements(&self) -> VortexResult<LayoutRef>;
+
+    /// Returns the offsets child.
+    fn offsets(&self) -> VortexResult<LayoutRef>;
+
+    /// Returns the optional validity child.
+    fn validity(&self) -> VortexResult<Option<LayoutRef>>;
+
+    /// Returns the list element dtype.
+    fn elements_dtype(&self) -> &DType;
+}
+
+impl ListLayoutExt for ListLayout {
+    fn new(
         dtype: DType,
         elements: LayoutRef,
         offsets: LayoutRef,
@@ -175,7 +197,7 @@ impl Layout<List> {
         let offsets_ptype = offsets.dtype().as_ptype();
         let mut children = vec![elements, offsets];
         children.extend(validity);
-        Self::validate_children(&dtype, children.len()).vortex_expect("invalid list children");
+        validate_children(&dtype, children.len()).vortex_expect("invalid list children");
         LayoutParts::new(
             List,
             dtype,
@@ -188,39 +210,40 @@ impl Layout<List> {
     }
 
     /// Returns the elements child.
-    pub fn elements(&self) -> VortexResult<LayoutRef> {
+    fn elements(&self) -> VortexResult<LayoutRef> {
         self.slot(ELEMENTS_CHILD_INDEX)?
             .ok_or_else(|| vortex_err!("ListLayout elements slot is absent"))
     }
 
     /// Returns the offsets child.
-    pub fn offsets(&self) -> VortexResult<LayoutRef> {
+    fn offsets(&self) -> VortexResult<LayoutRef> {
         self.slot(OFFSETS_CHILD_INDEX)?
             .ok_or_else(|| vortex_err!("ListLayout offsets slot is absent"))
     }
 
     /// Returns the optional validity child.
-    pub fn validity(&self) -> VortexResult<Option<LayoutRef>> {
+    fn validity(&self) -> VortexResult<Option<LayoutRef>> {
         self.slot(VALIDITY_CHILD_INDEX)
     }
 
-    /// Returns the integer ptype used by offsets.
-    pub fn offsets_ptype(&self) -> PType {
-        self.offsets_ptype
-    }
-
-    /// Returns the list element dtype.
-    pub fn elements_dtype(&self) -> &DType {
+    fn elements_dtype(&self) -> &DType {
         self.dtype()
             .as_list_element_opt()
             .vortex_expect("ListLayout dtype must be a List")
     }
+}
 
-    fn validate_children(dtype: &DType, nchildren: usize) -> VortexResult<()> {
-        let expected = NUM_CHILDREN_NON_NULLABLE + usize::from(dtype.is_nullable());
-        vortex_ensure_eq!(nchildren, expected);
-        Ok(())
+impl ListData {
+    /// Returns the integer ptype used by offsets.
+    pub fn offsets_ptype(&self) -> PType {
+        self.offsets_ptype
     }
+}
+
+fn validate_children(dtype: &DType, nchildren: usize) -> VortexResult<()> {
+    let expected = NUM_CHILDREN_NON_NULLABLE + usize::from(dtype.is_nullable());
+    vortex_ensure_eq!(nchildren, expected);
+    Ok(())
 }
 
 #[derive(prost::Message)]

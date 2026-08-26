@@ -17,30 +17,32 @@
 pub mod layouts;
 pub mod plan;
 
-pub use children::*;
-pub use encoding::*;
 pub use flatbuffers::*;
-pub use layout::*;
-pub use reader::*;
-pub use reader_context::*;
-pub use strategy::*;
-use vortex_session::registry::Interner;
-pub use vtable::*;
+pub use vortex_layout_commons::*;
 pub mod aliases;
 mod children;
-pub mod display;
-mod encoding;
 mod flatbuffers;
-mod layout;
-mod reader;
-mod reader_context;
+mod reader {
+    pub use vortex_layout_commons::LayoutReader;
+    pub use vortex_layout_commons::RowSplits;
+    pub use vortex_layout_commons::SplitRange;
+}
 pub mod scan;
-pub mod segments;
-pub mod sequence;
 pub mod session;
 mod strategy;
+pub use strategy::*;
 #[cfg(test)]
 mod test;
-mod vtable;
 
-pub type LayoutContext = Interner;
+/// Layout tree display helpers.
+pub mod display {
+    pub use vortex_layout_commons::display::*;
+}
+
+/// Segment access contracts and runtime implementations used by layout readers and writers.
+pub mod segments;
+
+/// Sequence types used to preserve writer ordering.
+pub mod sequence {
+    pub use vortex_layout_commons::sequence::*;
+}

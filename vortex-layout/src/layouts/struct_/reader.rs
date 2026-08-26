@@ -50,6 +50,7 @@ use crate::RowSplits;
 use crate::SplitRange;
 use crate::layouts::partitioned::BoundPartitionedExprEval;
 use crate::layouts::struct_::StructLayout;
+use crate::layouts::struct_::StructLayoutExt;
 use crate::segments::SegmentSource;
 
 pub struct StructReader {

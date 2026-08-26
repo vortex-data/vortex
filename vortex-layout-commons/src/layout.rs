@@ -259,6 +259,11 @@ pub trait DynLayout: 'static + Send + Sync + Debug {
     /// Returns directly referenced segment IDs.
     fn dyn_segment_ids(&self) -> Vec<SegmentId>;
 
+    /// Returns buffer sizes available from inline layout metadata.
+    fn dyn_inlined_segment_buffer_sizes(&self) -> Vec<(SegmentId, Vec<usize>)> {
+        Vec::new()
+    }
+
     /// Constructs a reader.
     fn dyn_new_reader(
         &self,
@@ -318,6 +323,10 @@ impl<V: VTable> DynLayout for Layout<V> {
 
     fn dyn_segment_ids(&self) -> Vec<SegmentId> {
         self.inner.segment_ids.clone()
+    }
+
+    fn dyn_inlined_segment_buffer_sizes(&self) -> Vec<(SegmentId, Vec<usize>)> {
+        V::inlined_segment_buffer_sizes(self)
     }
 
     fn dyn_new_reader(
@@ -417,6 +426,11 @@ impl dyn DynLayout + '_ {
     /// Returns directly referenced segment IDs.
     pub fn segment_ids(&self) -> Vec<SegmentId> {
         self.dyn_segment_ids()
+    }
+
+    /// Returns buffer sizes available from inline layout metadata.
+    pub fn inlined_segment_buffer_sizes(&self) -> Vec<(SegmentId, Vec<usize>)> {
+        self.dyn_inlined_segment_buffer_sizes()
     }
 
     /// Constructs a reader for this layout.
