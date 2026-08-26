@@ -29,7 +29,7 @@
 use fastlanes::BitPacking;
 use fastlanes::BitPackingCompare;
 use fastlanes::FastLanesComparable;
-use fastlanes::untranspose_bits;
+use fastlanes::transpose_bits;
 use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
@@ -95,7 +95,7 @@ where
     let chunks = array.unpacked_chunks::<T>()?;
     {
         let words = words.as_mut_slice();
-        let mut transposed = [0u64; WORDS_PER_CHUNK];
+        let mut lane_major = [0u64; WORDS_PER_CHUNK];
         chunks.for_each_packed_chunk(|packed_chunk, range| {
             // Block starts are always 1024-aligned (padded coords), so the slot is a full block.
             let out = words[range.start / U64_BITS..]
@@ -108,12 +108,12 @@ where
                 <<T as PhysicalPType>::Physical as BitPackingCompare>::unchecked_unpack_cmp::<T, _>(
                     bit_width,
                     packed_chunk,
-                    &mut transposed,
+                    &mut lane_major,
                     cmp,
                     rhs,
                 );
             }
-            untranspose_bits::<<T as PhysicalPType>::Physical>(&transposed, out);
+            transpose_bits::<<T as PhysicalPType>::Physical>(&lane_major, out);
         });
     }
 

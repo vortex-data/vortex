@@ -14,7 +14,7 @@ use crate::FL_CHUNK_SIZE;
 
 /// Transposes `bits` into FastLanes order, padding the result to whole 1,024-bit chunks.
 pub fn transpose_bitbuffer(bits: BitBuffer) -> BitBuffer {
-    bits_op(bits, fastlanes::transpose_bits)
+    bits_op(bits, fastlanes::transpose_bits::<u64>)
 }
 
 /// Untransposes whole 1,024-bit FastLanes chunks back into sequential bit order.
@@ -23,7 +23,7 @@ pub fn untranspose_bitbuffer(bits: BitBuffer) -> BitBuffer {
         bits.len().is_multiple_of(FL_CHUNK_SIZE),
         "Transposed BitBuffer length must be a multiple of {FL_CHUNK_SIZE}"
     );
-    bits_op(bits, fastlanes::untranspose_bits::<u64>)
+    bits_op(bits, fastlanes::untranspose_bits)
 }
 
 fn bits_op<F: Fn(&[u64; 16], &mut [u64; 16])>(bits: BitBuffer, op: F) -> BitBuffer {
