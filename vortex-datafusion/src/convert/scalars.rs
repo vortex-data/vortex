@@ -807,7 +807,7 @@ mod tests {
         use arrow_array::FixedSizeBinaryArray;
         use arrow_schema::DataType;
         use arrow_schema::extension::Uuid as ArrowUuid;
-        use vortex::extension::uuid::Uuid;
+        use vortex::encodings::uuid::Uuid;
 
         let mut id_field = Field::new("id", DataType::FixedSizeBinary(16), false);
         id_field.try_with_extension_type(ArrowUuid)?;

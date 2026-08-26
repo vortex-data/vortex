@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Metadata for the UUID extension dtype.
+
 use std::fmt;
 use std::hash::Hash;
 use std::hash::Hasher;

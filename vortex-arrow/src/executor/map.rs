@@ -69,7 +69,6 @@ mod tests {
 
     use arrow_array::Array as ArrowArray;
     use arrow_array::ArrayRef as ArrowArrayRef;
-    use arrow_array::FixedSizeBinaryArray;
     use arrow_array::Int32Array;
     use arrow_array::MapArray as ArrowMapArray;
     use arrow_array::StringArray;
@@ -458,60 +457,6 @@ mod tests {
             .from_arrow_array(Arc::new(arrow), &bad_field)
             .unwrap_err();
         assert!(error.to_string().contains("key field must be non-nullable"));
-
-        Ok(())
-    }
-
-    #[test]
-    fn map_roundtrip_preserves_nested_uuid_fields() -> VortexResult<()> {
-        use arrow_schema::extension::Uuid as ArrowUuid;
-
-        let vortex_session = array_session();
-        let mut ctx = vortex_session.create_execution_ctx();
-        let session = vortex_session.arrow();
-
-        let mut key_field = Field::new("key", DataType::FixedSizeBinary(16), false);
-        key_field.try_with_extension_type(ArrowUuid)?;
-        let mut value_field = Field::new("value", DataType::FixedSizeBinary(16), true);
-        value_field.try_with_extension_type(ArrowUuid)?;
-        let fields = Fields::from(vec![key_field, value_field]);
-        let entries_field = Arc::new(Field::new_struct("entries", fields.clone(), false));
-        let field = Field::new(
-            "ids",
-            DataType::Map(Arc::clone(&entries_field), true),
-            false,
-        );
-        let keys = FixedSizeBinaryArray::try_from_iter(
-            [
-                b"0123456789abcdef".as_slice(),
-                b"fedcba9876543210".as_slice(),
-            ]
-            .into_iter(),
-        )?;
-        let values = FixedSizeBinaryArray::try_from_sparse_iter_with_size(
-            [Some(b"aaaaaaaaaaaaaaaa".as_slice()), None].into_iter(),
-            16,
-        )?;
-        let entries =
-            ArrowStructArray::try_new(fields, vec![Arc::new(keys), Arc::new(values)], None)?;
-        let arrow = ArrowMapArray::try_new(
-            entries_field,
-            OffsetBuffer::new(ScalarBuffer::from(vec![0, 2])),
-            entries,
-            None,
-            true,
-        )?;
-
-        let vortex = session.from_arrow_array(Arc::new(arrow), &field)?;
-        let DType::Map(map_dtype, NonNullable) = vortex.dtype() else {
-            panic!("expected map dtype, got {}", vortex.dtype());
-        };
-        assert!(map_dtype.key_dtype().is_extension());
-        assert!(map_dtype.value_dtype().is_extension());
-
-        let exported = session.execute_arrow(vortex, Some(&field), &mut ctx)?;
-        assert_eq!(exported.data_type(), field.data_type());
-        assert_eq!(exported.as_map().value_offsets(), &[0, 2]);
 
         Ok(())
     }

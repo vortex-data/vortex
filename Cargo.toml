@@ -62,6 +62,7 @@ members = [
     "encodings/bytebool",
     "encodings/parquet-variant",
     "encodings/onpair",
+    "encodings/uuid",
     # Benchmarks
     "benchmarks/bench-support",
     "benchmarks/lance-bench",
@@ -332,6 +333,7 @@ vortex-sparse = { version = "0.1.0", path = "./encodings/sparse", default-featur
 vortex-spatial = { version = "0.1.0", path = "./vortex-spatial", default-features = false }
 vortex-tensor = { version = "0.1.0", path = "./vortex-tensor", default-features = false }
 vortex-utils = { version = "0.1.0", path = "./vortex-utils", default-features = false }
+vortex-uuid = { version = "0.1.0", path = "./encodings/uuid", default-features = false }
 vortex-zigzag = { version = "0.1.0", path = "./encodings/zigzag", default-features = false }
 vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features = false }
 # END crates published by this project

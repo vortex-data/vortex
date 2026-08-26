@@ -52,12 +52,14 @@ vortex-session = { workspace = true }
 vortex-sparse = { workspace = true }
 vortex-tensor = { workspace = true, optional = true }
 vortex-utils = { workspace = true }
+vortex-uuid = { workspace = true }
 vortex-zigzag = { workspace = true }
 vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
 arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
 divan = { workspace = true }
 fastlanes = { workspace = true }
 mimalloc = { workspace = true }

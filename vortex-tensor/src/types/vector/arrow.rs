@@ -387,8 +387,8 @@ mod tests {
 
     #[test]
     fn from_arrow_array_returns_unsupported_for_non_vector_dtype() -> VortexResult<()> {
-        use vortex_array::extension::uuid::Uuid;
-        use vortex_array::extension::uuid::UuidMetadata;
+        use vortex_uuid::Uuid;
+        use vortex_uuid::UuidMetadata;
         let uuid_storage = DType::FixedSizeList(
             Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
             16,

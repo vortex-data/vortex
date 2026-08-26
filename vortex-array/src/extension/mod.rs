@@ -4,7 +4,6 @@
 //! Extension types.
 
 pub mod datetime;
-pub mod uuid;
 
 #[cfg(test)]
 mod tests;

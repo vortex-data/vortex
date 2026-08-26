@@ -9518,6 +9518,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arrow-array 58.4.0",
+ "arrow-schema 58.4.0",
  "codspeed-divan-compat",
  "fastlanes",
  "mimalloc",
@@ -9557,6 +9558,7 @@ dependencies = [
  "vortex-sparse",
  "vortex-tensor",
  "vortex-utils",
+ "vortex-uuid",
  "vortex-zigzag",
  "vortex-zstd",
 ]
@@ -9628,7 +9630,6 @@ dependencies = [
  "tabled",
  "test-with",
  "tracing",
- "uuid",
  "vortex-array",
  "vortex-array-macros",
  "vortex-bench-support",
@@ -10441,6 +10442,7 @@ dependencies = [
  "vortex-mask",
  "vortex-proto",
  "vortex-session",
+ "vortex-uuid",
 ]
 
 [[package]]
@@ -10678,6 +10680,7 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-session",
+ "vortex-uuid",
 ]
 
 [[package]]
@@ -10730,6 +10733,22 @@ version = "0.1.0"
 dependencies = [
  "dashmap",
  "hashbrown 0.17.1",
+]
+
+[[package]]
+name = "vortex-uuid"
+version = "0.1.0"
+dependencies = [
+ "arrow-array 58.4.0",
+ "arrow-buffer 58.4.0",
+ "arrow-schema 58.4.0",
+ "rstest",
+ "uuid",
+ "vortex-array",
+ "vortex-arrow",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-session",
 ]
 
 [[package]]

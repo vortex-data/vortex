@@ -38,6 +38,7 @@ rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-btrblocks = { workspace = true }
 vortex-mask = { workspace = true }
+vortex-uuid = { workspace = true }
 
 [[bench]]
 name = "cosine_similarity"

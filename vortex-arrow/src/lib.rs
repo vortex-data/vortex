@@ -33,10 +33,9 @@ mod null_buffer;
 mod run_end_import;
 mod scalar;
 mod session;
-mod uuid;
 
 pub use convert::IntoVortexArray;
-pub(crate) use convert::nulls;
+pub use convert::nulls;
 pub use datum::*;
 #[allow(deprecated)]
 pub use dtype::FromArrowType;

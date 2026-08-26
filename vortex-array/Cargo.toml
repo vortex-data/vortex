@@ -61,7 +61,6 @@ tabled = { workspace = true, optional = true, default-features = false, features
     "std",
 ] }
 tracing = { workspace = true }
-uuid = { workspace = true }
 vortex-array-macros = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-compute = { workspace = true }

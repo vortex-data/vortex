@@ -47,6 +47,8 @@ use vortex::dtype::PType::U16;
 use vortex::dtype::PType::U32;
 use vortex::dtype::PType::U64;
 use vortex::dtype::StructFields;
+use vortex::encodings::uuid::Uuid;
+use vortex::encodings::uuid::UuidMetadata;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
@@ -57,8 +59,6 @@ use vortex::extension::datetime::TemporalMetadata;
 use vortex::extension::datetime::Time;
 use vortex::extension::datetime::TimeUnit;
 use vortex::extension::datetime::Timestamp;
-use vortex::extension::uuid::Uuid;
-use vortex::extension::uuid::UuidMetadata;
 use vortex_spatial::extension::LineString;
 use vortex_spatial::extension::MultiLineString;
 use vortex_spatial::extension::MultiPoint;
@@ -662,8 +662,8 @@ mod tests {
     #[case(Nullability::NonNullable)]
     #[case(Nullability::Nullable)]
     fn test_uuid_roundtrip(#[case] nullability: Nullability) -> VortexResult<()> {
-        use vortex::extension::uuid::Uuid;
-        use vortex::extension::uuid::UuidMetadata;
+        use vortex::encodings::uuid::Uuid;
+        use vortex::encodings::uuid::UuidMetadata;
 
         let storage = DType::FixedSizeList(
             Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),

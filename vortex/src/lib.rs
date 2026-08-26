@@ -161,7 +161,7 @@ pub mod error {
     pub use vortex_error::*;
 }
 
-/// Built-in extension dtypes such as UUID and temporal types.
+/// Built-in temporal extension dtypes.
 pub mod extension {
     pub use vortex_array::extension::*;
 }
@@ -233,7 +233,7 @@ pub mod utils {
     pub use vortex_utils::*;
 }
 
-/// Maintained array encoding crates.
+/// Maintained array encoding and extension dtype crates.
 pub mod encodings {
     /// Adaptive Lossless floating-point encodings.
     pub mod alp {
@@ -285,6 +285,11 @@ pub mod encodings {
         pub use vortex_sparse::*;
     }
 
+    /// UUID extension dtype, with Arrow canonical `arrow.uuid` interoperability.
+    pub mod uuid {
+        pub use vortex_uuid::*;
+    }
+
     /// Zig-zag integer transform encoding.
     pub mod zigzag {
         pub use vortex_zigzag::*;
@@ -317,6 +322,7 @@ impl VortexSessionDefault for VortexSession {
             .with::<MemorySession>()
             .with::<RuntimeSession>();
         vortex_arrow::initialize(&session);
+        vortex_uuid::initialize(&session);
         editions::register_default_editions(&session);
         editions::enable_default_editions(&session);
 
@@ -563,6 +569,48 @@ mod test {
 
         std::fs::remove_file(&path)?;
 
+        Ok(())
+    }
+
+    /// `VortexSession::default()` must wire up the UUID extension dtype and its Arrow plugins,
+    /// which live in the separate `vortex-uuid` crate.
+    #[test]
+    fn default_session_initializes_uuid() -> VortexResult<()> {
+        use std::sync::Arc;
+
+        use arrow_array::Array as _;
+        use arrow_array::ArrayRef as ArrowArrayRef;
+        use arrow_array::FixedSizeBinaryArray;
+        use arrow_array::cast::AsArray as _;
+        use arrow_schema::DataType;
+        use arrow_schema::Field;
+        use arrow_schema::extension::Uuid as ArrowUuid;
+        use vortex_array::dtype::extension::ExtVTable;
+        use vortex_array::dtype::session::DTypeSessionExt;
+        use vortex_arrow::ArrowSessionExt;
+        use vortex_uuid::Uuid;
+
+        let session = VortexSession::default();
+
+        // The dtype resolves by id, as it must for a file carrying a `vortex.uuid` column.
+        assert!(session.dtypes().registry().get(&Uuid.id()).is_some());
+
+        // The Arrow importer and exporter are registered too, so `arrow.uuid` round-trips.
+        let mut field = Field::new("id", DataType::FixedSizeBinary(16), false);
+        field.try_with_extension_type(ArrowUuid)?;
+        let arrow_array: ArrowArrayRef = Arc::new(FixedSizeBinaryArray::try_from_iter(
+            [*b"0123456789abcdef", *b"fedcba9876543210"].into_iter(),
+        )?);
+
+        let array = session.arrow().from_arrow_array(arrow_array, &field)?;
+        assert!(array.dtype().as_extension().is::<Uuid>());
+
+        let mut ctx = session.create_execution_ctx();
+        let exported = session.arrow().execute_arrow(array, None, &mut ctx)?;
+        let fsb = exported.as_fixed_size_binary();
+        assert_eq!(fsb.len(), 2);
+        assert_eq!(fsb.value(0), b"0123456789abcdef");
+        assert_eq!(fsb.value(1), b"fedcba9876543210");
         Ok(())
     }
 }

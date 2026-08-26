@@ -1,0 +1,33 @@
+[package]
+name = "vortex-uuid"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Vortex UUID extension type"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true
+
+[dependencies]
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true, features = ["canonical_extension_types"] }
+uuid = { workspace = true }
+vortex-array = { workspace = true }
+vortex-arrow = { workspace = true }
+vortex-buffer = { workspace = true, features = ["arrow"] }
+vortex-error = { workspace = true }
+vortex-session = { workspace = true }
+
+[dev-dependencies]
+arrow-array = { workspace = true, features = ["ffi"] }
+arrow-buffer = { workspace = true }
+rstest = { workspace = true }
+vortex-array = { workspace = true, features = ["_test-harness"] }
