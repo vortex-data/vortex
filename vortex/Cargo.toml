@@ -60,6 +60,7 @@ anyhow = { workspace = true }
 arrow-array = { workspace = true }
 divan = { workspace = true }
 fastlanes = { workspace = true }
+futures = { workspace = true }
 mimalloc = { workspace = true }
 parquet = { workspace = true }
 rand = { workspace = true }
@@ -122,4 +123,8 @@ test = false
 
 [[bench]]
 name = "pipeline"
+harness = false
+
+[[bench]]
+name = "string_to_arrow"
 harness = false

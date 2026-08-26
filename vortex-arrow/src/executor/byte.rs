@@ -16,8 +16,10 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
-use vortex_array::arrays::Chunked;
-use vortex_array::arrays::Constant;
+use vortex_array::arrays::Dict;
+use vortex_array::arrays::Filter;
+use vortex_array::arrays::ScalarFn;
+use vortex_array::arrays::Slice;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::varbin::VarBinArraySlotsExt;
 use vortex_array::builders::VarBinBuilder;
@@ -34,18 +36,24 @@ use vortex_error::vortex_err;
 
 use crate::executor::validity::to_arrow_null_buffer;
 
-/// Matches the encodings [`to_arrow_byte_array`] requires for export.
+/// Matches byte arrays that should directly append to a `VarBinBuilder`.
 ///
-/// `Chunked` and `Constant` are matched to stop execution before it destroys them: they have
-/// specialized `append_to_builder` impls (chunk-wise append, scalar repeat) that the builder
-/// fallback exploits.
-struct ArrowByteExportable;
+/// Lazy operators must run before export.
+/// `execute_until` removes them before this matcher accepts the array.
+/// The exporter then calls `append_to_builder`.
+/// A specialized implementation decodes directly into the builder.
+/// This avoids an intermediate canonical `VarBinView`.
+struct ShouldDirectlyAppend;
 
-impl Matcher for ArrowByteExportable {
+impl Matcher for ShouldDirectlyAppend {
     type Match<'a> = &'a ArrayRef;
 
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        (array.is::<VarBin>() || array.is::<Chunked>() || array.is::<Constant>()).then_some(array)
+        (!array.is::<Dict>()
+            && !array.is::<Filter>()
+            && !array.is::<ScalarFn>()
+            && !array.is::<Slice>())
+        .then_some(array)
     }
 }
 
@@ -72,7 +80,7 @@ where
     let target_is_utf8 = matches!(T::DATA_TYPE, DataType::Utf8 | DataType::LargeUtf8);
     let validate_utf8 = target_is_utf8 && !source_is_utf8;
 
-    let array = array.execute_until::<ArrowByteExportable>(ctx)?;
+    let array = array.execute_until::<ShouldDirectlyAppend>(ctx)?;
 
     // If the Vortex array is in VarBin format, we can directly convert it.
     if let Some(array) = array.as_opt::<VarBin>() {

@@ -47,4 +47,5 @@ vortex-zstd = { workspace = true }
 
 [[bench]]
 name = "to_arrow"
+path = "benches/to_arrow/main.rs"
 harness = false
