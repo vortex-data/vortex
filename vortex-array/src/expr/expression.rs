@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cell::Cell;
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Display;
@@ -266,7 +267,34 @@ impl Display for Expression {
     }
 }
 
-/// Iterative drop for expression to avoid stack overflows.
+// Switch to iterative cleanup after this many recursive drops.
+const MAX_DROP_DEPTH: u32 = 32;
+
+thread_local! {
+    static DROP_DEPTH: Cell<u32> = const { Cell::new(0) };
+}
+
+// Increments the thread-local drop depth until the guard is dropped.
+struct DropDepthGuard;
+
+impl DropDepthGuard {
+    fn enter() -> Option<Self> {
+        DROP_DEPTH.with(|depth| {
+            let current = depth.get();
+            (current < MAX_DROP_DEPTH).then(|| {
+                depth.set(current + 1);
+                Self
+            })
+        })
+    }
+}
+
+impl Drop for DropDepthGuard {
+    fn drop(&mut self) {
+        DROP_DEPTH.with(|depth| depth.set(depth.get() - 1));
+    }
+}
+
 impl Drop for Expression {
     fn drop(&mut self) {
         let Self::Scalar { children, .. } = self else {
@@ -275,14 +303,67 @@ impl Drop for Expression {
         let Some(children) = Arc::get_mut(children) else {
             return;
         };
+        if children.is_empty() {
+            return;
+        }
 
         let mut children_to_drop = std::mem::take(children);
-        while let Some(mut child) = children_to_drop.pop() {
-            if let Self::Scalar { children, .. } = &mut child
-                && let Some(expr_children) = Arc::get_mut(children)
-            {
-                children_to_drop.append(expr_children);
+
+        match DropDepthGuard::enter() {
+            Some(_guard) => drop(children_to_drop),
+            None => {
+                while let Some(mut child) = children_to_drop.pop() {
+                    if let Self::Scalar { children, .. } = &mut child
+                        && let Some(expr_children) = Arc::get_mut(children)
+                    {
+                        children_to_drop.append(expr_children);
+                    }
+                }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::thread;
+
+    use super::*;
+    use crate::expr::lit;
+    use crate::expr::not;
+
+    fn deep_expression(depth: usize) -> Expression {
+        let mut expr = lit(true);
+        for _ in 0..depth {
+            expr = not(expr);
+        }
+        expr
+    }
+
+    #[test]
+    fn deep_expression_drops_within_a_small_stack() -> VortexResult<()> {
+        const DEPTH: usize = 100_000;
+        const STACK_SIZE: usize = 256 * 1024;
+
+        let dropper = thread::Builder::new()
+            .stack_size(STACK_SIZE)
+            .spawn(|| drop(deep_expression(DEPTH)))?;
+
+        assert!(
+            dropper.join().is_ok(),
+            "dropping a tree of depth {DEPTH} exhausted a {STACK_SIZE} byte stack"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn shallow_expression_keeps_shared_children() {
+        let expr = not(lit(true));
+        let shared = expr.clone();
+
+        drop(expr);
+
+        assert_eq!(shared.children().len(), 1);
     }
 }

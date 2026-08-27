@@ -1,19 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Byte-level compress for primitive filtering using a `1 << 8 = 256`-entry lookup table.
+//! Byte-level compress for fixed-width filtering using a `1 << 8 = 256`-entry lookup table.
 //!
 //! For each byte of the mask (8 bits -> 8 source elements), a precomputed
 //! permutation table compacts the selected bytes in a single indexed copy,
 //! avoiding the overhead of materializing indices or slices.
 
-use std::mem::size_of;
-
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_mask::MaskValues;
-
-const BYTE_COMPRESS_DENSITY_THRESHOLD: f64 = 0.5;
 
 /// For each mask byte (0..256), stores the element indices to keep and the count.
 ///
@@ -45,10 +41,10 @@ static BYTE_COMPRESS_LUT: &[([u8; 8], u8); 256] = &{
 ///
 /// Processes the mask one byte at a time (8 source elements per byte),
 /// using a precomputed permutation to compact selected elements.
-pub(crate) fn filter_buffer<T: Copy>(buffer: Buffer<T>, mask: &MaskValues) -> Buffer<T> {
-    debug_assert_eq!(buffer.len(), mask.len());
+pub(crate) fn filter_buffer<T: Copy>(buffer: impl AsRef<[T]>, mask: &MaskValues) -> Buffer<T> {
+    let src = buffer.as_ref();
+    debug_assert_eq!(src.len(), mask.len());
 
-    let src = buffer.as_slice();
     let true_count = mask.true_count();
 
     if true_count == 0 {
@@ -59,14 +55,7 @@ pub(crate) fn filter_buffer<T: Copy>(buffer: Buffer<T>, mask: &MaskValues) -> Bu
     let mask_bytes = mask_buffer.inner().as_ref();
     let mask_offset = mask_buffer.offset();
 
-    // Fast path: byte-wide values benefit from avoiding index materialization more often. Wider
-    // values need enough selected values to justify scanning every mask byte directly.
-    if size_of::<T>() == 1 || mask.density() >= BYTE_COMPRESS_DENSITY_THRESHOLD {
-        return filter_bitpacked(src, mask_bytes, mask_offset, true_count);
-    }
-
-    // Slow path: lower-density wide values are better handled by the generic path.
-    super::slice::filter_slice_by_mask_values(src, mask)
+    filter_bitpacked(src, mask_bytes, mask_offset, true_count)
 }
 
 fn filter_bitpacked<T: Copy>(

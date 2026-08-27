@@ -72,13 +72,16 @@ approval_rules:
         - "vortex-data/committers"
 
   - name: claude or codex authored pull requests have two committer approvals
+    description: "Requires two approvals from the Committers team when an agent GitHub App opened the pull request."
     if:
       has_author_in:
         users:
-          - "vortex-claude[bot]"
-          - "claude-code[bot]"
+          - "chatgpt-codex-connector[bot]"
           - "codex[bot]"
           - "openai-codex[bot]"
+          - "claude-code[bot]"
+          - "claude[bot]"
+          - "vortex-claude[bot]"
     requires:
       count: 2
       teams:

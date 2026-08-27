@@ -429,6 +429,36 @@ impl BitBuffer {
         bit_select(self.buffer.as_slice(), self.offset, self.len, nth)
     }
 
+    /// Returns the index of the last set bit, or `None` if every bit is unset.
+    ///
+    /// This scans from the end a word at a time, avoiding the full forward scan required by
+    /// [`Self::select`] when selecting the final set bit.
+    #[inline]
+    pub fn last_set_index(&self) -> Option<usize> {
+        let chunks = self.unaligned_chunks();
+        let lead = chunks.lead_padding();
+        let prefix_words = usize::from(chunks.prefix().is_some());
+
+        if let Some(word) = chunks.suffix()
+            && word != 0
+        {
+            let word_index = prefix_words + chunks.chunks().len();
+            return Some(word_index * 64 + 63 - word.leading_zeros() as usize - lead);
+        }
+
+        for (index, &word) in chunks.chunks().iter().enumerate().rev() {
+            if word != 0 {
+                let word_index = prefix_words + index;
+                return Some(word_index * 64 + 63 - word.leading_zeros() as usize - lead);
+            }
+        }
+
+        chunks.prefix().filter(|word| *word != 0).map(|word| {
+            debug_assert!(word.trailing_zeros() as usize >= lead);
+            63 - word.leading_zeros() as usize - lead
+        })
+    }
+
     /// Get the number of unset bits in the buffer.
     #[inline]
     pub fn false_count(&self) -> usize {
@@ -827,6 +857,30 @@ mod tests {
     #[should_panic(expected = "index 5 exceeds len 5")]
     fn test_from_indices_out_of_bounds() {
         BitBuffer::from_indices(5, [0, 5]);
+    }
+
+    #[rstest]
+    #[case(0, 0, None)]
+    #[case(3, 7, None)]
+    #[case(0, 1, Some(0))]
+    #[case(8, 64, Some(63))]
+    #[case(13, 65, Some(0))]
+    #[case(13, 65, Some(64))]
+    #[case(67, 151, Some(97))]
+    #[case(67, 151, Some(150))]
+    fn last_set_index_handles_offsets_and_padding(
+        #[case] offset: usize,
+        #[case] len: usize,
+        #[case] expected: Option<usize>,
+    ) {
+        let backing = BitBuffer::from_iter(
+            std::iter::repeat_n(true, offset)
+                .chain((0..len).map(|index| Some(index) == expected))
+                .chain(std::iter::repeat_n(true, 7)),
+        );
+        let buffer = BitBuffer::new_with_offset(backing.inner().clone(), len, offset);
+
+        assert_eq!(buffer.last_set_index(), expected);
     }
 
     #[rstest]

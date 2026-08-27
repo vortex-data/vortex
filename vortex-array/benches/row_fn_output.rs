@@ -28,6 +28,7 @@ use vortex_array::scalar_fn::unstable::row::RowVisitor;
 use vortex_array::scalar_fn::unstable::row::execute_rows;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -87,6 +88,9 @@ impl BenchPrimitive for i64 {
 #[derive(Clone)]
 struct InfallibleBool<T>(PhantomData<T>);
 
+#[derive(Clone)]
+struct DeferredI64;
+
 impl<T: BenchPrimitive> RowFn for InfallibleBool<T> {
     type Options = EmptyOptions;
 
@@ -108,22 +112,69 @@ impl<T: BenchPrimitive> RowFn for InfallibleBool<T> {
     }
 }
 
+impl RowFn for DeferredI64 {
+    type Options = EmptyOptions;
+
+    const ARG_NAMES: &'static [&'static str] = &["lhs", "rhs"];
+    const INFALLIBLE: bool = false;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("bench.row_fn_output.deferred_i64");
+        *ID
+    }
+
+    fn dispatch<V: RowVisitor>(
+        &self,
+        _options: &Self::Options,
+        _args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        visitor.visit_deferred::<(i64, i64), i64, bool>(
+            |(lhs, rhs)| lhs.overflowing_add(rhs),
+            |overflowed| {
+                vortex_ensure!(
+                    !overflowed,
+                    "deferred-i64 benchmark inputs must not overflow"
+                );
+                Ok(())
+            },
+        )
+    }
+}
+
 #[vortex_bench_support::cpu_features]
 #[divan::bench(types = [i32, i64], args = INPUT_SHAPES)]
 fn infallible_bool<T: BenchPrimitive>(bencher: Bencher, &shape: &InputShape) {
     let function = InfallibleBool::<T>(PhantomData);
+    bench_row_fn(bencher, &function, make_args::<T>(shape));
+}
+
+#[vortex_bench_support::cpu_features]
+#[divan::bench(args = INPUT_SHAPES)]
+fn deferred_i64(bencher: Bencher, &shape: &InputShape) {
+    bench_row_fn(bencher, &DeferredI64, make_args::<i64>(shape));
+}
+
+fn make_args<T: BenchPrimitive>(shape: InputShape) -> VecExecutionArgs {
     let args = match shape {
         InputShape::PerRowPerRow => vec![T::per_row(0), T::per_row(1)],
         InputShape::PerRowConstant => vec![T::per_row(0), T::constant()],
         InputShape::ConstantPerRow => vec![T::constant(), T::per_row(1)],
     };
-    let args = VecExecutionArgs::new(args, ROWS);
 
+    VecExecutionArgs::new(args, ROWS)
+}
+
+fn bench_row_fn<F: RowFn<Options = EmptyOptions>>(
+    bencher: Bencher,
+    function: &F,
+    args: VecExecutionArgs,
+) {
     bencher
         .counter(ItemsCount::new(ROWS))
         .with_inputs(|| (&args, SESSION.create_execution_ctx()))
         .bench_refs(|(args, ctx)| {
-            execute_rows(&function, &EmptyOptions, *args, ctx)
+            execute_rows(function, &EmptyOptions, *args, ctx)
                 .vortex_expect("row execution should succeed in benchmark")
         });
 }

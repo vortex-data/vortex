@@ -8,16 +8,19 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
+use vortex_array::arrays::decimal::DecimalArrayExt;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
+use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_native_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
@@ -282,6 +285,33 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
         length,
     );
     PrimitiveArray::new(decoded, validity)
+}
+
+/// Decode a run-end encoded decimal array by expanding its native values.
+pub fn runend_decode_decimal(
+    ends: PrimitiveArray,
+    values: DecimalArray,
+    offset: usize,
+    length: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<DecimalArray> {
+    let validity_mask = values
+        .as_ref()
+        .validity()?
+        .execute_mask(values.as_ref().len(), ctx)?;
+
+    Ok(match_each_decimal_value_type!(values.values_type(), |D| {
+        let (decoded, validity) = match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
+            runend_decode_slice(
+                trimmed_ends_iter(ends.as_slice::<E>(), offset, length),
+                values.buffer::<D>().as_slice(),
+                validity_mask,
+                values.dtype().nullability(),
+                length,
+            )
+        });
+        DecimalArray::new(decoded, values.decimal_dtype(), validity)
+    }))
 }
 
 /// Decode a run-end encoded VarBinView array by expanding views directly.
