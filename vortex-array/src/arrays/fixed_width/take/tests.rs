@@ -3,6 +3,7 @@
 
 use rstest::rstest;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 
@@ -25,16 +26,20 @@ use crate::dtype::DecimalDType;
 use crate::dtype::i256;
 use crate::validity::Validity;
 
+fn allocator() -> BufferAllocatorRef {
+    BufferAllocatorRef::statically_allocated()
+}
+
 #[test]
 fn take_four_byte_records() {
     let values = [[1u8, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12]];
-    let taken = take_values(&values, &[2u32, 0]);
+    let taken = take_values(&values, &[2u32, 0], allocator());
     assert_eq!(taken.as_slice(), &[[9, 10, 11, 12], [1, 2, 3, 4]]);
 }
 
 #[test]
 fn take_eight_byte_values() {
-    let taken = take_values(&[10i64, 20, 30], &[1u16, 2, 0]);
+    let taken = take_values(&[10i64, 20, 30], &[1u16, 2, 0], allocator());
     assert_eq!(taken.as_slice(), &[20, 30, 10]);
 }
 
@@ -54,7 +59,13 @@ fn take_runtime_width_records(#[case] byte_width: usize) -> VortexResult<()> {
         .chain(&values[..byte_width])
         .copied()
         .collect::<Vec<_>>();
-    let taken = take_byte_records(&values.into_byte_buffer(), byte_width, 3, &[2u32, 0])?;
+    let taken = take_byte_records(
+        &values.into_byte_buffer(),
+        byte_width,
+        3,
+        &[2u32, 0],
+        allocator(),
+    )?;
     assert_eq!(taken.as_slice(), expected);
     Ok(())
 }
@@ -63,13 +74,13 @@ fn take_runtime_width_records(#[case] byte_width: usize) -> VortexResult<()> {
 #[should_panic(expected = "take index 3 out of bounds for length 3")]
 fn fallback_take_rejects_out_of_bounds_index() {
     let values = Buffer::from_iter((0u8..).take(9)).into_byte_buffer();
-    drop(take_byte_records(&values, 3, 3, &[3u32]));
+    drop(take_byte_records(&values, 3, 3, &[3u32], allocator()));
 }
 
 #[test]
 fn take_variable_length_slices() -> VortexResult<()> {
     let values = buffer![10u8, 11, 12, 13, 14].into_byte_buffer();
-    let taken = take_slices(&values, 1, 5, &[1u32, 3], &[2u32, 1], 3)?;
+    let taken = take_slices(&values, 1, 5, &[1u32, 3], &[2u32, 1], 3, allocator())?;
     assert_eq!(taken.as_slice(), &[11, 12, 13]);
     Ok(())
 }
@@ -77,13 +88,13 @@ fn take_variable_length_slices() -> VortexResult<()> {
 #[test]
 fn variable_length_slices_validate_output_length() {
     let values = buffer![10u8, 11, 12, 13].into_byte_buffer();
-    assert!(take_slices(&values, 1, 4, &[0u32, 2], &[1u32, 1], 3).is_err());
+    assert!(take_slices(&values, 1, 4, &[0u32, 2], &[1u32, 1], 3, allocator(),).is_err());
 }
 
 #[test]
 fn take_constant_length_slices() -> VortexResult<()> {
     let values = buffer![10u8, 11, 12, 13, 14].into_byte_buffer();
-    let taken = take_slices_constant_length(&values, 1, 5, &[0u32, 3], 2, 4)?;
+    let taken = take_slices_constant_length(&values, 1, 5, &[0u32, 3], 2, 4, allocator())?;
     assert_eq!(taken.as_slice(), &[10, 11, 13, 14]);
     Ok(())
 }

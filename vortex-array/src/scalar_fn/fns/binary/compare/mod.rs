@@ -14,6 +14,7 @@
 use std::cmp::Ordering;
 
 use vortex_buffer::BitBuffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_compute::lane_kernels::LaneZip;
@@ -294,17 +295,22 @@ pub(super) fn collect_zip_bits<T: Copy>(
     lhs: &[T],
     rhs: &[T],
     f: impl Fn(T, T) -> bool,
+    allocator: BufferAllocatorRef,
 ) -> BitBuffer {
     let len = lhs.len();
-    let mut words = BufferMut::<u64>::zeroed(len.div_ceil(64));
+    let mut words = BufferMut::<u64>::zeroed_in(len.div_ceil(64), allocator);
     LaneZip::new(lhs, rhs).map_bits_into(words.as_mut_slice(), |(a, b)| f(a, b));
     bit_buffer_from_words(words, len)
 }
 
 /// Bit-pack the predicate `f(values[i])` over a slice into a [`BitBuffer`].
-pub(super) fn collect_bits<T: Copy>(values: &[T], f: impl Fn(T) -> bool) -> BitBuffer {
+pub(super) fn collect_bits<T: Copy>(
+    values: &[T],
+    f: impl Fn(T) -> bool,
+    allocator: BufferAllocatorRef,
+) -> BitBuffer {
     let len = values.len();
-    let mut words = BufferMut::<u64>::zeroed(len.div_ceil(64));
+    let mut words = BufferMut::<u64>::zeroed_in(len.div_ceil(64), allocator);
     values.map_bits_into(words.as_mut_slice(), f);
     bit_buffer_from_words(words, len)
 }

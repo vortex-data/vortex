@@ -11,6 +11,7 @@
 use std::cmp::Ordering;
 
 use vortex_buffer::BitBuffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -213,25 +214,44 @@ pub(super) fn compare_bytes(
 
     let bits = match (&lhs, &rhs) {
         (BytesOperand::Array { values: l, .. }, BytesOperand::Array { values: r, .. }) => {
-            compare_views(&ViewsSide::new(l), &ViewsSide::new(r), op)
+            compare_views(
+                &ViewsSide::new(l),
+                &ViewsSide::new(r),
+                op,
+                ctx.allocator().clone(),
+            )
         }
         (BytesOperand::Array { values, .. }, BytesOperand::Constant { value, .. }) => {
-            compare_views_constant(&ViewsSide::new(values), value, op)
+            compare_views_constant(&ViewsSide::new(values), value, op, ctx.allocator().clone())
         }
         (BytesOperand::Constant { value, .. }, BytesOperand::Array { values, .. }) => {
-            compare_views_constant(&ViewsSide::new(values), value, op.swap())
+            compare_views_constant(
+                &ViewsSide::new(values),
+                value,
+                op.swap(),
+                ctx.allocator().clone(),
+            )
         }
         (BytesOperand::Constant { value: l, .. }, BytesOperand::Constant { value: r, .. }) => {
             // Unreachable through `execute_compare` (constant-constant is folded there), but
             // cheap to answer anyway.
-            BitBuffer::full(ordering_predicate(op)(l.as_slice().cmp(r.as_slice())), len)
+            BitBuffer::full_in(
+                ordering_predicate(op)(l.as_slice().cmp(r.as_slice())),
+                len,
+                ctx.allocator().clone(),
+            )
         }
     };
 
     Ok(BoolArray::try_new(bits, validity)?.into_array())
 }
 
-fn compare_views(lhs: &ViewsSide<'_>, rhs: &ViewsSide<'_>, op: CompareOperator) -> BitBuffer {
+fn compare_views(
+    lhs: &ViewsSide<'_>,
+    rhs: &ViewsSide<'_>,
+    op: CompareOperator,
+    allocator: BufferAllocatorRef,
+) -> BitBuffer {
     let len = lhs.len();
     // The unchecked view accesses below index both sides with `i < len`, so this must hold even
     // in release builds.
@@ -239,18 +259,26 @@ fn compare_views(lhs: &ViewsSide<'_>, rhs: &ViewsSide<'_>, op: CompareOperator) 
     // Dispatch the operator outside the lane loop so each predicate inlines into its own loop;
     // a shared `fn(Ordering) -> bool` pointer would cost an indirect call per lane.
     match op {
-        CompareOperator::Eq => BitBuffer::collect_bool(len, |i| {
-            // SAFETY: `collect_bool` yields i < len == views.len() for both sides.
-            unsafe { view_eq(lhs, lhs.view_unchecked(i), rhs, rhs.view_unchecked(i)) }
-        }),
-        CompareOperator::NotEq => BitBuffer::collect_bool(len, |i| {
-            // SAFETY: `collect_bool` yields i < len == views.len() for both sides.
-            unsafe { !view_eq(lhs, lhs.view_unchecked(i), rhs, rhs.view_unchecked(i)) }
-        }),
-        CompareOperator::Gt => collect_ordering_bits(lhs, rhs, Ordering::is_gt),
-        CompareOperator::Gte => collect_ordering_bits(lhs, rhs, Ordering::is_ge),
-        CompareOperator::Lt => collect_ordering_bits(lhs, rhs, Ordering::is_lt),
-        CompareOperator::Lte => collect_ordering_bits(lhs, rhs, Ordering::is_le),
+        CompareOperator::Eq => BitBuffer::collect_bool_in(
+            len,
+            |i| {
+                // SAFETY: `collect_bool` yields i < len == views.len() for both sides.
+                unsafe { view_eq(lhs, lhs.view_unchecked(i), rhs, rhs.view_unchecked(i)) }
+            },
+            allocator,
+        ),
+        CompareOperator::NotEq => BitBuffer::collect_bool_in(
+            len,
+            |i| {
+                // SAFETY: `collect_bool` yields i < len == views.len() for both sides.
+                unsafe { !view_eq(lhs, lhs.view_unchecked(i), rhs, rhs.view_unchecked(i)) }
+            },
+            allocator,
+        ),
+        CompareOperator::Gt => collect_ordering_bits(lhs, rhs, Ordering::is_gt, allocator),
+        CompareOperator::Gte => collect_ordering_bits(lhs, rhs, Ordering::is_ge, allocator),
+        CompareOperator::Lt => collect_ordering_bits(lhs, rhs, Ordering::is_lt, allocator),
+        CompareOperator::Lte => collect_ordering_bits(lhs, rhs, Ordering::is_le, allocator),
     }
 }
 
@@ -259,16 +287,26 @@ fn collect_ordering_bits(
     lhs: &ViewsSide<'_>,
     rhs: &ViewsSide<'_>,
     predicate: impl Fn(Ordering) -> bool,
+    allocator: BufferAllocatorRef,
 ) -> BitBuffer {
     let len = lhs.len();
     assert_eq!(len, rhs.len(), "compared views must have equal lengths");
-    BitBuffer::collect_bool(len, |i| {
-        // SAFETY: `collect_bool` yields i < len == views.len() for both sides.
-        predicate(unsafe { view_cmp(lhs, lhs.view_unchecked(i), rhs, rhs.view_unchecked(i)) })
-    })
+    BitBuffer::collect_bool_in(
+        len,
+        |i| {
+            // SAFETY: `collect_bool` yields i < len == views.len() for both sides.
+            predicate(unsafe { view_cmp(lhs, lhs.view_unchecked(i), rhs, rhs.view_unchecked(i)) })
+        },
+        allocator,
+    )
 }
 
-fn compare_views_constant(lhs: &ViewsSide<'_>, constant: &[u8], op: CompareOperator) -> BitBuffer {
+fn compare_views_constant(
+    lhs: &ViewsSide<'_>,
+    constant: &[u8],
+    op: CompareOperator,
+    allocator: BufferAllocatorRef,
+) -> BitBuffer {
     let len = lhs.len();
     // The same head/prefix/tail words a view stores, precomputed once for the constant.
     let mut prefix_bytes = [0u8; 4];
@@ -290,22 +328,31 @@ fn compare_views_constant(lhs: &ViewsSide<'_>, constant: &[u8], op: CompareOpera
         u128::from(constant_head) | (u128::from(u64::from_le_bytes(tail_bytes)) << 64);
 
     match op {
-        CompareOperator::Eq => BitBuffer::collect_bool(len, |i| {
-            // SAFETY: `collect_bool` yields i < len == views.len().
-            let view = unsafe { lhs.view_unchecked(i) };
-            constant_eq(lhs, view, constant, constant_head, constant_inlined)
-        }),
-        CompareOperator::NotEq => BitBuffer::collect_bool(len, |i| {
-            // SAFETY: `collect_bool` yields i < len == views.len().
-            let view = unsafe { lhs.view_unchecked(i) };
-            !constant_eq(lhs, view, constant, constant_head, constant_inlined)
-        }),
+        CompareOperator::Eq => BitBuffer::collect_bool_in(
+            len,
+            |i| {
+                // SAFETY: `collect_bool` yields i < len == views.len().
+                let view = unsafe { lhs.view_unchecked(i) };
+                constant_eq(lhs, view, constant, constant_head, constant_inlined)
+            },
+            allocator,
+        ),
+        CompareOperator::NotEq => BitBuffer::collect_bool_in(
+            len,
+            |i| {
+                // SAFETY: `collect_bool` yields i < len == views.len().
+                let view = unsafe { lhs.view_unchecked(i) };
+                !constant_eq(lhs, view, constant, constant_head, constant_inlined)
+            },
+            allocator,
+        ),
         CompareOperator::Gt => collect_constant_ordering_bits(
             lhs,
             constant,
             constant_prefix,
             constant_tail,
             Ordering::is_gt,
+            allocator,
         ),
         CompareOperator::Gte => collect_constant_ordering_bits(
             lhs,
@@ -313,6 +360,7 @@ fn compare_views_constant(lhs: &ViewsSide<'_>, constant: &[u8], op: CompareOpera
             constant_prefix,
             constant_tail,
             Ordering::is_ge,
+            allocator,
         ),
         CompareOperator::Lt => collect_constant_ordering_bits(
             lhs,
@@ -320,6 +368,7 @@ fn compare_views_constant(lhs: &ViewsSide<'_>, constant: &[u8], op: CompareOpera
             constant_prefix,
             constant_tail,
             Ordering::is_lt,
+            allocator,
         ),
         CompareOperator::Lte => collect_constant_ordering_bits(
             lhs,
@@ -327,6 +376,7 @@ fn compare_views_constant(lhs: &ViewsSide<'_>, constant: &[u8], op: CompareOpera
             constant_prefix,
             constant_tail,
             Ordering::is_le,
+            allocator,
         ),
     }
 }
@@ -338,18 +388,23 @@ fn collect_constant_ordering_bits(
     constant_prefix: u32,
     constant_tail: u64,
     predicate: impl Fn(Ordering) -> bool,
+    allocator: BufferAllocatorRef,
 ) -> BitBuffer {
-    BitBuffer::collect_bool(lhs.len(), |i| {
-        // SAFETY: `collect_bool` yields i < len == views.len().
-        let view = unsafe { lhs.view_unchecked(i) };
-        predicate(constant_cmp(
-            lhs,
-            view,
-            constant,
-            constant_prefix,
-            constant_tail,
-        ))
-    })
+    BitBuffer::collect_bool_in(
+        lhs.len(),
+        |i| {
+            // SAFETY: `collect_bool` yields i < len == views.len().
+            let view = unsafe { lhs.view_unchecked(i) };
+            predicate(constant_cmp(
+                lhs,
+                view,
+                constant,
+                constant_prefix,
+                constant_tail,
+            ))
+        },
+        allocator,
+    )
 }
 
 /// Compare a view against a constant for equality using the constant's precomputed head and

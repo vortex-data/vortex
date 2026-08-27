@@ -16,6 +16,7 @@ use std::cmp::Ordering;
 
 use num_traits::AsPrimitive;
 use vortex_buffer::BitBuffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
@@ -75,12 +76,24 @@ pub(super) fn compare_nested(
     // Dispatch the operator outside the row loop so the predicate inlines into each loop; the
     // comparator call itself stays virtual.
     let bits = match op {
-        CompareOperator::Eq => collect_ordering_bits(len, &comparator, Ordering::is_eq),
-        CompareOperator::NotEq => collect_ordering_bits(len, &comparator, Ordering::is_ne),
-        CompareOperator::Gt => collect_ordering_bits(len, &comparator, Ordering::is_gt),
-        CompareOperator::Gte => collect_ordering_bits(len, &comparator, Ordering::is_ge),
-        CompareOperator::Lt => collect_ordering_bits(len, &comparator, Ordering::is_lt),
-        CompareOperator::Lte => collect_ordering_bits(len, &comparator, Ordering::is_le),
+        CompareOperator::Eq => {
+            collect_ordering_bits(len, &comparator, Ordering::is_eq, ctx.allocator().clone())
+        }
+        CompareOperator::NotEq => {
+            collect_ordering_bits(len, &comparator, Ordering::is_ne, ctx.allocator().clone())
+        }
+        CompareOperator::Gt => {
+            collect_ordering_bits(len, &comparator, Ordering::is_gt, ctx.allocator().clone())
+        }
+        CompareOperator::Gte => {
+            collect_ordering_bits(len, &comparator, Ordering::is_ge, ctx.allocator().clone())
+        }
+        CompareOperator::Lt => {
+            collect_ordering_bits(len, &comparator, Ordering::is_lt, ctx.allocator().clone())
+        }
+        CompareOperator::Lte => {
+            collect_ordering_bits(len, &comparator, Ordering::is_le, ctx.allocator().clone())
+        }
     };
 
     Ok(BoolArray::try_new(bits, validity)?.into_array())
@@ -91,8 +104,9 @@ fn collect_ordering_bits(
     len: usize,
     comparator: &RowComparator,
     predicate: impl Fn(Ordering) -> bool,
+    allocator: BufferAllocatorRef,
 ) -> BitBuffer {
-    BitBuffer::collect_bool(len, |i| predicate(comparator(i, i)))
+    BitBuffer::collect_bool_in(len, |i| predicate(comparator(i, i)), allocator)
 }
 
 /// The validity mask of a recursively canonical array.

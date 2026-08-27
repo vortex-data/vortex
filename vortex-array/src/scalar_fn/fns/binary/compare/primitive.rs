@@ -4,6 +4,7 @@
 //! Native comparison of primitive arrays via bit-packing lane kernels.
 
 use vortex_buffer::BitBuffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -65,22 +66,22 @@ fn compare_primitive_typed<T: NativePType>(
         (
             PrimitiveOperand::Array { values: lhs, .. },
             PrimitiveOperand::Array { values: rhs, .. },
-        ) => compare_slices(lhs, rhs, op),
+        ) => compare_slices(lhs, rhs, op, ctx.allocator().clone()),
         (
             PrimitiveOperand::Array { values: lhs, .. },
             PrimitiveOperand::Constant { value: rhs, .. },
-        ) => compare_slice_constant(lhs, *rhs, op),
+        ) => compare_slice_constant(lhs, *rhs, op, ctx.allocator().clone()),
         (
             PrimitiveOperand::Constant { value: lhs, .. },
             PrimitiveOperand::Array { values: rhs, .. },
-        ) => compare_slice_constant(rhs, *lhs, op.swap()),
+        ) => compare_slice_constant(rhs, *lhs, op.swap(), ctx.allocator().clone()),
         (
             PrimitiveOperand::Constant { value: lhs, .. },
             PrimitiveOperand::Constant { value: rhs, .. },
         ) => {
             // Unreachable through `execute_compare` (constant-constant is folded there), but
             // cheap to answer anyway.
-            BitBuffer::full(apply_op(*lhs, *rhs, op), len)
+            BitBuffer::full_in(apply_op(*lhs, *rhs, op), len, ctx.allocator().clone())
         }
         (PrimitiveOperand::Null(_), _) | (_, PrimitiveOperand::Null(_)) => {
             return Ok(
@@ -106,26 +107,36 @@ fn apply_op<T: NativePType>(lhs: T, rhs: T, op: CompareOperator) -> bool {
     }
 }
 
-fn compare_slices<T: NativePType>(lhs: &[T], rhs: &[T], op: CompareOperator) -> BitBuffer {
+fn compare_slices<T: NativePType>(
+    lhs: &[T],
+    rhs: &[T],
+    op: CompareOperator,
+    allocator: BufferAllocatorRef,
+) -> BitBuffer {
     // Dispatch the operator outside the lane loop so each instantiation vectorizes a single
     // branch-free predicate.
     match op {
-        CompareOperator::Eq => collect_zip_bits(lhs, rhs, |a: T, b: T| a.is_eq(b)),
-        CompareOperator::NotEq => collect_zip_bits(lhs, rhs, |a: T, b: T| !a.is_eq(b)),
-        CompareOperator::Gt => collect_zip_bits(lhs, rhs, T::is_gt),
-        CompareOperator::Gte => collect_zip_bits(lhs, rhs, T::is_ge),
-        CompareOperator::Lt => collect_zip_bits(lhs, rhs, T::is_lt),
-        CompareOperator::Lte => collect_zip_bits(lhs, rhs, T::is_le),
+        CompareOperator::Eq => collect_zip_bits(lhs, rhs, |a: T, b: T| a.is_eq(b), allocator),
+        CompareOperator::NotEq => collect_zip_bits(lhs, rhs, |a: T, b: T| !a.is_eq(b), allocator),
+        CompareOperator::Gt => collect_zip_bits(lhs, rhs, T::is_gt, allocator),
+        CompareOperator::Gte => collect_zip_bits(lhs, rhs, T::is_ge, allocator),
+        CompareOperator::Lt => collect_zip_bits(lhs, rhs, T::is_lt, allocator),
+        CompareOperator::Lte => collect_zip_bits(lhs, rhs, T::is_le, allocator),
     }
 }
 
-fn compare_slice_constant<T: NativePType>(lhs: &[T], rhs: T, op: CompareOperator) -> BitBuffer {
+fn compare_slice_constant<T: NativePType>(
+    lhs: &[T],
+    rhs: T,
+    op: CompareOperator,
+    allocator: BufferAllocatorRef,
+) -> BitBuffer {
     match op {
-        CompareOperator::Eq => collect_bits(lhs, |a: T| a.is_eq(rhs)),
-        CompareOperator::NotEq => collect_bits(lhs, |a: T| !a.is_eq(rhs)),
-        CompareOperator::Gt => collect_bits(lhs, |a: T| a.is_gt(rhs)),
-        CompareOperator::Gte => collect_bits(lhs, |a: T| a.is_ge(rhs)),
-        CompareOperator::Lt => collect_bits(lhs, |a: T| a.is_lt(rhs)),
-        CompareOperator::Lte => collect_bits(lhs, |a: T| a.is_le(rhs)),
+        CompareOperator::Eq => collect_bits(lhs, |a: T| a.is_eq(rhs), allocator),
+        CompareOperator::NotEq => collect_bits(lhs, |a: T| !a.is_eq(rhs), allocator),
+        CompareOperator::Gt => collect_bits(lhs, |a: T| a.is_gt(rhs), allocator),
+        CompareOperator::Gte => collect_bits(lhs, |a: T| a.is_ge(rhs), allocator),
+        CompareOperator::Lt => collect_bits(lhs, |a: T| a.is_lt(rhs), allocator),
+        CompareOperator::Lte => collect_bits(lhs, |a: T| a.is_le(rhs), allocator),
     }
 }

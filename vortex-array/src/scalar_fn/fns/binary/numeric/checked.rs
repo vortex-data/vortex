@@ -9,6 +9,7 @@
 //! scanning the finished output.
 
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_compute::lane_kernels::IndexedSource;
 use vortex_compute::lane_kernels::IndexedSourceExt;
@@ -32,6 +33,7 @@ pub(super) fn checked_lanes<S, T, Apply>(
     source: S,
     valid_rows: &Mask,
     apply: Apply,
+    allocator: BufferAllocatorRef,
 ) -> Result<Buffer<T>, usize>
 where
     S: IndexedSource,
@@ -43,11 +45,11 @@ where
 
     let valid_bits = match valid_rows.bit_buffer() {
         AllOr::All => None,
-        AllOr::None => return Ok(Buffer::zeroed(len)),
+        AllOr::None => return Ok(Buffer::zeroed_in(len, allocator)),
         AllOr::Some(valid_bits) => Some(valid_bits),
     };
 
-    let mut values = BufferMut::<T>::with_capacity(len);
+    let mut values = BufferMut::<T>::with_capacity_in(len, allocator);
     let out = &mut values.spare_capacity_mut()[..len];
     match valid_bits {
         None => source.try_map_into(out, apply)?,

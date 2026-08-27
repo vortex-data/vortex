@@ -10,6 +10,7 @@
 //! [`DecimalDType`]: crate::dtype::DecimalDType
 
 use vortex_buffer::BitBuffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -87,19 +88,23 @@ pub(super) fn compare_decimal(
 
     let bits = match (lhs, rhs) {
         (DecimalOperand::Array { values: l, .. }, DecimalOperand::Array { values: r, .. }) => {
-            compare_decimal_values(&l, &r, op)
+            compare_decimal_values(&l, &r, op, ctx.allocator().clone())
         }
         (DecimalOperand::Array { values, .. }, DecimalOperand::Constant { value, .. }) => {
-            compare_decimal_constant(&values, value, op)
+            compare_decimal_constant(&values, value, op, ctx.allocator().clone())
         }
         (DecimalOperand::Constant { value, .. }, DecimalOperand::Array { values, .. }) => {
-            compare_decimal_constant(&values, value, op.swap())
+            compare_decimal_constant(&values, value, op.swap(), ctx.allocator().clone())
         }
         (DecimalOperand::Constant { value: l, .. }, DecimalOperand::Constant { value: r, .. }) => {
             // Unreachable through `execute_compare` (constant-constant is folded there), but
             // cheap to answer anyway.
             let ordering = l.as_i256().cmp(&r.as_i256());
-            BitBuffer::full(super::ordering_predicate(op)(ordering), len)
+            BitBuffer::full_in(
+                super::ordering_predicate(op)(ordering),
+                len,
+                ctx.allocator().clone(),
+            )
         }
     };
 
@@ -110,12 +115,13 @@ fn compare_decimal_values(
     lhs: &DecimalArray,
     rhs: &DecimalArray,
     op: CompareOperator,
+    allocator: BufferAllocatorRef,
 ) -> BitBuffer {
     let common = lhs.values_type().max(rhs.values_type());
     match_each_decimal_value_type!(common, |W| {
         let lhs = widened_buffer::<W>(lhs);
         let rhs = widened_buffer::<W>(rhs);
-        compare_slices::<W>(&lhs, &rhs, op)
+        compare_slices::<W>(&lhs, &rhs, op, allocator)
     })
 }
 
@@ -123,10 +129,11 @@ fn compare_decimal_constant(
     array: &DecimalArray,
     constant: DecimalValue,
     op: CompareOperator,
+    allocator: BufferAllocatorRef,
 ) -> BitBuffer {
     match_each_decimal_value_type!(array.values_type(), |T| {
         match constant.cast::<T>() {
-            Some(value) => compare_slice_constant::<T>(&array.buffer::<T>(), value, op),
+            Some(value) => compare_slice_constant::<T>(&array.buffer::<T>(), value, op, allocator),
             None => {
                 // The constant does not fit the array's storage type, so it is either greater
                 // than every possible array value or less than every possible array value; the
@@ -139,20 +146,25 @@ fn compare_decimal_constant(
                     CompareOperator::Lt | CompareOperator::Lte => constant_greater,
                     CompareOperator::Gt | CompareOperator::Gte => !constant_greater,
                 };
-                BitBuffer::full(result, array.len())
+                BitBuffer::full_in(result, array.len(), allocator)
             }
         }
     })
 }
 
-fn compare_slices<T: NativeDecimalType>(lhs: &[T], rhs: &[T], op: CompareOperator) -> BitBuffer {
+fn compare_slices<T: NativeDecimalType>(
+    lhs: &[T],
+    rhs: &[T],
+    op: CompareOperator,
+    allocator: BufferAllocatorRef,
+) -> BitBuffer {
     match op {
-        CompareOperator::Eq => collect_zip_bits(lhs, rhs, |a: T, b: T| a == b),
-        CompareOperator::NotEq => collect_zip_bits(lhs, rhs, |a: T, b: T| a != b),
-        CompareOperator::Gt => collect_zip_bits(lhs, rhs, |a: T, b: T| a > b),
-        CompareOperator::Gte => collect_zip_bits(lhs, rhs, |a: T, b: T| a >= b),
-        CompareOperator::Lt => collect_zip_bits(lhs, rhs, |a: T, b: T| a < b),
-        CompareOperator::Lte => collect_zip_bits(lhs, rhs, |a: T, b: T| a <= b),
+        CompareOperator::Eq => collect_zip_bits(lhs, rhs, |a: T, b: T| a == b, allocator),
+        CompareOperator::NotEq => collect_zip_bits(lhs, rhs, |a: T, b: T| a != b, allocator),
+        CompareOperator::Gt => collect_zip_bits(lhs, rhs, |a: T, b: T| a > b, allocator),
+        CompareOperator::Gte => collect_zip_bits(lhs, rhs, |a: T, b: T| a >= b, allocator),
+        CompareOperator::Lt => collect_zip_bits(lhs, rhs, |a: T, b: T| a < b, allocator),
+        CompareOperator::Lte => collect_zip_bits(lhs, rhs, |a: T, b: T| a <= b, allocator),
     }
 }
 
@@ -160,13 +172,14 @@ fn compare_slice_constant<T: NativeDecimalType>(
     values: &[T],
     constant: T,
     op: CompareOperator,
+    allocator: BufferAllocatorRef,
 ) -> BitBuffer {
     match op {
-        CompareOperator::Eq => collect_bits(values, |a: T| a == constant),
-        CompareOperator::NotEq => collect_bits(values, |a: T| a != constant),
-        CompareOperator::Gt => collect_bits(values, |a: T| a > constant),
-        CompareOperator::Gte => collect_bits(values, |a: T| a >= constant),
-        CompareOperator::Lt => collect_bits(values, |a: T| a < constant),
-        CompareOperator::Lte => collect_bits(values, |a: T| a <= constant),
+        CompareOperator::Eq => collect_bits(values, |a: T| a == constant, allocator),
+        CompareOperator::NotEq => collect_bits(values, |a: T| a != constant, allocator),
+        CompareOperator::Gt => collect_bits(values, |a: T| a > constant, allocator),
+        CompareOperator::Gte => collect_bits(values, |a: T| a >= constant, allocator),
+        CompareOperator::Lt => collect_bits(values, |a: T| a < constant, allocator),
+        CompareOperator::Lte => collect_bits(values, |a: T| a <= constant, allocator),
     }
 }

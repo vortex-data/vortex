@@ -34,6 +34,7 @@ pub(crate) fn filter<V: FixedWidthArray>(array: &Array<V>, mask: &MaskValuesRef)
 
 fn filter_records(values: ByteBuffer, byte_width: usize, mask: &MaskValues) -> ByteBuffer {
     let alignment = values.alignment();
+    let allocator = values.allocator().clone();
 
     match_each_record_width!(
         byte_width,
@@ -57,7 +58,10 @@ fn filter_records(values: ByteBuffer, byte_width: usize, mask: &MaskValues) -> B
                     values.freeze().into_byte_buffer().aligned(alignment)
                 }
                 Err(values) => {
-                    let mut filtered = BufferMut::with_capacity(mask.true_count() * byte_width);
+                    let mut filtered = BufferMut::with_capacity_in(
+                        mask.true_count() * byte_width,
+                        allocator,
+                    );
                     mask.bit_buffer().for_each_set_index(|index| {
                         let start = index * byte_width;
                         filtered.extend_from_slice(&values[start..start + byte_width]);

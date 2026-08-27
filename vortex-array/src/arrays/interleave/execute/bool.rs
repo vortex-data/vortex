@@ -6,6 +6,7 @@
 use num_traits::AsPrimitive;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -25,7 +26,7 @@ use crate::require_child;
 /// each selected bit into the output position it routes to.
 pub(super) fn execute(
     array: Array<Interleave>,
-    _ctx: &mut ExecutionCtx,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ExecutionResult> {
     let num_values = array.num_values();
 
@@ -54,6 +55,7 @@ pub(super) fn execute(
                 &value_bits,
                 array_indices.as_slice::<A>(),
                 row_indices.as_slice::<R>(),
+                ctx.allocator().clone(),
             )?
         })
     });
@@ -70,12 +72,13 @@ fn gather<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
     value_bits: &[BitBuffer],
     branches: &[A],
     rows: &[R],
+    allocator: BufferAllocatorRef,
 ) -> VortexResult<BitBufferMut> {
     let len = validate_selectors(value_bits, branches, rows)?;
 
     // SAFETY: `validate_selectors` proved `branches.len() == rows.len() == len`, and for every
     // `i < len` that `branches[i] < value_bits.len()` and `rows[i] < value_bits[branches[i]].len()`.
-    Ok(unsafe { gather_bits(len, value_bits, branches, rows) })
+    Ok(unsafe { gather_bits(len, value_bits, branches, rows, allocator) })
 }
 
 /// Validates the per-row selector bounds, returning the output length (`branches.len()`).
@@ -125,11 +128,16 @@ unsafe fn gather_bits<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
     bits: &[BitBuffer],
     branches: &[A],
     rows: &[R],
+    allocator: BufferAllocatorRef,
 ) -> BitBufferMut {
     // SAFETY: `collect_bool` calls this for `i < len`, and the caller guarantees `branches[i]` and
     // `rows[i]` are in bounds for `bits` / the selected buffer.
-    BitBufferMut::collect_bool(len, |i| unsafe {
-        bits.get_unchecked(branches.get_unchecked(i).as_())
-            .value_unchecked(rows.get_unchecked(i).as_())
-    })
+    BitBufferMut::collect_bool_in(
+        len,
+        |i| unsafe {
+            bits.get_unchecked(branches.get_unchecked(i).as_())
+                .value_unchecked(rows.get_unchecked(i).as_())
+        },
+        allocator,
+    )
 }

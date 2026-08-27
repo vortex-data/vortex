@@ -218,7 +218,17 @@ impl BitBufferMut {
     /// Calls `f` in the same order and uses the same packing path.
     #[inline]
     pub fn collect_bool<F: FnMut(usize) -> bool>(len: usize, f: F) -> Self {
-        Self::collect_words(len, |words| collect_bool_words(words, len, f))
+        Self::collect_bool_in(len, f, BufferAllocatorRef::statically_allocated())
+    }
+
+    /// Collects predicate results with the provided allocator.
+    #[inline]
+    pub fn collect_bool_in<F: FnMut(usize) -> bool>(
+        len: usize,
+        f: F,
+        allocator: BufferAllocatorRef,
+    ) -> Self {
+        Self::collect_words_in(len, allocator, |words| collect_bool_words(words, len, f))
     }
 
     /// Mutable-buffer form of [`BitBuffer::collect_bool_multiversioned`].
@@ -226,17 +236,29 @@ impl BitBufferMut {
     /// Calls `f` in the same order and uses the same packing path.
     #[inline]
     pub fn collect_bool_multiversioned<F: FnMut(usize) -> bool>(len: usize, f: F) -> Self {
-        Self::collect_words(len, |words| {
+        Self::collect_bool_multiversioned_in(len, f, BufferAllocatorRef::statically_allocated())
+    }
+
+    /// Collects multiversioned predicate results with the provided allocator.
+    #[inline]
+    pub fn collect_bool_multiversioned_in<F: FnMut(usize) -> bool>(
+        len: usize,
+        f: F,
+        allocator: BufferAllocatorRef,
+    ) -> Self {
+        Self::collect_words_in(len, allocator, |words| {
             collect_bool_words_multiversioned(words, len, f)
         })
     }
 
-    /// Allocate a zero-copy word buffer for `len` bits, let `fill` populate it, and wrap it as a
-    /// `BitBufferMut`.
     #[inline]
-    fn collect_words(len: usize, fill: impl FnOnce(&mut [u64])) -> Self {
+    fn collect_words_in(
+        len: usize,
+        allocator: BufferAllocatorRef,
+        fill: impl FnOnce(&mut [u64]),
+    ) -> Self {
         let num_words = len.div_ceil(64);
-        let mut buffer: BufferMut<u64> = BufferMut::with_capacity(num_words);
+        let mut buffer = BufferMut::<u64>::with_capacity_in(num_words, allocator);
         // SAFETY: `fill` (a `collect_bool_words` variant) writes every word in `0..num_words`
         // below before any read; `u64` has no invalid bit patterns and the assignments inside
         // `collect_bool_words` are pure writes.

@@ -20,6 +20,7 @@
 use std::mem::size_of;
 
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_mask::MaskValues;
 
 use crate::arrays::filter::execute::byte_compress;
@@ -35,6 +36,7 @@ const MIN_SLICES_AVERAGE_RUN_LENGTH: usize = 8;
 /// Dense uniquely owned buffers are compacted in place; other buffers allocate a new output.
 pub(crate) fn filter_buffer<T: Copy>(buffer: Buffer<T>, mask: &MaskValues) -> Buffer<T> {
     assert_eq!(buffer.len(), mask.len());
+    let allocator = buffer.allocator().clone();
 
     let buffer = if mask.density() >= IN_PLACE_MIN_DENSITY {
         match buffer.try_into_mut() {
@@ -49,28 +51,32 @@ pub(crate) fn filter_buffer<T: Copy>(buffer: Buffer<T>, mask: &MaskValues) -> Bu
         buffer
     };
 
-    filter_slice(buffer.as_slice(), mask)
+    filter_slice(buffer.as_slice(), mask, allocator)
 }
 
-fn filter_slice<T: Copy>(values: &[T], mask: &MaskValues) -> Buffer<T> {
+fn filter_slice<T: Copy>(
+    values: &[T],
+    mask: &MaskValues,
+    allocator: BufferAllocatorRef,
+) -> Buffer<T> {
     if let Some(slices) = useful_cached_slices(mask) {
-        return slice::filter_slice_by_slices(values, slices, mask.true_count());
+        return slice::filter_slice_by_slices(values, slices, mask.true_count(), allocator);
     }
 
     if mask.density() <= CACHED_INDICES_MAX_DENSITY
         && let Some(indices) = mask.cached_indices()
     {
-        return slice::filter_slice_by_indices(values, indices);
+        return slice::filter_slice_by_indices(values, indices, allocator);
     }
 
-    if let Some(filtered) = simd_compress::filter_slice_by_bitmap(values, mask) {
+    if let Some(filtered) = simd_compress::filter_slice_by_bitmap(values, mask, allocator.clone()) {
         return filtered;
     }
 
     if mask.density() >= byte_compress_density_threshold::<T>() {
-        byte_compress::filter_buffer(values, mask)
+        byte_compress::filter_buffer(values, mask, allocator)
     } else {
-        slice::filter_slice_by_bitmap(values, mask)
+        slice::filter_slice_by_bitmap(values, mask, allocator)
     }
 }
 

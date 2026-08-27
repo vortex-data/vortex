@@ -24,7 +24,7 @@ impl BetweenKernel for Primitive {
         lower: &ArrayRef,
         upper: &ArrayRef,
         options: &BetweenOptions,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let (Some(lower), Some(upper)) = (lower.as_constant(), upper.as_constant()) else {
             return Ok(None);
@@ -43,6 +43,7 @@ impl BetweenKernel for Primitive {
                 P::try_from(&upper)?,
                 nullability,
                 options,
+                ctx,
             )
         })))
     }
@@ -54,6 +55,7 @@ fn between_impl<T: NativePType + Copy>(
     upper: T,
     nullability: Nullability,
     options: &BetweenOptions,
+    ctx: &mut ExecutionCtx,
 ) -> ArrayRef {
     match (options.lower_strict, options.upper_strict) {
         // Note: these comparisons are explicitly passed in to allow function impl inlining
@@ -64,6 +66,7 @@ fn between_impl<T: NativePType + Copy>(
             upper,
             NativePType::is_lt,
             nullability,
+            ctx,
         ),
         (StrictComparison::Strict, StrictComparison::NonStrict) => between_impl_(
             arr,
@@ -72,6 +75,7 @@ fn between_impl<T: NativePType + Copy>(
             upper,
             NativePType::is_le,
             nullability,
+            ctx,
         ),
         (StrictComparison::NonStrict, StrictComparison::Strict) => between_impl_(
             arr,
@@ -80,6 +84,7 @@ fn between_impl<T: NativePType + Copy>(
             upper,
             NativePType::is_lt,
             nullability,
+            ctx,
         ),
         (StrictComparison::NonStrict, StrictComparison::NonStrict) => between_impl_(
             arr,
@@ -88,6 +93,7 @@ fn between_impl<T: NativePType + Copy>(
             upper,
             NativePType::is_le,
             nullability,
+            ctx,
         ),
     }
 }
@@ -99,17 +105,22 @@ fn between_impl_<T>(
     upper: T,
     upper_fn: impl Fn(T, T) -> bool,
     nullability: Nullability,
+    ctx: &mut ExecutionCtx,
 ) -> ArrayRef
 where
     T: NativePType + Copy,
 {
     let slice = arr.as_slice::<T>();
     BoolArray::new(
-        BitBuffer::collect_bool_multiversioned(slice.len(), |idx| {
-            // We only iterate upto arr len and |arr| == |slice|.
-            let i = unsafe { *slice.get_unchecked(idx) };
-            lower_fn(lower, i) & upper_fn(i, upper)
-        }),
+        BitBuffer::collect_bool_multiversioned_in(
+            slice.len(),
+            |idx| {
+                // We only iterate upto arr len and |arr| == |slice|.
+                let i = unsafe { *slice.get_unchecked(idx) };
+                lower_fn(lower, i) & upper_fn(i, upper)
+            },
+            ctx.allocator().clone(),
+        ),
         arr.validity()
             .vortex_expect("validity should be derivable")
             .union_nullability(nullability),

@@ -3,6 +3,7 @@
 
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
@@ -95,6 +96,7 @@ where
     let ranks = indices.as_slice::<P>();
     let ranks_validity = indices.validity()?;
     let indices_validity = ranks_validity.execute_mask(indices.len(), ctx)?;
+    let allocator = ctx.allocator().clone();
 
     match indices_validity.bit_buffer() {
         AllOr::All => {
@@ -102,30 +104,43 @@ where
             {
                 child.slice(start..end)
             } else {
-                take_filtered_values::<T, P>(&child, filter, ranks, None)?
+                take_filtered_values::<T, P>(&child, filter, ranks, None, allocator.clone())?
             };
 
             let output_validity = if child_validity.definitely_no_nulls() {
                 ranks_validity.union_nullability(child_validity.nullability())
             } else {
-                let translated_indices =
-                    PrimitiveArray::new(translate_ranks(filter, ranks, None)?, ranks_validity)
-                        .into_array();
+                let translated_indices = PrimitiveArray::new(
+                    translate_ranks(filter, ranks, None, allocator)?,
+                    ranks_validity,
+                )
+                .into_array();
                 child_validity.take(&translated_indices)?
             };
 
             Ok((taken, output_validity))
         }
-        AllOr::None => Ok((Buffer::zeroed(ranks.len()), Validity::AllInvalid)),
+        AllOr::None => Ok((
+            Buffer::zeroed_in(ranks.len(), allocator),
+            Validity::AllInvalid,
+        )),
         AllOr::Some(buf) => {
-            let taken = take_filtered_values(child.as_slice(), filter, ranks, Some(buf))?;
+            let taken = take_filtered_values(
+                child.as_slice(),
+                filter,
+                ranks,
+                Some(buf),
+                allocator.clone(),
+            )?;
 
             let output_validity = if child_validity.definitely_no_nulls() {
                 ranks_validity.union_nullability(child_validity.nullability())
             } else {
-                let translated_indices =
-                    PrimitiveArray::new(translate_ranks(filter, ranks, Some(buf))?, ranks_validity)
-                        .into_array();
+                let translated_indices = PrimitiveArray::new(
+                    translate_ranks(filter, ranks, Some(buf), allocator)?,
+                    ranks_validity,
+                )
+                .into_array();
                 child_validity.take(&translated_indices)?
             };
 
@@ -139,6 +154,7 @@ fn take_filtered_values<T, P>(
     filter: &Mask,
     ranks: &[P],
     indices_validity: Option<&BitBuffer>,
+    allocator: BufferAllocatorRef,
 ) -> VortexResult<Buffer<T>>
 where
     T: Copy + Default,
@@ -147,32 +163,49 @@ where
     let filtered_len = filter.true_count();
     if let Some(start) = contiguous_filter_start(filter) {
         return if let Some(indices_validity) = indices_validity {
-            take_values_by_rank_nullable(values, ranks, indices_validity, filtered_len, |idx| {
-                start + idx
-            })
+            take_values_by_rank_nullable(
+                values,
+                ranks,
+                indices_validity,
+                filtered_len,
+                allocator,
+                |idx| start + idx,
+            )
         } else {
-            take_values_by_rank(values, ranks, filtered_len, |idx| start + idx)
+            take_values_by_rank(values, ranks, filtered_len, allocator, |idx| start + idx)
         };
     }
 
     if ranks.len() <= small_take_rank_lookup_len(filter) {
         return if let Some(indices_validity) = indices_validity {
-            take_values_by_rank_nullable(values, ranks, indices_validity, filtered_len, |idx| {
+            take_values_by_rank_nullable(
+                values,
+                ranks,
+                indices_validity,
+                filtered_len,
+                allocator,
+                |idx| filter.rank(idx),
+            )
+        } else {
+            take_values_by_rank(values, ranks, filtered_len, allocator, |idx| {
                 filter.rank(idx)
             })
-        } else {
-            take_values_by_rank(values, ranks, filtered_len, |idx| filter.rank(idx))
         };
     }
 
     match filter.indices() {
         AllOr::All => {
             if let Some(indices_validity) = indices_validity {
-                take_values_by_rank_nullable(values, ranks, indices_validity, filtered_len, |idx| {
-                    idx
-                })
+                take_values_by_rank_nullable(
+                    values,
+                    ranks,
+                    indices_validity,
+                    filtered_len,
+                    allocator,
+                    |idx| idx,
+                )
             } else {
-                take_values_by_rank(values, ranks, filtered_len, |idx| idx)
+                take_values_by_rank(values, ranks, filtered_len, allocator, |idx| idx)
             }
         }
         AllOr::None => unreachable!("empty filters are handled by the filter short circuit"),
@@ -183,10 +216,11 @@ where
                     ranks,
                     indices_validity,
                     filtered_len,
+                    allocator,
                     |idx| unsafe { *indices.get_unchecked(idx) },
                 )
             } else {
-                take_values_by_rank(values, ranks, filtered_len, |idx| unsafe {
+                take_values_by_rank(values, ranks, filtered_len, allocator, |idx| unsafe {
                     *indices.get_unchecked(idx)
                 })
             }
@@ -199,6 +233,7 @@ fn take_values_by_rank_nullable<T, P, L>(
     ranks: &[P],
     ranks_validity: &BitBuffer,
     translated_len: usize,
+    allocator: BufferAllocatorRef,
     translate: L,
 ) -> VortexResult<Buffer<T>>
 where
@@ -206,7 +241,7 @@ where
     P: IntegerPType,
     L: Fn(usize) -> usize,
 {
-    let mut out = BufferMut::<T>::with_capacity(ranks.len());
+    let mut out = BufferMut::<T>::with_capacity_in(ranks.len(), allocator);
     let out_ptr = out.spare_capacity_mut().as_mut_ptr().cast::<T>();
     for (idx, rank) in ranks.iter().enumerate() {
         let value = if ranks_validity.value(idx) {
@@ -232,6 +267,7 @@ fn take_values_by_rank<T, P, L>(
     values: &[T],
     ranks: &[P],
     translated_len: usize,
+    allocator: BufferAllocatorRef,
     translate: L,
 ) -> VortexResult<Buffer<T>>
 where
@@ -239,7 +275,7 @@ where
     P: IntegerPType,
     L: Fn(usize) -> usize,
 {
-    let mut out = BufferMut::<T>::with_capacity(ranks.len());
+    let mut out = BufferMut::<T>::with_capacity_in(ranks.len(), allocator);
     let out_ptr = out.spare_capacity_mut().as_mut_ptr().cast::<T>();
     for (idx, rank) in ranks.iter().enumerate() {
         let rank = validate_rank(*rank, translated_len)?;
