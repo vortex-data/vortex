@@ -3,14 +3,12 @@
 
 use std::ops::Range;
 
-use num_traits::Zero;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_mask::MaskIter;
-use vortex_mask::MaskValuesRef;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -37,42 +35,53 @@ const MASK_EXPANSION_DENSITY_THRESHOLD: f64 = 0.05;
 /// Minimum average list length at which filtering trims unselected leading and trailing elements.
 const ELEMENT_RANGE_CROP_MIN_AVERAGE_LIST_LENGTH: usize = 1024;
 
-/// Construct the element range to filter.
-fn element_range_from_offsets<O: IntegerPType>(
+/// Return the element range to slice before filtering, if doing so removes a sufficiently large
+/// unselected prefix or suffix.
+fn slice_elements_before_filter<O: IntegerPType>(
     offsets: &[O],
-    selection: &MaskValuesRef,
-) -> Range<usize> {
-    let full_first_offset = offsets[0].as_();
-    let full_last_offset = offsets[offsets.len() - 1].as_();
-    let element_count = full_last_offset - full_first_offset;
+    selection: &MaskIter<'_>,
+) -> Option<Range<usize>> {
+    let first_offset = offsets.first().map_or(0, |first_offset| first_offset.as_());
+    let last_offset = offsets.last().map_or(0, |last_offset| last_offset.as_());
+    let element_count = last_offset - first_offset;
     let list_count = offsets.len() - 1;
 
-    let selected_indices = selection.indices();
-    let first_index = selected_indices[0];
-    let last_index = selected_indices[selected_indices.len() - 1];
-    let crop_element_range =
-        element_count > list_count.saturating_mul(ELEMENT_RANGE_CROP_MIN_AVERAGE_LIST_LENGTH);
-    let (first_offset, last_offset) = if crop_element_range {
-        (offsets[first_index].as_(), offsets[last_index + 1].as_())
-    } else {
-        (full_first_offset, full_last_offset)
+    if element_count <= list_count.saturating_mul(ELEMENT_RANGE_CROP_MIN_AVERAGE_LIST_LENGTH) {
+        return None;
+    }
+
+    let (first_index, last_index) = match selection {
+        MaskIter::Indices(indices) => (indices[0], indices[indices.len() - 1]),
+        MaskIter::Slices(slices) => (slices[0].0, slices[slices.len() - 1].1 - 1),
     };
-    first_offset..last_offset
+    let element_range = offsets[first_index].as_()..offsets[last_index + 1].as_();
+    let full_element_range = first_offset..last_offset;
+
+    (element_range != full_element_range).then_some(element_range)
 }
 
-/// Construct an element mask relative to `element_range` from contiguous list offsets and an
-/// outer-row selection mask.
+/// Construct an element mask from contiguous list offsets and an outer-row selection mask. If
+/// `element_slice` is present, construct the mask relative to that slice instead of the complete
+/// logical element range.
 pub fn element_mask_from_offsets<O: IntegerPType>(
     offsets: &[O],
-    selection: &MaskValuesRef,
-    element_range: &Range<usize>,
+    selection: MaskIter<'_>,
+    element_slice: Option<&Range<usize>>,
 ) -> Mask {
-    let first_offset = element_range.start;
-    let len = element_range.end - first_offset;
+    let (first_offset, last_offset) = element_slice.map_or_else(
+        || {
+            (
+                offsets.first().map_or(0, |offset| offset.as_()),
+                offsets.last().map_or(0, |offset| offset.as_()),
+            )
+        },
+        |range| (range.start, range.end),
+    );
+    let len = last_offset - first_offset;
 
     let mut mask_builder = BitBufferMut::with_capacity(len);
 
-    match selection.threshold_iter(MASK_EXPANSION_DENSITY_THRESHOLD) {
+    match selection {
         MaskIter::Slices(slices) => {
             // Dense iteration: process ranges of consecutive selected lists.
             for &(start, end) in slices {
@@ -100,6 +109,43 @@ pub fn element_mask_from_offsets<O: IntegerPType>(
     mask_builder.append_n(false, len - mask_builder.len());
 
     Mask::from_buffer(mask_builder.freeze())
+}
+
+fn append_selected_list_offset<O: IntegerPType>(
+    offsets: &[O],
+    index: usize,
+    offset: &mut O,
+    new_offsets: &mut BufferMut<O>,
+) {
+    *offset += offsets[index + 1] - offsets[index];
+    unsafe { new_offsets.push_unchecked(*offset) };
+}
+
+fn filtered_offsets<O: IntegerPType>(
+    offsets: &[O],
+    selection: &MaskIter<'_>,
+    selected_count: usize,
+) -> Buffer<O> {
+    let mut new_offsets = BufferMut::<O>::with_capacity(selected_count + 1);
+    let mut offset = O::zero();
+    unsafe { new_offsets.push_unchecked(offset) };
+
+    match selection {
+        MaskIter::Indices(indices) => {
+            for &index in *indices {
+                append_selected_list_offset(offsets, index, &mut offset, &mut new_offsets);
+            }
+        }
+        MaskIter::Slices(slices) => {
+            for &(start, end) in *slices {
+                for index in start..end {
+                    append_selected_list_offset(offsets, index, &mut offset, &mut new_offsets);
+                }
+            }
+        }
+    }
+
+    new_offsets.freeze()
 }
 
 /// Process a range of elements for filtering.
@@ -148,37 +194,28 @@ impl FilterKernel for List {
         // TODO(ngates): for ultra-sparse masks, we don't need to optimize the entire offsets.
         let offsets = array.offsets().clone();
 
-        let (new_offsets, element_range, element_mask) =
+        let (new_offsets, element_slice, element_mask) =
             match_each_integer_ptype!(offsets.dtype().as_ptype(), |O| {
                 let offsets_buffer = offsets.execute::<Buffer<O>>(ctx)?;
                 let offsets = offsets_buffer.as_slice();
-                let mut new_offsets = BufferMut::<O>::with_capacity(selection.true_count() + 1);
-
-                let mut offset = O::zero();
-                unsafe { new_offsets.push_unchecked(offset) };
-                for idx in selection.indices() {
-                    let size = offsets[idx + 1] - offsets[*idx];
-                    offset += size;
-                    unsafe { new_offsets.push_unchecked(offset) };
-                }
+                let selected_lists = selection.threshold_iter(MASK_EXPANSION_DENSITY_THRESHOLD);
+                let new_offsets =
+                    filtered_offsets(offsets, &selected_lists, selection.true_count());
 
                 // TODO(ngates): for very dense masks, there may be no point in filtering the elements,
                 //  and instead we should construct a view against the unfiltered elements.
-                let element_range = element_range_from_offsets::<O>(offsets, selection);
+                let element_slice = slice_elements_before_filter::<O>(offsets, &selected_lists);
                 let element_mask =
-                    element_mask_from_offsets::<O>(offsets, selection, &element_range);
+                    element_mask_from_offsets::<O>(offsets, selected_lists, element_slice.as_ref());
 
-                (
-                    new_offsets.freeze().into_array(),
-                    element_range,
-                    element_mask,
-                )
+                (new_offsets.into_array(), element_slice, element_mask)
             });
 
-        let new_elements = array
-            .elements()
-            .slice(element_range)?
-            .filter(element_mask)?;
+        let elements = match element_slice {
+            Some(range) => array.elements().slice(range)?,
+            None => array.sliced_elements()?,
+        };
+        let new_elements = elements.filter(element_mask)?;
 
         // SAFETY: new_offsets are monotonically increasing starting from 0 with length
         // true_count + 1, and the elements have been filtered to match.
@@ -194,8 +231,9 @@ mod tests {
     use vortex_error::vortex_bail;
     use vortex_mask::Mask;
 
+    use super::MASK_EXPANSION_DENSITY_THRESHOLD;
     use super::element_mask_from_offsets;
-    use super::element_range_from_offsets;
+    use super::slice_elements_before_filter;
 
     #[test]
     fn element_mask_excludes_unselected_prefix_and_suffix() -> VortexResult<()> {
@@ -204,10 +242,11 @@ mod tests {
         };
 
         let offsets = [10u32, 2010, 4010, 6010, 8010, 10010];
-        let range = element_range_from_offsets(&offsets, &selection);
-        let element_mask = element_mask_from_offsets(&offsets, &selection, &range);
+        let selected_lists = selection.threshold_iter(MASK_EXPANSION_DENSITY_THRESHOLD);
+        let range = slice_elements_before_filter(&offsets, &selected_lists);
+        let element_mask = element_mask_from_offsets(&offsets, selected_lists, range.as_ref());
 
-        assert_eq!(range, 4010..6010);
+        assert_eq!(range, Some(4010..6010));
         assert!(element_mask.all_true());
         assert_eq!(element_mask.len(), 2000);
         Ok(())
@@ -220,10 +259,11 @@ mod tests {
         };
 
         let offsets = [10u32, 2010, 4010, 6010, 8010, 10010];
-        let range = element_range_from_offsets(&offsets, &selection);
-        let element_mask = element_mask_from_offsets(&offsets, &selection, &range);
+        let selected_lists = selection.threshold_iter(MASK_EXPANSION_DENSITY_THRESHOLD);
+        let range = slice_elements_before_filter(&offsets, &selected_lists);
+        let element_mask = element_mask_from_offsets(&offsets, selected_lists, range.as_ref());
 
-        assert_eq!(range, 2010..8010);
+        assert_eq!(range, Some(2010..8010));
         assert_eq!(element_mask.len(), 6000);
         assert_eq!(element_mask.true_count(), 4000);
         Ok(())
@@ -236,12 +276,30 @@ mod tests {
         };
 
         let offsets = [10u32, 20, 30, 40, 50, 60];
-        let range = element_range_from_offsets(&offsets, &selection);
-        let element_mask = element_mask_from_offsets(&offsets, &selection, &range);
+        let selected_lists = selection.threshold_iter(MASK_EXPANSION_DENSITY_THRESHOLD);
+        let range = slice_elements_before_filter(&offsets, &selected_lists);
+        let element_mask = element_mask_from_offsets(&offsets, selected_lists, range.as_ref());
 
-        assert_eq!(range, 10..60);
+        assert_eq!(range, None);
         assert_eq!(element_mask.len(), 50);
         assert_eq!(element_mask.true_count(), 10);
+        Ok(())
+    }
+
+    #[test]
+    fn element_mask_preserves_complete_range_for_edge_spanning_selection() -> VortexResult<()> {
+        let Mask::Values(selection) = Mask::from_indices(5, [0, 4]) else {
+            vortex_bail!("a partially selective mask uses Mask::Values")
+        };
+
+        let offsets = [10u32, 2010, 4010, 6010, 8010, 10010];
+        let selected_lists = selection.threshold_iter(MASK_EXPANSION_DENSITY_THRESHOLD);
+        let range = slice_elements_before_filter(&offsets, &selected_lists);
+        let element_mask = element_mask_from_offsets(&offsets, selected_lists, range.as_ref());
+
+        assert_eq!(range, None);
+        assert_eq!(element_mask.len(), 10000);
+        assert_eq!(element_mask.true_count(), 4000);
         Ok(())
     }
 }
