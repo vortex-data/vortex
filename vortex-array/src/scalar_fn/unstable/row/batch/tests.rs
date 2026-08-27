@@ -98,6 +98,7 @@ struct DenseRetryI64;
 // SAFETY: the view is a slice, and its reported length is the buffer length.
 unsafe impl InputElement for ValidOnlyI64 {
     type Column = Buffer<i64>;
+    type Constant = i64;
     type View<'a> = &'a [i64];
     type Elem<'a> = i64;
 
@@ -112,12 +113,20 @@ unsafe impl InputElement for ValidOnlyI64 {
         <i64 as InputElement>::decode(array, ctx)
     }
 
+    fn decode_constant(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self::Constant> {
+        <i64 as InputElement>::decode_constant(array, ctx)
+    }
+
     fn can_decode_null_tolerant(_array: &ArrayRef) -> VortexResult<bool> {
         Ok(true)
     }
 
     fn get(column: &Self::Column, index: usize) -> Self::Elem<'_> {
         column[index]
+    }
+
+    fn get_constant(constant: &Self::Constant) -> Self::Elem<'_> {
+        *constant
     }
 
     fn view(column: &Self::Column) -> Self::View<'_> {
@@ -132,6 +141,7 @@ unsafe impl InputElement for ValidOnlyI64 {
 // SAFETY: the view is a slice, and its reported length is the buffer length.
 unsafe impl InputElement for FilterOnlyI64 {
     type Column = Buffer<i64>;
+    type Constant = i64;
     type View<'a> = &'a [i64];
     type Elem<'a> = i64;
 
@@ -152,8 +162,19 @@ unsafe impl InputElement for FilterOnlyI64 {
         Ok(values)
     }
 
+    fn decode_constant(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self::Constant> {
+        let value = <i64 as InputElement>::decode_constant(array, ctx)?;
+        vortex_ensure!(value != i64::MIN, "test input contains an invalid payload",);
+
+        Ok(value)
+    }
+
     fn get(column: &Self::Column, index: usize) -> Self::Elem<'_> {
         column[index]
+    }
+
+    fn get_constant(constant: &Self::Constant) -> Self::Elem<'_> {
+        *constant
     }
 
     fn view(column: &Self::Column) -> Self::View<'_> {
@@ -168,6 +189,7 @@ unsafe impl InputElement for FilterOnlyI64 {
 // SAFETY: the view is a slice, and its reported length is the buffer length.
 unsafe impl InputElement for DenseRetryI64 {
     type Column = Buffer<i64>;
+    type Constant = i64;
     type View<'a> = &'a [i64];
     type Elem<'a> = i64;
 
@@ -182,8 +204,16 @@ unsafe impl InputElement for DenseRetryI64 {
         <i64 as InputElement>::decode(array, ctx)
     }
 
+    fn decode_constant(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self::Constant> {
+        <i64 as InputElement>::decode_constant(array, ctx)
+    }
+
     fn get(column: &Self::Column, index: usize) -> Self::Elem<'_> {
         column[index]
+    }
+
+    fn get_constant(constant: &Self::Constant) -> Self::Elem<'_> {
+        *constant
     }
 
     fn view(column: &Self::Column) -> Self::View<'_> {

@@ -21,7 +21,7 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::unstable::row::InputElement;
 use crate::scalar_fn::unstable::row::ViewLen;
 
-/// One decoded input, collapsed to a single row when it is constant for the batch.
+/// One decoded input, with batch constants represented by a single value.
 pub struct ArgColumn<T: InputElement>(
     /// The decoded argument, classified by how the row loop addresses it.
     pub(super) ArgColumnKind<T>,
@@ -31,40 +31,34 @@ pub(super) enum ArgColumnKind<T: InputElement> {
     /// A decoded column covering the full batch; executors validate its length before traversal.
     Column(T::Column),
 
-    /// Exactly one decoded row, established by [`ArgColumn::try_from_const`].
-    Const(T::Column),
+    /// One decoded batch-constant value.
+    Const(T::Constant),
 }
 
 impl<T: InputElement> ArgColumn<T> {
-    fn try_from_const(column: T::Column) -> VortexResult<Self> {
-        let decoded_len = T::view(&column).len();
-        vortex_ensure_eq!(
-            decoded_len,
-            1,
-            "a decoded batch-constant input must contain exactly 1 row, got {decoded_len}",
-        );
-
-        Ok(Self(ArgColumnKind::Const(column)))
-    }
-
     fn decode(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        // An empty input has no row 0 to slice, and its row loop runs zero times either way.
+        // An empty input has no value to decode, and its row loop runs zero times either way.
         if let Some(const_array) = batch_const(&array)
             && !array.is_empty()
         {
-            return Self::try_from_const(T::decode(const_array.slice(0..1)?, ctx)?);
+            return Ok(Self(ArgColumnKind::Const(T::decode_constant(
+                const_array,
+                ctx,
+            )?)));
         }
 
         Ok(Self(ArgColumnKind::Column(T::decode(array, ctx)?)))
     }
 
     fn decode_null_tolerant(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<Self>> {
-        // Batch execution short-circuits null constants before selecting a strategy, so a
-        // constant reaching this path is non-null and can use the ordinary decode.
+        // Batch execution short-circuits null constants before selecting a strategy.
         if let Some(const_array) = batch_const(&array)
             && !array.is_empty()
         {
-            return Self::try_from_const(T::decode(const_array.slice(0..1)?, ctx)?).map(Some);
+            return T::decode_constant(const_array, ctx)
+                .map(ArgColumnKind::Const)
+                .map(Self)
+                .map(Some);
         }
 
         Ok(T::decode_null_tolerant(array, ctx)?
@@ -85,7 +79,7 @@ impl<T: InputElement> ArgColumn<T> {
     fn get(&self, index: usize) -> T::Elem<'_> {
         match &self.0 {
             ArgColumnKind::Column(column) => T::get(column, index),
-            ArgColumnKind::Const(column) => T::get(column, 0),
+            ArgColumnKind::Const(constant) => T::get_constant(constant),
         }
     }
 
@@ -97,7 +91,7 @@ impl<T: InputElement> ArgColumn<T> {
     }
 
     fn addresses_rows(&self, row_count: usize) -> bool {
-        // A constant is validated when constructed and is always read at index zero.
+        // A constant represents one value for every logical row.
         match &self.0 {
             ArgColumnKind::Column(column) => T::view(column).len() == row_count,
             ArgColumnKind::Const(_) => true,
@@ -107,7 +101,7 @@ impl<T: InputElement> ArgColumn<T> {
     fn const_value(&self) -> Option<T::Elem<'_>> {
         match &self.0 {
             ArgColumnKind::Column(_) => None,
-            ArgColumnKind::Const(column) => Some(T::get(column, 0)),
+            ArgColumnKind::Const(constant) => Some(T::get_constant(constant)),
         }
     }
 }
@@ -215,8 +209,8 @@ pub trait ElementTuple: 'static + private::Sealed {
     /// Whether every argument decoded at full batch length contains exactly `row_count` rows.
     ///
     /// `Columns` cannot implement [`ViewLen`] because a batch-constant `ArgColumn` stores one
-    /// decoded row while logically addressing the full batch. The batch-constant constructor
-    /// validates that one-row representation, so this method checks only non-constant columns.
+    /// decoded value while logically addressing the full batch. This method therefore checks only
+    /// non-constant columns.
     fn decoded_lens_match(columns: &Self::Columns, row_count: usize) -> bool;
 
     /// Read one row from borrowed views.

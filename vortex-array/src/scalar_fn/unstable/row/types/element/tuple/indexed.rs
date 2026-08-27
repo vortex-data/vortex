@@ -52,9 +52,9 @@ pub(in crate::scalar_fn::unstable::row) fn decoded_source<'a, Args: IndexedEleme
 enum ArgColumnSource<'a, T: InputElement> {
     Rows(T::View<'a>),
 
-    /// A validated one-row view that logically addresses `row_count` rows.
+    /// One decoded value that logically addresses `row_count` rows.
     Constant {
-        view: T::View<'a>,
+        constant: &'a T::Constant,
         row_count: usize,
     },
 }
@@ -66,10 +66,10 @@ impl<'a, T: InputElement> ArgColumnSource<'a, T> {
                 let view = T::view(column);
                 (view.len() == row_count).then_some(Self::Rows(view))
             }
-            ArgColumnKind::Const(column) => {
-                let view = T::view(column);
-                (view.len() == 1).then_some(Self::Constant { view, row_count })
-            }
+            ArgColumnKind::Const(constant) => Some(Self::Constant {
+                constant,
+                row_count,
+            }),
         }
     }
 }
@@ -91,10 +91,7 @@ impl<'a, T: InputElement> IndexedSource for ArgColumnSource<'a, T> {
                 // caller guarantees that `index` is below the source length.
                 unsafe { T::get_from_view_unchecked(view, index) }
             }
-            Self::Constant { view, .. } => {
-                // SAFETY: `try_new` checked that this exact retained view contains row zero.
-                unsafe { T::get_from_view_unchecked(view, 0) }
-            }
+            Self::Constant { constant, .. } => T::get_constant(constant),
         }
     }
 }
