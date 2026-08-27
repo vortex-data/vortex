@@ -83,6 +83,7 @@ serde = ["dep:serde", "vortex-buffer/serde", "vortex-mask/serde"]
 unstable_row_fns = []
 
 [dev-dependencies]
+allocator-api2 = { workspace = true }
 divan = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 insta = { workspace = true }

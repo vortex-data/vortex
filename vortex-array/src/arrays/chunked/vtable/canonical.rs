@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools as _;
-use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -30,7 +29,6 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::memory::HostAllocatorExt;
 use crate::validity::Validity;
 
 pub(super) fn _canonicalize(
@@ -71,7 +69,8 @@ pub(super) fn _canonicalize(
         }
         DType::Variant(_) => Canonical::Variant(pack_variant_chunks(owned_chunks, ctx)?),
         _ => {
-            let mut builder = builder_with_capacity_in(ctx.allocator(), array.dtype(), array.len());
+            let mut builder =
+                builder_with_capacity_in(ctx.allocator().clone(), array.dtype(), array.len());
             array.array().append_to_builder(builder.as_mut(), ctx)?;
             builder.finish_into_canonical(ctx)
         }
@@ -180,10 +179,10 @@ fn swizzle_list_chunks(
     // We (somewhat arbitrarily) choose `u64` for our offsets and sizes here. These can always be
     // narrowed later by the compressor.
     let allocator = ctx.allocator();
-    let mut offsets = allocator.allocate_typed::<u64>(len)?;
-    let mut sizes = allocator.allocate_typed::<u64>(len)?;
-    let offsets_out: &mut [u64] = offsets.as_mut_slice_typed::<u64>()?;
-    let sizes_slice_out: &mut [u64] = sizes.as_mut_slice_typed::<u64>()?;
+    let mut offsets = allocator.zeroed::<u64>(len);
+    let mut sizes = allocator.zeroed::<u64>(len);
+    let offsets_out = offsets.as_mut_slice();
+    let sizes_slice_out = sizes.as_mut_slice();
     let mut next_list = 0usize;
 
     for chunk in chunks {
@@ -229,16 +228,8 @@ fn swizzle_list_chunks(
         unsafe { ChunkedArray::new_unchecked(list_elements_chunks, elem_dtype.clone()) }
             .into_array();
 
-    let offsets = PrimitiveArray::new(
-        Buffer::<u64>::from_byte_buffer(offsets.freeze()),
-        Validity::NonNullable,
-    )
-    .into_array();
-    let sizes = PrimitiveArray::new(
-        Buffer::<u64>::from_byte_buffer(sizes.freeze()),
-        Validity::NonNullable,
-    )
-    .into_array();
+    let offsets = PrimitiveArray::new(offsets.freeze(), Validity::NonNullable).into_array();
+    let sizes = PrimitiveArray::new(sizes.freeze(), Validity::NonNullable).into_array();
 
     // SAFETY:
     // - `offsets` and `sizes` are non-nullable u64 arrays of the same length
@@ -286,11 +277,17 @@ fn swizzle_fixed_size_list_chunks(
 
 #[cfg(test)]
 mod tests {
+    use std::alloc::Layout;
+    use std::ptr::NonNull;
     use std::sync::Arc;
     use std::sync::LazyLock;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
+    use allocator_api2::alloc::AllocError;
+    use allocator_api2::alloc::Allocator;
+    use allocator_api2::alloc::Global;
+    use vortex_buffer::BufferAllocatorRef;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
@@ -318,10 +315,7 @@ mod tests {
     use crate::dtype::DType::Variant as VariantDType;
     use crate::dtype::Nullability::NonNullable;
     use crate::dtype::PType::I32;
-    use crate::memory::DefaultHostAllocator;
-    use crate::memory::HostAllocator;
     use crate::memory::MemorySessionExt;
-    use crate::memory::WritableHostBuffer;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
@@ -333,14 +327,16 @@ mod tests {
         allocations: Arc<AtomicUsize>,
     }
 
-    impl HostAllocator for CountingAllocator {
-        fn allocate(
-            &self,
-            len: usize,
-            alignment: vortex_buffer::Alignment,
-        ) -> VortexResult<WritableHostBuffer> {
+    // SAFETY: this forwards memory operations to Global and only counts allocations.
+    unsafe impl Allocator for CountingAllocator {
+        fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
             self.allocations.fetch_add(1, Ordering::Relaxed);
-            DefaultHostAllocator.allocate(len, alignment)
+            Global.allocate(layout)
+        }
+
+        unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
+            // SAFETY: ptr and layout came from Global.
+            unsafe { Global.deallocate(ptr, layout) }
         }
     }
 
@@ -663,9 +659,10 @@ mod tests {
     #[test]
     fn list_canonicalize_uses_memory_session_allocator() {
         let allocations = Arc::new(AtomicUsize::new(0));
-        let session = crate::array_session().with_allocator(Arc::new(CountingAllocator {
-            allocations: Arc::clone(&allocations),
-        }));
+        let session =
+            crate::array_session().with_allocator(BufferAllocatorRef::new(CountingAllocator {
+                allocations: Arc::clone(&allocations),
+            }));
         let mut ctx = session.create_execution_ctx();
 
         let l1 = ListArray::try_new(

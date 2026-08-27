@@ -10534,6 +10534,7 @@ dependencies = [
 name = "vortex-array"
 version = "0.1.0"
 dependencies = [
+ "allocator-api2",
  "arbitrary",
  "arc-swap",
  "arcref",
@@ -11085,6 +11086,7 @@ dependencies = [
 name = "vortex-file"
 version = "0.1.0"
 dependencies = [
+ "allocator-api2",
  "async-stream",
  "async-trait",
  "bytes",

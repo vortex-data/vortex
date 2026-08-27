@@ -144,7 +144,8 @@ impl ScalarFnVTable for VariantGet {
             .map_or(DType::Variant(Nullability::Nullable), DType::as_nullable);
 
         if !dtype.is_variant() {
-            let mut builder = builder_with_capacity_in(ctx.allocator(), &dtype, input.len());
+            let mut builder =
+                builder_with_capacity_in(ctx.allocator().clone(), &dtype, input.len());
             for idx in 0..input.len() {
                 let scalar = input.execute_scalar(idx, ctx)?;
                 let output = variant_get_scalar(&scalar, options, &dtype)?;

@@ -17,8 +17,7 @@ use object_store::ObjectStore;
 use object_store::ObjectStoreExt;
 use object_store::path::Path as ObjectPath;
 use vortex_array::buffer::BufferHandle;
-use vortex_array::memory::DefaultHostAllocator;
-use vortex_array::memory::HostAllocatorRef;
+use vortex_array::memory::BufferAllocatorRef;
 use vortex_buffer::Alignment;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -41,7 +40,7 @@ pub struct ObjectStoreReadAt {
     path: ObjectPath,
     uri: Arc<str>,
     handle: Handle,
-    allocator: HostAllocatorRef,
+    allocator: BufferAllocatorRef,
     concurrency: usize,
     coalesce_config: Option<CoalesceConfig>,
 }
@@ -49,7 +48,12 @@ pub struct ObjectStoreReadAt {
 impl ObjectStoreReadAt {
     /// Create a new object store source.
     pub fn new(store: Arc<dyn ObjectStore>, path: ObjectPath, handle: Handle) -> Self {
-        Self::new_with_allocator(store, path, handle, Arc::new(DefaultHostAllocator))
+        Self::new_with_allocator(
+            store,
+            path,
+            handle,
+            BufferAllocatorRef::statically_allocated(),
+        )
     }
 
     /// Create a new object store source with a custom writable buffer allocator.
@@ -57,7 +61,7 @@ impl ObjectStoreReadAt {
         store: Arc<dyn ObjectStore>,
         path: ObjectPath,
         handle: Handle,
-        allocator: HostAllocatorRef,
+        allocator: BufferAllocatorRef,
     ) -> Self {
         let uri = Arc::from(path.to_string());
         Self {
@@ -88,7 +92,7 @@ async fn read_object_store_range(
     store: Arc<dyn ObjectStore>,
     path: ObjectPath,
     io_handle: Handle,
-    allocator: HostAllocatorRef,
+    allocator: BufferAllocatorRef,
     request: ReadAtRequest,
 ) -> VortexResult<BufferHandle> {
     let ReadAtRequest {
@@ -97,7 +101,9 @@ async fn read_object_store_range(
         alignment,
     } = request;
     let range = offset..(offset + length as u64);
-    let mut buffer = allocator.allocate(length, alignment)?;
+    let mut buffer = allocator.with_capacity_aligned::<u8>(length, alignment);
+    // SAFETY: each return path checks that every byte was initialized.
+    unsafe { buffer.set_len(length) };
 
     let response = store
         .get_opts(
@@ -188,7 +194,7 @@ impl VortexReadAt for ObjectStoreReadAt {
         let store = Arc::clone(&self.store);
         let path = self.path.clone();
         let handle = self.handle.clone();
-        let allocator = Arc::clone(&self.allocator);
+        let allocator = self.allocator.clone();
         let io_handle = handle.clone();
         handle
             .spawn_io(read_object_store_range(
@@ -209,7 +215,7 @@ impl VortexReadAt for ObjectStoreReadAt {
         let store = Arc::clone(&self.store);
         let path = self.path.clone();
         let handle = self.handle.clone();
-        let allocator = Arc::clone(&self.allocator);
+        let allocator = self.allocator.clone();
         let concurrency = self.concurrency.max(1);
         let (mut send, recv) = mpsc::channel(concurrency);
         let io_handle = handle.clone();
@@ -222,7 +228,7 @@ impl VortexReadAt for ObjectStoreReadAt {
                 let store = Arc::clone(&store);
                 let path = path.clone();
                 let io_handle = io_handle.clone();
-                let allocator = Arc::clone(&allocator);
+                let allocator = allocator.clone();
                 async move {
                     let result =
                         read_object_store_range(store, path, io_handle, allocator, request).await;

@@ -17,8 +17,7 @@ use std::sync::Arc;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::buffer::BufferHandle;
-use vortex_array::memory::DefaultHostAllocator;
-use vortex_array::memory::HostAllocatorRef;
+use vortex_array::memory::BufferAllocatorRef;
 use vortex_buffer::Alignment;
 use vortex_error::VortexResult;
 
@@ -66,20 +65,20 @@ pub struct FileReadAt {
     uri: Arc<str>,
     file: Arc<File>,
     handle: Handle,
-    allocator: HostAllocatorRef,
+    allocator: BufferAllocatorRef,
 }
 
 impl FileReadAt {
     /// Open a file for reading.
     pub fn open(path: impl AsRef<Path>, handle: Handle) -> VortexResult<Self> {
-        Self::open_with_allocator(path, handle, Arc::new(DefaultHostAllocator))
+        Self::open_with_allocator(path, handle, BufferAllocatorRef::statically_allocated())
     }
 
     /// Open a file for reading using a custom writable buffer allocator.
     pub fn open_with_allocator(
         path: impl AsRef<Path>,
         handle: Handle,
-        allocator: HostAllocatorRef,
+        allocator: BufferAllocatorRef,
     ) -> VortexResult<Self> {
         let path = path.as_ref();
         let uri = path.to_string_lossy().to_string().into();
@@ -123,11 +122,13 @@ impl VortexReadAt for FileReadAt {
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         let file = Arc::clone(&self.file);
         let handle = self.handle.clone();
-        let allocator = Arc::clone(&self.allocator);
+        let allocator = self.allocator.clone();
         async move {
             handle
                 .spawn_blocking(move || {
-                    let mut buffer = allocator.allocate(length, alignment)?;
+                    let mut buffer = allocator.with_capacity_aligned::<u8>(length, alignment);
+                    // SAFETY: read_exact_at initializes every byte before the buffer is frozen.
+                    unsafe { buffer.set_len(length) };
                     read_exact_at(&file, buffer.as_mut_slice(), offset)?;
                     Ok(BufferHandle::new_host(buffer.freeze()))
                 })
