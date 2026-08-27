@@ -74,16 +74,11 @@ approval_rules:
   - name: claude or codex authored pull requests have two committer approvals
     description: "Requires two approvals from the Committers team when an agent GitHub App opened the pull request."
     if:
-      # These must be the bot logins GitHub reports as the pull request author,
-      # which is "<app-slug>[bot]".
       has_author_in:
         users:
-          # Codex.
           - "chatgpt-codex-connector[bot]"
           - "codex[bot]"
           - "openai-codex[bot]"
-          # Claude. "vortex-claude[bot]" is this repository's own App, used by
-          # .github/workflows/fuzzer-fix-automation.yml.
           - "claude-code[bot]"
           - "claude[bot]"
           - "vortex-claude[bot]"
