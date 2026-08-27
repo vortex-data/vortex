@@ -37,11 +37,11 @@ const MASK_EXPANSION_DENSITY_THRESHOLD: f64 = 0.05;
 /// Minimum average list length at which filtering trims unselected leading and trailing elements.
 const ELEMENT_RANGE_CROP_MIN_AVERAGE_LIST_LENGTH: usize = 1024;
 
-/// Construct the element range to filter and a mask relative to that range.
-fn element_range_and_mask_from_offsets<O: IntegerPType>(
+/// Construct the element range to filter.
+fn element_range_from_offsets<O: IntegerPType>(
     offsets: &[O],
     selection: &MaskValuesRef,
-) -> (Range<usize>, Mask) {
+) -> Range<usize> {
     let full_first_offset = offsets[0].as_();
     let full_last_offset = offsets[offsets.len() - 1].as_();
     let element_count = full_last_offset - full_first_offset;
@@ -57,7 +57,18 @@ fn element_range_and_mask_from_offsets<O: IntegerPType>(
     } else {
         (full_first_offset, full_last_offset)
     };
-    let len = last_offset - first_offset;
+    first_offset..last_offset
+}
+
+/// Construct an element mask relative to `element_range` from contiguous list offsets and an
+/// outer-row selection mask.
+pub fn element_mask_from_offsets<O: IntegerPType>(
+    offsets: &[O],
+    selection: &MaskValuesRef,
+    element_range: &Range<usize>,
+) -> Mask {
+    let first_offset = element_range.start;
+    let len = element_range.end - first_offset;
 
     let mut mask_builder = BitBufferMut::with_capacity(len);
 
@@ -88,10 +99,7 @@ fn element_range_and_mask_from_offsets<O: IntegerPType>(
     // Pad to full length if necessary.
     mask_builder.append_n(false, len - mask_builder.len());
 
-    (
-        first_offset..last_offset,
-        Mask::from_buffer(mask_builder.freeze()),
-    )
+    Mask::from_buffer(mask_builder.freeze())
 }
 
 /// Process a range of elements for filtering.
@@ -156,8 +164,9 @@ impl FilterKernel for List {
 
                 // TODO(ngates): for very dense masks, there may be no point in filtering the elements,
                 //  and instead we should construct a view against the unfiltered elements.
-                let (element_range, element_mask) =
-                    element_range_and_mask_from_offsets::<O>(offsets, selection);
+                let element_range = element_range_from_offsets::<O>(offsets, selection);
+                let element_mask =
+                    element_mask_from_offsets::<O>(offsets, selection, &element_range);
 
                 (
                     new_offsets.freeze().into_array(),
@@ -185,7 +194,8 @@ mod tests {
     use vortex_error::vortex_bail;
     use vortex_mask::Mask;
 
-    use super::element_range_and_mask_from_offsets;
+    use super::element_mask_from_offsets;
+    use super::element_range_from_offsets;
 
     #[test]
     fn element_mask_excludes_unselected_prefix_and_suffix() -> VortexResult<()> {
@@ -193,10 +203,9 @@ mod tests {
             vortex_bail!("a partially selective mask uses Mask::Values")
         };
 
-        let (range, element_mask) = element_range_and_mask_from_offsets(
-            &[10u32, 2010, 4010, 6010, 8010, 10010],
-            &selection,
-        );
+        let offsets = [10u32, 2010, 4010, 6010, 8010, 10010];
+        let range = element_range_from_offsets(&offsets, &selection);
+        let element_mask = element_mask_from_offsets(&offsets, &selection, &range);
 
         assert_eq!(range, 4010..6010);
         assert!(element_mask.all_true());
@@ -210,10 +219,9 @@ mod tests {
             vortex_bail!("a partially selective mask uses Mask::Values")
         };
 
-        let (range, element_mask) = element_range_and_mask_from_offsets(
-            &[10u32, 2010, 4010, 6010, 8010, 10010],
-            &selection,
-        );
+        let offsets = [10u32, 2010, 4010, 6010, 8010, 10010];
+        let range = element_range_from_offsets(&offsets, &selection);
+        let element_mask = element_mask_from_offsets(&offsets, &selection, &range);
 
         assert_eq!(range, 2010..8010);
         assert_eq!(element_mask.len(), 6000);
@@ -227,8 +235,9 @@ mod tests {
             vortex_bail!("a partially selective mask uses Mask::Values")
         };
 
-        let (range, element_mask) =
-            element_range_and_mask_from_offsets(&[10u32, 20, 30, 40, 50, 60], &selection);
+        let offsets = [10u32, 20, 30, 40, 50, 60];
+        let range = element_range_from_offsets(&offsets, &selection);
+        let element_mask = element_mask_from_offsets(&offsets, &selection, &range);
 
         assert_eq!(range, 10..60);
         assert_eq!(element_mask.len(), 50);
