@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use core::mem::MaybeUninit;
+use std::alloc::Layout;
 use std::any::type_name;
 use std::cmp::max;
 use std::fmt::Debug;
@@ -12,23 +13,25 @@ use std::ops::DerefMut;
 
 use bytes::Buf;
 use bytes::BufMut;
-use bytes::BytesMut;
 use bytes::buf::UninitSlice;
 use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
 use crate::Alignment;
+use crate::Allocation;
 use crate::Buffer;
+use crate::BufferAllocatorRef;
 use crate::ByteBufferMut;
 use crate::debug::TruncatedDebug;
 use crate::trusted_len::TrustedLen;
 
 /// A mutable buffer that maintains a runtime-defined alignment through resizing operations.
-#[derive(PartialEq, Eq)]
 pub struct BufferMut<T> {
-    pub(crate) bytes: BytesMut,
+    pub(crate) allocation: Allocation,
+    pub(crate) offset: usize,
     pub(crate) length: usize,
+    pub(crate) capacity: usize,
     pub(crate) alignment: Alignment,
     pub(crate) _marker: std::marker::PhantomData<T>,
 }
@@ -36,7 +39,12 @@ pub struct BufferMut<T> {
 impl<T> BufferMut<T> {
     /// Create a new `BufferMut` with the requested alignment and capacity.
     pub fn with_capacity(capacity: usize) -> Self {
-        Self::with_capacity_aligned(capacity, Alignment::of::<T>())
+        Self::with_capacity_in(capacity, BufferAllocatorRef::statically_allocated())
+    }
+
+    /// Create a new `BufferMut` with the requested capacity and allocator.
+    pub fn with_capacity_in(capacity: usize, allocator: BufferAllocatorRef) -> Self {
+        Self::with_capacity_aligned_in(capacity, Alignment::of::<T>(), allocator)
     }
 
     /// Create a new `BufferMut` with the requested alignment and capacity.
@@ -46,10 +54,24 @@ impl<T> BufferMut<T> {
     ///
     /// [`with_capacity_preferred_aligned`]: Self::with_capacity_preferred_aligned
     pub fn with_capacity_aligned(capacity: usize, alignment: Alignment) -> Self {
-        Self::with_capacity_preferred_aligned(
+        Self::with_capacity_aligned_in(
+            capacity,
+            alignment,
+            BufferAllocatorRef::statically_allocated(),
+        )
+    }
+
+    /// Create a new `BufferMut` with the requested alignment, capacity, and allocator.
+    pub fn with_capacity_aligned_in(
+        capacity: usize,
+        alignment: Alignment,
+        allocator: BufferAllocatorRef,
+    ) -> Self {
+        Self::with_capacity_preferred_aligned_in(
             capacity,
             alignment,
             Some(Alignment::DEFAULT_ALIGNMENT),
+            allocator,
         )
     }
 
@@ -61,6 +83,21 @@ impl<T> BufferMut<T> {
         capacity: usize,
         alignment: Alignment,
         preferred_alignment: Option<Alignment>,
+    ) -> Self {
+        Self::with_capacity_preferred_aligned_in(
+            capacity,
+            alignment,
+            preferred_alignment,
+            BufferAllocatorRef::statically_allocated(),
+        )
+    }
+
+    /// Create a new allocator-backed `BufferMut` with a requested and preferred alignment.
+    pub fn with_capacity_preferred_aligned_in(
+        capacity: usize,
+        alignment: Alignment,
+        preferred_alignment: Option<Alignment>,
+        allocator: BufferAllocatorRef,
     ) -> Self {
         let actual = max(
             alignment,
@@ -75,12 +112,19 @@ impl<T> BufferMut<T> {
             );
         }
 
-        let mut bytes = BytesMut::with_capacity((capacity * size_of::<T>()) + actual.as_usize());
-        bytes.align_empty(actual);
+        let size = capacity
+            .checked_mul(size_of::<T>())
+            .vortex_expect("buffer capacity overflow");
+        let layout = Layout::from_size_align(size, actual.as_usize())
+            .unwrap_or_else(|_| vortex_panic!("buffer capacity exceeds maximum allocation size"));
+        let allocation = Allocation::allocate(layout, allocator);
+        let capacity = allocation.size() / size_of::<T>();
 
         Self {
-            bytes,
+            allocation,
+            offset: 0,
             length: 0,
+            capacity,
             alignment,
             _marker: Default::default(),
         }
@@ -88,7 +132,12 @@ impl<T> BufferMut<T> {
 
     /// Create a new zeroed `BufferMut`.
     pub fn zeroed(len: usize) -> Self {
-        Self::zeroed_aligned(len, Alignment::of::<T>())
+        Self::zeroed_in(len, BufferAllocatorRef::statically_allocated())
+    }
+
+    /// Create a new zeroed `BufferMut` with the requested allocator.
+    pub fn zeroed_in(len: usize, allocator: BufferAllocatorRef) -> Self {
+        Self::zeroed_aligned_in(len, Alignment::of::<T>(), allocator)
     }
 
     /// Create a new zeroed `BufferMut` with the requested alignment.
@@ -98,7 +147,21 @@ impl<T> BufferMut<T> {
     ///
     /// [`zeroed_preferred_aligned`]: Self::zeroed_preferred_aligned
     pub fn zeroed_aligned(len: usize, alignment: Alignment) -> Self {
-        Self::zeroed_preferred_aligned(len, alignment, Some(Alignment::DEFAULT_ALIGNMENT))
+        Self::zeroed_aligned_in(len, alignment, BufferAllocatorRef::statically_allocated())
+    }
+
+    /// Create a zeroed `BufferMut` with an alignment and allocator.
+    pub fn zeroed_aligned_in(
+        len: usize,
+        alignment: Alignment,
+        allocator: BufferAllocatorRef,
+    ) -> Self {
+        Self::zeroed_preferred_aligned_in(
+            len,
+            alignment,
+            Some(Alignment::DEFAULT_ALIGNMENT),
+            allocator,
+        )
     }
 
     /// Create a new zeroed `BufferMut` with the requested alignment.
@@ -110,15 +173,35 @@ impl<T> BufferMut<T> {
         alignment: Alignment,
         preferred_alignment: Option<Alignment>,
     ) -> Self {
+        Self::zeroed_preferred_aligned_in(
+            len,
+            alignment,
+            preferred_alignment,
+            BufferAllocatorRef::statically_allocated(),
+        )
+    }
+
+    /// Create a zeroed allocator-backed buffer with a requested and preferred alignment.
+    pub fn zeroed_preferred_aligned_in(
+        len: usize,
+        alignment: Alignment,
+        preferred_alignment: Option<Alignment>,
+        allocator: BufferAllocatorRef,
+    ) -> Self {
         let preferred_alignment = preferred_alignment.unwrap_or(Alignment::of::<u8>());
         let actual_alignment = max(preferred_alignment, alignment);
-        let mut bytes = BytesMut::zeroed((len * size_of::<T>()) + actual_alignment.as_usize());
-        bytes.advance(bytes.as_ptr().align_offset(actual_alignment.as_usize()));
-        unsafe { bytes.set_len(len * size_of::<T>()) };
-        let actual_len = bytes.len().checked_div(size_of::<T>()).unwrap_or(0);
+        let size = len
+            .checked_mul(size_of::<T>())
+            .vortex_expect("buffer length overflow");
+        let layout = Layout::from_size_align(size, actual_alignment.as_usize())
+            .unwrap_or_else(|_| vortex_panic!("buffer length exceeds maximum allocation size"));
+        let allocation = Allocation::allocate_zeroed(layout, allocator);
+        let capacity = allocation.size() / size_of::<T>();
         Self {
-            bytes,
-            length: actual_len,
+            allocation,
+            offset: 0,
+            length: len,
+            capacity,
             alignment,
             _marker: Default::default(),
         }
@@ -136,7 +219,12 @@ impl<T> BufferMut<T> {
     ///
     /// [`empty_preferred_aligned`]: Self::empty_preferred_aligned
     pub fn empty_aligned(alignment: Alignment) -> Self {
-        Self::empty_preferred_aligned(alignment, Some(Alignment::DEFAULT_ALIGNMENT))
+        Self::empty_aligned_in(alignment, BufferAllocatorRef::statically_allocated())
+    }
+
+    /// Create an empty `BufferMut` with an alignment and allocator.
+    pub fn empty_aligned_in(alignment: Alignment, allocator: BufferAllocatorRef) -> Self {
+        Self::with_capacity_aligned_in(0, alignment, allocator)
     }
 
     /// Create a new empty `BufferMut` with the provided alignment.
@@ -147,7 +235,12 @@ impl<T> BufferMut<T> {
         alignment: Alignment,
         preferred_alignment: Option<Alignment>,
     ) -> Self {
-        BufferMut::with_capacity_preferred_aligned(0, alignment, preferred_alignment)
+        BufferMut::with_capacity_preferred_aligned_in(
+            0,
+            alignment,
+            preferred_alignment,
+            BufferAllocatorRef::statically_allocated(),
+        )
     }
 
     /// Create a new full `BufferMut` with the given value.
@@ -155,14 +248,27 @@ impl<T> BufferMut<T> {
     where
         T: Copy,
     {
-        let mut buffer = BufferMut::<T>::with_capacity(len);
+        Self::full_in(item, len, BufferAllocatorRef::statically_allocated())
+    }
+
+    /// Create a full `BufferMut` with the given value and allocator.
+    pub fn full_in(item: T, len: usize, allocator: BufferAllocatorRef) -> Self
+    where
+        T: Copy,
+    {
+        let mut buffer = BufferMut::<T>::with_capacity_in(len, allocator);
         buffer.push_n(item, len);
         buffer
     }
 
     /// Create a mutable scalar buffer by copying the contents of the slice.
     pub fn copy_from(other: impl AsRef<[T]>) -> Self {
-        Self::copy_from_aligned(other, Alignment::of::<T>())
+        Self::copy_from_in(other, BufferAllocatorRef::statically_allocated())
+    }
+
+    /// Create a mutable scalar buffer by copying with the given allocator.
+    pub fn copy_from_in(other: impl AsRef<[T]>, allocator: BufferAllocatorRef) -> Self {
+        Self::copy_from_aligned_in(other, Alignment::of::<T>(), allocator)
     }
 
     /// Create a mutable scalar buffer with the alignment by copying the contents of the slice.
@@ -176,7 +282,21 @@ impl<T> BufferMut<T> {
     ///
     /// Panics when the requested alignment isn't itself aligned to type T.
     pub fn copy_from_aligned(other: impl AsRef<[T]>, alignment: Alignment) -> Self {
-        Self::copy_from_preferred_aligned(other, alignment, Some(Alignment::DEFAULT_ALIGNMENT))
+        Self::copy_from_aligned_in(other, alignment, BufferAllocatorRef::statically_allocated())
+    }
+
+    /// Copy values into a mutable buffer with the given alignment and allocator.
+    pub fn copy_from_aligned_in(
+        other: impl AsRef<[T]>,
+        alignment: Alignment,
+        allocator: BufferAllocatorRef,
+    ) -> Self {
+        Self::copy_from_preferred_aligned_in(
+            other,
+            alignment,
+            Some(Alignment::DEFAULT_ALIGNMENT),
+            allocator,
+        )
     }
 
     /// Create a mutable scalar buffer with the alignment by copying the contents of the slice.
@@ -192,12 +312,31 @@ impl<T> BufferMut<T> {
         alignment: Alignment,
         preferred_alignment: Option<Alignment>,
     ) -> Self {
+        Self::copy_from_preferred_aligned_in(
+            other,
+            alignment,
+            preferred_alignment,
+            BufferAllocatorRef::statically_allocated(),
+        )
+    }
+
+    /// Copy values with the given allocator, requested alignment, and preferred alignment.
+    pub fn copy_from_preferred_aligned_in(
+        other: impl AsRef<[T]>,
+        alignment: Alignment,
+        preferred_alignment: Option<Alignment>,
+        allocator: BufferAllocatorRef,
+    ) -> Self {
         if !alignment.is_aligned_to(Alignment::of::<T>()) {
             vortex_panic!("Given alignment is not aligned to type T")
         }
         let other = other.as_ref();
-        let mut buffer =
-            Self::with_capacity_preferred_aligned(other.len(), alignment, preferred_alignment);
+        let mut buffer = Self::with_capacity_preferred_aligned_in(
+            other.len(),
+            alignment,
+            preferred_alignment,
+            allocator,
+        );
         buffer.extend_from_slice(other);
         debug_assert_eq!(buffer.alignment(), alignment);
         buffer
@@ -210,11 +349,15 @@ impl<T> BufferMut<T> {
         self.alignment
     }
 
+    /// Returns the allocator that owns this buffer.
+    pub fn allocator(&self) -> &BufferAllocatorRef {
+        self.allocation.allocator()
+    }
+
     /// Returns the length of the buffer.
     #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn len(&self) -> usize {
-        debug_assert_eq!(self.length, self.bytes.len() / size_of::<T>());
         self.length
     }
 
@@ -228,29 +371,38 @@ impl<T> BufferMut<T> {
     /// Returns the capacity of the buffer.
     #[inline]
     pub fn capacity(&self) -> usize {
-        self.bytes.capacity() / size_of::<T>()
+        self.capacity
+    }
+
+    /// Returns a raw pointer to the buffer's data.
+    pub fn as_ptr(&self) -> *const T {
+        // SAFETY: offset always remains within the allocation.
+        unsafe { self.allocation.ptr().as_ptr().add(self.offset).cast() }
+    }
+
+    /// Returns a mutable raw pointer to the buffer's data.
+    pub fn as_mut_ptr(&mut self) -> *mut T {
+        // SAFETY: BufferMut uniquely owns the allocation and offset is in bounds.
+        unsafe { self.allocation.ptr().as_ptr().add(self.offset).cast() }
     }
 
     /// Returns a slice over the buffer of elements of type T.
     #[inline]
     pub fn as_slice(&self) -> &[T] {
-        let raw_slice = self.bytes.as_ref();
-        // SAFETY: alignment of Buffer is checked on construction
-        unsafe { std::slice::from_raw_parts(raw_slice.as_ptr().cast(), self.length) }
+        // SAFETY: the allocation is live, offset is in bounds, and construction checks alignment.
+        unsafe { std::slice::from_raw_parts(self.as_ptr(), self.length) }
     }
 
     /// Returns a slice over the buffer of elements of type T.
     #[inline]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
-        let raw_slice = self.bytes.as_mut();
-        // SAFETY: alignment of Buffer is checked on construction
-        unsafe { std::slice::from_raw_parts_mut(raw_slice.as_mut_ptr().cast(), self.length) }
+        // SAFETY: BufferMut uniquely owns the allocation and the initialized range is in bounds.
+        unsafe { std::slice::from_raw_parts_mut(self.as_mut_ptr(), self.length) }
     }
 
     /// Clear the buffer, retaining any existing capacity.
     #[inline]
     pub fn clear(&mut self) {
-        unsafe { self.bytes.set_len(0) }
         self.length = 0;
     }
 
@@ -272,8 +424,7 @@ impl<T> BufferMut<T> {
     /// Reserves capacity for at least `additional` more elements to be inserted in the buffer.
     #[inline]
     pub fn reserve(&mut self, additional: usize) {
-        let additional_bytes = additional * size_of::<T>();
-        if additional_bytes <= self.bytes.capacity() - self.bytes.len() {
+        if additional <= self.capacity - self.length {
             // We can fit the additional bytes in the remaining capacity. Nothing to do.
             return;
         }
@@ -282,18 +433,37 @@ impl<T> BufferMut<T> {
         self.reserve_allocate(additional);
     }
 
-    /// A separate function so we can inline the reserve call's fast path. According to `BytesMut`
-    /// this has significant performance implications.
+    /// A separate function so we can inline the reserve call's fast path.
     fn reserve_allocate(&mut self, additional: usize) {
-        let new_capacity: usize =
-            ((self.length + additional) * size_of::<T>()) + self.alignment.as_usize();
+        let required = self
+            .length
+            .checked_add(additional)
+            .vortex_expect("buffer capacity overflow");
         // Make sure we at least double in size each time we re-allocate to amortize the cost
-        let new_capacity = new_capacity.max(self.bytes.capacity() * 2);
+        let new_capacity = required.max(self.capacity.saturating_mul(2));
+        let new_size = new_capacity
+            .checked_mul(size_of::<T>())
+            .vortex_expect("buffer capacity overflow");
+        let physical_alignment = max(self.alignment, self.allocation.alignment());
+        let layout = Layout::from_size_align(new_size, physical_alignment.as_usize())
+            .unwrap_or_else(|_| vortex_panic!("buffer capacity exceeds maximum allocation size"));
 
-        let mut bytes = BytesMut::with_capacity(new_capacity);
-        bytes.align_empty(self.alignment);
-        bytes.extend_from_slice(&self.bytes);
-        self.bytes = bytes;
+        if self.offset == 0 {
+            self.allocation.grow(layout);
+        } else {
+            let mut allocation = Allocation::allocate(layout, self.allocation.allocator().clone());
+            // SAFETY: both ranges are valid for the initialized byte length and do not overlap.
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    self.as_ptr().cast::<u8>(),
+                    allocation.ptr().as_ptr(),
+                    self.length * size_of::<T>(),
+                );
+            }
+            std::mem::swap(&mut self.allocation, &mut allocation);
+            self.offset = 0;
+        }
+        self.capacity = self.allocation.size() / size_of::<T>();
     }
 
     /// Returns the spare capacity of the buffer as a slice of `MaybeUninit<T>`.
@@ -333,13 +503,9 @@ impl<T> BufferMut<T> {
     /// ```
     #[inline]
     pub fn spare_capacity_mut(&mut self) -> &mut [MaybeUninit<T>] {
-        let dst = self.bytes.spare_capacity_mut().as_mut_ptr();
-        unsafe {
-            std::slice::from_raw_parts_mut(
-                dst as *mut MaybeUninit<T>,
-                self.capacity() - self.length,
-            )
-        }
+        // SAFETY: offset + length is within the allocation and points at spare capacity.
+        let dst = unsafe { self.as_mut_ptr().add(self.length) }.cast::<MaybeUninit<T>>();
+        unsafe { std::slice::from_raw_parts_mut(dst, self.capacity() - self.length) }
     }
 
     /// Sets the length of the buffer.
@@ -353,7 +519,6 @@ impl<T> BufferMut<T> {
     #[inline]
     pub unsafe fn set_len(&mut self, len: usize) {
         debug_assert!(len <= self.capacity());
-        unsafe { self.bytes.set_len(len * size_of::<T>()) };
         self.length = len;
     }
 
@@ -373,9 +538,8 @@ impl<T> BufferMut<T> {
     pub unsafe fn push_unchecked(&mut self, item: T) {
         // SAFETY: the caller ensures we have sufficient capacity
         unsafe {
-            let dst: *mut T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
+            let dst = self.as_mut_ptr().add(self.length);
             dst.write(item);
-            self.bytes.set_len(self.bytes.len() + size_of::<T>())
         }
         self.length += 1;
     }
@@ -402,7 +566,8 @@ impl<T> BufferMut<T> {
     where
         T: Copy,
     {
-        let mut dst: *mut T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
+        // SAFETY: the caller guarantees enough spare capacity.
+        let mut dst = unsafe { self.as_mut_ptr().add(self.length) };
         // SAFETY: we checked the capacity in the reserve call
         unsafe {
             let end = dst.add(n);
@@ -410,7 +575,6 @@ impl<T> BufferMut<T> {
                 dst.write(item);
                 dst = dst.add(1);
             }
-            self.bytes.set_len(self.bytes.len() + (n * size_of::<T>()));
         }
         self.length += n;
     }
@@ -430,19 +594,21 @@ impl<T> BufferMut<T> {
     #[inline]
     pub fn extend_from_slice(&mut self, slice: &[T]) {
         self.reserve(slice.len());
-        let raw_slice =
-            unsafe { std::slice::from_raw_parts(slice.as_ptr().cast(), size_of_val(slice)) };
-        self.bytes.extend_from_slice(raw_slice);
+        // SAFETY: reserve made the destination valid and non-overlapping for slice.len() values.
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                slice.as_ptr(),
+                self.as_mut_ptr().add(self.length),
+                slice.len(),
+            );
+        }
         self.length += slice.len();
     }
 
     /// Splits the buffer into two at the given index.
     ///
     /// Afterward, self contains elements `[0, at)`, and the returned buffer contains elements
-    /// `[at, capacity)`. It’s guaranteed that the memory does not move, that is, the address of
-    /// self does not change, and the address of the returned slice is at bytes after that.
-    ///
-    /// This is an O(1) operation that just increases the reference count and sets a few indices.
+    /// `[at, capacity)`. The returned buffer uses a new allocation.
     ///
     /// Panics if either half would have a length that is not a multiple of the alignment.
     pub fn split_off(&mut self, at: usize) -> Self {
@@ -459,27 +625,25 @@ impl<T> BufferMut<T> {
             );
         }
 
-        let new_bytes = self.bytes.split_off(bytes_at);
-
-        // Adjust the lengths, given that length may be < at
         let new_length = self.length.saturating_sub(at);
-        self.length = self.length.min(at);
-
-        BufferMut {
-            bytes: new_bytes,
-            length: new_length,
-            alignment: self.alignment,
-            _marker: Default::default(),
+        let new_capacity = self.capacity - at;
+        let mut other = Self::with_capacity_aligned_in(
+            new_capacity,
+            self.alignment,
+            self.allocation.allocator().clone(),
+        );
+        if new_length > 0 {
+            other.extend_from_slice(&self.as_slice()[at..]);
         }
+        self.length = self.length.min(at);
+        self.capacity = at;
+
+        other
     }
 
     /// Absorbs a mutable buffer that was previously split off.
     ///
-    /// If the two buffers were previously contiguous and not mutated in a way that causes
-    /// re-allocation i.e., if other was created by calling split_off on this buffer, then this is
-    /// an O(1) operation that just decreases a reference count and sets a few indices.
-    ///
-    /// Otherwise, this method degenerates to self.extend_from_slice(other.as_ref()).
+    /// This appends the contents of `other` to this buffer.
     pub fn unsplit(&mut self, other: Self) {
         if self.alignment != other.alignment {
             vortex_panic!(
@@ -488,15 +652,16 @@ impl<T> BufferMut<T> {
                 other.alignment
             );
         }
-        self.bytes.unsplit(other.bytes);
-        self.length += other.length;
+        self.extend_from_slice(other.as_slice());
     }
 
     /// Return the [`ByteBufferMut`] for this [`BufferMut`].
     pub fn into_byte_buffer(self) -> ByteBufferMut {
         ByteBufferMut {
-            bytes: self.bytes,
+            allocation: self.allocation,
+            offset: self.offset,
             length: self.length * size_of::<T>(),
+            capacity: self.capacity * size_of::<T>(),
             alignment: self.alignment,
             _marker: Default::default(),
         }
@@ -504,12 +669,7 @@ impl<T> BufferMut<T> {
 
     /// Freeze the `BufferMut` into a `Buffer`.
     pub fn freeze(self) -> Buffer<T> {
-        Buffer {
-            bytes: self.bytes.freeze(),
-            length: self.length,
-            alignment: self.alignment,
-            _marker: Default::default(),
-        }
+        Buffer::from_allocation(self.allocation, self.offset, self.length, self.alignment)
     }
 
     /// Map each element of the buffer with a closure.
@@ -537,14 +697,10 @@ impl<T> BufferMut<T> {
     /// If the data is not aligned, we copy it into a new allocation.
     pub fn aligned(self, alignment: Alignment) -> Self {
         if self.as_ptr().align_offset(alignment.as_usize()) == 0 {
-            Self {
-                bytes: self.bytes,
-                length: self.length,
-                alignment,
-                _marker: std::marker::PhantomData,
-            }
+            Self { alignment, ..self }
         } else {
-            Self::copy_from_aligned(self, alignment)
+            let allocator = self.allocation.allocator().clone();
+            Self::copy_from_aligned_in(self, alignment, allocator)
         }
     }
 
@@ -568,8 +724,10 @@ impl<T> BufferMut<T> {
         );
 
         BufferMut {
-            bytes: self.bytes,
+            allocation: self.allocation,
+            offset: self.offset,
             length: self.length,
+            capacity: self.capacity,
             alignment: self.alignment,
             _marker: std::marker::PhantomData,
         }
@@ -578,13 +736,23 @@ impl<T> BufferMut<T> {
 
 impl<T> Clone for BufferMut<T> {
     fn clone(&self) -> Self {
-        // NOTE(ngates): we cannot derive Clone since BytesMut copies on clone and the alignment
-        //  might be messed up.
-        let mut buffer = BufferMut::<T>::with_capacity_aligned(self.capacity(), self.alignment);
+        let mut buffer = BufferMut::<T>::with_capacity_aligned_in(
+            self.capacity(),
+            self.alignment,
+            self.allocation.allocator().clone(),
+        );
         buffer.extend_from_slice(self.as_slice());
         buffer
     }
 }
+
+impl<T: PartialEq> PartialEq for BufferMut<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_slice() == other.as_slice()
+    }
+}
+
+impl<T: Eq> Eq for BufferMut<T> {}
 
 impl<T: Debug> Debug for BufferMut<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -649,7 +817,7 @@ impl<T> BufferMut<T> {
         let unwritten = self.capacity() - self.len();
 
         // We store `begin` in the case that the lower bound hint is incorrect.
-        let begin: *const T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
+        let begin: *const T = self.spare_capacity_mut().as_mut_ptr().cast();
         let mut dst: *mut T = begin.cast_mut();
 
         // As a first step, we manually iterate the iterator up to the known capacity.
@@ -694,7 +862,7 @@ impl<T> BufferMut<T> {
                 .vortex_expect("`TrustedLen` iterator somehow didn't have valid upper bound"),
         );
 
-        let begin: *const T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
+        let begin: *const T = self.spare_capacity_mut().as_mut_ptr().cast();
         let mut dst: *mut T = begin.cast_mut();
 
         iter.for_each(|item| {
@@ -799,8 +967,10 @@ impl Buf for ByteBufferMut {
                 self.alignment
             );
         }
-        self.bytes.advance(cnt);
+        assert!(cnt <= self.length, "advance out of bounds");
+        self.offset += cnt;
         self.length -= cnt;
+        self.capacity -= cnt;
     }
 }
 
@@ -822,13 +992,15 @@ unsafe impl BufMut for ByteBufferMut {
                 self.alignment
             );
         }
-        unsafe { self.bytes.advance_mut(cnt) };
-        self.length -= cnt;
+        self.reserve(cnt);
+        self.length += cnt;
     }
 
     #[inline]
     fn chunk_mut(&mut self) -> &mut UninitSlice {
-        self.bytes.chunk_mut()
+        let spare = self.spare_capacity_mut();
+        // SAFETY: spare points to valid uninitialized byte capacity owned by this buffer.
+        unsafe { UninitSlice::from_raw_parts_mut(spare.as_mut_ptr().cast(), spare.len()) }
     }
 
     fn put<T: Buf>(&mut self, mut src: T)
@@ -850,35 +1022,6 @@ unsafe impl BufMut for ByteBufferMut {
     #[inline]
     fn put_bytes(&mut self, val: u8, cnt: usize) {
         self.push_n(val, cnt)
-    }
-}
-
-/// Extension trait for [`BytesMut`] that provides functions for aligning the buffer.
-trait AlignedBytesMut {
-    /// Align an empty `BytesMut` to the specified alignment.
-    ///
-    /// ## Panics
-    ///
-    /// Panics if the buffer is not empty, or if there is not enough capacity to align the buffer.
-    fn align_empty(&mut self, alignment: Alignment);
-}
-
-impl AlignedBytesMut for BytesMut {
-    fn align_empty(&mut self, alignment: Alignment) {
-        // TODO(joe): this is slow fixme
-        if !self.is_empty() {
-            vortex_panic!("ByteBufferMut must be empty");
-        }
-
-        let padding = self.as_ptr().align_offset(alignment.as_usize());
-        self.capacity()
-            .checked_sub(padding)
-            .vortex_expect("Not enough capacity to align buffer");
-
-        // SAFETY: We know the buffer is empty, and we know we have enough capacity, so we can
-        // safely set the length to the padding and advance the buffer to the aligned offset.
-        unsafe { self.set_len(padding) };
-        self.advance(padding);
     }
 }
 

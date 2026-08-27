@@ -22,7 +22,7 @@ where
     where
         S: Serializer,
     {
-        serializer.serialize_bytes(self.inner().as_ref())
+        serializer.serialize_bytes(self.as_bytes())
     }
 }
 

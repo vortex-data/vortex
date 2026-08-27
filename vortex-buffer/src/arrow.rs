@@ -35,12 +35,8 @@ impl<T: ArrowNativeType> Buffer<T> {
             );
         }
 
-        Self {
-            bytes,
-            length,
-            alignment,
-            _marker: Default::default(),
-        }
+        debug_assert_eq!(length, bytes.len() / size_of::<T>());
+        Self::from_bytes_aligned(bytes, alignment)
     }
 
     /// Converts the buffer zero-copy into a `arrow_buffer::OffsetBuffer`.
@@ -74,12 +70,8 @@ impl ByteBuffer {
             );
         }
 
-        Self {
-            bytes,
-            length,
-            alignment,
-            _marker: Default::default(),
-        }
+        debug_assert_eq!(length, bytes.len());
+        Self::from_bytes_aligned(bytes, alignment)
     }
 }
 

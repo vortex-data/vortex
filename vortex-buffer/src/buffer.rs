@@ -8,9 +8,11 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
-use std::marker::PhantomData;
 use std::ops::Deref;
 use std::ops::RangeBounds;
+use std::ptr::NonNull;
+use std::sync::Arc;
+use std::sync::LazyLock;
 
 use bytes::Buf;
 use bytes::Bytes;
@@ -18,6 +20,9 @@ use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
 use crate::Alignment;
+use crate::Allocation;
+use crate::BufferAllocatorRef;
+use crate::BufferBacking;
 use crate::BufferMut;
 use crate::ByteBuffer;
 use crate::debug::TruncatedDebug;
@@ -26,63 +31,109 @@ use crate::trusted_len::TrustedLen;
 /// An immutable buffer of items of `T`.
 #[derive(Clone)]
 pub struct Buffer<T> {
-    pub(crate) bytes: Bytes,
+    pub(crate) ptr: NonNull<T>,
     pub(crate) length: usize,
     pub(crate) alignment: Alignment,
-    pub(crate) _marker: PhantomData<T>,
+    pub(crate) backing: Arc<BufferBacking>,
 }
+
+// SAFETY: Buffer is an immutable view over backing memory. Its pointer remains valid while the
+// backing is live, and sharing elements follows the same bounds as sharing a slice.
+unsafe impl<T: Send> Send for Buffer<T> {}
+// SAFETY: see the Send implementation above.
+unsafe impl<T: Sync> Sync for Buffer<T> {}
 
 /// Zero-length backing for empty buffers, "aligned" to [`Alignment::MAX`] so it satisfies any
 /// valid alignment without allocating. A zero-length slice never reads memory, so it may use a
 /// dangling pointer as long as it is non-null and aligned.
-const EMPTY_BACKING: &[u8] = {
+const EMPTY_BYTES: &[u8] = {
     let ptr = std::ptr::without_provenance(Alignment::MAX.as_usize());
     // SAFETY: the pointer is non-null and aligned, and the slice is zero-length.
     unsafe { std::slice::from_raw_parts(ptr, 0) }
 };
 
+static EMPTY_BACKING: LazyLock<Arc<BufferBacking>> = LazyLock::new(|| {
+    Arc::new(BufferBacking::External {
+        _owner: Box::new(EMPTY_BYTES),
+    })
+});
+
 impl<T> Default for Buffer<T> {
     fn default() -> Self {
         Self {
-            bytes: Bytes::from_static(EMPTY_BACKING),
+            ptr: empty_ptr(),
             length: 0,
             alignment: Alignment::of::<T>(),
-            _marker: PhantomData,
+            backing: EMPTY_BACKING.clone(),
         }
     }
 }
 
-impl<T> PartialEq for Buffer<T> {
+impl<T: PartialEq> PartialEq for Buffer<T> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        self.bytes == other.bytes
+        self.as_slice() == other.as_slice()
     }
 }
 
-impl<T> Eq for Buffer<T> {}
+impl<T: Eq> Eq for Buffer<T> {}
 
-impl<T> Ord for Buffer<T> {
+impl<T: Ord> Ord for Buffer<T> {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
-        self.bytes.cmp(&other.bytes)
+        self.as_slice().cmp(other.as_slice())
     }
 }
 
-impl<T> PartialOrd for Buffer<T> {
+impl<T: PartialOrd> PartialOrd for Buffer<T> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
+        self.as_slice().partial_cmp(other.as_slice())
     }
 }
 
-impl<T> Hash for Buffer<T> {
+impl<T: Hash> Hash for Buffer<T> {
     #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.bytes.as_ref().hash(state)
+        self.as_slice().hash(state)
     }
 }
 
 impl<T> Buffer<T> {
+    pub(crate) fn from_allocation(
+        allocation: Allocation,
+        offset: usize,
+        length: usize,
+        alignment: Alignment,
+    ) -> Self {
+        // SAFETY: BufferMut keeps offset within allocation, including for empty buffers.
+        let ptr = unsafe { allocation.ptr().add(offset).cast() };
+        Self {
+            ptr,
+            length,
+            alignment,
+            backing: Arc::new(BufferBacking::Owned(allocation)),
+        }
+    }
+
+    fn from_owner(owner: impl crate::BufferOwner, alignment: Alignment) -> Self {
+        let bytes = owner.as_slice();
+        let length = bytes.len() / size_of::<T>();
+        let ptr = if length == 0 {
+            empty_ptr()
+        } else {
+            NonNull::new(bytes.as_ptr().cast_mut().cast()).vortex_expect("owner pointer is null")
+        };
+        Self {
+            ptr,
+            length,
+            alignment,
+            backing: Arc::new(BufferBacking::External {
+                _owner: Box::new(owner),
+            }),
+        }
+    }
+
     /// Returns a new `Buffer<T>` copied from the provided `Vec<T>`, `&[T]`, etc.
     ///
     /// Due to our underlying usage of `bytes::Bytes`, we are unable to take zero-copy ownership
@@ -91,6 +142,11 @@ impl<T> Buffer<T> {
     /// callers should prefer to construct `Buffer<T>` from a `BufferMut<T>`.
     pub fn copy_from(values: impl AsRef<[T]>) -> Self {
         BufferMut::copy_from(values).freeze()
+    }
+
+    /// Returns a new `Buffer<T>` copied with the provided allocator.
+    pub fn copy_from_in(values: impl AsRef<[T]>, allocator: BufferAllocatorRef) -> Self {
+        BufferMut::copy_from_in(values, allocator).freeze()
     }
 
     /// Returns a new `Buffer<T>` copied from the provided slice and with the requested alignment.
@@ -118,6 +174,11 @@ impl<T> Buffer<T> {
     /// Create a new zeroed `Buffer` with the given value.
     pub fn zeroed(len: usize) -> Self {
         Self::zeroed_aligned(len, Alignment::of::<T>())
+    }
+
+    /// Create a new zeroed `Buffer` with the provided allocator.
+    pub fn zeroed_in(len: usize, allocator: BufferAllocatorRef) -> Self {
+        BufferMut::zeroed_in(len, allocator).freeze()
     }
 
     /// Create a new zeroed `Buffer` with the requested alignment.
@@ -160,10 +221,10 @@ impl<T> Buffer<T> {
             );
         }
         Self {
-            bytes: Bytes::from_static(EMPTY_BACKING),
+            ptr: empty_ptr(),
             length: 0,
             alignment,
-            _marker: PhantomData,
+            backing: EMPTY_BACKING.clone(),
         }
     }
 
@@ -173,6 +234,14 @@ impl<T> Buffer<T> {
         T: Copy,
     {
         BufferMut::full(item, len).freeze()
+    }
+
+    /// Create a full `Buffer` with the given value and allocator.
+    pub fn full_in(item: T, len: usize, allocator: BufferAllocatorRef) -> Self
+    where
+        T: Copy,
+    {
+        BufferMut::full_in(item, len, allocator).freeze()
     }
 
     /// Create a `Buffer<T>` zero-copy from a `ByteBuffer`.
@@ -193,7 +262,29 @@ impl<T> Buffer<T> {
     /// Panics if the buffer is not aligned to the given alignment, if the length is not a multiple
     /// of the size of `T`, or if the given alignment is not aligned to that of `T`.
     pub fn from_byte_buffer_aligned(buffer: ByteBuffer, alignment: Alignment) -> Self {
-        Self::from_bytes_aligned(buffer.into_inner(), alignment)
+        if !alignment.is_aligned_to(Alignment::of::<T>()) {
+            vortex_panic!(
+                "Alignment {} must be compatible with the scalar type's alignment {}",
+                alignment,
+                Alignment::of::<T>(),
+            );
+        }
+        if !alignment.is_ptr_aligned(buffer.as_ptr()) {
+            vortex_panic!("Buffer must align to the requested alignment {}", alignment);
+        }
+        if !buffer.len().is_multiple_of(size_of::<T>()) {
+            vortex_panic!(
+                "Buffer length {} must be a multiple of the scalar type's size {}",
+                buffer.len(),
+                size_of::<T>()
+            );
+        }
+        Self {
+            ptr: buffer.ptr.cast(),
+            length: buffer.length / size_of::<T>(),
+            alignment,
+            backing: buffer.backing,
+        }
     }
 
     /// Create a `Buffer<T>` zero-copy from a `Bytes`.
@@ -223,13 +314,7 @@ impl<T> Buffer<T> {
                 size_of::<T>()
             );
         }
-        let length = bytes.len() / size_of::<T>();
-        Self {
-            bytes,
-            length,
-            alignment,
-            _marker: Default::default(),
-        }
+        Self::from_owner(bytes, alignment)
     }
 
     /// Create a buffer with values from the TrustedLen iterator.
@@ -248,7 +333,8 @@ impl<T> Buffer<T> {
             Ok(mut_buf) => mut_buf.map_each_in_place(f),
             Err(buf) => {
                 let len = buf.len();
-                let mut out_buf = BufferMut::with_capacity(len);
+                let allocator = buf.backing.allocator().clone();
+                let mut out_buf = BufferMut::with_capacity_in(len, allocator);
                 out_buf
                     .spare_capacity_mut()
                     .iter_mut()
@@ -265,7 +351,6 @@ impl<T> Buffer<T> {
 
     /// Clear the buffer, preserving existing capacity.
     pub fn clear(&mut self) {
-        self.bytes.clear();
         self.length = 0;
     }
 
@@ -290,19 +375,35 @@ impl<T> Buffer<T> {
         self.alignment
     }
 
+    /// Returns the allocator to use for derived buffers.
+    ///
+    /// External buffers use the static allocator.
+    pub fn allocator(&self) -> &BufferAllocatorRef {
+        self.backing.allocator()
+    }
+
+    /// Returns a raw pointer to the buffer's data.
+    #[inline(always)]
+    pub fn as_ptr(&self) -> *const T {
+        self.ptr.as_ptr()
+    }
+
     /// Returns a slice over the buffer of elements of type T.
     #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn as_slice(&self) -> &[T] {
-        // SAFETY: alignment of Buffer is checked on construction
-        unsafe { std::slice::from_raw_parts(self.bytes.as_ptr().cast(), self.length) }
+        // SAFETY: ptr points into the live backing and construction checks its alignment.
+        unsafe { std::slice::from_raw_parts(self.ptr.as_ptr(), self.length) }
     }
 
     /// Return a view over the buffer as an opaque byte slice.
     #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn as_bytes(&self) -> &[u8] {
-        self.bytes.as_ref()
+        // SAFETY: the element range is initialized and remains live through backing.
+        unsafe {
+            std::slice::from_raw_parts(self.ptr.as_ptr().cast(), size_of_val(self.as_slice()))
+        }
     }
 
     /// Returns an iterator over the buffer of elements of type T.
@@ -378,8 +479,6 @@ impl<T> Buffer<T> {
         }
 
         let begin_byte = begin * size_of::<T>();
-        let end_byte = end * size_of::<T>();
-
         if !alignment.is_offset_aligned(begin_byte) {
             vortex_panic!(
                 "range start must be aligned to {alignment:?}, byte {}",
@@ -391,10 +490,11 @@ impl<T> Buffer<T> {
         }
 
         Self {
-            bytes: self.bytes.slice(begin_byte..end_byte),
+            // SAFETY: begin is in bounds and the alignment check applies to the new pointer.
+            ptr: unsafe { self.ptr.add(begin) },
             length: end - begin,
             alignment,
-            _marker: Default::default(),
+            backing: Arc::clone(&self.backing),
         }
     }
 
@@ -434,74 +534,90 @@ impl<T> Buffer<T> {
             vortex_panic!("slice_ref subset must be aligned to {:?}", alignment);
         }
 
-        let subset_u8 =
-            unsafe { std::slice::from_raw_parts(subset.as_ptr().cast(), size_of_val(subset)) };
+        let start = self.as_ptr().addr();
+        let end = start + size_of_val(self.as_slice());
+        let subset_start = subset.as_ptr().addr();
+        let subset_end = subset_start
+            .checked_add(size_of_val(subset))
+            .vortex_expect("slice_ref address overflow");
+        if subset_start < start || subset_end > end {
+            vortex_panic!("slice_ref subset must be contained in the buffer");
+        }
 
         Self {
-            bytes: self.bytes.slice_ref(subset_u8),
+            ptr: NonNull::new(subset.as_ptr().cast_mut()).vortex_expect("slice pointer is null"),
             length: subset.len(),
             alignment,
-            _marker: Default::default(),
+            backing: Arc::clone(&self.backing),
         }
     }
 
-    /// Returns the underlying aligned buffer.
-    pub fn inner(&self) -> &Bytes {
-        debug_assert_eq!(
-            self.length * size_of::<T>(),
-            self.bytes.len(),
-            "Own length has to be the same as the underlying bytes length"
-        );
-        &self.bytes
-    }
-
-    /// Returns the underlying aligned buffer.
+    /// Returns the underlying bytes without copying.
     pub fn into_inner(self) -> Bytes {
-        debug_assert_eq!(
-            self.length * size_of::<T>(),
-            self.bytes.len(),
-            "Own length has to be the same as the underlying bytes length"
-        );
-        self.bytes
+        Bytes::from_owner(BufferBytesOwner {
+            ptr: self.ptr.cast(),
+            length: self.length * size_of::<T>(),
+            backing: self.backing,
+        })
     }
 
     /// Return the ByteBuffer for this `Buffer<T>`.
     pub fn into_byte_buffer(self) -> ByteBuffer {
         ByteBuffer {
-            bytes: self.bytes,
+            ptr: self.ptr.cast(),
             length: self.length * size_of::<T>(),
             alignment: self.alignment,
-            _marker: Default::default(),
+            backing: self.backing,
         }
     }
 
     /// Try to convert self into `BufferMut<T>` if there is only a single strong reference.
     pub fn try_into_mut(self) -> Result<BufferMut<T>, Self> {
-        self.bytes
-            .try_into_mut()
-            .map(|bytes| BufferMut {
-                bytes,
-                length: self.length,
-                alignment: self.alignment,
-                _marker: Default::default(),
-            })
-            .map_err(|bytes| Self {
-                bytes,
-                length: self.length,
-                alignment: self.alignment,
-                _marker: Default::default(),
-            })
+        let Self {
+            ptr,
+            length,
+            alignment,
+            backing,
+        } = self;
+        match Arc::try_unwrap(backing) {
+            Ok(BufferBacking::Owned(allocation)) => {
+                let offset = ptr.addr().get() - allocation.ptr().addr().get();
+                let capacity = (allocation.size() - offset) / size_of::<T>();
+                Ok(BufferMut {
+                    allocation,
+                    offset,
+                    length,
+                    capacity,
+                    alignment,
+                    _marker: Default::default(),
+                })
+            }
+            Ok(backing) => Err(Self {
+                ptr,
+                length,
+                alignment,
+                backing: Arc::new(backing),
+            }),
+            Err(backing) => Err(Self {
+                ptr,
+                length,
+                alignment,
+                backing,
+            }),
+        }
     }
 
     /// Convert self into `BufferMut<T>`, cloning the data if there are multiple strong references.
     pub fn into_mut(self) -> BufferMut<T> {
-        self.try_into_mut()
-            .unwrap_or_else(|buffer| BufferMut::<T>::copy_from_aligned(&buffer, buffer.alignment))
+        self.try_into_mut().unwrap_or_else(|buffer| {
+            let allocator = buffer.backing.allocator().clone();
+            BufferMut::<T>::copy_from_aligned_in(&buffer, buffer.alignment, allocator)
+        })
     }
 
     /// Returns whether a `Buffer<T>` is aligned to the given alignment.
     pub fn is_aligned(&self, alignment: Alignment) -> bool {
-        alignment.is_ptr_aligned(self.bytes.as_ptr())
+        alignment.is_ptr_aligned(self.as_ptr())
     }
 
     /// Return a `Buffer<T>` with the given alignment. Where possible, this will be zero-copy.
@@ -517,7 +633,8 @@ impl<T> Buffer<T> {
                     "Buffer is not aligned to requested alignment {alignment}, copying: {bt}"
                 )
             }
-            Self::copy_from_aligned(self, alignment)
+            let allocator = self.backing.allocator().clone();
+            BufferMut::copy_from_aligned_in(self, alignment, allocator).freeze()
         }
     }
 
@@ -553,10 +670,10 @@ impl<T> Buffer<T> {
         );
 
         Buffer {
-            bytes: self.bytes,
+            ptr: self.ptr.cast(),
             length: self.length,
             alignment: self.alignment,
-            _marker: PhantomData,
+            backing: self.backing,
         }
     }
 }
@@ -651,34 +768,21 @@ impl<T> AsRef<[u8]> for Wrapper<T> {
 
 impl<T> From<Vec<T>> for Buffer<T>
 where
-    T: Send + 'static,
+    T: Send + Sync + 'static,
 {
     fn from(value: Vec<T>) -> Self {
-        let original_len = value.len();
         let wrapped_vec = Wrapper(value);
-
-        let bytes = Bytes::from_owner(wrapped_vec);
-
-        assert_eq!(bytes.as_ptr().align_offset(align_of::<T>()), 0);
-
-        Self {
-            bytes,
-            length: original_len,
-            alignment: Alignment::of::<T>(),
-            _marker: PhantomData,
-        }
+        assert_eq!(
+            wrapped_vec.as_ref().as_ptr().align_offset(align_of::<T>()),
+            0
+        );
+        Self::from_owner(wrapped_vec, Alignment::of::<T>())
     }
 }
 
 impl From<Bytes> for ByteBuffer {
     fn from(bytes: Bytes) -> Self {
-        let length = bytes.len();
-        Self {
-            bytes,
-            length,
-            alignment: Alignment::of::<u8>(),
-            _marker: Default::default(),
-        }
+        Self::from_owner(bytes, Alignment::of::<u8>())
     }
 }
 
@@ -702,9 +806,34 @@ impl Buf for ByteBuffer {
                 self.alignment
             );
         }
-        self.bytes.advance(cnt);
+        assert!(cnt <= self.length, "cannot advance past the buffer length");
+        // SAFETY: cnt is within the initialized byte range.
+        self.ptr = unsafe { self.ptr.add(cnt) };
         self.length -= cnt;
     }
+}
+
+struct BufferBytesOwner {
+    ptr: NonNull<u8>,
+    length: usize,
+    backing: Arc<BufferBacking>,
+}
+
+// SAFETY: the owner exposes immutable initialized bytes and keeps their backing live.
+unsafe impl Send for BufferBytesOwner {}
+unsafe impl Sync for BufferBytesOwner {}
+
+impl AsRef<[u8]> for BufferBytesOwner {
+    fn as_ref(&self) -> &[u8] {
+        let _ = &self.backing;
+        // SAFETY: ptr and length came from a live Buffer.
+        unsafe { std::slice::from_raw_parts(self.ptr.as_ptr(), self.length) }
+    }
+}
+
+fn empty_ptr<T>() -> NonNull<T> {
+    let addr = 1usize << (usize::BITS - 1);
+    NonNull::new(std::ptr::without_provenance_mut(addr)).vortex_expect("empty pointer is non-null")
 }
 
 /// Owned iterator over a [`Buffer`].
