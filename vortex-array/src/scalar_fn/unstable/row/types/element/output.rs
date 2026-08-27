@@ -10,7 +10,6 @@ use vortex_compute::lane_kernels::IndexedSourceExt;
 
 use crate::ArrayRef;
 use crate::dtype::DType;
-use crate::scalar_fn::unstable::row::FailureEvidence;
 
 /// An owned row value that can be built into an all-valid column.
 ///
@@ -60,35 +59,5 @@ pub trait OutputElement: 'static + Sized + Default {
         unsafe { values.set_len(row_count) };
 
         Self::build(values)
-    }
-
-    /// Map a contiguous row source into an all-valid column and reduce deferred failure evidence.
-    ///
-    /// The default collects one value per row into a [`Vec`] before calling [`build`](Self::build).
-    /// An output type can override this method to combine its physical collection with the failure
-    /// reduction. The implementation **must** satisfy the ordering and output requirements of
-    /// [`build_from`](Self::build_from). It must return the bitwise OR of exactly the failure values
-    /// returned by `apply` and must not introduce a separate failure path.
-    /// `Fail` must be no wider than `Self`, so failure reduction does not bound the vector width.
-    ///
-    /// The caller validates the failure evidence after this method returns, so it can discard the
-    /// returned column.
-    fn build_from_deferred<S, F, Fail>(source: S, apply: F) -> (ArrayRef, Fail)
-    where
-        S: IndexedSource,
-        F: Fn(S::Item) -> (Self, Fail),
-        Fail: FailureEvidence,
-    {
-        let row_count = source.len();
-        let mut values = Vec::<Self>::with_capacity(row_count);
-        let output = &mut values.spare_capacity_mut()[..row_count];
-
-        let failure = source.map_checked_into(output, apply);
-
-        // SAFETY: normal completion of `map_checked_into` initializes every output slot exactly
-        // once.
-        unsafe { values.set_len(row_count) };
-
-        (Self::build(values), failure)
     }
 }

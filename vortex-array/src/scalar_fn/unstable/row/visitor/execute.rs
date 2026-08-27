@@ -33,6 +33,7 @@ use crate::scalar_fn::unstable::row::OutputSink;
 use crate::scalar_fn::unstable::row::RowFn;
 use crate::scalar_fn::unstable::row::SinkResult;
 use crate::scalar_fn::unstable::row::execute::execute_owned;
+use crate::scalar_fn::unstable::row::execute::execute_owned_bool;
 use crate::scalar_fn::unstable::row::execute::execute_owned_infallible;
 use crate::scalar_fn::unstable::row::execute::execute_owned_infallible_valid_rows;
 use crate::scalar_fn::unstable::row::execute::execute_owned_valid_rows;
@@ -152,6 +153,33 @@ impl<F: RowFn> RowVisitor for ExecuteRows<'_, '_, F> {
         self.plan.ensure_reproduced_by(&visited)?;
 
         execute_owned::<Args, Out, Prepared, Fail>(
+            self.args,
+            self.ctx,
+            prepare,
+            apply,
+            finish_failure,
+        )
+    }
+
+    fn visit_prepared_deferred_bool<Args, Prepared, Fail>(
+        self,
+        prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
+        apply: impl Fn(&Prepared, Args::Elems<'_>) -> (bool, Fail),
+        finish_failure: impl FnOnce(Fail) -> VortexResult<()>,
+    ) -> VortexResult<Self::VisitResult>
+    where
+        Args: IndexedElementTuple,
+        Fail: FailureEvidence,
+    {
+        const { assert_deferred_visit_contract::<F, Args, bool, Fail>() };
+        let visited = BatchPlan::new(
+            validate_owned_visit::<Args, bool>(self.dtypes)?,
+            self.output_dtype,
+            RowPolicy::for_deferred_output::<Args>(),
+        )?;
+        self.plan.ensure_reproduced_by(&visited)?;
+
+        execute_owned_bool::<Args, Prepared, Fail>(
             self.args,
             self.ctx,
             prepare,

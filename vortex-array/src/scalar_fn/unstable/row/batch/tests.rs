@@ -548,7 +548,7 @@ impl RowFn for DeferredGreaterThan {
         _args: &[DType],
         visitor: V,
     ) -> VortexResult<V::VisitResult> {
-        visitor.visit_deferred::<(i64, i64), bool, bool>(
+        visitor.visit_deferred_bool::<(i64, i64), bool>(
             |(lhs, rhs)| (lhs > rhs, lhs == i64::MIN),
             |failed| {
                 if failed {

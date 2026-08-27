@@ -12,6 +12,9 @@ pub(super) use owned::execute_owned_infallible;
 pub(super) use owned::execute_owned_infallible_valid_rows;
 pub(super) use owned::execute_owned_valid_rows;
 
+mod packed_bool;
+pub(super) use packed_bool::execute_owned_bool;
+
 mod retry;
 pub(super) use retry::DenseAttempt;
 pub(super) use retry::execute_owned_dense_attempt;
