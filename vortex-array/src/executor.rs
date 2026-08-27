@@ -12,12 +12,12 @@
 //! See <https://docs.vortex.dev/developer-guide/internals/execution> for the full execution
 //! narrative, diagrams, and walkthroughs.
 
-use std::cell::OnceCell;
 use std::env::VarError;
 use std::fmt;
 use std::fmt::Display;
 use std::sync::Arc;
 use std::sync::LazyLock;
+use std::sync::OnceLock;
 #[cfg(debug_assertions)]
 use std::sync::atomic::AtomicUsize;
 #[cfg(debug_assertions)]
@@ -351,8 +351,8 @@ struct StackFrame {
 #[derive(Debug, Clone)]
 pub struct ExecutionCtx {
     session: VortexSession,
-    // OnceCell avoids cloning the session allocator when a context does not allocate.
-    allocator: OnceCell<BufferAllocatorRef>,
+    // OnceLock avoids cloning the session allocator when a context does not allocate.
+    allocator: OnceLock<BufferAllocatorRef>,
     execute_parent_kernels: Arc<ParentExecutionKernels>,
     #[cfg(debug_assertions)]
     id: usize,
@@ -370,7 +370,7 @@ impl ExecutionCtx {
         let execute_parent_kernels = session.kernels().execute_parent_snapshot();
         Self {
             session,
-            allocator: OnceCell::new(),
+            allocator: OnceLock::new(),
             execute_parent_kernels,
             #[cfg(debug_assertions)]
             id: {
@@ -394,7 +394,7 @@ impl ExecutionCtx {
 
     /// Set the allocator for this execution context.
     pub fn with_allocator(mut self, allocator: BufferAllocatorRef) -> Self {
-        self.allocator = OnceCell::from(allocator);
+        self.allocator = OnceLock::from(allocator);
         self
     }
 
@@ -937,6 +937,7 @@ impl VortexSessionExecute for VortexSession {
 
 #[cfg(test)]
 mod tests {
+    use static_assertions::assert_impl_all;
     use vortex_session::SessionExt;
     use vortex_session::VortexSession;
 
@@ -951,6 +952,8 @@ mod tests {
     use crate::optimizer::kernels::ExecuteParentFn;
     use crate::optimizer::kernels::KernelSession;
     use crate::optimizer::kernels::execute_parent_key;
+
+    assert_impl_all!(ExecutionCtx: Send, Sync);
 
     fn noop_execute_parent(
         _child: &ArrayRef,
