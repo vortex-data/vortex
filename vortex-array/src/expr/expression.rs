@@ -267,12 +267,14 @@ impl Display for Expression {
     }
 }
 
+// Switch to iterative cleanup after this many recursive drops.
 const MAX_DROP_DEPTH: u32 = 32;
 
 thread_local! {
     static DROP_DEPTH: Cell<u32> = const { Cell::new(0) };
 }
 
+// Increments the thread-local drop depth until the guard is dropped.
 struct DropDepthGuard;
 
 impl DropDepthGuard {
