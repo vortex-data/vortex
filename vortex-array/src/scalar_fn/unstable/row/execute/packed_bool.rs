@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Direct packed Boolean collection for deferred row computations.
+//! Direct packed Boolean collection for infallible and deferred row computations.
+//!
+//! These executors share the indexed input decoding used by owned outputs, but construct a
+//! canonical [`BoolArray`] without first collecting one byte per row.
 
 use std::mem::size_of;
 
@@ -20,8 +23,38 @@ use crate::scalar_fn::unstable::row::IndexedElementTuple;
 use crate::scalar_fn::unstable::row::types::decoded_source;
 use crate::validity::Validity;
 
+/// Decode every input column, then pack infallible Boolean outputs.
+pub(crate) fn execute_owned_infallible_bool<Args, const MULTIVERSIONED: bool>(
+    args: &dyn ExecutionArgs,
+    ctx: &mut ExecutionCtx,
+    apply: impl Fn(Args::Elems<'_>) -> bool,
+) -> VortexResult<ArrayRef>
+where
+    Args: IndexedElementTuple,
+{
+    let columns = Args::decode(args, ctx)?;
+    let row_count = args.row_count();
+
+    let Some(source) = decoded_source::<Args>(&columns, row_count) else {
+        vortex_bail!("a decoded row input does not address exactly {row_count} rows");
+    };
+
+    let collect = |index| {
+        // SAFETY: Both collectors only invoke this closure with `index < row_count`, and the decoded
+        // source was constructed with exactly `row_count` rows.
+        apply(unsafe { source.get_unchecked(index) })
+    };
+    let values = if MULTIVERSIONED {
+        BitBuffer::collect_bool_multiversioned(row_count, collect)
+    } else {
+        BitBuffer::collect_bool(row_count, collect)
+    };
+
+    Ok(BoolArray::new(values, Validity::NonNullable).into_array())
+}
+
 /// Decode every input column, then pack Boolean outputs while combining failure evidence.
-pub(crate) fn execute_owned_bool<Args, Prepared, Fail>(
+pub(crate) fn execute_owned_bool<Args, Prepared, Fail, const MULTIVERSIONED: bool>(
     args: &dyn ExecutionArgs,
     ctx: &mut ExecutionCtx,
     prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
@@ -48,15 +81,20 @@ where
     };
 
     let mut failure = Fail::default();
-    let values = BitBuffer::collect_bool(row_count, |index| {
-        // SAFETY: `collect_bool` only invokes this closure with `index < row_count`, and the
-        // decoded source was constructed with exactly `row_count` rows.
+    let collect = |index| {
+        // SAFETY: Both collectors only invoke this closure with `index < row_count`, and the decoded
+        // source was constructed with exactly `row_count` rows.
         let elements = unsafe { source.get_unchecked(index) };
         let (value, row_failure) = apply(&prepared, elements);
         failure |= row_failure;
 
         value
-    });
+    };
+    let values = if MULTIVERSIONED {
+        BitBuffer::collect_bool_multiversioned(row_count, collect)
+    } else {
+        BitBuffer::collect_bool(row_count, collect)
+    };
 
     finish_failure(failure)?;
 

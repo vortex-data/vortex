@@ -132,7 +132,7 @@ impl<T: BenchPrimitive> RowFn for DeferredBool<T> {
         _args: &[DType],
         visitor: V,
     ) -> VortexResult<V::VisitResult> {
-        visitor.visit_deferred_bool::<(T, T), bool>(
+        visitor.visit_deferred_bool::<(T, T), bool, false>(
             |(lhs, rhs)| (lhs.is_lt(rhs), lhs.is_lt(T::default())),
             |negative| {
                 vortex_ensure!(

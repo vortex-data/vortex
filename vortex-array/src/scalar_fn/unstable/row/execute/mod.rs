@@ -14,6 +14,7 @@ pub(super) use owned::execute_owned_valid_rows;
 
 mod packed_bool;
 pub(super) use packed_bool::execute_owned_bool;
+pub(super) use packed_bool::execute_owned_infallible_bool;
 
 mod retry;
 pub(super) use retry::DenseAttempt;
