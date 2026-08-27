@@ -89,6 +89,9 @@ impl BenchPrimitive for i64 {
 struct InfallibleBool<T>(PhantomData<T>);
 
 #[derive(Clone)]
+struct DeferredBool<T>(PhantomData<T>);
+
+#[derive(Clone)]
 struct DeferredI64;
 
 impl<T: BenchPrimitive> RowFn for InfallibleBool<T> {
@@ -109,6 +112,36 @@ impl<T: BenchPrimitive> RowFn for InfallibleBool<T> {
         visitor: V,
     ) -> VortexResult<V::VisitResult> {
         visitor.visit::<(T, T), bool>(|(lhs, rhs)| lhs.is_lt(rhs))
+    }
+}
+
+impl<T: BenchPrimitive> RowFn for DeferredBool<T> {
+    type Options = EmptyOptions;
+
+    const ARG_NAMES: &'static [&'static str] = &["lhs", "rhs"];
+    const INFALLIBLE: bool = false;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("bench.row_fn_output.deferred_bool");
+        *ID
+    }
+
+    fn dispatch<V: RowVisitor>(
+        &self,
+        _options: &Self::Options,
+        _args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        visitor.visit_deferred::<(T, T), bool, bool>(
+            |(lhs, rhs)| (lhs.is_lt(rhs), lhs.is_lt(T::default())),
+            |negative| {
+                vortex_ensure!(
+                    !negative,
+                    "deferred-bool benchmark inputs must be nonnegative"
+                );
+                Ok(())
+            },
+        )
     }
 }
 
@@ -146,6 +179,13 @@ impl RowFn for DeferredI64 {
 #[divan::bench(types = [i32, i64], args = INPUT_SHAPES)]
 fn infallible_bool<T: BenchPrimitive>(bencher: Bencher, &shape: &InputShape) {
     let function = InfallibleBool::<T>(PhantomData);
+    bench_row_fn(bencher, &function, make_args::<T>(shape));
+}
+
+#[vortex_bench_support::cpu_features]
+#[divan::bench(types = [i32, i64], args = INPUT_SHAPES)]
+fn deferred_bool<T: BenchPrimitive>(bencher: Bencher, &shape: &InputShape) {
+    let function = DeferredBool::<T>(PhantomData);
     bench_row_fn(bencher, &function, make_args::<T>(shape));
 }
 
