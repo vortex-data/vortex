@@ -267,23 +267,15 @@ impl Display for Expression {
     }
 }
 
-/// The number of [`Expression`] drops that may nest before a drop becomes iterative.
-///
-/// Expression trees are almost always shallow, so recursion, which the compiler-generated drop
-/// glue does anyway, is the fast path. Each level uses a few hundred bytes of stack, so this
-/// limit stays far below the stack of even a small worker thread.
 const MAX_DROP_DEPTH: u32 = 32;
 
 thread_local! {
-    /// The number of [`Expression`] drops on the stack of this thread.
     static DROP_DEPTH: Cell<u32> = const { Cell::new(0) };
 }
 
-/// Counts one level of recursive [`Expression`] drop, and releases it when the level completes.
 struct DropDepthGuard;
 
 impl DropDepthGuard {
-    /// Returns a guard if the recursion is still inside the depth limit, else `None`.
     fn enter() -> Option<Self> {
         DROP_DEPTH.with(|depth| {
             let current = depth.get();
@@ -301,13 +293,11 @@ impl Drop for DropDepthGuard {
     }
 }
 
-/// Recursive drop for expressions, which becomes iterative on deep trees to protect the stack.
 impl Drop for Expression {
     fn drop(&mut self) {
         let Self::Scalar { children, .. } = self else {
             return;
         };
-        // Shared children outlive this node, so no descendant drops here.
         let Some(children) = Arc::get_mut(children) else {
             return;
         };
@@ -318,10 +308,7 @@ impl Drop for Expression {
         let mut children_to_drop = std::mem::take(children);
 
         match DropDepthGuard::enter() {
-            // The children drop here, and not through the drop glue of this node, because the
-            // recursion below must occur while the guard holds the deeper level.
             Some(_guard) => drop(children_to_drop),
-            // Below the deepest recursive level, unwind the remainder of the tree iteratively.
             None => {
                 while let Some(mut child) = children_to_drop.pop() {
                     if let Self::Scalar { children, .. } = &mut child
@@ -343,7 +330,6 @@ mod tests {
     use crate::expr::lit;
     use crate::expr::not;
 
-    /// A chain of `not` nodes of the given depth.
     fn deep_expression(depth: usize) -> Expression {
         let mut expr = lit(true);
         for _ in 0..depth {
