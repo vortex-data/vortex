@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use num_traits::Zero;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
@@ -32,13 +34,29 @@ use crate::validity::Validity;
 /// Note that this is somewhat arbitrarily chosen...
 const MASK_EXPANSION_DENSITY_THRESHOLD: f64 = 0.05;
 
-/// Construct an element mask from contiguous list offsets and a selection mask.
-pub fn element_mask_from_offsets<O: IntegerPType>(
+/// Minimum average list length at which filtering trims unselected leading and trailing elements.
+const ELEMENT_RANGE_CROP_MIN_AVERAGE_LIST_LENGTH: usize = 1024;
+
+/// Construct the element range to filter and a mask relative to that range.
+fn element_range_and_mask_from_offsets<O: IntegerPType>(
     offsets: &[O],
     selection: &MaskValuesRef,
-) -> Mask {
-    let first_offset = offsets.first().map_or(0, |first_offset| first_offset.as_());
-    let last_offset = offsets.last().map_or(0, |last_offset| last_offset.as_());
+) -> (Range<usize>, Mask) {
+    let full_first_offset = offsets[0].as_();
+    let full_last_offset = offsets[offsets.len() - 1].as_();
+    let element_count = full_last_offset - full_first_offset;
+    let list_count = offsets.len() - 1;
+
+    let selected_indices = selection.indices();
+    let first_index = selected_indices[0];
+    let last_index = selected_indices[selected_indices.len() - 1];
+    let crop_element_range =
+        element_count > list_count.saturating_mul(ELEMENT_RANGE_CROP_MIN_AVERAGE_LIST_LENGTH);
+    let (first_offset, last_offset) = if crop_element_range {
+        (offsets[first_index].as_(), offsets[last_index + 1].as_())
+    } else {
+        (full_first_offset, full_last_offset)
+    };
     let len = last_offset - first_offset;
 
     let mut mask_builder = BitBufferMut::with_capacity(len);
@@ -70,7 +88,10 @@ pub fn element_mask_from_offsets<O: IntegerPType>(
     // Pad to full length if necessary.
     mask_builder.append_n(false, len - mask_builder.len());
 
-    Mask::from_buffer(mask_builder.freeze())
+    (
+        first_offset..last_offset,
+        Mask::from_buffer(mask_builder.freeze()),
+    )
 }
 
 /// Process a range of elements for filtering.
@@ -119,7 +140,7 @@ impl FilterKernel for List {
         // TODO(ngates): for ultra-sparse masks, we don't need to optimize the entire offsets.
         let offsets = array.offsets().clone();
 
-        let (new_offsets, element_mask) =
+        let (new_offsets, element_range, element_mask) =
             match_each_integer_ptype!(offsets.dtype().as_ptype(), |O| {
                 let offsets_buffer = offsets.execute::<Buffer<O>>(ctx)?;
                 let offsets = offsets_buffer.as_slice();
@@ -135,17 +156,83 @@ impl FilterKernel for List {
 
                 // TODO(ngates): for very dense masks, there may be no point in filtering the elements,
                 //  and instead we should construct a view against the unfiltered elements.
-                let element_mask = element_mask_from_offsets::<O>(offsets, selection);
+                let (element_range, element_mask) =
+                    element_range_and_mask_from_offsets::<O>(offsets, selection);
 
-                (new_offsets.freeze().into_array(), element_mask)
+                (
+                    new_offsets.freeze().into_array(),
+                    element_range,
+                    element_mask,
+                )
             });
 
-        let new_elements = array.sliced_elements()?.filter(element_mask)?;
+        let new_elements = array
+            .elements()
+            .slice(element_range)?
+            .filter(element_mask)?;
 
         // SAFETY: new_offsets are monotonically increasing starting from 0 with length
         // true_count + 1, and the elements have been filtered to match.
         Ok(Some(unsafe {
             ListArray::new_unchecked(new_elements, new_offsets, new_validity).into_array()
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_error::VortexResult;
+    use vortex_error::vortex_bail;
+    use vortex_mask::Mask;
+
+    use super::element_range_and_mask_from_offsets;
+
+    #[test]
+    fn element_mask_excludes_unselected_prefix_and_suffix() -> VortexResult<()> {
+        let Mask::Values(selection) = Mask::from_indices(5, [2]) else {
+            vortex_bail!("a partially selective mask uses Mask::Values")
+        };
+
+        let (range, element_mask) = element_range_and_mask_from_offsets(
+            &[10u32, 2010, 4010, 6010, 8010, 10010],
+            &selection,
+        );
+
+        assert_eq!(range, 4010..6010);
+        assert!(element_mask.all_true());
+        assert_eq!(element_mask.len(), 2000);
+        Ok(())
+    }
+
+    #[test]
+    fn element_mask_retains_gaps_between_selected_lists() -> VortexResult<()> {
+        let Mask::Values(selection) = Mask::from_indices(5, [1, 3]) else {
+            vortex_bail!("a partially selective mask uses Mask::Values")
+        };
+
+        let (range, element_mask) = element_range_and_mask_from_offsets(
+            &[10u32, 2010, 4010, 6010, 8010, 10010],
+            &selection,
+        );
+
+        assert_eq!(range, 2010..8010);
+        assert_eq!(element_mask.len(), 6000);
+        assert_eq!(element_mask.true_count(), 4000);
+        Ok(())
+    }
+
+    #[test]
+    fn element_mask_preserves_complete_range_for_short_lists() -> VortexResult<()> {
+        let Mask::Values(selection) = Mask::from_indices(5, [2]) else {
+            vortex_bail!("a partially selective mask uses Mask::Values")
+        };
+
+        let (range, element_mask) =
+            element_range_and_mask_from_offsets(&[10u32, 20, 30, 40, 50, 60], &selection);
+
+        assert_eq!(range, 10..60);
+        assert_eq!(element_mask.len(), 50);
+        assert_eq!(element_mask.true_count(), 10);
+        Ok(())
     }
 }
