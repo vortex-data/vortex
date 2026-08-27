@@ -12,6 +12,7 @@
 //! - [`BitPackedV2`] stores integer values with a bit width chosen independently for every
 //!   1024-element FastLanes chunk.
 //! - [`FoR`] stores frame-of-reference deltas from a base value.
+//! - [`BlockedFoR`] stores frame-of-reference deltas from a base value per 1024-value block.
 //! - [`Delta`] stores adjacent deltas in chunked form.
 //! - [`RLE`] stores repeated runs.
 //!
@@ -30,6 +31,7 @@
 
 pub use bitpacking::*;
 pub use bitpacking_v2::*;
+pub use blocked_for::*;
 pub use delta::*;
 pub use r#for::*;
 pub use rle::*;
@@ -45,6 +47,7 @@ use vortex_error::VortexResult;
 pub mod bit_transpose;
 mod bitpacking;
 mod bitpacking_v2;
+mod blocked_for;
 mod delta;
 mod r#for;
 mod rle;
@@ -91,6 +94,7 @@ pub fn initialize(session: &VortexSession) {
         session.arrays().register(BitPacked);
     }
     session.arrays().register(BitPackedV2);
+    session.arrays().register(BlockedFoR);
     session.arrays().register(Delta);
     session.arrays().register(FoR);
     session.arrays().register(RLE);

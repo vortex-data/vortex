@@ -33,7 +33,7 @@ use crate::Scheme;
 use crate::SchemeExt;
 
 /// Threshold for the average run length in an array before we consider run-end encoding.
-const RUN_END_THRESHOLD: u32 = 4;
+pub(super) const RUN_END_THRESHOLD: u32 = 4;
 
 /// Run-end encoding with end positions.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

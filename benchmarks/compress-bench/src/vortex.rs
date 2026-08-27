@@ -17,10 +17,11 @@ use vortex::dtype::FieldNames;
 use vortex::expr::root;
 use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
-use vortex::file::WriteOptionsSessionExt;
 use vortex_arrow::ArrowSessionExt;
+use vortex_bench::CompactionStrategy;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
+use vortex_bench::bench_write_options;
 use vortex_bench::compress::Compressor;
 use vortex_bench::compress::read_projection;
 use vortex_bench::conversions::parquet_to_vortex_chunks;
@@ -41,8 +42,7 @@ impl Compressor for VortexCompressor {
         let mut buf = Vec::new();
         let start = Instant::now();
         let mut cursor = Cursor::new(&mut buf);
-        SESSION
-            .write_options()
+        bench_write_options(CompactionStrategy::Default)
             .write(&mut cursor, uncompressed.into_array().to_array_stream())
             .await?;
         let elapsed = start.elapsed();
@@ -55,8 +55,7 @@ impl Compressor for VortexCompressor {
         let uncompressed = parquet_to_vortex_chunks(parquet_path.to_path_buf()).await?;
         let mut buf = Vec::new();
         let mut cursor = Cursor::new(&mut buf);
-        SESSION
-            .write_options()
+        bench_write_options(CompactionStrategy::Default)
             .write(&mut cursor, uncompressed.into_array().to_array_stream())
             .await?;
 

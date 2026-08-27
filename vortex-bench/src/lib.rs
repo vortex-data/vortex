@@ -29,9 +29,16 @@ use tpch::benchmark::TpcHBenchmark;
 pub use utils::file::*;
 pub use utils::logging::*;
 use vortex::compressor::BtrBlocksCompressorBuilder;
+use vortex::compressor::SchemeExt;
+use vortex::compressor::schemes::integer::BlockedFoRScheme;
+use vortex::compressor::schemes::integer::FoRScheme;
+use vortex::editions::CORE_2026_08_4;
+use vortex::editions::ComponentKind;
+use vortex::editions::EditionSessionExt;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::file::VortexWriteOptions;
+use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
 use vortex::utils::aliases::hash_map::HashMap;
 
@@ -81,8 +88,60 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::default().with_tokio();
     vortex_spatial::initialize(&session);
+    // `fastlanes.blockedfor` is declared only by the draft [`CORE_2026_08_4`] edition, which
+    // [`vortex::editions::DEFAULT_CORE_EDITION`] does not point at. Enabling it here lets the
+    // benchmarks write the encoding and report what promoting it to the default core edition
+    // would buy; every other write path in the workspace keeps refusing it.
+    session
+        .enable_edition(CORE_2026_08_4)
+        .unwrap_or_else(|e| vortex_panic!("CORE_2026_08_4 must be registered: {e}"));
     session
 });
+
+/// The compressor the benchmarks write with.
+///
+/// [`BlockedFoRScheme`] is deliberately absent from [`vortex::compressor::ALL_SCHEMES`]: a
+/// default session's encoding policy forbids `fastlanes.blockedfor`, and write paths that build
+/// a strategy without an allow list would fail to serialize it rather than silently fall back.
+/// The benchmarks opt in explicitly, alongside the edition enabled on [`SESSION`].
+pub fn bench_btrblocks_builder(compaction: CompactionStrategy) -> BtrBlocksCompressorBuilder {
+    // Replace rather than add. `BlockedFoRScheme` subsumes `FoRScheme` — with no block narrower
+    // than the array its references fold to a constant — but the two estimates are close enough
+    // that leaving both in lets `FoRScheme` win races the block-wise form serves better. On
+    // TPC-H SF=1 replacing gains 3.21% against 1.92% for merely adding.
+    let builder = BtrBlocksCompressorBuilder::default()
+        .exclude_schemes([FoRScheme.id()])
+        .with_new_scheme(&BlockedFoRScheme);
+    match compaction {
+        CompactionStrategy::Compact => builder.with_compact(),
+        CompactionStrategy::Default => builder,
+    }
+}
+
+/// The write strategy the benchmarks use, carrying [`SESSION`]'s encoding policy.
+///
+/// Mirrors what [`VortexWriteOptions::new`] builds, so the only difference from a default write
+/// is the extra scheme and the extra permitted encoding.
+pub fn bench_strategy_builder(compaction: CompactionStrategy) -> WriteStrategyBuilder {
+    WriteStrategyBuilder::default()
+        .with_btrblocks_builder(bench_btrblocks_builder(compaction))
+        .with_allow_encodings(
+            SESSION
+                .enabled_component_ids(ComponentKind::Array)
+                .into_iter()
+                .collect(),
+        )
+}
+
+/// The write options every benchmark must write Vortex files with.
+///
+/// A bare [`VortexSession::write_options`] builds its strategy from the default scheme set, which
+/// omits [`BlockedFoRScheme`]. A benchmark that writes through one measures a file the encoding
+/// never entered — identical to its base except for the edition's larger encoding table. Route
+/// every benchmark write through here so no call site can silently opt out.
+pub fn bench_write_options(compaction: CompactionStrategy) -> VortexWriteOptions {
+    compaction.apply_options(SESSION.write_options())
+}
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Target {
@@ -250,14 +309,7 @@ pub enum CompactionStrategy {
 
 impl CompactionStrategy {
     pub fn apply_options(&self, options: VortexWriteOptions) -> VortexWriteOptions {
-        match self {
-            CompactionStrategy::Compact => options.with_strategy(
-                WriteStrategyBuilder::default()
-                    .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact())
-                    .build(),
-            ),
-            CompactionStrategy::Default => options,
-        }
+        options.with_strategy(bench_strategy_builder(*self).build())
     }
 }
 
@@ -539,4 +591,53 @@ where
     }
 
     sql_statements
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex::array::ArrayRef;
+    use vortex::array::IntoArray;
+    use vortex::array::VortexSessionExecute;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::validity::Validity;
+    use vortex::buffer::Buffer;
+    use vortex::error::VortexResult;
+
+    use super::*;
+
+    /// Values clustered inside each 1024-value FastLanes block but drifting across the array:
+    /// what a per-block frame of reference is for, and what a single global reference misses.
+    fn drifting() -> ArrayRef {
+        let values: Vec<i64> = (0..16_384)
+            .map(|i| 1_000_000 + (i / 1024) * 1_000_000 + ((i * 7919) % 101))
+            .collect();
+        PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable).into_array()
+    }
+
+    fn contains(array: &ArrayRef, encoding: &str) -> bool {
+        array.encoding_id().as_str() == encoding
+            || array.children_iter().any(|child| contains(child, encoding))
+    }
+
+    /// Both gates that kept `fastlanes.blockedfor` out of the benchmark numbers: the compressor
+    /// must offer the scheme, and [`SESSION`]'s editions must permit the encoding it writes.
+    /// Either one closed and bench-all measures nothing but the encoding table.
+    #[test]
+    fn bench_writes_are_allowed_to_use_blocked_for() -> VortexResult<()> {
+        assert!(
+            SESSION
+                .enabled_component_ids(ComponentKind::Array)
+                .iter()
+                .any(|id| id.as_str() == "fastlanes.blockedfor"),
+            "the bench session must enable an edition declaring fastlanes.blockedfor"
+        );
+
+        let compressor = bench_btrblocks_builder(CompactionStrategy::Default).build();
+        let compressed = compressor.compress(&drifting(), &mut SESSION.create_execution_ctx())?;
+        assert!(
+            contains(&compressed, "fastlanes.blockedfor"),
+            "bench compressor did not select blocked frame of reference"
+        );
+        Ok(())
+    }
 }

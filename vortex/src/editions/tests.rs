@@ -48,6 +48,7 @@ use super::CORE_2026_08_0;
 use super::CORE_2026_08_1;
 use super::CORE_2026_08_2;
 use super::CORE_2026_08_3;
+use super::CORE_2026_08_4;
 use super::DEFAULT_CORE_EDITION;
 use super::DEFAULT_PREVIEW_EDITION;
 use super::EDITION_DECLARATIONS;
@@ -223,6 +224,32 @@ fn earlier_editions_are_subsets() {
             .any(|latest| latest.component_id == inclusion.component_id)
     }));
     assert!(first.len() < latest.len());
+}
+
+/// `fastlanes.blockedfor` must be a draft member only: [`DEFAULT_CORE_EDITION`] does not point
+/// here, so the default writer still refuses it and callers evaluating the encoding opt in.
+#[test]
+fn core_2026_08_4_adds_blocked_for_as_a_draft() {
+    let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
+    assert!(
+        session
+            .find(&CORE_2026_08_4)
+            .unwrap_or_else(|| panic!("{CORE_2026_08_4} is not registered"))
+            .is_draft()
+    );
+    assert!(
+        session
+            .components_in(&CORE_2026_08_4, ComponentKind::Array)
+            .iter()
+            .any(|inclusion| inclusion.component_id.as_str() == "fastlanes.blockedfor")
+    );
+    assert_ne!(DEFAULT_CORE_EDITION, CORE_2026_08_4);
+    assert!(
+        session
+            .components_in(&DEFAULT_CORE_EDITION, ComponentKind::Array)
+            .iter()
+            .all(|inclusion| inclusion.component_id.as_str() != "fastlanes.blockedfor")
+    );
 }
 
 #[test]

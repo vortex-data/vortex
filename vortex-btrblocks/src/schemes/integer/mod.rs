@@ -6,6 +6,7 @@
 mod bitpacking;
 #[cfg(feature = "unstable_encodings")]
 mod bitpacking_v2;
+mod blocked_for;
 #[cfg(feature = "unstable_encodings")]
 mod delta;
 mod for_;
@@ -21,6 +22,7 @@ mod pco;
 pub use bitpacking::BitPackingScheme;
 #[cfg(feature = "unstable_encodings")]
 pub use bitpacking_v2::BitPackingV2Scheme;
+pub use blocked_for::BlockedFoRScheme;
 #[cfg(feature = "unstable_encodings")]
 pub use delta::DeltaScheme;
 pub use for_::FoRScheme;

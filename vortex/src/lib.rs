@@ -146,7 +146,10 @@ pub mod compressor {
     pub use vortex_btrblocks::BtrBlocksCompressor;
     pub use vortex_btrblocks::BtrBlocksCompressorBuilder;
     pub use vortex_btrblocks::Scheme;
+    pub use vortex_btrblocks::SchemeExt;
     pub use vortex_btrblocks::SchemeId;
+    /// The built-in compression schemes, for callers assembling a non-default compressor.
+    pub use vortex_btrblocks::schemes;
 }
 
 /// Vortex editions: named, frozen sets of encodings with a read-compatibility guarantee.

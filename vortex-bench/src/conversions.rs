@@ -37,7 +37,6 @@ use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::array::builders::builder_with_capacity;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::array::stream::ArrayStreamExt;
-use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::dtype::DType;
 use vortex::dtype::FieldPath;
 use vortex::dtype::StructFields;
@@ -47,7 +46,6 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::file::VortexWriteOptions;
 use vortex::file::WriteOptionsSessionExt;
-use vortex::file::WriteStrategyBuilder;
 use vortex::layout::LayoutStrategy;
 use vortex::layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex::layout::layouts::compressed::CompressingStrategy;
@@ -66,6 +64,8 @@ use wkb::writer::write_geometry;
 use crate::CompactionStrategy;
 use crate::Format;
 use crate::SESSION;
+use crate::bench_btrblocks_builder;
+use crate::bench_strategy_builder;
 use crate::utils::file::idempotent_async;
 
 /// Memory budget per concurrent conversion stream in GB. This is somewhat arbitary.
@@ -247,11 +247,7 @@ fn write_options_for(
         return compaction.apply_options(SESSION.write_options());
     }
 
-    let mut builder = WriteStrategyBuilder::default();
-    if matches!(compaction, CompactionStrategy::Compact) {
-        builder =
-            builder.with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact());
-    }
+    let mut builder = bench_strategy_builder(compaction);
     for name in binary_fields {
         builder = builder.with_field_writer(FieldPath::from_name(name), no_dict_layout());
     }
@@ -262,7 +258,7 @@ fn write_options_for(
 fn no_dict_layout() -> Arc<dyn LayoutStrategy> {
     Arc::new(CompressingStrategy::new(
         ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
-        BtrBlocksCompressorBuilder::default().build(),
+        bench_btrblocks_builder(CompactionStrategy::Default).build(),
     ))
 }
 

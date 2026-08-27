@@ -42,6 +42,7 @@ pub use self::core::CORE_2026_08_0;
 pub use self::core::CORE_2026_08_1;
 pub use self::core::CORE_2026_08_2;
 pub use self::core::CORE_2026_08_3;
+pub use self::core::CORE_2026_08_4;
 pub use self::preview::PREVIEW_2025_05_0;
 pub use self::preview::PREVIEW_2026_02_0;
 pub use self::preview::PREVIEW_2026_04_0;
@@ -63,6 +64,7 @@ pub static EDITION_DECLARATIONS: &[&EditionDeclaration] = &[
     &core::v2026_08::DECLARATION_1,
     &core::v2026_08_2::DECLARATION,
     &core::v2026_08_3::DECLARATION,
+    &core::v2026_08_4::DECLARATION,
     &preview::v2025_05::DECLARATION,
     &preview::v2026_02::DECLARATION,
     &preview::v2026_04::DECLARATION,
