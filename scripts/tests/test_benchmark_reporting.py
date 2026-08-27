@@ -13,6 +13,7 @@ import pandas as pd
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPARE_SCRIPT = REPO_ROOT / "scripts" / "compare-benchmark-jsons.py"
 CAPTURE_SCRIPT = REPO_ROOT / "scripts" / "capture-file-sizes.py"
+RANDOM_ACCESS_SPLIT_SCRIPT = REPO_ROOT / "scripts" / "random-access-split.py"
 
 
 def load_compare_module():
@@ -22,6 +23,39 @@ def load_compare_module():
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
+
+
+def load_random_access_split_module():
+    spec = importlib.util.spec_from_file_location("random_access_split", RANDOM_ACCESS_SPLIT_SCRIPT)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_random_access_merge_preserves_each_open_mode(tmp_path: Path) -> None:
+    split = load_random_access_split_module()
+    parts = tmp_path / "parts"
+    parts.mkdir()
+    cached = {
+        "kind": "random_access_time",
+        "dataset": "taxi",
+        "format": "parquet",
+        "open_mode": "cached",
+    }
+    reopen = cached | {"open_mode": "reopen"}
+    (parts / "0.ingest.jsonl").write_text(f"{json.dumps(cached)}\n", encoding="utf-8")
+    (parts / "1.ingest.jsonl").write_text(
+        f"{json.dumps(cached)}\n{json.dumps(reopen)}\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "results.ingest.jsonl"
+
+    split.merge(str(parts / "*.ingest.jsonl"), split.ingest_identity, str(output))
+
+    records = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
+    assert records == [cached, reopen]
 
 
 def timing_row(name: str, base: int, pr: int) -> dict[str, object]:

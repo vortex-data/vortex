@@ -191,9 +191,7 @@ _RECORD_FIELDS: dict[str, tuple[frozenset[str], frozenset[str]]] = {
         frozenset({"dataset_variant"}),
     ),
     "random_access_time": (
-        frozenset(
-            {"commit_sha", "dataset", "format", "open_mode", "value_ns", "all_runtimes_ns"}
-        ),
+        frozenset({"commit_sha", "dataset", "format", "open_mode", "value_ns", "all_runtimes_ns"}),
         frozenset({"env_triple"}),
     ),
     "vector_search_run": (
@@ -453,8 +451,7 @@ def _validate_record_values(record: dict, kind: str, index: int) -> None:
             )
     elif kind == "random_access_time" and record["open_mode"] not in ("cached", "reopen"):
         raise SystemExit(
-            f"record {index} (random_access_time): open_mode must be 'cached' or 'reopen', "
-            f"got {record['open_mode']!r}"
+            f"record {index} (random_access_time): open_mode must be 'cached' or 'reopen', got {record['open_mode']!r}"
         )
 
 

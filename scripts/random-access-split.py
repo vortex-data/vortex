@@ -93,6 +93,15 @@ def merge(pattern: str, key: Callable[[dict], object], out_path: str) -> None:
     Path(out_path).write_text("".join(line + "\n" for line in lines), encoding="utf-8")
 
 
+def ingest_identity(record: dict) -> tuple[object, object, object, object]:
+    return (
+        record["kind"],
+        record["dataset"],
+        record["format"],
+        record["open_mode"],
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -107,7 +116,7 @@ def main() -> None:
     if args.emit_ingest_records:
         merge(
             f"{PARTS_DIR}/*.ingest.jsonl",
-            lambda record: (record["kind"], record["dataset"], record["format"]),
+            ingest_identity,
             "results.ingest.jsonl",
         )
 
