@@ -8,7 +8,10 @@
 //! preserves compatibility with the scalar partials stored by older Vortex files.
 
 mod grouped;
-pub(crate) use grouped::PrimitiveGroupedSumV2EncodingKernel;
+mod grouped_state;
+
+pub(crate) use grouped::SUM_V2_GROUPED_KERNEL;
+pub(crate) use grouped::SUM_V2_RUN_GROUPED_KERNEL;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -17,6 +20,7 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use self::grouped_state::SumV2GroupedState;
 use crate::ArrayRef;
 use crate::ArrayView;
 use crate::Canonical;
@@ -27,6 +31,7 @@ use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
+use crate::aggregate_fn::GroupedState;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::sum::Sum;
 use crate::aggregate_fn::fns::sum::SumState;
@@ -166,6 +171,15 @@ impl AggregateFnVTable for SumV2 {
         partial.is_overflow = is_overflow || overflowed;
         partial.is_empty = is_empty && !partial.is_overflow;
         Ok(partial)
+    }
+
+    fn grouped_state(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+    ) -> VortexResult<Box<dyn GroupedState>> {
+        Ok(Box::new(SumV2GroupedState::try_new(
+            args.return_dtype.as_nonnullable(),
+        )?))
     }
 
     fn merge_partials(

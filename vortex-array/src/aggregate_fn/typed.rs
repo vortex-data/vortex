@@ -136,7 +136,7 @@ impl<V: AggregateFnVTable> DynAggregateFn for AggregateFnInner<V> {
             self.vtable.clone(),
             self.options.clone(),
             self.resolve_dtypes(input_dtype)?,
-        )))
+        )?))
     }
 
     fn options_serialize(&self) -> VortexResult<Option<Vec<u8>>> {
