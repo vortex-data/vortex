@@ -81,8 +81,8 @@ approval_rules:
       has_author_in:
         users:
           - "chatgpt-codex-connector[bot]"
-          - "claude[bot]"
           - "claude-code[bot]"
+          - "claude[bot]"
           - "codex[bot]"
           - "openai-codex[bot]"
           - "vortex-claude[bot]"
