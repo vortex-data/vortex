@@ -9,6 +9,7 @@ use itertools::Itertools;
 use num_traits::AsPrimitive;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
@@ -46,11 +47,24 @@ pub struct VarBinViewBuilder {
     in_progress: Option<ByteBufferMut>,
     growth_strategy: BufferGrowthStrategy,
     compaction_threshold: f64,
+    allocator: BufferAllocatorRef,
 }
 
 impl VarBinViewBuilder {
     pub fn with_capacity(dtype: DType, capacity: usize) -> Self {
-        Self::new(dtype, capacity, Default::default(), Default::default(), 0.0)
+        Self::with_capacity_in(dtype, capacity, BufferAllocatorRef::statically_allocated())
+    }
+
+    /// Creates a builder with the given capacity and allocator.
+    pub fn with_capacity_in(dtype: DType, capacity: usize, allocator: BufferAllocatorRef) -> Self {
+        Self::new_in(
+            dtype,
+            capacity,
+            Default::default(),
+            Default::default(),
+            0.0,
+            allocator,
+        )
     }
 
     pub fn with_buffer_deduplication(dtype: DType, capacity: usize) -> Self {
@@ -80,22 +94,43 @@ impl VarBinViewBuilder {
         growth_strategy: BufferGrowthStrategy,
         compaction_threshold: f64,
     ) -> Self {
+        Self::new_in(
+            dtype,
+            capacity,
+            completed,
+            growth_strategy,
+            compaction_threshold,
+            BufferAllocatorRef::statically_allocated(),
+        )
+    }
+
+    /// Creates a configurable builder with the provided allocator.
+    pub fn new_in(
+        dtype: DType,
+        capacity: usize,
+        completed: CompletedBuffers,
+        growth_strategy: BufferGrowthStrategy,
+        compaction_threshold: f64,
+        allocator: BufferAllocatorRef,
+    ) -> Self {
         assert!(
             matches!(dtype, DType::Utf8(_) | DType::Binary(_)),
             "VarBinViewBuilder DType must be Utf8 or Binary."
         );
         Self {
-            views_builder: BufferMut::with_capacity_preferred_aligned(
+            views_builder: BufferMut::with_capacity_preferred_aligned_in(
                 capacity,
                 Alignment::of::<BinaryView>(),
                 None,
+                allocator.clone(),
             ),
-            nulls: LazyBitBufferBuilder::new(capacity),
+            nulls: LazyBitBufferBuilder::new_in(capacity, allocator.clone()),
             completed,
             in_progress: None,
             dtype,
             growth_strategy,
             compaction_threshold,
+            allocator,
         }
     }
 
@@ -153,10 +188,11 @@ impl VarBinViewBuilder {
     fn init_in_progress(&mut self, min_len: usize) {
         let next_buffer_size = self.growth_strategy.next_size() as usize;
         let to_reserve = next_buffer_size.max(min_len);
-        self.in_progress = Some(ByteBufferMut::with_capacity_preferred_aligned(
+        self.in_progress = Some(ByteBufferMut::with_capacity_preferred_aligned_in(
             to_reserve,
             Alignment::of::<u8>(),
             None,
+            self.allocator.clone(),
         ));
     }
 
@@ -616,7 +652,7 @@ impl VarBinViewBuilder {
         referenced: usize,
     ) {
         let buf_index = self.completed.len();
-        let mut compact = ByteBufferMut::with_capacity(referenced);
+        let mut compact = ByteBufferMut::with_capacity_in(referenced, self.allocator.clone());
         self.views_builder.reserve(count);
 
         let data = bytes.as_slice();
@@ -667,14 +703,15 @@ impl VarBinViewBuilder {
 
         let validity = self.nulls.finish_with_nullability(self.dtype.nullability());
 
+        let views = std::mem::replace(
+            &mut self.views_builder,
+            BufferMut::empty_aligned_in(Alignment::of::<BinaryView>(), self.allocator.clone()),
+        )
+        .freeze();
+
         // SAFETY: the builder methods check safety at each step.
         unsafe {
-            VarBinViewArray::new_unchecked(
-                std::mem::take(&mut self.views_builder).freeze(),
-                buffers.finish(),
-                self.dtype.clone(),
-                validity,
-            )
+            VarBinViewArray::new_unchecked(views, buffers.finish(), self.dtype.clone(), validity)
         }
     }
 

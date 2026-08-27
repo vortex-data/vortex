@@ -387,72 +387,84 @@ macro_rules! __match_each_map_builder_size {
 /// assert_eq!(strings.execute_scalar(3, &mut ctx).unwrap(), "d".into());
 /// ```
 pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBuilder> {
+    builder_with_capacity_in(BufferAllocatorRef::statically_allocated(), dtype, capacity)
+}
+
+/// Construct a canonical builder using the provided buffer allocator.
+pub fn builder_with_capacity_in(
+    allocator: BufferAllocatorRef,
+    dtype: &DType,
+    capacity: usize,
+) -> Box<dyn ArrayBuilder> {
     match dtype {
         DType::Null => Box::new(NullBuilder::new()),
-        DType::Bool(n) => Box::new(BoolBuilder::with_capacity(*n, capacity)),
+        DType::Bool(n) => Box::new(BoolBuilder::with_capacity_in(*n, capacity, allocator)),
         DType::Primitive(ptype, n) => {
             match_each_native_ptype!(ptype, |P| {
-                Box::new(PrimitiveBuilder::<P>::with_capacity(*n, capacity))
+                Box::new(PrimitiveBuilder::<P>::with_capacity_in(
+                    *n, capacity, allocator,
+                ))
             })
         }
         DType::Decimal(decimal_type, n) => {
             match_each_decimal_value_type!(
                 DecimalType::smallest_decimal_value_type(decimal_type),
                 |D| {
-                    Box::new(DecimalBuilder::with_capacity::<D>(
+                    Box::new(DecimalBuilder::with_capacity_in::<D>(
                         capacity,
                         *decimal_type,
                         *n,
+                        allocator,
                     ))
                 }
             )
         }
-        DType::Utf8(n) => Box::new(VarBinViewBuilder::with_capacity(DType::Utf8(*n), capacity)),
-        DType::Binary(n) => Box::new(VarBinViewBuilder::with_capacity(
+        DType::Utf8(n) => Box::new(VarBinViewBuilder::with_capacity_in(
+            DType::Utf8(*n),
+            capacity,
+            allocator,
+        )),
+        DType::Binary(n) => Box::new(VarBinViewBuilder::with_capacity_in(
             DType::Binary(*n),
             capacity,
+            allocator,
         )),
-        DType::List(dtype, n) => Box::new(ListViewBuilder::<u64, u64>::with_capacity(
+        DType::List(dtype, n) => Box::new(ListViewBuilder::<u64, u64>::with_capacity_in(
             Arc::clone(dtype),
             *n,
             2 * capacity, // Arbitrarily choose 2 times the `offsets` capacity here.
             capacity,
+            allocator,
         )),
-        DType::Map(map_dtype, nullability) => Box::new(MapBuilder::<u64, u64>::with_capacity(
+        DType::Map(map_dtype, nullability) => Box::new(MapBuilder::<u64, u64>::with_capacity_in(
             map_dtype.clone(),
             *nullability,
             capacity,
+            allocator,
         )),
         DType::FixedSizeList(elem_dtype, list_size, null) => {
-            Box::new(FixedSizeListBuilder::with_capacity(
+            Box::new(FixedSizeListBuilder::with_capacity_in(
                 Arc::clone(elem_dtype),
                 *list_size,
                 *null,
                 capacity,
+                allocator,
             ))
         }
-        DType::Struct(struct_dtype, n) => Box::new(StructBuilder::with_capacity(
+        DType::Struct(struct_dtype, n) => Box::new(StructBuilder::with_capacity_in(
             struct_dtype.clone(),
             *n,
             capacity,
+            allocator,
         )),
         DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
         DType::Variant(_) => {
             unimplemented!()
         }
-        DType::Extension(ext_dtype) => {
-            Box::new(ExtensionBuilder::with_capacity(ext_dtype.clone(), capacity))
-        }
+        DType::Extension(ext_dtype) => Box::new(ExtensionBuilder::with_capacity_in(
+            ext_dtype.clone(),
+            capacity,
+            allocator,
+        )),
     }
-}
-
-/// Construct a new canonical builder for the given [`DType`] using a host
-/// [`vortex_buffer::BufferAllocator`].
-pub fn builder_with_capacity_in(
-    allocator: BufferAllocatorRef,
-    dtype: &DType,
-    capacity: usize,
-) -> Box<dyn ArrayBuilder> {
-    let _allocator = allocator;
-    builder_with_capacity(dtype, capacity)
 }

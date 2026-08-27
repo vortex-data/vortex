@@ -3,6 +3,7 @@
 
 use std::any::Any;
 
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -34,8 +35,21 @@ impl ExtensionBuilder {
 
     /// Creates a new `ExtensionBuilder` with the given `capacity`.
     pub fn with_capacity(ext_dtype: ExtDTypeRef, capacity: usize) -> Self {
+        Self::with_capacity_in(
+            ext_dtype,
+            capacity,
+            BufferAllocatorRef::statically_allocated(),
+        )
+    }
+
+    /// Creates an extension builder with the provided allocator.
+    pub fn with_capacity_in(
+        ext_dtype: ExtDTypeRef,
+        capacity: usize,
+        allocator: BufferAllocatorRef,
+    ) -> Self {
         Self {
-            storage: ChildBuilder::with_capacity(ext_dtype.storage_dtype(), capacity),
+            storage: ChildBuilder::with_capacity_in(allocator, ext_dtype.storage_dtype(), capacity),
             dtype: DType::Extension(ext_dtype),
         }
     }

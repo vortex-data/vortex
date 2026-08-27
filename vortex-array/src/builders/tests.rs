@@ -1,10 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::alloc::Layout;
+use std::ptr::NonNull;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
+use allocator_api2::alloc::AllocError;
+use allocator_api2::alloc::Allocator;
+use allocator_api2::alloc::Global;
 use rstest::rstest;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -42,6 +50,7 @@ use crate::assert_arrays_eq;
 use crate::builders::ArrayBuilder;
 use crate::builders::ListBuilder;
 use crate::builders::builder_with_capacity;
+use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::Nullability;
@@ -52,6 +61,56 @@ use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
+
+#[derive(Debug)]
+struct CountingAllocator {
+    allocations: Arc<AtomicUsize>,
+}
+
+// SAFETY: this forwards memory operations to Global and only counts allocations.
+unsafe impl Allocator for CountingAllocator {
+    fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
+        self.allocations.fetch_add(1, Ordering::Relaxed);
+        Global.allocate(layout)
+    }
+
+    unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
+        // SAFETY: ptr and layout came from Global.
+        unsafe { Global.deallocate(ptr, layout) }
+    }
+}
+
+#[test]
+fn builder_reuses_its_allocator_after_finish() {
+    let allocations = Arc::new(AtomicUsize::new(0));
+    let allocator = BufferAllocatorRef::new(CountingAllocator {
+        allocations: Arc::clone(&allocations),
+    });
+    let dtype = DType::Struct(
+        StructFields::from_iter([
+            (
+                "number",
+                DType::Primitive(PType::I32, Nullability::Nullable),
+            ),
+            ("text", DType::Utf8(Nullability::Nullable)),
+        ]),
+        Nullability::Nullable,
+    );
+    let mut builder = builder_with_capacity_in(allocator, &dtype, 1);
+
+    builder.append_null();
+    drop(builder.finish());
+    let first = allocations.load(Ordering::Relaxed);
+
+    builder.append_null();
+    drop(builder.finish());
+    let second = allocations.load(Ordering::Relaxed);
+
+    assert!(
+        second - first >= 5,
+        "all nested buffers must reuse the allocator"
+    );
+}
 
 /// Test that `append_zeros` produces the same result as manually appending `Scalar::default_value`.
 ///

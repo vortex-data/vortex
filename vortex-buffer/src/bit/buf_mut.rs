@@ -6,6 +6,7 @@ use std::ops::Not;
 use bitvec::view::BitView;
 
 use crate::BitBuffer;
+use crate::BufferAllocatorRef;
 use crate::BufferMut;
 use crate::ByteBufferMut;
 use crate::bit::collect_bool_words;
@@ -119,8 +120,17 @@ impl BitBufferMut {
 
     /// Creates a `BitBufferMut` from a [`BitBuffer`] by copying all of the data over.
     pub fn copy_from(bit_buffer: &BitBuffer) -> Self {
+        let allocator = bit_buffer
+            .inner()
+            .allocator()
+            .unwrap_or_else(BufferAllocatorRef::statically_allocated);
+        Self::copy_from_in(bit_buffer, allocator)
+    }
+
+    /// Copies a bit buffer with the provided allocator.
+    pub fn copy_from_in(bit_buffer: &BitBuffer, allocator: BufferAllocatorRef) -> Self {
         Self {
-            buffer: ByteBufferMut::copy_from(bit_buffer.inner()),
+            buffer: ByteBufferMut::copy_from_in(bit_buffer.inner(), allocator),
             offset: bit_buffer.offset(),
             len: bit_buffer.len(),
         }
@@ -129,8 +139,14 @@ impl BitBufferMut {
     /// Create a new empty mutable bit buffer with requested capacity (in bits).
     #[inline]
     pub fn with_capacity(capacity: usize) -> Self {
+        Self::with_capacity_in(capacity, BufferAllocatorRef::statically_allocated())
+    }
+
+    /// Create a mutable bit buffer with the provided allocator.
+    #[inline]
+    pub fn with_capacity_in(capacity: usize, allocator: BufferAllocatorRef) -> Self {
         Self {
-            buffer: BufferMut::with_capacity(capacity.div_ceil(8)),
+            buffer: BufferMut::with_capacity_in(capacity.div_ceil(8), allocator),
             offset: 0,
             len: 0,
         }
@@ -161,6 +177,17 @@ impl BitBufferMut {
     #[inline(always)]
     pub fn empty() -> Self {
         Self::with_capacity(0)
+    }
+
+    /// Create an empty mutable bit buffer with the provided allocator.
+    #[inline(always)]
+    pub fn empty_in(allocator: BufferAllocatorRef) -> Self {
+        Self::with_capacity_in(0, allocator)
+    }
+
+    /// Returns the allocator that owns this buffer.
+    pub fn allocator(&self) -> BufferAllocatorRef {
+        self.buffer.allocator()
     }
 
     /// Create a new mutable buffer with requested `len` and all bits set to `value`.

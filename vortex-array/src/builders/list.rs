@@ -5,6 +5,7 @@ use std::any::Any;
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -80,8 +81,30 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
         elements_capacity: usize,
         capacity: usize,
     ) -> Self {
-        let elements_builder = ChildBuilder::with_capacity(value_dtype.as_ref(), elements_capacity);
-        let mut offsets_builder = PrimitiveBuilder::<O>::with_capacity(NonNullable, capacity + 1);
+        Self::with_capacity_in(
+            value_dtype,
+            nullability,
+            elements_capacity,
+            capacity,
+            BufferAllocatorRef::statically_allocated(),
+        )
+    }
+
+    /// Creates a list builder with the provided allocator.
+    pub fn with_capacity_in(
+        value_dtype: Arc<DType>,
+        nullability: Nullability,
+        elements_capacity: usize,
+        capacity: usize,
+        allocator: BufferAllocatorRef,
+    ) -> Self {
+        let elements_builder = ChildBuilder::with_capacity_in(
+            allocator.clone(),
+            value_dtype.as_ref(),
+            elements_capacity,
+        );
+        let mut offsets_builder =
+            PrimitiveBuilder::<O>::with_capacity_in(NonNullable, capacity + 1, allocator.clone());
 
         // The first offset is always 0 and represents an empty list.
         offsets_builder.append_zero();
@@ -89,7 +112,7 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
         Self {
             elements_builder,
             offsets_builder,
-            nulls: ValidityBuilder::new(capacity),
+            nulls: ValidityBuilder::new_in(capacity, allocator),
             dtype: DType::List(value_dtype, nullability),
         }
     }

@@ -5,6 +5,7 @@ use std::any::Any;
 use std::mem;
 
 use vortex_buffer::BitBufferMut;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -33,9 +34,22 @@ impl BoolBuilder {
     }
 
     pub fn with_capacity(nullability: Nullability, capacity: usize) -> Self {
+        Self::with_capacity_in(
+            nullability,
+            capacity,
+            BufferAllocatorRef::statically_allocated(),
+        )
+    }
+
+    /// Creates a builder with the given capacity and allocator.
+    pub fn with_capacity_in(
+        nullability: Nullability,
+        capacity: usize,
+        allocator: BufferAllocatorRef,
+    ) -> Self {
         Self {
-            inner: BitBufferMut::with_capacity(capacity),
-            nulls: LazyBitBufferBuilder::new(capacity),
+            inner: BitBufferMut::with_capacity_in(capacity, allocator.clone()),
+            nulls: LazyBitBufferBuilder::new_in(capacity, allocator),
             dtype: DType::Bool(nullability),
         }
     }
@@ -61,8 +75,10 @@ impl BoolBuilder {
             "Null count and value count should match when calling BoolBuilder::finish."
         );
 
+        let allocator = self.inner.allocator().clone();
+        let inner = mem::replace(&mut self.inner, BitBufferMut::empty_in(allocator)).freeze();
         BoolArray::new(
-            mem::take(&mut self.inner).freeze(),
+            inner,
             self.nulls.finish_with_nullability(self.dtype.nullability()),
         )
     }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -9,7 +10,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::builders::ArrayBuilder;
-use crate::builders::builder_with_capacity;
+use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 
@@ -42,12 +43,18 @@ pub struct ChildBuilder {
 
 impl ChildBuilder {
     /// Creates a new `ChildBuilder` whose scalar builder is pre-allocated for `capacity` values.
+    #[cfg(test)]
     pub fn with_capacity(dtype: &DType, capacity: usize) -> Self {
+        Self::with_capacity_in(BufferAllocatorRef::statically_allocated(), dtype, capacity)
+    }
+
+    /// Creates a child builder with the provided allocator.
+    pub fn with_capacity_in(allocator: BufferAllocatorRef, dtype: &DType, capacity: usize) -> Self {
         Self {
             dtype: dtype.clone(),
             chunks: Vec::new(),
             chunks_len: 0,
-            pending: builder_with_capacity(dtype, capacity),
+            pending: builder_with_capacity_in(allocator, dtype, capacity),
         }
     }
 

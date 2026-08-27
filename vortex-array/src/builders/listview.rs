@@ -13,6 +13,7 @@
 use std::sync::Arc;
 
 use num_traits::ToPrimitive;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -104,14 +105,38 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
         elements_capacity: usize,
         capacity: usize,
     ) -> Self {
-        let elements_builder = ChildBuilder::with_capacity(&element_dtype, elements_capacity);
+        Self::with_capacity_in(
+            element_dtype,
+            nullability,
+            elements_capacity,
+            capacity,
+            BufferAllocatorRef::statically_allocated(),
+        )
+    }
 
-        let offsets_builder =
-            PrimitiveBuilder::<O>::with_capacity(Nullability::NonNullable, capacity);
-        let sizes_builder =
-            PrimitiveBuilder::<S>::with_capacity(Nullability::NonNullable, capacity);
+    /// Creates a list-view builder with the provided allocator.
+    pub fn with_capacity_in(
+        element_dtype: Arc<DType>,
+        nullability: Nullability,
+        elements_capacity: usize,
+        capacity: usize,
+        allocator: BufferAllocatorRef,
+    ) -> Self {
+        let elements_builder =
+            ChildBuilder::with_capacity_in(allocator.clone(), &element_dtype, elements_capacity);
 
-        let nulls = ValidityBuilder::new(capacity);
+        let offsets_builder = PrimitiveBuilder::<O>::with_capacity_in(
+            Nullability::NonNullable,
+            capacity,
+            allocator.clone(),
+        );
+        let sizes_builder = PrimitiveBuilder::<S>::with_capacity_in(
+            Nullability::NonNullable,
+            capacity,
+            allocator.clone(),
+        );
+
+        let nulls = ValidityBuilder::new_in(capacity, allocator);
 
         Self {
             dtype: DType::List(element_dtype, nullability),

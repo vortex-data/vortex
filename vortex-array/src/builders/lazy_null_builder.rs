@@ -3,6 +3,7 @@
 
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
@@ -18,16 +19,23 @@ pub struct LazyBitBufferBuilder {
     inner: Option<BitBufferMut>,
     len: usize,
     capacity: usize,
+    allocator: BufferAllocatorRef,
 }
 
 impl LazyBitBufferBuilder {
     /// Creates a new empty builder.
     /// `capacity` is the number of bits in the null buffer.
     pub fn new(capacity: usize) -> Self {
+        Self::new_in(capacity, BufferAllocatorRef::statically_allocated())
+    }
+
+    /// Creates a new empty builder with the provided allocator.
+    pub fn new_in(capacity: usize, allocator: BufferAllocatorRef) -> Self {
         Self {
             inner: None,
             len: 0,
             capacity,
+            allocator,
         }
     }
 
@@ -148,7 +156,8 @@ impl LazyBitBufferBuilder {
     #[inline(never)]
     fn materialize(&mut self) {
         if self.inner.is_none() {
-            let mut bit_mut = BitBufferMut::with_capacity(self.len.max(self.capacity));
+            let mut bit_mut =
+                BitBufferMut::with_capacity_in(self.len.max(self.capacity), self.allocator.clone());
             bit_mut.append_n(true, self.len);
             self.inner = Some(bit_mut);
         }

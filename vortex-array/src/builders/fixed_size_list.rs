@@ -4,6 +4,7 @@
 use std::any::Any;
 use std::sync::Arc;
 
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -60,11 +61,29 @@ impl FixedSizeListBuilder {
         nullability: Nullability,
         capacity: usize,
     ) -> Self {
+        Self::with_capacity_in(
+            element_dtype,
+            list_size,
+            nullability,
+            capacity,
+            BufferAllocatorRef::statically_allocated(),
+        )
+    }
+
+    /// Creates a fixed-size-list builder with the provided allocator.
+    pub fn with_capacity_in(
+        element_dtype: Arc<DType>,
+        list_size: u32,
+        nullability: Nullability,
+        capacity: usize,
+        allocator: BufferAllocatorRef,
+    ) -> Self {
         let elements_capacity = capacity * list_size as usize;
 
-        let elements_builder = ChildBuilder::with_capacity(&element_dtype, elements_capacity);
+        let elements_builder =
+            ChildBuilder::with_capacity_in(allocator.clone(), &element_dtype, elements_capacity);
         let fsl_dtype = DType::FixedSizeList(element_dtype, list_size, nullability);
-        let nulls = ValidityBuilder::new(capacity);
+        let nulls = ValidityBuilder::new_in(capacity, allocator);
 
         Self {
             dtype: fsl_dtype,

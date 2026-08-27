@@ -4,6 +4,7 @@
 use std::any::Any;
 
 use itertools::Itertools;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -45,14 +46,29 @@ impl StructBuilder {
         nullability: Nullability,
         capacity: usize,
     ) -> Self {
+        Self::with_capacity_in(
+            struct_dtype,
+            nullability,
+            capacity,
+            BufferAllocatorRef::statically_allocated(),
+        )
+    }
+
+    /// Creates a struct builder with the provided allocator.
+    pub fn with_capacity_in(
+        struct_dtype: StructFields,
+        nullability: Nullability,
+        capacity: usize,
+        allocator: BufferAllocatorRef,
+    ) -> Self {
         let builders = struct_dtype
             .fields()
-            .map(|dt| ChildBuilder::with_capacity(&dt, capacity))
+            .map(|dt| ChildBuilder::with_capacity_in(allocator.clone(), &dt, capacity))
             .collect();
 
         Self {
             builders,
-            nulls: ValidityBuilder::new(capacity),
+            nulls: ValidityBuilder::new_in(capacity, allocator),
             dtype: DType::Struct(struct_dtype, nullability),
         }
     }

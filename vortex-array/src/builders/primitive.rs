@@ -4,6 +4,7 @@
 use std::any::Any;
 use std::mem::MaybeUninit;
 
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -38,9 +39,22 @@ impl<T: NativePType> PrimitiveBuilder<T> {
 
     /// Creates a new `PrimitiveBuilder` with the given `capacity`.
     pub fn with_capacity(nullability: Nullability, capacity: usize) -> Self {
+        Self::with_capacity_in(
+            nullability,
+            capacity,
+            BufferAllocatorRef::statically_allocated(),
+        )
+    }
+
+    /// Creates a builder with the given capacity and allocator.
+    pub fn with_capacity_in(
+        nullability: Nullability,
+        capacity: usize,
+        allocator: BufferAllocatorRef,
+    ) -> Self {
         Self {
-            values: BufferMut::with_capacity(capacity),
-            nulls: LazyBitBufferBuilder::new(capacity),
+            values: BufferMut::with_capacity_in(capacity, allocator.clone()),
+            nulls: LazyBitBufferBuilder::new_in(capacity, allocator),
             dtype: DType::Primitive(T::PTYPE, nullability),
         }
     }
@@ -120,7 +134,9 @@ impl<T: NativePType> PrimitiveBuilder<T> {
             .nulls
             .finish_with_nullability(self.dtype().nullability());
 
-        PrimitiveArray::new(std::mem::take(&mut self.values).freeze(), validity)
+        let allocator = self.values.allocator().clone();
+        let values = std::mem::replace(&mut self.values, allocator.with_capacity(0)).freeze();
+        PrimitiveArray::new(values, validity)
     }
 
     /// Extends the primitive array with an iterator.

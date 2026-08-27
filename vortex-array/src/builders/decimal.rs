@@ -3,6 +3,7 @@
 
 use std::any::Any;
 
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -104,12 +105,30 @@ impl DecimalBuilder {
         decimal: DecimalDType,
         nullability: Nullability,
     ) -> Self {
+        Self::with_capacity_in::<T>(
+            capacity,
+            decimal,
+            nullability,
+            BufferAllocatorRef::statically_allocated(),
+        )
+    }
+
+    /// Creates a decimal builder with the given capacity and allocator.
+    pub fn with_capacity_in<T: NativeDecimalType>(
+        capacity: usize,
+        decimal: DecimalDType,
+        nullability: Nullability,
+        allocator: BufferAllocatorRef,
+    ) -> Self {
         Self {
             dtype: DType::Decimal(decimal, nullability),
             values: match_each_decimal_value_type!(T::DECIMAL_TYPE, |D| {
-                DecimalBuffer::from(BufferMut::<D>::with_capacity(capacity))
+                DecimalBuffer::from(BufferMut::<D>::with_capacity_in(
+                    capacity,
+                    allocator.clone(),
+                ))
             }),
-            nulls: LazyBitBufferBuilder::new(capacity),
+            nulls: LazyBitBufferBuilder::new_in(capacity, allocator),
         }
     }
 
@@ -153,7 +172,7 @@ impl DecimalBuilder {
 
         let decimal_dtype = *self.decimal_dtype();
 
-        delegate_fn!(std::mem::take(&mut self.values), |T, values| {
+        delegate_fn!(self.values.take(), |T, values| {
             DecimalArray::new::<T>(values.freeze(), decimal_dtype, validity)
         })
     }
@@ -228,6 +247,13 @@ impl ArrayBuilder for DecimalBuilder {
 }
 
 impl DecimalBuffer {
+    fn take(&mut self) -> Self {
+        delegate_fn!(self, |T, buffer| {
+            let allocator = buffer.allocator();
+            DecimalBuffer::from(std::mem::replace(buffer, allocator.with_capacity(0)))
+        })
+    }
+
     fn push<V: NativeDecimalType>(&mut self, value: V) {
         delegate_fn!(self, |T, buffer| {
             buffer.push(
@@ -290,12 +316,6 @@ impl_from_buffer!(i32, I32);
 impl_from_buffer!(i64, I64);
 impl_from_buffer!(i128, I128);
 impl_from_buffer!(i256, I256);
-
-impl Default for DecimalBuffer {
-    fn default() -> Self {
-        Self::I8(BufferMut::<i8>::empty())
-    }
-}
 
 #[cfg(test)]
 mod tests {

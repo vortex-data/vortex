@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
@@ -37,11 +38,17 @@ pub(crate) struct ValidityBuilder {
 
 impl ValidityBuilder {
     /// Creates a new `ValidityBuilder` whose null buffer is pre-allocated for `capacity` bits.
+    #[cfg(test)]
     pub fn new(capacity: usize) -> Self {
+        Self::new_in(capacity, BufferAllocatorRef::statically_allocated())
+    }
+
+    /// Creates a validity builder with the provided allocator.
+    pub fn new_in(capacity: usize, allocator: BufferAllocatorRef) -> Self {
         Self {
             runs: Vec::new(),
             runs_len: 0,
-            pending: LazyBitBufferBuilder::new(capacity),
+            pending: LazyBitBufferBuilder::new_in(capacity, allocator),
         }
     }
 

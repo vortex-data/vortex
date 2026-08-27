@@ -4,6 +4,7 @@
 use std::any::Any;
 use std::sync::Arc;
 
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -45,11 +46,27 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> MapBuilder<O, S> {
 
     /// Creates a map builder with space for `capacity` map rows.
     pub fn with_capacity(map_dtype: MapDType, nullability: Nullability, capacity: usize) -> Self {
-        let entries_builder = ListViewBuilder::with_capacity(
+        Self::with_capacity_in(
+            map_dtype,
+            nullability,
+            capacity,
+            BufferAllocatorRef::statically_allocated(),
+        )
+    }
+
+    /// Creates a map builder with the provided allocator.
+    pub fn with_capacity_in(
+        map_dtype: MapDType,
+        nullability: Nullability,
+        capacity: usize,
+        allocator: BufferAllocatorRef,
+    ) -> Self {
+        let entries_builder = ListViewBuilder::with_capacity_in(
             Arc::new(map_dtype.entries_dtype()),
             nullability,
             capacity.saturating_mul(2),
             capacity,
+            allocator,
         );
         let dtype = DType::Map(map_dtype.clone(), nullability);
         Self {
