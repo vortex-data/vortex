@@ -140,6 +140,27 @@ mod tests {
     }
 
     #[test]
+    fn test_run_heavy_bool_uses_runend() -> VortexResult<()> {
+        use vortex_runend::RunEnd;
+
+        let mut ctx = SESSION.create_execution_ctx();
+        // Long alternating runs (avg run length 64 >> threshold) but not constant.
+        let bits: Vec<bool> = (0..512).map(|i| (i / 64) % 2 == 0).collect();
+        let array = BoolArray::new(BitBuffer::from(bits), Validity::NonNullable);
+        let compressed = BtrBlocksCompressor::default().compress(
+            &array.clone().into_array(),
+            &mut SESSION.create_execution_ctx(),
+        )?;
+        assert!(
+            compressed.is::<RunEnd>(),
+            "expected RunEnd, got {}",
+            compressed.encoding_id()
+        );
+        assert_arrays_eq!(compressed, array, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
     fn test_constant_all_false() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let array = BoolArray::new(BitBuffer::from(vec![false; 100]), Validity::NonNullable);

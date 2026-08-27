@@ -6,6 +6,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Bool;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Primitive;
@@ -181,6 +182,158 @@ fn runend_encode_nullable_primitive<T: NativePType>(
     )
 }
 
+/// Run-end encode a `BoolArray`, returning a tuple of `(ends, values)`.
+///
+/// Boolean run values strictly alternate between valid runs, so this materializes an
+/// `num_runs`-length values array that is almost entirely redundant. A future
+/// cycling/repeat-pattern array encoding — one that logically yields `[start, !start, start, …]`
+/// in O(1) space — could stand in as this values child, recovering the single-`start`-bit
+/// compactness of a dedicated bool run-end encoding through composition rather than a separate
+/// encoding.
+pub fn runend_encode_bool(
+    array: ArrayView<Bool>,
+    ctx: &mut ExecutionCtx,
+) -> (PrimitiveArray, ArrayRef) {
+    let nullability = array.dtype().nullability();
+    let validity = match array
+        .validity()
+        .vortex_expect("run-end validity should be derivable")
+    {
+        Validity::NonNullable => None,
+        Validity::AllValid => None,
+        Validity::AllInvalid => {
+            // We can trivially return an all-null REE array
+            let ends = PrimitiveArray::new(buffer![array.len() as u64], Validity::NonNullable);
+            ends.statistics()
+                .set(Stat::IsStrictSorted, Precision::Exact(true.into()));
+            return (
+                ends,
+                ConstantArray::new(Scalar::null(array.dtype().clone()), 1).into_array(),
+            );
+        }
+        Validity::Array(a) => {
+            let bool_array = a
+                .execute::<BoolArray>(ctx)
+                .vortex_expect("validity array must be convertible to bool");
+            Some(bool_array.to_bit_buffer())
+        }
+    };
+
+    let bits = array.to_bit_buffer();
+
+    let (ends, values) = match validity {
+        None => {
+            let (ends, values) = runend_encode_bool_slice(&bits);
+            (
+                PrimitiveArray::new(ends, Validity::NonNullable),
+                BoolArray::new(values, nullability.into()).into_array(),
+            )
+        }
+        Some(validity) => {
+            let (ends, values) = runend_encode_nullable_bool_slice(&bits, &validity);
+            (
+                PrimitiveArray::new(ends, Validity::NonNullable),
+                values.into_array(),
+            )
+        }
+    };
+
+    let ends = ends
+        .narrow(ctx)
+        .vortex_expect("Ends must succeed downcasting");
+
+    ends.statistics()
+        .set(Stat::IsStrictSorted, Precision::Exact(true.into()));
+
+    (ends, values)
+}
+
+fn runend_encode_bool_slice(elements: &BitBuffer) -> (Buffer<u64>, BitBuffer) {
+    let mut ends = BufferMut::empty();
+    let mut values = BitBufferMut::empty();
+
+    if elements.is_empty() {
+        return (ends.freeze(), values.freeze());
+    }
+
+    // Run-end encode the values
+    let mut prev = elements.value(0);
+    let mut end = 1u64;
+    for i in 1..elements.len() {
+        let e = elements.value(i);
+        if e != prev {
+            ends.push(end);
+            values.append(prev);
+        }
+        prev = e;
+        end += 1;
+    }
+    ends.push(end);
+    values.append(prev);
+
+    (ends.freeze(), values.freeze())
+}
+
+fn runend_encode_nullable_bool_slice(
+    elements: &BitBuffer,
+    element_validity: &BitBuffer,
+) -> (Buffer<u64>, BoolArray) {
+    let mut ends = BufferMut::empty();
+    let mut values = BitBufferMut::empty();
+    let mut validity = BitBufferMut::empty();
+
+    if elements.is_empty() {
+        return (
+            ends.freeze(),
+            BoolArray::new(
+                values.freeze(),
+                Validity::Array(BoolArray::from(validity.freeze()).into_array()),
+            ),
+        );
+    }
+
+    let value_at = |i: usize| element_validity.value(i).then(|| elements.value(i));
+
+    // Run-end encode the values, keyed on `(value, validity)` pairs
+    let mut prev = value_at(0);
+    let mut end = 1u64;
+    for i in 1..elements.len() {
+        let e = value_at(i);
+        if e != prev {
+            ends.push(end);
+            match prev {
+                None => {
+                    validity.append(false);
+                    values.append(false);
+                }
+                Some(p) => {
+                    validity.append(true);
+                    values.append(p);
+                }
+            }
+        }
+        prev = e;
+        end += 1;
+    }
+    ends.push(end);
+
+    match prev {
+        None => {
+            validity.append(false);
+            values.append(false);
+        }
+        Some(p) => {
+            validity.append(true);
+            values.append(p);
+        }
+    }
+
+    (
+        ends.freeze(),
+        BoolArray::new(values.freeze(), Validity::from(validity.freeze())),
+    )
+}
+
 pub fn runend_decode_primitive(
     ends: PrimitiveArray,
     values: PrimitiveArray,
@@ -322,7 +475,9 @@ pub fn runend_decode_varbinview(
 mod tests {
     use std::sync::LazyLock;
 
+    use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
@@ -331,8 +486,10 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use crate::RunEnd;
     use crate::compress::runend_decode_primitive;
     use crate::compress::runend_encode;
+    use crate::compress::runend_encode_bool;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = vortex_array::array_session();
@@ -401,5 +558,72 @@ mod tests {
         let expected = PrimitiveArray::from_iter(vec![1i32, 1, 2, 2, 2, 3, 3, 3, 3, 3]);
         assert_arrays_eq!(decoded, expected, &mut ctx);
         Ok(())
+    }
+
+    fn roundtrip_bool(array: BoolArray) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let expected = array.clone();
+        let (ends, values) = runend_encode_bool(array.as_view(), &mut ctx);
+        let ree = RunEnd::try_new(ends.into_array(), values, &mut ctx)?;
+        let decoded = ree.into_array().execute::<BoolArray>(&mut ctx)?;
+        assert_arrays_eq!(decoded, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn encode_bool_all_true() -> VortexResult<()> {
+        roundtrip_bool(BoolArray::from(BitBuffer::from(vec![true; 10])))
+    }
+
+    #[test]
+    fn encode_bool_all_false() -> VortexResult<()> {
+        roundtrip_bool(BoolArray::from(BitBuffer::from(vec![false; 10])))
+    }
+
+    #[test]
+    fn encode_bool_alternating() -> VortexResult<()> {
+        roundtrip_bool(BoolArray::from(BitBuffer::from(vec![
+            true, true, false, false, false, true, true, true, true, true,
+        ])))
+    }
+
+    #[test]
+    fn encode_bool_leading_false() -> VortexResult<()> {
+        roundtrip_bool(BoolArray::from(BitBuffer::from(vec![
+            false, true, true, false,
+        ])))
+    }
+
+    #[test]
+    fn encode_bool_empty() -> VortexResult<()> {
+        roundtrip_bool(BoolArray::from(BitBuffer::from(Vec::<bool>::new())))
+    }
+
+    #[test]
+    fn encode_bool_nullable_interior_nulls() -> VortexResult<()> {
+        roundtrip_bool(BoolArray::new(
+            BitBuffer::from(vec![true, true, false, true]),
+            Validity::from(BitBuffer::from(vec![true, true, false, true])),
+        ))
+    }
+
+    #[test]
+    fn encode_bool_nullable_mixed() -> VortexResult<()> {
+        roundtrip_bool(BoolArray::new(
+            BitBuffer::from(vec![
+                true, true, false, false, false, true, true, true, true, true,
+            ]),
+            Validity::from(BitBuffer::from(vec![
+                true, true, false, false, true, true, true, true, false, false,
+            ])),
+        ))
+    }
+
+    #[test]
+    fn encode_bool_all_null() -> VortexResult<()> {
+        roundtrip_bool(BoolArray::new(
+            BitBuffer::new_unset(5),
+            Validity::from(BitBuffer::new_unset(5)),
+        ))
     }
 }

@@ -22,6 +22,7 @@ use vortex_array::IntoArray;
 use vortex_array::TypedArrayRef;
 use vortex_array::VortexSessionExecute;
 use vortex_array::array_slots;
+use vortex_array::arrays::Bool;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::buffer::BufferHandle;
@@ -44,6 +45,7 @@ use vortex_session::registry::CachedId;
 use crate::compress::runend_decode_primitive;
 use crate::compress::runend_decode_varbinview;
 use crate::compress::runend_encode;
+use crate::compress::runend_encode_bool;
 use crate::decompress_bool::runend_decode_bools;
 use crate::ops::find_physical_index;
 use crate::ops::find_slice_end_index;
@@ -296,8 +298,16 @@ impl RunEnd {
             let slots = RunEndSlots { ends, values }.into_slots();
             let data = unsafe { RunEndData::new_unchecked(0) };
             Array::try_from_parts(ArrayParts::new(RunEnd, dtype, len, data).with_slots(slots))
+        } else if let Some(barray) = array.as_opt::<Bool>() {
+            let (ends, values) = runend_encode_bool(barray, ctx);
+            let ends = ends.into_array();
+            let len = array.len();
+            let dtype = values.dtype().clone();
+            let slots = RunEndSlots { ends, values }.into_slots();
+            let data = unsafe { RunEndData::new_unchecked(0) };
+            Array::try_from_parts(ArrayParts::new(RunEnd, dtype, len, data).with_slots(slots))
         } else {
-            vortex_bail!("REE can only encode primitive arrays")
+            vortex_bail!("REE can only encode primitive or bool arrays")
         }
     }
 }

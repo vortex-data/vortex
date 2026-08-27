@@ -12,6 +12,7 @@ use crate::Scheme;
 use crate::SchemeExt;
 use crate::SchemeId;
 use crate::schemes::binary;
+use crate::schemes::bool;
 use crate::schemes::decimal;
 use crate::schemes::float;
 use crate::schemes::integer;
@@ -61,6 +62,10 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     // Binary schemes.
     ////////////////////////////////////////////////////////////////////////////////////////////////
     &binary::BinaryDictScheme,
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    // Bool schemes.
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    &bool::BoolRunEndScheme,
     // Decimal schemes.
     &decimal::DecimalScheme,
     // Temporal schemes.
