@@ -13,84 +13,90 @@ use vortex_buffer::ByteBufferMut;
 
 use crate::IoBuf;
 
-pub trait VortexWrite {
-    fn write_all<B: IoBuf>(&mut self, buffer: B) -> impl Future<Output = io::Result<B>>;
-    fn flush(&mut self) -> impl Future<Output = io::Result<()>>;
-    fn shutdown(&mut self) -> impl Future<Output = io::Result<()>>;
+/// The unified write trait for Vortex I/O sinks.
+///
+/// Implementations and their returned futures are `Send`, mirroring [`VortexReadAt`], so writers
+/// can be driven from multi-threaded executors and moved into spawned tasks.
+///
+/// [`VortexReadAt`]: crate::VortexReadAt
+pub trait VortexWrite: Send {
+    fn write_all<B: IoBuf>(&mut self, buffer: B) -> impl Future<Output = io::Result<B>> + Send;
+    fn flush(&mut self) -> impl Future<Output = io::Result<()>> + Send;
+    fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> + Send;
 }
 
 impl VortexWrite for Vec<u8> {
-    fn write_all<B: IoBuf>(&mut self, buffer: B) -> impl Future<Output = io::Result<B>> {
+    fn write_all<B: IoBuf>(&mut self, buffer: B) -> impl Future<Output = io::Result<B>> + Send {
         self.extend_from_slice(buffer.as_slice());
         ready(Ok(buffer))
     }
 
-    fn flush(&mut self) -> impl Future<Output = io::Result<()>> {
+    fn flush(&mut self) -> impl Future<Output = io::Result<()>> + Send {
         ready(Ok(()))
     }
 
-    fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> {
+    fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> + Send {
         ready(Ok(()))
     }
 }
 
 impl VortexWrite for ByteBufferMut {
-    fn write_all<B: IoBuf>(&mut self, buffer: B) -> impl Future<Output = io::Result<B>> {
+    fn write_all<B: IoBuf>(&mut self, buffer: B) -> impl Future<Output = io::Result<B>> + Send {
         self.extend_from_slice(buffer.as_slice());
         ready(Ok(buffer))
     }
 
-    fn flush(&mut self) -> impl Future<Output = io::Result<()>> {
+    fn flush(&mut self) -> impl Future<Output = io::Result<()>> + Send {
         ready(Ok(()))
     }
 
-    fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> {
+    fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> + Send {
         ready(Ok(()))
     }
 }
 
-impl<T> VortexWrite for Cursor<T>
+impl<T: Send> VortexWrite for Cursor<T>
 where
     Cursor<T>: Write,
 {
-    fn write_all<B: IoBuf>(&mut self, buffer: B) -> impl Future<Output = io::Result<B>> {
+    fn write_all<B: IoBuf>(&mut self, buffer: B) -> impl Future<Output = io::Result<B>> + Send {
         ready(Write::write_all(self, buffer.as_slice()).map(|_| buffer))
     }
 
-    fn flush(&mut self) -> impl Future<Output = io::Result<()>> {
+    fn flush(&mut self) -> impl Future<Output = io::Result<()>> + Send {
         ready(Write::flush(self))
     }
 
-    fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> {
+    fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> + Send {
         ready(Write::flush(self))
     }
 }
 
 impl<W: VortexWrite> VortexWrite for futures::io::Cursor<W> {
-    fn write_all<B: IoBuf>(&mut self, buffer: B) -> impl Future<Output = io::Result<B>> {
+    fn write_all<B: IoBuf>(&mut self, buffer: B) -> impl Future<Output = io::Result<B>> + Send {
         self.set_position(self.position() + buffer.as_slice().len() as u64);
         VortexWrite::write_all(self.get_mut(), buffer)
     }
 
-    fn flush(&mut self) -> impl Future<Output = io::Result<()>> {
+    fn flush(&mut self) -> impl Future<Output = io::Result<()>> + Send {
         VortexWrite::flush(self.get_mut())
     }
 
-    fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> {
+    fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> + Send {
         VortexWrite::shutdown(self.get_mut())
     }
 }
 
 impl<W: VortexWrite> VortexWrite for &mut W {
-    fn write_all<B: IoBuf>(&mut self, buffer: B) -> impl Future<Output = io::Result<B>> {
+    fn write_all<B: IoBuf>(&mut self, buffer: B) -> impl Future<Output = io::Result<B>> + Send {
         (*self).write_all(buffer)
     }
 
-    fn flush(&mut self) -> impl Future<Output = io::Result<()>> {
+    fn flush(&mut self) -> impl Future<Output = io::Result<()>> + Send {
         (*self).flush()
     }
 
-    fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> {
+    fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> + Send {
         (*self).shutdown()
     }
 }
@@ -101,18 +107,18 @@ impl VortexWrite for async_fs::File {
         Ok(buffer)
     }
 
-    fn flush(&mut self) -> impl Future<Output = io::Result<()>> {
+    fn flush(&mut self) -> impl Future<Output = io::Result<()>> + Send {
         AsyncWriteExt::flush(self)
     }
 
-    fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> {
+    fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> + Send {
         AsyncWriteExt::close(self)
     }
 }
 
 /// An adapter to use an `AsyncWrite` as a `VortexWrite`.
 pub struct AsyncWriteAdapter<W: AsyncWrite>(pub W);
-impl<W: AsyncWrite + Unpin> VortexWrite for AsyncWriteAdapter<W> {
+impl<W: AsyncWrite + Unpin + Send> VortexWrite for AsyncWriteAdapter<W> {
     async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {
         self.0.write_all(buffer.as_slice()).await?;
         Ok(buffer)
@@ -133,6 +139,25 @@ mod tests {
     use vortex_buffer::ByteBufferMut;
 
     use super::*;
+
+    /// A generic writer's futures must stay `Send` so writers can be driven on multi-threaded
+    /// executors; this only compiles while that holds.
+    #[tokio::test]
+    async fn test_write_futures_are_send() -> io::Result<()> {
+        async fn write_generic<W: VortexWrite>(mut writer: W) -> io::Result<W> {
+            VortexWrite::write_all(&mut writer, vec![1, 2, 3]).await?;
+            VortexWrite::flush(&mut writer).await?;
+            VortexWrite::shutdown(&mut writer).await?;
+            Ok(writer)
+        }
+
+        fn assert_send<F: Future + Send>(future: F) -> F {
+            future
+        }
+
+        assert_eq!(assert_send(write_generic(Vec::new())).await?, vec![1, 2, 3]);
+        Ok(())
+    }
 
     #[rstest]
     #[case::single_write(vec![vec![1, 2, 3]], vec![1, 2, 3])]

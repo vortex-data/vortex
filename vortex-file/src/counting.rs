@@ -40,11 +40,11 @@ impl<W: VortexWrite + Unpin> VortexWrite for CountingVortexWrite<W> {
         result
     }
 
-    fn flush(&mut self) -> impl Future<Output = io::Result<()>> {
+    fn flush(&mut self) -> impl Future<Output = io::Result<()>> + Send {
         self.inner.flush()
     }
 
-    fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> {
+    fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> + Send {
         self.inner.shutdown()
     }
 }
