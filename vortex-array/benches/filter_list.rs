@@ -26,7 +26,7 @@ fn main() {
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
-const LIST_LENGTH: usize = 1_024;
+const LIST_LENGTH: usize = 512;
 const N_ELEMENTS_SHORT: usize = 32;
 const N_ELEMENTS_LONG: usize = 2_048;
 const MASK_LENGTH_CLUSTERED: usize = 8;
