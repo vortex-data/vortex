@@ -10,6 +10,7 @@ use std::sync::LazyLock;
 use divan::Bencher;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::array_session;
 use vortex_array::arrays::ListArray;
@@ -82,7 +83,7 @@ fn run(bencher: Bencher, array: ArrayRef, mask: Mask) {
                 array
                     .filter(mask)
                     .unwrap()
-                    .execute::<ArrayRef>(&mut ctx)
+                    .execute::<RecursiveCanonical>(&mut ctx)
                     .unwrap(),
             );
         });
