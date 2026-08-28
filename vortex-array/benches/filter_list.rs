@@ -37,10 +37,8 @@ const MASK_LENGTH_CLUSTERED: usize = 8;
 #[derive(Clone, Copy, Debug)]
 enum MaskSetup {
     AllSelected,
-    NoneSelected,
     Prefix,
-    Suffix,
-    EveryFifth,
+    Repeated,
     Clustered,
     Sparse,
     EdgeSpanning,
@@ -48,10 +46,8 @@ enum MaskSetup {
 
 const MASK_SETUPS: &[MaskSetup] = &[
     MaskSetup::AllSelected,
-    MaskSetup::NoneSelected,
     MaskSetup::Prefix,
-    MaskSetup::Suffix,
-    MaskSetup::EveryFifth,
+    MaskSetup::Repeated,
     MaskSetup::Clustered,
     MaskSetup::Sparse,
     MaskSetup::EdgeSpanning,
@@ -95,13 +91,8 @@ fn string_list(width: usize) -> ArrayRef {
 fn selection_mask(setup: MaskSetup) -> Mask {
     match setup {
         MaskSetup::AllSelected => Mask::new_true(LIST_LENGTH),
-        MaskSetup::NoneSelected => Mask::new_false(LIST_LENGTH),
         MaskSetup::Prefix => Mask::from_slices(LIST_LENGTH, vec![(0, MASK_LENGTH_CLUSTERED)]),
-        MaskSetup::Suffix => Mask::from_slices(
-            LIST_LENGTH,
-            vec![(LIST_LENGTH - MASK_LENGTH_CLUSTERED, LIST_LENGTH)],
-        ),
-        MaskSetup::EveryFifth => Mask::from_indices(LIST_LENGTH, (0..LIST_LENGTH).step_by(5)),
+        MaskSetup::Repeated => Mask::from_indices(LIST_LENGTH, (0..LIST_LENGTH).step_by(5)),
         MaskSetup::Clustered => {
             let start = (LIST_LENGTH - MASK_LENGTH_CLUSTERED) / 2;
             Mask::from_slices(LIST_LENGTH, vec![(start, start + MASK_LENGTH_CLUSTERED)])
