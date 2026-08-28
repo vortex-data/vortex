@@ -6,6 +6,8 @@ mod avx2;
 mod records;
 mod scalar;
 mod slices;
+#[cfg(all(target_arch = "aarch64", target_endian = "little"))]
+mod small_table;
 #[cfg(test)]
 mod tests;
 
@@ -36,6 +38,8 @@ use crate::arrays::piecewise_sequence::constant_unsigned_usize;
 use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+#[cfg(all(target_arch = "aarch64", target_endian = "little"))]
+use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
 use crate::dtype::half::f16;
 use crate::match_each_unsigned_integer_ptype;
@@ -80,6 +84,16 @@ pub(crate) fn take_values<T: FixedWidthTakeValue, I: UnsignedPType>(
     values: &[T],
     indices: &[I],
 ) -> Buffer<T> {
+    #[cfg(all(target_arch = "aarch64", target_endian = "little"))]
+    if I::PTYPE == PType::U8 {
+        // SAFETY: the ptype dispatcher guarantees that `I::PTYPE == U8` is the concrete `u8`
+        // implementation, so these slices have identical layouts.
+        let indices = unsafe { std::slice::from_raw_parts(indices.as_ptr().cast(), indices.len()) };
+        if let Some(taken) = small_table::take(values, indices) {
+            return taken;
+        }
+    }
+
     #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
     if *HAS_AVX2 {
         // SAFETY: AVX2 was detected above and `FixedWidthTakeValue` guarantees an initialized byte

@@ -38,6 +38,28 @@ fn take_eight_byte_values() {
     assert_eq!(taken.as_slice(), &[20, 30, 10]);
 }
 
+#[test]
+fn take_small_byte_table() {
+    let values = [10u8, 20, 30, 40];
+    let indices = (0..128).map(|index| index % 4).collect::<Vec<u8>>();
+    let expected = indices
+        .iter()
+        .map(|index| values[usize::from(*index)])
+        .collect::<Vec<_>>();
+    assert_eq!(
+        take_values(&values, &indices).as_slice(),
+        expected.as_slice()
+    );
+}
+
+#[test]
+#[should_panic(expected = "take index")]
+fn take_small_byte_table_rejects_out_of_bounds_index() {
+    let mut indices = vec![0u8; 128];
+    indices[64] = 4;
+    drop(take_values(&[10u8, 20, 30, 40], &indices));
+}
+
 #[rstest]
 #[case(1)]
 #[case(2)]
