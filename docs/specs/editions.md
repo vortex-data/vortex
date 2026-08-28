@@ -108,12 +108,15 @@ cannot bypass the check because the final array serializer owns wire-ID selectio
 
 ## How editions change
 
-A frozen edition never changes: neither its membership list nor the meaning of its component IDs may be altered. A new
-encoding or serialized array representation that has not stabilized gets its own new draft edition. Once a component
-maintained as part of core is stable, it may join `preview`. Preview is an adoption boundary, not an experimentation
-boundary: its serialized behavior should change only to fix a defect serious enough to block promotion into core.
-Promotion into the default compatibility set happens through a later `core` edition. A component supplied by an
-optional plugin stays in that plugin's independently versioned family.
+A frozen edition never changes: neither its membership list nor the meaning of its component IDs may be altered.
+Introducing a new serialized object or a reader-visible revision requires a new edition; it is never added
+retroactively to an existing edition. A component supplied by an optional plugin creates that edition in the plugin's
+independently versioned family.
+
+Core-maintained objects do not enter `core` directly. When an object is ready for users to try and its wire format is
+believed complete, it enters its own new `preview` edition. Entry into preview is a format-stability commitment, not the
+start of format design: the serialized contract should change only when absolutely necessary to resolve a problem found
+during testing. After successful preview testing, the same object ID and wire contract move into a new `core` edition.
 
 A new stable `core` or plugin edition may freeze in the release in which it first ships. Until that release is cut, its
 version is not known and the declaration keeps `min_library_version: None`. After the release is cut, the declaration is
@@ -238,19 +241,23 @@ perform their analogous compatibility checks at their own serialization boundari
 
 ## The `preview` family
 
-Alongside `core` there is a `preview` family for stabilized, core-maintained components and serialized array IDs that
-are ready for explicit adoption but are not yet part of the default core writer. Preview behavior is expected to remain
-compatible and should change only to fix a defect serious enough to block promotion into core. It does not yet carry
-core's unconditional read-forever guarantee.
+Alongside `core` there is a `preview` family for core-maintained objects that are ready for real-world testing but are
+not yet part of the default core writer. Each new object enters through a new preview edition. Its wire format is
+expected to be complete at that point and should change only when absolutely necessary to resolve an issue discovered
+during testing. Preview does not yet carry core's unconditional read-forever guarantee.
+
+If a required correction changes what readers must understand, give the corrected representation a new ID and put it in
+another preview edition instead of silently redefining the earlier ID. Once testing establishes that the object is ready
+for the compatibility guarantee, promote that same ID and serialized contract into a new `core` edition. Promotion
+changes its availability and guarantee, not its format.
 
 The default writer does not emit a newer wire ID merely because its reader understands it. Users opt in by enabling the
 preview edition containing that ID. Today, builds using the `unstable_encodings` Cargo feature also opt into registration
 and availability of the newest preview component set.
 
-Components that are still evolving belong to new draft editions rather than `preview`; each added
-feature advances the edition so a file's capability set remains identifiable. Components owned by
-optional plugins do not use `preview`; they live in standalone families such as `spatial` and
-`json`, because a reader without the plugin cannot resolve them.
+Components that are still undergoing format design are not ready for `preview`. Components owned by optional plugins do
+not use `preview`; each new object advances a standalone family such as `spatial` or `json`, because a reader without
+the plugin cannot resolve it.
 
 ## Declaring, freezing, and the edition records
 
@@ -264,18 +271,18 @@ cargo run -p xtask -- generate-editions
 
 Changing the declarations follows the edition's lifecycle:
 
-1. **Create a draft feature edition.** A new, not-yet-stable encoding or added capability gets a
-   new edition. Further capabilities advance to another edition instead of silently expanding an
-   existing record. A component supplied by an optional plugin uses that plugin's standalone
-   family.
-2. **Publish stabilized core work in preview.** Once a core-maintained serialized feature is
-   stable, give its wire representation a new array ID and add it to a new `preview` edition. The
-   core edition continues selecting an older compatible ID until the feature is deliberately
-   promoted.
-3. **Cut a core edition.** Promote adopted preview members into a new `core` edition with
-   `min_library_version: None`, regenerate the records, and ship it in a release. The edition
-   freezes as part of that release. Its minimum Vortex version cannot be populated yet because the
-   release version is not known until the release is cut.
+1. **Create a new edition for every new object.** Never add a serialized object or reader-visible
+   revision to an existing edition. Optional components create the new edition in their plugin's
+   standalone family.
+2. **Put test-ready core work in preview.** When a core-maintained object is ready to be tried and
+   its format is believed complete, give it a new wire ID and add it to its own new `preview`
+   edition. Change that format only when absolutely necessary to resolve an issue found during
+   testing; a reader-visible correction normally gets another ID and preview edition.
+3. **Promote the tested contract to core.** After successful preview testing, add the same object
+   ID and wire contract to a new `core` edition with `min_library_version: None`, regenerate the
+   records, and ship it in a release. Promotion must not redesign the format. The edition freezes
+   as part of that release. Its minimum Vortex version cannot be populated yet because the release
+   version is not known until the release is cut.
 4. **Backfill the released version.** After cutting the release, set `min_library_version` to that
    newly released Vortex version — the version that first shipped readers for every member — and
    regenerate the records. This update usually lands during development of the next release, but
