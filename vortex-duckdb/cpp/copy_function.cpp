@@ -7,7 +7,9 @@
 #include "vortex_duckdb.h"
 #include "table_function.h"
 #include "vortex.h"
+#include "duckdb/catalog/catalog.hpp"
 #include "duckdb/common/types/column/column_data_collection.hpp"
+#include "duckdb/logging/logger.hpp"
 #include "duckdb/main/capi/capi_internal.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/connection.hpp"
@@ -15,7 +17,7 @@
 
 unique_ptr<FunctionData> copy_to_bind(ClientContext &,
                                       CopyFunctionBindInput &,
-                                      const vector<string> &names,
+                                      const vector<Identifier> &names,
                                       const vector<LogicalType> &types) {
     vector<const char *> ffi_names(names.size());
     for (size_t i = 0; i < names.size(); ++i) {

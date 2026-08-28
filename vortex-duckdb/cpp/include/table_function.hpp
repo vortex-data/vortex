@@ -7,21 +7,15 @@
 #include "duckdb/function/function.hpp"
 #include "duckdb/function/table_function.hpp"
 
+#include <limits>
+
 using namespace duckdb;
 
 static_assert(sizeof(idx_t) == 8);
 
 bool is_vortex_scan(const TableFunction &function);
 
-struct TableFunctionProjectionExpressionInput {
-    const LogicalGet &get;
-    const Expression &expression;
-    idx_t projection_idx;
-};
-
-// true if we can push down the expression, false otherwise
-bool projection_expression_pushdown(ClientContext &context,
-                                    const TableFunctionProjectionExpressionInput &input);
+constexpr inline idx_t COUNT_STAR_PROJ_IDX = std::numeric_limits<idx_t>::max();
 
 struct TableFunctionUngroupedAggregateInput {
     const LogicalGet &get;

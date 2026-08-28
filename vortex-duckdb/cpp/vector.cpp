@@ -6,6 +6,9 @@
 
 #include "duckdb/common/types/value.hpp"
 #include "duckdb/common/types/vector.hpp"
+#include "duckdb/common/types/vector_buffer.hpp"
+#include "duckdb/common/vector/fsst_vector.hpp"
+#include "duckdb/common/vector/string_vector.hpp"
 
 using namespace duckdb;
 
@@ -23,6 +26,8 @@ extern "C" void duckdb_vx_vector_dictionary(duckdb_vector ffi_vector,
     auto vector = reinterpret_cast<Vector *>(ffi_vector);
     auto dict = reinterpret_cast<Vector *>(ffi_dict);
     auto sel_vec = reinterpret_cast<SelectionVector *>(ffi_sel_vec);
+    // Vector::Dictionary requires dict.size() == dictionary_size
+    dict->BufferMutable().SetVectorSize(dictionary_size);
     vector->Dictionary(*dict, dictionary_size, *sel_vec, count);
 }
 
@@ -31,25 +36,6 @@ duckdb_vx_sequence_vector(duckdb_vector c_vector, int64_t start, int64_t step, i
     auto vector = reinterpret_cast<Vector *>(c_vector);
     vector->Sequence(start, step, capacity);
 }
-
-// This is a complete hack to access the data buffer and pointer of a vector.
-// Duckdb passes us Vectors and not VortexVectors. This only works because
-// VortexVector doesn't add any members.
-class VortexVector final : public Vector {
-public:
-    inline void SetDataBuffer(buffer_ptr<VectorBuffer> new_buffer) {
-        buffer = std::move(new_buffer);
-    };
-
-    inline void SetDataPtr(data_ptr_t ptr) {
-        data = ptr;
-    };
-
-    inline ValidityMask &GetValidity() {
-        return validity;
-    };
-};
-static_assert(sizeof(VortexVector) == sizeof(Vector));
 
 // Same hack for ValidityMask: access protected fields via inheritance.
 class ExternalValidityMask final : public ValidityMask {
@@ -64,47 +50,45 @@ public:
 static_assert(sizeof(ExternalValidityMask) == sizeof(ValidityMask));
 
 extern "C" void duckdb_vx_string_vector_add_vector_data_buffer(duckdb_vector ffi_vector,
-                                                               duckdb_vx_vector_buffer buffer) {
-    auto vector = reinterpret_cast<Vector *>(ffi_vector);
-    auto data = reinterpret_cast<shared_ptr<ExternalVectorBuffer> *>(buffer);
-    StringVector::AddBuffer(*vector, *data);
+                                                               duckdb_vx_vector_buffer ffi_buffer) {
+    Vector &vector = *reinterpret_cast<Vector *>(ffi_vector);
+    buffer_ptr<VectorBuffer> data = *reinterpret_cast<buffer_ptr<ExternalVectorBuffer> *>(ffi_buffer);
+    StringVector::AddAuxiliaryData(vector, make_uniq<VectorBufferHolder>(std::move(data)));
 }
 
 extern "C" void duckdb_vx_vector_set_vector_data_buffer(duckdb_vector ffi_vector,
-                                                        duckdb_vx_vector_buffer buffer) {
-    auto vector = reinterpret_cast<Vector *>(ffi_vector);
-    auto dvector = reinterpret_cast<VortexVector *>(vector);
-    auto data = reinterpret_cast<shared_ptr<ExternalVectorBuffer> *>(buffer);
-    dvector->SetDataBuffer(*data);
-}
-
-extern "C" void duckdb_vx_vector_set_data_ptr(duckdb_vector ffi_vector, void *ptr) {
-    auto vector = reinterpret_cast<Vector *>(ffi_vector);
-    auto dvector = reinterpret_cast<VortexVector *>(vector);
-    dvector->SetDataPtr((data_ptr_t)ptr);
+                                                        duckdb_vx_vector_buffer buffer,
+                                                        void *data_ptr,
+                                                        idx_t capacity,
+                                                        idx_t type_size) {
+    Vector &vector = *reinterpret_cast<Vector *>(ffi_vector);
+    auto &root = *reinterpret_cast<shared_ptr<ExternalVectorBuffer> *>(buffer);
+    auto new_buffer =
+        make_buffer<ExternalVectorBuffer>(root, static_cast<data_ptr_t>(data_ptr), capacity, type_size);
+    // Carry validity set on the vector before this call
+    if (vector.GetBufferRef() && vector.Buffer().GetBufferType() == VectorBufferType::STANDARD_BUFFER) {
+        new_buffer->GetValidityMask() = vector.BufferMutable().GetValidityMask();
+    }
+    vector.SetBuffer(std::move(new_buffer));
 }
 
 extern "C" void duckdb_vx_vector_set_validity_data(duckdb_vector ffi_vector,
                                                    idx_t u64_offset,
                                                    idx_t capacity,
-                                                   duckdb_vx_vector_buffer buffer,
+                                                   duckdb_vx_vector_buffer ffi_buffer,
                                                    void *data_ptr) {
-    auto dvector = reinterpret_cast<VortexVector *>(ffi_vector);
-    auto &validity = dvector->GetValidity();
-    // ExternalValidityMask adds no members, so this downcast only exposes
-    // access to ValidityMask's protected fields.
-    auto ext_validity = static_cast<ExternalValidityMask *>(&validity);
+    Vector &vector = *reinterpret_cast<Vector *>(ffi_vector);
+    VectorBuffer &buffer = vector.BufferMutable();
+    ExternalValidityMask &validity = static_cast<ExternalValidityMask &>(buffer.GetValidityMask());
 
     // Use the shared_ptr aliasing constructor: the control block ref-counts the
     // ExternalVectorBuffer (preventing the Rust buffer from being freed),
     // while the stored pointer points to the explicit data_ptr.
-    auto ext_buf = reinterpret_cast<shared_ptr<ExternalVectorBuffer> *>(buffer);
+    auto ext_buf = reinterpret_cast<shared_ptr<ExternalVectorBuffer> *>(ffi_buffer);
     auto keeper = shared_ptr<TemplatedValidityData<validity_t>>(
         *ext_buf,
         reinterpret_cast<TemplatedValidityData<validity_t> *>(data_ptr));
-
-    // Set validity_data, derive validity_mask from it at u64_offset, and set capacity.
-    ext_validity->SetExternal(u64_offset, capacity, std::move(keeper));
+    validity.SetExternal(u64_offset, capacity, std::move(keeper));
 }
 
 extern "C" duckdb_value duckdb_vx_vector_get_value(duckdb_vector ffi_vector, idx_t index) {
@@ -113,24 +97,22 @@ extern "C" duckdb_value duckdb_vx_vector_get_value(duckdb_vector ffi_vector, idx
     return reinterpret_cast<duckdb_value>(value.release());
 }
 
-void duckdb_vector_flatten(duckdb_vector vector, unsigned long len) {
-    auto dvector = reinterpret_cast<Vector *>(vector);
-    dvector->Flatten(len);
+void duckdb_vector_flatten(duckdb_vector vector) {
+    reinterpret_cast<Vector *>(vector)->Flatten();
 }
 
 void duckdb_vx_vector_set_all_valid(duckdb_vector ffi_vector) {
     using enum VectorType;
     Vector &vector = *reinterpret_cast<Vector *>(ffi_vector);
-    const VectorType type = vector.GetVectorType();
-    D_ASSERT(type != DICTIONARY_VECTOR && type != SEQUENCE_VECTOR);
-    switch (type) {
+    switch (vector.GetVectorType()) {
     case CONSTANT_VECTOR:
         return ConstantVector::Validity(vector).Reset();
     case FLAT_VECTOR:
-        return FlatVector::Validity(vector).Reset();
+        return FlatVector::ValidityMutable(vector).Reset();
     case FSST_VECTOR:
         return FSSTVector::Validity(vector).Reset();
     default:
+        D_ASSERT(false);
         __builtin_unreachable();
     }
 }

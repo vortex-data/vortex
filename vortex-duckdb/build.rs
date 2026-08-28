@@ -23,21 +23,18 @@ const DUCKDB_RELEASES_URL: &str = "https://ci-builds.vortex.dev";
 
 const DUCKDB_SOURCE_RELEASE_URL: &str = "https://github.com/duckdb/duckdb/archive/refs/tags";
 const DUCKDB_SOURCE_COMMIT_URL: &str = "https://github.com/duckdb/duckdb/archive";
-const DEFAULT_DUCKDB_VERSION: &str = "1.5.5";
+const DEFAULT_DUCKDB_VERSION: &str = "b3062a5e82f50d77ff6e1006a36f645a79bc4936";
 
 const BUILD_ARTIFACTS: [&str; 3] = ["libduckdb.dylib", "libduckdb.so", "libduckdb_static.a"];
 const BUILD_MARKER: &str = ".vx-build-complete";
 const DUCKDB_CACHE_DIR: &str = "vortex-duckdb-cache";
 const EXTRACT_MARKER: &str = ".vx-extract-complete";
 
-const SOURCE_FILES: [&str; 12] = [
+const SOURCE_FILES: [&str; 9] = [
     "cpp/vortex_duckdb.cpp",
     "cpp/copy_function.cpp",
     "cpp/expr.cpp",
-    "cpp/optimizer.cpp",
-    "cpp/scalar_fn_pushdown.cpp",
     "cpp/spatial_overrides.cpp",
-    "cpp/cast_pushdown.cpp",
     "cpp/aggregate_fn_pushdown.cpp",
     "cpp/table_filter.cpp",
     "cpp/multi_file_reader.cpp",
@@ -590,7 +587,21 @@ fn compile_cpp(duckdb_include_dir: &Path) {
         .flag_if_supported("-fno-gnu-unique")
         // We don't want compiler warnings inside duckdb headers, pass as flags
         .flag("-isystem")
-        .flag(duckdb_include_dir)
+        .flag(duckdb_include_dir);
+
+    if let Some(root) = duckdb_include_dir.parent().and_then(Path::parent) {
+        let third_party = root.join("third_party");
+        if let Ok(entries) = fs::read_dir(&third_party) {
+            for entry in entries.flatten() {
+                let include = entry.path().join("include");
+                if include.is_dir() {
+                    build.flag("-isystem").flag(include);
+                }
+            }
+        }
+    }
+
+    build
         .include("include")
         .include("cpp/include")
         .files(SOURCE_FILES)

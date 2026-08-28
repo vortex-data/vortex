@@ -403,7 +403,7 @@ pub fn data_chunk_to_vortex(
     let columns = (0..chunk.column_count())
         .map(|i| {
             let vector = chunk.get_vector(i);
-            vector.flatten(len);
+            vector.flatten();
             flat_vector_to_vortex(vector, len.as_())
         })
         .collect::<VortexResult<Vec<_>>>()?;

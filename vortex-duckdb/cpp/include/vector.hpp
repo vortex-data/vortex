@@ -4,14 +4,24 @@
 #pragma once
 
 #include "data.hpp"
-#include "duckdb/common/types/vector_buffer.hpp"
+#include "duckdb/common/vector/flat_vector.hpp"
 
-// A DuckDB vector buffer that keeps externally-owned data alive for the
-// lifetime of the vector.
-class ExternalVectorBuffer final : public duckdb::VectorBuffer {
-    duckdb::unique_ptr<CData> data;
+using namespace duckdb;
+
+// A DuckDB vector buffer over externally-owned data.
+class ExternalVectorBuffer final : public StandardVectorBuffer {
+    shared_ptr<ExternalVectorBuffer> parent;
+    unique_ptr<CData> data;
 
 public:
-    explicit inline ExternalVectorBuffer(duckdb::unique_ptr<CData> data) : data(std::move(data)) {
+    explicit inline ExternalVectorBuffer(unique_ptr<CData> data)
+        : StandardVectorBuffer(nullptr, count_t(0), 0), data(std::move(data)) {
+    }
+
+    inline ExternalVectorBuffer(shared_ptr<ExternalVectorBuffer> parent,
+                                data_ptr_t ptr,
+                                idx_t capacity,
+                                idx_t type_size)
+        : StandardVectorBuffer(ptr, count_t(capacity), type_size), parent(std::move(parent)) {
     }
 };

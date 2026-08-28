@@ -45,14 +45,6 @@ impl ExpressionRef {
     pub fn as_class(&self) -> Option<ExpressionClass<'_>> {
         Some(
             match unsafe { cpp::duckdb_vx_expr_get_class(self.as_ptr()) } {
-                cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_CAST => {
-                    let child = unsafe {
-                        Expression::borrow(cpp::duckdb_vx_expr_get_bound_cast_child(self.as_ptr()))
-                    };
-                    let is_try =
-                        unsafe { cpp::duckdb_vx_expr_get_bound_cast_is_try(self.as_ptr()) };
-                    ExpressionClass::BoundCast(BoundCast { child, is_try })
-                }
                 cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_COLUMN_REF => {
                     let name = unsafe {
                         let ptr = cpp::duckdb_vx_expr_get_bound_column_ref_get_name(self.as_ptr());
@@ -85,42 +77,6 @@ impl ExpressionRef {
                         op: out.type_,
                     })
                 }
-                cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_COMPARISON => {
-                    let mut out = cpp::duckdb_vx_expr_bound_comparison {
-                        left: ptr::null_mut(),
-                        right: ptr::null_mut(),
-                        type_: cpp::DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_INVALID,
-                    };
-                    unsafe {
-                        cpp::duckdb_vx_expr_get_bound_comparison(self.as_ptr(), &raw mut out)
-                    };
-
-                    ExpressionClass::BoundComparison(BoundComparison {
-                        left: unsafe { Expression::borrow(out.left) },
-                        right: unsafe { Expression::borrow(out.right) },
-                        op: out.type_,
-                    })
-                }
-                cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_BETWEEN => {
-                    let mut out = cpp::duckdb_vx_expr_bound_between {
-                        input: ptr::null_mut(),
-                        lower: ptr::null_mut(),
-                        upper: ptr::null_mut(),
-                        lower_inclusive: false,
-                        upper_inclusive: false,
-                    };
-                    unsafe {
-                        cpp::duckdb_vx_expr_get_bound_between(self.as_ptr(), &raw mut out);
-                    }
-
-                    ExpressionClass::BoundBetween(BoundBetween {
-                        input: unsafe { Expression::borrow(out.input) },
-                        lower: unsafe { Expression::borrow(out.lower) },
-                        upper: unsafe { Expression::borrow(out.upper) },
-                        lower_inclusive: out.lower_inclusive,
-                        upper_inclusive: out.upper_inclusive,
-                    })
-                }
                 cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_OPERATOR => {
                     let mut out = cpp::duckdb_vx_expr_bound_operator {
                         children: ptr::null_mut(),
@@ -138,21 +94,68 @@ impl ExpressionRef {
                     })
                 }
                 cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_FUNCTION => {
-                    let mut out = cpp::duckdb_vx_expr_bound_function {
-                        children: ptr::null_mut(),
-                        children_count: 0,
-                        scalar_function: ptr::null_mut(),
-                        bind_info: ptr::null_mut(),
-                    };
-                    unsafe { cpp::duckdb_vx_expr_get_bound_function(self.as_ptr(), &raw mut out) };
+                    if unsafe { cpp::duckdb_vx_expr_is_comparison(self.as_ptr()) } {
+                        let mut out = cpp::duckdb_vx_expr_bound_comparison {
+                            left: ptr::null_mut(),
+                            right: ptr::null_mut(),
+                            type_: cpp::DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_INVALID,
+                        };
+                        unsafe {
+                            cpp::duckdb_vx_expr_get_bound_comparison(self.as_ptr(), &raw mut out)
+                        };
 
-                    let children =
-                        unsafe { std::slice::from_raw_parts(out.children, out.children_count) };
+                        ExpressionClass::BoundComparison(BoundComparison {
+                            left: unsafe { Expression::borrow(out.left) },
+                            right: unsafe { Expression::borrow(out.right) },
+                            op: out.type_,
+                        })
+                    } else if unsafe { cpp::duckdb_vx_expr_is_between(self.as_ptr()) } {
+                        let mut out = cpp::duckdb_vx_expr_bound_between {
+                            input: ptr::null_mut(),
+                            lower: ptr::null_mut(),
+                            upper: ptr::null_mut(),
+                            lower_inclusive: false,
+                            upper_inclusive: false,
+                        };
+                        unsafe {
+                            cpp::duckdb_vx_expr_get_bound_between(self.as_ptr(), &raw mut out);
+                        }
 
-                    ExpressionClass::BoundFunction(BoundFunction {
-                        children,
-                        scalar_function: unsafe { ScalarFunction::borrow(out.scalar_function) },
-                    })
+                        ExpressionClass::BoundBetween(BoundBetween {
+                            input: unsafe { Expression::borrow(out.input) },
+                            lower: unsafe { Expression::borrow(out.lower) },
+                            upper: unsafe { Expression::borrow(out.upper) },
+                            lower_inclusive: out.lower_inclusive,
+                            upper_inclusive: out.upper_inclusive,
+                        })
+                    } else if unsafe { cpp::duckdb_vx_expr_is_cast(self.as_ptr()) } {
+                        let child = unsafe {
+                            Expression::borrow(cpp::duckdb_vx_expr_get_bound_cast_child(
+                                self.as_ptr(),
+                            ))
+                        };
+                        let is_try =
+                            unsafe { cpp::duckdb_vx_expr_get_bound_cast_is_try(self.as_ptr()) };
+                        ExpressionClass::BoundCast(BoundCast { child, is_try })
+                    } else {
+                        let mut out = cpp::duckdb_vx_expr_bound_function {
+                            children: ptr::null_mut(),
+                            children_count: 0,
+                            scalar_function: ptr::null_mut(),
+                            bind_info: ptr::null_mut(),
+                        };
+                        unsafe {
+                            cpp::duckdb_vx_expr_get_bound_function(self.as_ptr(), &raw mut out)
+                        };
+
+                        let children =
+                            unsafe { std::slice::from_raw_parts(out.children, out.children_count) };
+
+                        ExpressionClass::BoundFunction(BoundFunction {
+                            children,
+                            scalar_function: unsafe { ScalarFunction::borrow(out.scalar_function) },
+                        })
+                    }
                 }
                 cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_AGGREGATE => {
                     let aggregate_function = unsafe {

@@ -97,7 +97,7 @@ VortexMultiFileReader::InitializeReader(MultiFileReaderData &reader_data,
 
 void VortexReaderInterface::BindReader(ClientContext &context,
                                        vector<LogicalType> &types,
-                                       vector<string> &names,
+                                       vector<Identifier> &names,
                                        MultiFileBindData &bind_data) {
     BaseFileReaderOptions options;
 
@@ -172,7 +172,7 @@ VortexReaderInterface::InitializeGlobalState(ClientContext &context,
 }
 
 unique_ptr<LocalTableFunctionState>
-VortexReaderInterface::InitializeLocalState(ExecutionContext &, GlobalTableFunctionState &global_state) {
+VortexReaderInterface::InitializeLocalState(ClientContext &, GlobalTableFunctionState &global_state) {
     auto &global = global_state.Cast<VortexGlobalState>();
     const void *const ffi_global = global.ffi_global_state->DataPtr();
     duckdb_vx_data ffi_local_state = duckdb_table_function_init_local(global.ffi_bind_data, ffi_global);
@@ -313,11 +313,11 @@ static unique_ptr<BaseStatistics> numeric_stats(duckdb_column_statistics &stats,
 static unique_ptr<BaseStatistics> string_stats(duckdb_column_statistics &stats, LogicalType type) {
     BaseStatistics out = StringStats::CreateUnknown(type);
     if (stats.min) {
-        StringStats::SetMin(out, StringValue::Get(UnwrapValue(stats.min)));
+        StringStats::SetMin(out, StringValue::Get(UnwrapValue(stats.min)), StringStatsType::TRUNCATED_STATS);
         duckdb_destroy_value(&stats.min);
     }
     if (stats.max) {
-        StringStats::SetMax(out, StringValue::Get(UnwrapValue(stats.max)));
+        StringStats::SetMax(out, StringValue::Get(UnwrapValue(stats.max)), StringStatsType::TRUNCATED_STATS);
         duckdb_destroy_value(&stats.max);
     }
     if (stats.max_string_length >> 63) {
@@ -344,7 +344,7 @@ static unique_ptr<BaseStatistics> base_stats(duckdb_column_statistics &stats, Lo
     return out.ToUnique();
 }
 
-unique_ptr<BaseStatistics> VortexBaseReader::GetStatistics(ClientContext &, const string &name) {
+unique_ptr<BaseStatistics> VortexBaseReader::GetStatistics(ClientContext &, const Identifier &name) {
     D_ASSERT(ffi_bind);
     duckdb_column_statistics statistics = {};
     if (!duckdb_reader_get_statistics(ffi_file->DataPtr(),
