@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Benchmarks filtering lists with different element widths and outer-mask locality.
+//! Benchmarks filtering lists with different lengths and outer-mask locality.
 
 #![expect(clippy::cast_possible_truncation, clippy::unwrap_used)]
 
@@ -10,13 +10,10 @@ use std::sync::LazyLock;
 use divan::Bencher;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::array_session;
-use vortex_array::arrays::DictArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::VarBinViewArray;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_mask::Mask;
@@ -63,31 +60,6 @@ fn primitive_list(width: usize) -> ArrayRef {
         .into_array()
 }
 
-fn dictionary_list(width: usize) -> ArrayRef {
-    let element_count = LIST_LENGTH * width;
-    let codes = Buffer::from_iter((0..element_count).map(|index| (index % 16) as u8)).into_array();
-    let values = PrimitiveArray::from_iter(0..16u32).into_array();
-    let elements = DictArray::try_new(codes, values).unwrap().into_array();
-    let offsets =
-        Buffer::from_iter((0..=LIST_LENGTH).map(|index| (index * width) as u32)).into_array();
-    ListArray::try_new(elements, offsets, Validity::NonNullable)
-        .unwrap()
-        .into_array()
-}
-
-fn string_list(width: usize) -> ArrayRef {
-    let element_count = LIST_LENGTH * width;
-    let elements = VarBinViewArray::from_iter_str(
-        (0..element_count).map(|index| format!("list-element-{index:08}")),
-    )
-    .into_array();
-    let offsets =
-        Buffer::from_iter((0..=LIST_LENGTH).map(|index| (index * width) as u32)).into_array();
-    ListArray::try_new(elements, offsets, Validity::NonNullable)
-        .unwrap()
-        .into_array()
-}
-
 fn selection_mask(setup: MaskSetup) -> Mask {
     match setup {
         MaskSetup::AllSelected => Mask::new_true(LIST_LENGTH),
@@ -110,7 +82,7 @@ fn run(bencher: Bencher, array: ArrayRef, mask: Mask) {
                 array
                     .filter(mask)
                     .unwrap()
-                    .execute::<RecursiveCanonical>(&mut ctx)
+                    .execute::<ArrayRef>(&mut ctx)
                     .unwrap(),
             );
         });
@@ -132,36 +104,4 @@ fn filter_list_primitive_wide(bencher: Bencher, setup: MaskSetup) {
         primitive_list(N_ELEMENTS_LONG),
         selection_mask(setup),
     );
-}
-
-#[divan::bench(args = MASK_SETUPS)]
-fn filter_list_dictionary_short(bencher: Bencher, setup: MaskSetup) {
-    run(
-        bencher,
-        dictionary_list(N_ELEMENTS_SHORT),
-        selection_mask(setup),
-    );
-}
-
-#[divan::bench(args = MASK_SETUPS)]
-fn filter_list_dictionary_wide(bencher: Bencher, setup: MaskSetup) {
-    run(
-        bencher,
-        dictionary_list(N_ELEMENTS_LONG),
-        selection_mask(setup),
-    );
-}
-
-#[divan::bench(args = MASK_SETUPS)]
-fn filter_list_string_short(bencher: Bencher, setup: MaskSetup) {
-    run(
-        bencher,
-        string_list(N_ELEMENTS_SHORT),
-        selection_mask(setup),
-    );
-}
-
-#[divan::bench(args = MASK_SETUPS)]
-fn filter_list_string_wide(bencher: Bencher, setup: MaskSetup) {
-    run(bencher, string_list(N_ELEMENTS_LONG), selection_mask(setup));
 }
