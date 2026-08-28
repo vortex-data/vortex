@@ -31,7 +31,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 // Keep wide cases large enough to exercise element-mask expansion while remaining inexpensive for
 // CodSpeed's instruction-count simulation.
-const LIST_COUNT: usize = 128;
+const LIST_COUNT: usize = 1_024;
 const SHORT_LIST_WIDTH: usize = 32;
 const WIDE_LIST_WIDTH: usize = 2_048;
 const CLUSTERED_LIST_COUNT: usize = 8;
