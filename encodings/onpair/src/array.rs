@@ -14,6 +14,7 @@ use onpair::CompactDictionary;
 use onpair::CompactDictionaryView;
 use onpair::Dictionary;
 use onpair::DictionaryStorage;
+use onpair::search::index::TokenFrequencyIndexView;
 use prost::Message as _;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
@@ -56,6 +57,10 @@ use crate::canonical::OnPairDecodePlan;
 use crate::canonical::canonicalize_onpair;
 use crate::canonical::onpair_decode_bytes;
 use crate::decode::collect_widened;
+use crate::index::OnPairIndexChildren;
+use crate::index::OnPairIndexChildrenView;
+use crate::index::OnPairIndexSet;
+use crate::index::OnPairIndexesData;
 use crate::rules::RULES;
 
 /// An [`OnPair`]-encoded Vortex array.
@@ -95,6 +100,9 @@ pub struct OnPairMetadata {
     /// PType of the `codes_offsets` slot child.
     #[prost(enumeration = "PType", tag = "7")]
     pub codes_offsets_ptype: i32,
+    /// Bitset of optional advisory indexes with fixed, append-only child slots.
+    #[prost(uint64, tag = "8")]
+    pub index_flags: u64,
 }
 
 impl OnPairMetadata {
@@ -128,6 +136,18 @@ pub struct OnPairSlots {
     /// Optional validity child for the outer string column.
     #[slot(4)]
     pub validity: Option<ArrayRef>,
+    /// Cumulative token frequencies, indexed by dictionary token.
+    #[slot(5)]
+    pub token_frequency_index_child: Option<ArrayRef>,
+}
+
+/// Derive the dictionary's token count from its offsets child without
+/// materializing the offsets.
+pub(crate) fn num_tokens_from_offsets(dict_offsets: &ArrayRef) -> VortexResult<usize> {
+    dict_offsets
+        .len()
+        .checked_sub(1)
+        .ok_or_else(|| vortex_err!(InvalidArgument: "OnPair dictionary has no offsets"))
 }
 
 /// Immutable storage for a materialised OnPair dictionary.
@@ -183,6 +203,8 @@ pub struct OnPairData {
     /// The `Arc` cell is shared only between arrays with identical dictionary
     /// bytes and logically identical offsets (slice / filter / cast keep both).
     dictionary: Arc<OnceLock<CompactDictionary<OnPairDictionaryStorage>>>,
+    /// Presence and lazy caches for recognized advisory indexes.
+    indexes: OnPairIndexesData,
 }
 
 impl OnPairData {
@@ -191,6 +213,7 @@ impl OnPairData {
         Self {
             dict_bytes,
             dictionary: Arc::new(OnceLock::new()),
+            indexes: OnPairIndexesData::default(),
         }
     }
 
@@ -208,7 +231,21 @@ impl OnPairData {
         Ok(Self {
             dict_bytes,
             dictionary: Arc::new(OnceLock::from(dictionary)),
+            indexes: OnPairIndexesData::default(),
         })
+    }
+
+    pub(crate) fn with_indexes(mut self, indexes: OnPairIndexesData) -> Self {
+        self.indexes = indexes;
+        self
+    }
+
+    pub(crate) fn without_indexes(self) -> Self {
+        self.with_indexes(OnPairIndexesData::default())
+    }
+
+    pub(crate) fn indexes(&self) -> &OnPairIndexesData {
+        &self.indexes
     }
 
     /// The dictionary blob as a host byte buffer.
@@ -293,6 +330,7 @@ impl Debug for OnPairData {
 impl ArrayHash for OnPairData {
     fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: EqMode) {
         self.dict_bytes.as_host().array_hash(state, accuracy);
+        self.indexes.array_hash(state);
     }
 }
 
@@ -301,6 +339,7 @@ impl ArrayEq for OnPairData {
         self.dict_bytes
             .as_host()
             .array_eq(other.dict_bytes.as_host(), accuracy)
+            && self.indexes.same_indexes(&other.indexes)
     }
 }
 
@@ -327,11 +366,12 @@ impl OnPair {
             codes_offsets,
             uncompressed_lengths,
             validity,
+            OnPairIndexChildren::default(),
         )
     }
 
-    /// Build an [`OnPairArray`] from already-materialised parts while reusing
-    /// an existing [`OnPairData`].
+    /// Build an [`OnPairArray`] from already-materialised parts while reusing an
+    /// existing [`OnPairData`] and carrying its optional index children.
     ///
     /// Reusing the data preserves the dictionary byte-buffer handle and the
     /// shared lazy dictionary cache. This is useful when recursive compression
@@ -340,7 +380,13 @@ impl OnPair {
     /// If `data` contains a memoized dictionary, `dict_offsets` must be
     /// logically equivalent to the offsets used to create that dictionary.
     /// The constructor intentionally does not validate the dictionary itself;
-    /// dictionary validation remains lazy and is performed on first use.
+    /// dictionary validation remains lazy and is performed on first use. Every
+    /// index child must be logically equivalent to the child used to populate
+    /// its corresponding memoized index in `data`.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "mirrors the fixed OnPair slot layout plus its index children"
+    )]
     pub fn try_new_with_data(
         dtype: DType,
         data: OnPairData,
@@ -349,13 +395,16 @@ impl OnPair {
         codes_offsets: ArrayRef,
         uncompressed_lengths: ArrayRef,
         validity: Validity,
+        index_children: OnPairIndexChildren,
     ) -> VortexResult<OnPairArray> {
         validate_parts(
+            &data,
             &dtype,
             &dict_offsets,
             &codes,
             &codes_offsets,
             &uncompressed_lengths,
+            index_children.as_view(),
         )?;
         Ok(unsafe {
             Self::new_unchecked(
@@ -366,6 +415,7 @@ impl OnPair {
                 codes_offsets,
                 uncompressed_lengths,
                 validity,
+                index_children,
             )
         })
     }
@@ -377,7 +427,12 @@ impl OnPair {
     /// The parts must satisfy the same invariants [`try_new`](Self::try_new)
     /// checks. If `data`'s dictionary cell is populated (or shared with a live
     /// array), `dict_offsets` must hold the same logical offsets the dictionary
-    /// was built from.
+    /// was built from. Memoized indexes in `data` must describe the supplied
+    /// index children.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "mirrors the fixed OnPair slot layout plus its index children"
+    )]
     pub(crate) unsafe fn new_unchecked(
         dtype: DType,
         data: OnPairData,
@@ -386,6 +441,7 @@ impl OnPair {
         codes_offsets: ArrayRef,
         uncompressed_lengths: ArrayRef,
         validity: Validity,
+        index_children: OnPairIndexChildren,
     ) -> OnPairArray {
         let len = uncompressed_lengths.len();
         let slots = OnPairSlots {
@@ -394,6 +450,7 @@ impl OnPair {
             codes_offsets,
             uncompressed_lengths,
             validity: validity_to_child(&validity, len),
+            token_frequency_index_child: index_children.into_token_frequency(),
         }
         .into_slots();
         unsafe {
@@ -403,11 +460,13 @@ impl OnPair {
 }
 
 fn validate_parts(
+    data: &OnPairData,
     dtype: &DType,
     dict_offsets: &ArrayRef,
     codes: &ArrayRef,
     codes_offsets: &ArrayRef,
     uncompressed_lengths: &ArrayRef,
+    index_children: OnPairIndexChildrenView<'_>,
 ) -> VortexResult<()> {
     vortex_ensure!(
         matches!(dtype, DType::Binary(_) | DType::Utf8(_)),
@@ -433,6 +492,9 @@ fn validate_parts(
             uncompressed_lengths.len() + 1
         );
     }
+    let num_tokens = num_tokens_from_offsets(dict_offsets)?;
+    data.indexes()
+        .validate_children(index_children, num_tokens)?;
     Ok(())
 }
 
@@ -448,18 +510,20 @@ impl VTable for OnPair {
 
     fn validate(
         &self,
-        _data: &Self::TypedArrayData,
+        data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         let s = OnPairSlotsView::from_slots(slots);
         validate_parts(
+            data,
             dtype,
             s.dict_offsets,
             s.codes,
             s.codes_offsets,
             s.uncompressed_lengths,
+            OnPairIndexChildrenView::from_slots(&s),
         )?;
         if s.uncompressed_lengths.len() != len {
             vortex_bail!(InvalidArgument: "uncompressed_lengths must have same len as outer array");
@@ -511,7 +575,7 @@ impl VTable for OnPair {
         array: ArrayView<'_, Self>,
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
-        let dict_size = u32::try_from(array.dict_offsets().len().saturating_sub(1))
+        let dict_size = u32::try_from(num_tokens_from_offsets(array.dict_offsets())?)
             .map_err(|_| vortex_err!("OnPair dict_size exceeds u32"))?;
         let codes_len = array.codes().len() as u64;
         Ok(Some(
@@ -522,6 +586,7 @@ impl VTable for OnPair {
                 dict_offsets_ptype: array.dict_offsets().dtype().as_ptype().into(),
                 codes_ptype: array.codes().dtype().as_ptype().into(),
                 codes_offsets_ptype: array.codes_offsets().dtype().as_ptype().into(),
+                index_flags: array.data().indexes.set().bits(),
             }
             .encode_to_vec(),
         ))
@@ -540,11 +605,37 @@ impl VTable for OnPair {
             vortex_bail!(InvalidArgument: "Expected 1 buffer, got {}", buffers.len());
         }
         let metadata = OnPairMetadata::decode(metadata)?;
+        let indexes = OnPairIndexSet::from_bits(metadata.index_flags)?;
+        let serialized_index_children = indexes.child_count();
         let uncompressed_ptype = metadata.get_uncompressed_lengths_ptype()?;
+
+        // Validity is the first optional slot, so its slot index is also the
+        // number of required serialized children.
+        let children_after_required = children
+            .len()
+            .checked_sub(OnPairSlots::VALIDITY)
+            .ok_or_else(|| {
+                vortex_err!(
+                    InvalidArgument:
+                    "Expected at least {} OnPair children, got {}",
+                    OnPairSlots::VALIDITY,
+                    children.len()
+                )
+            })?;
+        let validity_children = children_after_required
+            .checked_sub(serialized_index_children)
+            .ok_or_else(|| vortex_err!(InvalidArgument: "OnPair index flags require more children than were serialized"))?;
+        vortex_ensure!(
+            validity_children <= 1,
+            "Expected zero or one OnPair validity child after accounting for indexes, got {}",
+            validity_children
+        );
 
         // Slot children do not persist their own lengths, so metadata records
         // the dictionary and code-stream sizes needed to deserialize them.
-        let dict_offsets_len = metadata.dict_size as usize + 1;
+        let dict_offsets_len = (metadata.dict_size as usize)
+            .checked_add(1)
+            .ok_or_else(|| vortex_err!("OnPair dict_offsets length overflow"))?;
         let codes_len = usize::try_from(metadata.codes_len)
             .map_err(|_| vortex_err!("codes_len {} overflows usize", metadata.codes_len))?;
         // The cascading compressor may have narrowed any of these integer
@@ -562,38 +653,53 @@ impl VTable for OnPair {
             )
         })?;
         let dict_offsets = children.get(
-            0,
+            OnPairSlots::DICT_OFFSETS,
             &DType::Primitive(dict_offsets_ptype, Nullability::NonNullable),
             dict_offsets_len,
         )?;
         let codes = children.get(
-            1,
+            OnPairSlots::CODES,
             &DType::Primitive(codes_ptype, Nullability::NonNullable),
             codes_len,
         )?;
         let codes_offsets = children.get(
-            2,
+            OnPairSlots::CODES_OFFSETS,
             &DType::Primitive(codes_offsets_ptype, Nullability::NonNullable),
-            len + 1,
+            len.checked_add(1)
+                .ok_or_else(|| vortex_err!("OnPair codes_offsets length overflow"))?,
         )?;
         let uncompressed_lengths = children.get(
-            3,
+            OnPairSlots::UNCOMPRESSED_LENGTHS,
             &DType::Primitive(uncompressed_ptype, Nullability::NonNullable),
             len,
         )?;
-        let validity = match children.len() {
-            4 => Validity::from(dtype.nullability()),
-            5 => Validity::Array(children.get(4, &Validity::DTYPE, len)?),
-            other => vortex_bail!(InvalidArgument: "Expected 4 or 5 children, got {other}"),
+        let validity = match validity_children {
+            0 => Validity::from(dtype.nullability()),
+            1 => Validity::Array(children.get(OnPairSlots::VALIDITY, &Validity::DTYPE, len)?),
+            _ => unreachable!("validated validity child count"),
         };
 
-        let data = OnPairData::new(buffers[0].clone());
+        let index_children_start = OnPairSlots::VALIDITY + validity_children;
+        let token_frequency_index_child = indexes
+            .has_token_frequency()
+            .then(|| {
+                children.get(
+                    index_children_start,
+                    &DType::Primitive(PType::U32, Nullability::NonNullable),
+                    dict_offsets_len,
+                )
+            })
+            .transpose()?;
+
+        let data =
+            OnPairData::new(buffers[0].clone()).with_indexes(OnPairIndexesData::from_set(indexes));
         let slots = OnPairSlots {
             dict_offsets,
             codes,
             codes_offsets,
             uncompressed_lengths,
             validity: validity_to_child(&validity, len),
+            token_frequency_index_child,
         }
         .into_slots();
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
@@ -705,6 +811,22 @@ pub trait OnPairArrayExt: OnPairArraySlotsExt {
             self.as_ref().slots()[OnPairSlots::VALIDITY].as_ref(),
             self.as_ref().dtype().nullability(),
         )
+    }
+
+    /// Lazily materialize and safety-validate the optional token-frequency index.
+    ///
+    /// The returned view borrows the cached dense `u32` storage. A recursively
+    /// compressed index child is decompressed only on the first successful call.
+    fn token_frequency_index<'a>(
+        &'a self,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<TokenFrequencyIndexView<'a>>> {
+        let array = self
+            .as_ref()
+            .as_typed::<OnPair>()
+            .ok_or_else(|| vortex_err!("OnPairArrayExt used with a non-OnPair array"))?;
+        crate::index::token_frequency_index(array, ctx)
+            .map(|index| index.map(|index| index.as_view()))
     }
 }
 

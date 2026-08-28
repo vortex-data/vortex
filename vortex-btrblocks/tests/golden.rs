@@ -397,7 +397,7 @@ fn without_onpair(builder: BtrBlocksCompressorBuilder) -> BtrBlocksCompressorBui
     use vortex_btrblocks::SchemeExt;
     use vortex_btrblocks::schemes::string::OnPairScheme;
 
-    builder.exclude_schemes([OnPairScheme.id()])
+    builder.exclude_schemes([OnPairScheme::new().id()])
 }
 
 fn edition_session(editions: &[EditionId]) -> VortexResult<VortexSession> {

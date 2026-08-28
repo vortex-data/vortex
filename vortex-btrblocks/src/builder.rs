@@ -52,7 +52,7 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     // Both string-fragmentation schemes are registered; the sample-based
     // selector keeps whichever is smaller per column.
     &string::FSSTScheme,
-    &string::OnPairScheme,
+    &string::OnPairScheme::new(),
     &string::NullDominatedSparseScheme,
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // Binary schemes.

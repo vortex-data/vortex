@@ -53,7 +53,7 @@ fn test_all_schemes_includes_onpair() {
 
     let ids: Vec<_> = crate::ALL_SCHEMES.iter().map(|s| s.id()).collect();
     assert!(
-        ids.contains(&OnPairScheme.id()),
+        ids.contains(&OnPairScheme::new().id()),
         "OnPairScheme not registered in ALL_SCHEMES"
     );
 }

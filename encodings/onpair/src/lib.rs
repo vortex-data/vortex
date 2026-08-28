@@ -14,6 +14,7 @@ mod canonical;
 mod compress;
 mod compute;
 mod decode;
+mod index;
 mod kernel;
 mod ops;
 mod rules;
@@ -22,6 +23,9 @@ mod tests;
 
 pub use array::*;
 pub use compress::*;
+pub use index::OnPairIndexChildren;
+pub use index::OnPairIndexSet;
+pub use index::build_token_frequency_index;
 pub use onpair::CompactDictionaryView;
 pub use onpair::Config;
 pub use onpair::DEFAULT_CONFIG;
