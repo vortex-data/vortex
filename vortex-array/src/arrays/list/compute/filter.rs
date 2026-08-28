@@ -34,28 +34,43 @@ use crate::validity::Validity;
 /// Note that this is somewhat arbitrarily chosen...
 const MASK_EXPANSION_DENSITY_THRESHOLD: f64 = 0.05;
 
-/// Minimum average list length at which filtering trims unselected leading and trailing elements.
-const ELEMENT_RANGE_CROP_MIN_AVERAGE_LIST_LENGTH: usize = 1024;
+/// Minimum percentage of referenced-but-unselected prefix and suffix elements required before
+/// cropping.
+const PERCENTAGE_REFERENCED_UNSELECTED_ELEMENTS_THRESHOLD: usize = 20;
 
-/// Return the element range to filter.
+/// Crop when at least `1 / denominator` of referenced elements are unselected.
+const N_REFERENCED_UNSELECTED_ELEMENTS_THRESHOLD: usize = 1024;
+
+/// Return the element range to construct new mask over and to subsequently filter. In the general case this will be the range
+/// of elements referenced by a sublist.
+///
+/// If there are enough elements in head or tail that are referenced but not selected, it is more efficient
+/// to bound the element range to the first and last selected indices. We can then expand the
+/// mask only over this subset of elements, slice the elements array, and then filter. This avoids the
+/// overhead of potentially wasteful mask reconstruction.
+///
+/// Returns the range and a flag indicating whether the range is a subinterval of the referenced element range.
 fn element_range_from_offsets<O: IntegerPType>(
     offsets: &[O],
     selection: &MaskValuesRef,
-) -> Range<usize> {
-    let first_offset = offsets.first().map_or(0, |first_offset| first_offset.as_());
-    let last_offset = offsets.last().map_or(0, |last_offset| last_offset.as_());
-    let element_count = last_offset - first_offset;
-    let list_count = offsets.len() - 1;
-
-    if element_count <= list_count.saturating_mul(ELEMENT_RANGE_CROP_MIN_AVERAGE_LIST_LENGTH) {
-        return first_offset..last_offset;
-    }
+) -> (Range<usize>, bool) {
+    let referenced_elements_range = offsets[0].as_()..offsets[offsets.len() - 1].as_();
 
     let selected_indices = selection.indices();
-    let first_index = selected_indices[0];
-    let last_index = selected_indices[selected_indices.len() - 1];
+    let first_selected_sublist_index = selected_indices[0];
+    let last_selected_sublist_index = selected_indices[selected_indices.len() - 1];
+    let selected_elements_range =
+        offsets[first_selected_sublist_index].as_()..offsets[last_selected_sublist_index + 1].as_();
+    let trimmed_element_count = referenced_elements_range.len() - selected_elements_range.len();
 
-    offsets[first_index].as_()..offsets[last_index + 1].as_()
+    if trimmed_element_count >= N_REFERENCED_UNSELECTED_ELEMENTS_THRESHOLD
+        && trimmed_element_count.saturating_mul(PERCENTAGE_REFERENCED_UNSELECTED_ELEMENTS_THRESHOLD)
+            >= referenced_elements_range.len()
+    {
+        (selected_elements_range, true)
+    } else {
+        (referenced_elements_range, false)
+    }
 }
 
 /// Construct an element mask relative to `element_range` from contiguous list offsets and an
@@ -146,7 +161,7 @@ impl FilterKernel for List {
         // TODO(ngates): for ultra-sparse masks, we don't need to optimize the entire offsets.
         let offsets = array.offsets().clone();
 
-        let (new_offsets, element_range, element_mask) =
+        let (new_offsets, element_range, range_is_subinterval, element_mask) =
             match_each_integer_ptype!(offsets.dtype().as_ptype(), |O| {
                 let offsets_buffer = offsets.execute::<Buffer<O>>(ctx)?;
                 let offsets = offsets_buffer.as_slice();
@@ -159,23 +174,27 @@ impl FilterKernel for List {
                     unsafe { new_offsets.push_unchecked(offset) };
                 }
 
-                // TODO(ngates): for very dense masks, there may be no point in filtering the elements,
-                //  and instead we should construct a view against the unfiltered elements.
-                let element_range = element_range_from_offsets::<O>(offsets, selection);
+                let (element_range, range_is_subinterval) =
+                    element_range_from_offsets::<O>(offsets, selection);
                 let element_mask =
                     element_mask_from_offsets::<O>(offsets, selection, &element_range);
 
                 (
                     new_offsets.freeze().into_array(),
                     element_range,
+                    range_is_subinterval,
                     element_mask,
                 )
             });
 
-        let new_elements = array
-            .elements()
-            .slice(element_range)?
-            .filter(element_mask)?;
+        let new_elements = if range_is_subinterval {
+            array
+                .elements()
+                .slice(element_range)?
+                .filter(element_mask)?
+        } else {
+            array.sliced_elements()?.filter(element_mask)?
+        };
 
         // SAFETY: new_offsets are monotonically increasing starting from 0 with length
         // true_count + 1, and the elements have been filtered to match.
@@ -200,13 +219,14 @@ mod tests {
             vortex_bail!("a partially selective mask uses Mask::Values")
         };
 
-        let offsets = [10u32, 2010, 4010, 6010, 8010, 10010];
-        let range = element_range_from_offsets(&offsets, &selection);
+        let offsets = [10u32, 20010, 40010, 60010, 80010, 100010];
+        let (range, range_is_subinterval) = element_range_from_offsets(&offsets, &selection);
         let element_mask = element_mask_from_offsets(&offsets, &selection, &range);
 
-        assert_eq!(range, 4010..6010);
+        assert_eq!(range, 40010..60010);
+        assert!(range_is_subinterval);
         assert!(element_mask.all_true());
-        assert_eq!(element_mask.len(), 2000);
+        assert_eq!(element_mask.len(), 20000);
         Ok(())
     }
 
@@ -216,29 +236,73 @@ mod tests {
             vortex_bail!("a partially selective mask uses Mask::Values")
         };
 
-        let offsets = [10u32, 2010, 4010, 6010, 8010, 10010];
-        let range = element_range_from_offsets(&offsets, &selection);
+        let offsets = [10u32, 20010, 40010, 60010, 80010, 100010];
+        let (range, range_is_subinterval) = element_range_from_offsets(&offsets, &selection);
         let element_mask = element_mask_from_offsets(&offsets, &selection, &range);
 
-        assert_eq!(range, 2010..8010);
-        assert_eq!(element_mask.len(), 6000);
-        assert_eq!(element_mask.true_count(), 4000);
+        assert_eq!(range, 20010..80010);
+        assert!(range_is_subinterval);
+        assert_eq!(element_mask.len(), 60000);
+        assert_eq!(element_mask.true_count(), 40000);
         Ok(())
     }
 
     #[test]
-    fn element_mask_preserves_complete_range_for_short_lists() -> VortexResult<()> {
+    fn element_range_preserves_complete_range_for_short_lists() -> VortexResult<()> {
         let Mask::Values(selection) = Mask::from_indices(5, [2]) else {
             vortex_bail!("a partially selective mask uses Mask::Values")
         };
 
         let offsets = [10u32, 20, 30, 40, 50, 60];
-        let range = element_range_from_offsets(&offsets, &selection);
+        let (range, range_is_subinterval) = element_range_from_offsets(&offsets, &selection);
         let element_mask = element_mask_from_offsets(&offsets, &selection, &range);
 
         assert_eq!(range, 10..60);
+        assert!(!range_is_subinterval);
         assert_eq!(element_mask.len(), 50);
         assert_eq!(element_mask.true_count(), 10);
+        Ok(())
+    }
+
+    #[test]
+    fn element_range_requires_minimum_savings() -> VortexResult<()> {
+        let Mask::Values(selection) = Mask::from_indices(2, [0]) else {
+            vortex_bail!("a partially selective mask uses Mask::Values")
+        };
+
+        let offsets = [0u32, 512, 1024];
+        assert_eq!(
+            element_range_from_offsets(&offsets, &selection),
+            (0..1024, false)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn element_range_requires_sufficient_savings_ratio() -> VortexResult<()> {
+        let Mask::Values(selection) = Mask::from_slices(100, vec![(0, 96)]) else {
+            vortex_bail!("a partially selective mask uses Mask::Values")
+        };
+        let offsets = (0..=100).map(|index| index * 1000).collect::<Vec<u32>>();
+
+        assert_eq!(
+            element_range_from_offsets(&offsets, &selection),
+            (0..100_000, false)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn element_range_crops_at_sufficient_savings_ratio() -> VortexResult<()> {
+        let Mask::Values(selection) = Mask::from_slices(100, vec![(0, 95)]) else {
+            vortex_bail!("a partially selective mask uses Mask::Values")
+        };
+        let offsets = (0..=100).map(|index| index * 1000).collect::<Vec<u32>>();
+
+        assert_eq!(
+            element_range_from_offsets(&offsets, &selection),
+            (0..95_000, true)
+        );
         Ok(())
     }
 
@@ -248,13 +312,14 @@ mod tests {
             vortex_bail!("a partially selective mask uses Mask::Values")
         };
 
-        let offsets = [10u32, 2010, 4010, 6010, 8010, 10010];
-        let range = element_range_from_offsets(&offsets, &selection);
+        let offsets = [10u32, 20010, 40010, 60010, 80010, 100010];
+        let (range, range_is_subinterval) = element_range_from_offsets(&offsets, &selection);
         let element_mask = element_mask_from_offsets(&offsets, &selection, &range);
 
-        assert_eq!(range, 10..10010);
-        assert_eq!(element_mask.len(), 10000);
-        assert_eq!(element_mask.true_count(), 4000);
+        assert_eq!(range, 10..100010);
+        assert!(!range_is_subinterval);
+        assert_eq!(element_mask.len(), 100000);
+        assert_eq!(element_mask.true_count(), 40000);
         Ok(())
     }
 }
