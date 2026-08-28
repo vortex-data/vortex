@@ -25,6 +25,7 @@ async-trait = { workspace = true }
 bit-vec = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "executor"] }
+gearhash = { workspace = true }
 itertools = { workspace = true }
 kanal = { workspace = true }
 moka = { workspace = true, features = ["future"] }

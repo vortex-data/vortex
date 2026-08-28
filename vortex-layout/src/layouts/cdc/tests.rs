@@ -4,8 +4,10 @@
 // Tests build synthetic data where lossy numeric casts are harmless.
 #![allow(clippy::cast_possible_truncation)]
 
+use std::ops::Range;
 use std::sync::Arc;
 
+use rstest::rstest;
 use vortex_array::ArrayContext;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -16,8 +18,10 @@ use vortex_io::runtime::single::block_on;
 use vortex_io::session::RuntimeSessionExt;
 
 use super::*;
+use crate::layouts::cdc::xet::XET_BOUNDARY_MASK;
 use crate::layouts::cdc::xet::XET_MAX_CHUNK_SIZE;
 use crate::layouts::cdc::xet::XET_MIN_CHUNK_SIZE;
+use crate::layouts::cdc::xet::XET_TARGET_CHUNK_SIZE;
 use crate::layouts::cdc::xet::xet_chunks;
 use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
 use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -251,4 +255,81 @@ fn xet_chunks_cover_data_within_size_bounds() {
 fn xet_chunks_handle_tiny_input() {
     assert!(xet_chunks(&[]).is_empty());
     assert_eq!(xet_chunks(&[1, 2, 3]), vec![0..3]);
+}
+
+#[test]
+fn gearhash_default_table_is_the_xet_normative_table() {
+    // Cut positions in the write path and the measured Xet chunk boundaries are both functions
+    // of this table: an upstream change to it would silently stop new files deduplicating
+    // against previously written ones, so pin the table's contents.
+    assert_eq!(DEFAULT_TABLE[0], 0xb088_d3a9_e840_f559);
+    assert_eq!(DEFAULT_TABLE[255], 0x63c7_a906_c1dd_187b);
+    let fnv1a = DEFAULT_TABLE
+        .iter()
+        .flat_map(|entry| entry.to_le_bytes())
+        .fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+        });
+    assert_eq!(fnv1a, 0xa4c0_4d9d_bc7e_8bbd);
+}
+
+/// The Xet chunker exactly as specified: one scalar GEAR update per byte. [`xet_chunks`] must
+/// produce identical boundaries with its SIMD scan and minimum-size skipping.
+fn xet_reference_chunks(data: &[u8]) -> Vec<Range<usize>> {
+    let mut chunks = Vec::new();
+    let mut hash = 0u64;
+    let mut start = 0usize;
+    for (i, &byte) in data.iter().enumerate() {
+        hash = (hash << 1).wrapping_add(DEFAULT_TABLE[byte as usize]);
+        let size = i + 1 - start;
+        if size < XET_MIN_CHUNK_SIZE {
+            continue;
+        }
+        if size >= XET_MAX_CHUNK_SIZE || hash & XET_BOUNDARY_MASK == 0 {
+            chunks.push(start..i + 1);
+            start = i + 1;
+            hash = 0;
+        }
+    }
+    if start < data.len() {
+        chunks.push(start..data.len());
+    }
+    chunks
+}
+
+fn xet_test_bytes(pattern: &str, len: usize) -> Vec<u8> {
+    let mut rng = SplitMix64(0xC0FFEE);
+    (0..len)
+        .map(|i| match pattern {
+            "random" => rng.next() as u8,
+            "zeros" => 0,
+            "constant" => 0xAB,
+            "cycle" => ((i % 7) * 37) as u8,
+            "ramp" => i as u8,
+            _ => unreachable!("unknown pattern {pattern}"),
+        })
+        .collect()
+}
+
+#[rstest]
+fn xet_chunks_match_the_scalar_reference(
+    #[values("random", "zeros", "constant", "cycle", "ramp")] pattern: &str,
+    #[values(
+        0,
+        1,
+        63,
+        64,
+        XET_MIN_CHUNK_SIZE - 1,
+        XET_MIN_CHUNK_SIZE,
+        XET_MIN_CHUNK_SIZE + 1,
+        XET_TARGET_CHUNK_SIZE,
+        XET_MAX_CHUNK_SIZE,
+        XET_MAX_CHUNK_SIZE + 1,
+        300_000,
+        1_048_583
+    )]
+    len: usize,
+) {
+    let data = xet_test_bytes(pattern, len);
+    assert_eq!(xet_chunks(&data), xet_reference_chunks(&data));
 }
