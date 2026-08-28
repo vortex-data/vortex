@@ -18,6 +18,7 @@ use vortex_error::VortexResult;
 use crate::OnPair;
 use crate::OnPairArrayExt;
 use crate::OnPairArraySlotsExt;
+use crate::OnPairIndexChildren;
 
 impl SliceReduce for OnPair {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
@@ -34,6 +35,11 @@ impl SliceReduce for OnPair {
                     codes_offsets,
                     uncompressed_lengths,
                     validity,
+                    array
+                        .token_frequency_index_child()
+                        .cloned()
+                        .map(|child| OnPairIndexChildren::default().with_token_frequency(child))
+                        .unwrap_or_default(),
                 )
             }
             .into_array(),

@@ -55,7 +55,7 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     // selector keeps whichever is smaller per column.
     &string::FSSTScheme,
     #[cfg(feature = "unstable_encodings")]
-    &string::OnPairScheme,
+    &string::OnPairScheme::new(),
     &string::NullDominatedSparseScheme,
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // Binary schemes.

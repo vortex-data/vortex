@@ -383,7 +383,7 @@ fn without_onpair(
     use vortex_btrblocks::SchemeExt;
     use vortex_btrblocks::schemes::string::OnPairScheme;
 
-    builder.exclude_schemes([OnPairScheme.id()])
+    builder.exclude_schemes([OnPairScheme::new().id()])
 }
 
 #[cfg(not(feature = "unstable_encodings"))]
