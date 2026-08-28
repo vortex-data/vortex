@@ -4,6 +4,7 @@
 //! Helpers for turning [`OnPair`] slot children into the inputs the upstream
 //! `onpair` decoder consumes.
 
+use onpair::CompactDictionaryView;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -48,15 +49,15 @@ pub(crate) fn code_boundary_at(
 /// per-row `codes_offsets` boundaries plus the codes they bound.
 ///
 /// `slice` keeps the full `codes` child and only narrows `codes_offsets`, so
-/// for a sliced array the window starts at `offsets[0] > 0`; [`row`] resolves
-/// row indices relative to that start. Built once per query by the
-/// compressed-domain compare kernel.
+/// for a sliced array the stored window starts at `offsets[0] > 0`. The
+/// materialized offsets are rebased to the sliced codes, making this directly
+/// usable as an upstream [`onpair::ColumnView`] as well as for per-row access.
+/// Built once per compressed-domain query.
 ///
 /// [`row`]: CodesWindow::row
 pub(crate) struct CodesWindow {
     offsets: Buffer<u64>,
     codes: Buffer<u16>,
-    code_start: usize,
 }
 
 impl CodesWindow {
@@ -65,10 +66,21 @@ impl CodesWindow {
         &self.codes[self.local(i)..self.local(i + 1)]
     }
 
-    /// Offset `i` rebased into the window's local `codes` slice. Offsets are
-    /// bounded by `codes.len()` (a `usize`), so the conversion never truncates.
+    /// Borrow this window in the form expected by OnPair's column search API.
+    pub(crate) fn as_column_view<'a>(
+        &'a self,
+        dict: CompactDictionaryView<'a>,
+    ) -> onpair::ColumnView<'a, u64> {
+        onpair::ColumnView {
+            dict,
+            codes: self.codes.as_slice(),
+            row_offsets: self.offsets.as_slice(),
+        }
+    }
+
+    /// Offset `i` into the window's local `codes` slice.
     fn local(&self, i: usize) -> usize {
-        usize::try_from(self.offsets[i]).vortex_expect("code offset fits usize") - self.code_start
+        usize::try_from(self.offsets[i]).vortex_expect("code offset fits usize")
     }
 }
 
@@ -81,7 +93,7 @@ pub(crate) fn collect_codes_window(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<CodesWindow> {
     let len = array.len();
-    let offsets = collect_widened::<u64>(array.codes_offsets(), ctx)?;
+    let mut offsets = collect_widened::<u64>(array.codes_offsets(), ctx)?;
     vortex_ensure!(
         offsets.len() == len + 1,
         "OnPair codes_offsets has {} entries, expected len + 1 = {}",
@@ -101,9 +113,13 @@ pub(crate) fn collect_codes_window(
         array.codes().len()
     );
     let codes = collect_widened::<u16>(&array.codes().slice(code_start..code_end)?, ctx)?;
-    Ok(CodesWindow {
-        offsets,
-        codes,
-        code_start,
-    })
+    if code_start != 0 {
+        offsets = Buffer::from(
+            offsets
+                .iter()
+                .map(|offset| offset - code_start as u64)
+                .collect::<Vec<_>>(),
+        );
+    }
+    Ok(CodesWindow { offsets, codes })
 }
