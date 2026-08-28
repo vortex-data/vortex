@@ -23,17 +23,16 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
+use crate::expr::BoundExpression;
 use crate::expr::Expression;
 use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ArrayReduceNode;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
-use crate::scalar_fn::ExpressionReduceNode;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::SimplifyCtx;
 
 /// A typed scalar function instance, parameterized by a concrete [`ScalarFnVTable`].
 ///
@@ -81,10 +80,10 @@ pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
     // Bound methods — options accessed from self
     fn execute(&self, args: &dyn ExecutionArgs, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
     fn return_dtype(&self, arg_types: &[DType]) -> VortexResult<DType>;
-    fn reduce_expression<'a>(
+    fn reduce_bound_expression(
         &self,
-        node: &ExpressionReduceNode<'a>,
-    ) -> VortexResult<Option<ExpressionReduceNode<'a>>>;
+        node: &BoundExpression,
+    ) -> VortexResult<Option<BoundExpression>>;
     fn reduce_array<'a>(
         &self,
         node: &ArrayReduceNode<'a>,
@@ -96,12 +95,7 @@ pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
 
     // Expression methods — take expressions for tree traversal
     fn fmt_sql(&self, expression: &dyn ExprDisplay, f: &mut Formatter<'_>) -> fmt::Result;
-    fn simplify(
-        &self,
-        expression: &Expression,
-        ctx: &dyn SimplifyCtx,
-    ) -> VortexResult<Option<Expression>>;
-    fn simplify_untyped(&self, expression: &Expression) -> VortexResult<Option<Expression>>;
+    fn simplify(&self, expression: &BoundExpression) -> VortexResult<Option<BoundExpression>>;
     fn validity(&self, expression: &Expression) -> VortexResult<Option<Expression>>;
 
     // Options operations — self-contained
@@ -166,10 +160,10 @@ impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
         V::return_dtype(&self.vtable, &self.options, arg_dtypes)
     }
 
-    fn reduce_expression<'a>(
+    fn reduce_bound_expression(
         &self,
-        node: &ExpressionReduceNode<'a>,
-    ) -> VortexResult<Option<ExpressionReduceNode<'a>>> {
+        node: &BoundExpression,
+    ) -> VortexResult<Option<BoundExpression>> {
         V::reduce(&self.vtable, &self.options, node)
     }
 
@@ -200,16 +194,8 @@ impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
         V::fmt_sql(&self.vtable, &self.options, expression, f)
     }
 
-    fn simplify(
-        &self,
-        expression: &Expression,
-        ctx: &dyn SimplifyCtx,
-    ) -> VortexResult<Option<Expression>> {
-        V::simplify(&self.vtable, &self.options, expression, ctx)
-    }
-
-    fn simplify_untyped(&self, expression: &Expression) -> VortexResult<Option<Expression>> {
-        V::simplify_untyped(&self.vtable, &self.options, expression)
+    fn simplify(&self, expression: &BoundExpression) -> VortexResult<Option<BoundExpression>> {
+        V::simplify(&self.vtable, &self.options, expression)
     }
 
     fn validity(&self, expression: &Expression) -> VortexResult<Option<Expression>> {

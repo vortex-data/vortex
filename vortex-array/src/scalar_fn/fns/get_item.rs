@@ -17,13 +17,10 @@ use crate::arrays::ScalarFnArray;
 use crate::arrays::StructArray;
 use crate::arrays::struct_::StructArrayExt;
 use crate::builtins::ArrayBuiltins;
-use crate::builtins::ExprBuiltins;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::Nullability;
-use crate::expr::Expression;
 use crate::expr::display::ExprDisplay;
-use crate::expr::lit;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
@@ -136,12 +133,12 @@ impl ScalarFnVTable for GetItem {
     }
 
     fn reduce<T: ReduceNode>(&self, field_name: &FieldName, node: &T) -> VortexResult<Option<T>> {
-        let child = node.child(0);
+        let child = node.reduce_child(0);
         if let Some(child_fn) = child.scalar_fn()
             && let Some(pack) = child_fn.as_opt::<Pack>()
             && let Some(idx) = pack.names.find(field_name)
         {
-            let mut field = child.child(idx);
+            let mut field = child.reduce_child(idx);
 
             // Possibly mask the field if the pack is nullable
             if pack.nullability.is_nullable() {
@@ -149,44 +146,6 @@ impl ScalarFnVTable for GetItem {
                     Mask.bind(EmptyOptions),
                     &[field, node.new_node(Literal.bind(true.into()), &[])?],
                 )?;
-            }
-
-            return Ok(Some(field));
-        }
-
-        Ok(None)
-    }
-
-    fn simplify_untyped(
-        &self,
-        field_name: &FieldName,
-        expr: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        let child = expr.child(0);
-
-        // If the child is a Pack expression, we can directly return the corresponding child.
-        if let Some(pack) = child.as_opt::<Pack>() {
-            let idx = pack
-                .names
-                .iter()
-                .position(|name| name == field_name)
-                .ok_or_else(|| {
-                    vortex_err!(
-                        "Cannot find field {} in pack fields {:?}",
-                        field_name,
-                        pack.names
-                    )
-                })?;
-
-            let mut field = child.child(idx).clone();
-
-            // It's useful to simplify this node without type info, but we need to make sure
-            // the nullability is correct. We cannot cast since we don't have the dtype info here,
-            // so instead we insert a Mask expression that we know converts a child's dtype to
-            // nullable.
-            if pack.nullability.is_nullable() {
-                // Mask with an all-true array to ensure the field DType is nullable.
-                field = field.mask(lit(true))?;
             }
 
             return Ok(Some(field));
@@ -216,7 +175,6 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::Nullability::NonNullable;
     use crate::dtype::PType;
-    use crate::dtype::StructFields;
     use crate::expr::checked_add;
     use crate::expr::get_item;
     use crate::expr::lit;
@@ -292,34 +250,32 @@ mod tests {
     }
 
     #[test]
-    fn test_pack_get_item_rule() {
+    fn test_pack_get_item_rule() -> VortexResult<()> {
         // Create: pack(a: lit(1), b: lit(2)).get_item("b")
         let pack_expr = pack([("a", lit(1)), ("b", lit(2))], NonNullable);
         let get_item_expr = get_item("b", pack_expr);
 
-        let result = get_item_expr
-            .optimize_recursive(&DType::Struct(StructFields::empty(), NonNullable))
-            .unwrap();
+        let result = get_item_expr.bind(&DType::Null)?.optimize_recursive()?;
 
-        assert_eq!(result, lit(2));
+        assert_eq!(result, lit(2).bind(&DType::Null)?);
+        Ok(())
     }
 
     #[test]
-    fn test_multi_level_pack_get_item_simplify() {
+    fn test_multi_level_pack_get_item_simplify() -> VortexResult<()> {
         let inner_pack = pack([("a", lit(1)), ("b", lit(2))], NonNullable);
         let get_a = get_item("a", inner_pack);
 
         let outer_pack = pack([("x", get_a), ("y", lit(3)), ("z", lit(4))], NonNullable);
         let get_z = get_item("z", outer_pack);
 
-        let dtype = DType::Primitive(PType::I32, NonNullable);
-
-        let result = get_z.optimize_recursive(&dtype).unwrap();
-        assert_eq!(result, lit(4));
+        let result = get_z.bind(&DType::Null)?.optimize_recursive()?;
+        assert_eq!(result, lit(4).bind(&DType::Null)?);
+        Ok(())
     }
 
     #[test]
-    fn test_deeply_nested_pack_get_item() {
+    fn test_deeply_nested_pack_get_item() -> VortexResult<()> {
         let innermost = pack([("a", lit(42))], NonNullable);
         let get_a = get_item("a", innermost);
 
@@ -332,14 +288,13 @@ mod tests {
         let outermost = pack([("final", get_c)], NonNullable);
         let get_final = get_item("final", outermost);
 
-        let dtype = DType::Primitive(PType::I32, NonNullable);
-
-        let result = get_final.optimize_recursive(&dtype).unwrap();
-        assert_eq!(result, lit(42));
+        let result = get_final.bind(&DType::Null)?.optimize_recursive()?;
+        assert_eq!(result, lit(42).bind(&DType::Null)?);
+        Ok(())
     }
 
     #[test]
-    fn test_partial_pack_get_item_simplify() {
+    fn test_partial_pack_get_item_simplify() -> VortexResult<()> {
         let inner_pack = pack([("x", lit(1)), ("y", lit(2))], NonNullable);
         let get_x = get_item("x", inner_pack);
         let add_expr = checked_add(get_x, lit(10));
@@ -347,11 +302,10 @@ mod tests {
         let outer_pack = pack([("result", add_expr)], NonNullable);
         let get_result = get_item("result", outer_pack);
 
-        let dtype = DType::Primitive(PType::I32, NonNullable);
-
-        let result = get_result.optimize_recursive(&dtype).unwrap();
+        let result = get_result.bind(&DType::Null)?.optimize_recursive()?;
         let expected = checked_add(lit(1), lit(10));
-        assert_eq!(&result, &expected);
+        assert_eq!(result, expected.bind(&DType::Null)?);
+        Ok(())
     }
 
     #[test]

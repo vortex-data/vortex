@@ -9,6 +9,7 @@ use std::hash::Hasher;
 use std::sync::Arc;
 
 use itertools::Itertools;
+use smallvec::SmallVec;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -127,10 +128,8 @@ impl BoundExpression {
             children.len()
         );
 
-        let arg_dtypes = children
-            .iter()
-            .map(|child| child.dtype().clone())
-            .collect_vec();
+        let arg_dtypes: SmallVec<[DType; 4]> =
+            children.iter().map(|child| child.dtype().clone()).collect();
         let dtype = scalar_fn.return_dtype(&arg_dtypes)?;
 
         Ok(Self::Scalar {

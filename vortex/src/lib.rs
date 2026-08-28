@@ -86,8 +86,8 @@
 //!     .open_options()
 //!     .open_buffer(bytes)?;
 //! let filter = gt(root(), lit(2u64))
-//!     .optimize_recursive(file.dtype())?
-//!     .bind(file.dtype())?;
+//!     .bind(file.dtype())?
+//!     .optimize_recursive()?;
 //! let filtered = file
 //!     .scan()?
 //!     .with_filter(filter)
@@ -449,8 +449,8 @@ mod test {
         // [read]
         let file = session.open_options().open_path(path.clone()).await?;
         let filter = gt(root(), lit(2u64))
-            .optimize_recursive(file.dtype())?
-            .bind(file.dtype())?;
+            .bind(file.dtype())?
+            .optimize_recursive()?;
         let array = file
             .scan()?
             .with_filter(filter)
@@ -549,8 +549,8 @@ mod test {
         // Read the file back, but project down to just the "value" column.
         let file = session.open_options().open_path(path.clone()).await?;
         let projection = select(["value"], root())
-            .optimize_recursive(file.dtype())?
-            .bind(file.dtype())?;
+            .bind(file.dtype())?
+            .optimize_recursive()?;
         let projected = file
             .scan()?
             .with_projection(projection)

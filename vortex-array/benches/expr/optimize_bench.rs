@@ -45,5 +45,6 @@ fn build_or_chain(n: usize) -> Expression {
 fn optimize_or_chain(bencher: Bencher, n: usize) {
     let expr = build_or_chain(n);
     let scope = struct_scope();
-    bencher.bench(|| expr.optimize_recursive(&scope).unwrap());
+    let expr = expr.bind(&scope).unwrap();
+    bencher.bench(|| expr.optimize_recursive().unwrap());
 }

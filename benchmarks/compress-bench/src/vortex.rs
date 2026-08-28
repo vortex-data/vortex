@@ -72,8 +72,8 @@ impl Compressor for VortexCompressor {
             // Columns are named "0".."num_columns-1"; project the given subset.
             let names: FieldNames = cols.iter().map(|i| i.to_string()).collect();
             let projection = select(names, root())
-                .optimize_recursive(&source_dtype)?
-                .bind(&source_dtype)?;
+                .bind(&source_dtype)?
+                .optimize_recursive()?;
             scan = scan.with_projection(projection);
         }
         let schema = Arc::new(SESSION.arrow().to_arrow_schema(&scan.dtype()?)?);

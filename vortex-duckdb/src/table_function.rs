@@ -371,7 +371,7 @@ pub fn init_local(bind_data: &BindState, global: &GlobalState) -> LocalState {
 }
 
 pub(crate) fn optimize_and_bind(expr: Expression, dtype: &DType) -> VortexResult<BoundExpression> {
-    expr.optimize_recursive(dtype)?.bind(dtype)
+    expr.bind(dtype)?.optimize_recursive()
 }
 
 pub(crate) fn convert_result(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<StructArray> {

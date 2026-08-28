@@ -59,15 +59,9 @@ pub fn read_array_from_reader(
     row_range: Option<(u64, u64)>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let projection = projection
-        .optimize_recursive(vortex_file.dtype())?
-        .bind(vortex_file.dtype())?;
+    let projection = projection.bind(vortex_file.dtype())?.optimize_recursive()?;
     let filter = filter
-        .map(|filter| {
-            filter
-                .optimize_recursive(vortex_file.dtype())?
-                .bind(vortex_file.dtype())
-        })
+        .map(|filter| filter.bind(vortex_file.dtype())?.optimize_recursive())
         .transpose()?;
     let mut scan = vortex_file.scan()?.with_projection(projection);
 
@@ -197,11 +191,9 @@ impl PyVortexDataset {
         let filter = filter_from_python(row_filter);
 
         let reader = self_.py().detach(move || {
-            let projection = projection
-                .optimize_recursive(vxf.dtype())?
-                .bind(vxf.dtype())?;
+            let projection = projection.bind(vxf.dtype())?.optimize_recursive()?;
             let filter = filter
-                .map(|filter| filter.optimize_recursive(vxf.dtype())?.bind(vxf.dtype()))
+                .map(|filter| filter.bind(vxf.dtype())?.optimize_recursive())
                 .transpose()?;
             let mut scan = vxf
                 .scan()?
@@ -244,10 +236,10 @@ impl PyVortexDataset {
         let filter = filter_from_python(row_filter);
         let n_rows: usize = self_.py().detach(move || {
             let projection = select(FieldNames::empty(), root())
-                .optimize_recursive(vxf.dtype())?
-                .bind(vxf.dtype())?;
+                .bind(vxf.dtype())?
+                .optimize_recursive()?;
             let filter = filter
-                .map(|filter| filter.optimize_recursive(vxf.dtype())?.bind(vxf.dtype()))
+                .map(|filter| filter.bind(vxf.dtype())?.optimize_recursive())
                 .transpose()?;
             let mut scan = vxf
                 .scan()?

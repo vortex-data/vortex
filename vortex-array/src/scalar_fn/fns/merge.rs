@@ -178,7 +178,7 @@ impl ScalarFnVTable for Merge {
         let mut children = Vec::with_capacity(node.child_count() * 2);
         let mut duplicate_names = HashSet::<_>::new();
 
-        for child in (0..node.child_count()).map(|i| node.child(i)) {
+        for child in (0..node.child_count()).map(|i| node.reduce_child(i)) {
             let child_dtype = child.node_dtype()?;
             if !child_dtype.is_struct() {
                 vortex_bail!(
@@ -574,12 +574,12 @@ mod tests {
             DuplicateHandling::RightMost,
         );
 
-        let result = e.optimize(&dtype).unwrap();
+        let result = e.bind(&dtype).unwrap().optimize().unwrap();
 
         assert!(result.is::<Pack>());
         assert_eq!(
-            result.return_dtype(&dtype).unwrap(),
-            DType::struct_([("a", I32), ("b", U32), ("c", U64)], NonNullable)
+            result.dtype(),
+            &DType::struct_([("a", I32), ("b", U32), ("c", U64)], NonNullable)
         );
     }
 }

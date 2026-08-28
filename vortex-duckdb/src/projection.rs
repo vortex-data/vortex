@@ -238,7 +238,7 @@ impl Filter {
         };
 
         let filter = and_collect(table_filter_exprs)
-            .map(|expr| expr.optimize_recursive(dtype)?.bind(dtype))
+            .map(|expr| expr.bind(dtype)?.optimize_recursive())
             .transpose()?;
 
         let out = Self {

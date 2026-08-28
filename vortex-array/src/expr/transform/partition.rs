@@ -14,7 +14,6 @@ use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
-use crate::dtype::StructFields;
 use crate::expr::Expression;
 use crate::expr::analysis::Annotation;
 use crate::expr::analysis::AnnotationFn;
@@ -83,7 +82,6 @@ where
             Nullability::NonNullable,
         );
 
-        let expr = expr.optimize_recursive(scope)?;
         let expr_dtype = expr.return_dtype(scope)?;
 
         partitions.push(expr);
@@ -95,13 +93,8 @@ where
         .iter()
         .map(|id| FieldName::from(id.clone()))
         .collect::<FieldNames>();
-    let root_scope = DType::Struct(
-        StructFields::new(partition_names.clone(), partition_dtypes.clone()),
-        Nullability::NonNullable,
-    );
-
     Ok(PartitionedExpr {
-        root: root.optimize_recursive(&root_scope)?,
+        root,
         partitions: partitions.into_boxed_slice(),
         partition_names,
         partition_dtypes: partition_dtypes.into_boxed_slice(),
@@ -296,7 +289,7 @@ mod tests {
 
         let split_a = partitioned.find_partition(&"a".into()).unwrap();
         assert_eq!(
-            &split_a.optimize_recursive(&dtype).unwrap(),
+            split_a,
             &pack(
                 [
                     ("a_0", get_item("x", get_item("a", root()))),
@@ -336,14 +329,7 @@ mod tests {
         let expr = merge([col("a"), pack([("b", col("b"))], NonNullable)]);
 
         let partitioned = partition(expr, &dtype, make_free_field_annotator(fields)).unwrap();
-        let expected = pack(
-            [
-                ("x", get_item("x", get_item("a_0", col("a")))),
-                ("y", get_item("y", get_item("a_0", col("a")))),
-                ("b", get_item("b", get_item("b_0", col("b")))),
-            ],
-            NonNullable,
-        );
+        let expected = merge([get_item("a_0", col("a")), get_item("b_0", col("b"))]);
         assert_eq!(
             &partitioned.root, &expected,
             "{} {}",

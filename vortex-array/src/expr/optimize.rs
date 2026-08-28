@@ -1,65 +1,36 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::cell::RefCell;
-
-use itertools::Itertools;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
-use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::dtype::DType;
-use crate::expr::Expression;
-use crate::expr::transform::match_between::find_between;
-use crate::scalar_fn::ExpressionReduceNode;
-use crate::scalar_fn::SimplifyCtx;
+use crate::expr::BoundExpression;
+use crate::expr::transform::match_between::find_between_bound;
 
-impl Expression {
-    /// Optimize the root expression node only, iterating to convergence.
+impl BoundExpression {
+    /// Optimize the root node with simplification and abstract reduction.
     ///
-    /// This applies optimization rules repeatedly until no more changes occur:
-    /// 1. `simplify_untyped` - type-independent simplifications
-    /// 2. `simplify` - type-aware simplifications
-    /// 3. `reduce` - abstract reduction rules via `ReduceNode`
-    pub fn optimize(&self, scope: &DType) -> VortexResult<Expression> {
-        let cache = SimplifyCache::new(scope);
-        Ok(self.try_optimize(&cache)?.unwrap_or_else(|| self.clone()))
+    /// Expressions must be bound before they can be optimized, even for rules that do not inspect
+    /// dtypes. This keeps the optimizer's input and output in the same typed representation.
+    pub fn optimize(&self) -> VortexResult<BoundExpression> {
+        Ok(self.try_optimize()?.unwrap_or_else(|| self.clone()))
     }
 
-    /// Apply this node's own untyped simplification rule, if it has one.
-    ///
-    /// Non-scalar nodes carry no rules, so they never simplify.
-    fn simplify_untyped_node(&self) -> VortexResult<Option<Expression>> {
+    fn simplify_node(&self) -> VortexResult<Option<BoundExpression>> {
         match self {
-            Expression::Scalar { scalar_fn, .. } => scalar_fn.simplify_untyped(self),
-            Expression::Root => Ok(None),
+            BoundExpression::Scalar { scalar_fn, .. } => scalar_fn.simplify(self),
+            BoundExpression::Root { .. } => Ok(None),
         }
     }
 
-    /// Apply this node's own type-aware simplification rule, if it has one.
-    fn simplify_node(&self, ctx: &dyn SimplifyCtx) -> VortexResult<Option<Expression>> {
+    fn reduce_node(&self) -> VortexResult<Option<BoundExpression>> {
         match self {
-            Expression::Scalar { scalar_fn, .. } => scalar_fn.simplify(self, ctx),
-            Expression::Root => Ok(None),
+            BoundExpression::Scalar { scalar_fn, .. } => scalar_fn.reduce_bound_expression(self),
+            BoundExpression::Root { .. } => Ok(None),
         }
     }
 
-    /// Apply this node's own abstract reduction rule, if it has one.
-    fn reduce_node<'a>(
-        &self,
-        node: &ExpressionReduceNode<'a>,
-    ) -> VortexResult<Option<ExpressionReduceNode<'a>>> {
-        match self {
-            Expression::Scalar { scalar_fn, .. } => scalar_fn.reduce_expression(node),
-            Expression::Root => Ok(None),
-        }
-    }
-
-    /// Try to optimize the root expression node only, returning None if no optimizations applied.
-    fn try_optimize(&self, cache: &SimplifyCache<'_>) -> VortexResult<Option<Expression>> {
-        // Copy-on-write: `current` stays None until a rule fires, so unchanged nodes (the common
-        // case) are never cloned.
-        let mut current: Option<Expression> = None;
+    fn try_optimize(&self) -> VortexResult<Option<BoundExpression>> {
+        let mut current: Option<BoundExpression> = None;
         let mut loop_counter = 0;
 
         loop {
@@ -73,29 +44,14 @@ impl Expression {
             let expr = current.as_ref().unwrap_or(self);
             let mut changed = false;
 
-            // Try simplify_untyped
-            if let Some(simplified) = expr.simplify_untyped_node()? {
+            if let Some(simplified) = expr.simplify_node()? {
                 current = Some(simplified);
                 changed = true;
             }
 
-            // Try simplify (typed)
             let expr = current.as_ref().unwrap_or(self);
-            if let Some(simplified) = expr.simplify_node(cache)? {
-                current = Some(simplified);
-                changed = true;
-            }
-
-            // Try reduce via ReduceNode. The node borrows the expression and scope, so
-            // constructing it is free; the block scopes the borrows so `current` can be updated.
-            let reduced = {
-                let expr = current.as_ref().unwrap_or(self);
-                let reduce_node = ExpressionReduceNode::new(expr, cache.scope);
-                expr.reduce_node(&reduce_node)?
-                    .map(ExpressionReduceNode::into_expression)
-            };
-            if let Some(reduced_expr) = reduced {
-                current = Some(reduced_expr);
+            if let Some(reduced) = expr.reduce_node()? {
+                current = Some(reduced);
                 changed = true;
             }
 
@@ -107,41 +63,33 @@ impl Expression {
         Ok(current)
     }
 
-    /// Optimize the entire expression tree recursively.
-    ///
-    /// Optimizes children first (bottom-up), then optimizes the root.
-    pub fn optimize_recursive(&self, scope: &DType) -> VortexResult<Expression> {
+    /// Optimize the entire bound expression tree recursively.
+    pub fn optimize_recursive(&self) -> VortexResult<BoundExpression> {
         Ok(self
             .clone()
-            .try_optimize_recursive(scope)?
+            .try_optimize_recursive()?
             .unwrap_or_else(|| self.clone()))
     }
 
-    /// Try to optimize the entire expression tree recursively.
-    pub fn try_optimize_recursive(&self, scope: &DType) -> VortexResult<Option<Expression>> {
-        let cache = SimplifyCache::new(scope);
-        let result = self.try_optimize_recursive_inner(&cache)?;
+    pub fn try_optimize_recursive(&self) -> VortexResult<Option<BoundExpression>> {
+        let result = self.try_optimize_recursive_inner()?;
 
         // Apply the between optimization once at the top level only.
         // TODO(ngates): remove the "between" optimization, or rewrite it to not always convert
-        //  to CNF?
-        Ok(Some(find_between(result.unwrap_or_else(|| self.clone()))))
+        // to CNF?
+        Ok(Some(find_between_bound(
+            result.unwrap_or_else(|| self.clone()),
+        )))
     }
 
-    fn try_optimize_recursive_inner(
-        &self,
-        cache: &SimplifyCache<'_>,
-    ) -> VortexResult<Option<Expression>> {
-        // First optimize the root
-        let mut current = self.try_optimize(cache)?;
+    fn try_optimize_recursive_inner(&self) -> VortexResult<Option<BoundExpression>> {
+        let mut current = self.try_optimize()?;
 
-        // Then recursively optimize children. The new children vector is only allocated once a
-        // child actually changes, so fully-optimized subtrees cost no allocations.
         let expr = current.as_ref().unwrap_or(self);
         let children = expr.children();
-        let mut new_children: Option<Vec<Expression>> = None;
+        let mut new_children: Option<Vec<BoundExpression>> = None;
         for (idx, child) in children.iter().enumerate() {
-            if let Some(optimized) = child.try_optimize_recursive_inner(cache)? {
+            if let Some(optimized) = child.try_optimize_recursive_inner()? {
                 new_children
                     .get_or_insert_with(|| children[..idx].to_vec())
                     .push(optimized);
@@ -152,55 +100,10 @@ impl Expression {
 
         if let Some(new_children) = new_children {
             let updated = expr.clone().with_children(new_children)?;
-
-            // After updating children, try to optimize root again
-            current = Some(updated.try_optimize(cache)?.unwrap_or(updated));
+            current = Some(updated.try_optimize()?.unwrap_or(updated));
         }
 
         Ok(current)
-    }
-}
-
-struct SimplifyCache<'a> {
-    scope: &'a DType,
-    dtype_cache: RefCell<HashMap<Expression, DType>>,
-}
-
-impl<'a> SimplifyCache<'a> {
-    fn new(scope: &'a DType) -> Self {
-        Self {
-            scope,
-            dtype_cache: RefCell::new(HashMap::new()),
-        }
-    }
-}
-
-impl SimplifyCtx for SimplifyCache<'_> {
-    fn return_dtype(&self, expr: &Expression) -> VortexResult<DType> {
-        // If the expression is "root", return the scope dtype
-        if expr.is_root() {
-            return Ok(self.scope.clone());
-        }
-
-        if let Some(dtype) = self.dtype_cache.borrow().get(expr) {
-            return Ok(dtype.clone());
-        }
-
-        // Otherwise, compute dtype from children
-        let input_dtypes: Vec<_> = expr
-            .children()
-            .iter()
-            .map(|c| self.return_dtype(c))
-            .try_collect()?;
-        let dtype = expr
-            .as_scalar()
-            .ok_or_else(|| vortex_err!("cannot type a non-scalar expression: {expr}"))?
-            .return_dtype(&input_dtypes)?;
-        self.dtype_cache
-            .borrow_mut()
-            .insert(expr.clone(), dtype.clone());
-
-        Ok(dtype)
     }
 }
 
@@ -236,7 +139,7 @@ mod tests {
             ),
             Nullability::NonNullable,
         );
-        let optimized = expr.optimize_recursive(&scope)?;
+        let optimized = expr.bind(&scope)?.optimize_recursive()?;
 
         let s = optimized.to_string();
         assert!(s.contains("$.x"), "expected $.x in {s}");
@@ -261,7 +164,7 @@ mod tests {
             ),
             Nullability::NonNullable,
         );
-        let optimized = expr.optimize_recursive(&scope)?;
+        let optimized = expr.bind(&scope)?.optimize_recursive()?;
 
         // Prune rules pattern-match a bare Literal on the comparison RHS; a cast wrapper
         // silently disables pruning.

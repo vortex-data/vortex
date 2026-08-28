@@ -72,13 +72,14 @@ fn case_when_simple(bencher: Bencher, size: usize) {
         lit(100i32),
         lit(0i32),
     );
+    let expr = expr.bind(array.dtype()).unwrap();
 
     bencher
         .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
         .bench_refs(|(expr, array, ctx)| {
             array
                 .clone()
-                .apply(expr)
+                .apply_bound(expr)
                 .unwrap()
                 .execute::<Canonical>(ctx)
                 .unwrap()
@@ -99,13 +100,14 @@ fn case_when_nary_3_conditions(bencher: Bencher, size: usize) {
         ],
         Some(lit(0i32)),
     );
+    let expr = expr.bind(array.dtype()).unwrap();
 
     bencher
         .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
         .bench_refs(|(expr, array, ctx)| {
             array
                 .clone()
-                .apply(expr)
+                .apply_bound(expr)
                 .unwrap()
                 .execute::<Canonical>(ctx)
                 .unwrap()
@@ -127,13 +129,14 @@ fn case_when_nary_10_conditions(bencher: Bencher, size: usize) {
         })
         .collect();
     let expr = nested_case_when(pairs, Some(lit(0i32)));
+    let expr = expr.bind(array.dtype()).unwrap();
 
     bencher
         .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
         .bench_refs(|(expr, array, ctx)| {
             array
                 .clone()
-                .apply(expr)
+                .apply_bound(expr)
                 .unwrap()
                 .execute::<Canonical>(ctx)
                 .unwrap()
@@ -150,13 +153,14 @@ fn case_when_nary_equality_lookup(bencher: Bencher, size: usize) {
         .map(|i| (eq(get_item("value", root()), lit(i)), lit(i * 10)))
         .collect();
     let expr = nested_case_when(pairs, Some(lit(-1i32)));
+    let expr = expr.bind(array.dtype()).unwrap();
 
     bencher
         .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
         .bench_refs(|(expr, array, ctx)| {
             array
                 .clone()
-                .apply(expr)
+                .apply_bound(expr)
                 .unwrap()
                 .execute::<Canonical>(ctx)
                 .unwrap()
@@ -170,13 +174,14 @@ fn case_when_without_else(bencher: Bencher, size: usize) {
 
     // CASE WHEN value > 500 THEN 100 END
     let expr = case_when_no_else(gt(get_item("value", root()), lit(500i32)), lit(100i32));
+    let expr = expr.bind(array.dtype()).unwrap();
 
     bencher
         .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
         .bench_refs(|(expr, array, ctx)| {
             array
                 .clone()
-                .apply(expr)
+                .apply_bound(expr)
                 .unwrap()
                 .execute::<Canonical>(ctx)
                 .unwrap()
@@ -194,13 +199,14 @@ fn case_when_all_true(bencher: Bencher, size: usize) {
         lit(100i32),
         lit(0i32),
     );
+    let expr = expr.bind(array.dtype()).unwrap();
 
     bencher
         .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
         .bench_refs(|(expr, array, ctx)| {
             array
                 .clone()
-                .apply(expr)
+                .apply_bound(expr)
                 .unwrap()
                 .execute::<Canonical>(ctx)
                 .unwrap()
@@ -227,13 +233,14 @@ fn case_when_nary_early_dominant(bencher: Bencher, size: usize) {
         ],
         Some(lit(4i32)),
     );
+    let expr = expr.bind(array.dtype()).unwrap();
 
     bencher
         .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
         .bench_refs(|(expr, array, ctx)| {
             array
                 .clone()
-                .apply(expr)
+                .apply_bound(expr)
                 .unwrap()
                 .execute::<Canonical>(ctx)
                 .unwrap()
@@ -251,13 +258,14 @@ fn case_when_all_false(bencher: Bencher, size: usize) {
         lit(100i32),
         lit(0i32),
     );
+    let expr = expr.bind(array.dtype()).unwrap();
 
     bencher
         .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
         .bench_refs(|(expr, array, ctx)| {
             array
                 .clone()
-                .apply(expr)
+                .apply_bound(expr)
                 .unwrap()
                 .execute::<Canonical>(ctx)
                 .unwrap()
@@ -278,13 +286,14 @@ fn case_when_fragmented(bencher: Bencher, size: usize) {
         ],
         Some(lit(2i32)),
     );
+    let expr = expr.bind(array.dtype()).unwrap();
 
     bencher
         .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
         .bench_refs(|(expr, array, ctx)| {
             array
                 .clone()
-                .apply(expr)
+                .apply_bound(expr)
                 .unwrap()
                 .execute::<Canonical>(ctx)
                 .unwrap()

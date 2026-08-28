@@ -34,7 +34,8 @@ use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
-use crate::expr::Expression;
+use crate::expr::BoundExpression;
+use crate::expr::bound::fill_null as bound_fill_null;
 use crate::expr::display::ExprDisplay;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
@@ -42,7 +43,6 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::SimplifyCtx;
 use crate::scalar_fn::fns::is_not_null::IsNotNull;
 use crate::scalar_fn::fns::is_null::IsNull;
 use crate::scalar_fn::fns::literal::Literal;
@@ -259,9 +259,8 @@ impl ScalarFnVTable for CaseWhen {
     fn simplify(
         &self,
         options: &Self::Options,
-        expr: &Expression,
-        _ctx: &dyn SimplifyCtx,
-    ) -> VortexResult<Option<Expression>> {
+        expr: &BoundExpression,
+    ) -> VortexResult<Option<BoundExpression>> {
         // Rewrite the COALESCE-shaped CASE WHEN into `fill_null`, which references `x`
         // once and lowers to a single fill kernel instead of a `zip`/merge that resolves
         // `x` twice (once for the `is_null` predicate, once for the value branch).
@@ -298,7 +297,7 @@ impl ScalarFnVTable for CaseWhen {
             return Ok(Some(x.clone()));
         }
 
-        Ok(Some(crate::expr::fill_null(x.clone(), fill.clone())))
+        Ok(Some(bound_fill_null(x.clone(), fill.clone())))
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {
@@ -461,6 +460,8 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
+    use crate::expr::BoundExpression;
+    use crate::expr::Expression;
     use crate::expr::case_when;
     use crate::expr::case_when_no_else;
     use crate::expr::col;
@@ -483,6 +484,17 @@ mod tests {
         array
             .clone()
             .apply(expr)
+            .unwrap()
+            .execute::<Canonical>(&mut ctx)
+            .unwrap()
+            .into_array()
+    }
+
+    fn evaluate_bound_expr(expr: &BoundExpression, array: &ArrayRef) -> ArrayRef {
+        let mut ctx = SESSION.create_execution_ctx();
+        array
+            .clone()
+            .apply_bound(expr)
             .unwrap()
             .execute::<Canonical>(&mut ctx)
             .unwrap()
@@ -1304,7 +1316,9 @@ mod tests {
     fn test_simplify_coalesce_is_null_rewrites_to_fill_null() -> VortexResult<()> {
         // CASE WHEN is_null(x) THEN 0 ELSE x END  ==>  fill_null(x, 0)
         let expr = case_when(is_null(col("x")), lit(0i64), col("x"));
-        let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x"]))?;
+        let optimized = expr
+            .bind(&nullable_i64_scope(&["x"]))?
+            .optimize_recursive()?;
         assert!(
             optimized.to_string().starts_with("vortex.fill_null"),
             "expected fill_null, got {optimized}"
@@ -1316,7 +1330,9 @@ mod tests {
     fn test_simplify_coalesce_is_not_null_rewrites_to_fill_null() -> VortexResult<()> {
         // CASE WHEN is_not_null(x) THEN x ELSE 0 END  ==>  fill_null(x, 0)
         let expr = case_when(is_not_null(col("x")), col("x"), lit(0i64));
-        let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x"]))?;
+        let optimized = expr
+            .bind(&nullable_i64_scope(&["x"]))?
+            .optimize_recursive()?;
         assert!(
             optimized.to_string().starts_with("vortex.fill_null"),
             "expected fill_null, got {optimized}"
@@ -1328,7 +1344,9 @@ mod tests {
     fn test_simplify_does_not_fire_when_operands_differ() -> VortexResult<()> {
         // The is_null operand (x) and the ELSE (y) are different columns: not a COALESCE.
         let expr = case_when(is_null(col("x")), lit(0i64), col("y"));
-        let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x", "y"]))?;
+        let optimized = expr
+            .bind(&nullable_i64_scope(&["x", "y"]))?
+            .optimize_recursive()?;
         let s = optimized.to_string();
         assert!(s.contains("CASE"), "expected CASE WHEN to remain, got {s}");
         assert!(!s.contains("fill_null"), "must not rewrite, got {s}");
@@ -1340,7 +1358,9 @@ mod tests {
         // COALESCE(x, c) with a *column* fill: fill_null cannot consume a non-constant
         // fill value, so the rewrite must not fire.
         let expr = case_when(is_null(col("x")), col("c"), col("x"));
-        let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x", "c"]))?;
+        let optimized = expr
+            .bind(&nullable_i64_scope(&["x", "c"]))?
+            .optimize_recursive()?;
         let s = optimized.to_string();
         assert!(s.contains("CASE"), "expected CASE WHEN to remain, got {s}");
         assert!(!s.contains("fill_null"), "must not rewrite, got {s}");
@@ -1363,7 +1383,9 @@ mod tests {
             case_when(is_null(col("x")), null_fill(), col("x")),
             case_when(is_not_null(col("x")), col("x"), null_fill()),
         ] {
-            let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x"]))?;
+            let optimized = expr
+                .bind(&nullable_i64_scope(&["x"]))?
+                .optimize_recursive()?;
             assert_eq!(
                 optimized.to_string(),
                 "$.x",
@@ -1385,7 +1407,7 @@ mod tests {
         )));
 
         let original = case_when(is_null(root()), null_fill, root());
-        let optimized = original.optimize_recursive(&scope)?;
+        let optimized = original.bind(&scope)?.optimize_recursive()?;
         assert_eq!(
             optimized.to_string(),
             "$",
@@ -1394,14 +1416,16 @@ mod tests {
 
         let expected = PrimitiveArray::from_option_iter([Some(1i64), None, Some(3)]).into_array();
         assert_arrays_eq!(evaluate_expr(&original, &array), expected, &mut ctx);
-        assert_arrays_eq!(evaluate_expr(&optimized, &array), expected, &mut ctx);
+        assert_arrays_eq!(evaluate_bound_expr(&optimized, &array), expected, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn test_simplify_does_not_fire_without_else() -> VortexResult<()> {
         let expr = case_when_no_else(is_null(col("x")), lit(0i64));
-        let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x"]))?;
+        let optimized = expr
+            .bind(&nullable_i64_scope(&["x"]))?
+            .optimize_recursive()?;
         assert!(
             !optimized.to_string().contains("fill_null"),
             "must not rewrite a no-ELSE case_when, got {optimized}"
@@ -1418,7 +1442,9 @@ mod tests {
             ],
             Some(col("x")),
         );
-        let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x"]))?;
+        let optimized = expr
+            .bind(&nullable_i64_scope(&["x"]))?
+            .optimize_recursive()?;
         assert!(
             !optimized.to_string().contains("fill_null"),
             "must not rewrite a multi-pair case_when, got {optimized}"
@@ -1434,7 +1460,7 @@ mod tests {
         let scope = DType::Primitive(PType::I64, Nullability::Nullable);
 
         let original = case_when(is_null(root()), lit(0i64), root());
-        let optimized = original.optimize_recursive(&scope)?;
+        let optimized = original.bind(&scope)?.optimize_recursive()?;
         assert!(
             optimized.to_string().starts_with("vortex.fill_null"),
             "expected fill_null, got {optimized}"
@@ -1448,7 +1474,7 @@ mod tests {
             &mut ctx
         );
         assert_arrays_eq!(
-            evaluate_expr(&optimized, &array),
+            evaluate_bound_expr(&optimized, &array),
             buffer![1i64, 0, 3].into_array(),
             &mut ctx
         );

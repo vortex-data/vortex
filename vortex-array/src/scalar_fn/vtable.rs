@@ -138,25 +138,12 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
         Ok(None)
     }
 
-    /// Simplify the expression if possible.
+    /// Simplify a bound expression if possible.
     fn simplify(
         &self,
         options: &Self::Options,
-        expr: &Expression,
-        ctx: &dyn SimplifyCtx,
-    ) -> VortexResult<Option<Expression>> {
-        _ = options;
-        _ = expr;
-        _ = ctx;
-        Ok(None)
-    }
-
-    /// Simplify the expression if possible, without type information.
-    fn simplify_untyped(
-        &self,
-        options: &Self::Options,
-        expr: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+        expr: &BoundExpression,
+    ) -> VortexResult<Option<BoundExpression>> {
         _ = options;
         _ = expr;
         Ok(None)
@@ -225,10 +212,8 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
 /// A node used for implementing abstract reduction rules over a tree of scalar functions.
 ///
 /// Reduction rules are generic over the node type, so a rule is written once and monomorphized
-/// per reducible tree kind: [`ExpressionReduceNode`] for expression trees and
-/// [`ArrayReduceNode`] for array trees. Nodes borrow from the tree being reduced, making
-/// traversal allocation-free, while nodes produced by [`ReduceNode::new_node`] own their
-/// freshly-built subtrees.
+/// per reducible tree kind: [`BoundExpression`] for bound expression trees and
+/// [`ArrayReduceNode`] for array trees.
 pub trait ReduceNode: Clone {
     /// Return the data type of this node.
     fn node_dtype(&self) -> VortexResult<DType>;
@@ -236,8 +221,8 @@ pub trait ReduceNode: Clone {
     /// Return this node's scalar function if it is indeed a scalar fn.
     fn scalar_fn(&self) -> Option<&ScalarFnRef>;
 
-    /// Descend to the child of this node.
-    fn child(&self, idx: usize) -> Self;
+    /// Clone a child of this node for use in a reduction.
+    fn reduce_child(&self, idx: usize) -> Self;
 
     /// Returns the number of children of this node.
     fn child_count(&self) -> usize;
@@ -247,69 +232,25 @@ pub trait ReduceNode: Clone {
     fn new_node(&self, scalar_fn: ScalarFnRef, children: &[Self]) -> VortexResult<Self>;
 }
 
-/// A [`ReduceNode`] over an expression tree, typed within a scope.
-#[derive(Clone)]
-pub struct ExpressionReduceNode<'a> {
-    expression: Cow<'a, Expression>,
-    scope: &'a DType,
-}
-
-impl<'a> ExpressionReduceNode<'a> {
-    /// Creates a node borrowing the given expression and scope.
-    pub fn new(expression: &'a Expression, scope: &'a DType) -> Self {
-        Self {
-            expression: Cow::Borrowed(expression),
-            scope,
-        }
-    }
-
-    /// Returns the expression backing this node.
-    pub fn expression(&self) -> &Expression {
-        &self.expression
-    }
-
-    /// Consumes this node and returns the backing expression.
-    pub fn into_expression(self) -> Expression {
-        self.expression.into_owned()
-    }
-}
-
-impl ReduceNode for ExpressionReduceNode<'_> {
+impl ReduceNode for BoundExpression {
     fn node_dtype(&self) -> VortexResult<DType> {
-        self.expression.return_dtype(self.scope)
+        Ok(self.dtype().clone())
     }
 
     fn scalar_fn(&self) -> Option<&ScalarFnRef> {
-        self.expression.as_scalar()
+        self.as_scalar()
     }
 
-    fn child(&self, idx: usize) -> Self {
-        let expression = match &self.expression {
-            Cow::Borrowed(expression) => Cow::Borrowed(expression.child(idx)),
-            Cow::Owned(expression) => Cow::Owned(expression.child(idx).clone()),
-        };
-        Self {
-            expression,
-            scope: self.scope,
-        }
+    fn reduce_child(&self, idx: usize) -> Self {
+        self.child(idx).clone()
     }
 
     fn child_count(&self) -> usize {
-        self.expression.children().len()
+        self.children().len()
     }
 
     fn new_node(&self, scalar_fn: ScalarFnRef, children: &[Self]) -> VortexResult<Self> {
-        let expression = Expression::try_new(
-            scalar_fn,
-            children
-                .iter()
-                .map(|c| c.expression.as_ref().clone())
-                .collect::<Vec<_>>(),
-        )?;
-        Ok(Self {
-            expression: Cow::Owned(expression),
-            scope: self.scope,
-        })
+        BoundExpression::try_new(scalar_fn, children.iter().cloned())
     }
 }
 
@@ -349,7 +290,7 @@ impl ReduceNode for ArrayReduceNode<'_> {
             .map(|a| a.data().scalar_fn())
     }
 
-    fn child(&self, idx: usize) -> Self {
+    fn reduce_child(&self, idx: usize) -> Self {
         let array = match &self.array {
             Cow::Borrowed(array) => Cow::Borrowed(
                 array
@@ -420,14 +361,6 @@ impl Arity {
             }
         }
     }
-}
-
-/// Context for simplification.
-///
-/// Used to lazily compute input data types where simplification requires them.
-pub trait SimplifyCtx {
-    /// Get the data type of the given expression.
-    fn return_dtype(&self, expr: &Expression) -> VortexResult<DType>;
 }
 
 /// Arguments for expression execution.

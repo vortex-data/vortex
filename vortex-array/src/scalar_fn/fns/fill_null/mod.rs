@@ -22,6 +22,7 @@ use crate::arrays::Primitive;
 use crate::arrays::ScalarFnArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::expr::BoundExpression;
 use crate::expr::Expression;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
@@ -123,10 +124,9 @@ impl ScalarFnVTable for FillNull {
     fn simplify(
         &self,
         _options: &Self::Options,
-        expr: &Expression,
-        ctx: &dyn crate::scalar_fn::SimplifyCtx,
-    ) -> VortexResult<Option<Expression>> {
-        let input_dtype = ctx.return_dtype(expr.child(0))?;
+        expr: &BoundExpression,
+    ) -> VortexResult<Option<BoundExpression>> {
+        let input_dtype = expr.child(0).dtype();
 
         if !input_dtype.is_nullable() {
             return Ok(Some(expr.child(0).clone()));

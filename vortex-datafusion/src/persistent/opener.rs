@@ -300,8 +300,8 @@ impl FileOpener for VortexOpener {
             // The schema of the stream returned from the vortex scan.
             // We use a reference schema for types that don't roundtrip (Dictionary, Utf8, etc.).
             let scan_projection = scan_projection
-                .optimize_recursive(vxf.dtype())
-                .and_then(|projection| projection.bind(vxf.dtype()))
+                .bind(vxf.dtype())
+                .and_then(|projection| projection.optimize_recursive())
                 .map_err(|_e| {
                     exec_datafusion_err!("Couldn't get the dtype for the underlying Vortex scan")
                 })?;
@@ -393,7 +393,7 @@ impl FileOpener for VortexOpener {
                 })
                 .transpose()?;
             let filter = filter
-                .map(|filter| filter.optimize_recursive(vxf.dtype())?.bind(vxf.dtype()))
+                .map(|filter| filter.bind(vxf.dtype())?.optimize_recursive())
                 .transpose()
                 .map_err(|e| exec_datafusion_err!("Couldn't bind Vortex scan filter: {e}"))?;
 

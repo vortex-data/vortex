@@ -229,17 +229,13 @@ impl PyVortexFile {
         let runtime = current_runtime();
         let reader = slf.py().detach(|| {
             let filter = expr
-                .map(|e| {
-                    e.into_inner()
-                        .optimize_recursive(vxf.dtype())?
-                        .bind(vxf.dtype())
-                })
+                .map(|e| e.into_inner().bind(vxf.dtype())?.optimize_recursive())
                 .transpose()?;
             let projection = projection
                 .map(|p| p.0)
                 .unwrap_or_else(root)
-                .optimize_recursive(vxf.dtype())?
-                .bind(vxf.dtype())?;
+                .bind(vxf.dtype())?
+                .optimize_recursive()?;
             let mut builder = vxf
                 .scan()?
                 .with_some_filter(filter)
@@ -290,10 +286,10 @@ fn scan_builder(
 ) -> VortexResult<ScanBuilder<ArrayRef>> {
     let projection = projection
         .unwrap_or_else(root)
-        .optimize_recursive(vxf.dtype())?
-        .bind(vxf.dtype())?;
+        .bind(vxf.dtype())?
+        .optimize_recursive()?;
     let expr = expr
-        .map(|expr| expr.optimize_recursive(vxf.dtype())?.bind(vxf.dtype()))
+        .map(|expr| expr.bind(vxf.dtype())?.optimize_recursive())
         .transpose()?;
     let mut builder = vxf
         .scan()?
