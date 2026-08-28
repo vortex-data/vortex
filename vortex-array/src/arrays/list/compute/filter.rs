@@ -34,11 +34,11 @@ use crate::validity::Validity;
 /// Note that this is somewhat arbitrarily chosen...
 const MASK_EXPANSION_DENSITY_THRESHOLD: f64 = 0.05;
 
-/// Minimum percentage of referenced-but-unselected prefix and suffix elements required before
-/// cropping.
+/// Crop when at least `1 / threshold` of referenced elements are unselected.
 const PERCENTAGE_REFERENCED_UNSELECTED_ELEMENTS_THRESHOLD: usize = 20;
 
-/// Crop when at least `1 / denominator` of referenced elements are unselected.
+/// Minimum percentage of referenced-but-unselected prefix and suffix elements required before
+/// cropping.
 const N_REFERENCED_UNSELECTED_ELEMENTS_THRESHOLD: usize = 1024;
 
 /// Return the element range to construct new mask over and to subsequently filter. In the general case this will be the range
