@@ -432,6 +432,17 @@ mod tests {
     }
 
     #[test]
+    fn allocator_identity() {
+        let static_allocator = BufferAllocatorRef::statically_allocated();
+        assert!(static_allocator.ptr_eq(&BufferAllocatorRef::statically_allocated()));
+
+        let custom_allocator = BufferAllocatorRef::new(TrackingAllocator::default());
+        assert!(custom_allocator.ptr_eq(&custom_allocator.clone()));
+        assert!(!custom_allocator.ptr_eq(&static_allocator));
+        assert!(!custom_allocator.ptr_eq(&BufferAllocatorRef::new(TrackingAllocator::default())));
+    }
+
+    #[test]
     fn allocation_lives_until_last_view() {
         let allocator = TrackingAllocator::default();
         let state = Arc::clone(&allocator.state);
