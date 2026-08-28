@@ -8,8 +8,12 @@ use vortex_mask::MaskValuesRef;
 
 use super::super::RowFnExecutionArgs;
 use super::super::args::BorrowedRowFnArgs;
+use crate::AnyCanonical;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::masked::mask_validity_canonical;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::unstable::row::execute::DenseAttempt;
 use crate::validity::Validity;
@@ -99,7 +103,20 @@ impl RowFnExecutionArgs {
             Validity::NonNullable | Validity::AllValid => {
                 self.finalize_output(values, self.row_count)
             }
-            Validity::Array(valid) => self.finalize_output(values.mask(valid)?, self.row_count),
+            Validity::Array(validity_array) => {
+                let values = if let Some(canonical) = values.as_opt::<AnyCanonical>() {
+                    mask_validity_canonical(
+                        Canonical::from(canonical),
+                        Validity::Array(validity_array),
+                        ctx,
+                    )?
+                    .into_array()
+                } else {
+                    values.mask(validity_array)?
+                };
+
+                self.finalize_output(values, self.row_count)
+            }
             Validity::AllInvalid => {
                 unreachable!("all-invalid validity is handled before dense row execution")
             }

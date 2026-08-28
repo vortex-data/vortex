@@ -20,10 +20,14 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::array_session;
+#[cfg(not(codspeed))]
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
+#[cfg(not(codspeed))]
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::dtype::DType;
@@ -45,6 +49,8 @@ use crate::scalar_fn::unstable::row::RowFn;
 use crate::scalar_fn::unstable::row::RowVisitor;
 use crate::scalar_fn::unstable::row::execute_rows;
 use crate::scalar_fn::unstable::row::row_fn_return_dtype;
+#[cfg(not(codspeed))]
+use crate::test_harness::trace::trace_op;
 use crate::validity::Validity;
 
 #[derive(Clone, Default)]
@@ -682,6 +688,7 @@ fn test_kernel_output_rejects_nulls_at_function_boundary() -> VortexResult<()> {
     Ok(())
 }
 
+#[cfg(not(codspeed))]
 #[test]
 fn test_bool_output_builds_packed_values() -> VortexResult<()> {
     let input = PrimitiveArray::new(
@@ -692,10 +699,21 @@ fn test_bool_output_builds_packed_values() -> VortexResult<()> {
     let args = VecExecutionArgs::new(vec![input], 5);
     let mut ctx = array_session().create_execution_ctx();
 
-    let actual = execute_rows(&PackedPositive, &EmptyOptions, &args, &mut ctx)?;
+    let traced = trace_op(|| execute_rows(&PackedPositive, &EmptyOptions, &args, &mut ctx))?;
+    let actual = traced.output;
     let expected =
         BoolArray::from_iter([Some(true), Some(false), None, Some(false), Some(true)]).into_array();
 
+    assert!(
+        actual.is::<Bool>(),
+        "dense Boolean output must remain canonical, got {}",
+        actual.encoding_id(),
+    );
+    let trace = traced.trace.to_string();
+    assert!(
+        !trace.contains("vortex.mask"),
+        "dense canonical output must bypass the lazy mask path, got:\n{trace}",
+    );
     assert_arrays_eq!(&actual, &expected, &mut ctx);
     Ok(())
 }
@@ -929,6 +947,7 @@ fn test_dense_retry_filters_when_direct_valid_rows_are_unavailable() -> VortexRe
     Ok(())
 }
 
+#[cfg(not(codspeed))]
 #[test]
 fn test_deferred_owned_execution_does_not_retry_partially_valid_success() -> VortexResult<()> {
     let function = DeferredAdd::default();
@@ -938,9 +957,20 @@ fn test_deferred_owned_execution_does_not_retry_partially_valid_success() -> Vor
     let args = VecExecutionArgs::new(vec![lhs, rhs], 2);
     let mut ctx = array_session().create_execution_ctx();
 
-    let actual = execute_rows(&function, &EmptyOptions, &args, &mut ctx)?;
+    let traced = trace_op(|| execute_rows(&function, &EmptyOptions, &args, &mut ctx))?;
+    let actual = traced.output;
     let expected = PrimitiveArray::new(vec![2_i64, 0], validity).into_array();
 
+    assert!(
+        actual.is::<Primitive>(),
+        "dense primitive output must remain canonical, got {}",
+        actual.encoding_id(),
+    );
+    let trace = traced.trace.to_string();
+    assert!(
+        !trace.contains("vortex.mask"),
+        "dense canonical output must bypass the lazy mask path, got:\n{trace}",
+    );
     assert_arrays_eq!(&actual, &expected, &mut ctx);
     assert_eq!(function.prepare_count(), 1);
     Ok(())
