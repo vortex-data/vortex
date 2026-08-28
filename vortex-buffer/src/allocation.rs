@@ -250,18 +250,22 @@ impl Allocation {
         }
     }
 
+    #[inline(always)]
     pub(crate) fn ptr(&self) -> NonNull<u8> {
         self.ptr
     }
 
+    #[inline(always)]
     pub(crate) fn size(&self) -> usize {
         self.capacity
     }
 
+    #[inline(always)]
     pub(crate) fn buffer_alignment(&self) -> Alignment {
         self.buffer_alignment
     }
 
+    #[inline(always)]
     pub(crate) fn allocator(&self) -> &BufferAllocatorRef {
         &self.allocator
     }
@@ -296,6 +300,7 @@ pub(crate) enum BufferBacking {
 }
 
 impl BufferBacking {
+    #[inline(always)]
     pub(crate) fn allocator(&self) -> &BufferAllocatorRef {
         match self {
             Self::Owned(allocation) => allocation.allocator(),

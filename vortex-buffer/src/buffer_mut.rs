@@ -398,12 +398,14 @@ impl<T> BufferMut<T> {
     }
 
     /// Returns a raw pointer to the buffer's data.
+    #[inline(always)]
     pub fn as_ptr(&self) -> *const T {
         // SAFETY: offset always remains within the allocation.
         unsafe { self.allocation.ptr().as_ptr().add(self.offset).cast() }
     }
 
     /// Returns a mutable raw pointer to the buffer's data.
+    #[inline(always)]
     pub fn as_mut_ptr(&mut self) -> *mut T {
         // SAFETY: BufferMut uniquely owns the allocation and offset is in bounds.
         unsafe { self.allocation.ptr().as_ptr().add(self.offset).cast() }
@@ -974,8 +976,8 @@ where
 
 impl<T> FromIterator<T> for BufferMut<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        // We don't infer the capacity here and just let the first call to `extend` do it for us.
-        let mut buffer = Self::with_capacity(0);
+        let iter = iter.into_iter();
+        let mut buffer = Self::with_capacity(iter.size_hint().0);
         buffer.extend(iter);
         buffer
     }
