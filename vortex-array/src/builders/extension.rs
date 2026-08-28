@@ -58,7 +58,9 @@ impl ExtensionBuilder {
     /// Finishes the builder directly into a [`ExtensionArray`].
     pub fn finish_into_extension(&mut self) -> ExtensionArray {
         let storage = self.storage.finish();
-        ExtensionArray::new(self.ext_dtype(), storage)
+        // SAFETY: the storage child builder was created with this extension dtype's storage dtype
+        // and rejects an appended array of any other dtype.
+        unsafe { ExtensionArray::new_unchecked(self.ext_dtype(), storage) }
     }
 
     /// The [`ExtDType`] of this builder.

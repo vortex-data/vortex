@@ -390,10 +390,13 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
 
         let mut fresh_offsets = BufferMut::with_capacity(1);
         fresh_offsets.push(O::zero());
-        let offsets = PrimitiveArray::new(
-            std::mem::replace(&mut self.offsets, fresh_offsets).freeze(),
-            Validity::NonNullable,
-        );
+        // SAFETY: a non-nullable validity carries no length to match against the offsets.
+        let offsets = unsafe {
+            PrimitiveArray::new_unchecked(
+                std::mem::replace(&mut self.offsets, fresh_offsets).freeze(),
+                Validity::NonNullable,
+            )
+        };
         let data = std::mem::replace(&mut self.data, BufferMut::empty());
         let nulls = std::mem::replace(&mut self.validity, BitBufferMut::empty()).freeze();
 

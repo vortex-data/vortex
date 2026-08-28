@@ -4,7 +4,6 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -60,9 +59,9 @@ impl FixedSizeListBuilder {
         nullability: Nullability,
         capacity: usize,
     ) -> Self {
-        let elements_capacity = capacity * list_size as usize;
-
-        let elements_builder = ChildBuilder::with_capacity(&element_dtype, elements_capacity);
+        // The element count is exactly known here, unlike for a list of varying sizes.
+        let elements_builder =
+            ChildBuilder::with_capacity(&element_dtype, capacity * list_size as usize);
         let fsl_dtype = DType::FixedSizeList(element_dtype, list_size, nullability);
         let nulls = ValidityBuilder::new(capacity);
 
@@ -209,14 +208,14 @@ impl FixedSizeListBuilder {
             "elements length must be equal to the array length times the list size"
         );
 
-        // TODO(connor): Use `new_unchecked` here.
-        FixedSizeListArray::try_new(
-            self.elements_builder.finish(),
-            self.list_size(),
-            self.nulls.finish_with_nullability(self.dtype.nullability()),
-            final_len,
-        )
-        .vortex_expect("tried to create an invalid `FixedSizeListArray` from a builder")
+        unsafe {
+            FixedSizeListArray::new_unchecked(
+                self.elements_builder.finish(),
+                self.list_size(),
+                self.nulls.finish_with_nullability(self.dtype.nullability()),
+                final_len,
+            )
+        }
     }
 
     /// The [`DType`] of the inner elements. Note that this is **not** the same as the [`DType`] of

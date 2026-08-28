@@ -10,6 +10,7 @@ use crate::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity;
+use crate::canonical::Canonical;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 
@@ -36,24 +37,34 @@ pub struct ChildBuilder {
     /// The summed length of `chunks`.
     chunks_len: usize,
 
-    /// Builder holding the scalars appended after the last chunk.
-    pending: Box<dyn ArrayBuilder>,
+    /// Builder holding the scalars appended after the last chunk, materialized by the first append
+    /// that is not a whole array.
+    pending: Option<Box<dyn ArrayBuilder>>,
+
+    /// The capacity the scalar builder is materialized with, grown by
+    /// [`reserve_exact`](Self::reserve_exact) until it is.
+    pending_capacity: usize,
 }
 
 impl ChildBuilder {
-    /// Creates a new `ChildBuilder` whose scalar builder is pre-allocated for `capacity` values.
+    /// Creates a new `ChildBuilder` whose scalar builder has room for `capacity` values.
+    ///
+    /// Nothing is allocated for them here: `capacity` is only the size the scalar builder is
+    /// materialized with, and a child that only ever receives whole arrays never materializes one
+    /// at all. Callers are free to pass a capacity they may not need.
     pub fn with_capacity(dtype: &DType, capacity: usize) -> Self {
         Self {
             dtype: dtype.clone(),
             chunks: Vec::new(),
             chunks_len: 0,
-            pending: builder_with_capacity(dtype, capacity),
+            pending: None,
+            pending_capacity: capacity,
         }
     }
 
     /// The number of values appended so far.
     pub fn len(&self) -> usize {
-        self.chunks_len + self.pending.len()
+        self.chunks_len + self.pending.as_ref().map_or(0, |pending| pending.len())
     }
 
     /// Appends every value of `array` to the child as a chunk of its own, keeping its encoding.
@@ -94,40 +105,50 @@ impl ChildBuilder {
 
     /// Appends a single [`Scalar`] to the child.
     pub fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
-        self.pending.append_scalar(scalar)
+        self.pending().append_scalar(scalar)
     }
 
     /// Appends `n` "zero" values to the child.
     ///
     /// See [`ArrayBuilder::append_zeros`].
     pub fn append_zeros(&mut self, n: usize) {
-        self.pending.append_zeros(n)
+        self.pending().append_zeros(n)
     }
 
     /// Appends `n` null values to the child.
     ///
     /// See [`ArrayBuilder::append_nulls`].
     pub fn append_nulls(&mut self, n: usize) {
-        self.pending.append_nulls(n)
+        self.pending().append_nulls(n)
     }
 
     /// Appends `n` default values to the child.
     ///
     /// See [`ArrayBuilder::append_defaults`].
     pub fn append_defaults(&mut self, n: usize) {
-        self.pending.append_defaults(n)
+        self.pending().append_defaults(n)
     }
 
     /// Allocates space for `additional` more values in the scalar builder.
+    ///
+    /// While the scalar builder is still unmaterialized this only records the request, so that
+    /// reserving on a child that goes on to receive nothing but arrays allocates nothing.
     pub fn reserve_exact(&mut self, additional: usize) {
-        self.pending.reserve_exact(additional)
+        match self.pending.as_mut() {
+            Some(pending) => pending.reserve_exact(additional),
+            None => self.pending_capacity += additional,
+        }
     }
 
     /// Finishes the child, combining the accumulated chunks into a [`ChunkedArray`] when there is
     /// more than one of them.
     pub fn finish(&mut self) -> ArrayRef {
         if self.chunks.is_empty() {
-            return self.pending.finish();
+            return match self.pending.as_mut() {
+                Some(pending) => pending.finish(),
+                // Nothing was ever appended, so there is no builder to ask for an empty array.
+                None => Canonical::empty(&self.dtype).into_array(),
+            };
         }
 
         self.flush_pending();
@@ -141,13 +162,23 @@ impl ChildBuilder {
         unsafe { ChunkedArray::new_unchecked(chunks, self.dtype.clone()) }.into_array()
     }
 
+    /// The scalar builder, materialized on first use.
+    fn pending(&mut self) -> &mut dyn ArrayBuilder {
+        self.pending
+            .get_or_insert_with(|| builder_with_capacity(&self.dtype, self.pending_capacity))
+            .as_mut()
+    }
+
     /// Moves whatever the scalar builder holds into `chunks`, keeping the chunks in logical order.
     fn flush_pending(&mut self) {
-        if self.pending.is_empty() {
+        let Some(pending) = self.pending.as_mut() else {
+            return;
+        };
+        if pending.is_empty() {
             return;
         }
-        self.chunks_len += self.pending.len();
-        let pending = self.pending.finish();
+        self.chunks_len += pending.len();
+        let pending = pending.finish();
         self.chunks.push(pending);
     }
 }
@@ -355,6 +386,40 @@ mod tests {
 
         let expected = PrimitiveArray::new(buffer![3i32], NonNullable.into()).into_array();
         assert_arrays_eq!(&builder.finish(), &expected, &mut ctx);
+
+        Ok(())
+    }
+
+    /// Reserving is recorded while the scalar builder is unmaterialized and forwarded once it
+    /// exists; either way the scalars appended after it are the ones that come back.
+    #[test]
+    fn test_reserving_before_and_after_the_first_scalar() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let mut builder = ChildBuilder::with_capacity(&DType::from(I32), 0);
+
+        builder.reserve_exact(2);
+        builder.append_scalar(&1i32.into())?;
+        builder.reserve_exact(2);
+        builder.append_scalar(&2i32.into())?;
+
+        let expected = PrimitiveArray::new(buffer![1i32, 2], NonNullable.into()).into_array();
+        assert_arrays_eq!(&builder.finish(), &expected, &mut ctx);
+
+        Ok(())
+    }
+
+    /// A child that is only ever reserved never materializes a scalar builder, and still finishes
+    /// as an empty array of its own dtype.
+    #[test]
+    fn test_reserving_alone_finishes_empty() -> VortexResult<()> {
+        let mut builder = ChildBuilder::with_capacity(&DType::from(I32), 0);
+
+        builder.reserve_exact(CHUNK_LEN);
+
+        assert_eq!(builder.len(), 0);
+        let child = builder.finish();
+        assert!(child.is_empty());
+        assert!(child.is::<Primitive>());
 
         Ok(())
     }

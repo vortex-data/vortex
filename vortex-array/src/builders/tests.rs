@@ -1130,8 +1130,7 @@ fn test_list_builder_offsets_are_rebased_across_element_chunks() -> VortexResult
     let mut ctx = array_session().create_execution_ctx();
     let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
 
-    let mut builder =
-        ListBuilder::<u64>::with_capacity(element_dtype, Nullability::NonNullable, 0, 0);
+    let mut builder = ListBuilder::<u64>::with_capacity(element_dtype, Nullability::NonNullable, 0);
     for value in 0..3i32 {
         builder
             .append_array_as_list(&ConstantArray::new(value, CHUNK_LEN).into_array(), &mut ctx)?;

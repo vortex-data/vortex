@@ -29,7 +29,6 @@ impl ListArray {
         let mut builder = ListBuilder::<O>::with_capacity(
             Arc::clone(&dtype),
             crate::dtype::Nullability::NonNullable,
-            2 * iter.size_hint().0,
             iter.size_hint().0,
         );
 
@@ -56,7 +55,6 @@ impl ListArray {
         let mut builder = ListBuilder::<O>::with_capacity(
             Arc::clone(&dtype),
             crate::dtype::Nullability::Nullable,
-            2 * iter.size_hint().0,
             iter.size_hint().0,
         );
 

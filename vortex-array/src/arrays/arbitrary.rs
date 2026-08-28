@@ -304,8 +304,7 @@ fn random_list_with_offset_type<O: OffsetBuilderPType>(
     null: Nullability,
     array_length: usize,
 ) -> Result<ArrayRef> {
-    let mut builder =
-        ListViewBuilder::<O, O>::with_capacity(Arc::clone(elem_dtype), null, array_length, 10);
+    let mut builder = ListViewBuilder::<O, O>::with_capacity(Arc::clone(elem_dtype), null, 10);
 
     for _ in 0..array_length {
         if null == Nullability::Nullable && u.arbitrary::<bool>()? {

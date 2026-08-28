@@ -296,7 +296,6 @@ mod tests {
             Arc::clone(&element_dtype),
             Nullability::NonNullable,
             0,
-            0,
         );
         list.clone()
             .into_array()
@@ -306,7 +305,6 @@ mod tests {
         let mut list_builder = ListBuilder::<u64>::with_capacity(
             Arc::clone(&element_dtype),
             Nullability::NonNullable,
-            0,
             0,
         );
         list.clone()
@@ -322,7 +320,7 @@ mod tests {
             Validity::NonNullable,
         )?;
         let mut list_builder =
-            ListBuilder::<u64>::with_capacity(element_dtype, Nullability::NonNullable, 0, 0);
+            ListBuilder::<u64>::with_capacity(element_dtype, Nullability::NonNullable, 0);
         listview
             .into_array()
             .append_to_builder(&mut list_builder, &mut ctx)?;

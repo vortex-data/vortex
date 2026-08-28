@@ -400,7 +400,6 @@ fn execute_sparse_lists(
                 fill_value,
                 values_dtype,
                 len,
-                total_canonical_values,
                 nullability,
                 ctx,
             )
@@ -408,25 +407,18 @@ fn execute_sparse_lists(
     }))
 }
 
-#[expect(clippy::too_many_arguments)]
 fn execute_sparse_lists_inner<I: IntegerPType, O: OffsetBuilderPType>(
     patch_indices: &[I],
     patch_values: ListViewArray,
     fill_value: &Scalar,
     values_dtype: Arc<DType>,
     len: usize,
-    total_canonical_values: usize,
     nullability: Nullability,
     ctx: &mut ExecutionCtx,
 ) -> ArrayRef {
     // Create the builder with appropriate types. It is easy to just use the same type for both
     // `offsets` and `sizes` since we have no other constraints.
-    let mut builder = ListViewBuilder::<O, O>::with_capacity(
-        values_dtype,
-        nullability,
-        total_canonical_values,
-        len,
-    );
+    let mut builder = ListViewBuilder::<O, O>::with_capacity(values_dtype, nullability, len);
     // The fill's elements become an array once, up front. Every gap then appends that same array,
     // so the fill's elements are stored once for the whole result however many gaps reference them.
     let fill_elements = list_scalar_elements_array(fill_value.as_list());

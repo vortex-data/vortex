@@ -154,7 +154,18 @@ impl DecimalBuilder {
         let decimal_dtype = *self.decimal_dtype();
 
         delegate_fn!(std::mem::take(&mut self.values), |T, values| {
-            DecimalArray::new::<T>(values.freeze(), decimal_dtype, validity)
+            assert!(
+                validity.maybe_len().is_none_or(|len| len == values.len()),
+                "validity of length {:?} does not cover the {} values appended",
+                validity.maybe_len(),
+                values.len()
+            );
+
+            // SAFETY: the values are this builder's own `Buffer<T>`, so they are aligned and a
+            // whole number of elements, and the assert above pairs an array-backed validity with
+            // exactly those values. Whether they fit the precision is the appender's business, as
+            // it is on the checked path, which does not verify it either.
+            unsafe { DecimalArray::new_unchecked::<T>(values.freeze(), decimal_dtype, validity) }
         })
     }
 

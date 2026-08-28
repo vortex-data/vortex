@@ -4,7 +4,6 @@
 use std::any::Any;
 
 use itertools::Itertools;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -93,21 +92,20 @@ impl StructBuilder {
             .map(|builder| builder.finish())
             .collect::<Vec<_>>();
 
-        if fields.len() > 1 {
-            let expected_length = fields[0].len();
-            for (index, field) in fields[1..].iter().enumerate() {
-                assert_eq!(
-                    field.len(),
-                    expected_length,
-                    "Field {index} does not have expected length {expected_length}"
-                );
-            }
+        for (index, field) in fields.iter().enumerate() {
+            assert_eq!(
+                field.len(),
+                len,
+                "Field {index} does not have expected length {len}"
+            );
         }
 
         let validity = self.nulls.finish_with_nullability(self.dtype.nullability());
 
-        StructArray::try_new_with_dtype(fields, self.struct_fields().clone(), len, validity)
-            .vortex_expect("Fields must all have same length.")
+        // SAFETY: each field is finished by the child builder this builder made for that field of
+        // the struct dtype, so the fields match the dtype in order, and the assert above pairs
+        // every one of them with the `len` rows the validity covers.
+        unsafe { StructArray::new_unchecked(fields, self.struct_fields().clone(), len, validity) }
     }
 
     /// The [`StructFields`] of this struct builder.

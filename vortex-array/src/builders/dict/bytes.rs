@@ -211,7 +211,8 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
         // Restore lookup dictionary back into the struct
         self.lookup = Some(local_lookup);
 
-        Ok(PrimitiveArray::new(codes, Validity::NonNullable))
+        // SAFETY: a non-nullable validity carries no length to match against the codes.
+        Ok(unsafe { PrimitiveArray::new_unchecked(codes.freeze(), Validity::NonNullable) })
     }
 
     fn encode_varbin(

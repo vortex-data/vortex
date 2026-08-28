@@ -415,7 +415,6 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
         DType::List(dtype, n) => Box::new(ListViewBuilder::<u64, u64>::with_capacity(
             Arc::clone(dtype),
             *n,
-            2 * capacity, // Arbitrarily choose 2 times the `offsets` capacity here.
             capacity,
         )),
         DType::Map(map_dtype, nullability) => Box::new(MapBuilder::<u64, u64>::with_capacity(

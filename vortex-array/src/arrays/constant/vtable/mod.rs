@@ -615,7 +615,7 @@ mod tests {
         let array = ConstantArray::new(scalar, 4).into_array();
 
         let mut builder =
-            ListBuilder::<u32>::with_capacity(element_dtype, Nullability::NonNullable, 0, 0);
+            ListBuilder::<u32>::with_capacity(element_dtype, Nullability::NonNullable, 0);
         array.append_to_builder(&mut builder, &mut ctx)?;
 
         assert_arrays_eq!(&builder.finish(), &array, &mut ctx);

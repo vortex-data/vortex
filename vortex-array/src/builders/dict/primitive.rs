@@ -179,15 +179,18 @@ where
             }
         }
 
-        Ok(PrimitiveArray::new(codes, Validity::NonNullable))
+        // SAFETY: a non-nullable validity carries no length to match against the codes.
+        Ok(unsafe { PrimitiveArray::new_unchecked(codes.freeze(), Validity::NonNullable) })
     }
 
     fn reset(&mut self) -> ArrayRef {
-        PrimitiveArray::new(
-            self.values.clone(),
-            Validity::from_bit_buffer(mem::take(&mut self.values_nulls).freeze(), self.nullability),
-        )
-        .into_array()
+        let values = self.values.clone().freeze();
+        let validity =
+            Validity::from_bit_buffer(mem::take(&mut self.values_nulls).freeze(), self.nullability);
+
+        // SAFETY: every dictionary value is pushed alongside its validity bit, so an array-backed
+        // validity covers exactly the values.
+        unsafe { PrimitiveArray::new_unchecked(values, validity) }.into_array()
     }
 
     fn codes_ptype(&self) -> PType {
