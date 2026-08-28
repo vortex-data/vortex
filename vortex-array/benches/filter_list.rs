@@ -29,12 +29,10 @@ fn main() {
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
-// Keep wide cases large enough to exercise element-mask expansion while remaining inexpensive for
-// CodSpeed's instruction-count simulation.
-const LIST_COUNT: usize = 1_024;
-const SHORT_LIST_WIDTH: usize = 32;
-const WIDE_LIST_WIDTH: usize = 2_048;
-const CLUSTERED_LIST_COUNT: usize = 8;
+const LIST_LENGTH: usize = 1_024;
+const N_ELEMENTS_SHORT: usize = 32;
+const N_ELEMENTS_LONG: usize = 2_048;
+const MASK_LENGTH_CLUSTERED: usize = 8;
 
 #[derive(Clone, Copy, Debug)]
 enum MaskSetup {
@@ -60,35 +58,35 @@ const MASK_SETUPS: &[MaskSetup] = &[
 ];
 
 fn primitive_list(width: usize) -> ArrayRef {
-    let element_count = LIST_COUNT * width;
+    let element_count = LIST_LENGTH * width;
     let elements = PrimitiveArray::from_iter(0..element_count as u32).into_array();
     let offsets =
-        Buffer::from_iter((0..=LIST_COUNT).map(|index| (index * width) as u32)).into_array();
+        Buffer::from_iter((0..=LIST_LENGTH).map(|index| (index * width) as u32)).into_array();
     ListArray::try_new(elements, offsets, Validity::NonNullable)
         .unwrap()
         .into_array()
 }
 
 fn dictionary_list(width: usize) -> ArrayRef {
-    let element_count = LIST_COUNT * width;
+    let element_count = LIST_LENGTH * width;
     let codes = Buffer::from_iter((0..element_count).map(|index| (index % 16) as u8)).into_array();
     let values = PrimitiveArray::from_iter(0..16u32).into_array();
     let elements = DictArray::try_new(codes, values).unwrap().into_array();
     let offsets =
-        Buffer::from_iter((0..=LIST_COUNT).map(|index| (index * width) as u32)).into_array();
+        Buffer::from_iter((0..=LIST_LENGTH).map(|index| (index * width) as u32)).into_array();
     ListArray::try_new(elements, offsets, Validity::NonNullable)
         .unwrap()
         .into_array()
 }
 
 fn string_list(width: usize) -> ArrayRef {
-    let element_count = LIST_COUNT * width;
+    let element_count = LIST_LENGTH * width;
     let elements = VarBinViewArray::from_iter_str(
         (0..element_count).map(|index| format!("list-element-{index:08}")),
     )
     .into_array();
     let offsets =
-        Buffer::from_iter((0..=LIST_COUNT).map(|index| (index * width) as u32)).into_array();
+        Buffer::from_iter((0..=LIST_LENGTH).map(|index| (index * width) as u32)).into_array();
     ListArray::try_new(elements, offsets, Validity::NonNullable)
         .unwrap()
         .into_array()
@@ -96,20 +94,20 @@ fn string_list(width: usize) -> ArrayRef {
 
 fn selection_mask(setup: MaskSetup) -> Mask {
     match setup {
-        MaskSetup::AllSelected => Mask::new_true(LIST_COUNT),
-        MaskSetup::NoneSelected => Mask::new_false(LIST_COUNT),
-        MaskSetup::Prefix => Mask::from_slices(LIST_COUNT, vec![(0, CLUSTERED_LIST_COUNT)]),
+        MaskSetup::AllSelected => Mask::new_true(LIST_LENGTH),
+        MaskSetup::NoneSelected => Mask::new_false(LIST_LENGTH),
+        MaskSetup::Prefix => Mask::from_slices(LIST_LENGTH, vec![(0, MASK_LENGTH_CLUSTERED)]),
         MaskSetup::Suffix => Mask::from_slices(
-            LIST_COUNT,
-            vec![(LIST_COUNT - CLUSTERED_LIST_COUNT, LIST_COUNT)],
+            LIST_LENGTH,
+            vec![(LIST_LENGTH - MASK_LENGTH_CLUSTERED, LIST_LENGTH)],
         ),
-        MaskSetup::EveryFifth => Mask::from_indices(LIST_COUNT, (0..LIST_COUNT).step_by(5)),
+        MaskSetup::EveryFifth => Mask::from_indices(LIST_LENGTH, (0..LIST_LENGTH).step_by(5)),
         MaskSetup::Clustered => {
-            let start = (LIST_COUNT - CLUSTERED_LIST_COUNT) / 2;
-            Mask::from_slices(LIST_COUNT, vec![(start, start + CLUSTERED_LIST_COUNT)])
+            let start = (LIST_LENGTH - MASK_LENGTH_CLUSTERED) / 2;
+            Mask::from_slices(LIST_LENGTH, vec![(start, start + MASK_LENGTH_CLUSTERED)])
         }
-        MaskSetup::Sparse => Mask::from_indices(LIST_COUNT, [LIST_COUNT / 2]),
-        MaskSetup::EdgeSpanning => Mask::from_indices(LIST_COUNT, [0, LIST_COUNT - 1]),
+        MaskSetup::Sparse => Mask::from_indices(LIST_LENGTH, [LIST_LENGTH / 2]),
+        MaskSetup::EdgeSpanning => Mask::from_indices(LIST_LENGTH, [0, LIST_LENGTH - 1]),
     }
 }
 
@@ -131,7 +129,7 @@ fn run(bencher: Bencher, array: ArrayRef, mask: Mask) {
 fn filter_list_primitive_short(bencher: Bencher, setup: MaskSetup) {
     run(
         bencher,
-        primitive_list(SHORT_LIST_WIDTH),
+        primitive_list(N_ELEMENTS_SHORT),
         selection_mask(setup),
     );
 }
@@ -140,7 +138,7 @@ fn filter_list_primitive_short(bencher: Bencher, setup: MaskSetup) {
 fn filter_list_primitive_wide(bencher: Bencher, setup: MaskSetup) {
     run(
         bencher,
-        primitive_list(WIDE_LIST_WIDTH),
+        primitive_list(N_ELEMENTS_LONG),
         selection_mask(setup),
     );
 }
@@ -149,7 +147,7 @@ fn filter_list_primitive_wide(bencher: Bencher, setup: MaskSetup) {
 fn filter_list_dictionary_short(bencher: Bencher, setup: MaskSetup) {
     run(
         bencher,
-        dictionary_list(SHORT_LIST_WIDTH),
+        dictionary_list(N_ELEMENTS_SHORT),
         selection_mask(setup),
     );
 }
@@ -158,7 +156,7 @@ fn filter_list_dictionary_short(bencher: Bencher, setup: MaskSetup) {
 fn filter_list_dictionary_wide(bencher: Bencher, setup: MaskSetup) {
     run(
         bencher,
-        dictionary_list(WIDE_LIST_WIDTH),
+        dictionary_list(N_ELEMENTS_LONG),
         selection_mask(setup),
     );
 }
@@ -167,12 +165,12 @@ fn filter_list_dictionary_wide(bencher: Bencher, setup: MaskSetup) {
 fn filter_list_string_short(bencher: Bencher, setup: MaskSetup) {
     run(
         bencher,
-        string_list(SHORT_LIST_WIDTH),
+        string_list(N_ELEMENTS_SHORT),
         selection_mask(setup),
     );
 }
 
 #[divan::bench(args = MASK_SETUPS)]
 fn filter_list_string_wide(bencher: Bencher, setup: MaskSetup) {
-    run(bencher, string_list(WIDE_LIST_WIDTH), selection_mask(setup));
+    run(bencher, string_list(N_ELEMENTS_LONG), selection_mask(setup));
 }
