@@ -6,14 +6,15 @@
 use std::alloc::Layout;
 use std::fmt;
 use std::fmt::Debug;
+use std::mem::ManuallyDrop;
 use std::ptr::NonNull;
 use std::sync::Arc;
-use std::sync::LazyLock;
 
 use allocator_api2::alloc::AllocError;
 use allocator_api2::alloc::Allocator;
 use allocator_api2::alloc::Global;
 use allocator_api2::alloc::handle_alloc_error;
+use vortex_error::VortexExpect;
 
 use crate::Alignment;
 use crate::BufferMut;
@@ -27,17 +28,17 @@ impl<A> BufferAllocator for A where A: Allocator + Debug + Send + Sync + 'static
 
 /// A shared reference to a buffer allocator.
 #[derive(Clone)]
-pub struct BufferAllocatorRef(Arc<dyn BufferAllocator>);
+pub struct BufferAllocatorRef(Option<Arc<dyn BufferAllocator>>);
 
 impl BufferAllocatorRef {
     /// Wrap an allocator in a shared reference.
     pub fn new(allocator: impl BufferAllocator) -> Self {
-        Self(Arc::new(allocator))
+        Self(Some(Arc::new(allocator)))
     }
 
     /// Return a shared reference to the static allocator.
     pub fn statically_allocated() -> Self {
-        STATIC_ALLOCATOR.clone()
+        Self(None)
     }
 
     /// Create a mutable buffer with this allocator.
@@ -63,23 +64,35 @@ impl BufferAllocatorRef {
 
 impl Debug for BufferAllocatorRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
+        match &self.0 {
+            Some(allocator) => allocator.fmt(f),
+            None => StaticBufferAllocator.fmt(f),
+        }
     }
 }
 
 // SAFETY: all calls are forwarded to the same allocator value held by the Arc.
 unsafe impl Allocator for BufferAllocatorRef {
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
-        self.0.allocate(layout)
+        match &self.0 {
+            Some(allocator) => allocator.allocate(layout),
+            None => Global.allocate(layout),
+        }
     }
 
     fn allocate_zeroed(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
-        self.0.allocate_zeroed(layout)
+        match &self.0 {
+            Some(allocator) => allocator.allocate_zeroed(layout),
+            None => Global.allocate_zeroed(layout),
+        }
     }
 
     unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
         // SAFETY: the caller upholds the Allocator contract.
-        unsafe { self.0.deallocate(ptr, layout) }
+        match &self.0 {
+            Some(allocator) => unsafe { allocator.deallocate(ptr, layout) },
+            None => unsafe { Global.deallocate(ptr, layout) },
+        }
     }
 
     unsafe fn grow(
@@ -89,7 +102,10 @@ unsafe impl Allocator for BufferAllocatorRef {
         new_layout: Layout,
     ) -> Result<NonNull<[u8]>, AllocError> {
         // SAFETY: the caller upholds the Allocator contract.
-        unsafe { self.0.grow(ptr, old_layout, new_layout) }
+        match &self.0 {
+            Some(allocator) => unsafe { allocator.grow(ptr, old_layout, new_layout) },
+            None => unsafe { Global.grow(ptr, old_layout, new_layout) },
+        }
     }
 
     unsafe fn grow_zeroed(
@@ -99,7 +115,10 @@ unsafe impl Allocator for BufferAllocatorRef {
         new_layout: Layout,
     ) -> Result<NonNull<[u8]>, AllocError> {
         // SAFETY: the caller upholds the Allocator contract.
-        unsafe { self.0.grow_zeroed(ptr, old_layout, new_layout) }
+        match &self.0 {
+            Some(allocator) => unsafe { allocator.grow_zeroed(ptr, old_layout, new_layout) },
+            None => unsafe { Global.grow_zeroed(ptr, old_layout, new_layout) },
+        }
     }
 
     unsafe fn shrink(
@@ -109,7 +128,10 @@ unsafe impl Allocator for BufferAllocatorRef {
         new_layout: Layout,
     ) -> Result<NonNull<[u8]>, AllocError> {
         // SAFETY: the caller upholds the Allocator contract.
-        unsafe { self.0.shrink(ptr, old_layout, new_layout) }
+        match &self.0 {
+            Some(allocator) => unsafe { allocator.shrink(ptr, old_layout, new_layout) },
+            None => unsafe { Global.shrink(ptr, old_layout, new_layout) },
+        }
     }
 }
 
@@ -185,14 +207,11 @@ unsafe impl Allocator for StaticBufferAllocator {
     }
 }
 
-static STATIC_ALLOCATOR: LazyLock<BufferAllocatorRef> =
-    LazyLock::new(|| BufferAllocatorRef::new(StaticBufferAllocator));
+static STATIC_ALLOCATOR: BufferAllocatorRef = BufferAllocatorRef(None);
 
 pub(crate) struct Allocation {
     ptr: NonNull<u8>,
     layout: Layout,
-    capacity: usize,
-    buffer_alignment: Alignment,
     allocator: BufferAllocatorRef,
 }
 
@@ -202,34 +221,35 @@ unsafe impl Send for Allocation {}
 unsafe impl Sync for Allocation {}
 
 impl Allocation {
-    pub(crate) fn allocate(
-        layout: Layout,
-        buffer_alignment: Alignment,
-        allocator: BufferAllocatorRef,
-    ) -> Self {
-        Self::allocate_impl(layout, buffer_alignment, allocator, false)
+    pub(crate) fn allocate(layout: Layout, allocator: BufferAllocatorRef) -> Self {
+        Self::allocate_impl(layout, allocator, false)
     }
 
-    pub(crate) fn allocate_zeroed(
-        layout: Layout,
-        buffer_alignment: Alignment,
-        allocator: BufferAllocatorRef,
-    ) -> Self {
-        Self::allocate_impl(layout, buffer_alignment, allocator, true)
+    pub(crate) fn allocate_zeroed(layout: Layout, allocator: BufferAllocatorRef) -> Self {
+        Self::allocate_impl(layout, allocator, true)
     }
 
-    fn allocate_impl(
-        layout: Layout,
-        buffer_alignment: Alignment,
-        allocator: BufferAllocatorRef,
-        zeroed: bool,
-    ) -> Self {
+    pub(crate) fn from_vec<T>(vec: Vec<T>) -> Self {
+        assert!(!std::mem::needs_drop::<T>());
+
+        let mut vec = ManuallyDrop::new(vec);
+        let layout = Layout::array::<T>(vec.capacity())
+            .unwrap_or_else(|_| unreachable!("a Vec capacity always has a valid layout"));
+        let ptr = NonNull::new(vec.as_mut_ptr().cast())
+            .vortex_expect("a Vec always has a non-null pointer");
+
+        Self {
+            ptr,
+            layout,
+            allocator: BufferAllocatorRef::statically_allocated(),
+        }
+    }
+
+    fn allocate_impl(layout: Layout, allocator: BufferAllocatorRef, zeroed: bool) -> Self {
         if layout.size() == 0 {
             return Self {
                 ptr: layout.dangling_ptr(),
                 layout,
-                capacity: 0,
-                buffer_alignment,
                 allocator,
             };
         }
@@ -244,8 +264,6 @@ impl Allocation {
         Self {
             ptr: allocation.cast(),
             layout,
-            capacity: allocation.len(),
-            buffer_alignment,
             allocator,
         }
     }
@@ -257,17 +275,30 @@ impl Allocation {
 
     #[inline(always)]
     pub(crate) fn size(&self) -> usize {
-        self.capacity
+        self.layout.size()
     }
 
     #[inline(always)]
-    pub(crate) fn buffer_alignment(&self) -> Alignment {
-        self.buffer_alignment
+    pub(crate) fn alignment(&self) -> usize {
+        self.layout.align()
     }
 
     #[inline(always)]
     pub(crate) fn allocator(&self) -> &BufferAllocatorRef {
         &self.allocator
+    }
+
+    pub(crate) fn grow(&mut self, new_layout: Layout) {
+        let allocation = if self.layout.size() == 0 {
+            self.allocator.allocate(new_layout)
+        } else {
+            // SAFETY: ptr denotes a live block owned by allocator, old_layout fits the block, and
+            // the caller only grows the allocation.
+            unsafe { self.allocator.grow(self.ptr, self.layout, new_layout) }
+        }
+        .unwrap_or_else(|_| handle_alloc_error(new_layout));
+        self.ptr = allocation.cast();
+        self.layout = new_layout;
     }
 }
 
@@ -282,15 +313,21 @@ impl Drop for Allocation {
 }
 
 pub(crate) trait BufferOwner: Send + Sync + 'static {
-    fn as_slice(&self) -> &[u8];
+    fn as_ptr(&self) -> *const u8;
+
+    fn len(&self) -> usize;
 }
 
 impl<T> BufferOwner for T
 where
     T: AsRef<[u8]> + Send + Sync + 'static,
 {
-    fn as_slice(&self) -> &[u8] {
-        self.as_ref()
+    fn as_ptr(&self) -> *const u8 {
+        self.as_ref().as_ptr()
+    }
+
+    fn len(&self) -> usize {
+        self.as_ref().len()
     }
 }
 
@@ -304,7 +341,7 @@ impl BufferBacking {
     pub(crate) fn allocator(&self) -> &BufferAllocatorRef {
         match self {
             Self::Owned(allocation) => allocation.allocator(),
-            Self::External { .. } => LazyLock::force(&STATIC_ALLOCATOR),
+            Self::External { .. } => &STATIC_ALLOCATOR,
         }
     }
 }
@@ -377,7 +414,7 @@ mod tests {
         assert_eq!(state.allocations.load(Ordering::Relaxed), 1);
         assert_eq!(
             state.alignment.load(Ordering::Relaxed),
-            *Alignment::of::<u8>()
+            Alignment::of::<u8>().as_usize()
         );
         drop(buffer);
         assert_eq!(state.deallocations.load(Ordering::Relaxed), 0);
@@ -386,7 +423,7 @@ mod tests {
     }
 
     #[test]
-    fn buffer_growth_allocates_and_copies() {
+    fn buffer_growth_uses_allocator_grow() {
         let allocator = TrackingAllocator::default();
         let state = Arc::clone(&allocator.state);
         let mut buffer = BufferAllocatorRef::new(allocator).with_capacity::<u32>(1);
@@ -397,8 +434,11 @@ mod tests {
 
         assert_eq!(&buffer[..initial_capacity], vec![7; initial_capacity]);
         assert_eq!(buffer[initial_capacity], u32::MAX);
-        assert_eq!(state.allocations.load(Ordering::Relaxed), 2);
+        assert_eq!(state.allocations.load(Ordering::Relaxed), 1);
+        assert_eq!(state.deallocations.load(Ordering::Relaxed), 0);
+        assert_eq!(state.grows.load(Ordering::Relaxed), 1);
+
+        drop(buffer);
         assert_eq!(state.deallocations.load(Ordering::Relaxed), 1);
-        assert_eq!(state.grows.load(Ordering::Relaxed), 0);
     }
 }

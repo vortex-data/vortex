@@ -34,6 +34,7 @@ pub struct Buffer<T> {
     pub(crate) ptr: NonNull<T>,
     pub(crate) length: usize,
     pub(crate) alignment: Alignment,
+    pub(crate) physical_alignment: Alignment,
     pub(crate) backing: Arc<BufferBacking>,
 }
 
@@ -64,6 +65,7 @@ impl<T> Default for Buffer<T> {
             ptr: empty_ptr(),
             length: 0,
             alignment: Alignment::of::<T>(),
+            physical_alignment: Alignment::MAX,
             backing: EMPTY_BACKING.clone(),
         }
     }
@@ -105,6 +107,7 @@ impl<T> Buffer<T> {
         offset: usize,
         length: usize,
         alignment: Alignment,
+        physical_alignment: Alignment,
     ) -> Self {
         // SAFETY: BufferMut keeps offset within allocation, including for empty buffers.
         let ptr = unsafe { allocation.ptr().add(offset).cast() };
@@ -112,25 +115,25 @@ impl<T> Buffer<T> {
             ptr,
             length,
             alignment,
+            physical_alignment,
             backing: Arc::new(BufferBacking::Owned(allocation)),
         }
     }
 
     fn from_owner(owner: impl crate::BufferOwner, alignment: Alignment) -> Self {
-        let bytes = owner.as_slice();
-        let length = bytes.len() / size_of::<T>();
+        let owner: Box<dyn crate::BufferOwner> = Box::new(owner);
+        let length = owner.len() / size_of::<T>();
         let ptr = if length == 0 {
             empty_ptr()
         } else {
-            NonNull::new(bytes.as_ptr().cast_mut().cast()).vortex_expect("owner pointer is null")
+            NonNull::new(owner.as_ptr().cast_mut().cast()).vortex_expect("owner pointer is null")
         };
         Self {
             ptr,
             length,
             alignment,
-            backing: Arc::new(BufferBacking::External {
-                _owner: Box::new(owner),
-            }),
+            physical_alignment: alignment,
+            backing: Arc::new(BufferBacking::External { _owner: owner }),
         }
     }
 
@@ -224,6 +227,7 @@ impl<T> Buffer<T> {
             ptr: empty_ptr(),
             length: 0,
             alignment,
+            physical_alignment: Alignment::MAX,
             backing: EMPTY_BACKING.clone(),
         }
     }
@@ -283,6 +287,7 @@ impl<T> Buffer<T> {
             ptr: buffer.ptr.cast(),
             length: buffer.length / size_of::<T>(),
             alignment,
+            physical_alignment: buffer.physical_alignment,
             backing: buffer.backing,
         }
     }
@@ -494,6 +499,7 @@ impl<T> Buffer<T> {
             ptr: unsafe { self.ptr.add(begin) },
             length: end - begin,
             alignment,
+            physical_alignment: self.physical_alignment,
             backing: Arc::clone(&self.backing),
         }
     }
@@ -548,6 +554,7 @@ impl<T> Buffer<T> {
             ptr: NonNull::new(subset.as_ptr().cast_mut()).vortex_expect("slice pointer is null"),
             length: subset.len(),
             alignment,
+            physical_alignment: self.physical_alignment,
             backing: Arc::clone(&self.backing),
         }
     }
@@ -567,6 +574,7 @@ impl<T> Buffer<T> {
             ptr: self.ptr.cast(),
             length: self.length * size_of::<T>(),
             alignment: self.alignment,
+            physical_alignment: self.physical_alignment,
             backing: self.backing,
         }
     }
@@ -577,18 +585,18 @@ impl<T> Buffer<T> {
             ptr,
             length,
             alignment,
+            physical_alignment,
             backing,
         } = self;
         match Arc::try_unwrap(backing) {
             Ok(BufferBacking::Owned(allocation)) => {
                 let offset = ptr.addr().get() - allocation.ptr().addr().get();
-                let capacity = (allocation.size() - offset) / size_of::<T>();
                 Ok(BufferMut {
                     allocation,
                     offset,
                     length,
-                    capacity,
                     alignment,
+                    physical_alignment,
                     _marker: Default::default(),
                 })
             }
@@ -596,12 +604,14 @@ impl<T> Buffer<T> {
                 ptr,
                 length,
                 alignment,
+                physical_alignment,
                 backing: Arc::new(backing),
             }),
             Err(backing) => Err(Self {
                 ptr,
                 length,
                 alignment,
+                physical_alignment,
                 backing,
             }),
         }
@@ -673,6 +683,7 @@ impl<T> Buffer<T> {
             ptr: self.ptr.cast(),
             length: self.length,
             alignment: self.alignment,
+            physical_alignment: self.physical_alignment,
             backing: self.backing,
         }
     }
@@ -754,15 +765,17 @@ impl<T> FromIterator<T> for Buffer<T> {
     }
 }
 
-// Helper struct to allow us to zero-copy any vec into a buffer
+// Helper struct that preserves drop glue for non-native Vec elements.
 #[repr(transparent)]
 struct Wrapper<T>(Vec<T>);
 
-impl<T> AsRef<[u8]> for Wrapper<T> {
-    fn as_ref(&self) -> &[u8] {
-        let data = self.0.as_ptr().cast::<u8>();
-        let len = self.0.len() * size_of::<T>();
-        unsafe { std::slice::from_raw_parts(data, len) }
+impl<T: Send + Sync + 'static> crate::BufferOwner for Wrapper<T> {
+    fn as_ptr(&self) -> *const u8 {
+        self.0.as_ptr().cast()
+    }
+
+    fn len(&self) -> usize {
+        self.0.len() * size_of::<T>()
     }
 }
 
@@ -771,12 +784,13 @@ where
     T: Send + Sync + 'static,
 {
     fn from(value: Vec<T>) -> Self {
-        let wrapped_vec = Wrapper(value);
-        assert_eq!(
-            wrapped_vec.as_ref().as_ptr().align_offset(align_of::<T>()),
-            0
-        );
-        Self::from_owner(wrapped_vec, Alignment::of::<T>())
+        let length = value.len();
+        let alignment = Alignment::of::<T>();
+        if std::mem::needs_drop::<T>() {
+            Self::from_owner(Wrapper(value), alignment)
+        } else {
+            Self::from_allocation(Allocation::from_vec(value), 0, length, alignment, alignment)
+        }
     }
 }
 
@@ -898,6 +912,11 @@ impl<T> From<BufferMut<T>> for Buffer<T> {
 
 #[cfg(test)]
 mod test {
+    use std::mem::align_of;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
     use bytes::Buf;
 
     use crate::Alignment;
@@ -1013,6 +1032,48 @@ mod test {
         let buff = Buffer::from(vec.clone());
         assert!(buff.is_aligned(Alignment::of::<i32>()));
         assert_eq!(vec, buff.as_ref());
+    }
+
+    #[test]
+    fn from_vec_adopts_allocation() {
+        let mut vec = Vec::with_capacity(16);
+        vec.extend([1u32, 2, 3, 4, 5]);
+        let ptr = vec.as_ptr();
+        let capacity = vec.capacity();
+
+        let buffer = Buffer::from(vec);
+        assert_eq!(buffer.as_ptr(), ptr);
+
+        let Ok(mut buffer) = buffer.try_into_mut() else {
+            panic!("Vec-backed buffer should be uniquely owned")
+        };
+        assert_eq!(buffer.capacity(), capacity);
+        assert_eq!(buffer.allocation.alignment(), align_of::<u32>());
+
+        buffer.extend(6..=32);
+        assert_eq!(buffer.as_slice(), (1..=32).collect::<Vec<_>>());
+        assert_eq!(buffer.allocation.alignment(), align_of::<u32>());
+    }
+
+    #[test]
+    fn from_vec_preserves_drop_glue() {
+        struct DropValue(Arc<AtomicUsize>);
+
+        impl Drop for DropValue {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+
+        let drops = Arc::new(AtomicUsize::new(0));
+        let values = (0..3)
+            .map(|_| DropValue(Arc::clone(&drops)))
+            .collect::<Vec<_>>();
+        let buffer = Buffer::from(values);
+
+        assert_eq!(drops.load(Ordering::Relaxed), 0);
+        drop(buffer);
+        assert_eq!(drops.load(Ordering::Relaxed), 3);
     }
 
     #[test]
