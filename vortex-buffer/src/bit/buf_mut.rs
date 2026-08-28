@@ -120,11 +120,7 @@ impl BitBufferMut {
 
     /// Creates a `BitBufferMut` from a [`BitBuffer`] by copying all of the data over.
     pub fn copy_from(bit_buffer: &BitBuffer) -> Self {
-        let allocator = bit_buffer
-            .inner()
-            .allocator()
-            .unwrap_or_else(BufferAllocatorRef::statically_allocated);
-        Self::copy_from_in(bit_buffer, allocator)
+        Self::copy_from_in(bit_buffer, bit_buffer.inner().allocator().clone())
     }
 
     /// Copies a bit buffer with the provided allocator.
@@ -186,7 +182,7 @@ impl BitBufferMut {
     }
 
     /// Returns the allocator that owns this buffer.
-    pub fn allocator(&self) -> BufferAllocatorRef {
+    pub fn allocator(&self) -> &BufferAllocatorRef {
         self.buffer.allocator()
     }
 
