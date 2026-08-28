@@ -47,7 +47,7 @@ impl Scheme for FSSTScheme {
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
-        canonical.dtype().is_utf8()
+        canonical.dtype().is_utf8() || canonical.dtype().is_binary()
     }
 
     fn produced_encodings(&self) -> Vec<ArrayId> {

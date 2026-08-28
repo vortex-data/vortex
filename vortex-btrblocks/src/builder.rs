@@ -61,6 +61,7 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     // Binary schemes.
     ////////////////////////////////////////////////////////////////////////////////////////////////
     &binary::BinaryDictScheme,
+    &binary::VarBinScheme,
     // Decimal schemes.
     &decimal::DecimalScheme,
     // Temporal schemes.
