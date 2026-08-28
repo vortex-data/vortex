@@ -8,6 +8,7 @@ use std::fmt;
 use std::fmt::Debug;
 use std::ptr::NonNull;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use allocator_api2::alloc::AllocError;
 use allocator_api2::alloc::Allocator;
@@ -26,18 +27,17 @@ impl<A> BufferAllocator for A where A: Allocator + Debug + Send + Sync + 'static
 
 /// A shared reference to a buffer allocator.
 #[derive(Clone)]
-pub struct BufferAllocatorRef(Option<Arc<dyn BufferAllocator>>);
+pub struct BufferAllocatorRef(Arc<dyn BufferAllocator>);
 
 impl BufferAllocatorRef {
     /// Wrap an allocator in a shared reference.
     pub fn new(allocator: impl BufferAllocator) -> Self {
-        Self(Some(Arc::new(allocator)))
+        Self(Arc::new(allocator))
     }
 
     /// Return a shared reference to the static allocator.
-    #[inline]
     pub fn statically_allocated() -> Self {
-        Self(None)
+        STATIC_ALLOCATOR.clone()
     }
 
     /// Create a mutable buffer with this allocator.
@@ -63,100 +63,53 @@ impl BufferAllocatorRef {
 
 impl Debug for BufferAllocatorRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.0 {
-            Some(allocator) => allocator.fmt(f),
-            None => StaticBufferAllocator.fmt(f),
-        }
+        self.0.fmt(f)
     }
 }
 
-// SAFETY: all calls are forwarded to the allocator represented by this value.
+// SAFETY: all calls are forwarded to the same allocator value held by the Arc.
 unsafe impl Allocator for BufferAllocatorRef {
-    #[inline]
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
-        match &self.0 {
-            Some(allocator) => allocator.allocate(layout),
-            None => Global.allocate(layout),
-        }
+        self.0.allocate(layout)
     }
 
-    #[inline]
     fn allocate_zeroed(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
-        match &self.0 {
-            Some(allocator) => allocator.allocate_zeroed(layout),
-            None => Global.allocate_zeroed(layout),
-        }
+        self.0.allocate_zeroed(layout)
     }
 
-    #[inline]
     unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
-        match &self.0 {
-            Some(allocator) => {
-                // SAFETY: the caller upholds the Allocator contract.
-                unsafe { allocator.deallocate(ptr, layout) }
-            }
-            None => {
-                // SAFETY: the caller upholds the Allocator contract.
-                unsafe { Global.deallocate(ptr, layout) }
-            }
-        }
+        // SAFETY: the caller upholds the Allocator contract.
+        unsafe { self.0.deallocate(ptr, layout) }
     }
 
-    #[inline]
     unsafe fn grow(
         &self,
         ptr: NonNull<u8>,
         old_layout: Layout,
         new_layout: Layout,
     ) -> Result<NonNull<[u8]>, AllocError> {
-        match &self.0 {
-            Some(allocator) => {
-                // SAFETY: the caller upholds the Allocator contract.
-                unsafe { allocator.grow(ptr, old_layout, new_layout) }
-            }
-            None => {
-                // SAFETY: the caller upholds the Allocator contract.
-                unsafe { Global.grow(ptr, old_layout, new_layout) }
-            }
-        }
+        // SAFETY: the caller upholds the Allocator contract.
+        unsafe { self.0.grow(ptr, old_layout, new_layout) }
     }
 
-    #[inline]
     unsafe fn grow_zeroed(
         &self,
         ptr: NonNull<u8>,
         old_layout: Layout,
         new_layout: Layout,
     ) -> Result<NonNull<[u8]>, AllocError> {
-        match &self.0 {
-            Some(allocator) => {
-                // SAFETY: the caller upholds the Allocator contract.
-                unsafe { allocator.grow_zeroed(ptr, old_layout, new_layout) }
-            }
-            None => {
-                // SAFETY: the caller upholds the Allocator contract.
-                unsafe { Global.grow_zeroed(ptr, old_layout, new_layout) }
-            }
-        }
+        // SAFETY: the caller upholds the Allocator contract.
+        unsafe { self.0.grow_zeroed(ptr, old_layout, new_layout) }
     }
 
-    #[inline]
     unsafe fn shrink(
         &self,
         ptr: NonNull<u8>,
         old_layout: Layout,
         new_layout: Layout,
     ) -> Result<NonNull<[u8]>, AllocError> {
-        match &self.0 {
-            Some(allocator) => {
-                // SAFETY: the caller upholds the Allocator contract.
-                unsafe { allocator.shrink(ptr, old_layout, new_layout) }
-            }
-            None => {
-                // SAFETY: the caller upholds the Allocator contract.
-                unsafe { Global.shrink(ptr, old_layout, new_layout) }
-            }
-        }
+        // SAFETY: the caller upholds the Allocator contract.
+        unsafe { self.0.shrink(ptr, old_layout, new_layout) }
     }
 }
 
@@ -232,7 +185,8 @@ unsafe impl Allocator for StaticBufferAllocator {
     }
 }
 
-static STATIC_ALLOCATOR: BufferAllocatorRef = BufferAllocatorRef(None);
+static STATIC_ALLOCATOR: LazyLock<BufferAllocatorRef> =
+    LazyLock::new(|| BufferAllocatorRef::new(StaticBufferAllocator));
 
 pub(crate) struct Allocation {
     ptr: NonNull<u8>,
@@ -345,7 +299,7 @@ impl BufferBacking {
     pub(crate) fn allocator(&self) -> &BufferAllocatorRef {
         match self {
             Self::Owned(allocation) => allocation.allocator(),
-            Self::External { .. } => &STATIC_ALLOCATOR,
+            Self::External { .. } => LazyLock::force(&STATIC_ALLOCATOR),
         }
     }
 }
