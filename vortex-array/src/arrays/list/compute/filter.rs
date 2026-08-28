@@ -169,8 +169,9 @@ impl FilterKernel for List {
 
                 let mut offset = O::zero();
                 unsafe { new_offsets.push_unchecked(offset) };
-                for &index in selection.indices() {
-                    offset += offsets[index + 1] - offsets[index];
+                for idx in selection.indices() {
+                    let size = offsets[idx + 1] - offsets[*idx];
+                    offset += size;
                     unsafe { new_offsets.push_unchecked(offset) };
                 }
 
