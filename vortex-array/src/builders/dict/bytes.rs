@@ -71,7 +71,7 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
             values_nulls: BitBufferMut::empty(),
             hasher: DefaultHashBuilder::default(),
             dtype,
-            max_dict_bytes: constraints.max_bytes,
+            max_dict_bytes: constraints.max_bytes.min(u32::MAX as usize),
             max_dict_len: constraints.max_len,
         }
     }
@@ -318,6 +318,7 @@ mod test {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use super::BytesDictBuilder;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
@@ -429,5 +430,14 @@ mod test {
         let codes = dict.codes().clone().execute::<PrimitiveArray>(&mut ctx)?;
         assert_eq!(codes.as_slice::<u8>(), &[0, 0, 1, 1, 0, 1, 0, 1]);
         Ok(())
+    }
+
+    #[test]
+    fn max_dict_bytes_cannot_exceed_the_view_offset_range() {
+        let builder = BytesDictBuilder::<u32>::new(
+            DType::Utf8(Nullability::NonNullable),
+            &super::super::UNCONSTRAINED,
+        );
+        assert_eq!(builder.max_dict_bytes, u32::MAX as usize);
     }
 }
