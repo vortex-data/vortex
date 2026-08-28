@@ -183,8 +183,10 @@ where
     }
 
     fn reset(&mut self) -> ArrayRef {
+        self.lookup.clear();
+        self.null_code = OnceCell::new();
         PrimitiveArray::new(
-            self.values.clone(),
+            mem::take(&mut self.values),
             Validity::from_bit_buffer(mem::take(&mut self.values_nulls).freeze(), self.nullability),
         )
         .into_array()
@@ -206,7 +208,9 @@ mod test {
     use crate::VortexSessionExecute;
     use crate::arrays::dict::DictArraySlotsExt;
     use crate::assert_arrays_eq;
+    use crate::builders::dict::UNCONSTRAINED;
     use crate::builders::dict::dict_encode;
+    use crate::builders::dict::dict_encoder;
     use crate::builders::dict::primitive::PrimitiveArray;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
@@ -246,5 +250,27 @@ mod test {
         let expected_values =
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array();
         assert_arrays_eq!(dict.values(), expected_values, &mut ctx);
+    }
+
+    #[test]
+    fn reset_clears_dict() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let first = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array();
+        let mut encoder = dict_encoder(&first, &UNCONSTRAINED);
+
+        assert_arrays_eq!(
+            encoder.encode(&first, &mut ctx).unwrap(),
+            buffer![0u32, 1, 2].into_array(),
+            &mut ctx
+        );
+        assert_arrays_eq!(encoder.reset(), first, &mut ctx);
+
+        let second = PrimitiveArray::from_option_iter([Some(4i32), Some(5)]).into_array();
+        assert_arrays_eq!(
+            encoder.encode(&second, &mut ctx).unwrap(),
+            buffer![0u32, 1].into_array(),
+            &mut ctx
+        );
+        assert_arrays_eq!(encoder.reset(), second, &mut ctx);
     }
 }
