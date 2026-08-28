@@ -1357,6 +1357,18 @@ vx_view vx_scalar_get_binary(const vx_scalar *scalar);
 vx_scalar *vx_scalar_new_null(const vx_dtype *dtype, vx_error **err);
 
 /**
+ * Create an extension-typed scalar from its storage scalar.
+ *
+ * "dtype" must be an extension dtype (for example a date or timestamp dtype
+ * taken from a data source's schema, or built via vx_dtype_from_arrow_schema)
+ * and "storage" a scalar of that extension type's storage dtype, compared
+ * ignoring nullability. The storage value is copied.
+ *
+ * Returns NULL and sets "err" on error.
+ */
+vx_scalar *vx_scalar_new_extension(const vx_dtype *dtype, const vx_scalar *storage, vx_error **err);
+
+/**
  * Create a decimal scalar from a signed i8 unscaled value.
  *
  * Returns NULL and sets "err" on error.
