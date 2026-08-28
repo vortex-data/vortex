@@ -29,6 +29,7 @@ use vortex_mask::Mask;
 use crate::OnPair;
 use crate::OnPairArrayExt;
 use crate::OnPairArraySlotsExt;
+use crate::OnPairIndexChildren;
 
 impl FilterKernel for OnPair {
     fn filter(
@@ -63,12 +64,13 @@ impl FilterKernel for OnPair {
             unsafe {
                 OnPair::new_unchecked(
                     array.dtype().clone(),
-                    array.data().clone(),
+                    array.data().clone().without_indexes(),
                     array.dict_offsets().clone(),
                     filtered_codes.elements().clone(),
                     filtered_codes.offsets().clone(),
                     uncompressed_lengths,
                     validity,
+                    OnPairIndexChildren::default(),
                 )
             }
             .into_array(),

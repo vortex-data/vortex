@@ -13,6 +13,7 @@ use vortex_error::VortexResult;
 
 use crate::OnPair;
 use crate::OnPairArraySlotsExt;
+use crate::OnPairIndexChildren;
 
 /// Adjust nullability without touching any encoded payload — we only rewrap
 /// into a new outer DType.
@@ -30,6 +31,11 @@ fn build_with_validity(
             array.codes_offsets().clone(),
             array.uncompressed_lengths().clone(),
             validity,
+            array
+                .token_frequency_index_child()
+                .cloned()
+                .map(|child| OnPairIndexChildren::default().with_token_frequency(child))
+                .unwrap_or_default(),
         )
     }
     .into_array()
@@ -76,6 +82,7 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::VarBinArray;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -83,6 +90,9 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::DEFAULT_CONFIG;
+    use crate::OnPair;
+    use crate::OnPairArraySlotsExt;
+    use crate::build_token_frequency_index;
     use crate::compress::onpair_compress;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -109,6 +119,31 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let onpair = onpair_compress(&array, DEFAULT_CONFIG, &mut ctx)?;
         test_cast_conformance(&onpair.into_array(), &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_cast_preserves_frequency_index() -> VortexResult<()> {
+        let input = VarBinArray::from_iter(
+            [Some("hello"), Some("world")],
+            DType::Utf8(Nullability::NonNullable),
+        )
+        .into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let encoded = onpair_compress(&input, DEFAULT_CONFIG, &mut ctx)?
+            .try_downcast::<OnPair>()
+            .map_err(|array| {
+                vortex_error::vortex_err!("expected OnPair, got {}", array.encoding_id())
+            })?;
+        let cast = build_token_frequency_index(encoded, &mut ctx)?
+            .into_array()
+            .cast(DType::Utf8(Nullability::Nullable))?
+            .try_downcast::<OnPair>()
+            .map_err(|array| {
+                vortex_error::vortex_err!("expected OnPair, got {}", array.encoding_id())
+            })?;
+
+        assert!(cast.token_frequency_index_child().is_some());
         Ok(())
     }
 }

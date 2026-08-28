@@ -32,7 +32,10 @@ use crate::DEFAULT_CONFIG;
 use crate::OnPair;
 use crate::OnPairArrayExt;
 use crate::OnPairArraySlotsExt;
+use crate::OnPairIndexChildren;
 use crate::OnPairMetadata;
+use crate::array::num_tokens_from_offsets;
+use crate::build_token_frequency_index;
 use crate::compress::onpair_compress;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
@@ -46,6 +49,17 @@ fn compress_onpair(
         .map_err(|array| {
             vortex_error::vortex_err!("expected OnPair array, got {}", array.encoding_id())
         })
+}
+
+fn compress_onpair_indexed(
+    array: &vortex_array::ArrayRef,
+    ctx: &mut vortex_array::ExecutionCtx,
+) -> vortex_error::VortexResult<crate::OnPairArray> {
+    let encoded = onpair_compress(array, DEFAULT_CONFIG, ctx)?;
+    let encoded = encoded.try_downcast::<OnPair>().map_err(|array| {
+        vortex_error::vortex_err!("expected OnPair array, got {}", array.encoding_id())
+    })?;
+    build_token_frequency_index(encoded, ctx)
 }
 
 fn sample_input() -> VarBinArray {
@@ -99,6 +113,19 @@ fn test_onpair_rejects_100k_token_dictionary() -> vortex_error::VortexResult<()>
     Ok(())
 }
 
+#[test]
+fn test_dictionary_token_count_from_offsets() -> vortex_error::VortexResult<()> {
+    let offsets = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
+    assert!(num_tokens_from_offsets(&offsets).is_err());
+
+    let offsets = PrimitiveArray::from_iter([0u32]).into_array();
+    assert_eq!(num_tokens_from_offsets(&offsets)?, 0);
+
+    let offsets = PrimitiveArray::from_iter([0u32, 1]).into_array();
+    assert_eq!(num_tokens_from_offsets(&offsets)?, 1);
+    Ok(())
+}
+
 /// Dictionary safety is validated lazily — construction stays lightweight, and
 /// a structurally corrupt dictionary is rejected by the first operation that
 /// decodes or searches through it, including on derived (sliced) arrays.
@@ -148,6 +175,7 @@ fn test_onpair_metadata_golden() {
             dict_offsets_ptype: PType::U32 as i32,
             codes_ptype: PType::U16 as i32,
             codes_offsets_ptype: PType::U32 as i32,
+            index_flags: 0,
         }
         .encode_to_vec(),
     );
@@ -403,7 +431,8 @@ fn test_onpair_filter_shares_dict() -> vortex_error::VortexResult<()> {
         DType::Utf8(Nullability::NonNullable),
     );
     let mut ctx = SESSION.create_execution_ctx();
-    let arr = compress_onpair(&varbin.into_array(), &mut ctx)?;
+    let arr = compress_onpair_indexed(&varbin.into_array(), &mut ctx)?;
+    assert!(arr.token_frequency_index_child().is_some());
     let dict_bytes_before = arr.dict_bytes().clone();
     let dict_offsets_len_before = arr.dict_offsets().len();
 
@@ -431,6 +460,7 @@ fn test_onpair_filter_shares_dict() -> vortex_error::VortexResult<()> {
     assert_eq!(typed.dict_bytes().as_slice(), dict_bytes_before.as_slice());
     assert_eq!(typed.dict_offsets().len(), dict_offsets_len_before);
     assert_eq!(typed.len(), expected.len());
+    assert!(typed.token_frequency_index_child().is_none());
 
     let canonical = typed.into_array().execute::<VarBinViewArray>(&mut ctx)?;
     let mask = canonical
@@ -483,6 +513,10 @@ fn narrow_codes_offsets(arr: &crate::OnPairArray, target: PType) -> crate::OnPai
             narrowed_array,
             view.uncompressed_lengths().clone(),
             view.array_validity(),
+            view.token_frequency_index_child()
+                .cloned()
+                .map(|child| OnPairIndexChildren::default().with_token_frequency(child))
+                .unwrap_or_default(),
         )
     }
 }
@@ -595,7 +629,7 @@ fn test_onpair_slice_canonicalize() -> vortex_error::VortexResult<()> {
         DType::Utf8(Nullability::NonNullable),
     );
     let mut ctx = SESSION.create_execution_ctx();
-    let arr = onpair_compress(&varbin.into_array(), DEFAULT_CONFIG, &mut ctx)?.into_array();
+    let arr = compress_onpair_indexed(&varbin.into_array(), &mut ctx)?.into_array();
 
     // interior (start>0, end<n), LIMIT-like (start=0, end<n), tail (start>0,
     // end=n), and a near-full window.
@@ -606,6 +640,12 @@ fn test_onpair_slice_canonicalize() -> vortex_error::VortexResult<()> {
             sliced.is::<OnPair>(),
             "slice dropped OnPair encoding: got {}",
             sliced.encoding_id()
+        );
+        assert!(
+            sliced
+                .as_::<OnPair>()
+                .token_frequency_index_child()
+                .is_some()
         );
 
         let canonical = sliced.execute::<VarBinViewArray>(&mut ctx)?;

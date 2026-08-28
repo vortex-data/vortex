@@ -7021,10 +7021,10 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 [[package]]
 name = "onpair"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e546e7cd983c9998a5a52e9c7eecaf38e518f2e6fc9c9ec649e8b53748a96bb0"
+source = "git+https://github.com/spiraldb/onpair.git?branch=codex%2Fprefilter-scan-refactor#bbb813d9a677377b45b119c476e809cc6ccff432"
 dependencies = [
  "hashbrown 0.16.1",
+ "memchr",
  "rand 0.9.5",
 ]
 

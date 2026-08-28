@@ -24,6 +24,7 @@ use vortex_mask::AllOr;
 
 use crate::OnPair;
 use crate::OnPairData;
+use crate::OnPairIndexChildren;
 
 /// Compress any [`ArrayRef`] whose canonical form is a string array.
 ///
@@ -109,6 +110,7 @@ pub fn onpair_compress(
         codes_offsets,
         uncompressed_lengths,
         validity,
+        OnPairIndexChildren::default(),
     )?;
     Ok(encoded.into_array())
 }

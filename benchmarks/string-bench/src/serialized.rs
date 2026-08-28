@@ -65,7 +65,7 @@ fn default_string_scheme_ids() -> Vec<SchemeId> {
     vec![
         StringDictScheme.id(),
         FSSTScheme.id(),
-        OnPairScheme.id(),
+        OnPairScheme::new().id(),
         NullDominatedSparseScheme.id(),
     ]
 }
@@ -74,7 +74,7 @@ impl StringEncoder {
     /// The btrblocks string scheme that produces this encoder's on-disk arrays.
     fn scheme_id(self) -> SchemeId {
         match self {
-            Self::OnPair => OnPairScheme.id(),
+            Self::OnPair => OnPairScheme::new().id(),
             Self::Fsst => FSSTScheme.id(),
         }
     }

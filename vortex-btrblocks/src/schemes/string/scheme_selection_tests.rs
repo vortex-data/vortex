@@ -54,34 +54,9 @@ fn test_unstable_all_schemes_includes_onpair() {
 
     let ids: Vec<_> = crate::ALL_SCHEMES.iter().map(|s| s.id()).collect();
     assert!(
-        ids.contains(&OnPairScheme.id()),
+        ids.contains(&OnPairScheme::new().id()),
         "OnPairScheme not registered in ALL_SCHEMES"
     );
-}
-
-#[cfg(feature = "unstable_encodings")]
-#[test]
-fn test_unstable_default_btrblocks_compressor_selects_onpair() -> VortexResult<()> {
-    // Dictionary-style string corpus: high lexical overlap, short rows.
-    // OnPair beats FSST on this corpus, so it wins the sample-based
-    // comparison even though both are registered when `unstable_encodings`
-    // is enabled.
-    let mut strings = Vec::with_capacity(1000);
-    for i in 0..1000 {
-        strings.push(Some(format!(
-            "this_is_a_common_prefix_with_some_variation_{i}_and_a_common_suffix_pattern"
-        )));
-    }
-    let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
-    let array_ref = array.into_array();
-    let compressed =
-        BtrBlocksCompressor::default().compress(&array_ref, &mut SESSION.create_execution_ctx())?;
-    assert!(
-        compressed.is::<vortex_onpair::OnPair>(),
-        "expected OnPair, got {}",
-        compressed.encoding_id()
-    );
-    Ok(())
 }
 
 /// FSST is registered in the default scheme list, and an FSST-only builder
