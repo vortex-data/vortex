@@ -115,14 +115,10 @@ impl<T> BufferMut<T> {
         let size = capacity
             .checked_mul(size_of::<T>())
             .vortex_expect("buffer capacity overflow");
-        let allocation_size = if size == 0 {
-            0
-        } else {
-            size.checked_add(actual.as_usize() - 1)
-                .vortex_expect("buffer capacity overflow")
-        };
-        let allocation_alignment = if size == 0 { actual.as_usize() } else { 1 };
-        let layout = Layout::from_size_align(allocation_size, allocation_alignment)
+        let allocation_size = size
+            .checked_add(actual.as_usize())
+            .vortex_expect("buffer capacity overflow");
+        let layout = Layout::from_size_align(allocation_size, 1)
             .unwrap_or_else(|_| vortex_panic!("buffer capacity exceeds maximum allocation size"));
         let allocation = Allocation::allocate(layout, actual, allocator);
         let offset = allocation.ptr().as_ptr().align_offset(actual.as_usize());
@@ -201,18 +197,10 @@ impl<T> BufferMut<T> {
         let size = len
             .checked_mul(size_of::<T>())
             .vortex_expect("buffer length overflow");
-        let allocation_size = if size == 0 {
-            0
-        } else {
-            size.checked_add(actual_alignment.as_usize() - 1)
-                .vortex_expect("buffer length overflow")
-        };
-        let allocation_alignment = if size == 0 {
-            actual_alignment.as_usize()
-        } else {
-            1
-        };
-        let layout = Layout::from_size_align(allocation_size, allocation_alignment)
+        let allocation_size = size
+            .checked_add(actual_alignment.as_usize())
+            .vortex_expect("buffer length overflow");
+        let layout = Layout::from_size_align(allocation_size, 1)
             .unwrap_or_else(|_| vortex_panic!("buffer length exceeds maximum allocation size"));
         let allocation = Allocation::allocate_zeroed(layout, actual_alignment, allocator);
         let offset = allocation
