@@ -140,12 +140,19 @@ impl ScalarFnVTable for Like {
         Display::fmt(expr.display_child(1), f)
     }
 
-    fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
+    fn return_dtype(&self, options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         let input = &arg_dtypes[0];
         let pattern = &arg_dtypes[1];
 
-        if !input.is_utf8() {
-            vortex_bail!("LIKE expression requires UTF8 input dtype, got {}", input);
+        // Utf8 input is always supported. Binary input is supported for case-sensitive LIKE, where
+        // matching uses SQL byte semantics; ILIKE over Binary is rejected (case folding is only
+        // well-defined over text).
+        let input_ok = input.is_utf8() || (input.is_binary() && !options.case_insensitive);
+        if !input_ok {
+            vortex_bail!(
+                "LIKE expression requires UTF8 input dtype (or Binary for case-sensitive LIKE), got {}",
+                input
+            );
         }
         if !pattern.is_utf8() {
             vortex_bail!(
@@ -208,6 +215,8 @@ pub(crate) fn execute_like(
         array.encoding_id()
     );
     let len = array.len();
+    // Binary haystacks match with byte semantics; Utf8 with Unicode codepoint semantics.
+    let byte_mode = array.dtype().is_binary();
     let nullability =
         Nullability::from(array.dtype().is_nullable() || pattern.dtype().is_nullable());
 
@@ -233,6 +242,7 @@ pub(crate) fn execute_like(
             pattern_str.as_str(),
             options.case_insensitive,
             ascii_haystack,
+            byte_mode,
         )?;
         let bits = eval_pattern(&haystack, &compiled, options.negated);
         let validity = values.validity()?.union_nullability(nullability);
@@ -261,6 +271,7 @@ pub(crate) fn execute_like(
                     pattern_str,
                     options.case_insensitive,
                     ascii_haystack && pattern_str.is_ascii(),
+                    byte_mode,
                 )?;
                 &cached.insert((pattern_bytes, compiled)).1
             }
@@ -604,6 +615,72 @@ mod tests {
             LikeOptions::default(),
         );
         assert_arrays_eq!(result, BoolArray::from_iter([true, true, false]), &mut ctx);
+    }
+
+    #[test]
+    fn test_like_binary_byte_semantics() {
+        let mut ctx = array_session().create_execution_ctx();
+        // `Ж` (U+0416) encodes as bytes D0 96 (2 bytes); 0xFF is an invalid-UTF-8 byte.
+        let rows: Vec<&[u8]> = vec![
+            b"aXb",                                  // a + 1 byte  + b
+            &[0x61, 0xD0, 0x96, 0x62],               // a + Ж (2 bytes) + b
+            &[0x61, 0xD0, 0x96, 0xD0, 0x96, 0x62],   // a + ЖЖ (4 bytes) + b
+            b"ab",                                   // a + 0 bytes + b
+            &[0x61, 0xFF, 0x62],                     // a + invalid-UTF-8 byte + b
+        ];
+        let array = VarBinViewArray::from_iter_bin(rows).into_array();
+        assert!(array.dtype().is_binary());
+
+        // Over Binary, `_` matches exactly one BYTE (over Utf8 it matches one codepoint, see
+        // test_like_unicode): the 2-byte `Ж` is not matched by a single `_`.
+        let result = run_like(
+            array.clone(),
+            ConstantArray::new("a_b", 5).into_array(),
+            LikeOptions::default(),
+        );
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([true, false, false, false, true]),
+            &mut ctx
+        );
+
+        // Two underscores match the two bytes of `Ж`.
+        let result = run_like(
+            array.clone(),
+            ConstantArray::new("a__b", 5).into_array(),
+            LikeOptions::default(),
+        );
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([false, true, false, false, false]),
+            &mut ctx
+        );
+
+        // `%` spans any bytes, including invalid UTF-8.
+        let result = run_like(
+            array,
+            ConstantArray::new("a%b", 5).into_array(),
+            LikeOptions::default(),
+        );
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([true, true, true, true, true]),
+            &mut ctx
+        );
+    }
+
+    #[test]
+    fn test_ilike_over_binary_is_rejected() {
+        let mut ctx = array_session().create_execution_ctx();
+        let array = VarBinViewArray::from_iter_bin([b"abc".as_slice()]).into_array();
+        // Case folding is only well-defined over text, so ILIKE over Binary must be rejected.
+        let built = Like.try_new_array(
+            1,
+            LikeOptions { negated: false, case_insensitive: true },
+            [array, ConstantArray::new("a%c", 1).into_array()],
+        );
+        let rejected = built.map_or(true, |e| e.execute::<BoolArray>(&mut ctx).is_err());
+        assert!(rejected, "ILIKE over Binary must be rejected");
     }
 
     #[test]

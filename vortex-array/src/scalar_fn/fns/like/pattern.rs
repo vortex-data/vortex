@@ -54,6 +54,7 @@ impl LikePattern {
         pattern: &str,
         case_insensitive: bool,
         ascii_haystack: bool,
+        byte_mode: bool,
     ) -> VortexResult<Self> {
         if case_insensitive {
             if ascii_haystack && pattern.is_ascii() {
@@ -69,7 +70,7 @@ impl LikePattern {
                     return Ok(Self::IEndsWithAscii(pattern.as_bytes()[1..].to_vec()));
                 }
             }
-            return Ok(Self::Regex(regex_like(pattern, true)?));
+            return Ok(Self::Regex(regex_like(pattern, true, byte_mode)?));
         }
 
         Ok(if !contains_like_pattern(pattern) {
@@ -87,7 +88,7 @@ impl LikePattern {
                 pattern.len() - 2,
             )
         } else {
-            Self::Regex(regex_like(pattern, false)?)
+            Self::Regex(regex_like(pattern, false, byte_mode)?)
         })
     }
 
@@ -135,9 +136,11 @@ fn contains_like_pattern(pattern: &str) -> bool {
 /// 3. regex meta characters are escaped so they match literally;
 /// 4. `\x` matches `x` literally (a trailing `\` matches a literal backslash).
 ///
-/// The regex runs over the haystack bytes directly (`regex::bytes`) in Unicode mode, which
-/// matches identically to a `&str` regex on valid UTF-8 input.
-fn regex_like(pattern: &str, case_insensitive: bool) -> VortexResult<Regex> {
+/// The regex runs over the haystack bytes directly (`regex::bytes`). For Utf8 haystacks it uses
+/// Unicode mode, matching identically to a `&str` regex on valid UTF-8 input. For Binary haystacks
+/// (`byte_mode`) Unicode is disabled, so `.`/`.*` operate on single bytes and match arbitrary byte
+/// sequences (including invalid UTF-8), giving SQL byte semantics for `_`/`%`.
+fn regex_like(pattern: &str, case_insensitive: bool, byte_mode: bool) -> VortexResult<Regex> {
     let mut result = String::with_capacity(pattern.len() * 2);
     let mut chars_iter = pattern.chars().peekable();
     match chars_iter.peek() {
@@ -188,6 +191,9 @@ fn regex_like(pattern: &str, case_insensitive: bool) -> VortexResult<Regex> {
     RegexBuilder::new(&result)
         .case_insensitive(case_insensitive)
         .dot_matches_new_line(true)
+        // Binary haystacks use SQL byte semantics: `.`/`_` match one byte and `.*`/`%` span
+        // arbitrary bytes (including invalid UTF-8). Utf8 keeps Unicode codepoint semantics.
+        .unicode(!byte_mode)
         .build()
         .map_err(|e| vortex_err!("Unable to build regex from LIKE pattern: {e}"))
 }
@@ -197,7 +203,7 @@ mod tests {
     use super::*;
 
     fn like(pattern: &str) -> LikePattern {
-        LikePattern::compile(pattern, false, false).unwrap()
+        LikePattern::compile(pattern, false, false, false).unwrap()
     }
 
     #[test]
@@ -229,7 +235,7 @@ mod tests {
             (r"\\", r"^\\$"),
         ];
         for (pattern, expected) in cases {
-            assert_eq!(regex_like(pattern, false).unwrap().to_string(), expected);
+            assert_eq!(regex_like(pattern, false, false).unwrap().to_string(), expected);
         }
     }
 
@@ -257,7 +263,7 @@ mod tests {
 
     #[test]
     fn matches_case_insensitive() {
-        let ilike = |pattern: &str| LikePattern::compile(pattern, true, false).unwrap();
+        let ilike = |pattern: &str| LikePattern::compile(pattern, true, false, false).unwrap();
         assert!(ilike("hello%").matches(b"HELLO WORLD"));
         assert!(ilike("%WORLD").matches(b"hello world"));
         // Full case folding: the ASCII pattern `k` matches U+212A KELVIN SIGN.
@@ -267,7 +273,7 @@ mod tests {
         assert!(ilike("\u{03c3}").matches("\u{03c2}".as_bytes()));
 
         // The ASCII fast paths agree with the regex on ASCII haystacks.
-        let ascii = |pattern: &str| LikePattern::compile(pattern, true, true).unwrap();
+        let ascii = |pattern: &str| LikePattern::compile(pattern, true, true, false).unwrap();
         assert!(matches!(ascii("abc"), LikePattern::IEqAscii(_)));
         assert!(matches!(ascii("abc%"), LikePattern::IStartsWithAscii(_)));
         assert!(matches!(ascii("%abc"), LikePattern::IEndsWithAscii(_)));
