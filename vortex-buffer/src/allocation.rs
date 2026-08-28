@@ -19,6 +19,8 @@ use crate::Alignment;
 use crate::BufferMut;
 
 /// An allocator that can back a Vortex buffer.
+///
+/// Vortex over-allocates raw storage and aligns the buffer within it.
 pub trait BufferAllocator: Allocator + Debug + Send + Sync + 'static {}
 
 impl<A> BufferAllocator for A where A: Allocator + Debug + Send + Sync + 'static {}
@@ -190,6 +192,7 @@ pub(crate) struct Allocation {
     ptr: NonNull<u8>,
     layout: Layout,
     capacity: usize,
+    buffer_alignment: Alignment,
     allocator: BufferAllocatorRef,
 }
 
@@ -199,20 +202,34 @@ unsafe impl Send for Allocation {}
 unsafe impl Sync for Allocation {}
 
 impl Allocation {
-    pub(crate) fn allocate(layout: Layout, allocator: BufferAllocatorRef) -> Self {
-        Self::allocate_impl(layout, allocator, false)
+    pub(crate) fn allocate(
+        layout: Layout,
+        buffer_alignment: Alignment,
+        allocator: BufferAllocatorRef,
+    ) -> Self {
+        Self::allocate_impl(layout, buffer_alignment, allocator, false)
     }
 
-    pub(crate) fn allocate_zeroed(layout: Layout, allocator: BufferAllocatorRef) -> Self {
-        Self::allocate_impl(layout, allocator, true)
+    pub(crate) fn allocate_zeroed(
+        layout: Layout,
+        buffer_alignment: Alignment,
+        allocator: BufferAllocatorRef,
+    ) -> Self {
+        Self::allocate_impl(layout, buffer_alignment, allocator, true)
     }
 
-    fn allocate_impl(layout: Layout, allocator: BufferAllocatorRef, zeroed: bool) -> Self {
+    fn allocate_impl(
+        layout: Layout,
+        buffer_alignment: Alignment,
+        allocator: BufferAllocatorRef,
+        zeroed: bool,
+    ) -> Self {
         if layout.size() == 0 {
             return Self {
                 ptr: layout.dangling_ptr(),
                 layout,
                 capacity: 0,
+                buffer_alignment,
                 allocator,
             };
         }
@@ -228,6 +245,7 @@ impl Allocation {
             ptr: allocation.cast(),
             layout,
             capacity: allocation.len(),
+            buffer_alignment,
             allocator,
         }
     }
@@ -240,17 +258,17 @@ impl Allocation {
         self.capacity
     }
 
-    pub(crate) fn alignment(&self) -> Alignment {
-        Alignment::new(self.layout.align())
+    pub(crate) fn buffer_alignment(&self) -> Alignment {
+        self.buffer_alignment
     }
 
     pub(crate) fn allocator(&self) -> &BufferAllocatorRef {
         &self.allocator
     }
 
-    pub(crate) fn grow(&mut self, layout: Layout) {
+    pub(crate) fn grow(&mut self, layout: Layout, buffer_alignment: Alignment) {
         if self.layout.size() == 0 {
-            *self = Self::allocate(layout, self.allocator.clone());
+            *self = Self::allocate(layout, buffer_alignment, self.allocator.clone());
             return;
         }
 
@@ -262,6 +280,7 @@ impl Allocation {
         self.ptr = allocation.cast();
         self.layout = layout;
         self.capacity = allocation.len();
+        self.buffer_alignment = buffer_alignment;
     }
 }
 
@@ -358,7 +377,7 @@ mod tests {
         assert_eq!(state.allocations.load(Ordering::Relaxed), 1);
         assert_eq!(
             state.alignment.load(Ordering::Relaxed),
-            *Alignment::DEFAULT_ALIGNMENT
+            *Alignment::of::<u8>()
         );
         drop(buffer);
         assert_eq!(state.deallocations.load(Ordering::Relaxed), 0);
