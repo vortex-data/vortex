@@ -128,7 +128,7 @@ fn run(bencher: Bencher, array: ArrayRef, mask: Mask) {
 }
 
 #[divan::bench(args = MASK_SETUPS)]
-fn primitive_short(bencher: Bencher, setup: MaskSetup) {
+fn filter_list_primitive_short(bencher: Bencher, setup: MaskSetup) {
     run(
         bencher,
         primitive_list(SHORT_LIST_WIDTH),
@@ -137,7 +137,7 @@ fn primitive_short(bencher: Bencher, setup: MaskSetup) {
 }
 
 #[divan::bench(args = MASK_SETUPS)]
-fn primitive_wide(bencher: Bencher, setup: MaskSetup) {
+fn filter_list_primitive_wide(bencher: Bencher, setup: MaskSetup) {
     run(
         bencher,
         primitive_list(WIDE_LIST_WIDTH),
@@ -146,7 +146,7 @@ fn primitive_wide(bencher: Bencher, setup: MaskSetup) {
 }
 
 #[divan::bench(args = MASK_SETUPS)]
-fn dictionary_short(bencher: Bencher, setup: MaskSetup) {
+fn filter_list_dictionary_short(bencher: Bencher, setup: MaskSetup) {
     run(
         bencher,
         dictionary_list(SHORT_LIST_WIDTH),
@@ -155,7 +155,7 @@ fn dictionary_short(bencher: Bencher, setup: MaskSetup) {
 }
 
 #[divan::bench(args = MASK_SETUPS)]
-fn dictionary_wide(bencher: Bencher, setup: MaskSetup) {
+fn filter_list_dictionary_wide(bencher: Bencher, setup: MaskSetup) {
     run(
         bencher,
         dictionary_list(WIDE_LIST_WIDTH),
@@ -164,7 +164,7 @@ fn dictionary_wide(bencher: Bencher, setup: MaskSetup) {
 }
 
 #[divan::bench(args = MASK_SETUPS)]
-fn string_short(bencher: Bencher, setup: MaskSetup) {
+fn filter_list_string_short(bencher: Bencher, setup: MaskSetup) {
     run(
         bencher,
         string_list(SHORT_LIST_WIDTH),
@@ -173,6 +173,6 @@ fn string_short(bencher: Bencher, setup: MaskSetup) {
 }
 
 #[divan::bench(args = MASK_SETUPS)]
-fn string_wide(bencher: Bencher, setup: MaskSetup) {
+fn filter_list_string_wide(bencher: Bencher, setup: MaskSetup) {
     run(bencher, string_list(WIDE_LIST_WIDTH), selection_mask(setup));
 }
