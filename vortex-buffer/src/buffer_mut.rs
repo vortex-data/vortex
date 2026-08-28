@@ -474,23 +474,25 @@ impl<T> BufferMut<T> {
         let layout = Layout::from_size_align(allocation_size, 1)
             .unwrap_or_else(|_| vortex_panic!("buffer capacity exceeds maximum allocation size"));
 
-        let old_offset = self.offset;
-        self.allocation.grow(layout, physical_alignment);
-        let new_offset = self
-            .allocation
+        let allocation = Allocation::allocate(
+            layout,
+            physical_alignment,
+            self.allocation.allocator().clone(),
+        );
+        let new_offset = allocation
             .ptr()
             .as_ptr()
             .align_offset(physical_alignment.as_usize());
-        if old_offset != new_offset {
-            // SAFETY: both ranges are within the allocation and may overlap.
-            unsafe {
-                std::ptr::copy(
-                    self.allocation.ptr().as_ptr().add(old_offset),
-                    self.allocation.ptr().as_ptr().add(new_offset),
-                    self.length * size_of::<T>(),
-                );
-            }
+        // SAFETY: the source contains `length` initialized elements and the fresh allocation has
+        // room for at least `new_capacity` elements. The allocations do not overlap.
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                self.allocation.ptr().as_ptr().add(self.offset),
+                allocation.ptr().as_ptr().add(new_offset),
+                self.length * size_of::<T>(),
+            );
         }
+        self.allocation = allocation;
         self.offset = new_offset;
         self.capacity = (self.allocation.size() - new_offset) / size_of::<T>();
     }

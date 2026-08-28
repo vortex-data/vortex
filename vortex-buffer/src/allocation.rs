@@ -265,23 +265,6 @@ impl Allocation {
     pub(crate) fn allocator(&self) -> &BufferAllocatorRef {
         &self.allocator
     }
-
-    pub(crate) fn grow(&mut self, layout: Layout, buffer_alignment: Alignment) {
-        if self.layout.size() == 0 {
-            *self = Self::allocate(layout, buffer_alignment, self.allocator.clone());
-            return;
-        }
-
-        let allocation =
-            // SAFETY: ptr and layout describe a live block allocated by self.allocator. The new
-            // layout is at least as large as the old layout.
-            unsafe { self.allocator.grow(self.ptr, self.layout, layout) }
-                .unwrap_or_else(|_| handle_alloc_error(layout));
-        self.ptr = allocation.cast();
-        self.layout = layout;
-        self.capacity = allocation.len();
-        self.buffer_alignment = buffer_alignment;
-    }
 }
 
 impl Drop for Allocation {
@@ -345,6 +328,7 @@ mod tests {
     struct TrackingState {
         allocations: AtomicUsize,
         deallocations: AtomicUsize,
+        grows: AtomicUsize,
         alignment: AtomicUsize,
     }
 
@@ -362,6 +346,17 @@ mod tests {
             self.state.deallocations.fetch_add(1, Ordering::Relaxed);
             // SAFETY: the caller passes the pointer and layout returned by Global.
             unsafe { Global.deallocate(ptr, layout) }
+        }
+
+        unsafe fn grow(
+            &self,
+            ptr: NonNull<u8>,
+            old_layout: Layout,
+            new_layout: Layout,
+        ) -> Result<NonNull<[u8]>, AllocError> {
+            self.state.grows.fetch_add(1, Ordering::Relaxed);
+            // SAFETY: the caller upholds the Allocator contract.
+            unsafe { Global.grow(ptr, old_layout, new_layout) }
         }
     }
 
@@ -383,5 +378,22 @@ mod tests {
         assert_eq!(state.deallocations.load(Ordering::Relaxed), 0);
         drop(view);
         assert_eq!(state.deallocations.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn buffer_growth_allocates_and_copies() {
+        let allocator = TrackingAllocator::default();
+        let state = Arc::clone(&allocator.state);
+        let mut buffer = BufferAllocatorRef::new(allocator).with_capacity::<u32>(1);
+        let initial_capacity = buffer.capacity();
+        buffer.extend(std::iter::repeat_n(7, initial_capacity));
+
+        buffer.push(u32::MAX);
+
+        assert_eq!(&buffer[..initial_capacity], vec![7; initial_capacity]);
+        assert_eq!(buffer[initial_capacity], u32::MAX);
+        assert_eq!(state.allocations.load(Ordering::Relaxed), 2);
+        assert_eq!(state.deallocations.load(Ordering::Relaxed), 1);
+        assert_eq!(state.grows.load(Ordering::Relaxed), 0);
     }
 }
