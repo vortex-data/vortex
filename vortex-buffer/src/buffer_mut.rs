@@ -452,15 +452,15 @@ impl<T> BufferMut<T> {
             .length
             .checked_add(additional)
             .vortex_expect("buffer capacity overflow");
-        // Make sure we at least double in size each time we re-allocate to amortize the cost
-        let new_capacity = required.max(self.capacity.saturating_mul(2));
-        let new_size = new_capacity
+        let required_size = required
             .checked_mul(size_of::<T>())
             .vortex_expect("buffer capacity overflow");
         let physical_alignment = max(self.alignment, self.allocation.buffer_alignment());
-        let allocation_size = new_size
-            .checked_add(physical_alignment.as_usize() - 1)
+        let required_size = required_size
+            .checked_add(physical_alignment.as_usize())
             .vortex_expect("buffer capacity overflow");
+        let current_size = self.allocation.size() - self.offset;
+        let allocation_size = required_size.max(current_size.saturating_mul(2));
         let layout = Layout::from_size_align(allocation_size, 1)
             .unwrap_or_else(|_| vortex_panic!("buffer capacity exceeds maximum allocation size"));
 
@@ -474,7 +474,7 @@ impl<T> BufferMut<T> {
             .as_ptr()
             .align_offset(physical_alignment.as_usize());
         // SAFETY: the source contains `length` initialized elements and the fresh allocation has
-        // room for at least `new_capacity` elements. The allocations do not overlap.
+        // room for at least `required` elements. The allocations do not overlap.
         unsafe {
             std::ptr::copy_nonoverlapping(
                 self.allocation.ptr().as_ptr().add(self.offset),
