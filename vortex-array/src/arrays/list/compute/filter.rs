@@ -174,6 +174,8 @@ impl FilterKernel for List {
                     unsafe { new_offsets.push_unchecked(offset) };
                 }
 
+                // TODO(ngates): for very dense masks, there may be no point in filtering the elements,
+                //  and instead we should construct a view against the unfiltered elements.
                 let (element_range, range_is_subinterval) =
                     element_range_from_offsets::<O>(offsets, selection);
                 let element_mask =
