@@ -464,11 +464,13 @@ impl<T> BufferMut<T> {
             .checked_mul(size_of::<T>())
             .vortex_expect("buffer capacity overflow");
         let physical_alignment = max(self.alignment, self.physical_alignment);
-        let required_size = required_size
+        let current_size = self.allocation.size() - self.offset;
+        let logical_size = required_size
+            .max(current_size.saturating_mul(2))
+            .max(physical_alignment.as_usize());
+        let allocation_size = logical_size
             .checked_add(physical_alignment.as_usize())
             .vortex_expect("buffer capacity overflow");
-        let current_size = self.allocation.size() - self.offset;
-        let allocation_size = required_size.max(current_size.saturating_mul(2));
         let allocation_alignment = if self.allocation.size() == 0 {
             1
         } else {
@@ -1085,6 +1087,19 @@ mod test {
         }
 
         assert_eq!(buffer.as_slice(), (0..10_000).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn growth_seeds_and_doubles_logical_capacity() {
+        let alignment = Alignment::new(64);
+        let mut buffer = BufferMut::<u8>::empty_aligned(alignment);
+
+        buffer.push(0);
+        let capacity = buffer.capacity();
+        assert!(capacity >= alignment.as_usize());
+
+        buffer.reserve(capacity);
+        assert!(buffer.capacity() >= capacity * 2);
     }
 
     #[test]
