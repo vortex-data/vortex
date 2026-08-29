@@ -5,7 +5,6 @@
 import re
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parent.parent
 PATHS = (
     "vortex-array/src/arrays/filter/execute",
@@ -41,11 +40,7 @@ STATIC_ALLOCATION = re.compile(rf"\b{TYPES}::(?:{METHODS})\s*\(")
 
 def rust_files(path: Path):
     files = path.rglob("*.rs") if path.is_dir() else (path,)
-    return (
-        file
-        for file in files
-        if file.name != "tests.rs" and "tests" not in file.relative_to(ROOT).parts
-    )
+    return (file for file in files if file.name != "tests.rs" and "tests" not in file.relative_to(ROOT).parts)
 
 
 failures = []
