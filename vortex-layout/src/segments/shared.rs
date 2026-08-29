@@ -144,14 +144,6 @@ impl<S: SegmentSource> SharedSegmentSource<S> {
             }
         }
     }
-
-    fn request_nowait(&self, id: SegmentId) -> vortex_error::VortexResult<ReadAtNowait> {
-        self.inner.request_nowait(id)
-    }
-
-    fn prefers_background_reads(&self) -> bool {
-        self.inner.prefers_background_reads()
-    }
 }
 
 #[cfg(test)]

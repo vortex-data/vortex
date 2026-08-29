@@ -47,6 +47,8 @@ pub mod fixtures;
 #[cfg(any(test, feature = "_test-harness"))]
 pub mod harness;
 pub mod io;
+#[cfg(any(test, feature = "_test-harness"))]
+pub mod io_trace;
 pub mod node;
 pub mod nodes;
 pub mod stats;

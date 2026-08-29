@@ -33,6 +33,8 @@ use vortex_morsel::harness::assert_same_rows;
 use vortex_morsel::harness::run_morsel;
 use vortex_morsel::harness::run_v1;
 use vortex_morsel::harness::run_v1_tokio;
+use vortex_morsel::io_trace::RecordingSegmentSource;
+use vortex_morsel::io_trace::ReplaySegmentSource;
 use vortex_morsel::nodes::ConjunctMode;
 use vortex_morsel::workloads;
 use vortex_session::VortexSession;
@@ -116,6 +118,8 @@ fn main() -> VortexResult<()> {
         .map(|value| parse_row_sizes("MORSEL_EVAL_MORSEL_ROWS", &value))
         .transpose()?;
     let selected_workload = std::env::var("MORSEL_EVAL_WORKLOAD").ok();
+    let selected_query = std::env::var("MORSEL_EVAL_QUERY").ok();
+    let io_replay = std::env::var_os("MORSEL_IO_REPLAY").is_some();
 
     println!("# Morsel executor evaluation (E1)");
     println!();
@@ -168,6 +172,12 @@ fn main() -> VortexResult<()> {
         println!();
 
         for query in &workload.queries {
+            if selected_query
+                .as_deref()
+                .is_some_and(|name| name != query.name)
+            {
+                continue;
+            }
             let rows_config: Vec<Row> = match &selected_morsel_rows {
                 Some(sizes) => sizes
                     .iter()
@@ -276,6 +286,9 @@ fn main() -> VortexResult<()> {
                 .collect();
 
             report(query, &timings);
+            if io_replay {
+                report_io_replay(&session, &fixture.layout, &segments, query, &oracle)?;
+            }
         }
     }
 
@@ -290,6 +303,70 @@ fn main() -> VortexResult<()> {
         }
         vortex_error::vortex_bail!("{} configurations disagreed with V1", failures.len())
     }
+}
+
+fn report_io_replay(
+    session: &VortexSession,
+    layout: &LayoutRef,
+    segments: &Arc<dyn SegmentSource>,
+    query: &Query,
+    oracle: &RunOutcome,
+) -> VortexResult<()> {
+    let config = MorselConfig {
+        threads: 1,
+        ..Default::default()
+    };
+    let recorder = RecordingSegmentSource::new(Arc::clone(segments));
+    let recording_source: Arc<dyn SegmentSource> = Arc::clone(&recorder) as Arc<dyn SegmentSource>;
+    let recorded = run_morsel(session, layout, &recording_source, query, config)?;
+    let demands = recorder.demands();
+
+    let dtype = query.projection.bind(layout.dtype())?.dtype().clone();
+    assert_same_rows(session, &dtype, oracle, &recorded)?;
+
+    let mut replay_walls = Vec::with_capacity(11);
+    for _ in 0..11 {
+        let replay = ReplaySegmentSource::new(Arc::clone(segments), &demands);
+        let replay_source: Arc<dyn SegmentSource> = Arc::clone(&replay) as Arc<dyn SegmentSource>;
+        let replayed = run_morsel(session, layout, &replay_source, query, config)?;
+        assert_same_rows(session, &dtype, oracle, &replayed)?;
+        if replay.consumed() != demands.len() {
+            vortex_error::vortex_bail!(
+                "I/O replay consumed {} of {} recorded requests",
+                replay.consumed(),
+                demands.len()
+            );
+        }
+        replay_walls.push(replayed.wall);
+    }
+    replay_walls.sort_unstable();
+    let replay_min = replay_walls[0];
+    let replay_median = replay_walls[replay_walls.len() / 2];
+    let replay_max = replay_walls[replay_walls.len() - 1];
+
+    println!("#### Pull I/O demand trace and perfect in-memory replay");
+    println!();
+    println!(
+        "recorded {} requests in {}; exact-order replay median {} [{}, {}] over 11 runs",
+        demands.len(),
+        millis(recorded.wall),
+        millis(replay_median),
+        millis(replay_min),
+        millis(replay_max),
+    );
+    println!();
+    println!("| request | segment | needed at |");
+    println!("|--:|--:|--:|");
+    for demand in &demands {
+        println!(
+            "| {} | {} | {:.3}us |",
+            demand.ordinal,
+            *demand.segment,
+            demand.needed_at.as_secs_f64() * 1_000_000.0
+        );
+    }
+    println!();
+    Ok(())
 }
 
 fn run_once(
