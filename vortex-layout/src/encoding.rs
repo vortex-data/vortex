@@ -33,6 +33,8 @@ pub struct LayoutDeserializeArgs<'a> {
     pub session: &'a VortexSession,
     /// Array read context referenced by serialized array metadata.
     pub array_read_ctx: &'a ReadContext,
+    /// Layout read context referenced by nested layout flatbuffers, such as a page's.
+    pub layout_read_ctx: &'a ReadContext,
     /// Logical dtype of this layout.
     pub dtype: &'a DType,
     /// Number of rows in this layout.
@@ -49,6 +51,8 @@ pub struct LayoutBuildContext<'a> {
     pub session: &'a VortexSession,
     /// Array read context referenced by serialized array metadata.
     pub array_read_ctx: &'a ReadContext,
+    /// Layout read context referenced by nested layout flatbuffers, such as a page's.
+    pub layout_read_ctx: &'a ReadContext,
 }
 
 /// Object-safe plugin registered for a layout ID.

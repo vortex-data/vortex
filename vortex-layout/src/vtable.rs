@@ -61,6 +61,7 @@ pub trait VTable: 'static + Clone + Send + Sync + Debug {
         let args = LayoutDeserializeArgs {
             session: build_ctx.session,
             array_read_ctx: build_ctx.array_read_ctx,
+            layout_read_ctx: build_ctx.layout_read_ctx,
             dtype,
             row_count,
             segment_ids,

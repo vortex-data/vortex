@@ -270,6 +270,7 @@ impl LayoutChildren for ViewedLayoutChildren {
             let build_ctx = LayoutBuildContext {
                 session: &self.session,
                 array_read_ctx: &self.array_read_ctx,
+                layout_read_ctx: &self.layout_read_ctx,
             };
             encoding.build(
                 dtype,

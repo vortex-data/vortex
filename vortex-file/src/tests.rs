@@ -75,6 +75,7 @@ use vortex_buffer::buffer;
 use vortex_edition::EditionSession;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_flatbuffers::WriteFlatBufferExt;
 use vortex_flatbuffers::footer as fb;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::DynLayout;
@@ -2798,5 +2799,345 @@ async fn repro_8166_binary_gt_all_ff_max() -> VortexResult<()> {
         .execute::<StructArray>(&mut ctx)?;
 
     assert_eq!(result.len(), 1);
+    Ok(())
+}
+
+/// Count the paged layouts anywhere in a layout tree.
+fn count_paged(layout: &dyn DynLayout) -> usize {
+    let here = usize::from(layout.encoding_id().as_ref() == "vortex.paged");
+    layout
+        .children()
+        .unwrap()
+        .iter()
+        .map(|child| count_paged(child.as_ref()))
+        .sum::<usize>()
+        + here
+}
+
+/// A file whose chunks are grouped into pages must reopen and read back identically.
+///
+/// This is the whole claim end to end: the root layout no longer carries a table per chunk, and
+/// nothing about opening or scanning the file has to know that.
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn paged_chunks_round_trip_through_a_file() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let expected: PrimitiveArray = (0..4096i32).collect();
+    let expected = expected.into_array();
+
+    // Small row blocks and no byte coalescing, so the chunked layer has many chunks to page.
+    let strategy = crate::strategy::WriteStrategyBuilder::default()
+        .with_row_block_size(64)
+        .with_data_block_target_bytes(None)
+        .with_page_size(4)
+        .build();
+
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .with_strategy(strategy)
+        .write(&mut buf, expected.to_array_stream())
+        .await?;
+
+    let pages = count_paged(summary.footer().layout().as_ref());
+    assert!(
+        pages > 1,
+        "expected the chunks to be grouped into several pages, found {pages}"
+    );
+
+    let file = SESSION.open_options().open_buffer(buf)?;
+    assert_eq!(file.row_count(), 4096);
+
+    let result = file.scan()?.into_array_stream()?.read_all().await?;
+    assert_arrays_eq!(result, expected, &mut ctx);
+
+    Ok(())
+}
+
+/// Whether a serialized layout flatbuffer verifies under a table budget.
+fn verifies_within(bytes: &[u8], max_tables: usize) -> bool {
+    let opts = flatbuffers::VerifierOptions {
+        max_tables,
+        ..Default::default()
+    };
+    flatbuffers::root_with_opts::<vortex_flatbuffers::layout::Layout>(&opts, bytes).is_ok()
+}
+
+/// The smallest flatbuffer table budget these layout bytes verify under.
+///
+/// Doubling then bisecting, because the counts of interest run into the tens of thousands.
+fn min_tables(bytes: &[u8]) -> usize {
+    let mut hi = 1;
+    while !verifies_within(bytes, hi) {
+        hi *= 2;
+    }
+    let mut lo = hi / 2;
+    // Invariant: `lo` fails (or is 0), `hi` succeeds.
+    while hi - lo > 1 {
+        let mid = lo + (hi - lo) / 2;
+        if verifies_within(bytes, mid) {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+    hi
+}
+
+/// The smallest flatbuffer table budget this layout's serialized form verifies under.
+fn min_layout_tables(layout: &vortex_layout::LayoutRef) -> usize {
+    let bytes = layout
+        .flatbuffer_writer(&vortex_layout::LayoutContext::default())
+        .write_flatbuffer_bytes()
+        .unwrap();
+    min_tables(&bytes)
+}
+
+/// The ceiling this exists to remove: a layout is verified against a table limit, and inline
+/// chunks spend a table each. The same data paged spends one per page instead.
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn paging_lowers_the_root_layout_table_count() -> VortexResult<()> {
+    let array: PrimitiveArray = (0..4096i32).collect();
+    let array = array.into_array();
+
+    async fn write_with_page_size(array: &ArrayRef, page_size: usize) -> VortexResult<usize> {
+        let strategy = crate::strategy::WriteStrategyBuilder::default()
+            .with_row_block_size(64)
+            .with_data_block_target_bytes(None)
+            .with_page_size(page_size)
+            .build();
+
+        let mut buf = ByteBufferMut::empty();
+        let summary = SESSION
+            .write_options()
+            .with_strategy(strategy)
+            .write(&mut buf, array.to_array_stream())
+            .await?;
+
+        Ok(min_layout_tables(summary.footer().layout()))
+    }
+
+    let inline = write_with_page_size(&array, 0).await?;
+    let paged = write_with_page_size(&array, 8).await?;
+
+    assert!(
+        paged * 2 < inline,
+        "paging into groups of eight should cut the root layout's tables by more than half, \
+         but it needs {paged} against {inline} inline"
+    );
+
+    Ok(())
+}
+
+/// A selective filter must still push down through a page into the zone maps below it.
+///
+/// The paged reader intercepts pruning and filter evaluation to await its subtree first. If that
+/// forwarding were wrong, pruning would either return wrong rows or stop pruning silently.
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn filter_pushes_down_through_pages() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let array: PrimitiveArray = (0..4096i32).collect();
+    let array = array.into_array();
+
+    // 64-row zones, so a filter selecting the tail prunes almost every zone — through the pages.
+    let strategy = crate::strategy::WriteStrategyBuilder::default()
+        .with_row_block_size(64)
+        .with_data_block_target_bytes(None)
+        .with_page_size(8)
+        .build();
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .with_strategy(strategy)
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+
+    let file = SESSION.open_options().open_buffer(buf)?;
+    let filter = bind_scan_expr(&file, gt(root(), lit(4000i32)));
+    let result = file
+        .scan()?
+        .with_filter(filter)
+        .into_array_stream()?
+        .read_all()
+        .await?;
+
+    let expected: PrimitiveArray = (4001..4096i32).collect();
+    assert_arrays_eq!(result, expected.into_array(), &mut ctx);
+
+    Ok(())
+}
+
+/// Collect every page's segment id from a layout tree, in tree order.
+fn page_segments(layout: &dyn DynLayout, into: &mut Vec<vortex_layout::segments::SegmentId>) {
+    if layout.encoding_id().as_ref() == "vortex.paged" {
+        into.extend(layout.segment_ids());
+    }
+    for child in layout.children().unwrap() {
+        page_segments(child.as_ref(), into);
+    }
+}
+
+/// What paging costs and buys, at a scale close to the corpus that motivated it.
+///
+/// Not an assertion: a measurement, printed. Run with
+/// `cargo test --release -p vortex-file --lib measure_paging -- --ignored --nocapture`.
+
+#[tokio::test]
+#[ignore = "measurement, not an assertion"]
+async fn measure_paging() -> VortexResult<()> {
+    const ROWS: i32 = 65_536;
+    const COLUMNS: usize = 13;
+    const BLOCK: usize = 64;
+
+    // Thirteen columns, as in the survey schema, at 64-row blocks: 1,024 blocks per column.
+    let names: Vec<String> = (0..COLUMNS).map(|c| format!("c{c}")).collect();
+    let fields: Vec<(&str, ArrayRef)> = names
+        .iter()
+        .enumerate()
+        .map(|(c, name)| {
+            let column: PrimitiveArray = (0..ROWS).map(|r| r + (c as i32 * ROWS)).collect();
+            (name.as_str(), column.into_array())
+        })
+        .collect();
+    let array = StructArray::from_fields(&fields)?.into_array();
+
+    println!(
+        "\n{ROWS} rows x {COLUMNS} i32 columns, {BLOCK}-row blocks \
+         ({} blocks per column)\n",
+        ROWS as usize / BLOCK
+    );
+    println!(
+        "{:>10} {:>12} {:>11} {:>10} {:>10} {:>9} {:>8} {:>9} {:>10} {:>12}",
+        "page_size",
+        "root tables",
+        "max/page",
+        "layout kB",
+        "file kB",
+        "segments",
+        "batches",
+        "scan ms",
+        "filter ms",
+        "filter/rowct"
+    );
+
+    for page_size in [0usize, 8, 32, 128, 1024] {
+        let strategy = crate::strategy::WriteStrategyBuilder::default()
+            .with_row_block_size(BLOCK)
+            .with_data_block_target_bytes(None)
+            .with_page_size(page_size)
+            .build();
+
+        let mut buf = ByteBufferMut::empty();
+        let summary = SESSION
+            .write_options()
+            .with_strategy(strategy)
+            .write(&mut buf, array.to_array_stream())
+            .await?;
+        let buf = buf.freeze();
+
+        let footer = summary.footer();
+        let root_layout = footer.layout();
+        let root_tables = min_layout_tables(root_layout);
+        let layout_bytes = root_layout
+            .flatbuffer_writer(&vortex_layout::LayoutContext::default())
+            .write_flatbuffer_bytes()?
+            .len();
+
+        // Every page is a flatbuffer root of its own, so measure the worst one.
+        let mut pages = vec![];
+        page_segments(root_layout.as_ref(), &mut pages);
+        let max_page_tables = pages
+            .iter()
+            .map(|id| {
+                let spec = &footer.segment_map()[**id as usize];
+                let start = spec.offset as usize;
+                let end = start + spec.length as usize;
+                min_tables(&buf.as_ref()[start..end])
+            })
+            .max();
+
+        let file = SESSION.open_options().open_buffer(buf.clone())?;
+
+        // Best of three, after a warm-up, so allocator and runtime ramp cannot be mistaken
+        // for a difference between the arms.
+        let mut batch_count = 0;
+        let mut scan_ms = f64::INFINITY;
+        for rep in 0..4 {
+            let started = std::time::Instant::now();
+            let batches: Vec<ArrayRef> = file.scan()?.into_array_stream()?.try_collect().await?;
+            let elapsed = started.elapsed().as_secs_f64() * 1e3;
+            let rows: usize = batches.iter().map(|batch| batch.len()).sum();
+            assert_eq!(rows, ROWS as usize, "every arm must read every row");
+            if rep > 0 {
+                scan_ms = scan_ms.min(elapsed);
+                batch_count = batches.len();
+            }
+        }
+
+        // Selective: the tail of one column, so most zones prune away.
+        let filter = bind_scan_expr(&file, gt(get_item("c0", root()), lit(ROWS - 500)));
+        let mut filter_ms = f64::INFINITY;
+        let mut filter_rowcount_ms = f64::INFINITY;
+        for rep in 0..4 {
+            let started = std::time::Instant::now();
+            let filtered: Vec<ArrayRef> = file
+                .scan()?
+                .with_filter(filter.clone())
+                .into_array_stream()?
+                .try_collect()
+                .await?;
+            let elapsed = started.elapsed().as_secs_f64() * 1e3;
+            let filtered_rows: usize = filtered.iter().map(|batch| batch.len()).sum();
+            assert_eq!(filtered_rows, 499, "every arm must select the same rows");
+
+            // The same filter, but with splits computed arithmetically instead of by asking the
+            // layout tree. This bypasses `register_splits`, which is where the inline layout
+            // builds a reader per chunk.
+            let started_rc = std::time::Instant::now();
+            let filtered: Vec<ArrayRef> = file
+                .scan()?
+                .with_filter(filter.clone())
+                .with_split_by(SplitBy::RowCount(BLOCK))
+                .into_array_stream()?
+                .try_collect()
+                .await?;
+            let elapsed_rc = started_rc.elapsed().as_secs_f64() * 1e3;
+            let filtered_rows: usize = filtered.iter().map(|batch| batch.len()).sum();
+            assert_eq!(
+                filtered_rows, 499,
+                "row-count splits must select the same rows"
+            );
+
+            if rep > 0 {
+                filter_ms = filter_ms.min(elapsed);
+                filter_rowcount_ms = filter_rowcount_ms.min(elapsed_rc);
+            }
+        }
+
+        println!(
+            "{:>10} {:>12} {:>11} {:>10.1} {:>10.1} {:>9} {:>8} {:>9.1} {:>10.1} {:>12.1}",
+            if page_size == 0 {
+                "inline".to_string()
+            } else {
+                page_size.to_string()
+            },
+            root_tables,
+            max_page_tables
+                .map(|t| t.to_string())
+                .unwrap_or_else(|| "-".to_string()),
+            layout_bytes as f64 / 1024.0,
+            buf.len() as f64 / 1024.0,
+            footer.segment_map().len(),
+            batch_count,
+            scan_ms,
+            filter_ms,
+            filter_rowcount_ms,
+        );
+    }
+    println!();
+
     Ok(())
 }

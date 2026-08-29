@@ -16,6 +16,7 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::LayoutContext;
 use crate::LayoutRef;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
@@ -80,6 +81,7 @@ impl Drop for BufferedBytesReservation {
 #[derive(Clone)]
 pub struct LayoutWriterContext {
     array_ctx: ArrayContext,
+    layout_ctx: LayoutContext,
     allowed_aggregates: Option<Arc<HashSet<AggregateFnId>>>,
     buffered_bytes: BufferedBytesTracker,
 }
@@ -89,6 +91,7 @@ impl LayoutWriterContext {
     pub fn new(array_ctx: ArrayContext) -> Self {
         Self {
             array_ctx,
+            layout_ctx: LayoutContext::default(),
             allowed_aggregates: None,
             buffered_bytes: BufferedBytesTracker::new(),
         }
@@ -121,6 +124,20 @@ impl LayoutWriterContext {
     }
 
     /// Returns the array serialization context.
+    /// Intern layout encoding ids for any layout this write serializes itself, such as a page.
+    ///
+    /// Share the context the footer serializes through, so a nested layout flatbuffer indexes into
+    /// the file's one dictionary rather than carrying a copy.
+    pub fn with_layout_context(mut self, layout_ctx: LayoutContext) -> Self {
+        self.layout_ctx = layout_ctx;
+        self
+    }
+
+    /// Returns the layout encoding context shared with the footer.
+    pub fn layout_ctx(&self) -> &LayoutContext {
+        &self.layout_ctx
+    }
+
     pub fn array_ctx(&self) -> &ArrayContext {
         &self.array_ctx
     }

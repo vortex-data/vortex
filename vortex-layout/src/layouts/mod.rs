@@ -17,6 +17,7 @@ pub mod file_stats;
 pub mod flat;
 pub(crate) mod foreign;
 pub mod list;
+pub mod paged;
 pub(crate) mod partitioned;
 pub mod repartition;
 pub mod row_idx;
