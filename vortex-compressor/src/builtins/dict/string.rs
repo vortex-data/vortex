@@ -14,10 +14,8 @@ use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::DictArrayExt;
 use vortex_array::arrays::dict::DictArraySlotsExt;
-use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::builders::dict::dict_encode;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -113,15 +111,10 @@ impl Scheme for StringDictScheme {
         let compressed_values =
             compressor.compress_child(dict.values(), &compress_ctx, self.id(), 0, exec_ctx)?;
 
-        // Codes = child 1.
-        let narrowed_codes = dict
-            .codes()
-            .clone()
-            .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow(exec_ctx)?
-            .into_array();
+        // Codes = child 1. `dict_encode` already hands back the narrowest codes that can
+        // address the dictionary, so there is nothing left to narrow here.
         let compressed_codes =
-            compressor.compress_child(&narrowed_codes, &compress_ctx, self.id(), 1, exec_ctx)?;
+            compressor.compress_child(dict.codes(), &compress_ctx, self.id(), 1, exec_ctx)?;
 
         // SAFETY: compressing codes or values does not alter the invariants.
         unsafe {
