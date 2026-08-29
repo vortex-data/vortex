@@ -478,23 +478,44 @@ impl<T> BufferMut<T> {
             .unwrap_or_else(|_| vortex_panic!("buffer capacity exceeds maximum allocation size"));
 
         let old_offset = self.offset;
-        self.allocation.grow(layout);
-        let new_offset = self
-            .allocation
-            .ptr()
-            .as_ptr()
-            .align_offset(physical_alignment.as_usize());
-        if new_offset != old_offset {
-            // SAFETY: grow preserved the initialized elements at old_offset. The new allocation
-            // has room for the requested elements plus alignment padding, and copy permits overlap.
+        let new_offset = if self.allocation.allocator().is_statically_allocated() {
+            let allocation =
+                Allocation::allocate(layout, BufferAllocatorRef::statically_allocated());
+            let new_offset = allocation
+                .ptr()
+                .as_ptr()
+                .align_offset(physical_alignment.as_usize());
+            // SAFETY: both allocations have room for the initialized elements and do not overlap.
             unsafe {
-                std::ptr::copy(
+                std::ptr::copy_nonoverlapping(
                     self.allocation.ptr().as_ptr().add(old_offset),
-                    self.allocation.ptr().as_ptr().add(new_offset),
+                    allocation.ptr().as_ptr().add(new_offset),
                     self.length * size_of::<T>(),
                 );
             }
-        }
+            self.allocation = allocation;
+            new_offset
+        } else {
+            self.allocation.grow(layout);
+            let new_offset = self
+                .allocation
+                .ptr()
+                .as_ptr()
+                .align_offset(physical_alignment.as_usize());
+            if new_offset != old_offset {
+                // SAFETY: grow preserved the initialized elements at old_offset. The new allocation
+                // has room for the requested elements plus alignment padding, and copy permits
+                // overlap.
+                unsafe {
+                    std::ptr::copy(
+                        self.allocation.ptr().as_ptr().add(old_offset),
+                        self.allocation.ptr().as_ptr().add(new_offset),
+                        self.length * size_of::<T>(),
+                    );
+                }
+            }
+            new_offset
+        };
         self.offset = new_offset;
         self.physical_alignment = physical_alignment;
     }
