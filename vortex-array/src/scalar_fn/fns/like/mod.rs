@@ -28,6 +28,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
+use crate::arrays::varbinview::ResolvedViews;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::expr::Expression;
@@ -274,81 +275,20 @@ pub(crate) fn execute_like(
     Ok(BoolArray::new(BitBuffer::from_iter(bits), validity).into_array())
 }
 
-/// Resolved views over a canonical [`VarBinViewArray`]: the view structs plus borrowed slices
-/// of every data buffer, supporting cheap per-element byte access.
-struct ResolvedViews<'a> {
-    views: &'a [BinaryView],
-    buffers: Vec<&'a [u8]>,
-}
-
-impl<'a> ResolvedViews<'a> {
-    fn new(array: &'a VarBinViewArray) -> Self {
-        Self {
-            views: array.views(),
-            buffers: (0..array.data_buffers().len())
-                .map(|idx| array.buffer(idx).as_slice())
-                .collect(),
-        }
-    }
-
-    #[inline]
-    fn bytes(&self, index: usize) -> &'a [u8] {
-        let view = &self.views[index];
-        if view.is_inlined() {
-            view.as_inlined().value()
-        } else {
-            let view = view.as_view();
-            &self.buffers[view.buffer_index as usize][view.as_range()]
-        }
-    }
-
-    /// Whether every value (including values under a null) is pure ASCII.
-    fn is_ascii(&self) -> bool {
-        (0..self.views.len()).all(|i| self.bytes(i).is_ascii())
-    }
-
-    /// The last `suffix_len` bytes of `view`, which must belong to this array.
-    ///
-    /// # Safety
-    ///
-    /// `suffix_len` must be at most `view.len()`. Buffer bounds are guaranteed by
-    /// [`VarBinViewArray::validate`], which checks every view against its data buffer at
-    /// construction.
-    #[inline]
-    unsafe fn suffix_bytes_unchecked(&self, view: &'a BinaryView, suffix_len: usize) -> &'a [u8] {
-        let len = view.len() as usize;
-        if view.is_inlined() {
-            // SAFETY: inlined values hold `len <= 12` value bytes, and the caller
-            // guarantees `suffix_len <= len`.
-            unsafe { view.as_inlined().value().get_unchecked(len - suffix_len..) }
-        } else {
-            let view = view.as_view();
-            let end = view.offset as usize + len;
-            // SAFETY: validated views reference `buffer_index < buffers.len()` and bytes
-            // `offset..offset + len` within that buffer.
-            unsafe {
-                self.buffers
-                    .get_unchecked(view.buffer_index as usize)
-                    .get_unchecked(end - suffix_len..end)
-            }
-        }
-    }
-}
-
 /// Evaluate `pattern` against every element of `haystack`.
 ///
 /// The equality, prefix, and suffix patterns exploit the view layout: a view stores the value
 /// length and its first four bytes inline, which settles most elements without touching the
 /// data buffers (values of up to 12 bytes are stored entirely inline).
 fn eval_pattern(haystack: &ResolvedViews<'_>, pattern: &LikePattern, negated: bool) -> BitBuffer {
-    let len = haystack.views.len();
+    let len = haystack.len();
     match pattern {
         LikePattern::Eq(needle) if needle.len() <= BinaryView::MAX_INLINED_SIZE => {
             // The needle fits in a view, so equality is a single 16-byte comparison: a view
             // of a different length or prefix can never share the same bit pattern.
             let needle_view = BinaryView::new_inlined(needle).as_u128();
             BitBuffer::collect_bool(len, |i| {
-                (haystack.views[i].as_u128() == needle_view) != negated
+                (haystack.views()[i].as_u128() == needle_view) != negated
             })
         }
         LikePattern::Eq(needle) => {
@@ -356,7 +296,7 @@ fn eval_pattern(haystack: &ResolvedViews<'_>, pattern: &LikePattern, negated: bo
             // on both dereference their data buffer for the remaining bytes.
             let needle_head = BinaryView::head_of(needle);
             BitBuffer::collect_bool(len, |i| {
-                let view = &haystack.views[i];
+                let view = &haystack.views()[i];
                 let matched = view.head() == needle_head && haystack.bytes(i)[4..] == needle[4..];
                 matched != negated
             })
@@ -377,7 +317,7 @@ fn eval_pattern(haystack: &ResolvedViews<'_>, pattern: &LikePattern, negated: bo
                 (1u32 << (8 * prefix_len)) - 1
             };
             BitBuffer::collect_bool(len, |i| {
-                let view = &haystack.views[i];
+                let view = &haystack.views()[i];
                 let matched = view.len() as usize >= needle_len
                     && (u32::from_le_bytes(view.prefix()) & prefix_mask) == needle_prefix
                     && (needle_len <= 4 || haystack.bytes(i)[4..needle_len] == needle[4..]);
@@ -392,7 +332,7 @@ fn eval_pattern(haystack: &ResolvedViews<'_>, pattern: &LikePattern, negated: bo
                 // SAFETY: `i` is below the array length, and the suffix length is only read
                 // once the view is known to be at least `needle_len` long.
                 let matched = unsafe {
-                    let view = haystack.views.get_unchecked(i);
+                    let view = haystack.views().get_unchecked(i);
                     view.len() as usize >= needle_len
                         && bytes_eq(haystack.suffix_bytes_unchecked(view, needle_len), needle)
                 };
@@ -400,13 +340,13 @@ fn eval_pattern(haystack: &ResolvedViews<'_>, pattern: &LikePattern, negated: bo
             })
         }
         LikePattern::IEqAscii(needle) => BitBuffer::collect_bool(len, |i| {
-            let view = &haystack.views[i];
+            let view = &haystack.views()[i];
             let matched = view.len() as usize == needle.len()
                 && haystack.bytes(i).eq_ignore_ascii_case(needle);
             matched != negated
         }),
         LikePattern::Contains(finder, needle_len) => BitBuffer::collect_bool(len, |i| {
-            let view = &haystack.views[i];
+            let view = &haystack.views()[i];
             let matched =
                 view.len() as usize >= *needle_len && finder.find(haystack.bytes(i)).is_some();
             matched != negated

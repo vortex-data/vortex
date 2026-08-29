@@ -10,6 +10,7 @@ use super::MinMaxResult;
 use crate::ExecutionCtx;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
+use crate::arrays::varbinview::ResolvedViews;
 use crate::dtype::DType;
 use crate::dtype::Nullability::NonNullable;
 use crate::scalar::Scalar;
@@ -27,20 +28,19 @@ fn compute_min_max_with_validity(
     array: &VarBinViewArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<MinMaxResult>> {
-    let views = array.views();
-    let buffers = (0..array.data_buffers().len())
-        .map(|idx| array.buffer(idx).as_slice())
-        .collect::<Vec<_>>();
+    let resolved = ResolvedViews::new(array);
+    let views = resolved.views();
+    let buffers = resolved.buffers();
 
     let mut extrema = None;
     match array.validity()?.execute_mask(array.len(), ctx)? {
-        Mask::AllTrue(_) => extrema = scan(extrema, views, &buffers),
+        Mask::AllTrue(_) => extrema = scan(extrema, views, buffers),
         Mask::AllFalse(_) => {}
         // Each `[start, end)` run is fully valid, so the runs chain through a single scan
         // state instead of materializing the validity bits and testing them per element.
         Mask::Values(v) => {
             for &(start, end) in v.slices() {
-                extrema = scan(extrema, &views[start..end], &buffers);
+                extrema = scan(extrema, &views[start..end], buffers);
             }
         }
     }

@@ -22,6 +22,9 @@ pub(crate) fn initialize(session: &vortex_session::VortexSession) {
 
 pub mod build_views;
 
+mod resolved;
+pub use resolved::ResolvedViews;
+
 mod view;
 pub use view::BinaryView;
 pub use view::Inlined;

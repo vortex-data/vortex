@@ -22,6 +22,7 @@ use crate::arrays::BoolArray;
 use crate::arrays::Constant;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
+use crate::arrays::varbinview::ResolvedViews;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::scalar::Scalar;
@@ -79,56 +80,12 @@ fn constant_bytes(scalar: &Scalar) -> VortexResult<Vec<u8>> {
     value.ok_or_else(|| vortex_err!("null constant handled by execute_compare"))
 }
 
-/// A resolved view over a canonical [`VarBinViewArray`]: the view structs plus borrowed slices of
-/// every data buffer, supporting cheap per-lane byte access.
-struct ViewsSide<'a> {
-    views: &'a [BinaryView],
-    buffers: Vec<&'a [u8]>,
-}
-
-impl<'a> ViewsSide<'a> {
-    fn new(array: &'a VarBinViewArray) -> Self {
-        Self {
-            views: array.views(),
-            buffers: (0..array.data_buffers().len())
-                .map(|idx| array.buffer(idx).as_slice())
-                .collect(),
-        }
-    }
-
-    fn len(&self) -> usize {
-        self.views.len()
-    }
-
-    /// The view at `index` without a bounds check.
-    ///
-    /// # Safety
-    ///
-    /// `index` must be strictly less than `self.len()`.
-    #[inline]
-    unsafe fn view_unchecked(&self, index: usize) -> &'a BinaryView {
-        // SAFETY: caller guarantees index < self.views.len().
-        unsafe { self.views.get_unchecked(index) }
-    }
-
-    /// The full bytes of `view`, which must belong to this side.
-    #[inline]
-    fn view_bytes(&self, view: &'a BinaryView) -> &'a [u8] {
-        if view.is_inlined() {
-            view.as_inlined().value()
-        } else {
-            let view = view.as_view();
-            &self.buffers[view.buffer_index as usize][view.as_range()]
-        }
-    }
-}
-
 /// Compare `lhs_view` from `lhs` against `rhs_view` from `rhs` for equality.
 #[inline]
 fn view_eq(
-    lhs: &ViewsSide<'_>,
+    lhs: &ResolvedViews<'_>,
     lhs_view: &BinaryView,
-    rhs: &ViewsSide<'_>,
+    rhs: &ResolvedViews<'_>,
     rhs_view: &BinaryView,
 ) -> bool {
     if lhs_view.head() != rhs_view.head() {
@@ -145,9 +102,9 @@ fn view_eq(
 /// Compare `lhs_view` from `lhs` against `rhs_view` from `rhs`.
 #[inline]
 fn view_cmp(
-    lhs: &ViewsSide<'_>,
+    lhs: &ResolvedViews<'_>,
     lhs_view: &BinaryView,
-    rhs: &ViewsSide<'_>,
+    rhs: &ResolvedViews<'_>,
     rhs_view: &BinaryView,
 ) -> Ordering {
     let lhs_prefix = lhs_view.order_prefix();
@@ -184,13 +141,13 @@ pub(super) fn compare_bytes(
 
     let bits = match (&lhs, &rhs) {
         (BytesOperand::Array { values: l, .. }, BytesOperand::Array { values: r, .. }) => {
-            compare_views(&ViewsSide::new(l), &ViewsSide::new(r), op)
+            compare_views(&ResolvedViews::new(l), &ResolvedViews::new(r), op)
         }
         (BytesOperand::Array { values, .. }, BytesOperand::Constant { value, .. }) => {
-            compare_views_constant(&ViewsSide::new(values), value, op)
+            compare_views_constant(&ResolvedViews::new(values), value, op)
         }
         (BytesOperand::Constant { value, .. }, BytesOperand::Array { values, .. }) => {
-            compare_views_constant(&ViewsSide::new(values), value, op.swap())
+            compare_views_constant(&ResolvedViews::new(values), value, op.swap())
         }
         (BytesOperand::Constant { value: l, .. }, BytesOperand::Constant { value: r, .. }) => {
             // Unreachable through `execute_compare` (constant-constant is folded there), but
@@ -202,7 +159,11 @@ pub(super) fn compare_bytes(
     Ok(BoolArray::try_new(bits, validity)?.into_array())
 }
 
-fn compare_views(lhs: &ViewsSide<'_>, rhs: &ViewsSide<'_>, op: CompareOperator) -> BitBuffer {
+fn compare_views(
+    lhs: &ResolvedViews<'_>,
+    rhs: &ResolvedViews<'_>,
+    op: CompareOperator,
+) -> BitBuffer {
     let len = lhs.len();
     // The unchecked view accesses below index both sides with `i < len`, so this must hold even
     // in release builds.
@@ -227,8 +188,8 @@ fn compare_views(lhs: &ViewsSide<'_>, rhs: &ViewsSide<'_>, op: CompareOperator) 
 
 /// Bit-pack `predicate(view_cmp(lhs[i], rhs[i]))` over two equal-length view sides.
 fn collect_ordering_bits(
-    lhs: &ViewsSide<'_>,
-    rhs: &ViewsSide<'_>,
+    lhs: &ResolvedViews<'_>,
+    rhs: &ResolvedViews<'_>,
     predicate: impl Fn(Ordering) -> bool,
 ) -> BitBuffer {
     let len = lhs.len();
@@ -239,7 +200,11 @@ fn collect_ordering_bits(
     })
 }
 
-fn compare_views_constant(lhs: &ViewsSide<'_>, constant: &[u8], op: CompareOperator) -> BitBuffer {
+fn compare_views_constant(
+    lhs: &ResolvedViews<'_>,
+    constant: &[u8],
+    op: CompareOperator,
+) -> BitBuffer {
     let len = lhs.len();
     // The same head/prefix/tail words a view stores, precomputed once for the constant.
     let constant_head = BinaryView::head_of(constant);
@@ -298,7 +263,7 @@ fn compare_views_constant(lhs: &ViewsSide<'_>, constant: &[u8], op: CompareOpera
 
 /// Bit-pack `predicate(constant_cmp(lhs[i], constant))` over one view side.
 fn collect_constant_ordering_bits(
-    lhs: &ViewsSide<'_>,
+    lhs: &ResolvedViews<'_>,
     constant: &[u8],
     constant_prefix: u32,
     constant_tail: u64,
@@ -321,7 +286,7 @@ fn collect_constant_ordering_bits(
 /// inline words.
 #[inline]
 fn constant_eq(
-    side: &ViewsSide<'_>,
+    side: &ResolvedViews<'_>,
     view: &BinaryView,
     constant: &[u8],
     constant_head: u64,
@@ -341,7 +306,7 @@ fn constant_eq(
 /// Compare a view against a constant using the constant's precomputed prefix and tail words.
 #[inline]
 fn constant_cmp(
-    side: &ViewsSide<'_>,
+    side: &ResolvedViews<'_>,
     view: &BinaryView,
     constant: &[u8],
     constant_prefix: u32,
