@@ -29,7 +29,7 @@ use crate::trusted_len::TrustedLen;
 /// A mutable buffer that maintains a runtime-defined alignment through resizing operations.
 pub struct BufferMut<T> {
     pub(crate) allocation: Allocation,
-    pub(crate) offset: usize,
+    pub(crate) ptr: std::ptr::NonNull<T>,
     pub(crate) length: usize,
     pub(crate) alignment: Alignment,
     pub(crate) physical_alignment: Alignment,
@@ -37,6 +37,11 @@ pub struct BufferMut<T> {
     pub(crate) overallocated: bool,
     pub(crate) _marker: std::marker::PhantomData<T>,
 }
+
+// SAFETY: BufferMut uniquely owns its allocation and only exposes T across threads.
+unsafe impl<T: Send> Send for BufferMut<T> {}
+// SAFETY: shared access to BufferMut only exposes shared access to T.
+unsafe impl<T: Sync> Sync for BufferMut<T> {}
 
 impl<T> BufferMut<T> {
     /// Create a new `BufferMut` with the requested alignment and capacity.
@@ -130,9 +135,11 @@ impl<T> BufferMut<T> {
         };
         let allocation = Allocation::allocate(layout, allocator);
         let offset = allocation.ptr().as_ptr().align_offset(actual.as_usize());
+        // SAFETY: the allocation includes enough padding to reach this aligned pointer.
+        let ptr = unsafe { allocation.ptr().add(offset).cast() };
         Self {
             allocation,
-            offset,
+            ptr,
             length: 0,
             alignment,
             physical_alignment: actual,
@@ -219,9 +226,11 @@ impl<T> BufferMut<T> {
             .ptr()
             .as_ptr()
             .align_offset(actual_alignment.as_usize());
+        // SAFETY: the allocation includes enough padding to reach this aligned pointer.
+        let ptr = unsafe { allocation.ptr().add(offset).cast() };
         Self {
             allocation,
-            offset,
+            ptr,
             length: len,
             alignment,
             physical_alignment: actual_alignment,
@@ -399,7 +408,8 @@ impl<T> BufferMut<T> {
         }
 
         if !self.overallocated {
-            return (self.allocation.size() - self.offset) / size_of::<T>();
+            let offset = self.ptr.cast::<u8>().addr().get() - self.allocation.ptr().addr().get();
+            return (self.allocation.size() - offset) / size_of::<T>();
         }
 
         (self.allocation.size() - self.physical_alignment.as_usize()) / size_of::<T>()
@@ -408,21 +418,19 @@ impl<T> BufferMut<T> {
     /// Returns a raw pointer to the buffer's data.
     #[inline(always)]
     pub fn as_ptr(&self) -> *const T {
-        // SAFETY: offset always remains within the allocation.
-        unsafe { self.allocation.ptr().as_ptr().add(self.offset).cast() }
+        self.ptr.as_ptr()
     }
 
     /// Returns a mutable raw pointer to the buffer's data.
     #[inline(always)]
     pub fn as_mut_ptr(&mut self) -> *mut T {
-        // SAFETY: BufferMut uniquely owns the allocation and offset is in bounds.
-        unsafe { self.allocation.ptr().as_ptr().add(self.offset).cast() }
+        self.ptr.as_ptr()
     }
 
     /// Returns a slice over the buffer of elements of type T.
     #[inline]
     pub fn as_slice(&self) -> &[T] {
-        // SAFETY: the allocation is live, offset is in bounds, and construction checks alignment.
+        // SAFETY: ptr is in the live allocation and construction checks its alignment.
         unsafe { std::slice::from_raw_parts(self.as_ptr(), self.length) }
     }
 
@@ -494,7 +502,7 @@ impl<T> BufferMut<T> {
         let layout = Layout::from_size_align(allocation_size, allocation_alignment)
             .unwrap_or_else(|_| vortex_panic!("buffer capacity exceeds maximum allocation size"));
 
-        let old_offset = self.offset;
+        let old_offset = self.ptr.cast::<u8>().addr().get() - self.allocation.ptr().addr().get();
         let new_offset = if self.allocation.allocator().is_statically_allocated() {
             let allocation =
                 Allocation::allocate(layout, BufferAllocatorRef::statically_allocated());
@@ -505,7 +513,7 @@ impl<T> BufferMut<T> {
             // SAFETY: both allocations have room for the initialized elements and do not overlap.
             unsafe {
                 std::ptr::copy_nonoverlapping(
-                    self.allocation.ptr().as_ptr().add(old_offset),
+                    self.ptr.cast::<u8>().as_ptr(),
                     allocation.ptr().as_ptr().add(new_offset),
                     self.length * size_of::<T>(),
                 );
@@ -533,7 +541,8 @@ impl<T> BufferMut<T> {
             }
             new_offset
         };
-        self.offset = new_offset;
+        // SAFETY: new_offset was computed within the allocation for physical_alignment.
+        self.ptr = unsafe { self.allocation.ptr().add(new_offset).cast() };
         self.physical_alignment = physical_alignment;
         self.overallocated = true;
     }
@@ -681,7 +690,7 @@ impl<T> BufferMut<T> {
     pub fn into_byte_buffer(self) -> ByteBufferMut {
         ByteBufferMut {
             allocation: self.allocation,
-            offset: self.offset,
+            ptr: self.ptr.cast(),
             length: self.length * size_of::<T>(),
             alignment: self.alignment,
             physical_alignment: self.physical_alignment,
@@ -692,9 +701,10 @@ impl<T> BufferMut<T> {
 
     /// Freeze the `BufferMut` into a `Buffer`.
     pub fn freeze(self) -> Buffer<T> {
+        let offset = self.ptr.cast::<u8>().addr().get() - self.allocation.ptr().addr().get();
         Buffer::from_allocation(
             self.allocation,
-            self.offset,
+            offset,
             self.length,
             self.alignment,
             self.physical_alignment,
@@ -759,7 +769,7 @@ impl<T> BufferMut<T> {
 
         BufferMut {
             allocation: self.allocation,
-            offset: self.offset,
+            ptr: self.ptr.cast(),
             length: self.length,
             alignment: self.alignment,
             physical_alignment: self.physical_alignment,
@@ -1003,7 +1013,8 @@ impl Buf for ByteBufferMut {
             );
         }
         assert!(cnt <= self.length, "advance out of bounds");
-        self.offset += cnt;
+        // SAFETY: cnt is checked against the initialized length above.
+        self.ptr = unsafe { self.ptr.add(cnt) };
         self.length -= cnt;
     }
 }
