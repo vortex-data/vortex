@@ -25,6 +25,10 @@ _test-harness = [
     "dep:vortex-btrblocks",
     "dep:vortex-arrow",
     "dep:arrow-schema",
+    "dep:arrow-array",
+    "dep:arrow-cast",
+    "dep:parquet",
+    "dep:vortex-morsel-push",
     "dep:tpchgen",
     "dep:tpchgen-arrow",
     "dep:vortex",
@@ -47,6 +51,10 @@ vortex-btrblocks = { workspace = true, optional = true }
 vortex-arrow = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true, features = ["rt-multi-thread"] }
 arrow-schema = { workspace = true, optional = true }
+arrow-array = { workspace = true, optional = true }
+arrow-cast = { workspace = true, optional = true }
+parquet = { workspace = true, optional = true }
+vortex-morsel-push = { workspace = true, optional = true, features = ["_test-harness"] }
 tpchgen = { workspace = true, optional = true }
 tpchgen-arrow = { workspace = true, optional = true }
 vortex = { workspace = true, optional = true, features = ["files"] }
@@ -56,6 +64,9 @@ tracing = { workspace = true }
 rustix = { workspace = true, features = ["fs"], optional = true }
 
 [dev-dependencies]
+arrow-array = { workspace = true }
+arrow-cast = { workspace = true }
+parquet = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-layout = { workspace = true, features = ["_test-harness"] }
 vortex-io = { workspace = true, features = ["tokio"] }

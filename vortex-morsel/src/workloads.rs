@@ -15,6 +15,15 @@
 //! What *is* exercised is the executor's own overhead — per-morsel scheduling, planning,
 //! cutting, decode reuse — which is what gate E1 measures.
 
+use std::fs::File;
+use std::path::Path;
+
+use arrow_array::Array;
+use arrow_array::Int64Array;
+use arrow_cast::cast;
+use arrow_schema::DataType;
+use parquet::arrow::ProjectionMask;
+use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -31,6 +40,8 @@ use vortex_array::expr::root;
 use vortex_array::expr::select;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use crate::fixtures::Column;
 use crate::harness::Query;
@@ -45,6 +56,110 @@ pub struct Workload {
     pub columns: Vec<Column>,
     /// The queries.
     pub queries: Vec<Query>,
+}
+
+const REAL_CLICKBENCH_COLUMNS: [&str; 8] = [
+    "CounterID",
+    "AdvEngineID",
+    "EventDate",
+    "IsRefresh",
+    "DontCountHits",
+    "URLHash",
+    "WindowClientWidth",
+    "WindowClientHeight",
+];
+
+/// Load exact scan inputs for zero-based ClickBench Q1 and Q41 from an official Parquet shard.
+///
+/// The prototype executes the query's scan/filter/projection portion. Its aggregation, grouping,
+/// ordering, limit, and offset remain outside the executor's supported operator set.
+pub fn real_clickbench(path: &Path) -> VortexResult<Workload> {
+    let file = File::open(path)
+        .map_err(|err| vortex_err!("failed to open ClickBench shard {}: {err}", path.display()))?;
+    let mut builder = ParquetRecordBatchReaderBuilder::try_new(file)
+        .map_err(|err| vortex_err!("failed to inspect ClickBench shard: {err}"))?;
+    let mut projection = REAL_CLICKBENCH_COLUMNS
+        .iter()
+        .map(|name| {
+            builder
+                .schema()
+                .index_of(name)
+                .map_err(|err| vortex_err!("ClickBench column {name}: {err}"))
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+    projection.sort_unstable();
+    let projection = ProjectionMask::roots(builder.parquet_schema(), projection);
+    builder = builder.with_projection(projection).with_batch_size(131_072);
+
+    let mut chunks = (0..REAL_CLICKBENCH_COLUMNS.len())
+        .map(|_| Vec::<ArrayRef>::new())
+        .collect::<Vec<_>>();
+    for batch in builder
+        .build()
+        .map_err(|err| vortex_err!("failed to create ClickBench reader: {err}"))?
+    {
+        let batch = batch.map_err(|err| vortex_err!("failed to decode ClickBench batch: {err}"))?;
+        for (column_chunks, name) in chunks.iter_mut().zip(REAL_CLICKBENCH_COLUMNS) {
+            let source = batch
+                .column_by_name(name)
+                .ok_or_else(|| vortex_err!("ClickBench batch is missing {name}"))?;
+            let values = cast(source, &DataType::Int64)
+                .map_err(|err| vortex_err!("cannot cast ClickBench {name} to i64: {err}"))?;
+            let values = values
+                .as_any()
+                .downcast_ref::<Int64Array>()
+                .ok_or_else(|| vortex_err!("ClickBench {name} cast did not produce i64"))?;
+            if values.null_count() != 0 {
+                return Err(vortex_err!("ClickBench {name} contains nulls"));
+            }
+            column_chunks.push(
+                PrimitiveArray::new(Buffer::copy_from(values.values()), Validity::NonNullable)
+                    .into_array(),
+            );
+        }
+    }
+
+    let columns = REAL_CLICKBENCH_COLUMNS
+        .into_iter()
+        .zip(chunks)
+        .map(|(name, chunks)| Column::new(name, chunks))
+        .collect();
+    let july_2013 = and(
+        gt(get_item("EventDate", root()), lit(15_886i64)),
+        lt(get_item("EventDate", root()), lit(15_918i64)),
+    );
+    let filter = and(
+        and(eq(get_item("CounterID", root()), lit(62i64)), july_2013),
+        and(
+            and(
+                eq(get_item("IsRefresh", root()), lit(0i64)),
+                eq(get_item("DontCountHits", root()), lit(0i64)),
+            ),
+            eq(
+                get_item("URLHash", root()),
+                lit(2_868_770_270_353_813_622i64),
+            ),
+        ),
+    );
+
+    Ok(Workload {
+        name: "clickbench-real",
+        shape: "official ClickBench shard; exact Q1/Q41 scan/filter/projection inputs",
+        columns,
+        queries: vec![
+            Query {
+                name: "ClickBench Q1 scan",
+                projection: select(vec!["AdvEngineID"], root()),
+                // AdvEngineID is unsigned in the source, so `> 0` is exactly `<> 0`.
+                filter: Some(gt(get_item("AdvEngineID", root()), lit(0i64))),
+            },
+            Query {
+                name: "ClickBench Q41 scan",
+                projection: select(vec!["WindowClientWidth", "WindowClientHeight"], root()),
+                filter: Some(filter),
+            },
+        ],
+    })
 }
 
 /// A cheap deterministic pseudo-random sequence, so every run sees identical data.

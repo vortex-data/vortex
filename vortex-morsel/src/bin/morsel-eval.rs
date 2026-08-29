@@ -14,6 +14,7 @@
 //!
 //! Run with: `cargo run --release -p vortex-morsel --features _test-harness --bin morsel-eval`
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -51,6 +52,8 @@ enum Row {
     V1Tokio(usize),
     /// The morsel executor.
     Morsel(MorselConfig),
+    /// The independently imported push executor.
+    Push { threads: usize, morsel_rows: u64 },
 }
 
 impl Row {
@@ -74,6 +77,17 @@ impl Row {
                     ", no-reuse"
                 };
                 format!("D  morsel (x{}, {morsel}{mode}{reuse})", config.threads)
+            }
+            Row::Push {
+                threads,
+                morsel_rows,
+            } => {
+                let morsel = if *morsel_rows == 0 {
+                    "splits".to_string()
+                } else {
+                    format!("{morsel_rows}r")
+                };
+                format!("P  push (x{threads}, {morsel})")
             }
         }
     }
@@ -149,9 +163,19 @@ fn main() -> VortexResult<()> {
     {
         workload_set.push(workloads::narrow_analytic(scale));
     }
+    if selected_workload.as_deref() == Some("clickbench-real") {
+        let path = std::env::var_os("MORSEL_CLICKBENCH_PARQUET")
+            .map(PathBuf::from)
+            .ok_or_else(|| {
+                vortex_error::vortex_err!(
+                    "MORSEL_CLICKBENCH_PARQUET is required for clickbench-real"
+                )
+            })?;
+        workload_set.push(workloads::real_clickbench(&path)?);
+    }
     if workload_set.is_empty() {
         vortex_error::vortex_bail!(
-            "MORSEL_EVAL_WORKLOAD must be string-heavy, wide-numeric, or narrow-analytic"
+            "MORSEL_EVAL_WORKLOAD must be clickbench-real, string-heavy, wide-numeric, or narrow-analytic"
         );
     }
 
@@ -216,6 +240,18 @@ fn main() -> VortexResult<()> {
                         mode: ConjunctMode::Parallel,
                         ..Default::default()
                     }),
+                    Row::Push {
+                        threads: 1,
+                        morsel_rows: 0,
+                    },
+                    Row::Push {
+                        threads,
+                        morsel_rows: 0,
+                    },
+                    Row::Push {
+                        threads,
+                        morsel_rows: 65_536,
+                    },
                 ],
             };
 
@@ -381,6 +417,36 @@ fn run_once(
         Row::V1Single => run_v1(session, layout, segments, query),
         Row::V1Tokio(_) => run_v1_tokio(runtime, session, layout, segments, query),
         Row::Morsel(config) => run_morsel(session, layout, segments, query, config),
+        Row::Push {
+            threads,
+            morsel_rows,
+        } => {
+            let push_query = vortex_morsel_push::harness::Query {
+                name: query.name,
+                projection: query.projection.clone(),
+                filter: query.filter.clone(),
+            };
+            let pushed = vortex_morsel_push::harness::run_morsel(
+                session,
+                layout,
+                segments,
+                &push_query,
+                vortex_morsel_push::harness::MorselConfig {
+                    threads,
+                    morsel_rows,
+                    ..Default::default()
+                },
+            )?;
+            Ok(RunOutcome {
+                batches: pushed.batches,
+                rows: pushed.rows,
+                wall: pushed.wall,
+                time_to_first_batch: pushed.time_to_first_batch,
+                stats: None,
+                source_io_requests: pushed.source_io_requests,
+                source_io_bytes: pushed.source_io_bytes,
+            })
+        }
     }
 }
 

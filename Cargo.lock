@@ -11309,10 +11309,13 @@ dependencies = [
 name = "vortex-morsel"
 version = "0.1.0"
 dependencies = [
+ "arrow-array 59.2.0",
+ "arrow-cast 59.2.0",
  "arrow-schema 59.2.0",
  "futures",
  "itertools 0.14.0",
  "parking_lot",
+ "parquet 59.2.0",
  "rstest",
  "rustix",
  "tokio",
@@ -11328,6 +11331,7 @@ dependencies = [
  "vortex-io",
  "vortex-layout",
  "vortex-mask",
+ "vortex-morsel-push",
  "vortex-scan",
  "vortex-session",
  "vortex-utils",
