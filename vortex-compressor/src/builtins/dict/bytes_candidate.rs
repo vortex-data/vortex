@@ -21,11 +21,9 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinView;
 use vortex_array::arrays::dict::DictArrayExt;
 use vortex_array::arrays::dict::DictArraySlotsExt;
-use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::varbinview::BinaryView;
 use vortex_array::builders::dict::DictConstraints;
 use vortex_array::builders::dict::codes_ptype_for_max_len;
@@ -141,15 +139,10 @@ fn compress_dictionary(
     let compressed_values =
         compressor.compress_child(dict.values(), &compress_ctx, scheme.id(), 0, exec_ctx)?;
 
-    // Codes = child 1.
-    let narrowed_codes = dict
-        .codes()
-        .clone()
-        .execute::<PrimitiveArray>(exec_ctx)?
-        .narrow(exec_ctx)?
-        .into_array();
+    // Codes = child 1. `dict_encode` and `dict_encode_with_constraints` already hand back the
+    // narrowest codes that can address the dictionary, so there is nothing left to narrow here.
     let compressed_codes =
-        compressor.compress_child(&narrowed_codes, &compress_ctx, scheme.id(), 1, exec_ctx)?;
+        compressor.compress_child(dict.codes(), &compress_ctx, scheme.id(), 1, exec_ctx)?;
 
     // SAFETY: compressing codes or values does not alter the invariants.
     unsafe {
