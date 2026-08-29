@@ -17,8 +17,9 @@ Two access patterns are generated with a fixed seed (see [`src/main.rs`](./src/m
   simulating lookups with no locality.
 
 Each pattern runs over four datasets (`taxi`, `feature-vectors`, `nested-lists`,
-`nested-structs`) in Arrow IPC, Parquet, Lance, and Vortex. Each format uses a cached open file
-handle and a per-lookup reopen mode. CI drives the full matrix via
+`nested-structs`) in Arrow IPC, Parquet, Lance, and Vortex. Cached mode performs a one-second
+untimed warm-up, then reuses the open file handle. Reopen mode includes file open and metadata
+work in each timed iteration. CI drives the full matrix via
 [`scripts/random-access-split.py`](../../scripts/random-access-split.py).
 
 The morsel executor intentionally uses all available parallelism, bounded only by the number of

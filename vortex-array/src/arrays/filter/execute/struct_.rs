@@ -7,10 +7,14 @@ use vortex_mask::MaskValuesRef;
 
 use crate::ArrayRef;
 use crate::arrays::StructArray;
+use crate::arrays::filter::execute::buffer::prepare_mask_for_reuse;
 use crate::arrays::filter::execute::filter_validity;
 use crate::arrays::struct_::StructArrayExt;
 
 pub fn filter_struct(array: &StructArray, mask: &MaskValuesRef) -> StructArray {
+    let consumers = array.struct_fields().nfields();
+    prepare_mask_for_reuse(mask, consumers);
+
     let filtered_validity = filter_validity(
         array
             .validity()

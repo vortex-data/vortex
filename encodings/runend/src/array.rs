@@ -22,6 +22,7 @@ use vortex_array::IntoArray;
 use vortex_array::TypedArrayRef;
 use vortex_array::VortexSessionExecute;
 use vortex_array::array_slots;
+use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::buffer::BufferHandle;
@@ -41,6 +42,7 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::compress::runend_decode_decimal;
 use crate::compress::runend_decode_primitive;
 use crate::compress::runend_decode_varbinview;
 use crate::compress::runend_encode;
@@ -486,6 +488,13 @@ pub(super) fn run_end_canonicalize(
             let pvalues = array.values().clone().execute_as("values", ctx)?;
             runend_decode_primitive(pends, pvalues, array.offset(), array.len(), ctx)?.into_array()
         }
+        DType::Decimal(..) => {
+            let values = array
+                .values()
+                .clone()
+                .execute_as::<DecimalArray>("values", ctx)?;
+            runend_decode_decimal(pends, values, array.offset(), array.len(), ctx)?.into_array()
+        }
         DType::Utf8(_) | DType::Binary(_) => {
             let values = array
                 .values()
@@ -503,14 +512,18 @@ mod tests {
 
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::DictArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::VarBinBuilder;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::i256;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::RunEnd;
@@ -589,5 +602,88 @@ mod tests {
             VarBinViewArray::from_iter_str(["x", "x", "y", "y", "y", "z", "z", "z", "z", "z"])
                 .into_array();
         assert_arrays_eq!(arr.into_array(), expected, &mut ctx);
+    }
+
+    #[test]
+    fn test_runend_decimal_i128() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let decimal_dtype = DecimalDType::new(20, 2);
+        let values = DecimalArray::from_iter([12_345i128, -67_890, 100], decimal_dtype);
+        let arr = RunEnd::try_new(
+            buffer![2u32, 5, 6].into_array(),
+            values.into_array(),
+            &mut ctx,
+        )?;
+
+        let decoded = arr.into_array().execute::<DecimalArray>(&mut ctx)?;
+        let expected = DecimalArray::from_iter(
+            [12_345i128, 12_345, -67_890, -67_890, -67_890, 100],
+            decimal_dtype,
+        );
+        assert_arrays_eq!(decoded, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_runend_decimal_nullable() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let decimal_dtype = DecimalDType::new(20, 2);
+        let values =
+            DecimalArray::from_option_iter([Some(12_345i128), None, Some(-67_890)], decimal_dtype);
+        let arr = RunEnd::try_new(
+            buffer![2u32, 5, 7].into_array(),
+            values.into_array(),
+            &mut ctx,
+        )?;
+
+        let decoded = arr.into_array().execute::<DecimalArray>(&mut ctx)?;
+        let expected = DecimalArray::from_option_iter(
+            [
+                Some(12_345i128),
+                Some(12_345),
+                None,
+                None,
+                None,
+                Some(-67_890),
+                Some(-67_890),
+            ],
+            decimal_dtype,
+        );
+        assert_arrays_eq!(decoded, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_runend_decimal_slice() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let decimal_dtype = DecimalDType::new(20, 2);
+        let values = DecimalArray::from_iter([100i128, 200, 300], decimal_dtype);
+        let arr = RunEnd::try_new(
+            buffer![3u32, 5, 10].into_array(),
+            values.into_array(),
+            &mut ctx,
+        )?;
+
+        let sliced = arr.slice(2..8)?;
+        let decoded = sliced.execute::<DecimalArray>(&mut ctx)?;
+        let expected = DecimalArray::from_iter([100i128, 200, 200, 300, 300, 300], decimal_dtype);
+        assert_arrays_eq!(decoded, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_runend_decimal_i256() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let decimal_dtype = DecimalDType::new(40, 4);
+        let first = i256::from_i128(123_456);
+        let second = i256::from_i128(-789_012);
+        let values = DecimalArray::from_iter([first, second], decimal_dtype);
+        let arr = RunEnd::try_new(buffer![2u32, 5].into_array(), values.into_array(), &mut ctx)?;
+
+        let decoded = arr.into_array().execute::<DecimalArray>(&mut ctx)?;
+        let expected =
+            DecimalArray::from_iter([first, first, second, second, second], decimal_dtype);
+        assert_arrays_eq!(decoded, expected, &mut ctx);
+        Ok(())
     }
 }

@@ -13,7 +13,6 @@ use super::match_each_record_width;
 use super::with_values;
 use crate::array::Array;
 use crate::arrays::filter::filter_buffer;
-use crate::arrays::filter::filter_buffer_byte_compress;
 use crate::arrays::filter::filter_validity;
 
 #[cfg(test)]
@@ -40,13 +39,9 @@ fn filter_records(values: ByteBuffer, byte_width: usize, mask: &MaskValues) -> B
         byte_width,
         |W| {
             let records = Buffer::<[u8; W]>::from_byte_buffer(values);
-            // Byte-compress processes eight records per mask byte and wins for narrow records,
-            // while wider records move enough bytes each for the plain filter to win.
-            let filtered = if W <= 4 {
-                filter_buffer_byte_compress(records, mask)
-            } else {
-                filter_buffer(records, mask)
-            };
+            // `filter_buffer` picks between in-place compaction, cached indices/slices,
+            // byte-compress, and bitmap iteration based on record width and mask density.
+            let filtered = filter_buffer(records, mask);
             filtered.into_byte_buffer().aligned(alignment)
         },
         _ => {

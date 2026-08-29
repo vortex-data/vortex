@@ -1,6 +1,6 @@
 [package]
 name = "vortex-spatial"
-description = "Spatial encodings and layouts for Vortex files"
+description = "Spatial data types and compute for Vortex"
 authors.workspace = true
 categories.workspace = true
 edition.workspace = true
@@ -8,7 +8,7 @@ homepage.workspace = true
 include.workspace = true
 keywords.workspace = true
 license.workspace = true
-readme.workspace = true
+readme = "README.md"
 repository.workspace = true
 rust-version.workspace = true
 version.workspace = true
