@@ -44,11 +44,17 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 const ROWS: usize = 1 << 14;
 
-const INPUT_SHAPES: &[InputShape] = &[
-    InputShape::PerRowPerRow,
-    InputShape::PerRowConstant,
-    InputShape::ConstantPerRow,
-];
+/// The shape every row function is measured on: one per-row operand against another.
+const INPUT_SHAPES: &[InputShape] = &[InputShape::PerRowPerRow];
+
+/// Constant operands are measured on `i64` alone, by the `*_constant` benchmarks below.
+///
+/// The row executor decodes and orients a constant operand the same way whatever the row kernel
+/// does with the value, so running both constant orientations under every element type and every
+/// output mode measures one path repeatedly, three walltime legs at a time. One infallible pair and
+/// one deferred pair keep it covered: those two differ in how a constant row reaches the kernel,
+/// and that is the difference worth watching.
+const CONSTANT_SHAPES: &[InputShape] = &[InputShape::PerRowConstant, InputShape::ConstantPerRow];
 
 #[derive(Clone, Copy, Debug)]
 enum InputShape {
@@ -183,10 +189,24 @@ fn infallible_bool<T: BenchPrimitive>(bencher: Bencher, &shape: &InputShape) {
 }
 
 #[vortex_bench_support::cpu_features]
+#[divan::bench(args = CONSTANT_SHAPES)]
+fn infallible_bool_constant(bencher: Bencher, &shape: &InputShape) {
+    let function = InfallibleBool::<i64>(PhantomData);
+    bench_row_fn(bencher, &function, make_args::<i64>(shape));
+}
+
+#[vortex_bench_support::cpu_features]
 #[divan::bench(types = [i32, i64], args = INPUT_SHAPES)]
 fn deferred_bool<T: BenchPrimitive>(bencher: Bencher, &shape: &InputShape) {
     let function = DeferredBool::<T>(PhantomData);
     bench_row_fn(bencher, &function, make_args::<T>(shape));
+}
+
+#[vortex_bench_support::cpu_features]
+#[divan::bench(args = CONSTANT_SHAPES)]
+fn deferred_bool_constant(bencher: Bencher, &shape: &InputShape) {
+    let function = DeferredBool::<i64>(PhantomData);
+    bench_row_fn(bencher, &function, make_args::<i64>(shape));
 }
 
 #[vortex_bench_support::cpu_features]
