@@ -441,4 +441,21 @@ mod tests {
         drop(buffer);
         assert_eq!(state.deallocations.load(Ordering::Relaxed), 1);
     }
+
+    #[test]
+    fn zero_capacity_does_not_allocate() {
+        let allocator = TrackingAllocator::default();
+        let state = Arc::clone(&allocator.state);
+        let mut buffer = BufferAllocatorRef::new(allocator).with_capacity::<u32>(0);
+
+        assert_eq!(buffer.capacity(), 0);
+        assert!(Alignment::DEFAULT_ALIGNMENT.is_offset_aligned(buffer.as_ptr().addr()));
+        assert_eq!(state.allocations.load(Ordering::Relaxed), 0);
+
+        buffer.push(42);
+
+        assert_eq!(buffer.as_slice(), [42]);
+        assert_eq!(state.allocations.load(Ordering::Relaxed), 1);
+        assert_eq!(state.grows.load(Ordering::Relaxed), 0);
+    }
 }
