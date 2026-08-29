@@ -43,9 +43,6 @@ use crate::array::padded_symbol_table;
 /// FSST worst case: every input byte expands to an escape + literal (2x).
 const FSST_PER_BYTE_OVERHEAD: usize = 2;
 
-/// Starting capacity for the per-row `compress_into` scratch buffer; grown monotonically.
-const DEFAULT_BUFFER_LEN: usize = 1024 * 1024;
-
 /// Compress a string array using FSST.
 ///
 /// Accepts any [`VarBinView`] or [`VarBin`]-encoded array; other encodings error.
@@ -283,8 +280,12 @@ where
 }
 
 /// Per-row output state for an FSST compression pass.
+///
+/// Rows are compressed straight into `builder`'s data buffer: `compress_into` writes into
+/// caller-supplied spare capacity, and [`VarBinBuilder::value_spare_capacity`] hands it the
+/// builder's own. Staging each row elsewhere first would mean copying every compressed byte
+/// a second time on the way in.
 struct FsstSink<'c, O: OffsetBuilderPType + 'static> {
-    buffer: Vec<u8>,
     builder: VarBinBuilder<O>,
     uncompressed_lengths: BufferMut<i32>,
     compressor: &'c Compressor,
@@ -298,7 +299,6 @@ impl<'c, O: OffsetBuilderPType + 'static> FsstSink<'c, O> {
         allocator: &BufferAllocatorRef,
     ) -> Self {
         Self {
-            buffer: Vec::with_capacity(DEFAULT_BUFFER_LEN),
             builder: VarBinBuilder::<O>::with_capacity_in(dtype, len, allocator),
             uncompressed_lengths: BufferMut::with_capacity_in(len, allocator.clone()),
             compressor,
@@ -318,19 +318,14 @@ impl<'c, O: OffsetBuilderPType + 'static> FsstSink<'c, O> {
             i32::try_from(s.len()).vortex_expect("per-row uncompressed length must fit in i32"),
         );
 
-        // `compress_into` writes into the spare capacity, so the buffer must be emptied first.
-        self.buffer.clear();
-        self.buffer.reserve(FSST_PER_BYTE_OVERHEAD * s.len());
-
-        // SAFETY: `self.buffer` has capacity for the FSST worst-case output of `s`.
-        let written = unsafe {
-            self.compressor
-                .compress_into(s, self.buffer.spare_capacity_mut())
-        };
-        // SAFETY: `compress_into` initialized the first `written` bytes.
-        unsafe { self.buffer.set_len(written) };
-
-        self.builder.append_value(&self.buffer);
+        let spare = self
+            .builder
+            .value_spare_capacity(FSST_PER_BYTE_OVERHEAD * s.len());
+        // SAFETY: `spare` is sized to the FSST worst-case output of `s`.
+        let written = unsafe { self.compressor.compress_into(s, spare) };
+        // SAFETY: `compress_into` initialized the first `written` bytes of `spare`, and
+        // `written` never exceeds the worst-case length reserved above.
+        unsafe { self.builder.commit_value(written) };
     }
 
     fn finish(mut self, dtype: DType, ctx: &mut ExecutionCtx) -> VortexResult<FSSTArray> {
