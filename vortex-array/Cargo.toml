@@ -99,6 +99,10 @@ vortex-array = { path = ".", features = [
 ] }
 vortex-bench-support = { workspace = true }
 
+[[example]]
+name = "filter_threshold_verification"
+required-features = ["_test-harness"]
+
 [[bench]]
 name = "aggregate_max"
 harness = false

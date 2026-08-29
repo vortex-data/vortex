@@ -38,6 +38,7 @@ use std::arch::x86_64::_mm512_storeu_epi8;
 use std::arch::x86_64::_mm512_storeu_epi16;
 use std::arch::x86_64::_mm512_storeu_epi32;
 use std::arch::x86_64::_mm512_storeu_epi64;
+use std::ops::Range;
 
 use vortex_mask::MaskValues;
 
@@ -48,25 +49,59 @@ use super::bulk_copy;
 use super::compress_lut;
 use super::compress_tail;
 
-/// Choose the widest available kernel above its benchmarked density crossover.
+/// The widest available kernel and its benchmarked density crossover.
 ///
-/// Sparse masks stay on the scalar set-bit walk. See `benches/filter_fixed_width.rs` when
-/// changing these thresholds.
-pub(super) fn select_kernel<T, const IN_PLACE: bool>(mask: &MaskValues) -> Option<Kernel> {
-    let (kernel, min_density) = match size_of::<T>() {
-        1 if avx512_vbmi2() => (compress_avx512_epi8::<IN_PLACE> as Kernel, 0.0),
-        2 if avx512_vbmi2() => (compress_avx512_epi16::<IN_PLACE> as Kernel, 0.15),
-        4 if avx512f() => (compress_avx512_epi32::<IN_PLACE> as Kernel, 0.25),
-        8 if avx512f() => (compress_avx512_epi64::<IN_PLACE> as Kernel, 0.30),
+/// Below the band, masks stay on the scalar set-bit walk. Rederive these thresholds with
+/// `examples/filter_threshold_verification.rs` (see also `benches/filter_fixed_width.rs`)
+/// when changing them.
+pub(super) fn kernel_and_band<T, const IN_PLACE: bool>()
+-> Option<(Kernel, &'static str, Range<f64>)> {
+    let (kernel, name, min_density) = match size_of::<T>() {
+        1 if avx512_vbmi2() => (
+            compress_avx512_epi8::<IN_PLACE> as Kernel,
+            "AVX-512 VBMI2",
+            0.0,
+        ),
+        2 if avx512_vbmi2() => (
+            compress_avx512_epi16::<IN_PLACE> as Kernel,
+            "AVX-512 VBMI2",
+            0.15,
+        ),
+        4 if avx512f() => (
+            compress_avx512_epi32::<IN_PLACE> as Kernel,
+            "AVX-512F",
+            0.25,
+        ),
+        8 if avx512f() => (
+            compress_avx512_epi64::<IN_PLACE> as Kernel,
+            "AVX-512F",
+            0.30,
+        ),
         // AVX-512F without VBMI2 (e.g. Skylake-X) falls through to these too.
-        1 if avx2() => (compress_pshufb_epi8::<IN_PLACE> as Kernel, 0.15),
-        2 if avx2() => (compress_pshufb_epi16::<IN_PLACE> as Kernel, 0.25),
-        4 if avx2() => (compress_avx2_epi32::<IN_PLACE> as Kernel, 0.25),
-        8 if avx2() => (compress_avx2_epi64::<IN_PLACE> as Kernel, 0.45),
+        1 if avx2() => (
+            compress_pshufb_epi8::<IN_PLACE> as Kernel,
+            "AVX2 pshufb",
+            0.15,
+        ),
+        2 if avx2() => (
+            compress_pshufb_epi16::<IN_PLACE> as Kernel,
+            "AVX2 pshufb",
+            0.25,
+        ),
+        4 if avx2() => (
+            compress_avx2_epi32::<IN_PLACE> as Kernel,
+            "AVX2 vpermd",
+            0.25,
+        ),
+        8 if avx2() => (
+            compress_avx2_epi64::<IN_PLACE> as Kernel,
+            "AVX2 vpermd",
+            0.45,
+        ),
         _ => return None,
     };
 
-    (mask.density() >= min_density).then_some(kernel)
+    Some((kernel, name, min_density..f64::INFINITY))
 }
 
 fn avx512f() -> bool {

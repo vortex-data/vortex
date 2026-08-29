@@ -26,9 +26,9 @@ use crate::arrays::filter::execute::byte_compress;
 use crate::arrays::filter::execute::simd_compress;
 use crate::arrays::filter::execute::slice;
 
-const CACHED_INDICES_MAX_DENSITY: f64 = 0.5;
+pub(crate) const CACHED_INDICES_MAX_DENSITY: f64 = 0.5;
 const IN_PLACE_MIN_DENSITY: f64 = 0.5;
-const MIN_SLICES_AVERAGE_RUN_LENGTH: usize = 8;
+pub(crate) const MIN_SLICES_AVERAGE_RUN_LENGTH: usize = 8;
 
 /// Filter a [`Buffer<T>`] by [`MaskValues`], returning a new buffer.
 ///
@@ -98,12 +98,13 @@ fn useful_cached_slices(mask: &MaskValues) -> Option<&[(usize, usize)]> {
     })
 }
 
-fn byte_compress_density_threshold<T>() -> f64 {
+pub(crate) fn byte_compress_density_threshold<T>() -> f64 {
     let width = size_of::<T>();
 
     // A density at or above the table entry selects byte compress after the higher-priority
     // strategies have declined the mask. These crossovers are benchmarked in
-    // `benches/filter_fixed_width.rs`.
+    // `benches/filter_fixed_width.rs` and can be rederived on new hardware with
+    // `examples/filter_threshold_verification.rs`.
     //
     // | Target  | 1 byte | 2 bytes | 4 bytes | 8 bytes | other |
     // | ------- | -----: | ------: | ------: | ------: | ----: |

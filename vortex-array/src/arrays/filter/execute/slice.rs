@@ -53,7 +53,7 @@ pub(super) fn low_bits_mask(len: usize) -> u64 {
 }
 
 /// Filter a slice from the mask bitmap without materializing indices or ranges.
-pub(super) fn filter_slice_by_bitmap<T: Copy>(slice: &[T], mask: &MaskValues) -> Buffer<T> {
+pub(crate) fn filter_slice_by_bitmap<T: Copy>(slice: &[T], mask: &MaskValues) -> Buffer<T> {
     assert_eq!(
         mask.len(),
         slice.len(),
@@ -98,7 +98,7 @@ pub(super) fn filter_slice_by_bitmap<T: Copy>(slice: &[T], mask: &MaskValues) ->
 }
 
 /// Filter a slice by a set of strictly increasing indices.
-pub(super) fn filter_slice_by_indices<T: Copy>(slice: &[T], indices: &[usize]) -> Buffer<T> {
+pub(crate) fn filter_slice_by_indices<T: Copy>(slice: &[T], indices: &[usize]) -> Buffer<T> {
     let mut out = BufferMut::<T>::with_capacity(indices.len());
     let src_ptr = slice.as_ptr();
     let out_ptr = out.spare_capacity_mut().as_mut_ptr().cast::<T>();
@@ -115,7 +115,7 @@ pub(super) fn filter_slice_by_indices<T: Copy>(slice: &[T], indices: &[usize]) -
 }
 
 /// Filter a slice by a set of strictly increasing `(start, end)` ranges.
-pub(super) fn filter_slice_by_slices<T: Copy>(
+pub(crate) fn filter_slice_by_slices<T: Copy>(
     slice: &[T],
     slices: &[(usize, usize)],
     output_len: usize,

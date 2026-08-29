@@ -23,7 +23,11 @@
 //!
 //! On x86, the widest available kernel is considered first for each width. When no entry matches,
 //! control returns to [`buffer`](super::buffer) for scalar selection.
+//!
+//! The density bands can be rederived and verified on new hardware with
+//! `examples/filter_threshold_verification.rs`.
 
+use std::ops::Range;
 use std::ptr;
 
 use vortex_buffer::Buffer;
@@ -37,7 +41,7 @@ mod tests;
 #[cfg(all(target_arch = "x86_64", not(miri)))]
 mod x86;
 
-const MIN_LEN: usize = 64;
+pub(crate) const MIN_LEN: usize = 64;
 
 const SLACK_BYTES: usize = 64;
 
@@ -51,12 +55,37 @@ pub(super) fn filter_slice_by_bitmap<T: Copy>(
     values: &[T],
     mask: &MaskValues,
 ) -> Option<Buffer<T>> {
-    debug_assert_eq!(values.len(), mask.len());
     let kernel = select_kernel::<T, false>(mask)?;
+    Some(run_kernel(kernel, values, mask))
+}
+
+/// Run the architecture kernel for `T` even when the mask density falls outside the kernel's
+/// configured band, so the band's crossovers can be rederived by direct measurement. The mask
+/// must still be at least [`MIN_LEN`] long.
+#[cfg(any(test, feature = "_test-harness"))]
+pub(crate) fn filter_slice_by_bitmap_any_density<T: Copy>(
+    values: &[T],
+    mask: &MaskValues,
+) -> Option<Buffer<T>> {
+    if mask.len() < MIN_LEN {
+        return None;
+    }
+    let (kernel, ..) = kernel_and_band::<T, false>()?;
+    Some(run_kernel(kernel, values, mask))
+}
+
+/// The name and configured density band of the kernel that would serve `T` on this CPU.
+#[cfg(any(test, feature = "_test-harness"))]
+pub(crate) fn configured_density_band<T>() -> Option<(&'static str, Range<f64>)> {
+    kernel_and_band::<T, false>().map(|(_, name, band)| (name, band))
+}
+
+fn run_kernel<T: Copy>(kernel: Kernel, values: &[T], mask: &MaskValues) -> Buffer<T> {
+    debug_assert_eq!(values.len(), mask.len());
 
     let true_count = mask.true_count();
     let mut out = BufferMut::<T>::with_capacity(true_count + SLACK_BYTES / size_of::<T>());
-    // SAFETY: `select_kernel` probed the kernel's target features; `values` holds `mask.len()`
+    // SAFETY: `kernel_and_band` probed the kernel's target features; `values` holds `mask.len()`
     // elements and the output has capacity for every selected element plus a full vector of
     // slack, so each unmasked store stays in bounds.
     let written = unsafe {
@@ -69,7 +98,7 @@ pub(super) fn filter_slice_by_bitmap<T: Copy>(
     debug_assert_eq!(written, true_count);
     // SAFETY: the kernel initialized the first `true_count` elements.
     unsafe { out.set_len(true_count) };
-    Some(out.freeze())
+    out.freeze()
 }
 
 /// In-place variant of [`filter_slice_by_bitmap`]: compact the selected elements to the front
@@ -96,17 +125,23 @@ fn select_kernel<T, const IN_PLACE: bool>(mask: &MaskValues) -> Option<Kernel> {
         return None;
     }
 
+    let (kernel, _, band) = kernel_and_band::<T, IN_PLACE>()?;
+    band.contains(&mask.density()).then_some(kernel)
+}
+
+/// The widest kernel available for `T` on this CPU, with its name and the benchmarked density
+/// band in which it beats the scalar strategies.
+fn kernel_and_band<T, const IN_PLACE: bool>() -> Option<(Kernel, &'static str, Range<f64>)> {
     #[cfg(all(target_arch = "x86_64", not(miri)))]
     {
-        x86::select_kernel::<T, IN_PLACE>(mask)
+        x86::kernel_and_band::<T, IN_PLACE>()
     }
     #[cfg(all(target_arch = "aarch64", not(miri)))]
     {
-        neon::select_kernel::<T, IN_PLACE>(mask)
+        neon::kernel_and_band::<T, IN_PLACE>()
     }
     #[cfg(any(not(any(target_arch = "x86_64", target_arch = "aarch64")), miri))]
     {
-        let _ = mask;
         None
     }
 }

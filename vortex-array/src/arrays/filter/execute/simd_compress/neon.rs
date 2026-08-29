@@ -11,6 +11,7 @@ use core::arch::aarch64::vqtbl1q_u8;
 use core::arch::aarch64::vst1_u8;
 use core::arch::aarch64::vst1q_u8;
 use core::arch::aarch64::vtbl1_u8;
+use std::ops::Range;
 
 use vortex_mask::MaskValues;
 
@@ -21,29 +22,22 @@ use super::bulk_copy;
 use super::compress_lut;
 use super::compress_tail;
 
-/// Return the benchmarked density range where NEON beats the scalar strategies.
-fn density_band<T>() -> Option<std::ops::Range<f64>> {
-    match size_of::<T>() {
-        1 | 2 => Some(0.15..f64::INFINITY),
-        4 => Some(0.30..f64::INFINITY),
-        8 => Some(0.50..0.80),
-        _ => None,
-    }
-}
+/// The kernel for this element width and the benchmarked density range where NEON beats the
+/// scalar strategies.
+///
+/// Rederive these thresholds with `examples/filter_threshold_verification.rs` (see also
+/// `benches/filter_fixed_width.rs`) when changing them.
+pub(super) fn kernel_and_band<T, const IN_PLACE: bool>()
+-> Option<(Kernel, &'static str, Range<f64>)> {
+    let (kernel, band) = match size_of::<T>() {
+        1 => (compress_neon_8::<IN_PLACE> as Kernel, 0.15..f64::INFINITY),
+        2 => (compress_neon_16::<IN_PLACE> as Kernel, 0.15..f64::INFINITY),
+        4 => (compress_neon_32::<IN_PLACE> as Kernel, 0.30..f64::INFINITY),
+        8 => (compress_neon_64::<IN_PLACE> as Kernel, 0.50..0.80),
+        _ => return None,
+    };
 
-/// Choose the kernel for this element width, if one applies to this mask.
-pub(super) fn select_kernel<T, const IN_PLACE: bool>(mask: &MaskValues) -> Option<Kernel> {
-    if !density_band::<T>()?.contains(&mask.density()) {
-        return None;
-    }
-
-    match size_of::<T>() {
-        1 => Some(compress_neon_8::<IN_PLACE> as Kernel),
-        2 => Some(compress_neon_16::<IN_PLACE> as Kernel),
-        4 => Some(compress_neon_32::<IN_PLACE> as Kernel),
-        8 => Some(compress_neon_64::<IN_PLACE> as Kernel),
-        _ => None,
-    }
+    Some((kernel, "NEON tbl", band))
 }
 
 static IDX_LUT_8: [[u8; 8]; 256] = compress_lut::<256, 8>(8, 1);
