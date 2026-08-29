@@ -31,16 +31,15 @@ impl ListContainsElementKernel for Primitive {
     fn list_contains(
         list: &ArrayRef,
         element: ArrayView<'_, Self>,
-        ctx: &mut ExecutionCtx,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        evaluate_constant_list_membership(list, element, ctx)
+        evaluate_constant_list_membership(list, element)
     }
 }
 
 fn evaluate_constant_list_membership(
     list: &ArrayRef,
     element: ArrayView<'_, Primitive>,
-    _ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
     if !element.ptype().is_int() {
         return Ok(None);
