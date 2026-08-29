@@ -114,6 +114,22 @@ pub trait RowVisitor: private::Sealed + Sized {
         self.visit_prepared::<Args, Out, ()>(|_| (), move |&(), args| apply(args))
     }
 
+    /// Visit an infallible Boolean row computation and pack its output during evaluation.
+    ///
+    /// This has the same requirements as [`visit`](Self::visit). Set `MULTIVERSIONED` to `true`
+    /// to select the packing loop for the current CPU at runtime. This mode is intended only for
+    /// small predicates and requires benchmark evidence. Set it to `false` to use the inlined
+    /// packing loop.
+    fn visit_bool<Args, const MULTIVERSIONED: bool>(
+        self,
+        apply: impl Fn(Args::Elems<'_>) -> bool,
+    ) -> VortexResult<Self::VisitResult>
+    where
+        Args: IndexedElementTuple,
+    {
+        self.visit::<Args, bool>(apply)
+    }
+
     /// The prepared form of [`visit`](Self::visit), with the same prerequisites.
     ///
     /// # Examples
@@ -297,6 +313,31 @@ pub trait RowVisitor: private::Sealed + Sized {
         )
     }
 
+    /// Visit a deferred row computation whose Boolean output is packed during evaluation.
+    ///
+    /// This has the same requirements and failure handling as
+    /// [`visit_deferred`](Self::visit_deferred). It selects direct packed collection instead of the
+    /// generic owned-output path.
+    ///
+    /// Set `MULTIVERSIONED` to `true` to select the packing loop for the current CPU at runtime.
+    /// This mode is intended only for small predicates and requires benchmark evidence. Set it to
+    /// `false` to use the inlined packing loop.
+    fn visit_deferred_bool<Args, Fail, const MULTIVERSIONED: bool>(
+        self,
+        apply: impl Fn(Args::Elems<'_>) -> (bool, Fail),
+        finish_failure: impl FnOnce(Fail) -> VortexResult<()>,
+    ) -> VortexResult<Self::VisitResult>
+    where
+        Args: IndexedElementTuple,
+        Fail: FailureEvidence,
+    {
+        self.visit_prepared_deferred_bool::<Args, (), Fail, MULTIVERSIONED>(
+            |_| (),
+            move |&(), args| apply(args),
+            finish_failure,
+        )
+    }
+
     /// The prepared form of [`visit_deferred`](Self::visit_deferred), with the same prerequisites.
     ///
     /// # Examples
@@ -342,6 +383,20 @@ pub trait RowVisitor: private::Sealed + Sized {
         Args: IndexedElementTuple,
         Out: OutputElement,
         Fail: FailureEvidence;
+
+    /// The prepared form of [`visit_deferred_bool`](Self::visit_deferred_bool).
+    fn visit_prepared_deferred_bool<Args, Prepared, Fail, const MULTIVERSIONED: bool>(
+        self,
+        prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
+        apply: impl Fn(&Prepared, Args::Elems<'_>) -> (bool, Fail),
+        finish_failure: impl FnOnce(Fail) -> VortexResult<()>,
+    ) -> VortexResult<Self::VisitResult>
+    where
+        Args: IndexedElementTuple,
+        Fail: FailureEvidence,
+    {
+        self.visit_prepared_deferred::<Args, bool, Prepared, Fail>(prepare, apply, finish_failure)
+    }
 }
 
 pub(super) mod private {
