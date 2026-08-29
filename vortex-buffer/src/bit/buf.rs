@@ -418,6 +418,23 @@ impl BitBuffer {
         count_ones(self.buffer.as_slice(), self.offset + start, end - start)
     }
 
+    /// Return whether every set bit in this buffer is also set in `other`.
+    ///
+    /// The comparison realigns arbitrary bit offsets and examines one `u64` word at a time
+    /// without constructing an intermediate bitmap.
+    #[inline]
+    pub fn is_subset_of(&self, other: &Self) -> bool {
+        if self.len != other.len {
+            return false;
+        }
+        let words = self.len.div_ceil(64);
+        self.chunks()
+            .iter_padded()
+            .zip(other.chunks().iter_padded())
+            .take(words)
+            .all(|(left, right)| left & !right == 0)
+    }
+
     /// Returns the position of the `nth` set bit (0-indexed).
     ///
     /// This is the "select" operation on a bitmap: given a rank `nth`, find
@@ -962,6 +979,25 @@ mod tests {
             buf.count_range(start, end),
             buf.slice(start..end).true_count()
         );
+    }
+
+    #[test]
+    fn subset_handles_misaligned_views() {
+        let left = BitBuffer::from_iter([
+            false, true, false, true, false, false, true, false, true, false,
+        ])
+        .slice(1..9);
+        let superset =
+            BitBuffer::from_iter([true, true, true, true, false, true, true, false, true, true])
+                .slice(1..9);
+        let missing = BitBuffer::from_iter([
+            true, false, true, true, false, true, true, false, true, true,
+        ])
+        .slice(1..9);
+
+        assert!(left.is_subset_of(&superset));
+        assert!(!left.is_subset_of(&missing));
+        assert!(!left.is_subset_of(&superset.slice(..7)));
     }
 
     #[rstest]

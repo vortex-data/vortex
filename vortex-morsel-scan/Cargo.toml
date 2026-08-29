@@ -1,0 +1,23 @@
+[package]
+name = "vortex-morsel-scan"
+authors.workspace = true
+description = "Selection facade for experimental Vortex morsel scan executors"
+edition = { workspace = true }
+homepage = { workspace = true }
+categories = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+publish = false
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+vortex-error = { workspace = true }
+vortex-layout = { workspace = true }
+vortex-morsel = { workspace = true }
+vortex-morsel-push = { workspace = true }
+
+[lints]
+workspace = true

@@ -11,6 +11,11 @@ impl PartialEq for Mask {
         if self.len() != other.len() {
             return false;
         }
+        if let (Mask::Values(left), Mask::Values(right)) = (self, other)
+            && std::sync::Arc::ptr_eq(left, right)
+        {
+            return true;
+        }
         if mem::discriminant(self) == mem::discriminant(other) && !matches!(self, Mask::Values(_)) {
             return true;
         }

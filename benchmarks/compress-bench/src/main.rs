@@ -444,67 +444,89 @@ async fn run_benchmark_for_dataset(
         let compressor = get_compressor(*format, mode);
 
         for op in ops {
-            let time = match op {
-                CompressOp::Compress => {
-                    let result = benchmark_compress(
-                        compressor.as_ref(),
-                        &parquet_path,
-                        iterations,
-                        bench_name,
-                    )
-                    .await
-                    .with_context(|| format!("compressing {bench_name} as {format}"))?;
-                    compressed_sizes.insert(*format, result.compressed_size);
-                    let all_runs_ns: Vec<u64> = result
-                        .all_runs
-                        .iter()
-                        .map(|d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
-                        .collect();
-                    v3_records.push(v3::compression_time_record(
-                        &result.timing,
-                        v3_dataset,
-                        v3_variant,
-                        CompressOp::Compress,
-                        all_runs_ns,
-                    ));
-                    v3_records.push(v3::compression_size_record(
-                        v3_dataset,
-                        v3_variant,
-                        *format,
-                        result.compressed_size,
-                        uncompressed_size.context("compression size requires Arrow memory size")?,
-                    ));
-                    ratios.extend(result.ratios);
-                    timings.push(result.timing);
-                    result.time
+            let run = AssertUnwindSafe(async {
+                anyhow::Ok(match op {
+                    CompressOp::Compress => {
+                        let result = benchmark_compress(
+                            compressor.as_ref(),
+                            &parquet_path,
+                            iterations,
+                            bench_name,
+                        )
+                        .await
+                        .with_context(|| format!("compressing {bench_name} as {format}"))?;
+                        compressed_sizes.insert(*format, result.compressed_size);
+                        let all_runs_ns: Vec<u64> = result
+                            .all_runs
+                            .iter()
+                            .map(|d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
+                            .collect();
+                        v3_records.push(v3::compression_time_record(
+                            &result.timing,
+                            v3_dataset,
+                            v3_variant,
+                            CompressOp::Compress,
+                            all_runs_ns,
+                        ));
+                        v3_records.push(v3::compression_size_record(
+                            v3_dataset,
+                            v3_variant,
+                            *format,
+                            result.compressed_size,
+                            uncompressed_size
+                                .context("compression size requires Arrow memory size")?,
+                        ));
+                        ratios.extend(result.ratios);
+                        timings.push(result.timing);
+                        result.time
+                    }
+                    CompressOp::Decompress => {
+                        let result = benchmark_decompress(
+                            compressor.as_ref(),
+                            &parquet_path,
+                            iterations,
+                            &decompress_name,
+                        )
+                        .await
+                        .with_context(|| format!("decompressing {bench_name} as {format}"))?;
+                        let all_runs_ns: Vec<u64> = result
+                            .all_runs
+                            .iter()
+                            .map(|d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
+                            .collect();
+                        v3_records.push(v3::compression_time_record(
+                            &result.timing,
+                            v3_dataset,
+                            if mode.is_gpu() {
+                                Some("gpu")
+                            } else {
+                                v3_variant
+                            },
+                            CompressOp::Decompress,
+                            all_runs_ns,
+                        ));
+                        timings.push(result.timing);
+                        result.time
+                    }
+                })
+            })
+            .catch_unwind()
+            .await;
+
+            let time = match run {
+                Ok(Ok(time)) => time,
+                Ok(Err(error)) => {
+                    tracing::error!("dropping {op} result for {bench_name} as {format}: {error:#}");
+                    progress.inc(1);
+                    continue;
                 }
-                CompressOp::Decompress => {
-                    let result = benchmark_decompress(
-                        compressor.as_ref(),
-                        &parquet_path,
-                        iterations,
-                        &decompress_name,
-                    )
-                    .await
-                    .with_context(|| format!("decompressing {bench_name} as {format}"))?;
-                    let all_runs_ns: Vec<u64> = result
-                        .all_runs
-                        .iter()
-                        .map(|d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
-                        .collect();
-                    v3_records.push(v3::compression_time_record(
-                        &result.timing,
-                        v3_dataset,
-                        if mode.is_gpu() {
-                            Some("gpu")
-                        } else {
-                            v3_variant
-                        },
-                        CompressOp::Decompress,
-                        all_runs_ns,
-                    ));
-                    timings.push(result.timing);
-                    result.time
+                Err(panic) => {
+                    tracing::error!(
+                        "dropping {op} result for {bench_name} as {format}: panicked: {}",
+                        panic_message(&panic)
+                    );
+                    progress.inc(1);
+                    continue;
                 }
             };
 

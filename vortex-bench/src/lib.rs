@@ -6,7 +6,9 @@
 
 use std::clone::Clone;
 use std::fmt::Display;
+use std::num::NonZeroUsize;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::sync::LazyLock;
 
 use anyhow::bail;
@@ -32,7 +34,16 @@ use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::file::VortexWriteOptions;
-use vortex::file::WriteStrategyBuilder;
+use vortex::layout::LayoutStrategy;
+use vortex::layout::layouts::buffered::BufferedStrategy;
+use vortex::layout::layouts::chunked::writer::ChunkedLayoutStrategy;
+use vortex::layout::layouts::compressed::CompressingStrategy;
+use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
+use vortex::layout::layouts::repartition::RepartitionStrategy;
+use vortex::layout::layouts::repartition::RepartitionWriterOptions;
+use vortex::layout::layouts::table::TableStrategy;
+use vortex::layout::layouts::zoned::writer::ZonedLayoutOptions;
+use vortex::layout::layouts::zoned::writer::ZonedStrategy;
 use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::spatialbench::SpatialBenchBenchmark;
@@ -250,15 +261,56 @@ pub enum CompactionStrategy {
 
 impl CompactionStrategy {
     pub fn apply_options(&self, options: VortexWriteOptions) -> VortexWriteOptions {
-        match self {
-            CompactionStrategy::Compact => options.with_strategy(
-                WriteStrategyBuilder::default()
-                    .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact())
-                    .build(),
-            ),
-            CompactionStrategy::Default => options,
-        }
+        options.with_strategy(morsel_write_strategy(matches!(self, Self::Compact)))
     }
+}
+
+/// Production compression without dictionary layouts, retaining zoned statistics for morsel
+/// pruning. This throwaway benchmark branch writes data specifically for the morsel executor.
+fn morsel_write_strategy(compact: bool) -> Arc<dyn LayoutStrategy> {
+    let compressor = if compact {
+        BtrBlocksCompressorBuilder::default().with_compact().build()
+    } else {
+        BtrBlocksCompressorBuilder::default().build()
+    };
+    let stats_compressor = if compact {
+        BtrBlocksCompressorBuilder::default().with_compact().build()
+    } else {
+        BtrBlocksCompressorBuilder::default().build()
+    };
+
+    let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
+    let chunked = ChunkedLayoutStrategy::new(Arc::clone(&flat));
+    let buffered = BufferedStrategy::new(chunked, 2 * (1 << 20));
+    let compressed = CompressingStrategy::new(buffered, compressor);
+    let coalesced = RepartitionStrategy::new(
+        compressed,
+        RepartitionWriterOptions {
+            block_size_minimum: 1 << 20,
+            block_len_multiple: 8192,
+            block_size_target: Some(1 << 20),
+            canonicalize: true,
+        },
+    );
+    let stats = CompressingStrategy::new(Arc::clone(&flat), stats_compressor);
+    let zoned = ZonedStrategy::new(
+        coalesced,
+        stats,
+        ZonedLayoutOptions {
+            block_size: NonZeroUsize::new(8192).expect("non-zero row block size"),
+            ..Default::default()
+        },
+    );
+    let repartitioned = RepartitionStrategy::new(
+        zoned,
+        RepartitionWriterOptions {
+            block_size_minimum: 0,
+            block_len_multiple: 8192,
+            block_size_target: None,
+            canonicalize: false,
+        },
+    );
+    Arc::new(TableStrategy::new(flat, Arc::new(repartitioned)))
 }
 
 /// Verify that local data has already been prepared for the requested benchmark formats.

@@ -19,8 +19,11 @@
 /// static lib is not self-contained. This means that it includes symbols which
 /// are not defined as part of the static library.
 fn main() {
-    // Propagate DuckDB rpath from vortex-duckdb
-    let duckdb_lib = std::env::var("DEP_DUCKDB_LIB_DIR").unwrap();
+    let duckdb_lib = std::env::var("DUCKDB_LIB_DIR")
+        .expect("DUCKDB_LIB_DIR must point at the DuckDB shared-library directory");
+    println!("cargo:rerun-if-env-changed=DUCKDB_LIB_DIR");
+    println!("cargo:rustc-link-search=native={duckdb_lib}");
+    println!("cargo:rustc-link-lib=dylib=duckdb");
 
     #[cfg(target_os = "macos")]
     {

@@ -23,6 +23,8 @@ members = [
     "vortex-btrblocks",
     "vortex-layout",
     "vortex-morsel",
+    "vortex-morsel-push",
+    "vortex-morsel-scan",
     "vortex-scan",
     "vortex-file",
     "vortex-ipc",
@@ -327,6 +329,8 @@ vortex-proto = { version = "0.1.0", path = "./vortex-proto", default-features = 
 vortex-row = { version = "0.1.0", path = "./vortex-row", default-features = false }
 vortex-runend = { version = "0.1.0", path = "./encodings/runend", default-features = false }
 vortex-morsel = { version = "0.1.0", path = "./vortex-morsel", default-features = false }
+vortex-morsel-push = { version = "0.1.0", path = "./vortex-morsel-push", default-features = false }
+vortex-morsel-scan = { version = "0.1.0", path = "./vortex-morsel-scan", default-features = false }
 vortex-scan = { version = "0.1.0", path = "./vortex-scan", default-features = false }
 vortex-sequence = { version = "0.1.0", path = "encodings/sequence", default-features = false }
 vortex-session = { version = "0.1.0", path = "./vortex-session", default-features = false }

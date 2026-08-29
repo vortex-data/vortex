@@ -5,6 +5,7 @@
 #![deny(missing_docs)]
 
 mod bitops;
+mod compress_by_mask;
 mod eq;
 mod intersect_by_rank;
 
@@ -391,6 +392,37 @@ impl Mask {
         }
     }
 
+    /// Return whether every selected row in this mask is also selected by `other`.
+    ///
+    /// Mixed bitmaps are compared one machine word at a time without allocating a result mask.
+    pub fn is_subset_of(&self, other: &Self) -> bool {
+        if self.len() != other.len() {
+            return false;
+        }
+        match (self.bit_buffer(), other.bit_buffer()) {
+            (AllOr::None, _) | (_, AllOr::All) => true,
+            (AllOr::All, _) => other.all_true(),
+            (_, AllOr::None) => self.all_false(),
+            (AllOr::Some(left), AllOr::Some(right)) => left.is_subset_of(right),
+        }
+    }
+
+    /// Count selected rows in `[start, end)` without constructing a sliced mask.
+    ///
+    /// Panics if the range is invalid or exceeds this mask's length.
+    pub fn count_range(&self, start: usize, end: usize) -> usize {
+        assert!(start <= end, "start {start} exceeds end {end}");
+        assert!(end <= self.len(), "end {end} exceeds len {}", self.len());
+        if start == 0 && end == self.len() {
+            return self.true_count();
+        }
+        match self.bit_buffer() {
+            AllOr::All => end - start,
+            AllOr::None => 0,
+            AllOr::Some(buffer) => buffer.count_range(start, end),
+        }
+    }
+
     /// Returns true if all values in the mask are true.
     #[inline]
     pub fn all_true(&self) -> bool {
@@ -704,12 +736,24 @@ impl Mask {
         let masks: Vec<_> = masks.collect();
         let len = masks.iter().map(|t| t.len()).sum();
 
+        if let [mask] = masks.as_slice() {
+            return Ok((*mask).clone());
+        }
+
         if masks.iter().all(|t| t.all_true()) {
             return Ok(Mask::AllTrue(len));
         }
 
         if masks.iter().all(|t| t.all_false()) {
             return Ok(Mask::AllFalse(len));
+        }
+
+        // Slicing a bitmap keeps a suffix of the original byte buffer. When these masks are
+        // consecutive slices of one bitmap, recover the combined view instead of copying every
+        // bit into a fresh allocation. Push executors commonly split one authoritative demand
+        // mask at physical chunk boundaries and join those exact slices at a morsel boundary.
+        if let Some(mask) = Self::concat_contiguous_values(&masks, len) {
+            return Ok(mask);
         }
 
         let mut builder = BitBufferMut::with_capacity(len);
@@ -723,6 +767,48 @@ impl Mask {
         }
 
         Ok(Mask::from_buffer(builder.freeze()))
+    }
+
+    fn concat_contiguous_values(masks: &[&Self], len: usize) -> Option<Self> {
+        let Self::Values(first) = masks.first().copied()? else {
+            return None;
+        };
+        let first_buffer = first.bit_buffer();
+        let first_ptr = first_buffer.inner().as_ptr();
+        let first_offset = first_buffer.offset();
+        if first_offset.checked_add(len)?.div_ceil(8) > first_buffer.inner().len() {
+            return None;
+        }
+        let mut cursor = 0usize;
+        let mut true_count = 0usize;
+
+        for mask in masks {
+            let Self::Values(values) = mask else {
+                return None;
+            };
+            let buffer = values.bit_buffer();
+            let bit_start = first_offset.checked_add(cursor)?;
+            let byte_start = bit_start / 8;
+            if buffer.inner().as_ptr() != first_ptr.wrapping_add(byte_start)
+                || buffer.offset() != bit_start % 8
+            {
+                return None;
+            }
+            cursor = cursor.checked_add(buffer.len())?;
+            true_count = true_count.checked_add(values.true_count())?;
+        }
+        if cursor != len || true_count == 0 || true_count == len {
+            return None;
+        }
+
+        let buffer = BitBuffer::new_with_offset(first_buffer.inner().clone(), len, first_offset);
+        Some(Self::Values(Arc::new(MaskValues {
+            buffer,
+            indices: Default::default(),
+            slices: Default::default(),
+            true_count,
+            density: true_count as f64 / len as f64,
+        })))
     }
 }
 

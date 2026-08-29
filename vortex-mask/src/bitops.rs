@@ -87,6 +87,48 @@ impl BitOr<&Mask> for Mask {
 }
 
 impl Mask {
+    /// Intersect a non-empty collection of owned masks without intermediate mask scans.
+    ///
+    /// All masks must have the same length. All-true inputs are ignored, an all-false input
+    /// short-circuits the result, and a sole mixed input is returned without rebuilding it. For
+    /// multiple mixed masks, the first backing buffer is mutated in place when uniquely owned and
+    /// aligned with each right-hand buffer. The result is wrapped and counted only once, after all
+    /// intersections, avoiding intermediate [`Mask`] values and their repeated true-count scans.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `masks` is empty or contains masks with different lengths.
+    pub fn intersect_owned(mut masks: Vec<Self>) -> Self {
+        let len = masks
+            .first()
+            .map(Self::len)
+            .unwrap_or_else(|| vortex_panic!("cannot intersect an empty mask collection"));
+        if masks.iter().any(|mask| mask.len() != len) {
+            vortex_panic!("Masks must have the same length");
+        }
+        if masks.iter().any(Self::all_false) {
+            return Self::new_false(len);
+        }
+
+        masks.retain(|mask| !mask.all_true());
+        match masks.len() {
+            0 => return Self::new_true(len),
+            1 => return masks.pop().unwrap_or_else(|| unreachable!()),
+            _ => {}
+        }
+
+        let mut masks = masks.into_iter();
+        let mut intersection = masks
+            .next()
+            .unwrap_or_else(|| unreachable!())
+            .into_bit_buffer();
+        for mask in masks {
+            let values = mask.values().unwrap_or_else(|| unreachable!());
+            intersection = intersection & values.bit_buffer();
+        }
+        Self::from_buffer(intersection)
+    }
+
     /// Computes `self & !rhs` (AND NOT), equivalent to set difference.
     pub fn bitand_not(self, rhs: &Mask) -> Mask {
         if self.len() != rhs.len() {
@@ -126,6 +168,8 @@ impl Not for &Mask {
 #[cfg(test)]
 #[expect(clippy::many_single_char_names)]
 mod tests {
+    use std::sync::Arc;
+
     use vortex_buffer::BitBuffer;
 
     use super::*;
@@ -155,6 +199,56 @@ mod tests {
         let result = &all_false & &all_false;
         assert!(result.all_false());
         assert_eq!(result.true_count(), 0);
+    }
+
+    #[test]
+    fn intersect_owned_handles_special_masks_and_misaligned_values() {
+        let len = 131;
+        let make = |offset: usize, multiplier: usize, remainder: usize| {
+            let bits = (0..len + offset + 5)
+                .map(|index| index.wrapping_mul(multiplier) % 11 != remainder)
+                .collect::<BitBuffer>();
+            Mask::from_buffer(bits.slice(offset..offset + len))
+        };
+        let masks = vec![
+            Mask::new_true(len),
+            make(1, 3, 2),
+            make(3, 5, 4),
+            make(7, 7, 6),
+        ];
+        let expected = (0..len)
+            .map(|index| masks.iter().all(|mask| mask.value(index)))
+            .collect::<Mask>();
+
+        assert_eq!(Mask::intersect_owned(masks), expected);
+        assert!(Mask::intersect_owned(vec![Mask::new_true(len), Mask::new_false(len)]).all_false());
+        assert!(Mask::intersect_owned(vec![Mask::new_true(len), Mask::new_true(len)]).all_true());
+    }
+
+    #[test]
+    fn intersect_owned_returns_a_sole_mixed_mask_without_rebuilding() {
+        let mask = Mask::from_buffer(BitBuffer::from_iter([true, false, true, false, true]));
+        let original = match &mask {
+            Mask::Values(values) => Arc::clone(values),
+            _ => unreachable!(),
+        };
+        let result = Mask::intersect_owned(vec![Mask::new_true(mask.len()), mask]);
+        let Mask::Values(result) = result else {
+            unreachable!();
+        };
+        assert!(Arc::ptr_eq(&original, &result));
+    }
+
+    #[test]
+    #[should_panic(expected = "Masks must have the same length")]
+    fn intersect_owned_rejects_different_lengths() {
+        Mask::intersect_owned(vec![Mask::new_true(3), Mask::new_true(4)]);
+    }
+
+    #[test]
+    #[should_panic(expected = "cannot intersect an empty mask collection")]
+    fn intersect_owned_rejects_empty_collection() {
+        Mask::intersect_owned(Vec::new());
     }
 
     #[test]

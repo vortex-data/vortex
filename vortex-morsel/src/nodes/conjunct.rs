@@ -36,7 +36,7 @@ pub struct ConjunctSlot {
 ///
 /// This is the whole of the cascade-versus-parallel policy: the operators are identical, only
 /// the demand each conjunct sees differs.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ConjunctMode {
     /// Each conjunct sees the mask the previous one produced, and an all-false mask ends the
     /// morsel early. Fewer rows read; a serial dependency between conjuncts.

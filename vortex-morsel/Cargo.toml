@@ -20,7 +20,6 @@ all-features = true
 _test-harness = [
     "vortex-layout/_test-harness",
     "vortex-array/_test-harness",
-    "dep:vortex-io",
     "vortex-io/tokio",
     "dep:tokio",
     "dep:vortex-btrblocks",
@@ -38,11 +37,12 @@ vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }
+vortex-scan = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
 
 futures = { workspace = true }
-vortex-io = { workspace = true, optional = true }
+vortex-io = { workspace = true }
 vortex-btrblocks = { workspace = true, optional = true }
 vortex-arrow = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true, features = ["rt-multi-thread"] }

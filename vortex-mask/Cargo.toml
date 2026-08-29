@@ -34,6 +34,10 @@ name = "intersect_by_rank"
 harness = false
 
 [[bench]]
+name = "compress_by_mask"
+harness = false
+
+[[bench]]
 name = "rank"
 harness = false
 
@@ -43,6 +47,10 @@ harness = false
 
 [[bench]]
 name = "mask_iteration"
+harness = false
+
+[[bench]]
+name = "intersect_owned"
 harness = false
 
 [lints]

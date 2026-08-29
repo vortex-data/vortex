@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
+use std::task::Poll;
 
 use futures::FutureExt;
 use object_store::registry::ObjectStoreRegistry;
@@ -25,7 +26,11 @@ use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::runtime::BlockingRuntime as _;
 use vortex::layout::LayoutReaderRef;
 use vortex::layout::scan::scan_builder::ScanBuilder;
+use vortex::layout::scan::scan_builder::ScanExecutor;
 use vortex::mask::Mask;
+use vortex_morsel_scan::ScanExecutorOptions;
+use vortex_morsel_scan::scan_backend_from_env;
+use vortex_morsel_scan::scan_executor;
 
 use crate::RUNTIME;
 use crate::SESSION;
@@ -69,7 +74,6 @@ use crate::table_function::convert_result;
 // separate thread.
 
 static REGISTRY: LazyLock<Registry> = LazyLock::new(Registry::new);
-
 fn resolve_filesystem(url: &Url) -> VortexResult<(FileSystemRef, String)> {
     // Compat makes us use tokio which is very bad for local reads on
     // high-core machines because reads go into blocking pool
@@ -91,8 +95,22 @@ fn resolve_filesystem(url: &Url) -> VortexResult<(FileSystemRef, String)> {
     ))
 }
 
+fn drive_runtime_once() {
+    let mut yielded = false;
+    RUNTIME.block_on(std::future::poll_fn(move |cx| {
+        if yielded {
+            Poll::Ready(())
+        } else {
+            yielded = true;
+            cx.waker().wake_by_ref();
+            Poll::Pending
+        }
+    }));
+}
+
 pub struct OpenFileReader {
     pub reader: LayoutReaderRef,
+    morsel_executor: Option<Arc<dyn ScanExecutor>>,
     /// File splits stored in inverse order
     pub splits: Vec<Split>,
     pub cache: ConversionCache,
@@ -101,12 +119,21 @@ pub struct OpenFileReader {
 
 impl OpenFileReader {
     async fn open(file_path: String) -> VortexResult<Self> {
+        let backend = scan_backend_from_env()?;
         let url = parse_uri_or_path(&file_path)?;
         let (fs, path) = resolve_filesystem(&url)?;
         let file = fs.open_read(&path).await?;
         let file = open_cached(&SESSION, file, &path, None, &|options| options).await?;
+        let reader = file.layout_reader()?;
+        let options = ScanExecutorOptions::default().with_external_threads(drive_runtime_once);
+        let morsel_executor = scan_executor(
+            backend,
+            || (Arc::clone(file.footer().layout()), file.segment_source()),
+            &options,
+        );
         Ok(OpenFileReader {
-            reader: file.layout_reader()?,
+            reader,
+            morsel_executor,
             cache: ConversionCache::default(),
             splits: vec![],
             total_splits: 0,
@@ -174,6 +201,9 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
         .with_ordered(ordered)
         .with_some_filter(filter.filter.clone())
         .with_selection(filter.row_selection.clone());
+    if let Some(executor) = &file.morsel_executor {
+        builder = builder.with_executor(Arc::clone(executor));
+    }
     if let Some(row_range) = filter.row_range.as_ref() {
         builder = builder.with_row_range(row_range.clone());
     }

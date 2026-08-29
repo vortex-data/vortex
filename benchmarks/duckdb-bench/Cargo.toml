@@ -33,7 +33,6 @@ tracing = { workspace = true }
 vortex = { workspace = true }
 vortex-bench = { workspace = true }
 vortex-cuda = { workspace = true, optional = true }
-vortex-duckdb = { workspace = true }
 
 [features]
 cuda = ["dep:vortex-cuda"]

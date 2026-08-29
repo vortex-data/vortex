@@ -285,14 +285,24 @@ impl ScalarFnVTable for Between {
         let lower_dt = &arg_dtypes[1];
         let upper_dt = &arg_dtypes[2];
 
-        if !arr_dt.eq_ignore_nullability(lower_dt) {
+        // Binary comparisons allow an extension array to be compared with its raw storage type.
+        // Preserve that contract when two such comparisons are fused into Between. Extension
+        // arrays do not have a Between kernel, so execution falls back to the same two binary
+        // comparisons and unwraps the extension storage there.
+        let matches_array = |bound: &DType| {
+            arr_dt.eq_ignore_nullability(bound)
+                || matches!(arr_dt, DType::Extension(ext)
+                    if ext.storage_dtype().eq_ignore_nullability(bound))
+        };
+
+        if !matches_array(lower_dt) {
             vortex_bail!(
                 "Array dtype {} does not match lower dtype {}",
                 arr_dt,
                 lower_dt
             );
         }
-        if !arr_dt.eq_ignore_nullability(upper_dt) {
+        if !matches_array(upper_dt) {
             vortex_bail!(
                 "Array dtype {} does not match upper dtype {}",
                 arr_dt,
@@ -361,6 +371,7 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::DecimalArray;
+    use crate::arrays::ExtensionArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::assert_arrays_eq;
@@ -373,6 +384,8 @@ mod tests {
     use crate::expr::get_item;
     use crate::expr::lit;
     use crate::expr::root;
+    use crate::extension::datetime::Date;
+    use crate::extension::datetime::TimeUnit;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
     use crate::test_harness::to_int_indices;
@@ -443,6 +456,26 @@ mod tests {
         );
 
         assert!(!expr.as_scalar().is_some_and(|f| f.signature().is_strict()));
+    }
+
+    #[test]
+    fn date_extension_accepts_storage_bounds() -> VortexResult<()> {
+        let ext_dtype = Date::new(TimeUnit::Days, Nullability::NonNullable).erased();
+        let dates = ExtensionArray::new(
+            ext_dtype,
+            buffer![8_765i32, 8_766, 9_130, 9_131].into_array(),
+        )
+        .into_array();
+        let lower = ConstantArray::new(Scalar::from(8_766i32), dates.len()).into_array();
+        let upper = ConstantArray::new(Scalar::from(9_131i32), dates.len()).into_array();
+        let ctx = &mut SESSION.create_execution_ctx();
+
+        let matches = Between::try_new(dates, lower, upper, NON_STRICT)?
+            .into_array()
+            .execute::<BoolArray>(ctx)?;
+
+        assert_eq!(matches.bool_vec(ctx), [false, true, true, true]);
+        Ok(())
     }
 
     #[test]

@@ -37,6 +37,7 @@ vortex = { workspace = true }
 vortex-arrow = { workspace = true }
 vortex-bench = { workspace = true }
 vortex-cuda = { workspace = true, optional = true }
+vortex-morsel = { workspace = true }
 
 [features]
 cuda = ["dep:tempfile", "dep:vortex-cuda"]

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use rstest::rstest;
 use vortex_buffer::BitBuffer;
 
@@ -726,6 +728,53 @@ fn test_mask_concat_mixed_types() {
     assert!(!result.value(7)); // from all_false
 }
 
+#[test]
+fn test_mask_concat_reuses_contiguous_sliced_bitmap() {
+    let original = Mask::from_buffer(BitBuffer::from_iter(
+        (0_usize..137).map(|index| index.is_multiple_of(3) || index.is_multiple_of(11)),
+    ));
+    let slices = [
+        original.slice(5..29),
+        original.slice(29..81),
+        original.slice(81..132),
+    ];
+    let first = match slices[0].bit_buffer() {
+        AllOr::Some(buffer) => buffer,
+        _ => panic!("mixed slice must have bitmap storage"),
+    };
+
+    let result = Mask::concat(slices.iter()).unwrap();
+    assert_eq!(result, original.slice(5..132));
+    let result = match result.bit_buffer() {
+        AllOr::Some(buffer) => buffer,
+        _ => panic!("mixed result must have bitmap storage"),
+    };
+    assert_eq!(result.inner().as_ptr(), first.inner().as_ptr());
+    assert_eq!(result.offset(), first.offset());
+}
+
+#[test]
+fn test_mask_concat_one_preserves_mask_values_identity() {
+    let original = Mask::from_iter([true, false, true, false, true]);
+    let result = Mask::concat(std::iter::once(&original)).unwrap();
+    let (Mask::Values(original), Mask::Values(result)) = (&original, &result) else {
+        panic!("mixed masks must have bitmap storage")
+    };
+    assert!(Arc::ptr_eq(original, result));
+}
+
+#[test]
+fn test_mask_concat_copies_unrelated_bitmaps() {
+    let masks = [
+        Mask::from_iter([true, false, true]),
+        Mask::from_iter([false, true, false]),
+    ];
+    assert_eq!(
+        Mask::concat(masks.iter()).unwrap(),
+        Mask::from_iter([true, false, true, false, true, false])
+    );
+}
+
 // `Mask::iter` per-element bool iteration
 
 #[rstest]
@@ -750,4 +799,16 @@ fn mask_iter_matches_value(#[case] mask: Mask, #[case] expected: Vec<bool>) {
     if it.next().is_some() {
         assert_eq!(it.len(), mask.len() - 1);
     }
+}
+
+#[test]
+fn count_range_full_misaligned_mask_matches_cached_true_count() {
+    let source = BitBuffer::from_iter((0_usize..149).map(|index| index.is_multiple_of(5)));
+    let mask = Mask::from_buffer(source.slice(3..140));
+
+    assert_eq!(mask.count_range(0, mask.len()), mask.true_count());
+    assert_eq!(
+        mask.count_range(4, 79),
+        (4..79).filter(|&i| mask.value(i)).count()
+    );
 }

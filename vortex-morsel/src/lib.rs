@@ -41,6 +41,7 @@
 pub mod build;
 pub mod cells;
 pub mod driver;
+mod executor;
 #[cfg(any(test, feature = "_test-harness"))]
 pub mod fixtures;
 #[cfg(any(test, feature = "_test-harness"))]
@@ -61,6 +62,7 @@ pub use build::natural_morsels_for;
 pub use driver::MorselExecutor;
 pub use driver::MorselScan;
 pub use driver::morsels;
+pub use executor::MorselScanExecutor;
 pub use node::ExecCx;
 pub use node::ExecNode;
 pub use node::ExecPoll;

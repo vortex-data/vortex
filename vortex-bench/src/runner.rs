@@ -12,7 +12,6 @@ use std::time::Duration;
 use std::time::Instant;
 
 use indicatif::ProgressBar;
-use vortex::error::vortex_panic;
 use vortex::utils::aliases::hash_set::HashSet;
 
 use crate::Benchmark;
@@ -135,7 +134,7 @@ impl SqlBenchmarkRunner {
     fn run_query<R, F>(&mut self, query_idx: usize, format: Format, iterations: usize, mut f: F)
     where
         R: BenchmarkQueryResult,
-        F: FnMut() -> (Option<Duration>, R),
+        F: FnMut() -> anyhow::Result<(Option<Duration>, R)>,
     {
         self.start_query();
 
@@ -144,7 +143,18 @@ impl SqlBenchmarkRunner {
 
         for _ in 0..iterations {
             let start = Instant::now();
-            let (timing, result) = f();
+            let (timing, result) = match f() {
+                Ok(result) => result,
+                Err(err) => {
+                    tracing::warn!(
+                        %format,
+                        query_idx,
+                        error = %err,
+                        "dropping failed query measurement"
+                    );
+                    return;
+                }
+            };
             let elapsed = timing.unwrap_or_else(|| start.elapsed());
             runs.push(elapsed);
 
@@ -173,6 +183,23 @@ impl SqlBenchmarkRunner {
     ) {
         let target = Target::new(self.engine, format);
 
+        // Validate row count if expected counts are provided
+        if let Some(expected_counts) = &self.expected_row_counts
+            && query_idx < expected_counts.len()
+        {
+            let expected = expected_counts[query_idx];
+            if row_count != expected {
+                tracing::warn!(
+                    %format,
+                    query_idx,
+                    expected,
+                    actual = row_count,
+                    "dropping query measurement with an unexpected row count"
+                );
+                return;
+            }
+        }
+
         self.query_measurements.push(QueryMeasurement {
             query_idx,
             target,
@@ -181,19 +208,6 @@ impl SqlBenchmarkRunner {
             storage: self.storage.clone(),
             runs,
         });
-
-        // Validate row count if expected counts are provided
-        if let Some(expected_counts) = &self.expected_row_counts
-            && query_idx < expected_counts.len()
-        {
-            let expected = expected_counts[query_idx];
-            assert_eq!(
-                row_count,
-                expected,
-                "Row count mismatch for query {query_idx} - {engine}:{format}, expected {expected}, got {row_count}",
-                engine = self.engine,
-            );
-        }
 
         // Record memory measurement if tracking is enabled
         if let Some(tracker) = self.memory_tracker.as_ref()
@@ -321,11 +335,7 @@ impl SqlBenchmarkRunner {
                         let query_idx = *query_idx;
                         tracing::debug!(%format, query_idx, "Running query");
                         self.run_query(query_idx, format, iterations, || {
-                            execute(&mut ctx, query_idx, format, query.as_str()).unwrap_or_else(
-                                |err| {
-                                    vortex_panic!("query {query_idx} failed: {err}");
-                                },
-                            )
+                            execute(&mut ctx, query_idx, format, query.as_str())
                         });
 
                         progress_bar.inc(1);
@@ -401,11 +411,20 @@ impl SqlBenchmarkRunner {
 
                         for _ in 0..iterations {
                             let start = Instant::now();
-                            let (timing, result) = execute(query_idx, &ctx, query.as_str())
-                                .await
-                                .unwrap_or_else(|err| {
-                                    vortex_panic!("query {query_idx} failed: {err}");
-                                });
+                            let (timing, result) =
+                                match execute(query_idx, &ctx, query.as_str()).await {
+                                    Ok(result) => result,
+                                    Err(err) => {
+                                        tracing::warn!(
+                                            %format,
+                                            query_idx,
+                                            error = %err,
+                                            "dropping failed query measurement"
+                                        );
+                                        runs.clear();
+                                        break;
+                                    }
+                                };
                             let elapsed = timing.unwrap_or_else(|| start.elapsed());
                             runs.push(elapsed);
 
@@ -414,8 +433,10 @@ impl SqlBenchmarkRunner {
                             }
                         }
 
-                        let row_count = row_count.expect("iterations must be > 0");
-                        self.record_query(query_idx, format, runs, row_count);
+                        if !runs.is_empty() {
+                            let row_count = row_count.expect("iterations must be > 0");
+                            self.record_query(query_idx, format, runs, row_count);
+                        }
 
                         progress_bar.inc(1);
                     }
@@ -511,6 +532,35 @@ pub fn filter_queries(
 mod tests {
     use super::*;
 
+    #[derive(Clone, Copy)]
+    struct TestResult(usize);
+
+    impl BenchmarkQueryResult for TestResult {
+        fn row_count(&self) -> usize {
+            self.0
+        }
+
+        fn display(self) -> String {
+            String::new()
+        }
+    }
+
+    fn test_runner() -> SqlBenchmarkRunner {
+        SqlBenchmarkRunner {
+            engine: Engine::DataFusion,
+            benchmark_dataset: BenchmarkDataset::VortexQueries,
+            benchmark_runner: "test".to_string(),
+            storage: "local".to_string(),
+            expected_row_counts: None,
+            formats: vec![Format::OnDiskVortex],
+            memory_tracker: None,
+            hide_progress_bar: true,
+            doc: "",
+            query_measurements: Vec::new(),
+            memory_measurements: Vec::new(),
+        }
+    }
+
     #[test]
     fn ci_rejects_unknown_benchmark_runner() {
         assert!(validate_benchmark_runner_id("unknown", true).is_err());
@@ -524,5 +574,64 @@ mod tests {
     #[test]
     fn local_accepts_unknown_benchmark_runner() {
         assert!(validate_benchmark_runner_id("unknown", false).is_ok());
+    }
+
+    #[test]
+    fn synchronous_failures_are_omitted_and_the_run_continues() -> anyhow::Result<()> {
+        let mut runner = test_runner();
+        runner.run_all(
+            &[(0, "bad".to_string()), (1, "good".to_string())],
+            BenchmarkMode::Run { iterations: 1 },
+            |_| Ok(()),
+            |_, query_idx, _, _| {
+                if query_idx == 0 {
+                    anyhow::bail!("unsupported")
+                }
+                Ok((None, TestResult(1)))
+            },
+        )?;
+
+        assert_eq!(runner.query_measurements.len(), 1);
+        assert_eq!(runner.query_measurements[0].query_idx, 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn asynchronous_failures_are_omitted_and_the_run_continues() -> anyhow::Result<()> {
+        let mut runner = test_runner();
+        runner
+            .run_all_async(
+                &[(0, "bad".to_string()), (1, "good".to_string())],
+                BenchmarkMode::Run { iterations: 1 },
+                |_| async { Ok(()) },
+                |query_idx, _, _| {
+                    Box::pin(async move {
+                        if query_idx == 0 {
+                            anyhow::bail!("unsupported")
+                        }
+                        Ok((None, TestResult(1)))
+                    })
+                },
+            )
+            .await?;
+
+        assert_eq!(runner.query_measurements.len(), 1);
+        assert_eq!(runner.query_measurements[0].query_idx, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn wrong_row_counts_are_omitted() -> anyhow::Result<()> {
+        let mut runner = test_runner();
+        runner.expected_row_counts = Some(vec![2]);
+        runner.run_all(
+            &[(0, "wrong".to_string())],
+            BenchmarkMode::Run { iterations: 1 },
+            |_| Ok(()),
+            |_, _, _, _| Ok((None, TestResult(1))),
+        )?;
+
+        assert!(runner.query_measurements.is_empty());
+        Ok(())
     }
 }

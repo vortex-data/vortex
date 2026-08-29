@@ -7,8 +7,8 @@ then merge the per-combination outputs
 """
 
 import argparse
-import glob
 import json
+import shutil
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -35,8 +35,10 @@ def drop_os_caches() -> None:
         pass
 
 
-def run_combinations(emit_ingest_records: bool) -> None:
+def run_combinations(emit_ingest_records: bool) -> list[Path]:
+    shutil.rmtree(PARTS_DIR, ignore_errors=True)
     PARTS_DIR.mkdir(parents=True, exist_ok=True)
+    outputs: list[Path] = []
     i = 0
     for dataset in DATASETS:
         for fmt in FORMATS:
@@ -44,6 +46,7 @@ def run_combinations(emit_ingest_records: bool) -> None:
                 for open_mode in OPEN_MODES:
                     drop_os_caches()
 
+                    output = PARTS_DIR / f"{i}.gh.json"
                     args = [
                         "bash",
                         str(SCRIPT_DIR / "bench-taskset.sh"),
@@ -59,13 +62,21 @@ def run_combinations(emit_ingest_records: bool) -> None:
                         "-d",
                         "gh-json",
                         "-o",
-                        str(PARTS_DIR / f"{i}.gh.json"),
+                        str(output),
                     ]
                     if emit_ingest_records:
                         args += ["--ingest-jsonl", str(PARTS_DIR / f"{i}.ingest.jsonl")]
                     print("+", " ".join(args), flush=True)
-                    subprocess.run(args, check=True)
+                    result = subprocess.run(args, check=False)
+                    if result.returncode == 0 and output.exists():
+                        outputs.append(output)
+                    else:
+                        print(
+                            f"dropping failed benchmark: {dataset}/{fmt}/{pattern}/{open_mode}",
+                            flush=True,
+                        )
                     i += 1
+    return outputs
 
 
 """
@@ -76,10 +87,10 @@ the merge to drop the duplicates. Otherwise we could just merge JSONL lines.
 """
 
 
-def merge(pattern: str, key: Callable[[dict], object], out_path: str) -> None:
+def merge(paths: list[Path], key: Callable[[dict], object], out_path: str) -> None:
     seen: set[object] = set()
     lines: list[str] = []
-    for path in sorted(glob.glob(pattern)):
+    for path in sorted(paths):
         with open(path, encoding="utf-8") as handle:
             for line in handle:
                 line = line.strip()
@@ -102,11 +113,15 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    run_combinations(args.emit_ingest_records)
-    merge(f"{PARTS_DIR}/*.gh.json", lambda record: record["name"], "results.json")
+    outputs = run_combinations(args.emit_ingest_records)
+    merge(outputs, lambda record: record["name"], "results.json")
     if args.emit_ingest_records:
+        ingest_outputs = [
+            path.with_name(path.name.replace(".gh.json", ".ingest.jsonl"))
+            for path in outputs
+        ]
         merge(
-            f"{PARTS_DIR}/*.ingest.jsonl",
+            [path for path in ingest_outputs if path.exists()],
             lambda record: (record["kind"], record["dataset"], record["format"]),
             "results.ingest.jsonl",
         )
