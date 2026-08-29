@@ -10,6 +10,7 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::slice::SliceKernel;
 use vortex_array::assert_arrays_eq;
@@ -26,12 +27,7 @@ use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::list_contains::ListContainsElementKernel;
 #[cfg(not(codspeed))]
-use vortex_array::test_harness::trace::TraceOptions;
-#[cfg(not(codspeed))]
-use vortex_array::test_harness::trace::TraceResolution;
-#[cfg(not(codspeed))]
-use vortex_array::test_harness::trace::trace_op_with;
-use vortex_array::validity::Validity;
+use vortex_array::test_harness::trace::trace_op;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
@@ -115,11 +111,11 @@ integer_type_test!(test_integer_type_i32, i32, 6);
 integer_type_test!(test_integer_type_i64, i64, 6);
 
 #[rstest]
-#[case::empty(vec![])]
 #[case::one(vec![3])]
 #[case::two(vec![3, 7])]
 #[case::three(vec![3, 7, 11])]
 #[case::four(vec![3, 7, 11, 15])]
+#[case::five(vec![3, 7, 11, 15, 19])]
 #[case::larger((0..32).map(|value| value * 3).collect())]
 #[case::sparse((0..32).map(|value| value * 10_000).collect())]
 #[case::duplicates(vec![3, 3, 7, 7, 11, 11, 15, 15, 15])]
@@ -139,10 +135,47 @@ fn test_member_cardinalities(#[case] members: Vec<i32>) -> VortexResult<()> {
     Ok(())
 }
 
-#[test]
-fn test_patches() -> VortexResult<()> {
+#[rstest]
+#[case::present([true; 128], vec![0])]
+#[case::absent([false; 128], vec![1])]
+fn test_zero_bit_width(
+    #[case] expected: [bool; 128],
+    #[case] members: Vec<i32>,
+) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let values = (0..2_048)
+    let primitive = PrimitiveArray::from_iter([0i32; 128]);
+    let packed = BitPackedData::encode(&primitive.into_array(), 0, &mut ctx)?;
+    let list = list_array(
+        member_list(members.into_iter().map(Some), Nullability::NonNullable),
+        packed.len(),
+    );
+
+    let actual = execute_direct(&list, &packed, &mut ctx)?;
+    let expected = BoolArray::from_iter(expected);
+    assert_arrays_eq!(actual, expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_empty_array() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let primitive = PrimitiveArray::from_iter(std::iter::empty::<i32>());
+    let packed = BitPackedData::encode(&primitive.into_array(), 1, &mut ctx)?;
+    let list = list_array(
+        member_list([Some(0)], Nullability::NonNullable),
+        packed.len(),
+    );
+
+    let actual = execute_direct(&list, &packed, &mut ctx)?;
+    let expected = BoolArray::from_iter(std::iter::empty::<bool>());
+    assert_arrays_eq!(actual, expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_sliced_patched_array() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = (0..5_000)
         .map(|index| {
             if index % 97 == 0 {
                 100_000 + index
@@ -154,28 +187,10 @@ fn test_patches() -> VortexResult<()> {
     let primitive = PrimitiveArray::from_iter(values.iter().copied());
     let packed = BitPackedData::encode(&primitive.into_array(), 7, &mut ctx)?;
     assert!(packed.patches().is_some(), "test setup requires patches");
-    let members = [3, 100_097];
-    let list = list_array(
-        member_list(members.into_iter().map(Some), Nullability::NonNullable),
-        packed.len(),
-    );
-
-    let actual = execute_direct(&list, &packed, &mut ctx)?;
-    let expected = BoolArray::from_iter(values.into_iter().map(|value| members.contains(&value)));
-    assert_arrays_eq!(actual, expected, &mut ctx);
-    Ok(())
-}
-
-#[test]
-fn test_sliced_array() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let values = (0..5_000).map(|value| value % 128).collect::<Vec<u32>>();
-    let primitive = PrimitiveArray::from_iter(values.iter().copied());
-    let packed = BitPackedData::encode(&primitive.into_array(), 7, &mut ctx)?;
     let range = 333..4_333;
     let sliced = <BitPacked as SliceKernel>::slice(packed.as_view(), range.clone(), &mut ctx)?
         .ok_or_else(|| vortex_err!("BitPacked slice kernel declined a supported input"))?;
-    let members = [1, 63, 127];
+    let members = [3, 100_388];
     let list = list_array(
         member_list(members.into_iter().map(Some), Nullability::NonNullable),
         sliced.len(),
@@ -193,80 +208,38 @@ fn test_sliced_array() -> VortexResult<()> {
     Ok(())
 }
 
-#[test]
-fn test_null_needles() -> VortexResult<()> {
+#[rstest]
+#[case::nullable_needles(
+    vec![Some(1), Some(3)],
+    Nullability::NonNullable,
+    vec![Some(1), None, Some(2)],
+    vec![Some(true), None, Some(false)],
+)]
+#[case::nullable_members(
+    vec![Some(1), None, Some(3)],
+    Nullability::Nullable,
+    vec![Some(1), Some(2), Some(3)],
+    vec![Some(true), Some(false), Some(true)],
+)]
+#[case::all_null_members(
+    vec![None, None],
+    Nullability::Nullable,
+    vec![Some(1), None, Some(2)],
+    vec![Some(false), None, Some(false)],
+)]
+fn test_null_semantics(
+    #[case] members: Vec<Option<i32>>,
+    #[case] member_nullability: Nullability,
+    #[case] values: Vec<Option<i32>>,
+    #[case] expected: Vec<Option<bool>>,
+) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let values = [Some(1i32), None, Some(2), Some(3), None];
     let primitive = PrimitiveArray::from_option_iter(values);
-    let packed = BitPackedData::encode(&primitive.into_array(), 2, &mut ctx)?;
-    let list = list_array(
-        member_list([Some(1), Some(3)], Nullability::NonNullable),
-        packed.len(),
-    );
-
-    let actual = execute_direct(&list, &packed, &mut ctx)?;
-    let expected = BoolArray::from_iter([Some(true), None, Some(false), Some(true), None]);
-    assert_arrays_eq!(actual, expected, &mut ctx);
-    Ok(())
-}
-
-#[test]
-fn test_null_list() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let primitive = PrimitiveArray::from_iter([1i32, 2, 3]);
-    let packed = BitPackedData::encode(&primitive.into_array(), 2, &mut ctx)?;
-    let list_dtype = DType::List(
-        Arc::new(DType::Primitive(i32::PTYPE, Nullability::NonNullable)),
-        Nullability::Nullable,
-    );
-    let list = list_array(Scalar::null(list_dtype), packed.len());
-
-    let actual = execute_direct(&list, &packed, &mut ctx)?;
-    let expected = BoolArray::new(
-        [false, false, false].into_iter().collect(),
-        Validity::AllInvalid,
-    );
-    assert_arrays_eq!(actual, expected, &mut ctx);
-    Ok(())
-}
-
-#[test]
-fn test_nullable_members_are_ignored() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let primitive = PrimitiveArray::from_iter([1i32, 2, 3, 4]);
     let packed = BitPackedData::encode(&primitive.into_array(), 3, &mut ctx)?;
-    let list = list_array(
-        member_list([Some(1), None, Some(3)], Nullability::Nullable),
-        packed.len(),
-    );
+    let list = list_array(member_list(members, member_nullability), packed.len());
 
     let actual = execute_direct(&list, &packed, &mut ctx)?;
-    let expected = BoolArray::from_iter([true, false, true, false]);
-    assert_arrays_eq!(actual, expected, &mut ctx);
-    Ok(())
-}
-
-#[test]
-fn test_empty_and_all_null_members_with_null_needles() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let values = [Some(1i32), None, Some(2)];
-    let primitive = PrimitiveArray::from_option_iter(values);
-    let packed = BitPackedData::encode(&primitive.into_array(), 2, &mut ctx)?;
-
-    let empty_list = list_array(
-        member_list(std::iter::empty::<Option<i32>>(), Nullability::Nullable),
-        packed.len(),
-    );
-    let actual = execute_direct(&empty_list, &packed, &mut ctx)?;
-    let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]);
-    assert_arrays_eq!(actual, expected, &mut ctx);
-
-    let all_null_list = list_array(
-        member_list([None::<i32>], Nullability::Nullable),
-        packed.len(),
-    );
-    let actual = execute_direct(&all_null_list, &packed, &mut ctx)?;
-    let expected = BoolArray::from_iter([Some(false), None, Some(false)]);
+    let expected = BoolArray::from_iter(expected);
     assert_arrays_eq!(actual, expected, &mut ctx);
     Ok(())
 }
@@ -288,18 +261,15 @@ fn test_wrong_integer_type_declines_without_panic() -> VortexResult<()> {
 }
 
 #[test]
-fn test_noninteger_list_declines_without_panic() -> VortexResult<()> {
+fn test_nonconstant_list_declines() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let primitive = PrimitiveArray::from_iter([1i32, 2, 3]);
     let packed = BitPackedData::encode(&primitive.into_array(), 2, &mut ctx)?;
-    let list = list_array(
-        Scalar::list(
-            Arc::new(DType::Utf8(Nullability::NonNullable)),
-            vec![Scalar::utf8("one", Nullability::NonNullable)],
-            Nullability::NonNullable,
-        ),
-        packed.len(),
-    );
+    let list = ListArray::from_iter_slow::<u32, _>(
+        vec![vec![1i32], vec![2], vec![3]],
+        Arc::new(DType::Primitive(i32::PTYPE, Nullability::NonNullable)),
+    )?
+    .into_array();
 
     let result =
         <BitPacked as ListContainsElementKernel>::list_contains(&list, packed.as_view(), &mut ctx)?;
@@ -324,15 +294,18 @@ fn test_registered_kernel_executes_through_expression() -> VortexResult<()> {
     );
     let contains = packed.into_array().apply(&expression)?;
 
-    let traced = trace_op_with(
-        TraceOptions {
-            resolution: TraceResolution::Attempts,
-        },
-        || contains.execute::<BoolArray>(&mut ctx),
-    )?;
+    let traced = trace_op(|| contains.execute::<BoolArray>(&mut ctx))?;
     let trace = traced.trace.to_string();
-    assert!(trace.contains("parent=vortex.list.contains"), "{trace}");
-    assert!(trace.contains("source=session"), "{trace}");
+    let applied = trace
+        .lines()
+        .filter(|line| {
+            line.contains("child_execute_parent session[")
+                && line.contains("slot=1")
+                && line.contains("parent=vortex.list.contains")
+                && line.contains("child=fastlanes.bitpacked")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(applied.len(), 1, "{trace}");
 
     let expected = BoolArray::from_iter(values.into_iter().map(|value| members.contains(&value)));
     assert_arrays_eq!(traced.output, expected, &mut ctx);

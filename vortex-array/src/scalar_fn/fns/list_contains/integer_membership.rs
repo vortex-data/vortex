@@ -174,11 +174,35 @@ mod tests {
     use super::IntegerMembership;
 
     #[test]
-    fn small_unsorted_set_contains_members() {
-        let membership = IntegerMembership::new(vec![7i32, 3]);
+    fn normalizes_large_unsorted_duplicates() {
+        let membership = IntegerMembership::new(vec![7i32, 3, 7, 1, 9, 3, 1]);
 
+        assert_eq!(membership.members(), &[1, 3, 7, 9]);
+        assert!(membership.contains(1));
         assert!(membership.contains(3));
         assert!(membership.contains(7));
         assert!(!membership.contains(5));
+    }
+
+    #[test]
+    fn dense_table_span_boundary() {
+        let at_limit = IntegerMembership::new(vec![0i32, 1, 2, 3, 4_095]);
+        let above_limit = IntegerMembership::new(vec![0i32, 1, 2, 3, 4_096]);
+
+        assert!(at_limit.uses_dense_table());
+        assert!(!above_limit.uses_dense_table());
+    }
+
+    #[test]
+    fn integer_extremes_do_not_overflow() {
+        let signed = IntegerMembership::new(vec![i64::MAX, 0, i64::MIN, -1, 1]);
+        assert!(signed.contains(i64::MIN));
+        assert!(signed.contains(i64::MAX));
+        assert!(!signed.uses_dense_table());
+
+        let unsigned = IntegerMembership::new(vec![u64::MAX, 0, 1, 2, 3]);
+        assert!(unsigned.contains(0));
+        assert!(unsigned.contains(u64::MAX));
+        assert!(!unsigned.uses_dense_table());
     }
 }

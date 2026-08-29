@@ -27,7 +27,6 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
-use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::byte_length;
@@ -52,7 +51,6 @@ use vortex::scalar_fn::fns::between::StrictComparison;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
-use vortex::scalar_fn::fns::literal::Literal;
 use vortex::scalar_fn::fns::operators::Operator;
 use vortex_spatial::extension::LineString;
 use vortex_spatial::extension::MultiLineString;
@@ -443,7 +441,27 @@ pub fn can_push_expression(value: &duckdb::ExpressionRef) -> bool {
             ) {
                 return false;
             }
-            op.children().all(can_push_expression)
+            if matches!(
+                op.op,
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_IN
+                    | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_NOT_IN
+            ) {
+                let mut children = op.children();
+                let Some(element) = children.next() else {
+                    return false;
+                };
+                can_push_expression(element)
+                    && children.all(|child| {
+                        matches!(
+                            child.as_class(),
+                            Some(BoundConstant(constant))
+                                if Scalar::try_from(constant.value)
+                                    .is_ok_and(|scalar| !scalar.is_null())
+                        )
+                    })
+            } else {
+                op.children().all(can_push_expression)
+            }
         }
         ExpressionClass::BoundAggregate(_) => false,
     }
@@ -717,7 +735,9 @@ fn try_from_compare_in(
 ) -> VortexResult<Option<Expression>> {
     // First child is element, rest form the list.
     let children: Vec<_> = operator.children().collect();
-    assert!(children.len() >= 2);
+    if children.len() < 2 {
+        return Ok(None);
+    }
     let Some(element) = try_from_expression_inner(children[0], ctx)? else {
         return Ok(None);
     };
@@ -725,16 +745,14 @@ fn try_from_compare_in(
     let Some(list_elements) = children
         .iter()
         .skip(1)
-        .map(|c| {
-            let Some(value) = try_from_expression_inner(c, ctx)? else {
+        .map(|child| {
+            let Some(BoundConstant(constant)) = child.as_class() else {
                 return Ok(None);
             };
-            Ok(Some(
-                value
-                    .as_opt::<Literal>()
-                    .ok_or_else(|| vortex_err!("cannot have a non literal in a in_list"))?
-                    .clone(),
-            ))
+            if constant.value.is_null() {
+                return Ok(None);
+            }
+            Ok(Some(Scalar::try_from(constant.value)?))
         })
         .collect::<VortexResult<Option<Vec<_>>>>()?
     else {

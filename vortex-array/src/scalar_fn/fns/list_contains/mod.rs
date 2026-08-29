@@ -27,7 +27,6 @@ use crate::arrays::BoolArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
-use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::bool::BoolArrayExt;
@@ -60,7 +59,8 @@ impl ListContains {
     ///
     /// # Errors
     ///
-    /// Returns an error if the children have different lengths or `list` is not a list array.
+    /// Returns an error if the children have different lengths, `list` is not a list array, or
+    /// the list member type differs from the needle type.
     pub fn try_new(list: ArrayRef, needle: ArrayRef) -> VortexResult<ScalarFnArray> {
         ScalarFnArray::try_new(ListContains.bind(EmptyOptions), vec![list, needle])
     }
@@ -104,16 +104,17 @@ impl ScalarFnVTable for ListContains {
         let list_dtype = &arg_dtypes[0];
         let needle_dtype = &arg_dtypes[1];
 
-        let nullability = match list_dtype {
-            DType::List(_, list_nullability) => list_nullability,
-            _ => {
-                vortex_bail!(
-                    "First argument to ListContains must be a List, got {:?}",
-                    list_dtype
-                );
-            }
+        let DType::List(member_dtype, list_nullability) = list_dtype else {
+            vortex_bail!("First argument to ListContains must be a List, got {list_dtype}");
+        };
+        if !member_dtype.eq_ignore_nullability(needle_dtype) {
+            vortex_bail!(
+                "Element type {} of list does not match search value {}",
+                member_dtype,
+                needle_dtype
+            );
         }
-        .bitor(needle_dtype.nullability());
+        let nullability = list_nullability.bitor(needle_dtype.nullability());
 
         Ok(DType::Bool(nullability))
     }
@@ -183,17 +184,6 @@ fn compute_list_contains(
             elem_dtype,
             value.dtype(),
         );
-    }
-
-    if matches!(value.dtype(), DType::Primitive(ptype, _) if ptype.is_int())
-        && array.as_constant().is_some()
-    {
-        let value = value.clone().execute::<PrimitiveArray>(ctx)?;
-        if let Some(result) =
-            <Primitive as ListContainsElementKernel>::list_contains(array, value.as_view(), ctx)?
-        {
-            return Ok(result);
-        }
     }
 
     if array.all_invalid(ctx)? {
@@ -462,6 +452,10 @@ mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;
+    #[cfg(not(codspeed))]
+    use crate::arrays::Dict;
+    #[cfg(not(codspeed))]
+    use crate::arrays::DictArray;
     use crate::arrays::ListArray;
     use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
@@ -483,6 +477,7 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::list_contains::BoolArray;
     use crate::scalar_fn::fns::list_contains::ConstantArray;
+    use crate::scalar_fn::fns::list_contains::ListContains;
     use crate::scalar_fn::fns::list_contains::ListViewArray;
     use crate::scalar_fn::fns::list_contains::PrimitiveArray;
     use crate::stats::StatsSession;
@@ -636,6 +631,54 @@ mod tests {
     }
 
     #[test]
+    fn test_return_type_rejects_mismatched_member_type() {
+        let list = ConstantArray::new(
+            Scalar::list(
+                Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
+                vec![],
+                Nullability::NonNullable,
+            ),
+            1,
+        )
+        .into_array();
+        let needle =
+            ConstantArray::new(Scalar::utf8("needle", Nullability::NonNullable), 1).into_array();
+
+        let error = ListContains::try_new(list, needle).unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("Element type i32 of list does not match search value utf8")
+        );
+    }
+
+    #[test]
+    #[cfg(not(codspeed))]
+    fn test_dictionary_needles_preserve_dictionary_pushdown() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let values = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
+        let codes = PrimitiveArray::from_iter([0u8, 1, 2, 0]).into_array();
+        let needles = DictArray::try_new(codes, values)?.into_array();
+        let list = Scalar::list(
+            Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
+            vec![1.into(), 3.into()],
+            Nullability::NonNullable,
+        );
+        let contains = needles.apply(&list_contains(lit(list), root()))?;
+
+        assert!(contains.is::<Dict>());
+        let actual = contains.execute::<BoolArray>(&mut ctx)?;
+
+        assert_arrays_eq!(
+            actual,
+            BoolArray::from_iter([true, false, true, true]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    #[test]
     pub fn list_falsification() -> VortexResult<()> {
         let expr = list_contains(
             lit(Scalar::list(
@@ -716,6 +759,40 @@ mod tests {
                 .execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::bool(false, Nullability::NonNullable)
+        );
+    }
+
+    #[rstest]
+    #[case::null_list(true, vec![], Some(1), None)]
+    #[case::empty_list_null_needle(false, vec![], None, Some(false))]
+    #[case::nonempty_list_null_needle(false, vec![1], None, None)]
+    fn test_constant_scalar_null_semantics(
+        #[case] null_list: bool,
+        #[case] members: Vec<i32>,
+        #[case] needle: Option<i32>,
+        #[case] expected: Option<bool>,
+    ) {
+        let member_dtype = DType::Primitive(I32, Nullability::NonNullable);
+        let list_dtype = DType::List(Arc::new(member_dtype.clone()), Nullability::Nullable);
+        let list = if null_list {
+            Scalar::null(list_dtype)
+        } else {
+            Scalar::list(
+                Arc::new(member_dtype),
+                members.into_iter().map(Scalar::from).collect(),
+                Nullability::Nullable,
+            )
+        };
+        let needle = needle
+            .map(|value| Scalar::primitive(value, Nullability::Nullable))
+            .unwrap_or_else(|| Scalar::null(DType::Primitive(I32, Nullability::Nullable)));
+        let expected = expected
+            .map(|value| Scalar::bool(value, Nullability::Nullable))
+            .unwrap_or_else(|| Scalar::null(DType::Bool(Nullability::Nullable)));
+
+        assert_eq!(
+            super::compute_contains_scalar(&list, &needle).unwrap(),
+            expected
         );
     }
 
@@ -825,57 +902,42 @@ mod tests {
         assert_arrays_eq!(result, expected, &mut ctx);
     }
 
-    #[test]
-    fn test_constant_list() {
-        let mut ctx = array_session().create_execution_ctx();
-        let list_array = ConstantArray::new(
-            Scalar::list(
-                Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
-                vec![1i32.into(), 2i32.into(), 3i32.into()],
-                Nullability::NonNullable,
-            ),
-            2,
-        )
-        .into_array();
-
-        let expr = list_contains(root(), lit(2i32));
-        let contains = list_array.apply(&expr).unwrap();
-        let expected = BoolArray::from_iter([true, true]);
-        assert_arrays_eq!(contains, expected, &mut ctx);
-    }
-
     #[rstest]
     #[case::empty(
-        Vec::<Option<i32>>::new(),
+        Vec::<Option<&'static str>>::new(),
         [Some(false), Some(false), Some(false)]
     )]
     #[case::nonempty(
-        vec![Some(1), Some(3)],
+        vec![Some("a"), Some("c")],
         [Some(true), None, Some(false)]
     )]
     #[case::all_null(
         vec![None, None],
         [Some(false), None, Some(false)]
     )]
-    fn test_constant_list_nullable_needles(
-        #[case] members: Vec<Option<i32>>,
+    fn test_constant_string_list_nullable_needles(
+        #[case] members: Vec<Option<&'static str>>,
         #[case] expected: [Option<bool>; 3],
     ) {
         let mut ctx = array_session().create_execution_ctx();
-        let member_dtype = DType::Primitive(I32, Nullability::Nullable);
+        let member_dtype = DType::Utf8(Nullability::Nullable);
         let list = Scalar::list(
             Arc::new(member_dtype.clone()),
             members
                 .into_iter()
                 .map(|member| {
                     member
-                        .map(|value| Scalar::primitive(value, Nullability::Nullable))
+                        .map(|value| Scalar::utf8(value, Nullability::Nullable))
                         .unwrap_or_else(|| Scalar::null(member_dtype.clone()))
                 })
                 .collect(),
             Nullability::NonNullable,
         );
-        let needles = PrimitiveArray::from_option_iter([Some(1), None, Some(2)]).into_array();
+        let needles = VarBinArray::from_iter(
+            [Some("a"), None, Some("b")],
+            DType::Utf8(Nullability::Nullable),
+        )
+        .into_array();
 
         let result = needles.apply(&list_contains(lit(list), root())).unwrap();
         let expected = BoolArray::from_iter(expected);

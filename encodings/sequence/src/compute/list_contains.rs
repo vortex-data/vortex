@@ -6,9 +6,9 @@ use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::list_contains::ListContainsElementReduce;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::array::Sequence;
@@ -23,11 +23,19 @@ impl ListContainsElementReduce for Sequence {
         let Some(list_scalar) = list.as_constant() else {
             return Ok(None);
         };
+        let DType::List(member_dtype, _) = list.dtype() else {
+            return Ok(None);
+        };
+        if !member_dtype.eq_ignore_nullability(element.dtype()) {
+            return Ok(None);
+        }
 
-        let list_elements = list_scalar
-            .as_list()
-            .elements()
-            .vortex_expect("non-null element (checked in entry)");
+        let Some(list_elements) = list_scalar.as_list().elements() else {
+            return Ok(None);
+        };
+        if list_elements.is_empty() {
+            return Ok(None);
+        }
 
         let nullability = list.dtype().nullability() | element.dtype().nullability();
 
@@ -65,10 +73,13 @@ mod tests {
     use std::sync::Arc;
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::Constant;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType::I32;
     use vortex_array::expr::list_contains;
@@ -138,5 +149,33 @@ mod tests {
         let result = array.apply(&expr).unwrap();
         let expected = BoolArray::from_iter([Some(true), Some(true), Some(true)]);
         assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
+    }
+
+    #[rstest]
+    #[case::null_list(
+        Scalar::null(DType::List(Arc::new(I32.into()), Nullability::Nullable)),
+        [None, None, None]
+    )]
+    #[case::empty_list(
+        Scalar::list(Arc::new(I32.into()), vec![], Nullability::Nullable),
+        [Some(false), Some(false), Some(false)]
+    )]
+    fn test_constant_list_semantics(
+        #[case] list_scalar: Scalar,
+        #[case] expected: [Option<bool>; 3],
+    ) {
+        let array = Sequence::try_new_typed(1i32, 1, Nullability::NonNullable, 3)
+            .unwrap()
+            .into_array();
+        let expr = list_contains(lit(list_scalar), root());
+
+        let result = array.apply(&expr).unwrap();
+
+        assert!(result.is::<Constant>());
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter(expected),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 }

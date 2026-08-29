@@ -6,12 +6,10 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
-use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_integer_ptype;
-use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::list_contains::IntegerMembership;
 use vortex_array::scalar_fn::fns::list_contains::ListContainsElementKernel;
 use vortex_buffer::BitBuffer;
@@ -20,6 +18,9 @@ use vortex_error::vortex_err;
 
 use super::compare_fused::stream_compare_fused;
 use crate::BitPacked;
+
+// Decode short batches once because their fixed fusion overhead exceeds the saved materialization.
+const MIN_DENSE_FUSION_LEN: usize = 2_048;
 
 impl ListContainsElementKernel for BitPacked {
     fn list_contains(
@@ -48,10 +49,11 @@ fn list_contains_compressed(
 
     let nullability = list.dtype().nullability() | element.dtype().nullability();
     let Some(elements) = list_scalar.as_list().elements() else {
-        return Ok(Some(
-            ConstantArray::new(Scalar::null(DType::Bool(nullability)), element.len()).into_array(),
-        ));
+        return Ok(None);
     };
+    if elements.is_empty() {
+        return Ok(None);
+    }
 
     let result = match_each_integer_ptype!(element.dtype().as_ptype(), |T| {
         let members = elements
@@ -67,16 +69,14 @@ fn list_contains_compressed(
             .flatten()
             .collect::<Vec<_>>();
 
-        if members.is_empty() && !elements.is_empty() {
-            let validity = element.validity()?.union_nullability(nullability);
-            return Ok(Some(
-                BoolArray::new(BitBuffer::new_unset(element.len()), validity).into_array(),
-            ));
-        }
         let membership = IntegerMembership::new(members);
 
         match membership.members() {
-            [] => ConstantArray::new(Scalar::bool(false, nullability), element.len()).into_array(),
+            [] => BoolArray::new(
+                BitBuffer::new_unset(element.len()),
+                element.validity()?.union_nullability(nullability),
+            )
+            .into_array(),
             [member] => {
                 let member = *member;
                 stream_compare_fused::<T, _>(element, member, nullability, NativePType::is_eq, ctx)?
@@ -117,7 +117,7 @@ fn list_contains_compressed(
                 )?
             }
             _ => {
-                if membership.uses_dense_table() {
+                if membership.uses_dense_table() && element.len() >= MIN_DENSE_FUSION_LEN {
                     stream_compare_fused::<T, _>(
                         element,
                         membership.members()[0],
