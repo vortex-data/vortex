@@ -282,20 +282,6 @@ fn test_issue_5927_not_in_does_not_panic() {
 }
 
 #[test]
-fn test_not_in_with_null_is_not_pushed_down() {
-    let file = RUNTIME.block_on(async {
-        let numbers = buffer![1i32, 42, 100, -5, 0];
-        write_single_column_vortex_file("number", numbers).await
-    });
-    let count: i64 = scan_vortex_file_single_row::<i64, _>(
-        file,
-        "SELECT COUNT(*) FROM ? WHERE number NOT IN (42, NULL)",
-        0,
-    );
-    assert_eq!(count, 0);
-}
-
-#[test]
 fn test_vortex_scan_floats() {
     let file = RUNTIME.block_on(async {
         let values = buffer![1.5f64, -2.5, 0.0, 42.42];

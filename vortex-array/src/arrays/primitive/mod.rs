@@ -14,6 +14,10 @@ pub use vtable::PrimitiveArray;
 pub(crate) mod compute;
 
 mod vtable;
+#[doc(hidden)]
+pub use compute::evaluate_prepared_integer_membership;
+#[doc(hidden)]
+pub use compute::integer_membership_binary_search_min;
 pub use compute::rules::PrimitiveMaskedValidityRule;
 pub use vtable::Primitive;
 

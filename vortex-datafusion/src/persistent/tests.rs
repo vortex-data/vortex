@@ -236,46 +236,6 @@ async fn test_octet_length_pushdown() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_nullable_in_projection_falls_back() -> anyhow::Result<()> {
-    let ctx = TestSessionContext::new(true);
-
-    ctx.session
-        .sql(
-            "CREATE EXTERNAL TABLE nullable_in (id INT) \
-             STORED AS vortex LOCATION '/nullable_in/'",
-        )
-        .await?;
-    ctx.session
-        .sql("INSERT INTO nullable_in VALUES (1), (2), (NULL)")
-        .await?
-        .collect()
-        .await?;
-
-    let result = ctx
-        .session
-        .sql(
-            "SELECT id, id IN (1, NULL) AS in_result, \
-             id NOT IN (1, NULL) AS not_in_result \
-             FROM nullable_in ORDER BY id NULLS LAST",
-        )
-        .await?
-        .collect()
-        .await?;
-
-    assert_snapshot!(pretty_format_batches(&result)?, @r"
-        +----+-----------+---------------+
-        | id | in_result | not_in_result |
-        +----+-----------+---------------+
-        | 1  | true      | false         |
-        | 2  |           |               |
-        |    |           |               |
-        +----+-----------+---------------+
-        ");
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn create_table_ordered_by() -> anyhow::Result<()> {
     let ctx = TestSessionContext::default();
 

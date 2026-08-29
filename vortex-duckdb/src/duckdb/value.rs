@@ -28,10 +28,6 @@ use crate::lifetime_wrapper;
 lifetime_wrapper!(Value, cpp::duckdb_value, cpp::duckdb_destroy_value);
 
 impl ValueRef {
-    pub fn is_null(&self) -> bool {
-        unsafe { cpp::duckdb_is_null_value(self.as_ptr()) }
-    }
-
     pub fn logical_type(&self) -> &LogicalTypeRef {
         unsafe { LogicalType::borrow(cpp::duckdb_get_value_type(self.as_ptr())) }
     }
@@ -45,7 +41,7 @@ impl ValueRef {
 
     /// Extracts the value from the DuckDB `Value` into a `ExtractedValue`.
     pub fn extract(&self) -> ExtractedValue {
-        if self.is_null() {
+        if unsafe { cpp::duckdb_is_null_value(self.as_ptr()) } {
             return ExtractedValue::Null;
         }
         match self.logical_type().as_type_id() {

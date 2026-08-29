@@ -196,6 +196,11 @@ fn compute_list_contains(
 
     let nullability = array.dtype().nullability() | value.dtype().nullability();
 
+    if value.all_invalid(ctx)? {
+        let list_array = array.clone().execute::<ListViewArray>(ctx)?;
+        return list_false_if_empty_else_null(&list_array, nullability, ctx);
+    }
+
     if let Some(value_scalar) = value.as_constant() {
         list_contains_scalar(array, &value_scalar, nullability, ctx)
     } else if let Some(list_scalar) = array.as_constant() {
@@ -206,7 +211,7 @@ fn compute_list_contains(
 }
 
 /// There is a constant list scalar (haystack) being compared to an array of needles.
-fn constant_list_scalar_contains(
+pub(crate) fn constant_list_scalar_contains(
     list_scalar: &ListScalar,
     values: &ArrayRef,
     nullability: Nullability,
@@ -222,6 +227,7 @@ fn constant_list_scalar_contains(
 
     let result = elements
         .iter()
+        .filter(|element| !element.is_null())
         .map(|element| {
             Binary::try_new(
                 ConstantArray::new(element.clone(), len).into_array(),
@@ -235,9 +241,12 @@ fn constant_list_scalar_contains(
         .into_iter()
         .try_reduce_balanced(|acc, res| acc.binary(res, Operator::Or))?;
 
-    result
-        .unwrap_or_else(|| ConstantArray::new(false_scalar, len).into_array())
-        .mask(values.validity()?.to_array(len))
+    let result = result.unwrap_or_else(|| ConstantArray::new(false_scalar, len).into_array());
+    if values.dtype().is_nullable() {
+        result.mask(values.validity()?.to_array(len))
+    } else {
+        Ok(result)
+    }
 }
 
 /// Returns a [`BoolArray`] where each bit represents if a list contains the scalar.
@@ -285,13 +294,7 @@ fn list_contains_scalar(
                 list_false_or_null(&list_array, nullability)
             }
             // No elements match, and all comparisons are valid (result in `false`).
-            Some(false) => {
-                // False, but match the nullability to the input list array.
-                Ok(
-                    ConstantArray::new(Scalar::bool(false, nullability), list_array.len())
-                        .into_array(),
-                )
-            }
+            Some(false) => list_false_or_null(&list_array, nullability),
             // All elements match, and all comparisons are valid (result in `true`).
             Some(true) => {
                 // True, unless the list itself is empty or NULL.
@@ -313,9 +316,9 @@ fn list_contains_scalar(
     // Process based on the offset and size types.
     let list_matches = match_each_unsigned_integer_ptype!(offsets.ptype(), |O| {
         match_each_unsigned_integer_ptype!(sizes.ptype(), |S| {
-            process_matches::<O, S>(matches, list_array.len(), offsets, sizes)
+            process_matches::<O, S>(&matches, list_array.len(), offsets, sizes, ctx)
         })
-    });
+    })?;
 
     Ok(BoolArray::new(
         list_matches,
@@ -346,30 +349,36 @@ fn list_false_if_empty_else_null(
 /// Returns a [`BitBuffer`] where each bit represents if a list contains the scalar, derived from a
 /// [`BoolArray`] of matches on the child elements array.
 fn process_matches<O, S>(
-    matches: BoolArray,
+    matches: &BoolArray,
     list_array_len: usize,
     offsets: PrimitiveArray,
     sizes: PrimitiveArray,
-) -> BitBuffer
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<BitBuffer>
 where
     O: IntegerPType,
     S: IntegerPType,
 {
     let offsets_slice = offsets.as_slice::<O>();
     let sizes_slice = sizes.as_slice::<S>();
-    let bits = matches.bit_buffer_view();
+    let value_bits = matches.to_bit_buffer();
+    let valid_matches = match matches.validity()? {
+        Validity::NonNullable | Validity::AllValid => value_bits,
+        Validity::AllInvalid => BitBuffer::new_unset(matches.len()),
+        validity => value_bits & validity.execute_mask(matches.len(), ctx)?.into_bit_buffer(),
+    };
 
-    (0..list_array_len)
+    Ok((0..list_array_len)
         .map(|i| {
             let offset = offsets_slice[i].as_();
             let size = sizes_slice[i].as_();
 
             // BitIndexIterator yields indices of true bits only. If `.next()` returns
             // `Some(_)`, at least one element in this list's range matches.
-            let mut set_bits = BitIndexIterator::new(bits.inner(), offset, size);
+            let mut set_bits = BitIndexIterator::new(valid_matches.inner(), offset, size);
             set_bits.next().is_some()
         })
-        .collect::<BitBuffer>()
+        .collect::<BitBuffer>())
 }
 
 /// Returns a `Bool` array with `false` for lists that are valid,
@@ -452,9 +461,7 @@ mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;
-    #[cfg(not(codspeed))]
     use crate::arrays::Dict;
-    #[cfg(not(codspeed))]
     use crate::arrays::DictArray;
     use crate::arrays::ListArray;
     use crate::arrays::VarBinArray;
@@ -583,8 +590,10 @@ mod tests {
         );
     }
 
-    #[test]
-    pub fn test_nullable() {
+    #[rstest]
+    #[case::match_present(2, Some(true))]
+    #[case::match_absent(4, Some(false))]
+    pub fn test_nullable(#[case] needle: i32, #[case] expected_first: Option<bool>) {
         let arr = ListArray::try_new(
             PrimitiveArray::from_iter(vec![1, 1, 2, 2, 2]).into_array(),
             PrimitiveArray::from_iter(vec![0, 5, 5]).into_array(),
@@ -593,18 +602,13 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let expr = list_contains(root(), lit(2));
+        let expr = list_contains(root(), lit(needle));
         let item = arr.apply(&expr).unwrap();
 
-        assert_eq!(
-            item.execute_scalar(0, &mut array_session().create_execution_ctx())
-                .unwrap(),
-            Scalar::bool(true, Nullability::Nullable)
-        );
-        assert!(
-            !item
-                .is_valid(1, &mut array_session().create_execution_ctx())
-                .unwrap()
+        assert_arrays_eq!(
+            item,
+            BoolArray::from_iter([expected_first, None]),
+            &mut array_session().create_execution_ctx()
         );
     }
 
@@ -654,7 +658,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(codspeed))]
     fn test_dictionary_needles_preserve_dictionary_pushdown() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         let values = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
@@ -667,6 +670,7 @@ mod tests {
         );
         let contains = needles.apply(&list_contains(lit(list), root()))?;
 
+        // Dictionary preservation avoids materializing repeated needle values.
         assert!(contains.is::<Dict>());
         let actual = contains.execute::<BoolArray>(&mut ctx)?;
 
@@ -730,39 +734,9 @@ mod tests {
         assert_eq!(expr2.to_string(), "vortex.list.contains($, 42i32)");
     }
 
-    #[test]
-    pub fn test_constant_scalars() {
-        let arr = test_array();
-
-        // Both list and needle are constants - should use scalar optimization
-        let list_scalar = Scalar::list(
-            Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
-            vec![1.into(), 2.into(), 3.into()],
-            Nullability::NonNullable,
-        );
-
-        // Test contains true
-        let expr = list_contains(lit(list_scalar.clone()), lit(2i32));
-        let result = arr.clone().apply(&expr).unwrap();
-        assert_eq!(
-            result
-                .execute_scalar(0, &mut array_session().create_execution_ctx())
-                .unwrap(),
-            Scalar::bool(true, Nullability::NonNullable)
-        );
-
-        // Test contains false
-        let expr = list_contains(lit(list_scalar), lit(42i32));
-        let result = arr.apply(&expr).unwrap();
-        assert_eq!(
-            result
-                .execute_scalar(0, &mut array_session().create_execution_ctx())
-                .unwrap(),
-            Scalar::bool(false, Nullability::NonNullable)
-        );
-    }
-
     #[rstest]
+    #[case::present(false, vec![1, 2, 3], Some(2), Some(true))]
+    #[case::absent(false, vec![1, 2, 3], Some(42), Some(false))]
     #[case::null_list(true, vec![], Some(1), None)]
     #[case::empty_list_null_needle(false, vec![], None, Some(false))]
     #[case::nonempty_list_null_needle(false, vec![1], None, None)]
@@ -771,7 +745,7 @@ mod tests {
         #[case] members: Vec<i32>,
         #[case] needle: Option<i32>,
         #[case] expected: Option<bool>,
-    ) {
+    ) -> VortexResult<()> {
         let member_dtype = DType::Primitive(I32, Nullability::NonNullable);
         let list_dtype = DType::List(Arc::new(member_dtype.clone()), Nullability::Nullable);
         let list = if null_list {
@@ -790,10 +764,17 @@ mod tests {
             .map(|value| Scalar::bool(value, Nullability::Nullable))
             .unwrap_or_else(|| Scalar::null(DType::Bool(Nullability::Nullable)));
 
+        let contains = ListContains::try_new(
+            ConstantArray::new(list, 1).into_array(),
+            ConstantArray::new(needle, 1).into_array(),
+        )?
+        .into_array();
+
         assert_eq!(
-            super::compute_contains_scalar(&list, &needle).unwrap(),
+            contains.execute_scalar(0, &mut array_session().create_execution_ctx())?,
             expected
         );
+        Ok(())
     }
 
     // -- Tests migrated from compute/list_contains.rs --
@@ -968,6 +949,27 @@ mod tests {
     }
 
     #[test]
+    fn test_nonconstant_all_null_needles() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let lists = ListArray::try_new(
+            PrimitiveArray::from_iter([1i32]).into_array(),
+            PrimitiveArray::from_iter([0u32, 0, 1, 1]).into_array(),
+            Validity::Array(BoolArray::from(BitBuffer::from(vec![true, true, false])).into_array()),
+        )?
+        .into_array();
+        let needles = PrimitiveArray::from_option_iter::<i32, _>([None, None, None]).into_array();
+
+        let contains = ListContains::try_new(lists, needles)?.into_array();
+
+        assert_arrays_eq!(
+            contains,
+            BoolArray::from_iter([Some(false), None, None]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    #[test]
     fn test_list_array_element() {
         let mut ctx = array_session().create_execution_ctx();
         let list_scalar = Scalar::list(
@@ -1036,8 +1038,9 @@ mod tests {
         );
         assert_arrays_eq!(result, expected, &mut ctx);
 
-        // Searching for non-null
-        let expr2 = list_contains(root(), lit(42i32));
+        // Null primitive payloads default to zero. Searching for zero verifies that invalid
+        // comparison values do not become matches.
+        let expr2 = list_contains(root(), lit(0i32));
         let result2 = list_array.into_array().apply(&expr2).unwrap();
 
         let expected2 = BoolArray::from_iter([false, false, false]);
