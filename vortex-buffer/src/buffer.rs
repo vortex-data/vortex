@@ -35,6 +35,8 @@ pub struct Buffer<T> {
     pub(crate) length: usize,
     pub(crate) alignment: Alignment,
     pub(crate) physical_alignment: Alignment,
+    // One physical-alignment block is reserved outside the logical capacity.
+    pub(crate) overallocated: bool,
     pub(crate) backing: Arc<BufferBacking>,
 }
 
@@ -66,6 +68,7 @@ impl<T> Default for Buffer<T> {
             length: 0,
             alignment: Alignment::of::<T>(),
             physical_alignment: Alignment::MAX,
+            overallocated: false,
             backing: EMPTY_BACKING.clone(),
         }
     }
@@ -108,6 +111,7 @@ impl<T> Buffer<T> {
         length: usize,
         alignment: Alignment,
         physical_alignment: Alignment,
+        overallocated: bool,
     ) -> Self {
         // SAFETY: BufferMut keeps offset within allocation, including for empty buffers.
         let ptr = unsafe { allocation.ptr().add(offset).cast() };
@@ -116,6 +120,7 @@ impl<T> Buffer<T> {
             length,
             alignment,
             physical_alignment,
+            overallocated,
             backing: Arc::new(BufferBacking::Owned(allocation)),
         }
     }
@@ -133,6 +138,7 @@ impl<T> Buffer<T> {
             length,
             alignment,
             physical_alignment: alignment,
+            overallocated: false,
             backing: Arc::new(BufferBacking::External { _owner: owner }),
         }
     }
@@ -228,6 +234,7 @@ impl<T> Buffer<T> {
             length: 0,
             alignment,
             physical_alignment: Alignment::MAX,
+            overallocated: false,
             backing: EMPTY_BACKING.clone(),
         }
     }
@@ -288,6 +295,7 @@ impl<T> Buffer<T> {
             length: buffer.length / size_of::<T>(),
             alignment,
             physical_alignment: buffer.physical_alignment,
+            overallocated: buffer.overallocated,
             backing: buffer.backing,
         }
     }
@@ -500,6 +508,7 @@ impl<T> Buffer<T> {
             length: end - begin,
             alignment,
             physical_alignment: self.physical_alignment,
+            overallocated: self.overallocated,
             backing: Arc::clone(&self.backing),
         }
     }
@@ -555,6 +564,7 @@ impl<T> Buffer<T> {
             length: subset.len(),
             alignment,
             physical_alignment: self.physical_alignment,
+            overallocated: self.overallocated,
             backing: Arc::clone(&self.backing),
         }
     }
@@ -575,6 +585,7 @@ impl<T> Buffer<T> {
             length: self.length * size_of::<T>(),
             alignment: self.alignment,
             physical_alignment: self.physical_alignment,
+            overallocated: self.overallocated,
             backing: self.backing,
         }
     }
@@ -586,17 +597,25 @@ impl<T> Buffer<T> {
             length,
             alignment,
             physical_alignment,
+            overallocated,
             backing,
         } = self;
         match Arc::try_unwrap(backing) {
             Ok(BufferBacking::Owned(allocation)) => {
                 let offset = ptr.addr().get() - allocation.ptr().addr().get();
+                let overallocated = overallocated
+                    && offset
+                        == allocation
+                            .ptr()
+                            .as_ptr()
+                            .align_offset(physical_alignment.as_usize());
                 Ok(BufferMut {
                     allocation,
                     offset,
                     length,
                     alignment,
                     physical_alignment,
+                    overallocated,
                     _marker: Default::default(),
                 })
             }
@@ -605,6 +624,7 @@ impl<T> Buffer<T> {
                 length,
                 alignment,
                 physical_alignment,
+                overallocated,
                 backing: Arc::new(backing),
             }),
             Err(backing) => Err(Self {
@@ -612,6 +632,7 @@ impl<T> Buffer<T> {
                 length,
                 alignment,
                 physical_alignment,
+                overallocated,
                 backing,
             }),
         }
@@ -684,6 +705,7 @@ impl<T> Buffer<T> {
             length: self.length,
             alignment: self.alignment,
             physical_alignment: self.physical_alignment,
+            overallocated: self.overallocated,
             backing: self.backing,
         }
     }
@@ -789,7 +811,14 @@ where
         if std::mem::needs_drop::<T>() {
             Self::from_owner(Wrapper(value), alignment)
         } else {
-            Self::from_allocation(Allocation::from_vec(value), 0, length, alignment, alignment)
+            Self::from_allocation(
+                Allocation::from_vec(value),
+                0,
+                length,
+                alignment,
+                alignment,
+                false,
+            )
         }
     }
 }
@@ -1053,6 +1082,34 @@ mod test {
         buffer.extend(6..=32);
         assert_eq!(buffer.as_slice(), (1..=32).collect::<Vec<_>>());
         assert_eq!(buffer.allocation.alignment(), align_of::<u32>());
+    }
+
+    #[test]
+    fn from_u8_vec_preserves_capacity() {
+        let mut vec = Vec::with_capacity(16);
+        vec.extend([1u8, 2, 3]);
+
+        let buffer = Buffer::from(vec);
+        let Ok(buffer) = buffer.try_into_mut() else {
+            panic!("Vec-backed buffer should be uniquely owned")
+        };
+        assert_eq!(buffer.capacity(), 16);
+    }
+
+    #[test]
+    fn sliced_buffer_into_mut_has_safe_capacity() {
+        let mut original = crate::BufferMut::with_capacity(128);
+        original.extend(0u32..100);
+        let original = original.freeze();
+        let sliced = original.slice(64..96);
+        drop(original);
+
+        let Ok(mut sliced) = sliced.try_into_mut() else {
+            panic!("uniquely owned slice should become mutable")
+        };
+        let capacity = sliced.capacity();
+        sliced.push_n(0, capacity - sliced.len());
+        assert_eq!(sliced.len(), capacity);
     }
 
     #[test]

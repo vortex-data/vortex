@@ -33,6 +33,8 @@ pub struct BufferMut<T> {
     pub(crate) length: usize,
     pub(crate) alignment: Alignment,
     pub(crate) physical_alignment: Alignment,
+    // One physical-alignment block is reserved outside the logical capacity.
+    pub(crate) overallocated: bool,
     pub(crate) _marker: std::marker::PhantomData<T>,
 }
 
@@ -134,6 +136,7 @@ impl<T> BufferMut<T> {
             length: 0,
             alignment,
             physical_alignment: actual,
+            overallocated: true,
             _marker: Default::default(),
         }
     }
@@ -222,6 +225,7 @@ impl<T> BufferMut<T> {
             length: len,
             alignment,
             physical_alignment: actual_alignment,
+            overallocated: true,
             _marker: Default::default(),
         }
     }
@@ -390,7 +394,15 @@ impl<T> BufferMut<T> {
     /// Returns the capacity of the buffer.
     #[inline]
     pub fn capacity(&self) -> usize {
-        (self.allocation.size() - self.offset) / size_of::<T>()
+        if self.allocation.size() == 0 {
+            return 0;
+        }
+
+        if !self.overallocated {
+            return (self.allocation.size() - self.offset) / size_of::<T>();
+        }
+
+        (self.allocation.size() - self.physical_alignment.as_usize()) / size_of::<T>()
     }
 
     /// Returns a raw pointer to the buffer's data.
@@ -464,7 +476,10 @@ impl<T> BufferMut<T> {
             .checked_mul(size_of::<T>())
             .vortex_expect("buffer capacity overflow");
         let physical_alignment = max(self.alignment, self.physical_alignment);
-        let current_size = self.allocation.size() - self.offset;
+        let current_size = self
+            .capacity()
+            .checked_mul(size_of::<T>())
+            .vortex_expect("buffer capacity overflow");
         let logical_size = required_size
             .max(current_size.saturating_mul(2))
             .max(physical_alignment.as_usize());
@@ -520,6 +535,7 @@ impl<T> BufferMut<T> {
         };
         self.offset = new_offset;
         self.physical_alignment = physical_alignment;
+        self.overallocated = true;
     }
 
     /// Returns the spare capacity of the buffer as a slice of `MaybeUninit<T>`.
@@ -669,6 +685,7 @@ impl<T> BufferMut<T> {
             length: self.length * size_of::<T>(),
             alignment: self.alignment,
             physical_alignment: self.physical_alignment,
+            overallocated: self.overallocated,
             _marker: Default::default(),
         }
     }
@@ -681,6 +698,7 @@ impl<T> BufferMut<T> {
             self.length,
             self.alignment,
             self.physical_alignment,
+            self.overallocated,
         )
     }
 
@@ -745,6 +763,7 @@ impl<T> BufferMut<T> {
             length: self.length,
             alignment: self.alignment,
             physical_alignment: self.physical_alignment,
+            overallocated: self.overallocated,
             _marker: std::marker::PhantomData,
         }
     }
@@ -1096,10 +1115,10 @@ mod test {
 
         buffer.push(0);
         let capacity = buffer.capacity();
-        assert!(capacity >= alignment.as_usize());
+        assert_eq!(capacity, Alignment::DEFAULT_ALIGNMENT.as_usize());
 
         buffer.reserve(capacity);
-        assert!(buffer.capacity() >= capacity * 2);
+        assert_eq!(buffer.capacity(), capacity * 2);
     }
 
     #[test]
