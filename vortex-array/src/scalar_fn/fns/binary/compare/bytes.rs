@@ -123,35 +123,6 @@ impl<'a> ViewsSide<'a> {
     }
 }
 
-/// The leading 8 bytes of a view: the `u32` length plus the first 4 bytes of the value
-/// (zero-padded for values shorter than 4 bytes).
-#[inline]
-#[expect(clippy::cast_possible_truncation, reason = "intentional bit slicing")]
-fn view_head(view: &BinaryView) -> u64 {
-    view.as_u128() as u64
-}
-
-/// The first 4 value bytes of a view as a big-endian `u32` (zero-padded for values shorter than
-/// 4 bytes), so that numeric comparison matches lexicographic byte order.
-///
-/// Zero padding preserves lexicographic order: a padded position differs from a real byte only
-/// when one value is a strict prefix of the other within the first 4 bytes, and the shorter
-/// value orders first exactly as `0` orders before any later real byte. A padded tie falls
-/// through to the tail or full byte comparison.
-#[inline]
-#[expect(clippy::cast_possible_truncation, reason = "intentional bit slicing")]
-fn view_prefix(view: &BinaryView) -> u32 {
-    ((view.as_u128() >> 32) as u32).swap_bytes()
-}
-
-/// Value bytes 4..12 of an *inlined* view as a big-endian `u64` (zero-padded past the value's
-/// length). Only meaningful for inlined views: reference views store the buffer index and offset
-/// in these bytes.
-#[inline]
-fn view_tail(view: &BinaryView) -> u64 {
-    ((view.as_u128() >> 64) as u64).swap_bytes()
-}
-
 /// Compare `lhs_view` from `lhs` against `rhs_view` from `rhs` for equality.
 #[inline]
 fn view_eq(
@@ -160,7 +131,7 @@ fn view_eq(
     rhs: &ViewsSide<'_>,
     rhs_view: &BinaryView,
 ) -> bool {
-    if view_head(lhs_view) != view_head(rhs_view) {
+    if lhs_view.head() != rhs_view.head() {
         return false;
     }
     if lhs_view.is_inlined() {
@@ -179,8 +150,8 @@ fn view_cmp(
     rhs: &ViewsSide<'_>,
     rhs_view: &BinaryView,
 ) -> Ordering {
-    let lhs_prefix = view_prefix(lhs_view);
-    let rhs_prefix = view_prefix(rhs_view);
+    let lhs_prefix = lhs_view.order_prefix();
+    let rhs_prefix = rhs_view.order_prefix();
     if lhs_prefix != rhs_prefix {
         return lhs_prefix.cmp(&rhs_prefix);
     }
@@ -188,8 +159,8 @@ fn view_cmp(
         // Both values live entirely in their views: compare the remaining 8 (zero-padded)
         // value bytes, then lengths. A tie on padded windows means the shorter value is a
         // prefix of the longer one.
-        let lhs_tail = view_tail(lhs_view);
-        let rhs_tail = view_tail(rhs_view);
+        let lhs_tail = lhs_view.order_tail();
+        let rhs_tail = rhs_view.order_tail();
         if lhs_tail != rhs_tail {
             return lhs_tail.cmp(&rhs_tail);
         }
@@ -271,23 +242,17 @@ fn collect_ordering_bits(
 fn compare_views_constant(lhs: &ViewsSide<'_>, constant: &[u8], op: CompareOperator) -> BitBuffer {
     let len = lhs.len();
     // The same head/prefix/tail words a view stores, precomputed once for the constant.
-    let mut prefix_bytes = [0u8; 4];
-    let prefix_len = constant.len().min(4);
-    prefix_bytes[..prefix_len].copy_from_slice(&constant[..prefix_len]);
-    let mut tail_bytes = [0u8; 8];
-    if constant.len() > 4 {
-        let tail_len = (constant.len() - 4).min(8);
-        tail_bytes[..tail_len].copy_from_slice(&constant[4..4 + tail_len]);
-    }
-    let constant_head =
-        (constant.len() as u64) | (u64::from(u32::from_le_bytes(prefix_bytes)) << 32);
-    let constant_prefix = u32::from_be_bytes(prefix_bytes);
-    let constant_tail = u64::from_be_bytes(tail_bytes);
+    let constant_head = BinaryView::head_of(constant);
+    let constant_prefix = BinaryView::order_prefix_of(constant);
+    let constant_tail = BinaryView::order_tail_of(constant);
     // The full 16-byte word an inlined view holding `constant` would carry; only meaningful when
     // the constant is short enough to inline, and only reached in that case (a longer constant
     // never head-matches an inlined view).
-    let constant_inlined =
-        u128::from(constant_head) | (u128::from(u64::from_le_bytes(tail_bytes)) << 64);
+    let constant_inlined = if constant.len() <= BinaryView::MAX_INLINED_SIZE {
+        BinaryView::new_inlined(constant).as_u128()
+    } else {
+        0
+    };
 
     match op {
         CompareOperator::Eq => BitBuffer::collect_bool(len, |i| {
@@ -362,7 +327,7 @@ fn constant_eq(
     constant_head: u64,
     constant_inlined: u128,
 ) -> bool {
-    if view_head(view) != constant_head {
+    if view.head() != constant_head {
         return false;
     }
     if view.is_inlined() {
@@ -382,7 +347,7 @@ fn constant_cmp(
     constant_prefix: u32,
     constant_tail: u64,
 ) -> Ordering {
-    let prefix = view_prefix(view);
+    let prefix = view.order_prefix();
     if prefix != constant_prefix {
         return prefix.cmp(&constant_prefix);
     }
@@ -390,7 +355,7 @@ fn constant_cmp(
         // The view's whole value lives in its first 12 (zero-padded) bytes, and the constant's
         // first 12 (zero-padded) bytes are precomputed: compare tails, then lengths. A padded
         // tie means one value is a prefix of the other within the first 12 bytes.
-        let tail = view_tail(view);
+        let tail = view.order_tail();
         if tail != constant_tail {
             return tail.cmp(&constant_tail);
         }

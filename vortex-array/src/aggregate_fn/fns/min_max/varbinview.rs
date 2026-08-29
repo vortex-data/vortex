@@ -53,7 +53,7 @@ fn compute_min_max_with_validity(
 }
 
 /// The running extrema of a scan: the smallest and largest values seen so far, each held as its
-/// [ordering prefix](order_prefix) alongside the bytes the prefix was taken from.
+/// [order prefix](BinaryView::order_prefix) alongside the bytes it was taken from.
 struct Extrema<'a> {
     min_prefix: u32,
     min_bytes: &'a [u8],
@@ -63,10 +63,8 @@ struct Extrema<'a> {
 
 /// Fold the fully-valid `views` into `extrema`, seeding it from the first view if it is empty.
 ///
-/// Every view stores the first four bytes of its value inline, and comparing those four bytes as
-/// a big-endian integer agrees with the lexicographic order of the values themselves (see
-/// [`order_prefix`]). A value whose prefix falls strictly inside the running `[min, max]`
-/// interval is therefore settled by its 16-byte view alone, without reading the value — which
+/// A value whose [`order_prefix`](BinaryView::order_prefix) falls strictly inside the running
+/// `[min, max]` interval is settled by its 16-byte view alone, without reading the value — which
 /// for a value longer than twelve bytes means a read into a data buffer.
 ///
 /// Views are folded two at a time. Ordering a pair against itself first means only its smaller
@@ -83,7 +81,7 @@ fn scan<'a>(
         Some(extrema) => (extrema, views),
         None => {
             let (first, rest) = views.split_first()?;
-            let prefix = order_prefix(first);
+            let prefix = first.order_prefix();
             let bytes = first.bytes(buffers);
             let seed = Extrema {
                 min_prefix: prefix,
@@ -103,7 +101,7 @@ fn scan<'a>(
 
     let (pairs, remainder) = rest.as_chunks::<2>();
     for [a, b] in pairs {
-        let (a_prefix, b_prefix) = (order_prefix(a), order_prefix(b));
+        let (a_prefix, b_prefix) = (a.order_prefix(), b.order_prefix());
         if a_prefix > min_prefix
             && a_prefix < max_prefix
             && b_prefix > min_prefix
@@ -132,7 +130,7 @@ fn scan<'a>(
     // An odd view is folded on its own. `min_bytes <= max_bytes` holds by construction, so a
     // value that lowers the minimum cannot also raise the maximum.
     for view in remainder {
-        let prefix = order_prefix(view);
+        let prefix = view.order_prefix();
         if prefix > min_prefix && prefix < max_prefix {
             continue;
         }
@@ -152,22 +150,6 @@ fn scan<'a>(
         max_prefix,
         max_bytes,
     })
-}
-
-/// The first four bytes of a view's value as a big-endian `u32`, so that comparing two prefixes
-/// agrees with the lexicographic order of the values they came from.
-///
-/// Both view variants store those bytes at the same offset — the inlined value for short values,
-/// the `prefix` field for values held in a data buffer — zero-padded for values shorter than four
-/// bytes. Zero padding is what makes the comparison an order refinement rather than an
-/// approximation: if `a`'s prefix is below `b`'s then either they first differ at a byte both
-/// values have, or `a` ran out of bytes first and is a proper prefix of `b`; either way `a < b`.
-#[inline]
-#[expect(clippy::cast_possible_truncation, reason = "intentional bit slicing")]
-fn order_prefix(view: &BinaryView) -> u32 {
-    // Bits 32..64 hold the prefix bytes in value order, which `swap_bytes` turns into the
-    // big-endian integer whose comparison matches a byte-wise comparison of those bytes.
-    ((view.as_u128() >> 32) as u32).swap_bytes()
 }
 
 fn make_scalar(dtype: &DType, value: &[u8]) -> Scalar {

@@ -354,11 +354,10 @@ fn eval_pattern(haystack: &ResolvedViews<'_>, pattern: &LikePattern, negated: bo
         LikePattern::Eq(needle) => {
             // Compare the view head (length plus 4-byte prefix) first; only views that agree
             // on both dereference their data buffer for the remaining bytes.
-            let needle_head = needle_head(needle);
+            let needle_head = BinaryView::head_of(needle);
             BitBuffer::collect_bool(len, |i| {
                 let view = &haystack.views[i];
-                let matched =
-                    view_head(view) == needle_head && haystack.bytes(i)[4..] == needle[4..];
+                let matched = view.head() == needle_head && haystack.bytes(i)[4..] == needle[4..];
                 matched != negated
             })
         }
@@ -368,11 +367,10 @@ fn eval_pattern(haystack: &ResolvedViews<'_>, pattern: &LikePattern, negated: bo
             // prefix matches compare the remaining needle bytes.
             let needle_len = needle.len();
             let prefix_len = needle_len.min(4);
-            let needle_prefix = u32::from_le_bytes({
-                let mut padded = [0u8; 4];
-                padded[..prefix_len].copy_from_slice(&needle[..prefix_len]);
-                padded
-            });
+            // The needle's prefix bytes in the same memory order the view stores its own, so a
+            // masked equality keeps only the bytes the needle actually constrains. This is an
+            // equality test, not an ordering one, so the bytes stay unswapped.
+            let needle_prefix = u32::from_le_bytes(BinaryView::prefix_of(needle));
             let prefix_mask = if prefix_len == 4 {
                 u32::MAX
             } else {
@@ -381,7 +379,7 @@ fn eval_pattern(haystack: &ResolvedViews<'_>, pattern: &LikePattern, negated: bo
             BitBuffer::collect_bool(len, |i| {
                 let view = &haystack.views[i];
                 let matched = view.len() as usize >= needle_len
-                    && (view_prefix(view) & prefix_mask) == needle_prefix
+                    && (u32::from_le_bytes(view.prefix()) & prefix_mask) == needle_prefix
                     && (needle_len <= 4 || haystack.bytes(i)[4..needle_len] == needle[4..]);
                 matched != negated
             })
@@ -424,28 +422,6 @@ fn eval_pattern(haystack: &ResolvedViews<'_>, pattern: &LikePattern, negated: bo
 #[inline]
 fn bytes_eq(lhs: &[u8], rhs: &[u8]) -> bool {
     lhs.len() == rhs.len() && std::iter::zip(lhs, rhs).all(|(l, r)| l == r)
-}
-
-/// The leading 8 bytes of a view: the `u32` length plus the first 4 bytes of the value
-/// (zero-padded for values shorter than 4 bytes).
-#[inline]
-#[expect(clippy::cast_possible_truncation, reason = "intentional bit slicing")]
-fn view_head(view: &BinaryView) -> u64 {
-    view.as_u128() as u64
-}
-
-/// The view head a needle of more than 4 bytes would have: its length plus first 4 bytes.
-fn needle_head(needle: &[u8]) -> u64 {
-    let prefix: [u8; 4] = [needle[0], needle[1], needle[2], needle[3]];
-    (needle.len() as u64) | (u64::from(u32::from_le_bytes(prefix)) << 32)
-}
-
-/// The first 4 value bytes stored inline in any view (zero-padded for values shorter than
-/// 4 bytes), as a raw little-endian `u32` in memory order.
-#[inline]
-#[expect(clippy::cast_possible_truncation, reason = "intentional bit slicing")]
-fn view_prefix(view: &BinaryView) -> u32 {
-    (view.as_u128() >> 32) as u32
 }
 
 /// Variants of the LIKE filter that we know how to turn into a stats pruning predicate.
