@@ -3,8 +3,11 @@
 
 //! Train + compress entry points for the OnPair encoding.
 
+use onpair::CompactDictionary;
 use onpair::Config;
+use onpair::Offset;
 use onpair::Rows;
+use onpair::Token;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -12,6 +15,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::varbinview::BinaryView;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::dtype::NativePType;
 use vortex_array::scalar::Scalar;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
@@ -81,10 +85,17 @@ pub fn onpair_compress(
         lengths: uncompressed_lengths.as_slice(),
         total_bytes,
     };
-    let column = onpair::compress_rows::<_, u64>(&rows, config);
-    let (dict, codes, row_offsets) = column.into_raw();
+    // `onpair::compress_rows` uses one offset width for the per-row code offsets it returns, and a
+    // row emits at most one code per input byte. Asking for `u32` when the column's bytes fit
+    // it therefore halves that buffer and lets `codes_offsets` adopt the returned vector
+    // instead of narrowing it in a second pass. `onpair` narrows offsets with a plain `as`
+    // cast, so this byte-count check is what keeps the `u32` path from truncating.
+    let (dict, codes, codes_offsets) = if u32::try_from(total_bytes).is_ok() {
+        compress_column::<u32>(&rows, config)
+    } else {
+        compress_column::<u64>(&rows, config)
+    };
     let (dict_bytes, dict_offsets) = dict.into_raw();
-    let codes_offsets = codes_offsets_array(&row_offsets);
     let codes = Buffer::from(codes).into_array();
     // The `dict_offsets` child and the memoized widened-offsets cell share
     // this buffer, so seeding below costs no copy.
@@ -148,24 +159,93 @@ fn dict_bytes_to_buffer(dict_bytes: Vec<u8>) -> BufferHandle {
     BufferHandle::new_host(aligned.freeze())
 }
 
-/// Build the `codes_offsets` child from the library's per-row code boundaries,
-/// storing the narrowest of `u32`/`u64` that holds the largest boundary.
-/// `row_offsets` is non-decreasing, so its last entry is that maximum and one
-/// bound check picks the width. `u32` covers the common case (the cascading
-/// compressor narrows it further to `u16`/`u8`); `u64` engages only when a
-/// single chunk carries more than `u32::MAX` tokens, matching the `u64` byte
-/// offsets accepted at compression.
-fn codes_offsets_array(row_offsets: &[u64]) -> ArrayRef {
-    let total_tokens = row_offsets.last().copied().unwrap_or(0);
-    if u32::try_from(total_tokens).is_ok() {
-        Buffer::from(
-            row_offsets
-                .iter()
-                .map(|&o| u32::try_from(o).vortex_expect("code boundary fits u32"))
-                .collect::<Vec<u32>>(),
-        )
-        .into_array()
-    } else {
-        Buffer::from(row_offsets.to_vec()).into_array()
+/// Compress `rows` at the given code-offset width, returning the dictionary, the code
+/// stream, and the lowered `codes_offsets` child.
+fn compress_column<O: CodeOffset>(
+    rows: &ViewRows<'_>,
+    config: Config,
+) -> (CompactDictionary, Vec<Token>, ArrayRef) {
+    let column = onpair::compress_rows::<_, O>(rows, config);
+    let (dict, codes, row_offsets) = column.into_raw();
+    (dict, codes, O::codes_offsets_array(row_offsets))
+}
+
+/// The code-offset widths [`onpair::compress_rows`] can return, plus how each one lowers
+/// those offsets into the `codes_offsets` child.
+trait CodeOffset: Offset + NativePType {
+    /// Build the `codes_offsets` child from the per-row code boundaries.
+    fn codes_offsets_array(row_offsets: Vec<Self>) -> ArrayRef
+    where
+        Self: Sized;
+}
+
+impl CodeOffset for u32 {
+    /// Already the narrowest width Vortex stores, so adopt the vector as-is. The cascading
+    /// compressor narrows it further to `u16`/`u8`.
+    fn codes_offsets_array(row_offsets: Vec<Self>) -> ArrayRef {
+        Buffer::from(row_offsets).into_array()
+    }
+}
+
+impl CodeOffset for u64 {
+    /// Reached only when a column carries more than `u32::MAX` bytes. Tokens are still often
+    /// far fewer, so keep the narrowing pass rather than storing `u64` offsets that do not
+    /// need the range. `row_offsets` is non-decreasing, so its last entry is the maximum and
+    /// one bound check picks the width.
+    fn codes_offsets_array(row_offsets: Vec<Self>) -> ArrayRef {
+        let total_tokens = row_offsets.last().copied().unwrap_or(0);
+        if u32::try_from(total_tokens).is_ok() {
+            Buffer::from(
+                row_offsets
+                    .iter()
+                    .map(|&o| u32::try_from(o).vortex_expect("code boundary fits u32"))
+                    .collect::<Vec<u32>>(),
+            )
+            .into_array()
+        } else {
+            Buffer::from(row_offsets).into_array()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::dtype::PType;
+    use vortex_error::VortexResult;
+
+    use super::*;
+    use crate::array::OnPairArraySlotsExt;
+
+    /// A column under `u32::MAX` bytes must keep storing `codes_offsets` at `u32`. This guards
+    /// the stored width across the switch to requesting `u32` from `onpair` directly; whether a
+    /// narrowing pass ran is not observable from here.
+    #[test]
+    fn codes_offsets_are_u32_for_small_inputs() -> VortexResult<()> {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        let mut ctx = session.create_execution_ctx();
+        let array = VarBinViewArray::from_iter_str([
+            "the quick brown fox",
+            "jumps over the lazy dog",
+            "the quick brown fox jumps",
+        ])
+        .into_array();
+
+        let encoded = onpair_compress(&array, Config::default(), &mut ctx)?;
+        let onpair = encoded
+            .as_opt::<OnPair>()
+            .vortex_expect("input compresses to OnPair");
+        assert_eq!(onpair.codes_offsets().dtype().as_ptype(), PType::U32);
+        Ok(())
+    }
+
+    /// `u64` code offsets still narrow to `u32` when the token count allows it, so the
+    /// wide-input path stores the same width it did before.
+    #[test]
+    fn u64_code_offsets_narrow_to_u32() {
+        let array = <u64 as CodeOffset>::codes_offsets_array(vec![0, 3, 7, 11]);
+        assert_eq!(array.dtype().as_ptype(), PType::U32);
     }
 }
