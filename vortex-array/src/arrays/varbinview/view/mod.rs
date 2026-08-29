@@ -2,28 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! The 16-byte view struct stored in variable-length binary vectors.
-//!
-//! # Comparison words
-//!
-//! Every view — inlined or reference — carries the value's length in its first four bytes and
-//! the value's first four bytes, zero-padded, in its next four. Reading those fields answers most
-//! comparisons from the view alone, which for a reference view saves a second, scattered read
-//! into a data buffer. [`BinaryView`] exposes those bytes as [`prefix`](BinaryView::prefix) and
-//! packs them into three comparison words, each with a matching `_of` constructor for a value
-//! that is not in a view (a scalar being compared against, say):
-//!
-//! - [`head`](BinaryView::head) pairs the length with the prefix. Equal values have equal heads,
-//!   so an unequal head rules out equality without reading either value.
-//! - [`order_prefix`](BinaryView::order_prefix) is the prefix as a big-endian integer, which
-//!   orders the same way the values it came from do.
-//! - [`order_tail`](BinaryView::order_tail) continues that order through the rest of an inlined
-//!   value, whose twelve bytes it and `order_prefix` cover between them.
-//!
-//! Zero padding is what makes the ordering words order *refinements* rather than approximations:
-//! if `a`'s word is below `b`'s then either they first differ at a byte both values have, or `a`
-//! ran out of bytes first and is a proper prefix of `b`; either way `a < b`. Equal words say
-//! nothing beyond the bytes they cover, so they fall through to the next word, to the values
-//! themselves, or — once both words are exhausted on inlined values — to the lengths.
 
 use std::fmt;
 use std::hash::Hash;
@@ -38,6 +16,28 @@ use vortex_error::VortexExpect;
 ///
 /// Either an inlined representation (for values <= 12 bytes) or a reference
 /// to an external buffer (for values > 12 bytes).
+///
+/// # Comparison words
+///
+/// Every view — inlined or reference — carries the value's length in its first four bytes and
+/// the value's first four bytes, zero-padded, in its next four. Reading those fields answers most
+/// comparisons from the view alone, which for a reference view saves a second, scattered read
+/// into a data buffer. Those bytes are exposed as [`prefix`](Self::prefix) and packed into three
+/// comparison words, each with a matching `_of` constructor for a value that is not in a view (a
+/// scalar being compared against, say):
+///
+/// - [`head`](Self::head) pairs the length with the prefix. Equal values have equal heads, so an
+///   unequal head rules out equality without reading either value.
+/// - [`order_prefix`](Self::order_prefix) is the prefix as a big-endian integer, which orders the
+///   same way the values it came from do.
+/// - [`order_tail`](Self::order_tail) continues that order through the rest of an inlined value,
+///   whose twelve bytes it and `order_prefix` cover between them.
+///
+/// Zero padding is what makes the ordering words order *refinements* rather than approximations:
+/// if `a`'s word is below `b`'s then either they first differ at a byte both values have, or `a`
+/// ran out of bytes first and is a proper prefix of `b`; either way `a < b`. Equal words say
+/// nothing beyond the bytes they cover, so they fall through to the next word, to the values
+/// themselves, or — once both words are exhausted on inlined values — to the lengths.
 #[derive(Clone, Copy)]
 #[repr(C, align(16))]
 pub union BinaryView {
@@ -301,7 +301,7 @@ impl BinaryView {
     /// The value's length paired with its [`prefix`](Self::prefix), as the view stores them.
     ///
     /// Equal values have equal heads, so an unequal head rules out equality without reading
-    /// either value. See [the module docs](self#comparison-words).
+    /// either value. See [the module docs](BinaryView#comparison-words).
     #[inline]
     #[expect(clippy::cast_possible_truncation, reason = "intentional bit slicing")]
     pub fn head(&self) -> u64 {
@@ -311,7 +311,7 @@ impl BinaryView {
     /// The value's [`prefix`](Self::prefix) as a big-endian `u32`, which orders the way the
     /// values do: a lower `order_prefix` means a lower value, and equal ones decide nothing.
     ///
-    /// See [the module docs](self#comparison-words).
+    /// See [the module docs](BinaryView#comparison-words).
     #[inline]
     pub fn order_prefix(&self) -> u32 {
         u32::from_be_bytes(self.prefix())
@@ -322,7 +322,7 @@ impl BinaryView {
     ///
     /// Meaningful only for an inlined view: a reference view stores its buffer index and offset in
     /// these bytes. Two inlined values are fully ordered by their order prefix, then their order
-    /// tail, then their length. See [the module docs](self#comparison-words).
+    /// tail, then their length. See [the module docs](BinaryView#comparison-words).
     #[inline]
     pub fn order_tail(&self) -> u64 {
         debug_assert!(self.is_inlined(), "order_tail of a reference view");
