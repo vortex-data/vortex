@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: ["develop"]
+  pull_request: {}
+  workflow_dispatch: {}
+
+permissions:
+  actions: read
+  contents: read
+  id-token: write
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: ./.github/actions/setup-rust
+      - name: Rust Build
+        run: cargo build --all-features --all-targets
+      - name: Rust Lint - Format
+        run: cargo fmt --all --check
+      - name: Rust Lint - Clippy
+        run: cargo clippy --all-features --all-targets
+      - name: Rust Lint - Docs
+        run: cargo doc --no-deps --all-features --document-private-items
+      - name: Rust Test
+        run: cargo test --workspace --all-features
+
+  bench-codspeed:
+    name: Benchmark with Codspeed
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: ./.github/actions/setup-rust
+
+      - name: Install Codspeed
+        shell: bash
+        run: cargo install --force cargo-codspeed --locked
+
+      - name: Build benchmarks
+        env:
+          RUSTFLAGS: "-C target-feature=+avx2"
+        run: |
+          cargo codspeed build --profile bench -m simulation
+
+      - name: Run benchmarks - Simulation
+        uses: CodSpeedHQ/action@3194d9a39c4d46684cb44bf7207fc56626aad8fd # v4.15.1
+        with:
+          run: cargo codspeed run
+          mode: simulation
+
+  bench-codspeed-walltime:
+    name: Benchmark with Codspeed (Walltime)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: ./.github/actions/setup-rust
+
+      - name: Install Codspeed
+        shell: bash
+        run: cargo install --force cargo-codspeed --locked
+
+      - name: Build benchmarks
+        env:
+          # TODO: use avx512 (+avx512f,+avx512bw,+avx512vl,+avx512dq) once the
+          # walltime runner is guaranteed to expose it (e.g. codspeed-macro);
+          # ubuntu-latest does not reliably support AVX-512 and would SIGILL.
+          RUSTFLAGS: "-C target-feature=+avx2"
+        run: |
+          cargo codspeed build --profile bench -m walltime
+
+      - name: Run benchmarks - Walltime
+        uses: CodSpeedHQ/action@3194d9a39c4d46684cb44bf7207fc56626aad8fd # v4.15.1
+        with:
+          run: cargo codspeed run
+          mode: walltime

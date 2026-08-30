@@ -1,0 +1,36 @@
+name: Release Drafter
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches:
+      - develop
+  workflow_dispatch:
+    # Permits a custom run to create a pre-release
+    inputs:
+      prerelease-identifier:
+        description: "RC identifier (e.g., rc, beta, alpha)"
+        type: string
+        default: "rc"
+
+permissions:
+  contents: read
+
+jobs:
+  update_release_draft:
+    permissions:
+      # write permission is required to create a github release
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: release-drafter/release-drafter@693d20e7c1ce1a81d3a41962f85914253b518449  # v7.3.1
+        with:
+          commitish: ${{ github.ref_name }}
+          prerelease: ${{ github.event_name == 'workflow_dispatch' }}
+          prerelease-identifier: ${{ inputs.prerelease-identifier || '' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
