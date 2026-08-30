@@ -266,8 +266,7 @@ pub(crate) fn minimize_dense(table: &[u32], best_output: &[u32]) -> (Vec<u32>, V
         let mut num_classes = 0u32;
 
         for state in 0..states {
-            let mut hash = 0xcbf2_9ce4_8422_2325u64
-                ^ (u64::from(classes[state]) << 32);
+            let mut hash = 0xcbf2_9ce4_8422_2325u64 ^ (u64::from(classes[state]) << 32);
             for byte in 0..256 {
                 let target = table[state * 256 + byte] as usize;
                 hash ^= u64::from(classes[target]);
@@ -944,8 +943,7 @@ fn fill_strip_chunks(
                     ((value >> 4) as Token, ((value & 0xf) + 1) as usize)
                 } else {
                     // SAFETY: strip values are states of this automaton.
-                    let output =
-                        unsafe { *matcher.best_output.get_unchecked(value as usize) };
+                    let output = unsafe { *matcher.best_output.get_unchecked(value as usize) };
                     ((output >> 8) as Token, (output & 0xff) as usize)
                 };
                 debug_assert!(token_len != 0);
@@ -1020,8 +1018,7 @@ unsafe fn fill_strip_packed(strip: &[u8], iterations: usize, table: &[u8], out: 
                 );
                 let entries = _mm512_i32gather_epi32::<1>(byte_offsets, table.as_ptr().cast());
                 let shifts = _mm512_slli_epi32::<2>(_mm512_and_si512(indices, one));
-                states[group] =
-                    _mm512_and_si512(_mm512_srlv_epi32(entries, shifts), state_mask);
+                states[group] = _mm512_and_si512(_mm512_srlv_epi32(entries, shifts), state_mask);
                 _mm512_storeu_si512(out.as_mut_ptr().add(offset).cast(), states[group]);
             }
         }
@@ -1282,8 +1279,7 @@ pub(crate) unsafe fn fill_avx512_group(
                     data.as_ptr().cast(),
                 );
                 let bytes = _mm512_and_si512(words, byte_mask);
-                let indices =
-                    _mm512_or_si512(_mm512_slli_epi32::<8>(cursors.states[group]), bytes);
+                let indices = _mm512_or_si512(_mm512_slli_epi32::<8>(cursors.states[group]), bytes);
                 entries[group] = _mm512_mask_i32gather_epi32::<4>(
                     _mm512_setzero_si512(),
                     actives[group],
@@ -1354,8 +1350,7 @@ pub(crate) unsafe fn fill_avx512_packed_group(
                     data.as_ptr().cast(),
                 );
                 let bytes = _mm512_and_si512(words, byte_mask);
-                let indices =
-                    _mm512_or_si512(_mm512_slli_epi32::<8>(cursors.states[group]), bytes);
+                let indices = _mm512_or_si512(_mm512_slli_epi32::<8>(cursors.states[group]), bytes);
                 let byte_offsets = _mm512_add_epi32(
                     _mm512_slli_epi32::<1>(indices),
                     _mm512_srli_epi32::<1>(indices),
@@ -1369,10 +1364,8 @@ pub(crate) unsafe fn fill_avx512_packed_group(
                 );
             }
             for group in 0..AVX512_GROUPS {
-                cursors.states[group] = _mm512_and_si512(
-                    _mm512_srlv_epi32(entries[group], shifts[group]),
-                    state_mask,
-                );
+                cursors.states[group] =
+                    _mm512_and_si512(_mm512_srlv_epi32(entries[group], shifts[group]), state_mask);
                 _mm512_mask_i32scatter_epi32::<4>(
                     best.as_mut_ptr().cast(),
                     actives[group],
@@ -1383,7 +1376,6 @@ pub(crate) unsafe fn fill_avx512_packed_group(
         }
     }
 }
-
 
 fn pack_matches(
     offsets: &[u32],

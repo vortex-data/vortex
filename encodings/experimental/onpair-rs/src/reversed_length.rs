@@ -375,7 +375,12 @@ pub fn parse_reversed_lengths(
 ) {
     let mut best = vec![0u32; offsets[n] as usize];
     for row in 0..n {
-        matcher.fill_scalar(data, offsets[row] as usize, offsets[row + 1] as usize, &mut best);
+        matcher.fill_scalar(
+            data,
+            offsets[row] as usize,
+            offsets[row + 1] as usize,
+            &mut best,
+        );
     }
     pack_length_matches(data, offsets, n, &best, matcher, bits, store);
 }
@@ -499,7 +504,14 @@ mod tests {
         };
         let trained = train(&raw.data, &raw.offsets, raw.n, &config);
         let mut greedy = Store::default();
-        parse(&raw.data, &raw.offsets, raw.n, &trained.lpm, bits, &mut greedy);
+        parse(
+            &raw.data,
+            &raw.offsets,
+            raw.n,
+            &trained.lpm,
+            bits,
+            &mut greedy,
+        );
 
         let matcher = ReversedLengthMatcher::from_dictionary(&trained.dict);
         let mut scalar = Store::default();

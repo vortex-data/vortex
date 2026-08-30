@@ -265,8 +265,7 @@ pub fn parse_trie_interleaved(
                             lane.state = child;
                             lane.depth += 1;
                             // SAFETY: `child` indexes the node arrays.
-                            let token =
-                                unsafe { *matcher.token_at.get_unchecked(child as usize) };
+                            let token = unsafe { *matcher.token_at.get_unchecked(child as usize) };
                             if token != NO_TOKEN {
                                 lane.best = (lane.depth << 16) | token;
                             }
@@ -395,12 +394,7 @@ unsafe fn walk_trie_avx512_group(
                 if probing == 0 {
                     break;
                 }
-                slot = _mm512_mask_and_epi32(
-                    slot,
-                    probing,
-                    _mm512_add_epi32(slot, one),
-                    slot_mask,
-                );
+                slot = _mm512_mask_and_epi32(slot, probing, _mm512_add_epi32(slot, one), slot_mask);
             }
 
             let child = _mm512_mask_i32gather_epi32::<4>(
@@ -528,7 +522,14 @@ mod tests {
         };
         let trained = train(&raw.data, &raw.offsets, raw.n, &config);
         let mut greedy = Store::default();
-        parse(&raw.data, &raw.offsets, raw.n, &trained.lpm, bits, &mut greedy);
+        parse(
+            &raw.data,
+            &raw.offsets,
+            raw.n,
+            &trained.lpm,
+            bits,
+            &mut greedy,
+        );
 
         let matcher = TrieLpm::from_dictionary(&trained.dict);
         let mut scalar = Store::default();
@@ -537,7 +538,14 @@ mod tests {
         assert_eq!(scalar.boundaries, greedy.boundaries);
 
         let mut interleaved = Store::default();
-        parse_trie_interleaved(&raw.data, &raw.offsets, raw.n, &matcher, bits, &mut interleaved);
+        parse_trie_interleaved(
+            &raw.data,
+            &raw.offsets,
+            raw.n,
+            &matcher,
+            bits,
+            &mut interleaved,
+        );
         assert_eq!(interleaved.packed, greedy.packed);
         assert_eq!(interleaved.boundaries, greedy.boundaries);
 

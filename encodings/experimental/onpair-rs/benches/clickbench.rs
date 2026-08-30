@@ -21,19 +21,19 @@ use divan::Bencher;
 use vortex_onpair_rs::DynamicThreshold;
 use vortex_onpair_rs::ReversedAhoCorasickMatcher;
 use vortex_onpair_rs::ReversedLengthMatcher;
-use vortex_onpair_rs::TrieLpm;
-use vortex_onpair_rs::parse_reversed_lengths_avx512;
-use vortex_onpair_rs::parse_trie;
-use vortex_onpair_rs::parse_trie_avx512;
-use vortex_onpair_rs::parse_trie_interleaved;
 use vortex_onpair_rs::Store;
 use vortex_onpair_rs::ThresholdSpec;
 use vortex_onpair_rs::TrainResult;
 use vortex_onpair_rs::TrainingConfig;
+use vortex_onpair_rs::TrieLpm;
 use vortex_onpair_rs::parse;
 use vortex_onpair_rs::parse_reversed;
 use vortex_onpair_rs::parse_reversed_avx512;
 use vortex_onpair_rs::parse_reversed_interleaved;
+use vortex_onpair_rs::parse_reversed_lengths_avx512;
+use vortex_onpair_rs::parse_trie;
+use vortex_onpair_rs::parse_trie_avx512;
+use vortex_onpair_rs::parse_trie_interleaved;
 use vortex_onpair_rs::train;
 
 fn bits() -> u8 {
@@ -286,9 +286,9 @@ fn local_report() {
     print!("build_length_automaton ");
     report_timing(
         || {
-            std::hint::black_box(ReversedLengthMatcher::from_dictionary(std::hint::black_box(
-                &trained.dict,
-            )));
+            std::hint::black_box(ReversedLengthMatcher::from_dictionary(
+                std::hint::black_box(&trained.dict),
+            ));
         },
         None,
     );
@@ -335,7 +335,9 @@ fn local_report() {
     print!("build_trie ");
     report_timing(
         || {
-            std::hint::black_box(TrieLpm::from_dictionary(std::hint::black_box(&trained.dict)));
+            std::hint::black_box(TrieLpm::from_dictionary(std::hint::black_box(
+                &trained.dict,
+            )));
         },
         None,
     );
