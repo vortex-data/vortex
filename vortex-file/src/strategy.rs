@@ -214,7 +214,7 @@ impl WriteStrategyBuilder {
         let terminal: Arc<dyn LayoutStrategy> = if self.use_list_layout {
             Arc::new(
                 ListLayoutStrategy::default()
-                    .with_leaf(Arc::clone(&flat))
+                    .with_children_strategy(Arc::clone(&flat))
                     .with_fallback(Arc::clone(&flat)),
             )
         } else {

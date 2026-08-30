@@ -40,9 +40,9 @@ type ListLayoutFactory = Arc<dyn Fn(ListLayoutStrategy) -> Arc<dyn LayoutStrateg
 /// Dispatch rules, applied to the dtype of the stream handed to [`write_stream`]:
 /// - **struct** → [`StructStrategy`], with each field written by its override (if any) or by a
 ///   descended copy of this dispatcher.
-/// - **list** → [`ListLayoutStrategy`], whose children are direct flat leaves. List decomposition
-///   is deliberately shallow: nested lists and structs in the elements subtree remain flat. Gated:
-///   only when enabled via
+/// - **list** → [`ListLayoutStrategy`], whose children are written through the configured leaf and
+///   validity strategies. List decomposition is deliberately shallow: nested lists and structs in
+///   the elements subtree are not decomposed recursively. Gated: only when enabled via
 ///   [`with_list_layout`][Self::with_list_layout] (off by default); otherwise a list falls through
 ///   to the leaf strategy.
 /// - **anything else** → the leaf strategy.
@@ -212,11 +212,16 @@ impl TableStrategy {
 
     /// Build the [`ListLayoutStrategy`] used to write a list field stream at this level.
     ///
-    /// The `elements`, `offsets`, and optional `validity` sub-columns are direct flat leaves. In
-    /// particular, nested lists and structs in the elements subtree are not decomposed recursively.
+    /// The `elements` and `offsets` sub-columns use the configured leaf strategy, while the
+    /// optional `validity` sub-column uses the configured validity strategy. In particular, nested
+    /// lists and structs in the elements subtree are not decomposed recursively.
     fn list_strategy(&self) -> Option<Arc<dyn LayoutStrategy>> {
         let factory = self.list_layout_factory.as_ref()?;
-        let list_layout = ListLayoutStrategy::default().with_fallback(Arc::clone(&self.leaf));
+        let list_layout = ListLayoutStrategy::default()
+            .with_elements_strategy(Arc::clone(&self.leaf))
+            .with_offsets_strategy(Arc::clone(&self.leaf))
+            .with_validity_strategy(Arc::clone(&self.validity))
+            .with_fallback(Arc::clone(&self.leaf));
         Some(factory(list_layout))
     }
 
@@ -471,11 +476,8 @@ mod tests {
         let chunked = ChunkedArray::try_new(vec![chunk0, chunk1], dtype)?.into_array();
 
         let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
-        let dispatcher = TableStrategy::new(
-            Arc::clone(&flat),
-            Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default())),
-        )
-        .with_list_layout();
+        let dispatcher =
+            TableStrategy::new(Arc::clone(&flat), Arc::clone(&flat)).with_list_layout();
         let layout = write(&dispatcher, chunked).await?;
         insta::assert_snapshot!(layout.display_tree(), @r"
         vortex.chunked, dtype: list(i32), children: 2
@@ -502,10 +504,8 @@ mod tests {
         let row_block_size = NonZeroUsize::new(4).vortex_expect("4 is non-zero");
         let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
         let stats = Arc::clone(&flat);
-        let chunked: Arc<dyn LayoutStrategy> =
-            Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()));
-        let dispatcher = TableStrategy::new(Arc::clone(&flat), chunked).with_list_layout_factory(
-            move |list_layout| {
+        let dispatcher = TableStrategy::new(Arc::clone(&flat), Arc::clone(&flat))
+            .with_list_layout_factory(move |list_layout| {
                 let zoned = ZonedStrategy::new(
                     ChunkedLayoutStrategy::new(list_layout),
                     Arc::clone(&stats),
@@ -523,8 +523,7 @@ mod tests {
                         canonicalize: false,
                     },
                 )) as Arc<dyn LayoutStrategy>
-            },
-        );
+            });
 
         let layout = write(&dispatcher, list).await?;
         let zoned = layout.as_::<Zoned>();

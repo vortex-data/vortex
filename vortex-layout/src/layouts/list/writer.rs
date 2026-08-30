@@ -19,14 +19,12 @@ use vortex_array::matcher::Matcher;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
-use crate::layouts::flat::Flat;
 use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::layouts::list::ListLayout;
 use crate::segments::SegmentSinkRef;
@@ -43,8 +41,8 @@ use crate::sequence::SequentialStreamExt;
 ///
 /// For list-typed input the strategy accepts exactly one chunk, canonicalizes its outer list
 /// container (rebuilding a [`ListView`] via [`list_from_list_view`] when necessary), and writes
-/// its encoded `elements`, `offsets`, and `validity` children concurrently as direct flat leaves.
-/// Chunking belongs outside this strategy: callers with a multi-chunk stream should wrap it in a
+/// its encoded `elements`, `offsets`, and `validity` children concurrently. Chunking belongs
+/// outside this strategy: callers with a multi-chunk stream should wrap it in a
 /// [`ChunkedLayoutStrategy`]. Keeping the input chunk intact preserves the compressor's encoding
 /// choices for both elements and offsets.
 ///
@@ -53,7 +51,9 @@ use crate::sequence::SequentialStreamExt;
 /// [`ChunkedLayoutStrategy`]: crate::layouts::chunked::writer::ChunkedLayoutStrategy
 #[derive(Clone)]
 pub struct ListLayoutStrategy {
-    leaf: Arc<dyn LayoutStrategy>,
+    elements: Arc<dyn LayoutStrategy>,
+    offsets: Arc<dyn LayoutStrategy>,
+    validity: Arc<dyn LayoutStrategy>,
     fallback: Arc<dyn LayoutStrategy>,
 }
 
@@ -62,16 +62,38 @@ impl Default for ListLayoutStrategy {
     fn default() -> Self {
         let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
         Self {
-            leaf: Arc::clone(&flat),
+            elements: Arc::clone(&flat),
+            offsets: Arc::clone(&flat),
+            validity: Arc::clone(&flat),
             fallback: flat,
         }
     }
 }
 
 impl ListLayoutStrategy {
-    /// Strategy used for every list child. It must produce a single [`Flat`] leaf.
-    pub fn with_leaf(mut self, leaf: Arc<dyn LayoutStrategy>) -> Self {
-        self.leaf = leaf;
+    /// Strategy used for every list child. A later per-child override takes precedence.
+    pub fn with_children_strategy(mut self, strategy: Arc<dyn LayoutStrategy>) -> Self {
+        self.validity = Arc::clone(&strategy);
+        self.offsets = Arc::clone(&strategy);
+        self.elements = strategy;
+        self
+    }
+
+    /// Strategy used for the elements child.
+    pub fn with_elements_strategy(mut self, elements: Arc<dyn LayoutStrategy>) -> Self {
+        self.elements = elements;
+        self
+    }
+
+    /// Strategy used for the offsets child.
+    pub fn with_offsets_strategy(mut self, offsets: Arc<dyn LayoutStrategy>) -> Self {
+        self.offsets = offsets;
+        self
+    }
+
+    /// Strategy used for the validity child.
+    pub fn with_validity_strategy(mut self, validity: Arc<dyn LayoutStrategy>) -> Self {
+        self.validity = validity;
         self
     }
 
@@ -117,15 +139,15 @@ impl LayoutStrategy for ListLayoutStrategy {
         let row_count = offsets.len().saturating_sub(1);
         let mut sequence = sequence_id.descend();
         let mut child_specs = vec![
-            (elements, Arc::clone(&self.leaf), sequence.advance()),
-            (offsets, Arc::clone(&self.leaf), sequence.advance()),
+            (elements, Arc::clone(&self.elements), sequence.advance()),
+            (offsets, Arc::clone(&self.offsets), sequence.advance()),
         ];
         if dtype.is_nullable() {
             child_specs.push((
                 validity
                     .execute_mask(row_count, &mut exec_ctx)?
                     .into_array(),
-                Arc::clone(&self.leaf),
+                Arc::clone(&self.validity),
                 sequence.advance(),
             ));
         }
@@ -158,14 +180,6 @@ impl LayoutStrategy for ListLayoutStrategy {
         let validity_layout = dtype
             .is_nullable()
             .then(|| layouts.next().vortex_expect("validity layout present"));
-        vortex_ensure!(
-            elements_layout.is::<Flat>()
-                && offsets_layout.is::<Flat>()
-                && validity_layout
-                    .as_ref()
-                    .is_none_or(|layout| layout.is::<Flat>()),
-            "ListLayout children must be flat leaves"
-        );
 
         Ok(ListLayout::new(dtype, elements_layout, offsets_layout, validity_layout).into_layout())
     }
@@ -347,23 +361,6 @@ mod tests {
 
         assert!(read.is::<Dict>());
         Ok(())
-    }
-
-    #[tokio::test]
-    async fn rejects_non_flat_child_layouts() {
-        let inner = create_basic_list(Validity::NonNullable);
-        let outer = ListArray::try_new(
-            inner,
-            buffer![0u32, 2, 3].into_array(),
-            Validity::NonNullable,
-        )
-        .unwrap()
-        .into_array();
-        let strategy =
-            ListLayoutStrategy::default().with_leaf(Arc::new(ListLayoutStrategy::default()));
-
-        let result = write(&strategy, outer).await;
-        assert!(result.is_err());
     }
 
     /// Non-list input dispatches to the fallback strategy unchanged.
