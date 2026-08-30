@@ -97,8 +97,13 @@ Trace load_trace(const std::string& path) {
         input.read(reinterpret_cast<char*>(&key), sizeof(key));
         trace.short_entries.emplace_back(key, read_u16(input));
     }
-    for (size_t index = 0; index < long_entry_count; ++index)
-        trace.long_entries.emplace_back(read_u64(input), read_u16(input));
+    for (size_t index = 0; index < long_entry_count; ++index) {
+        // Sequenced explicitly: argument evaluation order is unspecified, and
+        // reading the value before the key silently loads garbage keys.
+        const uint64_t key = read_u64(input);
+        const uint16_t value = read_u16(input);
+        trace.long_entries.emplace_back(key, value);
+    }
     for (size_t index = 0; index < short_probe_count; ++index) {
         ShortKey key;
         input.read(reinterpret_cast<char*>(&key), sizeof(key));
