@@ -19,6 +19,7 @@ use std::time::Instant;
 use corpus::Corpus;
 use divan::Bencher;
 use vortex_onpair_rs::DynamicThreshold;
+use vortex_onpair_rs::HybridReversedMatcher;
 use vortex_onpair_rs::ReversedAhoCorasickMatcher;
 use vortex_onpair_rs::ReversedLengthMatcher;
 use vortex_onpair_rs::Store;
@@ -29,6 +30,7 @@ use vortex_onpair_rs::TrieLpm;
 use vortex_onpair_rs::parse;
 use vortex_onpair_rs::parse_reversed;
 use vortex_onpair_rs::parse_reversed_avx512;
+use vortex_onpair_rs::parse_reversed_hybrid_avx512;
 use vortex_onpair_rs::parse_reversed_interleaved;
 use vortex_onpair_rs::parse_reversed_lengths_avx512;
 use vortex_onpair_rs::parse_trie;
@@ -275,6 +277,50 @@ fn local_report() {
                 std::hint::black_box(&corpus.offsets_u32),
                 corpus.rows(),
                 std::hint::black_box(&matcher),
+                bits(),
+                &mut store,
+            );
+            std::hint::black_box(store);
+        },
+        Some(corpus.bytes.len()),
+    );
+
+    print!("build_hybrid_matcher ");
+    report_timing(
+        || {
+            std::hint::black_box(HybridReversedMatcher::from_dictionary(
+                std::hint::black_box(&trained.dict),
+            ));
+        },
+        None,
+    );
+    let hybrid = HybridReversedMatcher::from_dictionary(&trained.dict);
+    println!(
+        "hybrid automaton states={} bytes={} long_tokens={}",
+        hybrid.num_states(),
+        hybrid.automaton_bytes(),
+        hybrid.long_tokens()
+    );
+    let mut hybrid_store = Store::default();
+    parse_reversed_hybrid_avx512(
+        &corpus.bytes,
+        &corpus.offsets_u32,
+        corpus.rows(),
+        &hybrid,
+        bits(),
+        &mut hybrid_store,
+    );
+    assert_eq!(hybrid_store.boundaries, greedy.boundaries);
+    assert_eq!(hybrid_store.packed, greedy.packed);
+    print!("parse_reversed_hybrid_avx512 ");
+    report_timing(
+        || {
+            let mut store = Store::default();
+            parse_reversed_hybrid_avx512(
+                std::hint::black_box(&corpus.bytes),
+                std::hint::black_box(&corpus.offsets_u32),
+                corpus.rows(),
+                std::hint::black_box(&hybrid),
                 bits(),
                 &mut store,
             );

@@ -349,6 +349,13 @@ pub(crate) fn minimize_dense(table: &[u32], best_output: &[u32]) -> (Vec<u32>, V
 impl ReversedAhoCorasickMatcher {
     /// Build the reversed automaton for `dict`.
     pub fn from_dictionary(dict: &Dictionary) -> Self {
+        Self::from_dictionary_capped(dict, MAX_TOKEN_SIZE)
+    }
+
+    /// Build the reversed automaton over only the dictionary tokens of length
+    /// `<= max_len`, keeping their original dictionary ids. Longer tokens are
+    /// skipped; the caller is responsible for matching them by other means.
+    pub fn from_dictionary_capped(dict: &Dictionary, max_len: usize) -> Self {
         assert!(
             dict.num_tokens() <= usize::from(Token::MAX) + 1,
             "OnPair dictionary has more than 65,536 tokens"
@@ -363,6 +370,9 @@ impl ReversedAhoCorasickMatcher {
                 !token.is_empty() && token.len() <= MAX_TOKEN_SIZE,
                 "OnPair token length must be in 1..={MAX_TOKEN_SIZE}"
             );
+            if token.len() > max_len {
+                continue;
+            }
             let mut state = 0u32;
             for &byte in token.iter().rev() {
                 let next = child_of(&nodes[state as usize], byte);
@@ -493,6 +503,18 @@ impl ReversedAhoCorasickMatcher {
             num_tokens: dict.num_tokens(),
             num_states,
             trie_states: nodes.len(),
+        }
+    }
+
+    /// Decode a strip/fill output (a fused entry for `Dense12`, otherwise a
+    /// state id) into the matched `(token, length)`.
+    #[inline]
+    fn decode_strip_value(&self, value: u32) -> (Token, usize) {
+        if matches!(self.transitions, Transitions::Dense12(_)) {
+            ((value >> 4) as Token, ((value & 0xf) + 1) as usize)
+        } else {
+            let output = self.best_output[value as usize];
+            ((output >> 8) as Token, (output & 0xff) as usize)
         }
     }
 
@@ -765,9 +787,26 @@ pub fn parse_reversed_avx512(
             (offsets[row + 1] - offsets[row]) as usize <= STRIP_MAX_ROW_LEN
         });
         let (short_rows, long_rows) = rows.split_at(split);
-        fill_strip_chunks(data, offsets, short_rows, matcher, &mut tokens, &mut spans);
+        let resolve = |value: u32, _pos: usize, _end: usize| matcher.decode_strip_value(value);
+        fill_strip_chunks(
+            data,
+            offsets,
+            short_rows,
+            matcher,
+            &resolve,
+            &mut tokens,
+            &mut spans,
+        );
         if !long_rows.is_empty() {
-            fill_long_rows(data, offsets, long_rows, matcher, &mut tokens, &mut spans);
+            fill_long_rows(
+                data,
+                offsets,
+                long_rows,
+                matcher,
+                &resolve,
+                &mut tokens,
+                &mut spans,
+            );
         }
         let fill_done = std::time::Instant::now();
 
@@ -810,11 +849,12 @@ const STRIP_MAX_ROW_LEN: usize = 2048;
 /// Fill and token-collect rows too long for the strip path using the masked
 /// gather/scatter kernels over a positionally-indexed scratch buffer.
 #[cfg(target_arch = "x86_64")]
-fn fill_long_rows(
+fn fill_long_rows<R: Fn(u32, usize, usize) -> (Token, usize)>(
     data: &[u8],
     offsets: &[u32],
     rows: &[usize],
     matcher: &ReversedAhoCorasickMatcher,
+    resolve: &R,
     tokens: &mut Vec<Token>,
     spans: &mut [(u32, u32)],
 ) {
@@ -860,19 +900,12 @@ fn fill_long_rows(
         Transitions::Sparse { .. } => unreachable!("caller excludes sparse transitions"),
     }
 
-    let fused = matches!(matcher.transitions, Transitions::Dense12(_));
     for &row in rows {
         let start = tokens.len() as u32;
         let mut pos = offsets[row] as usize;
         let end = offsets[row + 1] as usize;
         while pos < end {
-            let value = best[pos];
-            let (token, token_len) = if fused {
-                ((value >> 4) as Token, ((value & 0xf) + 1) as usize)
-            } else {
-                let output = matcher.best_output[value as usize];
-                ((output >> 8) as Token, (output & 0xff) as usize)
-            };
+            let (token, token_len) = resolve(best[pos], pos, end);
             debug_assert!(token_len != 0);
             tokens.push(token);
             pos += token_len;
@@ -886,11 +919,12 @@ fn fill_long_rows(
 /// vector loop needs only one in-bounds table gather and one plain store per
 /// group — no data gathers, output scatters, or lane masks.
 #[cfg(target_arch = "x86_64")]
-fn fill_strip_chunks(
+fn fill_strip_chunks<R: Fn(u32, usize, usize) -> (Token, usize)>(
     data: &[u8],
     offsets: &[u32],
     rows: &[usize],
     matcher: &ReversedAhoCorasickMatcher,
+    resolve: &R,
     tokens: &mut Vec<Token>,
     spans: &mut [(u32, u32)],
 ) {
@@ -965,11 +999,11 @@ fn fill_strip_chunks(
 
         // Walk each lane's matches while the chunk's strip is cache-hot,
         // appending tokens per row; the caller bit-packs them in row order.
-        let fused = matches!(matcher.transitions, Transitions::Dense12(_));
         for (index, &row) in chunk.iter().enumerate() {
             let lane = lane_offset + index;
             let start = tokens.len() as u32;
             let len = lens[lane];
+            let end = ends[lane];
             let mut walked = 0usize;
             while walked < len {
                 // Strip index for original position `pos` is `len(pos) - 1 -
@@ -977,13 +1011,7 @@ fn fill_strip_chunks(
                 let i = len - 1 - walked;
                 // SAFETY: `i < len <= max_len` and `lane < STRIP_LANES`.
                 let value = unsafe { *strip_out.get_unchecked(i * STRIP_LANES + lane) };
-                let (token, token_len) = if fused {
-                    ((value >> 4) as Token, ((value & 0xf) + 1) as usize)
-                } else {
-                    // SAFETY: strip values are states of this automaton.
-                    let output = unsafe { *matcher.best_output.get_unchecked(value as usize) };
-                    ((output >> 8) as Token, (output & 0xff) as usize)
-                };
+                let (token, token_len) = resolve(value, end - len + walked, end);
                 debug_assert!(token_len != 0);
                 tokens.push(token);
                 walked += token_len;
@@ -1451,6 +1479,256 @@ fn pack_matches(
     store.boundaries = boundaries;
 }
 
+/// Longest token the hybrid automaton tracks; longer tokens are matched by
+/// one hashed prefix probe per token start instead.
+const HYBRID_SHORT_MAX: usize = 7;
+
+/// One hybrid long-token entry: the suffix bytes after the shared 8-byte
+/// prefix (`slen` of them, packed little-endian) and the token id.
+#[derive(Copy, Clone)]
+struct HybridLongEntry {
+    suffix: u64,
+    slen: u8,
+    token: Token,
+}
+
+/// Reversed matcher that splits the dictionary by token length: tokens of at
+/// most [`HYBRID_SHORT_MAX`] bytes live in a depth-bounded reversed automaton
+/// (small enough to stay cache-resident even for 16-bit dictionaries), while
+/// longer tokens are bucketed by their 8-byte prefix and probed once per
+/// emitted token during the forward walk. Any long hit is longer than every
+/// short match, so greedy longest-match semantics are preserved exactly.
+pub struct HybridReversedMatcher {
+    automaton: ReversedAhoCorasickMatcher,
+    /// Bucket index for tokens of length `>= 8`: prefix -> `(start, count)`
+    /// into `long_entries`, whose per-bucket runs are sorted by descending
+    /// suffix length so the first hit is the longest.
+    long: HashMap<u64, (u32, u32)>,
+    long_entries: Vec<HybridLongEntry>,
+    long_tokens: usize,
+}
+
+/// Load the low `min(len, data.len(), 8)` bytes of `data` little-endian.
+#[inline]
+fn load_low_u64(data: &[u8], len: usize) -> u64 {
+    if len >= 8 && data.len() >= 8 {
+        return u64::from_le_bytes(data[..8].try_into().expect("eight bytes"));
+    }
+    let mut buf = [0u8; 8];
+    let n = len.min(data.len());
+    buf[..n].copy_from_slice(&data[..n]);
+    u64::from_le_bytes(buf)
+}
+
+impl HybridReversedMatcher {
+    /// Build the depth-bounded automaton and long-token buckets for `dict`.
+    pub fn from_dictionary(dict: &Dictionary) -> Self {
+        let automaton = ReversedAhoCorasickMatcher::from_dictionary_capped(dict, HYBRID_SHORT_MAX);
+        let mut buckets: HashMap<u64, Vec<HybridLongEntry>> = HashMap::new();
+        let mut long_tokens = 0usize;
+        for id in 0..dict.num_tokens() {
+            let token = dict.data(id as Token);
+            if token.len() <= HYBRID_SHORT_MAX {
+                continue;
+            }
+            long_tokens += 1;
+            let prefix = load_low_u64(token, 8);
+            let slen = token.len() - 8;
+            let suffix = load_low_u64(&token[8..], slen);
+            let entries = buckets.entry(prefix).or_default();
+            if let Some(existing) = entries
+                .iter_mut()
+                .find(|e| e.slen as usize == slen && e.suffix == suffix)
+            {
+                // Duplicate token bytes keep the newest id, matching the
+                // automaton's tie-break.
+                existing.token = id as Token;
+                continue;
+            }
+            entries.push(HybridLongEntry {
+                suffix,
+                slen: slen as u8,
+                token: id as Token,
+            });
+            entries.sort_by(|a, b| b.slen.cmp(&a.slen));
+        }
+        // Freeze buckets into one contiguous array so a probe is a single
+        // map lookup plus a short linear scan, with no per-bucket pointer
+        // chase.
+        let mut long = HashMap::with_capacity(buckets.len());
+        let mut long_entries = Vec::with_capacity(long_tokens);
+        for (prefix, entries) in buckets {
+            long.insert(prefix, (long_entries.len() as u32, entries.len() as u32));
+            long_entries.extend_from_slice(&entries);
+        }
+        Self {
+            automaton,
+            long,
+            long_entries,
+            long_tokens,
+        }
+    }
+
+    /// Number of automaton states tracking short tokens.
+    pub fn num_states(&self) -> usize {
+        self.automaton.num_states()
+    }
+
+    /// Heap bytes of the short-token automaton.
+    pub fn automaton_bytes(&self) -> usize {
+        self.automaton.automaton_bytes()
+    }
+
+    /// Number of dictionary tokens matched by the hashed long path.
+    pub fn long_tokens(&self) -> usize {
+        self.long_tokens
+    }
+
+    /// Longest `>= 8`-byte token that prefixes `window`, if any.
+    #[inline]
+    fn probe_long(&self, window: &[u8]) -> Option<(Token, usize)> {
+        if window.len() < 8 {
+            return None;
+        }
+        let prefix = u64::from_le_bytes(window[..8].try_into().expect("eight bytes"));
+        let &(start, count) = self.long.get(&prefix)?;
+        let entries = &self.long_entries[start as usize..(start + count) as usize];
+        let max_slen = window.len().min(MAX_TOKEN_SIZE) - 8;
+        let suffix = load_low_u64(&window[8..], max_slen);
+        for e in entries {
+            let elen = e.slen as usize;
+            // Matching low bytes = trailing-zero bytes of the XOR.
+            if elen <= max_slen && ((suffix ^ e.suffix).trailing_zeros() >> 3) as usize >= elen {
+                return Some((e.token, 8 + elen));
+            }
+        }
+        None
+    }
+
+    /// Resolve one strip/fill output at `pos`: a long-token probe first (it is
+    /// always longer than any short match), then the automaton's short match.
+    #[inline]
+    fn resolve(&self, data: &[u8], value: u32, pos: usize, end: usize) -> (Token, usize) {
+        if let Some(hit) = self.probe_long(&data[pos..end]) {
+            return hit;
+        }
+        self.automaton.decode_strip_value(value)
+    }
+}
+
+/// Encode all rows with the hybrid matcher: the depth-bounded automaton fills
+/// per-byte short matches with the strip kernels, and the forward walk
+/// upgrades each token start to a hashed long match when one exists. Falls
+/// back to the scalar hybrid walk when AVX-512 is unavailable.
+pub fn parse_reversed_hybrid_avx512(
+    data: &[u8],
+    offsets: &[u32],
+    n: usize,
+    matcher: &HybridReversedMatcher,
+    bits: BitWidth,
+    store: &mut Store,
+) {
+    #[cfg(target_arch = "x86_64")]
+    if std::arch::is_x86_feature_detected!("avx512f")
+        && data.len() <= i32::MAX as usize
+        && !matches!(matcher.automaton.transitions, Transitions::Sparse { .. })
+    {
+        let rows = rows_sorted_by_length(offsets, n);
+        let mut tokens = Vec::with_capacity(offsets[n] as usize / 4 + 16);
+        let mut spans = vec![(0u32, 0u32); n];
+        let split = rows.partition_point(|&row| {
+            (offsets[row + 1] - offsets[row]) as usize <= STRIP_MAX_ROW_LEN
+        });
+        let (short_rows, long_rows) = rows.split_at(split);
+        let resolve = |value: u32, pos: usize, end: usize| matcher.resolve(data, value, pos, end);
+        fill_strip_chunks(
+            data,
+            offsets,
+            short_rows,
+            &matcher.automaton,
+            &resolve,
+            &mut tokens,
+            &mut spans,
+        );
+        if !long_rows.is_empty() {
+            fill_long_rows(
+                data,
+                offsets,
+                long_rows,
+                &matcher.automaton,
+                &resolve,
+                &mut tokens,
+                &mut spans,
+            );
+        }
+
+        store.bit_width = bits;
+        store.packed.clear();
+        store.boundaries.clear();
+        let mut writer = BitWriter::new(store);
+        let mut boundaries = Vec::with_capacity(n + 1);
+        boundaries.push(0);
+        for &(start, count) in &spans {
+            for &token in &tokens[start as usize..(start + count) as usize] {
+                writer.write(token);
+            }
+            boundaries.push(writer.tokens_written() as u32);
+        }
+        drop(writer);
+        store.boundaries = boundaries;
+        return;
+    }
+
+    parse_reversed_hybrid(data, offsets, n, matcher, bits, store);
+}
+
+/// Scalar hybrid encoding: per-row backward automaton pass plus the same
+/// long-probe forward walk as [`parse_reversed_hybrid_avx512`].
+pub fn parse_reversed_hybrid(
+    data: &[u8],
+    offsets: &[u32],
+    n: usize,
+    matcher: &HybridReversedMatcher,
+    bits: BitWidth,
+    store: &mut Store,
+) {
+    store.bit_width = bits;
+    store.packed.clear();
+    store.boundaries.clear();
+    let mut writer = BitWriter::new(store);
+    let mut boundaries = Vec::with_capacity(n + 1);
+    boundaries.push(0);
+    let mut best = Vec::new();
+
+    for row in 0..n {
+        let start = offsets[row] as usize;
+        let end = offsets[row + 1] as usize;
+        matcher
+            .automaton
+            .find_best_matches(&data[start..end], &mut best);
+        let fused = matches!(matcher.automaton.transitions, Transitions::Dense12(_));
+        let mut pos = start;
+        while pos < end {
+            // `find_best_matches` yields fused entries for `Dense12` and
+            // packed `(token << 8) | len` outputs otherwise.
+            let value = best[pos - start];
+            let (token, len) = if let Some(hit) = matcher.probe_long(&data[pos..end]) {
+                hit
+            } else if fused {
+                ((value >> 4) as Token, ((value & 0xf) + 1) as usize)
+            } else {
+                ((value >> 8) as Token, (value & 0xff) as usize)
+            };
+            debug_assert!(len != 0);
+            writer.write(token);
+            pos += len;
+        }
+        boundaries.push(writer.tokens_written() as u32);
+    }
+    drop(writer);
+    store.boundaries = boundaries;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1549,6 +1827,54 @@ mod tests {
         assert_eq!(interleaved.packed, expected.packed);
         assert_eq!(avx512.boundaries, expected.boundaries);
         assert_eq!(avx512.packed, expected.packed);
+    }
+
+    #[test]
+    fn hybrid_variants_match_greedy_tokens() {
+        let corpora = [
+            user_strings(200)
+                .into_iter()
+                .map(String::into_bytes)
+                .collect(),
+            random_ascii_strings(200, 80, 17),
+            binary_strings(200, 80, 91),
+        ];
+        for corpus in &corpora {
+            let raw = make_raw(corpus);
+            for bits in [12, 16] {
+                let cfg = TrainingConfig {
+                    bits,
+                    threshold: ThresholdSpec::Fixed(FixedThreshold { value: 2 }),
+                    seed: Some(42),
+                };
+                let trained = train(&raw.data, &raw.offsets, raw.n, &cfg);
+                let mut expected = Store::default();
+                parse(
+                    &raw.data,
+                    &raw.offsets,
+                    raw.n,
+                    &trained.lpm,
+                    bits,
+                    &mut expected,
+                );
+                let hybrid = HybridReversedMatcher::from_dictionary(&trained.dict);
+                let mut scalar = Store::default();
+                parse_reversed_hybrid(&raw.data, &raw.offsets, raw.n, &hybrid, bits, &mut scalar);
+                assert_eq!(scalar.boundaries, expected.boundaries);
+                assert_eq!(scalar.packed, expected.packed);
+                let mut simd = Store::default();
+                parse_reversed_hybrid_avx512(
+                    &raw.data,
+                    &raw.offsets,
+                    raw.n,
+                    &hybrid,
+                    bits,
+                    &mut simd,
+                );
+                assert_eq!(simd.boundaries, expected.boundaries);
+                assert_eq!(simd.packed, expected.packed);
+            }
+        }
     }
 
     #[test]

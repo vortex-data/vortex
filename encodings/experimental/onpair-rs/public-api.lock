@@ -580,6 +580,18 @@ pub fn vortex_onpair_rs::reversed_length::parse_reversed_lengths_avx512(&[u8], &
 
 pub mod vortex_onpair_rs::reversed_lpm
 
+pub struct vortex_onpair_rs::reversed_lpm::HybridReversedMatcher
+
+impl vortex_onpair_rs::reversed_lpm::HybridReversedMatcher
+
+pub fn vortex_onpair_rs::reversed_lpm::HybridReversedMatcher::automaton_bytes(&self) -> usize
+
+pub fn vortex_onpair_rs::reversed_lpm::HybridReversedMatcher::from_dictionary(&vortex_onpair_rs::dict::Dictionary) -> Self
+
+pub fn vortex_onpair_rs::reversed_lpm::HybridReversedMatcher::long_tokens(&self) -> usize
+
+pub fn vortex_onpair_rs::reversed_lpm::HybridReversedMatcher::num_states(&self) -> usize
+
 pub struct vortex_onpair_rs::reversed_lpm::ReversedAhoCorasickMatcher
 
 impl vortex_onpair_rs::reversed_lpm::ReversedAhoCorasickMatcher
@@ -587,6 +599,8 @@ impl vortex_onpair_rs::reversed_lpm::ReversedAhoCorasickMatcher
 pub fn vortex_onpair_rs::reversed_lpm::ReversedAhoCorasickMatcher::automaton_bytes(&self) -> usize
 
 pub fn vortex_onpair_rs::reversed_lpm::ReversedAhoCorasickMatcher::from_dictionary(&vortex_onpair_rs::dict::Dictionary) -> Self
+
+pub fn vortex_onpair_rs::reversed_lpm::ReversedAhoCorasickMatcher::from_dictionary_capped(&vortex_onpair_rs::dict::Dictionary, usize) -> Self
 
 pub fn vortex_onpair_rs::reversed_lpm::ReversedAhoCorasickMatcher::num_states(&self) -> usize
 
@@ -601,6 +615,10 @@ pub fn vortex_onpair_rs::reversed_lpm::ReversedAhoCorasickMatcher::uses_dense_tr
 pub fn vortex_onpair_rs::reversed_lpm::parse_reversed(&[u8], &[u32], usize, &vortex_onpair_rs::reversed_lpm::ReversedAhoCorasickMatcher, vortex_onpair_rs::types::BitWidth, &mut vortex_onpair_rs::store::Store)
 
 pub fn vortex_onpair_rs::reversed_lpm::parse_reversed_avx512(&[u8], &[u32], usize, &vortex_onpair_rs::reversed_lpm::ReversedAhoCorasickMatcher, vortex_onpair_rs::types::BitWidth, &mut vortex_onpair_rs::store::Store)
+
+pub fn vortex_onpair_rs::reversed_lpm::parse_reversed_hybrid(&[u8], &[u32], usize, &vortex_onpair_rs::reversed_lpm::HybridReversedMatcher, vortex_onpair_rs::types::BitWidth, &mut vortex_onpair_rs::store::Store)
+
+pub fn vortex_onpair_rs::reversed_lpm::parse_reversed_hybrid_avx512(&[u8], &[u32], usize, &vortex_onpair_rs::reversed_lpm::HybridReversedMatcher, vortex_onpair_rs::types::BitWidth, &mut vortex_onpair_rs::store::Store)
 
 pub fn vortex_onpair_rs::reversed_lpm::parse_reversed_interleaved(&[u8], &[u32], usize, &vortex_onpair_rs::reversed_lpm::ReversedAhoCorasickMatcher, vortex_onpair_rs::types::BitWidth, &mut vortex_onpair_rs::store::Store)
 
@@ -1060,6 +1078,18 @@ impl core::marker::Copy for vortex_onpair_rs::config::FixedThreshold
 
 impl core::marker::StructuralPartialEq for vortex_onpair_rs::config::FixedThreshold
 
+pub struct vortex_onpair_rs::HybridReversedMatcher
+
+impl vortex_onpair_rs::reversed_lpm::HybridReversedMatcher
+
+pub fn vortex_onpair_rs::reversed_lpm::HybridReversedMatcher::automaton_bytes(&self) -> usize
+
+pub fn vortex_onpair_rs::reversed_lpm::HybridReversedMatcher::from_dictionary(&vortex_onpair_rs::dict::Dictionary) -> Self
+
+pub fn vortex_onpair_rs::reversed_lpm::HybridReversedMatcher::long_tokens(&self) -> usize
+
+pub fn vortex_onpair_rs::reversed_lpm::HybridReversedMatcher::num_states(&self) -> usize
+
 pub struct vortex_onpair_rs::KmpAutomaton
 
 impl vortex_onpair_rs::kmp::KmpAutomaton
@@ -1197,6 +1227,8 @@ impl vortex_onpair_rs::reversed_lpm::ReversedAhoCorasickMatcher
 pub fn vortex_onpair_rs::reversed_lpm::ReversedAhoCorasickMatcher::automaton_bytes(&self) -> usize
 
 pub fn vortex_onpair_rs::reversed_lpm::ReversedAhoCorasickMatcher::from_dictionary(&vortex_onpair_rs::dict::Dictionary) -> Self
+
+pub fn vortex_onpair_rs::reversed_lpm::ReversedAhoCorasickMatcher::from_dictionary_capped(&vortex_onpair_rs::dict::Dictionary, usize) -> Self
 
 pub fn vortex_onpair_rs::reversed_lpm::ReversedAhoCorasickMatcher::num_states(&self) -> usize
 
@@ -1477,6 +1509,10 @@ pub fn vortex_onpair_rs::parse(&[u8], &[u32], usize, &vortex_onpair_rs::lpm::Lon
 pub fn vortex_onpair_rs::parse_reversed(&[u8], &[u32], usize, &vortex_onpair_rs::reversed_lpm::ReversedAhoCorasickMatcher, vortex_onpair_rs::types::BitWidth, &mut vortex_onpair_rs::store::Store)
 
 pub fn vortex_onpair_rs::parse_reversed_avx512(&[u8], &[u32], usize, &vortex_onpair_rs::reversed_lpm::ReversedAhoCorasickMatcher, vortex_onpair_rs::types::BitWidth, &mut vortex_onpair_rs::store::Store)
+
+pub fn vortex_onpair_rs::parse_reversed_hybrid(&[u8], &[u32], usize, &vortex_onpair_rs::reversed_lpm::HybridReversedMatcher, vortex_onpair_rs::types::BitWidth, &mut vortex_onpair_rs::store::Store)
+
+pub fn vortex_onpair_rs::parse_reversed_hybrid_avx512(&[u8], &[u32], usize, &vortex_onpair_rs::reversed_lpm::HybridReversedMatcher, vortex_onpair_rs::types::BitWidth, &mut vortex_onpair_rs::store::Store)
 
 pub fn vortex_onpair_rs::parse_reversed_interleaved(&[u8], &[u32], usize, &vortex_onpair_rs::reversed_lpm::ReversedAhoCorasickMatcher, vortex_onpair_rs::types::BitWidth, &mut vortex_onpair_rs::store::Store)
 
