@@ -1,9 +1,16 @@
 use std::collections::BTreeMap;
-use std::fs::{self, File};
-use std::io::{BufWriter, Write};
+use std::fs::File;
+use std::fs::{self};
+use std::io::BufWriter;
+use std::io::Write;
 use std::path::Path;
 
-use onpair::{Config, Dictionary, DictionaryView, MaxDictBits, Parser, Threshold};
+use onpair::Config;
+use onpair::Dictionary;
+use onpair::DictionaryView;
+use onpair::MaxDictBits;
+use onpair::Parser;
+use onpair::Threshold;
 
 const CORPUS_MAGIC: &[u8; 8] = b"ONPAIR01";
 const TRACE_MAGIC: &[u8; 8] = b"OPHASH01";

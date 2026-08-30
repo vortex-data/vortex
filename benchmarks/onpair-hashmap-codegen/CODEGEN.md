@@ -1,5 +1,35 @@
 # Boost Group15: GCC versus Rust/LLVM codegen
 
+## Later immutable-filter results
+
+The broader 32 MiB, 12-case matrix (FineWeb, ClickBench, Stack v3, OnPair titles, TPC-H
+`l_comment`, and Apache access at 12 and 16 dictionary bits) produced these robust aggregate
+results with scalar row-major traces, a pinned core, three warmups, and median-of-nine timing:
+
+- Rust Group15 improved lookup throughput over hashbrown by 37.8% geometric mean.
+- A blocked three-probe Bloom filter at 16 bits per dictionary key improved over Rust Group15 by
+  another 14.1% geometric mean.
+- GCC Boost remained approximately 16% faster than that blocked-Bloom Rust implementation across
+  all 12 cases.
+- The Rust blocked-Bloom implementation did beat GCC Boost on FineWeb-12 by 2.6% and Stack-v3-12
+  by 6.6%; both were confirmed with median-of-15 reruns.
+
+These are flat lookup comparisons: every implementation consumes the same short and long probe
+sequences and returns the same aggregate checksum. Bloom filters may avoid an exact table access,
+but do not change the logical query stream.
+
+An audit found that an earlier version of the grouped-prefix experiment inferred token boundaries
+only from descending adjacent lengths. That can merge two searches, most often on TPC-H and Apache
+access. The benchmark now derives boundaries from exact dictionary hits and checks every timed
+checksum. The earlier grouped-prefix performance claims are withdrawn; only a correctness smoke
+run has been performed since the repair, so rerun the complete matrix before selecting a prefix
+design.
+
+The C++ lookup benchmark does not contain a timed `emplace`: reserve and insertion happen before
+the measured lookup loops. The paper's full-compression benchmark does time dictionary insertion
+as part of training, intentionally. It should not be compared directly with this isolated lookup
+benchmark.
+
 ## Bottom line
 
 On the scalar lookup trace, the Rust Group15 port is much better than hashbrown for the skewed
@@ -190,4 +220,3 @@ record the checksum-equivalent correctness pass and the exact compiler flags wit
 - Probe counts, lookup results, hash formulas, and table capacity remain unchanged while evaluating
   compiler-only fixes.
 - Any table-layout change is reported separately from a codegen change.
-
