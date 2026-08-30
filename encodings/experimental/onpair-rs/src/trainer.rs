@@ -163,20 +163,16 @@ pub fn train(data: &[u8], offsets: &[u32], n: usize, cfg: &TrainingConfig) -> Tr
         }
     }
 
-    // ── Shuffle training order ─────────────────────────────────────────────
-    // The C++ trainer uses `std::mt19937_64` with `std::shuffle`. Pure-Rust
-    // bit-exact compatibility would require reimplementing both. We use the
-    // default Rng (with deterministic seed) and document this as a known
-    // divergence — cross-impl comparison tests assert structural equality
-    // (decompression equivalence, predicate equivalence), not bit-exact
-    // dictionary equality.
-    let mut order: Vec<u32> = (0..n as u32).collect();
+    // ── Select training order ──────────────────────────────────────────────
+    // Dynamic training partially shuffles only the rows it is likely to
+    // consume; fixed-threshold training still shuffles the entire corpus.
+    // (The C++ trainer uses `std::mt19937_64`; bit-exact dictionary equality
+    // across implementations is a documented non-goal.)
     let seed = cfg.seed.unwrap_or_else(|| {
         use rand::RngExt;
         rand::rng().random()
     });
-    let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
-    order.shuffle(&mut rng);
+    let (order, selected_start) = make_training_order(offsets, n, cfg.threshold, seed);
 
     // ── Pair frequency map. Key packs two Token values into a u32; sized so
     // the hot loop rarely rehashes. ────────────────────────────────────────
@@ -190,7 +186,9 @@ pub fn train(data: &[u8], offsets: &[u32], n: usize, cfg: &TrainingConfig) -> Tr
     let mut full_dictionary = false;
     let mut budget_exhausted = false;
 
-    for idx in order {
+    // `partial_shuffle` places its selected slice at the end of `order`, so
+    // consume that random slice rather than the mostly original-order prefix.
+    for &idx in &order[selected_start..] {
         if full_dictionary || budget_exhausted {
             break;
         }
@@ -270,6 +268,56 @@ pub fn train(data: &[u8], offsets: &[u32], n: usize, cfg: &TrainingConfig) -> Tr
     sort_dictionary(&mut result);
     result.dict.pad_for_decoder();
     result
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// make_training_order — internal helper.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Choose the training row order. Dynamic thresholds scan only about
+/// `sample_fraction` of the bytes, so shuffling every row wastes O(n) swaps;
+/// instead partially shuffle roughly twice the expected row count (doubling on
+/// the rare byte-skew miss) and return the start of the selected random slice,
+/// which `partial_shuffle` places at the end of the order. Fixed thresholds
+/// scan everything and keep the full shuffle.
+fn make_training_order(
+    offsets: &[u32],
+    n: usize,
+    threshold: ThresholdSpec,
+    seed: u64,
+) -> (Vec<u32>, usize) {
+    let total_bytes = if n == 0 { 0 } else { offsets[n] as usize };
+    let (scan_budget, mut shuffle_k) = match threshold {
+        ThresholdSpec::Dynamic(dt) => (
+            Some((total_bytes as f64 * dt.sample_fraction) as usize),
+            ((((dt.sample_fraction * 2.0).min(1.0)) * n as f64) as usize + 1024).min(n),
+        ),
+        ThresholdSpec::Fixed(_) => (None, n),
+    };
+
+    loop {
+        let mut order: Vec<u32> = (0..n as u32).collect();
+        let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+        {
+            let (selected, _) = order.partial_shuffle(&mut rng, shuffle_k);
+            debug_assert_eq!(selected.len(), shuffle_k);
+        }
+        let selected_start = n - shuffle_k;
+
+        let Some(scan_budget) = scan_budget else {
+            return (order, selected_start);
+        };
+        let selected_bytes = order[selected_start..]
+            .iter()
+            .map(|&idx| (offsets[idx as usize + 1] - offsets[idx as usize]) as usize)
+            .sum::<usize>();
+        if selected_bytes > scan_budget || shuffle_k == n {
+            return (order, selected_start);
+        }
+
+        // Rare guard for highly skewed row sizes: reselect with twice the rows.
+        shuffle_k = shuffle_k.saturating_mul(2).min(n);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
