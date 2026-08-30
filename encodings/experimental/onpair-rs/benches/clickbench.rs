@@ -1,440 +1,389 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-#![allow(
-    clippy::cast_possible_truncation,
-    clippy::clone_on_ref_ptr,
-    clippy::expect_used,
-    clippy::many_single_char_names,
-    clippy::missing_panics_doc,
-    clippy::unwrap_in_result,
-    clippy::unwrap_used
-)]
-//
-// End-to-end benchmark suite over a real parquet file (ClickBench-style
-// hits or any UTF-8 string column).
-//
-// Data source resolution, in order:
-//   1. env var `ONPAIR_BENCH_PARQUET` — path to a parquet file
-//      (e.g. ClickBench `hits.parquet`). Optionally set
-//      `ONPAIR_BENCH_COLUMN` to pick a specific UTF-8 column; otherwise
-//      we pick the first BYTE_ARRAY / Utf8 / Utf8View column with the
-//      largest total byte volume.
-//   2. `/tmp/userdata1.parquet` if present (small real-world parquet,
-//      good for smoke runs).
-//   3. A synthetic ClickBench-shaped URL corpus (100 000 rows of
-//      repetitive URLs with realistic prefix sharing).
-//
-// Each benchmark group runs three configurations:
-//   * the full pipeline   (`train_and_compress`)
-//   * a single op against an already-built `Column`
-//
-// Run with: cargo bench -p vortex-onpair-rs --bench clickbench
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
+//! Training and parsing benchmarks over a prepared 32 MiB real-data corpus.
+//!
+//! Prepare corpora with `scripts/prepare_corpora.py`, then select one with
+//! `ONPAIR_BENCH_CORPUS`. Corpus loading and dictionary construction for the
+//! parse benchmark happen outside its timed loop.
+
+mod corpus;
 
 use std::env;
-use std::fs::File;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::OnceLock;
+use std::time::Duration;
+use std::time::Instant;
 
-use arrow_array::Array;
-use arrow_array::cast::AsArray;
+use corpus::Corpus;
 use divan::Bencher;
-use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-use vortex_onpair_rs::AhoCorasickAutomaton;
-use vortex_onpair_rs::Column;
-use vortex_onpair_rs::EqAutomaton;
-use vortex_onpair_rs::KmpAutomaton;
-use vortex_onpair_rs::OnPairTrainingConfig;
-use vortex_onpair_rs::PrefixAutomaton;
-use vortex_onpair_rs::and;
-use vortex_onpair_rs::not;
+use vortex_onpair_rs::DynamicThreshold;
+use vortex_onpair_rs::ReversedAhoCorasickMatcher;
+use vortex_onpair_rs::Store;
+use vortex_onpair_rs::ThresholdSpec;
+use vortex_onpair_rs::TrainResult;
+use vortex_onpair_rs::TrainingConfig;
+use vortex_onpair_rs::parse;
+use vortex_onpair_rs::parse_reversed;
+use vortex_onpair_rs::parse_reversed_avx512;
+use vortex_onpair_rs::parse_reversed_interleaved;
+use vortex_onpair_rs::train;
 
-const BITS_CONFIGS: &[u32] = &[12, 16];
-
-/// Pack `Vec<Vec<u8>>` (the corpus) into `(bytes, offsets)`.
-fn pack(strings: &[Vec<u8>]) -> (Vec<u8>, Vec<u64>) {
-    let mut bytes = Vec::with_capacity(strings.iter().map(|s| s.len()).sum());
-    let mut offsets = Vec::with_capacity(strings.len() + 1);
-    offsets.push(0u64);
-    for s in strings {
-        bytes.extend_from_slice(s);
-        offsets.push(bytes.len() as u64);
-    }
-    (bytes, offsets)
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Corpus loading.
-// ─────────────────────────────────────────────────────────────────────────────
-
-struct Corpus {
-    /// Where the rows came from (printed at startup).
-    source: String,
-    rows: Vec<Vec<u8>>,
-    /// Bytes packed once, reused across benches.
-    bytes: Vec<u8>,
-    offsets: Vec<u64>,
-    total_bytes: usize,
+fn bits() -> u8 {
+    env::var("ONPAIR_BITS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(12)
 }
 
 fn corpus() -> &'static Corpus {
     static CORPUS: OnceLock<Corpus> = OnceLock::new();
     CORPUS.get_or_init(|| {
-        let (source, rows) = load_corpus();
-        let (bytes, offsets) = pack(&rows);
-        let total_bytes = bytes.len();
-        let c = Corpus {
-            source,
-            rows,
-            bytes,
-            offsets,
-            total_bytes,
-        };
+        let path = env::var("ONPAIR_BENCH_CORPUS")
+            .expect("set ONPAIR_BENCH_CORPUS to a file made by scripts/prepare_corpora.py");
+        let corpus = Corpus::load(Path::new(&path)).unwrap();
         eprintln!(
-            "[onpair bench] corpus: {} ({} rows, {:.2} MiB)",
-            c.source,
-            c.rows.len(),
-            c.total_bytes as f64 / (1024.0 * 1024.0)
+            "[onpair bench] {}: {} rows, {:.2} MiB",
+            corpus.source,
+            corpus.rows(),
+            corpus.bytes.len() as f64 / (1024.0 * 1024.0)
         );
-        c
+        corpus
     })
 }
 
-fn load_corpus() -> (String, Vec<Vec<u8>>) {
-    if let Ok(path) = env::var("ONPAIR_BENCH_PARQUET")
-        && let Some(rows) = read_parquet_strings(&PathBuf::from(&path))
-    {
-        return (format!("{path} (env)"), rows);
+fn training_config() -> TrainingConfig {
+    TrainingConfig {
+        bits: bits(),
+        threshold: ThresholdSpec::Dynamic(DynamicThreshold {
+            sample_fraction: 0.5,
+        }),
+        seed: Some(42),
     }
-    let fallback = PathBuf::from("/tmp/userdata1.parquet");
-    if fallback.exists()
-        && let Some(rows) = read_parquet_strings(&fallback)
-    {
-        return (format!("{} (auto-detected)", fallback.display()), rows);
-    }
-    let rows = synthetic_clickbench_urls(100_000);
-    ("synthetic ClickBench-shaped URL corpus".to_string(), rows)
 }
 
-/// Load the largest UTF-8-typed column from a parquet file and return it as
-/// `Vec<Vec<u8>>`. Honours `ONPAIR_BENCH_COLUMN` if set.
-fn read_parquet_strings(path: &PathBuf) -> Option<Vec<Vec<u8>>> {
-    let file = File::open(path).ok()?;
-    let builder = ParquetRecordBatchReaderBuilder::try_new(file).ok()?;
-    let schema = builder.schema().clone();
+fn trained() -> &'static TrainResult {
+    static TRAINED: OnceLock<TrainResult> = OnceLock::new();
+    TRAINED.get_or_init(|| {
+        let corpus = corpus();
+        train(
+            &corpus.bytes,
+            &corpus.offsets_u32,
+            corpus.rows(),
+            &training_config(),
+        )
+    })
+}
 
-    let col_name = env::var("ONPAIR_BENCH_COLUMN").ok();
-    let picked = match col_name.as_deref() {
-        Some(name) => schema.fields().iter().position(|f| f.name() == name)?,
-        None => {
-            // Pick first Utf8 / LargeUtf8 / Utf8View column.
-            schema.fields().iter().position(|f| {
-                use arrow_schema::DataType::*;
-                matches!(f.data_type(), Utf8 | LargeUtf8 | Utf8View)
-            })?
-        }
-    };
-    let col_field = schema.fields().get(picked).unwrap().clone();
-    eprintln!(
-        "[onpair bench] reading column #{picked} `{}` ({})",
-        col_field.name(),
-        col_field.data_type()
+fn reversed_matcher() -> &'static ReversedAhoCorasickMatcher {
+    static MATCHER: OnceLock<ReversedAhoCorasickMatcher> = OnceLock::new();
+    MATCHER.get_or_init(|| {
+        let matcher = ReversedAhoCorasickMatcher::from_dictionary(&trained().dict);
+        eprintln!(
+            "[onpair bench] reversed automaton: {} states, {:.2} MiB, {} transitions",
+            matcher.num_states(),
+            matcher.automaton_bytes() as f64 / (1024.0 * 1024.0),
+            if matcher.uses_dense_transitions() {
+                "dense DFA"
+            } else {
+                "sparse AC"
+            }
+        );
+        matcher
+    })
+}
+
+fn report_iterations() -> usize {
+    env::var("ONPAIR_REPORT_ITERATIONS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(5)
+}
+
+fn report_timing(mut run: impl FnMut(), bytes: Option<usize>) {
+    run();
+    let mut times = Vec::with_capacity(report_iterations());
+    for _ in 0..report_iterations() {
+        let start = Instant::now();
+        run();
+        times.push(start.elapsed());
+    }
+    times.sort_unstable();
+    let min = times[0];
+    let median = times[times.len() / 2];
+    let max = times[times.len() - 1];
+    print!(
+        "min_ms={:.3} median_ms={:.3} max_ms={:.3}",
+        milliseconds(min),
+        milliseconds(median),
+        milliseconds(max)
+    );
+    if let Some(bytes) = bytes {
+        let mib_per_second = bytes as f64 / (1024.0 * 1024.0) / median.as_secs_f64();
+        print!(" median_mib_s={mib_per_second:.2}");
+    }
+    println!();
+}
+
+fn milliseconds(duration: Duration) -> f64 {
+    duration.as_secs_f64() * 1_000.0
+}
+
+fn local_report() {
+    let corpus = corpus();
+    let config = training_config();
+    print!("train_dictionary ");
+    report_timing(
+        || {
+            std::hint::black_box(train(
+                std::hint::black_box(&corpus.bytes),
+                std::hint::black_box(&corpus.offsets_u32),
+                corpus.rows(),
+                &config,
+            ));
+        },
+        Some(corpus.bytes.len()),
     );
 
-    let mut rows: Vec<Vec<u8>> = Vec::new();
-    let reader = builder.build().ok()?;
-    for batch in reader.flatten() {
-        let arr = batch.column(picked);
-        use arrow_schema::DataType::*;
-        match arr.data_type() {
-            Utf8 => {
-                for s in arr.as_string::<i32>().iter() {
-                    rows.push(s.unwrap_or("").as_bytes().to_vec());
-                }
-            }
-            LargeUtf8 => {
-                for s in arr.as_string::<i64>().iter() {
-                    rows.push(s.unwrap_or("").as_bytes().to_vec());
-                }
-            }
-            Utf8View => {
-                for s in arr.as_string_view().iter() {
-                    rows.push(s.unwrap_or("").as_bytes().to_vec());
-                }
-            }
-            _ => return None,
+    let trained = train(&corpus.bytes, &corpus.offsets_u32, corpus.rows(), &config);
+    print!("build_reversed_automaton ");
+    report_timing(
+        || {
+            std::hint::black_box(ReversedAhoCorasickMatcher::from_dictionary(
+                std::hint::black_box(&trained.dict),
+            ));
+        },
+        None,
+    );
+    let matcher = ReversedAhoCorasickMatcher::from_dictionary(&trained.dict);
+    println!(
+        "automaton states={} trie_states={} bytes={} representation={}",
+        matcher.num_states(),
+        matcher.trie_states(),
+        matcher.automaton_bytes(),
+        if matcher.uses_dense_transitions() {
+            "dense_dfa"
+        } else {
+            "sparse_ac"
         }
-    }
-    Some(rows)
+    );
+
+    let mut greedy = Store::default();
+    let mut reversed = Store::default();
+    let mut interleaved = Store::default();
+    let mut avx512 = Store::default();
+    parse(
+        &corpus.bytes,
+        &corpus.offsets_u32,
+        corpus.rows(),
+        &trained.lpm,
+        bits(),
+        &mut greedy,
+    );
+    parse_reversed(
+        &corpus.bytes,
+        &corpus.offsets_u32,
+        corpus.rows(),
+        &matcher,
+        bits(),
+        &mut reversed,
+    );
+    parse_reversed_interleaved(
+        &corpus.bytes,
+        &corpus.offsets_u32,
+        corpus.rows(),
+        &matcher,
+        bits(),
+        &mut interleaved,
+    );
+    parse_reversed_avx512(
+        &corpus.bytes,
+        &corpus.offsets_u32,
+        corpus.rows(),
+        &matcher,
+        bits(),
+        &mut avx512,
+    );
+    assert_eq!(reversed.boundaries, greedy.boundaries);
+    assert_eq!(reversed.packed, greedy.packed);
+    assert_eq!(interleaved.boundaries, greedy.boundaries);
+    assert_eq!(interleaved.packed, greedy.packed);
+    assert_eq!(avx512.boundaries, greedy.boundaries);
+    assert_eq!(avx512.packed, greedy.packed);
+
+    print!("parse_greedy ");
+    report_timing(
+        || {
+            let mut store = Store::default();
+            parse(
+                std::hint::black_box(&corpus.bytes),
+                std::hint::black_box(&corpus.offsets_u32),
+                corpus.rows(),
+                std::hint::black_box(&trained.lpm),
+                bits(),
+                &mut store,
+            );
+            std::hint::black_box(store);
+        },
+        Some(corpus.bytes.len()),
+    );
+    print!("parse_reversed_interleaved ");
+    report_timing(
+        || {
+            let mut store = Store::default();
+            parse_reversed_interleaved(
+                std::hint::black_box(&corpus.bytes),
+                std::hint::black_box(&corpus.offsets_u32),
+                corpus.rows(),
+                std::hint::black_box(&matcher),
+                bits(),
+                &mut store,
+            );
+            std::hint::black_box(store);
+        },
+        Some(corpus.bytes.len()),
+    );
+    print!("parse_reversed_avx512 ");
+    report_timing(
+        || {
+            let mut store = Store::default();
+            parse_reversed_avx512(
+                std::hint::black_box(&corpus.bytes),
+                std::hint::black_box(&corpus.offsets_u32),
+                corpus.rows(),
+                std::hint::black_box(&matcher),
+                bits(),
+                &mut store,
+            );
+            std::hint::black_box(store);
+        },
+        Some(corpus.bytes.len()),
+    );
+    print!("parse_reversed_dfa ");
+    report_timing(
+        || {
+            let mut store = Store::default();
+            parse_reversed(
+                std::hint::black_box(&corpus.bytes),
+                std::hint::black_box(&corpus.offsets_u32),
+                corpus.rows(),
+                std::hint::black_box(&matcher),
+                bits(),
+                &mut store,
+            );
+            std::hint::black_box(store);
+        },
+        Some(corpus.bytes.len()),
+    );
 }
 
-/// 100 000 URLs whose distribution roughly matches ClickBench's URL column:
-///   * heavy prefix sharing on `https://`, `http://`, `ftp://`
-///   * a handful of repeating host roots
-///   * variable path / query parts
-fn synthetic_clickbench_urls(n: usize) -> Vec<Vec<u8>> {
-    const HOSTS: &[&str] = &[
-        "https://www.yandex.ru",
-        "https://www.google.com",
-        "https://news.ycombinator.com",
-        "https://www.example.com",
-        "https://docs.example.org",
-        "https://api.example.net",
-        "http://m.yandex.ru",
-        "https://maps.example.com",
-        "https://shop.example.com",
-        "ftp://files.example.com",
-    ];
-    const PATHS: &[&str] = &[
-        "/",
-        "/page",
-        "/news",
-        "/search?q=",
-        "/profile",
-        "/login",
-        "/api/v1/data",
-        "/static/asset.png",
-        "/blog/post-",
-        "/feed.xml",
-        "/sitemap.xml",
-        "/users/",
-        "/admin/dashboard",
-        "/categories/electronics",
-        "/cart/checkout",
-    ];
-    const TAILS: &[&str] = &["", "alpha", "beta", "gamma", "delta", "001", "002", "003"];
-    let mut out = Vec::with_capacity(n);
-    let mut x = 0x9E3779B97F4A7C15u64;
-    for _ in 0..n {
-        // SplitMix64-style state advance — deterministic, no rand dep.
-        x = x.wrapping_add(0x9E3779B97F4A7C15);
-        let h = HOSTS[(x as usize) % HOSTS.len()];
-        let p = PATHS[((x >> 16) as usize) % PATHS.len()];
-        let t = TAILS[((x >> 32) as usize) % TAILS.len()];
-        let n = (x >> 48) as u16;
-        out.push(format!("{h}{p}{t}{n}").into_bytes());
-    }
-    out
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers shared by the bench groups.
-// ─────────────────────────────────────────────────────────────────────────────
-
-fn compress_column(bits: u32) -> Column {
-    let c = corpus();
-    let cfg = OnPairTrainingConfig {
-        bits,
-        threshold: 0.5,
-        seed: 42,
-    };
-    Column::compress(&c.bytes, &c.offsets, cfg).unwrap()
-}
-
-/// Pick a needle that almost certainly appears in the corpus (for substring
-/// queries) and one that definitely doesn't (for negative queries).
-fn substring_needle() -> &'static [u8] {
-    b"example"
-}
-
-fn equality_needle() -> Vec<u8> {
-    corpus()
-        .rows
-        .get(corpus().rows.len() / 2)
-        .cloned()
-        .unwrap_or_default()
-}
-
-fn prefix_needle() -> &'static [u8] {
-    b"https://"
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Benches.
-// ─────────────────────────────────────────────────────────────────────────────
-
-#[divan::bench(args = BITS_CONFIGS)]
-fn train_and_compress(bencher: Bencher, bits: u32) {
-    let c = corpus();
+#[divan::bench]
+fn train_dictionary(bencher: Bencher) {
+    let corpus = corpus();
     bencher
-        .counter(divan::counter::BytesCount::new(c.total_bytes))
+        .counter(divan::counter::BytesCount::new(corpus.bytes.len()))
         .bench(|| {
-            let cfg = OnPairTrainingConfig {
-                bits,
-                threshold: 0.5,
-                seed: 42,
-            };
-            Column::compress(
-                divan::black_box(&c.bytes),
-                divan::black_box(&c.offsets),
-                cfg,
+            train(
+                divan::black_box(&corpus.bytes),
+                divan::black_box(&corpus.offsets_u32),
+                corpus.rows(),
+                &training_config(),
             )
-            .unwrap()
         });
 }
 
-#[divan::bench(args = BITS_CONFIGS)]
-fn decompress_row_random(bencher: Bencher, bits: u32) {
-    let col = compress_column(bits);
-    let n = col.len();
-    let mut buf = Vec::with_capacity(256);
-    let mut x = 0xC2B2AE3D27D4EB4Fu64;
-    bencher.bench_local(|| {
-        x = x.wrapping_mul(0x9E3779B97F4A7C15).wrapping_add(1);
-        let row = (x as usize) % n;
-        let _ = col.decompress_row(divan::black_box(row), &mut buf);
-        divan::black_box(&buf);
-    });
-}
-
-#[divan::bench(args = BITS_CONFIGS)]
-fn decode_all(bencher: Bencher, bits: u32) {
-    let c = corpus();
-    let col = compress_column(bits);
+#[divan::bench]
+fn parse_greedy(bencher: Bencher) {
+    let corpus = corpus();
+    let trained = trained();
     bencher
-        .counter(divan::counter::BytesCount::new(c.total_bytes))
-        .bench(|| {
-            divan::black_box(col.decode_all());
+        .counter(divan::counter::BytesCount::new(corpus.bytes.len()))
+        .bench_local(|| {
+            let mut store = Store::default();
+            parse(
+                divan::black_box(&corpus.bytes),
+                divan::black_box(&corpus.offsets_u32),
+                corpus.rows(),
+                divan::black_box(&trained.lpm),
+                bits(),
+                &mut store,
+            );
+            divan::black_box(store)
         });
 }
 
-// ── Bitmap (decompress-then-match) predicates ─────────────────────────────────
-
-#[divan::bench(args = BITS_CONFIGS)]
-fn equals_bitmap(bencher: Bencher, bits: u32) {
-    let col = compress_column(bits);
-    let needle = equality_needle();
-    bencher
-        .counter(divan::counter::ItemsCount::new(col.len()))
-        .bench(|| divan::black_box(col.equals_bitmap(&needle)));
+#[divan::bench]
+fn build_reversed_automaton(bencher: Bencher) {
+    let dict = &trained().dict;
+    bencher.bench(|| ReversedAhoCorasickMatcher::from_dictionary(divan::black_box(dict)));
 }
 
-#[divan::bench(args = BITS_CONFIGS)]
-fn starts_with_bitmap(bencher: Bencher, bits: u32) {
-    let col = compress_column(bits);
+#[divan::bench]
+fn parse_reversed_dfa(bencher: Bencher) {
+    let corpus = corpus();
+    let matcher = reversed_matcher();
     bencher
-        .counter(divan::counter::ItemsCount::new(col.len()))
-        .bench(|| divan::black_box(col.starts_with_bitmap(prefix_needle())));
-}
-
-#[divan::bench(args = BITS_CONFIGS)]
-fn contains_bitmap(bencher: Bencher, bits: u32) {
-    let col = compress_column(bits);
-    bencher
-        .counter(divan::counter::ItemsCount::new(col.len()))
-        .bench(|| divan::black_box(col.contains_bitmap(substring_needle())));
-}
-
-#[divan::bench(args = BITS_CONFIGS)]
-fn multi_pattern_bitmap(bencher: Bencher, bits: u32) {
-    let col = compress_column(bits);
-    let needles: &[&[u8]] = &[b"example", b"yandex", b"google", b"news"];
-    bencher
-        .counter(divan::counter::ItemsCount::new(col.len()))
-        .bench(|| divan::black_box(col.multi_pattern_bitmap(needles)));
-}
-
-// ── Token-automaton (compressed-domain) predicates ────────────────────────────
-
-#[divan::bench(args = BITS_CONFIGS)]
-fn eq_automaton(bencher: Bencher, bits: u32) {
-    let col = compress_column(bits);
-    let dict = col.dictionary().clone();
-    let needle = equality_needle();
-    bencher
-        .counter(divan::counter::ItemsCount::new(col.len()))
-        .bench(|| {
-            let eq = EqAutomaton::new(&needle, &dict);
-            divan::black_box(col.scan_bitmap(eq));
+        .counter(divan::counter::BytesCount::new(corpus.bytes.len()))
+        .bench_local(|| {
+            let mut store = Store::default();
+            parse_reversed(
+                divan::black_box(&corpus.bytes),
+                divan::black_box(&corpus.offsets_u32),
+                corpus.rows(),
+                divan::black_box(matcher),
+                bits(),
+                &mut store,
+            );
+            divan::black_box(store)
         });
 }
 
-#[divan::bench(args = BITS_CONFIGS)]
-fn prefix_automaton(bencher: Bencher, bits: u32) {
-    let col = compress_column(bits);
-    let dict = col.dictionary().clone();
+#[divan::bench]
+fn parse_reversed_interleaved_rows(bencher: Bencher) {
+    let corpus = corpus();
+    let matcher = reversed_matcher();
     bencher
-        .counter(divan::counter::ItemsCount::new(col.len()))
-        .bench(|| {
-            let pa = PrefixAutomaton::new(prefix_needle(), &dict);
-            divan::black_box(col.scan_bitmap(pa));
+        .counter(divan::counter::BytesCount::new(corpus.bytes.len()))
+        .bench_local(|| {
+            let mut store = Store::default();
+            parse_reversed_interleaved(
+                divan::black_box(&corpus.bytes),
+                divan::black_box(&corpus.offsets_u32),
+                corpus.rows(),
+                divan::black_box(matcher),
+                bits(),
+                &mut store,
+            );
+            divan::black_box(store)
         });
 }
 
-#[divan::bench(args = BITS_CONFIGS)]
-fn kmp_automaton(bencher: Bencher, bits: u32) {
-    let col = compress_column(bits);
-    let dict = col.dictionary().clone();
+#[divan::bench]
+fn parse_reversed_avx512_rows(bencher: Bencher) {
+    let corpus = corpus();
+    let matcher = reversed_matcher();
     bencher
-        .counter(divan::counter::ItemsCount::new(col.len()))
-        .bench(|| {
-            let kmp = KmpAutomaton::new(substring_needle(), &dict);
-            divan::black_box(col.scan_bitmap(kmp));
+        .counter(divan::counter::BytesCount::new(corpus.bytes.len()))
+        .bench_local(|| {
+            let mut store = Store::default();
+            parse_reversed_avx512(
+                divan::black_box(&corpus.bytes),
+                divan::black_box(&corpus.offsets_u32),
+                corpus.rows(),
+                divan::black_box(matcher),
+                bits(),
+                &mut store,
+            );
+            divan::black_box(store)
         });
-}
-
-#[divan::bench(args = BITS_CONFIGS)]
-fn ac_automaton(bencher: Bencher, bits: u32) {
-    let col = compress_column(bits);
-    let dict = col.dictionary().clone();
-    let needles: &[&[u8]] = &[b"example", b"yandex", b"google", b"news"];
-    bencher
-        .counter(divan::counter::ItemsCount::new(col.len()))
-        .bench(|| {
-            let ac = AhoCorasickAutomaton::new(needles, &dict);
-            divan::black_box(col.scan_bitmap(ac));
-        });
-}
-
-#[divan::bench(args = BITS_CONFIGS)]
-fn and_not_compressed_domain(bencher: Bencher, bits: u32) {
-    let col = compress_column(bits);
-    let dict = col.dictionary().clone();
-    bencher
-        .counter(divan::counter::ItemsCount::new(col.len()))
-        .bench(|| {
-            let mut a = KmpAutomaton::new(b"example", &dict);
-            let mut b = KmpAutomaton::new(b"yandex", &dict);
-            divan::black_box(col.scan_bitmap(and(&mut a, not(&mut b))));
-        });
-}
-
-// ── C++ comparison via vortex-onpair-sys ──────────────────────────────────────
-
-#[divan::bench(args = BITS_CONFIGS)]
-fn cpp_train_and_compress(bencher: Bencher, bits: u32) {
-    use vortex_onpair_sys::Column as CppColumn;
-    use vortex_onpair_sys::OnPairTrainingConfig as CppCfg;
-    let c = corpus();
-    bencher
-        .counter(divan::counter::BytesCount::new(c.total_bytes))
-        .bench(|| {
-            let cfg = CppCfg {
-                bits,
-                threshold: 0.5,
-                seed: 42,
-            };
-            CppColumn::compress(&c.bytes, &c.offsets, cfg).unwrap()
-        });
-}
-
-#[divan::bench(args = BITS_CONFIGS)]
-fn cpp_contains_bitmap(bencher: Bencher, bits: u32) {
-    use vortex_onpair_sys::Column as CppColumn;
-    use vortex_onpair_sys::OnPairTrainingConfig as CppCfg;
-    let c = corpus();
-    let cfg = CppCfg {
-        bits,
-        threshold: 0.5,
-        seed: 42,
-    };
-    let col = CppColumn::compress(&c.bytes, &c.offsets, cfg).unwrap();
-    bencher
-        .counter(divan::counter::ItemsCount::new(col.len()))
-        .bench(|| divan::black_box(col.contains_bitmap(substring_needle())));
 }
 
 fn main() {
-    // Touch the corpus so the source line prints before divan begins.
     let _ = corpus();
+    if env::var_os("ONPAIR_LOCAL_REPORT").is_some() {
+        local_report();
+        return;
+    }
     divan::main();
 }

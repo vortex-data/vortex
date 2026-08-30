@@ -276,7 +276,9 @@ pub fn train(data: &[u8], offsets: &[u32], n: usize, cfg: &TrainingConfig) -> Tr
 fn sort_dictionary(result: &mut TrainResult) {
     let n = result.dict.num_tokens();
 
-    let mut perm: Vec<Token> = (0..n as Token).collect();
+    // `n` may be 65,536 for a 16-bit dictionary, which cannot itself be
+    // represented by `Token` even though every valid ID (0..=65,535) can.
+    let mut perm: Vec<Token> = (0..n).map(|id| id as Token).collect();
     perm.sort_by(|&a, &b| {
         let pa = result.dict.data(a);
         let pb = result.dict.data(b);
@@ -459,6 +461,32 @@ pub(crate) mod tests {
     fn dictionary_is_always_sorted() {
         let result = train_strings(&make_user_strings(100), &TrainingConfig::default());
         assert!(is_lex_sorted(&result.dict));
+    }
+
+    #[test]
+    fn full_16_bit_dictionary_survives_sorting() {
+        let mut dict = Dictionary::default();
+        dict.offsets.push(0);
+
+        for byte in 0u16..=255 {
+            dict.bytes.push(byte as u8);
+            dict.offsets.push(dict.bytes.len() as u32);
+        }
+        for pair in 0..(u16::MAX as usize + 1 - 256) {
+            dict.bytes.push((pair >> 8) as u8);
+            dict.bytes.push(pair as u8);
+            dict.offsets.push(dict.bytes.len() as u32);
+        }
+
+        let mut result = TrainResult {
+            dict,
+            lpm: LongestPrefixMatcher::new(),
+        };
+        sort_dictionary(&mut result);
+
+        assert_eq!(result.dict.num_tokens(), u16::MAX as usize + 1);
+        assert!(is_lex_sorted(&result.dict));
+        check_base_tokens(&result.dict);
     }
 
     #[test]
