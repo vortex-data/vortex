@@ -54,4 +54,3 @@ asm: all
 
 clean:
 	$(CARGO) clean --manifest-path $(MANIFEST) --target-dir $(TARGET_DIR)
-
