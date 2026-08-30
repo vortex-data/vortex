@@ -17,9 +17,11 @@
 // prefix, then falls through to the short map for lengths
 // `min(max_len, max_short_len) .. 1`.
 
-use hashbrown::HashMap;
+use std::hash::Hash;
+use std::hash::Hasher;
 
 use crate::dict::Dictionary;
+use crate::hash::FastMap;
 use crate::types::MAX_TOKEN_SIZE;
 use crate::types::Token;
 
@@ -50,6 +52,23 @@ fn mask_u64(len: usize) -> u64 {
         u64::MAX
     } else {
         (1u64 << (len * 8)) - 1
+    }
+}
+
+/// Short-map key: the token bytes packed little-endian plus their length.
+/// Hashing combines both fields into one word (lengths below eight leave the
+/// top byte free; length-eight keys rely on equality to break ties), exactly
+/// like the upstream packed key.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+struct ShortKey {
+    bytes: u64,
+    len: u8,
+}
+
+impl Hash for ShortKey {
+    #[inline]
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u64(self.bytes ^ (u64::from(self.len) << 56));
     }
 }
 
@@ -157,10 +176,10 @@ fn build_trie(pool: &mut Vec<TrieNode>, entries: &[LongEntry]) -> Bucket {
 /// `find_longest_match` is total.
 #[derive(Default, Debug, Clone)]
 pub struct LongestPrefixMatcher {
-    /// Length 1..=8 tokens keyed by (low-`len`-byte u64, length).
-    short_map: HashMap<(u64, u8), Token>,
+    /// Length 1..=8 tokens keyed by their packed bytes plus length.
+    short_map: FastMap<ShortKey, Token>,
     /// Length 9..=16 tokens bucketed by their 8-byte prefix.
-    long_map: HashMap<u64, Bucket>,
+    long_map: FastMap<u64, Bucket>,
     /// Trie node arena shared by every promoted long bucket.
     pool: Vec<TrieNode>,
     /// Longest short-map token length present (1..=8).
@@ -173,13 +192,29 @@ pub struct LongestPrefixMatcher {
 impl LongestPrefixMatcher {
     /// Pre-inserts the 256 single-byte tokens with IDs 0..=255.
     pub fn new() -> Self {
-        let mut short_map = HashMap::with_capacity(256);
+        Self::with_capacity(256)
+    }
+
+    /// Like [`new`](Self::new), but pre-sized for `token_capacity` eventual
+    /// tokens so training inserts never rehash.
+    pub fn with_capacity(token_capacity: usize) -> Self {
+        let token_capacity = token_capacity.max(256);
+        let mut short_map = FastMap::with_capacity_and_hasher(token_capacity, Default::default());
         for i in 0u16..=255 {
-            short_map.insert((i as u64, 1u8), i);
+            short_map.insert(
+                ShortKey {
+                    bytes: i as u64,
+                    len: 1,
+                },
+                i,
+            );
         }
         Self {
             short_map,
-            long_map: HashMap::new(),
+            long_map: FastMap::with_capacity_and_hasher(
+                (token_capacity / 4).max(16),
+                Default::default(),
+            ),
             pool: Vec::new(),
             max_short_len: 1,
             next_id: 256,
@@ -192,8 +227,8 @@ impl LongestPrefixMatcher {
     pub fn from_dictionary(dict: &Dictionary) -> Self {
         let n = dict.num_tokens();
         let mut me = Self {
-            short_map: HashMap::with_capacity(n.min(BUCKET_PREFIX_LEN * 256)),
-            long_map: HashMap::new(),
+            short_map: FastMap::with_capacity_and_hasher(n.max(256), Default::default()),
+            long_map: FastMap::with_capacity_and_hasher((n / 4).max(16), Default::default()),
             pool: Vec::new(),
             max_short_len: 1,
             next_id: n as u32,
@@ -221,8 +256,11 @@ impl LongestPrefixMatcher {
         debug_assert!(!data.is_empty() && data.len() <= MAX_TOKEN_SIZE);
         let len = data.len();
         if len <= BUCKET_PREFIX_LEN {
-            let key = load_le_u64(data, len);
-            self.short_map.insert((key, len as u8), id);
+            let key = ShortKey {
+                bytes: load_le_u64(data, len),
+                len: len as u8,
+            };
+            self.short_map.insert(key, id);
             self.max_short_len = self.max_short_len.max(len as u8);
             return;
         }
@@ -297,8 +335,11 @@ impl LongestPrefixMatcher {
         // input window) down to length 1.
         let short_max = max_len.min(self.max_short_len as usize);
         for len in (1..=short_max).rev() {
-            let key = low64 & mask_u64(len);
-            if let Some(&t) = self.short_map.get(&(key, len as u8)) {
+            let key = ShortKey {
+                bytes: low64 & mask_u64(len),
+                len: len as u8,
+            };
+            if let Some(&t) = self.short_map.get(&key) {
                 return (t, len);
             }
         }

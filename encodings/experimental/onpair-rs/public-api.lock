@@ -540,6 +540,8 @@ pub fn vortex_onpair_rs::lpm::LongestPrefixMatcher::new() -> Self
 
 pub fn vortex_onpair_rs::lpm::LongestPrefixMatcher::size(&self) -> usize
 
+pub fn vortex_onpair_rs::lpm::LongestPrefixMatcher::with_capacity(usize) -> Self
+
 impl core::clone::Clone for vortex_onpair_rs::lpm::LongestPrefixMatcher
 
 pub fn vortex_onpair_rs::lpm::LongestPrefixMatcher::clone(&self) -> vortex_onpair_rs::lpm::LongestPrefixMatcher
@@ -1123,6 +1125,8 @@ pub fn vortex_onpair_rs::lpm::LongestPrefixMatcher::insert(&mut self, &[u8]) -> 
 pub fn vortex_onpair_rs::lpm::LongestPrefixMatcher::new() -> Self
 
 pub fn vortex_onpair_rs::lpm::LongestPrefixMatcher::size(&self) -> usize
+
+pub fn vortex_onpair_rs::lpm::LongestPrefixMatcher::with_capacity(usize) -> Self
 
 impl core::clone::Clone for vortex_onpair_rs::lpm::LongestPrefixMatcher
 

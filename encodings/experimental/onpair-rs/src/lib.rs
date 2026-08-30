@@ -43,6 +43,7 @@ pub mod bits;
 pub mod column;
 pub mod config;
 pub mod dict;
+pub(crate) mod hash;
 pub mod kmp;
 pub mod lpm;
 pub mod parser;

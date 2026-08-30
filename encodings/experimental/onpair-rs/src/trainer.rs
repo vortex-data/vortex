@@ -5,13 +5,13 @@
 // `DynamicThresholdController` from
 // `include/onpair/encoding/training/dynamic_threshold.h`.
 
-use hashbrown::HashMap;
 use rand::SeedableRng;
 use rand::seq::SliceRandom;
 
 use crate::config::ThresholdSpec;
 use crate::config::TrainingConfig;
 use crate::dict::Dictionary;
+use crate::hash::FastMap;
 use crate::lpm::LongestPrefixMatcher;
 use crate::types::MAX_TOKEN_SIZE;
 use crate::types::Token;
@@ -145,7 +145,7 @@ pub fn train(data: &[u8], offsets: &[u32], n: usize, cfg: &TrainingConfig) -> Tr
         dict.bytes.push(i as u8);
         dict.offsets.push(dict.bytes.len() as u32);
     }
-    let mut lpm = LongestPrefixMatcher::new();
+    let mut lpm = LongestPrefixMatcher::with_capacity(dict_capacity);
 
     // ── Threshold setup ────────────────────────────────────────────────────
     let mut threshold: u8;
@@ -178,8 +178,14 @@ pub fn train(data: &[u8], offsets: &[u32], n: usize, cfg: &TrainingConfig) -> Tr
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
     order.shuffle(&mut rng);
 
-    // ── Pair frequency map. Key packs two Token values into a u32. ─────────
-    let mut freq: HashMap<u32, u8> = HashMap::new();
+    // ── Pair frequency map. Key packs two Token values into a u32; sized so
+    // the hot loop rarely rehashes. ────────────────────────────────────────
+    let total_bytes = if n == 0 { 0 } else { offsets[n] as usize };
+    let freq_capacity = (dict_capacity * 8)
+        .max(1024)
+        .min((total_bytes / 2).max(1024));
+    let mut freq: FastMap<u32, u8> =
+        FastMap::with_capacity_and_hasher(freq_capacity, Default::default());
 
     let mut full_dictionary = false;
     let mut budget_exhausted = false;

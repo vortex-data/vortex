@@ -14,6 +14,7 @@ use hashbrown::HashMap;
 
 use crate::bits::BitWriter;
 use crate::dict::Dictionary;
+use crate::hash::FastMap;
 use crate::store::Store;
 use crate::types::BitWidth;
 use crate::types::MAX_TOKEN_SIZE;
@@ -1503,7 +1504,7 @@ pub struct HybridReversedMatcher {
     /// Bucket index for tokens of length `>= 8`: prefix -> `(start, count)`
     /// into `long_entries`, whose per-bucket runs are sorted by descending
     /// suffix length so the first hit is the longest.
-    long: HashMap<u64, (u32, u32)>,
+    long: FastMap<u64, (u32, u32)>,
     long_entries: Vec<HybridLongEntry>,
     long_tokens: usize,
 }
@@ -1555,7 +1556,7 @@ impl HybridReversedMatcher {
         // Freeze buckets into one contiguous array so a probe is a single
         // map lookup plus a short linear scan, with no per-bucket pointer
         // chase.
-        let mut long = HashMap::with_capacity(buckets.len());
+        let mut long = FastMap::with_capacity_and_hasher(buckets.len(), Default::default());
         let mut long_entries = Vec::with_capacity(long_tokens);
         for (prefix, entries) in buckets {
             long.insert(prefix, (long_entries.len() as u32, entries.len() as u32));
