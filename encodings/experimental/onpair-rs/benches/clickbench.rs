@@ -61,11 +61,18 @@ fn corpus() -> &'static Corpus {
     })
 }
 
+fn sample_fraction() -> f64 {
+    env::var("ONPAIR_SAMPLE_FRACTION")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0.5)
+}
+
 fn training_config() -> TrainingConfig {
     TrainingConfig {
         bits: bits(),
         threshold: ThresholdSpec::Dynamic(DynamicThreshold {
-            sample_fraction: 0.5,
+            sample_fraction: sample_fraction(),
         }),
         seed: Some(42),
     }
