@@ -518,7 +518,7 @@ impl LongestPrefixMatcher {
                     token: id,
                 });
                 // Keep descending-by-length order so the first match wins.
-                entries.sort_by(|a, b| b.slen.cmp(&a.slen));
+                entries.sort_by_key(|entry| std::cmp::Reverse(entry.slen));
                 if entries.len() > PROMOTE_THRESHOLD {
                     *bucket = build_trie(pool, entries);
                 }

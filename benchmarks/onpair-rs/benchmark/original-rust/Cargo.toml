@@ -1,0 +1,16 @@
+[package]
+name = "onpair-original-bench"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+onpair_rs = { git = "https://github.com/gargiulofrancesco/onpair_rs", rev = "ac663abe92ef3de26a65d9684e78f2aea28366ff" }
+
+[profile.release]
+codegen-units = 1
+debug = 1
+lto = "fat"
+panic = "abort"

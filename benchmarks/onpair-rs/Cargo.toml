@@ -15,6 +15,12 @@ exclude = [".github/*"]
 # Keep this source snapshot independently runnable inside the Vortex workspace.
 [workspace]
 
+[profile.release]
+codegen-units = 1
+debug = 1
+lto = "fat"
+panic = "abort"
+
 [lib]
 name = "onpair"
 

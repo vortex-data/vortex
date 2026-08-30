@@ -1,8 +1,8 @@
 # Vortex OnPair performance snapshot
 
 This directory preserves the standalone `spiraldb/onpair` source from commit
-`a957f3329118739d9ca1e0439c3de30ae09f9a9d` on the local branch
-`ji/onpair-encode-performance`.
+`a957f3329118739d9ca1e0439c3de30ae09f9a9d` on the Vortex branch
+`ji/onpair-best-rust-benchmark`.
 
 It contains the single retained implementation from the encoding-performance
 investigation. Slower experimental direct tables, unconditional SIMD layouts,
@@ -34,3 +34,8 @@ Run its checks from the Vortex repository root with:
 cargo test --manifest-path benchmarks/onpair-rs/Cargo.toml --lib
 cargo clippy --manifest-path benchmarks/onpair-rs/Cargo.toml --all-targets --all-features -- -D warnings
 ```
+
+The exact Rust benchmark, C++ comparison harness, compiler script, and complete
+matrix runner are preserved in [`benchmark/`](benchmark/). The Rust result's
+`full_fair_ms` includes 12-bit output packing so it is comparable with the C++
+packed store.

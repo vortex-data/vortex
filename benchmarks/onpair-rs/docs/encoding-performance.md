@@ -149,6 +149,41 @@ but emits more codes and generally compresses less than a 16-bit dictionary.
 - GCC was 11.5; Clang was 15.0.7.
 - Every one of the 105 measured configurations passed a full round trip.
 
+The reproducible harnesses are committed with this snapshot:
+
+```shell
+# Rust: build on the SSD with native CPU code generation.
+CARGO_TARGET_DIR=/home/ec2-user/vortex/target/onpair-fair \
+RUSTFLAGS='-C target-cpu=native' \
+cargo build --release \
+  --manifest-path benchmarks/onpair-rs/Cargo.toml \
+  --bin encode_bench
+
+# Original Rust baseline, pinned to the paper implementation's exact commit.
+CARGO_TARGET_DIR=/home/ec2-user/vortex/target/onpair-original \
+RUSTFLAGS='-C target-cpu=native' \
+cargo build --release \
+  --manifest-path benchmarks/onpair-rs/benchmark/original-rust/Cargo.toml
+
+# C++: Boost 1.89, GCC 11.5 and Clang 15, with the flags used below.
+benchmarks/onpair-rs/benchmark/build_cpp.sh \
+  /path/to/onpair_cpp /path/to/boost_1_89_0 \
+  /home/ec2-user/vortex/target/onpair-cpp
+
+# Both widths, all 13 x 32 MiB and 2 x 128 MiB SSD-resident corpora.
+benchmarks/onpair-rs/benchmark/run_matrix.sh \
+  /home/ec2-user/vortex/target-onpair-corpora \
+  /home/ec2-user/vortex/target/onpair-fair/release/encode_bench \
+  /home/ec2-user/vortex/target/onpair-original/release/onpair-original-bench \
+  /home/ec2-user/vortex/target/onpair-cpp/onpair-gcc \
+  /home/ec2-user/vortex/target/onpair-cpp/onpair-clang
+```
+
+`parse_fair_ms` and `full_fair_ms` include a verified second-pass bit pack for
+9–15 bit Rust dictionaries. At 16 bits the native `Vec<u16>` is already the
+same fixed-width payload size. C++ packs directly while parsing, so the
+second-pass Rust number is conservative but compares completed packed output.
+
 “Best” below means the faster 12- or 16-bit result for each implementation and
 corpus. The original Rust implementation supports only its fixed 16-bit mode
 with merge threshold 5.
@@ -160,34 +195,36 @@ parentheses.
 
 | Corpus | Winner | Optimized Rust | Original Rust | C++ GCC | C++ Clang |
 |---|---|---:|---:|---:|---:|
-| Amazon Book Titles | GCC | 0.1053 (12) | 0.0843 (16) | **0.1071 (16)** | 0.1069 (16) |
-| Apache access logs | Rust | **0.2907 (12)** | 0.1407 (16) | 0.2726 (16) | 0.2707 (16) |
-| ClickBench URLs | Rust | **0.2621 (16)** | 0.1413 (16) | 0.2492 (16) | 0.2537 (16) |
-| DBpedia abstracts | Rust | **0.1535 (12)** | 0.1058 (16) | 0.1441 (12) | 0.1375 (16) |
-| FineWeb | Rust | **0.1267 (12)** | 0.0933 (16) | 0.1227 (12) | 0.1161 (16) |
-| MS MARCO queries | GCC | 0.1152 (12) | 0.0812 (16) | **0.1198 (12)** | 0.1138 (12) |
-| MS MARCO URLs | GCC | 0.1078 (12) | 0.0797 (16) | **0.1169 (12)** | 0.1104 (12) |
-| ClickBench titles | Rust | **0.2778 (16)** | 0.1362 (16) | 0.2564 (16) | 0.2419 (16) |
-| Amazon Book Reviews | Rust | **0.1391 (12)** | 0.0925 (16) | 0.1333 (12) | 0.1222 (12) |
-| News Headlines | GCC | 0.1112 (12) | 0.0837 (16) | **0.1178 (12)** | 0.1155 (16) |
-| Tweets | Rust | **0.1129 (12)** | 0.0787 (16) | 0.1101 (12) | 0.1058 (16) |
-| Stack v3 | Rust | **0.1711 (12)** | 0.1276 (16) | 0.1514 (16) | 0.1462 (16) |
-| TPC-H `l_comment` | Clang | 0.1710 (12) | 0.0807 (16) | 0.1803 (12) | **0.1852 (12)** |
+| Amazon Book Titles | GCC | 0.1057 (12) | 0.0843 (16) | **0.1072 (16)** | 0.1071 (16) |
+| Apache access logs | Rust | **0.2898 (12)** | 0.1407 (16) | 0.2733 (16) | 0.2719 (16) |
+| ClickBench URLs | Rust | **0.2689 (16)** | 0.1413 (16) | 0.2489 (16) | 0.2533 (16) |
+| DBpedia abstracts | Rust | **0.1451 (12)** | 0.1058 (16) | 0.1445 (12) | 0.1331 (12) |
+| FineWeb | Rust | **0.1252 (12)** | 0.0933 (16) | 0.1222 (12) | 0.1110 (12) |
+| MS MARCO queries | GCC | 0.1133 (12) | 0.0812 (16) | **0.1164 (12)** | 0.1103 (12) |
+| MS MARCO URLs | GCC | 0.1130 (12) | 0.0797 (16) | **0.1171 (12)** | 0.1103 (12) |
+| ClickBench titles | Rust | **0.2802 (16)** | 0.1362 (16) | 0.2561 (16) | 0.2564 (16) |
+| Amazon Book Reviews | Rust | **0.1348 (12)** | 0.0925 (16) | 0.1331 (12) | 0.1221 (12) |
+| News Headlines | GCC | 0.1141 (12) | 0.0837 (16) | **0.1179 (12)** | 0.1114 (12) |
+| Tweets | GCC | 0.1100 (12) | 0.0787 (16) | **0.1105 (12)** | 0.1027 (12) |
+| Stack v3 | Rust | **0.1641 (12)** | 0.1276 (16) | 0.1516 (16) | 0.1459 (16) |
+| TPC-H `l_comment` | Clang | 0.1799 (12) | 0.0807 (16) | 0.1805 (12) | **0.1868 (12)** |
 
-Win count: optimized Rust 8, GCC 4, Clang 1, original Rust 0.
+Win count: optimized Rust 7, GCC 5, Clang 1, original Rust 0.
 
 Aggregating input bytes divided by the sum of per-corpus median times gives:
 
 | Implementation | Aggregate GB/s |
 |---|---:|
-| Optimized Rust | **0.1453** |
-| C++ GCC | 0.1442 |
-| C++ Clang | 0.1392 |
+| Optimized Rust | **0.1450** |
+| C++ GCC | 0.1439 |
+| C++ Clang | 0.1374 |
 | Original Rust | 0.0969 |
 
-Optimized Rust is 0.8% faster than GCC, 4.4% faster than Clang, and 49.9%
-faster than the original Rust implementation under this best-per-corpus
-selection.
+Optimized Rust is 0.8% faster than GCC and 0.5% faster than selecting the
+faster C++ compiler independently for every corpus. This is a narrow aggregate
+lead and should be treated as a tie without repeated full-matrix runs. Rust is
+approximately 49.6% faster than the original Rust implementation under this
+best-per-corpus selection.
 
 ## All 128 MiB wins
 
@@ -196,12 +233,13 @@ data.
 
 | Corpus | Winner | Optimized Rust | Original Rust | C++ GCC | C++ Clang |
 |---|---|---:|---:|---:|---:|
-| FineWeb shard 0 | Rust | **0.1487 (12)** | 0.1424 (16) | 0.1360 (12) | 0.1229 (12) |
-| FineWeb shard 1 | Rust | **0.1459 (12)** | 0.1421 (16) | 0.1368 (12) | 0.1242 (12) |
+| FineWeb shard 0 | Original Rust | 0.1406 (12) | **0.1424 (16)** | 0.1359 (12) | 0.1232 (12) |
+| FineWeb shard 1 | Original Rust | 0.1403 (12) | **0.1421 (16)** | 0.1369 (12) | 0.1240 (12) |
 
-Optimized Rust wins both samples. Aggregate throughput is 0.1473 GB/s for
-optimized Rust, 0.1422 for original Rust, 0.1364 for GCC, and 0.1235 for
-Clang.
+Optimized Rust wins both packed-output C++ comparisons. Aggregate throughput is
+0.1404 GB/s for optimized Rust, 0.1422 for original Rust, 0.1364 for GCC, and
+0.1236 for Clang. Original Rust remains slightly faster here, but emits native
+16-bit codes rather than the 12-bit packed output used by optimized Rust.
 
 ## Strict 16-bit comparison
 
@@ -217,15 +255,15 @@ The original Rust implementation is therefore still substantially faster on
 the two large FineWeb samples when both Rust implementations use 16-bit
 dictionaries.
 
-## Output-format caveat
+## Output-format correction
 
-The Rust parser currently writes a native `Vec<u16>` code stream at every
-dictionary width. The 12-bit compression size used during analysis is a packed
-equivalent; packing is not performed in the timed Rust parse. The C++ parser
-does perform bit packing. Consequently, the narrow best-setting Rust win over
-C++ is not yet an exactly equivalent output-format comparison. The comparison
-with original Rust is unaffected because both Rust implementations write
-native `u16` codes.
+The initial matrix timed Rust's native `Vec<u16>` output while C++ produced a
+bit-packed stream. That made the original 12-bit headline non-equivalent and
+too optimistic. The corrected tables above use `full_fair_ms`: for Rust widths
+below 16 it includes a verified second-pass pack matching the C++ LSB-first
+fixed-width stream. The retained library API still returns native `u16` codes;
+packing lives in the benchmark so the fastest library implementation is not
+replaced by an output-format experiment that previously regressed parsing.
 
 Experiments with unconditional direct tables, unconditional SIMD, alternate
 long-bucket packing, and packing the Rust output inside the parse loop were
