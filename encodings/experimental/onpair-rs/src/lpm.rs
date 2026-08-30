@@ -8,14 +8,14 @@
 //     into a `u64` plus the length. Almost all dictionary entries land here
 //     (256 single-byte base tokens + the BPE merges, which tend to stay
 //     short on real data).
-//   * **long map** — tokens of length 9..=16 keyed by `(u128, u8)`.
+//   * **long map** — tokens of length 9..=16 bucketed by their 8-byte
+//     prefix. A bucket starts as a vector sorted by descending suffix
+//     length and is promoted to a small trie once it outgrows
+//     `PROMOTE_THRESHOLD`, exactly like the upstream `boost` variant.
 //
-// `find_longest_match` reads up to 16 bytes from the input as a `u128`, then
-// probes the long map for lengths `min(max_len, 16) .. 9` (only if at least
-// 9 bytes are available) and falls through to the short map for lengths
-// `min(max_len, 8) .. 1`. Most calls return after one or two short-map
-// hits; the long map is only consulted for inputs with a multi-byte token
-// match.
+// `find_longest_match` issues at most one long-bucket probe on the 8-byte
+// prefix, then falls through to the short map for lengths
+// `min(max_len, max_short_len) .. 1`.
 
 use hashbrown::HashMap;
 
@@ -23,26 +23,25 @@ use crate::dict::Dictionary;
 use crate::types::MAX_TOKEN_SIZE;
 use crate::types::Token;
 
-const SHORT_LEN: usize = 8;
+/// Tokens of this length or shorter live in the short map; longer tokens are
+/// bucketed by their first `BUCKET_PREFIX_LEN` bytes.
+const BUCKET_PREFIX_LEN: usize = 8;
 
-/// Load up to 16 bytes from `data` as a little-endian `u128`. Bytes beyond
-/// `data.len()` are read as zero.
-#[inline]
-fn load_le_u128(data: &[u8]) -> u128 {
-    let mut buf = [0u8; 16];
-    let n = data.len().min(16);
-    buf[..n].copy_from_slice(&data[..n]);
-    u128::from_le_bytes(buf)
-}
+/// A long bucket is promoted from a sorted vector to a trie once it holds
+/// more than this many entries, bounding worst-case suffix search.
+const PROMOTE_THRESHOLD: usize = 128;
 
-/// Mask of the low `len * 8` bits in a `u128`.
+/// Load the low `min(len, data.len(), 8)` bytes of `data` as a little-endian
+/// `u64`; higher bytes read as zero. The full-8-byte case is a single load.
 #[inline]
-fn mask_u128(len: usize) -> u128 {
-    if len >= 16 {
-        u128::MAX
-    } else {
-        (1u128 << (len * 8)) - 1
+fn load_le_u64(data: &[u8], len: usize) -> u64 {
+    if len >= BUCKET_PREFIX_LEN && data.len() >= BUCKET_PREFIX_LEN {
+        return u64::from_le_bytes(data[..BUCKET_PREFIX_LEN].try_into().expect("eight bytes"));
     }
+    let mut buf = [0u8; 8];
+    let n = len.min(data.len());
+    buf[..n].copy_from_slice(&data[..n]);
+    u64::from_le_bytes(buf)
 }
 
 #[inline]
@@ -54,15 +53,118 @@ fn mask_u64(len: usize) -> u64 {
     }
 }
 
+/// One long-token entry within a bucket: the suffix bytes after the shared
+/// 8-byte prefix (`slen` of them, packed little-endian) and the token id.
+#[derive(Copy, Clone, Debug)]
+struct LongEntry {
+    suffix: u64,
+    slen: u8,
+    token: Token,
+}
+
+/// A node in the shared trie pool. `children` is a small linear-scanned
+/// association list of `(byte, node_index)`.
+#[derive(Default, Debug, Clone)]
+struct TrieNode {
+    token: Option<Token>,
+    children: Vec<(u8, u32)>,
+}
+
+/// A long bucket: entries sharing an 8-byte prefix. Starts linear (sorted by
+/// descending suffix length so the first match is the longest) and is
+/// promoted to a trie rooted at a pool index once it grows large.
+#[derive(Debug, Clone)]
+enum Bucket {
+    Linear(Vec<LongEntry>),
+    Trie(u32),
+}
+
+/// Search a sorted-descending linear bucket for the longest suffix that
+/// matches the low bytes of `val` (the input suffix, `<= max_slen` bytes).
+#[inline]
+fn search_linear(entries: &[LongEntry], val: u64, max_slen: usize) -> Option<(Token, usize)> {
+    for e in entries {
+        let elen = e.slen as usize;
+        // Matching low bytes = trailing-zero bytes of the XOR.
+        if elen <= max_slen && ((val ^ e.suffix).trailing_zeros() >> 3) as usize >= elen {
+            return Some((e.token, elen));
+        }
+    }
+    None
+}
+
+/// Walk the trie at `root` against `suf`, returning the deepest node that
+/// carries a token id together with the matched suffix length.
+#[inline]
+fn search_trie(pool: &[TrieNode], root: u32, suf: &[u8]) -> Option<(Token, usize)> {
+    let mut best = None;
+    let mut cur = root;
+    for (pos, &b) in suf.iter().enumerate() {
+        match trie_find_child(pool, cur, b) {
+            Some(child) => {
+                cur = child;
+                if let Some(t) = pool[cur as usize].token {
+                    best = Some((t, pos + 1));
+                }
+            }
+            None => break,
+        }
+    }
+    best
+}
+
+#[inline]
+fn trie_find_child(pool: &[TrieNode], node: u32, byte: u8) -> Option<u32> {
+    pool[node as usize]
+        .children
+        .iter()
+        .find_map(|&(b, idx)| (b == byte).then_some(idx))
+}
+
+fn trie_alloc(pool: &mut Vec<TrieNode>) -> u32 {
+    let idx = pool.len() as u32;
+    pool.push(TrieNode::default());
+    idx
+}
+
+fn trie_insert(pool: &mut Vec<TrieNode>, root: u32, suf: &[u8], token: Token) {
+    let mut cur = root;
+    for &b in suf {
+        match trie_find_child(pool, cur, b) {
+            Some(child) => cur = child,
+            None => {
+                let new_idx = trie_alloc(pool);
+                pool[cur as usize].children.push((b, new_idx));
+                cur = new_idx;
+            }
+        }
+    }
+    pool[cur as usize].token = Some(token);
+}
+
+/// Build a trie bucket from the entries of a linear bucket.
+fn build_trie(pool: &mut Vec<TrieNode>, entries: &[LongEntry]) -> Bucket {
+    let root = trie_alloc(pool);
+    for e in entries {
+        let buf = e.suffix.to_le_bytes();
+        trie_insert(pool, root, &buf[..e.slen as usize], e.token);
+    }
+    Bucket::Trie(root)
+}
+
 /// Maps byte sequences (1..=`MAX_TOKEN_SIZE` bytes) to `Token` IDs. Always
 /// holds the 256 single-byte tokens after construction so
 /// `find_longest_match` is total.
 #[derive(Default, Debug, Clone)]
 pub struct LongestPrefixMatcher {
-    /// Length 1..=8 tokens keyed by (low-8-byte u64, length).
+    /// Length 1..=8 tokens keyed by (low-`len`-byte u64, length).
     short_map: HashMap<(u64, u8), Token>,
-    /// Length 9..=16 tokens keyed by (full u128, length).
-    long_map: HashMap<(u128, u8), Token>,
+    /// Length 9..=16 tokens bucketed by their 8-byte prefix.
+    long_map: HashMap<u64, Bucket>,
+    /// Trie node arena shared by every promoted long bucket.
+    pool: Vec<TrieNode>,
+    /// Longest short-map token length present (1..=8).
+    max_short_len: u8,
     /// Next ID to assign. Stored as u32 so we can represent the full 16-bit
     /// token space (65 536 entries) without overflow.
     next_id: u32,
@@ -78,6 +180,8 @@ impl LongestPrefixMatcher {
         Self {
             short_map,
             long_map: HashMap::new(),
+            pool: Vec::new(),
+            max_short_len: 1,
             next_id: 256,
         }
     }
@@ -88,8 +192,10 @@ impl LongestPrefixMatcher {
     pub fn from_dictionary(dict: &Dictionary) -> Self {
         let n = dict.num_tokens();
         let mut me = Self {
-            short_map: HashMap::with_capacity(n.min(SHORT_LEN * 256)),
+            short_map: HashMap::with_capacity(n.min(BUCKET_PREFIX_LEN * 256)),
             long_map: HashMap::new(),
+            pool: Vec::new(),
+            max_short_len: 1,
             next_id: n as u32,
         };
         for i in 0..n {
@@ -114,37 +220,82 @@ impl LongestPrefixMatcher {
     fn insert_internal(&mut self, data: &[u8], id: Token) {
         debug_assert!(!data.is_empty() && data.len() <= MAX_TOKEN_SIZE);
         let len = data.len();
-        if len <= SHORT_LEN {
-            let key = (load_le_u128(data) as u64) & mask_u64(len);
+        if len <= BUCKET_PREFIX_LEN {
+            let key = load_le_u64(data, len);
             self.short_map.insert((key, len as u8), id);
-        } else {
-            let key = load_le_u128(data) & mask_u128(len);
-            self.long_map.insert((key, len as u8), id);
+            self.max_short_len = self.max_short_len.max(len as u8);
+            return;
+        }
+
+        let prefix = load_le_u64(data, BUCKET_PREFIX_LEN);
+        let slen = len - BUCKET_PREFIX_LEN;
+        let suffix = load_le_u64(&data[BUCKET_PREFIX_LEN..], slen);
+        // Split borrows: `pool` and `long_map` are disjoint fields.
+        let pool = &mut self.pool;
+        let bucket = self
+            .long_map
+            .entry(prefix)
+            .or_insert_with(|| Bucket::Linear(Vec::new()));
+        match bucket {
+            Bucket::Linear(entries) => {
+                // Duplicate token bytes keep the newest id, matching the
+                // short map's overwrite semantics.
+                if let Some(existing) = entries
+                    .iter_mut()
+                    .find(|e| e.slen as usize == slen && e.suffix == suffix)
+                {
+                    existing.token = id;
+                    return;
+                }
+                entries.push(LongEntry {
+                    suffix,
+                    slen: slen as u8,
+                    token: id,
+                });
+                // Keep descending-by-length order so the first match wins.
+                entries.sort_by(|a, b| b.slen.cmp(&a.slen));
+                if entries.len() > PROMOTE_THRESHOLD {
+                    *bucket = build_trie(pool, entries);
+                }
+            }
+            Bucket::Trie(root) => {
+                let buf = suffix.to_le_bytes();
+                trie_insert(pool, *root, &buf[..slen], id);
+            }
         }
     }
 
-    /// Longest token whose bytes are a prefix of `data`, together with that
-    /// prefix's length.
+    /// Longest token whose bytes are a prefix of `data`, with that prefix's
+    /// length.
     ///
     /// Precondition: `!data.is_empty()` and the matcher contains every
-    /// single-byte token (always true after [`new`] or [`from_dictionary`]
-    /// with a complete dictionary).
+    /// single-byte token.
     #[inline]
     pub fn find_longest_match(&self, data: &[u8]) -> (Token, usize) {
         let max_len = data.len().min(MAX_TOKEN_SIZE);
-        let packed = load_le_u128(data);
-        // Long map: only relevant when at least 9 bytes of input are available.
-        if max_len > SHORT_LEN && !self.long_map.is_empty() {
-            for len in (SHORT_LEN + 1..=max_len).rev() {
-                let key = packed & mask_u128(len);
-                if let Some(&t) = self.long_map.get(&(key, len as u8)) {
-                    return (t, len);
+        // The first up-to-8 bytes serve as both the long-bucket prefix key
+        // and the short-map probe window, so load them once.
+        let low64 = load_le_u64(data, max_len.min(BUCKET_PREFIX_LEN));
+        // Long bucket: a single prefix probe, only when >= 9 input bytes
+        // exist.
+        if max_len > BUCKET_PREFIX_LEN
+            && !self.long_map.is_empty()
+            && let Some(bucket) = self.long_map.get(&low64)
+        {
+            let suf = &data[BUCKET_PREFIX_LEN..max_len];
+            let hit = match bucket {
+                Bucket::Linear(entries) => {
+                    search_linear(entries, load_le_u64(suf, suf.len()), suf.len())
                 }
+                Bucket::Trie(root) => search_trie(&self.pool, *root, suf),
+            };
+            if let Some((t, slen)) = hit {
+                return (t, BUCKET_PREFIX_LEN + slen);
             }
         }
-        // Short map: lengths min(max_len, 8) down to 1.
-        let short_max = max_len.min(SHORT_LEN);
-        let low64 = packed as u64;
+        // Short map: probe from the longest short token that exists (<= the
+        // input window) down to length 1.
+        let short_max = max_len.min(self.max_short_len as usize);
         for len in (1..=short_max).rev() {
             let key = low64 & mask_u64(len);
             if let Some(&t) = self.short_map.get(&(key, len as u8)) {

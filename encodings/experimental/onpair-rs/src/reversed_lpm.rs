@@ -50,10 +50,19 @@ enum Transitions {
 
 #[derive(Default)]
 struct BuildNode {
-    children: HashMap<u8, u32>,
+    /// Small association list; linear scans beat per-node hash maps for the
+    /// few children typical trie states carry.
+    children: Vec<(u8, u32)>,
     fail: u32,
     direct_output: u32,
     best_output: u32,
+}
+
+#[inline]
+fn child_of(node: &BuildNode, byte: u8) -> Option<u32> {
+    node.children
+        .iter()
+        .find_map(|&(label, target)| (label == byte).then_some(target))
 }
 
 /// A dict-12 trie has at most 61,697 states, so its worst-case full byte DFA
@@ -106,6 +115,25 @@ pub(crate) fn pack_dense16(table: &[u32]) -> Vec<u8> {
     }
     advise_huge_pages(&mut packed);
     packed
+}
+
+/// Complete the trie into a dense `u32` transition table by copying each
+/// state's failure row (already complete, thanks to BFS order) and then
+/// overwriting the state's own edges.
+fn complete_dense_table(nodes: &[BuildNode], bfs_order: &[u32]) -> Vec<u32> {
+    let mut table = vec![0u32; nodes.len() * 256];
+    for &(byte, child) in &nodes[0].children {
+        table[byte as usize] = child;
+    }
+    for &state in &bfs_order[1..] {
+        let state = state as usize;
+        let fail = nodes[state].fail as usize * 256;
+        table.copy_within(fail..fail + 256, state * 256);
+        for &(byte, child) in &nodes[state].children {
+            table[state * 256 + byte as usize] = child;
+        }
+    }
+    table
 }
 
 #[cfg(target_os = "linux")]
@@ -326,6 +354,8 @@ impl ReversedAhoCorasickMatcher {
             "OnPair dictionary has more than 65,536 tokens"
         );
 
+        let timing = std::env::var_os("ONPAIR_PHASE_TIMING").is_some();
+        let t0 = std::time::Instant::now();
         let mut nodes = vec![BuildNode::default()];
         for id in 0..dict.num_tokens() {
             let token = dict.data(id as Token);
@@ -335,13 +365,13 @@ impl ReversedAhoCorasickMatcher {
             );
             let mut state = 0u32;
             for &byte in token.iter().rev() {
-                let next = nodes[state as usize].children.get(&byte).copied();
+                let next = child_of(&nodes[state as usize], byte);
                 state = match next {
                     Some(next) => next,
                     None => {
                         let next = nodes.len() as u32;
                         nodes.push(BuildNode::default());
-                        nodes[state as usize].children.insert(byte, next);
+                        nodes[state as usize].children.push((byte, next));
                         next
                     }
                 };
@@ -351,12 +381,18 @@ impl ReversedAhoCorasickMatcher {
                 better_output(nodes[state as usize].direct_output, output);
         }
 
+        let t_trie = t0.elapsed();
+        let t1 = std::time::Instant::now();
         // Build failure links breadth-first. Propagating the best output now
         // avoids enumerating every accepting suffix during parsing.
         let mut queue = VecDeque::new();
         let mut bfs_order = Vec::with_capacity(nodes.len());
         bfs_order.push(0u32);
-        let root_children: Vec<u32> = nodes[0].children.values().copied().collect();
+        let root_children: Vec<u32> = nodes[0]
+            .children
+            .iter()
+            .map(|&(_, target)| target)
+            .collect();
         for child in root_children {
             nodes[child as usize].fail = 0;
             queue.push_back(child);
@@ -367,15 +403,11 @@ impl ReversedAhoCorasickMatcher {
             nodes[state as usize].best_output =
                 better_output(nodes[state as usize].direct_output, inherited);
 
-            let children: Vec<(u8, u32)> = nodes[state as usize]
-                .children
-                .iter()
-                .map(|(&label, &target)| (label, target))
-                .collect();
+            let children: Vec<(u8, u32)> = nodes[state as usize].children.clone();
             for (label, child) in children {
                 let mut fallback = nodes[state as usize].fail;
                 let fail = loop {
-                    if let Some(&target) = nodes[fallback as usize].children.get(&label) {
+                    if let Some(target) = child_of(&nodes[fallback as usize], label) {
                         break target;
                     }
                     if fallback == 0 {
@@ -388,38 +420,36 @@ impl ReversedAhoCorasickMatcher {
             }
         }
 
+        let t_bfs = t1.elapsed();
+        let t2 = std::time::Instant::now();
         let best_output: Vec<u32> = nodes.iter().map(|node| node.best_output).collect();
         let dense_bytes = nodes.len().saturating_mul(256 * size_of::<u32>());
         let transitions = if dense_bytes <= MAX_DENSE_TRANSITION_BYTES {
-            let mut table = vec![0u32; nodes.len() * 256];
-            for &state in &bfs_order {
-                for byte in 0u16..=255 {
-                    let target = nodes[state as usize]
-                        .children
-                        .get(&(byte as u8))
-                        .copied()
-                        .unwrap_or_else(|| {
-                            if state == 0 {
-                                0
-                            } else {
-                                table[nodes[state as usize].fail as usize * 256 + byte as usize]
-                            }
-                        });
-                    table[state as usize * 256 + byte as usize] = target;
-                }
-            }
             let num_states;
-            if dict.num_tokens() <= 1 << 12 && nodes.len() <= usize::from(u16::MAX) + 1 {
-                table = minimize_and_fuse_dense12(table, &best_output);
-                num_states = table.len() / 256;
-                (Transitions::Dense12(table), num_states)
-            } else if nodes.len() < 1 << 20 {
-                num_states = nodes.len();
-                (Transitions::Dense16(pack_dense16(&table)), num_states)
-            } else {
-                num_states = nodes.len();
-                (Transitions::Dense(table), num_states)
+            let transitions_and_states =
+                if dict.num_tokens() <= 1 << 12 && nodes.len() <= usize::from(u16::MAX) + 1 {
+                    let table = complete_dense_table(&nodes, &bfs_order);
+                    let table = minimize_and_fuse_dense12(table, &best_output);
+                    num_states = table.len() / 256;
+                    (Transitions::Dense12(table), num_states)
+                } else if nodes.len() < 1 << 20 {
+                    let table = complete_dense_table(&nodes, &bfs_order);
+                    num_states = nodes.len();
+                    (Transitions::Dense16(pack_dense16(&table)), num_states)
+                } else {
+                    num_states = nodes.len();
+                    (
+                        Transitions::Dense(complete_dense_table(&nodes, &bfs_order)),
+                        num_states,
+                    )
+                };
+            if timing {
+                eprintln!(
+                    "[build] complete+repr={:.1}ms",
+                    t2.elapsed().as_secs_f64() * 1e3
+                );
             }
+            transitions_and_states
         } else {
             let mut offsets = Vec::with_capacity(nodes.len() + 1);
             let mut labels = Vec::with_capacity(nodes.len().saturating_sub(1));
@@ -427,9 +457,9 @@ impl ReversedAhoCorasickMatcher {
             let mut fail = Vec::with_capacity(nodes.len());
             for node in &nodes {
                 offsets.push(labels.len() as u32);
-                let mut edges: Vec<_> = node.children.iter().collect();
-                edges.sort_unstable_by_key(|(label, _)| **label);
-                for (&label, &target) in edges {
+                let mut edges = node.children.clone();
+                edges.sort_unstable_by_key(|&(label, _)| label);
+                for (label, target) in edges {
                     labels.push(label);
                     targets.push(target);
                 }
@@ -447,6 +477,14 @@ impl ReversedAhoCorasickMatcher {
             )
         };
 
+        if timing {
+            eprintln!(
+                "[build] trie={:.1}ms bfs={:.1}ms rest={:.1}ms",
+                t_trie.as_secs_f64() * 1e3,
+                t_bfs.as_secs_f64() * 1e3,
+                t2.elapsed().as_secs_f64() * 1e3
+            );
+        }
         let (transitions, num_states) = transitions;
 
         Self {
