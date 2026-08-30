@@ -138,3 +138,67 @@ the corpus.
 3. Re-measure the six real corpora with the fix before drawing any Rust-versus-Boost conclusion.
 4. Since the remaining cost is branch misprediction and it is compiler-neutral, a branch-free probe
    is the actual optimization opportunity here.
+
+## Confirmation on the paper's own C++ implementation
+
+The corrected microbenchmark says there is no compiler gap. To check that end to end rather than on
+a probe loop, the same comparison was run on the OnPair authors' C++ library over the paper's own
+datasets — real training and real parsing, not a synthetic trace.
+
+- Library: [onpair_cpp](https://github.com/gargiulofrancesco/onpair_cpp) (the standalone
+  implementation referenced by [compression_benchmark_cpp](https://github.com/gargiulofrancesco/compression_benchmark_cpp),
+  the paper's evaluation framework for [arXiv:2508.02280](https://arxiv.org/abs/2508.02280)).
+- Relevance: `include/onpair/encoding/lpm.h` builds its longest-prefix matcher on
+  `boost::unordered_flat_map`, so the probe path under investigation is exactly the hot path of
+  parsing.
+- Driver: `onpair_cpp_bench.cpp` here, timing `encoding::train()` and `encoding::parse()`
+  separately.
+- Datasets: MS MARCO queries (28 MiB, 808,731 rows, full), MS MARCO URLs (25 MiB, 400,000 rows) and
+  DBpedia abstracts (40 MiB, 135,918 rows) — three of the paper's four, each a prefix of the real
+  download where the full file is tens of GiB.
+
+Throughput in MiB/s, median of 5 iterations, median of 3 interleaved repetitions per compiler.
+`g/c` above 1 means GCC is faster.
+
+| Dataset | Bits | Train GCC | Train Clang | g/c | Parse GCC | Parse Clang | g/c |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| MS MARCO queries | 12 | 308.0 | 307.6 | 1.00 | 121.1 | 116.8 | 1.04 |
+| MS MARCO queries | 16 | 191.3 | 190.9 | 1.00 | 106.4 | 104.4 | 1.02 |
+| MS MARCO URLs | 12 | 319.1 | 300.0 | 1.06 | 114.7 | 107.1 | 1.07 |
+| MS MARCO URLs | 16 | 197.5 | 204.9 | 0.96 | 102.6 | 99.6 | 1.03 |
+| DBpedia abstracts | 12 | 732.7 | 713.2 | 1.03 | 147.0 | 138.4 | 1.06 |
+| DBpedia abstracts | 16 | 336.7 | 344.8 | 0.98 | 135.6 | 136.8 | 0.99 |
+
+Geometric means: training 1.005, parsing 1.035. Clang wins two of the twelve cells outright, and
+the largest GCC margin is 7%. Every configuration produced identical `dict_tokens` and total token
+counts under both compilers, so the two builds are doing the same work — the check that the
+original benchmark lacked.
+
+GCC 14 and Clang 20 were also measured on MS MARCO queries and land in the same band.
+
+There is no 1.3-1.4x GCC advantage in OnPair training or parsing. Whatever remains is a few percent,
+dataset-dependent in sign, and within the run-to-run spread of a 4-vCPU shared machine.
+
+### Reproducing
+
+```bash
+git clone https://github.com/gargiulofrancesco/onpair_cpp /tmp/onpair_cpp
+SRC="/tmp/onpair_cpp/src/onpair/encoding/training/trainer.cpp
+     /tmp/onpair_cpp/src/onpair/encoding/parsing/parser.cpp
+     /tmp/onpair_cpp/src/onpair/core/dictionary_view.cpp"
+for cxx in g++ clang++; do
+  $cxx -std=c++20 -O3 -DNDEBUG -march=native \
+    -I/tmp/onpair_cpp/include -I/tmp/boost_1_89_0 \
+    onpair_cpp_bench.cpp $SRC -o /tmp/onpair-${cxx%%+*}
+done
+/tmp/onpair-g /tmp/data/msmarco_queries.txt 16 5
+/tmp/onpair-clang /tmp/data/msmarco_queries.txt 16 5
+```
+
+Datasets come from `scripts/process_datasets.py` in the paper's benchmark repository; the runs above
+used streamed prefixes of the same sources, one string per line.
+
+Interleave the two binaries and compare medians — a sequential all-GCC-then-all-Clang run on a
+shared vCPU drifts by more than the effect being measured. An earlier run of exactly this
+comparison reported spurious differences because a background download was still appending to the
+dataset file between runs; check the input is stable first.
