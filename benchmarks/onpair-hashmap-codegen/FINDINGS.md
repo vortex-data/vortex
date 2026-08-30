@@ -310,3 +310,60 @@ onpair_decode_rs/target/release/decode-rs    /tmp/data/msmarco_queries.txt 16 5
 ```
 
 Both drivers print `bulk_ok` and `random_ok`; treat any run without both true as void.
+
+## Compression time across the three implementations
+
+The same three implementations, timed on compression instead of decompression. `onpair_cpp` and
+`spiraldb/onpair` expose training and parsing separately; `onpair_rs` compresses in one call, so
+only its total is available.
+
+Throughput in MiB/s of input, medians of 3 interleaved repetitions of the median of 5 iterations.
+
+| Dataset | Bits | Implementation | Train | Parse | Total |
+|---|---:|---|---:|---:|---:|
+| MS MARCO queries | 12 | onpair_cpp (GCC) | 306.7 | 124.2 | 88.4 |
+| | 12 | onpair_cpp (Clang) | 293.6 | 110.7 | 80.4 |
+| | 12 | spiraldb/onpair | 196.0 | 110.8 | 70.8 |
+| MS MARCO queries | 16 | onpair_cpp (GCC) | 185.3 | 106.1 | 67.5 |
+| | 16 | onpair_cpp (Clang) | 195.7 | 105.7 | 68.6 |
+| | 16 | spiraldb/onpair | 164.6 | 90.5 | 58.4 |
+| | 16 | onpair_rs OnPair16 | - | - | 40.5 |
+| | 16 | onpair_rs OnPair | - | - | 25.5 |
+| MS MARCO URLs | 12 | onpair_cpp (GCC) | 311.1 | 109.2 | 80.8 |
+| | 12 | onpair_cpp (Clang) | 292.9 | 104.6 | 77.1 |
+| | 12 | spiraldb/onpair | 186.4 | 89.5 | 60.5 |
+| MS MARCO URLs | 16 | onpair_cpp (GCC) | 197.9 | 99.6 | 66.3 |
+| | 16 | onpair_cpp (Clang) | 200.1 | 105.5 | 69.1 |
+| | 16 | spiraldb/onpair | 163.3 | 75.8 | 51.8 |
+| | 16 | onpair_rs OnPair16 | - | - | 40.6 |
+| | 16 | onpair_rs OnPair | - | - | 29.3 |
+| DBpedia abstracts | 12 | onpair_cpp (GCC) | 665.5 | 137.6 | 114.1 |
+| | 12 | onpair_cpp (Clang) | 627.0 | 126.2 | 105.0 |
+| | 12 | spiraldb/onpair | 376.4 | 45.2 | 40.4 |
+| DBpedia abstracts | 16 | onpair_cpp (GCC) | 329.6 | 133.4 | 95.0 |
+| | 16 | onpair_cpp (Clang) | 339.1 | 139.9 | 99.0 |
+| | 16 | spiraldb/onpair | 292.1 | 124.1 | 87.1 |
+| | 16 | onpair_rs OnPair16 | - | - | 80.8 |
+| | 16 | onpair_rs OnPair | - | - | 34.1 |
+
+`onpair_cpp` is the fastest compressor in every configuration. `spiraldb/onpair` is 1.1-2.8x
+behind it, and `onpair_rs` is the slowest at 16 bits except on DBpedia.
+
+The worst case is **DBpedia at 12 bits, where `spiraldb/onpair` parses at 45.2 MiB/s against
+onpair_cpp's 137.6 — a 3.0x deficit** that drags its total to 40.4 versus 114.1 MiB/s. The same
+pair at 16 bits is only 1.1x apart (124.1 vs 133.4), so this is specific to the narrow-dictionary,
+long-string combination rather than a uniform slowdown. Training is 1.1-1.8x behind throughout.
+
+Since parsing is where the longest-prefix-match hashmap lives, this — not any compiler
+difference — is where the Rust port's probe path actually costs something. It is the same
+conclusion the decode comparison reached: the gaps worth chasing are between implementations, not
+between GCC and LLVM, which stay within a few percent of each other in every row above.
+
+`onpair_rs` numbers are not strictly comparable: it takes a fixed frequency threshold (5) where the
+other two take a dynamic 0.15, so it builds a different dictionary and does a different amount of
+work. It is included for reference, not as a like-for-like control.
+
+```bash
+onpair_decode_rs/target/release/compress /tmp/data/msmarco_queries.txt 16 5   # both Rust impls
+/tmp/onpair-gcc /tmp/data/msmarco_queries.txt 16 5                            # onpair_cpp
+```
