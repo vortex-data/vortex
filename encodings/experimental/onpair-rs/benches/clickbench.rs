@@ -20,6 +20,12 @@ use corpus::Corpus;
 use divan::Bencher;
 use vortex_onpair_rs::DynamicThreshold;
 use vortex_onpair_rs::ReversedAhoCorasickMatcher;
+use vortex_onpair_rs::ReversedLengthMatcher;
+use vortex_onpair_rs::TrieLpm;
+use vortex_onpair_rs::parse_reversed_lengths_avx512;
+use vortex_onpair_rs::parse_trie;
+use vortex_onpair_rs::parse_trie_avx512;
+use vortex_onpair_rs::parse_trie_interleaved;
 use vortex_onpair_rs::Store;
 use vortex_onpair_rs::ThresholdSpec;
 use vortex_onpair_rs::TrainResult;
@@ -269,6 +275,150 @@ fn local_report() {
                 std::hint::black_box(&corpus.offsets_u32),
                 corpus.rows(),
                 std::hint::black_box(&matcher),
+                bits(),
+                &mut store,
+            );
+            std::hint::black_box(store);
+        },
+        Some(corpus.bytes.len()),
+    );
+
+    print!("build_length_automaton ");
+    report_timing(
+        || {
+            std::hint::black_box(ReversedLengthMatcher::from_dictionary(std::hint::black_box(
+                &trained.dict,
+            )));
+        },
+        None,
+    );
+    let lengths = ReversedLengthMatcher::from_dictionary(&trained.dict);
+    println!(
+        "length automaton states={} trie_states={} bytes={} representation={}",
+        lengths.num_states(),
+        lengths.trie_states(),
+        lengths.automaton_bytes(),
+        if lengths.uses_fused_transitions() {
+            "fused_dense"
+        } else {
+            "packed_dense"
+        }
+    );
+    let mut length_store = Store::default();
+    parse_reversed_lengths_avx512(
+        &corpus.bytes,
+        &corpus.offsets_u32,
+        corpus.rows(),
+        &lengths,
+        bits(),
+        &mut length_store,
+    );
+    assert_eq!(length_store.boundaries, greedy.boundaries);
+    assert_eq!(length_store.packed, greedy.packed);
+    print!("parse_reversed_lengths_avx512 ");
+    report_timing(
+        || {
+            let mut store = Store::default();
+            parse_reversed_lengths_avx512(
+                std::hint::black_box(&corpus.bytes),
+                std::hint::black_box(&corpus.offsets_u32),
+                corpus.rows(),
+                std::hint::black_box(&lengths),
+                bits(),
+                &mut store,
+            );
+            std::hint::black_box(store);
+        },
+        Some(corpus.bytes.len()),
+    );
+
+    print!("build_trie ");
+    report_timing(
+        || {
+            std::hint::black_box(TrieLpm::from_dictionary(std::hint::black_box(&trained.dict)));
+        },
+        None,
+    );
+    let trie = TrieLpm::from_dictionary(&trained.dict);
+    println!(
+        "trie nodes={} bytes={}",
+        trie.num_nodes(),
+        trie.automaton_bytes()
+    );
+    let mut trie_store = Store::default();
+    parse_trie(
+        &corpus.bytes,
+        &corpus.offsets_u32,
+        corpus.rows(),
+        &trie,
+        bits(),
+        &mut trie_store,
+    );
+    assert_eq!(trie_store.boundaries, greedy.boundaries);
+    assert_eq!(trie_store.packed, greedy.packed);
+    let mut trie_interleaved_store = Store::default();
+    parse_trie_interleaved(
+        &corpus.bytes,
+        &corpus.offsets_u32,
+        corpus.rows(),
+        &trie,
+        bits(),
+        &mut trie_interleaved_store,
+    );
+    assert_eq!(trie_interleaved_store.boundaries, greedy.boundaries);
+    assert_eq!(trie_interleaved_store.packed, greedy.packed);
+    print!("parse_trie ");
+    report_timing(
+        || {
+            let mut store = Store::default();
+            parse_trie(
+                std::hint::black_box(&corpus.bytes),
+                std::hint::black_box(&corpus.offsets_u32),
+                corpus.rows(),
+                std::hint::black_box(&trie),
+                bits(),
+                &mut store,
+            );
+            std::hint::black_box(store);
+        },
+        Some(corpus.bytes.len()),
+    );
+    print!("parse_trie_interleaved ");
+    report_timing(
+        || {
+            let mut store = Store::default();
+            parse_trie_interleaved(
+                std::hint::black_box(&corpus.bytes),
+                std::hint::black_box(&corpus.offsets_u32),
+                corpus.rows(),
+                std::hint::black_box(&trie),
+                bits(),
+                &mut store,
+            );
+            std::hint::black_box(store);
+        },
+        Some(corpus.bytes.len()),
+    );
+    let mut trie_simd_store = Store::default();
+    parse_trie_avx512(
+        &corpus.bytes,
+        &corpus.offsets_u32,
+        corpus.rows(),
+        &trie,
+        bits(),
+        &mut trie_simd_store,
+    );
+    assert_eq!(trie_simd_store.boundaries, greedy.boundaries);
+    assert_eq!(trie_simd_store.packed, greedy.packed);
+    print!("parse_trie_avx512 ");
+    report_timing(
+        || {
+            let mut store = Store::default();
+            parse_trie_avx512(
+                std::hint::black_box(&corpus.bytes),
+                std::hint::black_box(&corpus.offsets_u32),
+                corpus.rows(),
+                std::hint::black_box(&trie),
                 bits(),
                 &mut store,
             );
