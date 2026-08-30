@@ -15,6 +15,8 @@ The implementation changes are:
 - a read-only two-byte short-prefix directory for eligible dictionaries;
 - contiguous structure-of-arrays candidates with scalar and AVX2 matching;
 - workload and dictionary-size gating for the short-prefix index.
+- an 8 KiB membership filter plus prehashed table for small, completed
+  long-prefix maps, with the mutable hash map retained for larger dictionaries.
 
 The complete benchmark protocol, every per-corpus winner, aggregate results,
 strict 16-bit comparison, and output-format caveat are in

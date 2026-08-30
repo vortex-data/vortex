@@ -79,6 +79,19 @@ pub(crate) fn encode_strings<O: Offset>(
     offsets: &[O],
     lpm: &LongestPrefixMatcher,
 ) -> (Vec<Token>, Vec<O>) {
+    if lpm.has_frozen_long_map() {
+        encode_strings_with(bytes, offsets, |data| lpm.find_longest_match_frozen(data))
+    } else {
+        encode_strings_with(bytes, offsets, |data| lpm.find_longest_match_unfrozen(data))
+    }
+}
+
+#[inline]
+fn encode_strings_with<O: Offset>(
+    bytes: &[u8],
+    offsets: &[O],
+    mut find_longest_match: impl FnMut(&[u8]) -> (Token, usize),
+) -> (Vec<Token>, Vec<O>) {
     let n = offsets.len() - 1;
     let mut codes: Vec<Token> = Vec::with_capacity(bytes.len());
     let mut row_offsets: Vec<O> = Vec::with_capacity(n + 1);
@@ -88,7 +101,7 @@ pub(crate) fn encode_strings<O: Offset>(
         let e = offsets[i + 1].to_usize();
         let mut pos = s;
         while pos < e {
-            let (tok, mlen) = lpm.find_longest_match(&bytes[pos..e]);
+            let (tok, mlen) = find_longest_match(&bytes[pos..e]);
             codes.push(tok);
             pos += mlen;
         }

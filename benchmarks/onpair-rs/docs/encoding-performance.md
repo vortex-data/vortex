@@ -49,6 +49,55 @@ observed when the static index was applied unconditionally.
 Focused ablations reduced parsing time by approximately 10–22% on workloads
 dominated by failed short-token hash probes.
 
+### Filtered long-prefix lookup
+
+Parsing probes the first eight input bytes for a 9–16 byte token before trying
+the short-token index. On most text corpora this long-prefix probe misses more
+than 97% of the time. Completed dictionaries with at most 512 distinct long
+prefixes now use an 8 KiB one-bit membership filter in front of a raw
+`hashbrown::HashTable`. The same specialized integer hash selects the filter
+bit and is passed directly to the table, so the common definite miss avoids a
+SwissTable control-byte probe. Parser construction freezes this index once;
+training continues to use the mutable map. The frozen/unfrozen choice is
+hoisted outside the per-token parse loop.
+
+The 512-prefix gate is important. The measured 12-bit dictionaries contained
+158–856 distinct long prefixes and the selected text corpora had 2–11% prefix
+hit rates; several larger/high-hit dictionaries had 37–65% hit rates. Those
+larger dictionaries retain the original map because a filter adds work to a
+frequent hit path.
+
+A post-change Samply profile of five in-memory parses of the 128 MiB FineWeb
+sample used 4.547 CPU seconds, down from 4.818 seconds (5.6%). A repeated
+focused MS MARCO URL run reduced median parse time from 248.44 ms to 229.41 ms
+(7.7%). In the full Rust A/B below, aggregate 32 MiB end-to-end throughput
+improved 1.0%; individual medians remain noisy enough that small changes should
+be treated as ties.
+
+| Corpus | Previous ms | Filtered ms | Time change |
+|---|---:|---:|---:|
+| Amazon Book Titles | 328.29 | 315.79 | -3.81% |
+| Apache access logs | 113.58 | 116.88 | +2.91% |
+| ClickBench URLs | 126.79 | 127.06 | +0.21% |
+| DBpedia abstracts | 221.59 | 226.48 | +2.21% |
+| FineWeb | 263.20 | 263.26 | +0.02% |
+| MS MARCO queries | 292.89 | 297.97 | +1.73% |
+| MS MARCO URLs | 321.97 | 290.87 | -9.66% |
+| ClickBench titles | 119.49 | 117.70 | -1.50% |
+| Amazon Book Reviews | 243.14 | 244.65 | +0.62% |
+| News Headlines | 303.29 | 299.15 | -1.36% |
+| Tweets | 298.91 | 299.62 | +0.24% |
+| Stack v3 | 195.16 | 193.48 | -0.86% |
+| TPC-H `l_comment` | 192.05 | 198.18 | +3.19% |
+| FineWeb shard 0, 128 MiB | 900.79 | 900.88 | +0.01% |
+| FineWeb shard 1, 128 MiB | 907.34 | 901.81 | -0.61% |
+
+Two broader replacements were rejected. A custom open-addressed
+structure-of-arrays table regressed representative parsing by 8–19% because
+its mixing and dependent slot/key/bucket loads cost more than SwissTable. A
+prehashed raw table without the membership filter helped miss-heavy corpora but
+regressed high-hit and 16-bit dictionaries by roughly 3–4%.
+
 ### Existing upstream advantages over the paper Rust implementation
 
 These were already present before the changes above, but materially affect any

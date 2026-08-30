@@ -14,12 +14,13 @@
 //!     as a sorted vector and is promoted to a byte-trie once it grows past
 //!     `PROMOTE_THRESHOLD`.
 //!
-//! [`find_longest_match`](LongestPrefixMatcher::find_longest_match) issues a
-//! single hash probe on the 8-byte prefix to reach the long bucket, then falls
-//! through to the short map probing lengths `min(max_len, 8)..1`.
+//! Longest-match lookup issues a single probe on the 8-byte prefix to reach the
+//! long bucket, then falls through to short-token matching.
 
 use crate::core::dictionary::{CompactDictionaryView, DictionaryView};
 use crate::core::types::{MAX_TOKEN_SIZE, Token};
+use hashbrown::HashTable;
+
 use crate::encoding::hash::{Map, map, map_with_capacity};
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
@@ -36,6 +37,12 @@ const SHORT_PREFIX_COUNT: usize = 1 << 16;
 /// A long bucket is promoted from a linear vector to a trie once it holds more
 /// than this many entries, bounding worst-case suffix search.
 const PROMOTE_THRESHOLD: usize = 128;
+
+#[inline(always)]
+fn hash_long_prefix(key: u64) -> u64 {
+    let hash = (key ^ key.rotate_left(32)).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+    hash ^ (hash >> 32)
+}
 
 /// Pack the low `min(len, data.len(), 8)` bytes of `data` into a little-endian
 /// `u64`; higher bytes read as zero. The full-8-byte case is a single load.
@@ -205,6 +212,55 @@ enum Bucket {
     Trie(u32),
 }
 
+const LONG_FILTER_BITS: usize = 1 << 16;
+const MAX_FILTERED_LONG_PREFIXES: usize = 512;
+
+/// Read-only long-prefix index used when its compact membership filter can
+/// reject the dominant miss path before touching the hash table.
+#[derive(Debug, Clone)]
+struct FrozenLongMap {
+    table: HashTable<(u64, Bucket)>,
+    filter: Box<[u64]>,
+}
+
+impl FrozenLongMap {
+    fn from_map(map: Map<u64, Bucket>) -> Result<Self, Map<u64, Bucket>> {
+        if map.len() > MAX_FILTERED_LONG_PREFIXES {
+            return Err(map);
+        }
+
+        let mut table = HashTable::with_capacity(map.len());
+        let mut filter = vec![0u64; LONG_FILTER_BITS / 64].into_boxed_slice();
+        for entry in map {
+            let hash = hash_long_prefix(entry.0);
+            let bit = hash as usize & (LONG_FILTER_BITS - 1);
+            filter[bit >> 6] |= 1 << (bit & 63);
+            table.insert_unique(hash, entry, |(prefix, _)| hash_long_prefix(*prefix));
+        }
+        Ok(Self { table, filter })
+    }
+
+    #[inline]
+    fn get(&self, key: u64) -> Option<&Bucket> {
+        let hash = hash_long_prefix(key);
+        let bit = hash as usize & (LONG_FILTER_BITS - 1);
+        if self.filter[bit >> 6] & (1 << (bit & 63)) == 0 {
+            return None;
+        }
+        self.table
+            .find(hash, |(candidate, _)| *candidate == key)
+            .map(|(_, bucket)| bucket)
+    }
+
+    fn into_map(self) -> Map<u64, Bucket> {
+        let mut map = map_with_capacity(self.table.len());
+        for (key, bucket) in self.table {
+            map.insert(key, bucket);
+        }
+        map
+    }
+}
+
 /// Search a sorted-descending linear bucket for the longest suffix that matches
 /// the low bytes of `val` (the input suffix, `<= max_slen` bytes).
 #[inline]
@@ -280,7 +336,7 @@ fn build_trie(pool: &mut Vec<TrieNode>, entries: &[LongEntry]) -> Bucket {
 
 /// Maps byte sequences (`1..=MAX_TOKEN_SIZE` bytes) to [`Token`] ids. Always
 /// holds the 256 single-byte tokens after construction, so
-/// [`find_longest_match`](Self::find_longest_match) is total.
+/// Longest-match lookup is total.
 #[derive(Default, Debug, Clone)]
 pub(crate) struct LongestPrefixMatcher {
     /// Length `1..=8` tokens keyed by (low-`len`-byte u64, length).
@@ -289,6 +345,8 @@ pub(crate) struct LongestPrefixMatcher {
     short_buckets: Option<ShortBuckets>,
     /// Length `9..=16` tokens bucketed by their 8-byte prefix.
     long_map: Map<u64, Bucket>,
+    /// Filtered, prehashed replacement for small completed long-prefix maps.
+    frozen_long_map: Option<FrozenLongMap>,
     /// Trie node arena shared by every promoted long bucket.
     pool: Vec<TrieNode>,
     /// Longest short-map token length present (`1..=8`).
@@ -309,6 +367,7 @@ impl LongestPrefixMatcher {
             short_map,
             short_buckets: None,
             long_map: map(),
+            frozen_long_map: None,
             pool: Vec::new(),
             max_short_len: 1,
             next_id: 256,
@@ -326,7 +385,7 @@ impl LongestPrefixMatcher {
 
     /// Build a matcher from a complete dictionary: token at index `i` receives
     /// id `i`. The caller guarantees the dictionary contains every single-byte
-    /// token so [`find_longest_match`](Self::find_longest_match) stays total.
+    /// token so longest-match lookup stays total.
     pub(crate) fn from_dictionary(
         dict: CompactDictionaryView<'_>,
         build_short_buckets: bool,
@@ -336,6 +395,7 @@ impl LongestPrefixMatcher {
             short_map: map_with_capacity(n.min(BUCKET_PREFIX_LEN * 256)),
             short_buckets: None,
             long_map: map(),
+            frozen_long_map: None,
             pool: Vec::new(),
             max_short_len: 1,
             next_id: n as u32,
@@ -343,6 +403,10 @@ impl LongestPrefixMatcher {
         for i in 0..n {
             let id = i as Token;
             me.insert_internal(dict.token(id), id);
+        }
+        match FrozenLongMap::from_map(std::mem::take(&mut me.long_map)) {
+            Ok(frozen) => me.frozen_long_map = Some(frozen),
+            Err(map) => me.long_map = map,
         }
         me.short_buckets = build_short_buckets.then(|| ShortBuckets::from_dictionary(dict));
         me
@@ -353,6 +417,9 @@ impl LongestPrefixMatcher {
     /// Precondition: `1 <= data.len() <= MAX_TOKEN_SIZE` and `size() < 65_536`.
     pub(crate) fn insert(&mut self, data: &[u8]) -> Token {
         self.short_buckets = None;
+        if let Some(frozen) = self.frozen_long_map.take() {
+            self.long_map = frozen.into_map();
+        }
         let id = self.next_id as Token;
         self.next_id += 1;
         self.insert_internal(data, id);
@@ -405,16 +472,29 @@ impl LongestPrefixMatcher {
     /// Precondition: `!data.is_empty()` and the matcher contains every
     /// single-byte token (always true after [`new`](Self::new) or
     /// [`from_dictionary`](Self::from_dictionary) with a complete dictionary).
+    #[cfg(test)]
     #[inline]
     pub(crate) fn find_longest_match(&self, data: &[u8]) -> (Token, usize) {
+        if self.frozen_long_map.is_some() {
+            self.find_longest_match_frozen(data)
+        } else {
+            self.find_longest_match_unfrozen(data)
+        }
+    }
+
+    #[inline]
+    pub(crate) fn has_frozen_long_map(&self) -> bool {
+        self.frozen_long_map.is_some()
+    }
+
+    /// Parsing lookup for a completed small long-prefix map. The caller hoists
+    /// selection of this path outside the per-token loop.
+    #[inline]
+    pub(crate) fn find_longest_match_frozen(&self, data: &[u8]) -> (Token, usize) {
         let max_len = data.len().min(MAX_TOKEN_SIZE);
-        // The first up-to-8 bytes serve as both the long-bucket prefix key and
-        // the short-map probe window, so load them once.
         let low64 = load_le_u64(data, max_len.min(BUCKET_PREFIX_LEN));
-        // Long bucket: a single prefix probe, only when >= 9 input bytes exist.
         if max_len > BUCKET_PREFIX_LEN
-            && !self.long_map.is_empty()
-            && let Some(bucket) = self.long_map.get(&low64)
+            && let Some(bucket) = self.frozen_long_map.as_ref().and_then(|map| map.get(low64))
         {
             let suf = &data[BUCKET_PREFIX_LEN..max_len];
             let hit = match bucket {
@@ -423,8 +503,8 @@ impl LongestPrefixMatcher {
                 }
                 Bucket::Trie(root) => search_trie(&self.pool, *root, suf),
             };
-            if let Some((t, slen)) = hit {
-                return (t, BUCKET_PREFIX_LEN + slen);
+            if let Some((token, suffix_len)) = hit {
+                return (token, BUCKET_PREFIX_LEN + suffix_len);
             }
         }
         if let Some(short_buckets) = &self.short_buckets
@@ -437,8 +517,74 @@ impl LongestPrefixMatcher {
         let short_max = max_len.min(self.max_short_len as usize);
         for len in (1..=short_max).rev() {
             let key = low64 & mask_u64(len);
-            if let Some(&t) = self.short_map.get(&(key, len as u8)) {
-                return (t, len);
+            if let Some(&token) = self.short_map.get(&(key, len as u8)) {
+                return (token, len);
+            }
+        }
+        unreachable!("LPM precondition: every single-byte token must be present")
+    }
+
+    /// Parsing lookup retaining the mutable long map for larger dictionaries.
+    #[inline]
+    pub(crate) fn find_longest_match_unfrozen(&self, data: &[u8]) -> (Token, usize) {
+        let max_len = data.len().min(MAX_TOKEN_SIZE);
+        let low64 = load_le_u64(data, max_len.min(BUCKET_PREFIX_LEN));
+        if max_len > BUCKET_PREFIX_LEN
+            && !self.long_map.is_empty()
+            && let Some(bucket) = self.long_map.get(&low64)
+        {
+            let suf = &data[BUCKET_PREFIX_LEN..max_len];
+            let hit = match bucket {
+                Bucket::Linear(entries) => {
+                    search_linear(entries, load_le_u64(suf, suf.len()), suf.len())
+                }
+                Bucket::Trie(root) => search_trie(&self.pool, *root, suf),
+            };
+            if let Some((token, suffix_len)) = hit {
+                return (token, BUCKET_PREFIX_LEN + suffix_len);
+            }
+        }
+        if let Some(short_buckets) = &self.short_buckets
+            && let Some(hit) = short_buckets.find(low64, max_len.min(BUCKET_PREFIX_LEN), data[0])
+        {
+            return hit;
+        }
+        let short_max = max_len.min(self.max_short_len as usize);
+        for len in (1..=short_max).rev() {
+            let key = low64 & mask_u64(len);
+            if let Some(&token) = self.short_map.get(&(key, len as u8)) {
+                return (token, len);
+            }
+        }
+        unreachable!("LPM precondition: every single-byte token must be present")
+    }
+
+    /// Training-only lookup over the mutable maps. Keeping this path separate
+    /// avoids a frozen-index mode branch in the merge loop.
+    #[inline]
+    pub(crate) fn find_longest_match_training(&self, data: &[u8]) -> (Token, usize) {
+        let max_len = data.len().min(MAX_TOKEN_SIZE);
+        let low64 = load_le_u64(data, max_len.min(BUCKET_PREFIX_LEN));
+        if max_len > BUCKET_PREFIX_LEN
+            && !self.long_map.is_empty()
+            && let Some(bucket) = self.long_map.get(&low64)
+        {
+            let suf = &data[BUCKET_PREFIX_LEN..max_len];
+            let hit = match bucket {
+                Bucket::Linear(entries) => {
+                    search_linear(entries, load_le_u64(suf, suf.len()), suf.len())
+                }
+                Bucket::Trie(root) => search_trie(&self.pool, *root, suf),
+            };
+            if let Some((token, suffix_len)) = hit {
+                return (token, BUCKET_PREFIX_LEN + suffix_len);
+            }
+        }
+        let short_max = max_len.min(self.max_short_len as usize);
+        for len in (1..=short_max).rev() {
+            let key = low64 & mask_u64(len);
+            if let Some(&token) = self.short_map.get(&(key, len as u8)) {
+                return (token, len);
             }
         }
         unreachable!("LPM precondition: every single-byte token must be present")
@@ -665,5 +811,33 @@ mod tests {
         let mut lpm = LongestPrefixMatcher::from_dictionary(d.as_view(), true);
         assert_eq!(insert_str(&mut lpm, "ef"), 258);
         assert_eq!(lpm.size(), 259);
+    }
+
+    #[test]
+    fn frozen_long_map_finds_members_and_rejects_misses() {
+        let key = u64::from_le_bytes(*b"ABCDEFGH");
+        let mut map = map();
+        map.insert(
+            key,
+            Bucket::Linear(vec![LongEntry {
+                suffix: b'I' as u64,
+                slen: 1,
+                token: 256,
+            }]),
+        );
+
+        let frozen = FrozenLongMap::from_map(map).unwrap();
+        assert!(frozen.get(key).is_some());
+        assert!(frozen.get(u64::from_le_bytes(*b"abcdefgh")).is_none());
+    }
+
+    #[test]
+    fn large_long_map_keeps_the_mutable_hash_map() {
+        let mut map = map_with_capacity(MAX_FILTERED_LONG_PREFIXES + 1);
+        for key in 0..=MAX_FILTERED_LONG_PREFIXES as u64 {
+            map.insert(key, Bucket::Linear(Vec::new()));
+        }
+
+        assert!(FrozenLongMap::from_map(map).is_err());
     }
 }

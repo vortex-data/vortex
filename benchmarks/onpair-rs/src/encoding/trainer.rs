@@ -309,7 +309,7 @@ pub(crate) fn train<O: Offset>(data: &[u8], offsets: &[O], cfg: &TrainingConfig)
         let str_bytes = &data[s_start..s_end];
         let len = str_bytes.len();
 
-        let (mut prev_id, mut prev_len) = lpm.find_longest_match(str_bytes);
+        let (mut prev_id, mut prev_len) = lpm.find_longest_match_training(str_bytes);
         let mut pos = prev_len;
 
         if let Some(ref mut dyn_) = dyn_ctrl {
@@ -321,7 +321,7 @@ pub(crate) fn train<O: Offset>(data: &[u8], offsets: &[O], cfg: &TrainingConfig)
         }
 
         while pos < len {
-            let (curr_id, curr_len) = lpm.find_longest_match(&str_bytes[pos..]);
+            let (curr_id, curr_len) = lpm.find_longest_match_training(&str_bytes[pos..]);
 
             if let Some(ref mut dyn_) = dyn_ctrl {
                 dyn_.on_bytes_scanned(curr_len);
