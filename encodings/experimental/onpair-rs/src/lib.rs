@@ -53,6 +53,7 @@ pub mod store;
 pub mod tokenize;
 pub mod trainer;
 pub mod trie_lpm;
+pub mod twobyte_lpm;
 pub mod types;
 
 #[cfg(test)]
@@ -103,6 +104,8 @@ pub use trie_lpm::TrieLpm;
 pub use trie_lpm::parse_trie;
 pub use trie_lpm::parse_trie_avx512;
 pub use trie_lpm::parse_trie_interleaved;
+pub use twobyte_lpm::TwoByteLpm;
+pub use twobyte_lpm::parse_twobyte;
 pub use types::BitWidth;
 pub use types::ByteSpan;
 pub use types::MAX_TOKEN_SIZE;

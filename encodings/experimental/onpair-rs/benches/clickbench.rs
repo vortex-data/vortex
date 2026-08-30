@@ -27,6 +27,7 @@ use vortex_onpair_rs::ThresholdSpec;
 use vortex_onpair_rs::TrainResult;
 use vortex_onpair_rs::TrainingConfig;
 use vortex_onpair_rs::TrieLpm;
+use vortex_onpair_rs::TwoByteLpm;
 use vortex_onpair_rs::parse;
 use vortex_onpair_rs::parse_reversed;
 use vortex_onpair_rs::parse_reversed_avx512;
@@ -36,6 +37,7 @@ use vortex_onpair_rs::parse_reversed_lengths_avx512;
 use vortex_onpair_rs::parse_trie;
 use vortex_onpair_rs::parse_trie_avx512;
 use vortex_onpair_rs::parse_trie_interleaved;
+use vortex_onpair_rs::parse_twobyte;
 use vortex_onpair_rs::train;
 
 fn bits() -> u8 {
@@ -377,6 +379,49 @@ fn local_report() {
                 std::hint::black_box(&corpus.offsets_u32),
                 corpus.rows(),
                 std::hint::black_box(&lengths),
+                bits(),
+                &mut store,
+            );
+            std::hint::black_box(store);
+        },
+        Some(corpus.bytes.len()),
+    );
+
+    print!("build_twobyte ");
+    report_timing(
+        || {
+            std::hint::black_box(TwoByteLpm::from_dictionary(std::hint::black_box(
+                &trained.dict,
+            )));
+        },
+        None,
+    );
+    let twobyte = TwoByteLpm::from_dictionary(&trained.dict);
+    println!(
+        "twobyte entries={} bytes={}",
+        twobyte.size(),
+        twobyte.table_bytes()
+    );
+    let mut twobyte_store = Store::default();
+    parse_twobyte(
+        &corpus.bytes,
+        &corpus.offsets_u32,
+        corpus.rows(),
+        &twobyte,
+        bits(),
+        &mut twobyte_store,
+    );
+    assert_eq!(twobyte_store.boundaries, greedy.boundaries);
+    assert_eq!(twobyte_store.packed, greedy.packed);
+    print!("parse_twobyte ");
+    report_timing(
+        || {
+            let mut store = Store::default();
+            parse_twobyte(
+                std::hint::black_box(&corpus.bytes),
+                std::hint::black_box(&corpus.offsets_u32),
+                corpus.rows(),
+                std::hint::black_box(&twobyte),
                 bits(),
                 &mut store,
             );
