@@ -558,28 +558,6 @@ pub mod vortex_onpair_rs::parser
 
 pub fn vortex_onpair_rs::parser::parse(&[u8], &[u32], usize, &vortex_onpair_rs::lpm::LongestPrefixMatcher, vortex_onpair_rs::types::BitWidth, &mut vortex_onpair_rs::store::Store)
 
-pub mod vortex_onpair_rs::reversed_length
-
-pub struct vortex_onpair_rs::reversed_length::ReversedLengthMatcher
-
-impl vortex_onpair_rs::reversed_length::ReversedLengthMatcher
-
-pub fn vortex_onpair_rs::reversed_length::ReversedLengthMatcher::automaton_bytes(&self) -> usize
-
-pub fn vortex_onpair_rs::reversed_length::ReversedLengthMatcher::from_dictionary(&vortex_onpair_rs::dict::Dictionary) -> Self
-
-pub fn vortex_onpair_rs::reversed_length::ReversedLengthMatcher::num_states(&self) -> usize
-
-pub fn vortex_onpair_rs::reversed_length::ReversedLengthMatcher::size(&self) -> usize
-
-pub fn vortex_onpair_rs::reversed_length::ReversedLengthMatcher::trie_states(&self) -> usize
-
-pub fn vortex_onpair_rs::reversed_length::ReversedLengthMatcher::uses_fused_transitions(&self) -> bool
-
-pub fn vortex_onpair_rs::reversed_length::parse_reversed_lengths(&[u8], &[u32], usize, &vortex_onpair_rs::reversed_length::ReversedLengthMatcher, vortex_onpair_rs::types::BitWidth, &mut vortex_onpair_rs::store::Store)
-
-pub fn vortex_onpair_rs::reversed_length::parse_reversed_lengths_avx512(&[u8], &[u32], usize, &vortex_onpair_rs::reversed_length::ReversedLengthMatcher, vortex_onpair_rs::types::BitWidth, &mut vortex_onpair_rs::store::Store)
-
 pub mod vortex_onpair_rs::reversed_lpm
 
 pub struct vortex_onpair_rs::reversed_lpm::HybridReversedMatcher
@@ -679,40 +657,6 @@ impl core::fmt::Debug for vortex_onpair_rs::trainer::TrainResult
 pub fn vortex_onpair_rs::trainer::TrainResult::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub fn vortex_onpair_rs::trainer::train(&[u8], &[u32], usize, &vortex_onpair_rs::config::TrainingConfig) -> vortex_onpair_rs::trainer::TrainResult
-
-pub mod vortex_onpair_rs::trie_lpm
-
-pub struct vortex_onpair_rs::trie_lpm::TrieLpm
-
-impl vortex_onpair_rs::trie_lpm::TrieLpm
-
-pub fn vortex_onpair_rs::trie_lpm::TrieLpm::automaton_bytes(&self) -> usize
-
-pub fn vortex_onpair_rs::trie_lpm::TrieLpm::from_dictionary(&vortex_onpair_rs::dict::Dictionary) -> Self
-
-pub fn vortex_onpair_rs::trie_lpm::TrieLpm::num_nodes(&self) -> usize
-
-pub fn vortex_onpair_rs::trie_lpm::TrieLpm::size(&self) -> usize
-
-pub fn vortex_onpair_rs::trie_lpm::parse_trie(&[u8], &[u32], usize, &vortex_onpair_rs::trie_lpm::TrieLpm, vortex_onpair_rs::types::BitWidth, &mut vortex_onpair_rs::store::Store)
-
-pub fn vortex_onpair_rs::trie_lpm::parse_trie_avx512(&[u8], &[u32], usize, &vortex_onpair_rs::trie_lpm::TrieLpm, vortex_onpair_rs::types::BitWidth, &mut vortex_onpair_rs::store::Store)
-
-pub fn vortex_onpair_rs::trie_lpm::parse_trie_interleaved(&[u8], &[u32], usize, &vortex_onpair_rs::trie_lpm::TrieLpm, vortex_onpair_rs::types::BitWidth, &mut vortex_onpair_rs::store::Store)
-
-pub mod vortex_onpair_rs::twobyte_lpm
-
-pub struct vortex_onpair_rs::twobyte_lpm::TwoByteLpm
-
-impl vortex_onpair_rs::twobyte_lpm::TwoByteLpm
-
-pub fn vortex_onpair_rs::twobyte_lpm::TwoByteLpm::from_dictionary(&vortex_onpair_rs::dict::Dictionary) -> Self
-
-pub fn vortex_onpair_rs::twobyte_lpm::TwoByteLpm::size(&self) -> usize
-
-pub fn vortex_onpair_rs::twobyte_lpm::TwoByteLpm::table_bytes(&self) -> usize
-
-pub fn vortex_onpair_rs::twobyte_lpm::parse_twobyte(&[u8], &[u32], usize, &vortex_onpair_rs::twobyte_lpm::TwoByteLpm, vortex_onpair_rs::types::BitWidth, &mut vortex_onpair_rs::store::Store)
 
 pub mod vortex_onpair_rs::types
 
@@ -1258,22 +1202,6 @@ pub fn vortex_onpair_rs::reversed_lpm::ReversedAhoCorasickMatcher::trie_states(&
 
 pub fn vortex_onpair_rs::reversed_lpm::ReversedAhoCorasickMatcher::uses_dense_transitions(&self) -> bool
 
-pub struct vortex_onpair_rs::ReversedLengthMatcher
-
-impl vortex_onpair_rs::reversed_length::ReversedLengthMatcher
-
-pub fn vortex_onpair_rs::reversed_length::ReversedLengthMatcher::automaton_bytes(&self) -> usize
-
-pub fn vortex_onpair_rs::reversed_length::ReversedLengthMatcher::from_dictionary(&vortex_onpair_rs::dict::Dictionary) -> Self
-
-pub fn vortex_onpair_rs::reversed_length::ReversedLengthMatcher::num_states(&self) -> usize
-
-pub fn vortex_onpair_rs::reversed_length::ReversedLengthMatcher::size(&self) -> usize
-
-pub fn vortex_onpair_rs::reversed_length::ReversedLengthMatcher::trie_states(&self) -> usize
-
-pub fn vortex_onpair_rs::reversed_length::ReversedLengthMatcher::uses_fused_transitions(&self) -> bool
-
 pub struct vortex_onpair_rs::Store
 
 pub vortex_onpair_rs::Store::bit_width: vortex_onpair_rs::types::BitWidth
@@ -1406,28 +1334,6 @@ impl core::fmt::Debug for vortex_onpair_rs::config::TrainingConfig
 
 pub fn vortex_onpair_rs::config::TrainingConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-pub struct vortex_onpair_rs::TrieLpm
-
-impl vortex_onpair_rs::trie_lpm::TrieLpm
-
-pub fn vortex_onpair_rs::trie_lpm::TrieLpm::automaton_bytes(&self) -> usize
-
-pub fn vortex_onpair_rs::trie_lpm::TrieLpm::from_dictionary(&vortex_onpair_rs::dict::Dictionary) -> Self
-
-pub fn vortex_onpair_rs::trie_lpm::TrieLpm::num_nodes(&self) -> usize
-
-pub fn vortex_onpair_rs::trie_lpm::TrieLpm::size(&self) -> usize
-
-pub struct vortex_onpair_rs::TwoByteLpm
-
-impl vortex_onpair_rs::twobyte_lpm::TwoByteLpm
-
-pub fn vortex_onpair_rs::twobyte_lpm::TwoByteLpm::from_dictionary(&vortex_onpair_rs::dict::Dictionary) -> Self
-
-pub fn vortex_onpair_rs::twobyte_lpm::TwoByteLpm::size(&self) -> usize
-
-pub fn vortex_onpair_rs::twobyte_lpm::TwoByteLpm::table_bytes(&self) -> usize
-
 pub const vortex_onpair_rs::DEFAULT_DICT12_CONFIG: vortex_onpair_rs::config::OnPairTrainingConfig
 
 pub const vortex_onpair_rs::MAX_TOKEN_SIZE: usize
@@ -1543,18 +1449,6 @@ pub fn vortex_onpair_rs::parse_reversed_hybrid(&[u8], &[u32], usize, &vortex_onp
 pub fn vortex_onpair_rs::parse_reversed_hybrid_avx512(&[u8], &[u32], usize, &vortex_onpair_rs::reversed_lpm::HybridReversedMatcher, vortex_onpair_rs::types::BitWidth, &mut vortex_onpair_rs::store::Store)
 
 pub fn vortex_onpair_rs::parse_reversed_interleaved(&[u8], &[u32], usize, &vortex_onpair_rs::reversed_lpm::ReversedAhoCorasickMatcher, vortex_onpair_rs::types::BitWidth, &mut vortex_onpair_rs::store::Store)
-
-pub fn vortex_onpair_rs::parse_reversed_lengths(&[u8], &[u32], usize, &vortex_onpair_rs::reversed_length::ReversedLengthMatcher, vortex_onpair_rs::types::BitWidth, &mut vortex_onpair_rs::store::Store)
-
-pub fn vortex_onpair_rs::parse_reversed_lengths_avx512(&[u8], &[u32], usize, &vortex_onpair_rs::reversed_length::ReversedLengthMatcher, vortex_onpair_rs::types::BitWidth, &mut vortex_onpair_rs::store::Store)
-
-pub fn vortex_onpair_rs::parse_trie(&[u8], &[u32], usize, &vortex_onpair_rs::trie_lpm::TrieLpm, vortex_onpair_rs::types::BitWidth, &mut vortex_onpair_rs::store::Store)
-
-pub fn vortex_onpair_rs::parse_trie_avx512(&[u8], &[u32], usize, &vortex_onpair_rs::trie_lpm::TrieLpm, vortex_onpair_rs::types::BitWidth, &mut vortex_onpair_rs::store::Store)
-
-pub fn vortex_onpair_rs::parse_trie_interleaved(&[u8], &[u32], usize, &vortex_onpair_rs::trie_lpm::TrieLpm, vortex_onpair_rs::types::BitWidth, &mut vortex_onpair_rs::store::Store)
-
-pub fn vortex_onpair_rs::parse_twobyte(&[u8], &[u32], usize, &vortex_onpair_rs::twobyte_lpm::TwoByteLpm, vortex_onpair_rs::types::BitWidth, &mut vortex_onpair_rs::store::Store)
 
 pub fn vortex_onpair_rs::read_bits_lsb(&[u64], usize, u32) -> u16
 

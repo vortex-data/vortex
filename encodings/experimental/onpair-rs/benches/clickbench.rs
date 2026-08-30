@@ -329,7 +329,6 @@ fn local_report() {
         },
         Some(corpus.bytes.len()),
     );
-
 }
 
 #[divan::bench]
