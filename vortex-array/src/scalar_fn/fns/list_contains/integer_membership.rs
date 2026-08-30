@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BitBuffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -10,12 +9,12 @@ use crate::ArrayRef;
 use crate::ArrayView;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
+use crate::arrays::Constant;
 use crate::arrays::Primitive;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
-use crate::scalar::Scalar;
 
 /// A prepared integer set for constant-list membership kernels.
 ///
@@ -24,11 +23,11 @@ use crate::scalar::Scalar;
 pub struct IntegerMembership<T> {
     members: Box<[T]>,
     non_null_source_len: usize,
-    source_list: Scalar,
+    source_list: ArrayRef,
 }
 
 impl<T: IntegerPType> IntegerMembership<T> {
-    fn new(mut members: Vec<T>, source_list: Scalar) -> Self {
+    fn new(mut members: Vec<T>, source_list: ArrayRef) -> Self {
         let non_null_source_len = members.len();
         members.sort_unstable();
         members.dedup();
@@ -44,7 +43,7 @@ impl<T: IntegerPType> IntegerMembership<T> {
         list: &ArrayRef,
         element_dtype: &DType,
     ) -> VortexResult<Option<Self>> {
-        let Some(list_scalar) = list.as_constant() else {
+        let Some(list_array) = list.as_opt::<Constant>() else {
             return Ok(None);
         };
         let DType::List(member_dtype, _) = list.dtype() else {
@@ -53,23 +52,19 @@ impl<T: IntegerPType> IntegerMembership<T> {
         if !member_dtype.eq_ignore_nullability(element_dtype) {
             return Ok(None);
         }
-        let Some(elements) = list_scalar.as_list().elements() else {
+        let Some(elements) = list_array.scalar().as_list().values() else {
             return Ok(None);
         };
 
         let members = elements
             .iter()
+            .filter_map(|value| value.as_ref())
             .map(|value| {
-                value
-                    .as_primitive_opt()
-                    .vortex_expect("list member type was checked")
-                    .try_typed_value::<T>()
+                // The validated list scalar stores primitive values of `member_dtype`.
+                value.as_primitive().cast::<T>()
             })
-            .collect::<VortexResult<Vec<Option<T>>>>()?
-            .into_iter()
-            .flatten()
-            .collect();
-        Ok(Some(Self::new(members, list_scalar)))
+            .collect::<VortexResult<Vec<T>>>()?;
+        Ok(Some(Self::new(members, list.clone())))
     }
 
     /// Returns the prepared members.
@@ -83,7 +78,7 @@ impl<T: IntegerPType> IntegerMembership<T> {
         self.non_null_source_len
     }
 
-    pub(crate) fn source_list(&self) -> &Scalar {
+    pub(crate) fn source_list(&self) -> &ArrayRef {
         &self.source_list
     }
 

@@ -11,7 +11,6 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::evaluate_prepared_integer_membership;
-use vortex_array::arrays::primitive::integer_membership_binary_search_min;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
@@ -29,6 +28,8 @@ use crate::unpack_iter::BitPacked as BitPackedIter;
 const MAX_FUSED_DISTINCT_MEMBERS: usize = 4;
 const SHORT_ARRAY_MAX_ROWS_8_16: usize = 8_192;
 const SHORT_ARRAY_MAX_ROWS_32: usize = 16_384;
+const SHORT_ARRAY_MIN_DECODE_MEMBERS_8_16: usize = 10;
+const SHORT_ARRAY_MIN_DECODE_MEMBERS_32: usize = 11;
 fn min_decode_source_members(ptype: PType, len: usize) -> usize {
     // The generic fallback scans the packed child once per source member. Decode before repeated
     // packed scans become more expensive than one decode plus Primitive membership evaluation.
@@ -38,7 +39,11 @@ fn min_decode_source_members(ptype: PType, len: usize) -> usize {
         SHORT_ARRAY_MAX_ROWS_8_16
     };
     if len <= short_array_max_rows && ptype.bit_width() < 64 {
-        return integer_membership_binary_search_min(ptype);
+        return match ptype.bit_width() {
+            8 | 16 => SHORT_ARRAY_MIN_DECODE_MEMBERS_8_16,
+            32 => SHORT_ARRAY_MIN_DECODE_MEMBERS_32,
+            _ => unreachable!("short-array policy only applies to 8-, 16-, and 32-bit integers"),
+        };
     }
     match ptype.bit_width() {
         8 => 30,

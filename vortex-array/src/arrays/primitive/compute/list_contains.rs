@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -14,9 +15,7 @@ use crate::scalar_fn::fns::list_contains::IntegerMembership;
 use crate::scalar_fn::fns::list_contains::ListContainsElementKernel;
 use crate::scalar_fn::fns::list_contains::constant_list_scalar_contains;
 
-/// Returns the source-member count where Primitive integer membership uses binary search.
-#[doc(hidden)]
-pub fn integer_membership_binary_search_min(ptype: PType) -> usize {
+fn integer_membership_binary_search_min(ptype: PType) -> usize {
     // The generic implementation evaluates one equality expression per source member. Use the
     // prepared set once binary search becomes faster than the expression tree.
     match ptype.bit_width() {
@@ -75,7 +74,12 @@ pub fn evaluate_prepared_integer_membership<T: IntegerPType>(
         && membership.non_null_source_len() < integer_membership_binary_search_min(element.ptype())
     {
         return constant_list_scalar_contains(
-            &membership.source_list().as_list(),
+            &membership
+                .source_list()
+                .as_opt::<crate::arrays::Constant>()
+                .vortex_expect("membership was prepared from a constant list")
+                .scalar()
+                .as_list(),
             element.array(),
             nullability,
         );

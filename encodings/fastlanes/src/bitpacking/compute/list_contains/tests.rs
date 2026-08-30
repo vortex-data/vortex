@@ -17,6 +17,7 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::expr::list_contains;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
@@ -161,8 +162,7 @@ fn test_many_member_kernel_policy() -> VortexResult<()> {
     let values = [0i32, 7, 99];
     let primitive = PrimitiveArray::from_iter(values);
     let packed = BitPackedData::encode(&primitive.into_array(), 7, &mut ctx)?;
-    let decode_threshold =
-        super::min_decode_source_members(vortex_array::dtype::PType::I32, packed.len());
+    let decode_threshold = super::min_decode_source_members(PType::I32, packed.len());
 
     for (member_count, expected_supported) in
         [(decode_threshold - 1, false), (decode_threshold, true)]
@@ -209,8 +209,14 @@ fn test_zero_bit_width(
     Ok(())
 }
 
-#[test]
-fn test_sliced_patched_array() -> VortexResult<()> {
+#[rstest]
+#[case::fused(vec![3, 100_388])]
+#[case::decoded({
+    let mut members = (0..31).collect::<Vec<_>>();
+    members.push(100_388);
+    members
+})]
+fn test_sliced_patched_array(#[case] members: Vec<i32>) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let values = (0..5_000)
         .map(|index| {
@@ -227,9 +233,8 @@ fn test_sliced_patched_array() -> VortexResult<()> {
     let range = 333..4_333;
     let sliced = <BitPacked as SliceKernel>::slice(packed.as_view(), range.clone(), &mut ctx)?
         .ok_or_else(|| vortex_err!("BitPacked slice kernel declined a supported input"))?;
-    let members = [3, 100_388];
     let list = list_array(
-        member_list(members.into_iter().map(Some), Nullability::NonNullable),
+        member_list(members.iter().copied().map(Some), Nullability::NonNullable),
         sliced.len(),
     );
 

@@ -5,6 +5,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
@@ -20,7 +21,7 @@ impl ListContainsElementReduce for Sequence {
         list: &ArrayRef,
         element: ArrayView<'_, Self>,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(list_scalar) = list.as_constant() else {
+        let Some(list_array) = list.as_opt::<Constant>() else {
             return Ok(None);
         };
         let DType::List(member_dtype, _) = list.dtype() else {
@@ -30,7 +31,7 @@ impl ListContainsElementReduce for Sequence {
             return Ok(None);
         }
 
-        let Some(list_elements) = list_scalar.as_list().elements() else {
+        let Some(list_elements) = list_array.scalar().as_list().elements() else {
             return Ok(None);
         };
         if list_elements.is_empty() {
@@ -78,14 +79,19 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::Constant;
+    use vortex_array::arrays::ConstantArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType::I32;
+    use vortex_array::dtype::PType::I64;
     use vortex_array::expr::list_contains;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
     use vortex_array::scalar::Scalar;
+    use vortex_array::scalar_fn::fns::list_contains::ListContainsElementReduce;
+    use vortex_error::VortexExpect;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::Sequence;
@@ -177,5 +183,55 @@ mod tests {
             BoolArray::from_iter(expected),
             &mut SESSION.create_execution_ctx()
         );
+    }
+
+    #[test]
+    fn test_nullable_members() -> VortexResult<()> {
+        let member_dtype = DType::Primitive(I32, Nullability::Nullable);
+        let list = ConstantArray::new(
+            Scalar::list(
+                Arc::new(member_dtype.clone()),
+                vec![
+                    Scalar::primitive(1i32, Nullability::Nullable),
+                    Scalar::null(member_dtype),
+                    Scalar::primitive(3i32, Nullability::Nullable),
+                ],
+                Nullability::NonNullable,
+            ),
+            3,
+        )
+        .into_array();
+        let sequence = Sequence::try_new_typed(1i32, 1, Nullability::NonNullable, 3)?;
+
+        let result =
+            <Sequence as ListContainsElementReduce>::list_contains(&list, sequence.as_view())?
+                .vortex_expect("matching integer types are supported");
+
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([true, false, true]),
+            &mut SESSION.create_execution_ctx()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_wrong_integer_type_declines() -> VortexResult<()> {
+        let list = ConstantArray::new(
+            Scalar::list(
+                Arc::new(DType::Primitive(I64, Nullability::NonNullable)),
+                vec![1i64.into(), 3i64.into()],
+                Nullability::NonNullable,
+            ),
+            3,
+        )
+        .into_array();
+        let sequence = Sequence::try_new_typed(1i32, 1, Nullability::NonNullable, 3)?;
+
+        let result =
+            <Sequence as ListContainsElementReduce>::list_contains(&list, sequence.as_view())?;
+
+        assert!(result.is_none());
+        Ok(())
     }
 }
