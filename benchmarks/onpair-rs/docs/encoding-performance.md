@@ -35,19 +35,35 @@ short-token index:
 
 - a 65,536-entry directory selects candidates by their first two bytes;
 - candidates with the same prefix are contiguous and longest-first;
+- a compact length bitmap and boundary index jump directly over token lengths
+  that cannot fit in the remaining input;
 - keys, masks, token identifiers, and lengths use separate arrays;
 - a 256-entry table handles the guaranteed one-byte fallback without hashing;
 - masked packed comparisons replace repeated hash probes for lengths 2–8;
 - AVX2 compares four `u64` candidates at once when a bucket is large enough;
 - a scalar loop handles short buckets and the SIMD tail.
 
-The index is enabled only when the average row is longer than eight bytes and
-the dictionary contains at most 4,096 tokens. Larger dictionaries and
-short-row-heavy inputs retain the hash-map path. This gate avoids regressions
-observed when the static index was applied unconditionally.
+The short-prefix index is enabled only when the average row is longer than
+eight bytes and the dictionary contains at most 4,096 tokens. The additional
+length bitmap is enabled for average rows of at most 256 bytes, where short
+row-tail windows are frequent. Larger dictionaries and short-row-heavy inputs
+retain the hash-map path; long-row inputs retain the original length-skip loop.
+These gates avoid regressions observed when the static indexes were applied
+unconditionally.
 
 Focused ablations reduced parsing time by approximately 10–22% on workloads
-dominated by failed short-token hash probes.
+dominated by failed short-token hash probes. Adding the length bitmap reduced
+median parse time by approximately 10% on TPC-H `l_comment`, 4% on news
+headlines and MS MARCO queries, and 3% on Apache access logs. Across the full
+13-corpus 32 MiB Rust A/B, aggregate parsing throughput improved 1.2% and
+end-to-end throughput improved 0.8% before applying the long-row gate.
+
+An exact per-length-range layout was also tested and rejected. It split mixed
+length buckets into several smaller scans, reducing SIMD occupancy and adding
+one pass per present length. Parsing regressed 13% on Apache logs, 55% on MS
+MARCO URLs, and nearly 2x on FineWeb. The retained design uses the bitmap only
+to choose the first viable candidate, then compares the remaining mixed-length
+bucket four candidates at a time.
 
 ### Filtered long-prefix lookup
 

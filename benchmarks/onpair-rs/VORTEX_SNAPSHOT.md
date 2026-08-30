@@ -14,7 +14,9 @@ The implementation changes are:
 - reserved training-time longest-prefix maps;
 - a read-only two-byte short-prefix directory for eligible dictionaries;
 - contiguous structure-of-arrays candidates with scalar and AVX2 matching;
-- workload and dictionary-size gating for the short-prefix index.
+- a compact per-prefix length bitmap that jumps over impossible candidates at
+  short row tails while preserving mixed-length SIMD density;
+- workload and dictionary-size gating for both static indexes;
 - an 8 KiB membership filter plus prehashed table for small, completed
   long-prefix maps, with the mutable hash map retained for larger dictionaries.
 

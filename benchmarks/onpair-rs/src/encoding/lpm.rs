@@ -73,6 +73,7 @@ fn mask_u64(len: usize) -> u64 {
 #[derive(Debug, Clone)]
 struct ShortBuckets {
     offsets: Box<[u32]>,
+    length_index: Option<ShortLengthIndexes>,
     keys: Box<[u64]>,
     masks: Box<[u64]>,
     tokens: Box<[Token]>,
@@ -80,8 +81,20 @@ struct ShortBuckets {
     single_tokens: Box<[Token; 256]>,
 }
 
+#[derive(Debug, Clone)]
+struct ShortLengthIndex {
+    length_bitmap: u8,
+    length_boundaries: [u16; BUCKET_PREFIX_LEN],
+}
+
+#[derive(Debug, Clone)]
+struct ShortLengthIndexes {
+    ids: Box<[u16]>,
+    indexes: Box<[ShortLengthIndex]>,
+}
+
 impl ShortBuckets {
-    fn from_dictionary(dict: CompactDictionaryView<'_>) -> Self {
+    fn from_dictionary(dict: CompactDictionaryView<'_>, build_length_index: bool) -> Self {
         let mut single_tokens = Box::new([0; 256]);
         let mut entries = Vec::with_capacity(dict.num_tokens());
         for index in 0..dict.num_tokens() {
@@ -104,6 +117,41 @@ impl ShortBuckets {
             offsets[prefix + 1] += offsets[prefix];
         }
 
+        let length_index = build_length_index.then(|| {
+            let mut ids = vec![0u16; SHORT_PREFIX_COUNT];
+            let mut indexes = Vec::new();
+            for prefix in 0..SHORT_PREFIX_COUNT {
+                let start = offsets[prefix] as usize;
+                let end = offsets[prefix + 1] as usize;
+                if start == end {
+                    continue;
+                }
+                ids[prefix] = indexes.len() as u16 + 1;
+                let mut length_bitmap = 0u8;
+                let mut length_boundaries = [0u16; BUCKET_PREFIX_LEN];
+                let mut cursor = start;
+                for length in (2..=BUCKET_PREFIX_LEN).rev() {
+                    let boundary = BUCKET_PREFIX_LEN - length;
+                    length_boundaries[boundary] = (cursor - start) as u16;
+                    if cursor < end && entries[cursor].2 as usize == length {
+                        length_bitmap |= 1 << (length - 2);
+                        while cursor < end && entries[cursor].2 as usize == length {
+                            cursor += 1;
+                        }
+                    }
+                }
+                length_boundaries[BUCKET_PREFIX_LEN - 1] = (end - start) as u16;
+                indexes.push(ShortLengthIndex {
+                    length_bitmap,
+                    length_boundaries,
+                });
+            }
+            ShortLengthIndexes {
+                ids: ids.into_boxed_slice(),
+                indexes: indexes.into_boxed_slice(),
+            }
+        });
+
         let mut keys = Vec::with_capacity(entries.len());
         let mut masks = Vec::with_capacity(entries.len());
         let mut tokens = Vec::with_capacity(entries.len());
@@ -116,6 +164,7 @@ impl ShortBuckets {
         }
         Self {
             offsets: offsets.into_boxed_slice(),
+            length_index,
             keys: keys.into_boxed_slice(),
             masks: masks.into_boxed_slice(),
             tokens: tokens.into_boxed_slice(),
@@ -130,8 +179,21 @@ impl ShortBuckets {
             let prefix = (value & 0xffff) as usize;
             let mut start = self.offsets[prefix] as usize;
             let end = self.offsets[prefix + 1] as usize;
-            while start < end && self.lengths[start] as usize > max_len {
-                start += 1;
+            if start < end && max_len < BUCKET_PREFIX_LEN {
+                if let Some(length_indexes) = &self.length_index {
+                    let length_index =
+                        &length_indexes.indexes[length_indexes.ids[prefix] as usize - 1];
+                    let eligible = length_index.length_bitmap & ((1u16 << (max_len - 1)) - 1) as u8;
+                    if eligible == 0 {
+                        return Some((self.single_tokens[first_byte as usize], 1));
+                    }
+                    let length = u8::BITS as usize - eligible.leading_zeros() as usize + 1;
+                    start += length_index.length_boundaries[BUCKET_PREFIX_LEN - length] as usize;
+                } else {
+                    while start < end && self.lengths[start] as usize > max_len {
+                        start += 1;
+                    }
+                }
             }
             if end - start >= 4 {
                 if let Some(hit) = self.find_simd(value, start, end) {
@@ -389,6 +451,7 @@ impl LongestPrefixMatcher {
     pub(crate) fn from_dictionary(
         dict: CompactDictionaryView<'_>,
         build_short_buckets: bool,
+        build_length_index: bool,
     ) -> Self {
         let n = dict.num_tokens();
         let mut me = Self {
@@ -408,7 +471,8 @@ impl LongestPrefixMatcher {
             Ok(frozen) => me.frozen_long_map = Some(frozen),
             Err(map) => me.long_map = map,
         }
-        me.short_buckets = build_short_buckets.then(|| ShortBuckets::from_dictionary(dict));
+        me.short_buckets =
+            build_short_buckets.then(|| ShortBuckets::from_dictionary(dict, build_length_index));
         me
     }
 
@@ -785,7 +849,7 @@ mod tests {
     fn from_dict_size_matches_extra_tokens() {
         let d = make_test_dictionary(&["ab", "abcde"]);
         assert_eq!(
-            LongestPrefixMatcher::from_dictionary(d.as_view(), true).size(),
+            LongestPrefixMatcher::from_dictionary(d.as_view(), true, true).size(),
             258
         );
     }
@@ -793,7 +857,7 @@ mod tests {
     #[test]
     fn from_dict_multi_byte_token_found_with_correct_id() {
         let d = make_test_dictionary(&["ab", "abcde"]);
-        let lpm = LongestPrefixMatcher::from_dictionary(d.as_view(), true);
+        let lpm = LongestPrefixMatcher::from_dictionary(d.as_view(), true, true);
         assert_eq!(find_str(&lpm, "abcde"), (257, 5));
         assert_eq!(find_str(&lpm, "abc"), (256, 2));
     }
@@ -801,16 +865,33 @@ mod tests {
     #[test]
     fn from_dict_long_token_from_dictionary() {
         let d = make_test_dictionary(&["ABCDEFGHI"]);
-        let lpm = LongestPrefixMatcher::from_dictionary(d.as_view(), true);
+        let lpm = LongestPrefixMatcher::from_dictionary(d.as_view(), true, true);
         assert_eq!(find_str(&lpm, "ABCDEFGHIX"), (256, 9));
     }
 
     #[test]
     fn from_dict_insert_continues_id() {
         let d = make_test_dictionary(&["ab", "cd"]);
-        let mut lpm = LongestPrefixMatcher::from_dictionary(d.as_view(), true);
+        let mut lpm = LongestPrefixMatcher::from_dictionary(d.as_view(), true, true);
         assert_eq!(insert_str(&mut lpm, "ef"), 258);
         assert_eq!(lpm.size(), 259);
+    }
+
+    #[test]
+    fn length_index_matches_linear_skip_for_short_windows() {
+        let d = make_test_dictionary(&["ab", "abc", "abcde", "abcdefgh"]);
+        let indexed = ShortBuckets::from_dictionary(d.as_view(), true);
+        let linear = ShortBuckets::from_dictionary(d.as_view(), false);
+
+        for input in ["a", "ab", "abc", "abcd", "abcde", "abcdefg"] {
+            let bytes = input.as_bytes();
+            let value = load_le_u64(bytes, bytes.len());
+            assert_eq!(
+                indexed.find(value, bytes.len(), bytes[0]),
+                linear.find(value, bytes.len(), bytes[0]),
+                "input {input}"
+            );
+        }
     }
 
     #[test]

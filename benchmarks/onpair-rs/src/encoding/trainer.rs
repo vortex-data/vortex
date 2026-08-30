@@ -22,6 +22,7 @@ use crate::encoding::lpm::LongestPrefixMatcher;
 
 const SHORT_BUCKET_PREFIX_LEN: usize = 8;
 const MAX_SHORT_BUCKET_DICTIONARY_TOKENS: usize = 1 << 12;
+const MAX_LENGTH_INDEX_AVERAGE_ROW_LEN: usize = 256;
 
 #[inline(always)]
 fn hash_pair(key: u32) -> u64 {
@@ -375,7 +376,13 @@ pub(crate) fn train<O: Offset>(data: &[u8], offsets: &[O], cfg: &TrainingConfig)
     let dict = CompactDictionary::from_raw(bytes, sorted_offsets);
     let build_short_buckets = data.len() > row_count.saturating_mul(SHORT_BUCKET_PREFIX_LEN)
         && dict.num_tokens() <= MAX_SHORT_BUCKET_DICTIONARY_TOKENS;
-    let lpm = LongestPrefixMatcher::from_dictionary(dict.as_view(), build_short_buckets);
+    let build_length_index =
+        data.len() <= row_count.saturating_mul(MAX_LENGTH_INDEX_AVERAGE_ROW_LEN);
+    let lpm = LongestPrefixMatcher::from_dictionary(
+        dict.as_view(),
+        build_short_buckets,
+        build_length_index,
+    );
     TrainResult { dict, lpm }
 }
 
