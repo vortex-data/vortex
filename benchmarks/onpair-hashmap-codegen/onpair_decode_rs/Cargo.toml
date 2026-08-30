@@ -1,0 +1,15 @@
+[package]
+name = "decode-rs"
+version = "0.0.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+onpair = { git = "https://github.com/spiraldb/onpair", rev = "bac803ec26db816110fdd061ae8a67dfd8e008ba" }
+onpair_rs = { git = "https://github.com/gargiulofrancesco/onpair_rs" }
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+debug = 1

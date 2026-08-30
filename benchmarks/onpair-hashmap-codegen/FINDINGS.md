@@ -202,3 +202,111 @@ Interleave the two binaries and compare medians — a sequential all-GCC-then-al
 shared vCPU drifts by more than the effect being measured. An earlier run of exactly this
 comparison reported spurious differences because a background download was still appending to the
 dataset file between runs; check the input is stable first.
+
+## Decompression: three implementations compared
+
+Since compression and parsing show no compiler effect, the remaining question is the decode path.
+Three implementations of the same algorithm were compared on the same datasets:
+
+- **onpair_cpp** — the paper's C++ library, built with both GCC 13 and Clang 18.
+- **spiraldb/onpair** — the Rust port Vortex depends on (`bac803e`), a direct counterpart of the
+  C++ design (bit-packed store, compact dictionary, 16-byte over-copy).
+- **onpair_rs** — the paper's own Rust implementation, in both `OnPair16` and `OnPair` variants.
+
+Two access patterns per implementation: bulk decode of the whole column, and random-access decode of
+every row in a shuffled order (same permutation for all implementations). Every decode is verified
+byte-for-byte against the original input; all 72 runs passed.
+
+`decompress_into`/`decompress_all` and `decompress_row_into`/`decompress_string`/`decompress` are
+each library's own public API, used as documented.
+
+| Dataset | Bits | Implementation | Bulk MiB/s | Random ns/row | Compressed MiB |
+|---|---:|---|---:|---:|---:|
+| MS MARCO queries | 12 | onpair_cpp (GCC) | 6148 | 133.8 | 13.39 |
+| | 12 | onpair_cpp (Clang) | 5974 | 135.9 | 13.39 |
+| | 12 | spiraldb/onpair | 3297 | 85.6 | 13.37 |
+| MS MARCO queries | 16 | onpair_cpp (GCC) | 4266 | 104.6 | 12.13 |
+| | 16 | onpair_cpp (Clang) | 4384 | 109.5 | 12.13 |
+| | 16 | spiraldb/onpair | 2889 | 66.4 | 12.15 |
+| | 16 | onpair_rs OnPair16 | 4303 | 67.5 | 8.76 |
+| | 16 | onpair_rs OnPair | 3113 | 73.0 | 8.62 |
+| MS MARCO URLs | 12 | onpair_cpp (GCC) | 5100 | 162.8 | 11.48 |
+| | 12 | spiraldb/onpair | 3136 | 118.5 | 11.51 |
+| MS MARCO URLs | 16 | onpair_cpp (GCC) | 4147 | 152.5 | 10.51 |
+| | 16 | onpair_cpp (Clang) | 4399 | 148.3 | 10.51 |
+| | 16 | spiraldb/onpair | 2660 | 106.9 | 10.51 |
+| | 16 | onpair_rs OnPair16 | 4119 | 105.4 | 8.70 |
+| | 16 | onpair_rs OnPair | 2523 | 113.6 | 8.16 |
+| DBpedia abstracts | 12 | onpair_cpp (GCC) | 4740 | 233.7 | 14.49 |
+| | 12 | spiraldb/onpair | 3038 | 192.7 | 14.71 |
+| DBpedia abstracts | 16 | onpair_cpp (GCC) | 5265 | 229.4 | 11.61 |
+| | 16 | onpair_cpp (Clang) | 5030 | 246.9 | 11.61 |
+| | 16 | spiraldb/onpair | 3548 | 171.3 | 11.69 |
+| | 16 | onpair_rs OnPair16 | 5087 | 152.3 | 11.00 |
+| | 16 | onpair_rs OnPair | 2480 | 241.7 | 10.05 |
+
+Medians of 3 interleaved repetitions, each the median of 5 iterations.
+
+### Bulk decode: spiraldb/onpair is 1.3-1.6x behind
+
+`onpair_cpp` and `onpair_rs OnPair16` are level (4100-6100 MiB/s); GCC and Clang are within 4% of
+each other, consistent with the rest of this investigation. **The Rust port Vortex uses is the
+slowest bulk decoder in every configuration** — 2660-3548 MiB/s, a 1.3-1.6x deficit against both
+the C++ and the paper's Rust.
+
+This is not a compression-quality artifact. `spiraldb/onpair` and `onpair_cpp` produce essentially
+identical compressed sizes (12.15 vs 12.13 MiB on queries at 16 bits, 10.51 vs 10.51 on URLs,
+11.69 vs 11.61 on DBpedia) — same algorithm, same dictionary, same token count. The gap is decode
+throughput on the same bytes, and it is the one real optimization opportunity this whole
+investigation has turned up.
+
+`onpair_rs`'s smaller output is a training-configuration difference, not a decode one: it takes a
+fixed frequency threshold (5) where the other two take a dynamic 0.15, producing a different
+dictionary. Its `space_used()` also omits the row-boundary array the other two include.
+
+### Random access: the C++ API leaves 1.7x on the table
+
+On the as-shipped APIs, the Rust implementations lead: `spiraldb/onpair` at 66.4 ns/row and
+`onpair_rs OnPair16` at 67.5 versus `onpair_cpp` at 104.6 (queries, 16 bits).
+
+That deficit is an API artifact, not codegen. `onpair::decoding::decompress()` calls
+`dispatch_bits()` — the runtime-to-compile-time bit-width switch — on *every row*. The library's own
+`TokenCursor` documentation says to resolve the width once and reuse the monomorphised cursor, which
+the per-row entry point cannot do for a caller looping over rows. Hoisting the dispatch outside the
+loop (`onpair_cpp_random_access_probe.cpp`) and changing nothing else:
+
+| Bits | Per-row API | Dispatch hoisted | Speedup |
+|---:|---:|---:|---:|
+| 12 | 131.6 ns | 85.8 ns | 1.53x |
+| 16 | 105.8 ns | 61.5 ns | 1.72x |
+
+At 61.5 ns/row the C++ becomes the fastest of the three. So the honest reading is that C++ and
+`onpair_rs OnPair16` are the strongest decoders on both axes, and a batched random-access API — one
+that resolves the bit width once per call rather than once per row — is worth 1.5-1.7x to any C++
+caller decoding more than one row.
+
+### Takeaways for Vortex
+
+1. `spiraldb/onpair`'s bulk decode is 1.3-1.6x off both reference implementations at matching
+   compression. Worth profiling against `decode_all<Bits>` in the C++, which is a branch-free
+   maximally-unrolled loop, and against `onpair_rs`'s flat `decompress_all`.
+2. Its random-access path is already competitive — best of the three as APIs ship today.
+3. Neither result has anything to do with GCC versus LLVM.
+
+### Reproducing
+
+```bash
+# C++ decoder (both compilers)
+SRC="…trainer.cpp …parser.cpp …dictionary_view.cpp …column.cpp"   # from onpair_cpp/src
+g++     -std=c++20 -O3 -DNDEBUG -march=native -I/tmp/onpair_cpp/include -I/tmp/boost_1_89_0 \
+  onpair_cpp_decode.cpp $SRC -o /tmp/decode-gcc
+clang++ … onpair_cpp_decode.cpp $SRC -o /tmp/decode-clang
+
+# Both Rust implementations in one binary
+cd onpair_decode_rs && RUSTFLAGS="-C target-cpu=native" cargo build --release
+
+/tmp/decode-gcc                              /tmp/data/msmarco_queries.txt 16 5
+onpair_decode_rs/target/release/decode-rs    /tmp/data/msmarco_queries.txt 16 5
+```
+
+Both drivers print `bulk_ok` and `random_ok`; treat any run without both true as void.
