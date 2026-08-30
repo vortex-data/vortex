@@ -721,7 +721,17 @@ pub fn parse_reversed_avx512(
         let rows = rows_sorted_by_length(offsets, n);
         let mut tokens = Vec::with_capacity(offsets[n] as usize / 4 + 16);
         let mut spans = vec![(0u32, 0u32); n];
-        fill_strip_chunks(data, offsets, &rows, matcher, &mut tokens, &mut spans);
+        // Strip transposition wants the whole per-chunk strip cache-resident,
+        // so long rows go through the in-flight gather/scatter kernels
+        // instead; sorting makes them a suffix.
+        let split = rows.partition_point(|&row| {
+            (offsets[row + 1] - offsets[row]) as usize <= STRIP_MAX_ROW_LEN
+        });
+        let (short_rows, long_rows) = rows.split_at(split);
+        fill_strip_chunks(data, offsets, short_rows, matcher, &mut tokens, &mut spans);
+        if !long_rows.is_empty() {
+            fill_long_rows(data, offsets, long_rows, matcher, &mut tokens, &mut spans);
+        }
         let fill_done = std::time::Instant::now();
 
         store.bit_width = bits;
@@ -754,6 +764,85 @@ pub fn parse_reversed_avx512(
 
 /// Lanes advanced together by the strip-transposed AVX-512 fill.
 const STRIP_LANES: usize = AVX512_GROUPS * 16;
+
+/// Rows longer than this bypass the strip: their per-chunk strips would not
+/// stay cache-resident, and the walk consumes the strip in the opposite order
+/// to the fill.
+const STRIP_MAX_ROW_LEN: usize = 2048;
+
+/// Fill and token-collect rows too long for the strip path using the masked
+/// gather/scatter kernels over a positionally-indexed scratch buffer.
+#[cfg(target_arch = "x86_64")]
+fn fill_long_rows(
+    data: &[u8],
+    offsets: &[u32],
+    rows: &[usize],
+    matcher: &ReversedAhoCorasickMatcher,
+    tokens: &mut Vec<Token>,
+    spans: &mut [(u32, u32)],
+) {
+    let mut best = vec![0u32; offsets[offsets.len() - 1] as usize];
+    match &matcher.transitions {
+        Transitions::Dense12(table) => {
+            for chunk in rows.chunks(STRIP_LANES) {
+                if gather_reads_past_data(chunk, offsets, data.len()) {
+                    for group in chunk.chunks(16) {
+                        fill_interleaved_group(data, offsets, group, table, &mut best);
+                    }
+                } else {
+                    // SAFETY: the caller established AVX-512 support; gather
+                    // bounds are checked above.
+                    unsafe { fill_avx512_group(data, offsets, chunk, table, &mut best) };
+                }
+            }
+        }
+        Transitions::Dense16(table) => {
+            for chunk in rows.chunks(STRIP_LANES) {
+                if gather_reads_past_data(chunk, offsets, data.len()) {
+                    for group in chunk.chunks(16) {
+                        fill_interleaved_packed_group(data, offsets, group, table, &mut best);
+                    }
+                } else {
+                    // SAFETY: as above.
+                    unsafe { fill_avx512_packed_group(data, offsets, chunk, table, &mut best) };
+                }
+            }
+        }
+        Transitions::Dense(table) => {
+            for chunk in rows.chunks(16) {
+                fill_interleaved_dense_group(
+                    data,
+                    offsets,
+                    chunk,
+                    table,
+                    &matcher.best_output,
+                    &mut best,
+                );
+            }
+        }
+        Transitions::Sparse { .. } => unreachable!("caller excludes sparse transitions"),
+    }
+
+    let fused = matches!(matcher.transitions, Transitions::Dense12(_));
+    for &row in rows {
+        let start = tokens.len() as u32;
+        let mut pos = offsets[row] as usize;
+        let end = offsets[row + 1] as usize;
+        while pos < end {
+            let value = best[pos];
+            let (token, token_len) = if fused {
+                ((value >> 4) as Token, ((value & 0xf) + 1) as usize)
+            } else {
+                let output = matcher.best_output[value as usize];
+                ((output >> 8) as Token, (output & 0xff) as usize)
+            };
+            debug_assert!(token_len != 0);
+            tokens.push(token);
+            pos += token_len;
+        }
+        spans[row] = (start, tokens.len() as u32 - start);
+    }
+}
 
 /// Backward-fill `best` for length-sorted `rows` using a strip transposition:
 /// row bytes are first copied reversed into an `iteration × lane` strip so the
