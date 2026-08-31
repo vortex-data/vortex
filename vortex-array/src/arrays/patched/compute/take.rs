@@ -15,6 +15,8 @@ use crate::arrays::dict::TakeExecute;
 use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::patched::PatchedArraySlotsExt;
 use crate::arrays::primitive::PrimitiveDataParts;
+use crate::buffer::BufferHandle;
+use crate::validity::Validity;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
@@ -45,24 +47,25 @@ impl TakeExecute for Patched {
 
         let indices_ptype = indices.dtype().as_ptype();
 
+        let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
+        let lane_offsets = array
+            .lane_offsets()
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?;
+        let patch_indices = array
+            .patch_indices()
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?;
+        let patch_values = array
+            .patch_values()
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?;
+
         match_each_unsigned_integer_ptype!(indices_ptype, |I| {
             match_each_native_ptype!(ptype, |V| {
-                let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
-                let lane_offsets = array
-                    .lane_offsets()
-                    .clone()
-                    .execute::<PrimitiveArray>(ctx)?;
-                let patch_indices = array
-                    .patch_indices()
-                    .clone()
-                    .execute::<PrimitiveArray>(ctx)?;
-                let patch_values = array
-                    .patch_values()
-                    .clone()
-                    .execute::<PrimitiveArray>(ctx)?;
-                let mut output = Buffer::<V>::from_byte_buffer(buffer.unwrap_host()).into_mut();
-                take_map(
-                    output.as_mut(),
+                take_patched::<I, V>(
+                    buffer,
+                    validity,
                     indices.as_slice::<I>(),
                     array.offset(),
                     array.len(),
@@ -70,16 +73,45 @@ impl TakeExecute for Patched {
                     lane_offsets.as_slice::<u32>(),
                     patch_indices.as_slice::<u16>(),
                     patch_values.as_slice::<V>(),
-                );
-
-                // SAFETY: output and validity still have same length after take_map returns.
-                unsafe {
-                    Ok(Some(
-                        PrimitiveArray::new_unchecked(output.freeze(), validity).into_array(),
-                    ))
-                }
+                )
             })
         })
+    }
+}
+
+/// Applies the patches for a take onto the already-taken `buffer`.
+///
+/// Extracted into a generic function so that the body is type-checked once rather than once per
+/// combination of index and value type produced by the nested `match_each_*` expansions.
+#[expect(clippy::too_many_arguments)]
+fn take_patched<I: IntegerPType, V: NativePType>(
+    buffer: BufferHandle,
+    validity: Validity,
+    indices: &[I],
+    offset: usize,
+    len: usize,
+    n_lanes: usize,
+    lane_offsets: &[u32],
+    patch_indices: &[u16],
+    patch_values: &[V],
+) -> VortexResult<Option<ArrayRef>> {
+    let mut output = Buffer::<V>::from_byte_buffer(buffer.unwrap_host()).into_mut();
+    take_map(
+        output.as_mut(),
+        indices,
+        offset,
+        len,
+        n_lanes,
+        lane_offsets,
+        patch_indices,
+        patch_values,
+    );
+
+    // SAFETY: output and validity still have same length after take_map returns.
+    unsafe {
+        Ok(Some(
+            PrimitiveArray::new_unchecked(output.freeze(), validity).into_array(),
+        ))
     }
 }
 

@@ -66,48 +66,58 @@ impl CompareKernel for Patched {
         let n_lanes = lhs.n_lanes();
 
         match_each_native_ptype!(values.ptype(), |V| {
-            let offset = lhs.offset();
-            let indices = indices.as_slice::<u16>();
-            let values = values.as_slice::<V>();
-            let constant = constant
-                .as_primitive()
-                .as_::<V>()
-                .vortex_expect("compare constant not null");
-
-            let apply_patches = ApplyPatches {
-                bits: &mut bits,
-                offset,
+            apply_patch_compare::<V>(
+                &mut bits,
+                lhs.offset(),
                 n_lanes,
-                lane_offsets: lane_offsets.as_slice::<u32>(),
-                indices,
-                values,
-                constant,
-            };
-
-            match operator {
-                CompareOperator::Eq => {
-                    apply_patches.apply(|l, r| NativeValue(l) == NativeValue(r))?;
-                }
-                CompareOperator::NotEq => {
-                    apply_patches.apply(|l, r| NativeValue(l) != NativeValue(r))?;
-                }
-                CompareOperator::Gt => {
-                    apply_patches.apply(|l, r| NativeValue(l) > NativeValue(r))?;
-                }
-                CompareOperator::Gte => {
-                    apply_patches.apply(|l, r| NativeValue(l) >= NativeValue(r))?;
-                }
-                CompareOperator::Lt => {
-                    apply_patches.apply(|l, r| NativeValue(l) < NativeValue(r))?;
-                }
-                CompareOperator::Lte => {
-                    apply_patches.apply(|l, r| NativeValue(l) <= NativeValue(r))?;
-                }
-            }
+                lane_offsets.as_slice::<u32>(),
+                indices.as_slice::<u16>(),
+                values.as_slice::<V>(),
+                constant
+                    .as_primitive()
+                    .as_::<V>()
+                    .vortex_expect("compare constant not null"),
+                operator,
+            )?
         });
 
         let result = BoolArray::new(bits.freeze(), validity);
         Ok(Some(result.into_array()))
+    }
+}
+
+/// Applies patch values onto the pre-computed comparison bits.
+///
+/// Extracted into a generic function so that the body is type-checked once rather than once per
+/// arm of [`match_each_native_ptype`].
+#[expect(clippy::too_many_arguments)]
+fn apply_patch_compare<V: NativePType>(
+    bits: &mut BitBufferMut,
+    offset: usize,
+    n_lanes: usize,
+    lane_offsets: &[u32],
+    indices: &[u16],
+    values: &[V],
+    constant: V,
+    operator: CompareOperator,
+) -> VortexResult<()> {
+    let apply_patches = ApplyPatches {
+        bits,
+        offset,
+        n_lanes,
+        lane_offsets,
+        indices,
+        values,
+        constant,
+    };
+
+    match operator {
+        CompareOperator::Eq => apply_patches.apply(|l, r| NativeValue(l) == NativeValue(r)),
+        CompareOperator::NotEq => apply_patches.apply(|l, r| NativeValue(l) != NativeValue(r)),
+        CompareOperator::Gt => apply_patches.apply(|l, r| NativeValue(l) > NativeValue(r)),
+        CompareOperator::Gte => apply_patches.apply(|l, r| NativeValue(l) >= NativeValue(r)),
+        CompareOperator::Lt => apply_patches.apply(|l, r| NativeValue(l) < NativeValue(r)),
+        CompareOperator::Lte => apply_patches.apply(|l, r| NativeValue(l) <= NativeValue(r)),
     }
 }
 

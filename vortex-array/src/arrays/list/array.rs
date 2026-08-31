@@ -19,6 +19,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::fns::min_max::MinMaxResult;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::array::Array;
 use crate::array::ArrayParts;
@@ -32,6 +33,7 @@ use crate::arrays::ListArray;
 use crate::arrays::Primitive;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
 use crate::legacy_session;
 use crate::match_each_integer_ptype;
@@ -107,6 +109,43 @@ pub struct ListSlots {
 /// ```
 #[derive(Clone, Debug, Default)]
 pub struct ListData;
+
+
+/// Validates that the list offsets fall within `[0, elements_len]`.
+///
+/// Extracted into a generic function so that the body is type-checked once rather than once per
+/// arm of [`match_each_integer_ptype`].
+fn validate_offsets_range<P: IntegerPType>(
+    min_max: &MinMaxResult,
+    elements_len: usize,
+) -> VortexResult<()> {
+    let max = min_max
+        .max
+        .as_primitive()
+        .as_::<P>()
+        .vortex_expect("offsets type must fit offsets values");
+    let min = min_max
+        .min
+        .as_primitive()
+        .as_::<P>()
+        .vortex_expect("offsets type must fit offsets values");
+
+    vortex_ensure!(
+        min >= P::zero(),
+        InvalidArgument: "offsets minimum {min} outside valid range [0, {max}]"
+    );
+
+    vortex_ensure!(
+        max <= P::from(elements_len).unwrap_or_else(|| vortex_panic!(
+            "Offsets type {} must be able to fit elements length {}",
+            <P as NativePType>::PTYPE,
+            elements_len
+        )),
+        InvalidArgument: "Max offset {max} is beyond the length of the elements array {elements_len}"
+    );
+
+    Ok(())
+}
 
 impl Display for ListData {
     fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -222,34 +261,7 @@ impl ListData {
         // the elements array.
         if let Some(min_max) = min_max(offsets, &mut ctx, NumericalAggregateOpts::default())? {
             match_each_integer_ptype!(offsets_ptype, |P| {
-                #[allow(clippy::absurd_extreme_comparisons, unused_comparisons)]
-                {
-                    let max = min_max
-                        .max
-                        .as_primitive()
-                        .as_::<P>()
-                        .vortex_expect("offsets type must fit offsets values");
-                    let min = min_max
-                        .min
-                        .as_primitive()
-                        .as_::<P>()
-                        .vortex_expect("offsets type must fit offsets values");
-
-                    vortex_ensure!(
-                        min >= 0,
-                        InvalidArgument: "offsets minimum {min} outside valid range [0, {max}]"
-                    );
-
-                    vortex_ensure!(
-                        max <= P::try_from(elements.len()).unwrap_or_else(|_| vortex_panic!(
-                            "Offsets type {} must be able to fit elements length {}",
-                            <P as NativePType>::PTYPE,
-                            elements.len()
-                        )),
-                        InvalidArgument: "Max offset {max} is beyond the length of the elements array {}",
-                        elements.len()
-                    );
-                }
+                validate_offsets_range::<P>(&min_max, elements.len())?
             })
         } else {
             // TODO(aduffy): fallback to slower validation pathway?

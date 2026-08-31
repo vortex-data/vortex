@@ -15,6 +15,7 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_native_ptype;
@@ -24,6 +25,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 
 /// Apply fill_null on the canonical form of the array to get a consistent baseline.
 /// This implementation manually fills null values for each canonical type
@@ -104,7 +106,6 @@ fn fill_bool_array(
     }
 }
 
-#[expect(clippy::cognitive_complexity)]
 fn fill_primitive_array(
     array: PrimitiveArray,
     fill_value: &Scalar,
@@ -112,40 +113,48 @@ fn fill_primitive_array(
     ctx: &mut ExecutionCtx,
 ) -> ArrayRef {
     match_each_native_ptype!(array.ptype(), |T| {
-        let fill_val = T::try_from(fill_value)
-            .vortex_expect("fill value conversion should succeed in fuzz test");
-
-        match array
-            .validity()
-            .vortex_expect("primitive validity should be derivable in fuzz baseline")
-        {
-            Validity::NonNullable | Validity::AllValid => {
-                PrimitiveArray::new(array.to_buffer::<T>(), result_nullability.into()).into_array()
-            }
-            Validity::AllInvalid => {
-                ConstantArray::new(fill_value.clone(), array.len()).into_array()
-            }
-            Validity::Array(validity_array) => {
-                let validity_bool_array = validity_array
-                    .execute::<BoolArray>(ctx)
-                    .vortex_expect("validity to bool");
-                let validity_bits = validity_bool_array.to_bit_buffer();
-                let data_slice = array.as_slice::<T>();
-
-                let mut new_data = Vec::with_capacity(array.len());
-                for i in 0..array.len() {
-                    if validity_bits.value(i) {
-                        new_data.push(data_slice[i]);
-                    } else {
-                        new_data.push(fill_val);
-                    }
-                }
-
-                PrimitiveArray::new::<T>(Buffer::from(new_data), result_nullability.into())
-                    .into_array()
-            }
-        }
+        fill_primitive_array_typed::<T>(array, fill_value, result_nullability, ctx)
     })
+}
+
+/// Extracted into a generic function so that the body is type-checked once rather than once per
+/// arm of `match_each_native_ptype`.
+fn fill_primitive_array_typed<T: NativePType + for<'a> TryFrom<&'a Scalar>>(
+    array: PrimitiveArray,
+    fill_value: &Scalar,
+    result_nullability: Nullability,
+    ctx: &mut ExecutionCtx,
+) -> ArrayRef {
+    let fill_val = T::try_from(fill_value)
+        .unwrap_or_else(|_| vortex_panic!("fill value conversion should succeed in fuzz test"));
+
+    match array
+        .validity()
+        .vortex_expect("primitive validity should be derivable in fuzz baseline")
+    {
+        Validity::NonNullable | Validity::AllValid => {
+            PrimitiveArray::new(array.to_buffer::<T>(), result_nullability.into()).into_array()
+        }
+        Validity::AllInvalid => ConstantArray::new(fill_value.clone(), array.len()).into_array(),
+        Validity::Array(validity_array) => {
+            let validity_bool_array = validity_array
+                .execute::<BoolArray>(ctx)
+                .vortex_expect("validity to bool");
+            let validity_bits = validity_bool_array.to_bit_buffer();
+            let data_slice = array.as_slice::<T>();
+
+            let mut new_data = Vec::with_capacity(array.len());
+            for i in 0..array.len() {
+                if validity_bits.value(i) {
+                    new_data.push(data_slice[i]);
+                } else {
+                    new_data.push(fill_val);
+                }
+            }
+
+            PrimitiveArray::new::<T>(Buffer::from(new_data), result_nullability.into()).into_array()
+        }
+    }
 }
 
 fn fill_decimal_array(

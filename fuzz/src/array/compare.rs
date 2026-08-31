@@ -11,9 +11,11 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_native_ptype;
+use vortex_array::scalar::PrimitiveScalar;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::binary::scalar_cmp;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
@@ -72,27 +74,13 @@ pub fn compare_canonical_array(
                 .execute::<PrimitiveArray>(ctx)
                 .vortex_expect("to primitive");
             match_each_native_ptype!(p, |P| {
-                let pval = primitive
-                    .typed_value::<P>()
-                    .vortex_expect("nulls handled before");
-                compare_to(
-                    primitive_array
-                        .as_slice::<P>()
-                        .iter()
-                        .copied()
-                        .zip(
-                            array
-                                .validity()
-                                .vortex_expect("validity_mask")
-                                .execute_mask(array.len(), ctx)
-                                .vortex_expect("Failed to compute validity mask")
-                                .to_bit_buffer()
-                                .iter(),
-                        )
-                        .map(|(b, v)| v.then_some(NativeValue(b))),
-                    NativeValue(pval),
+                compare_primitive_to_scalar::<P>(
+                    &array,
+                    &primitive_array,
+                    primitive,
                     operator,
                     result_nullability,
+                    ctx,
                 )
             })
         }
@@ -194,6 +182,40 @@ pub fn compare_canonical_array(
             unreachable!("DType {d} not supported for fuzzing")
         }
     }
+}
+
+/// Extracted into a generic function so that the body is type-checked once rather than once per
+/// arm of `match_each_native_ptype`.
+fn compare_primitive_to_scalar<P: NativePType>(
+    array: &ArrayRef,
+    primitive_array: &PrimitiveArray,
+    primitive: PrimitiveScalar<'_>,
+    operator: CompareOperator,
+    result_nullability: Nullability,
+    ctx: &mut ExecutionCtx,
+) -> ArrayRef {
+    let pval = primitive
+        .typed_value::<P>()
+        .vortex_expect("nulls handled before");
+    compare_to(
+        primitive_array
+            .as_slice::<P>()
+            .iter()
+            .copied()
+            .zip(
+                array
+                    .validity()
+                    .vortex_expect("validity_mask")
+                    .execute_mask(array.len(), ctx)
+                    .vortex_expect("Failed to compute validity mask")
+                    .to_bit_buffer()
+                    .iter(),
+            )
+            .map(|(b, v)| v.then_some(NativeValue(b))),
+        NativeValue(pval),
+        operator,
+        result_nullability,
+    )
 }
 
 fn compare_to<T: PartialOrd>(
