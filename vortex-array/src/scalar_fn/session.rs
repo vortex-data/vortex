@@ -25,6 +25,7 @@ use crate::scalar_fn::fns::like::Like;
 use crate::scalar_fn::fns::list_contains::ListContains;
 use crate::scalar_fn::fns::list_length::ListLength;
 use crate::scalar_fn::fns::list_sum::ListSum;
+use crate::scalar_fn::fns::list_transform::ListTransform;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::merge::Merge;
@@ -76,6 +77,7 @@ impl Default for ScalarFnSession {
         this.register(ListContains);
         this.register(ListLength);
         this.register(ListSum);
+        this.register(ListTransform);
         this.register(Literal);
         this.register(Mask);
         this.register(Merge);
