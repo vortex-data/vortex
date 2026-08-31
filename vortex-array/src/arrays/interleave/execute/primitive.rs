@@ -118,14 +118,14 @@ where
     );
 
     let mut output = BufferMut::with_capacity_in(branches.len(), allocator);
-    for (branch, row) in branches.iter().zip(rows) {
+    output.try_extend_trusted(branches.iter().zip(rows).map(|(branch, row)| {
         let Some(source) = values.get((*branch).as_()) else {
             vortex_bail!("interleave array index out of bounds");
         };
         let row = (*row).as_();
         vortex_ensure!(row < source.len, "interleave row index out of bounds");
-        output.push(source.data[row & source.row_mask]);
-    }
+        Ok(source.data[row & source.row_mask])
+    }))?;
     Ok(output.freeze())
 }
 
