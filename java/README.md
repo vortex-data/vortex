@@ -11,7 +11,7 @@ We provide two interfaces for working with Vortex from Java:
 
 We publish three artifacts out of this repo at CI time to Maven Central Sonatype:
 
-* `vortex-jni` JAR containing the JNI code, plus compiled native libraries for all of the following targets: `aarch64-apple-darwin`, `aarch64-unknown-linux-gnu`, `x86_64-unknown-linux-gnu`
+* `vortex-jni` JAR containing the JNI code, plus compiled native libraries for all of the following targets: `aarch64-apple-darwin`, `aarch64-unknown-linux-gnu`, `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`
 * `vortex-jni-all` which is the "shadow JAR" containing all of `vortex-jni` as well as all upstream Java dependencies packaged in a single JAR.
 * `vortex-spark` which is the runtime JAR needed for the Vortex Spark bindings
 

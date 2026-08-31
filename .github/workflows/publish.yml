@@ -101,9 +101,11 @@ jobs:
           mkdir -p vortex-jni/src/main/resources/native/darwin-aarch64
           mkdir -p vortex-jni/src/main/resources/native/linux-aarch64
           mkdir -p vortex-jni/src/main/resources/native/linux-amd64
+          mkdir -p vortex-jni/src/main/resources/native/win-amd64
           cp ../libvortex_jni_aarch64-apple-darwin.zip/libvortex_jni.dylib ./vortex-jni/src/main/resources/native/darwin-aarch64
           cp ../libvortex_jni_aarch64-unknown-linux-gnu.zip/libvortex_jni.so ./vortex-jni/src/main/resources/native/linux-aarch64
           cp ../libvortex_jni_x86_64-unknown-linux-gnu.zip/libvortex_jni.so ./vortex-jni/src/main/resources/native/linux-amd64
+          cp ../libvortex_jni_x86_64-pc-windows-msvc.zip/libvortex_jni.dll ./vortex-jni/src/main/resources/native/win-amd64
       - name: Build Java
         run: ./gradlew shadowJar
       - name: Publish to Maven Central

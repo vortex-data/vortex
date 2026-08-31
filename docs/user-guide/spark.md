@@ -7,10 +7,10 @@ connector is published to Maven Central in two flavors:
 - `dev.vortex:vortex-spark_2.12` for Spark 3.5.x (Scala 2.12)
 
 Use the `all` classifier JAR (e.g. `vortex-spark_2.13-0.85.0-all.jar`). It is self-contained:
-it bundles the Vortex JNI bindings, native libraries for Linux (x86_64 and aarch64) and macOS
-(aarch64), and relocates its Arrow, Guava, and Jackson dependencies to avoid classpath
-conflicts with Spark. The thin (unclassified) JAR does not work on its own because it
-references relocated classes that only ship in the `all` JAR.
+it bundles the Vortex JNI bindings, native libraries for Linux (x86_64 and aarch64), macOS
+(aarch64), and Windows (x86_64), and relocates its Arrow, Guava, and Jackson dependencies to
+avoid classpath conflicts with Spark. The thin (unclassified) JAR does not work on its own
+because it references relocated classes that only ship in the `all` JAR.
 
 ## Getting Vortex into Spark
 
