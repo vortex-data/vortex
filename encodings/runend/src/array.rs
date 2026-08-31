@@ -584,6 +584,61 @@ mod tests {
     }
 
     #[test]
+    fn test_runend_decimal() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let decimal_dtype = DecimalDType::new(10, 2);
+        let values = DecimalArray::from_iter([12345i64, 67890, -12300], decimal_dtype).into_array();
+        let arr = RunEnd::new(buffer![2u32, 5, 10].into_array(), values, &mut ctx);
+        assert_eq!(arr.len(), 10);
+        assert_eq!(
+            arr.dtype(),
+            &DType::Decimal(decimal_dtype, Nullability::NonNullable)
+        );
+
+        let expected = DecimalArray::from_iter(
+            [
+                12345i64, 12345, 67890, 67890, 67890, -12300, -12300, -12300, -12300, -12300,
+            ],
+            decimal_dtype,
+        )
+        .into_array();
+        assert_arrays_eq!(arr.into_array(), expected, &mut ctx);
+    }
+
+    #[test]
+    fn test_runend_nullable_decimal() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let decimal_dtype = DecimalDType::new(10, 2);
+        let values =
+            DecimalArray::from_option_iter([Some(12345i64), None, Some(-12300)], decimal_dtype)
+                .into_array();
+        let arr = RunEnd::new(buffer![2u32, 5, 10].into_array(), values, &mut ctx);
+        assert_eq!(arr.len(), 10);
+        assert_eq!(
+            arr.dtype(),
+            &DType::Decimal(decimal_dtype, Nullability::Nullable)
+        );
+
+        let expected = DecimalArray::from_option_iter(
+            [
+                Some(12345i64),
+                Some(12345),
+                None,
+                None,
+                None,
+                Some(-12300),
+                Some(-12300),
+                Some(-12300),
+                Some(-12300),
+                Some(-12300),
+            ],
+            decimal_dtype,
+        )
+        .into_array();
+        assert_arrays_eq!(arr.into_array(), expected, &mut ctx);
+    }
+
+    #[test]
     fn test_runend_dict() {
         let mut ctx = SESSION.create_execution_ctx();
         let dict_values = VarBinViewArray::from_iter_str(["x", "y", "z"]).into_array();
