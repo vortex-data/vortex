@@ -8,12 +8,13 @@
     "wasm:release": "wasm-pack build crate --release --target web --out-dir ../src/wasm/pkg",
     "dev": "npm run wasm && vite",
     "build": "npm run wasm:release && tsc -b && vite build",
-    "check": "npm run wasm && npm run lint && npm run typecheck",
+    "check": "npm run wasm && npm run lint && npm run typecheck && npm test",
     "preview": "vite preview",
     "format": "prettier --write 'src/**/*.{ts,tsx,css}' '.storybook/**/*.ts'",
     "format:check": "prettier --check 'src/**/*.{ts,tsx,css}' '.storybook/**/*.ts'",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "test": "node --import tsx --test src/routes.test.ts src/components/compare/diff.test.ts",
     "typecheck": "tsc -b --noEmit",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build"
@@ -24,7 +25,8 @@
     "apache-arrow": "^21.1.0",
     "d3-hierarchy": "^3.1.2",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "react-router-dom": "^6.30.6"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -46,6 +48,7 @@
     "tailwindcss": "^4.2.4",
     "typescript": "~6.0.0",
     "typescript-eslint": "^8.59.0",
+    "tsx": "^4.21.0",
     "vite": "^8.0.10"
   }
 }

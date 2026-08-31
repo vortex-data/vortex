@@ -34,6 +34,7 @@ export interface LayoutTreeNode {
 }
 
 export interface ArrayEncodingNode {
+  name: string;
   encoding: string;
   dtype: string;
   metadataBytes: number;
@@ -41,7 +42,6 @@ export interface ArrayEncodingNode {
   bufferLengths: number[];
   bufferNames: string[];
   children: ArrayEncodingNode[];
-  childNames: string[];
 }
 
 export type LayoutChildKind =

@@ -54,7 +54,8 @@ pub struct IndentedFormatter<'a, 'b> {
 }
 
 impl<'a, 'b> IndentedFormatter<'a, 'b> {
-    fn new(inner: &'a mut fmt::Formatter<'b>, indent: &'a str) -> Self {
+    /// Create a formatter for detail lines with the supplied indentation.
+    pub fn new(inner: &'a mut fmt::Formatter<'b>, indent: &'a str) -> Self {
         Self { inner, indent }
     }
 

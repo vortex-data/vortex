@@ -584,7 +584,7 @@ export function arrayTreeToLayoutChildren(
     const id = `${parentId}.$${name}`;
 
     const children = node.children.map((child, i) => {
-      const childName = node.childNames[i] ?? `child ${i}`;
+      const childName = child.name || `child ${i}`;
       return convert(child, id, childName);
     });
 

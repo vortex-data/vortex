@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod array_tree;
 mod extractor;
 mod extractors;
 mod tree_display;
@@ -8,6 +9,9 @@ mod tree_display;
 use std::fmt::Display;
 use std::iter::repeat_n;
 
+pub use array_tree::ArrayTreeEvent;
+pub use array_tree::ArrayTreeNode;
+pub use array_tree::walk_array_tree;
 pub use extractor::IndentedFormatter;
 pub use extractor::TreeContext;
 pub use extractor::TreeExtractor;

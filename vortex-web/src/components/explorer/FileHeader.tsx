@@ -9,10 +9,21 @@ interface FileHeaderProps {
   onClose: () => void;
   view: MainView;
   onViewChange: (view: MainView) => void;
+  onCompareFile?: (file: File) => void;
+  comparisonName?: string;
 }
 
-export function FileHeader({ onClose, view, onViewChange }: FileHeaderProps) {
+export function FileHeader({
+  onClose,
+  view,
+  onViewChange,
+  onCompareFile,
+  comparisonName,
+}: FileHeaderProps) {
   const file = useVortexFile();
+  const views: MainView[] = comparisonName
+    ? ['details', 'swimlane', 'compare']
+    : ['details', 'swimlane'];
 
   return (
     <div className="flex items-center gap-3 px-3 py-1.5 border-b border-vortex-grey-light/60 dark:border-white/[0.08] bg-vortex-white dark:bg-vortex-black flex-shrink-0">
@@ -28,7 +39,7 @@ export function FileHeader({ onClose, view, onViewChange }: FileHeaderProps) {
       <div className="ml-auto flex items-center gap-2">
         {/* Primary view switch — sits with the global controls in the header. */}
         <div className="flex rounded-md bg-vortex-grey-lightest dark:bg-white/[0.06] p-0.5">
-          {(['details', 'swimlane'] as const).map((v) => (
+          {views.map((v) => (
             <button
               key={v}
               className={`px-3 py-0.5 text-[11px] rounded-[3px] transition-colors ${
@@ -38,10 +49,24 @@ export function FileHeader({ onClose, view, onViewChange }: FileHeaderProps) {
               }`}
               onClick={() => onViewChange(v)}
             >
-              {v === 'details' ? 'Details' : 'Swimlane'}
+              {v === 'details' ? 'Details' : v === 'swimlane' ? 'Swimlane' : 'Compare'}
             </button>
           ))}
         </div>
+
+        <label className="cursor-pointer rounded-md px-2 py-1 text-[11px] text-vortex-grey-dark hover:bg-vortex-grey-lightest dark:hover:bg-white/[0.06]">
+          {comparisonName ? `Compare with: ${comparisonName}` : 'Compare…'}
+          <input
+            className="hidden"
+            type="file"
+            accept=".vortex,.vtx"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) onCompareFile?.(file);
+              event.target.value = '';
+            }}
+          />
+        </label>
 
         <div className="flex items-center gap-1">
           <ThemePicker />

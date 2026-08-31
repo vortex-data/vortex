@@ -18,12 +18,14 @@ use futures::FutureExt;
 use futures::TryStreamExt;
 use futures::future::BoxFuture;
 use serde::Serialize;
+use serde::Serializer;
+use serde::ser::SerializeSeq;
+use serde::ser::SerializeStruct;
 use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::dtype::DType;
 use vortex::array::serde::SerializedArray;
-use vortex::array::session::ArraySessionExt;
 use vortex::array::stream::ArrayStream;
 use vortex::buffer::Alignment;
 use vortex::buffer::ByteBufferMut;
@@ -44,6 +46,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 
 use crate::SESSION;
+use crate::array_tree_json::write_array_encoding_tree_json;
 
 /// Initialize the WASM module (sets up panic hook for better error messages).
 #[wasm_bindgen(start)]
@@ -370,8 +373,7 @@ impl VortexFileHandle {
             .decode(&dtype, row_count, ctx, &self.session)
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
-        let tree = build_array_encoding_tree_from_array(&array, &self.session);
-        serde_json::to_string(&tree)
+        write_array_encoding_tree_json(&array, &self.session)
             .map_err(|e| JsValue::from_str(&format!("JSON serialization failed: {e}")))
     }
 
@@ -582,9 +584,11 @@ fn build_layout_tree(
     // For flat layouts, extract the array encoding tree if available.
     let array_encoding_tree = layout.as_opt::<Flat>().and_then(|flat| {
         let tree_buf = flat.array_tree()?;
-        let ctx = flat.array_ctx();
         let parts = SerializedArray::from_array_tree(tree_buf.as_ref().to_vec()).ok()?;
-        Some(build_array_encoding_tree(&parts, ctx))
+        Some(SerializedArrayEncodingTreeJson {
+            parts,
+            ctx: flat.array_ctx().clone(),
+        })
     });
 
     Ok(LayoutTreeNodeJson {
@@ -608,71 +612,6 @@ fn sum_metadata_bytes(layout: &LayoutRef) -> VortexResult<u64> {
         total += node?.metadata().len() as u64;
     }
     Ok(total)
-}
-
-/// Recursively build the array encoding tree from `ArrayParts` (used for inline trees
-/// where we don't have a fully decoded array).
-fn build_array_encoding_tree(parts: &SerializedArray, ctx: &ReadContext) -> ArrayEncodingNodeJson {
-    let encoding = ctx
-        .resolve(parts.encoding_id())
-        .map(|id| id.to_string())
-        .unwrap_or_else(|| format!("unknown({})", parts.encoding_id()));
-
-    let nchildren = parts.nchildren();
-    let children: Vec<ArrayEncodingNodeJson> = (0..nchildren)
-        .map(|i| build_array_encoding_tree(&parts.child(i), ctx))
-        .collect();
-
-    ArrayEncodingNodeJson {
-        encoding,
-        dtype: String::new(),
-        metadata_bytes: parts.metadata().len(),
-        num_buffers: parts.nbuffers(),
-        buffer_lengths: parts.buffer_lengths(),
-        buffer_names: Vec::new(),
-        children,
-        child_names: (0..nchildren).map(|i| format!("child {i}")).collect(),
-    }
-}
-
-/// Recursively build the array encoding tree from a fully decoded array,
-/// extracting dtype, child names, and buffer names from the encoding vtables.
-fn build_array_encoding_tree_from_array(
-    array: &ArrayRef,
-    session: &VortexSession,
-) -> ArrayEncodingNodeJson {
-    let encoding = array.encoding_id().to_string();
-    let dtype = array.dtype().to_string();
-    let buffer_names = array.buffer_names();
-    let buffer_handles = array.buffer_handles();
-    let buffer_lengths: Vec<usize> = buffer_handles.iter().map(|b| b.len()).collect();
-    let metadata_bytes = session
-        .array_serialize(array)
-        .ok()
-        .flatten()
-        .map(|m| m.len())
-        .unwrap_or(0);
-
-    let named_children = array.named_children();
-    let child_names: Vec<String> = named_children
-        .iter()
-        .map(|(name, _)| name.clone())
-        .collect();
-    let children: Vec<ArrayEncodingNodeJson> = named_children
-        .iter()
-        .map(|(_, child)| build_array_encoding_tree_from_array(child, session))
-        .collect();
-
-    ArrayEncodingNodeJson {
-        encoding,
-        dtype,
-        metadata_bytes,
-        num_buffers: buffer_lengths.len(),
-        buffer_lengths,
-        buffer_names,
-        children,
-        child_names,
-    }
 }
 
 /// Navigate the layout tree to find a node by its dot-separated ID path.
@@ -805,20 +744,90 @@ struct LayoutTreeNodeJson {
     child_type: ChildKindJson,
     children: Vec<LayoutTreeNodeJson>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    array_encoding_tree: Option<ArrayEncodingNodeJson>,
+    array_encoding_tree: Option<SerializedArrayEncodingTreeJson>,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ArrayEncodingNodeJson {
-    encoding: String,
-    dtype: String,
-    metadata_bytes: usize,
-    num_buffers: usize,
-    buffer_lengths: Vec<usize>,
-    buffer_names: Vec<String>,
-    children: Vec<ArrayEncodingNodeJson>,
-    child_names: Vec<String>,
+/// A lazy JSON view over an inline serialized array tree.
+///
+/// `Serialize` recursively borrows one node at a time instead of constructing a second tree.
+struct SerializedArrayEncodingTreeJson {
+    parts: SerializedArray,
+    ctx: ReadContext,
+}
+
+impl Serialize for SerializedArrayEncodingTreeJson {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        SerializedArrayEncodingNodeJson {
+            name: "array",
+            parts: &self.parts,
+            ctx: &self.ctx,
+        }
+        .serialize(serializer)
+    }
+}
+
+struct SerializedArrayEncodingNodeJson<'a> {
+    name: &'a str,
+    parts: &'a SerializedArray,
+    ctx: &'a ReadContext,
+}
+
+impl Serialize for SerializedArrayEncodingNodeJson<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let encoding = self
+            .ctx
+            .resolve(self.parts.encoding_id())
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| format!("unknown({})", self.parts.encoding_id()));
+        let buffer_lengths = self.parts.buffer_lengths();
+        let mut state = serializer.serialize_struct("ArrayEncodingNode", 8)?;
+        state.serialize_field("name", self.name)?;
+        state.serialize_field("encoding", &encoding)?;
+        state.serialize_field("dtype", "")?;
+        state.serialize_field("metadataBytes", &self.parts.metadata().len())?;
+        state.serialize_field("numBuffers", &buffer_lengths.len())?;
+        state.serialize_field("bufferLengths", &buffer_lengths)?;
+        state.serialize_field("bufferNames", &[] as &[String])?;
+        state.serialize_field(
+            "children",
+            &SerializedArrayEncodingChildrenJson {
+                parts: self.parts,
+                ctx: self.ctx,
+            },
+        )?;
+        state.end()
+    }
+}
+
+struct SerializedArrayEncodingChildrenJson<'a> {
+    parts: &'a SerializedArray,
+    ctx: &'a ReadContext,
+}
+
+impl Serialize for SerializedArrayEncodingChildrenJson<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let child_count = self.parts.nchildren();
+        let mut children = serializer.serialize_seq(Some(child_count))?;
+        for index in 0..child_count {
+            let name = format!("child {index}");
+            let parts = self.parts.child(index);
+            children.serialize_element(&SerializedArrayEncodingNodeJson {
+                name: &name,
+                parts: &parts,
+                ctx: self.ctx,
+            })?;
+        }
+        children.end()
+    }
 }
 
 #[derive(Serialize, Clone)]

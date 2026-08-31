@@ -3,6 +3,7 @@
 
 import { useState, useCallback, type DragEvent, type FormEvent } from 'react';
 import { ThemePicker } from '../ThemePicker';
+import { fetchRemoteFile } from '../../remoteFile';
 
 interface FileDropScreenProps {
   onFileLoaded: (file: File) => void;
@@ -56,12 +57,7 @@ export function FileDropScreen({ onFileLoaded, loading, error }: FileDropScreenP
       setFetchingUrl(true);
       setUrlError(null);
       try {
-        const resp = await fetch(trimmed);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
-        const blob = await resp.blob();
-        const name = trimmed.split('/').pop() ?? 'remote.vortex';
-        const file = new File([blob], name, { type: blob.type });
-        onFileLoaded(file);
+        onFileLoaded(await fetchRemoteFile(trimmed));
       } catch (err) {
         setUrlError(err instanceof Error ? err.message : String(err));
       } finally {

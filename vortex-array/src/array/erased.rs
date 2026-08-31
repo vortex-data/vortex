@@ -704,20 +704,27 @@ impl ArrayRef {
     /// Returns the names of the children of the array: the slot names of the non-None slots
     /// in order.
     pub fn children_names(&self) -> Vec<String> {
+        self.named_children_iter().map(|(name, _)| name).collect()
+    }
+
+    /// Returns an iterator over the array's children with their names.
+    ///
+    /// Unlike [`Self::named_children`], this does not allocate a collection or clone the child
+    /// array references. Each name is produced immediately before its child is yielded.
+    pub fn named_children_iter(&self) -> impl Iterator<Item = (String, &ArrayRef)> {
         self.0
             .slots
             .iter()
             .enumerate()
-            .filter(|(_, s)| s.is_some())
-            .map(|(slot_idx, _)| self.slot_name(slot_idx))
-            .collect()
+            .filter_map(|(slot_idx, slot)| {
+                slot.as_ref().map(|child| (self.slot_name(slot_idx), child))
+            })
     }
 
     /// Returns the array's children with their names.
     pub fn named_children(&self) -> Vec<(String, ArrayRef)> {
-        self.children_names()
-            .into_iter()
-            .zip(self.children_iter().cloned())
+        self.named_children_iter()
+            .map(|(name, child)| (name, child.clone()))
             .collect()
     }
 

@@ -2,11 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt;
+use std::fmt::Write as _;
 
 use vortex_utils::tree::TreeDisplayAdapter;
-use vortex_utils::tree::write_indented_tree;
+use vortex_utils::tree::TreeDisplayContext;
 
 use crate::ArrayRef;
+use crate::display::ArrayTreeEvent;
 use crate::display::extractor::IndentedFormatter;
 use crate::display::extractor::TreeContext;
 use crate::display::extractor::TreeExtractor;
@@ -15,6 +17,7 @@ use crate::display::extractors::EncodingSummaryExtractor;
 use crate::display::extractors::MetadataExtractor;
 use crate::display::extractors::NbytesExtractor;
 use crate::display::extractors::StatsExtractor;
+use crate::display::walk_array_tree;
 
 /// Composable tree display builder.
 ///
@@ -111,14 +114,10 @@ impl TreeDisplayAdapter for TreeDisplay {
         array: &ArrayRef,
         visit: &mut dyn FnMut(&str, &ArrayRef, bool) -> fmt::Result,
     ) -> fmt::Result {
-        let mut children = array
-            .children_names()
-            .into_iter()
-            .zip(array.children())
-            .peekable();
+        let mut children = array.named_children_iter().peekable();
         while let Some((child_name, child)) = children.next() {
             let is_last = children.peek().is_none();
-            visit(&child_name, &child, is_last)?;
+            visit(&child_name, child, is_last)?;
         }
         Ok(())
     }
@@ -127,6 +126,27 @@ impl TreeDisplayAdapter for TreeDisplay {
 impl fmt::Display for TreeDisplay {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut ctx = TreeContext::new();
-        write_indented_tree(self, "root", &self.array, &mut ctx, f)
+        walk_array_tree(&self.array, |event| match event {
+            ArrayTreeEvent::Enter {
+                name, node, depth, ..
+            } => {
+                let array = node.array();
+                let indent = "  ".repeat(depth);
+                write!(f, "{indent}{name}:")?;
+                self.write_node(array, &ctx, f)?;
+                f.write_char('\n')?;
+                {
+                    let child_indent = format!("{indent}  ");
+                    let mut indented = IndentedFormatter::new(f, &child_indent);
+                    self.write_details(array, &ctx, &mut indented)?;
+                }
+                ctx.push_parent(array);
+                Ok(())
+            }
+            ArrayTreeEvent::Exit { node, .. } => {
+                ctx.pop_parent(node.array());
+                Ok(())
+            }
+        })
     }
 }
