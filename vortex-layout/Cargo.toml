@@ -33,6 +33,7 @@ parking_lot = { workspace = true }
 paste = { workspace = true }
 pin-project-lite = { workspace = true }
 prost = { workspace = true }
+roaring = { workspace = true }
 rustc-hash = { workspace = true }
 sketches-ddsketch = { workspace = true }
 termtree = { workspace = true }
