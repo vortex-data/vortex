@@ -12,6 +12,9 @@ use crate::ByteBuffer;
 impl<T: ArrowNativeType> Buffer<T> {
     /// Converts the buffer zero-copy into a `arrow_buffer::Buffer`.
     pub fn into_arrow_scalar_buffer(self) -> arrow_buffer::ScalarBuffer<T> {
+        if self.is_empty() {
+            return Vec::new().into();
+        }
         let buffer = self.into_byte_buffer().into_arrow_buffer();
         arrow_buffer::ScalarBuffer::from(buffer)
     }
@@ -99,6 +102,14 @@ mod test {
         let scalar: ScalarBuffer<i32> = buf.clone().into_arrow_scalar_buffer();
         assert_eq!(scalar.as_ref(), buf.as_slice(), "Buffer values differ");
         assert_eq!(scalar.as_ptr(), buf.as_ptr(), "Conversion not zero-copy")
+    }
+
+    #[test]
+    fn empty_into_arrow_scalar_buffer() {
+        let scalar = Buffer::<i64>::empty().into_arrow_scalar_buffer();
+
+        assert!(scalar.is_empty());
+        assert_eq!(scalar.as_ptr().align_offset(align_of::<i64>()), 0);
     }
 
     #[test]
