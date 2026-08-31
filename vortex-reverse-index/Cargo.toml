@@ -1,0 +1,33 @@
+[package]
+name = "vortex-reverse-index"
+description = "A simple value -> row reverse index over any column, demonstrating vortex-layout's indexed layout IndexVTable"
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+include.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+roaring = { workspace = true }
+vortex-array = { workspace = true }
+vortex-error = { workspace = true }
+vortex-layout = { workspace = true }
+vortex-session = { workspace = true }
+vortex-utils = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+vortex-buffer = { workspace = true }
+vortex-edition = { workspace = true }
+vortex-file = { workspace = true }
+vortex-io = { workspace = true, features = ["tokio"] }
+vortex-mask = { workspace = true }
+
+[lints]
+workspace = true
