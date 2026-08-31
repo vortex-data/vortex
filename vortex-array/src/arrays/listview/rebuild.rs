@@ -8,6 +8,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
+use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
@@ -23,6 +24,7 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
+use crate::scalar::PValue;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
@@ -344,17 +346,7 @@ impl ListViewArray {
     /// and the array will be corrupted.
     pub unsafe fn trim_elements(&self, start: usize, end: usize) -> VortexResult<ListViewArray> {
         let adjusted_offsets = match_each_integer_ptype!(self.offsets().dtype().as_ptype(), |O| {
-            let offset = <O as FromPrimitive>::from_usize(start)
-                .vortex_expect("unable to convert the min offset `start` into a `usize`");
-            let scalar = Scalar::primitive(offset, Nullability::NonNullable);
-
-            self.offsets()
-                .clone()
-                .binary(
-                    ConstantArray::new(scalar, self.offsets().len()).into_array(),
-                    Operator::Sub,
-                )
-                .vortex_expect("was somehow unable to adjust offsets down by their minimum")
+            shift_offsets_down::<O>(self.offsets(), start)
         });
 
         let sliced_elements = self.elements().slice(start..end)?;
@@ -446,6 +438,27 @@ where
         lengths,
         elements_len,
     })
+}
+
+/// Shifts `offsets` down by `start`.
+///
+/// Extracted into a generic function so that the body is type-checked once rather than once per
+/// arm of [`match_each_integer_ptype`].
+fn shift_offsets_down<O: IntegerPType + FromPrimitive>(offsets: &ArrayRef, start: usize) -> ArrayRef
+where
+    PValue: From<O>,
+{
+    let offset = <O as FromPrimitive>::from_usize(start)
+        .vortex_expect("unable to convert the min offset `start` into a `usize`");
+    let scalar = Scalar::primitive(offset, Nullability::NonNullable);
+
+    offsets
+        .clone()
+        .binary(
+            ConstantArray::new(scalar, offsets.len()).into_array(),
+            Operator::Sub,
+        )
+        .vortex_expect("was somehow unable to adjust offsets down by their minimum")
 }
 
 #[cfg(test)]

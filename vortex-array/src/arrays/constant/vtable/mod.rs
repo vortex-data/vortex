@@ -43,6 +43,7 @@ use crate::builders::VarBinViewBuilder;
 use crate::builders::builder_with_capacity;
 use crate::canonical::Canonical;
 use crate::dtype::DType;
+use crate::dtype::NativePType;
 use crate::dtype::OffsetBuilderPType;
 use crate::match_each_decimal_value;
 use crate::match_each_listview_builder;
@@ -209,16 +210,7 @@ impl VTable for Constant {
             }
             DType::Primitive(ptype, _) => {
                 match_each_native_ptype!(ptype, |P| {
-                    append_value_or_nulls::<PrimitiveBuilder<P>>(
-                        builder,
-                        scalar.is_null(),
-                        n,
-                        |b| {
-                            let value = P::try_from(scalar)
-                                .vortex_expect("Couldn't unwrap constant scalar to primitive");
-                            b.append_n_values(value, n);
-                        },
-                    );
+                    append_constant_primitive::<P>(builder, scalar, n);
                 });
             }
             DType::Decimal(..) => {
@@ -409,6 +401,22 @@ fn append_value_or_nulls<B: ArrayBuilder + 'static>(
     } else {
         fill(b);
     }
+}
+
+/// Appends `n` copies of a constant primitive scalar (or nulls) to `builder`.
+///
+/// Extracted into a generic function so that the body is type-checked once rather than once per
+/// arm of [`match_each_native_ptype`].
+fn append_constant_primitive<P: NativePType + for<'a> TryFrom<&'a Scalar>>(
+    builder: &mut dyn ArrayBuilder,
+    scalar: &Scalar,
+    n: usize,
+) {
+    append_value_or_nulls::<PrimitiveBuilder<P>>(builder, scalar.is_null(), n, |b| {
+        let value = P::try_from(scalar)
+            .unwrap_or_else(|_| vortex_panic!("Couldn't unwrap constant scalar to primitive"));
+        b.append_n_values(value, n);
+    });
 }
 
 #[cfg(test)]

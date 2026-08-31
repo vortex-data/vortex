@@ -5,6 +5,7 @@ use std::sync::LazyLock;
 
 use onpair::CompactDictionaryView;
 use prost::Message;
+use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
@@ -19,6 +20,7 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::VarBinBuilder;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
@@ -38,7 +40,7 @@ use crate::compress::onpair_compress;
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 fn compress_onpair(
-    array: &vortex_array::ArrayRef,
+    array: &ArrayRef,
     ctx: &mut vortex_array::ExecutionCtx,
 ) -> vortex_error::VortexResult<crate::OnPairArray> {
     onpair_compress(array, DEFAULT_CONFIG, ctx)?
@@ -449,7 +451,6 @@ fn test_onpair_filter_shares_dict() -> vortex_error::VortexResult<()> {
 /// Rebuild an OnPair array, swapping `codes_offsets` for a narrowed
 /// (smaller-ptype) primitive copy. Used by the narrowed-child
 /// regression tests below.
-#[expect(clippy::cognitive_complexity)]
 fn narrow_codes_offsets(arr: &crate::OnPairArray, target: PType) -> crate::OnPairArray {
     let view = arr.as_view();
     let mut ctx = SESSION.create_execution_ctx();
@@ -460,17 +461,8 @@ fn narrow_codes_offsets(arr: &crate::OnPairArray, target: PType) -> crate::OnPai
         .unwrap();
 
     let narrowed_array = match_each_integer_ptype!(original.ptype(), |SRC| {
-        let src = original.as_slice::<SRC>();
         match_each_integer_ptype!(target, |DST| {
-            let mut buf = BufferMut::<DST>::with_capacity(src.len());
-            for &v in src {
-                #[allow(
-                    clippy::unnecessary_cast,
-                    reason = "macro-generated SRC may already be u64"
-                )]
-                buf.push(DST::try_from(v as u64).expect("value must fit in target ptype"));
-            }
-            PrimitiveArray::new(buf.freeze(), Validity::NonNullable).into_array()
+            narrow_slice::<SRC, DST>(original.as_slice::<SRC>())
         })
     });
 
@@ -625,4 +617,19 @@ fn test_onpair_slice_canonicalize() -> vortex_error::VortexResult<()> {
         }
     }
     Ok(())
+}
+
+/// Narrows an integer slice elementwise to `DST`.
+///
+/// Extracted into a generic function so that the body is type-checked once rather than once per
+/// combination produced by the nested `match_each_integer_ptype` expansions.
+fn narrow_slice<SRC: IntegerPType, DST: IntegerPType + TryFrom<u64>>(src: &[SRC]) -> ArrayRef {
+    let mut buf = BufferMut::<DST>::with_capacity(src.len());
+    for &v in src {
+        let widened = v.to_u64().expect("integer offsets are non-negative");
+        buf.push(
+            DST::try_from(widened).unwrap_or_else(|_| panic!("value must fit in target ptype")),
+        );
+    }
+    PrimitiveArray::new(buf.freeze(), Validity::NonNullable).into_array()
 }

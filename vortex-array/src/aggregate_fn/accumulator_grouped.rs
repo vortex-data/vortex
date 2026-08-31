@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_buffer::ArrowNativeType;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -32,6 +31,7 @@ use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
 use crate::columnar::AnyColumnar;
 use crate::dtype::DType;
+use crate::dtype::IntegerPType;
 use crate::executor::max_iterations;
 use crate::match_each_integer_ptype;
 
@@ -397,22 +397,34 @@ fn list_view_group_ranges(
     let sizes = groups.sizes().cast(offsets.dtype().clone())?;
 
     let ranges = match_each_integer_ptype!(offsets.dtype().as_ptype(), |O| {
-        let offsets = offsets.clone().execute::<Buffer<O>>(ctx)?;
-        let sizes = sizes.execute::<Buffer<O>>(ctx)?;
-        offsets
-            .as_ref()
-            .iter()
-            .zip(sizes.as_ref().iter())
-            .map(|(offset, size)| {
-                (
-                    offset.to_usize().vortex_expect("Offset value is not usize"),
-                    size.to_usize().vortex_expect("Size value is not usize"),
-                )
-            })
-            .collect::<Vec<_>>()
+        offset_size_ranges::<O>(offsets, sizes, ctx)?
     });
 
     Ok(GroupRanges::ListView { ranges })
+}
+
+/// Zips offsets and sizes into `(offset, size)` pairs.
+///
+/// Extracted into a generic function so that the body is type-checked once rather than once per
+/// arm of [`match_each_integer_ptype`].
+fn offset_size_ranges<O: IntegerPType>(
+    offsets: &ArrayRef,
+    sizes: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Vec<(usize, usize)>> {
+    let offsets = offsets.clone().execute::<Buffer<O>>(ctx)?;
+    let sizes = sizes.execute::<Buffer<O>>(ctx)?;
+    Ok(offsets
+        .as_ref()
+        .iter()
+        .zip(sizes.as_ref().iter())
+        .map(|(offset, size)| {
+            (
+                offset.to_usize().vortex_expect("Offset value is not usize"),
+                size.to_usize().vortex_expect("Size value is not usize"),
+            )
+        })
+        .collect::<Vec<_>>())
 }
 
 fn fixed_size_list_group_ranges(groups: &FixedSizeListArray) -> GroupRanges {

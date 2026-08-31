@@ -110,28 +110,31 @@ impl CudaExecute for DateTimePartsExecutor {
         let seconds_ptype = seconds_prim.ptype();
         let subseconds_ptype = subseconds_prim.ptype();
 
+        let args = DecodeArgs {
+            days: days_prim,
+            seconds: seconds_prim,
+            subseconds: subseconds_prim,
+            divisor,
+            time_unit,
+            time_zone,
+            validity,
+        };
+
         match_each_integer_ptype!(days_ptype, |DaysT| {
             match_each_integer_ptype!(seconds_ptype, |SecondsT| {
                 match_each_integer_ptype!(subseconds_ptype, |SubsecondsT| {
-                    decode_datetimeparts_typed::<DaysT, SecondsT, SubsecondsT>(
-                        days_prim,
-                        seconds_prim,
-                        subseconds_prim,
-                        divisor,
-                        time_unit,
-                        time_zone,
-                        validity,
-                        ctx,
-                    )
-                    .await
+                    decode_datetimeparts_typed::<DaysT, SecondsT, SubsecondsT>(args, ctx).await
                 })
             })
         })
     }
 }
 
-#[expect(clippy::too_many_arguments)]
-async fn decode_datetimeparts_typed<DaysT, SecondsT, SubsecondsT>(
+/// The type-independent inputs to [`decode_datetimeparts_typed`].
+///
+/// Bundling them keeps the call inside the nested `match_each_integer_ptype` expansions to a
+/// single line: that body is emitted once per combination of the three index types.
+struct DecodeArgs {
     days: PrimitiveArray,
     seconds: PrimitiveArray,
     subseconds: PrimitiveArray,
@@ -139,6 +142,10 @@ async fn decode_datetimeparts_typed<DaysT, SecondsT, SubsecondsT>(
     time_unit: TimeUnit,
     time_zone: Option<Arc<str>>,
     validity: Validity,
+}
+
+async fn decode_datetimeparts_typed<DaysT, SecondsT, SubsecondsT>(
+    args: DecodeArgs,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical>
 where
@@ -146,6 +153,16 @@ where
     SecondsT: NativePType + DeviceRepr,
     SubsecondsT: NativePType + DeviceRepr,
 {
+    let DecodeArgs {
+        days,
+        seconds,
+        subseconds,
+        divisor,
+        time_unit,
+        time_zone,
+        validity,
+    } = args;
+
     let output_len = days.len();
 
     let PrimitiveDataParts {

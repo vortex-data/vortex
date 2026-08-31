@@ -7,6 +7,7 @@ use std::ops::Range;
 
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -281,17 +282,27 @@ fn transpose_patches(patches: &Patches, ctx: &mut ExecutionCtx) -> VortexResult<
 
     match_each_unsigned_integer_ptype!(indices_ptype, |I| {
         match_each_native_ptype!(values_ptype, |V| {
-            let indices: Buffer<I> = Buffer::from_byte_buffer(indices);
-            let values: Buffer<V> = Buffer::from_byte_buffer(values);
-
-            Ok(transpose(
-                indices.as_slice(),
-                values.as_slice(),
-                offset,
-                array_len,
+            Ok(transpose_buffers::<I, V>(
+                indices, values, offset, array_len,
             ))
         })
     })
+}
+
+/// Reinterprets the raw index and value buffers and transposes them.
+///
+/// Extracted into a generic function so that the body is type-checked once rather than once per
+/// combination produced by the nested `match_each_*` expansions.
+fn transpose_buffers<I: IntegerPType, V: NativePType>(
+    indices: ByteBuffer,
+    values: ByteBuffer,
+    offset: usize,
+    array_len: usize,
+) -> TransposedPatches {
+    let indices: Buffer<I> = Buffer::from_byte_buffer(indices);
+    let values: Buffer<V> = Buffer::from_byte_buffer(values);
+
+    transpose(indices.as_slice(), values.as_slice(), offset, array_len)
 }
 
 #[expect(clippy::cast_possible_truncation)]
