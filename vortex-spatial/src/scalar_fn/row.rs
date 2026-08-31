@@ -14,6 +14,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::scalar_fn::unstable::row::InputElement;
 use vortex_array::scalar_fn::unstable::row::OutputSink;
 use vortex_array::scalar_fn::unstable::row::RowVisitor;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -66,6 +67,7 @@ pub(crate) struct GeometryRow;
 // below that length is valid for both checked and unchecked access.
 unsafe impl InputElement for GeometryRow {
     type Column = Vec<Geometry<f64>>;
+    type Constant = Geometry<f64>;
     type View<'a> = &'a [Geometry<f64>];
     type Elem<'a> = &'a Geometry<f64>;
 
@@ -88,8 +90,25 @@ unsafe impl InputElement for GeometryRow {
         geometries(&array, ctx)
     }
 
+    fn decode_constant(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self::Constant> {
+        let mut geometries = Self::decode(array.slice(0..1)?, ctx)?;
+        vortex_ensure!(
+            geometries.len() == 1,
+            "a geometry batch constant must decode to one value, got {}",
+            geometries.len(),
+        );
+
+        Ok(geometries
+            .pop()
+            .vortex_expect("the geometry batch constant length was validated"))
+    }
+
     fn get(column: &Self::Column, index: usize) -> &Geometry<f64> {
         &column[index]
+    }
+
+    fn get_constant(constant: &Self::Constant) -> &Geometry<f64> {
+        constant
     }
 
     fn view(column: &Self::Column) -> Self::View<'_> {

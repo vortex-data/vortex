@@ -30,6 +30,7 @@ use crate::scalar_fn::unstable::row::InputElement;
 use crate::validity::Validity;
 
 static DECODE_CALLS: AtomicUsize = AtomicUsize::new(0);
+static CONSTANT_DECODE_LEN: AtomicUsize = AtomicUsize::new(0);
 
 macro_rules! i64_test_element {
     ($element:ident, $decode_infallible:literal $(, $can_decode:item)?) => {
@@ -38,6 +39,7 @@ macro_rules! i64_test_element {
         // SAFETY: the view and unchecked access delegate to the `i64` implementation.
         unsafe impl InputElement for $element {
             type Column = Buffer<i64>;
+            type Constant = i64;
             type View<'a> = &'a [i64];
             type Elem<'a> = i64;
 
@@ -53,10 +55,22 @@ macro_rules! i64_test_element {
                 <i64 as InputElement>::decode(array, ctx)
             }
 
+            fn decode_constant(
+                array: ArrayRef,
+                ctx: &mut ExecutionCtx,
+            ) -> VortexResult<Self::Constant> {
+                CONSTANT_DECODE_LEN.store(array.len(), Ordering::Relaxed);
+                <i64 as InputElement>::decode_constant(array, ctx)
+            }
+
             $($can_decode)?
 
             fn get(column: &Self::Column, index: usize) -> i64 {
                 <i64 as InputElement>::get(column, index)
+            }
+
+            fn get_constant(constant: &Self::Constant) -> i64 {
+                *constant
             }
 
             fn view(column: &Self::Column) -> Self::View<'_> {
@@ -110,6 +124,21 @@ fn test_null_tolerant_decline_precedes_decoding() -> VortexResult<()> {
 
     assert!(columns.is_none());
     assert_eq!(DECODE_CALLS.load(Ordering::Relaxed), 0);
+    Ok(())
+}
+
+#[test]
+fn test_batch_constant_uses_constant_decoder() -> VortexResult<()> {
+    DECODE_CALLS.store(0, Ordering::Relaxed);
+    CONSTANT_DECODE_LEN.store(0, Ordering::Relaxed);
+    let args = VecExecutionArgs::new(vec![ConstantArray::new(7_i64, 3).into_array()], 3);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let columns = <(DecodeProbe,)>::decode(&args, &mut ctx)?;
+
+    assert_eq!(DECODE_CALLS.load(Ordering::Relaxed), 0);
+    assert_eq!(CONSTANT_DECODE_LEN.load(Ordering::Relaxed), 3);
+    assert_eq!(<(DecodeProbe,)>::const_values(&columns), (Some(7),));
     Ok(())
 }
 

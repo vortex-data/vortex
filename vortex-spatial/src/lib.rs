@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![doc = include_str!(concat!("../", env!("CARGO_PKG_README")))]
+
 use std::sync::Arc;
 
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
@@ -44,7 +46,7 @@ pub mod test_harness;
 #[cfg(test)]
 mod tests;
 
-/// Set up a session with support for spatial extension types, encodings and layouts.
+/// Set up a session with spatial extension types, Arrow interop, functions, and pruning.
 pub fn initialize(session: &VortexSession) {
     // Register the spatial extension types.
     session.dtypes().register(WellKnownBinary);

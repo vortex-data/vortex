@@ -191,39 +191,46 @@ impl BitBuffer {
         }
     }
 
-    /// Invokes `f` with indexes `0..len` collecting the boolean results into a new [`BitBuffer`].
+    /// Collects `len` Boolean values from `f` into a packed [`BitBuffer`].
     ///
-    /// `f` is invoked exactly once per index, in ascending order, and the results are packed
-    /// with the baseline SIMD byte→bit instruction of the target.
+    /// Calls `f` exactly once for each index in `0..len`, in order.
+    ///
+    /// # Code generation
+    ///
+    /// `collect_bool_words` calls `collect_bool_words_inline`, which selects a `pack_bool_word_*`
+    /// kernel at compile time and passes it to `collect_bool_words_with`. That shared word loop
+    /// materializes each full 64-value chunk as a byte-per-value `[bool; 64]`, then passes it to the
+    /// selected kernel. For simple predicates, LLVM vectorizes the loop and removes the physical
+    /// stack array. On AVX-512, it still combines the comparison masks, expands the result into 64
+    /// `0` or `1` bytes with `vpbroadcastq` and `vmovdqu8`, then recreates the mask with `vptestmb`.
+    /// [LLVM issue #219235](https://github.com/llvm/llvm-project/issues/219235) tracks replacing
+    /// that round trip with a direct `kmovq` store. The conversion is per chunk. This method does
+    /// not create a full-column byte buffer.
     ///
     /// # Performance
     ///
-    /// The packing is a few instructions per 64 bits, so evaluating `f` is usually the
-    /// bottleneck. In particular, a bounds-checked slice access in `f` (`|i| values[i] > x`)
-    /// blocks vectorization of the gather and can cost ~10x the packing itself. Since `f` only
-    /// ever sees indices `0..len`, callers reading from a slice with `len <= values.len()` may
-    /// soundly use `|i| unsafe { *values.get_unchecked(i) }`.
+    /// `collect_bool_words_inline` and `collect_bool_words_with` can inline into the caller, so LLVM
+    /// sees `f`, the fill loop, and the packing kernel together. A retained bounds check inside `f`
+    /// can prevent vectorization. A caller that proves `len <= values.len()` can use
+    /// `unsafe { *values.get_unchecked(i) }` because this method only passes indices in `0..len`.
     ///
-    /// Prefer this entry point for every predicate. Only switch to
-    /// [`Self::collect_bool_multiversioned`] after carefully checking that your specific `f`
-    /// meets its contract (a trivially cheap, bounds-check-free gather or comparison) —
-    /// ideally with a benchmark.
+    /// Use this method for general predicates. Use [`Self::collect_bool_multiversioned`] only for
+    /// the specialized predicates described there.
     #[inline]
     pub fn collect_bool<F: FnMut(usize) -> bool>(len: usize, f: F) -> Self {
         BitBufferMut::collect_bool(len, f).freeze()
     }
 
-    /// Like [`Self::collect_bool`], but compiles the packing loop — with `f` inside it — once
-    /// per CPU feature level (AVX-512BW/AVX2/baseline) and selects a clone by runtime feature
-    /// detection.
+    /// Collects Boolean values with a fill-and-pack loop selected for the current CPU.
     ///
-    /// Calling this asserts that `f` is small and simple enough (e.g. a bounds-check-free slice
-    /// gather or comparison) that duplicating it per feature level and paying a
-    /// `#[target_feature]` call boundary beats inlining it once into your function. For any
-    /// non-trivial `f` that assertion is false — the boundary deoptimizes the predicate — so
-    /// unless you have carefully checked (ideally benchmarked) that your specific `f`
-    /// qualifies, use [`Self::collect_bool`]. See
-    /// [`collect_bool_words_multiversioned`](crate::bit::collect_bool_words_multiversioned).
+    /// This has the same callback contract as [`Self::collect_bool`]. On x86-64,
+    /// `collect_bool_words_multiversioned` selects `collect_bool_words_avx512`,
+    /// `collect_bool_words_avx2`, or `collect_bool_words_inline` at runtime. Each wider version is a
+    /// `#[target_feature]` function, so Rust cannot inline it into a caller compiled without those
+    /// features.
+    ///
+    /// Use this method only for a small, bounds-check-free predicate whose wider loop has been
+    /// benchmarked. Use [`Self::collect_bool`] for general predicates.
     #[inline]
     pub fn collect_bool_multiversioned<F: FnMut(usize) -> bool>(len: usize, f: F) -> Self {
         BitBufferMut::collect_bool_multiversioned(len, f).freeze()

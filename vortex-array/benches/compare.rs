@@ -10,6 +10,11 @@
 //! selected through `cfg(target_feature)` has to beat, measured on the silicon it would run
 //! on.
 //!
+//! Every case here compares one array against another, which is the shape the path is tuned for.
+//! The three constant cases that remain — boolean, integer, and string — are a regression guard on
+//! constant handling rather than coverage of it: a constant operand is decoded the same way
+//! whatever it holds. Constant orientation is measured once, in `binary_ops.rs`.
+//!
 //! The boolean, decimal, string, and struct cases are not tagged. A wider vector register is
 //! not what decides them: booleans are already word-at-a-time over a bitmap, decimals are
 //! `i128`, and the string and struct cases are dominated by view chasing and per-field
@@ -194,15 +199,6 @@ fn compare_int_constant(bencher: Bencher) {
     let arr = int_array(&mut rng);
     let constant = ConstantArray::new(50_000_000i64, ARRAY_SIZE).into_array();
     bench_compare(bencher, arr, constant, Operator::Gte);
-}
-
-#[vortex_bench_support::cpu_features]
-#[divan::bench]
-fn compare_int_constant_left(bencher: Bencher) {
-    let mut rng = StdRng::seed_from_u64(0);
-    let constant = ConstantArray::new(50_000_000i64, ARRAY_SIZE).into_array();
-    let arr = int_array(&mut rng);
-    bench_compare(bencher, constant, arr, Operator::Lte);
 }
 
 #[vortex_bench_support::cpu_features]

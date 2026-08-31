@@ -61,12 +61,19 @@ const I16_LEN: usize = primitive_len::<i16>();
 const I32_LEN: usize = primitive_len::<i32>();
 const I64_LEN: usize = primitive_len::<i64>();
 
+/// Per-row against per-row, short and long. This is the shape the operators are tuned for, so it
+/// is the one every operator is measured on.
 const BINARY_SHAPE_CASES: &[(usize, BinaryShape)] = &[
     (128, BinaryShape::PerRowPerRow),
-    (128, BinaryShape::PerRowConstant),
-    (128, BinaryShape::ConstantPerRow),
-    (128, BinaryShape::PerRowNullableConstant),
     (I64_LEN, BinaryShape::PerRowPerRow),
+];
+
+/// Constant operands are measured on `Add` alone, at the long length.
+///
+/// Decoding a constant operand, orienting it, and carrying its validity are shared by every
+/// operator, so repeating all three shapes under `Sub` and `Mul` costs three walltime legs apiece
+/// and measures the same code again. These cases stay as the regression guard on that path.
+const CONSTANT_SHAPE_CASES: &[(usize, BinaryShape)] = &[
     (I64_LEN, BinaryShape::PerRowConstant),
     (I64_LEN, BinaryShape::ConstantPerRow),
     (I64_LEN, BinaryShape::PerRowNullableConstant),
@@ -87,6 +94,12 @@ const DECIMAL_MUL_DIV_LEN: usize = 1_024;
 #[vortex_bench_support::cpu_features]
 #[divan::bench(args = BINARY_SHAPE_CASES)]
 fn add_shapes(bencher: Bencher, &(len, shape): &(usize, BinaryShape)) {
+    bench_binary_shape(bencher, len, shape, Operator::Add);
+}
+
+#[vortex_bench_support::cpu_features]
+#[divan::bench(args = CONSTANT_SHAPE_CASES)]
+fn add_constant_shapes(bencher: Bencher, &(len, shape): &(usize, BinaryShape)) {
     bench_binary_shape(bencher, len, shape, Operator::Add);
 }
 
@@ -132,15 +145,6 @@ fn add_i64_nonnull(bencher: Bencher) {
 fn add_i64_nullable(bencher: Bencher) {
     let lhs = primitive_nullable(0, 7, I64_LEN).into_array();
     let rhs = primitive_nullable(1_000_000, 5, I64_LEN).into_array();
-
-    bench_primitive(bencher, lhs, rhs, Operator::Add);
-}
-
-#[vortex_bench_support::cpu_features]
-#[divan::bench]
-fn add_i64_constant(bencher: Bencher) {
-    let lhs = primitive_nonnull(0, I64_LEN).into_array();
-    let rhs = ConstantArray::new(1_000_000i64, I64_LEN).into_array();
 
     bench_primitive(bencher, lhs, rhs, Operator::Add);
 }
@@ -246,15 +250,6 @@ fn mul_i32_nullable(bencher: Bencher) {
 
 #[vortex_bench_support::cpu_features]
 #[divan::bench]
-fn mul_i32_constant(bencher: Bencher) {
-    let lhs = primitive_i32_small_nonnull(1, I32_LEN).into_array();
-    let rhs = ConstantArray::new(31i32, I32_LEN).into_array();
-
-    bench_primitive(bencher, lhs, rhs, Operator::Mul);
-}
-
-#[vortex_bench_support::cpu_features]
-#[divan::bench]
 fn div_i64_nonnull(bencher: Bencher) {
     let lhs = primitive_nonnull(1_000_000, I64_LEN).into_array();
     let rhs = primitive_nonzero(I64_LEN).into_array();
@@ -269,15 +264,6 @@ fn div_i64_nullable(bencher: Bencher) {
     let rhs = primitive_nullable(17, 5, I64_LEN).into_array();
 
     bench_primitive(bencher, lhs, rhs, Operator::Div);
-}
-
-#[vortex_bench_support::cpu_features]
-#[divan::bench]
-fn sub_i64_constant(bencher: Bencher) {
-    let lhs = primitive_nonnull(0, I64_LEN).into_array();
-    let rhs = ConstantArray::new(37i64, I64_LEN).into_array();
-
-    bench_primitive(bencher, lhs, rhs, Operator::Sub);
 }
 
 #[divan::bench]
@@ -330,15 +316,6 @@ fn div_decimal_i128_nullable(bencher: Bencher) {
 
 #[vortex_bench_support::cpu_features]
 #[divan::bench]
-fn eq_i64_constant(bencher: Bencher) {
-    let lhs = primitive_nonnull(0, LEN).into_array();
-    let rhs = ConstantArray::new(1024i64, LEN).into_array();
-
-    bench_bool(bencher, lhs, rhs, Operator::Eq);
-}
-
-#[vortex_bench_support::cpu_features]
-#[divan::bench]
 fn lt_i64_nullable(bencher: Bencher) {
     let lhs = primitive_nullable(0, 7, LEN).into_array();
     let rhs = primitive_nullable(1_000_000, 5, LEN).into_array();
@@ -352,14 +329,6 @@ fn and_bool_nullable(bencher: Bencher) {
     let rhs = bool_nullable(3, 5).into_array();
 
     bench_bool(bencher, lhs, rhs, Operator::And);
-}
-
-#[divan::bench]
-fn or_bool_constant(bencher: Bencher) {
-    let lhs = bool_nullable(2, 7).into_array();
-    let rhs = ConstantArray::new(true, LEN).into_array();
-
-    bench_bool(bencher, lhs, rhs, Operator::Or);
 }
 
 fn bench_primitive(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, operator: Operator) {
