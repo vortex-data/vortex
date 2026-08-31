@@ -22,11 +22,9 @@ use vortex_array::IntoArray;
 use vortex_array::TypedArrayRef;
 use vortex_array::VortexSessionExecute;
 use vortex_array::array_slots;
-use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::Primitive;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::buffer::BufferHandle;
@@ -511,50 +509,46 @@ pub(super) fn run_end_canonicalize(
                 .values()
                 .clone()
                 .execute_as::<ListViewArray>("values", ctx)?;
-            runend_decode_listview(pends, values, array.offset(), array.len(), ctx)?.into_array()
+            let validity = match values.validity()? {
+                Validity::NonNullable => Validity::NonNullable,
+                Validity::AllValid => Validity::AllValid,
+                Validity::AllInvalid => Validity::AllInvalid,
+                Validity::Array(validity) => Validity::Array(
+                    unsafe {
+                        RunEnd::new_unchecked(
+                            pends.clone().into_array(),
+                            validity,
+                            array.offset(),
+                            array.len(),
+                        )
+                    }
+                    .into_array(),
+                ),
+            };
+
+            unsafe {
+                ListViewArray::new_unchecked(
+                    values.elements().clone(),
+                    RunEnd::new_unchecked(
+                        pends.clone().into_array(),
+                        values.offsets().clone(),
+                        array.offset(),
+                        array.len(),
+                    )
+                    .into_array(),
+                    RunEnd::new_unchecked(
+                        pends.into_array(),
+                        values.sizes().clone(),
+                        array.offset(),
+                        array.len(),
+                    )
+                    .into_array(),
+                    validity,
+                )
+            }
+            .into_array()
         }
         _ => vortex_bail!("Unsupported RunEnd value type: {}", array.dtype()),
-    })
-}
-
-fn runend_decode_listview(
-    ends: PrimitiveArray,
-    values: ListViewArray,
-    offset: usize,
-    length: usize,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ListViewArray> {
-    let offsets = values.offsets().clone().execute_as("offsets", ctx)?;
-    let decoded_offsets =
-        runend_decode_primitive(ends.clone(), offsets, offset, length, ctx)?.into_array();
-
-    let sizes = values.sizes().clone().execute_as("sizes", ctx)?;
-    let decoded_sizes =
-        runend_decode_primitive(ends.clone(), sizes, offset, length, ctx)?.into_array();
-
-    let validity = match values.validity()? {
-        Validity::NonNullable => Validity::NonNullable,
-        Validity::AllValid => Validity::AllValid,
-        Validity::AllInvalid => Validity::AllInvalid,
-        Validity::Array(validity) => Validity::Array(runend_decode_bools(
-            ends,
-            validity.execute_as::<BoolArray>("validity", ctx)?,
-            offset,
-            length,
-            ctx,
-        )?),
-    };
-
-    // SAFETY: `decoded_offsets`, `decoded_sizes`, and `validity` are expanded from valid ListView
-    // metadata for each run. The original `elements` child is reused, so every expanded view still
-    // points at the same valid element ranges.
-    Ok(unsafe {
-        ListViewArray::new_unchecked(
-            values.elements().clone(),
-            decoded_offsets,
-            decoded_sizes,
-            validity,
-        )
     })
 }
 
@@ -568,7 +562,9 @@ mod tests {
     use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::DictArray;
     use vortex_array::arrays::ListArray;
+    use vortex_array::arrays::ListViewArray;
     use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::arrays::listview::ListViewArraySlotsExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::VarBinBuilder;
     use vortex_array::dtype::DType;
@@ -724,6 +720,24 @@ mod tests {
         .unwrap()
         .into_array();
         assert_arrays_eq!(arr.into_array(), expected, &mut ctx);
+    }
+
+    #[test]
+    fn test_runend_list_pushes_into_listview_slots() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = ListArray::from_iter_slow::<u32, _>(
+            vec![vec![1i64, 2], vec![3], vec![4, 5, 6]],
+            Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
+        )?
+        .into_array();
+        let arr = RunEnd::try_new(buffer![2u32, 5, 10].into_array(), values, &mut ctx)?;
+
+        let listview = arr.into_array().execute::<ListViewArray>(&mut ctx)?;
+        assert!(listview.offsets().is::<RunEnd>());
+        assert!(listview.sizes().is::<RunEnd>());
+        assert_eq!(listview.elements().len(), 6);
+
+        Ok(())
     }
 
     #[test]
