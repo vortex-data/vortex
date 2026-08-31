@@ -462,13 +462,11 @@ mod test {
 
         Ok(())
     }
-  
+
     #[test]
     fn max_dict_bytes_cannot_exceed_the_view_offset_range() {
-        let builder = BytesDictBuilder::<u32>::new(
-            DType::Utf8(Nullability::NonNullable),
-            &super::super::UNCONSTRAINED,
-        );
+        let builder =
+            BytesDictBuilder::<u32>::new(DType::Utf8(Nullability::NonNullable), &UNCONSTRAINED);
         assert_eq!(builder.max_dict_bytes, u32::MAX as usize);
     }
 }
