@@ -110,7 +110,6 @@ pub struct ListSlots {
 #[derive(Clone, Debug, Default)]
 pub struct ListData;
 
-
 /// Validates that the list offsets fall within `[0, elements_len]`.
 ///
 /// Extracted into a generic function so that the body is type-checked once rather than once per

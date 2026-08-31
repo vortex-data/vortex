@@ -16,11 +16,11 @@ use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::patched::PatchedArraySlotsExt;
 use crate::arrays::primitive::PrimitiveDataParts;
 use crate::buffer::BufferHandle;
-use crate::validity::Validity;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
 use crate::match_each_unsigned_integer_ptype;
+use crate::validity::Validity;
 
 impl TakeExecute for Patched {
     fn take(
