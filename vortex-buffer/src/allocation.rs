@@ -41,8 +41,8 @@ impl BufferAllocatorRef {
         Self(None)
     }
 
-    pub(crate) fn is_statically_allocated(&self) -> bool {
-        self.0.is_none()
+    pub(crate) fn static_ref() -> &'static Self {
+        &STATIC_ALLOCATOR
     }
 
     /// Create a mutable buffer with this allocator.
@@ -337,7 +337,12 @@ where
 
 pub(crate) enum BufferBacking {
     Owned(Allocation),
-    External { _owner: Box<dyn BufferOwner> },
+    Bytes(bytes::Bytes),
+    #[cfg(feature = "arrow")]
+    Arrow(arrow_buffer::Buffer),
+    External {
+        _owner: Box<dyn BufferOwner>,
+    },
 }
 
 impl BufferBacking {
@@ -345,7 +350,9 @@ impl BufferBacking {
     pub(crate) fn allocator(&self) -> &BufferAllocatorRef {
         match self {
             Self::Owned(allocation) => allocation.allocator(),
-            Self::External { .. } => &STATIC_ALLOCATOR,
+            Self::Bytes(_) | Self::External { .. } => &STATIC_ALLOCATOR,
+            #[cfg(feature = "arrow")]
+            Self::Arrow(_) => &STATIC_ALLOCATOR,
         }
     }
 }

@@ -12,7 +12,6 @@ use std::ops::Deref;
 use std::ops::RangeBounds;
 use std::ptr::NonNull;
 use std::sync::Arc;
-use std::sync::LazyLock;
 
 use bytes::Buf;
 use bytes::Bytes;
@@ -37,7 +36,7 @@ pub struct Buffer<T> {
     pub(crate) physical_alignment: Alignment,
     // One physical-alignment block is reserved outside the logical capacity.
     pub(crate) overallocated: bool,
-    pub(crate) backing: Arc<BufferBacking>,
+    pub(crate) backing: Option<Arc<BufferBacking>>,
 }
 
 // SAFETY: Buffer is an immutable view over backing memory. Its pointer remains valid while the
@@ -45,21 +44,6 @@ pub struct Buffer<T> {
 unsafe impl<T: Send> Send for Buffer<T> {}
 // SAFETY: see the Send implementation above.
 unsafe impl<T: Sync> Sync for Buffer<T> {}
-
-/// Zero-length backing for empty buffers, "aligned" to [`Alignment::MAX`] so it satisfies any
-/// valid alignment without allocating. A zero-length slice never reads memory, so it may use a
-/// dangling pointer as long as it is non-null and aligned.
-const EMPTY_BYTES: &[u8] = {
-    let ptr = std::ptr::without_provenance(Alignment::MAX.as_usize());
-    // SAFETY: the pointer is non-null and aligned, and the slice is zero-length.
-    unsafe { std::slice::from_raw_parts(ptr, 0) }
-};
-
-static EMPTY_BACKING: LazyLock<Arc<BufferBacking>> = LazyLock::new(|| {
-    Arc::new(BufferBacking::External {
-        _owner: Box::new(EMPTY_BYTES),
-    })
-});
 
 impl<T> Default for Buffer<T> {
     fn default() -> Self {
@@ -69,7 +53,7 @@ impl<T> Default for Buffer<T> {
             alignment: Alignment::of::<T>(),
             physical_alignment: Alignment::MAX,
             overallocated: false,
-            backing: EMPTY_BACKING.clone(),
+            backing: None,
         }
     }
 }
@@ -121,7 +105,7 @@ impl<T> Buffer<T> {
             alignment,
             physical_alignment,
             overallocated,
-            backing: Arc::new(BufferBacking::Owned(allocation)),
+            backing: Some(Arc::new(BufferBacking::Owned(allocation))),
         }
     }
 
@@ -139,7 +123,45 @@ impl<T> Buffer<T> {
             alignment,
             physical_alignment: alignment,
             overallocated: false,
-            backing: Arc::new(BufferBacking::External { _owner: owner }),
+            backing: Some(Arc::new(BufferBacking::External { _owner: owner })),
+        }
+    }
+
+    fn from_bytes(bytes: Bytes, alignment: Alignment) -> Self {
+        let length = bytes.len() / size_of::<T>();
+        if length == 0 {
+            return Self::empty_aligned(alignment);
+        }
+        let ptr =
+            NonNull::new(bytes.as_ptr().cast_mut().cast()).vortex_expect("Bytes pointer is null");
+        Self {
+            ptr,
+            length,
+            alignment,
+            physical_alignment: alignment,
+            overallocated: false,
+            backing: Some(Arc::new(BufferBacking::Bytes(bytes))),
+        }
+    }
+
+    #[cfg(feature = "arrow")]
+    pub(crate) fn from_arrow_owner(
+        arrow: arrow_buffer::Buffer,
+        length: usize,
+        alignment: Alignment,
+    ) -> Self {
+        if length == 0 {
+            return Self::empty_aligned(alignment);
+        }
+        let ptr = NonNull::new(arrow.as_ptr().cast_mut().cast())
+            .vortex_expect("Arrow buffer pointer is null");
+        Self {
+            ptr,
+            length,
+            alignment,
+            physical_alignment: alignment,
+            overallocated: false,
+            backing: Some(Arc::new(BufferBacking::Arrow(arrow))),
         }
     }
 
@@ -219,8 +241,7 @@ impl<T> Buffer<T> {
 
     /// Create a new empty `ByteBuffer` with the provided alignment.
     ///
-    /// This does not allocate: empty buffers are backed by a zero-length `Bytes` that is
-    /// aligned to [`Alignment::MAX`].
+    /// This does not allocate. Empty buffers use an aligned dangling pointer.
     pub fn empty_aligned(alignment: Alignment) -> Self {
         if !alignment.is_aligned_to(Alignment::of::<T>()) {
             vortex_panic!(
@@ -235,7 +256,7 @@ impl<T> Buffer<T> {
             alignment,
             physical_alignment: Alignment::MAX,
             overallocated: false,
-            backing: EMPTY_BACKING.clone(),
+            backing: None,
         }
     }
 
@@ -327,7 +348,7 @@ impl<T> Buffer<T> {
                 size_of::<T>()
             );
         }
-        Self::from_owner(bytes, alignment)
+        Self::from_bytes(bytes, alignment)
     }
 
     /// Create a buffer with values from the TrustedLen iterator.
@@ -346,7 +367,7 @@ impl<T> Buffer<T> {
             Ok(mut_buf) => mut_buf.map_each_in_place(f),
             Err(buf) => {
                 let len = buf.len();
-                let allocator = buf.backing.allocator().clone();
+                let allocator = buf.allocator().clone();
                 let mut out_buf = BufferMut::with_capacity_in(len, allocator);
                 out_buf
                     .spare_capacity_mut()
@@ -392,7 +413,10 @@ impl<T> Buffer<T> {
     ///
     /// External buffers use the static allocator.
     pub fn allocator(&self) -> &BufferAllocatorRef {
-        self.backing.allocator()
+        match self.backing.as_deref() {
+            Some(backing) => backing.allocator(),
+            None => BufferAllocatorRef::static_ref(),
+        }
     }
 
     /// Returns a raw pointer to the buffer's data.
@@ -509,7 +533,7 @@ impl<T> Buffer<T> {
             alignment,
             physical_alignment: self.physical_alignment,
             overallocated: self.overallocated,
-            backing: Arc::clone(&self.backing),
+            backing: self.backing.clone(),
         }
     }
 
@@ -565,17 +589,36 @@ impl<T> Buffer<T> {
             alignment,
             physical_alignment: self.physical_alignment,
             overallocated: self.overallocated,
-            backing: Arc::clone(&self.backing),
+            backing: self.backing.clone(),
         }
     }
 
     /// Returns the underlying bytes without copying.
     pub fn into_inner(self) -> Bytes {
-        Bytes::from_owner(BufferBytesOwner {
-            ptr: self.ptr.cast(),
-            length: self.length * size_of::<T>(),
-            backing: self.backing,
-        })
+        if let Some(backing) = self.backing.as_ref()
+            && let BufferBacking::Bytes(bytes) = backing.as_ref()
+        {
+            let offset = self.ptr.cast::<u8>().addr().get() - bytes.as_ptr().addr();
+            let length = self.length * size_of::<T>();
+            if offset == 0 && length == bytes.len() && Arc::strong_count(backing) == 1 {
+                return match self.backing {
+                    Some(backing) => match Arc::try_unwrap(backing) {
+                        Ok(BufferBacking::Bytes(bytes)) => bytes,
+                        _ => unreachable!(),
+                    },
+                    None => unreachable!(),
+                };
+            }
+            return bytes.slice(offset..offset + length);
+        }
+        match self.backing {
+            Some(backing) => Bytes::from_owner(BufferBytesOwner {
+                ptr: self.ptr.cast(),
+                length: self.length * size_of::<T>(),
+                backing,
+            }),
+            None => Bytes::new(),
+        }
     }
 
     /// Return the ByteBuffer for this `Buffer<T>`.
@@ -600,6 +643,19 @@ impl<T> Buffer<T> {
             overallocated,
             backing,
         } = self;
+        let Some(backing) = backing else {
+            return Ok(BufferMut::empty_aligned(alignment));
+        };
+        if !matches!(backing.as_ref(), BufferBacking::Owned(_)) {
+            return Err(Self {
+                ptr,
+                length,
+                alignment,
+                physical_alignment,
+                overallocated,
+                backing: Some(backing),
+            });
+        }
         match Arc::try_unwrap(backing) {
             Ok(BufferBacking::Owned(allocation)) => {
                 let offset = ptr.addr().get() - allocation.ptr().addr().get();
@@ -619,21 +675,14 @@ impl<T> Buffer<T> {
                     _marker: Default::default(),
                 })
             }
-            Ok(backing) => Err(Self {
-                ptr,
-                length,
-                alignment,
-                physical_alignment,
-                overallocated,
-                backing: Arc::new(backing),
-            }),
+            Ok(_) => unreachable!(),
             Err(backing) => Err(Self {
                 ptr,
                 length,
                 alignment,
                 physical_alignment,
                 overallocated,
-                backing,
+                backing: Some(backing),
             }),
         }
     }
@@ -641,7 +690,7 @@ impl<T> Buffer<T> {
     /// Convert self into `BufferMut<T>`, cloning the data if there are multiple strong references.
     pub fn into_mut(self) -> BufferMut<T> {
         self.try_into_mut().unwrap_or_else(|buffer| {
-            let allocator = buffer.backing.allocator().clone();
+            let allocator = buffer.allocator().clone();
             BufferMut::<T>::copy_from_aligned_in(&buffer, buffer.alignment, allocator)
         })
     }
@@ -664,7 +713,7 @@ impl<T> Buffer<T> {
                     "Buffer is not aligned to requested alignment {alignment}, copying: {bt}"
                 )
             }
-            let allocator = self.backing.allocator().clone();
+            let allocator = self.allocator().clone();
             BufferMut::copy_from_aligned_in(self, alignment, allocator).freeze()
         }
     }
@@ -825,7 +874,7 @@ where
 
 impl From<Bytes> for ByteBuffer {
     fn from(bytes: Bytes) -> Self {
-        Self::from_owner(bytes, Alignment::of::<u8>())
+        Self::from_bytes(bytes, Alignment::of::<u8>())
     }
 }
 
@@ -947,9 +996,11 @@ mod test {
     use std::sync::atomic::Ordering;
 
     use bytes::Buf;
+    use bytes::Bytes;
 
     use crate::Alignment;
     use crate::Buffer;
+    use crate::BufferBacking;
     use crate::ByteBuffer;
     use crate::buffer;
 
@@ -1085,6 +1136,40 @@ mod test {
     }
 
     #[test]
+    fn bytes_round_trip_reuses_owner() {
+        let bytes = Bytes::from_static(&[1, 2, 3, 4]);
+        let ptr = bytes.as_ptr();
+
+        let buffer = ByteBuffer::from(bytes);
+        assert!(matches!(
+            buffer.backing.as_deref(),
+            Some(BufferBacking::Bytes(_))
+        ));
+        let bytes = buffer.into_inner();
+
+        assert_eq!(bytes.as_ptr(), ptr);
+        assert_eq!(bytes.as_ref(), &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn external_try_into_mut_preserves_backing() {
+        let buffer = ByteBuffer::from(Bytes::from_static(&[1, 2, 3, 4]));
+        let Some(original_backing) = buffer.backing.as_ref() else {
+            panic!("external buffer has no backing")
+        };
+        let backing = Arc::as_ptr(original_backing);
+
+        let Err(buffer) = buffer.try_into_mut() else {
+            panic!("external buffer became mutable")
+        };
+
+        let Some(new_backing) = buffer.backing.as_ref() else {
+            panic!("external buffer has no backing")
+        };
+        assert_eq!(Arc::as_ptr(new_backing), backing);
+    }
+
+    #[test]
     fn from_u8_vec_preserves_capacity() {
         let mut vec = Vec::with_capacity(16);
         vec.extend([1u8, 2, 3]);
@@ -1139,6 +1224,11 @@ mod test {
         let buf = Buffer::<u8>::empty_aligned(Alignment::MAX);
         assert!(buf.is_empty());
         assert!(buf.is_aligned(Alignment::MAX));
+    }
+
+    #[test]
+    fn empty_has_no_backing() {
+        assert!(Buffer::<u8>::empty().backing.is_none());
     }
 
     #[test]

@@ -503,44 +503,24 @@ impl<T> BufferMut<T> {
             .unwrap_or_else(|_| vortex_panic!("buffer capacity exceeds maximum allocation size"));
 
         let old_offset = self.ptr.cast::<u8>().addr().get() - self.allocation.ptr().addr().get();
-        let new_offset = if self.allocation.allocator().is_statically_allocated() {
-            let allocation =
-                Allocation::allocate(layout, BufferAllocatorRef::statically_allocated());
-            let new_offset = allocation
-                .ptr()
-                .as_ptr()
-                .align_offset(physical_alignment.as_usize());
-            // SAFETY: both allocations have room for the initialized elements and do not overlap.
+        self.allocation.grow(layout);
+        let new_offset = self
+            .allocation
+            .ptr()
+            .as_ptr()
+            .align_offset(physical_alignment.as_usize());
+        if new_offset != old_offset {
+            // SAFETY: grow preserved the initialized elements at old_offset. The new allocation
+            // has room for the requested elements plus alignment padding, and copy permits
+            // overlap.
             unsafe {
-                std::ptr::copy_nonoverlapping(
-                    self.ptr.cast::<u8>().as_ptr(),
-                    allocation.ptr().as_ptr().add(new_offset),
+                std::ptr::copy(
+                    self.allocation.ptr().as_ptr().add(old_offset),
+                    self.allocation.ptr().as_ptr().add(new_offset),
                     self.length * size_of::<T>(),
                 );
             }
-            self.allocation = allocation;
-            new_offset
-        } else {
-            self.allocation.grow(layout);
-            let new_offset = self
-                .allocation
-                .ptr()
-                .as_ptr()
-                .align_offset(physical_alignment.as_usize());
-            if new_offset != old_offset {
-                // SAFETY: grow preserved the initialized elements at old_offset. The new allocation
-                // has room for the requested elements plus alignment padding, and copy permits
-                // overlap.
-                unsafe {
-                    std::ptr::copy(
-                        self.allocation.ptr().as_ptr().add(old_offset),
-                        self.allocation.ptr().as_ptr().add(new_offset),
-                        self.length * size_of::<T>(),
-                    );
-                }
-            }
-            new_offset
-        };
+        }
         // SAFETY: new_offset was computed within the allocation for physical_alignment.
         self.ptr = unsafe { self.allocation.ptr().add(new_offset).cast() };
         self.physical_alignment = physical_alignment;
@@ -737,11 +717,7 @@ impl<T> BufferMut<T> {
     /// If the data is not aligned, we copy it into a new allocation.
     pub fn aligned(self, alignment: Alignment) -> Self {
         if self.as_ptr().align_offset(alignment.as_usize()) == 0 {
-            Self {
-                alignment,
-                physical_alignment: max(self.physical_alignment, alignment),
-                ..self
-            }
+            Self { alignment, ..self }
         } else {
             let allocator = self.allocation.allocator().clone();
             Self::copy_from_aligned_in(self, alignment, allocator)
@@ -1016,6 +992,7 @@ impl Buf for ByteBufferMut {
         // SAFETY: cnt is checked against the initialized length above.
         self.ptr = unsafe { self.ptr.add(cnt) };
         self.length -= cnt;
+        self.overallocated = false;
     }
 }
 
@@ -1130,6 +1107,31 @@ mod test {
 
         buffer.reserve(capacity);
         assert_eq!(buffer.capacity(), capacity * 2);
+    }
+
+    #[test]
+    fn advance_uses_remaining_allocation_capacity() {
+        let mut buffer = ByteBufferMut::zeroed_aligned(64, Alignment::new(8));
+
+        buffer.advance(8);
+
+        assert!(!buffer.overallocated);
+        let offset = buffer.ptr.addr().get() - buffer.allocation.ptr().addr().get();
+        assert_eq!(buffer.capacity(), buffer.allocation.size() - offset);
+    }
+
+    #[test]
+    fn raising_logical_alignment_preserves_capacity() {
+        let buffer =
+            BufferMut::<u8>::with_capacity_preferred_aligned(1, Alignment::of::<u8>(), None);
+        let capacity = buffer.capacity();
+
+        let mut buffer = buffer.aligned(Alignment::new(2));
+
+        assert_eq!(buffer.capacity(), capacity);
+        buffer.extend(0..100);
+        assert!(Alignment::new(2).is_ptr_aligned(buffer.as_ptr()));
+        assert_eq!(buffer.as_slice(), (0..100).collect::<Vec<_>>());
     }
 
     #[test]
