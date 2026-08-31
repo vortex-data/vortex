@@ -22,9 +22,13 @@ use vortex_array::IntoArray;
 use vortex_array::TypedArrayRef;
 use vortex_array::VortexSessionExecute;
 use vortex_array::array_slots;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::Primitive;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -502,18 +506,68 @@ pub(super) fn run_end_canonicalize(
                 .execute_as::<VarBinViewArray>("values", ctx)?;
             runend_decode_varbinview(pends, values, array.offset(), array.len(), ctx)?.into_array()
         }
+        DType::List(..) => {
+            let values = array
+                .values()
+                .clone()
+                .execute_as::<ListViewArray>("values", ctx)?;
+            runend_decode_listview(pends, values, array.offset(), array.len(), ctx)?.into_array()
+        }
         _ => vortex_bail!("Unsupported RunEnd value type: {}", array.dtype()),
+    })
+}
+
+fn runend_decode_listview(
+    ends: PrimitiveArray,
+    values: ListViewArray,
+    offset: usize,
+    length: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ListViewArray> {
+    let offsets = values.offsets().clone().execute_as("offsets", ctx)?;
+    let decoded_offsets =
+        runend_decode_primitive(ends.clone(), offsets, offset, length, ctx)?.into_array();
+
+    let sizes = values.sizes().clone().execute_as("sizes", ctx)?;
+    let decoded_sizes =
+        runend_decode_primitive(ends.clone(), sizes, offset, length, ctx)?.into_array();
+
+    let validity = match values.validity()? {
+        Validity::NonNullable => Validity::NonNullable,
+        Validity::AllValid => Validity::AllValid,
+        Validity::AllInvalid => Validity::AllInvalid,
+        Validity::Array(validity) => Validity::Array(runend_decode_bools(
+            ends,
+            validity.execute_as::<BoolArray>("validity", ctx)?,
+            offset,
+            length,
+            ctx,
+        )?),
+    };
+
+    // SAFETY: `decoded_offsets`, `decoded_sizes`, and `validity` are expanded from valid ListView
+    // metadata for each run. The original `elements` child is reused, so every expanded view still
+    // points at the same valid element ranges.
+    Ok(unsafe {
+        ListViewArray::new_unchecked(
+            values.elements().clone(),
+            decoded_offsets,
+            decoded_sizes,
+            validity,
+        )
     })
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use std::sync::LazyLock;
 
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::DictArray;
+    use vortex_array::arrays::ListArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::VarBinBuilder;
@@ -522,6 +576,7 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::i256;
+    use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
@@ -580,6 +635,94 @@ mod tests {
         let mut builder = VarBinBuilder::<i32>::with_capacity(arr.dtype().clone(), arr.len());
         arr.append_to_builder(&mut builder, &mut ctx).unwrap();
         assert_arrays_eq!(builder.finish_into_varbin(), expected, &mut ctx);
+        assert_arrays_eq!(arr.into_array(), expected, &mut ctx);
+    }
+
+    #[test]
+    fn test_runend_list_i64() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = ListArray::from_iter_slow::<u32, _>(
+            vec![vec![1i64, 2], vec![3], vec![4, 5, 6]],
+            Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
+        )
+        .unwrap()
+        .into_array();
+        let arr = RunEnd::new(buffer![2u32, 5, 10].into_array(), values, &mut ctx);
+
+        let expected = ListArray::from_iter_slow::<u32, _>(
+            vec![
+                vec![1i64, 2],
+                vec![1, 2],
+                vec![3],
+                vec![3],
+                vec![3],
+                vec![4, 5, 6],
+                vec![4, 5, 6],
+                vec![4, 5, 6],
+                vec![4, 5, 6],
+                vec![4, 5, 6],
+            ],
+            Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
+        )
+        .unwrap()
+        .into_array();
+        assert_arrays_eq!(arr.into_array(), expected, &mut ctx);
+    }
+
+    #[test]
+    fn test_runend_list_bool() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = ListArray::from_iter_slow::<u32, _>(
+            vec![vec![true, false], vec![false], vec![true, true, false]],
+            Arc::new(DType::Bool(Nullability::NonNullable)),
+        )
+        .unwrap()
+        .into_array();
+        let arr = RunEnd::new(buffer![2u32, 5, 10].into_array(), values, &mut ctx);
+
+        let expected = ListArray::from_iter_slow::<u32, _>(
+            vec![
+                vec![true, false],
+                vec![true, false],
+                vec![false],
+                vec![false],
+                vec![false],
+                vec![true, true, false],
+                vec![true, true, false],
+                vec![true, true, false],
+                vec![true, true, false],
+                vec![true, true, false],
+            ],
+            Arc::new(DType::Bool(Nullability::NonNullable)),
+        )
+        .unwrap()
+        .into_array();
+        assert_arrays_eq!(arr.into_array(), expected, &mut ctx);
+    }
+
+    #[test]
+    fn test_runend_list_utf8() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = ListArray::try_new(
+            VarBinViewArray::from_iter_str(["a", "b", "c", "d", "e", "f"]).into_array(),
+            buffer![0u32, 2, 3, 6].into_array(),
+            Validity::NonNullable,
+        )
+        .unwrap()
+        .into_array();
+        let arr = RunEnd::new(buffer![2u32, 5, 10].into_array(), values, &mut ctx);
+
+        let expected = ListArray::try_new(
+            VarBinViewArray::from_iter_str([
+                "a", "b", "a", "b", "c", "c", "c", "d", "e", "f", "d", "e", "f", "d", "e", "f",
+                "d", "e", "f", "d", "e", "f",
+            ])
+            .into_array(),
+            buffer![0u32, 2, 4, 5, 6, 7, 10, 13, 16, 19, 22].into_array(),
+            Validity::NonNullable,
+        )
+        .unwrap()
+        .into_array();
         assert_arrays_eq!(arr.into_array(), expected, &mut ctx);
     }
 
