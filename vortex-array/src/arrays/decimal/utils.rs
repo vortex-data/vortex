@@ -46,46 +46,57 @@ pub fn converted_buffer<W: NativeDecimalType>(
         return Ok(widened_buffer(array));
     }
     match_each_decimal_value_type!(array.values_type(), |T| {
-        let src = array.buffer::<T>();
-        match validity {
-            Mask::AllTrue(_) => {
-                // Keeping the overflow scan branchless and vectorizable. Only on overflow
-                // do we rescan for diagnostics.
-                let any_overflow = src.iter().fold(false, |acc, v| acc | W::from(*v).is_none());
-                if any_overflow {
-                    let (i, v) = src
-                        .iter()
-                        .enumerate()
-                        .find(|&(_, v)| W::from(*v).is_none())
-                        .vortex_expect("overflow scan found an overflowing value");
-                    vortex_bail!(
-                        "decimal value {v} at index {i} does not fit {}",
-                        W::DECIMAL_TYPE
-                    );
-                }
+        convert_checked::<T, W>(&array.buffer::<T>(), validity)
+    })
+}
+
+/// Converts the unscaled values in `src` to `W`, failing if any *valid* value does not fit.
+///
+/// Extracted into a generic function so that the body is type-checked once rather than once per
+/// arm of [`match_each_decimal_value_type`].
+fn convert_checked<T: NativeDecimalType, W: NativeDecimalType>(
+    src: &Buffer<T>,
+    validity: &Mask,
+) -> VortexResult<Buffer<W>> {
+    match validity {
+        Mask::AllTrue(_) => {
+            // Keeping the overflow scan branchless and vectorizable. Only on overflow
+            // do we rescan for diagnostics.
+            let any_overflow = src.iter().fold(false, |acc, v| acc | W::from(*v).is_none());
+            if any_overflow {
+                let (i, v) = src
+                    .iter()
+                    .enumerate()
+                    .find(|&(_, v)| W::from(*v).is_none())
+                    .vortex_expect("overflow scan found an overflowing value");
+                vortex_bail!(
+                    "decimal value {v} at index {i} does not fit {}",
+                    W::DECIMAL_TYPE
+                );
             }
-            Mask::AllFalse(_) => return Ok(Buffer::zeroed(src.len())),
-            Mask::Values(values) => {
-                let any_overflow = src.iter().fold(false, |acc, v| acc | W::from(*v).is_none());
-                if any_overflow {
-                    for (i, v) in src.iter().enumerate() {
-                        if values.value(i) && W::from(*v).is_none() {
-                            vortex_bail!(
-                                "decimal value {v} at index {i} does not fit {}",
-                                W::DECIMAL_TYPE
-                            );
-                        }
+        }
+        Mask::AllFalse(_) => return Ok(Buffer::zeroed(src.len())),
+        Mask::Values(values) => {
+            let any_overflow = src.iter().fold(false, |acc, v| acc | W::from(*v).is_none());
+            if any_overflow {
+                for (i, v) in src.iter().enumerate() {
+                    if values.value(i) && W::from(*v).is_none() {
+                        vortex_bail!(
+                            "decimal value {v} at index {i} does not fit {}",
+                            W::DECIMAL_TYPE
+                        );
                     }
                 }
             }
         }
-        // The convert pass is infallible: every valid value fits, and out-of-range null-slot
-        // garbage is mapped to the default value. Callers must still ignore null slots.
-        Ok(src
-            .iter()
-            .map(|v| W::from(*v).unwrap_or_default())
-            .collect())
-    })
+    }
+
+    // The convert pass is infallible: every valid value fits, and out-of-range null-slot
+    // garbage is mapped to the default value. Callers must still ignore null slots.
+    Ok(src
+        .iter()
+        .map(|v| W::from(*v).unwrap_or_default())
+        .collect())
 }
 
 macro_rules! try_downcast {

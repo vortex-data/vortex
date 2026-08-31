@@ -22,6 +22,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::decimal::DecimalArrayExt;
 use crate::arrays::filter::FilterArraySlotsExt;
 use crate::dtype::IntegerPType;
+use crate::dtype::NativePType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_decimal_value_type;
 use crate::match_each_integer_ptype;
@@ -39,15 +40,13 @@ pub(in crate::arrays::filter) fn take_primitive(
     match_each_native_ptype!(child.ptype(), |T| {
         let child_buf = child.to_buffer::<T>();
         match_each_integer_ptype!(indices.ptype(), |P| {
-            let (taken, output_validity) = take_fixed_width::<T, P>(
+            take_primitive_typed::<T, P>(
                 child_buf,
                 child_validity,
                 array.filter_mask(),
                 indices,
                 ctx,
-            )?;
-            // SAFETY: Take operation validated all the parts
-            Ok(unsafe { PrimitiveArray::new_unchecked(taken, output_validity) }.into_array())
+            )
         })
     })
 }
@@ -252,4 +251,21 @@ where
     // SAFETY: The loop writes exactly `ranks.len()` initialized values.
     unsafe { out.set_len(ranks.len()) };
     Ok(out.freeze())
+}
+
+/// Takes from a primitive child and rewraps the result.
+///
+/// Extracted into a generic function so that the body is type-checked once rather than once per
+/// combination produced by the nested `match_each_*` expansions.
+fn take_primitive_typed<T: NativePType, P: IntegerPType>(
+    child_buf: Buffer<T>,
+    child_validity: Validity,
+    filter_mask: &Mask,
+    indices: &PrimitiveArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let (taken, output_validity) =
+        take_fixed_width::<T, P>(child_buf, child_validity, filter_mask, indices, ctx)?;
+    // SAFETY: Take operation validated all the parts
+    Ok(unsafe { PrimitiveArray::new_unchecked(taken, output_validity) }.into_array())
 }

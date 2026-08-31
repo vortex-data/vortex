@@ -42,24 +42,7 @@ pub fn sort_canonical_array(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexR
         }
         DType::Primitive(p, _) => {
             let primitive_array = array.clone().execute::<PrimitiveArray>(ctx)?;
-            match_each_native_ptype!(p, |P| {
-                let mut opt_values = primitive_array
-                    .as_slice::<P>()
-                    .iter()
-                    .copied()
-                    .zip(
-                        primitive_array
-                            .as_ref()
-                            .validity()?
-                            .execute_mask(primitive_array.as_ref().len(), ctx)?
-                            .to_bit_buffer()
-                            .iter(),
-                    )
-                    .map(|(p, v)| v.then_some(p))
-                    .collect::<Vec<_>>();
-                sort_primitive_slice(&mut opt_values);
-                Ok(PrimitiveArray::from_option_iter(opt_values).into_array())
-            })
+            match_each_native_ptype!(p, |P| { sort_primitive_typed::<P>(&primitive_array, ctx) })
         }
         DType::Decimal(d, _) => {
             let decimal_array = array.clone().execute::<DecimalArray>(ctx)?;
@@ -119,4 +102,30 @@ fn sort_primitive_slice<T: NativePType>(values: &mut [Option<T>]) {
         (None, Some(_)) => Ordering::Less,
         (Some(_), None) => Ordering::Greater,
     });
+}
+
+/// Sorts a primitive array, ordering nulls first.
+///
+/// Extracted into a generic function so that the body is type-checked once rather than once per
+/// arm of `match_each_native_ptype`.
+fn sort_primitive_typed<P: NativePType>(
+    primitive_array: &PrimitiveArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let mut opt_values = primitive_array
+        .as_slice::<P>()
+        .iter()
+        .copied()
+        .zip(
+            primitive_array
+                .as_ref()
+                .validity()?
+                .execute_mask(primitive_array.as_ref().len(), ctx)?
+                .to_bit_buffer()
+                .iter(),
+        )
+        .map(|(p, v)| v.then_some(p))
+        .collect::<Vec<_>>();
+    sort_primitive_slice(&mut opt_values);
+    Ok(PrimitiveArray::from_option_iter(opt_values).into_array())
 }

@@ -43,11 +43,13 @@ use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::dict::compute::rules::PARENT_RULES;
 use crate::arrays::dict::execute::take_canonical;
+use crate::arrays::varbinview::BinaryView;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinBuilder;
 use crate::builders::VarBinViewBuilder;
 use crate::dtype::DType;
+use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
 use crate::dtype::OffsetBuilderPType;
 use crate::dtype::PType;
@@ -325,26 +327,52 @@ where
         .collect::<Vec<_>>();
 
     match_each_integer_ptype!(codes.ptype(), |C| {
-        let codes = codes.as_slice::<C>();
-        let view = |row: usize| &views[AsPrimitive::<usize>::as_(codes[row])];
-
-        // Both passes below resolve a row through its code, so the byte total comes from the same
-        // walk over the valid rows that the copy will make.
-        let num_bytes = match validity.bit_buffer() {
-            AllOr::All => (0..len).map(|row| view(row).len() as usize).sum(),
-            AllOr::None => {
-                builder.push_nulls(len);
-                return Ok(());
-            }
-            AllOr::Some(bits) => {
-                let mut total = 0;
-                bits.for_each_set_index(|row| total += view(row).len() as usize);
-                total
-            }
-        };
-
-        builder.append_valid_slices(num_bytes, &validity, |row| view(row).bytes(&buffers))
+        append_dict_views::<C, O>(
+            codes.as_slice::<C>(),
+            views,
+            &buffers,
+            len,
+            &validity,
+            builder,
+        )
     })
+}
+
+/// Resolves each code against the dictionary views and appends the result to `builder`.
+///
+/// Extracted into a generic function so that the body is type-checked once rather than once per
+/// arm of [`match_each_integer_ptype`].
+fn append_dict_views<C, O>(
+    codes: &[C],
+    views: &[BinaryView],
+    buffers: &[&[u8]],
+    len: usize,
+    validity: &Mask,
+    builder: &mut VarBinBuilder<O>,
+) -> VortexResult<()>
+where
+    C: IntegerPType + AsPrimitive<usize>,
+    O: OffsetBuilderPType,
+    usize: AsPrimitive<O>,
+{
+    let view = |row: usize| &views[AsPrimitive::<usize>::as_(codes[row])];
+
+    // Both passes below resolve a row through its code, so the byte total comes from the same
+    // walk over the valid rows that the copy will make.
+    let num_bytes = match validity.bit_buffer() {
+        AllOr::All => (0..len).map(|row| view(row).len() as usize).sum(),
+        AllOr::None => {
+            builder.push_nulls(len);
+            return Ok(());
+        }
+        AllOr::Some(bits) => {
+            let mut total = 0;
+            bits.for_each_set_index(|row| total += view(row).len() as usize);
+            total
+        }
+    };
+
+    builder.append_valid_slices(num_bytes, validity, |row| view(row).bytes(buffers))
 }
 
 #[cfg(test)]

@@ -75,7 +75,7 @@ pub fn compare_canonical_array(
                 .vortex_expect("to primitive");
             match_each_native_ptype!(p, |P| {
                 compare_primitive_to_scalar::<P>(
-                    &array,
+                    array,
                     &primitive_array,
                     primitive,
                     operator,

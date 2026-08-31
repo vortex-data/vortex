@@ -4,13 +4,13 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 
-use num_traits::AsPrimitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::ArraySlots;
@@ -25,6 +25,7 @@ use crate::arrays::VarBin;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
+use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
 use crate::dtype::OffsetBuilderPType;
 use crate::legacy_session;
@@ -266,26 +267,13 @@ impl VarBinData {
         let all_invalid = validity.definitely_all_null();
 
         match_each_integer_ptype!(primitive_offsets.dtype().as_ptype(), |O| {
-            let offsets_slice = primitive_offsets.as_slice::<O>();
-
-            let last_offset: usize = offsets_slice[offsets_slice.len() - 1].as_();
-            vortex_ensure!(
-                last_offset <= bytes.len(),
-                InvalidArgument: "Last offset {} exceeds bytes length {}",
-                last_offset,
-                bytes.len()
-            );
-
-            for (i, (start, end)) in offsets_slice
-                .windows(2)
-                .map(|o| (o[0].as_(), o[1].as_()))
-                .enumerate()
-            {
-                let valid = mask.as_ref().map_or(!all_invalid, |mask| mask.value(i));
-                if valid {
-                    validate_at(i, start, end)?;
-                }
-            }
+            validate_offsets_and_bytes::<O>(
+                primitive_offsets.as_slice::<O>(),
+                bytes.len(),
+                mask.as_ref(),
+                all_invalid,
+                validate_at,
+            )?
         });
         Ok(())
     }
@@ -594,4 +582,35 @@ impl<'a> FromIterator<Option<&'a str>> for Array<VarBin> {
     fn from_iter<T: IntoIterator<Item = Option<&'a str>>>(iter: T) -> Self {
         Self::from_iter(iter, DType::Utf8(Nullability::Nullable))
     }
+}
+
+/// Validates that the offsets are in bounds and that every valid slice is well formed.
+///
+/// Extracted into a generic function so that the body is type-checked once rather than once per
+/// arm of [`match_each_integer_ptype`].
+fn validate_offsets_and_bytes<O: IntegerPType>(
+    offsets: &[O],
+    bytes_len: usize,
+    mask: Option<&Mask>,
+    all_invalid: bool,
+    validate_at: impl Fn(usize, usize, usize) -> VortexResult<()>,
+) -> VortexResult<()> {
+    let last_offset: usize = offsets[offsets.len() - 1].as_();
+    vortex_ensure!(
+        last_offset <= bytes_len,
+        InvalidArgument: "Last offset {last_offset} exceeds bytes length {bytes_len}"
+    );
+
+    for (i, (start, end)) in offsets
+        .windows(2)
+        .map(|o| (o[0].as_(), o[1].as_()))
+        .enumerate()
+    {
+        let valid = mask.map_or(!all_invalid, |mask| mask.value(i));
+        if valid {
+            validate_at(i, start, end)?;
+        }
+    }
+
+    Ok(())
 }

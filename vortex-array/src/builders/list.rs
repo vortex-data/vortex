@@ -4,7 +4,6 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use num_traits::AsPrimitive;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -195,32 +194,52 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
         let num_lists = array.len();
         let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
         match_each_integer_ptype!(offsets.ptype(), |OffsetType| {
-            let offsets = offsets.as_slice::<OffsetType>();
-            let first: usize = offsets[0].as_();
-            let last: usize = offsets[num_lists].as_();
-
-            // Lists in a `ListArray` are contiguous, so the referenced elements can be appended
-            // in bulk and the offsets rebased onto this builder's elements.
-            let elements_base = self.elements_builder.len();
-            if last > first {
-                self.elements_builder
-                    .append_array(&array.elements().slice(first..last)?, ctx)?;
-            }
-
-            self.offsets_builder.reserve_exact(num_lists);
-            let mut offsets_range = self.offsets_builder.uninit_range(num_lists);
-            for i in 0..num_lists {
-                let end: usize = offsets[i + 1].as_();
-                offsets_range.set_value(
-                    i,
-                    O::from_usize(end - first + elements_base)
-                        .vortex_expect("Failed to convert offset"),
-                );
-            }
-            // SAFETY: We have initialized all `num_lists` values, and since the `offsets` array is
-            // non-nullable, we are done.
-            unsafe { offsets_range.finish() };
+            self.append_list_offsets::<OffsetType>(
+                offsets.as_slice::<OffsetType>(),
+                num_lists,
+                &array,
+                ctx,
+            )?
         });
+        Ok(())
+    }
+
+    /// Appends the elements and rebased offsets of a `ListArray` to this builder.
+    ///
+    /// Extracted into a generic function so that the body is type-checked once rather than once
+    /// per arm of [`match_each_integer_ptype`].
+    fn append_list_offsets<OffsetType: IntegerPType>(
+        &mut self,
+        offsets: &[OffsetType],
+        num_lists: usize,
+        array: &ArrayView<'_, List>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let first: usize = offsets[0].as_();
+        let last: usize = offsets[num_lists].as_();
+
+        // Lists in a `ListArray` are contiguous, so the referenced elements can be appended
+        // in bulk and the offsets rebased onto this builder's elements.
+        let elements_base = self.elements_builder.len();
+        if last > first {
+            self.elements_builder
+                .append_array(&array.elements().slice(first..last)?, ctx)?;
+        }
+
+        self.offsets_builder.reserve_exact(num_lists);
+        let mut offsets_range = self.offsets_builder.uninit_range(num_lists);
+        for i in 0..num_lists {
+            let end: usize = offsets[i + 1].as_();
+            offsets_range.set_value(
+                i,
+                O::from_usize(end - first + elements_base)
+                    .vortex_expect("Failed to convert offset"),
+            );
+        }
+        // SAFETY: We have initialized all `num_lists` values, and since the `offsets` array is
+        // non-nullable, we are done.
+        unsafe { offsets_range.finish() };
+
         Ok(())
     }
 

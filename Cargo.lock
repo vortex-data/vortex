@@ -11120,6 +11120,7 @@ dependencies = [
  "arbitrary",
  "itertools 0.14.0",
  "libfuzzer-sys",
+ "num-traits",
  "strum 0.28.0",
  "tokio",
  "tracing",

@@ -51,6 +51,7 @@ use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::require_child;
 use crate::serde::ArrayChildren;
+use crate::validity::Validity;
 
 /// A [`Patched`]-encoded Vortex array.
 pub type PatchedArray = Array<Patched>;
@@ -224,25 +225,15 @@ impl VTable for Patched {
             .execute::<PrimitiveArray>(ctx)?;
 
         match_each_native_ptype!(ptype, |V| {
-            let typed_builder = builder
-                .as_any_mut()
-                .downcast_mut::<PrimitiveBuilder<V>>()
-                .vortex_expect("correctly typed builder");
-
-            // Overwrite the last `len` elements of the builder. These would have been
-            // populated by the inner.append_to_builder() call above.
-            let output = typed_builder.values_mut();
-            let trailer = output.len() - len;
-
-            apply_patches_primitive::<V>(
-                &mut output[trailer..],
-                offset,
+            append_patches_to_builder::<V>(
+                builder,
                 len,
+                offset,
                 array.n_lanes(),
                 lane_offsets.as_slice::<u32>(),
                 indices.as_slice::<u16>(),
                 values.as_slice::<V>(),
-            );
+            )
         });
 
         Ok(())
@@ -282,21 +273,17 @@ impl VTable for Patched {
         let patch_indices = slots.patch_indices.downcast::<Primitive>();
 
         let patched_values = match_each_native_ptype!(values.ptype(), |V| {
-            let mut output = Buffer::<V>::from_byte_buffer(buffer.unwrap_host()).into_mut();
-
-            apply_patches_primitive::<V>(
-                &mut output,
+            apply_patches_to_buffer::<V>(
+                buffer,
+                ptype,
+                validity,
                 offset,
                 len,
                 n_lanes,
                 lane_offsets.as_slice::<u32>(),
                 patch_indices.as_slice::<u16>(),
                 values.as_slice::<V>(),
-            );
-
-            let output = output.freeze();
-
-            PrimitiveArray::from_byte_buffer(output.into_byte_buffer(), ptype, validity)
+            )
         });
 
         Ok(ExecutionResult::done(patched_values.into_array()))
@@ -337,6 +324,71 @@ fn apply_patches_primitive<V: NativePType>(
             output[index - offset] = value;
         }
     }
+}
+
+/// Applies patches onto the trailing `len` elements already written into `builder`.
+///
+/// Extracted into a generic function so that the body is type-checked once rather than once per
+/// arm of [`match_each_native_ptype`].
+fn append_patches_to_builder<V: NativePType>(
+    builder: &mut dyn ArrayBuilder,
+    len: usize,
+    offset: usize,
+    n_lanes: usize,
+    lane_offsets: &[u32],
+    indices: &[u16],
+    values: &[V],
+) {
+    let typed_builder = builder
+        .as_any_mut()
+        .downcast_mut::<PrimitiveBuilder<V>>()
+        .vortex_expect("correctly typed builder");
+
+    // Overwrite the last `len` elements of the builder. These would have been
+    // populated by the inner.append_to_builder() call above.
+    let output = typed_builder.values_mut();
+    let trailer = output.len() - len;
+
+    apply_patches_primitive::<V>(
+        &mut output[trailer..],
+        offset,
+        len,
+        n_lanes,
+        lane_offsets,
+        indices,
+        values,
+    );
+}
+
+/// Applies patches onto the inner values buffer, producing the canonical primitive array.
+///
+/// Extracted into a generic function so that the body is type-checked once rather than once per
+/// arm of [`match_each_native_ptype`].
+#[expect(clippy::too_many_arguments)]
+fn apply_patches_to_buffer<V: NativePType>(
+    buffer: BufferHandle,
+    ptype: PType,
+    validity: Validity,
+    offset: usize,
+    len: usize,
+    n_lanes: usize,
+    lane_offsets: &[u32],
+    patch_indices: &[u16],
+    values: &[V],
+) -> PrimitiveArray {
+    let mut output = Buffer::<V>::from_byte_buffer(buffer.unwrap_host()).into_mut();
+
+    apply_patches_primitive::<V>(
+        &mut output,
+        offset,
+        len,
+        n_lanes,
+        lane_offsets,
+        patch_indices,
+        values,
+    );
+
+    PrimitiveArray::from_byte_buffer(output.freeze().into_byte_buffer(), ptype, validity)
 }
 
 #[cfg(test)]

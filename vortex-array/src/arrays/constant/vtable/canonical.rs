@@ -8,6 +8,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 
 use crate::Canonical;
 use crate::ExecutionCtx;
@@ -31,6 +32,7 @@ use crate::arrays::varbinview::BinaryView;
 use crate::builders::builder_with_capacity;
 use crate::dtype::DType;
 use crate::dtype::DecimalType;
+use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::match_each_decimal_value;
 use crate::match_each_decimal_value_type;
@@ -66,18 +68,7 @@ pub(crate) fn constant_canonicalize(
         )),
         DType::Primitive(ptype, ..) => {
             match_each_native_ptype!(ptype, |P| {
-                Canonical::Primitive(PrimitiveArray::new(
-                    if scalar.is_valid() {
-                        Buffer::full(
-                            P::try_from(scalar)
-                                .vortex_expect("Couldn't unwrap scalar to primitive"),
-                            array.len(),
-                        )
-                    } else {
-                        Buffer::zeroed(array.len())
-                    },
-                    validity,
-                ))
+                Canonical::Primitive(constant_primitive::<P>(scalar, array.len(), validity))
             })
         }
         DType::Decimal(decimal_type, ..) => {
@@ -337,6 +328,28 @@ fn constant_canonical_fixed_size_list_array(
             unsafe { FixedSizeListArray::new_unchecked(elements, list_size, validity, len) }
         }
     }
+}
+
+/// Builds the primitive array backing a constant array.
+///
+/// Extracted into a generic function so that the body is type-checked once rather than once per
+/// arm of [`match_each_native_ptype`].
+fn constant_primitive<P: NativePType + for<'a> TryFrom<&'a Scalar>>(
+    scalar: &Scalar,
+    len: usize,
+    validity: Validity,
+) -> PrimitiveArray {
+    let buffer = if scalar.is_valid() {
+        Buffer::full(
+            P::try_from(scalar)
+                .unwrap_or_else(|_| vortex_panic!("Couldn't unwrap scalar to primitive")),
+            len,
+        )
+    } else {
+        Buffer::zeroed(len)
+    };
+
+    PrimitiveArray::new(buffer, validity)
 }
 
 #[cfg(test)]

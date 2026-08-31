@@ -3,7 +3,6 @@
 
 use std::ops::Range;
 
-use num_traits::Zero;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -50,6 +49,40 @@ const N_REFERENCED_UNSELECTED_ELEMENTS_THRESHOLD: usize = 1024;
 /// overhead of potentially wasteful mask reconstruction.
 ///
 /// Returns the range and a flag indicating whether the range is a subinterval of the referenced element range.
+/// Builds the filtered offsets, along with the element range and mask they select.
+///
+/// Extracted into a generic function so that the body is type-checked once rather than once per
+/// arm of [`match_each_integer_ptype`].
+fn filter_offsets<O: IntegerPType>(
+    offsets: &ArrayRef,
+    selection: &MaskValuesRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<(ArrayRef, Range<usize>, bool, Mask)> {
+    let offsets_buffer = offsets.clone().execute::<Buffer<O>>(ctx)?;
+    let offsets = offsets_buffer.as_slice();
+    let mut new_offsets = BufferMut::<O>::with_capacity(selection.true_count() + 1);
+
+    let mut offset = O::zero();
+    unsafe { new_offsets.push_unchecked(offset) };
+    for idx in selection.indices() {
+        let size = offsets[idx + 1] - offsets[*idx];
+        offset += size;
+        unsafe { new_offsets.push_unchecked(offset) };
+    }
+
+    // TODO(ngates): for very dense masks, there may be no point in filtering the elements,
+    //  and instead we should construct a view against the unfiltered elements.
+    let (element_range, range_is_subinterval) = element_range_from_offsets::<O>(offsets, selection);
+    let element_mask = element_mask_from_offsets::<O>(offsets, selection, &element_range);
+
+    Ok((
+        new_offsets.freeze().into_array(),
+        element_range,
+        range_is_subinterval,
+        element_mask,
+    ))
+}
+
 fn element_range_from_offsets<O: IntegerPType>(
     offsets: &[O],
     selection: &MaskValuesRef,
@@ -163,31 +196,7 @@ impl FilterKernel for List {
 
         let (new_offsets, element_range, range_is_subinterval, element_mask) =
             match_each_integer_ptype!(offsets.dtype().as_ptype(), |O| {
-                let offsets_buffer = offsets.execute::<Buffer<O>>(ctx)?;
-                let offsets = offsets_buffer.as_slice();
-                let mut new_offsets = BufferMut::<O>::with_capacity(selection.true_count() + 1);
-
-                let mut offset = O::zero();
-                unsafe { new_offsets.push_unchecked(offset) };
-                for idx in selection.indices() {
-                    let size = offsets[idx + 1] - offsets[*idx];
-                    offset += size;
-                    unsafe { new_offsets.push_unchecked(offset) };
-                }
-
-                // TODO(ngates): for very dense masks, there may be no point in filtering the elements,
-                //  and instead we should construct a view against the unfiltered elements.
-                let (element_range, range_is_subinterval) =
-                    element_range_from_offsets::<O>(offsets, selection);
-                let element_mask =
-                    element_mask_from_offsets::<O>(offsets, selection, &element_range);
-
-                (
-                    new_offsets.freeze().into_array(),
-                    element_range,
-                    range_is_subinterval,
-                    element_mask,
-                )
+                filter_offsets::<O>(&offsets, selection, ctx)?
             });
 
         let new_elements = if range_is_subinterval {

@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::Nullability::Nullable;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
@@ -31,25 +33,17 @@ pub fn cast_canonical_array(
     }
 
     if is_int_to_int {
+        let prim = array.clone().execute::<PrimitiveArray>(ctx)?;
+        let validity = Validity::from_mask(
+            array.validity()?.execute_mask(array.len(), ctx)?,
+            target.nullability(),
+        );
+
         Ok(Some(match_each_integer_ptype!(
             array.dtype().as_ptype(),
             |In| {
                 match_each_integer_ptype!(target.as_ptype(), |Out| {
-                    #[allow(clippy::cast_possible_truncation)]
-                    {
-                        let prim = array.clone().execute::<PrimitiveArray>(ctx)?;
-                        PrimitiveArray::new(
-                            prim.as_slice::<In>()
-                                .iter()
-                                .map(|v| *v as Out)
-                                .collect::<Buffer<Out>>(),
-                            Validity::from_mask(
-                                array.validity()?.execute_mask(array.len(), ctx)?,
-                                target.nullability(),
-                            ),
-                        )
-                        .into_array()
-                    }
+                    cast_int_slice::<In, Out>(prim.as_slice::<In>(), validity)
                 })
             }
         )))
@@ -165,4 +159,19 @@ pub fn allowed_casting_ptype(from: PType, to: PType) -> Option<CastOutcome> {
 
         _ => None,
     }
+}
+
+/// Casts an integer slice elementwise to `Out`.
+///
+/// Extracted into a generic function so that the body is type-checked once rather than once per
+/// combination produced by the nested `match_each_integer_ptype` expansions.
+fn cast_int_slice<In: IntegerPType + AsPrimitive<Out>, Out: IntegerPType>(
+    values: &[In],
+    validity: Validity,
+) -> ArrayRef {
+    PrimitiveArray::new(
+        values.iter().map(|v| v.as_()).collect::<Buffer<Out>>(),
+        validity,
+    )
+    .into_array()
 }
