@@ -17,6 +17,7 @@ use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
+use crate::expr::Lambda;
 use crate::expr::Variable;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
@@ -74,6 +75,16 @@ pub fn bound_root(dtype: DType) -> BoundExpression {
 /// Creates an expression referencing the value bound to `name` in the surrounding scope.
 pub fn var(name: impl AsRef<str>) -> Expression {
     Variable::new(name).into()
+}
+
+/// Creates a lambda expression binding `params` over `body`.
+///
+/// Returns an error when a parameter name is repeated in the same lambda.
+pub fn lambda(
+    params: impl IntoIterator<Item = impl Into<Variable>>,
+    body: Expression,
+) -> VortexResult<Expression> {
+    Ok(Lambda::try_new(params, body)?.into())
 }
 
 /// Return whether the expression is a root expression.

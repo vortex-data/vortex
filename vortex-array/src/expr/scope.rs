@@ -116,6 +116,17 @@ impl Scope {
         Ok(self.push_frame(Frame::try_new(bindings)?))
     }
 
+    /// Return this scope with the same lexical frames and a different root dtype.
+    ///
+    /// Higher-order functions use this when a lambda has a new implicit input while retaining
+    /// access to bindings captured from surrounding scopes.
+    pub fn with_root(&self, root: DType) -> Self {
+        Self {
+            root,
+            frames: self.frames.clone(),
+        }
+    }
+
     /// Resolve `name`, searching innermost-first so inner bindings shadow outer ones.
     pub fn resolve(&self, name: &Variable) -> Option<(&DType, VariableRef)> {
         self.frames
@@ -215,6 +226,17 @@ mod tests {
                 .map(|(_, variable_ref)| variable_ref),
             outer_ref
         );
+        Ok(())
+    }
+
+    #[test]
+    fn replacing_the_root_preserves_lexical_bindings() -> VortexResult<()> {
+        let variable = Variable::new("captured");
+        let scope = Scope::new(i32_()).with_bindings([(variable.clone(), utf8())])?;
+        let with_new_root = scope.with_root(utf8());
+
+        assert_eq!(with_new_root.root(), &utf8());
+        assert_eq!(with_new_root.resolve(&variable), scope.resolve(&variable));
         Ok(())
     }
 }

@@ -10,6 +10,7 @@ use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
 use crate::expr::Expression;
+use crate::expr::Lambda;
 use crate::expr::Variable;
 use crate::scalar_fn::ForeignScalarFnVTable;
 use crate::scalar_fn::ScalarFnId;
@@ -27,6 +28,43 @@ pub(crate) const ROOT_ID: &str = "vortex.root";
 
 /// The wire id for [`Expression::Variable`].
 pub(crate) const VARIABLE_ID: &str = "vortex.var";
+
+/// The wire id for [`Expression::Lambda`].
+pub(crate) const LAMBDA_ID: &str = "vortex.lambda";
+
+impl Lambda {
+    /// Serialize this lambda to its protobuf representation.
+    fn serialize_proto(&self) -> VortexResult<pb::Expr> {
+        Ok(pb::Expr {
+            id: LAMBDA_ID.to_string(),
+            children: vec![self.body().serialize_proto()?],
+            metadata: Some(
+                pb::LambdaOpts {
+                    params: self
+                        .params()
+                        .iter()
+                        .map(|variable| variable.name().to_string())
+                        .collect(),
+                }
+                .encode_to_vec(),
+            ),
+        })
+    }
+
+    /// Deserialize a lambda expression whose id is [`LAMBDA_ID`].
+    fn from_proto(expr: &pb::Expr, session: &VortexSession) -> VortexResult<Self> {
+        vortex_ensure!(
+            expr.children.len() == 1,
+            "a lambda must have exactly one child, its body, got {}",
+            expr.children.len()
+        );
+        let options = pb::LambdaOpts::decode(expr.metadata())?;
+        Self::try_new(
+            options.params.into_iter().map(Variable::new),
+            Expression::from_proto(&expr.children[0], session)?,
+        )
+    }
+}
 
 impl Variable {
     /// Serialize this variable to its protobuf representation.
@@ -88,6 +126,7 @@ impl ExprSerializeProtoExt for Expression {
                 metadata: Some(vec![]),
             }),
             Expression::Variable(variable) => Ok(variable.serialize_proto()),
+            Expression::Lambda(lambda) => lambda.serialize_proto(),
             Expression::Scalar {
                 scalar_fn,
                 children,
@@ -110,6 +149,10 @@ impl Expression {
 
         if expr.id == VARIABLE_ID {
             return Ok(Variable::from_proto(expr)?.into());
+        }
+
+        if expr.id == LAMBDA_ID {
+            return Ok(Lambda::from_proto(expr, session)?.into());
         }
 
         #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
@@ -155,6 +198,7 @@ mod tests {
     use crate::expr::between;
     use crate::expr::eq;
     use crate::expr::get_item;
+    use crate::expr::lambda;
     use crate::expr::lit;
     use crate::expr::or;
     use crate::expr::root;
@@ -208,6 +252,31 @@ mod tests {
         proto.children.push(root().serialize_proto()?);
 
         assert!(Expression::from_proto(&proto, &array_session()).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn lambda_serde() -> VortexResult<()> {
+        let expression = lambda(["x", "y"], eq(var("x"), var("y")))?;
+        let encoded = expression.serialize_proto()?.encode_to_vec();
+        let proto = pb::Expr::decode(encoded.as_slice())?;
+
+        assert_eq!(
+            Expression::from_proto(&proto, &array_session())?,
+            expression
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn lambda_requires_exactly_one_body() -> VortexResult<()> {
+        let mut without_body = lambda(["x"], var("x"))?.serialize_proto()?;
+        without_body.children.clear();
+        assert!(Expression::from_proto(&without_body, &array_session()).is_err());
+
+        let mut with_two_bodies = lambda(["x"], var("x"))?.serialize_proto()?;
+        with_two_bodies.children.push(root().serialize_proto()?);
+        assert!(Expression::from_proto(&with_two_bodies, &array_session()).is_err());
         Ok(())
     }
 

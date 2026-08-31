@@ -20,6 +20,9 @@ impl ArrayRef {
     pub fn apply_bound(self, expr: &BoundExpression) -> VortexResult<ArrayRef> {
         match expr {
             BoundExpression::Root { .. } => Ok(self),
+            BoundExpression::Lambda(_) => {
+                vortex_bail!("cannot apply a lambda outside a higher-order function")
+            }
             BoundExpression::Variable(variable) => {
                 vortex_bail!("cannot apply variable '{variable}' without a provided value")
             }
@@ -35,6 +38,9 @@ impl ArrayRef {
     pub fn apply(self, expr: &Expression) -> VortexResult<ArrayRef> {
         match expr {
             Expression::Root => Ok(self),
+            Expression::Lambda(_) => {
+                vortex_bail!("cannot apply a lambda outside a higher-order function")
+            }
             Expression::Variable(variable) => {
                 vortex_bail!("cannot apply unbound variable '{variable}'")
             }
@@ -90,6 +96,7 @@ mod tests {
     use crate::IntoArray;
     use crate::expr::Scope;
     use crate::expr::Variable;
+    use crate::expr::lambda;
     use crate::expr::var;
 
     #[test]
@@ -102,6 +109,15 @@ mod tests {
             .with_bindings([(Variable::new("value"), root.dtype().clone())])?;
         let bound = expression.bind_scope(&scope)?;
         assert!(root.apply_bound(&bound).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn lambda_application_requires_a_higher_order_function() -> VortexResult<()> {
+        let root = buffer![1_i32, 2, 3].into_array();
+        let expression = lambda(["value"], var("value"))?;
+
+        assert!(root.apply(&expression).is_err());
         Ok(())
     }
 }

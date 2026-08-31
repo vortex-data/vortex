@@ -14,8 +14,9 @@ pub fn label_strict(expr: &Expression) -> BooleanLabels<'_> {
         expr,
         |expr| match expr {
             Expression::Scalar { scalar_fn, .. } => scalar_fn.signature().is_strict(),
-            // Vacuously strict.
-            Expression::Root | Expression::Variable(_) => true,
+            Expression::Root => true,
+            // Strictness is determined by the enclosing HOF.
+            Expression::Variable(_) | Expression::Lambda(_) => true,
         },
         |acc, &child| acc & child,
     )

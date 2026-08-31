@@ -13,10 +13,12 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::dtype::DType;
 use crate::expr::Expression;
+use crate::expr::Lambda;
 use crate::expr::display::DisplayTreeExpr;
 use crate::expr::scope::Scope;
 use crate::expr::scope::VariableRef;
@@ -48,6 +50,11 @@ pub enum BoundExpression {
         /// consumers from destructuring a `BoundExpression` by value.
         children: Arc<Vec<BoundExpression>>,
     },
+    /// A bound lambda whose dtype is the dtype of its body.
+    ///
+    /// A lambda is not independently executable; only an enclosing higher-order function may
+    /// close it over captures and apply it to arguments.
+    Lambda(BoundLambda),
     /// The scope itself. Its dtype is the scope's root dtype.
     Root {
         /// The dtype this node evaluates to.
@@ -88,6 +95,137 @@ impl Display for BoundVariable {
     }
 }
 
+/// A lambda whose parameters and body have been resolved against a lexical [`Scope`].
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct BoundLambda {
+    params: Box<[Variable]>,
+    param_dtypes: Box<[DType]>,
+    param_refs: Box<[VariableRef]>,
+    parameter_frame: usize,
+    body: Arc<BoundExpression>,
+}
+
+impl BoundLambda {
+    /// Bind `lambda` against a scope containing its parameter bindings in the innermost frame.
+    ///
+    /// The enclosing higher-order function determines the parameter dtypes and constructs this
+    /// scope before binding the lambda.
+    pub fn bind(lambda: &Lambda, scope: &Scope) -> VortexResult<Self> {
+        vortex_ensure!(
+            scope.depth() > 0,
+            "lambda parameters must be bound in a lexical frame"
+        );
+        let parameter_frame = scope.depth() - 1;
+        let parameter_bindings = lambda
+            .params()
+            .iter()
+            .map(|param| {
+                scope
+                    .resolve(param)
+                    .map(|(dtype, variable_ref)| (dtype.clone(), variable_ref))
+                    .ok_or_else(|| {
+                        vortex_err!("lambda parameter '{param}' is not bound in its scope")
+                    })
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
+        vortex_ensure!(
+            parameter_bindings
+                .iter()
+                .all(|(_, variable_ref)| variable_ref.frame() == parameter_frame),
+            "lambda parameters must be bound in the innermost lexical frame"
+        );
+
+        Ok(Self {
+            params: lambda.params().into(),
+            param_dtypes: parameter_bindings
+                .iter()
+                .map(|(dtype, _)| dtype.clone())
+                .collect(),
+            param_refs: parameter_bindings
+                .into_iter()
+                .map(|(_, variable_ref)| variable_ref)
+                .collect(),
+            parameter_frame,
+            body: Arc::new(lambda.body().bind_scope(scope)?),
+        })
+    }
+
+    /// The variables this lambda binds, in declaration order.
+    pub fn params(&self) -> &[Variable] {
+        &self.params
+    }
+
+    /// The dtypes of the parameters, in declaration order.
+    pub fn param_dtypes(&self) -> &[DType] {
+        &self.param_dtypes
+    }
+
+    /// The lexical locations assigned to the parameters, in declaration order.
+    pub fn param_refs(&self) -> &[VariableRef] {
+        &self.param_refs
+    }
+
+    /// The lexical frame containing the parameters.
+    pub fn parameter_frame(&self) -> usize {
+        self.parameter_frame
+    }
+
+    /// The bound body.
+    pub fn body(&self) -> &BoundExpression {
+        &self.body
+    }
+
+    /// The dtype the body evaluates to.
+    pub fn body_dtype(&self) -> &DType {
+        self.body.dtype()
+    }
+
+    /// The outer lexical bindings read by this lambda body.
+    pub fn free_variables(&self) -> Vec<VariableRef> {
+        fn collect(
+            expression: &BoundExpression,
+            parameter_frame: usize,
+            variables: &mut Vec<VariableRef>,
+        ) {
+            match expression {
+                BoundExpression::Variable(variable)
+                    if variable.variable_ref().frame() < parameter_frame
+                        && !variables.contains(&variable.variable_ref()) =>
+                {
+                    variables.push(variable.variable_ref());
+                }
+                BoundExpression::Scalar { children, .. } => {
+                    for child in children.iter() {
+                        collect(child, parameter_frame, variables);
+                    }
+                }
+                BoundExpression::Lambda(_)
+                | BoundExpression::Root { .. }
+                | BoundExpression::Variable(_) => {}
+            }
+        }
+
+        let mut variables = Vec::new();
+        collect(&self.body, self.parameter_frame, &mut variables);
+        variables.sort_by_key(|variable_ref| (variable_ref.frame(), variable_ref.slot()));
+        variables
+    }
+
+    fn take_body(&mut self) -> Option<BoundExpression> {
+        Arc::try_unwrap(std::mem::replace(
+            &mut self.body,
+            Arc::new(BoundExpression::new_root(DType::Null)),
+        ))
+        .ok()
+    }
+}
+
+impl Display for BoundLambda {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "({}) -> {}", self.params.iter().join(", "), self.body)
+    }
+}
+
 /// A bound-expression wrapper that compares shared tree identity instead of structure.
 #[derive(Clone, Debug)]
 pub struct ExactBoundExpr(pub BoundExpression);
@@ -115,9 +253,11 @@ impl PartialEq for ExactBoundExpr {
                     && Arc::ptr_eq(lhs_children, rhs_children)
                     && lhs_dtype == rhs_dtype
             }
+            (BoundExpression::Lambda(lhs), BoundExpression::Lambda(rhs)) => lhs == rhs,
             (BoundExpression::Variable(lhs), BoundExpression::Variable(rhs)) => lhs == rhs,
             (BoundExpression::Root { .. }, _)
             | (BoundExpression::Scalar { .. }, _)
+            | (BoundExpression::Lambda(_), _)
             | (BoundExpression::Variable(_), _) => false,
         }
     }
@@ -135,6 +275,10 @@ impl Hash for ExactBoundExpr {
                 state.write_u8(2);
                 variable.variable().hash(state);
                 variable.variable_ref().hash(state);
+            }
+            BoundExpression::Lambda(lambda) => {
+                state.write_u8(3);
+                lambda.hash(state);
             }
             BoundExpression::Scalar {
                 scalar_fn,
@@ -170,6 +314,10 @@ impl BoundExpression {
             scalar_fn.signature().arity(),
             children.len()
         );
+        vortex_ensure!(
+            children.iter().all(|child| !child.is_lambda()),
+            "a scalar function cannot take a lambda as an ordinary argument"
+        );
 
         let arg_dtypes = children
             .iter()
@@ -194,7 +342,9 @@ impl BoundExpression {
             BoundExpression::Scalar { scalar_fn, .. } => {
                 Self::try_new_vec(scalar_fn.clone(), children)
             }
-            BoundExpression::Root { .. } | BoundExpression::Variable(_) => {
+            BoundExpression::Lambda(_)
+            | BoundExpression::Root { .. }
+            | BoundExpression::Variable(_) => {
                 vortex_ensure!(
                     children.is_empty(),
                     "{self} cannot have {} children",
@@ -209,15 +359,18 @@ impl BoundExpression {
     pub fn dtype(&self) -> &DType {
         match self {
             Self::Scalar { dtype, .. } | Self::Root { dtype } => dtype,
+            Self::Lambda(lambda) => lambda.body_dtype(),
             Self::Variable(variable) => variable.dtype(),
         }
     }
 
-    /// The bound children of this node, in argument order. Empty for leaf nodes.
+    /// The ordinary bound children of this node, in argument order.
+    ///
+    /// A bound lambda body is available through [`BoundLambda::body`] instead.
     pub fn children(&self) -> &[BoundExpression] {
         match self {
             Self::Scalar { children, .. } => children.as_slice(),
-            Self::Root { .. } | Self::Variable(_) => &[],
+            Self::Lambda(_) | Self::Root { .. } | Self::Variable(_) => &[],
         }
     }
 
@@ -230,15 +383,28 @@ impl BoundExpression {
     pub fn as_scalar(&self) -> Option<&ScalarFnRef> {
         match self {
             Self::Scalar { scalar_fn, .. } => Some(scalar_fn),
-            Self::Root { .. } | Self::Variable(_) => None,
+            Self::Lambda(_) | Self::Root { .. } | Self::Variable(_) => None,
         }
+    }
+
+    /// Return this node's bound lambda, if it is a lambda.
+    pub fn as_lambda(&self) -> Option<&BoundLambda> {
+        match self {
+            Self::Lambda(lambda) => Some(lambda),
+            Self::Scalar { .. } | Self::Root { .. } | Self::Variable(_) => None,
+        }
+    }
+
+    /// Whether this node is a bound lambda.
+    pub fn is_lambda(&self) -> bool {
+        self.as_lambda().is_some()
     }
 
     /// Return this node's bound variable, if it is a variable.
     pub fn as_variable(&self) -> Option<&BoundVariable> {
         match self {
             Self::Variable(variable) => Some(variable),
-            Self::Scalar { .. } | Self::Root { .. } => None,
+            Self::Lambda(_) | Self::Scalar { .. } | Self::Root { .. } => None,
         }
     }
 
@@ -316,6 +482,7 @@ impl Display for BoundExpression {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Scalar { scalar_fn, .. } => scalar_fn.fmt_sql(self, f),
+            Self::Lambda(lambda) => Display::fmt(lambda, f),
             Self::Root { .. } => f.write_str("$"),
             Self::Variable(variable) => write!(f, "${variable}"),
         }
@@ -346,6 +513,9 @@ impl Expression {
                     variable_ref,
                 }))
             }
+            Expression::Lambda(_) => {
+                vortex_bail!("a lambda can be bound only as an argument to a higher-order function")
+            }
             Expression::Scalar {
                 scalar_fn,
                 children,
@@ -363,19 +533,34 @@ impl Expression {
 /// Iterative drop to avoid stack overflows on deep trees.
 impl Drop for BoundExpression {
     fn drop(&mut self) {
-        let Self::Scalar { children, .. } = self else {
-            return;
-        };
-        let Some(children) = Arc::get_mut(children) else {
-            return;
-        };
+        let mut to_drop = Vec::new();
+        match self {
+            Self::Scalar { children, .. } => {
+                if let Some(children) = Arc::get_mut(children) {
+                    to_drop.append(children);
+                }
+            }
+            Self::Lambda(lambda) => {
+                if let Some(body) = lambda.take_body() {
+                    to_drop.push(body);
+                }
+            }
+            Self::Root { .. } | Self::Variable(_) => return,
+        }
 
-        let mut to_drop = std::mem::take(children);
         while let Some(mut child) = to_drop.pop() {
-            if let BoundExpression::Scalar { children, .. } = &mut child
-                && let Some(grandchildren) = Arc::get_mut(children)
-            {
-                to_drop.append(grandchildren);
+            match &mut child {
+                BoundExpression::Scalar { children, .. } => {
+                    if let Some(grandchildren) = Arc::get_mut(children) {
+                        to_drop.append(grandchildren);
+                    }
+                }
+                BoundExpression::Lambda(lambda) => {
+                    if let Some(body) = lambda.take_body() {
+                        to_drop.push(body);
+                    }
+                }
+                BoundExpression::Root { .. } | BoundExpression::Variable(_) => {}
             }
         }
     }
@@ -392,6 +577,7 @@ mod tests {
     use crate::expr::col;
     use crate::expr::eq;
     use crate::expr::is_not_null;
+    use crate::expr::lambda;
     use crate::expr::lit;
     use crate::expr::root;
     use crate::expr::test_harness::struct_dtype;
@@ -512,6 +698,76 @@ mod tests {
             validity.bind_scope(&scope)?.dtype(),
             &DType::Bool(Nullability::NonNullable)
         );
+        Ok(())
+    }
+
+    #[test]
+    fn lambda_signature_comes_from_its_parameter_frame() -> VortexResult<()> {
+        let expression = lambda(["value"], var("value"))?;
+        let value_dtype = DType::Primitive(PType::I64, Nullability::Nullable);
+        let lambda_scope =
+            scope().with_bindings([(Variable::new("value"), value_dtype.clone())])?;
+
+        assert!(expression.return_dtype(&struct_dtype()).is_err());
+        assert!(expression.bind_scope(&lambda_scope).is_err());
+
+        let lambda = expression
+            .as_lambda()
+            .vortex_expect("the lambda factory must produce lambda syntax");
+        let bound = BoundLambda::bind(lambda, &lambda_scope)?;
+
+        assert_eq!(bound.params(), &[Variable::new("value")]);
+        assert_eq!(bound.param_dtypes(), std::slice::from_ref(&value_dtype));
+        assert_eq!(bound.parameter_frame(), 0);
+        assert_eq!(bound.param_refs()[0].frame(), 0);
+        assert_eq!(bound.param_refs()[0].slot(), 0);
+        assert_eq!(bound.body_dtype(), &value_dtype);
+        assert_eq!(
+            bound
+                .body()
+                .as_variable()
+                .vortex_expect("the lambda body must resolve its parameter")
+                .variable_ref(),
+            bound.param_refs()[0]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn lambda_parameter_must_be_in_the_innermost_frame() -> VortexResult<()> {
+        let expression = lambda(["value"], var("value"))?;
+        let lambda = expression
+            .as_lambda()
+            .vortex_expect("the lambda factory must produce lambda syntax");
+        let scope = scope()
+            .with_bindings([(Variable::new("value"), DType::Null)])?
+            .with_bindings([(Variable::new("other"), DType::Null)])?;
+
+        assert!(BoundLambda::bind(lambda, &scope).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn lambda_tracks_outer_captures_separately_from_parameters() -> VortexResult<()> {
+        let expression = lambda(["parameter"], eq(var("captured"), var("parameter")))?;
+        let lambda = expression
+            .as_lambda()
+            .vortex_expect("the lambda factory must produce lambda syntax");
+        let value_dtype = DType::Primitive(PType::I64, Nullability::NonNullable);
+        let scope = scope()
+            .with_bindings([(Variable::new("captured"), value_dtype.clone())])?
+            .with_bindings([(Variable::new("parameter"), value_dtype)])?;
+
+        let bound = BoundLambda::bind(lambda, &scope)?;
+
+        assert_eq!(bound.parameter_frame(), 1);
+        assert_eq!(bound.param_refs().len(), 1);
+        assert_eq!(bound.param_refs()[0].frame(), 1);
+        assert_eq!(bound.param_refs()[0].slot(), 0);
+        let captures = bound.free_variables();
+        assert_eq!(captures.len(), 1);
+        assert_eq!(captures[0].frame(), 0);
+        assert_eq!(captures[0].slot(), 0);
         Ok(())
     }
 

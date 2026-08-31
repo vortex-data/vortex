@@ -18,6 +18,7 @@ use vortex_error::vortex_ensure;
 use crate::dtype::DType;
 use crate::expr::display::DisplayTreeExpr;
 use crate::expr::is_not_null;
+use crate::expr::lambda::Lambda;
 use crate::expr::traversal::TraversalOrder;
 use crate::expr::traversal::pre_order_visit_down;
 use crate::expr::variable::Variable;
@@ -31,8 +32,9 @@ const NO_CHILDREN: &[Expression] = &[];
 ///
 /// Most nodes are a scalar function applied to child expressions. [`Expression::Root`] is the scope
 /// itself: a language primitive rather than a registered function, because its dtype comes from the
-/// scope rather than from children and it is not executable. [`Expression::Variable`] is likewise
-/// resolved by the surrounding scope when the expression is bound.
+/// scope rather than from children and it is not executable. [`Expression::Variable`] is resolved
+/// by the surrounding scope when the expression is bound, while [`Expression::Lambda`] introduces
+/// a new lexical frame when an enclosing higher-order function binds it.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Expression {
     /// A scalar function applied to child expressions.
@@ -42,6 +44,8 @@ pub enum Expression {
         /// Any children of this expression.
         children: Arc<Vec<Expression>>,
     },
+    /// Lambda syntax owned and invoked by an enclosing higher-order function.
+    Lambda(Lambda),
     /// The full scope of the expression evaluation.
     Root,
     /// A named value resolved from the surrounding scope when the expression is bound.
@@ -62,6 +66,10 @@ impl Expression {
             scalar_fn.signature().arity(),
             children.len()
         );
+        vortex_ensure!(
+            children.iter().all(|child| !child.is_lambda()),
+            "a scalar function cannot take a lambda as an ordinary argument"
+        );
 
         Ok(Self::Scalar {
             scalar_fn,
@@ -78,15 +86,28 @@ impl Expression {
     pub fn as_variable(&self) -> Option<&Variable> {
         match self {
             Self::Variable(variable) => Some(variable),
-            Self::Root | Self::Scalar { .. } => None,
+            Self::Lambda(_) | Self::Root | Self::Scalar { .. } => None,
         }
+    }
+
+    /// The lambda syntax held by this node, if it is a lambda.
+    pub fn as_lambda(&self) -> Option<&Lambda> {
+        match self {
+            Self::Lambda(lambda) => Some(lambda),
+            Self::Root | Self::Scalar { .. } | Self::Variable(_) => None,
+        }
+    }
+
+    /// Whether this node is lambda syntax.
+    pub fn is_lambda(&self) -> bool {
+        self.as_lambda().is_some()
     }
 
     /// Returns the scalar fn for this expression, or `None` if it is not a scalar node.
     pub fn as_scalar(&self) -> Option<&ScalarFnRef> {
         match self {
             Self::Scalar { scalar_fn, .. } => Some(scalar_fn),
-            Self::Root | Self::Variable(_) => None,
+            Self::Lambda(_) | Self::Root | Self::Variable(_) => None,
         }
     }
 
@@ -110,11 +131,13 @@ impl Expression {
             .vortex_expect("Expression options type mismatch")
     }
 
-    /// Returns the children of this expression.
+    /// Returns the ordinary scalar children of this expression.
+    ///
+    /// A lambda body is binder-owned syntax and is available through [`Lambda::body`] instead.
     pub fn children(&self) -> &[Expression] {
         match self {
             Self::Scalar { children, .. } => children.as_slice(),
-            Self::Root | Self::Variable(_) => NO_CHILDREN,
+            Self::Lambda(_) | Self::Root | Self::Variable(_) => NO_CHILDREN,
         }
     }
 
@@ -123,14 +146,14 @@ impl Expression {
         &self.children()[n]
     }
 
-    /// Replace the children of this expression with the provided new children.
+    /// Replace the ordinary scalar children of this expression with the provided new children.
     pub fn with_children(
         self,
         children: impl IntoIterator<Item = Expression>,
     ) -> VortexResult<Self> {
         let children = Vec::from_iter(children);
         match &self {
-            Self::Root | Self::Variable(_) => {
+            Self::Lambda(_) | Self::Root | Self::Variable(_) => {
                 vortex_ensure!(
                     children.is_empty(),
                     "Expression arity mismatch: a leaf expects 0 children but got {}",
@@ -163,6 +186,9 @@ impl Expression {
             Self::Variable(variable) => {
                 vortex_bail!("cannot determine dtype of unbound variable '{variable}'")
             }
+            Self::Lambda(_) => vortex_bail!(
+                "a lambda has no standalone dtype; it must be bound by a higher-order function"
+            ),
             Self::Scalar {
                 scalar_fn,
                 children,
@@ -185,6 +211,9 @@ impl Expression {
             Self::Root => Ok(Self::Root),
             // The binding supplies the variable's actual dtype later.
             Self::Variable(_) => Ok(is_not_null(self.clone())),
+            Self::Lambda(_) => vortex_bail!(
+                "a lambda has no standalone validity expression; it must be applied by a higher-order function"
+            ),
             Self::Scalar { scalar_fn, .. } => scalar_fn.validity(self),
         }
     }
@@ -197,6 +226,7 @@ impl Expression {
         match self {
             Self::Root => write!(f, "$"),
             Self::Variable(variable) => write!(f, "${variable}"),
+            Self::Lambda(lambda) => Display::fmt(lambda, f),
             Self::Scalar { scalar_fn, .. } => scalar_fn.fmt_sql(self, f),
         }
     }
@@ -319,26 +349,37 @@ impl Drop for DropDepthGuard {
 
 impl Drop for Expression {
     fn drop(&mut self) {
-        let Self::Scalar { children, .. } = self else {
-            return;
-        };
-        let Some(children) = Arc::get_mut(children) else {
-            return;
-        };
-        if children.is_empty() {
-            return;
+        let mut children_to_drop = Vec::new();
+        match self {
+            Self::Scalar { children, .. } => {
+                if let Some(children) = Arc::get_mut(children) {
+                    children_to_drop.append(children);
+                }
+            }
+            Self::Lambda(lambda) => {
+                if let Some(body) = lambda.take_body() {
+                    children_to_drop.push(body);
+                }
+            }
+            Self::Root | Self::Variable(_) => return,
         }
-
-        let mut children_to_drop = std::mem::take(children);
 
         match DropDepthGuard::enter() {
             Some(_guard) => drop(children_to_drop),
             None => {
                 while let Some(mut child) = children_to_drop.pop() {
-                    if let Self::Scalar { children, .. } = &mut child
-                        && let Some(expr_children) = Arc::get_mut(children)
-                    {
-                        children_to_drop.append(expr_children);
+                    match &mut child {
+                        Self::Scalar { children, .. } => {
+                            if let Some(expr_children) = Arc::get_mut(children) {
+                                children_to_drop.append(expr_children);
+                            }
+                        }
+                        Self::Lambda(lambda) => {
+                            if let Some(body) = lambda.take_body() {
+                                children_to_drop.push(body);
+                            }
+                        }
+                        Self::Root | Self::Variable(_) => {}
                     }
                 }
             }
@@ -351,8 +392,10 @@ mod tests {
     use std::thread;
 
     use super::*;
+    use crate::expr::lambda;
     use crate::expr::lit;
     use crate::expr::not;
+    use crate::expr::var;
 
     fn deep_expression(depth: usize) -> Expression {
         let mut expr = lit(true);
@@ -387,5 +430,28 @@ mod tests {
         drop(expr);
 
         assert_eq!(shared.children().len(), 1);
+    }
+
+    #[test]
+    fn lambda_has_no_standalone_array_type_or_validity() -> VortexResult<()> {
+        let expression = lambda(["value"], var("value"))?;
+        let root_dtype = DType::Bool(crate::dtype::Nullability::NonNullable);
+
+        assert!(expression.return_dtype(&root_dtype).is_err());
+        assert!(expression.validity().is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn scalar_functions_reject_lambda_children() -> VortexResult<()> {
+        let scalar = not(lit(true));
+        let scalar_fn = scalar
+            .as_scalar()
+            .vortex_expect("not must be a scalar function")
+            .clone();
+        let lambda = lambda(["value"], var("value"))?;
+
+        assert!(Expression::try_new(scalar_fn, [lambda]).is_err());
+        Ok(())
     }
 }
