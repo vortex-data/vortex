@@ -18,19 +18,22 @@
 //!     --example filter_threshold_verification
 //! ```
 //!
+//! Everything on stdout is GitHub-flavored Markdown (progress goes to stderr), so the report can
+//! be redirected to a file or pasted directly into a PR or issue.
+//!
 //! Options:
 //!
 //! - `--len <elements>`: buffer length (default 4096, matching `benches/filter_fixed_width.rs`)
 //! - `--step <density>`: density grid step (default 0.025)
 //! - `--seeds <n>`: random masks averaged per density (default 2)
 //! - `--tolerance <ratio>`: max relative regret before a width fails (default 0.25)
-//! - `--csv`: also dump the raw per-density timings for offline analysis
+//! - `--detail`: include the per-density timing tables for every width, not just failing ones
 //!
 //! The exit code is non-zero when the configured dispatch is slower than the fastest measured
 //! strategy by more than the tolerance at two consecutive densities. Only out-of-place filtering
 //! is timed; in-place dispatch shares the same thresholds. Wall-clock timings are noisy, so
 //! treat a single WARN as a prompt to re-run, and a FAIL as a prompt to rederive the thresholds
-//! from the measured crossovers this binary prints.
+//! from the measured crossovers and detail tables this binary prints.
 
 #![expect(
     clippy::cast_possible_truncation,
@@ -60,7 +63,7 @@ struct Config {
     step: f64,
     seeds: u64,
     tolerance: f64,
-    csv: bool,
+    detail: bool,
 }
 
 impl Default for Config {
@@ -70,7 +73,7 @@ impl Default for Config {
             step: 0.025,
             seeds: 2,
             tolerance: 0.25,
-            csv: false,
+            detail: false,
         }
     }
 }
@@ -88,6 +91,23 @@ impl Strategy {
             Strategy::BitmapWalk => "bitmap walk",
             Strategy::ByteCompress => "byte compress",
             Strategy::Simd => "SIMD compress",
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Verdict {
+    Pass,
+    Warn,
+    Fail,
+}
+
+impl Verdict {
+    fn as_str(self) -> &'static str {
+        match self {
+            Verdict::Pass => "PASS",
+            Verdict::Warn => "WARN",
+            Verdict::Fail => "**FAIL**",
         }
     }
 }
@@ -119,13 +139,28 @@ impl Point {
     }
 }
 
+/// Everything the report needs for one element width, with `T` already erased.
+struct WidthReport {
+    label: String,
+    simd_cfg: String,
+    simd_measured: String,
+    byte_cfg: String,
+    byte_measured: String,
+    regret: String,
+    verdict: Verdict,
+    indices_measured: String,
+    indices_ok: bool,
+    detail_rows: Vec<Vec<String>>,
+}
+
 fn main() {
     let cfg = parse_args();
 
-    println!("== fixed-width filter threshold verification ==");
-    println!("arch: {ARCH}");
+    println!("# Fixed-width filter threshold verification");
+    println!();
+    println!("- arch: `{ARCH}`");
     println!(
-        "len: {} elements, density step {}, {} seed(s), tolerance {:.0}%",
+        "- {} elements, density step {}, {} seed(s), tolerance {:.0}%",
         cfg.len,
         cfg.step,
         cfg.seeds,
@@ -135,22 +170,119 @@ fn main() {
 
     let masks = build_masks(&cfg);
 
-    let mut all_pass = true;
-    all_pass &= run_width::<u8>("u8", &cfg, &masks, |index| index as u8);
-    all_pass &= run_width::<u16>("u16", &cfg, &masks, |index| index as u16);
-    all_pass &= run_width::<u32>("u32", &cfg, &masks, |index| index as u32);
-    all_pass &= run_width::<u64>("u64", &cfg, &masks, |index| index as u64);
-    all_pass &= run_width::<u128>("u128", &cfg, &masks, |index| index as u128);
-    all_pass &= run_width::<i256>("i256", &cfg, &masks, |index| i256::from_i128(index as i128));
+    let reports = [
+        run_width::<u8>("u8", &cfg, &masks, |index| index as u8),
+        run_width::<u16>("u16", &cfg, &masks, |index| index as u16),
+        run_width::<u32>("u32", &cfg, &masks, |index| index as u32),
+        run_width::<u64>("u64", &cfg, &masks, |index| index as u64),
+        run_width::<u128>("u128", &cfg, &masks, |index| index as u128),
+        run_width::<i256>("i256", &cfg, &masks, |index| i256::from_i128(index as i128)),
+    ];
+
+    println!("## SIMD and byte-compress dispatch");
+    println!();
+    print_table(
+        &[
+            "Width",
+            "SIMD kernel (cfg)",
+            "SIMD fastest (measured)",
+            "Byte compress (cfg)",
+            "Byte compress (measured)",
+            "Max regret",
+            "Verdict",
+        ],
+        &reports
+            .iter()
+            .map(|report| {
+                vec![
+                    report.label.clone(),
+                    report.simd_cfg.clone(),
+                    report.simd_measured.clone(),
+                    report.byte_cfg.clone(),
+                    report.byte_measured.clone(),
+                    report.regret.clone(),
+                    report.verdict.as_str().to_string(),
+                ]
+            })
+            .collect::<Vec<_>>(),
+    );
+
+    for report in &reports {
+        if cfg.detail || report.verdict == Verdict::Fail {
+            println!();
+            println!("### Densities: {}", report.label);
+            println!();
+            print_table(
+                &[
+                    "Density",
+                    "Bitmap walk",
+                    "Byte compress",
+                    "SIMD",
+                    "Indices",
+                    "Configured",
+                    "Fastest",
+                    "Regret",
+                ],
+                &report.detail_rows,
+            );
+        }
+    }
+
+    println!();
+    println!(
+        "## Cached indices (configured max density {:.2})",
+        ft::CACHED_INDICES_MAX_DENSITY
+    );
+    println!();
+    print_table(
+        &["Width", "Gather by cached indices", "Verdict"],
+        &reports
+            .iter()
+            .map(|report| {
+                vec![
+                    report.label.clone(),
+                    report.indices_measured.clone(),
+                    if report.indices_ok { "OK" } else { "WARN" }.to_string(),
+                ]
+            })
+            .collect::<Vec<_>>(),
+    );
 
     run_slices_section(&cfg);
 
+    let all_pass = reports.iter().all(|report| report.verdict != Verdict::Fail);
     println!();
     if all_pass {
-        println!("RESULT: PASS");
+        println!("**RESULT: PASS**");
     } else {
-        println!("RESULT: FAIL — rederive the flagged thresholds from the measured crossovers");
+        println!("**RESULT: FAIL** — rederive the flagged thresholds from the measured crossovers");
         std::process::exit(1);
+    }
+}
+
+/// Print one padded GitHub-flavored Markdown table.
+fn print_table(headers: &[&str], rows: &[Vec<String>]) {
+    let mut widths: Vec<usize> = headers.iter().map(|header| header.len()).collect();
+    for row in rows {
+        for (index, cell) in row.iter().enumerate() {
+            widths[index] = widths[index].max(cell.len());
+        }
+    }
+
+    let print_row = |cells: &[String]| {
+        let padded: Vec<String> = cells
+            .iter()
+            .zip(&widths)
+            .map(|(cell, width)| format!("{cell:<width$}"))
+            .collect();
+        println!("| {} |", padded.join(" | "));
+    };
+
+    print_row(&headers.iter().map(ToString::to_string).collect::<Vec<_>>());
+    let separators: Vec<String> = widths.iter().map(|width| "-".repeat(*width)).collect();
+    println!("| {} |", separators.join(" | "));
+    for row in rows {
+        print_row(row);
     }
 }
 
@@ -179,11 +311,11 @@ fn parse_args() -> Config {
                     .parse()
                     .unwrap_or_else(|_| die("bad --tolerance"))
             }
-            "--csv" => cfg.csv = true,
+            "--detail" => cfg.detail = true,
             "--help" | "-h" => {
                 println!(
                     "usage: filter_threshold_verification \
-                     [--len N] [--step F] [--seeds N] [--tolerance F] [--csv]"
+                     [--len N] [--step F] [--seeds N] [--tolerance F] [--detail]"
                 );
                 std::process::exit(0);
             }
@@ -365,88 +497,73 @@ fn run_width<T: Copy + PartialEq + std::fmt::Debug>(
     cfg: &Config,
     masks: &[(f64, Vec<Mask>)],
     make: impl Fn(usize) -> T,
-) -> bool {
+) -> WidthReport {
+    let label = format!("{}B `{name}`", size_of::<T>());
+    eprintln!("measuring {label}...");
+
     let values: Vec<T> = (0..cfg.len).map(make).collect();
     verify_strategies_agree(&values, &masks[masks.len() / 2].1[0]);
 
     let points = sweep(&values, masks);
 
-    println!("-- width {}B ({name}) --", size_of::<T>());
-    match ft::simd_density_band::<T>() {
-        Some((kernel, band)) => {
-            if band.end.is_finite() {
-                println!(
-                    "configured: SIMD {kernel} for {:.3} <= d < {:.3}",
-                    band.start, band.end
-                );
-            } else {
-                println!("configured: SIMD {kernel} for d >= {:.3}", band.start);
-            }
+    let simd_cfg = match ft::simd_density_band::<T>() {
+        Some((kernel, band)) if band.end.is_finite() => {
+            format!("{kernel}, {:.2} <= d < {:.2}", band.start, band.end)
         }
-        None => println!("configured: no SIMD kernel for this width"),
-    }
-    println!(
-        "configured: byte compress over bitmap walk for d >= {:.3}",
-        ft::byte_compress_density_threshold::<T>()
-    );
+        Some((kernel, band)) => format!("{kernel}, d >= {:.2}", band.start),
+        None => "none".to_string(),
+    };
+    let byte_cfg = format!("d >= {:.3}", ft::byte_compress_density_threshold::<T>());
 
-    if cfg.csv {
-        for point in &points {
-            println!(
-                "csv,sweep,{name},{:.4},{:.1},{:.1},{},{:.1}",
-                point.density,
-                point.bitmap_ns,
-                point.byte_ns,
-                point
-                    .simd_ns
-                    .map_or_else(|| "-".to_string(), |ns| format!("{ns:.1}")),
-                point.indices_ns,
-            );
-        }
-    }
+    let (regret, verdict) = regret_analysis::<T>(cfg, &points);
+    let (indices_measured, indices_ok) = indices_crossover(&points);
 
-    report_measured_crossovers(&points);
-    let pass = report_regret::<T>(cfg, &points);
-    report_indices_crossover(&points);
-    println!();
-    pass
+    WidthReport {
+        label,
+        simd_cfg,
+        simd_measured: measured_simd_band(&points),
+        byte_cfg,
+        byte_measured: measured_byte_crossover(&points),
+        regret,
+        verdict,
+        indices_measured,
+        indices_ok,
+        detail_rows: detail_rows::<T>(cfg, &points),
+    }
 }
 
-fn report_measured_crossovers(points: &[Point]) {
-    // SIMD band: the longest run of grid points where SIMD is the fastest strategy.
-    if points.iter().any(|point| point.simd_ns.is_some()) {
-        let simd_wins: Vec<bool> = points
-            .iter()
-            .map(|point| point.fastest().0 == Strategy::Simd)
-            .collect();
-        match longest_true_run(&simd_wins) {
-            Some((first, last)) => {
-                let upper = if last == points.len() - 1 {
-                    "the top of the sweep".to_string()
-                } else {
-                    format!("d ~= {:.3}", points[last].density)
-                };
-                println!(
-                    "measured:   SIMD is fastest from d ~= {:.3} to {upper}",
-                    points[first].density
-                );
-            }
-            None => println!("measured:   SIMD is never the fastest strategy"),
-        }
+/// The measured SIMD band: the longest run of grid points where SIMD is the fastest strategy.
+fn measured_simd_band(points: &[Point]) -> String {
+    if points.iter().all(|point| point.simd_ns.is_none()) {
+        return "-".to_string();
     }
 
-    // Byte compress vs bitmap walk: first density where byte compress wins and keeps winning at
-    // the next grid point (smoothing single-point noise).
-    let byte_crossover = points.windows(2).position(|pair| {
+    let simd_wins: Vec<bool> = points
+        .iter()
+        .map(|point| point.fastest().0 == Strategy::Simd)
+        .collect();
+    match longest_true_run(&simd_wins) {
+        Some((first, last)) if last == points.len() - 1 => {
+            format!("d >= {:.3}", points[first].density)
+        }
+        Some((first, last)) => format!(
+            "{:.3} <= d < {:.3}",
+            points[first].density, points[last].density
+        ),
+        None => "never".to_string(),
+    }
+}
+
+/// First density where byte compress beats the bitmap walk and keeps winning at the next grid
+/// point (smoothing single-point noise).
+fn measured_byte_crossover(points: &[Point]) -> String {
+    let crossover = points.windows(2).position(|pair| {
         pair[0].byte_ns < pair[0].bitmap_ns && pair[1].byte_ns < pair[1].bitmap_ns
     });
-    match byte_crossover {
-        Some(0) => println!("measured:   byte compress beats bitmap walk at every density"),
-        Some(index) => println!(
-            "measured:   byte compress beats bitmap walk from d ~= {:.3}",
-            points[index].density
-        ),
-        None => println!("measured:   byte compress never beats bitmap walk"),
+    match crossover {
+        Some(0) => "always".to_string(),
+        Some(index) => format!("d >= {:.3}", points[index].density),
+        None => "never".to_string(),
     }
 }
 
@@ -473,94 +590,149 @@ fn longest_true_run(wins: &[bool]) -> Option<(usize, usize)> {
     best
 }
 
-/// Compare the configured pick against the fastest measured strategy at every density.
-fn report_regret<T>(cfg: &Config, points: &[Point]) -> bool {
-    let mut max_regret = 0.0f64;
-    let mut max_regret_density = 0.0;
-    let mut over: Vec<bool> = Vec::with_capacity(points.len());
-
-    for point in points {
-        let pick = configured_pick::<T>(point.density, cfg.len);
-        let (fastest, fastest_ns) = point.fastest();
-        let regret = if pick == fastest {
-            0.0
-        } else {
-            point.time_of(pick) / fastest_ns - 1.0
-        };
-        if regret > max_regret {
-            max_regret = regret;
-            max_regret_density = point.density;
-        }
-        over.push(regret > cfg.tolerance);
-    }
-
-    let fail = over.windows(2).any(|pair| pair[0] && pair[1]);
-    let verdict = if fail {
-        "FAIL"
-    } else if over.iter().any(|&o| o) {
-        "WARN (single noisy point over tolerance)"
+fn regret_at<T>(cfg: &Config, point: &Point) -> f64 {
+    let pick = configured_pick::<T>(point.density, cfg.len);
+    let (fastest, fastest_ns) = point.fastest();
+    if pick == fastest {
+        0.0
     } else {
-        "PASS"
-    };
-    println!(
-        "dispatch:   max regret {:.1}% at d ~= {max_regret_density:.3} -> {verdict}",
-        max_regret * 100.0
-    );
-
-    if fail {
-        for (point, &is_over) in points.iter().zip(&over) {
-            if is_over {
-                let pick = configured_pick::<T>(point.density, cfg.len);
-                let (fastest, fastest_ns) = point.fastest();
-                println!(
-                    "            d ~= {:.3}: configured {} {:.0}ns vs fastest {} {:.0}ns",
-                    point.density,
-                    pick.name(),
-                    point.time_of(pick),
-                    fastest.name(),
-                    fastest_ns,
-                );
-            }
-        }
+        point.time_of(pick) / fastest_ns - 1.0
     }
-    !fail
+}
+
+/// Compare the configured pick against the fastest measured strategy at every density.
+fn regret_analysis<T>(cfg: &Config, points: &[Point]) -> (String, Verdict) {
+    let regrets: Vec<f64> = points
+        .iter()
+        .map(|point| regret_at::<T>(cfg, point))
+        .collect();
+
+    let (max_index, max_regret) = regrets
+        .iter()
+        .copied()
+        .enumerate()
+        .max_by(|left, right| left.1.total_cmp(&right.1))
+        .unwrap();
+
+    let over: Vec<bool> = regrets
+        .iter()
+        .map(|&regret| regret > cfg.tolerance)
+        .collect();
+    let verdict = if over.windows(2).any(|pair| pair[0] && pair[1]) {
+        Verdict::Fail
+    } else if over.iter().any(|&is_over| is_over) {
+        Verdict::Warn
+    } else {
+        Verdict::Pass
+    };
+
+    let regret = format!(
+        "{:.1}% at d = {:.3}",
+        max_regret * 100.0,
+        points[max_index].density
+    );
+    (regret, verdict)
+}
+
+fn detail_rows<T>(cfg: &Config, points: &[Point]) -> Vec<Vec<String>> {
+    points
+        .iter()
+        .map(|point| {
+            let pick = configured_pick::<T>(point.density, cfg.len);
+            let (fastest, _) = point.fastest();
+            let regret = regret_at::<T>(cfg, point);
+            vec![
+                format!("{:.3}", point.density),
+                format!("{:.0} ns", point.bitmap_ns),
+                format!("{:.0} ns", point.byte_ns),
+                point
+                    .simd_ns
+                    .map_or_else(|| "-".to_string(), |ns| format!("{ns:.0} ns")),
+                format!("{:.0} ns", point.indices_ns),
+                pick.name().to_string(),
+                fastest.name().to_string(),
+                if regret == 0.0 {
+                    "-".to_string()
+                } else {
+                    format!("{:.1}%", regret * 100.0)
+                },
+            ]
+        })
+        .collect()
 }
 
 /// Verify [`ft::CACHED_INDICES_MAX_DENSITY`]: dispatch gathers by cached indices up to that
 /// density, so the gather should stay competitive with the fastest bitmap strategy below it.
-fn report_indices_crossover(points: &[Point]) {
+fn indices_crossover(points: &[Point]) -> (String, bool) {
     let loses = points.windows(2).position(|pair| {
         pair[0].indices_ns > pair[0].fastest().1 && pair[1].indices_ns > pair[1].fastest().1
     });
     let measured = match loses {
-        Some(index) => format!("stops winning at d ~= {:.3}", points[index].density),
+        Some(index) => format!("stops winning at d = {:.3}", points[index].density),
         None => "wins at every density".to_string(),
     };
-    let configured = ft::CACHED_INDICES_MAX_DENSITY;
     let ok = match loses {
-        Some(index) => (points[index].density - configured).abs() <= 0.2,
+        Some(index) => (points[index].density - ft::CACHED_INDICES_MAX_DENSITY).abs() <= 0.2,
         None => true,
     };
-    println!(
-        "indices:    gather by cached indices {measured} (configured max {configured:.2}) -> {}",
-        if ok { "OK" } else { "WARN" }
-    );
+    (measured, ok)
 }
 
 /// Verify [`ft::MIN_SLICES_AVERAGE_RUN_LENGTH`]: dispatch copies cached slices when the average
 /// selected run is at least that long, so the slice copy should win from there on.
 fn run_slices_section(cfg: &Config) {
+    let mut summary_rows = Vec::new();
+    let mut detail_rows = Vec::new();
+
+    run_slices_width::<u8>("u8", cfg, &mut summary_rows, &mut detail_rows, |index| {
+        index as u8
+    });
+    run_slices_width::<u32>("u32", cfg, &mut summary_rows, &mut detail_rows, |index| {
+        index as u32
+    });
+    run_slices_width::<u64>("u64", cfg, &mut summary_rows, &mut detail_rows, |index| {
+        index as u64
+    });
+    run_slices_width::<i256>("i256", cfg, &mut summary_rows, &mut detail_rows, |index| {
+        i256::from_i128(index as i128)
+    });
+
+    println!();
     println!(
-        "-- cached-slices crossover (configured min average run length {}) --",
+        "## Cached slices (configured min average run length {})",
         ft::MIN_SLICES_AVERAGE_RUN_LENGTH
     );
-    run_slices_width::<u8>("u8", cfg, |index| index as u8);
-    run_slices_width::<u32>("u32", cfg, |index| index as u32);
-    run_slices_width::<u64>("u64", cfg, |index| index as u64);
-    run_slices_width::<i256>("i256", cfg, |index| i256::from_i128(index as i128));
+    println!();
+    print_table(&["Width", "Slice copy", "Verdict"], &summary_rows);
+
+    if cfg.detail {
+        println!();
+        println!("### Run lengths");
+        println!();
+        print_table(
+            &[
+                "Width",
+                "Run length",
+                "Slice copy",
+                "Bitmap walk",
+                "Byte compress",
+                "SIMD",
+            ],
+            &detail_rows,
+        );
+    }
 }
 
-fn run_slices_width<T: Copy>(name: &str, cfg: &Config, make: impl Fn(usize) -> T) {
+fn run_slices_width<T: Copy>(
+    name: &str,
+    cfg: &Config,
+    summary_rows: &mut Vec<Vec<String>>,
+    detail_rows: &mut Vec<Vec<String>>,
+    make: impl Fn(usize) -> T,
+) {
+    let label = format!("{}B `{name}`", size_of::<T>());
+    eprintln!("measuring cached slices for {label}...");
+
     let values: Vec<T> = (0..cfg.len).map(make).collect();
     let run_lengths = [2usize, 4, 6, 8, 12, 16, 32];
     let mut first_win: Option<usize> = None;
@@ -603,12 +775,14 @@ fn run_slices_width<T: Copy>(name: &str, cfg: &Config, make: impl Fn(usize) -> T
         });
         let best_other = bitmap_ns.min(byte_ns).min(simd_ns.unwrap_or(f64::INFINITY));
 
-        if cfg.csv {
-            println!(
-                "csv,slices,{name},{run_length},{slices_ns:.1},{bitmap_ns:.1},{byte_ns:.1},{}",
-                simd_ns.map_or_else(|| "-".to_string(), |ns| format!("{ns:.1}")),
-            );
-        }
+        detail_rows.push(vec![
+            label.clone(),
+            run_length.to_string(),
+            format!("{slices_ns:.0} ns"),
+            format!("{bitmap_ns:.0} ns"),
+            format!("{byte_ns:.0} ns"),
+            simd_ns.map_or_else(|| "-".to_string(), |ns| format!("{ns:.0} ns")),
+        ]);
         if slices_ns < best_other {
             first_win.get_or_insert(run_length);
         } else {
@@ -617,15 +791,16 @@ fn run_slices_width<T: Copy>(name: &str, cfg: &Config, make: impl Fn(usize) -> T
     }
 
     let configured = ft::MIN_SLICES_AVERAGE_RUN_LENGTH;
-    match first_win {
-        Some(run_length) => println!(
-            "{name}: slice copy wins from run length >= {run_length} -> {}",
-            if run_length <= 2 * configured {
-                "OK"
-            } else {
-                "WARN"
-            }
+    let (measured, ok) = match first_win {
+        Some(run_length) => (
+            format!("wins from run length >= {run_length}"),
+            run_length <= 2 * configured,
         ),
-        None => println!("{name}: slice copy never wins -> WARN"),
-    }
+        None => ("never wins".to_string(), false),
+    };
+    summary_rows.push(vec![
+        label,
+        measured,
+        if ok { "OK" } else { "WARN" }.to_string(),
+    ]);
 }
