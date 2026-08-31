@@ -10904,6 +10904,7 @@ dependencies = [
  "url",
  "vortex",
  "vortex-arrow",
+ "vortex-reverse-index",
  "vortex-utils",
 ]
 
@@ -11254,6 +11255,7 @@ dependencies = [
  "paste",
  "pin-project-lite",
  "prost 0.14.4",
+ "roaring",
  "rstest",
  "rustc-hash",
  "sketches-ddsketch",
@@ -11418,6 +11420,24 @@ dependencies = [
  "vortex",
  "vortex-cuda",
  "vortex-python-abi",
+]
+
+[[package]]
+name = "vortex-reverse-index"
+version = "0.1.0"
+dependencies = [
+ "roaring",
+ "tokio",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-edition",
+ "vortex-error",
+ "vortex-file",
+ "vortex-io",
+ "vortex-layout",
+ "vortex-mask",
+ "vortex-session",
+ "vortex-utils",
 ]
 
 [[package]]
