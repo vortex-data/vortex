@@ -68,8 +68,8 @@ impl DisplayTreeNode for Expression {
     fn tree_child_name(&self, index: usize) -> ChildName {
         match self {
             Expression::Scalar { scalar_fn, .. } => scalar_fn.signature().child_name(index),
-            Expression::Root { .. } => unreachable!("the scope root has no children"),
-            Expression::Variable { .. } => unreachable!("a variable has no children"),
+            Expression::Root => unreachable!("the scope root has no children"),
+            Expression::Variable(_) => unreachable!("a variable has no children"),
         }
     }
 
@@ -200,7 +200,7 @@ mod tests {
     #[test]
     fn test_display_tree_variable() {
         use insta::assert_snapshot;
-        assert_snapshot!(var("value").display_tree().to_string(), @"vortex.variable(value)");
+        assert_snapshot!(var("value").display_tree().to_string(), @"vortex.var(value)");
     }
 
     #[test]
