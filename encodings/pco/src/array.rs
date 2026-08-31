@@ -47,7 +47,6 @@ use vortex_array::vtable::child_to_validity;
 use vortex_array::vtable::validity_to_child;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
-use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -568,17 +567,17 @@ impl PcoData {
                 }
             );
 
-            let mut chunk_meta_buffer = ByteBufferMut::with_capacity(cc.meta_size_hint());
+            let mut chunk_meta_buffer = Vec::with_capacity(cc.meta_size_hint());
             cc.write_meta(&mut chunk_meta_buffer)
                 .map_err(vortex_err_from_pco)?;
-            chunk_meta_buffers.push(chunk_meta_buffer.freeze());
+            chunk_meta_buffers.push(ByteBuffer::from(chunk_meta_buffer));
 
             let mut page_infos = vec![];
             for (page_idx, page_n_values) in cc.n_per_page().into_iter().enumerate() {
-                let mut page = ByteBufferMut::with_capacity(cc.page_size_hint(page_idx));
+                let mut page = Vec::with_capacity(cc.page_size_hint(page_idx));
                 cc.write_page(page_idx, &mut page)
                     .map_err(vortex_err_from_pco)?;
-                page_buffers.push(page.freeze());
+                page_buffers.push(ByteBuffer::from(page));
                 page_infos.push(PcoPageInfo {
                     n_values: u32::try_from(page_n_values)?,
                 });

@@ -6,7 +6,6 @@ use std::hash::Hash;
 use std::hash::Hasher;
 
 use itertools::Itertools;
-use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -107,7 +106,7 @@ impl VTable for Constant {
     fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         match idx {
             0 => BufferHandle::new_host(
-                ScalarValue::to_proto_bytes::<ByteBufferMut>(array.scalar.value()).freeze(),
+                ScalarValue::to_proto_bytes::<Vec<u8>>(array.scalar.value()).into(),
             ),
             _ => vortex_panic!("ConstantArray buffer index {idx} out of bounds"),
         }

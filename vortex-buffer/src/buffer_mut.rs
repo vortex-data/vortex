@@ -7,13 +7,9 @@ use std::any::type_name;
 use std::cmp::max;
 use std::fmt::Debug;
 use std::fmt::Formatter;
-use std::io::Write;
 use std::ops::Deref;
 use std::ops::DerefMut;
 
-use bytes::Buf;
-use bytes::BufMut;
-use bytes::buf::UninitSlice;
 use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
@@ -971,101 +967,10 @@ impl<T> FromIterator<T> for BufferMut<T> {
     }
 }
 
-impl Buf for ByteBufferMut {
-    fn remaining(&self) -> usize {
-        self.len()
-    }
-
-    fn chunk(&self) -> &[u8] {
-        self.as_slice()
-    }
-
-    fn advance(&mut self, cnt: usize) {
-        if !self.alignment.is_offset_aligned(cnt) {
-            vortex_panic!(
-                "Cannot advance buffer by {} items, resulting alignment is not {}",
-                cnt,
-                self.alignment
-            );
-        }
-        assert!(cnt <= self.length, "advance out of bounds");
-        // SAFETY: cnt is checked against the initialized length above.
-        self.ptr = unsafe { self.ptr.add(cnt) };
-        self.length -= cnt;
-        self.overallocated = false;
-    }
-}
-
-/// As per the BufMut implementation, we must support internal resizing when
-/// asked to extend the buffer.
-/// See: <https://github.com/tokio-rs/bytes/issues/131>
-unsafe impl BufMut for ByteBufferMut {
-    #[inline]
-    fn remaining_mut(&self) -> usize {
-        usize::MAX - self.len()
-    }
-
-    #[inline]
-    unsafe fn advance_mut(&mut self, cnt: usize) {
-        if !self.alignment.is_offset_aligned(cnt) {
-            vortex_panic!(
-                "Cannot advance buffer by {} items, resulting alignment is not {}",
-                cnt,
-                self.alignment
-            );
-        }
-        self.reserve(cnt);
-        self.length += cnt;
-    }
-
-    #[inline]
-    fn chunk_mut(&mut self) -> &mut UninitSlice {
-        let spare = self.spare_capacity_mut();
-        // SAFETY: spare points to valid uninitialized byte capacity owned by this buffer.
-        unsafe { UninitSlice::from_raw_parts_mut(spare.as_mut_ptr().cast(), spare.len()) }
-    }
-
-    fn put<T: Buf>(&mut self, mut src: T)
-    where
-        Self: Sized,
-    {
-        while src.has_remaining() {
-            let chunk = src.chunk();
-            self.extend_from_slice(chunk);
-            src.advance(chunk.len());
-        }
-    }
-
-    #[inline]
-    fn put_slice(&mut self, src: &[u8]) {
-        self.extend_from_slice(src);
-    }
-
-    #[inline]
-    fn put_bytes(&mut self, val: u8, cnt: usize) {
-        self.push_n(val, cnt)
-    }
-}
-
-impl Write for ByteBufferMut {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.extend_from_slice(buf);
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod test {
-    use bytes::Buf;
-    use bytes::BufMut;
-
     use crate::Alignment;
     use crate::BufferMut;
-    use crate::ByteBufferMut;
     use crate::buffer_mut;
 
     #[test]
@@ -1107,17 +1012,6 @@ mod test {
 
         buffer.reserve(capacity);
         assert_eq!(buffer.capacity(), capacity * 2);
-    }
-
-    #[test]
-    fn advance_uses_remaining_allocation_capacity() {
-        let mut buffer = ByteBufferMut::zeroed_aligned(64, Alignment::new(8));
-
-        buffer.advance(8);
-
-        assert!(!buffer.overallocated);
-        let offset = buffer.ptr.addr().get() - buffer.allocation.ptr().addr().get();
-        assert_eq!(buffer.capacity(), buffer.allocation.size() - offset);
     }
 
     #[test]
@@ -1208,27 +1102,6 @@ mod test {
         // Add one, and cast to an unsigned u32 in the same closure
         let buf = buf.map_each_in_place(|i| (i + 1) as u32);
         assert_eq!(buf.as_slice(), &[1u32, 2, 3]);
-    }
-
-    #[test]
-    fn bytes_buf() {
-        let mut buf = ByteBufferMut::copy_from("helloworld".as_bytes());
-        assert_eq!(buf.remaining(), 10);
-        assert_eq!(buf.chunk(), b"helloworld");
-
-        buf.advance(5);
-        assert_eq!(buf.remaining(), 5);
-        assert_eq!(buf.as_slice(), b"world");
-        assert_eq!(buf.chunk(), b"world");
-    }
-
-    #[test]
-    fn bytes_buf_mut() {
-        let mut buf = ByteBufferMut::copy_from("hello".as_bytes());
-        assert_eq!(BufMut::remaining_mut(&buf), usize::MAX - 5);
-
-        buf.put_slice(b"world");
-        assert_eq!(buf.as_slice(), b"helloworld");
     }
 
     #[test]

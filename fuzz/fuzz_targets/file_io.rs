@@ -19,7 +19,6 @@ use vortex_array::expr::lit;
 use vortex_array::expr::root;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
-use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 use vortex_file::OpenOptionsSessionExt;
@@ -72,7 +71,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
         ),
     };
 
-    let mut full_buff = ByteBufferMut::empty();
+    let mut full_buff = Vec::new();
     let _footer = write_options
         .blocking(&*RUNTIME)
         .write(&mut full_buff, array_data.to_array_iterator())
