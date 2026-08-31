@@ -533,8 +533,11 @@ impl Node for BoundExpression {
         &'a self,
         mut f: F,
     ) -> VortexResult<TraversalOrder> {
-        let BoundExpression::Scalar { children, .. } = self else {
-            return Ok(TraversalOrder::Continue);
+        let children = match self {
+            BoundExpression::Scalar { children, .. } => children,
+            BoundExpression::Root { .. } | BoundExpression::Variable(_) => {
+                return Ok(TraversalOrder::Continue);
+            }
         };
 
         for child in children.iter() {
@@ -551,8 +554,11 @@ impl Node for BoundExpression {
         self,
         mut f: F,
     ) -> VortexResult<Transformed<Self>> {
-        let BoundExpression::Scalar { children, .. } = &self else {
-            return Ok(Transformed::no(self));
+        let children = match &self {
+            BoundExpression::Scalar { children, .. } => children,
+            BoundExpression::Root { .. } | BoundExpression::Variable(_) => {
+                return Ok(Transformed::no(self));
+            }
         };
 
         let mut order = TraversalOrder::Continue;
@@ -593,14 +599,16 @@ impl Node for BoundExpression {
     fn iter_children<T>(&self, f: impl FnOnce(&mut dyn Iterator<Item = &Self>) -> T) -> T {
         match self {
             BoundExpression::Scalar { children, .. } => f(&mut children.iter()),
-            BoundExpression::Root { .. } => f(&mut std::iter::empty()),
+            BoundExpression::Root { .. } | BoundExpression::Variable(_) => {
+                f(&mut std::iter::empty())
+            }
         }
     }
 
     fn children_count(&self) -> usize {
         match self {
             BoundExpression::Scalar { children, .. } => children.len(),
-            BoundExpression::Root { .. } => 0,
+            BoundExpression::Root { .. } | BoundExpression::Variable(_) => 0,
         }
     }
 }

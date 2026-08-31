@@ -68,7 +68,8 @@ impl DisplayTreeNode for Expression {
     fn tree_child_name(&self, index: usize) -> ChildName {
         match self {
             Expression::Scalar { scalar_fn, .. } => scalar_fn.signature().child_name(index),
-            Expression::Root => unreachable!("the scope root has no children"),
+            Expression::Root { .. } => unreachable!("the scope root has no children"),
+            Expression::Variable { .. } => unreachable!("a variable has no children"),
         }
     }
 
@@ -76,6 +77,7 @@ impl DisplayTreeNode for Expression {
         match self {
             Expression::Scalar { scalar_fn, .. } => Display::fmt(scalar_fn, f),
             Expression::Root => write!(f, "{ROOT_DISPLAY}"),
+            Expression::Variable(var) => write!(f, "vortex.var({var})"),
         }
     }
 }
@@ -89,6 +91,7 @@ impl DisplayTreeNode for BoundExpression {
         match self {
             BoundExpression::Scalar { scalar_fn, .. } => scalar_fn.signature().child_name(index),
             BoundExpression::Root { .. } => unreachable!("the scope root has no children"),
+            BoundExpression::Variable { .. } => unreachable!("a variable has no children"),
         }
     }
 
@@ -96,6 +99,7 @@ impl DisplayTreeNode for BoundExpression {
         match self {
             BoundExpression::Scalar { scalar_fn, .. } => Display::fmt(scalar_fn, f),
             BoundExpression::Root { .. } => write!(f, "{ROOT_DISPLAY}"),
+            BoundExpression::Variable(var) => write!(f, "vortex.var({var})"),
         }
     }
 }
@@ -152,6 +156,7 @@ mod tests {
     use crate::expr::root;
     use crate::expr::select;
     use crate::expr::select_exclude;
+    use crate::expr::var;
     use crate::scalar_fn::fns::between::BetweenOptions;
     use crate::scalar_fn::fns::between::StrictComparison;
 
@@ -190,6 +195,12 @@ mod tests {
         use insta::assert_snapshot;
         let root_expr = root();
         assert_snapshot!(root_expr.display_tree().to_string(), @"vortex.root()");
+    }
+
+    #[test]
+    fn test_display_tree_variable() {
+        use insta::assert_snapshot;
+        assert_snapshot!(var("value").display_tree().to_string(), @"vortex.variable(value)");
     }
 
     #[test]

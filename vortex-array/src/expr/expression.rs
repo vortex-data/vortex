@@ -12,12 +12,15 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
 use crate::dtype::DType;
 use crate::expr::display::DisplayTreeExpr;
+use crate::expr::is_not_null;
 use crate::expr::traversal::TraversalOrder;
 use crate::expr::traversal::pre_order_visit_down;
+use crate::expr::variable::Variable;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
 
@@ -28,8 +31,8 @@ const NO_CHILDREN: &[Expression] = &[];
 ///
 /// Most nodes are a scalar function applied to child expressions. [`Expression::Root`] is the scope
 /// itself: a language primitive rather than a registered function, because its dtype comes from the
-/// scope rather than from children and it is not executable. A [`ScalarFnVTable`] can answer neither
-/// of those, so `Root` is a variant instead.
+/// scope rather than from children and it is not executable. [`Expression::Variable`] is likewise
+/// resolved by the surrounding scope when the expression is bound.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Expression {
     /// A scalar function applied to child expressions.
@@ -41,6 +44,8 @@ pub enum Expression {
     },
     /// The full scope of the expression evaluation.
     Root,
+    /// A named value resolved from the surrounding scope when the expression is bound.
+    Variable(Variable),
 }
 
 impl Expression {
@@ -69,11 +74,19 @@ impl Expression {
         matches!(self, Self::Root)
     }
 
+    /// The variable referenced by this node, if this is a variable expression.
+    pub fn as_variable(&self) -> Option<&Variable> {
+        match self {
+            Self::Variable(variable) => Some(variable),
+            Self::Root | Self::Scalar { .. } => None,
+        }
+    }
+
     /// Returns the scalar fn for this expression, or `None` if it is not a scalar node.
     pub fn as_scalar(&self) -> Option<&ScalarFnRef> {
         match self {
             Self::Scalar { scalar_fn, .. } => Some(scalar_fn),
-            Self::Root => None,
+            Self::Root | Self::Variable(_) => None,
         }
     }
 
@@ -101,7 +114,7 @@ impl Expression {
     pub fn children(&self) -> &[Expression] {
         match self {
             Self::Scalar { children, .. } => children.as_slice(),
-            Self::Root => NO_CHILDREN,
+            Self::Root | Self::Variable(_) => NO_CHILDREN,
         }
     }
 
@@ -117,13 +130,13 @@ impl Expression {
     ) -> VortexResult<Self> {
         let children = Vec::from_iter(children);
         match &self {
-            Self::Root => {
+            Self::Root | Self::Variable(_) => {
                 vortex_ensure!(
                     children.is_empty(),
-                    "Expression arity mismatch: root expects 0 children but got {}",
+                    "Expression arity mismatch: a leaf expects 0 children but got {}",
                     children.len()
                 );
-                Ok(Self::Root)
+                Ok(self)
             }
             Self::Scalar { scalar_fn, .. } => {
                 vortex_ensure!(
@@ -140,17 +153,23 @@ impl Expression {
         }
     }
 
-    /// Computes the return dtype of this expression given the input dtype.
-    pub fn return_dtype(&self, scope: &DType) -> VortexResult<DType> {
+    /// Computes the return dtype of this expression given the root dtype.
+    ///
+    /// Returns an error for variables because a root dtype alone cannot resolve lexical bindings;
+    /// use [`Expression::bind_scope`] when the expression may contain variables.
+    pub fn return_dtype(&self, root_dtype: &DType) -> VortexResult<DType> {
         match self {
-            Self::Root => Ok(scope.clone()),
+            Self::Root => Ok(root_dtype.clone()),
+            Self::Variable(variable) => {
+                vortex_bail!("cannot determine dtype of unbound variable '{variable}'")
+            }
             Self::Scalar {
                 scalar_fn,
                 children,
             } => {
                 let dtypes: Vec<_> = children
                     .iter()
-                    .map(|c| c.return_dtype(scope))
+                    .map(|c| c.return_dtype(root_dtype))
                     .try_collect()?;
                 scalar_fn.return_dtype(&dtypes)
             }
@@ -164,6 +183,8 @@ impl Expression {
         match self {
             // The scope is exactly as valid as itself.
             Self::Root => Ok(Self::Root),
+            // The binding supplies the variable's actual dtype later.
+            Self::Variable(_) => Ok(is_not_null(self.clone())),
             Self::Scalar { scalar_fn, .. } => scalar_fn.validity(self),
         }
     }
@@ -175,6 +196,7 @@ impl Expression {
     pub fn fmt_sql(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Root => write!(f, "$"),
+            Self::Variable(variable) => write!(f, "${variable}"),
             Self::Scalar { scalar_fn, .. } => scalar_fn.fmt_sql(self, f),
         }
     }
