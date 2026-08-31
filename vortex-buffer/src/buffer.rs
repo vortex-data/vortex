@@ -665,10 +665,18 @@ impl<T> Buffer<T> {
                             .ptr()
                             .as_ptr()
                             .align_offset(physical_alignment.as_usize());
+                let capacity = if allocation.size() == 0 {
+                    0
+                } else if overallocated {
+                    (allocation.size() - physical_alignment.as_usize()) / size_of::<T>()
+                } else {
+                    (allocation.size() - offset) / size_of::<T>()
+                };
                 Ok(BufferMut {
                     allocation,
                     ptr,
                     length,
+                    capacity,
                     alignment,
                     physical_alignment,
                     overallocated,
