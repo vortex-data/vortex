@@ -48,6 +48,7 @@ rstest = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util", "rt-multi-thread", "fs"] }
 url = { workspace = true }
+vortex-reverse-index = { workspace = true }
 
 [lints]
 workspace = true
