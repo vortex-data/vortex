@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::marker::PhantomData;
 use std::mem;
 use std::mem::MaybeUninit;
 use std::ops::Range;
@@ -51,6 +52,8 @@ impl<T: PhysicalPType<Physical: BitPacking>> UnpackStrategy<T> for BitPackingStr
 ///
 /// The usual pattern of usage should follow
 /// ```
+/// use std::mem::MaybeUninit;
+///
 /// use lending_iterator::gat;
 /// use lending_iterator::prelude::Item;
 /// #[gat(Item)]
@@ -65,17 +68,20 @@ impl<T: PhysicalPType<Physical: BitPacking>> UnpackStrategy<T> for BitPackingStr
 /// let mut ctx = vortex_array::array_session().create_execution_ctx();
 /// let array = BitPackedData::encode(&buffer![2, 3, 4, 5].into_array(), 2, &mut ctx).unwrap();
 /// let mut unpacked_chunks: BitUnpackedChunks<i32> = array.unpacked_chunks().unwrap();
+/// let mut scratch = [const { MaybeUninit::<i32>::uninit() }; 1024];
 ///
-/// if let Some(header) = unpacked_chunks.initial() {
+/// if let Some(header) = unpacked_chunks.initial(&mut scratch) {
 ///    // handle partial initial chunk
 /// }
 ///
-/// let mut chunks_iter = unpacked_chunks.full_chunks();
-/// while let Some(chunk) = chunks_iter.next() {
-///     // handle full bitpacked chunks of 1024 elements
+/// {
+///     let mut chunks_iter = unpacked_chunks.full_chunks(&mut scratch);
+///     while let Some(chunk) = chunks_iter.next() {
+///         // handle full bitpacked chunks of 1024 elements
+///     }
 /// }
 ///
-/// if let Some(trailer) = unpacked_chunks.trailer() {
+/// if let Some(trailer) = unpacked_chunks.trailer(&mut scratch) {
 ///     // handle partial trailing chunk
 /// }
 /// ```
@@ -88,7 +94,7 @@ pub struct UnpackedChunks<T: PhysicalPType, S: UnpackStrategy<T>> {
     // 0 indicates full chunk of CHUNK_SIZE
     last_chunk_length: usize,
     packed: ByteBuffer,
-    buffer: [MaybeUninit<T>; CHUNK_SIZE],
+    _marker: PhantomData<T>,
 }
 
 pub type BitUnpackedChunks<T> = UnpackedChunks<T, BitPackingStrategy>;
@@ -104,13 +110,16 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
         )
     }
 
-    pub fn full_chunks(&mut self) -> BitUnpackIterator<'_, T> {
+    pub fn full_chunks<'a>(
+        &'a self,
+        scratch: &'a mut [MaybeUninit<T>; CHUNK_SIZE],
+    ) -> BitUnpackIterator<'a, T> {
         let elems_per_chunk = self.elems_per_chunk();
         let last_chunk_is_sliced = self.last_chunk_is_sliced() as usize;
         let first_chunk_is_sliced = self.first_chunk_is_sliced();
         BitUnpackIterator::new(
             buffer_as_slice(&self.packed),
-            &mut self.buffer,
+            scratch,
             self.bit_width,
             elems_per_chunk,
             self.num_chunks - last_chunk_is_sliced,
@@ -148,9 +157,9 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
             offset,
             len,
             packed,
-            buffer: [const { MaybeUninit::<T>::uninit() }; CHUNK_SIZE],
             num_chunks,
             last_chunk_length,
+            _marker: PhantomData,
         })
     }
 
@@ -160,10 +169,13 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
     }
 
     /// Access first chunk of the array if the last chunk has fewer than 1024 due to slicing
-    pub fn initial(&mut self) -> Option<&mut [T]> {
+    pub fn initial<'a>(
+        &self,
+        scratch: &'a mut [MaybeUninit<T>; CHUNK_SIZE],
+    ) -> Option<&'a mut [T]> {
         (self.first_chunk_is_sliced() || self.num_chunks == 1).then(|| {
             let chunk: &[T::Physical] = &buffer_as_slice(&self.packed)[..self.elems_per_chunk()];
-            let dst: &mut [MaybeUninit<T>] = &mut self.buffer;
+            let dst: &mut [MaybeUninit<T>] = scratch;
             let dst: &mut [T::Physical] = unsafe { mem::transmute(dst) };
 
             let header_end_slice = if self.num_chunks == 1 {
@@ -176,7 +188,7 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
             // 2. buffer is exactly CHUNK_SIZE.
             unsafe {
                 self.strategy.unpack_chunk(self.bit_width, chunk, dst);
-                mem::transmute(&mut self.buffer[self.offset..][..header_end_slice])
+                mem::transmute(&mut scratch[self.offset..][..header_end_slice])
             }
         })
     }
@@ -184,9 +196,10 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
     /// Decode all chunks (initial, full, and trailer) directly into the output range.
     pub fn decode_into(&mut self, output: &mut [MaybeUninit<T>]) {
         debug_assert_eq!(output.len(), self.len);
+        let mut scratch = [const { MaybeUninit::<T>::uninit() }; CHUNK_SIZE];
         let mut local_idx = 0;
 
-        if let Some(initial) = self.initial() {
+        if let Some(initial) = self.initial(&mut scratch) {
             local_idx = initial.len();
 
             // TODO(connor): use maybe_uninit_write_slice when it gets stabilized.
@@ -197,7 +210,7 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
 
         local_idx = self.decode_full_chunks_into_at(output, local_idx);
 
-        if let Some(trailer) = self.trailer() {
+        if let Some(trailer) = self.trailer(&mut scratch) {
             // TODO(connor): use maybe_uninit_write_slice when it gets stabilized.
             // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout.
             let init_trailer: &[MaybeUninit<T>] = unsafe { mem::transmute(trailer) };
@@ -226,9 +239,10 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
     where
         F: FnMut(&mut [T], Range<usize>),
     {
+        let mut scratch = [const { MaybeUninit::<T>::uninit() }; CHUNK_SIZE];
         let mut local_idx = 0;
 
-        if let Some(initial) = self.initial() {
+        if let Some(initial) = self.initial(&mut scratch) {
             let chunk_len = initial.len();
             f(initial, local_idx..local_idx + chunk_len);
             local_idx += chunk_len;
@@ -240,16 +254,16 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
             for i in self.full_chunks_range() {
                 let chunk = &packed_slice[i * elems_per_chunk..][..elems_per_chunk];
                 unsafe {
-                    let dst: &mut [T::Physical] = mem::transmute(&mut self.buffer[..]);
+                    let dst: &mut [T::Physical] = mem::transmute(&mut scratch[..]);
                     self.strategy.unpack_chunk(self.bit_width, chunk, dst);
-                    let unpacked: &mut [T] = mem::transmute(&mut self.buffer[..]);
+                    let unpacked: &mut [T] = mem::transmute(&mut scratch[..]);
                     f(unpacked, local_idx..local_idx + CHUNK_SIZE);
                 }
                 local_idx += CHUNK_SIZE;
             }
         }
 
-        if let Some(trailer) = self.trailer() {
+        if let Some(trailer) = self.trailer(&mut scratch) {
             let chunk_len = trailer.len();
             f(trailer, local_idx..local_idx + chunk_len);
             local_idx += chunk_len;
@@ -320,18 +334,21 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
     }
 
     /// Access last chunk of the array if the last chunk has fewer than 1024 due to slicing
-    pub fn trailer(&mut self) -> Option<&mut [T]> {
+    pub fn trailer<'a>(
+        &self,
+        scratch: &'a mut [MaybeUninit<T>; CHUNK_SIZE],
+    ) -> Option<&'a mut [T]> {
         (self.last_chunk_is_sliced() && self.num_chunks > 1).then(|| {
             let chunk: &[T::Physical] = &buffer_as_slice(&self.packed)
                 [(self.num_chunks - 1) * self.elems_per_chunk()..][..self.elems_per_chunk()];
-            let dst: &mut [MaybeUninit<T>] = &mut self.buffer;
+            let dst: &mut [MaybeUninit<T>] = scratch;
             let dst: &mut [T::Physical] = unsafe { mem::transmute(dst) };
             // SAFETY:
             // 1. chunk is elems_per_chunk.
             // 2. buffer is exactly CHUNK_SIZE.
             unsafe {
                 self.strategy.unpack_chunk(self.bit_width, chunk, dst);
-                mem::transmute(&mut self.buffer[..self.last_chunk_length])
+                mem::transmute(&mut scratch[..self.last_chunk_length])
             }
         })
     }
