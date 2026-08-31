@@ -6,12 +6,12 @@ use std::sync::Arc;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::GenericByteViewArray;
 use arrow_array::types::ByteViewType;
-use arrow_buffer::ScalarBuffer;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::Nullability;
+use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 
 use crate::dtype::from_arrow_data_type;
@@ -22,8 +22,8 @@ pub fn canonical_varbinview_to_arrow<T: ByteViewType>(
     array: &VarBinViewArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    let views =
-        ScalarBuffer::<u128>::from(array.views_handle().as_host().clone().into_arrow_buffer());
+    let views = Buffer::<u128>::from_byte_buffer(array.views_handle().as_host().clone())
+        .into_arrow_scalar_buffer();
     let buffers: Vec<_> = array
         .data_buffers()
         .iter()
@@ -63,4 +63,24 @@ pub(super) fn to_arrow_byte_view<T: ByteViewType>(
     let array = array.execute::<ArrayRef>(ctx)?;
     let varbinview = array.execute::<VarBinViewArray>(ctx)?;
     execute_varbinview_to_arrow::<T>(&varbinview, ctx)
+}
+
+#[cfg(test)]
+mod tests {
+    use arrow_array::types::StringViewType;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
+
+    use super::*;
+
+    #[test]
+    fn empty_views_are_aligned() -> VortexResult<()> {
+        let array = VarBinViewArray::from_iter_str(std::iter::empty::<&str>());
+        let mut ctx = array_session().create_execution_ctx();
+
+        let arrow = canonical_varbinview_to_arrow::<StringViewType>(&array, &mut ctx)?;
+
+        assert!(arrow.is_empty());
+        Ok(())
+    }
 }
