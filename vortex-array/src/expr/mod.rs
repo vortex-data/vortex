@@ -62,6 +62,7 @@ pub(crate) mod expression;
 mod exprs;
 pub(crate) mod field;
 pub mod forms;
+pub mod lambda;
 mod optimize;
 pub mod proto;
 pub mod scope;
@@ -96,6 +97,7 @@ pub use exprs::ilike;
 pub use exprs::is_not_null;
 pub use exprs::is_null;
 pub use exprs::is_root;
+pub use exprs::lambda;
 pub use exprs::like;
 pub use exprs::list_contains;
 pub use exprs::list_length;
@@ -122,6 +124,7 @@ pub use exprs::union_child_validities;
 pub use exprs::var;
 pub use exprs::variant_get;
 pub use exprs::zip_expr;
+pub use lambda::*;
 pub use scope::*;
 pub use variable::*;
 
@@ -167,6 +170,7 @@ impl PartialEq for ExactExpr {
         match (&self.0, &other.0) {
             (Expression::Root, Expression::Root) => true,
             (Expression::Variable(lhs), Expression::Variable(rhs)) => lhs == rhs,
+            (Expression::Lambda(lhs), Expression::Lambda(rhs)) => lhs == rhs,
             (
                 Expression::Scalar {
                     scalar_fn: lhs_fn,
@@ -179,6 +183,7 @@ impl PartialEq for ExactExpr {
             ) => lhs_fn == rhs_fn && Arc::ptr_eq(lhs_children, rhs_children),
             (Expression::Root, _)
             | (Expression::Scalar { .. }, _)
+            | (Expression::Lambda(_), _)
             | (Expression::Variable(_), _) => false,
         }
     }
@@ -192,6 +197,10 @@ impl Hash for ExactExpr {
             Expression::Variable(variable) => {
                 state.write_u8(2);
                 variable.hash(state);
+            }
+            Expression::Lambda(lambda) => {
+                state.write_u8(3);
+                lambda.hash(state);
             }
             Expression::Scalar {
                 scalar_fn,

@@ -32,7 +32,7 @@ impl Expression {
     fn simplify_untyped_node(&self) -> VortexResult<Option<Expression>> {
         match self {
             Expression::Scalar { scalar_fn, .. } => scalar_fn.simplify_untyped(self),
-            Expression::Root | Expression::Variable(_) => Ok(None),
+            Expression::Lambda(_) | Expression::Root | Expression::Variable(_) => Ok(None),
         }
     }
 
@@ -40,7 +40,7 @@ impl Expression {
     fn simplify_node(&self, ctx: &dyn SimplifyCtx) -> VortexResult<Option<Expression>> {
         match self {
             Expression::Scalar { scalar_fn, .. } => scalar_fn.simplify(self, ctx),
-            Expression::Root | Expression::Variable(_) => Ok(None),
+            Expression::Lambda(_) | Expression::Root | Expression::Variable(_) => Ok(None),
         }
     }
 
@@ -51,7 +51,7 @@ impl Expression {
     ) -> VortexResult<Option<ExpressionReduceNode<'a>>> {
         match self {
             Expression::Scalar { scalar_fn, .. } => scalar_fn.reduce_expression(node),
-            Expression::Root | Expression::Variable(_) => Ok(None),
+            Expression::Lambda(_) | Expression::Root | Expression::Variable(_) => Ok(None),
         }
     }
 
@@ -71,6 +71,15 @@ impl Expression {
             loop_counter += 1;
 
             let expr = current.as_ref().unwrap_or(self);
+            match expr {
+                Expression::Variable(variable) => vortex_bail!(
+                    "cannot optimize variable '{variable}' outside a higher-order function"
+                ),
+                Expression::Lambda(_) => {
+                    vortex_bail!("cannot optimize a lambda outside a higher-order function")
+                }
+                Expression::Root | Expression::Scalar { .. } => {}
+            }
             let mut changed = false;
 
             // Try simplify_untyped
@@ -190,6 +199,9 @@ impl SimplifyCtx for SimplifyCache<'_> {
             Expression::Variable(variable) => {
                 vortex_bail!("cannot determine dtype of unbound variable '{variable}'")
             }
+            Expression::Lambda(_) => vortex_bail!(
+                "cannot determine the standalone dtype of a lambda; it must be bound by a higher-order function"
+            ),
             Expression::Scalar {
                 scalar_fn,
                 children,
@@ -222,10 +234,12 @@ mod tests {
     use crate::expr::cast;
     use crate::expr::eq;
     use crate::expr::get_item;
+    use crate::expr::lambda;
     use crate::expr::lit;
     use crate::expr::lt_eq;
     use crate::expr::or;
     use crate::expr::root;
+    use crate::expr::var;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::literal::Literal;
 
@@ -276,6 +290,22 @@ mod tests {
             .as_opt::<Literal>()
             .ok_or_else(|| vortex_err!("expected a bare literal RHS, got {optimized}"))?;
         assert_eq!(rhs, &Scalar::primitive(3.0f64, Nullability::NonNullable));
+        Ok(())
+    }
+
+    #[test]
+    fn detached_lexical_nodes_error_when_optimization_visits_them() -> VortexResult<()> {
+        assert!(var("value").optimize(&DType::Null).is_err());
+        assert!(
+            lambda(["value"], var("value"))?
+                .optimize(&DType::Null)
+                .is_err()
+        );
+        assert!(
+            eq(var("value"), lit(42_i32))
+                .optimize_recursive(&DType::Null)
+                .is_err()
+        );
         Ok(())
     }
 }

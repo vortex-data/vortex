@@ -42,7 +42,7 @@ pub fn make_free_field_annotator(
 ) -> impl AnnotationFn<Expression, Annotation = FieldName> {
     move |expr: &Expression| match expr {
         Expression::Root => scope.names().iter().cloned().collect(),
-        Expression::Variable(_) => vec![],
+        Expression::Lambda(_) | Expression::Variable(_) => vec![],
         Expression::Scalar {
             scalar_fn,
             children,
@@ -72,7 +72,7 @@ pub fn make_bound_free_field_annotator(
 ) -> impl AnnotationFn<BoundExpression, Annotation = FieldName> {
     move |expr: &BoundExpression| match expr {
         BoundExpression::Root { .. } => scope.names().iter().cloned().collect(),
-        BoundExpression::Variable(_) => vec![],
+        BoundExpression::Lambda(_) | BoundExpression::Variable(_) => vec![],
         BoundExpression::Scalar {
             scalar_fn,
             children,

@@ -62,49 +62,76 @@ const ROOT_DISPLAY: &str = "vortex.root()";
 
 impl DisplayTreeNode for Expression {
     fn tree_children(&self) -> &[Self] {
-        Expression::children(self)
+        match self {
+            Expression::Lambda(lambda) => std::slice::from_ref(lambda.body()),
+            Expression::Scalar { .. } | Expression::Root | Expression::Variable(_) => {
+                Expression::children(self)
+            }
+        }
     }
 
     fn tree_child_name(&self, index: usize) -> ChildName {
         match self {
             Expression::Scalar { scalar_fn, .. } => scalar_fn.signature().child_name(index),
-            Expression::Root => unreachable!("the scope root has no children"),
-            Expression::Variable(_) => unreachable!("a variable has no children"),
+            Expression::Lambda(_) => ChildName::from("body"),
+            Expression::Root | Expression::Variable(_) => {
+                unreachable!("a leaf expression has no children")
+            }
         }
     }
 
     fn fmt_tree_node(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Expression::Scalar { scalar_fn, .. } => Display::fmt(scalar_fn, f),
+            Expression::Lambda(lambda) => fmt_lambda(lambda.params(), f),
             Expression::Root => write!(f, "{ROOT_DISPLAY}"),
-            Expression::Variable(var) => write!(f, "vortex.var({var})"),
+            Expression::Variable(variable) => write!(f, "vortex.var({variable})"),
         }
     }
 }
 
 impl DisplayTreeNode for BoundExpression {
     fn tree_children(&self) -> &[Self] {
-        BoundExpression::children(self)
+        match self {
+            BoundExpression::Lambda(lambda) => std::slice::from_ref(lambda.body()),
+            BoundExpression::Scalar { .. }
+            | BoundExpression::Root { .. }
+            | BoundExpression::Variable(_) => BoundExpression::children(self),
+        }
     }
 
     fn tree_child_name(&self, index: usize) -> ChildName {
         match self {
             BoundExpression::Scalar { scalar_fn, .. } => scalar_fn.signature().child_name(index),
-            BoundExpression::Root { .. } => unreachable!("the scope root has no children"),
-            BoundExpression::Variable { .. } => unreachable!("a variable has no children"),
+            BoundExpression::Lambda(_) => ChildName::from("body"),
+            BoundExpression::Root { .. } | BoundExpression::Variable(_) => {
+                unreachable!("a leaf bound expression has no children")
+            }
         }
     }
 
     fn fmt_tree_node(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             BoundExpression::Scalar { scalar_fn, .. } => Display::fmt(scalar_fn, f),
+            BoundExpression::Lambda(lambda) => fmt_lambda(lambda.params(), f),
             BoundExpression::Root { .. } => write!(f, "{ROOT_DISPLAY}"),
-            BoundExpression::Variable(var) => write!(f, "vortex.var({var})"),
+            BoundExpression::Variable(variable) => write!(f, "vortex.var({variable})"),
         }
     }
 }
 
 pub struct DisplayTreeExpr<'a, T: ?Sized = Expression>(pub &'a T);
+
+fn fmt_lambda<P: Display>(params: &[P], f: &mut Formatter<'_>) -> fmt::Result {
+    write!(f, "vortex.lambda(params: [")?;
+    for (index, param) in params.iter().enumerate() {
+        if index > 0 {
+            write!(f, ", ")?;
+        }
+        write!(f, "vortex.var({param})")?;
+    }
+    write!(f, "])")
+}
 
 impl<T: DisplayTreeNode> TreeDisplayAdapter for DisplayTreeExpr<'_, T> {
     type Context = ();
@@ -141,6 +168,8 @@ impl<T: DisplayTreeNode> Display for DisplayTreeExpr<'_, T> {
 
 #[cfg(test)]
 mod tests {
+    use vortex_error::VortexResult;
+
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -150,6 +179,7 @@ mod tests {
     use crate::expr::eq;
     use crate::expr::get_item;
     use crate::expr::gt;
+    use crate::expr::lambda;
     use crate::expr::lit;
     use crate::expr::not;
     use crate::expr::pack;
@@ -201,6 +231,18 @@ mod tests {
     fn test_display_tree_variable() {
         use insta::assert_snapshot;
         assert_snapshot!(var("value").display_tree().to_string(), @"vortex.var(value)");
+    }
+
+    #[test]
+    fn test_display_tree_lambda() -> VortexResult<()> {
+        use insta::assert_snapshot;
+
+        let expression = lambda(["value"], var("value"))?;
+        assert_snapshot!(expression.display_tree().to_string(), @r"
+        vortex.lambda(params: [vortex.var(value)])
+        └── body: vortex.var(value)
+        ");
+        Ok(())
     }
 
     #[test]
