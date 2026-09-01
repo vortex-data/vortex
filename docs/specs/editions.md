@@ -176,11 +176,11 @@ representation gains support for wide decimals, represented by a signed most-sig
 
 The historical `vortex.pco` contract does not include `i8` or `u8`; readers implementing that contract must not be
 sent an 8-bit Pco payload under the familiar ID. Adding 8-bit support keeps one current in-memory `Pco` array but adds
-`vortex.pco_v2` as a serialized component:
+`vortex.pco.v2` as a serialized component:
 
 - The single Pco serializer emits `vortex.pco` for the primitive types covered by the old contract, even when both IDs
   are permitted.
-- For `i8` or `u8`, the earliest lossless form is `vortex.pco_v2`. A target edition without that ID rejects the write.
+- For `i8` or `u8`, the earliest lossless form is `vortex.pco.v2`. A target edition without that ID rejects the write.
 - The current deserializer registers both IDs. When given `vortex.pco`, it still rejects an 8-bit dtype; understanding
   the v2 payload does not silently broaden the frozen v1 contract.
 - The Pco compression scheme can sample and construct 8-bit Pco arrays without consulting editions. Wire selection
