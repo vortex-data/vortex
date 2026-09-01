@@ -3,6 +3,8 @@
 
 use std::fs::File;
 use std::io;
+#[cfg(target_os = "linux")]
+use std::io::IoSliceMut;
 #[cfg(all(not(unix), not(windows)))]
 use std::io::Read;
 #[cfg(all(not(unix), not(windows)))]
@@ -16,6 +18,12 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
+#[cfg(target_os = "linux")]
+use rustix::io::Errno;
+#[cfg(target_os = "linux")]
+use rustix::io::ReadWriteFlags;
+#[cfg(target_os = "linux")]
+use rustix::io::preadv2;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::memory::DefaultHostAllocator;
 use vortex_array::memory::HostAllocatorRef;
@@ -23,6 +31,7 @@ use vortex_buffer::Alignment;
 use vortex_error::VortexResult;
 
 use crate::CoalesceConfig;
+use crate::ReadAtNowait;
 use crate::VortexReadAt;
 use crate::runtime::Handle;
 
@@ -134,5 +143,25 @@ impl VortexReadAt for FileReadAt {
                 .await
         }
         .boxed()
+    }
+
+    #[cfg(target_os = "linux")]
+    fn read_at_nowait(
+        &self,
+        offset: u64,
+        length: usize,
+        alignment: Alignment,
+    ) -> VortexResult<ReadAtNowait> {
+        let mut buffer = self.allocator.allocate(length, alignment)?;
+        let mut slices = [IoSliceMut::new(buffer.as_mut_slice())];
+        match preadv2(&*self.file, &mut slices, offset, ReadWriteFlags::NOWAIT) {
+            Ok(read) if read == length => {
+                Ok(ReadAtNowait::Ready(BufferHandle::new_host(buffer.freeze())))
+            }
+            Ok(_) => Ok(ReadAtNowait::WouldBlock),
+            Err(Errno::AGAIN) => Ok(ReadAtNowait::WouldBlock),
+            Err(Errno::INVAL | Errno::NOSYS | Errno::OPNOTSUPP) => Ok(ReadAtNowait::Unsupported),
+            Err(err) => Err(io::Error::from(err).into()),
+        }
     }
 }

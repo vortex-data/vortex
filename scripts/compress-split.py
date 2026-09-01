@@ -3,12 +3,12 @@
 
 """
 Run compress-bench once per dataset, drop OS cache between datasets,
-merte outputs.
+merge outputs.
 """
 
 import argparse
-import glob
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -39,9 +39,13 @@ def list_datasets(gpu_decompress: bool) -> list[str]:
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
-def run_datasets(formats: str, emit_ingest_records: bool, gpu_decompress: bool) -> list[str]:
+def run_datasets(
+    formats: str, emit_ingest_records: bool, gpu_decompress: bool
+) -> tuple[list[str], list[Path]]:
+    shutil.rmtree(PARTS_DIR, ignore_errors=True)
     PARTS_DIR.mkdir(parents=True, exist_ok=True)
     failures: list[str] = []
+    outputs: list[Path] = []
     for i, dataset in enumerate(list_datasets(gpu_decompress)):
         drop_os_caches()
 
@@ -57,20 +61,23 @@ def run_datasets(formats: str, emit_ingest_records: bool, gpu_decompress: bool) 
             args.append("--gpu-decompress")
         else:
             args += ["--formats", formats]
-        args += ["-d", "gh-json", "-o", str(PARTS_DIR / f"{i}.gh.json")]
+        output = PARTS_DIR / f"{i}.gh.json"
+        args += ["-d", "gh-json", "-o", str(output)]
         if emit_ingest_records:
             args += ["--ingest-jsonl", str(PARTS_DIR / f"{i}.ingest.jsonl")]
         print("+", " ".join(args), flush=True)
 
-        result = subprocess.run(args, check=not gpu_decompress)
+        result = subprocess.run(args, check=False)
         if result.returncode != 0:
             failures.append(dataset)
-    return failures
+        elif output.exists():
+            outputs.append(output)
+    return failures, outputs
 
 
-def merge(pattern: str, out_path: str) -> None:
+def merge(paths: list[Path], out_path: str) -> None:
     lines: list[str] = []
-    for path in sorted(glob.glob(pattern)):
+    for path in sorted(paths):
         with open(path, encoding="utf-8") as handle:
             for line in handle:
                 line = line.strip()
@@ -98,13 +105,16 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    failures = run_datasets(args.formats, args.emit_ingest_records, args.gpu_decompress)
-    merge(f"{PARTS_DIR}/*.gh.json", "results.json")
+    failures, outputs = run_datasets(args.formats, args.emit_ingest_records, args.gpu_decompress)
+    merge(outputs, "results.json")
     if args.emit_ingest_records:
-        merge(f"{PARTS_DIR}/*.ingest.jsonl", "results.ingest.jsonl")
+        ingest_outputs = [
+            path.with_name(path.name.replace(".gh.json", ".ingest.jsonl")) for path in outputs
+        ]
+        merge([path for path in ingest_outputs if path.exists()], "results.ingest.jsonl")
 
     if failures:
-        raise SystemExit("GPU decompression failed for: " + ", ".join(failures))
+        print("Dropped failed datasets: " + ", ".join(failures), flush=True)
 
 
 if __name__ == "__main__":

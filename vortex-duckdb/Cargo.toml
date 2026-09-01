@@ -46,6 +46,7 @@ vortex = { workspace = true, features = [
     "object_store_registry",
 ] }
 vortex-spatial = { workspace = true }
+vortex-morsel = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }
 
 [features]

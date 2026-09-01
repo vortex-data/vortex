@@ -56,6 +56,16 @@ impl ReadAtRequest {
 /// A stream of positional read results, yielded as each request completes.
 pub type ReadAtStream = BoxStream<'static, (ReadAtRequest, VortexResult<BufferHandle>)>;
 
+/// Result of attempting a synchronous read that is forbidden from waiting on storage.
+pub enum ReadAtNowait {
+    /// The requested bytes were immediately available.
+    Ready(BufferHandle),
+    /// Completing the request would require waiting on storage.
+    WouldBlock,
+    /// This reader or platform does not support non-blocking positional reads.
+    Unsupported,
+}
+
 impl CoalesceConfig {
     /// Creates a new coalesce configuration.
     pub const fn new(distance: u64, max_size: u64) -> Self {
@@ -119,6 +129,19 @@ pub trait VortexReadAt: Send + Sync + 'static {
         alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<BufferHandle>>;
 
+    /// Attempt a positional read without waiting on storage.
+    ///
+    /// Implementations must return [`ReadAtNowait::WouldBlock`] rather than blocking the caller.
+    /// The default allows callers to fall back to [`Self::read_at`].
+    fn read_at_nowait(
+        &self,
+        _offset: u64,
+        _length: usize,
+        _alignment: Alignment,
+    ) -> VortexResult<ReadAtNowait> {
+        Ok(ReadAtNowait::Unsupported)
+    }
+
     /// Request multiple asynchronous positional reads.
     ///
     /// Each item includes its request and result, and is yielded as soon as that read completes.
@@ -165,6 +188,15 @@ impl VortexReadAt for Arc<dyn VortexReadAt> {
         self.as_ref().read_at(offset, length, alignment)
     }
 
+    fn read_at_nowait(
+        &self,
+        offset: u64,
+        length: usize,
+        alignment: Alignment,
+    ) -> VortexResult<ReadAtNowait> {
+        self.as_ref().read_at_nowait(offset, length, alignment)
+    }
+
     fn read_ranges(&self, requests: Arc<[ReadAtRequest]>) -> ReadAtStream {
         self.as_ref().read_ranges(requests)
     }
@@ -194,6 +226,15 @@ impl<R: VortexReadAt> VortexReadAt for Arc<R> {
         alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         self.as_ref().read_at(offset, length, alignment)
+    }
+
+    fn read_at_nowait(
+        &self,
+        offset: u64,
+        length: usize,
+        alignment: Alignment,
+    ) -> VortexResult<ReadAtNowait> {
+        self.as_ref().read_at_nowait(offset, length, alignment)
     }
 
     fn read_ranges(&self, requests: Arc<[ReadAtRequest]>) -> ReadAtStream {
@@ -235,6 +276,27 @@ impl VortexReadAt for ByteBuffer {
             ))
         }
         .boxed()
+    }
+
+    fn read_at_nowait(
+        &self,
+        offset: u64,
+        length: usize,
+        alignment: Alignment,
+    ) -> VortexResult<ReadAtNowait> {
+        let start = usize::try_from(offset).vortex_expect("start too big for usize");
+        let end = usize::try_from(offset + length as u64).vortex_expect("end too big for usize");
+        if end > self.len() {
+            vortex_bail!(
+                "Requested range {}..{} out of bounds for buffer of length {}",
+                start,
+                end,
+                self.len()
+            );
+        }
+        Ok(ReadAtNowait::Ready(BufferHandle::new_host(
+            self.slice_unaligned(start..end).aligned(alignment),
+        )))
     }
 }
 
@@ -371,6 +433,21 @@ impl<T: VortexReadAt + Clone> VortexReadAt for InstrumentedReadAt<T> {
             buf
         }
         .boxed()
+    }
+
+    fn read_at_nowait(
+        &self,
+        offset: u64,
+        length: usize,
+        alignment: Alignment,
+    ) -> VortexResult<ReadAtNowait> {
+        let _timer = self.metrics.durations.time();
+        let result = self.read.read_at_nowait(offset, length, alignment)?;
+        if matches!(result, ReadAtNowait::Ready(_)) {
+            self.metrics.sizes.update(length as f64);
+            self.metrics.total_size.add(length as u64);
+        }
+        Ok(result)
     }
 
     fn read_ranges(&self, requests: Arc<[ReadAtRequest]>) -> ReadAtStream {

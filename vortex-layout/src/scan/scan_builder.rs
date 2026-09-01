@@ -45,6 +45,41 @@ use crate::scan::split_by::SplitBy;
 use crate::scan::splits::Splits;
 use crate::scan::splits::attempt_split_ranges;
 
+/// The scan configuration handed to an alternative [`ScanExecutor`].
+pub struct ScanRequest {
+    /// Session used for execution and runtime access.
+    pub session: VortexSession,
+    /// Reader used for pruning and scan metadata.
+    pub layout_reader: LayoutReaderRef,
+    /// Bound output projection.
+    pub projection: BoundExpression,
+    /// Optional bound row filter.
+    pub filter: Option<BoundExpression>,
+    /// Optional contiguous input row range.
+    pub row_range: Option<Range<u64>>,
+    /// Row selection applied inside the row range.
+    pub selection: Selection,
+    /// Optional precomputed natural split boundaries.
+    pub natural_splits: Option<Arc<[u64]>>,
+    /// Per-worker scan concurrency.
+    pub concurrency: usize,
+    /// Optional metrics registry.
+    pub metrics_registry: Option<Arc<dyn MetricsRegistry>>,
+    /// Optional output row limit.
+    pub limit: Option<u64>,
+    /// Root offset used by row-index expressions.
+    pub row_offset: u64,
+}
+
+/// Alternative execution backend for a [`ScanBuilder`].
+pub trait ScanExecutor: 'static + Send + Sync {
+    /// Build one independently awaitable task per output unit.
+    fn build(
+        &self,
+        request: ScanRequest,
+    ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<ArrayRef>>>>>;
+}
+
 /// Builder for scanning a [`LayoutReader`] into arrays, streams, iterators, or mapped outputs.
 ///
 /// A scan has three independent row restriction mechanisms:
@@ -84,6 +119,7 @@ pub struct ScanBuilder<A> {
     /// The row-offset assigned to the first row of the file. Used by the `row_idx` expression,
     /// but not by the scan [`Selection`] which remains relative.
     row_offset: u64,
+    executor: Option<Arc<dyn ScanExecutor>>,
 }
 
 impl ScanBuilder<ArrayRef> {
@@ -108,6 +144,7 @@ impl ScanBuilder<ArrayRef> {
             file_stats: None,
             limit: None,
             row_offset: 0,
+            executor: None,
         }
     }
 
@@ -185,6 +222,12 @@ impl<A: 'static + Send> ScanBuilder<A> {
     /// Set the root row offset used by row-index expressions.
     pub fn with_row_offset(mut self, row_offset: u64) -> Self {
         self.row_offset = row_offset;
+        self
+    }
+
+    /// Execute this scan with an alternative backend.
+    pub fn with_executor(mut self, executor: Arc<dyn ScanExecutor>) -> Self {
+        self.executor = Some(executor);
         self
     }
 
@@ -293,6 +336,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             file_stats: self.file_stats,
             limit: self.limit,
             row_offset: self.row_offset,
+            executor: self.executor,
             map_fn: Arc::new(move |a| old_map_fn(a).and_then(&map_fn)),
         }
     }
@@ -370,6 +414,32 @@ impl<A: 'static + Send> ScanBuilder<A> {
             return Ok(vec![]);
         }
 
+        if let Some(executor) = self.executor.clone() {
+            let map_fn = Arc::clone(&self.map_fn);
+            let request = ScanRequest {
+                session: self.session,
+                layout_reader: self.layout_reader,
+                projection: self.projection,
+                filter: self.filter,
+                row_range: self.row_range,
+                selection: self.selection,
+                natural_splits: self.natural_splits,
+                concurrency: self.concurrency,
+                metrics_registry: self.metrics_registry,
+                limit: self.limit,
+                row_offset: self.row_offset,
+            };
+            return Ok(executor
+                .build(request)?
+                .into_iter()
+                .map(move |task| {
+                    let map_fn = Arc::clone(&map_fn);
+                    Box::pin(async move { task.await?.map(|array| map_fn(array)).transpose() })
+                        as BoxFuture<'static, VortexResult<Option<A>>>
+                })
+                .collect());
+        }
+
         self.prepare()?.execute(None)
     }
 
@@ -432,8 +502,7 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                     let num_workers = get_available_parallelism().unwrap_or(1);
                     let concurrency = builder.concurrency * num_workers;
                     let handle = builder.session.handle();
-                    let task = handle
-                        .spawn_cpu(move || builder.prepare().and_then(|scan| scan.execute(None)));
+                    let task = handle.spawn_cpu(move || builder.build());
                     self.state = LazyScanState::Preparing(PreparingScan {
                         ordered,
                         concurrency,

@@ -37,6 +37,15 @@ impl SegmentSource for TestSegments {
     }
 }
 
+impl TestSegments {
+    /// Return handles to the stored segment buffers in segment-id order.
+    ///
+    /// This lets test harnesses materialize the exact fixture into another segment source.
+    pub fn buffers(&self) -> Vec<ByteBuffer> {
+        self.segments.lock().clone()
+    }
+}
+
 #[async_trait]
 impl SegmentSink for TestSegments {
     async fn write(

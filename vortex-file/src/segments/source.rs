@@ -30,6 +30,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_io::ReadAtNowait;
 use vortex_io::ReadAtRequest;
 use vortex_io::ReadAtStream;
 use vortex_io::VortexReadAt;
@@ -278,6 +279,8 @@ impl<R: VortexReadAt> Stream for ReadDriver<R> {
 
 pub struct FileSegmentSource {
     segments: Arc<[SegmentSpec]>,
+    /// Reader retained for inline non-blocking segment probes.
+    reader: Arc<dyn VortexReadAt>,
     /// A queue for sending read request events to the I/O stream.
     events: mpsc::UnboundedSender<ReadEvent>,
     /// Background request driver, joined by readers to surface a driver panic.
@@ -300,6 +303,7 @@ impl FileSegmentSource {
         metrics: RequestMetrics,
     ) -> Self {
         let (send, recv) = mpsc::unbounded();
+        let nowait_reader: Arc<dyn VortexReadAt> = Arc::new(reader.clone());
 
         let max_alignment = segments
             .iter()
@@ -353,6 +357,7 @@ impl FileSegmentSource {
 
         Self {
             segments,
+            reader: nowait_reader,
             events: send,
             driver,
             driver_panic,
@@ -405,6 +410,15 @@ impl SegmentSource for FileSegmentSource {
 
         // One allocation: we only box the returned SegmentFuture, not the inner ReadFuture.
         fut.boxed()
+    }
+
+    fn request_nowait(&self, id: SegmentId) -> VortexResult<ReadAtNowait> {
+        let spec = self
+            .segments
+            .get(*id as usize)
+            .ok_or_else(|| vortex_err!("Missing segment: {}", id))?;
+        self.reader
+            .read_at_nowait(spec.offset, spec.length as usize, spec.alignment)
     }
 }
 

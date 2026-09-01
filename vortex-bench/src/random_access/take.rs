@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 use std::fs::File as StdFile;
 use std::iter::once;
+use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -26,18 +27,42 @@ use tokio::fs::File;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
-use vortex::array::stream::ArrayStreamExt;
-use vortex::buffer::Buffer;
+use vortex::array::arrays::ChunkedArray;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
-use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex::utils::aliases::hash_map::HashMap;
+use vortex::utils::parallelism::get_available_parallelism;
+use vortex_morsel::MorselScan;
+use vortex_morsel::build_plan;
+use vortex_morsel::nodes::ConjunctMode;
 
 use crate::Format;
 use crate::SESSION;
 use crate::random_access::ARROW_ROW_OFFSETS_METADATA_KEY;
 use crate::random_access::RandomAccessor;
 use crate::random_access::RandomAccessorRet;
+
+fn index_morsels(indices: &[u64], row_count: u64) -> anyhow::Result<Vec<Range<u64>>> {
+    let mut ranges: Vec<Range<u64>> = Vec::new();
+    for &index in indices {
+        anyhow::ensure!(
+            index < row_count,
+            "Vortex row index {index} is out of bounds"
+        );
+        match ranges.last_mut() {
+            Some(range) if range.end == index => range.end += 1,
+            Some(range) => {
+                anyhow::ensure!(
+                    range.end < index,
+                    "morsel random access requires strictly sorted row indices"
+                );
+                ranges.push(index..index + 1);
+            }
+            None => ranges.push(index..index + 1),
+        }
+    }
+    Ok(ranges)
+}
 
 /// Random accessor for uncompressed Arrow IPC files.
 pub struct ArrowIpcRandomAccessor {
@@ -162,14 +187,31 @@ impl RandomAccessor for VortexRandomAccessor {
     }
 
     async fn take(&self, indices: &[u64]) -> anyhow::Result<RandomAccessorRet> {
-        let indices_buf: Buffer<u64> = Buffer::from(indices.to_vec());
-        let array = self
-            .file
-            .scan()?
-            .with_row_indices(StrictSortedBuffer::try_new(indices_buf)?)
-            .into_array_stream()?
-            .read_all()
-            .await?;
+        let projection = vortex::expr::root();
+        let plan = Arc::new(build_plan(
+            self.file.footer().layout(),
+            &projection,
+            None,
+            ConjunctMode::Cascade,
+        )?);
+        let ranges = index_morsels(indices, plan.row_count())?;
+        let threads = get_available_parallelism().unwrap_or(1);
+        let (batches, _) = MorselScan::new(
+            Arc::clone(&plan),
+            self.file.segment_source(),
+            SESSION.clone(),
+        )
+        .with_threads(threads)
+        .with_morsels(ranges)
+        .run()?;
+        let array = match batches.len() {
+            0 => Canonical::empty(plan.output_dtype()).into_array(),
+            1 => batches
+                .into_iter()
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("morsel scan returned no batch"))?,
+            _ => ChunkedArray::try_new(batches, plan.output_dtype().clone())?.into_array(),
+        };
 
         // We canonicalize / decompress for equivalence to Arrow's `RecordBatch`es.
         let mut ctx = SESSION.create_execution_ctx();
@@ -288,8 +330,48 @@ mod tests {
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::Schema;
+    use vortex::array::arrays::PrimitiveArray as VortexPrimitiveArray;
+    use vortex::array::arrays::StructArray;
+    use vortex::file::WriteOptionsSessionExt;
 
     use super::*;
+
+    #[test]
+    fn coalesces_adjacent_indices_into_morsels() -> anyhow::Result<()> {
+        assert_eq!(
+            index_morsels(&[1, 2, 3, 8, 10, 11], 12)?,
+            vec![1..4, 8..9, 10..12]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_duplicate_or_unsorted_indices() {
+        assert!(index_morsels(&[1, 1], 2).is_err());
+        assert!(index_morsels(&[1, 0], 2).is_err());
+    }
+
+    #[tokio::test]
+    async fn morsel_random_accessor_takes_disjoint_rows() -> anyhow::Result<()> {
+        let file = tempfile::NamedTempFile::new()?;
+        let values = VortexPrimitiveArray::from_iter(0i64..8).into_array();
+        let array = StructArray::from_fields(&[("id", values)])?.into_array();
+        let mut output = File::create(file.path()).await?;
+        SESSION
+            .write_options()
+            .write(&mut output, array.to_array_stream())
+            .await?;
+        drop(output);
+
+        let accessor =
+            VortexRandomAccessor::open(file.path(), "vortex-morsel-test", Format::OnDiskVortex)
+                .await?;
+        let RandomAccessorRet::ArrayRef(actual) = accessor.take(&[1, 2, 6]).await? else {
+            anyhow::bail!("Vortex accessor returned a non-Vortex result")
+        };
+        assert_eq!(actual.len(), 3);
+        Ok(())
+    }
 
     #[tokio::test]
     async fn arrow_ipc_random_accessor_takes_rows_across_record_batches() -> anyhow::Result<()> {

@@ -1814,6 +1814,7 @@ dependencies = [
  "vortex-arrow",
  "vortex-bench",
  "vortex-cuda",
+ "vortex-morsel",
 ]
 
 [[package]]
@@ -10639,6 +10640,7 @@ dependencies = [
  "uuid",
  "vortex",
  "vortex-arrow",
+ "vortex-morsel",
  "vortex-spatial",
  "vortex-tensor",
  "wkb",
@@ -10904,6 +10906,7 @@ dependencies = [
  "url",
  "vortex",
  "vortex-arrow",
+ "vortex-morsel",
  "vortex-utils",
 ]
 
@@ -10965,6 +10968,7 @@ dependencies = [
  "url",
  "vortex",
  "vortex-array",
+ "vortex-morsel",
  "vortex-runend",
  "vortex-sequence",
  "vortex-spatial",
@@ -11160,6 +11164,7 @@ dependencies = [
  "parking_lot",
  "pin-project-lite",
  "rstest",
+ "rustix",
  "smol",
  "tempfile",
  "tokio",
@@ -11296,6 +11301,35 @@ version = "0.1.0"
 dependencies = [
  "parking_lot",
  "sketches-ddsketch",
+]
+
+[[package]]
+name = "vortex-morsel"
+version = "0.1.0"
+dependencies = [
+ "arrow-schema 59.2.0",
+ "crossbeam-channel",
+ "futures",
+ "itertools 0.14.0",
+ "parking_lot",
+ "rstest",
+ "rustix",
+ "tokio",
+ "tpchgen",
+ "tpchgen-arrow",
+ "tracing",
+ "vortex",
+ "vortex-array",
+ "vortex-arrow",
+ "vortex-btrblocks",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-io",
+ "vortex-layout",
+ "vortex-mask",
+ "vortex-scan",
+ "vortex-session",
+ "vortex-utils",
 ]
 
 [[package]]

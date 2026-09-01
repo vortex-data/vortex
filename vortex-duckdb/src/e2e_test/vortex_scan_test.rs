@@ -38,7 +38,9 @@ use vortex::dtype::PType;
 use vortex::encodings::fastlanes::RLEData;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::runtime::BlockingRuntime;
+use vortex::layout::LayoutStrategy;
 use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
+use vortex::layout::layouts::table::TableStrategy;
 use vortex::scalar::PValue;
 use vortex::scalar::Scalar;
 use vortex_array::arrays::ExtensionArray;
@@ -70,6 +72,11 @@ fn create_temp_file() -> NamedTempFile {
     NamedTempFile::with_suffix(".vortex").unwrap()
 }
 
+fn morsel_test_strategy() -> Arc<dyn LayoutStrategy> {
+    let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
+    Arc::new(TableStrategy::new(Arc::clone(&flat), flat))
+}
+
 async fn write_single_column_vortex_file(field_name: &str, array: impl IntoArray) -> NamedTempFile {
     write_vortex_file([(field_name, array)].into_iter()).await
 }
@@ -83,6 +90,7 @@ async fn write_vortex_file(
     let mut file = async_fs::File::create(&temp_file_path).await.unwrap();
     SESSION
         .write_options()
+        .with_strategy(morsel_test_strategy())
         .write(&mut file, struct_array.into_array().to_array_stream())
         .await
         .unwrap();
@@ -179,6 +187,7 @@ async fn write_vortex_file_to_dir(
     let mut file = async_fs::File::create(&temp_file_path).await.unwrap();
     SESSION
         .write_options()
+        .with_strategy(morsel_test_strategy())
         .write(&mut file, struct_array.into_array().to_array_stream())
         .await
         .unwrap();
