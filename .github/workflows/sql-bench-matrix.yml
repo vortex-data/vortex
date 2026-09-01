@@ -206,6 +206,7 @@ jobs:
             --output results.json \
             --ingest-jsonl results.ingest.jsonl \
             --no-build \
+            --track-memory \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
 
@@ -226,6 +227,7 @@ jobs:
             --output results.json \
             --ingest-jsonl results.ingest.jsonl \
             --no-build \
+            --track-memory \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
             --opt remote-data-dir="$REMOTE_STORAGE" \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
