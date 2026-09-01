@@ -398,6 +398,7 @@ impl BitPackedData {
     ///
     /// If the array has per-block bit widths, or if the kernels were already resolved for a
     /// different physical type.
+    #[inline]
     pub fn kernels<P: BitPackedPhysical>(&self) -> BitPackedKernels<P> {
         let resolved = self.kernels.get_or_init(|| {
             P::resolve_kernels(

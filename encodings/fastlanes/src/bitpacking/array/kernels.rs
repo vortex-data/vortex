@@ -144,10 +144,7 @@ fn unpack_cmp<P: BitPackingCompare, const W: usize, const B: usize, V, F>(
 fn as_block<P, const N: usize>(slice: &[P]) -> &[P; N] {
     match slice.try_into() {
         Ok(block) => block,
-        Err(_) => vortex_panic!(
-            "Expected a FastLanes block of {N} elements, got {}",
-            slice.len()
-        ),
+        Err(_) => block_len_mismatch(N, slice.len()),
     }
 }
 
@@ -156,8 +153,16 @@ fn as_block_mut<P, const N: usize>(slice: &mut [P]) -> &mut [P; N] {
     let len = slice.len();
     match slice.try_into() {
         Ok(block) => block,
-        Err(_) => vortex_panic!("Expected a FastLanes block of {N} elements, got {len}"),
+        Err(_) => block_len_mismatch(N, len),
     }
+}
+
+/// Kept out of line so the kernel wrappers stay frameless trampolines: the panic formatting
+/// would otherwise reserve stack on every call.
+#[cold]
+#[inline(never)]
+fn block_len_mismatch(expected: usize, actual: usize) -> ! {
+    vortex_panic!("Expected a FastLanes block of {expected} elements, got {actual}")
 }
 
 macro_rules! impl_bitpacked_physical {
