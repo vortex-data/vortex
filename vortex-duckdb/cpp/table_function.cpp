@@ -145,32 +145,25 @@ unique_ptr<BaseStatistics> VortexRowGroup::GetColumnStatistics(const StorageInde
 static vector<PartitionStatistics> get_partition_stats(ClientContext &, GetPartitionStatsInput &input) {
     const MultiFileBindData &bind_data = input.bind_data->Cast<MultiFileBindData>();
     VortexBindData &bind = bind_data.bind_data->Cast<VortexBindData>();
-    // Re-reading the footers on every request is costly so me mimic DuckDB's
-    // TryLoadCaches for Parquet and load them once per file.
-    if (bind.no_footer_caches) {
-        return {};
-    }
-    // get_partition_stats is called during plan phase where we haven't read
-    // data yet. If there's a filter, we need to read the data to evaluate
-    // stats
-    if (duckdb_table_function_has_pushed_filters(bind.ffi_bind_data->DataPtr())) {
+    void *const ffi_bind = bind.ffi_bind_data->DataPtr();
+
+    if (!duckdb_table_function_can_get_partition_stats(ffi_bind)) {
         return {};
     }
 
     vector<OpenFileInfo> files = bind_data.file_list->GetAllFiles();
     vector<PartitionStatistics> result(files.size());
     idx_t row_start = 0;
+    uint64_t count = 0;
+    duckdb_vx_error error = nullptr;
     for (size_t i = 0; i < files.size(); ++i) {
         const std::string_view path = files[i].path;
-        duckdb_vx_error error = nullptr;
-        uint64_t count = 0;
-        duckdb_vx_data raw = duckdb_footer_open(path.data(), path.size(), &count, &error);
+        duckdb_vx_data raw = duckdb_footer_get_cached(ffi_bind, path.data(), path.size(), &count, &error);
         unique_ptr<CData> cdata(reinterpret_cast<CData *>(raw));
         if (error) {
             throw BinderException(IntoErrString(error));
         }
         if (!cdata) {
-            bind.no_footer_caches = true;
             return {};
         }
 

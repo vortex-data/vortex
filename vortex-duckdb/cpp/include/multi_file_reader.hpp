@@ -16,7 +16,6 @@ struct VortexBindData final : TableFunctionData {
     bool Equals(const FunctionData &other) const override;
 
     unique_ptr<CData> ffi_bind_data;
-    bool no_footer_caches = false;
 };
 
 struct VortexBindResult {

@@ -34,8 +34,9 @@ use crate::duckdb::TableInitInput;
 use crate::duckdb::try_or;
 use crate::duckdb::try_or_null;
 use crate::file_reader::OpenFileReader;
+use crate::file_reader::can_get_partition_stats;
+use crate::file_reader::footer_get_cached;
 use crate::file_reader::footer_get_statistics;
-use crate::file_reader::footer_open;
 use crate::file_reader::reader_bind;
 use crate::file_reader::reader_get_progress_in_file;
 use crate::file_reader::reader_get_statistics;
@@ -221,24 +222,26 @@ pub unsafe extern "C-unwind" fn duckdb_reader_get_statistics(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn duckdb_table_function_has_pushed_filters(
+pub unsafe extern "C-unwind" fn duckdb_table_function_can_get_partition_stats(
     bind: *const c_void,
 ) -> bool {
     let bind = unsafe { bind.cast::<BindState>().as_ref() }.vortex_expect("null pointer");
-    !bind.filters.is_empty()
+    can_get_partition_stats(bind)
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn duckdb_footer_open(
+pub unsafe extern "C-unwind" fn duckdb_footer_get_cached(
+    bind: *mut c_void,
     path: *const c_char,
     len: usize,
     row_count_out: *mut u64,
     error: *mut cpp::duckdb_vx_error,
 ) -> cpp::duckdb_vx_data {
+    let bind = unsafe { bind.cast::<BindState>().as_mut() }.vortex_expect("null pointer");
     let path = unsafe { std::slice::from_raw_parts(path.cast::<u8>(), len) };
     try_or_null(error, || {
         let path = str::from_utf8(path).map_err(|_| vortex_err!("invalid utf-8"))?;
-        Ok(match footer_open(path)? {
+        Ok(match footer_get_cached(bind, path)? {
             Some(footer) => {
                 unsafe { *row_count_out = footer.row_count() };
                 Data::from(Box::new(footer)).as_ptr()

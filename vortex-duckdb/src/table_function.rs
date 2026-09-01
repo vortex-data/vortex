@@ -89,6 +89,8 @@ pub(crate) struct BindState {
     pub has_non_optional_filter: AtomicBool,
     // Non-empty iff this scan is aggregate
     pub aggregates: Vec<ColumnAggregate>,
+    // Any of files present in scan lack a footer
+    pub no_footer_caches: bool,
 }
 assert_impl_all!(BindState: Send, Clone);
 
@@ -103,6 +105,7 @@ impl Clone for BindState {
                 self.has_non_optional_filter.load(Ordering::Relaxed),
             ),
             aggregates: self.aggregates.clone(),
+            no_footer_caches: false,
         }
     }
 }

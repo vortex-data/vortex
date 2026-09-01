@@ -66,7 +66,7 @@ use crate::table_function::convert_result;
 // After this, still in planning phase, one thread calls the following chain on
 // all files to try and replace scanning with metadata answer:
 //
-// `footer_open` -> `footer_get_statistics`.
+// `can_get_partition_stats` -> `footer_open` -> `footer_get_statistics`.
 //
 // Then there's query runtime phase, called for all files in scan:
 //
@@ -167,6 +167,7 @@ pub fn reader_bind(file: &OpenFileReader, result: &mut BindResultRef) -> VortexR
         columns,
         has_non_optional_filter: AtomicBool::new(false),
         aggregates: vec![],
+        no_footer_caches: false,
     })
 }
 
@@ -310,12 +311,27 @@ pub fn reader_get_progress_in_file(file: &OpenFileReader) -> f64 {
     100.0 * (total - left) as f64 / denom as f64
 }
 
-/// Called by one thread for every file to get metadata
-pub fn footer_open(path: &str) -> VortexResult<Option<Footer>> {
+/// Called by one thread in planning phase
+pub fn can_get_partition_stats(bind: &BindState) -> bool {
+    // Re-reading footers on every request is costly so me mimic DuckDB's
+    // TryLoadCaches for Parquet and load them once per file
+    !bind.no_footer_caches
+    // This function is called during planning where we haven't read data yet.
+    // If there's a filter, we need to read the data to evaluate stats
+        && bind.filters.is_empty()
+}
+
+/// Called by one thread for every file. When we open files, we cache footers
+/// in MultiFileSession so this function retrieves the cached data if present.
+/// If any footer is not present, it sets a flag in BindState so we won't try
+/// again.
+pub fn footer_get_cached(bind: &mut BindState, path: &str) -> VortexResult<Option<Footer>> {
     let url = parse_uri_or_path(path)?;
     let path = resolve_path(&url)?;
     let key = object_path_from_literal(&path).to_string();
-    Ok(SESSION.get::<MultiFileSession>().get_footer(&key))
+    let footer = SESSION.get::<MultiFileSession>().get_footer(&key);
+    bind.no_footer_caches |= footer.is_none();
+    Ok(footer)
 }
 
 /// Called by one thread for every footer in planning phase

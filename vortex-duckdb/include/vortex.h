@@ -65,13 +65,14 @@ bool duckdb_reader_get_statistics(const void *file,
                                   size_t column_name_len,
                                   duckdb_column_statistics *stats_out);
 
-extern bool duckdb_table_function_has_pushed_filters(const void *bind);
+extern bool duckdb_table_function_can_get_partition_stats(const void *bind);
 
 extern
-duckdb_vx_data duckdb_footer_open(const char *path,
-                                  size_t len,
-                                  uint64_t *row_count_out,
-                                  duckdb_vx_error *error);
+duckdb_vx_data duckdb_footer_get_cached(void *bind,
+                                        const char *path,
+                                        size_t len,
+                                        uint64_t *row_count_out,
+                                        duckdb_vx_error *error);
 
 extern
 bool duckdb_footer_get_statistics(const void *footer,
