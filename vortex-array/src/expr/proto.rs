@@ -32,6 +32,9 @@ pub(crate) const VARIABLE_ID: &str = "vortex.var";
 /// The wire id for [`Expression::Lambda`].
 pub(crate) const LAMBDA_ID: &str = "vortex.lambda";
 
+/// The wire id for the dedicated list-transform syntax node.
+pub(crate) const LIST_TRANSFORM_ID: &str = "vortex.list_transform";
+
 impl Lambda {
     /// Serialize this lambda to its protobuf representation.
     fn serialize_proto(&self) -> VortexResult<pb::Expr> {
@@ -127,6 +130,14 @@ impl ExprSerializeProtoExt for Expression {
             }),
             Expression::Variable(variable) => Ok(variable.serialize_proto()),
             Expression::Lambda(lambda) => lambda.serialize_proto(),
+            Expression::ListTransform { children } => Ok(pb::Expr {
+                id: LIST_TRANSFORM_ID.to_string(),
+                children: vec![
+                    children[0].serialize_proto()?,
+                    children[1].serialize_proto()?,
+                ],
+                metadata: Some(vec![]),
+            }),
             Expression::Scalar {
                 scalar_fn,
                 children,
@@ -153,6 +164,18 @@ impl Expression {
 
         if expr.id == LAMBDA_ID {
             return Ok(Lambda::from_proto(expr, session)?.into());
+        }
+
+        if expr.id == LIST_TRANSFORM_ID {
+            vortex_ensure!(
+                expr.children.len() == 2,
+                "list_transform() must have a list and lambda child, got {}",
+                expr.children.len()
+            );
+            return Expression::try_new_list_transform(
+                Expression::from_proto(&expr.children[0], session)?,
+                Expression::from_proto(&expr.children[1], session)?,
+            );
         }
 
         #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]

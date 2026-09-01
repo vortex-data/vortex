@@ -16,6 +16,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
+use crate::arrays::list_transform::array::output_dtype;
 use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::expr::Lambda;
@@ -55,6 +56,16 @@ pub enum BoundExpression {
     /// A lambda is not independently executable; only an enclosing higher-order function may
     /// close it over captures and apply it to arguments.
     Lambda(BoundLambda),
+    /// A dedicated list transformation. Its ordinary children are the outer list followed by
+    /// capture expressions; its lambda body is a lexical boundary owned by `lambda`.
+    ListTransform {
+        /// The output list dtype.
+        dtype: DType,
+        /// The typed lambda, including its bound lexical body.
+        lambda: BoundLambda,
+        /// Slot 0 is the list input and remaining slots are captures.
+        children: Arc<Vec<BoundExpression>>,
+    },
     /// The scope itself. Its dtype is the scope's root dtype.
     Root {
         /// The dtype this node evaluates to.
@@ -101,6 +112,7 @@ pub struct BoundLambda {
     params: Box<[Variable]>,
     param_dtypes: Box<[DType]>,
     param_refs: Box<[VariableRef]>,
+    captures: Box<[BoundVariable]>,
     parameter_frame: usize,
     body: Arc<BoundExpression>,
 }
@@ -135,6 +147,9 @@ impl BoundLambda {
             "lambda parameters must be bound in the innermost lexical frame"
         );
 
+        let body = lambda.body().bind_scope(scope)?;
+        let captures = collect_captures(&body, parameter_frame);
+
         Ok(Self {
             params: lambda.params().into(),
             param_dtypes: parameter_bindings
@@ -145,8 +160,9 @@ impl BoundLambda {
                 .into_iter()
                 .map(|(_, variable_ref)| variable_ref)
                 .collect(),
+            captures,
             parameter_frame,
-            body: Arc::new(lambda.body().bind_scope(scope)?),
+            body: Arc::new(body),
         })
     }
 
@@ -163,6 +179,11 @@ impl BoundLambda {
     /// The lexical locations assigned to the parameters, in declaration order.
     pub fn param_refs(&self) -> &[VariableRef] {
         &self.param_refs
+    }
+
+    /// The outer lexical bindings read by this lambda body, in stable lexical order.
+    pub fn captures(&self) -> &[BoundVariable] {
+        &self.captures
     }
 
     /// The lexical frame containing the parameters.
@@ -182,33 +203,10 @@ impl BoundLambda {
 
     /// The outer lexical bindings read by this lambda body.
     pub fn free_variables(&self) -> Vec<VariableRef> {
-        fn collect(
-            expression: &BoundExpression,
-            parameter_frame: usize,
-            variables: &mut Vec<VariableRef>,
-        ) {
-            match expression {
-                BoundExpression::Variable(variable)
-                    if variable.variable_ref().frame() < parameter_frame
-                        && !variables.contains(&variable.variable_ref()) =>
-                {
-                    variables.push(variable.variable_ref());
-                }
-                BoundExpression::Scalar { children, .. } => {
-                    for child in children.iter() {
-                        collect(child, parameter_frame, variables);
-                    }
-                }
-                BoundExpression::Lambda(_)
-                | BoundExpression::Root { .. }
-                | BoundExpression::Variable(_) => {}
-            }
-        }
-
-        let mut variables = Vec::new();
-        collect(&self.body, self.parameter_frame, &mut variables);
-        variables.sort_by_key(|variable_ref| (variable_ref.frame(), variable_ref.slot()));
-        variables
+        self.captures
+            .iter()
+            .map(BoundVariable::variable_ref)
+            .collect()
     }
 
     fn take_body(&mut self) -> Option<BoundExpression> {
@@ -218,6 +216,42 @@ impl BoundLambda {
         ))
         .ok()
     }
+}
+
+fn collect_captures(expression: &BoundExpression, parameter_frame: usize) -> Box<[BoundVariable]> {
+    fn collect(
+        expression: &BoundExpression,
+        parameter_frame: usize,
+        captures: &mut Vec<BoundVariable>,
+    ) {
+        match expression {
+            BoundExpression::Variable(variable)
+                if variable.variable_ref().frame() < parameter_frame
+                    && !captures
+                        .iter()
+                        .any(|capture| capture.variable_ref() == variable.variable_ref()) =>
+            {
+                captures.push(variable.clone());
+            }
+            BoundExpression::Scalar { children, .. }
+            | BoundExpression::ListTransform { children, .. } => {
+                for child in children.iter() {
+                    collect(child, parameter_frame, captures);
+                }
+            }
+            BoundExpression::Lambda(_)
+            | BoundExpression::Root { .. }
+            | BoundExpression::Variable(_) => {}
+        }
+    }
+
+    let mut captures = Vec::new();
+    collect(expression, parameter_frame, &mut captures);
+    captures.sort_by_key(|capture| {
+        let reference = capture.variable_ref();
+        (reference.frame(), reference.slot())
+    });
+    captures.into_boxed_slice()
 }
 
 impl Display for BoundLambda {
@@ -254,10 +288,27 @@ impl PartialEq for ExactBoundExpr {
                     && lhs_dtype == rhs_dtype
             }
             (BoundExpression::Lambda(lhs), BoundExpression::Lambda(rhs)) => lhs == rhs,
+            (
+                BoundExpression::ListTransform {
+                    dtype: lhs_dtype,
+                    lambda: lhs_lambda,
+                    children: lhs_children,
+                },
+                BoundExpression::ListTransform {
+                    dtype: rhs_dtype,
+                    lambda: rhs_lambda,
+                    children: rhs_children,
+                },
+            ) => {
+                lhs_dtype == rhs_dtype
+                    && lhs_lambda == rhs_lambda
+                    && Arc::ptr_eq(lhs_children, rhs_children)
+            }
             (BoundExpression::Variable(lhs), BoundExpression::Variable(rhs)) => lhs == rhs,
             (BoundExpression::Root { .. }, _)
             | (BoundExpression::Scalar { .. }, _)
             | (BoundExpression::Lambda(_), _)
+            | (BoundExpression::ListTransform { .. }, _)
             | (BoundExpression::Variable(_), _) => false,
         }
     }
@@ -279,6 +330,13 @@ impl Hash for ExactBoundExpr {
             BoundExpression::Lambda(lambda) => {
                 state.write_u8(3);
                 lambda.hash(state);
+            }
+            BoundExpression::ListTransform {
+                lambda, children, ..
+            } => {
+                state.write_u8(4);
+                lambda.hash(state);
+                Arc::as_ptr(children).hash(state);
             }
             BoundExpression::Scalar {
                 scalar_fn,
@@ -332,6 +390,36 @@ impl BoundExpression {
         })
     }
 
+    /// Create a typed dedicated list-transform node from its already-bound outer children.
+    pub(crate) fn try_new_list_transform(
+        list: BoundExpression,
+        lambda: BoundLambda,
+        captures: impl IntoIterator<Item = BoundExpression>,
+    ) -> VortexResult<Self> {
+        let captures = captures.into_iter().collect::<Vec<_>>();
+        vortex_ensure!(
+            captures.len() == lambda.captures().len(),
+            "list_transform() lambda requires {} captures, got {}",
+            lambda.captures().len(),
+            captures.len()
+        );
+        for (index, (capture, expected)) in captures.iter().zip(lambda.captures()).enumerate() {
+            vortex_ensure!(
+                capture.dtype() == expected.dtype(),
+                "list_transform() capture {index} expects dtype {}, got {}",
+                expected.dtype(),
+                capture.dtype()
+            );
+        }
+        let dtype = output_dtype(list.dtype(), lambda.body_dtype())?;
+        let children = std::iter::once(list).chain(captures).collect();
+        Ok(Self::ListTransform {
+            dtype,
+            lambda,
+            children: Arc::new(children),
+        })
+    }
+
     /// Rebuild this node with new bound children, recomputing its dtype.
     pub fn with_children(
         self,
@@ -341,6 +429,12 @@ impl BoundExpression {
         match &self {
             BoundExpression::Scalar { scalar_fn, .. } => {
                 Self::try_new_vec(scalar_fn.clone(), children)
+            }
+            BoundExpression::ListTransform { lambda, .. } => {
+                let Some((list, captures)) = children.split_first() else {
+                    vortex_bail!("list_transform() requires a list child");
+                };
+                Self::try_new_list_transform(list.clone(), lambda.clone(), captures.to_vec())
             }
             BoundExpression::Lambda(_)
             | BoundExpression::Root { .. }
@@ -358,7 +452,9 @@ impl BoundExpression {
     /// The dtype this expression evaluates to.
     pub fn dtype(&self) -> &DType {
         match self {
-            Self::Scalar { dtype, .. } | Self::Root { dtype } => dtype,
+            Self::Scalar { dtype, .. }
+            | Self::ListTransform { dtype, .. }
+            | Self::Root { dtype } => dtype,
             Self::Lambda(lambda) => lambda.body_dtype(),
             Self::Variable(variable) => variable.dtype(),
         }
@@ -369,7 +465,9 @@ impl BoundExpression {
     /// A bound lambda body is available through [`BoundLambda::body`] instead.
     pub fn children(&self) -> &[BoundExpression] {
         match self {
-            Self::Scalar { children, .. } => children.as_slice(),
+            Self::Scalar { children, .. } | Self::ListTransform { children, .. } => {
+                children.as_slice()
+            }
             Self::Lambda(_) | Self::Root { .. } | Self::Variable(_) => &[],
         }
     }
@@ -383,7 +481,10 @@ impl BoundExpression {
     pub fn as_scalar(&self) -> Option<&ScalarFnRef> {
         match self {
             Self::Scalar { scalar_fn, .. } => Some(scalar_fn),
-            Self::Lambda(_) | Self::Root { .. } | Self::Variable(_) => None,
+            Self::Lambda(_)
+            | Self::ListTransform { .. }
+            | Self::Root { .. }
+            | Self::Variable(_) => None,
         }
     }
 
@@ -391,7 +492,20 @@ impl BoundExpression {
     pub fn as_lambda(&self) -> Option<&BoundLambda> {
         match self {
             Self::Lambda(lambda) => Some(lambda),
-            Self::Scalar { .. } | Self::Root { .. } | Self::Variable(_) => None,
+            Self::Scalar { .. }
+            | Self::ListTransform { .. }
+            | Self::Root { .. }
+            | Self::Variable(_) => None,
+        }
+    }
+
+    /// The lambda owned by a list transform node, if this is one.
+    pub fn as_list_transform(&self) -> Option<(&BoundLambda, &[BoundExpression])> {
+        match self {
+            Self::ListTransform {
+                lambda, children, ..
+            } => Some((lambda, children)),
+            Self::Lambda(_) | Self::Scalar { .. } | Self::Root { .. } | Self::Variable(_) => None,
         }
     }
 
@@ -404,7 +518,10 @@ impl BoundExpression {
     pub fn as_variable(&self) -> Option<&BoundVariable> {
         match self {
             Self::Variable(variable) => Some(variable),
-            Self::Lambda(_) | Self::Scalar { .. } | Self::Root { .. } => None,
+            Self::Lambda(_)
+            | Self::ListTransform { .. }
+            | Self::Scalar { .. }
+            | Self::Root { .. } => None,
         }
     }
 
@@ -483,6 +600,9 @@ impl Display for BoundExpression {
         match self {
             Self::Scalar { scalar_fn, .. } => scalar_fn.fmt_sql(self, f),
             Self::Lambda(lambda) => Display::fmt(lambda, f),
+            Self::ListTransform {
+                lambda, children, ..
+            } => write!(f, "list_transform({}, {lambda})", children[0]),
             Self::Root { .. } => f.write_str("$"),
             Self::Variable(variable) => write!(f, "${variable}"),
         }
@@ -516,6 +636,43 @@ impl Expression {
             Expression::Lambda(_) => {
                 vortex_bail!("a lambda can be bound only as an argument to a higher-order function")
             }
+            Expression::ListTransform { children } => {
+                let list = children[0].bind_scope(scope)?;
+                let lambda = children[1].as_lambda().ok_or_else(|| {
+                    vortex_error::vortex_err!("list_transform() requires a lambda")
+                })?;
+                let element_dtype = match list.dtype() {
+                    DType::List(element, _) | DType::FixedSizeList(element, ..) => {
+                        element.as_ref().clone()
+                    }
+                    dtype => vortex_bail!(
+                        "list_transform() requires List, ListView, or FixedSizeList, got {dtype}"
+                    ),
+                };
+                vortex_ensure!(
+                    matches!(lambda.params().len(), 1 | 2),
+                    "list_transform() lambda must take one or two parameters, got {}",
+                    lambda.params().len()
+                );
+                let parameter_dtypes = std::iter::once(element_dtype.clone()).chain(
+                    (lambda.params().len() == 2).then_some(DType::Primitive(
+                        crate::dtype::PType::U64,
+                        crate::dtype::Nullability::NonNullable,
+                    )),
+                );
+                let lambda_scope = scope
+                    .clone()
+                    .with_root(element_dtype)
+                    .with_bindings(lambda.params().iter().cloned().zip(parameter_dtypes))?;
+                let lambda = BoundLambda::bind(lambda, &lambda_scope)?;
+                let captures = lambda
+                    .captures()
+                    .iter()
+                    .cloned()
+                    .map(BoundExpression::Variable)
+                    .collect::<Vec<_>>();
+                BoundExpression::try_new_list_transform(list, lambda, captures)
+            }
             Expression::Scalar {
                 scalar_fn,
                 children,
@@ -540,6 +697,16 @@ impl Drop for BoundExpression {
                     to_drop.append(children);
                 }
             }
+            Self::ListTransform {
+                lambda, children, ..
+            } => {
+                if let Some(children) = Arc::get_mut(children) {
+                    to_drop.append(children);
+                }
+                if let Some(body) = lambda.take_body() {
+                    to_drop.push(body);
+                }
+            }
             Self::Lambda(lambda) => {
                 if let Some(body) = lambda.take_body() {
                     to_drop.push(body);
@@ -553,6 +720,16 @@ impl Drop for BoundExpression {
                 BoundExpression::Scalar { children, .. } => {
                     if let Some(grandchildren) = Arc::get_mut(children) {
                         to_drop.append(grandchildren);
+                    }
+                }
+                BoundExpression::ListTransform {
+                    lambda, children, ..
+                } => {
+                    if let Some(grandchildren) = Arc::get_mut(children) {
+                        to_drop.append(grandchildren);
+                    }
+                    if let Some(body) = lambda.take_body() {
+                        to_drop.push(body);
                     }
                 }
                 BoundExpression::Lambda(lambda) => {

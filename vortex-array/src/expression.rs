@@ -8,6 +8,7 @@ use vortex_error::vortex_bail;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::ListTransformArray;
 use crate::arrays::ScalarFnArray;
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
@@ -22,6 +23,16 @@ impl ArrayRef {
             BoundExpression::Root { .. } => Ok(self),
             BoundExpression::Lambda(_) => {
                 vortex_bail!("cannot apply a lambda outside a higher-order function")
+            }
+            BoundExpression::ListTransform {
+                lambda, children, ..
+            } => {
+                let list = self.clone().apply_bound(&children[0])?;
+                let captures = children[1..]
+                    .iter()
+                    .map(|capture| self.clone().apply_bound(capture))
+                    .collect::<VortexResult<Vec<_>>>()?;
+                Ok(ListTransformArray::try_new(list, lambda.clone(), captures)?.into_array())
             }
             BoundExpression::Variable(variable) => {
                 vortex_bail!("cannot apply variable '{variable}' without a provided value")
@@ -40,6 +51,10 @@ impl ArrayRef {
             Expression::Root => Ok(self),
             Expression::Lambda(_) => {
                 vortex_bail!("cannot apply a lambda outside a higher-order function")
+            }
+            Expression::ListTransform { .. } => {
+                let bound = expr.bind(self.dtype())?;
+                self.apply_bound(&bound)
             }
             Expression::Variable(variable) => {
                 vortex_bail!("cannot apply unbound variable '{variable}'")

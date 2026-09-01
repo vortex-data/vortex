@@ -46,6 +46,11 @@ pub enum Expression {
     },
     /// Lambda syntax owned and invoked by an enclosing higher-order function.
     Lambda(Lambda),
+    /// A dedicated list transformation with two syntax children: list input and lambda.
+    ///
+    /// This is intentionally not a scalar function: the lambda body executes in an element
+    /// domain, not the outer row domain.
+    ListTransform { children: Arc<Vec<Expression>> },
     /// The full scope of the expression evaluation.
     Root,
     /// A named value resolved from the surrounding scope when the expression is bound.
@@ -77,6 +82,17 @@ impl Expression {
         })
     }
 
+    /// Create the dedicated `list_transform(list, lambda)` syntax node.
+    pub fn try_new_list_transform(list: Expression, lambda: Expression) -> VortexResult<Self> {
+        vortex_ensure!(
+            lambda.is_lambda(),
+            "list_transform() requires a lambda as its second argument"
+        );
+        Ok(Self::ListTransform {
+            children: Arc::new(vec![list, lambda]),
+        })
+    }
+
     /// Whether this expression is the scope root.
     pub fn is_root(&self) -> bool {
         matches!(self, Self::Root)
@@ -86,7 +102,7 @@ impl Expression {
     pub fn as_variable(&self) -> Option<&Variable> {
         match self {
             Self::Variable(variable) => Some(variable),
-            Self::Lambda(_) | Self::Root | Self::Scalar { .. } => None,
+            Self::Lambda(_) | Self::ListTransform { .. } | Self::Root | Self::Scalar { .. } => None,
         }
     }
 
@@ -94,7 +110,9 @@ impl Expression {
     pub fn as_lambda(&self) -> Option<&Lambda> {
         match self {
             Self::Lambda(lambda) => Some(lambda),
-            Self::Root | Self::Scalar { .. } | Self::Variable(_) => None,
+            Self::Root | Self::ListTransform { .. } | Self::Scalar { .. } | Self::Variable(_) => {
+                None
+            }
         }
     }
 
@@ -103,11 +121,19 @@ impl Expression {
         self.as_lambda().is_some()
     }
 
+    /// Return the list input and lambda syntax of this node, if it is a list transform.
+    pub fn as_list_transform(&self) -> Option<(&Expression, &Lambda)> {
+        let Self::ListTransform { children } = self else {
+            return None;
+        };
+        Some((&children[0], children[1].as_lambda()?))
+    }
+
     /// Returns the scalar fn for this expression, or `None` if it is not a scalar node.
     pub fn as_scalar(&self) -> Option<&ScalarFnRef> {
         match self {
             Self::Scalar { scalar_fn, .. } => Some(scalar_fn),
-            Self::Lambda(_) | Self::Root | Self::Variable(_) => None,
+            Self::Lambda(_) | Self::ListTransform { .. } | Self::Root | Self::Variable(_) => None,
         }
     }
 
@@ -136,7 +162,7 @@ impl Expression {
     /// A lambda body is binder-owned syntax and is available through [`Lambda::body`] instead.
     pub fn children(&self) -> &[Expression] {
         match self {
-            Self::Scalar { children, .. } => children.as_slice(),
+            Self::Scalar { children, .. } | Self::ListTransform { children } => children.as_slice(),
             Self::Lambda(_) | Self::Root | Self::Variable(_) => NO_CHILDREN,
         }
     }
@@ -173,6 +199,15 @@ impl Expression {
                     children: children.into(),
                 })
             }
+            Self::ListTransform { .. } => {
+                vortex_ensure!(
+                    children.len() == 2 && children[1].is_lambda(),
+                    "list_transform() requires exactly a list and lambda child"
+                );
+                Ok(Self::ListTransform {
+                    children: children.into(),
+                })
+            }
         }
     }
 
@@ -189,6 +224,7 @@ impl Expression {
             Self::Lambda(_) => vortex_bail!(
                 "a lambda has no standalone dtype; it must be bound by a higher-order function"
             ),
+            Self::ListTransform { .. } => self.bind(root_dtype).map(|bound| bound.dtype().clone()),
             Self::Scalar {
                 scalar_fn,
                 children,
@@ -214,6 +250,7 @@ impl Expression {
             Self::Lambda(_) => vortex_bail!(
                 "a lambda has no standalone validity expression; it must be applied by a higher-order function"
             ),
+            Self::ListTransform { children } => children[0].validity(),
             Self::Scalar { scalar_fn, .. } => scalar_fn.validity(self),
         }
     }
@@ -227,6 +264,9 @@ impl Expression {
             Self::Root => write!(f, "$"),
             Self::Variable(variable) => write!(f, "${variable}"),
             Self::Lambda(lambda) => Display::fmt(lambda, f),
+            Self::ListTransform { children } => {
+                write!(f, "list_transform({}, {})", children[0], children[1])
+            }
             Self::Scalar { scalar_fn, .. } => scalar_fn.fmt_sql(self, f),
         }
     }
@@ -351,7 +391,7 @@ impl Drop for Expression {
     fn drop(&mut self) {
         let mut children_to_drop = Vec::new();
         match self {
-            Self::Scalar { children, .. } => {
+            Self::Scalar { children, .. } | Self::ListTransform { children } => {
                 if let Some(children) = Arc::get_mut(children) {
                     children_to_drop.append(children);
                 }
@@ -369,7 +409,7 @@ impl Drop for Expression {
             None => {
                 while let Some(mut child) = children_to_drop.pop() {
                     match &mut child {
-                        Self::Scalar { children, .. } => {
+                        Self::Scalar { children, .. } | Self::ListTransform { children } => {
                             if let Some(expr_children) = Arc::get_mut(children) {
                                 children_to_drop.append(expr_children);
                             }

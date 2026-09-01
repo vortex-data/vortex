@@ -32,7 +32,10 @@ impl Expression {
     fn simplify_untyped_node(&self) -> VortexResult<Option<Expression>> {
         match self {
             Expression::Scalar { scalar_fn, .. } => scalar_fn.simplify_untyped(self),
-            Expression::Lambda(_) | Expression::Root | Expression::Variable(_) => Ok(None),
+            Expression::Lambda(_)
+            | Expression::ListTransform { .. }
+            | Expression::Root
+            | Expression::Variable(_) => Ok(None),
         }
     }
 
@@ -40,7 +43,10 @@ impl Expression {
     fn simplify_node(&self, ctx: &dyn SimplifyCtx) -> VortexResult<Option<Expression>> {
         match self {
             Expression::Scalar { scalar_fn, .. } => scalar_fn.simplify(self, ctx),
-            Expression::Lambda(_) | Expression::Root | Expression::Variable(_) => Ok(None),
+            Expression::Lambda(_)
+            | Expression::ListTransform { .. }
+            | Expression::Root
+            | Expression::Variable(_) => Ok(None),
         }
     }
 
@@ -51,7 +57,10 @@ impl Expression {
     ) -> VortexResult<Option<ExpressionReduceNode<'a>>> {
         match self {
             Expression::Scalar { scalar_fn, .. } => scalar_fn.reduce_expression(node),
-            Expression::Lambda(_) | Expression::Root | Expression::Variable(_) => Ok(None),
+            Expression::Lambda(_)
+            | Expression::ListTransform { .. }
+            | Expression::Root
+            | Expression::Variable(_) => Ok(None),
         }
     }
 
@@ -78,7 +87,8 @@ impl Expression {
                 Expression::Lambda(_) => {
                     vortex_bail!("cannot optimize a lambda outside a higher-order function")
                 }
-                Expression::Root | Expression::Scalar { .. } => {}
+                Expression::Root | Expression::Scalar { .. } | Expression::ListTransform { .. } => {
+                }
             }
             let mut changed = false;
 
@@ -141,6 +151,17 @@ impl Expression {
         &self,
         cache: &SimplifyCache<'_>,
     ) -> VortexResult<Option<Expression>> {
+        // The lambda body is a different lexical/domain boundary. Optimizing ordinary children
+        // may optimize the outer list input, but must not schedule a detached lambda body.
+        if let Expression::ListTransform { children } = self {
+            if let Some(list) = children[0].try_optimize_recursive_inner(cache)? {
+                return Ok(Some(Expression::try_new_list_transform(
+                    list,
+                    children[1].clone(),
+                )?));
+            }
+            return Ok(None);
+        }
         // First optimize the root
         let mut current = self.try_optimize(cache)?;
 
@@ -202,6 +223,9 @@ impl SimplifyCtx for SimplifyCache<'_> {
             Expression::Lambda(_) => vortex_bail!(
                 "cannot determine the standalone dtype of a lambda; it must be bound by a higher-order function"
             ),
+            Expression::ListTransform { .. } => {
+                expr.bind(self.scope).map(|bound| bound.dtype().clone())?
+            }
             Expression::Scalar {
                 scalar_fn,
                 children,

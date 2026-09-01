@@ -78,6 +78,11 @@ pub mod listview;
 pub use listview::ListView;
 pub use listview::ListViewArray;
 
+pub mod list_transform;
+pub use list_transform::ListTransform;
+pub use list_transform::ListTransformArray;
+pub use list_transform::ListTransformArrayExt;
+
 pub mod map;
 pub use map::Map;
 pub use map::MapArray;
@@ -105,6 +110,11 @@ pub use primitive::PrimitiveArray;
 pub mod scalar_fn;
 pub use scalar_fn::ScalarFn;
 pub use scalar_fn::ScalarFnArray;
+
+pub mod template;
+pub use template::TemplateInput;
+pub use template::TemplateInputArray;
+pub use template::TemplateScope;
 
 pub mod shared;
 pub use shared::Shared;

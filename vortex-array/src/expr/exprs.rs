@@ -87,6 +87,11 @@ pub fn lambda(
     Ok(Lambda::try_new(params, body)?.into())
 }
 
+/// Creates a dedicated list transformation expression from a list input and lambda syntax.
+pub fn list_transform(list: Expression, lambda: Expression) -> VortexResult<Expression> {
+    Expression::try_new_list_transform(list, lambda)
+}
+
 /// Return whether the expression is a root expression.
 pub fn is_root(expr: &Expression) -> bool {
     expr.is_root()

@@ -19,6 +19,9 @@ pub fn label_infallible(expr: &Expression) -> BooleanLabels<'_> {
             Expression::Root => true,
             // Fallibility is determined by the enclosing HOF.
             Expression::Lambda(_) | Expression::Variable(_) => true,
+            // The lambda runs in a separate element domain. Do not claim an unbound transform is
+            // infallible merely because its outer list expression is.
+            Expression::ListTransform { .. } => false,
         },
         |acc, &child| acc & child,
     )
