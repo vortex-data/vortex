@@ -73,6 +73,8 @@ pub enum BenchmarkDataset {
     PublicBi { name: String },
     #[serde(rename = "spatialbench")]
     SpatialBench { scale_factor: String },
+    #[serde(rename = "ssb")]
+    Ssb { scale_factor: String },
     #[serde(rename = "statpopgen")]
     StatPopGen { n_rows: u64 },
     #[serde(rename = "polarsignals")]
@@ -95,6 +97,7 @@ impl BenchmarkDataset {
             BenchmarkDataset::ClickBenchSorted => "clickbench-sorted",
             BenchmarkDataset::PublicBi { .. } => "public-bi",
             BenchmarkDataset::SpatialBench { .. } => "spatialbench",
+            BenchmarkDataset::Ssb { .. } => "ssb",
             BenchmarkDataset::StatPopGen { .. } => "statpopgen",
             BenchmarkDataset::PolarSignals { .. } => "polarsignals",
             BenchmarkDataset::Fineweb => "fineweb",
@@ -119,6 +122,7 @@ impl Display for BenchmarkDataset {
             BenchmarkDataset::SpatialBench { scale_factor } => {
                 write!(f, "spatialbench(sf={scale_factor})")
             }
+            BenchmarkDataset::Ssb { scale_factor } => write!(f, "ssb(sf={scale_factor})"),
             BenchmarkDataset::StatPopGen { n_rows } => write!(f, "statpopgen(n_rows={n_rows})"),
             BenchmarkDataset::PolarSignals { n_rows } => {
                 write!(f, "polarsignals(n_rows={n_rows})")
@@ -129,6 +133,10 @@ impl Display for BenchmarkDataset {
         }
     }
 }
+
+/// SSB registers `date` as `dwdate`, because `date` is a reserved word in both engines'
+/// parsers. Kept in sync with `ssb::datagen::TABLES` by a test there.
+pub const SSB_TABLES: &[&str] = &["customer", "supplier", "part", "dwdate", "lineorder"];
 
 const APPIAN_TABLES: &[&str] = &[
     "addressview",
@@ -179,6 +187,7 @@ impl BenchmarkDataset {
             BenchmarkDataset::ClickBench { .. } | BenchmarkDataset::ClickBenchSorted => &["hits"],
             BenchmarkDataset::PublicBi { .. } => todo!(),
             BenchmarkDataset::SpatialBench { .. } => &["trip", "building", "customer", "zone"],
+            BenchmarkDataset::Ssb { .. } => SSB_TABLES,
             BenchmarkDataset::StatPopGen { .. } => &["statpopgen"],
             BenchmarkDataset::PolarSignals { .. } => &["stacktraces"],
             BenchmarkDataset::Fineweb => &["fineweb"],

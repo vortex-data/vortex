@@ -264,6 +264,19 @@ BENCHMARKS = (
         },
     ),
     BenchmarkCase(
+        id="ssb-nvme",
+        benchmark=Benchmark.SSB,
+        name="SSB SF=10 on NVME",
+        scale_factor=10.0,
+        iterations=10,
+        runs={
+            "pr-compact": COMPACT,
+            "pr-all": COMPACT,
+            "pr-full": DEFAULT_WITH_DUCKDB_PR_FULL,
+            "develop": STANDARD_WITH_DUCKDB,
+        },
+    ),
+    BenchmarkCase(
         id="vortex-queries",
         benchmark=Benchmark.VORTEX_QUERIES,
         name="Vortex queries",

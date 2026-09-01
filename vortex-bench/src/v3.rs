@@ -285,6 +285,7 @@ fn canonical_tpc_scale_factor(scale_factor: &str) -> String {
 /// | `Appian`                    | `appian`       | `None`              | `None`                                              | Static dataset; no scale factor. |
 /// | `PublicBi { name }`         | `public-bi`    | dataset name (e.g. `cms-provider`) | `None`               | Sub-dataset name lives in `dataset_variant`. |
 /// | `SpatialBench { scale_factor }` | `spatialbench` | `None`         | SF as string | Same canonicalization as TPC-H; no historical v2 records to merge with. |
+/// | `Ssb { scale_factor }`      | `ssb`          | `None`              | SF as string                                        | Same canonicalization as TPC-H; no historical v2 records to merge with. |
 /// | `VortexQueries` | `vortex` | `None` | `None` | Own microbenchmarks |
 pub fn benchmark_dataset_dims(d: &BenchmarkDataset) -> (String, Option<String>, Option<String>) {
     match d {
@@ -313,6 +314,11 @@ pub fn benchmark_dataset_dims(d: &BenchmarkDataset) -> (String, Option<String>, 
         // matrix if ever needed.
         BenchmarkDataset::SpatialBench { scale_factor } => (
             "spatialbench".to_string(),
+            None,
+            Some(canonical_tpc_scale_factor(scale_factor)),
+        ),
+        BenchmarkDataset::Ssb { scale_factor } => (
+            "ssb".to_string(),
             None,
             Some(canonical_tpc_scale_factor(scale_factor)),
         ),
@@ -770,6 +776,17 @@ mod tests {
             panic!("expected CompressionSize variant, got {record:?}");
         };
         assert_eq!(size.dataset, "cmsprovider");
+    }
+
+    #[test]
+    fn ssb_dims_carry_a_canonicalized_scale_factor() {
+        let (dataset, variant, scale_factor) = benchmark_dataset_dims(&BenchmarkDataset::Ssb {
+            scale_factor: "10.0".to_string(),
+        });
+
+        assert_eq!(dataset, "ssb");
+        assert_eq!(variant, None);
+        assert_eq!(scale_factor.as_deref(), Some("10"));
     }
 
     #[test]
