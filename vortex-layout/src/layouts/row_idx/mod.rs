@@ -339,10 +339,20 @@ fn row_idx_array_future(
 ) -> ArrayFuture {
     let row_range = row_range.clone();
     async move {
-        let array = idx_array(row_offset, &row_range).into_array();
-        let filtered = array.filter(mask.await?)?;
-        let mut ctx = session.create_execution_ctx();
-        let array = filtered.execute::<Canonical>(&mut ctx)?.into_array();
+        let mask = mask.await?;
+        let array = match mask {
+            Mask::AllTrue(_) => idx_array(row_offset, &row_range).into_array(),
+            Mask::AllFalse(_) => {
+                Canonical::empty(&DType::Primitive(PType::U64, NonNullable)).into_array()
+            }
+            mask @ Mask::Values(_) => {
+                let filtered = idx_array(row_offset, &row_range)
+                    .into_array()
+                    .filter(mask)?;
+                let mut ctx = session.create_execution_ctx();
+                filtered.execute::<Canonical>(&mut ctx)?.into_array()
+            }
+        };
         array.apply_bound(&expr)
     }
     .boxed()
@@ -358,6 +368,9 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::expr::eq;
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
@@ -366,6 +379,8 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
+    use vortex_mask::Mask;
+    use vortex_sequence::Sequence;
 
     use crate::LayoutReader;
     use crate::LayoutStrategy;
@@ -519,6 +534,55 @@ mod tests {
                 BoolArray::from_iter([true, false, true, false, true]),
                 &mut ctx
             );
+        })
+    }
+
+    #[test]
+    fn row_idx_array_all_true_keeps_sequence() {
+        block_on(|handle| async {
+            let session = new_session().with_handle(handle);
+            let expr = root()
+                .bind(&DType::Primitive(PType::U64, Nullability::NonNullable))
+                .unwrap();
+
+            let result = super::row_idx_array_future(
+                10,
+                &(2..7),
+                expr,
+                MaskFuture::ready(Mask::new_true(5)),
+                session,
+            )
+            .await
+            .unwrap();
+
+            assert!(result.is::<Sequence>());
+            assert_eq!(result.len(), 5);
+        })
+    }
+
+    #[test]
+    fn row_idx_array_all_false_returns_empty() {
+        block_on(|handle| async {
+            let session = new_session().with_handle(handle);
+            let expr = root()
+                .bind(&DType::Primitive(PType::U64, Nullability::NonNullable))
+                .unwrap();
+
+            let result = super::row_idx_array_future(
+                10,
+                &(2..7),
+                expr,
+                MaskFuture::ready(Mask::new_false(5)),
+                session,
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(
+                result.dtype(),
+                &DType::Primitive(PType::U64, Nullability::NonNullable)
+            );
+            assert_eq!(result.len(), 0);
         })
     }
 }
