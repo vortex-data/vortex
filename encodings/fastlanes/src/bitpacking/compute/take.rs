@@ -167,10 +167,15 @@ mod test {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::DictArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::VarBinArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::take::test_take_conformance;
+    use vortex_array::optimizer::ArrayOptimizer as _;
+    use vortex_array::scalar_fn::fns::like::Like;
+    use vortex_array::scalar_fn::fns::like::LikeOptions;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
@@ -205,32 +210,59 @@ mod test {
         );
     }
 
-    /// A `list_contains` over a dict-encoded column evaluates the predicate on the dictionary
-    /// values and then takes the resulting `BoolArray` with the dict's bitpacked codes. The
-    /// bool take kernel has no bitpacked-aware path, so the codes are decoded to primitive
-    /// first; this pins the result of that composition.
+    /// A `LIKE` over a dict-encoded string column (the ClickBench `URL LIKE '%...%'` shape)
+    /// pushes the pattern down onto the dictionary values, leaving `Dict(codes, BoolArray)`.
+    /// Canonicalizing that is a boolean take driven by the bitpacked codes: the bool take
+    /// kernel has no bitpacked-aware path, so the codes are decoded to primitive first.
     #[rstest]
-    fn bool_take_with_bitpacked_dict_codes(
-        #[values(false, true)] nullable_values: bool,
+    #[case("%google%", [false, true, false, true])]
+    #[case("http://%", [true, true, true, false])]
+    #[case("%nomatch%", [false, false, false, false])]
+    fn like_over_bitpacked_dict_codes(
+        #[case] pattern: &str,
+        #[case] matches: [bool; 4],
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
 
-        // A small dictionary of predicate results, as produced by evaluating list_contains
-        // against the dict values.
-        let values = if nullable_values {
-            BoolArray::from_iter([Some(true), Some(false), None, Some(true)])
-        } else {
-            BoolArray::from_iter([true, false, false, true])
-        }
+        let urls = VarBinArray::from(vec![
+            "http://example.com/a",
+            "http://google.com/search",
+            "http://example.com/b",
+            "https://news.google.com",
+        ])
         .into_array();
 
         let len = 4096;
         let codes = PrimitiveArray::from_iter((0..len).map(|idx| (idx % 4) as u8)).into_array();
         let bitpacked = BitPackedData::encode(&codes, 2, &mut ctx)?.into_array();
+        let dict = DictArray::try_new(bitpacked, urls)?.into_array();
+
+        let result = Like::try_new(
+            dict,
+            ConstantArray::new(pattern, len).into_array(),
+            LikeOptions::default(),
+        )?
+        .into_array()
+        .optimize()?;
+
+        let expected = BoolArray::from_iter((0..len).map(|idx| matches[idx % 4]));
+        assert_arrays_eq!(result, expected, &mut ctx);
+        Ok(())
+    }
+
+    /// The same take, with nulls in the dictionary values, so validity is gathered by the
+    /// bitpacked codes as well.
+    #[test]
+    fn bool_take_with_bitpacked_dict_codes_nullable() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let values = BoolArray::from_iter([Some(true), Some(false), None, Some(true)]).into_array();
+        let len = 4096;
+        let codes = PrimitiveArray::from_iter((0..len).map(|idx| (idx % 4) as u8)).into_array();
+        let bitpacked = BitPackedData::encode(&codes, 2, &mut ctx)?.into_array();
 
         let dict = DictArray::try_new(bitpacked, values.clone())?.into_array();
-        let expected = values.take(codes)?;
-        assert_arrays_eq!(dict, expected, &mut ctx);
+        assert_arrays_eq!(dict, values.take(codes)?, &mut ctx);
         Ok(())
     }
 
