@@ -12248,6 +12248,10 @@ dependencies = [
  "prost-build",
  "toml",
  "vortex-edition",
+ "vortex-json",
+ "vortex-spatial",
+ "vortex-tensor",
+ "vortex-zstd",
  "xshell",
 ]
 

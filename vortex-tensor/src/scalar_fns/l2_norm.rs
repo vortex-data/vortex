@@ -252,7 +252,6 @@ fn l2_norm_row<T: Float + NativePType>(v: &[T]) -> T {
 mod tests {
 
     use rstest::rstest;
-    use vortex_array::ArrayContext;
     use vortex_array::ArrayDeserialization;
     use vortex_array::ArrayPlugin;
     use vortex_array::ArrayRef;
@@ -433,7 +432,7 @@ mod tests {
 
         let plugin = ScalarFnArrayPlugin::new(L2Norm);
         let serialization = plugin
-            .serialize(&original, &ArrayContext::empty(), &SESSION)?
+            .serialize(&original, &SESSION)?
             .expect("L2Norm serialize must produce metadata");
 
         let children = vec![child];

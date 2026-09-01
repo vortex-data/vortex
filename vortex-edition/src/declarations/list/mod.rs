@@ -8,6 +8,7 @@ use crate::EditionFamily;
 /// The `list` family: list layouts.
 pub static FAMILY: EditionFamily = EditionFamily {
     name: "list",
+    origin: "vortex",
     doc: "Layouts that store list elements and offsets in separate child layouts.",
 };
 

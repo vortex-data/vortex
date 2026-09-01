@@ -6,14 +6,12 @@
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
-use vortex_array::ArrayId;
 use vortex_array::dtype::FieldPath;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::schemes::integer::IntDictScheme;
 use vortex_error::VortexExpect;
 use vortex_layout::LayoutStrategy;
-use vortex_layout::LayoutStrategyEncodingValidator;
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::collect::CollectStrategy;
@@ -29,7 +27,6 @@ use vortex_layout::layouts::table::use_experimental_list_layout;
 use vortex_layout::layouts::zoned::writer::ZonedLayoutOptions;
 use vortex_layout::layouts::zoned::writer::ZonedStrategy;
 use vortex_utils::aliases::hash_map::HashMap;
-use vortex_utils::aliases::hash_set::HashSet;
 
 const ONE_MEG: u64 = 1 << 20;
 
@@ -59,7 +56,6 @@ pub struct WriteStrategyBuilder {
     row_block_size: usize,
     data_block_target_bytes: Option<u64>,
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
-    allow_encodings: Option<HashSet<ArrayId>>,
     flat_strategy: Option<Arc<dyn LayoutStrategy>>,
     probe_compressor: Option<Arc<dyn CompressorPlugin>>,
     /// Whether to write list fields using [`ListLayoutStrategy`].
@@ -77,7 +73,6 @@ impl Default for WriteStrategyBuilder {
             row_block_size: 8192,
             data_block_target_bytes: Some(ONE_MEG),
             field_writers: HashMap::new(),
-            allow_encodings: None,
             flat_strategy: None,
             probe_compressor: None,
             use_list_layout: use_experimental_list_layout(),
@@ -128,17 +123,6 @@ impl WriteStrategyBuilder {
         self
     }
 
-    /// Override the allowed array encodings for file writing.
-    ///
-    /// The configured flat leaf strategy is wrapped in a [`LayoutStrategyEncodingValidator`]
-    /// that recursively checks every chunk before passing it to the leaf writer. [`build`](Self::build)
-    /// also restricts any [`BtrBlocksCompressorBuilder`] to these encodings, independent of the
-    /// order in which the builder and this policy were configured.
-    pub fn with_allow_encodings(mut self, allow_encodings: HashSet<ArrayId>) -> Self {
-        self.allow_encodings = Some(allow_encodings);
-        self
-    }
-
     /// Override the flat layout strategy used for leaf chunks.
     ///
     /// By default, this uses [`FlatLayoutStrategy`]. This can be used to substitute a custom
@@ -150,9 +134,8 @@ impl WriteStrategyBuilder {
 
     /// Override the default [`BtrBlocksCompressorBuilder`] used for compression.
     ///
-    /// The builder is finalized during [`build`](Self::build), producing two compressors: one for
-    /// data (with `IntDictScheme` excluded) and one for stats. Both are restricted to the
-    /// configured allowed encodings at build time.
+    /// The builder produces two compressors: one for data and one for stats.
+    /// An explicitly built compressor is used as configured.
     pub fn with_btrblocks_builder(mut self, builder: BtrBlocksCompressorBuilder) -> Self {
         self.compressor = CompressorConfig::BtrBlocks(builder);
         self
@@ -182,24 +165,7 @@ impl WriteStrategyBuilder {
             Arc::new(FlatLayoutStrategy::default())
         };
 
-        // Restrict the compressor to the allowed encodings so no compressor derived below (data,
-        // stats, and the defaulted probe compressor) can produce an encoding outside the policy,
-        // regardless of the order in which the builder and the policy were configured.
-        let compressor = match self.compressor {
-            CompressorConfig::BtrBlocks(builder) => {
-                CompressorConfig::BtrBlocks(match &self.allow_encodings {
-                    Some(allow_encodings) => builder.retain_allowed_encodings(allow_encodings),
-                    None => builder,
-                })
-            }
-            opaque => opaque,
-        };
-
-        let flat: Arc<dyn LayoutStrategy> = if let Some(allow_encodings) = self.allow_encodings {
-            Arc::new(LayoutStrategyEncodingValidator::new(flat, allow_encodings))
-        } else {
-            flat
-        };
+        let compressor = self.compressor;
 
         // 7. for each chunk create a flat layout
         let chunked = ChunkedLayoutStrategy::new(Arc::clone(&flat));

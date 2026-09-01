@@ -40,10 +40,12 @@ use super::CORE_2026_08_1;
 use super::CORE_2026_08_2;
 use super::CORE_2026_08_3;
 use super::DEFAULT_CORE_EDITION;
+use super::DEFAULT_PREVIEW_EDITION;
 use super::DELTA_2025_05_0;
 use super::EDITION_DECLARATIONS;
 use super::LIST_2026_06_0;
 use super::PATCHES_2026_04_0;
+use super::PREVIEW_2026_08_0;
 
 fn session() -> Result<EditionSession, EditionError> {
     let session = EditionSession::empty();
@@ -151,6 +153,19 @@ fn components_have_independent_edition_families() {
 }
 
 #[test]
+fn preview_starts_empty() {
+    let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
+    for kind in [
+        ComponentKind::Array,
+        ComponentKind::Layout,
+        ComponentKind::DType,
+        ComponentKind::Aggregate,
+    ] {
+        assert!(session.components_in(&PREVIEW_2026_08_0, kind).is_empty());
+    }
+}
+
+#[test]
 fn earlier_editions_are_subsets() {
     let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
     let first = session.components_in(&CORE_2025_05_0, ComponentKind::Array);
@@ -218,7 +233,12 @@ fn default_session_enables_the_write_editions() {
             .contains(&Id::from("vortex.pco"))
     );
 
-    for edition in [DELTA_2025_05_0, LIST_2026_06_0, PATCHES_2026_04_0] {
+    for edition in [
+        DEFAULT_PREVIEW_EDITION,
+        DELTA_2025_05_0,
+        LIST_2026_06_0,
+        PATCHES_2026_04_0,
+    ] {
         #[cfg(feature = "unstable_encodings")]
         assert!(enabled.contains(&edition));
         #[cfg(not(feature = "unstable_encodings"))]
@@ -532,11 +552,48 @@ fn forbidden_sequence_compressor(
     }
 }
 
-/// Compressors operate on the current in-memory array model and do not interpret edition wire
-/// IDs. The serializer is the final compatibility boundary and rejects a compressor result when
-/// none of its lossless wire variants is enabled.
+/// The writer configures BtrBlocks from the enabled edition, so an effective but unavailable
+/// encoding is skipped rather than produced and rejected during serialization.
 #[tokio::test]
-async fn serializer_rejects_unsupported_compressor_output() -> VortexResult<()> {
+async fn btrblocks_respects_enabled_array_encodings() -> VortexResult<()> {
+    let session = writer_test_session()?;
+    write_with(&session, sequential_integers().into_array()).await?;
+    Ok(())
+}
+
+/// An explicitly supplied strategy is not reconfigured by the writer. Its unsupported output is
+/// still caught by the serialization context.
+#[tokio::test]
+async fn explicit_btrblocks_strategy_is_not_reconfigured() -> VortexResult<()> {
+    let session = writer_test_session()?;
+    let strategy = WriteStrategyBuilder::default().build();
+    let mut buffer = ByteBufferMut::empty();
+
+    let error = session
+        .write_options()
+        .with_strategy(strategy)
+        .write(
+            &mut buffer,
+            sequential_integers().into_array().to_array_stream(),
+        )
+        .await
+        .err()
+        .ok_or_else(|| vortex_err!("explicit BtrBlocks strategy was unexpectedly reconfigured"))?;
+    assert!(
+        error
+            .to_string()
+            .contains("Serialized array ID vortex.sequence not permitted by ctx"),
+        "unexpected error: {error}"
+    );
+
+    Ok(())
+}
+
+/// Compressors operate on the current in-memory array model and do not interpret edition wire
+/// IDs. The serialization context is the final compatibility boundary and rejects a compressor
+/// result whose serialized ID is not enabled.
+#[tokio::test]
+async fn serialization_context_rejects_unsupported_compressor_output() -> VortexResult<()> {
     let session = writer_test_session()?;
     let strategy = WriteStrategyBuilder::default()
         .with_compressor(forbidden_sequence_compressor)
@@ -554,9 +611,9 @@ async fn serializer_rejects_unsupported_compressor_output() -> VortexResult<()> 
         .err()
         .ok_or_else(|| vortex_err!("Sequence unexpectedly had a permitted wire variant"))?;
     assert!(
-        error.to_string().contains(
-            "Array vortex.sequence cannot be represented by any permitted serialized array ID"
-        ),
+        error
+            .to_string()
+            .contains("Serialized array ID vortex.sequence not permitted by ctx"),
         "unexpected error: {error}"
     );
 
@@ -566,7 +623,7 @@ async fn serializer_rejects_unsupported_compressor_output() -> VortexResult<()> 
 /// The same compressor output is writable when its wire ID is enabled, without configuring the
 /// compressor itself from the edition.
 #[tokio::test]
-async fn serializer_accepts_supported_compressor_output() -> VortexResult<()> {
+async fn serialization_context_accepts_supported_compressor_output() -> VortexResult<()> {
     use crate::VortexSessionDefault;
 
     let session = VortexSession::default();

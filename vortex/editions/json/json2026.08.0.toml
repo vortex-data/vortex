@@ -5,25 +5,25 @@
 # to a new edition; after an origin release is known, min_library_version is backfilled to document
 # its freeze. A frozen record never changes.
 
-edition = "delta2025.05.0"
-family = "delta"
-origin = "vortex"
+edition = "json2026.08.0"
+family = "json"
+origin = "vortex-json"
 
 # Components added by this edition.
 [added]
-arrays = [
-    "fastlanes.delta",
-]
+arrays = []
 layouts = []
-dtypes = []
+dtypes = [
+    "vortex.json",
+]
 aggregates = []
 
 # The edition's full membership: the members above, plus every member of earlier
 # editions of the family.
 [components]
-arrays = [
-    "fastlanes.delta",
-]
+arrays = []
 layouts = []
-dtypes = []
+dtypes = [
+    "vortex.json",
+]
 aggregates = []

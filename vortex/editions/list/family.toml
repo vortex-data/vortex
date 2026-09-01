@@ -3,6 +3,7 @@
 # This describes the family the editions beside it belong to.
 
 name = "list"
+origin = "vortex"
 
 doc = """
 Layouts that store list elements and offsets in separate child layouts.

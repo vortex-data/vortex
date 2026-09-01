@@ -167,21 +167,17 @@ struct ArraySerializationTree {
 }
 
 impl ArraySerializationTree {
-    fn try_new(
-        ctx: &ArrayContext,
-        session: &VortexSession,
-        source: &ArrayRef,
-    ) -> VortexResult<Self> {
-        let Some(serialization) = session.array_serialize(source, ctx)? else {
+    fn try_new(session: &VortexSession, source: &ArrayRef) -> VortexResult<Self> {
+        let Some(serialization) = session.array_serialize(source)? else {
             vortex_bail!(
-                "Array {} cannot be represented by any permitted serialized array ID",
+                "Array {} does not support serialization",
                 source.encoding_id()
             );
         };
         let children = serialization
             .children
             .iter()
-            .map(|child| Self::try_new(ctx, session, child))
+            .map(|child| Self::try_new(session, child))
             .collect::<VortexResult<Vec<_>>>()?;
 
         Ok(Self {
@@ -228,7 +224,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
         session: &'a VortexSession,
         array: &ArrayRef,
     ) -> VortexResult<Self> {
-        let array = ArraySerializationTree::try_new(ctx, session, array)?;
+        let array = ArraySerializationTree::try_new(session, array)?;
         let n_buffers_recursive = array.nbuffers_recursive();
         if n_buffers_recursive > u16::MAX as usize {
             vortex_bail!(
@@ -816,7 +812,6 @@ mod tests {
         fn serialize(
             &self,
             array: &ArrayRef,
-            ctx: &ArrayContext,
             _session: &VortexSession,
         ) -> VortexResult<Option<ArraySerialization>> {
             vortex_ensure!(
@@ -825,12 +820,10 @@ mod tests {
                 array.encoding_id(),
             );
 
-            let serialized_id = if array.len() <= 4 && ctx.is_allowed(&old_primitive_id()) {
+            let serialized_id = if array.len() <= 4 {
                 old_primitive_id()
-            } else if ctx.is_allowed(&new_primitive_id()) {
-                new_primitive_id()
             } else {
-                return Ok(None);
+                new_primitive_id()
             };
 
             Ok(Some(ArraySerialization::from_array(
@@ -884,11 +877,10 @@ mod tests {
         fn serialize(
             &self,
             array: &ArrayRef,
-            ctx: &ArrayContext,
             session: &VortexSession,
         ) -> VortexResult<Option<ArraySerialization>> {
             SERIALIZER_CALLS.fetch_add(1, Ordering::Relaxed);
-            VersionedPrimitivePlugin.serialize(array, ctx, session)
+            VersionedPrimitivePlugin.serialize(array, session)
         }
 
         fn deserialize(
@@ -958,15 +950,15 @@ mod tests {
     }
 
     #[test]
-    fn serialization_fails_when_no_permitted_variant_is_lossless() -> VortexResult<()> {
+    fn serialization_fails_when_serialized_id_is_not_permitted() -> VortexResult<()> {
         let session = versioned_primitive_session();
         let ctx = restricted_context(&[old_primitive_id()]);
         let array = PrimitiveArray::from_iter(0..8i32).into_array();
 
         let error = array
             .serialize(&ctx, &session, &SerializeOptions::default())
-            .expect_err("the old wire variant cannot represent this value");
-        assert!(error.to_string().contains("cannot be represented"));
+            .expect_err("the serialized ID is not permitted");
+        assert!(error.to_string().contains("not permitted by ctx"));
         Ok(())
     }
 

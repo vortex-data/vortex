@@ -14,6 +14,7 @@ use vortex_edition::EditionMember;
 /// The `zstd` family: optional Zstd-backed serialized array representations.
 pub static FAMILY: EditionFamily = EditionFamily {
     name: "zstd",
+    origin: "vortex-zstd",
     doc: "Optional Zstd-backed serialized array representations. A reader built without \
 `vortex-zstd` cannot resolve these members, so they are versioned independently of `core` and \
 enabled only when the crate is initialized with the corresponding feature.",

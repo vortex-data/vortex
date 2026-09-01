@@ -17,17 +17,20 @@ use futures::pin_mut;
 use futures::select;
 use itertools::Itertools;
 use vortex_array::ArrayContext;
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
 use vortex_array::expr::stats::Stat;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorExt;
+use vortex_array::session::ArraySessionExt;
 use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
+use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_buffer::ByteBuffer;
 use vortex_edition::ComponentKind;
 use vortex_edition::EditionSessionExt;
@@ -76,7 +79,7 @@ use crate::segments::writer::BufferedSegmentSink;
 /// the session's runtime, array registry, and memory configuration.
 pub struct VortexWriteOptions {
     session: VortexSession,
-    strategy: Arc<dyn LayoutStrategy>,
+    strategy: Option<Arc<dyn LayoutStrategy>>,
     buffered_bytes: BufferedBytesTracker,
     exclude_dtype: bool,
     max_variable_length_statistics_size: usize,
@@ -96,9 +99,8 @@ impl<S: SessionExt> WriteOptionsSessionExt for S {}
 impl VortexWriteOptions {
     /// Create a new [`VortexWriteOptions`] with the given session.
     pub fn new(session: VortexSession) -> Self {
-        let strategy = WriteStrategyBuilder::default().build();
         VortexWriteOptions {
-            strategy,
+            strategy: None,
             buffered_bytes: BufferedBytesTracker::new(),
             session,
             exclude_dtype: false,
@@ -111,11 +113,12 @@ impl VortexWriteOptions {
     /// Replace the default layout strategy with the provided one.
     ///
     /// The strategy controls repartitioning, statistics layout, compression, and leaf segment
-    /// emission. Use [`WriteStrategyBuilder`] when only a small part of the default strategy needs
-    /// customization. The final serializers still select only serialized array IDs permitted by
-    /// the enabled editions, independently of which in-memory encodings a compressor produces.
+    /// emission, and is used without being reconfigured from the enabled editions. Use
+    /// [`WriteStrategyBuilder`] when only a small part of the default strategy needs customization.
+    /// The final serialization context still rejects array IDs not permitted by the enabled
+    /// editions, independently of which in-memory encodings a compressor produces.
     pub fn with_strategy(mut self, strategy: Arc<dyn LayoutStrategy>) -> Self {
-        self.strategy = strategy;
+        self.strategy = Some(strategy);
         self
     }
 
@@ -220,9 +223,19 @@ impl VortexWriteOptions {
 
         // The array context is built here, rather than when the options were constructed, so that
         // encodings registered on the session in between are still eligible for the file.
-        let ctx = LayoutWriterContext::new(new_array_context(&self.session))
-            .with_buffered_bytes_tracker(self.buffered_bytes.clone())
-            .with_allowed_aggregates(edition_filter(&self.session, ComponentKind::Aggregate));
+        let (array_ctx, allowed_array_encodings) = new_array_context(&self.session);
+        let ctx = LayoutWriterContext::new(array_ctx)
+            .with_allowed_aggregates(edition_filter(&self.session, ComponentKind::Aggregate))
+            .with_buffered_bytes_tracker(self.buffered_bytes.clone());
+        let strategy = match self.strategy {
+            Some(strategy) => strategy,
+            None => WriteStrategyBuilder::default()
+                .with_btrblocks_builder(
+                    BtrBlocksCompressorBuilder::default()
+                        .retain_allowed_encodings(&allowed_array_encodings),
+                )
+                .build(),
+        };
         let dtype = stream.dtype().clone();
         validate_dtype_editions(&self.session, &dtype)?;
 
@@ -256,8 +269,7 @@ impl VortexWriteOptions {
         let ctx2 = ctx.clone();
         let session = self.session.clone();
         let layout_fut = self.session.handle().spawn_nested(move |_| async move {
-            let layout = self
-                .strategy
+            let layout = strategy
                 .write_stream(
                     ctx2,
                     Arc::<BufferedSegmentSink>::clone(&segments),
@@ -349,16 +361,23 @@ impl VortexWriteOptions {
     }
 }
 
-fn new_array_context(session: &VortexSession) -> ArrayContext {
+fn new_array_context(session: &VortexSession) -> (ArrayContext, HashSet<ArrayId>) {
     // NOTE(os): Set up an array context with all enabled serialized IDs pre-populated.
     // This is preferred for now over having an empty context here, because only the
     // serialised array order is deterministic. The serialisation of arrays are done
     // parallel and with an empty context they can register their encodings to the context
     // in different order, changing the written bytes from run to run.
-    let enabled_encoding_ids = session.enabled_component_ids(ComponentKind::Array);
-    ArrayContext::new(enabled_encoding_ids.iter().cloned().sorted().collect())
+    let enabled_serialized_ids = session.enabled_component_ids(ComponentKind::Array);
+    let arrays = session.arrays();
+    let allowed_array_encodings = enabled_serialized_ids
+        .iter()
+        .filter_map(|serialized_id| arrays.registry().get(serialized_id))
+        .map(|plugin| plugin.id())
+        .collect();
+    let array_ctx = ArrayContext::new(enabled_serialized_ids.iter().cloned().sorted().collect())
         // Only permit serialized IDs in the enabled editions.
-        .with_allowed_ids(enabled_encoding_ids.into_iter().collect())
+        .with_allowed_ids(enabled_serialized_ids.into_iter().collect());
+    (array_ctx, allowed_array_encodings)
 }
 
 /// The ids of `kind` the enabled editions permit.
@@ -697,7 +716,6 @@ impl WriteSummary {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::ArrayContext;
     use vortex_array::VTable;
     use vortex_array::array_session;
     use vortex_array::arrays::Bool;
@@ -729,11 +747,10 @@ mod tests {
         session.register_edition(&DECLARATION)?;
         session.enable_edition(EDITION)?;
 
-        let enabled_encoding_ids = session.enabled_component_ids(ComponentKind::Array);
-        let ctx = ArrayContext::new(enabled_encoding_ids.clone())
-            .with_allowed_ids(enabled_encoding_ids.into_iter().collect());
+        let (ctx, allowed_array_encodings) = new_array_context(&session);
         assert_eq!(ctx.to_ids(), [Primitive.id()]);
         assert!(ctx.intern(&Bool.id()).is_none());
+        assert_eq!(allowed_array_encodings, HashSet::from([Primitive.id()]));
         Ok(())
     }
 

@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use rstest::rstest;
-use vortex_array::ArrayContext;
 use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
@@ -655,7 +654,7 @@ fn serde_round_trip(#[case] input: ArrayRef) -> VortexResult<()> {
     let children: Vec<ArrayRef> = original.children();
 
     let serialization = SESSION
-        .array_serialize(&original, &ArrayContext::empty())?
+        .array_serialize(&original)?
         .expect("Normalized must serialize");
     let recovered = ArrayPlugin::deserialize(
         &Normalized,
@@ -684,7 +683,7 @@ fn serialization_carries_no_metadata() -> VortexResult<()> {
 
     for array in [&nullable, &non_nullable] {
         let serialization = SESSION
-            .array_serialize(array, &ArrayContext::empty())?
+            .array_serialize(array)?
             .expect("Normalized must serialize");
         assert!(
             serialization.metadata.is_empty(),
@@ -714,7 +713,7 @@ fn serde_round_trip_of_a_nullable_column_with_no_null_rows() -> VortexResult<()>
     assert_eq!(children.len(), NormalizedSlots::COUNT - 1);
 
     let serialization = SESSION
-        .array_serialize(&original, &ArrayContext::empty())?
+        .array_serialize(&original)?
         .expect("Normalized must serialize");
     let recovered = ArrayPlugin::deserialize(
         &Normalized,

@@ -33,7 +33,6 @@ use pyo3::types::PyRange;
 use pyo3::types::PyRangeMethods;
 use pyo3::types::PyTuple;
 use pyo3_bytes::PyBytes as PyBufferBytes;
-use vortex::array::ArrayContext;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
@@ -148,14 +147,12 @@ fn array_metadata_tuple<'py>(
     py: Python<'py>,
     array: &ArrayRef,
 ) -> PyVortexResult<Bound<'py, PyTuple>> {
-    let serialization = session()
-        .array_serialize(array, &ArrayContext::empty())?
-        .ok_or_else(|| {
-            PyValueError::new_err(format!(
-                "Array {} does not support serialization",
-                array.encoding_id()
-            ))
-        })?;
+    let serialization = session().array_serialize(array)?.ok_or_else(|| {
+        PyValueError::new_err(format!(
+            "Array {} does not support serialization",
+            array.encoding_id()
+        ))
+    })?;
     let dtype = array.dtype().write_flatbuffer_bytes()?;
 
     let buffers = serialization

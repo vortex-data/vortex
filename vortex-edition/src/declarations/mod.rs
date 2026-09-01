@@ -15,6 +15,7 @@ pub mod core;
 pub mod delta;
 pub mod list;
 pub mod patches;
+pub mod preview;
 
 use crate::EditionDeclaration;
 use crate::EditionFamily;
@@ -25,6 +26,7 @@ pub static EDITION_FAMILIES: &[&EditionFamily] = &[
     &delta::FAMILY,
     &list::FAMILY,
     &patches::FAMILY,
+    &preview::FAMILY,
 ];
 
 /// The first-party Vortex edition declarations.
@@ -39,4 +41,5 @@ pub static EDITION_DECLARATIONS: &[&EditionDeclaration] = &[
     &delta::v2025_05::DECLARATION,
     &list::v2026_06::DECLARATION,
     &patches::v2026_04::DECLARATION,
+    &preview::v2026_08::DECLARATION,
 ];

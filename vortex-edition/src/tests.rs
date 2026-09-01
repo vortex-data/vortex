@@ -16,11 +16,13 @@ use crate::EnabledEditions;
 
 static TEST_FAMILY: EditionFamily = EditionFamily {
     name: "test",
+    origin: "vortex-edition-tests",
     doc: "A family used by the unit tests.",
 };
 
 static OTHER_FAMILY: EditionFamily = EditionFamily {
     name: "other",
+    origin: "vortex-edition-tests",
     doc: "A second family, for checking that families stay independent.",
 };
 
@@ -377,10 +379,25 @@ fn families_must_document_themselves() {
     editions
         .declare_family(&EditionFamily {
             name: "undocumented",
+            origin: "vortex-edition-tests",
             doc: "  ",
         })
         .unwrap();
     assert!(editions.validate().is_err());
+}
+
+#[test]
+fn families_must_name_their_origin() {
+    let editions = EditionSession::empty();
+    editions
+        .declare_family(&EditionFamily {
+            name: "unowned",
+            origin: "  ",
+            doc: "A family without an origin.",
+        })
+        .unwrap();
+    let error = editions.validate().unwrap_err();
+    assert!(error.to_string().contains("origin library or project"));
 }
 
 #[test]

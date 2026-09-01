@@ -18,7 +18,6 @@ use futures::FutureExt;
 use futures::TryStreamExt;
 use futures::future::BoxFuture;
 use serde::Serialize;
-use vortex::array::ArrayContext;
 use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute;
 use vortex::array::buffer::BufferHandle;
@@ -648,7 +647,7 @@ fn build_array_encoding_tree_from_array(
     let buffer_handles = array.buffer_handles();
     let buffer_lengths: Vec<usize> = buffer_handles.iter().map(|b| b.len()).collect();
     let metadata_bytes = session
-        .array_serialize(array, &ArrayContext::empty())
+        .array_serialize(array)
         .ok()
         .flatten()
         .map(|serialization| serialization.metadata.len())

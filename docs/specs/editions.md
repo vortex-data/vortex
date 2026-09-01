@@ -2,26 +2,23 @@
 
 Vortex files contain several kinds of serialized **component**: array encodings, layout encodings, extension dtypes, and
 aggregate functions. An **edition** is a named set of their concrete wire IDs. It controls what a writer may put in a
-file and, once frozen, identifies its minimum library version: the earliest Vortex release that recognizes every ID in
-the set.
-
-Array versions are represented by different serialized array IDs, not by a numeric version attached to an in-memory
-array. Several IDs may serialize and deserialize the same current in-memory representation. This makes compatibility
-self-describing: an old reader resolves an ID it knows, and rejects a newer ID as unknown instead of silently
-misinterpreting new metadata, children, or buffers.
+file and, once frozen, identifies its origin library or project and minimum version: the earliest release of that origin
+that recognizes every ID in the set.
 
 Editions belong to independently versioned families and are cumulative within a family. Each edition includes all
 components from the preceding edition in that family, plus any additions. A writer selects at most one edition from
 each family and may use the union of their component IDs. For example, selecting `core2026.08.3`,
 `delta2025.05.0`, and `patches2026.04.0` allows the core components together with Delta and Patched arrays.
+Every family names the origin library or project whose release versions its editions use.
 
 The first frozen edition, `core2025.05.0`, contains the components that Vortex `0.36.0` could write. This marks the
 start of the Vortex file format's stability guarantee. Every Vortex release from `0.36.0` onward can read
 `core2025.05.0`, and later frozen `core` editions extend that guarantee to newer components.
 
-When a writer selects only frozen editions, the highest of their minimum library versions is the earliest release
-guaranteed to read the resulting file. Draft editions have no minimum library version; selecting one gives up this
-guarantee for any draft components written to the file.
+When a writer selects only frozen editions from one origin, the highest of their minimum library versions is the
+earliest release guaranteed to read the resulting file. With multiple origins, the file requires the recorded minimum
+version of each. Editions without minimum library versions are drafts and carry no guarantee about their future
+compatibility.
 
 ## What an edition contains
 
@@ -29,12 +26,12 @@ An edition records every component by kind and wire ID. IDs are unique within a 
 named `vortex.flat` and an array encoding with the same ID are distinct components. The writer therefore builds and
 enforces a separate allowlist for each kind:
 
-| Kind        | What it identifies                          | Used at                       |
-|-------------|---------------------------------------------|-------------------------------|
-| `array`     | a serialized array representation           | array serialization           |
-| `layout`    | the footer's layout tree                    | layout serialization context  |
-| `dtype`     | extension dtypes nested in the file schema  | file writer                   |
-| `aggregate` | zone maps in zoned layouts                  | layout writer context         |
+| Kind        | What it identifies                         | Used at                      |
+|-------------|--------------------------------------------|------------------------------|
+| `array`     | a serialized array representation          | array serialization          |
+| `layout`    | the footer's layout tree                   | layout serialization context |
+| `dtype`     | extension dtypes nested in the file schema | file writer                  |
+| `aggregate` | zone maps in zoned layouts                 | layout writer context        |
 
 Writing a component that is absent from the selected editions fails the write. This rule applies to every kind,
 including aggregates. Although a zone map is only an optimization and could be dropped, doing so would silently change
@@ -45,8 +42,8 @@ omits it and there is no edition violation.
 
 An empty allowlist permits no components. Collectively, the selected editions must declare every serialized array ID,
 layout encoding, extension dtype, and aggregate function that the writer writes. An array serializer may expose several
-wire IDs for one in-memory encoding; it tries permitted IDs from oldest to newest and selects the first representation
-that can encode the value losslessly.
+wire IDs for one in-memory encoding. The serializer chooses the representation, and the serialization context rejects
+the write if the chosen wire ID is not declared by the selected editions.
 
 For example, `core2026.08.0` declares the aggregate functions that the default writer may store in zone maps: `min`,
 `max`, `bounded_min`, `bounded_max`, `nan_count`, and `null_count`. It does not declare `sum`, because the writer does
@@ -61,9 +58,9 @@ Optional Vortex modules enable their own edition families alongside `core`. Tens
 An unknown-ID error means that the reader does not recognize a serialized component in the file. Find the component's
 kind and ID in the [registry](#edition-registry):
 
-1. **It belongs to a frozen edition.** Upgrade to at least the minimum library version listed for that edition.
+1. **It belongs to a frozen edition.** Upgrade the edition's named origin to at least its minimum library version.
 2. **It belongs to a draft edition.** No released reader is guaranteed to support it. Use a build that registers the
-    component or ask the file's producer which build to use.
+   component or ask the file's producer which build to use.
 3. **It is not in the registry.** The file contains a custom, third-party, or experimental component outside the
    editions system. Ask the producer for its implementation and register it with the reader's session.
 
@@ -76,8 +73,8 @@ zone-map pruning rather than causing the file to be rejected.
 By default, the Vortex facade targets `core2026.08.3`. A new encoding or serialization feature that is
 still evolving gets a new draft edition; later additions create later editions rather than changing an already
 published feature set. Each feature advances through its own independently versioned family until it is ready to join
-`core`. Components supplied by an optional plugin belong to that plugin's family, such as `tensor`, `zstd`, `spatial`,
-or `json`.
+the shared `preview` family. Preview components remain opt-in until they are ready to join `core`. Components supplied
+by an optional plugin belong to that plugin's family, such as `tensor`, `zstd`, `spatial`, or `json`.
 
 Edition configuration belongs to the writer's Vortex session. Registering an edition makes its declaration available to
 the session; enabling it allows the writer to use its components. Enabling another edition in the same family replaces
@@ -86,25 +83,18 @@ the previous selection.
 You can change the default configuration to:
 
 - **Target an older `core` edition** when the file must remain readable by an older Vortex deployment.
-- **Enable another family** to use components outside `core`. Vortex currently defines `delta`, `list`, `patches`,
-  `tensor`, `zstd`, `spatial`, and `json` in addition to `core`.
+- **Enable another family** to use components outside `core`. Vortex currently defines `preview`, `delta`, `list`,
+  `patches`, `tensor`, `zstd`, `spatial`, and `json` in addition to `core`.
 
-Sessions created without the Vortex facade must register and enable their editions before writing files. The lower-level
-`with_allow_encodings` policy can separately restrict which in-memory encodings a compression strategy may produce. It
-does not expand the serialized IDs permitted by the selected editions.
+Sessions created without the Vortex facade must register and enable their editions before writing files.
 
 Compression and edition compatibility are separate. Compressors produce current in-memory arrays and do not select a
-wire ID. At the flat-array boundary, the serializer receives the edition's allowed serialized IDs. For the in-memory
-array it:
-
-1. considers its historical wire IDs from oldest to newest;
-2. skips IDs absent from the selected editions;
-3. tries to produce the metadata, buffers, and children for each remaining ID; and
-4. uses the first lossless representation, or fails the write if none works.
-
-This permits an older compressor implementation to produce the current in-memory array while that array's serializer
-safely downgrades it to the wire representation the compressor and target edition support. A custom layout or compressor
-cannot bypass the check because the final array serializer owns wire-ID selection.
+wire ID. The writer maps each allowed serialized ID to its current in-memory encoding and restricts the default
+BtrBlocks compressor to schemes producing those encodings. Custom compressors remain unrestricted, with serialization
+providing the final compatibility boundary. At that boundary, the array plugin produces an ID, metadata, buffers, and
+children. The serialization context interns the returned ID and fails the write if the selected editions do not permit
+it. A serializer may emit a historical ID when the value satisfies that ID's frozen contract, but it does not inspect
+the edition allowlist. A custom layout or compressor therefore cannot bypass the final wire-ID check.
 
 ## How editions change
 
@@ -117,19 +107,20 @@ Core-maintained objects do not enter `core` directly. When an object is ready fo
 believed complete, it enters a draft edition in an independently versioned family. Publishing that edition is a
 format-stability commitment, not the start of format design: the serialized contract should change only when absolutely
 necessary to resolve a problem found during testing. After successful testing, the same object ID and wire contract move
-into a new `core` edition.
+into a new `preview` edition for broad opt-in use, and later into a new `core` edition for use by default.
 
-A new stable `core` or plugin edition may freeze in the release in which it first ships. Until that release is cut, its
-version is not known and the declaration keeps `min_library_version: None`. After the release is cut, the declaration is
-updated with that newly released version, usually during development of the next release. This backfills the documented
-minimum library version; it does not delay the freeze or its read-forever compatibility guarantee.
+A new stable `core` or plugin edition may freeze in the release of its origin project in which it first ships. Until
+that release is cut, its version is not known and the declaration keeps `min_library_version: None`. After the release
+is cut, the declaration is updated with that newly released version, usually during development of the next release.
+This backfills the documented minimum library version; it does not delay the freeze or its read-forever compatibility
+guarantee.
 
 A component may later be deprecated, meaning that writers stop using it. Readers must continue to support it, so
 deprecation does not invalidate existing files.
 
 Writer behavior evolves independently from the in-memory representation. A change that an old reader must distinguish
-uses a new serialized ID, even when the new deserializer produces the same in-memory array. Sessions targeting an older
-edition continue selecting the older ID whenever the current value has a lossless downgrade.
+uses a new serialized ID, even when the new deserializer produces the same in-memory array. A serializer may continue
+emitting the older ID for values that satisfy its frozen contract; the selected editions validate the ID it emits.
 
 ## How serialized components evolve
 
@@ -138,8 +129,7 @@ or be replaced without changing an edition. Each in-memory array plugin owns the
 its wire history:
 
 - the serialized IDs its deserializer recognizes;
-- one serializer that receives the permitted IDs and returns the earliest lossless variant as metadata, buffers, and
-  children; and
+- one serializer that returns the appropriate lossless variant as an ID, metadata, buffers, and children; and
 - a deserializer that receives the exact ID found in the file and constructs the current in-memory representation.
 
 An in-memory representation often has one serialized ID equal to its in-memory encoding ID, but this is only the simple
@@ -217,12 +207,12 @@ A file contains its array ID, dtype, metadata, children, and buffers. A newer pl
 `vortex.foo` and `vortex.foo_v2`, but an older build is registered only under `vortex.foo`. This is what guarantees that
 the older build rejects a v2 file before interpreting its contents.
 
-### Writing: select a permitted component and writer behavior
+### Writing: validate the selected component and writer behavior
 
-For each in-memory array, the writer calls its plugin's single serializer with the serialized IDs permitted by the
-selected editions. The serializer owns the versioning logic and returns the earliest lossless variant. It may change
-metadata, buffers, and children without constructing a legacy in-memory array. Returning `None` means no permitted
-representation works, so the write fails.
+For each in-memory array, the writer calls its plugin's single serializer. The serializer owns the versioning logic and
+returns the appropriate lossless variant. It may change metadata, buffers, and children without constructing a legacy
+in-memory array. Returning `None` means the array cannot be serialized. The serialization context then interns the
+returned ID, failing the write if that ID is not permitted by the selected editions.
 
 This selection happens recursively after compression. Compressor output therefore remains an in-memory concern: a
 compressor does not label its array with an edition or choose a wire version. Layouts, extension dtypes, and aggregates
@@ -231,7 +221,7 @@ perform their analogous compatibility checks at their own serialization boundari
 ### What this means for each kind
 
 - **Arrays.** The array serialization context permits only wire IDs from the selected editions. The in-memory array's
-  serializer chooses the oldest permitted lossless representation.
+  serializer chooses its lossless representation, and the context rejects it if its ID is not permitted.
 - **Layouts.** The layout strategy builds the layout tree at write time. When targeting an older edition, it must use
   structures available in that edition, such as plain chunked data in place of newer auxiliary layouts.
 - **Extension dtypes.** Before writing any bytes, the file writer recursively validates every extension dtype in the
@@ -240,9 +230,16 @@ perform their analogous compatibility checks at their own serialization boundari
   function outside the selected editions fails the write. With `allow_unknown`, readers disable a zone map whose
   aggregate function they do not recognize; ignoring a zone map only reduces pruning and does not affect correctness.
 
+## The `preview` family
+
+The additive `preview` family is the shared opt-in set for core-maintained components whose serialized contracts have
+survived independent testing but are not yet available to the default core writer. Preview currently contains no
+components. Adding the first component will create a later preview edition; unrelated work remains in independent
+families until it meets the preview compatibility bar.
+
 ## Independently versioned component families
 
-Components that are ready for real-world testing but are not part of the default core writer advance through their own
+Components that are ready for focused testing but are not yet ready for the shared preview set advance through their own
 families. Delta arrays use `delta`, Patched arrays use `patches`, and list layouts use `list`. Optional modules similarly
 use families such as `tensor`, `zstd`, `spatial`, and `json`. Each family can evolve without coupling its chronology or
 selection to unrelated components.
@@ -250,16 +247,18 @@ selection to unrelated components.
 The wire format is expected to be complete when its first draft edition is published and should change only when
 necessary to resolve an issue discovered during testing. If a correction changes what readers must understand, give the
 corrected representation a new ID and add a later edition to the same family. Once testing establishes that an object is
-ready for the compatibility guarantee, promote that same ID and serialized contract into a new `core` edition.
+ready for broad opt-in use, promote that same ID and serialized contract into a new `preview` edition. Later adoption by
+the default writer promotes it into a new `core` edition.
 
 The default writer does not emit a component merely because its reader understands it. Users opt in by enabling the
 edition containing that component.
 
 ## Declaring, freezing, and the edition records
 
-The first-party declarations live in `vortex-edition/src/declarations/`, one module per
-edition. Each declared edition is exported as a TOML record under `vortex/editions/`, grouped
-by family, by running:
+The default declarations live in `vortex-edition/src/declarations/`, while optional-module declarations live in their
+owning crates. Each declared edition is exported as a TOML record under `vortex/editions/`, grouped by family. A record
+names the origin library or project whose releases `min_library_version` refers to. Draft records omit that field and
+carry no read-forever guarantee. Regenerate the records by running:
 
 ```sh
 cargo run -p xtask -- generate-editions
@@ -274,17 +273,21 @@ Changing the declarations follows the edition's lifecycle:
    believed complete, give it a wire ID and add it to a draft edition in its family. Change that
    format only when necessary to resolve an issue found during testing; a reader-visible
    correction gets another ID and a later edition in the same family.
-3. **Promote the tested contract to core.** After successful testing, add the same object
-   ID and wire contract to a new `core` edition with `min_library_version: None`, regenerate the
-   records, and ship it in a release. Promotion must not redesign the format. The edition freezes
-   as part of that release. Its minimum library version cannot be populated yet because the release
-   version is not known until the release is cut.
-4. **Backfill the released version.** After cutting the release, set `min_library_version` to that
+3. **Promote the tested contract to preview.** Once it is ready for broad opt-in use, add the same
+   object ID and wire contract to a new additive `preview` edition. Promotion must not redesign
+   the format.
+4. **Promote the adopted contract to core.** Once it is ready for use by the default writer, add
+   the same object ID and wire contract to a new `core` edition with `min_library_version: None`
+   and regenerate its draft record, then ship it in a release. The edition freezes as part of that
+   release. Its minimum library version cannot be populated yet because the release version is not
+   known until the release is cut.
+5. **Backfill the released version.** After cutting the release, set `min_library_version` to that
    newly released Vortex version — the version that first shipped readers for every member — and
-   regenerate the records. This update usually lands during development of the next release, but
-   it documents the freeze that already happened; it does not freeze the edition later.
-5. **Never touch it again.** A frozen record is immutable: CI
-   (`cargo run -p xtask -- check-editions`) rejects any change that edits, renames, unfreezes,
+   regenerate the records, converting the draft record into a frozen record. This update usually
+   lands during development of the next release, but it documents the freeze that already
+   happened; it does not freeze the edition later.
+6. **Never touch it again.** A frozen record is immutable: CI (`cargo run -p xtask -- check-editions`) rejects any
+   change that edits, renames, unfreezes,
    or deletes a frozen record, and rejects new editions that do not extend their family's
    chronology. To change what writers may emit, declare the next edition instead.
 
@@ -346,11 +349,15 @@ Minimum library version: `0.85.0`.
 - `array`: `vortex.parquet.variant`, `vortex.variant`
 - `dtype`: `vortex.uuid`
 
-### Editions without a frozen core guarantee
+### Editions without a frozen guarantee
 
 These editions have no minimum library version. Evolving features advance through new draft editions in their own
 families. Their formats are expected to remain compatible unless a defect is serious enough to block promotion into
 core. Optional plugin families state their own policy.
+
+#### `preview2026.08.0`
+
+This edition currently adds no components.
 
 #### `delta2025.05.0`
 

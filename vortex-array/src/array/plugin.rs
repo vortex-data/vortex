@@ -11,7 +11,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
-use crate::ArrayContext;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::Array;
@@ -103,10 +102,9 @@ impl<'a> ArrayDeserialization<'a> {
 /// Registry trait for serializing and deserializing an in-memory array representation.
 ///
 /// A plugin has one [`id`](Self::id) for the in-memory representation and one or more
-/// [`serialized_ids`](Self::serialized_ids) for wire representations. Its single serializer
-/// receives the permitted IDs and must produce the earliest lossless variant. This lets a current
-/// compressor produce the current in-memory array while an older file edition safely downgrades
-/// it during serialization.
+/// [`serialized_ids`](Self::serialized_ids) for wire representations. Its serializer chooses the
+/// wire representation, and the serialization context validates that the chosen ID is permitted
+/// before it is written.
 ///
 /// Every serialized ID is also registered for deserialization. A current plugin may therefore
 /// deserialize several historical IDs into the same in-memory representation. A reader that
@@ -125,15 +123,14 @@ pub trait ArrayPlugin: 'static + Send + Sync {
         vec![self.id()]
     }
 
-    /// Serialize `array` to the earliest lossless wire representation permitted by `ctx`.
+    /// Serialize `array` to its wire representation.
     ///
     /// This function is called only for arrays whose in-memory encoding matches [`id`](Self::id).
-    /// The returned ID must be declared by [`serialized_ids`](Self::serialized_ids) and permitted
-    /// by `ctx`. Return `Ok(None)` when no permitted variant represents the value losslessly.
+    /// The returned ID must be declared by [`serialized_ids`](Self::serialized_ids). Return
+    /// `Ok(None)` when the array cannot be serialized.
     fn serialize(
         &self,
         array: &ArrayRef,
-        ctx: &ArrayContext,
         session: &VortexSession,
     ) -> VortexResult<Option<ArraySerialization>>;
 
@@ -173,7 +170,6 @@ impl<V: VTable> ArrayPlugin for V {
     fn serialize(
         &self,
         array: &ArrayRef,
-        ctx: &ArrayContext,
         session: &VortexSession,
     ) -> VortexResult<Option<ArraySerialization>> {
         vortex_ensure!(
@@ -182,9 +178,6 @@ impl<V: VTable> ArrayPlugin for V {
             self.id(),
             array.encoding_id(),
         );
-        if !ctx.is_allowed(&self.id()) {
-            return Ok(None);
-        }
         Ok(V::serialize(array.as_::<V>(), session)?
             .map(|metadata| ArraySerialization::from_array(self.id(), array, metadata)))
     }

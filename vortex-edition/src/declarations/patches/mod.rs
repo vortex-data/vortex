@@ -8,6 +8,7 @@ use crate::EditionFamily;
 /// The `patches` family: patched arrays.
 pub static FAMILY: EditionFamily = EditionFamily {
     name: "patches",
+    origin: "vortex",
     doc: "Patched arrays that store sparse exceptions separately from a child array.",
 };
 

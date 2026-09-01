@@ -15,6 +15,7 @@ use vortex_edition::EditionMember;
 /// The `json` family: the JSON extension dtype.
 pub static FAMILY: EditionFamily = EditionFamily {
     name: "json",
+    origin: "vortex-json",
     doc: "The JSON extension dtype. JSON support is opt-in: a reader built without \
 `vortex-json` cannot resolve `vortex.json`, so the dtype is versioned independently of \
 `core` and a session enables this family only by initializing the crate.",

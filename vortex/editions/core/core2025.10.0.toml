@@ -6,6 +6,7 @@
 
 edition = "core2025.10.0"
 family = "core"
+origin = "vortex"
 min_library_version = "0.54.0"
 
 # Components added by this edition.

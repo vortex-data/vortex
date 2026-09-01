@@ -15,6 +15,7 @@ use vortex_edition::EditionMember;
 /// The `tensor` family: tensor extension dtypes and persisted tensor array encodings.
 pub static FAMILY: EditionFamily = EditionFamily {
     name: "tensor",
+    origin: "vortex-tensor",
     doc: "Tensor extension dtypes and persisted tensor array encodings. Tensor support is \
 opt-in: a reader built without `vortex-tensor` cannot resolve these members, so they are \
 versioned independently of `core` and enabled only when the crate is initialized.",

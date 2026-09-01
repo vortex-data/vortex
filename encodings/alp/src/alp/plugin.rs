@@ -7,7 +7,6 @@
 //! This enables zero-cost backward compatibility with previously written datasets.
 
 use vortex_array::Array;
-use vortex_array::ArrayContext;
 use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayId;
 use vortex_array::ArrayPlugin;
@@ -42,11 +41,10 @@ impl ArrayPlugin for ALPPatchedPlugin {
     fn serialize(
         &self,
         array: &ArrayRef,
-        ctx: &ArrayContext,
         session: &VortexSession,
     ) -> VortexResult<Option<ArraySerialization>> {
         // Delegate to ALP's metadata serde
-        ArrayPlugin::serialize(&ALP, array, ctx, session)
+        ArrayPlugin::serialize(&ALP, array, session)
     }
 
     fn deserialize(
@@ -100,7 +98,6 @@ mod tests {
     use std::f64::consts::PI;
     use std::sync::LazyLock;
 
-    use vortex_array::ArrayContext;
     use vortex_array::ArrayDeserialization;
     use vortex_array::ArrayPlugin;
     use vortex_array::IntoArray;
@@ -144,9 +141,7 @@ mod tests {
 
         let array = alp_encoded.as_array();
 
-        let serialization = SESSION
-            .array_serialize(array, &ArrayContext::empty())?
-            .unwrap();
+        let serialization = SESSION.array_serialize(array)?.unwrap();
         let children = array.children();
         let buffers = array
             .buffers()
@@ -198,9 +193,7 @@ mod tests {
 
         let array = alp_encoded.as_array();
 
-        let serialization = SESSION
-            .array_serialize(array, &ArrayContext::empty())?
-            .unwrap();
+        let serialization = SESSION.array_serialize(array)?.unwrap();
         let children = array.children();
         let buffers = array
             .buffers()
@@ -234,10 +227,7 @@ mod tests {
     fn primitive_array_returns_error() {
         let array = PrimitiveArray::from_iter([1.0f64, 2.0, 3.0]).into_array();
 
-        let serialization = SESSION
-            .array_serialize(&array, &ArrayContext::empty())
-            .unwrap()
-            .unwrap();
+        let serialization = SESSION.array_serialize(&array).unwrap().unwrap();
         let children = array.children();
         let buffers = array
             .buffers()

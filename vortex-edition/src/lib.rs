@@ -15,9 +15,9 @@
 //! time with [`EditionSessionExt::enabled_component_ids`]: the file writer restricts the
 //! arrays, layouts, extension dtypes, and aggregates it writes from separate id sets. Array
 //! memberships name wire IDs rather than in-memory array representations. An array plugin may
-//! serialize one current in-memory representation under several historical IDs, choosing the
-//! oldest permitted lossless representation. Readers resolve the ID stored in the file and either
-//! deserialize it into the current representation or reject it as unknown.
+//! serialize one current in-memory representation under several historical IDs. The serialization
+//! context validates the ID chosen by the plugin before writing it. Readers resolve the ID stored
+//! in the file and either deserialize it into the current representation or reject it as unknown.
 //!
 //! An edition is represented as a **draft** until its [`Edition::min_library_version`] is
 //! recorded. A stable edition may freeze in the release that cuts it; once that release version
@@ -132,18 +132,27 @@ impl Display for EditionId {
 pub struct EditionFamily {
     /// The family name, matching the [`EditionId::family`] of its editions, e.g. `core`.
     pub name: &'static str,
+    /// The library or project whose releases provide readers for this family's editions.
+    /// [`Edition::min_library_version`] refers to versions of this origin.
+    pub origin: &'static str,
     /// What the family is for. Exported into the family's record, so a few sentences at
     /// most: the long form belongs in the published spec.
     pub doc: &'static str,
 }
 
 impl EditionFamily {
-    /// Validate the family's form: a non-empty lowercase name and a non-empty doc. Checked
-    /// for every declared family by [`EditionSession::validate`].
+    /// Validate the family's form: a non-empty lowercase name, origin, and doc. Checked for every
+    /// declared family by [`EditionSession::validate`].
     pub fn validate(&self) -> Result<(), EditionError> {
         if self.name.is_empty() || !self.name.chars().all(|c| c.is_ascii_lowercase()) {
             return Err(EditionError::new(format!(
                 "edition family {:?} must have a non-empty lowercase name, e.g. `core`",
+                self.name
+            )));
+        }
+        if self.origin.trim().is_empty() {
+            return Err(EditionError::new(format!(
+                "edition family {} must name its origin library or project",
                 self.name
             )));
         }
@@ -196,7 +205,8 @@ impl Display for ComponentKind {
 pub struct Edition {
     /// The edition identifier. For a `core` edition, its date records when it freezes.
     pub id: EditionId,
-    /// The minimum library version whose reader supports every member of this edition.
+    /// The minimum version of the edition family's [`EditionFamily::origin`] whose reader
+    /// supports every member of this edition.
     ///
     /// A stable edition may freeze in the release that cuts it. Until that release is cut, its
     /// version is not known and this remains `None`. The version is then backfilled to document

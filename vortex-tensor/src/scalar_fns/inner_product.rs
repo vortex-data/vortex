@@ -280,7 +280,6 @@ fn inner_product_row<T: Float + NativePType>(a: &[T], b: &[T]) -> T {
 mod tests {
 
     use rstest::rstest;
-    use vortex_array::ArrayContext;
     use vortex_array::ArrayDeserialization;
     use vortex_array::ArrayPlugin;
     use vortex_array::ArrayRef;
@@ -489,7 +488,7 @@ mod tests {
 
         let plugin = ScalarFnArrayPlugin::new(InnerProduct);
         let serialization = plugin
-            .serialize(&original, &ArrayContext::empty(), &SESSION)?
+            .serialize(&original, &SESSION)?
             .expect("InnerProduct serialize must produce metadata");
 
         let children = vec![lhs, rhs];

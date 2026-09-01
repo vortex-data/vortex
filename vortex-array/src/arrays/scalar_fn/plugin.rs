@@ -5,7 +5,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
-use crate::ArrayContext;
 use crate::ArrayDeserialization;
 use crate::ArrayId;
 use crate::ArrayPlugin;
@@ -66,12 +65,8 @@ impl<V: ScalarFnVTable + ScalarFnArrayVTable> ArrayPlugin for ScalarFnArrayPlugi
     fn serialize(
         &self,
         array: &ArrayRef,
-        ctx: &ArrayContext,
         session: &VortexSession,
     ) -> VortexResult<Option<ArraySerialization>> {
-        if !ctx.is_allowed(&self.id()) {
-            return Ok(None);
-        }
         // We serialize the scalar function options, along with any scalar function array data.
         let scalar_fn = array.as_::<ExactScalarFn<V>>();
         Ok(

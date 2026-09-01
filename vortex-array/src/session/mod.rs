@@ -13,7 +13,6 @@ use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
 use vortex_session::registry::Id;
 
-use crate::ArrayContext;
 use crate::ArrayRef;
 use crate::array::ArrayId;
 use crate::array::ArrayPlugin;
@@ -130,12 +129,8 @@ pub trait ArraySessionExt: SessionExt {
         self.get::<ArraySession>()
     }
 
-    /// Serialize an array using the oldest permitted wire ID that represents it losslessly.
-    fn array_serialize(
-        &self,
-        array: &ArrayRef,
-        ctx: &ArrayContext,
-    ) -> VortexResult<Option<ArraySerialization>> {
+    /// Serialize an array using a plugin from the registry.
+    fn array_serialize(&self, array: &ArrayRef) -> VortexResult<Option<ArraySerialization>> {
         let Some(plugin) = self.arrays().serializer(&array.encoding_id()) else {
             vortex_bail!(
                 "Array {} is not registered for serialization",
@@ -143,7 +138,7 @@ pub trait ArraySessionExt: SessionExt {
             );
         };
 
-        let Some(serialization) = plugin.serialize(array, ctx, &self.session())? else {
+        let Some(serialization) = plugin.serialize(array, &self.session())? else {
             return Ok(None);
         };
         vortex_ensure!(
@@ -151,12 +146,6 @@ pub trait ArraySessionExt: SessionExt {
                 .serialized_ids()
                 .contains(&serialization.serialized_id),
             "array serializer {} produced undeclared serialized ID {}",
-            array.encoding_id(),
-            serialization.serialized_id,
-        );
-        vortex_ensure!(
-            ctx.is_allowed(&serialization.serialized_id),
-            "array serializer {} produced forbidden serialized ID {}",
             array.encoding_id(),
             serialization.serialized_id,
         );

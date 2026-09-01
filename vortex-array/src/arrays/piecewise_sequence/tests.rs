@@ -171,7 +171,7 @@ fn serialization_is_not_supported() -> VortexResult<()> {
         .unwrap_err();
     assert!(
         err.to_string()
-            .contains("Array vortex.piecewise-sequence cannot be represented"),
+            .contains("Array vortex.piecewise-sequence does not support serialization"),
         "{err}"
     );
     Ok(())

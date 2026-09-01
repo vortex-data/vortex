@@ -8,6 +8,7 @@ use crate::EditionFamily;
 /// The `delta` family: delta-compressed integer arrays.
 pub static FAMILY: EditionFamily = EditionFamily {
     name: "delta",
+    origin: "vortex",
     doc: "Delta-compressed integer arrays.",
 };
 

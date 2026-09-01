@@ -5,25 +5,37 @@
 # to a new edition; after an origin release is known, min_library_version is backfilled to document
 # its freeze. A frozen record never changes.
 
-edition = "delta2025.05.0"
-family = "delta"
-origin = "vortex"
+edition = "tensor2026.04.0"
+family = "tensor"
+origin = "vortex-tensor"
 
 # Components added by this edition.
 [added]
 arrays = [
-    "fastlanes.delta",
+    "vortex.tensor.cosine_similarity",
+    "vortex.tensor.inner_product",
+    "vortex.tensor.l2_norm",
+    "vortex.tensor.normalized",
 ]
 layouts = []
-dtypes = []
+dtypes = [
+    "vortex.tensor.fixed_shape_tensor",
+    "vortex.tensor.vector",
+]
 aggregates = []
 
 # The edition's full membership: the members above, plus every member of earlier
 # editions of the family.
 [components]
 arrays = [
-    "fastlanes.delta",
+    "vortex.tensor.cosine_similarity",
+    "vortex.tensor.inner_product",
+    "vortex.tensor.l2_norm",
+    "vortex.tensor.normalized",
 ]
 layouts = []
-dtypes = []
+dtypes = [
+    "vortex.tensor.fixed_shape_tensor",
+    "vortex.tensor.vector",
+]
 aggregates = []

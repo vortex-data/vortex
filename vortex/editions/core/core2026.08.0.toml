@@ -6,6 +6,7 @@
 
 edition = "core2026.08.0"
 family = "core"
+origin = "vortex"
 min_library_version = "0.84.0"
 
 # Components added by this edition.

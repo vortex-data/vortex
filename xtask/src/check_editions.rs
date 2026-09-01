@@ -3,14 +3,10 @@
 
 //! Check that frozen edition records under `vortex/editions` never change.
 //!
-//! A draft record carries no core read-forever guarantee and is not mechanically locked by this
-//! check. It may describe evolving work, a stable component awaiting adoption, or an edition
-//! waiting for its release to be cut. Normal feature additions advance to a new edition;
-//! exceptional corrections remain possible before a core freeze. A stable edition can
-//! freeze in its release; once the release version is known, `min_library_version` is backfilled to
-//! document the freeze. The record then carries a read-forever guarantee and may never change
-//! again. Whether a record was frozen is read from the base revision, so a change cannot unfreeze
-//! an edition and edit it in the same diff.
+//! A draft record carries no read-forever guarantee and is not mechanically locked by this check.
+//! Once `min_library_version` is backfilled, the record captures the frozen edition's complete
+//! membership and may never change again. Whether a record was frozen is read from the base
+//! revision, so a change cannot unfreeze an edition and edit it in the same diff.
 //!
 //! A newly added record must also be newer than every edition already recorded for its
 //! family: editions are only ever added going forward. Records are grouped by family, so
@@ -43,7 +39,7 @@ const FROZEN_MARKER: &str = "min_library_version";
 
 const REMEDY: &str = "\
 A frozen edition is immutable. To add component IDs, declare a NEW edition in
-  vortex-edition/src/declarations/<family>/ and regenerate the records with
+  the family's declaration module and regenerate the records with
   `cargo run -p xtask -- generate-editions`.";
 
 /// An edition's position in its family's chronology, from `<family><year>.<month>.<version>`.
@@ -204,6 +200,13 @@ fn check_addition(
         )),
         Some(_) => {}
     }
+    match record.get("origin").and_then(|origin| origin.as_str()) {
+        None => errors.push(format!("adds {name}, which has no `origin` field")),
+        Some(origin) if origin.trim().is_empty() => {
+            errors.push(format!("adds {name}, which has an empty `origin` field"));
+        }
+        Some(_) => {}
+    }
     Ok(errors)
 }
 
@@ -259,7 +262,7 @@ pub fn check_editions(base: &str) -> anyhow::Result<()> {
         }
 
         // Frozen-ness comes from the base revision, so a diff cannot unfreeze an edition and
-        // then edit it. A draft's record is free to change, move, or go away with the draft.
+        // then edit it. Legacy draft records have no compatibility contract and are ignored.
         let old = path_str(old_path);
         let Some(before) = read_record(&repo, &base_commit, &old)? else {
             continue;

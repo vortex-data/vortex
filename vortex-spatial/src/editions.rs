@@ -15,6 +15,7 @@ use vortex_edition::EditionMember;
 /// The `spatial` family: the geometry dtypes and the AABB zone aggregate.
 pub static FAMILY: EditionFamily = EditionFamily {
     name: "spatial",
+    origin: "vortex-spatial",
     doc: "The geometry extension dtypes and the axis-aligned bounding-box zone aggregate. \
 Spatial support is opt-in: a reader built without `vortex-spatial` cannot resolve \
 `vortex.st.*`, so these members are versioned independently of `core` and a session enables \

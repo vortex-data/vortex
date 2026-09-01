@@ -181,8 +181,6 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
-    use vortex_array::arrays::Dict;
-    use vortex_array::arrays::DictArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::struct_::StructArrayExt;
@@ -197,19 +195,14 @@ mod tests {
     use vortex_array::expr::stats::Stat;
     use vortex_array::expr::stats::StatsProviderExt;
     use vortex_array::validity::Validity;
-    use vortex_array::vtable::VTable;
     use vortex_buffer::BitBufferMut;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
-    use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
     use vortex_mask::AllOr;
-    use vortex_mask::Mask;
-    use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::LayoutStrategy;
-    use crate::LayoutStrategyEncodingValidator;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
@@ -409,83 +402,6 @@ mod tests {
                 .execute::<PrimitiveArray>(&mut ctx_exec)
                 .unwrap();
             assert_eq!(field_b.as_slice::<u64>(), &[3, 4]);
-        })
-    }
-
-    #[test]
-    fn flat_invalid_array_fails() -> VortexResult<()> {
-        block_on(|handle| async {
-            let session = new_session().with_handle(handle);
-            let prim: PrimitiveArray = (0..10).collect();
-            let filter = prim.filter(Mask::from_indices(10, vec![2, 3]))?;
-
-            let ctx = ArrayContext::empty();
-
-            // Write the array into a byte buffer.
-            let (layout, _segments) = {
-                let segments = Arc::new(TestSegments::default());
-                let (ptr, eof) = SequenceId::root().split();
-                // Disallow all encodings so filter arrays fail normalization immediately.
-                let allowed = HashSet::default();
-                let layout =
-                    LayoutStrategyEncodingValidator::new(FlatLayoutStrategy::default(), allowed)
-                        .write_stream(
-                            ctx.into(),
-                            Arc::<TestSegments>::clone(&segments),
-                            filter.into_array().to_array_stream().sequenced(ptr),
-                            eof,
-                            &session,
-                        )
-                        .await;
-
-                (layout, segments)
-            };
-
-            let err = layout.expect_err("expected error");
-            assert!(
-                err.to_string()
-                    .contains("normalize forbids encoding (vortex.filter)"),
-                "unexpected error: {err}"
-            );
-
-            Ok(())
-        })
-    }
-
-    #[test]
-    fn flat_valid_array_writes() -> VortexResult<()> {
-        block_on(|handle| async {
-            let session = new_session().with_handle(handle);
-            let codes: PrimitiveArray = (0u32..10).collect();
-            let values: PrimitiveArray = (0..10).collect();
-            let dict = DictArray::new(codes.into_array(), values.into_array());
-
-            let ctx = ArrayContext::empty();
-
-            // Write the array into a byte buffer.
-            let (layout, _segments) = {
-                let segments = Arc::new(TestSegments::default());
-                let (ptr, eof) = SequenceId::root().split();
-                // Only allow the dict encoding; canonical primitive children remain permitted.
-                let mut allowed = HashSet::default();
-                allowed.insert(Dict.id());
-                let layout =
-                    LayoutStrategyEncodingValidator::new(FlatLayoutStrategy::default(), allowed)
-                        .write_stream(
-                            ctx.into(),
-                            Arc::<TestSegments>::clone(&segments),
-                            dict.into_array().to_array_stream().sequenced(ptr),
-                            eof,
-                            &session,
-                        )
-                        .await;
-
-                (layout, segments)
-            };
-
-            assert!(layout.is_ok());
-
-            Ok(())
         })
     }
 }

@@ -7,7 +7,6 @@
 //! This enables zero-cost backward compatibility with previously written datasets.
 
 use vortex_array::Array;
-use vortex_array::ArrayContext;
 use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayId;
 use vortex_array::ArrayPlugin;
@@ -41,11 +40,10 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
     fn serialize(
         &self,
         array: &ArrayRef,
-        ctx: &ArrayContext,
         session: &VortexSession,
     ) -> VortexResult<Option<ArraySerialization>> {
         // delegate to BitPacked VTable for serialization
-        ArrayPlugin::serialize(&BitPacked, array, ctx, session)
+        ArrayPlugin::serialize(&BitPacked, array, session)
     }
 
     fn deserialize(
@@ -102,7 +100,6 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
 mod tests {
     use std::sync::LazyLock;
 
-    use vortex_array::ArrayContext;
     use vortex_array::ArrayDeserialization;
     use vortex_array::ArrayPlugin;
     use vortex_array::IntoArray;
@@ -145,9 +142,7 @@ mod tests {
 
         let array = bitpacked.as_array();
 
-        let serialization = SESSION
-            .array_serialize(array, &ArrayContext::empty())?
-            .unwrap();
+        let serialization = SESSION.array_serialize(array)?.unwrap();
         let children = array.children();
         let buffers = array
             .buffers()
@@ -200,9 +195,7 @@ mod tests {
 
         let array = bitpacked.as_array();
 
-        let serialization = SESSION
-            .array_serialize(array, &ArrayContext::empty())?
-            .unwrap();
+        let serialization = SESSION.array_serialize(array)?.unwrap();
         let children = array.children();
         let buffers = array
             .buffers()
@@ -235,9 +228,7 @@ mod tests {
     fn primitive_array_returns_error() -> VortexResult<()> {
         let array = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
 
-        let serialization = SESSION
-            .array_serialize(&array, &ArrayContext::empty())?
-            .unwrap();
+        let serialization = SESSION.array_serialize(&array)?.unwrap();
         let children = array.children();
         let buffers = array
             .buffers()

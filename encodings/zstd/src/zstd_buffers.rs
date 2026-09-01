@@ -10,7 +10,6 @@ use std::sync::Arc;
 
 use prost::Message as _;
 use vortex_array::Array;
-use vortex_array::ArrayContext;
 use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -62,15 +61,15 @@ impl ZstdBuffers {
 
     /// Compress every top-level buffer of `array` independently with zstd.
     ///
-    /// The wrapped array's earliest lossless serialized representation is captured so it can be
-    /// rebuilt after decompression, including any buffers or children selected by its serializer.
+    /// The wrapped array's serialized representation is captured so it can be rebuilt after
+    /// decompression, including any buffers or children selected by its serializer.
     pub fn compress(
         array: &ArrayRef,
         level: i32,
         session: &VortexSession,
     ) -> VortexResult<ZstdBuffersArray> {
         let serialization = session
-            .array_serialize(array, &ArrayContext::empty())?
+            .array_serialize(array)?
             .ok_or_else(|| vortex_err!("[ZstdBuffers]: Array does not support serialization"))?;
 
         let mut compressed_buffers = Vec::with_capacity(serialization.buffers.len());
