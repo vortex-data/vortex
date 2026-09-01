@@ -1,7 +1,8 @@
 //! End-to-end tests for the generic wrapper.
 //!
-//! Concrete index kinds live in their own crates (see `vortex-reverse-index`), so these exercise
-//! the machinery through a test-only [`exact_value::ExactValueIndex`] instead.
+//! Concrete index kinds live elsewhere (see the `reverse_index` example under
+//! `examples/reverse_index/`), so these exercise the machinery through a test-only
+//! [`exact_value::ExactValueIndex`] instead.
 
 use std::sync::Arc;
 

@@ -28,8 +28,8 @@
 //!
 //! The generic wrapper only: [`Indexed`], [`writer::IndexedStrategy`] and [`reader::IndexedReader`],
 //! plus the [`IndexVTable`] contract that index kinds implement. Concrete kinds are registered into
-//! an [`session::IndexSession`] — see the `vortex-reverse-index` crate for a worked example, a
-//! minimal equality index over integer columns.
+//! an [`session::IndexSession`] — see the `reverse_index` example (`examples/reverse_index/`) for
+//! a worked example, a minimal equality index over any column.
 
 pub mod index;
 pub(crate) mod reader;

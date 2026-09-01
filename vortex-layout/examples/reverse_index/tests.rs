@@ -67,8 +67,8 @@ fn reverse_index_configs() -> Vec<IndexConfig> {
 ///
 /// The default Vortex file writer only permits array/layout ids covered by the session's enabled
 /// editions, but those first-party declarations live in the `vortex` facade crate, which this
-/// out-of-tree crate deliberately does not depend on. Declaring and enabling a tiny test-only
-/// edition here is the local equivalent.
+/// example deliberately does not depend on. Declaring and enabling a tiny test-only edition here
+/// is the local equivalent.
 const TEST_EDITION: EditionId = EditionId::new("vortex-reverse-index-test", 2026, 1, 0);
 
 static TEST_EDITION_DECLARATION: EditionDeclaration = EditionDeclaration {

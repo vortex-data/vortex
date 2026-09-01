@@ -1,73 +1,134 @@
-// SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: Copyright the Vortex contributors
-
-//! Test that DataFusion can query a file whose column uses the `vortex.indexed` layout.
+//! Test that DataFusion can query a file whose column uses the `vortex.indexed` layout, with
+//! [`ReverseIndex`] answering an equality filter.
+//!
+//! This lives alongside the [`ReverseIndex`] example rather than in `vortex-datafusion` because
+//! `vortex-layout` sits below `vortex-datafusion` in the dependency graph: `vortex-datafusion`
+//! cannot depend on an example that lives in `vortex-layout`, but an example's `dev-dependencies`
+//! may freely depend on `vortex-datafusion`.
 
 use std::sync::Arc;
 
 use arrow_array::record_batch;
 use datafusion::arrow::array::RecordBatch;
 use datafusion::assert_batches_sorted_eq;
+use datafusion::datasource::provider::DefaultTableFactory;
+use datafusion::execution::SessionStateBuilder;
 use datafusion::physical_plan::collect;
+use datafusion::prelude::SessionContext;
+use datafusion_catalog::TableProvider;
+use datafusion_common::DFSchema;
+use datafusion_common::GetExt;
+use datafusion_expr::CreateExternalTable;
 use datafusion_expr::col;
 use datafusion_expr::lit;
 use datafusion_physical_plan::metrics::MetricsSet;
+use object_store::ObjectStore;
+use object_store::memory::InMemory;
 use rstest::rstest;
-use vortex::VortexSessionDefault;
-use vortex::dtype::FieldPath;
-use vortex::editions::Edition;
-use vortex::editions::EditionDeclaration;
-use vortex::editions::EditionId;
-use vortex::editions::EditionMember;
-use vortex::editions::EditionSessionExt;
-use vortex::file::WriteOptionsSessionExt;
-use vortex::file::WriteStrategyBuilder;
-use vortex::io::VortexWrite;
-use vortex::io::object_store::ObjectStoreWrite;
-use vortex::layout::LayoutStrategy;
-use vortex::layout::layouts::chunked::writer::ChunkedLayoutStrategy;
-use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
-use vortex::layout::layouts::indexed::INDEXED_LAYOUT_ID;
-use vortex::layout::layouts::indexed::IndexConfig;
-use vortex::layout::layouts::indexed::IndexSessionExt;
-use vortex::layout::layouts::indexed::IndexedStrategy;
-use vortex::layout::layouts::repartition::RepartitionStrategy;
-use vortex::layout::layouts::repartition::RepartitionWriterOptions;
-use vortex::session::VortexSession;
+use url::Url;
+use vortex_array::array_session;
+use vortex_array::dtype::FieldPath;
 use vortex_arrow::ArrowSessionExt;
-use vortex_reverse_index::ReverseIndex;
+use vortex_datafusion::VortexFormatFactory;
+use vortex_datafusion::VortexTableOptions;
+use vortex_datafusion::metrics::VortexMetricsFinder;
+use vortex_edition::Edition;
+use vortex_edition::EditionDeclaration;
+use vortex_edition::EditionId;
+use vortex_edition::EditionMember;
+use vortex_edition::EditionSession;
+use vortex_edition::EditionSessionExt;
+use vortex_file::WriteOptionsSessionExt;
+use vortex_file::WriteStrategyBuilder;
+use vortex_io::VortexWrite;
+use vortex_io::object_store::ObjectStoreWrite;
+use vortex_io::session::RuntimeSession;
+use vortex_layout::LayoutStrategy;
+use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
+use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
+use vortex_layout::layouts::indexed::INDEXED_LAYOUT_ID;
+use vortex_layout::layouts::indexed::IndexConfig;
+use vortex_layout::layouts::indexed::IndexSessionExt;
+use vortex_layout::layouts::indexed::IndexedStrategy;
+use vortex_layout::layouts::repartition::RepartitionStrategy;
+use vortex_layout::layouts::repartition::RepartitionWriterOptions;
+use vortex_layout::session::LayoutSession;
+use vortex_session::VortexSession;
 
-use crate::VortexFormatFactory;
-use crate::VortexTableOptions;
-use crate::common_tests::TestSessionContext;
-use crate::metrics::VortexMetricsFinder;
+use crate::ReverseIndex;
 
 const VALUE_FIELD: &str = "value";
 /// Small enough that the 12-row batch spans three blocks under the indexed layout, leaving the
 /// index a real pruning decision to make instead of degenerating to a single block.
 const BLOCK_LEN: usize = 4;
 
-/// The default session doesn't enable `vortex.indexed` for writing — it's a layout prototype, not
-/// part of any frozen `core` edition — so this test registers a tiny edition just for it.
+/// The array/layout encodings this test needs to write, converted from Arrow via
+/// [`vortex_arrow::ArrowSessionExt`].
+///
+/// The default Vortex file writer only permits array/layout ids covered by the session's enabled
+/// editions, but those first-party declarations live in the `vortex` facade crate, which
+/// `vortex-layout` cannot depend on. Declaring and enabling a tiny edition here is the local
+/// equivalent.
 const INDEXED_TEST_EDITION: EditionId =
-    EditionId::new("vortex-datafusion-indexed-test", 2026, 1, 0);
+    EditionId::new("vortex-layout-reverse-index-datafusion-test", 2026, 1, 0);
 
 static INDEXED_TEST_DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: INDEXED_TEST_EDITION,
         min_vortex_version: None,
     },
-    added: &[EditionMember::layout(&INDEXED_LAYOUT_ID)],
+    added: &[
+        EditionMember::array(&"vortex.struct"),
+        EditionMember::array(&"vortex.primitive"),
+        // The index child's postings column is serialized roaring bitmaps, written as varbinview.
+        EditionMember::array(&"vortex.varbinview"),
+        // `payload`'s sequential row-index values compress with the sequence encoding; `value`'s
+        // single repeated value per block compresses with the constant encoding.
+        EditionMember::array(&"vortex.sequence"),
+        EditionMember::array(&"vortex.constant"),
+        EditionMember::layout(&"vortex.struct"),
+        EditionMember::layout(&"vortex.chunked"),
+        EditionMember::layout(&"vortex.flat"),
+        EditionMember::layout(&"vortex.zoned"),
+        EditionMember::layout(&INDEXED_LAYOUT_ID),
+        // Zone-map stats over each chunk need min/max/null-count, computed as aggregates during
+        // writing.
+        EditionMember::aggregate(&"vortex.min"),
+        EditionMember::aggregate(&"vortex.max"),
+        EditionMember::aggregate(&"vortex.null_count"),
+    ],
 };
 
 /// A session that can write and read the `vortex.indexed` layout, with a [`ReverseIndex`]
 /// registered as an index kind.
+///
+/// [`array_session`] already bundles everything [`vortex::VortexSessionDefault::default`] would
+/// (arrays, dtypes, scalar functions, stats, optimizer kernels, aggregate functions, and memory);
+/// this only adds the layout, runtime, and edition state that live in higher-level crates.
 fn session_with_indexed_layout() -> anyhow::Result<VortexSession> {
-    let session = VortexSession::default();
+    let session = array_session()
+        .with::<LayoutSession>()
+        .with::<RuntimeSession>()
+        .with::<EditionSession>();
+    vortex_arrow::initialize(&session);
+    vortex_sequence::initialize(&session);
     session.register_edition(&INDEXED_TEST_DECLARATION)?;
     session.enable_edition(INDEXED_TEST_EDITION)?;
     session.indexes().register(ReverseIndex::new_ref());
     Ok(session)
+}
+
+/// A session that can read the `vortex.indexed` layout, but without a [`ReverseIndex`]
+/// registered — the fallback path `IndexedReader::plan_probe` takes when an index kind's spec
+/// goes unclaimed.
+fn session_without_reverse_index() -> VortexSession {
+    let session = array_session()
+        .with::<LayoutSession>()
+        .with::<RuntimeSession>()
+        .with::<EditionSession>();
+    vortex_arrow::initialize(&session);
+    vortex_sequence::initialize(&session);
+    session
 }
 
 /// A write strategy that attaches a [`ReverseIndex`] to the `value` field, chunked into blocks of
@@ -118,6 +179,64 @@ fn test_batch() -> anyhow::Result<RecordBatch> {
     ))?)
 }
 
+/// A minimal DataFusion harness over an in-memory [`ObjectStore`], built only from
+/// `vortex-datafusion`'s public API (the crate's own richer `TestSessionContext` is `#[cfg(test)]`
+/// only, so it isn't visible outside `vortex-datafusion` itself).
+struct TestSessionContext {
+    store: Arc<dyn ObjectStore>,
+    session: SessionContext,
+}
+
+impl TestSessionContext {
+    fn new_with_factory(factory: Arc<VortexFormatFactory>) -> Self {
+        let store = Arc::new(InMemory::new());
+        let mut session_state_builder = SessionStateBuilder::new()
+            .with_default_features()
+            .with_table_factory(
+                factory.get_ext().to_uppercase(),
+                Arc::new(DefaultTableFactory::new()),
+            )
+            .with_object_store(
+                &Url::try_from("file://").unwrap(),
+                Arc::<InMemory>::clone(&store),
+            );
+
+        if let Some(file_formats) = session_state_builder.file_formats() {
+            file_formats.push(factory as _);
+        }
+
+        let session =
+            SessionContext::new_with_state(session_state_builder.build()).enable_url_table();
+
+        Self { store, session }
+    }
+
+    async fn table_provider<S>(
+        &self,
+        name: &str,
+        location: impl Into<String>,
+        schema: S,
+    ) -> anyhow::Result<Arc<dyn TableProvider>>
+    where
+        DFSchema: TryFrom<S>,
+        anyhow::Error: From<<S as TryInto<DFSchema>>::Error>,
+    {
+        let factory = self.session.table_factory("VORTEX").unwrap();
+
+        let cmd = CreateExternalTable::builder(
+            name,
+            location.into(),
+            "vortex",
+            DFSchema::try_from(schema)?.into(),
+        )
+        .build();
+
+        let table = factory.create(&self.session.state(), &cmd).await?;
+
+        Ok(table)
+    }
+}
+
 async fn write_indexed_batch(
     ctx: &TestSessionContext,
     session: &VortexSession,
@@ -149,10 +268,8 @@ async fn test_query_over_indexed_column(
 ) -> anyhow::Result<()> {
     let session = session_with_indexed_layout()?;
 
-    let opts = VortexTableOptions {
-        projection_pushdown,
-        ..Default::default()
-    };
+    let mut opts = VortexTableOptions::default();
+    opts.projection_pushdown = projection_pushdown;
     let factory = Arc::new(VortexFormatFactory::new_with_options(session.clone(), opts));
     let ctx = TestSessionContext::new_with_factory(factory);
 
@@ -223,7 +340,7 @@ fn pruning_test_batch() -> anyhow::Result<RecordBatch> {
 }
 
 /// Total bytes read from storage across every Vortex-backed data source in the plan, per
-/// [`InstrumentedReadAt`](vortex::io::VortexReadAt)'s `vortex.io.read.total_size` counter.
+/// `InstrumentedReadAt`'s `vortex.io.read.total_size` counter.
 fn total_bytes_read(metrics_sets: &[MetricsSet]) -> usize {
     metrics_sets
         .iter()
@@ -245,10 +362,8 @@ async fn run_equality_filter(
     block_len: usize,
     target: i32,
 ) -> anyhow::Result<(Vec<RecordBatch>, usize)> {
-    let opts = VortexTableOptions {
-        projection_pushdown,
-        ..Default::default()
-    };
+    let mut opts = VortexTableOptions::default();
+    opts.projection_pushdown = projection_pushdown;
     let factory = Arc::new(VortexFormatFactory::new_with_options(read_session, opts));
     let ctx = TestSessionContext::new_with_factory(factory);
 
@@ -316,7 +431,7 @@ async fn test_index_avoids_reading_pruned_blocks(
     .await?;
     let (without_index_rows, without_index_bytes) = run_equality_filter(
         &write_session,
-        VortexSession::default(),
+        session_without_reverse_index(),
         projection_pushdown,
         &batch,
         PRUNING_BLOCK_LEN,

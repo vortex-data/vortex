@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+#![expect(
+    clippy::use_debug,
+    reason = "example output favors a quick debug print over a formatted display"
+)]
 //! A simple `value -> rows` reverse index over any column, demonstrating [`vortex_layout`]'s
 //! `vortex.indexed` layout [`IndexVTable`] contract with a minimal concrete index kind.
 //!
@@ -6,6 +13,12 @@
 //! `exact_value` index but generalized to any dtype instead of being fixed to `Utf8`. It exists as
 //! a worked, non-test example of a concrete index kind for the `vortex.indexed` layout prototype
 //! described in [vortex-data/vortex#9024](https://github.com/vortex-data/vortex/issues/9024).
+//!
+//! Run it with:
+//!
+//! ```ignore
+//! cargo run -p vortex-layout --example reverse_index
+//! ```
 
 use std::sync::Arc;
 
@@ -13,12 +26,16 @@ use roaring::RoaringBitmap;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
+use vortex_array::array_session;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
+use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
@@ -34,21 +51,44 @@ use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
 use vortex_array::validity::Validity;
+use vortex_buffer::ByteBufferMut;
+use vortex_edition::Edition;
+use vortex_edition::EditionDeclaration;
+use vortex_edition::EditionId;
+use vortex_edition::EditionMember;
+use vortex_edition::EditionSession;
+use vortex_edition::EditionSessionExt;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_file::OpenOptionsSessionExt;
+use vortex_file::WriteOptionsSessionExt;
+use vortex_file::WriteStrategyBuilder;
+use vortex_io::session::RuntimeSession;
+use vortex_layout::LayoutStrategy;
+use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
+use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
+use vortex_layout::layouts::indexed::INDEXED_LAYOUT_ID;
 use vortex_layout::layouts::indexed::IndexBuilder;
+use vortex_layout::layouts::indexed::IndexConfig;
 use vortex_layout::layouts::indexed::IndexExactness;
 use vortex_layout::layouts::indexed::IndexId;
 use vortex_layout::layouts::indexed::IndexQueryPlan;
 use vortex_layout::layouts::indexed::IndexResolve;
+use vortex_layout::layouts::indexed::IndexSessionExt;
 use vortex_layout::layouts::indexed::IndexVTable;
 use vortex_layout::layouts::indexed::IndexVTableRef;
+use vortex_layout::layouts::indexed::IndexedStrategy;
 use vortex_layout::layouts::indexed::RowLocator;
+use vortex_layout::layouts::repartition::RepartitionStrategy;
+use vortex_layout::layouts::repartition::RepartitionWriterOptions;
+use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 use vortex_utils::aliases::hash_map::HashMap;
 
+#[cfg(test)]
+mod datafusion_tests;
 #[cfg(test)]
 mod tests;
 
@@ -241,4 +281,114 @@ impl IndexResolve for Resolve {
             .map_err(|err| vortex_err!("Failed to deserialize postings: {err}"))?;
         Ok(RowLocator::Rows(bitmap))
     }
+}
+
+/// `20` repeats at rows 1 and 9; nothing else does, and `999` never appears.
+const VALUES: [i32; 12] = [10, 20, 30, 40, 50, 60, 70, 80, 90, 20, 100, 110];
+const VALUE_FIELD: &str = "value";
+
+/// The array/layout encodings this example needs to write.
+///
+/// The default Vortex file writer only permits array/layout ids covered by the session's enabled
+/// editions, but those first-party declarations live in the `vortex` facade crate, which this
+/// example deliberately does not depend on (see the module doc comment). Declaring and enabling a
+/// tiny edition here is the local equivalent.
+const DEMO_EDITION: EditionId = EditionId::new("vortex-layout-reverse-index-example", 2026, 1, 0);
+
+static DEMO_EDITION_DECLARATION: EditionDeclaration = EditionDeclaration {
+    edition: Edition {
+        id: DEMO_EDITION,
+        min_vortex_version: None,
+    },
+    added: &[
+        EditionMember::array(&"vortex.struct"),
+        EditionMember::array(&"vortex.primitive"),
+        // The index child's postings column is serialized roaring bitmaps, written as varbinview.
+        EditionMember::array(&"vortex.varbinview"),
+        EditionMember::layout(&"vortex.struct"),
+        EditionMember::layout(&"vortex.chunked"),
+        EditionMember::layout(&"vortex.flat"),
+        EditionMember::layout(&INDEXED_LAYOUT_ID),
+    ],
+};
+
+/// A session knowing the `vortex.indexed` layout and the reverse index.
+fn demo_session() -> VortexResult<VortexSession> {
+    let session = array_session()
+        .with::<LayoutSession>()
+        .with::<RuntimeSession>()
+        .with::<EditionSession>();
+    session
+        .register_edition(&DEMO_EDITION_DECLARATION)
+        .map_err(|err| vortex_err!("{err}"))?;
+    session
+        .enable_edition(DEMO_EDITION)
+        .map_err(|err| vortex_err!("{err}"))?;
+    session.indexes().register(ReverseIndex::new_ref());
+    Ok(session)
+}
+
+/// A write strategy that attaches a [`ReverseIndex`] to the `value` field, chunked into blocks of
+/// 4 rows so the 12-row demo column spans three blocks.
+fn demo_write_strategy() -> Arc<dyn LayoutStrategy> {
+    const BLOCK_LEN: usize = 4;
+    let data = RepartitionStrategy::new(
+        ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+        RepartitionWriterOptions {
+            block_size_minimum: 0,
+            block_len_multiple: BLOCK_LEN,
+            block_size_target: None,
+            canonicalize: false,
+        },
+    );
+    let indexed = IndexedStrategy::new(
+        data,
+        FlatLayoutStrategy::default(),
+        vec![IndexConfig::with_defaults(ReverseIndex::new_ref())],
+    )
+    .with_data_block_len(BLOCK_LEN as u64);
+
+    WriteStrategyBuilder::default()
+        .with_row_block_size(BLOCK_LEN)
+        .with_field_writer(FieldPath::from_name(VALUE_FIELD), Arc::new(indexed))
+        .build()
+}
+
+#[tokio::main]
+async fn main() -> VortexResult<()> {
+    let session = demo_session()?;
+
+    let values: PrimitiveArray = VALUES.into_iter().collect();
+    let column =
+        StructArray::from_fields([(VALUE_FIELD, values.into_array())].as_slice())?.into_array();
+
+    let mut bytes = ByteBufferMut::empty();
+    session
+        .write_options()
+        .with_strategy(demo_write_strategy())
+        .write(&mut bytes, column.to_array_stream())
+        .await?;
+    let bytes = bytes.freeze();
+
+    let file = session.open_options().open_buffer(bytes)?;
+    let filter = eq(col(VALUE_FIELD), lit(20)).bind(file.dtype())?;
+    let result = file
+        .scan()?
+        .with_filter(filter)
+        .into_array_stream()?
+        .read_all()
+        .await?;
+
+    let mut ctx = file.session().create_execution_ctx();
+    let matches = result
+        .execute::<StructArray>(&mut ctx)?
+        .unmasked_field_by_name(VALUE_FIELD)?
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)?;
+
+    println!(
+        "rows matching value == 20, answered by the {REVERSE_INDEX_ID} index: {:?}",
+        matches.as_slice::<i32>()
+    );
+    Ok(())
 }

@@ -71,7 +71,6 @@ members = [
     "benchmarks/random-access-bench",
     "benchmarks/string-bench",
     "vortex-spatial",
-    "vortex-reverse-index",
 ]
 exclude = ["java/testfiles", "wasm-test"]
 resolver = "3"
@@ -324,7 +323,6 @@ vortex-onpair = { version = "0.1.0", path = "./encodings/onpair", default-featur
 vortex-parquet-variant = { version = "0.1.0", path = "./encodings/parquet-variant" }
 vortex-pco = { version = "0.1.0", path = "./encodings/pco", default-features = false }
 vortex-proto = { version = "0.1.0", path = "./vortex-proto", default-features = false }
-vortex-reverse-index = { version = "0.1.0", path = "./vortex-reverse-index", default-features = false }
 vortex-row = { version = "0.1.0", path = "./vortex-row", default-features = false }
 vortex-runend = { version = "0.1.0", path = "./encodings/runend", default-features = false }
 vortex-scan = { version = "0.1.0", path = "./vortex-scan", default-features = false }
