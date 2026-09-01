@@ -421,6 +421,213 @@ fn test_decimal_mixed_storage_widths() -> VortexResult<()> {
 }
 
 #[test]
+fn test_decimal_mul_different_dtypes() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let lhs =
+        DecimalArray::from_iter::<i32, _>([1_234, -200], DecimalDType::new(7, 2)).into_array();
+    let rhs = DecimalArray::from_iter::<i16, _>([20, 30], DecimalDType::new(3, 1)).into_array();
+
+    let result = decimal_binary(lhs, rhs, Operator::Mul)?;
+    assert_arrays_eq!(
+        result,
+        DecimalArray::from_iter::<i64, _>([24_680, -6_000], DecimalDType::new(11, 3)),
+        &mut ctx
+    );
+    Ok(())
+}
+
+#[test]
+fn test_decimal_mul_i64_without_decimal_cast() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let decimal = DecimalArray::from_option_iter::<i32, _>(
+        [Some(125), None, Some(-300)],
+        DecimalDType::new(7, 2),
+    )
+    .into_array();
+    let integer = PrimitiveArray::from_iter([4i64, i64::MAX, -2]).into_array();
+
+    let result = decimal_binary(decimal, integer, Operator::Mul)?;
+    assert_arrays_eq!(
+        result,
+        DecimalArray::from_option_iter::<i128, _>(
+            [Some(500), None, Some(600)],
+            DecimalDType::new(27, 2),
+        ),
+        &mut ctx
+    );
+    Ok(())
+}
+
+#[test]
+fn test_signed_integer_mul_decimal_is_commutative() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let integer = PrimitiveArray::from_iter([-2i16, 3]).into_array();
+    let decimal =
+        DecimalArray::from_iter::<i32, _>([125, -200], DecimalDType::new(7, 2)).into_array();
+
+    let result = decimal_binary(integer, decimal, Operator::Mul)?;
+    assert_arrays_eq!(
+        result,
+        DecimalArray::from_iter::<i64, _>([-250, -600], DecimalDType::new(13, 2)),
+        &mut ctx
+    );
+    Ok(())
+}
+
+#[test]
+fn test_decimal_mul_i64_stays_in_i128_at_precision_38() -> VortexResult<()> {
+    let decimal = DecimalArray::from_iter::<i64, _>([10], DecimalDType::new(18, 2)).into_array();
+    let integer = PrimitiveArray::from_iter([20i64]).into_array();
+
+    let result = decimal_binary(decimal, integer, Operator::Mul)?
+        .execute::<DecimalArray>(&mut array_session().create_execution_ctx())?;
+
+    assert_eq!(result.decimal_dtype(), DecimalDType::new(38, 2));
+    assert_eq!(result.values_type(), DecimalType::I128);
+    Ok(())
+}
+
+#[rstest]
+#[case::i8(
+    PrimitiveArray::from_iter([2i8]).into_array(),
+    DecimalDType::new(11, 2)
+)]
+#[case::i16(
+    PrimitiveArray::from_iter([2i16]).into_array(),
+    DecimalDType::new(13, 2)
+)]
+#[case::i32(
+    PrimitiveArray::from_iter([2i32]).into_array(),
+    DecimalDType::new(18, 2)
+)]
+#[case::i64(
+    PrimitiveArray::from_iter([2i64]).into_array(),
+    DecimalDType::new(27, 2)
+)]
+fn test_decimal_mul_all_signed_integer_widths(
+    #[case] integer: ArrayRef,
+    #[case] result_dtype: DecimalDType,
+) -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let decimal = DecimalArray::from_iter::<i32, _>([125], DecimalDType::new(7, 2)).into_array();
+
+    let result = decimal_binary(decimal, integer, Operator::Mul)?;
+    assert_arrays_eq!(
+        result,
+        DecimalArray::from_iter::<i128, _>([250], result_dtype),
+        &mut ctx
+    );
+    Ok(())
+}
+
+#[test]
+fn test_decimal_mul_signed_integer_null_constant() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let decimal =
+        DecimalArray::from_iter::<i32, _>([125, 250], DecimalDType::new(7, 2)).into_array();
+    let null_integer = ConstantArray::new(Option::<i64>::None, decimal.len()).into_array();
+
+    let result = decimal
+        .binary(null_integer, Operator::Mul)?
+        .execute::<Columnar>(&mut ctx)?;
+    assert!(matches!(&result, Columnar::Constant(_)));
+    assert_arrays_eq!(
+        result.into_array(),
+        DecimalArray::from_option_iter::<i128, _>([None, None], DecimalDType::new(27, 2),),
+        &mut ctx
+    );
+    Ok(())
+}
+
+#[test]
+fn test_decimal_mul_signed_integer_constants() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let decimal = decimal_constant(125i32, DecimalDType::new(7, 2), 2);
+    let integer = ConstantArray::new(-2i64, 2).into_array();
+
+    let result = decimal
+        .binary(integer, Operator::Mul)?
+        .execute::<Columnar>(&mut ctx)?;
+    assert!(matches!(&result, Columnar::Constant(_)));
+    assert_arrays_eq!(
+        result.into_array(),
+        DecimalArray::from_iter::<i128, _>([-250, -250], DecimalDType::new(27, 2)),
+        &mut ctx
+    );
+    Ok(())
+}
+
+#[test]
+fn test_decimal_mul_signed_integer_empty() -> VortexResult<()> {
+    let decimal = DecimalArray::from_iter::<i32, _>([], DecimalDType::new(7, 2)).into_array();
+    let integer = PrimitiveArray::from_iter(Vec::<i64>::new()).into_array();
+
+    let result = decimal_binary(decimal, integer, Operator::Mul)?;
+
+    assert!(result.is_empty());
+    assert_eq!(
+        result.dtype(),
+        &DType::Decimal(DecimalDType::new(27, 2), Nullability::NonNullable)
+    );
+    Ok(())
+}
+
+#[test]
+fn test_decimal_mul_signed_integer_widens_to_i256() -> VortexResult<()> {
+    let decimal = DecimalArray::from_iter::<i64, _>([10], DecimalDType::new(19, 0)).into_array();
+    let integer = PrimitiveArray::from_iter([20i64]).into_array();
+
+    let result = decimal_binary(decimal, integer, Operator::Mul)?
+        .execute::<DecimalArray>(&mut array_session().create_execution_ctx())?;
+
+    assert_eq!(result.decimal_dtype(), DecimalDType::new(39, 0));
+    assert_eq!(result.values_type(), DecimalType::I256);
+    Ok(())
+}
+
+#[test]
+fn test_decimal_mul_signed_integer_overflow_errors() {
+    let dtype = DecimalDType::new(76, 0);
+    let max = <i256 as NativeDecimalType>::MAX_BY_PRECISION[76];
+    let decimal = DecimalArray::from_iter::<i256, _>([max], dtype).into_array();
+    let integer = PrimitiveArray::from_iter([2i64]).into_array();
+
+    assert!(decimal_binary(decimal, integer, Operator::Mul).is_err());
+}
+
+#[test]
+fn test_decimal_non_mul_and_unsigned_integer_remain_incompatible() {
+    let decimal = DecimalArray::from_iter::<i32, _>([100], DecimalDType::new(7, 2)).into_array();
+    let other_decimal =
+        DecimalArray::from_iter::<i32, _>([100], DecimalDType::new(8, 2)).into_array();
+
+    assert!(
+        decimal
+            .binary(
+                PrimitiveArray::from_iter([2i64]).into_array(),
+                Operator::Add
+            )
+            .is_err()
+    );
+    assert!(
+        decimal
+            .binary(
+                PrimitiveArray::from_iter([2u64]).into_array(),
+                Operator::Mul
+            )
+            .is_err()
+    );
+    assert!(
+        other_decimal
+            .binary(
+                DecimalArray::from_iter::<i32, _>([100], DecimalDType::new(7, 2)).into_array(),
+                Operator::Add,
+            )
+            .is_err()
+    );
+}
+
+#[test]
 fn test_decimal_nullable_lanes() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let dtype = DecimalDType::new(10, 2);
