@@ -166,12 +166,15 @@ mod test {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::DictArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::BitPackedArray;
@@ -200,6 +203,35 @@ mod test {
             PrimitiveArray::from_iter([0u8, 62, 31, 33, 9, 18]),
             &mut ctx
         );
+    }
+
+    /// A `list_contains` over a dict-encoded column evaluates the predicate on the dictionary
+    /// values and then takes the resulting `BoolArray` with the dict's bitpacked codes. The
+    /// bool take kernel has no bitpacked-aware path, so the codes are decoded to primitive
+    /// first; this pins the result of that composition.
+    #[rstest]
+    fn bool_take_with_bitpacked_dict_codes(
+        #[values(false, true)] nullable_values: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        // A small dictionary of predicate results, as produced by evaluating list_contains
+        // against the dict values.
+        let values = if nullable_values {
+            BoolArray::from_iter([Some(true), Some(false), None, Some(true)])
+        } else {
+            BoolArray::from_iter([true, false, false, true])
+        }
+        .into_array();
+
+        let len = 4096;
+        let codes = PrimitiveArray::from_iter((0..len).map(|idx| (idx % 4) as u8)).into_array();
+        let bitpacked = BitPackedData::encode(&codes, 2, &mut ctx)?.into_array();
+
+        let dict = DictArray::try_new(bitpacked, values.clone())?.into_array();
+        let expected = values.take(codes)?;
+        assert_arrays_eq!(dict, expected, &mut ctx);
+        Ok(())
     }
 
     #[test]

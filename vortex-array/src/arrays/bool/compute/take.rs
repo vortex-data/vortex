@@ -193,19 +193,56 @@ where
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation, reason = "test-sized index values")]
 mod test {
+    use itertools::Itertools as _;
     use rstest::rstest;
+    use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
 
+    use crate::ArrayRef;
     use crate::IntoArray as _;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::BoolArray;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::PiecewiseSequenceArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::bool::BoolArrayExt;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::validity::Validity;
+
+    /// Contiguous runs with per-piece lengths, taking the `Columnar::Canonical` branch of
+    /// `take_contiguous_ranges`.
+    fn contiguous_indices(starts: &[u64], lengths: &[u64]) -> VortexResult<ArrayRef> {
+        let len = lengths.iter().sum::<u64>() as usize;
+        Ok(PiecewiseSequenceArray::try_new(
+            PrimitiveArray::from_iter(starts.iter().copied()).into_array(),
+            PrimitiveArray::from_iter(lengths.iter().copied()).into_array(),
+            ConstantArray::new(1u64, starts.len()).into_array(),
+            len,
+        )?
+        .into_array())
+    }
+
+    /// Contiguous runs of equal length, taking the `Columnar::Constant` branch of
+    /// `take_contiguous_ranges`.
+    fn contiguous_indices_constant_length(starts: &[u64], length: u64) -> VortexResult<ArrayRef> {
+        let len = starts.len() * length as usize;
+        Ok(PiecewiseSequenceArray::try_new(
+            PrimitiveArray::from_iter(starts.iter().copied()).into_array(),
+            ConstantArray::new(length, starts.len()).into_array(),
+            ConstantArray::new(1u64, starts.len()).into_array(),
+            len,
+        )?
+        .into_array())
+    }
+
+    fn alternating_bools(len: usize) -> Vec<bool> {
+        (0..len).map(|idx| idx % 3 == 0).collect()
+    }
 
     #[test]
     fn take_nullable() {
@@ -290,6 +327,188 @@ mod test {
         );
         let actual = values.take(indices.into_array()).unwrap();
         assert_arrays_eq!(actual, BoolArray::from_iter([None, None, None]), &mut ctx);
+    }
+
+    fn expand(starts: &[u64], lengths: &[u64]) -> ArrayRef {
+        PrimitiveArray::from_iter(
+            starts
+                .iter()
+                .zip_eq(lengths)
+                .flat_map(|(&start, &length)| start..start + length),
+        )
+        .into_array()
+    }
+
+    /// Byte-aligned starts and lengths hit the `copy_from_slice` branch of `append_buffer`.
+    #[test]
+    fn contiguous_byte_aligned_runs() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let values = BoolArray::from_iter(alternating_bools(24)).into_array();
+
+        let taken = values.take(contiguous_indices_constant_length(&[0, 8, 16], 8)?)?;
+        assert_arrays_eq!(taken, values, &mut ctx);
+
+        let taken = values.take(contiguous_indices_constant_length(&[16, 0], 8)?)?;
+        assert_arrays_eq!(taken, values.take(expand(&[16, 0], &[8, 8]))?, &mut ctx);
+        Ok(())
+    }
+
+    /// Unaligned starts and lengths fall through to the bit-level copy, which must agree with
+    /// the general per-index gather.
+    #[rstest]
+    #[case(&[3], &[5])]
+    #[case(&[0], &[1])]
+    #[case(&[3, 11], &[5, 7])]
+    #[case(&[9, 1, 20], &[3, 8, 4])]
+    #[case(&[7, 7], &[0, 9])]
+    fn contiguous_unaligned_runs(
+        #[case] starts: &[u64],
+        #[case] lengths: &[u64],
+        #[values(false, true)] nullable: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let bools = alternating_bools(24);
+        let values = if nullable {
+            BoolArray::from_iter(
+                bools
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, &b)| (idx % 5 != 2).then_some(b)),
+            )
+        } else {
+            BoolArray::from_iter(bools)
+        }
+        .into_array();
+
+        let expected = values.take(expand(starts, lengths))?;
+        assert_arrays_eq!(
+            values.take(contiguous_indices(starts, lengths)?)?,
+            expected,
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// A sliced source carries a non-zero bit offset into `take_bit_slices`.
+    #[rstest]
+    fn contiguous_runs_from_sliced_source(
+        #[values(0, 1, 3, 8, 11)] offset: usize,
+    ) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let values = BoolArray::from_iter(alternating_bools(40))
+            .into_array()
+            .slice(offset..offset + 20)?;
+
+        let starts = [1u64, 9];
+        let lengths = [6u64, 5];
+        assert_arrays_eq!(
+            values.take(contiguous_indices(&starts, &lengths)?)?,
+            values.take(expand(&starts, &lengths))?,
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// Nulls in the source must be gathered alongside the values on the contiguous-range path.
+    #[test]
+    fn contiguous_runs_preserve_validity() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let values = BoolArray::from_iter([
+            Some(true),
+            None,
+            Some(false),
+            Some(true),
+            None,
+            None,
+            Some(true),
+            Some(false),
+        ])
+        .into_array();
+
+        assert_arrays_eq!(
+            values.take(contiguous_indices(&[1, 6], &[3, 2])?)?,
+            BoolArray::from_iter([None, Some(false), Some(true), Some(true), Some(false)]),
+            &mut ctx
+        );
+
+        // Constant-length pieces take a different branch, so cover validity there too.
+        assert_arrays_eq!(
+            values.take(contiguous_indices_constant_length(&[4, 0], 2)?)?,
+            BoolArray::from_iter([None, None, Some(true), None]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// An all-null source array is still all-null after a contiguous-range take.
+    #[test]
+    fn contiguous_runs_all_null_source() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let values = BoolArray::new(BitBuffer::new_unset(8), Validity::AllInvalid).into_array();
+
+        assert_arrays_eq!(
+            values.take(contiguous_indices(&[2], &[3])?)?,
+            BoolArray::from_iter([None::<bool>, None, None]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// `take_valid_indices` switches from the `Vec<bool>` gather to the bitmap gather at 4096
+    /// elements; both must produce the same result, with and without nulls.
+    #[rstest]
+    fn take_matches_across_page_threshold(
+        #[values(64, 4095, 4096, 4097, 9000)] len: usize,
+        #[values(false, true)] nullable: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let bools = alternating_bools(len);
+        let values = if nullable {
+            BoolArray::from_iter(
+                bools
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, &b)| (idx % 7 != 3).then_some(b)),
+            )
+        } else {
+            BoolArray::from_iter(bools.clone())
+        };
+
+        let indices = (0..len).map(|idx| ((idx * 31 + 7) % len) as u64);
+        let taken = values
+            .into_array()
+            .take(PrimitiveArray::from_iter(indices.clone()).into_array())?
+            .execute::<BoolArray>(&mut ctx)?;
+
+        let expected = if nullable {
+            BoolArray::from_iter(indices.clone().map(|idx| {
+                let idx = idx as usize;
+                (idx % 7 != 3).then_some(bools[idx])
+            }))
+        } else {
+            BoolArray::from_iter(indices.clone().map(|idx| bools[idx as usize]))
+        };
+        assert_arrays_eq!(taken.into_array(), expected, &mut ctx);
+        Ok(())
+    }
+
+    /// Null indices must produce nulls even when the source is gathered via the bitmap path.
+    #[test]
+    fn nullable_indices_over_large_source() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let bools = alternating_bools(5000);
+        let values = BoolArray::from_iter(bools.clone()).into_array();
+        let indices = PrimitiveArray::new(
+            buffer![0u64, 4999, 12345, 17],
+            Validity::Array(BoolArray::from_iter([true, true, false, true]).into_array()),
+        );
+
+        assert_arrays_eq!(
+            values.take(indices.into_array())?,
+            BoolArray::from_iter([Some(bools[0]), Some(bools[4999]), None, Some(bools[17]),]),
+            &mut ctx
+        );
+        Ok(())
     }
 
     #[rstest]
