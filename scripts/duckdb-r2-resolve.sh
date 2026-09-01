@@ -30,11 +30,18 @@ echo "DuckDB $version release=$release"
 entries=$(mktemp)
 trap 'rm -f "$entries"' EXIT
 
-for archive in \
-    libduckdb-linux-amd64.zip \
-    libduckdb-linux-arm64.zip \
-    libduckdb-osx-universal.zip; do
+archives="libduckdb-linux-amd64.zip
+libduckdb-linux-arm64.zip
+libduckdb-osx-universal.zip"
 
+# Windows archives are only mirrored from DuckDB releases as for now
+if [ "$release" = "true" ]; then
+    archives="$archives
+libduckdb-windows-amd64.zip
+libduckdb-windows-arm64.zip"
+fi
+
+for archive in $archives; do
     url="${PUBLIC_BASE_URL}/${ref_dir}/${archive}"
     code=$(curl -o /dev/null -s -w '%{http_code}' --head "$url" || echo 000)
     if [ "$code" = "200" ]; then
@@ -47,6 +54,8 @@ for archive in \
         *linux-amd64*) runner=ubuntu-latest; os=linux; arch=amd64 ;;
         *linux-arm64*) runner=ubuntu-24.04-arm; os=linux; arch=arm64 ;;
         *osx-universal*) runner=macos-14; os=osx; arch=universal ;;
+        *windows-amd64*) runner=ubuntu-latest; os=windows; arch=amd64 ;;
+        *windows-arm64*) runner=ubuntu-latest; os=windows; arch=arm64 ;;
     esac
     jq -nc \
         --arg archive "$archive" \

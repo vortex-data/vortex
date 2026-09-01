@@ -448,11 +448,12 @@ jobs:
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: "true"
+
       - name: Rust Tests (Windows)
         run: |
           cargo nextest run --cargo-profile ci --locked --workspace --all-features --no-fail-fast `
             --exclude vortex-bench `
-            --exclude vortex-python --exclude vortex-duckdb `
+            --exclude vortex-python `
             --exclude vortex-fuzz --exclude vortex-cuda --exclude vortex-cuda-ffi `
             --exclude vortex-nvcomp --exclude vortex-cub --exclude vortex-test-e2e-cuda --exclude vortex-python-cuda `
             --exclude duckdb-bench `

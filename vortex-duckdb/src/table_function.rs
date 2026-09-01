@@ -8,6 +8,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
+#[cfg(unix)]
 use custom_labels::CURRENT_LABELSET;
 use futures::future::BoxFuture;
 use itertools::Itertools;
@@ -32,6 +33,7 @@ use vortex::error::vortex_bail;
 use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
 use vortex::extension::uuid::Uuid;
+#[cfg(unix)]
 use vortex::metrics::tracing::get_global_labels;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::fns::binary::Binary;
@@ -338,19 +340,21 @@ fn build_partials(
 }
 
 pub fn init_local(bind_data: &BindState, global: &GlobalState) -> LocalState {
-    unsafe {
-        use custom_labels::sys;
+    #[cfg(unix)]
+    {
+        unsafe {
+            use custom_labels::sys;
+            if sys::current().is_null() {
+                let ls = sys::new(0);
+                sys::replace(ls);
+            };
+        }
 
-        if sys::current().is_null() {
-            let ls = sys::new(0);
-            sys::replace(ls);
-        };
-    }
+        let global_labels = get_global_labels();
 
-    let global_labels = get_global_labels();
-
-    for (key, value) in global_labels {
-        CURRENT_LABELSET.set(key, value);
+        for (key, value) in global_labels {
+            CURRENT_LABELSET.set(key, value);
+        }
     }
 
     let partials = build_partials(&global.aggregates, &bind_data.columns, &bind_data.dtype)

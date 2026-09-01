@@ -23,10 +23,12 @@ name = "vortex_duckdb"
 path = "src/lib.rs"
 crate-type = ["rlib"]
 
+[target.'cfg(unix)'.dependencies]
+custom-labels = { workspace = true }
+
 [dependencies]
 async-fs = { workspace = true }
 bitvec = { workspace = true }
-custom-labels = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
 kanal = { workspace = true }
