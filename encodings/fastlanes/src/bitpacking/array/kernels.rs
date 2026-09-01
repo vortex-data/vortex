@@ -17,6 +17,11 @@ use fastlanes::FoR;
 use vortex_array::dtype::NativePType;
 use vortex_error::vortex_panic;
 
+/// Packs one FastLanes block of 1024 values.
+///
+/// `input` must hold exactly 1024 elements and `output` exactly `128 * bit_width / size_of::<P>()`.
+pub type PackFn<P> = fn(input: &[P], output: &mut [P]);
+
 /// Unpacks one FastLanes block of 1024 values.
 ///
 /// `packed` must hold exactly [`BitPackedKernels::packed_block_len`] elements and `output`
@@ -89,12 +94,22 @@ pub trait BitPackedPhysical: NativePType + BitPacking + BitPackingCompare + FoR 
     /// Returns the kernels if `resolved` holds kernels for `Self`.
     fn kernels_from(resolved: &ResolvedKernels) -> Option<BitPackedKernels<Self>>;
 
+    /// Resolves the pack kernel for `bit_width`, which must not exceed the width of `Self`.
+    ///
+    /// Packing happens before an array exists to cache kernels on, so callers resolve this once
+    /// per buffer instead.
+    fn resolve_pack(bit_width: u8) -> PackFn<Self>;
+
     /// Resolves the fused unpack-and-compare kernel for `bit_width`, which must not exceed the
     /// width of `Self`.
     fn resolve_unpack_cmp<V, F>(bit_width: u8) -> UnpackCmpFn<Self, V, F>
     where
         V: FastLanesComparable<Bitpacked = Self>,
         F: Fn(V, V) -> bool;
+}
+
+fn pack<P: BitPacking, const W: usize, const B: usize>(input: &[P], output: &mut [P]) {
+    P::pack::<W, B>(as_block(input), as_block_mut(output));
 }
 
 fn unpack<P: BitPacking, const W: usize, const B: usize>(packed: &[P], output: &mut [P]) {
@@ -172,6 +187,18 @@ macro_rules! impl_bitpacked_physical {
                 }
             }
 
+            fn resolve_pack(bit_width: u8) -> PackFn<Self> {
+                seq_macro::seq!(W in 0..=$bits {
+                    match bit_width {
+                        #(W => pack::<$P, W, { 1024 * W / $bits }>,)*
+                        _ => vortex_panic!(
+                            "Unsupported bit width {bit_width} for {}",
+                            <$P as NativePType>::PTYPE
+                        ),
+                    }
+                })
+            }
+
             fn resolve_unpack_cmp<V, F>(bit_width: u8) -> UnpackCmpFn<Self, V, F>
             where
                 V: FastLanesComparable<Bitpacked = Self>,
@@ -215,9 +242,14 @@ mod tests {
             assert_eq!(kernels.bit_width(), bit_width);
 
             let block_len = kernels.packed_block_len();
+            let mut expected_packed = vec![P::zero(); block_len];
+            // SAFETY: `expected_packed` holds exactly one block at `bit_width` and `values` 1024
+            // values.
+            unsafe { P::unchecked_pack(bit_width as usize, &values, &mut expected_packed) };
+
             let mut packed = vec![P::zero(); block_len];
-            // SAFETY: `packed` holds exactly one block at `bit_width` and `values` 1024 values.
-            unsafe { P::unchecked_pack(bit_width as usize, &values, &mut packed) };
+            P::resolve_pack(bit_width)(&values, &mut packed);
+            assert_eq!(packed, expected_packed, "pack at width {bit_width}");
 
             let mut expected = [P::zero(); 1024];
             // SAFETY: `packed` holds exactly one block at `bit_width` and `expected` 1024 values.
