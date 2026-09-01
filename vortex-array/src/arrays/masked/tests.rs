@@ -7,6 +7,7 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
+use super::array::child_all_valid;
 use super::*;
 use crate::Canonical;
 use crate::IntoArray;
@@ -19,6 +20,25 @@ use crate::assert_arrays_eq;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::validity::Validity;
+
+#[rstest]
+#[case(Validity::NonNullable, true)]
+#[case(Validity::AllValid, true)]
+#[case(Validity::AllInvalid, false)]
+#[case(Validity::from_iter([true, true, true]), true)]
+#[case(Validity::from_iter([true, false, true]), false)]
+fn test_child_all_valid(#[case] validity: Validity, #[case] expected: bool) -> VortexResult<()> {
+    let child = PrimitiveArray::new(vortex_buffer::buffer![1i32, 2, 3], validity).into_array();
+    assert_eq!(child_all_valid(&child)?, expected);
+    Ok(())
+}
+
+#[test]
+fn test_empty_child_all_valid() -> VortexResult<()> {
+    let child = PrimitiveArray::new(Buffer::<i32>::empty(), Validity::AllInvalid).into_array();
+    assert!(child_all_valid(&child)?);
+    Ok(())
+}
 
 #[rstest]
 #[case(Validity::AllValid, Nullability::Nullable)]

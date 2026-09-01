@@ -75,18 +75,26 @@ impl MaskedData {
     }
 }
 
+#[expect(clippy::disallowed_methods)]
+pub(super) fn child_all_valid(child: &ArrayRef) -> VortexResult<bool> {
+    if child.is_empty() {
+        return Ok(true);
+    }
+
+    match child.validity()? {
+        Validity::NonNullable | Validity::AllValid => Ok(true),
+        Validity::AllInvalid => Ok(false),
+        Validity::Array(_) => child.all_valid(&mut legacy_session().create_execution_ctx()),
+    }
+}
+
 impl Array<Masked> {
     /// Constructs a new `MaskedArray`.
-    #[allow(clippy::disallowed_methods)]
     pub fn try_new(child: ArrayRef, validity: Validity) -> VortexResult<Self> {
         let dtype = child.dtype().as_nullable();
         let len = child.len();
         let validity_slot = validity_to_child(&validity, len);
-        let data = MaskedData::try_new(
-            len,
-            child.all_valid(&mut legacy_session().create_execution_ctx())?,
-            validity,
-        )?;
+        let data = MaskedData::try_new(len, child_all_valid(&child)?, validity)?;
         Ok(unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Masked, dtype, len, data)

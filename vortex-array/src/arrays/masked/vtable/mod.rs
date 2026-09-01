@@ -23,7 +23,6 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::EqMode;
 use crate::IntoArray;
-use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
@@ -35,13 +34,13 @@ use crate::arrays::masked::MaskedArrayExt;
 use crate::arrays::masked::MaskedArraySlotsExt;
 use crate::arrays::masked::MaskedData;
 use crate::arrays::masked::array::MaskedSlots;
+use crate::arrays::masked::array::child_all_valid;
 use crate::arrays::masked::compute::rules::PARENT_RULES;
 use crate::arrays::masked::mask_validity_canonical;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
-use crate::legacy_session;
 use crate::require_child;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
@@ -73,7 +72,6 @@ impl VTable for Masked {
         *ID
     }
 
-    #[expect(clippy::disallowed_methods)]
     fn validate(
         &self,
         _data: &MaskedData,
@@ -94,7 +92,7 @@ impl VTable for Masked {
             "MaskedArray dtype does not match child and validity"
         );
         vortex_ensure!(
-            child.all_valid(&mut legacy_session().create_execution_ctx())?,
+            child_all_valid(child)?,
             "MaskedArray children must not have nulls",
         );
         Ok(())
@@ -127,7 +125,6 @@ impl VTable for Masked {
         Ok(Some(vec![]))
     }
 
-    #[allow(clippy::disallowed_methods)]
     fn deserialize(
         &self,
         dtype: &DType,
@@ -164,11 +161,7 @@ impl VTable for Masked {
         };
 
         let validity_slot = validity_to_child(&validity, len);
-        let data = MaskedData::try_new(
-            len,
-            child.all_valid(&mut legacy_session().create_execution_ctx())?,
-            validity,
-        )?;
+        let data = MaskedData::try_new(len, child_all_valid(&child)?, validity)?;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data)
             .with_slots(smallvec![Some(child), validity_slot]))
     }
