@@ -20,6 +20,7 @@ use std::task::Waker;
 use std::time::Duration;
 
 use futures::FutureExt;
+use futures::TryStreamExt;
 use futures::future::poll_fn;
 use parking_lot::Mutex;
 use rstest::rstest;
@@ -32,6 +33,7 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::and;
+use vortex_array::expr::eq;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
 use vortex_array::expr::lit;
@@ -40,13 +42,21 @@ use vortex_array::expr::pack;
 use vortex_array::expr::root;
 use vortex_array::expr::select;
 use vortex_array::validity::Validity;
+use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_io::runtime::single::block_on;
 use vortex_io::session::RuntimeSession;
+use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::LayoutRef;
+use vortex_layout::LayoutStrategy;
+use vortex_layout::layouts::dict::Dict;
+use vortex_layout::layouts::dict::writer::DictLayoutOptions;
+use vortex_layout::layouts::dict::writer::DictStrategy;
+use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
+use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::segments::ReadAtNowait;
 use vortex_layout::segments::SegmentFuture;
 use vortex_layout::segments::SegmentId;
@@ -54,9 +64,11 @@ use vortex_layout::segments::SegmentSource;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
 
+use crate::MorselScanExecutor;
 use crate::fixtures::Column;
 use crate::fixtures::Fixture;
 use crate::fixtures::write_fixture;
+use crate::fixtures::write_fixture_with;
 use crate::harness::MorselConfig;
 use crate::harness::Query;
 use crate::harness::assert_same_rows;
@@ -140,6 +152,56 @@ fn aligned_fixture(session: &VortexSession, rows: usize) -> VortexResult<Fixture
             session,
         )
         .await
+    })
+}
+
+fn dict_strategy() -> Arc<dyn LayoutStrategy> {
+    Arc::new(DictStrategy::new(
+        FlatLayoutStrategy::default(),
+        FlatLayoutStrategy::default(),
+        FlatLayoutStrategy::default(),
+        DictLayoutOptions::default(),
+        Arc::new(BtrBlocksCompressor::default()),
+    ))
+}
+
+fn scan_builder_batches(
+    session: &VortexSession,
+    fixture: &Fixture,
+    query: &Query,
+    pull: bool,
+) -> VortexResult<Vec<ArrayRef>> {
+    let reader = fixture.layout.new_reader(
+        "morsel-scan-builder-test".into(),
+        Arc::clone(&fixture.segments),
+        session,
+        &Default::default(),
+    )?;
+    let projection = query.projection.bind(reader.dtype())?;
+    let filter = query
+        .filter
+        .as_ref()
+        .map(|filter| filter.bind(reader.dtype()))
+        .transpose()?;
+    let executor = pull.then(|| {
+        Arc::new(
+            MorselScanExecutor::new(Arc::clone(&fixture.layout), Arc::clone(&fixture.segments))
+                .with_threads(2)
+                .with_target_rows(3),
+        ) as Arc<_>
+    });
+
+    let session = session.clone();
+    block_on(move |handle| async move {
+        let session = session.with_handle(handle);
+        let mut builder = ScanBuilder::new(session, reader)
+            .with_projection(projection)
+            .with_some_filter(filter)
+            .with_ordered(true);
+        if let Some(executor) = executor {
+            builder = builder.with_executor(executor);
+        }
+        builder.into_stream()?.try_collect().await
     })
 }
 
@@ -337,6 +399,66 @@ fn document_misalignment_case() -> VortexResult<()> {
     )?;
     assert_eq!(plan.natural_splits(), &[3, 6, 10]);
     Ok(())
+}
+
+#[test]
+fn scan_builder_pull_matches_v1_for_dictionary_layout_runs() -> VortexResult<()> {
+    let session = session();
+    let first = VarBinViewArray::from_iter_str([
+        "alpha", "beta", "alpha", "gamma", "alpha", "beta", "gamma", "alpha",
+    ])
+    .into_array();
+    let second = VarBinViewArray::from_iter_str([
+        "delta", "alpha", "delta", "beta", "alpha", "delta", "alpha", "beta",
+    ])
+    .into_array();
+    let fixture = block_on(|handle| async {
+        let write_session = session.clone().with_handle(handle);
+        write_fixture_with(
+            vec![Column::new("label", vec![first, second])],
+            dict_strategy(),
+            &write_session,
+        )
+        .await
+    })?;
+    let column = fixture
+        .layout
+        .slot(1)?
+        .expect("struct fixture has a label field");
+    assert!(
+        (0..2).all(|idx| column
+            .slot(idx)
+            .is_ok_and(|child| { child.is_some_and(|child| child.is::<Dict>()) })),
+        "fixture must contain two dictionary layout runs"
+    );
+
+    let query = Query {
+        name: "dict-scan-builder",
+        projection: select(vec!["label"], root()),
+        filter: Some(eq(get_item("label", root()), lit("alpha"))),
+    };
+    let v1_batches = scan_builder_batches(&session, &fixture, &query, false)?;
+    let pull_batches = scan_builder_batches(&session, &fixture, &query, true)?;
+    let dtype = query
+        .projection
+        .bind(fixture.layout.dtype())?
+        .dtype()
+        .clone();
+    let outcome = |batches: Vec<ArrayRef>| crate::harness::RunOutcome {
+        rows: batches.iter().map(|batch| batch.len()).sum(),
+        batches,
+        wall: Duration::ZERO,
+        time_to_first_batch: None,
+        stats: None,
+        source_io_requests: None,
+        source_io_bytes: None,
+    };
+    assert_same_rows(
+        &session,
+        &dtype,
+        &outcome(v1_batches),
+        &outcome(pull_batches),
+    )
 }
 
 /// Property: the result does not depend on how the scan is cut into morsels.
