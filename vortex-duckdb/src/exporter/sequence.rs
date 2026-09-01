@@ -24,7 +24,9 @@ pub(crate) fn new_exporter_with_flatten(
     ctx: &mut ExecutionCtx,
     flatten: bool,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
-    if flatten {
+    // DuckDB's sequence vector API takes signed start/step values and rejects unsigned logical
+    // types, so unsigned Vortex sequences must be exported as flat primitive vectors.
+    if flatten || array.ptype().is_unsigned_int() {
         return canonical::new_exporter(array.clone().into_array(), cache, ctx);
     }
     Ok(Box::new(SequenceExporter {
@@ -86,6 +88,31 @@ mod tests {
             String::try_from(&*chunk).unwrap(),
             r#"Chunk - [1 Columns]
 - SEQUENCE INTEGER: 4 = [ 2, 7, 12, 17]
+"#
+        );
+    }
+
+    #[test]
+    fn test_unsigned_sequence() {
+        let arr = Sequence::try_new_typed(2u64, 5u64, Nullability::NonNullable, 100).unwrap();
+        let mut chunk = DataChunk::new([LogicalType::uint64()]);
+        let mut ctx = SESSION.create_execution_ctx();
+
+        new_exporter_with_flatten(&arr, &ConversionCache::default(), &mut ctx, false)
+            .unwrap()
+            .export(
+                0,
+                4,
+                chunk.get_vector_mut(0),
+                &mut SESSION.create_execution_ctx(),
+            )
+            .unwrap();
+        chunk.set_len(4);
+
+        assert_eq!(
+            String::try_from(&*chunk).unwrap(),
+            r#"Chunk - [1 Columns]
+- FLAT UBIGINT: 4 = [ 2, 7, 12, 17]
 "#
         );
     }
