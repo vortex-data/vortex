@@ -24,9 +24,7 @@
 pub use array::*;
 use vortex_array::dtype::proto::dtype as pb;
 use vortex_array::session::ArraySessionExt;
-#[cfg(feature = "unstable_encodings")]
 use vortex_edition::EditionSessionExt;
-#[cfg(feature = "unstable_encodings")]
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
