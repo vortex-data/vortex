@@ -263,6 +263,7 @@ impl BitPackedData {
     /// # Panics
     ///
     /// If the kernels were already resolved for a different physical type.
+    #[inline]
     pub fn kernels<P: BitPackedPhysical>(&self) -> BitPackedKernels<P> {
         let resolved = self
             .kernels
