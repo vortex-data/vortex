@@ -3,14 +3,12 @@
 
 use std::mem::MaybeUninit;
 
-use fastlanes::BitPacking;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::filter::FilterKernel;
-use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::UnsignedPType;
 use vortex_array::match_each_unsigned_integer_ptype;
@@ -26,7 +24,7 @@ use super::take::UNPACK_CHUNK_THRESHOLD;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::BitPackedData;
-use crate::BitWidthsView;
+use crate::bitpacking::array::kernels::BitPackedPhysical;
 
 /// The threshold over which it is faster to fully unpack the entire [`BitPackedArray`](crate::BitPackedArray) and then
 /// filter the result than to unpack only specific bitpacked values into the output buffer.
@@ -50,9 +48,9 @@ impl FilterKernel for BitPacked {
         mask: &Mask,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let BitWidthsView::Global(bit_width) = array.bit_widths() else {
+        if !array.bit_widths().is_global() {
             return Ok(None);
-        };
+        }
         let values = match mask {
             Mask::AllTrue(_) | Mask::AllFalse(_) => {
                 return Ok(None);
@@ -70,7 +68,7 @@ impl FilterKernel for BitPacked {
         let primitive =
             match_each_unsigned_integer_ptype!(array.dtype().as_ptype().to_unsigned(), |U| {
                 let (buffer, validity) =
-                    filter_primitive_without_patches::<U>(array, bit_width, values)?;
+                    filter_primitive_without_patches::<U>(array, values)?;
                 // reinterpret_cast for signed types.
                 let primitive = PrimitiveArray::new(buffer, validity);
                 if array.dtype().as_ptype().is_signed_int() {
@@ -111,12 +109,11 @@ impl FilterKernel for BitPacked {
 /// elements is relatively slow.
 ///
 /// Returns a tuple of (values buffer, validity mask).
-fn filter_primitive_without_patches<U: UnsignedPType + BitPacking>(
+fn filter_primitive_without_patches<U: UnsignedPType + BitPackedPhysical>(
     array: ArrayView<'_, BitPacked>,
-    bit_width: u8,
     selection: &MaskValuesRef,
 ) -> VortexResult<(Buffer<U>, Validity)> {
-    let values = filter_with_indices(array.data(), bit_width, selection.indices());
+    let values = filter_with_indices(array.data(), selection.indices());
     let validity = array
         .validity()?
         .filter(&Mask::Values(MaskValuesRef::clone(selection)))?;
@@ -124,13 +121,12 @@ fn filter_primitive_without_patches<U: UnsignedPType + BitPacking>(
     Ok((values.freeze(), validity))
 }
 
-fn filter_with_indices<T: NativePType + BitPacking>(
+fn filter_with_indices<T: BitPackedPhysical>(
     array: &BitPackedData,
-    bit_width: u8,
     indices: &[usize],
 ) -> BufferMut<T> {
     let offset = array.offset() as usize;
-    let bit_width = bit_width as usize;
+    let kernels = array.kernels::<T>();
     let mut values = BufferMut::with_capacity(indices.len());
 
     // Some re-usable memory to store per-chunk indices.
@@ -138,7 +134,7 @@ fn filter_with_indices<T: NativePType + BitPacking>(
     let packed_bytes = array.packed_slice::<T>();
 
     // Group the indices by the FastLanes chunk they belong to.
-    let chunk_size = 128 * bit_width / size_of::<T>();
+    let chunk_size = kernels.packed_block_len();
 
     chunked_indices(
         indices.iter().copied(),
@@ -148,22 +144,17 @@ fn filter_with_indices<T: NativePType + BitPacking>(
 
             if indices_within_chunk.len() == 1024 {
                 // Unpack the entire chunk.
-                unsafe {
-                    let values_len = values.len();
-                    values.set_len(values_len + 1024);
-                    BitPacking::unchecked_unpack(
-                        bit_width,
-                        packed,
-                        &mut values.as_mut_slice()[values_len..],
-                    );
-                }
+                let values_len = values.len();
+                // SAFETY: The capacity holds every index, and `unpack` initializes all 1024
+                // values before they are read.
+                unsafe { values.set_len(values_len + 1024) };
+                (kernels.unpack)(packed, &mut values.as_mut_slice()[values_len..]);
             } else if indices_within_chunk.len() > UNPACK_CHUNK_THRESHOLD {
                 // Unpack into a temporary chunk and then copy the values.
-                unsafe {
-                    let dst: &mut [MaybeUninit<T>] = &mut unpacked;
-                    let dst: &mut [T] = std::mem::transmute(dst);
-                    BitPacking::unchecked_unpack(bit_width, packed, dst);
-                }
+                let dst: &mut [MaybeUninit<T>] = &mut unpacked;
+                // SAFETY: &[MaybeUninit<T>] and &[T] have the same layout.
+                let dst: &mut [T] = unsafe { std::mem::transmute(dst) };
+                (kernels.unpack)(packed, dst);
                 values.extend_trusted(
                     indices_within_chunk
                         .iter()
@@ -171,9 +162,11 @@ fn filter_with_indices<T: NativePType + BitPacking>(
                 );
             } else {
                 // Otherwise, unpack each element individually.
-                values.extend_trusted(indices_within_chunk.iter().map(|&idx| unsafe {
-                    BitPacking::unchecked_unpack_single(bit_width, packed, idx)
-                }));
+                values.extend_trusted(
+                    indices_within_chunk
+                        .iter()
+                        .map(|&idx| (kernels.unpack_single)(packed, idx)),
+                );
             }
         },
     );

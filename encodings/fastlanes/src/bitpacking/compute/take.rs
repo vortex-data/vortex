@@ -4,7 +4,6 @@
 use std::mem;
 use std::mem::MaybeUninit;
 
-use fastlanes::BitPacking;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -12,7 +11,6 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::dtype::IntegerPType;
-use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
@@ -25,8 +23,7 @@ use vortex_error::VortexResult;
 use super::chunked_indices;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
-use crate::BitWidthsView;
-use crate::bitpack_decompress;
+use crate::bitpacking::array::kernels::BitPackedPhysical;
 
 // TODO(connor): This is duplicated in `encodings/fastlanes/src/bitpacking/kernels/mod.rs`.
 /// assuming the buffer is already allocated (which will happen at most once) then unpacking
@@ -40,9 +37,9 @@ impl TakeExecute for BitPacked {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let BitWidthsView::Global(bit_width) = array.bit_widths() else {
+        if !array.bit_widths().is_global() {
             return Ok(None);
-        };
+        }
         // If the indices are large enough, it's faster to flatten and take the primitive array.
         if indices.len() * UNPACK_CHUNK_THRESHOLD > array.len() {
             let prim = array.array().clone().execute::<PrimitiveArray>(ctx)?;
@@ -58,7 +55,7 @@ impl TakeExecute for BitPacked {
         let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
         let taken = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |T| {
             match_each_integer_ptype!(indices.ptype(), |I| {
-                take_primitive::<T, I>(array, bit_width, &indices, taken_validity, ctx)?
+                take_primitive::<T, I>(array, &indices, taken_validity, ctx)?
             })
         });
         let taken = if ptype.is_signed_int() {
@@ -74,9 +71,8 @@ impl TakeExecute for BitPacked {
     }
 }
 
-fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
+fn take_primitive<T: BitPackedPhysical, I: IntegerPType>(
     array: ArrayView<'_, BitPacked>,
-    bit_width: u8,
     indices: &PrimitiveArray,
     taken_validity: Validity,
     ctx: &mut ExecutionCtx,
@@ -86,7 +82,7 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
     }
 
     let offset = array.offset() as usize;
-    let bit_width = bit_width as usize;
+    let kernels = array.kernels::<T>();
 
     let packed = array.packed_slice::<T>();
 
@@ -98,7 +94,7 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
 
     let mut output = BufferMut::<T>::with_capacity(indices.len());
     let mut unpacked = [const { MaybeUninit::uninit() }; 1024];
-    let chunk_len = 128 * bit_width / size_of::<T>();
+    let chunk_len = kernels.packed_block_len();
 
     chunked_indices(indices_iter, offset, |chunk_idx, indices_within_chunk| {
         let packed = &packed[chunk_idx * chunk_len..][..chunk_len];
@@ -109,11 +105,10 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
         // this loop only runs if we have at least UNPACK_CHUNK_THRESHOLD offsets
         for offset_chunk in offset_chunks {
             if !have_unpacked {
-                unsafe {
-                    let dst: &mut [MaybeUninit<T>] = &mut unpacked;
-                    let dst: &mut [T] = mem::transmute(dst);
-                    BitPacking::unchecked_unpack(bit_width, packed, dst);
-                }
+                let dst: &mut [MaybeUninit<T>] = &mut unpacked;
+                // SAFETY: &[MaybeUninit<T>] and &[T] have the same layout.
+                let dst: &mut [T] = unsafe { mem::transmute(dst) };
+                (kernels.unpack)(packed, dst);
                 have_unpacked = true;
             }
 
@@ -133,9 +128,7 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
                 // we had fewer than UNPACK_CHUNK_THRESHOLD offsets in the first place,
                 // so we need to unpack each one individually
                 for &index in remainder {
-                    output.push(unsafe {
-                        bitpack_decompress::unpack_single_primitive::<T>(packed, bit_width, index)
-                    });
+                    output.push((kernels.unpack_single)(packed, index));
                 }
             }
         }
@@ -284,7 +277,6 @@ mod test {
 
         let taken_primitive = take_primitive::<u32, u64>(
             start.as_view(),
-            1,
             &PrimitiveArray::from_iter([0u64, 1, 2, 3]),
             Validity::NonNullable,
             &mut ctx,

@@ -4,6 +4,7 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::mem::MaybeUninit;
+use std::sync::OnceLock;
 
 use fastlanes::BitPacking;
 use vortex_array::ArrayRef;
@@ -31,6 +32,7 @@ use vortex_error::vortex_panic;
 
 pub mod bitpack_compress;
 pub mod bitpack_decompress;
+pub mod kernels;
 pub mod unpack_iter;
 
 #[cfg(test)]
@@ -40,6 +42,9 @@ use crate::BitPackedArray;
 use crate::FL_CHUNK_SIZE;
 use crate::bitpack_compress::bitpack_encode;
 use crate::bitpack_compress::bitpack_encode_blocked;
+use crate::bitpacking::array::kernels::BitPackedKernels;
+use crate::bitpacking::array::kernels::BitPackedPhysical;
+use crate::bitpacking::array::kernels::ResolvedKernels;
 use crate::unpack_iter::BitPacked as BitPackedIter;
 use crate::unpack_iter::BitUnpackedChunks;
 
@@ -192,6 +197,9 @@ pub struct BitPackedData {
     pub(super) packed: BufferHandle,
     /// Patch metadata for reconstructing Patches from slots.
     pub(super) patches_data: Option<PatchesData>,
+    /// FastLanes kernels for the physical type and bit width of this array, resolved on first use
+    /// so that decoding never dispatches on the runtime bit width.
+    kernels: OnceLock<ResolvedKernels>,
 }
 
 impl Display for BitPackedData {
@@ -262,6 +270,7 @@ impl BitPackedData {
             global_bit_width: Some(bit_width),
             packed,
             patches_data: patches.as_ref().map(PatchesData::from_patches),
+            kernels: OnceLock::new(),
         })
     }
 
@@ -281,6 +290,7 @@ impl BitPackedData {
             global_bit_width: None,
             packed,
             patches_data: patches.as_ref().map(PatchesData::from_patches),
+            kernels: OnceLock::new(),
         })
     }
 
@@ -377,6 +387,26 @@ impl BitPackedData {
             "Requested type doesn't match the array ptype"
         );
         BitUnpackedChunks::try_new(self, len, scratch)
+    }
+
+    /// The FastLanes kernels for this array's global bit width, resolved on first use.
+    ///
+    /// `P` must be the physical type of the array, i.e. the unsigned counterpart of its
+    /// [`PType`]. The resolved kernels are cached, so later calls only copy out the pointers.
+    ///
+    /// # Panics
+    ///
+    /// If the array has per-block bit widths, or if the kernels were already resolved for a
+    /// different physical type.
+    pub fn kernels<P: BitPackedPhysical>(&self) -> BitPackedKernels<P> {
+        let resolved = self.kernels.get_or_init(|| {
+            P::resolve_kernels(
+                self.global_bit_width
+                    .vortex_expect("BitPacked kernels need a global bit width"),
+            )
+        });
+        P::kernels_from(resolved)
+            .vortex_expect("BitPacked kernels were resolved for a different physical type")
     }
 
     #[inline]
@@ -486,6 +516,19 @@ pub trait BitPackedArrayExt: BitPackedArraySlotsExt {
             self.as_ref().len(),
             scratch,
         )
+    }
+
+    /// The FastLanes kernels for this array's bit width, see [`BitPackedData::kernels`].
+    ///
+    /// `P` must be the unsigned counterpart of the array's [`PType`].
+    #[inline]
+    fn kernels<P: BitPackedPhysical>(&self) -> BitPackedKernels<P> {
+        assert_eq!(
+            P::PTYPE,
+            self.as_ref().dtype().as_ptype().to_unsigned(),
+            "Requested physical type doesn't match the array ptype"
+        );
+        BitPackedData::kernels::<P>(self)
     }
 }
 
