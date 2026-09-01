@@ -3,11 +3,8 @@
 
 //! Compares the Primitive constant-list membership dispatch paths.
 //!
-//! Primitive arrays use direct comparisons for up to four distinct members. They use binary
-//! search from 10 members for 8- and 16-bit integers. The 32- and 64-bit thresholds are 11 and 13
-//! members. Every path runs on each real CPU feature leg in CodSpeed.
-//! To recalculate the thresholds, run this benchmark twice with temporary policy constants. Use a
-//! high cutoff to force generic evaluation. Use `5` to force binary search above four members.
+//! Primitive arrays use direct comparisons for at most four distinct integer members. Larger sets
+//! use the frozen generic path. Every path runs on each real CPU feature leg in CodSpeed.
 //!
 //! Run with `cargo bench -p vortex-array --bench list_contains`.
 
@@ -29,8 +26,11 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::Nullability;
+use vortex_array::expr::Expression;
+use vortex_array::expr::eq;
 use vortex_array::expr::list_contains;
 use vortex_array::expr::lit;
+use vortex_array::expr::or;
 use vortex_array::expr::root;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
@@ -95,22 +95,14 @@ const fn primitive_case(name: &'static str, len: usize, member_count: usize) -> 
 
 const LONG_M1: PrimitiveCase = primitive_case("long", 65_536, 1);
 const LONG_M4: PrimitiveCase = primitive_case("long", 65_536, 4);
-const LONG_M9: PrimitiveCase = primitive_case("long", 65_536, 9);
-const LONG_M10: PrimitiveCase = primitive_case("long", 65_536, 10);
-const LONG_M11: PrimitiveCase = primitive_case("long", 65_536, 11);
-const LONG_M12: PrimitiveCase = primitive_case("long", 65_536, 12);
-const LONG_M13: PrimitiveCase = primitive_case("long", 65_536, 13);
-const LONG_M32: PrimitiveCase = primitive_case("long", 65_536, 32);
-const SHORT_M11: PrimitiveCase = primitive_case("short", 1_024, 11);
-const SHORT_M13: PrimitiveCase = primitive_case("short", 1_024, 13);
+const LONG_M5: PrimitiveCase = primitive_case("long", 65_536, 5);
+const SHORT_M4: PrimitiveCase = primitive_case("short", 1_024, 4);
 
-const CURRENT_10: &[PrimitiveCase] = &[LONG_M1, LONG_M4, LONG_M9, LONG_M10, LONG_M32, SHORT_M11];
-const CURRENT_11: &[PrimitiveCase] = &[LONG_M1, LONG_M4, LONG_M10, LONG_M11, LONG_M32, SHORT_M11];
-const CURRENT_13: &[PrimitiveCase] = &[LONG_M1, LONG_M4, LONG_M12, LONG_M13, LONG_M32, SHORT_M13];
+const CURRENT: &[PrimitiveCase] = &[LONG_M1, LONG_M4, LONG_M5, SHORT_M4];
 
 fn primitive_input<T: BenchInt>(
     case: PrimitiveCase,
-) -> (PrimitiveArray, Scalar, BoolArray, VortexSession) {
+) -> (PrimitiveArray, Vec<T>, BoolArray, VortexSession) {
     let members = (0..case.member_count)
         .map(|index| T::from_counter(u64::try_from(index).unwrap() * 2))
         .collect::<Vec<_>>();
@@ -136,43 +128,81 @@ fn primitive_input<T: BenchInt>(
         })
         .collect::<Vec<_>>();
     let expected = BoolArray::from_iter(generated.iter().map(|value| members.contains(value)));
-    let list = Scalar::list(
-        Arc::new(DType::Primitive(T::PTYPE, Nullability::NonNullable)),
-        members.iter().copied().map(Into::into).collect(),
-        Nullability::NonNullable,
-    );
     (
         PrimitiveArray::new::<T>(generated, Validity::NonNullable),
-        list,
+        members,
         expected,
         array_session(),
     )
 }
 
-fn bench_current<T: BenchInt>(bencher: Bencher, case: PrimitiveCase) {
-    let (array, list, expected, session) = primitive_input::<T>(case);
-    let expression = list_contains(lit(list), root());
-    let mut ctx = session.create_execution_ctx();
-    let actual = array
+fn list_scalar<T: BenchInt>(members: &[T]) -> Scalar {
+    Scalar::list(
+        Arc::new(DType::Primitive(T::PTYPE, Nullability::NonNullable)),
+        members.iter().copied().map(Into::into).collect(),
+        Nullability::NonNullable,
+    )
+}
+
+fn generic_membership_expression<T: BenchInt>(members: &[T]) -> Expression {
+    fn balanced_or(expressions: &[Expression]) -> Expression {
+        assert!(!expressions.is_empty());
+        if let [expression] = expressions {
+            return expression.clone();
+        }
+        let (left, right) = expressions.split_at(expressions.len() / 2);
+        or(balanced_or(left), balanced_or(right))
+    }
+
+    let comparisons = members
+        .iter()
+        .map(|member| {
+            let member: Scalar = (*member).into();
+            eq(root(), lit(member))
+        })
+        .collect::<Vec<_>>();
+    balanced_or(&comparisons)
+}
+
+fn execute_generic_baseline<T: BenchInt>(
+    values: &PrimitiveArray,
+    members: &[T],
+    ctx: &mut vortex_array::ExecutionCtx,
+) -> BoolArray {
+    values
         .clone()
         .into_array()
-        .apply(&expression)
+        .apply(&generic_membership_expression(members))
         .unwrap()
-        .execute::<BoolArray>(&mut ctx)
+        .execute::<BoolArray>(ctx)
+        .unwrap()
+}
+
+fn bench_current<T: BenchInt>(bencher: Bencher, case: PrimitiveCase) {
+    let (array, members, expected, session) = primitive_input::<T>(case);
+    let contains = array
+        .into_array()
+        .apply(&list_contains(lit(list_scalar(&members)), root()))
         .unwrap();
+    let mut ctx = session.create_execution_ctx();
+    let actual = contains.clone().execute::<BoolArray>(&mut ctx).unwrap();
     assert_arrays_eq!(actual, expected, &mut ctx);
 
-    bencher.counter(ItemsCount::new(case.len)).bench_local(|| {
-        black_box(
-            array
-                .clone()
-                .into_array()
-                .apply(&expression)
-                .unwrap()
-                .execute::<BoolArray>(&mut ctx)
-                .unwrap(),
-        )
-    });
+    bencher
+        .counter(ItemsCount::new(case.len))
+        .bench_local(|| black_box(contains.clone().execute::<BoolArray>(&mut ctx).unwrap()));
+}
+
+fn bench_generic_baseline<T: BenchInt>(bencher: Bencher, case: PrimitiveCase) {
+    let (array, members, expected, session) = primitive_input::<T>(case);
+    let mut ctx = session.create_execution_ctx();
+    let actual = execute_generic_baseline(&array, &members, &mut ctx);
+    assert_arrays_eq!(actual, expected, &mut ctx);
+
+    // The pre-change implementation built this comparison tree during execution.
+    bencher
+        .counter(ItemsCount::new(case.len))
+        .bench_local(|| black_box(execute_generic_baseline(&array, &members, &mut ctx)));
 }
 
 macro_rules! primitive_benchmarks {
@@ -185,11 +215,17 @@ macro_rules! primitive_benchmarks {
             fn current(bencher: Bencher, case: PrimitiveCase) {
                 bench_current::<$ty>(bencher, case);
             }
+
+            #[vortex_bench_support::cpu_features]
+            #[divan::bench(args = $current)]
+            fn generic_baseline(bencher: Bencher, case: PrimitiveCase) {
+                bench_generic_baseline::<$ty>(bencher, case);
+            }
         }
     };
 }
 
-primitive_benchmarks!(u8_cases, u8, CURRENT_10);
-primitive_benchmarks!(u16_cases, u16, CURRENT_10);
-primitive_benchmarks!(u32_cases, u32, CURRENT_11);
-primitive_benchmarks!(u64_cases, u64, CURRENT_13);
+primitive_benchmarks!(u8_cases, u8, CURRENT);
+primitive_benchmarks!(u16_cases, u16, CURRENT);
+primitive_benchmarks!(u32_cases, u32, CURRENT);
+primitive_benchmarks!(u64_cases, u64, CURRENT);

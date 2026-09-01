@@ -143,7 +143,7 @@ where
                 .vortex_expect("over-allocated buffer holds a full block per chunk");
             // SAFETY: `packed_chunk` holds exactly `128 * bit_width / size_of::<U>()` packed
             // elements and `bit_width <= U::T`, satisfying `unchecked_unpack_cmp`'s contract. The
-            // kernel assigns every word in `transposed`, so its previous contents are irrelevant.
+            // kernel assigns every word in `lane_major`, so its previous contents are irrelevant.
             unsafe {
                 <<T as PhysicalPType>::Physical as BitPackingCompare>::unchecked_unpack_cmp::<T, _>(
                     bit_width,

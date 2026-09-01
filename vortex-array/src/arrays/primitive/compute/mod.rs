@@ -6,7 +6,6 @@ mod cast;
 mod fill_null;
 mod fixed_width;
 mod list_contains;
-pub use list_contains::evaluate_prepared_integer_membership;
 mod mask;
 pub(crate) mod rules;
 mod slice;

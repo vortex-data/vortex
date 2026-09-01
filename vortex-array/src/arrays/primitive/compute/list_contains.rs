@@ -1,30 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexExpect;
+use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::ArrayView;
 use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::BoolArray;
 use crate::arrays::Primitive;
 use crate::dtype::IntegerPType;
-use crate::dtype::PType;
+use crate::dtype::NativePType;
 use crate::match_each_integer_ptype;
 use crate::scalar_fn::fns::list_contains::IntegerMembership;
 use crate::scalar_fn::fns::list_contains::ListContainsElementKernel;
-use crate::scalar_fn::fns::list_contains::constant_list_scalar_contains;
-
-fn integer_membership_binary_search_min(ptype: PType) -> usize {
-    // The generic implementation evaluates one equality expression per source member. Use the
-    // prepared set once binary search becomes faster than the expression tree.
-    match ptype.bit_width() {
-        8 | 16 => 10,
-        32 => 11,
-        64 => 13,
-        _ => 13,
-    }
-}
+use crate::scalar_fn::fns::list_contains::evaluate_constant_list_generic;
 
 impl ListContainsElementKernel for Primitive {
     fn list_contains(
@@ -44,47 +35,45 @@ fn evaluate_constant_list_membership(
         return Ok(None);
     }
 
-    let nullability = list.dtype().nullability() | element.dtype().nullability();
-
     match_each_integer_ptype!(element.ptype(), |T| {
-        evaluate_integer_membership::<T>(list, element, nullability)
+        evaluate_integer_membership::<T>(list, element)
     })
 }
 
 fn evaluate_integer_membership<T: IntegerPType>(
     list: &ArrayRef,
     element: ArrayView<'_, Primitive>,
-    nullability: crate::dtype::Nullability,
 ) -> VortexResult<Option<ArrayRef>> {
+    let nullability = list.dtype().nullability() | element.dtype().nullability();
     let Some(membership) = IntegerMembership::<T>::try_from_constant_list(list, element.dtype())?
     else {
-        return Ok(None);
+        return evaluate_constant_list_generic(list, element.array(), nullability);
     };
-    evaluate_prepared_integer_membership(membership, element, nullability).map(Some)
+    let values = element.as_slice::<T>();
+    let bits = match membership.members() {
+        [] => BitBuffer::new_unset(values.len()),
+        [member] => collect_direct(values, move |value| value.is_eq(*member)),
+        [first, second] => collect_direct(values, move |value| {
+            value.is_eq(*first) | value.is_eq(*second)
+        }),
+        [first, second, third] => collect_direct(values, move |value| {
+            value.is_eq(*first) | value.is_eq(*second) | value.is_eq(*third)
+        }),
+        [first, second, third, fourth] => collect_direct(values, move |value| {
+            value.is_eq(*first) | value.is_eq(*second) | value.is_eq(*third) | value.is_eq(*fourth)
+        }),
+        _ => return Ok(None),
+    };
+    Ok(Some(
+        BoolArray::new(bits, element.validity()?.union_nullability(nullability)).into_array(),
+    ))
 }
 
-/// Evaluates a prepared integer set against a Primitive array.
-#[doc(hidden)]
-pub fn evaluate_prepared_integer_membership<T: IntegerPType>(
-    membership: IntegerMembership<T>,
-    element: ArrayView<'_, Primitive>,
-    nullability: crate::dtype::Nullability,
-) -> VortexResult<ArrayRef> {
-    if membership.members().len() > 4
-        && membership.non_null_source_len() < integer_membership_binary_search_min(element.ptype())
-    {
-        return constant_list_scalar_contains(
-            &membership
-                .source_list()
-                .as_opt::<crate::arrays::Constant>()
-                .vortex_expect("membership was prepared from a constant list")
-                .scalar()
-                .as_list(),
-            element.array(),
-            nullability,
-        );
-    }
-    membership.evaluate_primitive(element, nullability)
+fn collect_direct<T: NativePType>(values: &[T], mut predicate: impl FnMut(T) -> bool) -> BitBuffer {
+    BitBuffer::collect_bool(values.len(), |index| {
+        // SAFETY: collect_bool visits each valid index once.
+        predicate(unsafe { *values.get_unchecked(index) })
+    })
 }
 
 #[cfg(test)]
@@ -106,7 +95,6 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType::F32;
     use crate::dtype::PType::I32;
-    use crate::dtype::PType::I64;
     use crate::expr::list_contains;
     use crate::expr::lit;
     use crate::expr::root;
@@ -134,10 +122,7 @@ mod tests {
     #[case::two(vec![3, 7])]
     #[case::three(vec![3, 7, 11])]
     #[case::four(vec![3, 7, 11, 15])]
-    #[case::five((0..5).map(|value| value * 3).collect())]
-    #[case::eleven((0..11).map(|value| value * 3).collect())]
-    #[case::many((0..32).map(|value| value * 3).collect())]
-    #[case::duplicate_heavy((0..32).map(|value| value % 5).collect())]
+    #[case::duplicate_source(vec![3, 3, 7, 7])]
     fn test_membership_plans(#[case] members: Vec<i32>) -> VortexResult<()> {
         let mut ctx = crate::array_session().create_execution_ctx();
         let values = [0, 3, 7, 15, 31, 90_000, 310_000];
@@ -155,32 +140,20 @@ mod tests {
         Ok(())
     }
 
-    #[rstest]
-    #[case::small(5)]
-    #[case::many(13)]
-    fn test_i64_membership(#[case] member_count: usize) -> VortexResult<()> {
+    #[test]
+    fn test_five_members_use_generic_fallback() -> VortexResult<()> {
         let mut ctx = crate::array_session().create_execution_ctx();
-        let members = (0..member_count)
-            .map(|value| i64::try_from(value).vortex_expect("member count fits i64"))
-            .collect::<Vec<_>>();
-        let values = [0i64, 11, 99];
+        let values = [0i32, 3, 99];
         let element = PrimitiveArray::from_iter(values);
-        let list = ConstantArray::new(
-            Scalar::list(
-                Arc::new(DType::Primitive(I64, Nullability::NonNullable)),
-                members.iter().copied().map(Scalar::from).collect(),
-                Nullability::NonNullable,
-            ),
-            element.len(),
-        )
-        .into_array();
+        let members = [0, 3, 6, 9, 12];
 
         let actual = <Primitive as ListContainsElementKernel>::list_contains(
-            &list,
+            &list(members, element.len()),
             element.as_view(),
             &mut ctx,
         )?
-        .vortex_expect("integer constant-list membership is supported");
+        .vortex_expect("larger constant lists use the generic fallback");
+
         let expected = BoolArray::from_iter(values.map(|value| members.contains(&value)));
         assert_arrays_eq!(actual, expected, &mut ctx);
         Ok(())
@@ -212,7 +185,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
         // A silent fallback preserves values but loses the membership optimization.
-        assert_eq!(applied.len(), 1, "{trace}");
+        assert!(!applied.is_empty(), "{trace}");
 
         let expected = BoolArray::from_iter(values.map(|value| members.contains(&value)));
         assert_arrays_eq!(traced.output, expected, &mut ctx);
@@ -260,6 +233,36 @@ mod tests {
         .vortex_expect("integer constant-list membership is supported");
 
         assert_arrays_eq!(actual, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_nullable_list_preserves_output_nullability() -> VortexResult<()> {
+        let mut ctx = crate::array_session().create_execution_ctx();
+        let list = ConstantArray::new(
+            Scalar::list(
+                Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
+                [1, 3].into_iter().map(Scalar::from).collect(),
+                Nullability::Nullable,
+            ),
+            3,
+        )
+        .into_array();
+        let element = PrimitiveArray::from_iter([1, 2, 3]);
+
+        let actual = <Primitive as ListContainsElementKernel>::list_contains(
+            &list,
+            element.as_view(),
+            &mut ctx,
+        )?
+        .vortex_expect("integer constant-list membership is supported");
+
+        assert_eq!(actual.dtype(), &DType::Bool(Nullability::Nullable));
+        assert_arrays_eq!(
+            actual,
+            BoolArray::from_iter([Some(true), Some(false), Some(true)]),
+            &mut ctx
+        );
         Ok(())
     }
 

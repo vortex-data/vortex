@@ -384,12 +384,16 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
                     }
                 })
                 .try_collect()?;
+            let Some(first) = list_elements.first() else {
+                return Err(exec_datafusion_err!("Cannot push down an empty IN list"));
+            };
+            if list_elements.iter().any(Scalar::is_null) {
+                return Err(exec_datafusion_err!(
+                    "Cannot push down an IN list that contains null"
+                ));
+            }
 
-            let list = Scalar::list(
-                list_elements[0].dtype().clone(),
-                list_elements,
-                Nullability::Nullable,
-            );
+            let list = Scalar::list(first.dtype().clone(), list_elements, Nullability::Nullable);
             let expr = list_contains(lit(list), value);
 
             return Ok(if in_list.negated() { not(expr) } else { expr });
@@ -428,6 +432,17 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
                             .into_iter()
                             .map(|c| (c.name().to_string(), get_item(c.name(), root()))),
                     );
+
+                    leftover_projection.push(projection_expr.clone());
+                    return Ok(TreeNodeRecursion::Stop);
+                }
+
+                if let Some(in_list) = node.downcast_ref::<df_expr::InListExpr>()
+                    && !can_in_list_be_pushed_down(in_list, input_schema)
+                {
+                    scan_projection.extend(collect_columns(node).into_iter().map(|column| {
+                        (column.name().to_string(), get_item(column.name(), root()))
+                    }));
 
                     leftover_projection.push(projection_expr.clone());
                     return Ok(TreeNodeRecursion::Stop);
@@ -555,11 +570,7 @@ fn can_be_pushed_down_impl(expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> boo
     } else if let Some(is_not_null) = expr.downcast_ref::<df_expr::IsNotNullExpr>() {
         can_be_pushed_down_impl(is_not_null.arg(), schema)
     } else if let Some(in_list) = expr.downcast_ref::<df_expr::InListExpr>() {
-        can_be_pushed_down_impl(in_list.expr(), schema)
-            && in_list
-                .list()
-                .iter()
-                .all(|e| can_be_pushed_down_impl(e, schema))
+        can_in_list_be_pushed_down(in_list, schema)
     } else if let Some(scalar_fn) = expr.downcast_ref::<ScalarFunctionExpr>() {
         can_scalar_fn_be_pushed_down(scalar_fn, schema)
     } else if let Some(case_expr) = expr.downcast_ref::<df_expr::CaseExpr>() {
@@ -568,6 +579,16 @@ fn can_be_pushed_down_impl(expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> boo
         tracing::debug!(%expr, "DataFusion expression can't be pushed down");
         false
     }
+}
+
+fn can_in_list_be_pushed_down(in_list: &df_expr::InListExpr, schema: &Schema) -> bool {
+    can_be_pushed_down_impl(in_list.expr(), schema)
+        && !in_list.list().is_empty()
+        && in_list.list().iter().all(|expr| {
+            expr.downcast_ref::<df_expr::Literal>()
+                .is_some_and(|literal| !literal.value().is_null())
+                && can_be_pushed_down_impl(expr, schema)
+        })
 }
 
 /// Checks if an expression type is one that convert() can handle.
@@ -785,6 +806,19 @@ mod tests {
             )
             .unwrap(),
         )
+    }
+
+    fn in_list_expr(
+        values: impl IntoIterator<Item = ScalarValue>,
+        negated: bool,
+        schema: &Schema,
+    ) -> Arc<dyn PhysicalExpr> {
+        let value = Arc::new(df_expr::Column::new("id", 0)) as Arc<dyn PhysicalExpr>;
+        let list = values
+            .into_iter()
+            .map(|value| Arc::new(df_expr::Literal::new(value)) as Arc<dyn PhysicalExpr>)
+            .collect();
+        Arc::new(df_expr::InListExpr::try_new(value, list, negated, schema).unwrap())
     }
 
     #[test]
@@ -1077,6 +1111,44 @@ mod tests {
             as Arc<dyn PhysicalExpr>;
 
         assert!(!can_be_pushed_down_impl(&binary_expr, &test_schema));
+    }
+
+    #[rstest]
+    #[case::in_nonempty(vec![ScalarValue::Int32(Some(1))], false, true)]
+    #[case::not_in_nonempty(vec![ScalarValue::Int32(Some(1))], true, true)]
+    #[case::in_empty(vec![], false, false)]
+    #[case::not_in_empty(vec![], true, false)]
+    #[case::in_null(vec![ScalarValue::Int32(None)], false, false)]
+    #[case::not_in_null(vec![ScalarValue::Int32(None)], true, false)]
+    fn test_can_be_pushed_down_in_list(
+        #[case] values: Vec<ScalarValue>,
+        #[case] negated: bool,
+        #[case] expected: bool,
+        test_schema: Schema,
+    ) {
+        let expression = in_list_expr(values, negated, &test_schema);
+
+        assert_eq!(can_be_pushed_down_impl(&expression, &test_schema), expected);
+    }
+
+    #[rstest]
+    #[case::empty(vec![], false)]
+    #[case::null(vec![ScalarValue::Int32(None)], true)]
+    fn test_split_projection_keeps_unsafe_in_list_in_datafusion(
+        #[case] values: Vec<ScalarValue>,
+        #[case] negated: bool,
+        test_schema: Schema,
+    ) {
+        let expression = in_list_expr(values, negated, &test_schema);
+        let source_projection =
+            ProjectionExprs::new([ProjectionExpr::new(expression, "matches".to_string())]);
+        let output_schema = Schema::new(vec![Field::new("matches", DataType::Boolean, true)]);
+
+        let processed = DefaultExpressionConvertor::default()
+            .split_projection(source_projection.clone(), &test_schema, &output_schema)
+            .unwrap();
+
+        assert_eq!(processed.leftover_projection, source_projection);
     }
 
     #[rstest]

@@ -14,8 +14,6 @@ pub use vtable::PrimitiveArray;
 pub(crate) mod compute;
 
 mod vtable;
-#[doc(hidden)]
-pub use compute::evaluate_prepared_integer_membership;
 pub use compute::rules::PrimitiveMaskedValidityRule;
 pub use vtable::Primitive;
 

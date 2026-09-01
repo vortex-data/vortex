@@ -9,50 +9,19 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::primitive::evaluate_prepared_integer_membership;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativePType;
-use vortex_array::dtype::PType;
 use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar_fn::fns::list_contains::IntegerMembership;
 use vortex_array::scalar_fn::fns::list_contains::ListContainsElementKernel;
+use vortex_array::scalar_fn::fns::list_contains::evaluate_constant_list_generic;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
 
 use super::compare_fused::stream_predicate_fused;
 use crate::BitPacked;
 use crate::unpack_iter::BitPacked as BitPackedIter;
-
-const MAX_FUSED_DISTINCT_MEMBERS: usize = 4;
-const SHORT_ARRAY_MAX_ROWS_8_16: usize = 8_192;
-const SHORT_ARRAY_MAX_ROWS_32: usize = 16_384;
-const SHORT_ARRAY_MIN_DECODE_MEMBERS_8_16: usize = 10;
-const SHORT_ARRAY_MIN_DECODE_MEMBERS_32: usize = 11;
-fn min_decode_source_members(ptype: PType, len: usize) -> usize {
-    // The generic fallback scans the packed child once per source member. Decode before repeated
-    // packed scans become more expensive than one decode plus Primitive membership evaluation.
-    let short_array_max_rows = if ptype.bit_width() == 32 {
-        SHORT_ARRAY_MAX_ROWS_32
-    } else {
-        SHORT_ARRAY_MAX_ROWS_8_16
-    };
-    if len <= short_array_max_rows && ptype.bit_width() < 64 {
-        return match ptype.bit_width() {
-            8 | 16 => SHORT_ARRAY_MIN_DECODE_MEMBERS_8_16,
-            32 => SHORT_ARRAY_MIN_DECODE_MEMBERS_32,
-            _ => unreachable!("short-array policy only applies to 8-, 16-, and 32-bit integers"),
-        };
-    }
-    match ptype.bit_width() {
-        8 => 30,
-        16 => 25,
-        32 => 13,
-        64 => 5,
-        _ => 5,
-    }
-}
 
 impl ListContainsElementKernel for BitPacked {
     fn list_contains(
@@ -90,22 +59,8 @@ where
 {
     let Some(membership) = IntegerMembership::<T>::try_from_constant_list(list, element.dtype())?
     else {
-        return Ok(None);
+        return evaluate_constant_list_generic(list, element.array(), nullability);
     };
-    if membership.members().len() > MAX_FUSED_DISTINCT_MEMBERS {
-        if membership.non_null_source_len()
-            < min_decode_source_members(element.dtype().as_ptype(), element.len())
-        {
-            return Ok(None);
-        }
-        // The generic list implementation expands membership into one comparison per source
-        // member. Each comparison scans the packed child. Decode once before applying the
-        // Primitive membership policy when repeated packed scans become more expensive.
-        let primitive = element.array().clone().execute::<PrimitiveArray>(ctx)?;
-        return evaluate_prepared_integer_membership(membership, primitive.as_view(), nullability)
-            .map(Some);
-    }
-
     let result = match membership.members() {
         [] => BoolArray::new(
             BitBuffer::new_unset(element.len()),

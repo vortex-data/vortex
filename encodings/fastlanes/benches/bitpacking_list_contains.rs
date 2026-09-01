@@ -3,12 +3,8 @@
 
 //! Measures compressed constant-list membership.
 //!
-//! FastLanes evaluates constant lists with at most four distinct non-null members during unpacking.
-//! Mid-size lists use repeated packed comparisons. Larger lists decode once at a threshold that
-//! depends on the physical integer width and array length. Every path runs on each real CPU feature
-//! leg in CodSpeed.
-//! To recalculate the thresholds, temporarily replace `min_decode_source_members` with a constant.
-//! Return `usize::MAX` to force repeated comparisons. Return `5` to force decode-once.
+//! FastLanes evaluates at most four distinct integer members during unpacking. Larger sets use the
+//! frozen generic path. Every path runs on each real CPU feature leg in CodSpeed.
 //!
 //! Run with `cargo bench -p vortex-fastlanes --bench bitpacking_list_contains`.
 
@@ -31,8 +27,11 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::expr::Expression;
+use vortex_array::expr::eq;
 use vortex_array::expr::list_contains;
 use vortex_array::expr::lit;
+use vortex_array::expr::or;
 use vortex_array::expr::root;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
@@ -40,6 +39,7 @@ use vortex_buffer::Alignment;
 use vortex_buffer::BufferMut;
 use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::BitPackedArray;
+use vortex_fastlanes::BitPackedArrayExt;
 use vortex_fastlanes::BitPackedData;
 use vortex_session::VortexSession;
 
@@ -83,6 +83,7 @@ struct PackedCase {
     len: usize,
     member_count: usize,
     member_stride: u64,
+    patch_every: Option<usize>,
 }
 
 impl Display for PackedCase {
@@ -110,33 +111,43 @@ const fn strided_case(
         len,
         member_count: count,
         member_stride: stride,
+        patch_every: None,
+    }
+}
+
+const fn patched_case(
+    name: &'static str,
+    ptype: PType,
+    bit_width: u8,
+    len: usize,
+    count: usize,
+    stride: u64,
+    patch_every: usize,
+) -> PackedCase {
+    PackedCase {
+        name,
+        ptype,
+        bit_width,
+        len,
+        member_count: count,
+        member_stride: stride,
+        patch_every: Some(patch_every),
     }
 }
 
 const PACKED_CASES: &[PackedCase] = &[
     strided_case("direct_u8_m4", PType::U8, 6, 65_536, 4, 2),
-    strided_case("direct_u16_m4", PType::U16, 12, 65_536, 4, 2),
-    strided_case("direct_u32_m4", PType::U32, 20, 65_536, 4, 2),
+    strided_case("fallback_u8_m5", PType::U8, 6, 65_536, 5, 2),
+    strided_case("direct_u16_m4", PType::U16, 8, 65_536, 4, 2),
+    strided_case("fallback_u16_m5", PType::U16, 8, 65_536, 5, 2),
+    strided_case("direct_u32_m4", PType::U32, 8, 65_536, 4, 2),
+    strided_case("fallback_u32_m5", PType::U32, 8, 65_536, 5, 2),
     strided_case("direct_u64_m4", PType::U64, 40, 65_536, 4, 2),
-    strided_case("generic_u8_m29", PType::U8, 6, 65_536, 29, 2),
-    strided_case("decode_u8_m30", PType::U8, 6, 65_536, 30, 2),
-    strided_case("generic_u16_m24", PType::U16, 8, 65_536, 24, 2),
-    strided_case("decode_u16_m25", PType::U16, 8, 65_536, 25, 2),
-    strided_case("generic_u32_m12", PType::U32, 8, 65_536, 12, 2),
-    strided_case("decode_u32_m13", PType::U32, 8, 65_536, 13, 2),
-    strided_case("decode_u64_m5", PType::U64, 40, 65_536, 5, 2),
+    strided_case("fallback_u64_m5", PType::U64, 40, 65_536, 5, 2),
     strided_case("short_direct_u32_m4", PType::U32, 10, 1_024, 4, 2),
-    strided_case("short_generic_u8_m9", PType::U8, 6, 8_192, 9, 2),
-    strided_case("short_decode_u8_m10", PType::U8, 6, 8_192, 10, 2),
-    strided_case("short_generic_u16_m9", PType::U16, 8, 8_192, 9, 2),
-    strided_case("short_decode_u16_m10", PType::U16, 8, 8_192, 10, 2),
-    strided_case("short_generic_u32_m10", PType::U32, 8, 16_384, 10, 2),
-    strided_case("short_decode_u32_m11", PType::U32, 8, 16_384, 11, 2),
-    strided_case("longer_generic_u8_m10", PType::U8, 6, 16_384, 10, 2),
-    strided_case("longer_generic_u16_m10", PType::U16, 8, 16_384, 10, 2),
-    strided_case("longer_generic_u32_m11", PType::U32, 8, 32_768, 11, 2),
-    strided_case("short_direct_u64_m4", PType::U64, 8, 8_192, 4, 2),
-    strided_case("short_decode_u64_m5", PType::U64, 8, 8_192, 5, 2),
+    strided_case("short_fallback_u32_m5", PType::U32, 10, 1_024, 5, 2),
+    strided_case("wide_direct_u32_m4", PType::U32, 31, 65_536, 4, 2),
+    patched_case("patch_sparse_u32_m4", PType::U32, 8, 65_536, 4, 2, 64),
 ];
 
 fn page_aligned(array: BitPackedArray) -> BitPackedArray {
@@ -154,22 +165,34 @@ fn page_aligned(array: BitPackedArray) -> BitPackedArray {
     .unwrap()
 }
 
-fn generated_values(case: PackedCase, members: &[u64]) -> Vec<u64> {
+fn generated_values(case: PackedCase, ordinary_members: &[u64]) -> Vec<u64> {
     let domain_size = 1u64 << case.bit_width;
+    let patch_hit = domain_size;
+    let patch_miss = patch_hit + 1;
     let mut state = 0x9E37_79B9_7F4A_7C15u64;
     (0..case.len)
-        .map(|_| {
+        .map(|index| {
+            if let Some(patch_every) = case.patch_every
+                && index.is_multiple_of(patch_every)
+            {
+                return if (index / patch_every).is_multiple_of(2) {
+                    patch_hit
+                } else {
+                    patch_miss
+                };
+            }
             state = state
                 .wrapping_mul(6_364_136_223_846_793_005)
                 .wrapping_add(1_442_695_040_888_963_407);
             let is_hit = (state >> 32).is_multiple_of(2);
             if is_hit {
                 let member_index =
-                    usize::try_from(state % u64::try_from(members.len()).unwrap()).unwrap();
-                members[member_index]
+                    usize::try_from(state % u64::try_from(ordinary_members.len()).unwrap())
+                        .unwrap();
+                ordinary_members[member_index]
             } else {
                 let mut candidate = state.rotate_left(17) % domain_size;
-                while members.contains(&candidate) {
+                while ordinary_members.contains(&candidate) {
                     candidate = (candidate + 1) % domain_size;
                 }
                 candidate
@@ -189,16 +212,52 @@ fn list_scalar<T: BenchInt>(members: &[u64]) -> Scalar {
     )
 }
 
+fn generic_membership_expression<T: BenchInt>(members: &[u64]) -> Expression {
+    fn balanced_or(expressions: &[Expression]) -> Expression {
+        assert!(!expressions.is_empty());
+        if let [expression] = expressions {
+            return expression.clone();
+        }
+        let (left, right) = expressions.split_at(expressions.len() / 2);
+        or(balanced_or(left), balanced_or(right))
+    }
+
+    let comparisons = members
+        .iter()
+        .map(|member| eq(root(), lit(T::from_counter(*member))))
+        .collect::<Vec<_>>();
+    balanced_or(&comparisons)
+}
+
+fn execute_generic_baseline<T: BenchInt>(
+    values: &BitPackedArray,
+    members: &[u64],
+    ctx: &mut vortex_array::ExecutionCtx,
+) -> BoolArray {
+    values
+        .clone()
+        .into_array()
+        .apply(&generic_membership_expression::<T>(members))
+        .unwrap()
+        .execute::<BoolArray>(ctx)
+        .unwrap()
+}
+
 fn packed_input<T: BenchInt>(
     case: PackedCase,
-) -> (BitPackedArray, Scalar, BoolArray, VortexSession) {
+) -> (BitPackedArray, Vec<u64>, BoolArray, VortexSession) {
     let session = array_session();
     vortex_fastlanes::initialize(&session);
     let mut ctx = session.create_execution_ctx();
-    let members = (0..case.member_count)
+    let in_domain_member_count = case.member_count - usize::from(case.patch_every.is_some());
+    let ordinary_members = (0..in_domain_member_count)
         .map(|index| u64::try_from(index).unwrap() * case.member_stride)
         .collect::<Vec<_>>();
-    let generated = generated_values(case, &members);
+    let mut members = ordinary_members.clone();
+    if case.patch_every.is_some() {
+        members.push(1u64 << case.bit_width);
+    }
+    let generated = generated_values(case, &ordinary_members);
     let expected = BoolArray::from_iter(generated.iter().map(|value| members.contains(value)));
     let values: BufferMut<T> = generated.into_iter().map(T::from_counter).collect();
     let packed = page_aligned(
@@ -209,14 +268,17 @@ fn packed_input<T: BenchInt>(
         )
         .unwrap(),
     );
-    (packed, list_scalar::<T>(&members), expected, session)
+    if case.patch_every.is_some() {
+        assert!(packed.patches().is_some());
+    }
+    (packed, members, expected, session)
 }
 
 fn bench_packed_current<T: BenchInt>(bencher: Bencher, case: PackedCase) {
-    let (packed, list, expected, session) = packed_input::<T>(case);
+    let (packed, members, expected, session) = packed_input::<T>(case);
     let contains = packed
         .into_array()
-        .apply(&list_contains(lit(list), root()))
+        .apply(&list_contains(lit(list_scalar::<T>(&members)), root()))
         .unwrap();
     let mut ctx = session.create_execution_ctx();
     let actual = contains.clone().execute::<BoolArray>(&mut ctx).unwrap();
@@ -224,6 +286,17 @@ fn bench_packed_current<T: BenchInt>(bencher: Bencher, case: PackedCase) {
     bencher
         .counter(ItemsCount::new(case.len))
         .bench_local(|| black_box(contains.clone().execute::<BoolArray>(&mut ctx).unwrap()));
+}
+
+fn bench_packed_generic_baseline<T: BenchInt>(bencher: Bencher, case: PackedCase) {
+    let (packed, members, expected, session) = packed_input::<T>(case);
+    let mut ctx = session.create_execution_ctx();
+    let actual = execute_generic_baseline::<T>(&packed, &members, &mut ctx);
+    assert_arrays_eq!(actual, expected, &mut ctx);
+    // The pre-change implementation built this comparison tree during execution.
+    bencher
+        .counter(ItemsCount::new(case.len))
+        .bench_local(|| black_box(execute_generic_baseline::<T>(&packed, &members, &mut ctx)));
 }
 
 macro_rules! dispatch_packed {
@@ -242,4 +315,10 @@ macro_rules! dispatch_packed {
 #[divan::bench(args = PACKED_CASES)]
 fn packed_current(bencher: Bencher, case: PackedCase) {
     dispatch_packed!(bencher, case, bench_packed_current);
+}
+
+#[vortex_bench_support::cpu_features]
+#[divan::bench(args = PACKED_CASES)]
+fn packed_generic_baseline(bencher: Bencher, case: PackedCase) {
+    dispatch_packed!(bencher, case, bench_packed_generic_baseline);
 }

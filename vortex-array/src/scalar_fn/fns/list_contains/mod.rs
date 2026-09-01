@@ -210,8 +210,32 @@ fn compute_list_contains(
     }
 }
 
+/// Evaluates the generic constant-list path for an encoding-specific kernel.
+#[doc(hidden)]
+pub fn evaluate_constant_list_generic(
+    list: &ArrayRef,
+    values: &ArrayRef,
+    nullability: Nullability,
+) -> VortexResult<Option<ArrayRef>> {
+    let Some(list_array) = list.as_opt::<Constant>() else {
+        return Ok(None);
+    };
+    let DType::List(member_dtype, _) = list.dtype() else {
+        return Ok(None);
+    };
+    if !member_dtype.eq_ignore_nullability(values.dtype()) {
+        return Ok(None);
+    }
+    let list_scalar = list_array.scalar().as_list();
+    if list_scalar.is_null() {
+        return Ok(None);
+    }
+
+    constant_list_scalar_contains(&list_scalar, values, nullability).map(Some)
+}
+
 /// There is a constant list scalar (haystack) being compared to an array of needles.
-pub(crate) fn constant_list_scalar_contains(
+fn constant_list_scalar_contains(
     list_scalar: &ListScalar,
     values: &ArrayRef,
     nullability: Nullability,
