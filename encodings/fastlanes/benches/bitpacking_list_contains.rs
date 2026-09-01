@@ -17,26 +17,29 @@ use std::sync::Arc;
 
 use divan::Bencher;
 use divan::counter::ItemsCount;
+use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::array_session;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::expr::Expression;
-use vortex_array::expr::eq;
 use vortex_array::expr::list_contains;
 use vortex_array::expr::lit;
-use vortex_array::expr::or;
 use vortex_array::expr::root;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::fns::binary::Binary;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexResult;
 use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::BitPackedArray;
 use vortex_fastlanes::BitPackedArrayExt;
@@ -212,21 +215,39 @@ fn list_scalar<T: BenchInt>(members: &[u64]) -> Scalar {
     )
 }
 
-fn generic_membership_expression<T: BenchInt>(members: &[u64]) -> Expression {
-    fn balanced_or(expressions: &[Expression]) -> Expression {
-        assert!(!expressions.is_empty());
-        if let [expression] = expressions {
-            return expression.clone();
+fn frozen_generic_membership<T: BenchInt>(
+    values: ArrayRef,
+    members: &[u64],
+) -> VortexResult<ArrayRef> {
+    fn balanced_or(arrays: &[ArrayRef]) -> VortexResult<ArrayRef> {
+        if let [array] = arrays {
+            return Ok(array.clone());
         }
-        let (left, right) = expressions.split_at(expressions.len() / 2);
-        or(balanced_or(left), balanced_or(right))
+        let (left, right) = arrays.split_at(arrays.len() / 2);
+        balanced_or(left)?.binary(balanced_or(right)?, Operator::Or)
     }
 
+    let len = values.len();
+    let nullability = values.dtype().nullability();
+    let false_scalar = Scalar::bool(false, nullability);
     let comparisons = members
         .iter()
-        .map(|member| eq(root(), lit(T::from_counter(*member))))
-        .collect::<Vec<_>>();
-    balanced_or(&comparisons)
+        .map(|member| {
+            Binary::try_new(
+                ConstantArray::new(T::from_counter(*member).into(), len).into_array(),
+                values.clone(),
+                Operator::Eq,
+            )?
+            .into_array()
+            .fill_null(false_scalar.clone())
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+
+    if comparisons.is_empty() {
+        Ok(ConstantArray::new(false_scalar, len).into_array())
+    } else {
+        balanced_or(&comparisons)
+    }
 }
 
 fn execute_generic_baseline<T: BenchInt>(
@@ -234,10 +255,7 @@ fn execute_generic_baseline<T: BenchInt>(
     members: &[u64],
     ctx: &mut vortex_array::ExecutionCtx,
 ) -> BoolArray {
-    values
-        .clone()
-        .into_array()
-        .apply(&generic_membership_expression::<T>(members))
+    frozen_generic_membership::<T>(values.clone().into_array(), members)
         .unwrap()
         .execute::<BoolArray>(ctx)
         .unwrap()
@@ -293,7 +311,7 @@ fn bench_packed_generic_baseline<T: BenchInt>(bencher: Bencher, case: PackedCase
     let mut ctx = session.create_execution_ctx();
     let actual = execute_generic_baseline::<T>(&packed, &members, &mut ctx);
     assert_arrays_eq!(actual, expected, &mut ctx);
-    // The pre-change implementation built this comparison tree during execution.
+    // The frozen pre-change implementation built this array tree during execution.
     bencher
         .counter(ItemsCount::new(case.len))
         .bench_local(|| black_box(execute_generic_baseline::<T>(&packed, &members, &mut ctx)));

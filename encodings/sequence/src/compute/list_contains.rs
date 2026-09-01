@@ -63,6 +63,12 @@ impl ListContainsElementReduce for Sequence {
             }
         }
 
+        if set_indices.is_empty() {
+            return Ok(Some(
+                ConstantArray::new(Scalar::bool(false, nullability), element.len()).into_array(),
+            ));
+        }
+
         Ok(Some(
             BoolArray::from_indices(element.len(), set_indices, nullability.into()).into_array(),
         ))
@@ -155,6 +161,29 @@ mod tests {
         let result = array.apply(&expr).unwrap();
         let expected = BoolArray::from_iter([Some(true), Some(true), Some(true)]);
         assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
+    }
+
+    #[test]
+    fn test_no_intersection_reduces_to_constant() {
+        let list_scalar = Scalar::list(
+            Arc::new(I32.into()),
+            vec![7.into(), 42.into()],
+            Nullability::NonNullable,
+        );
+        let array = Sequence::try_new_typed(1i32, 1, Nullability::NonNullable, 3)
+            .unwrap()
+            .into_array();
+
+        let result = array
+            .apply(&list_contains(lit(list_scalar), root()))
+            .unwrap();
+
+        assert!(result.is::<Constant>());
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([false, false, false]),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[rstest]

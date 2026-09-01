@@ -583,17 +583,25 @@ fn can_be_pushed_down_impl(expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> boo
 
 fn can_in_list_be_pushed_down(in_list: &df_expr::InListExpr, schema: &Schema) -> bool {
     can_be_pushed_down_impl(in_list.expr(), schema)
-        && !in_list.list().is_empty()
+        && is_convertible_in_list(in_list)
+        && in_list
+            .list()
+            .iter()
+            .all(|expr| can_be_pushed_down_impl(expr, schema))
+}
+
+fn is_convertible_in_list(in_list: &df_expr::InListExpr) -> bool {
+    !in_list.list().is_empty()
         && in_list.list().iter().all(|expr| {
             expr.downcast_ref::<df_expr::Literal>()
                 .is_some_and(|literal| !literal.value().is_null())
-                && can_be_pushed_down_impl(expr, schema)
         })
 }
 
-/// Checks if an expression type is one that convert() can handle.
-/// This is less restrictive than can_be_pushed_down since it only checks
-/// expression types, not data type support.
+/// Checks if an expression can be converted without schema information.
+///
+/// This is less restrictive than `can_be_pushed_down_impl` because it does not check data type
+/// support.
 fn is_convertible_expr(expr: &Arc<dyn PhysicalExpr>) -> bool {
     // Expression types that convert() handles
     expr.downcast_ref::<df_expr::BinaryExpr>().is_some()
@@ -605,7 +613,9 @@ fn is_convertible_expr(expr: &Arc<dyn PhysicalExpr>) -> bool {
             .is_some_and(|e| is_convertible_expr(e.expr()))
         || expr.downcast_ref::<df_expr::IsNullExpr>().is_some()
         || expr.downcast_ref::<df_expr::IsNotNullExpr>().is_some()
-        || expr.downcast_ref::<df_expr::InListExpr>().is_some()
+        || expr
+            .downcast_ref::<df_expr::InListExpr>()
+            .is_some_and(is_convertible_in_list)
         || expr.downcast_ref::<ScalarFunctionExpr>().is_some_and(|sf| {
             ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(sf).is_some()
                 || ScalarFunctionExpr::try_downcast_func::<OctetLengthFunc>(sf).is_some()
@@ -1127,8 +1137,17 @@ mod tests {
         test_schema: Schema,
     ) {
         let expression = in_list_expr(values, negated, &test_schema);
+        let cast_expression = Arc::new(df_expr::CastExpr::new_with_target_field(
+            Arc::clone(&expression),
+            Arc::new(Field::new("matches", DataType::Boolean, true)),
+            None,
+        )) as Arc<dyn PhysicalExpr>;
 
         assert_eq!(can_be_pushed_down_impl(&expression, &test_schema), expected);
+        assert_eq!(
+            can_be_pushed_down_impl(&cast_expression, &test_schema),
+            expected
+        );
     }
 
     #[rstest]

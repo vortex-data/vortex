@@ -197,6 +197,14 @@ fn compute_list_contains(
     let nullability = array.dtype().nullability() | value.dtype().nullability();
 
     if value.all_invalid(ctx)? {
+        if let Some(list_scalar) = array.as_constant() {
+            let result = if list_scalar.as_list().is_empty() {
+                Scalar::bool(false, nullability)
+            } else {
+                Scalar::null(DType::Bool(nullability))
+            };
+            return Ok(ConstantArray::new(result, array.len()).into_array());
+        }
         let list_array = array.clone().execute::<ListViewArray>(ctx)?;
         return list_false_if_empty_else_null(&list_array, nullability, ctx);
     }
@@ -485,6 +493,7 @@ mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;
+    use crate::arrays::Constant;
     use crate::arrays::Dict;
     use crate::arrays::DictArray;
     use crate::arrays::ListArray;
@@ -948,6 +957,39 @@ mod tests {
         let expected = BoolArray::from_iter(expected);
 
         assert_arrays_eq!(result, expected, &mut ctx);
+    }
+
+    #[rstest]
+    #[case::empty(Vec::<&'static str>::new(), Some(false))]
+    #[case::nonempty(vec!["a"], None)]
+    fn test_constant_string_list_all_null_needles_reduces_to_constant(
+        #[case] members: Vec<&'static str>,
+        #[case] expected: Option<bool>,
+    ) {
+        let mut ctx = array_session().create_execution_ctx();
+        let list = Scalar::list(
+            Arc::new(DType::Utf8(Nullability::NonNullable)),
+            members.into_iter().map(Scalar::from).collect(),
+            Nullability::NonNullable,
+        );
+        let needles = VarBinArray::from_iter(
+            [None::<&str>, None, None],
+            DType::Utf8(Nullability::Nullable),
+        )
+        .into_array();
+
+        let result = needles
+            .apply(&list_contains(lit(list), root()))
+            .unwrap()
+            .execute::<ArrayRef>(&mut ctx)
+            .unwrap();
+
+        assert!(result.is::<Constant>());
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([expected, expected, expected]),
+            &mut ctx
+        );
     }
 
     #[test]
