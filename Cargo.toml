@@ -201,7 +201,7 @@ num_enum = { version = "0.7.3", default-features = false }
 object_store = { version = "0.13.2", default-features = false }
 object_store_opendal = "0.58.0"
 once_cell = "1.21.4"
-onpair = { git = "https://github.com/spiraldb/onpair.git", branch = "codex/prefilter-scan-refactor" }
+onpair = { git = "https://github.com/spiraldb/onpair.git", rev = "371686f82ecc45e0ad3ebce1d37a484953e5c9f9" }
 opendal = { version = "0.58.1", default-features = false }
 opentelemetry = "0.32.0"
 opentelemetry-otlp = "0.32.0"

@@ -41,16 +41,19 @@ use crate::schemes::integer::try_compress_delta;
 /// 12-bit token codes stored as a u16 child, with offsets /
 /// uncompressed-lengths flowing through the cascading compressor like any
 /// other primitive children.
-#[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct OnPairScheme {
     indexes: OnPairIndexSet,
 }
 
 impl OnPairScheme {
-    /// Create an OnPair scheme that does not persist auxiliary indexes.
+    /// Create an OnPair scheme with the indexes used by the default compressor.
+    ///
+    /// Indexes are built only after OnPair wins full-column scheme selection,
+    /// so they do not affect its sampling estimate.
     pub const fn new() -> Self {
         Self {
-            indexes: OnPairIndexSet::empty(),
+            indexes: OnPairIndexSet::empty().with_token_frequency(),
         }
     }
 
@@ -59,26 +62,31 @@ impl OnPairScheme {
     /// Sampling remains unindexed, so indexes do not affect whether OnPair is
     /// selected over another string compression scheme.
     ///
-    /// Replace the unindexed scheme already registered by the default builder:
+    /// Pass an empty set to opt out of auxiliary index storage:
     ///
     /// ```
     /// use vortex_btrblocks::schemes::string::OnPairScheme;
     /// use vortex_btrblocks::{BtrBlocksCompressorBuilder, SchemeExt};
     /// use vortex_onpair::OnPairIndexSet;
     ///
-    /// const INDEXED_ONPAIR: OnPairScheme = OnPairScheme::new().with_indexes(
-    ///     OnPairIndexSet::empty().with_token_frequency(),
-    /// );
+    /// const UNINDEXED_ONPAIR: OnPairScheme =
+    ///     OnPairScheme::new().with_indexes(OnPairIndexSet::empty());
     ///
     /// let compressor = BtrBlocksCompressorBuilder::default()
     ///     .exclude_schemes([OnPairScheme::new().id()])
-    ///     .with_new_scheme(&INDEXED_ONPAIR)
+    ///     .with_new_scheme(&UNINDEXED_ONPAIR)
     ///     .build();
     /// # let _ = compressor;
     /// ```
     pub const fn with_indexes(mut self, indexes: OnPairIndexSet) -> Self {
         self.indexes = indexes;
         self
+    }
+}
+
+impl Default for OnPairScheme {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

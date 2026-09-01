@@ -32,8 +32,8 @@ use vortex_session::VortexSession;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
-const INDEXED_ONPAIR: OnPairScheme =
-    OnPairScheme::new().with_indexes(OnPairIndexSet::empty().with_token_frequency());
+const DEFAULT_ONPAIR: OnPairScheme = OnPairScheme::new();
+const UNINDEXED_ONPAIR: OnPairScheme = OnPairScheme::new().with_indexes(OnPairIndexSet::empty());
 
 /// Helper: synthetic short-string corpus that the cascading compressor should
 /// route through OnPair.
@@ -61,7 +61,7 @@ fn corpus(n: usize) -> Vec<String> {
 }
 
 #[test]
-fn configured_onpair_builds_frequency_index() -> VortexResult<()> {
+fn onpair_indexes_are_configurable() -> VortexResult<()> {
     let strings = corpus(4096);
     let array = VarBinViewArray::from_iter(
         strings.iter().map(|string| Some(string.as_str())),
@@ -69,7 +69,7 @@ fn configured_onpair_builds_frequency_index() -> VortexResult<()> {
     )
     .into_array();
     let compressor = BtrBlocksCompressorBuilder::empty()
-        .with_new_scheme(&INDEXED_ONPAIR)
+        .with_new_scheme(&DEFAULT_ONPAIR)
         .build();
     let mut ctx = SESSION.create_execution_ctx();
     let compressed = compressor.compress(&array, &mut ctx)?;
@@ -84,6 +84,15 @@ fn configured_onpair_builds_frequency_index() -> VortexResult<()> {
         frequencies.cumulative().last().copied(),
         Some(u32::try_from(onpair.codes().len())?)
     );
+
+    let compressor = BtrBlocksCompressorBuilder::empty()
+        .with_new_scheme(&UNINDEXED_ONPAIR)
+        .build();
+    let compressed = compressor.compress(&array, &mut ctx)?;
+    let onpair = compressed.try_downcast::<OnPair>().map_err(|array| {
+        vortex_error::vortex_err!("expected OnPair, got {}", array.encoding_id())
+    })?;
+    assert!(onpair.token_frequency_index_child().is_none());
     Ok(())
 }
 
