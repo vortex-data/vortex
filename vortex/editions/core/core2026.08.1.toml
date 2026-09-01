@@ -6,7 +6,7 @@
 
 edition = "core2026.08.1"
 family = "core"
-min_library_version = "0.84.0"
+min_library_version = "0.80.0"
 
 # Components added by this edition.
 [added]

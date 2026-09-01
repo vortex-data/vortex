@@ -338,7 +338,7 @@ Minimum library version: `0.84.0`.
 
 #### `core2026.08.1`
 
-Minimum library version: `0.84.0`.
+Minimum library version: `0.80.0`.
 
 - `array`: `vortex.onpair`
 

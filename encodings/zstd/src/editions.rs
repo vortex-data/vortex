@@ -31,7 +31,8 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     added: &[EditionMember::array(&"vortex.zstd_buffers")],
 };
 
-#[cfg(all(test, feature = "unstable_encodings"))]
+#[cfg(test)]
+#[cfg(feature = "unstable_encodings")]
 mod tests {
     use vortex_edition::EditionError;
     use vortex_edition::EditionSessionExt;
