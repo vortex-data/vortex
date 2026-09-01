@@ -23,17 +23,9 @@ aggregates = []
 arrays = [
     "fastlanes.delta",
     "vortex.patched",
-    "vortex.tensor.cosine_similarity",
-    "vortex.tensor.inner_product",
-    "vortex.tensor.l2_norm",
-    "vortex.tensor.normalized",
-    "vortex.zstd_buffers",
 ]
 layouts = [
     "vortex.list",
 ]
-dtypes = [
-    "vortex.tensor.fixed_shape_tensor",
-    "vortex.tensor.vector",
-]
+dtypes = []
 aggregates = []

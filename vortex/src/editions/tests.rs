@@ -153,7 +153,7 @@ fn encodings_in_editions_unions_families() {
 
     assert!(both.len() > core_only.len());
     assert!(both.iter().any(|id| id.as_str() == "fastlanes.delta"));
-    assert!(both.iter().any(|id| id.as_str() == "vortex.zstd_buffers"));
+    assert!(both.iter().any(|id| id.as_str() == "vortex.patched"));
     assert!(core_only.iter().all(|id| both.contains(id)));
 }
 

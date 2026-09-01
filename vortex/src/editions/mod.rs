@@ -44,7 +44,6 @@ pub use vortex_edition::declarations::core::CORE_2026_08_2;
 pub use vortex_edition::declarations::core::CORE_2026_08_3;
 pub use vortex_edition::declarations::preview;
 pub use vortex_edition::declarations::preview::PREVIEW_2025_05_0;
-pub use vortex_edition::declarations::preview::PREVIEW_2026_02_0;
 pub use vortex_edition::declarations::preview::PREVIEW_2026_04_0;
 pub use vortex_edition::declarations::preview::PREVIEW_2026_06_0;
 use vortex_error::VortexExpect;

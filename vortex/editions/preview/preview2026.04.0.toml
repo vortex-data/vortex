@@ -12,16 +12,9 @@ family = "preview"
 [added]
 arrays = [
     "vortex.patched",
-    "vortex.tensor.cosine_similarity",
-    "vortex.tensor.inner_product",
-    "vortex.tensor.l2_norm",
-    "vortex.tensor.normalized",
 ]
 layouts = []
-dtypes = [
-    "vortex.tensor.fixed_shape_tensor",
-    "vortex.tensor.vector",
-]
+dtypes = []
 aggregates = []
 
 # The edition's full membership: the members above, plus every member of earlier
@@ -30,15 +23,7 @@ aggregates = []
 arrays = [
     "fastlanes.delta",
     "vortex.patched",
-    "vortex.tensor.cosine_similarity",
-    "vortex.tensor.inner_product",
-    "vortex.tensor.l2_norm",
-    "vortex.tensor.normalized",
-    "vortex.zstd_buffers",
 ]
 layouts = []
-dtypes = [
-    "vortex.tensor.fixed_shape_tensor",
-    "vortex.tensor.vector",
-]
+dtypes = []
 aggregates = []

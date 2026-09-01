@@ -3,9 +3,8 @@
 
 //! The `json` edition family.
 //!
-//! JSON support is opt-in: a reader without this crate cannot resolve `vortex.json`, so the dtype
-//! lives in its own family rather than in `core`. [`crate::initialize`] registers and enables the
-//! edition together with the dtype plugin.
+//! JSON support is opt-in. [`crate::initialize`] registers and enables the edition together with
+//! the dtype plugin.
 
 use vortex_edition::Edition;
 use vortex_edition::EditionDeclaration;
@@ -13,8 +12,7 @@ use vortex_edition::EditionFamily;
 use vortex_edition::EditionId;
 use vortex_edition::EditionMember;
 
-/// The `json` family: the JSON extension dtype, declared here rather than in `core` because
-/// a reader without this crate cannot resolve it.
+/// The `json` family: the JSON extension dtype.
 pub static FAMILY: EditionFamily = EditionFamily {
     name: "json",
     doc: "The JSON extension dtype. JSON support is opt-in: a reader built without \

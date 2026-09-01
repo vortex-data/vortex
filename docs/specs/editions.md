@@ -2,7 +2,8 @@
 
 Vortex files contain several kinds of serialized **component**: array encodings, layout encodings, extension dtypes, and
 aggregate functions. An **edition** is a named set of their concrete wire IDs. It controls what a writer may put in a
-file and, once frozen, identifies the earliest Vortex release that recognizes every ID in the set.
+file and, once frozen, identifies its minimum library version: the earliest Vortex release that recognizes every ID in
+the set.
 
 Array versions are represented by different serialized array IDs, not by a numeric version attached to an in-memory
 array. Several IDs may serialize and deserialize the same current in-memory representation. This makes compatibility
@@ -19,8 +20,8 @@ The first frozen edition, `core2025.05.0`, contains the components that Vortex `
 start of the Vortex file format's stability guarantee. Every Vortex release from `0.36.0` onward can read
 `core2025.05.0`, and later frozen `core` editions extend that guarantee to newer components.
 
-When a writer selects only frozen editions, the highest of their minimum Vortex releases is the earliest release
-guaranteed to read the resulting file. Draft editions have no minimum reader version; selecting one gives up this
+When a writer selects only frozen editions, the highest of their minimum library versions is the earliest release
+guaranteed to read the resulting file. Draft editions have no minimum library version; selecting one gives up this
 guarantee for any draft components written to the file.
 
 ## What an edition contains
@@ -53,15 +54,15 @@ For example, `core2026.08.0` declares the aggregate functions that the default w
 not store sums in zone maps. File-level statistics use a fixed legacy field for sums rather than a serialized aggregate
 function ID, so this allowlist does not apply to them.
 
-Optional Vortex modules enable their own edition families alongside `core`. Spatial support enables
-`spatial2026.08.0`, for example, while JSON support enables `json2026.08.0`.
+Optional Vortex modules enable their own edition families alongside `core`. Tensor support enables
+`tensor2026.04.0`, for example, while Zstd buffer wrapping enables `zstd2026.02.0`.
 
 ## Resolving an unknown-component error
 
 An unknown-ID error means that the reader does not recognize a serialized component in the file. Find the component's
 kind and ID in the [registry](#edition-registry):
 
-1. **It belongs to a frozen edition.** Upgrade to at least the minimum Vortex release listed for that edition.
+1. **It belongs to a frozen edition.** Upgrade to at least the minimum library version listed for that edition.
 2. **It belongs to a draft edition.** No released reader is guaranteed to support it. Use a build that registers the
     component or ask the file's producer which build to use.
 3. **It is not in the registry.** The file contains a custom, third-party, or experimental component outside the
@@ -77,7 +78,7 @@ By default, the Vortex facade targets the newest frozen `core` edition. A new en
 still evolving gets a new draft edition; later additions create later editions rather than changing an already
 published feature set. Once a core-maintained feature is stable, it can join `preview` for explicit adoption without
 changing the default writer. Components supplied by an optional plugin instead belong to that plugin's standalone
-edition family, such as `spatial` or `json`.
+edition family, such as `tensor`, `zstd`, `spatial`, or `json`.
 
 Edition configuration belongs to the writer's Vortex session. Registering an edition makes its declaration available to
 the session; enabling it allows the writer to use its components. Enabling another edition in the same family replaces
@@ -86,8 +87,8 @@ the previous selection.
 You can change the default configuration to:
 
 - **Target an older `core` edition** when the file must remain readable by an older Vortex deployment.
-- **Enable another family** to use components outside `core`. Vortex currently defines `preview`, `spatial`, and
-  `json` in addition to `core`.
+- **Enable another family** to use components outside `core`. Vortex currently defines `preview`, `tensor`, `zstd`,
+  `spatial`, and `json` in addition to `core`.
 
 Sessions created without the Vortex facade must register and enable their editions before writing files. The lower-level
 `with_allow_encodings` policy can separately restrict which in-memory encodings a compression strategy may produce. It
@@ -121,7 +122,7 @@ during testing. After successful preview testing, the same object ID and wire co
 A new stable `core` or plugin edition may freeze in the release in which it first ships. Until that release is cut, its
 version is not known and the declaration keeps `min_library_version: None`. After the release is cut, the declaration is
 updated with that newly released version, usually during development of the next release. This backfills the documented
-minimum reader version; it does not delay the freeze or its read-forever compatibility guarantee.
+minimum library version; it does not delay the freeze or its read-forever compatibility guarantee.
 
 A component may later be deprecated, meaning that writers stop using it. Readers must continue to support it, so
 deprecation does not invalidate existing files.
@@ -256,8 +257,8 @@ preview edition containing that ID. Today, builds using the `unstable_encodings`
 and availability of the newest preview component set.
 
 Components that are still undergoing format design are not ready for `preview`. Components owned by optional plugins do
-not use `preview`; each new object advances a standalone family such as `spatial` or `json`, because a reader without
-the plugin cannot resolve it.
+not use `preview`; each new object advances a standalone family such as `tensor`, `zstd`, `spatial`, or `json`, because
+a reader without the plugin cannot resolve it.
 
 ## Declaring, freezing, and the edition records
 
@@ -281,7 +282,7 @@ Changing the declarations follows the edition's lifecycle:
 3. **Promote the tested contract to core.** After successful preview testing, add the same object
    ID and wire contract to a new `core` edition with `min_library_version: None`, regenerate the
    records, and ship it in a release. Promotion must not redesign the format. The edition freezes
-   as part of that release. Its minimum Vortex version cannot be populated yet because the release
+   as part of that release. Its minimum library version cannot be populated yet because the release
    version is not known until the release is cut.
 4. **Backfill the released version.** After cutting the release, set `min_library_version` to that
    newly released Vortex version — the version that first shipped readers for every member — and
@@ -305,7 +306,7 @@ earlier components.
 
 #### `core2025.05.0`
 
-Minimum Vortex release: `0.36.0`.
+Minimum library version: `0.36.0`.
 
 - `array`: `fastlanes.bitpacked`, `fastlanes.for`, `vortex.alp`, `vortex.alprd`, `vortex.bool`,
   `vortex.bytebool`, `vortex.chunked`, `vortex.constant`, `vortex.datetimeparts`, `vortex.decimal`,
@@ -317,19 +318,19 @@ Minimum Vortex release: `0.36.0`.
 
 #### `core2025.06.0`
 
-Minimum Vortex release: `0.40.0`.
+Minimum library version: `0.40.0`.
 
 - `array`: `vortex.pco`, `vortex.sequence`, `vortex.zstd`
 
 #### `core2025.10.0`
 
-Minimum Vortex release: `0.54.0`.
+Minimum library version: `0.54.0`.
 
 - `array`: `fastlanes.rle`, `vortex.fixed_size_list`, `vortex.listview`, `vortex.masked`
 
 #### `core2026.08.0`
 
-Minimum Vortex release: `0.84.0`.
+Minimum library version: `0.84.0`.
 
 - `layout`: `vortex.zoned`
 - `aggregate`: `vortex.bounded_max`, `vortex.bounded_min`, `vortex.max`, `vortex.min`,
@@ -337,13 +338,13 @@ Minimum Vortex release: `0.84.0`.
 
 #### `core2026.08.1`
 
-Minimum Vortex release: `0.84.0`.
+Minimum library version: `0.84.0`.
 
 - `array`: `vortex.onpair`
 
 ### Editions without a frozen core guarantee
 
-These editions have no minimum reader version. Evolving features advance through new draft editions; stabilized preview
+These editions have no minimum library version. Evolving features advance through new draft editions; stabilized preview
 features are expected to remain compatible unless a defect is serious enough to block promotion into core. Optional
 plugin families state their own policy.
 
@@ -360,19 +361,23 @@ plugin families state their own policy.
 
 - `array`: `fastlanes.delta`
 
-#### `preview2026.02.0`
-
-- `array`: `vortex.zstd_buffers`
-
 #### `preview2026.04.0`
 
-- `array`: `vortex.patched`, `vortex.tensor.cosine_similarity`, `vortex.tensor.inner_product`,
-  `vortex.tensor.l2_norm`, `vortex.tensor.normalized`
-- `dtype`: `vortex.tensor.fixed_shape_tensor`, `vortex.tensor.vector`
+- `array`: `vortex.patched`
 
 #### `preview2026.06.0`
 
 - `layout`: `vortex.list`
+
+#### `tensor2026.04.0`
+
+- `array`: `vortex.tensor.cosine_similarity`, `vortex.tensor.inner_product`, `vortex.tensor.l2_norm`,
+  `vortex.tensor.normalized`
+- `dtype`: `vortex.tensor.fixed_shape_tensor`, `vortex.tensor.vector`
+
+#### `zstd2026.02.0`
+
+- `array`: `vortex.zstd_buffers`
 
 #### `spatial2026.08.0`
 

@@ -3,10 +3,8 @@
 
 //! The `spatial` edition family.
 //!
-//! Spatial support is opt-in: a reader without this crate cannot resolve `vortex.st.*`, so
-//! spatial members live in their own family rather than in `core`. [`crate::initialize`]
-//! registers and enables the edition so the writer can serialize spatial dtypes and the AABB
-//! zone stat registered by the crate.
+//! Spatial support is opt-in. [`crate::initialize`] registers and enables the edition so the
+//! writer can serialize spatial dtypes and the AABB zone stat registered by the crate.
 
 use vortex_edition::Edition;
 use vortex_edition::EditionDeclaration;
@@ -14,8 +12,7 @@ use vortex_edition::EditionFamily;
 use vortex_edition::EditionId;
 use vortex_edition::EditionMember;
 
-/// The `spatial` family: the geometry dtypes and the AABB zone aggregate, declared here
-/// rather than in `core` because a reader without this crate cannot resolve them.
+/// The `spatial` family: the geometry dtypes and the AABB zone aggregate.
 pub static FAMILY: EditionFamily = EditionFamily {
     name: "spatial",
     doc: "The geometry extension dtypes and the axis-aligned bounding-box zone aggregate. \

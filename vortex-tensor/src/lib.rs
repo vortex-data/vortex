@@ -17,6 +17,9 @@ use vortex_array::dtype::session::DTypeSessionExt;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_array::session::ArraySessionExt;
 use vortex_arrow::ArrowSessionExt;
+use vortex_edition::EditionSessionExt;
+use vortex_error::VortexExpect;
+use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::encodings::normalized::Normalized;
@@ -26,6 +29,7 @@ use crate::scalar_fns::l2_norm::L2Norm;
 use crate::types::fixed_shape_tensor::FixedShapeTensor;
 use crate::types::vector::Vector;
 
+pub mod editions;
 pub mod matcher;
 pub mod scalar_fns;
 
@@ -78,6 +82,22 @@ pub fn initialize(session: &VortexSession) {
         session_arrays.register(ScalarFnArrayPlugin::new(InnerProduct));
         session_arrays.register(ScalarFnArrayPlugin::new(L2Norm));
     }
+
+    if session.editions().find(&editions::TENSOR_2026_04).is_none() {
+        session
+            .editions()
+            .declare_family(&editions::FAMILY)
+            .map_err(|error| vortex_err!("{error}"))
+            .vortex_expect("tensor edition family is valid");
+        session
+            .register_edition(&editions::DECLARATION)
+            .map_err(|error| vortex_err!("{error}"))
+            .vortex_expect("tensor edition declaration is valid");
+    }
+    session
+        .enable_edition(editions::TENSOR_2026_04)
+        .map_err(|error| vortex_err!("{error}"))
+        .vortex_expect("tensor edition is registered");
 }
 
 #[cfg(test)]
