@@ -88,30 +88,28 @@ fn contains(
 
     if let Some(frequencies) = token_frequency_index(array, ctx)? {
         let analysis = search::analyze_prefilter(needle, dict, frequencies);
+        if !search::prefilter_is_likely_profitable(&analysis, array.len()) {
+            return Ok(None);
+        }
         let view = window.as_column_view(dict);
         let mut rows = Vec::new();
-        if search::prefilter_candidates(view.codes, view.row_offsets, &analysis, &mut rows).is_ok()
+        if search::prefilter_candidates(view.codes, view.row_offsets, &analysis, &mut rows).is_err()
         {
-            search::BytesVerifier::new(needle).retain(view, &mut rows);
-            let mut rows = rows.into_iter().peekable();
-            return Ok(Some(BitBuffer::collect_bool(array.len(), |row| {
-                if rows.peek().copied() == Some(row) {
-                    rows.next();
-                    true
-                } else {
-                    false
-                }
-            })));
+            return Ok(None);
         }
+        search::BytesVerifier::new(needle).retain(view, &mut rows);
+        let mut rows = rows.into_iter().peekable();
+        return Ok(Some(BitBuffer::collect_bool(array.len(), |row| {
+            if rows.peek().copied() == Some(row) {
+                rows.next();
+                true
+            } else {
+                false
+            }
+        })));
     }
 
-    if needle.len() > u8::MAX as usize {
-        return Ok(None);
-    }
-    let table = search::ContainsTable::new(needle, dict);
-    Ok(Some(BitBuffer::collect_bool(array.len(), |row| {
-        search::contains(window.row(row), &table)
-    })))
+    Ok(None)
 }
 
 fn classify_like_pattern(pattern: &[u8]) -> Option<SearchPattern> {
@@ -156,6 +154,7 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
+    use vortex_array::scalar_fn::fns::like::Like;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_session::VortexSession;
@@ -204,7 +203,6 @@ mod tests {
     #[rstest]
     #[case("alpha", [Some(true), None, Some(false), Some(false), Some(false)])]
     #[case("alpha%", [Some(true), None, Some(true), Some(false), Some(false)])]
-    #[case("%ha%", [Some(true), None, Some(true), Some(false), Some(false)])]
     fn supported_patterns(
         #[case] pattern: &str,
         #[case] expected: [Option<bool>; 5],
@@ -229,6 +227,36 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn unprofitable_contains_falls_back() -> VortexResult<()> {
+        let array = encode(
+            &[
+                Some("alpha"),
+                None,
+                Some("alphabet"),
+                Some("say hello"),
+                Some(""),
+            ],
+            true,
+        )?;
+        assert!(
+            execute_kernel(&array, "%ha%", LikeOptions::default())?.is_none(),
+            "a high candidate fraction should use canonical LIKE"
+        );
+
+        let pattern = ConstantArray::new("%ha%", array.len()).into_array();
+        let result = Like::try_new(array.into_array(), pattern, LikeOptions::default())?
+            .into_array()
+            .execute::<BoolArray>(&mut SESSION.create_execution_ctx())?
+            .into_array();
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([Some(true), None, Some(true), Some(false), Some(false)]),
+            &mut SESSION.create_execution_ctx()
+        );
+        Ok(())
+    }
+
     #[cfg_attr(miri, ignore)]
     #[test]
     fn indexed_prefilter_supports_long_patterns() -> VortexResult<()> {
@@ -236,16 +264,20 @@ mod tests {
         let matching = format!("before{needle}after");
         let pattern = format!("%{needle}%");
 
-        let indexed = encode(&[Some(&matching), Some("no match")], true)?;
+        let mut values = vec![Some("no match"); 4096];
+        values[2048] = Some(&matching);
+        let indexed = encode(&values, true)?;
         let result = execute_kernel(&indexed, &pattern, LikeOptions::default())?
             .ok_or_else(|| vortex_err!("indexed contains should use the byte verifier"))?;
+        let mut expected = vec![Some(false); values.len()];
+        expected[2048] = Some(true);
         assert_arrays_eq!(
             result,
-            BoolArray::from_iter([Some(true), Some(false)]),
+            BoolArray::from_iter(expected),
             &mut SESSION.create_execution_ctx()
         );
 
-        let unindexed = encode(&[Some(&matching), Some("no match")], false)?;
+        let unindexed = encode(&values, false)?;
         assert!(
             execute_kernel(&unindexed, &pattern, LikeOptions::default())?.is_none(),
             "unindexed overlong contains should fall back to canonical LIKE"
@@ -256,20 +288,16 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     #[test]
     fn indexed_prefilter_handles_slices_and_negation() -> VortexResult<()> {
-        let array = encode(
-            &[
-                Some("outside"),
-                Some("hello"),
-                None,
-                Some("say hello"),
-                Some("outside"),
-            ],
-            true,
-        )?
-        .into_array()
-        .slice(1..4)?
-        .try_downcast::<OnPair>()
-        .map_err(|array| vortex_err!("expected sliced OnPair, got {}", array.encoding_id()))?;
+        let mut values = vec![Some("ordinary filler"); 1026];
+        values[0] = Some("outside");
+        values[100] = Some("rare hello needle");
+        values[101] = None;
+        values[1025] = Some("outside");
+        let array = encode(&values, true)?
+            .into_array()
+            .slice(1..1025)?
+            .try_downcast::<OnPair>()
+            .map_err(|array| vortex_err!("expected sliced OnPair, got {}", array.encoding_id()))?;
         let result = execute_kernel(
             &array,
             "%hello%",
@@ -279,9 +307,10 @@ mod tests {
             },
         )?
         .ok_or_else(|| vortex_err!("OnPair should handle indexed contains on a slice"))?;
+        let expected = (1..1025).map(|index| values[index].map(|value| !value.contains("hello")));
         assert_arrays_eq!(
             result,
-            BoolArray::from_iter([Some(false), None, Some(false)]),
+            BoolArray::from_iter(expected),
             &mut SESSION.create_execution_ctx()
         );
         Ok(())
