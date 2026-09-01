@@ -46,9 +46,8 @@ fn test_dict_compressed() -> VortexResult<()> {
     Ok(())
 }
 
-#[cfg(feature = "unstable_encodings")]
 #[test]
-fn test_unstable_all_schemes_includes_onpair() {
+fn test_all_schemes_includes_onpair() {
     use crate::SchemeExt;
     use crate::schemes::string::onpair::OnPairScheme;
 
@@ -59,13 +58,11 @@ fn test_unstable_all_schemes_includes_onpair() {
     );
 }
 
-#[cfg(feature = "unstable_encodings")]
 #[test]
-fn test_unstable_default_btrblocks_compressor_selects_onpair() -> VortexResult<()> {
+fn test_default_btrblocks_compressor_selects_onpair() -> VortexResult<()> {
     // Dictionary-style string corpus: high lexical overlap, short rows.
     // OnPair beats FSST on this corpus, so it wins the sample-based
-    // comparison even though both are registered when `unstable_encodings`
-    // is enabled.
+    // comparison even though both are registered.
     let mut strings = Vec::with_capacity(1000);
     for i in 0..1000 {
         strings.push(Some(format!(

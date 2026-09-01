@@ -19,10 +19,6 @@ all-features = true
 [lints]
 workspace = true
 
-[features]
-# This feature enables unstable encodings for which we don't guarantee stability.
-unstable_encodings = []
-
 [dependencies]
 itertools = { workspace = true }
 num-traits = { workspace = true }

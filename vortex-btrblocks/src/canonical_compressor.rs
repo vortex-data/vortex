@@ -63,6 +63,10 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    #[cfg(feature = "zstd")]
+    use vortex_array::ArrayId;
+    #[cfg(feature = "zstd")]
+    use vortex_array::ArrayPlugin;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
@@ -80,6 +84,8 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
+    #[cfg(feature = "zstd")]
+    use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::BtrBlocksCompressor;
     #[cfg(feature = "zstd")]
@@ -264,9 +270,13 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
-    #[test]
-    fn test_cuda_compatible_binary_zstd_buffers_compressed() -> VortexResult<()> {
+    #[cfg(feature = "zstd")]
+    #[rstest]
+    #[case::array_level(vortex_zstd::Zstd.id())]
+    #[case::buffer_level(vortex_zstd::ZstdBuffers.id())]
+    fn test_cuda_compatible_binary_zstd_follows_editions(
+        #[case] allowed: ArrayId,
+    ) -> VortexResult<()> {
         let values = (0..1024)
             .map(|idx| {
                 let mut value = Vec::from(&b"common binary payload prefix "[..]);
@@ -280,17 +290,16 @@ mod tests {
             DType::Binary(Nullability::NonNullable),
         );
 
+        // The CUDA preset carries both Zstd schemes; the edition filter decides which one
+        // survives.
         let compressor = BtrBlocksCompressorBuilder::default()
             .only_cuda_compatible()
+            .retain_allowed_encodings(&HashSet::from([allowed]))
             .build();
         let mut ctx = SESSION.create_execution_ctx();
         let compressed = compressor.compress(&array.clone().into_array(), &mut ctx)?;
 
-        assert!(
-            compressed.is::<vortex_zstd::ZstdBuffers>(),
-            "expected ZstdBuffers, got {}",
-            compressed.encoding_id()
-        );
+        assert_eq!(compressed.encoding_id(), allowed);
         assert_arrays_eq!(compressed, array, &mut ctx);
         Ok(())
     }

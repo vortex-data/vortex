@@ -33,7 +33,6 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
 };
 
 #[cfg(test)]
-#[cfg(feature = "unstable_encodings")]
 mod tests {
     use vortex_edition::EditionError;
     use vortex_edition::EditionSessionExt;

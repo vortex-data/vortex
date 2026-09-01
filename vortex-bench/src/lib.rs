@@ -70,6 +70,8 @@ pub use datasets::BenchmarkDataset;
 pub use output::BenchmarkOutput;
 pub use output::create_output_writer;
 use vortex::VortexSessionDefault;
+use vortex::editions::ComponentKind;
+use vortex::editions::EditionSessionExt;
 pub use vortex::error::vortex_panic;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
@@ -250,11 +252,13 @@ pub enum CompactionStrategy {
 
 impl CompactionStrategy {
     pub fn apply_options(&self, options: VortexWriteOptions) -> VortexWriteOptions {
-        let options = benchmark_write_options(options);
         match self {
             CompactionStrategy::Compact => options.with_strategy(
                 WriteStrategyBuilder::default()
-                    .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact())
+                    .with_btrblocks_builder(retain_edition_encodings(
+                        &SESSION,
+                        BtrBlocksCompressorBuilder::default().with_compact(),
+                    ))
                     .build(),
             ),
             CompactionStrategy::Default => options,
@@ -262,19 +266,19 @@ impl CompactionStrategy {
     }
 }
 
-/// Apply the write policy shared by Vortex benchmarks.
+/// Restrict `builder` to the encodings permitted by the session's enabled editions.
 ///
-/// Benchmark builds that enable unstable encodings intentionally exercise all registered array
-/// encodings, including those that do not yet belong to an edition.
-pub fn benchmark_write_options(options: VortexWriteOptions) -> VortexWriteOptions {
-    #[cfg(feature = "unstable_encodings")]
-    {
-        options.disable_editions()
-    }
-    #[cfg(not(feature = "unstable_encodings"))]
-    {
-        options
-    }
+/// The default writer applies this filter itself. An explicit strategy bypasses it, so a
+/// benchmark that builds its own compressor applies it here to stay within editions.
+pub fn retain_edition_encodings(
+    session: &VortexSession,
+    builder: BtrBlocksCompressorBuilder,
+) -> BtrBlocksCompressorBuilder {
+    let allowed = session
+        .enabled_component_ids(ComponentKind::Array)
+        .into_iter()
+        .collect();
+    builder.retain_allowed_encodings(&allowed)
 }
 
 /// Verify that local data has already been prepared for the requested benchmark formats.

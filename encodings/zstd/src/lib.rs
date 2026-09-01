@@ -7,8 +7,8 @@
 //! trained dictionary across frames. Frame metadata lets slices decompress only the frames that can
 //! contribute values to the requested row range.
 //!
-//! With the `unstable_encodings` feature, `ZstdBuffers` stores the buffers of another encoding as
-//! independently compressed zstd buffers while preserving the inner encoding metadata.
+//! [`ZstdBuffers`] stores the buffers of another encoding as independently compressed zstd
+//! buffers while preserving the inner encoding metadata.
 //!
 //! This crate exposes array encodings only. Compression scheme selection is wired through
 //! `vortex-btrblocks` and file writing. To deserialize arrays manually, register the encoding in the
@@ -32,7 +32,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
-#[cfg(feature = "unstable_encodings")]
 pub use zstd_buffers::*;
 
 mod array;
@@ -40,7 +39,6 @@ mod compute;
 pub mod editions;
 mod rules;
 mod slice;
-#[cfg(feature = "unstable_encodings")]
 mod zstd_buffers;
 
 #[cfg(test)]
@@ -49,25 +47,22 @@ mod test;
 /// Register the Zstd encodings and their optional edition with a Vortex session.
 pub fn initialize(session: &VortexSession) {
     session.arrays().register(Zstd);
-    #[cfg(feature = "unstable_encodings")]
-    {
-        session.arrays().register(ZstdBuffers);
-        if session.editions().find(&editions::ZSTD_2026_02).is_none() {
-            session
-                .editions()
-                .declare_family(&editions::FAMILY)
-                .map_err(|error| vortex_err!("{error}"))
-                .vortex_expect("Zstd edition family is valid");
-            session
-                .register_edition(&editions::DECLARATION)
-                .map_err(|error| vortex_err!("{error}"))
-                .vortex_expect("Zstd edition declaration is valid");
-        }
+    session.arrays().register(ZstdBuffers);
+    if session.editions().find(&editions::ZSTD_2026_02).is_none() {
         session
-            .enable_edition(editions::ZSTD_2026_02)
+            .editions()
+            .declare_family(&editions::FAMILY)
             .map_err(|error| vortex_err!("{error}"))
-            .vortex_expect("Zstd edition is registered");
+            .vortex_expect("Zstd edition family is valid");
+        session
+            .register_edition(&editions::DECLARATION)
+            .map_err(|error| vortex_err!("{error}"))
+            .vortex_expect("Zstd edition declaration is valid");
     }
+    session
+        .enable_edition(editions::ZSTD_2026_02)
+        .map_err(|error| vortex_err!("{error}"))
+        .vortex_expect("Zstd edition is registered");
 }
 
 /// Ensure Vortex metadata agrees with the content size declared by a zstd frame.

@@ -80,22 +80,22 @@ Input preparation is outside benchmark timing.
 
 ```bash
 # Tracked metrics: size, write, read for every configured column and encoder.
-cargo run -p string-bench --profile release_debug --features unstable_encodings
+cargo run -p string-bench --profile release_debug
 
 # Focus on selected columns or encoders.
-cargo run -p string-bench --profile release_debug --features unstable_encodings -- \
+cargo run -p string-bench --profile release_debug -- \
   --columns URL --encoders onpair
 
 # Add the direct codec microbenchmark.
-cargo run -p string-bench --profile release_debug --features unstable_encodings -- \
+cargo run -p string-bench --profile release_debug -- \
   --suite both
 
 # Emit benchmark-comparator JSONL.
-cargo run -p string-bench --profile release_debug --features unstable_encodings -- \
+cargo run -p string-bench --profile release_debug -- \
   --display-format gh-json --output-path results.json
 ```
 
-Run `cargo run -p string-bench --features unstable_encodings -- --help` for all
+Run `cargo run -p string-bench -- --help` for all
 filters and tuning options.
 
 Before timing, the benchmark checks that each requested encoding was produced

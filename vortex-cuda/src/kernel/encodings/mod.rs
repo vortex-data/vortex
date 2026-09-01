@@ -13,7 +13,6 @@ mod runend;
 mod sequence;
 mod zigzag;
 mod zstd;
-#[cfg(feature = "unstable_encodings")]
 mod zstd_buffers;
 
 pub(crate) use alp::ALPExecutor;
@@ -34,5 +33,4 @@ pub(crate) use zigzag::ZigZagExecutor;
 pub(crate) use zstd::ZstdExecutor;
 pub use zstd::ZstdKernelPrep;
 pub use zstd::zstd_kernel_prepare;
-#[cfg(feature = "unstable_encodings")]
 pub(crate) use zstd_buffers::ZstdBuffersExecutor;

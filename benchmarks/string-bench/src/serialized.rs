@@ -38,8 +38,8 @@ use vortex::file::WriteStrategyBuilder;
 use vortex::layout::LayoutStrategy;
 use vortex::session::VortexSession;
 use vortex_bench::Format;
-use vortex_bench::benchmark_write_options;
 use vortex_bench::measurements::CustomUnitMeasurement;
+use vortex_bench::retain_edition_encodings;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::SchemeId;
 use vortex_btrblocks::schemes::string::FSSTScheme;
@@ -170,7 +170,10 @@ impl SerializedResult {
 
 /// Build the file writer strategy that forces one selected string scheme while
 /// leaving non-string child compression enabled.
-fn serialized_write_strategy(encoder: StringEncoder) -> Arc<dyn LayoutStrategy> {
+fn serialized_write_strategy(
+    session: &VortexSession,
+    encoder: StringEncoder,
+) -> Arc<dyn LayoutStrategy> {
     let forced = encoder.scheme_id();
     let compressor = BtrBlocksCompressorBuilder::default().exclude_schemes(
         default_string_scheme_ids()
@@ -178,7 +181,7 @@ fn serialized_write_strategy(encoder: StringEncoder) -> Arc<dyn LayoutStrategy> 
             .filter(|&id| id != forced),
     );
     WriteStrategyBuilder::default()
-        .with_btrblocks_builder(compressor)
+        .with_btrblocks_builder(retain_edition_encodings(session, compressor))
         .build()
 }
 
@@ -192,7 +195,8 @@ async fn write_serialized_file(
     let mut buf = Vec::new();
     {
         let mut cursor = Cursor::new(&mut buf);
-        benchmark_write_options(session.write_options())
+        session
+            .write_options()
             .with_strategy(Arc::clone(strategy))
             .write(&mut cursor, input.to_array_stream())
             .await?;
@@ -249,7 +253,7 @@ async fn prepare_serialized_file(
     verify: bool,
     ctx: &mut ExecutionCtx,
 ) -> Result<SerializedFile> {
-    let strategy = serialized_write_strategy(encoder);
+    let strategy = serialized_write_strategy(session, encoder);
     let data = write_serialized_file(session, input, &strategy).await?;
     let file_bytes = data.len() as u64;
 

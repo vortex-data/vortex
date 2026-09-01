@@ -88,9 +88,4 @@ tokio = [
 ]
 wasm-bindgen = ["vortex-layout/wasm-bindgen"]
 zstd = ["dep:vortex-zstd", "vortex-btrblocks/zstd", "vortex-btrblocks/pco"]
-# This feature enables unstable encodings for which we don't guarantee stability.
-unstable_encodings = [
-    "dep:vortex-tensor",
-    "vortex-zstd?/unstable_encodings",
-    "vortex-btrblocks/unstable_encodings",
-]
+tensor = ["dep:vortex-tensor"]

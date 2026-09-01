@@ -41,11 +41,11 @@ Both sides therefore decode all the way to device-resident arrays, which is what
 
 ```bash
 cargo run -p compress-bench --profile release_debug \
-  --features cuda,unstable_encodings -- --gpu-decompress
+  --features cuda -- --gpu-decompress
 
 # pick the Parquet page codec the GPU file is written with (default: snappy)
 cargo run -p compress-bench --profile release_debug \
-  --features cuda,unstable_encodings -- --gpu-decompress --gpu-parquet-codec zstd
+  --features cuda -- --gpu-decompress --gpu-parquet-codec zstd
 ```
 
 ### cuDF
@@ -116,7 +116,7 @@ still publishes comparable numbers — it just takes considerably longer:
 
 ```bash
 cargo run -p compress-bench --profile release_debug \
-  --features cuda,unstable_encodings -- --gpu-decompress --gpu-verify --iterations 1
+  --features cuda -- --gpu-decompress --gpu-verify --iterations 1
 ```
 
 Any `--gpu-decompress` run reports on every dataset rather than stopping at the first failure, so

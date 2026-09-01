@@ -16,16 +16,13 @@ use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::DescendantExclusion;
 use vortex_compressor::scheme::EstimateVerdict;
-#[cfg(feature = "unstable_encodings")]
 use vortex_compressor::scheme::SchemeId;
 use vortex_error::VortexResult;
-#[cfg(feature = "unstable_encodings")]
 use vortex_fastlanes::Delta;
 use vortex_fastlanes::RLE;
 use vortex_fastlanes::RLEArrayExt;
 use vortex_fastlanes::RLEArraySlotsExt;
 
-#[cfg(feature = "unstable_encodings")]
 use super::DeltaScheme;
 use super::RUN_LENGTH_THRESHOLD;
 use crate::ArrayAndStats;
@@ -69,7 +66,6 @@ pub(crate) fn rle_compress(
             .execute::<PrimitiveArray>(exec_ctx)?
             .narrow(exec_ctx)?;
         let rle_indices = rle_indices_primitive.into_array();
-        #[cfg(feature = "unstable_encodings")]
         if compressor.has_scheme(DeltaScheme::default().id()) {
             try_compress_delta(
                 compressor,
@@ -82,8 +78,6 @@ pub(crate) fn rle_compress(
         } else {
             compressor.compress_child(&rle_indices, &compress_ctx, scheme.id(), 1, exec_ctx)?
         }
-        #[cfg(not(feature = "unstable_encodings"))]
-        compressor.compress_child(&rle_indices, &compress_ctx, scheme.id(), 1, exec_ctx)?
     };
 
     let rle_offsets_primitive = rle_array
@@ -112,7 +106,6 @@ pub(crate) fn rle_compress(
     }
 }
 
-#[cfg(feature = "unstable_encodings")]
 pub(crate) fn try_compress_delta(
     compressor: &CascadingCompressor,
     child: &ArrayRef,
