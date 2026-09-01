@@ -14,7 +14,6 @@ use vortex_error::VortexResult;
 
 use crate::OnPair;
 use crate::array::dict_view;
-use crate::decode::CodesWindow;
 use crate::decode::collect_codes_window;
 use crate::index::token_frequency_index;
 
@@ -46,21 +45,22 @@ impl LikeKernel for OnPair {
         };
 
         let dict = dict_view(array, ctx)?;
-        let window = collect_codes_window(array, ctx)?;
         let matches = match search_pattern {
             SearchPattern::Exact(needle) => {
+                let window = collect_codes_window(array, ctx)?;
                 let query = search::tokenize(&needle, dict);
                 Some(BitBuffer::collect_bool(array.len(), |row| {
                     search::equals(window.row(row), &query)
                 }))
             }
             SearchPattern::Prefix(prefix) => {
+                let window = collect_codes_window(array, ctx)?;
                 let query = search::PrefixQuery::new(&prefix, dict);
                 Some(BitBuffer::collect_bool(array.len(), |row| {
                     search::starts_with(window.row(row), &query)
                 }))
             }
-            SearchPattern::Contains(needle) => contains(array, &window, dict, &needle, ctx)?,
+            SearchPattern::Contains(needle) => contains(array, dict, &needle, ctx)?,
         };
         let Some(matches) = matches else {
             return Ok(None);
@@ -77,7 +77,6 @@ impl LikeKernel for OnPair {
 
 fn contains(
     array: ArrayView<'_, OnPair>,
-    window: &CodesWindow,
     dict: onpair::CompactDictionaryView<'_>,
     needle: &[u8],
     ctx: &mut ExecutionCtx,
@@ -91,6 +90,7 @@ fn contains(
         if !search::prefilter_is_likely_profitable(&analysis, array.len()) {
             return Ok(None);
         }
+        let window = collect_codes_window(array, ctx)?;
         let view = window.as_column_view(dict);
         let mut rows = Vec::new();
         if search::prefilter_candidates(view.codes, view.row_offsets, &analysis, &mut rows).is_err()
@@ -98,15 +98,7 @@ fn contains(
             return Ok(None);
         }
         search::BytesVerifier::new(needle).retain(view, &mut rows);
-        let mut rows = rows.into_iter().peekable();
-        return Ok(Some(BitBuffer::collect_bool(array.len(), |row| {
-            if rows.peek().copied() == Some(row) {
-                rows.next();
-                true
-            } else {
-                false
-            }
-        })));
+        return Ok(Some(BitBuffer::from_indices(array.len(), rows)));
     }
 
     Ok(None)
