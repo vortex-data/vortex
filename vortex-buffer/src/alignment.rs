@@ -69,6 +69,12 @@ impl Alignment {
         Self::new(align_of::<T>())
     }
 
+    /// Return the alignment in bytes.
+    #[inline]
+    pub const fn as_usize(self) -> usize {
+        self.0
+    }
+
     /// The largest valid alignment: the greatest power of 2 representable in a `usize`.
     pub const MAX: Alignment = Alignment::new(1 << (usize::BITS - 1));
 
