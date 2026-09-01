@@ -7021,7 +7021,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 [[package]]
 name = "onpair"
 version = "0.2.0"
-source = "git+https://github.com/spiraldb/onpair.git?branch=codex%2Fprefilter-scan-refactor#bbb813d9a677377b45b119c476e809cc6ccff432"
+source = "git+https://github.com/spiraldb/onpair.git?rev=371686f82ecc45e0ad3ebce1d37a484953e5c9f9#371686f82ecc45e0ad3ebce1d37a484953e5c9f9"
 dependencies = [
  "hashbrown 0.16.1",
  "memchr",
@@ -7606,7 +7606,7 @@ version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "044b1fa4f259f4df9ad5078e587b208f5d288a25407575fcddb9face30c7c692"
 dependencies = [
- "rand 0.9.5",
+ "rand 0.8.7",
  "socket2",
  "thiserror 2.0.19",
 ]
