@@ -13,7 +13,7 @@ use vortex_error::vortex_err;
 
 use super::DecimalToIntegerCast;
 use super::arithmetic::checked_decimal_numeric;
-use super::arithmetic::decimal_numeric_result_dtype;
+use super::arithmetic::decimal_binary_result_dtype;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::PType;
@@ -139,19 +139,18 @@ impl<'a> DecimalScalar<'a> {
 
     /// Apply the (checked) operator to self and other using SQL-style null semantics.
     ///
-    /// Both operands must share the same decimal type `(p, s)`. The result type follows Arrow's
-    /// decimal arithmetic rules, so it is generally *wider* than the operands, and the result is
-    /// therefore an owned [`Scalar`] rather than a view:
+    /// The result type follows Arrow's decimal arithmetic rules for `(p1, s1) op (p2, s2)`, so it
+    /// is generally *wider* than the operands, and the result is therefore an owned [`Scalar`]
+    /// rather than a view:
     ///
-    /// | operator | result precision | result scale |
-    /// | -------- | ---------------- | ------------ |
-    /// | Add, Sub | `p + 1`          | `s`          |
-    /// | Mul      | `2p + 1`         | `2s`         |
-    /// | Div      | `p + s + 4`      | `s + 4`      |
+    /// | operator | result precision                | result scale      |
+    /// | -------- | ------------------------------- | ----------------- |
+    /// | Add, Sub | `max(p1 - s1, p2 - s2) + s + 1` | `s = max(s1, s2)` |
+    /// | Mul      | `p1 + p2 + 1`                   | `s1 + s2`         |
+    /// | Div      | `p1 - s1 + s2 + s`              | `s = s1 + 4`      |
     ///
-    /// Precision saturates at the maximum decimal precision. Mul is exact — the doubled scale
-    /// leaves the raw product of the stored integers correctly scaled — while Div truncates
-    /// toward zero.
+    /// Precision saturates at the maximum decimal precision. Add and Sub align both operands to
+    /// the result scale and Mul is exact, while Div truncates toward zero.
     ///
     /// If either value is null, the result is null.
     ///
@@ -160,25 +159,16 @@ impl<'a> DecimalScalar<'a> {
     ///
     /// # Errors
     ///
-    /// Returns an error if the operands have different decimal types, or if the operation has no
-    /// valid result type: a Mul whose doubled scale is unrepresentable — either above the maximum
-    /// scale or below the minimum an `i8` scale can hold — or a Div whose precision would fall
-    /// outside the legal range.
+    /// Returns an error if the operation has no valid result type: a Mul whose summed scale is
+    /// unrepresentable — either above the maximum scale or below the minimum an `i8` scale can
+    /// hold — or a Div whose precision would fall outside the legal range.
     pub fn checked_binary_numeric(
         &self,
         other: &DecimalScalar<'_>,
         op: NumericOperator,
     ) -> VortexResult<Option<Scalar>> {
-        // We could have ops between different types but need to add rules for type inference.
-        if self.decimal_type != other.decimal_type {
-            vortex_bail!(
-                "decimal types must match: {} vs {}",
-                self.decimal_type,
-                other.decimal_type
-            );
-        }
-
-        let result_decimal_type = decimal_numeric_result_dtype(self.decimal_type, op)?;
+        let result_decimal_type =
+            decimal_binary_result_dtype(self.decimal_type, other.decimal_type, op)?;
         let nullability = self.dtype.nullability() | other.dtype.nullability();
         let result_dtype = DType::Decimal(result_decimal_type, nullability);
 
@@ -187,10 +177,15 @@ impl<'a> DecimalScalar<'a> {
             return Ok(Some(Scalar::null(result_dtype.as_nullable())));
         };
 
-        Ok(
-            checked_decimal_numeric(lhs, rhs, self.decimal_type, result_decimal_type, op)
-                .map(|value| Scalar::decimal(value, result_decimal_type, nullability)),
+        Ok(checked_decimal_numeric(
+            lhs,
+            rhs,
+            self.decimal_type,
+            other.decimal_type,
+            result_decimal_type,
+            op,
         )
+        .map(|value| Scalar::decimal(value, result_decimal_type, nullability)))
     }
 }
 

@@ -124,24 +124,7 @@ impl ScalarFnVTable for Binary {
         let rhs = &arg_dtypes[1];
 
         if operator.is_arithmetic() {
-            if lhs.is_primitive() && lhs.eq_ignore_nullability(rhs) {
-                return Ok(lhs.with_nullability(lhs.nullability() | rhs.nullability()));
-            }
-
-            if let DType::Decimal(decimal_dtype, _) = lhs
-                && lhs.eq_ignore_nullability(rhs)
-            {
-                let numeric_op = NumericOperator::try_from(*operator)?;
-                return Ok(DType::Decimal(
-                    numeric_op_result_decimal_dtype(*decimal_dtype, numeric_op)?,
-                    lhs.nullability() | rhs.nullability(),
-                ));
-            }
-            vortex_bail!(
-                "incompatible types for arithmetic operation: {} {}",
-                lhs,
-                rhs
-            );
+            return numeric_return_dtype(lhs, rhs, NumericOperator::try_from(*operator)?);
         }
 
         if operator.is_comparison()
