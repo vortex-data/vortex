@@ -243,6 +243,11 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
+    use crate::arrays::Filter;
+    use crate::arrays::Primitive;
+    use crate::arrays::ScalarFn;
+    use crate::arrays::Slice;
+    use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::FieldName;
     use crate::dtype::FieldNames;
@@ -351,6 +356,50 @@ mod tests {
             constant.scalar(),
             &Scalar::primitive(selected_idx, NonNullable)
         );
+        Ok(())
+    }
+
+    #[test]
+    fn get_item_pushes_through_filter() -> VortexResult<()> {
+        use vortex_mask::Mask;
+
+        let filtered = test_array()
+            .into_array()
+            .filter(Mask::from_iter([true, false, true]))?;
+
+        let item = filtered.get_item("a")?;
+
+        assert!(item.is::<Filter>());
+        assert!(!item.is::<ScalarFn>());
+        Ok(())
+    }
+
+    #[test]
+    fn get_item_pushes_through_slice() -> VortexResult<()> {
+        let sliced = test_array().into_array().slice(1..3)?;
+
+        let item = sliced.get_item("a")?;
+
+        assert!(item.is::<Primitive>());
+        assert!(!item.is::<Slice>());
+        assert!(!item.is::<ScalarFn>());
+        Ok(())
+    }
+
+    #[test]
+    fn get_item_pushes_through_masked() -> VortexResult<()> {
+        let masked = test_array()
+            .into_array()
+            .mask(Validity::from_iter([true, false, true]).to_array(3))?;
+
+        let item = masked.get_item("a")?;
+
+        assert!(item.is::<Primitive>());
+        assert_eq!(
+            item.dtype(),
+            &DType::Primitive(PType::I32, Nullability::Nullable)
+        );
+        assert!(!item.is::<ScalarFn>());
         Ok(())
     }
 
