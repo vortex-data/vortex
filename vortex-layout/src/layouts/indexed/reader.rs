@@ -45,7 +45,9 @@ type SharedProbe = Shared<BoxFuture<'static, SharedVortexResult<Arc<RowLocator>>
 /// A reader for the [`crate::layouts::indexed::Indexed`] layout.
 ///
 /// Probes happen once per expression per file: the shared future is cached, and each split slices
-/// its own row range out of the resulting locator rather than re-probing.
+/// its own row range out of the resulting locator rather than re-probing. When more than one spec
+/// claims the same expression, the first `Exact` claim wins outright; failing that, every claiming
+/// spec's locator is kept and intersected at evaluation time.
 pub struct IndexedReader {
     layout: IndexedLayout,
     name: Arc<str>,
@@ -56,10 +58,16 @@ pub struct IndexedReader {
     probes: DashMap<BoundExpression, Option<CachedProbe>>,
 }
 
+/// One cached probe result for an expression, combining every claiming spec's index.
+///
+/// `Exact` holds a single spec's locator: an exact claim already fully answers the expression, so
+/// no other spec's claim on it, exact or not, needs combining with it. `Superset` holds every
+/// claiming spec's locator, since each one only narrows what's proven non-matching, and
+/// [`IndexedReader::pruning_evaluation`] intersects them all.
 #[derive(Clone)]
-struct CachedProbe {
-    exactness: IndexExactness,
-    locator: SharedProbe,
+enum CachedProbe {
+    Exact(SharedProbe),
+    Superset(Vec<SharedProbe>),
 }
 
 impl IndexedReader {
@@ -123,6 +131,8 @@ impl IndexedReader {
     }
 
     fn plan_probe(&self, expr: &BoundExpression) -> VortexResult<Option<CachedProbe>> {
+        let mut supersets = Vec::new();
+
         for (idx, spec) in self.layout.indexes().iter().enumerate() {
             // Unregistered kinds are inert: their child is never read.
             let Some(vtable) = spec.vtable() else {
@@ -145,10 +155,18 @@ impl IndexedReader {
                 self.session.clone(),
             )?;
 
-            return Ok(Some(CachedProbe { exactness, locator }));
+            if exactness == IndexExactness::Exact {
+                // Already the best possible answer: no other spec's claim on this expression,
+                // exact or not, can sharpen it or needs combining with it.
+                return Ok(Some(CachedProbe::Exact(locator)));
+            }
+            supersets.push(locator);
         }
 
-        Ok(None)
+        if supersets.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(CachedProbe::Superset(supersets)))
     }
 }
 
@@ -233,8 +251,22 @@ impl LayoutReader for IndexedReader {
         let expr = expr.clone();
 
         Ok(MaskFuture::new(mask.len(), async move {
-            let locator = probe.locator.await?;
-            let mut result = mask.bitand(&locator.mask_for(&row_range)?);
+            let locators: &[SharedProbe] = match &probe {
+                CachedProbe::Exact(locator) => std::slice::from_ref(locator),
+                CachedProbe::Superset(locators) => locators,
+            };
+
+            // Every claiming spec's mask only narrows what's proven non-matching, so intersect
+            // them all; stop as soon as nothing is left alive, rather than awaiting a probe whose
+            // answer can no longer change the result.
+            let mut result = mask;
+            for locator in locators {
+                if result.all_false() {
+                    break;
+                }
+                let locator = locator.clone().await?;
+                result = result.bitand(&locator.mask_for(&row_range)?);
+            }
 
             // Only bother the data child if the index left anything alive.
             if !result.all_false() {
@@ -252,17 +284,15 @@ impl LayoutReader for IndexedReader {
         expr: &BoundExpression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
-        // An exact index answers the conjunct outright, so the data child is never decoded for it.
-        // A superset index can only prune, and the data child re-checks the real predicate. Either
-        // way this reuses the cached probe, so a superset conjunct costs no extra IO here.
-        if let Some(probe) = self
-            .probe(expr)?
-            .filter(|probe| probe.exactness == IndexExactness::Exact)
-        {
+        // Only an exact claim answers the conjunct outright, so the data child is never decoded
+        // for it. A superset claim, however many specs contributed to it, can only prune, so the
+        // real predicate always re-checks through the data child. Either way this reuses the
+        // cached probe, so a superset conjunct costs no extra IO here.
+        if let Some(CachedProbe::Exact(locator)) = self.probe(expr)? {
             let row_range = row_range.clone();
             let len = mask.len();
             return Ok(MaskFuture::new(len, async move {
-                let locator = probe.locator.await?;
+                let locator = locator.await?;
                 let index_mask = locator.mask_for(&row_range)?;
                 // Post-condition: the result must be intersected with the input mask.
                 Ok(mask.await?.bitand(&index_mask))

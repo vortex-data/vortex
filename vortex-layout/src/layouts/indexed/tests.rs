@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use roaring::RoaringBitmap;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
@@ -32,6 +33,7 @@ use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
 use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::layouts::indexed::tests::exact_value::DecliningIndex;
 use crate::layouts::indexed::tests::exact_value::ExactValueIndex;
+use crate::layouts::indexed::tests::fixed_superset::FixedSupersetIndex;
 use crate::layouts::repartition::RepartitionStrategy;
 use crate::layouts::repartition::RepartitionWriterOptions;
 use crate::scan::scan_builder::ScanBuilder;
@@ -346,6 +348,79 @@ async fn one_builder_declining_leaves_the_others_intact() -> VortexResult<()> {
     Ok(())
 }
 
+/// Two `Superset` claims on the same conjunct must combine, not pick one and drop the other:
+/// neither `{1, 2, 9}` nor `{2, 9, 10}` alone leaves only `{2, 9}` standing, only their
+/// intersection does.
+#[tokio::test]
+async fn multiple_superset_claims_intersect() -> VortexResult<()> {
+    let session = new_session();
+    let (layout, segments) = write(
+        &session,
+        vec![
+            IndexConfig::with_defaults(FixedSupersetIndex::new_ref(
+                "test.idx.fixed_a",
+                RoaringBitmap::from_iter([1u32, 2, 9]),
+            )),
+            IndexConfig::with_defaults(FixedSupersetIndex::new_ref(
+                "test.idx.fixed_b",
+                RoaringBitmap::from_iter([2u32, 9, 10]),
+            )),
+        ],
+    )
+    .await?;
+
+    let reader = text_reader(&session, &layout, segments)?;
+    let row_count = reader.row_count();
+    // `FixedSupersetIndex` claims unconditionally, so any bound Utf8 conjunct exercises it.
+    let filter = eq(root(), lit("irrelevant")).bind(reader.dtype())?;
+    let mask = reader
+        .pruning_evaluation(
+            &(0..row_count),
+            &filter,
+            Mask::new_true(usize::try_from(row_count)?),
+        )?
+        .await?;
+
+    assert_eq!(
+        mask,
+        Mask::from_iter((0..ROWS.len()).map(|row| row == 2 || row == 9))
+    );
+    Ok(())
+}
+
+/// An `Exact` claim must discard an earlier, misleading `Superset` claim on the same conjunct
+/// rather than intersect with it: the empty superset here would prune away row 2 if it were kept
+/// around, but the exact claim that follows it proves row 2 is the real, correct answer.
+#[tokio::test]
+async fn exact_claim_discards_a_preceding_superset_claim() -> VortexResult<()> {
+    let session = session_with_exact_index();
+    let (layout, segments) = write(
+        &session,
+        vec![
+            IndexConfig::with_defaults(FixedSupersetIndex::new_ref(
+                "test.idx.fixed_empty",
+                RoaringBitmap::new(),
+            )),
+            IndexConfig::with_defaults(ExactValueIndex::new_ref()),
+        ],
+    )
+    .await?;
+
+    let reader = text_reader(&session, &layout, segments)?;
+    let row_count = reader.row_count();
+    let filter = eq(root(), lit(ROWS[2])).bind(reader.dtype())?;
+    let mask = reader
+        .pruning_evaluation(
+            &(0..row_count),
+            &filter,
+            Mask::new_true(usize::try_from(row_count)?),
+        )?
+        .await?;
+
+    assert_eq!(mask, Mask::from_iter((0..ROWS.len()).map(|row| row == 2)));
+    Ok(())
+}
+
 /// A test-only sorted value index, present to exercise the [`super::IndexExactness::Exact`] path
 /// that a real posting-list index kind (such as an n-gram index) would rarely reach for equality
 /// queries.
@@ -622,6 +697,126 @@ mod exact_value {
             }
 
             Ok(RowLocator::empty_rows())
+        }
+    }
+}
+
+/// A test-only index kind that always claims any expression with `Superset` exactness and answers
+/// with a fixed locator supplied at construction, ignoring both the expression and the data.
+///
+/// Real superset-only kinds (bloom filters, n-gram indexes) derive their locator from the data;
+/// this one is a stand-in that hands a test exact, known masks to combine, so its assertions are
+/// about the reader's sibling-combination logic rather than any kind's own indexing correctness.
+mod fixed_superset {
+    use std::sync::Arc;
+
+    use roaring::RoaringBitmap;
+    use vortex_array::ArrayRef;
+    use vortex_array::ExecutionCtx;
+    use vortex_array::IntoArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::dtype::DType;
+    use vortex_array::expr::BoundExpression;
+    use vortex_array::expr::eq;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::root;
+    use vortex_array::stream::ArrayStreamExt;
+    use vortex_array::stream::SendableArrayStream;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+
+    use crate::layouts::indexed::IndexBuilder;
+    use crate::layouts::indexed::IndexExactness;
+    use crate::layouts::indexed::IndexId;
+    use crate::layouts::indexed::IndexQueryPlan;
+    use crate::layouts::indexed::IndexResolve;
+    use crate::layouts::indexed::IndexVTable;
+    use crate::layouts::indexed::IndexVTableRef;
+    use crate::layouts::indexed::RowLocator;
+
+    #[derive(Debug)]
+    pub struct FixedSupersetIndex {
+        id: &'static str,
+        rows: RoaringBitmap,
+    }
+
+    impl FixedSupersetIndex {
+        pub fn new_ref(id: &'static str, rows: RoaringBitmap) -> IndexVTableRef {
+            Arc::new(Self { id, rows })
+        }
+    }
+
+    impl IndexVTable for FixedSupersetIndex {
+        fn id(&self) -> IndexId {
+            IndexId::from(self.id)
+        }
+
+        fn supports_dtype(&self, dtype: &DType) -> bool {
+            matches!(dtype, DType::Utf8(_))
+        }
+
+        fn builder(
+            &self,
+            _dtype: &DType,
+            _options: &[u8],
+            _data_block_len: Option<u64>,
+            _session: &VortexSession,
+        ) -> VortexResult<Box<dyn IndexBuilder>> {
+            Ok(Box::new(Builder))
+        }
+
+        fn plan(
+            &self,
+            _expr: &BoundExpression,
+            _dtype: &DType,
+            _options: &[u8],
+        ) -> VortexResult<Option<IndexQueryPlan>> {
+            Ok(Some(IndexQueryPlan {
+                exactness: IndexExactness::Superset,
+                filter: eq(root(), lit(0i32)),
+                resolve: Arc::new(Resolve {
+                    rows: self.rows.clone(),
+                }),
+            }))
+        }
+    }
+
+    /// Writes one dummy row so the layout has real content for `plan`'s filter to select; the
+    /// value itself is never inspected.
+    struct Builder;
+
+    impl IndexBuilder for Builder {
+        fn push(
+            &mut self,
+            _chunk: &ArrayRef,
+            _row_offset: u64,
+            _ctx: &mut ExecutionCtx,
+        ) -> VortexResult<()> {
+            Ok(())
+        }
+
+        fn finish(self: Box<Self>) -> VortexResult<Option<(SendableArrayStream, Vec<u8>)>> {
+            let array = PrimitiveArray::from_iter([0i32]).into_array();
+            Ok(Some((array.to_array_stream().boxed(), vec![])))
+        }
+
+        fn buffered_bytes(&self) -> u64 {
+            0
+        }
+    }
+
+    struct Resolve {
+        rows: RoaringBitmap,
+    }
+
+    impl IndexResolve for Resolve {
+        fn resolve(
+            &self,
+            _postings: &ArrayRef,
+            _data_row_count: u64,
+            _ctx: &mut ExecutionCtx,
+        ) -> VortexResult<RowLocator> {
+            Ok(RowLocator::Rows(self.rows.clone()))
         }
     }
 }
