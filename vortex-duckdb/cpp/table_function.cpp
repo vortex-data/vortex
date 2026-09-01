@@ -145,9 +145,14 @@ unique_ptr<BaseStatistics> VortexRowGroup::GetColumnStatistics(const StorageInde
 static vector<PartitionStatistics> get_partition_stats(ClientContext &, GetPartitionStatsInput &input) {
     const MultiFileBindData &bind_data = input.bind_data->Cast<MultiFileBindData>();
     VortexBindData &bind = bind_data.bind_data->Cast<VortexBindData>();
+    // Re-reading the footers on every request is costly so me mimic DuckDB's
+    // TryLoadCaches for Parquet and load them once per file.
     if (bind.no_footer_caches) {
         return {};
     }
+    // get_partition_stats is called during plan phase where we haven't read
+    // data yet. If there's a filter, we need to read the data to evaluate
+    // stats
     if (duckdb_table_function_has_pushed_filters(bind.ffi_bind_data->DataPtr())) {
         return {};
     }

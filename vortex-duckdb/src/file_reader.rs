@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
-use std::sync::LazyLock;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
@@ -11,7 +10,6 @@ use object_store::registry::ObjectStoreRegistry;
 use url::Url;
 use vortex::array::VortexSessionExecute as _;
 use vortex::array::arrays::struct_::StructArrayExt as _;
-use vortex::cloud::Registry;
 use vortex::dtype::DType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -31,6 +29,7 @@ use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::mask::Mask;
 use vortex::session::SessionExt as _;
 
+use crate::REGISTRY;
 use crate::RUNTIME;
 use crate::SESSION;
 use crate::column_statistics::ColumnStatistics;
@@ -64,6 +63,11 @@ use crate::table_function::convert_result;
 //
 // `reader_open` -> `reader_bind` -> `reader_get_statistics`
 //
+// After this, still in planning phase, one thread calls the following chain on
+// all files to try and replace scanning with metadata answer:
+//
+// `footer_open` -> `footer_get_statistics`.
+//
 // Then there's query runtime phase, called for all files in scan:
 //
 // `reader_open` -> `reader_initialize` ->
@@ -71,8 +75,6 @@ use crate::table_function::convert_result;
 //
 // `reader_get_progress_in_file` is called during `reader_scan` calls from a
 // separate thread.
-
-static REGISTRY: LazyLock<Registry> = LazyLock::new(Registry::new);
 
 fn resolve_filesystem(url: &Url) -> VortexResult<(FileSystemRef, String)> {
     // Compat makes us use tokio which is very bad for local reads on
@@ -95,7 +97,7 @@ fn resolve_filesystem(url: &Url) -> VortexResult<(FileSystemRef, String)> {
     ))
 }
 
-/// Same as resolve_filesystem, but doesn't create filesystem object
+/// Same as resolve_filesystem but doesn't create filesystem object
 fn resolve_path(url: &Url) -> VortexResult<String> {
     if url.scheme() == "file" {
         return Ok(url.path().to_string());
@@ -308,6 +310,7 @@ pub fn reader_get_progress_in_file(file: &OpenFileReader) -> f64 {
     100.0 * (total - left) as f64 / denom as f64
 }
 
+/// Called by one thread for every file to get metadata
 pub fn footer_open(path: &str) -> VortexResult<Option<Footer>> {
     let url = parse_uri_or_path(path)?;
     let path = resolve_path(&url)?;
@@ -315,6 +318,7 @@ pub fn footer_open(path: &str) -> VortexResult<Option<Footer>> {
     Ok(SESSION.get::<MultiFileSession>().get_footer(&key))
 }
 
+/// Called by one thread for every footer in planning phase
 pub fn footer_get_statistics(footer: &Footer, index: usize) -> Option<ColumnStatistics> {
     let DType::Struct(fields, _) = footer.dtype() else {
         return None;

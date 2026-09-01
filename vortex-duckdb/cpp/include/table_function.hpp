@@ -32,7 +32,11 @@ struct TableFunctionUngroupedAggregateInput {
 
 bool aggregate_pushdown(ClientContext &context, const TableFunctionUngroupedAggregateInput &input);
 
-// Vortex "row group" is a file
+/*
+ * DuckDB uses partition row groups to answer filter-less aggregation queries
+ * from statistics. A Vortex "row group" is therefore a file since we have
+ * file statistics and they're easiest to read.
+ */
 struct VortexRowGroup final : PartitionRowGroup {
     explicit VortexRowGroup(unique_ptr<CData> ffi_footer) : ffi_footer(std::move(ffi_footer)) {
     }
