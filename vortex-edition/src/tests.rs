@@ -242,10 +242,10 @@ fn enabled_editions_are_independent_across_families() -> Result<(), crate::Editi
 
 #[test]
 fn serialized_array_ids_can_be_added_by_an_opt_in_family() -> Result<(), crate::EditionError> {
-    const PREVIEW: EditionId = EditionId::new("other", 2026, 8, 0);
-    static PREVIEW_DECLARATION: EditionDeclaration = EditionDeclaration {
+    const OPT_IN: EditionId = EditionId::new("other", 2026, 8, 0);
+    static OPT_IN_DECLARATION: EditionDeclaration = EditionDeclaration {
         edition: Edition {
-            id: PREVIEW,
+            id: OPT_IN,
             min_library_version: None,
         },
         added: &[EditionMember::array(&"test.alpha_v2")],
@@ -255,10 +255,10 @@ fn serialized_array_ids_can_be_added_by_an_opt_in_family() -> Result<(), crate::
     session.editions().declare_family(&TEST_FAMILY)?;
     session.editions().declare_family(&OTHER_FAMILY)?;
     session.register_edition(&DECLARATIONS[0])?;
-    session.register_edition(&PREVIEW_DECLARATION)?;
+    session.register_edition(&OPT_IN_DECLARATION)?;
     session.editions().validate()?;
     session.enable_edition(FIRST)?;
-    session.enable_edition(PREVIEW)?;
+    session.enable_edition(OPT_IN)?;
 
     assert_eq!(
         session

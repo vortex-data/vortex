@@ -40,9 +40,9 @@ const FROZEN_NOTE: &str = "\
 
 const DRAFT_NOTE: &str = "\
 # This edition record has no core read-forever guarantee. It may describe an evolving feature,
-# stabilized preview functionality awaiting adoption, or a release waiting to be cut. New
-# capabilities advance to a new edition; after a core release is known, min_library_version is
-# backfilled to document its freeze. A frozen record never changes.";
+# a stable component awaiting adoption, or a release waiting to be cut. New capabilities advance
+# to a new edition; after a core release is known, min_library_version is backfilled to document
+# its freeze. A frozen record never changes.";
 
 /// The file recording what a family is, beside that family's editions.
 pub const FAMILY_FILE: &str = "family.toml";

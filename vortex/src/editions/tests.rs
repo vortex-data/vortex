@@ -40,9 +40,10 @@ use super::CORE_2026_08_1;
 use super::CORE_2026_08_2;
 use super::CORE_2026_08_3;
 use super::DEFAULT_CORE_EDITION;
-use super::DEFAULT_PREVIEW_EDITION;
+use super::DELTA_2025_05_0;
 use super::EDITION_DECLARATIONS;
-use super::PREVIEW_2026_06_0;
+use super::LIST_2026_06_0;
+use super::PATCHES_2026_04_0;
 
 fn session() -> Result<EditionSession, EditionError> {
     let session = EditionSession::empty();
@@ -76,10 +77,10 @@ fn core_2026_08_1_dtype_set_is_pinned() {
 }
 
 #[test]
-fn core_2026_08_2_is_draft() {
+fn core_2026_08_2_is_frozen() {
     let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
     assert!(
-        session
+        !session
             .find(&CORE_2026_08_2)
             .unwrap_or_else(|| panic!("{CORE_2026_08_2} is not registered"))
             .is_draft()
@@ -99,10 +100,10 @@ fn core_2026_08_2_is_draft() {
 }
 
 #[test]
-fn core_2026_08_3_adds_variants() {
+fn core_2026_08_3_is_frozen_and_adds_variants() {
     let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
     assert!(
-        session
+        !session
             .find(&CORE_2026_08_3)
             .unwrap_or_else(|| panic!("{CORE_2026_08_3} is not registered"))
             .is_draft()
@@ -134,34 +135,26 @@ fn core_2026_08_3_adds_variants() {
 }
 
 #[test]
-fn encodings_in_editions_unions_families() {
+fn components_have_independent_edition_families() {
     let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
-    let core_only: Vec<_> = session
-        .components_in(&CORE_2026_08_1, ComponentKind::Array)
-        .into_iter()
-        .map(|inclusion| inclusion.component_id)
-        .collect();
-    let mut both = core_only.clone();
-    both.extend(
-        session
-            .components_in(&PREVIEW_2026_06_0, ComponentKind::Array)
-            .into_iter()
-            .map(|inclusion| inclusion.component_id),
-    );
-    both.sort_unstable();
-    both.dedup();
+    let delta = session.components_in(&DELTA_2025_05_0, ComponentKind::Array);
+    assert_eq!(delta.len(), 1);
+    assert_eq!(delta[0].component_id.as_str(), "fastlanes.delta");
 
-    assert!(both.len() > core_only.len());
-    assert!(both.iter().any(|id| id.as_str() == "fastlanes.delta"));
-    assert!(both.iter().any(|id| id.as_str() == "vortex.patched"));
-    assert!(core_only.iter().all(|id| both.contains(id)));
+    let patches = session.components_in(&PATCHES_2026_04_0, ComponentKind::Array);
+    assert_eq!(patches.len(), 1);
+    assert_eq!(patches[0].component_id.as_str(), "vortex.patched");
+
+    let list = session.components_in(&LIST_2026_06_0, ComponentKind::Layout);
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].component_id.as_str(), "vortex.list");
 }
 
 #[test]
 fn earlier_editions_are_subsets() {
     let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
     let first = session.components_in(&CORE_2025_05_0, ComponentKind::Array);
-    let latest = session.components_in(&CORE_2026_08_1, ComponentKind::Array);
+    let latest = session.components_in(&DEFAULT_CORE_EDITION, ComponentKind::Array);
     assert!(first.iter().all(|inclusion| {
         latest
             .iter()
@@ -225,10 +218,12 @@ fn default_session_enables_the_write_editions() {
             .contains(&Id::from("vortex.pco"))
     );
 
-    #[cfg(feature = "unstable_encodings")]
-    assert!(enabled.contains(&DEFAULT_PREVIEW_EDITION));
-    #[cfg(not(feature = "unstable_encodings"))]
-    assert!(!enabled.contains(&DEFAULT_PREVIEW_EDITION));
+    for edition in [DELTA_2025_05_0, LIST_2026_06_0, PATCHES_2026_04_0] {
+        #[cfg(feature = "unstable_encodings")]
+        assert!(enabled.contains(&edition));
+        #[cfg(not(feature = "unstable_encodings"))]
+        assert!(!enabled.contains(&edition));
+    }
 }
 
 #[test]
@@ -241,7 +236,7 @@ fn core_edition_ids_are_registered_array_encodings() {
     let registry = session.arrays().registry().clone();
     for inclusion in session
         .editions()
-        .components_in(&CORE_2026_08_1, ComponentKind::Array)
+        .components_in(&DEFAULT_CORE_EDITION, ComponentKind::Array)
     {
         assert!(
             registry.contains_key(&inclusion.component_id),
@@ -261,7 +256,7 @@ fn core_dtype_ids_are_registered_extension_dtypes() {
     let registry = session.dtypes().registry().clone();
     for inclusion in session
         .editions()
-        .components_in(&CORE_2026_08_1, ComponentKind::DType)
+        .components_in(&DEFAULT_CORE_EDITION, ComponentKind::DType)
     {
         assert!(
             registry.contains_key(&inclusion.component_id),
@@ -282,7 +277,7 @@ fn core_aggregate_ids_are_registered_aggregate_fns() {
     let session = VortexSession::default();
     let declared = session
         .editions()
-        .components_in(&CORE_2026_08_1, ComponentKind::Aggregate);
+        .components_in(&DEFAULT_CORE_EDITION, ComponentKind::Aggregate);
     assert!(
         declared
             .iter()

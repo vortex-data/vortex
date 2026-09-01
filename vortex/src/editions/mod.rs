@@ -15,9 +15,9 @@
 //! a compressor produced.
 //!
 //! The default file writer resolves the session's enabled editions at write time. The
-//! facade enables the newest frozen `core` edition, [`crate::editions::CORE_2026_08_1`], and
-//! additionally enables the latest preview edition when the `unstable_encodings` feature is
-//! selected.
+//! facade enables [`crate::editions::CORE_2026_08_3`] and
+//! additionally enables the `delta`, `list`, and `patches` editions when the
+//! `unstable_encodings` feature is selected.
 
 #[cfg(test)]
 mod tests;
@@ -42,20 +42,18 @@ pub use vortex_edition::declarations::core::CORE_2026_08_0;
 pub use vortex_edition::declarations::core::CORE_2026_08_1;
 pub use vortex_edition::declarations::core::CORE_2026_08_2;
 pub use vortex_edition::declarations::core::CORE_2026_08_3;
-pub use vortex_edition::declarations::preview;
-pub use vortex_edition::declarations::preview::PREVIEW_2025_05_0;
-pub use vortex_edition::declarations::preview::PREVIEW_2026_04_0;
-pub use vortex_edition::declarations::preview::PREVIEW_2026_06_0;
+pub use vortex_edition::declarations::delta;
+pub use vortex_edition::declarations::delta::DELTA_2025_05_0;
+pub use vortex_edition::declarations::list;
+pub use vortex_edition::declarations::list::LIST_2026_06_0;
+pub use vortex_edition::declarations::patches;
+pub use vortex_edition::declarations::patches::PATCHES_2026_04_0;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 /// The `core` edition enabled for writing by the default Vortex session.
-pub const DEFAULT_CORE_EDITION: EditionId = CORE_2026_08_1;
-
-/// The `preview` edition enabled for writing by the default Vortex session when the
-/// `unstable_encodings` feature is selected.
-pub const DEFAULT_PREVIEW_EDITION: EditionId = PREVIEW_2026_06_0;
+pub const DEFAULT_CORE_EDITION: EditionId = CORE_2026_08_3;
 
 /// Register the Vortex edition families and declarations with the session's
 /// [`EditionSession`].
@@ -77,8 +75,8 @@ pub fn register_default_editions(session: &VortexSession) {
 
 /// Enable the default Vortex editions for writing.
 ///
-/// This selects the newest frozen `core` edition and, when configured, the newest preview
-/// edition. All declarations must have been registered first with
+/// This selects the default `core` edition and, when configured, the `delta`, `list`, and `patches`
+/// editions. All declarations must have been registered first with
 /// [`register_default_editions`].
 pub fn enable_default_editions(session: &VortexSession) {
     session
@@ -87,8 +85,10 @@ pub fn enable_default_editions(session: &VortexSession) {
         .vortex_expect("default core edition is registered");
 
     #[cfg(feature = "unstable_encodings")]
-    session
-        .enable_edition(DEFAULT_PREVIEW_EDITION)
-        .map_err(|e| vortex_err!("{e}"))
-        .vortex_expect("default preview edition is registered");
+    for edition in [DELTA_2025_05_0, LIST_2026_06_0, PATCHES_2026_04_0] {
+        session
+            .enable_edition(edition)
+            .map_err(|e| vortex_err!("{e}"))
+            .vortex_expect("feature edition is registered");
+    }
 }

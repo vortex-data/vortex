@@ -12,9 +12,8 @@ misinterpreting new metadata, children, or buffers.
 
 Editions belong to independently versioned families and are cumulative within a family. Each edition includes all
 components from the preceding edition in that family, plus any additions. A writer selects at most one edition from
-each family and may use the union of their component IDs. For example, selecting `core2026.08.1` and
-`preview2026.06.0` allows stable components released through August 2026 and preview components released through June
-2026.
+each family and may use the union of their component IDs. For example, selecting `core2026.08.3`,
+`delta2025.05.0`, and `patches2026.04.0` allows the core components together with Delta and Patched arrays.
 
 The first frozen edition, `core2025.05.0`, contains the components that Vortex `0.36.0` could write. This marks the
 start of the Vortex file format's stability guarantee. Every Vortex release from `0.36.0` onward can read
@@ -74,11 +73,11 @@ zone-map pruning rather than causing the file to be rejected.
 
 ## Writing with an edition
 
-By default, the Vortex facade targets the newest frozen `core` edition. A new encoding or serialization feature that is
+By default, the Vortex facade targets `core2026.08.3`. A new encoding or serialization feature that is
 still evolving gets a new draft edition; later additions create later editions rather than changing an already
-published feature set. Once a core-maintained feature is stable, it can join `preview` for explicit adoption without
-changing the default writer. Components supplied by an optional plugin instead belong to that plugin's standalone
-edition family, such as `tensor`, `zstd`, `spatial`, or `json`.
+published feature set. Each feature advances through its own independently versioned family until it is ready to join
+`core`. Components supplied by an optional plugin belong to that plugin's family, such as `tensor`, `zstd`, `spatial`,
+or `json`.
 
 Edition configuration belongs to the writer's Vortex session. Registering an edition makes its declaration available to
 the session; enabling it allows the writer to use its components. Enabling another edition in the same family replaces
@@ -87,8 +86,8 @@ the previous selection.
 You can change the default configuration to:
 
 - **Target an older `core` edition** when the file must remain readable by an older Vortex deployment.
-- **Enable another family** to use components outside `core`. Vortex currently defines `preview`, `tensor`, `zstd`,
-  `spatial`, and `json` in addition to `core`.
+- **Enable another family** to use components outside `core`. Vortex currently defines `delta`, `list`, `patches`,
+  `tensor`, `zstd`, `spatial`, and `json` in addition to `core`.
 
 Sessions created without the Vortex facade must register and enable their editions before writing files. The lower-level
 `with_allow_encodings` policy can separately restrict which in-memory encodings a compression strategy may produce. It
@@ -115,9 +114,10 @@ retroactively to an existing edition. A component supplied by an optional plugin
 independently versioned family.
 
 Core-maintained objects do not enter `core` directly. When an object is ready for users to try and its wire format is
-believed complete, it enters its own new `preview` edition. Entry into preview is a format-stability commitment, not the
-start of format design: the serialized contract should change only when absolutely necessary to resolve a problem found
-during testing. After successful preview testing, the same object ID and wire contract move into a new `core` edition.
+believed complete, it enters a draft edition in an independently versioned family. Publishing that edition is a
+format-stability commitment, not the start of format design: the serialized contract should change only when absolutely
+necessary to resolve a problem found during testing. After successful testing, the same object ID and wire contract move
+into a new `core` edition.
 
 A new stable `core` or plugin edition may freeze in the release in which it first ships. Until that release is cut, its
 version is not known and the declaration keeps `min_library_version: None`. After the release is cut, the declaration is
@@ -240,25 +240,20 @@ perform their analogous compatibility checks at their own serialization boundari
   function outside the selected editions fails the write. With `allow_unknown`, readers disable a zone map whose
   aggregate function they do not recognize; ignoring a zone map only reduces pruning and does not affect correctness.
 
-## The `preview` family
+## Independently versioned component families
 
-Alongside `core` there is a `preview` family for core-maintained objects that are ready for real-world testing but are
-not yet part of the default core writer. Each new object enters through a new preview edition. Its wire format is
-expected to be complete at that point and should change only when absolutely necessary to resolve an issue discovered
-during testing. Preview does not yet carry core's unconditional read-forever guarantee.
+Components that are ready for real-world testing but are not part of the default core writer advance through their own
+families. Delta arrays use `delta`, Patched arrays use `patches`, and list layouts use `list`. Optional modules similarly
+use families such as `tensor`, `zstd`, `spatial`, and `json`. Each family can evolve without coupling its chronology or
+selection to unrelated components.
 
-If a required correction changes what readers must understand, give the corrected representation a new ID and put it in
-another preview edition instead of silently redefining the earlier ID. Once testing establishes that the object is ready
-for the compatibility guarantee, promote that same ID and serialized contract into a new `core` edition. Promotion
-changes its availability and guarantee, not its format.
+The wire format is expected to be complete when its first draft edition is published and should change only when
+necessary to resolve an issue discovered during testing. If a correction changes what readers must understand, give the
+corrected representation a new ID and add a later edition to the same family. Once testing establishes that an object is
+ready for the compatibility guarantee, promote that same ID and serialized contract into a new `core` edition.
 
-The default writer does not emit a newer wire ID merely because its reader understands it. Users opt in by enabling the
-preview edition containing that ID. Today, builds using the `unstable_encodings` Cargo feature also opt into registration
-and availability of the newest preview component set.
-
-Components that are still undergoing format design are not ready for `preview`. Components owned by optional plugins do
-not use `preview`; each new object advances a standalone family such as `tensor`, `zstd`, `spatial`, or `json`, because
-a reader without the plugin cannot resolve it.
+The default writer does not emit a component merely because its reader understands it. Users opt in by enabling the
+edition containing that component.
 
 ## Declaring, freezing, and the edition records
 
@@ -272,14 +267,14 @@ cargo run -p xtask -- generate-editions
 
 Changing the declarations follows the edition's lifecycle:
 
-1. **Create a new edition for every new object.** Never add a serialized object or reader-visible
-   revision to an existing edition. Optional components create the new edition in their plugin's
-   standalone family.
-2. **Put test-ready core work in preview.** When a core-maintained object is ready to be tried and
-   its format is believed complete, give it a new wire ID and add it to its own new `preview`
-   edition. Change that format only when absolutely necessary to resolve an issue found during
-   testing; a reader-visible correction normally gets another ID and preview edition.
-3. **Promote the tested contract to core.** After successful preview testing, add the same object
+1. **Create a new family and edition for every new object.** Never add an unrelated serialized
+   object or reader-visible revision to an existing family. A revision advances the family that
+   owns its earlier ID.
+2. **Publish test-ready work as a draft.** When an object is ready to be tried and its format is
+   believed complete, give it a wire ID and add it to a draft edition in its family. Change that
+   format only when necessary to resolve an issue found during testing; a reader-visible
+   correction gets another ID and a later edition in the same family.
+3. **Promote the tested contract to core.** After successful testing, add the same object
    ID and wire contract to a new `core` edition with `min_library_version: None`, regenerate the
    records, and ship it in a release. Promotion must not redesign the format. The edition freezes
    as part of that release. Its minimum library version cannot be populated yet because the release
@@ -342,30 +337,34 @@ Minimum library version: `0.80.0`.
 
 - `array`: `vortex.onpair`
 
-### Editions without a frozen core guarantee
-
-These editions have no minimum library version. Evolving features advance through new draft editions; stabilized preview
-features are expected to remain compatible unless a defect is serious enough to block promotion into core. Optional
-plugin families state their own policy.
-
 #### `core2026.08.2`
+
+Minimum library version: `0.85.0`.
 
 - `array`: `vortex.map`
 
 #### `core2026.08.3`
 
+Minimum library version: `0.85.0`.
+
 - `array`: `vortex.parquet.variant`, `vortex.variant`
 - `dtype`: `vortex.uuid`
 
-#### `preview2025.05.0`
+### Editions without a frozen core guarantee
+
+These editions have no minimum library version. Evolving features advance through new draft editions in their own
+families. Their formats are expected to remain compatible unless a defect is serious enough to block promotion into
+core. Optional plugin families state their own policy.
+
+#### `delta2025.05.0`
 
 - `array`: `fastlanes.delta`
 
-#### `preview2026.04.0`
+#### `patches2026.04.0`
 
 - `array`: `vortex.patched`
 
-#### `preview2026.06.0`
+#### `list2026.06.0`
 
 - `layout`: `vortex.list`
 

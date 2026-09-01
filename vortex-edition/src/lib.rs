@@ -201,9 +201,8 @@ pub struct Edition {
     /// A stable edition may freeze in the release that cuts it. Until that release is cut, its
     /// version is not known and this remains `None`. The version is then backfilled to document
     /// the already completed freeze and identify the first released reader supporting every
-    /// member. Preview editions remain drafts in this sense permanently: `draft` means that the
-    /// core read-forever guarantee has not been recorded, not that preview behavior is expected
-    /// to change.
+    /// member. A draft has no recorded read-forever guarantee; that does not imply that its
+    /// behavior is expected to change.
     /// Validated against the members' [`EditionInclusion::required_vortex_release`] values:
     /// no member may require a version newer than the edition declares.
     pub min_library_version: Option<&'static str>,
@@ -212,8 +211,8 @@ pub struct Edition {
 impl Edition {
     /// A draft is an edition whose `min_library_version` has not been recorded yet.
     ///
-    /// This describes the absence of a frozen core compatibility guarantee, not necessarily the
-    /// implementation stability of its members. Stabilized preview editions are drafts too.
+    /// This describes the absence of a frozen compatibility guarantee, not necessarily the
+    /// implementation stability of its members.
     pub fn is_draft(&self) -> bool {
         self.min_library_version.is_none()
     }

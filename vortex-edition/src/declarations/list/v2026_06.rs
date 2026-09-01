@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The June 2026 `preview` component cohort.
+//! The June 2026 `list` edition.
 
 use crate::Edition;
 use crate::EditionDeclaration;
 use crate::EditionId;
 use crate::EditionMember;
 
-/// The June 2026 draft edition of the `preview` family.
-pub const PREVIEW_2026_06_0: EditionId = EditionId::new("preview", 2026, 6, 0);
+/// The June 2026 draft edition of the `list` family.
+pub const LIST_2026_06_0: EditionId = EditionId::new("list", 2026, 6, 0);
 
-/// The declaration of [`PREVIEW_2026_06_0`] and the components that join the family at it.
+/// The declaration of [`LIST_2026_06_0`].
 pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
-        id: PREVIEW_2026_06_0,
+        id: LIST_2026_06_0,
         min_library_version: None,
     },
     added: &[EditionMember::layout(&"vortex.list")],

@@ -15,8 +15,8 @@ pub static FAMILY: EditionFamily = EditionFamily {
 wire representation that old readers either recognize or reject; several IDs may deserialize \
 into one current in-memory array. Every core edition freezes, and a frozen edition carries a \
 read-forever guarantee: a file written with it stays readable by every later Vortex release. \
-New core objects first undergo testing in their own preview editions, then join core with the \
-same IDs and wire contracts. An edition may freeze in the release that cuts it; after that \
+New core objects first undergo testing in independently versioned families, then join core with \
+the same IDs and wire contracts. An edition may freeze in the release that cuts it; after that \
 release version is known, the declaration is backfilled with it as the minimum. A frozen edition \
 never changes.",
 };

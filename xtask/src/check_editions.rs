@@ -4,9 +4,9 @@
 //! Check that frozen edition records under `vortex/editions` never change.
 //!
 //! A draft record carries no core read-forever guarantee and is not mechanically locked by this
-//! check. It may describe evolving work, stabilized preview functionality awaiting adoption, or a
-//! stable edition waiting for its release to be cut. Normal feature additions advance to a new
-//! edition; exceptional corrections remain possible before a core freeze. A stable edition can
+//! check. It may describe evolving work, a stable component awaiting adoption, or an edition
+//! waiting for its release to be cut. Normal feature additions advance to a new edition;
+//! exceptional corrections remain possible before a core freeze. A stable edition can
 //! freeze in its release; once the release version is known, `min_library_version` is backfilled to
 //! document the freeze. The record then carries a read-forever guarantee and may never change
 //! again. Whether a record was frozen is read from the base revision, so a change cannot unfreeze

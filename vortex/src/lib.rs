@@ -265,6 +265,11 @@ pub mod encodings {
         pub use vortex_fsst::*;
     }
 
+    /// Parquet Variant array encoding.
+    pub mod parquet_variant {
+        pub use vortex_parquet_variant::*;
+    }
+
     /// Pco numeric compression encoding.
     pub mod pco {
         pub use vortex_pco::*;
@@ -317,6 +322,7 @@ impl VortexSessionDefault for VortexSession {
             .with::<MemorySession>()
             .with::<RuntimeSession>();
         vortex_arrow::initialize(&session);
+        vortex_parquet_variant::initialize(&session);
         editions::register_default_editions(&session);
         editions::enable_default_editions(&session);
 
