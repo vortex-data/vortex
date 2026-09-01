@@ -8,7 +8,6 @@ use std::fmt::Debug;
 use std::mem::size_of;
 use std::sync::Arc;
 
-use bytes::Bytes;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
@@ -244,7 +243,7 @@ impl HostAllocator for DefaultHostAllocator {
         // SAFETY: We fully initialize this slice before freezing it.
         unsafe { buffer.set_len(len) };
         Ok(WritableHostBuffer::new(Box::new(
-            DefaultWritableHostBuffer { buffer, alignment },
+            DefaultWritableHostBuffer { buffer },
         )))
     }
 }
@@ -252,18 +251,6 @@ impl HostAllocator for DefaultHostAllocator {
 #[derive(Debug)]
 struct DefaultWritableHostBuffer {
     buffer: ByteBufferMut,
-    alignment: Alignment,
-}
-
-#[derive(Debug)]
-struct HostBufferOwner {
-    buffer: ByteBufferMut,
-}
-
-impl AsRef<[u8]> for HostBufferOwner {
-    fn as_ref(&self) -> &[u8] {
-        self.buffer.as_slice()
-    }
 }
 
 impl HostBufferMut for DefaultWritableHostBuffer {
@@ -272,7 +259,7 @@ impl HostBufferMut for DefaultWritableHostBuffer {
     }
 
     fn alignment(&self) -> Alignment {
-        self.alignment
+        self.buffer.alignment()
     }
 
     fn as_mut_slice(&mut self) -> &mut [u8] {
@@ -280,9 +267,7 @@ impl HostBufferMut for DefaultWritableHostBuffer {
     }
 
     fn freeze(self: Box<Self>) -> ByteBuffer {
-        let Self { buffer, alignment } = *self;
-        let bytes = Bytes::from_owner(HostBufferOwner { buffer });
-        ByteBuffer::from_bytes_aligned(bytes, alignment)
+        self.buffer.freeze()
     }
 }
 
