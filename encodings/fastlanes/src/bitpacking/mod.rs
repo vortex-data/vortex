@@ -9,6 +9,7 @@ pub use array::BitPackedDataParts;
 pub use array::BitPackedSlots;
 pub use array::bitpack_compress;
 pub use array::bitpack_decompress;
+pub use array::kernels;
 pub use array::unpack_iter;
 
 pub(crate) mod compute;
