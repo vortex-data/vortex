@@ -493,24 +493,44 @@ impl<T> BufferMut<T> {
             .unwrap_or_else(|_| vortex_panic!("buffer capacity exceeds maximum allocation size"));
 
         let old_offset = self.ptr.cast::<u8>().addr().get() - self.allocation.ptr().addr().get();
-        self.allocation.grow(layout);
-        let new_offset = self
-            .allocation
-            .ptr()
-            .as_ptr()
-            .align_offset(physical_alignment.as_usize());
-        if new_offset != old_offset {
-            // SAFETY: grow preserved the initialized elements at old_offset. The new allocation
-            // has room for the requested elements plus alignment padding, and copy permits
-            // overlap.
+        let new_offset = if self.allocation.allocator().is_statically_allocated() {
+            let allocation =
+                Allocation::allocate(layout, BufferAllocatorRef::statically_allocated());
+            let new_offset = allocation
+                .ptr()
+                .as_ptr()
+                .align_offset(physical_alignment.as_usize());
+            // SAFETY: both allocations have room for the initialized elements and do not overlap.
             unsafe {
-                std::ptr::copy(
-                    self.allocation.ptr().as_ptr().add(old_offset),
-                    self.allocation.ptr().as_ptr().add(new_offset),
+                std::ptr::copy_nonoverlapping(
+                    self.ptr.cast::<u8>().as_ptr(),
+                    allocation.ptr().as_ptr().add(new_offset),
                     self.length * size_of::<T>(),
                 );
             }
-        }
+            self.allocation = allocation;
+            new_offset
+        } else {
+            self.allocation.grow(layout);
+            let new_offset = self
+                .allocation
+                .ptr()
+                .as_ptr()
+                .align_offset(physical_alignment.as_usize());
+            if new_offset != old_offset {
+                // SAFETY: grow preserved the initialized elements at old_offset. The new allocation
+                // has room for the requested elements plus alignment padding, and copy permits
+                // overlap.
+                unsafe {
+                    std::ptr::copy(
+                        self.allocation.ptr().as_ptr().add(old_offset),
+                        self.allocation.ptr().as_ptr().add(new_offset),
+                        self.length * size_of::<T>(),
+                    );
+                }
+            }
+            new_offset
+        };
         // SAFETY: new_offset was computed within the allocation for physical_alignment.
         self.ptr = unsafe { self.allocation.ptr().add(new_offset).cast() };
         self.capacity = logical_size / size_of::<T>();
@@ -1020,6 +1040,20 @@ mod test {
 
         buffer.reserve(capacity);
         assert_eq!(buffer.capacity(), capacity * 2);
+    }
+
+    #[test]
+    fn static_growth_copies_live_data() {
+        let mut buffer = BufferMut::<u32>::with_capacity(1);
+        let capacity = buffer.capacity();
+        buffer.extend(std::iter::repeat_n(7, capacity));
+        let old_ptr = buffer.as_ptr();
+
+        buffer.push(u32::MAX);
+
+        assert_ne!(buffer.as_ptr(), old_ptr);
+        assert_eq!(&buffer[..capacity], vec![7; capacity]);
+        assert_eq!(buffer[capacity], u32::MAX);
     }
 
     #[test]
