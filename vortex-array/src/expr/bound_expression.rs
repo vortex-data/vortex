@@ -101,6 +101,7 @@ pub struct BoundLambda {
     params: Box<[Variable]>,
     param_dtypes: Box<[DType]>,
     param_refs: Box<[VariableRef]>,
+    captures: Box<[BoundVariable]>,
     parameter_frame: usize,
     body: Arc<BoundExpression>,
 }
@@ -135,6 +136,9 @@ impl BoundLambda {
             "lambda parameters must be bound in the innermost lexical frame"
         );
 
+        let body = lambda.body().bind_scope(scope)?;
+        let captures = collect_captures(&body, parameter_frame);
+
         Ok(Self {
             params: lambda.params().into(),
             param_dtypes: parameter_bindings
@@ -145,8 +149,9 @@ impl BoundLambda {
                 .into_iter()
                 .map(|(_, variable_ref)| variable_ref)
                 .collect(),
+            captures,
             parameter_frame,
-            body: Arc::new(lambda.body().bind_scope(scope)?),
+            body: Arc::new(body),
         })
     }
 
@@ -163,6 +168,11 @@ impl BoundLambda {
     /// The lexical locations assigned to the parameters, in declaration order.
     pub fn param_refs(&self) -> &[VariableRef] {
         &self.param_refs
+    }
+
+    /// The outer lexical bindings read by this lambda body.
+    pub fn captures(&self) -> &[BoundVariable] {
+        &self.captures
     }
 
     /// The lexical frame containing the parameters.
@@ -182,33 +192,10 @@ impl BoundLambda {
 
     /// The outer lexical bindings read by this lambda body.
     pub fn free_variables(&self) -> Vec<VariableRef> {
-        fn collect(
-            expression: &BoundExpression,
-            parameter_frame: usize,
-            variables: &mut Vec<VariableRef>,
-        ) {
-            match expression {
-                BoundExpression::Variable(variable)
-                    if variable.variable_ref().frame() < parameter_frame
-                        && !variables.contains(&variable.variable_ref()) =>
-                {
-                    variables.push(variable.variable_ref());
-                }
-                BoundExpression::Scalar { children, .. } => {
-                    for child in children.iter() {
-                        collect(child, parameter_frame, variables);
-                    }
-                }
-                BoundExpression::Lambda(_)
-                | BoundExpression::Root { .. }
-                | BoundExpression::Variable(_) => {}
-            }
-        }
-
-        let mut variables = Vec::new();
-        collect(&self.body, self.parameter_frame, &mut variables);
-        variables.sort_by_key(|variable_ref| (variable_ref.frame(), variable_ref.slot()));
-        variables
+        self.captures
+            .iter()
+            .map(BoundVariable::variable_ref)
+            .collect()
     }
 
     fn take_body(&mut self) -> Option<BoundExpression> {
@@ -218,6 +205,41 @@ impl BoundLambda {
         ))
         .ok()
     }
+}
+
+fn collect_captures(expression: &BoundExpression, parameter_frame: usize) -> Box<[BoundVariable]> {
+    fn collect(
+        expression: &BoundExpression,
+        parameter_frame: usize,
+        captures: &mut Vec<BoundVariable>,
+    ) {
+        match expression {
+            BoundExpression::Variable(variable)
+                if variable.variable_ref().frame() < parameter_frame
+                    && !captures
+                        .iter()
+                        .any(|capture| capture.variable_ref() == variable.variable_ref()) =>
+            {
+                captures.push(variable.clone());
+            }
+            BoundExpression::Scalar { children, .. } => {
+                for child in children.iter() {
+                    collect(child, parameter_frame, captures);
+                }
+            }
+            BoundExpression::Lambda(_)
+            | BoundExpression::Root { .. }
+            | BoundExpression::Variable(_) => {}
+        }
+    }
+
+    let mut captures = Vec::new();
+    collect(expression, parameter_frame, &mut captures);
+    captures.sort_by_key(|capture| {
+        let variable_ref = capture.variable_ref();
+        (variable_ref.frame(), variable_ref.slot())
+    });
+    captures.into_boxed_slice()
 }
 
 impl Display for BoundLambda {
