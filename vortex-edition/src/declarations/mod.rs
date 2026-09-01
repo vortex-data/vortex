@@ -15,6 +15,7 @@ pub mod core;
 pub mod delta;
 pub mod list;
 pub mod patches;
+pub mod pco;
 pub mod preview;
 
 use crate::EditionDeclaration;
@@ -26,6 +27,7 @@ pub static EDITION_FAMILIES: &[&EditionFamily] = &[
     &delta::FAMILY,
     &list::FAMILY,
     &patches::FAMILY,
+    &pco::FAMILY,
     &preview::FAMILY,
 ];
 
@@ -41,5 +43,6 @@ pub static EDITION_DECLARATIONS: &[&EditionDeclaration] = &[
     &delta::v2025_05::DECLARATION,
     &list::v2026_06::DECLARATION,
     &patches::v2026_04::DECLARATION,
+    &pco::v2026_09::DECLARATION,
     &preview::v2026_08::DECLARATION,
 ];

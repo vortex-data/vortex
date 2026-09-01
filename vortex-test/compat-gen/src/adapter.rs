@@ -53,12 +53,34 @@ pub fn compute_all_stats(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResu
 /// Uses `FlatLayoutStrategy` directly — no repartitioning, no zone maps, no dictionary
 /// encoding, no compression. Each chunk is serialized as a single flat segment.
 pub fn write_file(path: &Path, chunk: ArrayRef) -> VortexResult<()> {
-    write_compressed(path, chunk, Arc::new(FlatLayoutStrategy::default()))
+    write_file_with_session(&VortexSession::default(), path, chunk)
+}
+
+/// Write a sequence of array chunks with no compression using `session`.
+pub fn write_file_with_session(
+    session: &VortexSession,
+    path: &Path,
+    chunk: ArrayRef,
+) -> VortexResult<()> {
+    write_compressed_with_session(
+        session,
+        path,
+        chunk,
+        Arc::new(FlatLayoutStrategy::default()),
+    )
 }
 
 /// Write a sequence of array chunks to an in-memory `.vortex` byte buffer with no compression.
 pub fn write_file_to_bytes(chunk: ArrayRef) -> VortexResult<ByteBuffer> {
-    write_compressed_to_bytes(chunk, Arc::new(FlatLayoutStrategy::default()))
+    write_file_to_bytes_with_session(&VortexSession::default(), chunk)
+}
+
+/// Write a sequence of array chunks into memory with no compression using `session`.
+pub fn write_file_to_bytes_with_session(
+    session: &VortexSession,
+    chunk: ArrayRef,
+) -> VortexResult<ByteBuffer> {
+    write_compressed_to_bytes_with_session(session, chunk, Arc::new(FlatLayoutStrategy::default()))
 }
 
 /// Write a `.vortex` file using a caller-provided layout strategy (compressor pipeline).
@@ -67,10 +89,21 @@ pub fn write_compressed(
     chunk: ArrayRef,
     strategy: Arc<dyn LayoutStrategy>,
 ) -> VortexResult<()> {
+    write_compressed_with_session(&VortexSession::default(), path, chunk, strategy)
+}
+
+/// Write a `.vortex` file using a caller-provided session and layout strategy.
+pub fn write_compressed_with_session(
+    session: &VortexSession,
+    path: &Path,
+    chunk: ArrayRef,
+    strategy: Arc<dyn LayoutStrategy>,
+) -> VortexResult<()> {
     let stream = ArrayStreamAdapter::new(chunk.dtype().clone(), stream::iter([Ok(chunk)]));
+    let session = session.clone();
 
     runtime()?.block_on(async {
-        let session = VortexSession::default().with_tokio();
+        let session = session.with_tokio();
         let mut file = tokio::fs::File::create(path)
             .await
             .map_err(|e| vortex_err!("failed to create {}: {e}", path.display()))?;

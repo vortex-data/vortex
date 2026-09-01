@@ -80,6 +80,10 @@ use crate::PcoPageInfo;
 
 const VALUES_PER_CHUNK: usize = pco::DEFAULT_MAX_PAGE_N;
 
+pub(crate) fn is_8_bit(dtype: &DType) -> bool {
+    matches!(dtype, DType::Primitive(PType::I8 | PType::U8, _))
+}
+
 /// A [`Pco`]-encoded Vortex array.
 pub type PcoArray = Array<Pco>;
 
@@ -194,7 +198,10 @@ impl VTable for Pco {
         array: ArrayView<'_, Self>,
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(array.metadata.clone().encode_to_vec()))
+        if is_8_bit(array.dtype()) {
+            return Ok(None);
+        }
+        Ok(Some(serialized_metadata(array)))
     }
 
     fn deserialize(
@@ -206,42 +213,11 @@ impl VTable for Pco {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = PcoMetadata::decode(metadata)?;
-        let validity = if children.is_empty() {
-            Validity::from(dtype.nullability())
-        } else if children.len() == 1 {
-            let validity = children.get(0, &Validity::DTYPE, len)?;
-            Validity::Array(validity)
-        } else {
-            vortex_bail!("PcoArray expected 0 or 1 child, got {}", children.len());
-        };
-
-        vortex_ensure!(buffers.len() >= metadata.chunks.len());
-        let chunk_metas = buffers[..metadata.chunks.len()]
-            .iter()
-            .map(|b| b.clone().try_to_host_sync())
-            .collect::<VortexResult<Vec<_>>>()?;
-        let pages = buffers[metadata.chunks.len()..]
-            .iter()
-            .map(|b| b.clone().try_to_host_sync())
-            .collect::<VortexResult<Vec<_>>>()?;
-
-        let expected_n_pages = metadata
-            .chunks
-            .iter()
-            .map(|info| info.pages.len())
-            .sum::<usize>();
-        vortex_ensure!(pages.len() == expected_n_pages);
-
-        let slots = PcoSlots {
-            validity: validity_to_child(&validity, len),
-        }
-        .into_slots();
-        // SAFETY: `Array::try_from_parts`, which consumes these parts, validates the data before
-        // publishing the array.
-        let data =
-            unsafe { PcoData::new_unchecked(chunk_metas, pages, dtype.as_ptype(), metadata, len) };
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        vortex_ensure!(
+            !is_8_bit(dtype),
+            "serialized ID vortex.pco cannot represent {dtype}"
+        );
+        deserialize_parts(dtype, len, metadata, buffers, children)
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -265,6 +241,55 @@ impl VTable for Pco {
     ) -> VortexResult<Option<ArrayRef>> {
         crate::rules::RULES.evaluate(array, parent, child_idx)
     }
+}
+
+pub(crate) fn serialized_metadata(array: ArrayView<'_, Pco>) -> Vec<u8> {
+    array.metadata.clone().encode_to_vec()
+}
+
+pub(crate) fn deserialize_parts(
+    dtype: &DType,
+    len: usize,
+    metadata: &[u8],
+    buffers: &[BufferHandle],
+    children: &dyn ArrayChildren,
+) -> VortexResult<ArrayParts<Pco>> {
+    let metadata = PcoMetadata::decode(metadata)?;
+    let validity = if children.is_empty() {
+        Validity::from(dtype.nullability())
+    } else if children.len() == 1 {
+        let validity = children.get(0, &Validity::DTYPE, len)?;
+        Validity::Array(validity)
+    } else {
+        vortex_bail!("PcoArray expected 0 or 1 child, got {}", children.len());
+    };
+
+    vortex_ensure!(buffers.len() >= metadata.chunks.len());
+    let chunk_metas = buffers[..metadata.chunks.len()]
+        .iter()
+        .map(|b| b.clone().try_to_host_sync())
+        .collect::<VortexResult<Vec<_>>>()?;
+    let pages = buffers[metadata.chunks.len()..]
+        .iter()
+        .map(|b| b.clone().try_to_host_sync())
+        .collect::<VortexResult<Vec<_>>>()?;
+
+    let expected_n_pages = metadata
+        .chunks
+        .iter()
+        .map(|info| info.pages.len())
+        .sum::<usize>();
+    vortex_ensure!(pages.len() == expected_n_pages);
+
+    let slots = PcoSlots {
+        validity: validity_to_child(&validity, len),
+    }
+    .into_slots();
+    // SAFETY: `Array::try_from_parts`, which consumes these parts, validates the data before
+    // publishing the array.
+    let data =
+        unsafe { PcoData::new_unchecked(chunk_metas, pages, dtype.as_ptype(), metadata, len) };
+    Ok(ArrayParts::new(Pco, dtype.clone(), len, data).with_slots(slots))
 }
 
 pub(crate) fn number_type_from_dtype(dtype: &DType) -> NumberType {

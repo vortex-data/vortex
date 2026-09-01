@@ -84,7 +84,7 @@ You can change the default configuration to:
 
 - **Target an older `core` edition** when the file must remain readable by an older Vortex deployment.
 - **Enable another family** to use components outside `core`. Vortex currently defines `preview`, `delta`, `list`,
-  `patches`, `tensor`, `zstd`, `spatial`, and `json` in addition to `core`.
+  `patches`, `pco`, `tensor`, `zstd`, `spatial`, and `json` in addition to `core`.
 
 Sessions created without the Vortex facade must register and enable their editions before writing files.
 
@@ -240,9 +240,9 @@ families until it meets the preview compatibility bar.
 ## Independently versioned component families
 
 Components that are ready for focused testing but are not yet ready for the shared preview set advance through their own
-families. Delta arrays use `delta`, Patched arrays use `patches`, and list layouts use `list`. Optional modules similarly
-use families such as `tensor`, `zstd`, `spatial`, and `json`. Each family can evolve without coupling its chronology or
-selection to unrelated components.
+families. Delta arrays use `delta`, Patched arrays use `patches`, Pco wire revisions use `pco`, and list layouts use
+`list`. Optional modules similarly use families such as `tensor`, `zstd`, `spatial`, and `json`. Each family can evolve
+without coupling its chronology or selection to unrelated components.
 
 The wire format is expected to be complete when its first draft edition is published and should change only when
 necessary to resolve an issue discovered during testing. If a correction changes what readers must understand, give the
@@ -370,6 +370,10 @@ This edition currently adds no components.
 #### `list2026.06.0`
 
 - `layout`: `vortex.list`
+
+#### `pco2026.09.0`
+
+- `array`: `vortex.pco.v2`
 
 #### `tensor2026.04.0`
 

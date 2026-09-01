@@ -6,15 +6,20 @@ mod arrays;
 use std::path::Path;
 use std::sync::Arc;
 
+use vortex::VortexSessionDefault;
 use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::compressor::BtrBlocksCompressorBuilder;
+use vortex::editions::EditionId;
+use vortex::editions::EditionSessionExt;
 use vortex::file::WriteStrategyBuilder;
 use vortex_array::ExecutionCtx;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 
 use crate::adapter;
 use crate::adapter::compute_all_stats;
@@ -52,6 +57,21 @@ pub trait FlatLayoutFixture {
     fn expected_encodings(&self) -> Vec<ArrayId> {
         vec![]
     }
+
+    /// Draft editions that must be enabled to serialize this fixture.
+    fn required_editions(&self) -> Vec<EditionId> {
+        vec![]
+    }
+}
+
+pub(crate) fn flat_layout_session(fixture: &dyn FlatLayoutFixture) -> VortexResult<VortexSession> {
+    let session = VortexSession::default();
+    for edition in fixture.required_editions() {
+        session
+            .enable_edition(edition)
+            .map_err(|error| vortex_err!("enabling fixture edition {edition}: {error}"))?;
+    }
+    Ok(session)
 }
 
 /// A fixture backed by a real-world dataset that produces multiple chunks.
@@ -90,7 +110,8 @@ impl Fixture for FlatLayoutAdapter {
         check_expected_encodings(&array, self.0.as_ref())?;
         compute_all_stats(&array, ctx)?;
         let path = dir.join(self.name());
-        adapter::write_file(&path, array)?;
+        let session = flat_layout_session(self.0.as_ref())?;
+        adapter::write_file_with_session(&session, &path, array)?;
         Ok(vec![FixtureEntry {
             name: self.name().to_string(),
             description: self.description().to_string(),

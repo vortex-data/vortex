@@ -72,12 +72,12 @@ fn trace_session() -> VortexSession {
     vortex_fsst::initialize(&session);
     #[cfg(feature = "unstable_encodings")]
     vortex_onpair::initialize(&session);
+    #[cfg(feature = "pco")]
+    vortex_pco::initialize(&session);
     vortex_zigzag::initialize(&session);
 
     {
         let arrays = session.arrays();
-        #[cfg(feature = "pco")]
-        arrays.register(vortex_pco::Pco);
         #[cfg(feature = "zstd")]
         arrays.register(vortex_zstd::Zstd);
         #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]

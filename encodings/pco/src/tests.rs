@@ -7,6 +7,9 @@ use std::sync::LazyLock;
 use num_traits::NumCast;
 use rstest::rstest;
 use vortex_array::ArrayContext;
+use vortex_array::ArrayId;
+use vortex_array::ArrayRef;
+use vortex_array::ArrayVTable;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
@@ -20,7 +23,6 @@ use vortex_array::dtype::PType;
 use vortex_array::match_each_native_ptype;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::SerializedArray;
-use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
 use vortex_arrow::ArrowSessionExt;
 use vortex_buffer::Buffer;
@@ -31,16 +33,26 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
+use crate::Pco;
 use crate::PcoArrayExt;
 use crate::PcoData;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = vortex_array::array_session();
-    session.arrays().register(Pco);
+    crate::initialize(&session);
     session
 });
 
-use crate::Pco;
+fn serialize_pco(array: &ArrayRef, context: &ArrayContext) -> VortexResult<SerializedArray> {
+    let bytes = array
+        .serialize(context, &SESSION, &SerializeOptions::default())?
+        .into_iter()
+        .flat_map(|buffer| buffer.into_iter())
+        .collect::<BufferMut<u8>>()
+        .freeze();
+    SerializedArray::try_from(bytes)
+}
+
 #[test]
 fn test_compress_decompress() {
     let mut ctx = SESSION.create_execution_ctx();
@@ -193,26 +205,13 @@ fn test_serde() -> VortexResult<()> {
     let pco = Pco::from_primitive(data.as_view(), 3, 100, &mut ctx)?.into_array();
 
     let context = ArrayContext::empty();
-
-    let bytes = pco
-        .serialize(
-            &context,
-            &SESSION,
-            &SerializeOptions {
-                offset: 0,
-                include_padding: true,
-            },
-        )?
-        .into_iter()
-        .flat_map(|x| x.into_iter())
-        .collect::<BufferMut<u8>>()
-        .freeze();
-
-    let parts = SerializedArray::try_from(bytes)?;
+    let parts = serialize_pco(&pco, &context)?;
+    let read_context = ReadContext::new(context.to_ids());
+    assert_eq!(read_context.resolve(parts.encoding_id()), Some(Pco.id()));
     let decoded = parts.decode(
         &DType::Primitive(PType::I32, Nullability::NonNullable),
         1_000_000,
-        &ReadContext::new(context.to_ids()),
+        &read_context,
         &SESSION,
     )?;
     let data_type = SESSION.arrow().to_arrow_field("", data.dtype())?;
@@ -223,6 +222,58 @@ fn test_serde() -> VortexResult<()> {
         .arrow()
         .execute_arrow(decoded, Some(&data_type), &mut ctx)?;
     assert!(pco_arrow == decoded_arrow);
+    Ok(())
+}
+
+#[test]
+fn eight_bit_uses_v2_wire_id() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let data = PrimitiveArray::from_iter(i8::MIN..=i8::MAX);
+    let pco = Pco::from_primitive(data.as_view(), 3, 0, &mut ctx)?.into_array();
+    let context = ArrayContext::empty();
+    let serialized = serialize_pco(&pco, &context)?;
+    let read_context = ReadContext::new(context.to_ids());
+
+    assert_eq!(
+        read_context.resolve(serialized.encoding_id()),
+        Some(ArrayId::from("vortex.pco.v2"))
+    );
+    let decoded = serialized.decode(data.dtype(), data.len(), &read_context, &SESSION)?;
+    assert_arrays_eq!(decoded, data, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn v1_wire_id_rejects_eight_bit_dtype() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let data = PrimitiveArray::from_iter(i8::MIN..=i8::MAX);
+    let pco = Pco::from_primitive(data.as_view(), 3, 0, &mut ctx)?.into_array();
+    let context = ArrayContext::empty();
+    let serialized = serialize_pco(&pco, &context)?;
+
+    let error = serialized
+        .decode(
+            data.dtype(),
+            data.len(),
+            &ReadContext::new([Pco.id()]),
+            &SESSION,
+        )
+        .expect_err("vortex.pco must not accept an 8-bit payload");
+    assert!(error.to_string().contains("cannot represent"));
+    Ok(())
+}
+
+#[test]
+fn v2_must_be_allowed_by_the_serialization_context() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let data = PrimitiveArray::from_iter(0..=u8::MAX);
+    let pco = Pco::from_primitive(data.as_view(), 3, 0, &mut ctx)?.into_array();
+    let context =
+        ArrayContext::new(vec![Pco.id()]).with_allowed_ids([Pco.id()].into_iter().collect());
+
+    let error = serialize_pco(&pco, &context)
+        .expect_err("vortex.pco.v2 must be declared by an enabled edition");
+    assert!(error.to_string().contains("vortex.pco.v2 not permitted"));
     Ok(())
 }
 

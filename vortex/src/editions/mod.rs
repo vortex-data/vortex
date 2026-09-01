@@ -16,7 +16,7 @@
 //!
 //! The default file writer resolves the session's enabled editions at write time. The
 //! facade enables [`crate::editions::CORE_2026_08_3`] and
-//! additionally enables the `preview`, `delta`, `list`, and `patches` editions when the
+//! additionally enables the `preview`, `delta`, `list`, `patches`, and `pco` editions when the
 //! `unstable_encodings` feature is selected.
 
 #[cfg(test)]
@@ -48,6 +48,8 @@ pub use vortex_edition::declarations::list;
 pub use vortex_edition::declarations::list::LIST_2026_06_0;
 pub use vortex_edition::declarations::patches;
 pub use vortex_edition::declarations::patches::PATCHES_2026_04_0;
+pub use vortex_edition::declarations::pco;
+pub use vortex_edition::declarations::pco::PCO_2026_09_0;
 pub use vortex_edition::declarations::preview;
 pub use vortex_edition::declarations::preview::PREVIEW_2026_08_0;
 use vortex_error::VortexExpect;
@@ -82,7 +84,7 @@ pub fn register_default_editions(session: &VortexSession) {
 /// Enable the default Vortex editions for writing.
 ///
 /// This selects the default `core` edition and, when configured, the `preview`, `delta`, `list`,
-/// and `patches` editions. All declarations must have been registered first with
+/// `patches`, and `pco` editions. All declarations must have been registered first with
 /// [`register_default_editions`].
 pub fn enable_default_editions(session: &VortexSession) {
     session
@@ -96,6 +98,7 @@ pub fn enable_default_editions(session: &VortexSession) {
         DELTA_2025_05_0,
         LIST_2026_06_0,
         PATCHES_2026_04_0,
+        PCO_2026_09_0,
     ] {
         session
             .enable_edition(edition)

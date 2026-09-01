@@ -45,6 +45,7 @@ use super::DELTA_2025_05_0;
 use super::EDITION_DECLARATIONS;
 use super::LIST_2026_06_0;
 use super::PATCHES_2026_04_0;
+use super::PCO_2026_09_0;
 use super::PREVIEW_2026_08_0;
 
 fn session() -> Result<EditionSession, EditionError> {
@@ -150,6 +151,10 @@ fn components_have_independent_edition_families() {
     let list = session.components_in(&LIST_2026_06_0, ComponentKind::Layout);
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].component_id.as_str(), "vortex.list");
+
+    let pco = session.components_in(&PCO_2026_09_0, ComponentKind::Array);
+    assert_eq!(pco.len(), 1);
+    assert_eq!(pco[0].component_id.as_str(), "vortex.pco.v2");
 }
 
 #[test]
@@ -238,6 +243,7 @@ fn default_session_enables_the_write_editions() {
         DELTA_2025_05_0,
         LIST_2026_06_0,
         PATCHES_2026_04_0,
+        PCO_2026_09_0,
     ] {
         #[cfg(feature = "unstable_encodings")]
         assert!(enabled.contains(&edition));

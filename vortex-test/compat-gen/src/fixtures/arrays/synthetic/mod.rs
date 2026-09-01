@@ -24,6 +24,7 @@ mod tests {
     use super::fixtures;
     use crate::adapter;
     use crate::fixtures::check_expected_encodings;
+    use crate::fixtures::flat_layout_session;
 
     #[test]
     fn roundtrip_fixtures_to_bytes() {
@@ -31,7 +32,8 @@ mod tests {
             let mut ctx = array_session().create_execution_ctx();
             let array = fixture.build(&mut ctx).unwrap();
             check_expected_encodings(&array, fixture.as_ref()).unwrap();
-            let bytes = adapter::write_file_to_bytes(array.clone()).unwrap();
+            let session = flat_layout_session(fixture.as_ref()).unwrap();
+            let bytes = adapter::write_file_to_bytes_with_session(&session, array.clone()).unwrap();
             let roundtripped = adapter::read_file(bytes).unwrap();
             assert_arrays_eq!(array, roundtripped, &mut ctx);
         }
