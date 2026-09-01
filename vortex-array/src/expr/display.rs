@@ -4,6 +4,7 @@
 use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::sync::Arc;
 
 use vortex_utils::tree::TreeDisplayAdapter;
 use vortex_utils::tree::write_branch_tree;
@@ -64,6 +65,7 @@ impl DisplayTreeNode for Expression {
     fn tree_children(&self) -> &[Self] {
         match self {
             Expression::Lambda(lambda) => std::slice::from_ref(lambda.body()),
+            Expression::ListTransform { .. } => Expression::children(self),
             Expression::Scalar { .. } | Expression::Root | Expression::Variable(_) => {
                 Expression::children(self)
             }
@@ -74,6 +76,11 @@ impl DisplayTreeNode for Expression {
         match self {
             Expression::Scalar { scalar_fn, .. } => scalar_fn.signature().child_name(index),
             Expression::Lambda(_) => ChildName::from("body"),
+            Expression::ListTransform { .. } => match index {
+                0 => ChildName::from("list"),
+                1 => ChildName::from("lambda"),
+                _ => unreachable!("list transform has two children"),
+            },
             Expression::Root | Expression::Variable(_) => {
                 unreachable!("a leaf expression has no children")
             }
@@ -84,6 +91,7 @@ impl DisplayTreeNode for Expression {
         match self {
             Expression::Scalar { scalar_fn, .. } => Display::fmt(scalar_fn, f),
             Expression::Lambda(lambda) => fmt_lambda(lambda.params(), f),
+            Expression::ListTransform { .. } => write!(f, "vortex.list_transform()"),
             Expression::Root => write!(f, "{ROOT_DISPLAY}"),
             Expression::Variable(variable) => write!(f, "vortex.var({variable})"),
         }
@@ -95,6 +103,7 @@ impl DisplayTreeNode for BoundExpression {
         match self {
             BoundExpression::Lambda(lambda) => std::slice::from_ref(lambda.body()),
             BoundExpression::Scalar { .. }
+            | BoundExpression::ListTransform { .. }
             | BoundExpression::Root { .. }
             | BoundExpression::Variable(_) => BoundExpression::children(self),
         }
@@ -104,6 +113,10 @@ impl DisplayTreeNode for BoundExpression {
         match self {
             BoundExpression::Scalar { scalar_fn, .. } => scalar_fn.signature().child_name(index),
             BoundExpression::Lambda(_) => ChildName::from("body"),
+            BoundExpression::ListTransform { .. } => match index {
+                0 => ChildName::from("list"),
+                index => ChildName::from(Arc::<str>::from(format!("capture[{}]", index - 1))),
+            },
             BoundExpression::Root { .. } | BoundExpression::Variable(_) => {
                 unreachable!("a leaf bound expression has no children")
             }
@@ -114,6 +127,7 @@ impl DisplayTreeNode for BoundExpression {
         match self {
             BoundExpression::Scalar { scalar_fn, .. } => Display::fmt(scalar_fn, f),
             BoundExpression::Lambda(lambda) => fmt_lambda(lambda.params(), f),
+            BoundExpression::ListTransform { .. } => write!(f, "vortex.list_transform()"),
             BoundExpression::Root { .. } => write!(f, "{ROOT_DISPLAY}"),
             BoundExpression::Variable(variable) => write!(f, "vortex.var({variable})"),
         }

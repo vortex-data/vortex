@@ -17,6 +17,7 @@ pub fn label_strict(expr: &Expression) -> BooleanLabels<'_> {
             Expression::Root => true,
             // Strictness is determined by the enclosing HOF.
             Expression::Variable(_) | Expression::Lambda(_) => true,
+            Expression::ListTransform { .. } => false,
         },
         |acc, &child| acc & child,
     )

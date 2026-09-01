@@ -103,6 +103,7 @@ pub use exprs::list_contains;
 pub use exprs::list_length;
 pub use exprs::list_sum;
 pub use exprs::list_sum_opts;
+pub use exprs::list_transform;
 pub use exprs::lit;
 pub use exprs::lt;
 pub use exprs::lt_eq;
@@ -172,6 +173,14 @@ impl PartialEq for ExactExpr {
             (Expression::Variable(lhs), Expression::Variable(rhs)) => lhs == rhs,
             (Expression::Lambda(lhs), Expression::Lambda(rhs)) => lhs == rhs,
             (
+                Expression::ListTransform {
+                    children: lhs_children,
+                },
+                Expression::ListTransform {
+                    children: rhs_children,
+                },
+            ) => Arc::ptr_eq(lhs_children, rhs_children),
+            (
                 Expression::Scalar {
                     scalar_fn: lhs_fn,
                     children: lhs_children,
@@ -184,6 +193,7 @@ impl PartialEq for ExactExpr {
             (Expression::Root, _)
             | (Expression::Scalar { .. }, _)
             | (Expression::Lambda(_), _)
+            | (Expression::ListTransform { .. }, _)
             | (Expression::Variable(_), _) => false,
         }
     }
@@ -201,6 +211,10 @@ impl Hash for ExactExpr {
             Expression::Lambda(lambda) => {
                 state.write_u8(3);
                 lambda.hash(state);
+            }
+            Expression::ListTransform { children } => {
+                state.write_u8(4);
+                Arc::as_ptr(children).hash(state);
             }
             Expression::Scalar {
                 scalar_fn,
