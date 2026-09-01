@@ -4,7 +4,8 @@
 //! Output builders for row kernels that cannot return independent owned values.
 //!
 //! [`OutputSink`] owns the shared lifecycle and safety contract. [`UninitElementSink`] provides
-//! uninitialized scalar storage, while [`FixedSizeListSink`] provides runtime-width row storage.
+//! uninitialized scalar storage, [`FixedSizeListSink`] provides runtime-width row storage, and
+//! [`Utf8Sink`] provides variable-length UTF-8 storage.
 
 use vortex_error::VortexResult;
 
@@ -19,6 +20,10 @@ pub use fixed_size_list::InitializedRow;
 mod uninit_element;
 pub use uninit_element::InitializedElement;
 pub use uninit_element::UninitElementSink;
+
+mod utf8;
+pub use utf8::Utf8Sink;
+pub use utf8::Utf8Writer;
 
 /// A column allocated once per batch that a row closure writes into, one row at a time.
 ///

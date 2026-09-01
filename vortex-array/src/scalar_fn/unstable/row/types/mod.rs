@@ -13,6 +13,8 @@ pub use element::ElementTuple;
 pub use element::IndexedElementTuple;
 pub use element::InputElement;
 pub use element::OutputElement;
+pub use element::Utf8Column;
+pub use element::Utf8View;
 pub(super) use element::batch_const;
 pub(in crate::scalar_fn::unstable::row) use element::decoded_source;
 
@@ -26,6 +28,8 @@ pub use sink::InitializedElement;
 pub use sink::InitializedRow;
 pub use sink::OutputSink;
 pub use sink::UninitElementSink;
+pub use sink::Utf8Sink;
+pub use sink::Utf8Writer;
 
 mod view;
 pub use view::ViewLen;
