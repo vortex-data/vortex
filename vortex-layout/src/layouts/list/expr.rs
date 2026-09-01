@@ -2,11 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::bound::not;
 use vortex_array::scalar_fn::fns::is_not_null::IsNotNull;
 use vortex_array::scalar_fn::fns::is_null::IsNull;
+use vortex_array::scalar_fn::fns::list_get_item::ListGetItem;
 use vortex_array::scalar_fn::fns::list_length::ListLength;
 use vortex_error::VortexResult;
 
@@ -92,6 +94,81 @@ fn rewrite_validity_expr_with_root(
         .children()
         .iter()
         .map(|child| rewrite_validity_expr_with_root(child, root_dtype))
+        .collect::<VortexResult<Vec<_>>>()?;
+    expr.clone().with_children(children)
+}
+
+/// How an expression uses the list root, while scanning for a single-field element projection.
+enum ElementFieldUse {
+    /// No reference to the root anywhere in the (sub)expression.
+    NoRoot,
+    /// Every root reference is `list_get_item(field, root())` with this one field.
+    Field(FieldName),
+    /// The root is used some other way (bare root, another field, `is_null`, `list_length`, …).
+    Mixed,
+}
+
+/// Returns the single struct field projected out of the list elements, iff *every* root
+/// reference in `expr` has the shape `list_get_item(field, root())` with the same field.
+///
+/// Such an expression only needs that one field of the elements child: the caller can push
+/// `get_item(field, ·)` into the elements read and rewrite this expression with
+/// [`rewrite_element_projection_expr`] to run against the narrowed list.
+pub(super) fn extract_element_projection(expr: &BoundExpression) -> Option<FieldName> {
+    match element_field_use(expr) {
+        ElementFieldUse::Field(field) => Some(field),
+        ElementFieldUse::NoRoot | ElementFieldUse::Mixed => None,
+    }
+}
+
+fn element_field_use(expr: &BoundExpression) -> ElementFieldUse {
+    if is_bound_element_projection(expr) {
+        return ElementFieldUse::Field(expr.as_::<ListGetItem>().clone());
+    }
+    if expr.is_root() {
+        return ElementFieldUse::Mixed;
+    }
+
+    let mut acc = ElementFieldUse::NoRoot;
+    for child in expr.children() {
+        acc = match (acc, element_field_use(child)) {
+            (ElementFieldUse::NoRoot, child_use) => child_use,
+            (acc, ElementFieldUse::NoRoot) => acc,
+            (ElementFieldUse::Field(a), ElementFieldUse::Field(b)) if a == b => {
+                ElementFieldUse::Field(a)
+            }
+            _ => return ElementFieldUse::Mixed,
+        };
+    }
+    acc
+}
+
+fn is_bound_element_projection(expr: &BoundExpression) -> bool {
+    expr.as_opt::<ListGetItem>().is_some()
+        && expr.children().len() == 1
+        && expr.children()[0].is_root()
+}
+
+/// Rewrite an element-projection expression so it can be evaluated against the narrowed list
+/// (whose elements are already the projected field): `list_get_item(field, root())` becomes
+/// `root()` bound to `new_root_dtype`. All other nodes are rebuilt with rewritten children.
+pub(super) fn rewrite_element_projection_expr(
+    expr: &BoundExpression,
+    new_root_dtype: &DType,
+) -> VortexResult<BoundExpression> {
+    if is_bound_element_projection(expr) {
+        debug_assert_eq!(
+            expr.dtype(),
+            new_root_dtype,
+            "narrowed list dtype must match the list_get_item node it replaces"
+        );
+        return Ok(BoundExpression::new_root(new_root_dtype.clone()));
+    }
+
+    let children = expr
+        .children()
+        .iter()
+        .map(|child| rewrite_element_projection_expr(child, new_root_dtype))
         .collect::<VortexResult<Vec<_>>>()?;
     expr.clone().with_children(children)
 }

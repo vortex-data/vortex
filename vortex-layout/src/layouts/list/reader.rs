@@ -17,9 +17,11 @@ use vortex_array::arrays::ListArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
+use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::expr::BoundExpression;
+use vortex_array::expr::bound;
 use vortex_array::expr::root;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::validity::Validity;
@@ -36,7 +38,9 @@ use crate::RowSplits;
 use crate::SplitRange;
 use crate::layouts::list::ListLayout;
 use crate::layouts::list::expr::ListChildrenNeeded;
+use crate::layouts::list::expr::extract_element_projection;
 use crate::layouts::list::expr::get_necessary_bound_list_children;
+use crate::layouts::list::expr::rewrite_element_projection_expr;
 use crate::layouts::list::expr::rewrite_offsets_expr;
 use crate::layouts::list::expr::rewrite_validity_expr;
 use crate::segments::SegmentSource;
@@ -144,40 +148,51 @@ impl ListReader {
         .boxed())
     }
 
-    /// Projection for [`ListChildrenNeeded::All`] expressions.
+    /// Projection for [`ListChildrenNeeded::All`] expressions, and for element-projection
+    /// expressions with `elements_expr` narrowing what is read from the elements child.
     ///
-    /// An all-true mask over the full local range reads every child concurrently. Otherwise, the
-    /// read is bounded to the first and last selected list.
+    /// `elements_expr` is pushed into the elements child read (bare `root()` for a plain read),
+    /// and `expr` is evaluated against the list rebuilt from the returned elements. An all-true
+    /// mask over the full local range reads every child concurrently. Otherwise, the read is
+    /// bounded to the first and last selected list.
     fn project_all(
         &self,
         row_range: &Range<u64>,
         expr: &BoundExpression,
+        elements_expr: &BoundExpression,
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
         let is_full_range = row_range.start == 0 && row_range.end == self.layout.row_count();
         let reader = self.clone();
         let row_range = row_range.clone();
         let expr = expr.clone();
+        let elements_expr = elements_expr.clone();
         Ok(async move {
             let mask = mask.await?;
             if is_full_range && mask.all_true() {
-                reader.project_all_full(&expr)?.await
+                reader.project_all_full(&expr, &elements_expr)?.await
             } else {
-                reader.project_all_bounded(&row_range, &expr, mask)?.await
+                reader
+                    .project_all_bounded(&row_range, &expr, &elements_expr, mask)?
+                    .await
             }
         }
         .boxed())
     }
 
     /// Fetch the complete `elements`, `offsets`, and `validity` children concurrently.
-    fn project_all_full(&self, expr: &BoundExpression) -> VortexResult<ArrayFuture> {
+    fn project_all_full(
+        &self,
+        expr: &BoundExpression,
+        elements_expr: &BoundExpression,
+    ) -> VortexResult<ArrayFuture> {
         let row_count = self.layout.row_count();
         let elements_row_count = self.elements.row_count();
         let nullability = self.layout.dtype().nullability();
         let expr = expr.clone();
 
         let offsets_fut = self.fetch_raw_offsets(&(0..row_count))?;
-        let elements_fut = self.fetch_raw_elements(&(0..elements_row_count))?;
+        let elements_fut = self.fetch_elements(&(0..elements_row_count), elements_expr)?;
         let validity_fut = fetch_validity(
             self.validity.as_ref(),
             &(0..row_count),
@@ -186,8 +201,9 @@ impl ListReader {
 
         Ok(async move {
             let (offsets, elements, validity) = try_join!(offsets_fut, elements_fut, validity_fut)?;
-            // SAFETY: ListLayout is constructed from a valid ListArray and reading its children
-            // without transformation preserves the list invariants.
+            // SAFETY: ListLayout is constructed from a valid ListArray, reading its children
+            // preserves the list invariants, and an element-wise `elements_expr` preserves the
+            // element row count the offsets index into.
             let list = unsafe {
                 ListArray::new_unchecked(elements, offsets, create_validity(validity, nullability))
             }
@@ -206,6 +222,7 @@ impl ListReader {
         &self,
         row_range: &Range<u64>,
         expr: &BoundExpression,
+        elements_expr: &BoundExpression,
         mask: Mask,
     ) -> VortexResult<ArrayFuture> {
         // Crop to the smallest contiguous row range containing every selected list.
@@ -220,6 +237,7 @@ impl ListReader {
 
         let nullability = self.layout.dtype().nullability();
         let expr = expr.clone();
+        let elements_expr = elements_expr.clone();
         let reader = self.clone();
         let offsets_fut = self.fetch_raw_offsets(&selected_row_range)?;
 
@@ -227,7 +245,7 @@ impl ListReader {
             let offsets = offsets_fut.await?;
 
             let elements_range = elements_range_from_offsets(&offsets, &reader.session)?;
-            let elements_fut = reader.fetch_raw_elements(&elements_range)?;
+            let elements_fut = reader.fetch_elements(&elements_range, &elements_expr)?;
             let validity_fut = fetch_validity(
                 reader.validity.as_ref(),
                 &selected_row_range,
@@ -308,14 +326,39 @@ impl ListReader {
         )
     }
 
-    /// Fire the elements read for `row_range` in element space.
+    /// Fire the elements read for `row_range` in element space, pushing `expr` down into the
+    /// elements child (a shredded elements layout can then skip unprojected sub-children).
     ///
-    /// No mask or expression is applied.
-    fn fetch_raw_elements(&self, row_range: &Range<u64>) -> VortexResult<ArrayFuture> {
+    /// No mask is applied.
+    fn fetch_elements(
+        &self,
+        row_range: &Range<u64>,
+        expr: &BoundExpression,
+    ) -> VortexResult<ArrayFuture> {
         let row_count = usize::try_from(row_range.end - row_range.start)?;
-        let root = root().bind(self.elements.dtype())?;
         self.elements
-            .projection_evaluation(row_range, &root, MaskFuture::new_true(row_count))
+            .projection_evaluation(row_range, expr, MaskFuture::new_true(row_count))
+    }
+
+    /// Projection for expressions whose only use of the list is `list_get_item(field, root())`:
+    /// push `get_item(field, ·)` into the elements read and evaluate the rewritten expression
+    /// against the narrowed list. Offsets and validity are read as usual — the list shape is
+    /// unchanged, only the elements are narrowed to one struct field.
+    fn project_element_field(
+        &self,
+        row_range: &Range<u64>,
+        expr: &BoundExpression,
+        field: FieldName,
+        mask: MaskFuture,
+    ) -> VortexResult<ArrayFuture> {
+        let elements_root = root().bind(self.elements.dtype())?;
+        let elements_expr = bound::get_item(field, elements_root);
+        let narrowed_dtype = DType::List(
+            elements_expr.dtype().clone().into(),
+            self.layout.dtype().nullability(),
+        );
+        let outer_expr = rewrite_element_projection_expr(expr, &narrowed_dtype)?;
+        self.project_all(row_range, &outer_expr, &elements_expr, mask)
     }
 }
 
@@ -464,12 +507,19 @@ impl LayoutReader for ListReader {
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
         // Read as little as possible based on which list children the expression needs.
+        // A single-field element projection narrows the elements read to that field.
+        if let Some(field) = extract_element_projection(expr) {
+            return self.project_element_field(row_range, expr, field, mask);
+        }
         match get_necessary_bound_list_children(expr) {
             ListChildrenNeeded::Validity => self.project_validity(row_range, expr, mask),
             ListChildrenNeeded::OffsetsAndValidity => {
                 self.project_offsets_validity(row_range, expr, mask)
             }
-            ListChildrenNeeded::All => self.project_all(row_range, expr, mask),
+            ListChildrenNeeded::All => {
+                let elements_root = root().bind(self.elements.dtype())?;
+                self.project_all(row_range, expr, &elements_root, mask)
+            }
         }
     }
 }
@@ -615,12 +665,15 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ListArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::StructArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::expr::Expression;
     use vortex_array::expr::cast;
     use vortex_array::expr::gt;
     use vortex_array::expr::is_not_null;
     use vortex_array::expr::is_null;
+    use vortex_array::expr::list_contains;
+    use vortex_array::expr::list_get_item;
     use vortex_array::expr::list_length;
     use vortex_array::expr::lit;
     use vortex_buffer::buffer;
@@ -635,6 +688,7 @@ mod tests {
     use crate::layouts::list::writer::ListLayoutStrategy;
     use crate::layouts::repartition::RepartitionStrategy;
     use crate::layouts::repartition::RepartitionWriterOptions;
+    use crate::layouts::struct_::writer::StructStrategy;
     use crate::scan::split_by::SplitBy;
     use crate::segments::SegmentFuture;
     use crate::segments::SegmentSource;
@@ -1038,6 +1092,129 @@ mod tests {
         let expected = list.slice(1..4)?;
         let mut exec_ctx = session.create_execution_ctx();
         assert_arrays_eq!(result, expected, &mut exec_ctx);
+        Ok(())
+    }
+
+    /// 3 lists over 5 struct elements `{a: i32, b: i64}`, offsets [0, 2, 4, 5].
+    fn create_list_of_structs(nullable: bool) -> ArrayRef {
+        let validity = if nullable {
+            Validity::Array(BoolArray::from_iter([true, false, true]).into_array())
+        } else {
+            Validity::NonNullable
+        };
+        let elements = StructArray::from_fields(&[
+            ("a", buffer![10i32, 11, 20, 21, 30].into_array()),
+            ("b", buffer![-1i64, -2, -3, -4, -5].into_array()),
+        ])
+        .expect("fields are valid")
+        .into_array();
+        ListArray::try_new(elements, buffer![0u32, 2, 4, 5].into_array(), validity)
+            .expect("array is valid")
+            .into_array()
+    }
+
+    /// List strategy whose elements child is shredded into a struct layout with per-field
+    /// children, so element projections can skip unprojected fields at IO time.
+    fn struct_elements_list_strategy() -> ListLayoutStrategy {
+        let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
+        ListLayoutStrategy::default()
+            .with_elements(Arc::new(StructStrategy::new(Arc::clone(&flat), flat)))
+    }
+
+    /// `list_get_item` projections round-trip against the in-memory result for shredded and
+    /// flat elements, across ranges, masks, and list nullability.
+    #[rstest]
+    #[case::full(0..3, Mask::new_true(3), false, true)]
+    #[case::subrange(1..3, Mask::new_true(2), false, true)]
+    #[case::sparse(0..3, Mask::from_iter([true, false, true]), false, true)]
+    #[case::nullable(0..3, Mask::new_true(3), true, true)]
+    #[case::all_false(0..3, Mask::new_false(3), false, true)]
+    #[case::flat_elements(0..3, Mask::new_true(3), false, false)]
+    #[case::flat_elements_sparse(1..3, Mask::from_iter([false, true]), true, false)]
+    #[tokio::test]
+    async fn element_projection_round_trips(
+        #[case] row_range: Range<u64>,
+        #[case] mask: Mask,
+        #[case] nullable: bool,
+        #[case] shredded: bool,
+    ) -> VortexResult<()> {
+        let list = create_list_of_structs(nullable);
+        let ctx = LayoutReaderContext::new();
+        let strategy = if shredded {
+            struct_elements_list_strategy()
+        } else {
+            flat_list_strategy()
+        };
+        let (segments, layout, session) = write_layout(&strategy, list.clone()).await?;
+        let reader = layout.new_reader("".into(), segments, &session, &ctx)?;
+
+        let projection = list_get_item("a", root());
+        let expr = projection.bind(reader.dtype())?;
+        let result = reader
+            .projection_evaluation(&row_range, &expr, MaskFuture::ready(mask.clone()))?
+            .await?;
+
+        let expected = list
+            .slice(usize::try_from(row_range.start)?..usize::try_from(row_range.end)?)?
+            .filter(mask)?
+            .apply(&projection)?;
+        let mut exec_ctx = session.create_execution_ctx();
+        assert_arrays_eq!(result, expected, &mut exec_ctx);
+        Ok(())
+    }
+
+    /// With struct-shredded elements, projecting one field must not request the segments of the
+    /// other field: offsets + `a` are two segments, while a bare-root read touches `b` too.
+    #[tokio::test]
+    async fn element_projection_skips_unprojected_field_segments() -> VortexResult<()> {
+        let list = create_list_of_structs(false);
+        let ctx = LayoutReaderContext::new();
+        let (segments, layout, session) =
+            write_layout(&struct_elements_list_strategy(), list).await?;
+
+        let counted_requests = |expr: Expression| {
+            let request_count = Arc::new(AtomicUsize::new(0));
+            let source = Arc::new(CountingSegmentSource {
+                inner: Arc::clone(&segments),
+                request_count: Arc::clone(&request_count),
+            });
+            let reader = layout.new_reader("".into(), source, &session, &ctx)?;
+            let bound = expr.bind(reader.dtype())?;
+            let fut = reader.projection_evaluation(&(0..3), &bound, MaskFuture::new_true(3))?;
+            Ok::<_, vortex_error::VortexError>((fut, request_count))
+        };
+
+        let (fut, projected_count) = counted_requests(list_get_item("a", root()))?;
+        fut.await?;
+        let (fut, root_count) = counted_requests(root())?;
+        fut.await?;
+
+        assert!(
+            projected_count.load(Ordering::Relaxed) < root_count.load(Ordering::Relaxed),
+            "projected read must touch fewer segments: projected={}, root={}",
+            projected_count.load(Ordering::Relaxed),
+            root_count.load(Ordering::Relaxed)
+        );
+        Ok(())
+    }
+
+    /// A predicate over a projected element field (`list_contains(list_get_item(a, $), 20)`)
+    /// takes the element-projection path inside filter evaluation and yields the right mask.
+    #[tokio::test]
+    async fn filter_evaluation_over_projected_field() -> VortexResult<()> {
+        let list = create_list_of_structs(false);
+        let ctx = LayoutReaderContext::new();
+        let (segments, layout, session) =
+            write_layout(&struct_elements_list_strategy(), list).await?;
+        let reader = layout.new_reader("".into(), segments, &session, &ctx)?;
+
+        let expr = list_contains(list_get_item("a", root()), lit(20i32)).bind(reader.dtype())?;
+        let result = reader
+            .filter_evaluation(&(0..3), &expr, MaskFuture::new_true(3))?
+            .await?;
+
+        // `a` lists are [10, 11], [20, 21], [30] — only the second contains 20.
+        assert_eq!(result, Mask::from_iter([false, true, false]));
         Ok(())
     }
 

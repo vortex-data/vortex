@@ -39,6 +39,7 @@ use crate::scalar_fn::fns::is_null::IsNull;
 use crate::scalar_fn::fns::like::Like;
 use crate::scalar_fn::fns::like::LikeOptions;
 use crate::scalar_fn::fns::list_contains::ListContains;
+use crate::scalar_fn::fns::list_get_item::ListGetItem;
 use crate::scalar_fn::fns::list_length::ListLength;
 use crate::scalar_fn::fns::list_sum::ListSum;
 use crate::scalar_fn::fns::literal::Literal;
@@ -1155,6 +1156,26 @@ pub fn bound_ext_storage(input: BoundExpression) -> BoundExpression {
         .vortex_expect("extension-storage expressions require an extension child")
 }
 
+// ---- ListGetItem ----
+
+/// Creates an expression that projects a named field out of every list element, turning a
+/// `List<Struct{..., f, ...}>` input into `List<f>` while keeping the list shape and validity.
+///
+/// ```rust
+/// # use vortex_array::expr::{list_get_item, root};
+/// let expr = list_get_item("name", root());
+/// ```
+pub fn list_get_item(field: impl Into<FieldName>, input: Expression) -> Expression {
+    ListGetItem.new_expr(field.into(), [input])
+}
+
+/// Creates a bound expression that projects a named field out of every list element.
+pub fn bound_list_get_item(field: impl Into<FieldName>, input: BoundExpression) -> BoundExpression {
+    ListGetItem
+        .try_new_bound_expr(field.into(), [input])
+        .vortex_expect("list-get-item expressions require a list-of-struct child")
+}
+
 // ---- ListLength ----
 
 /// Creates an expression that computes the number of elements in each list
@@ -1246,6 +1267,7 @@ pub mod bound {
     pub use super::bound_is_null as is_null;
     pub use super::bound_like as like;
     pub use super::bound_list_contains as list_contains;
+    pub use super::bound_list_get_item as list_get_item;
     pub use super::bound_list_length as list_length;
     pub use super::bound_list_sum as list_sum;
     pub use super::bound_list_sum_opts as list_sum_opts;

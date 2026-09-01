@@ -97,6 +97,7 @@ pub use exprs::is_null;
 pub use exprs::is_root;
 pub use exprs::like;
 pub use exprs::list_contains;
+pub use exprs::list_get_item;
 pub use exprs::list_length;
 pub use exprs::list_sum;
 pub use exprs::list_sum_opts;
