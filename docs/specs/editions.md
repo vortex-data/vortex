@@ -31,7 +31,7 @@ enforces a separate allowlist for each kind:
 
 | Kind        | What it identifies                          | Used at                       |
 |-------------|---------------------------------------------|-------------------------------|
-| `array`     | a serialized array representation           | array serialization            |
+| `array`     | a serialized array representation           | array serialization           |
 | `layout`    | the footer's layout tree                    | layout serialization context  |
 | `dtype`     | extension dtypes nested in the file schema  | file writer                   |
 | `aggregate` | zone maps in zoned layouts                  | layout writer context         |
@@ -287,10 +287,6 @@ Changing the declarations follows the edition's lifecycle:
    (`cargo run -p xtask -- check-editions`) rejects any change that edits, renames, unfreezes,
    or deletes a frozen record, and rejects new editions that do not extend their family's
    chronology. To change what writers may emit, declare the next edition instead.
-
-Changes under `vortex-edition/src/declarations/core/` require approval from `robert3005` or
-`joseph-isaacs`. Generated records under `vortex/editions/core/` use the repository's normal
-approval policy.
 
 ## Edition registry
 
