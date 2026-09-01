@@ -6,11 +6,13 @@ use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use super::*;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
+use crate::array::VTable;
 use crate::array_session;
 use crate::arrays::BoolArray;
 use crate::arrays::ListViewArray;
@@ -18,6 +20,8 @@ use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
+use crate::normalize::NormalizeOptions;
+use crate::normalize::Operation;
 use crate::validity::Validity;
 
 #[rstest]
@@ -161,6 +165,81 @@ fn test_masked_child_preserves_length(#[case] validity: Validity) {
             .mask_eq(&validity, array.len(), &mut ctx)
             .unwrap(),
     );
+}
+
+#[test]
+fn test_null_child_merges_validity_lazily() -> VortexResult<()> {
+    let child = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4)]).into_array();
+    let mask = Validity::from_iter([true, true, false, true]);
+    let array = MaskedArray::try_new(child, mask)?;
+
+    // The logical validity is the child's validity ANDed with the mask.
+    let mut ctx = array_session().create_execution_ctx();
+    let expected = Validity::from_iter([true, false, false, true]);
+    assert!(
+        array
+            .validity()?
+            .mask_eq(&expected, array.len(), &mut ctx)?
+    );
+
+    assert_arrays_eq!(
+        PrimitiveArray::from_option_iter([Some(1i32), None, None, Some(4)]),
+        array,
+        &mut ctx
+    );
+    Ok(())
+}
+
+#[test]
+fn test_null_child_serialize_fails() -> VortexResult<()> {
+    let child = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array();
+    let array = MaskedArray::try_new(child, Validity::from_iter([true, true, false]))?;
+
+    let err = array
+        .into_array()
+        .serialize(
+            &crate::ArrayContext::empty(),
+            &array_session(),
+            &crate::serde::SerializeOptions::default(),
+        )
+        .expect_err("serializing a null-carrying child must fail");
+    assert!(err.to_string().contains("normalize"), "unexpected: {err}");
+    Ok(())
+}
+
+#[test]
+fn test_normalize_removes_masked_with_null_child() -> VortexResult<()> {
+    let child = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array();
+    let array = MaskedArray::try_new(child, Validity::from_iter([true, true, false]))?.into_array();
+
+    // Even though Masked is an allowed encoding, a null-carrying child forces the mask to be
+    // executed into the child, removing the wrapper.
+    let allowed = HashSet::from_iter([Masked.id()]);
+    let mut ctx = array_session().create_execution_ctx();
+    let normalized = array.normalize(&mut NormalizeOptions {
+        allowed: &allowed,
+        operation: Operation::Execute(&mut ctx),
+    })?;
+
+    assert!(!normalized.is::<Masked>());
+    assert_arrays_eq!(
+        PrimitiveArray::from_option_iter([Some(1i32), None, None]),
+        normalized,
+        &mut ctx
+    );
+
+    // A masked array with a null-free child stays untouched.
+    let clean = MaskedArray::try_new(
+        PrimitiveArray::from_iter([1i32, 2, 3]).into_array(),
+        Validity::from_iter([true, false, true]),
+    )?
+    .into_array();
+    let normalized = clean.clone().normalize(&mut NormalizeOptions {
+        allowed: &allowed,
+        operation: Operation::Execute(&mut ctx),
+    })?;
+    assert!(crate::ArrayRef::ptr_eq(&clean, &normalized));
+    Ok(())
 }
 
 #[test]

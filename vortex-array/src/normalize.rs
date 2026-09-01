@@ -9,6 +9,8 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::arrays::Masked;
+use crate::arrays::masked::MaskedArrayExt;
 
 /// Options for normalizing an array.
 pub struct NormalizeOptions<'a> {
@@ -45,6 +47,12 @@ impl ArrayRef {
         if !self.is_allowed_encoding(allowed) {
             vortex_bail!(AssertionFailed: "normalize forbids encoding ({})", self.encoding_id())
         }
+        if !self.is_normalized_encoding()? {
+            vortex_bail!(
+                AssertionFailed: "normalize forbids denormalized encoding ({})",
+                self.encoding_id()
+            )
+        }
 
         for child in self.children() {
             child.normalize_with_error(allowed)?
@@ -59,8 +67,8 @@ impl ArrayRef {
     ) -> VortexResult<ArrayRef> {
         let mut normalized = self;
 
-        // Top-first execute the array tree while we hit non-allowed encodings.
-        while !normalized.is_allowed_encoding(allowed) {
+        // Top-first execute the array tree while we hit non-allowed or denormalized encodings.
+        while !normalized.is_allowed_encoding(allowed) || !normalized.is_normalized_encoding()? {
             normalized = normalized.execute(ctx)?;
         }
 
@@ -94,6 +102,18 @@ impl ArrayRef {
 
     fn is_allowed_encoding(&self, allowed: &HashSet<Id>) -> bool {
         allowed.contains(&self.encoding_id()) || self.is_canonical()
+    }
+
+    /// Returns whether this array is in a form its encoding can serialize.
+    ///
+    /// A [`Masked`] array whose child may carry its own nulls is only an in-memory form: the
+    /// on-disk format requires a null-free child, so normalization executes the mask into the
+    /// child, removing the wrapper.
+    fn is_normalized_encoding(&self) -> VortexResult<bool> {
+        if let Some(masked) = self.as_opt::<Masked>() {
+            return masked.child_is_null_free();
+        }
+        Ok(true)
     }
 }
 

@@ -70,6 +70,12 @@ mod tests {
             Validity::from_iter((0..100).map(|i| i % 3 != 0))
         ).unwrap()
     )]
+    #[case(
+        MaskedArray::try_new(
+            PrimitiveArray::from_option_iter((0..100).map(|i| (i % 5 != 0).then_some(i))).into_array(),
+            Validity::from_iter((0..100).map(|i| i % 3 != 0))
+        ).unwrap()
+    )]
     fn test_take_masked_conformance(#[case] array: MaskedArray) {
         test_take_conformance(
             &array.into_array(),

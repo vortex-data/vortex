@@ -17,8 +17,7 @@ impl FilterReduce for Masked {
         // Filter the validity to get the new validity
         let filtered_validity = array.validity()?.filter(mask)?;
 
-        // Filter the child array
-        // The child is guaranteed to have no nulls, so filtering it is straightforward
+        // Filter the child array; any nulls it carries are preserved and remain lazily merged.
         let filtered_child = array.child().filter(mask.clone())?;
 
         // Construct new MaskedArray
@@ -56,6 +55,12 @@ mod tests {
     #[case(
         MaskedArray::try_new(
             PrimitiveArray::from_iter(0..100).into_array(),
+            Validity::from_iter((0..100).map(|i| i % 3 != 0))
+        ).unwrap()
+    )]
+    #[case(
+        MaskedArray::try_new(
+            PrimitiveArray::from_option_iter((0..100).map(|i| (i % 5 != 0).then_some(i))).into_array(),
             Validity::from_iter((0..100).map(|i| i % 3 != 0))
         ).unwrap()
     )]

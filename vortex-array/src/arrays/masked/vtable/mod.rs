@@ -23,7 +23,6 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::EqMode;
 use crate::IntoArray;
-use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
@@ -41,7 +40,6 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
-use crate::legacy_session;
 use crate::require_child;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
@@ -73,7 +71,6 @@ impl VTable for Masked {
         *ID
     }
 
-    #[expect(clippy::disallowed_methods)]
     fn validate(
         &self,
         _data: &MaskedData,
@@ -92,10 +89,6 @@ impl VTable for Masked {
         vortex_ensure!(
             child.dtype().as_nullable() == *dtype,
             "MaskedArray dtype does not match child and validity"
-        );
-        vortex_ensure!(
-            child.all_valid(&mut legacy_session().create_execution_ctx())?,
-            "MaskedArray children must not have nulls",
         );
         Ok(())
     }
@@ -121,13 +114,20 @@ impl VTable for Masked {
     }
 
     fn serialize(
-        _array: ArrayView<'_, Self>,
+        array: ArrayView<'_, Self>,
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
+        // The on-disk format requires a null-free child: the child is deserialized with a
+        // non-nullable dtype and the mask alone supplies the nulls. In-memory arrays may carry a
+        // child with its own validity; they must be normalized (executing the mask into the
+        // child) before writing.
+        vortex_ensure!(
+            array.child_is_null_free()?,
+            "MaskedArray with a null-carrying child cannot be serialized; normalize it first"
+        );
         Ok(Some(vec![]))
     }
 
-    #[allow(clippy::disallowed_methods)]
     fn deserialize(
         &self,
         dtype: &DType,
@@ -164,11 +164,7 @@ impl VTable for Masked {
         };
 
         let validity_slot = validity_to_child(&validity, len);
-        let data = MaskedData::try_new(
-            len,
-            child.all_valid(&mut legacy_session().create_execution_ctx())?,
-            validity,
-        )?;
+        let data = MaskedData::try_new(len, validity)?;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data)
             .with_slots(smallvec![Some(child), validity_slot]))
     }
@@ -178,7 +174,8 @@ impl VTable for Masked {
 
         let validity = array.masked_validity();
 
-        // Fast path: all masked means result is all nulls.
+        // Fast path: all masked means result is all nulls, regardless of the child's own
+        // validity.
         if validity.definitely_all_null() {
             return Ok(ExecutionResult::done(
                 ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.len())
@@ -187,10 +184,11 @@ impl VTable for Masked {
         }
 
         // NB: We intentionally do NOT have a fast path for `validity_mask.all_true()`.
-        // `MaskedArray`'s dtype is always `Nullable`, but the child has `NonNullable` `DType` (by
-        // invariant). Simply returning the child's canonical would cause a dtype mismatch.
+        // `MaskedArray`'s dtype is always `Nullable`, but the child may have a `NonNullable`
+        // `DType`. Simply returning the child's canonical would cause a dtype mismatch.
         // While we could manually convert the dtype, `mask_validity_canonical` is already O(1) for
-        // `AllTrue` masks (no data copying), so there's no benefit.
+        // `AllTrue` masks (no data copying), so there's no benefit. It also ANDs the child's own
+        // validity into the result, which performs the lazy merge for null-carrying children.
 
         let child = Canonical::from(array.child().as_::<AnyCanonical>());
         Ok(ExecutionResult::done(

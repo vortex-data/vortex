@@ -21,9 +21,8 @@ use crate::executor::execute_validity_cuda;
 
 /// CUDA executor for MaskedArray.
 ///
-/// A `MaskedArray` is a child array that carries no nulls of its own, plus the validity
-/// bitmap that supplies them. Decode the child on the GPU, decode the mask on the GPU, and
-/// attach the mask to the result.
+/// A `MaskedArray` is a child array plus a validity bitmap masking out additional elements.
+/// Decode the child on the GPU, decode the mask on the GPU, and attach the mask to the result.
 #[derive(Debug)]
 pub(crate) struct MaskedExecutor;
 
@@ -42,8 +41,9 @@ impl CudaExecute for MaskedExecutor {
         let len = masked.len();
         let validity = masked.masked_validity();
 
-        // `MaskedArray` guarantees its child holds no nulls, so the mask alone determines the
-        // output validity. Combining two device-resident bitmaps would need a CPU compute pass.
+        // The mask alone determines the output validity only when the child holds no per-element
+        // validity of its own. Combining two device-resident bitmaps would need a CPU compute
+        // pass, so bail out and let the CPU path perform the merge.
         if matches!(masked.child().validity()?, Validity::Array(_)) {
             vortex_bail!(
                 "MaskedArray child carries a per-element validity bitmap, which cannot be combined with the mask on the GPU"
