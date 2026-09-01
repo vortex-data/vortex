@@ -800,7 +800,7 @@ impl ArrayBuilder for VarBinViewBuilder {
 }
 
 impl VarBinViewBuilder {
-    #[inline]
+    #[inline(always)]
     fn push_view(
         &mut self,
         view: BinaryView,
