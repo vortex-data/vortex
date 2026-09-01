@@ -21,6 +21,7 @@ use crate::arrays::List;
 use crate::arrays::ListArray;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
+use crate::arrays::ScalarFnArray;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use crate::arrays::list::ListArrayExt;
@@ -37,6 +38,7 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::get_item::GetItem;
 use crate::scalar_fn::fns::list_length::AnyList;
 
@@ -44,9 +46,74 @@ use crate::scalar_fn::fns::list_length::AnyList;
 ///
 /// The list shape (offsets/sizes and validity) is carried over unchanged; only the elements
 /// child is narrowed to the requested struct field. Struct-level element nullability is folded
-/// into the projected field, mirroring [`GetItem`].
+/// into the projected field, mirroring [`GetItem`]. Nested lists project recursively:
+/// `List<List<Struct{..., f, ...}>>` -> `List<List<f>>`, so a chain of `list_get_item`
+/// descends a struct/list tree the way a Parquet leaf path does.
 #[derive(Clone)]
 pub struct ListGetItem;
+
+impl ListGetItem {
+    /// Creates a lazy element-wise projection of `field_name` through the lists of `input`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not list-typed or its (transitively) innermost element
+    /// is not a struct containing `field_name`.
+    pub fn try_new(
+        input: ArrayRef,
+        field_name: impl Into<FieldName>,
+    ) -> VortexResult<ScalarFnArray> {
+        ScalarFnArray::try_new(ListGetItem.bind(field_name.into()), vec![input])
+    }
+}
+
+/// Project `field_name` out of a list's element dtype, descending nested lists.
+fn project_element_dtype(element_dtype: &DType, field_name: &FieldName) -> VortexResult<DType> {
+    match element_dtype {
+        DType::List(inner, nullability) => Ok(DType::List(
+            project_element_dtype(inner, field_name)?.into(),
+            *nullability,
+        )),
+        DType::FixedSizeList(inner, size, nullability) => Ok(DType::FixedSizeList(
+            project_element_dtype(inner, field_name)?.into(),
+            *size,
+            *nullability,
+        )),
+        _ => {
+            let field_dtype = element_dtype
+                .as_struct_fields_opt()
+                .and_then(|st| st.field(field_name))
+                .ok_or_else(|| {
+                    vortex_err!(
+                        "list_get_item() couldn't find field {} in list element {}",
+                        field_name,
+                        element_dtype
+                    )
+                })?;
+
+            // A nullable struct element makes the projected field nullable, mirroring GetItem.
+            if matches!(
+                (element_dtype.nullability(), field_dtype.nullability()),
+                (Nullability::Nullable, Nullability::NonNullable)
+            ) {
+                Ok(field_dtype.with_nullability(Nullability::Nullable))
+            } else {
+                Ok(field_dtype)
+            }
+        }
+    }
+}
+
+/// Lazily project `field_name` from a list's elements child: through a `GetItem` for struct
+/// elements, or a recursive `ListGetItem` for nested-list elements.
+fn project_elements(elements: &ArrayRef, field_name: &FieldName) -> VortexResult<ArrayRef> {
+    match elements.dtype() {
+        DType::List(..) | DType::FixedSizeList(..) => {
+            Ok(ListGetItem::try_new(elements.clone(), field_name.clone())?.into_array())
+        }
+        _ => Ok(GetItem::try_new(elements.clone(), field_name.clone())?.into_array()),
+    }
+}
 
 impl ScalarFnVTable for ListGetItem {
     type Options = FieldName;
@@ -96,38 +163,18 @@ impl ScalarFnVTable for ListGetItem {
     }
 
     fn return_dtype(&self, field_name: &FieldName, arg_dtypes: &[DType]) -> VortexResult<DType> {
-        let (element_dtype, rebuild): (&DType, &dyn Fn(DType) -> DType) = match &arg_dtypes[0] {
-            DType::List(element, nullability) => (element.as_ref(), &move |f| {
-                DType::List(f.into(), *nullability)
-            }),
-            DType::FixedSizeList(element, size, nullability) => (element.as_ref(), &move |f| {
-                DType::FixedSizeList(f.into(), *size, *nullability)
-            }),
+        match &arg_dtypes[0] {
+            DType::List(element, nullability) => Ok(DType::List(
+                project_element_dtype(element, field_name)?.into(),
+                *nullability,
+            )),
+            DType::FixedSizeList(element, size, nullability) => Ok(DType::FixedSizeList(
+                project_element_dtype(element, field_name)?.into(),
+                *size,
+                *nullability,
+            )),
             other => vortex_bail!("list_get_item() requires a list input, got {other}"),
-        };
-
-        let field_dtype = element_dtype
-            .as_struct_fields_opt()
-            .and_then(|st| st.field(field_name))
-            .ok_or_else(|| {
-                vortex_err!(
-                    "list_get_item() couldn't find field {} in list element {}",
-                    field_name,
-                    element_dtype
-                )
-            })?;
-
-        // A nullable struct element makes the projected field nullable, mirroring GetItem.
-        let field_dtype = if matches!(
-            (element_dtype.nullability(), field_dtype.nullability()),
-            (Nullability::Nullable, Nullability::NonNullable)
-        ) {
-            field_dtype.with_nullability(Nullability::Nullable)
-        } else {
-            field_dtype
-        };
-
-        Ok(rebuild(field_dtype))
+        }
     }
 
     fn execute(
@@ -140,32 +187,24 @@ impl ScalarFnVTable for ListGetItem {
         let any_list = input.execute_until::<AnyList>(ctx)?;
 
         if let Some(l) = any_list.as_opt::<List>() {
-            let projected = GetItem::try_new(l.elements().clone(), field_name.clone())?;
-            Ok(ListArray::try_new(
-                projected.into_array(),
-                l.offsets().clone(),
-                l.list_validity(),
-            )?
-            .into_array())
+            let projected = project_elements(l.elements(), field_name)?;
+            Ok(ListArray::try_new(projected, l.offsets().clone(), l.list_validity())?.into_array())
         } else if let Some(lv) = any_list.as_opt::<ListView>() {
-            let projected = GetItem::try_new(lv.elements().clone(), field_name.clone())?;
+            let projected = project_elements(lv.elements(), field_name)?;
             Ok(ListViewArray::try_new(
-                projected.into_array(),
+                projected,
                 lv.offsets().clone(),
                 lv.sizes().clone(),
                 lv.listview_validity(),
             )?
             .into_array())
         } else if let Some(fsl) = any_list.as_opt::<FixedSizeList>() {
-            let projected = GetItem::try_new(fsl.elements().clone(), field_name.clone())?;
+            let projected = project_elements(fsl.elements(), field_name)?;
             let len = fsl.as_ref().len();
-            Ok(FixedSizeListArray::new(
-                projected.into_array(),
-                fsl.list_size(),
-                fsl.validity()?,
-                len,
+            Ok(
+                FixedSizeListArray::new(projected, fsl.list_size(), fsl.validity()?, len)
+                    .into_array(),
             )
-            .into_array())
         } else {
             let dtype = any_list.dtype();
             vortex_bail!("list_get_item() requires List, ListView, or FixedSizeList, got {dtype}")
@@ -288,6 +327,36 @@ mod tests {
             Validity::NonNullable,
         )?
         .into_array();
+        let mut ctx = array_session().create_execution_ctx();
+        assert_arrays_eq!(result, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn projects_through_nested_lists() -> VortexResult<()> {
+        // List<List<Struct{a, b}>>: outer offsets [0, 2, 3] over inner lists [0, 2, 3, 4].
+        let inner = create_list_of_structs(Validity::NonNullable);
+        let outer = ListArray::try_new(
+            inner,
+            buffer![0u32, 2, 3].into_array(),
+            Validity::NonNullable,
+        )?
+        .into_array();
+        let result = outer.apply(&list_get_item("a", root()))?;
+
+        let expected_inner = ListArray::try_new(
+            buffer![10i32, 11, 20, 30].into_array(),
+            buffer![0u32, 2, 3, 4].into_array(),
+            Validity::NonNullable,
+        )?
+        .into_array();
+        let expected = ListArray::try_new(
+            expected_inner,
+            buffer![0u32, 2, 3].into_array(),
+            Validity::NonNullable,
+        )?
+        .into_array();
+        assert_eq!(result.dtype(), expected.dtype());
         let mut ctx = array_session().create_execution_ctx();
         assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())

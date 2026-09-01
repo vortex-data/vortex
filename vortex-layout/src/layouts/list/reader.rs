@@ -340,24 +340,35 @@ impl ListReader {
             .projection_evaluation(row_range, expr, MaskFuture::new_true(row_count))
     }
 
-    /// Projection for expressions whose only use of the list is `list_get_item(field, root())`:
-    /// push `get_item(field, ·)` into the elements read and evaluate the rewritten expression
-    /// against the narrowed list. Offsets and validity are read as usual — the list shape is
-    /// unchanged, only the elements are narrowed to one struct field.
+    /// Projection for expressions whose only use of the list is a `list_get_item` tower over
+    /// `root()`: push the equivalent element-wise projection into the elements read and
+    /// evaluate the rewritten expression against the narrowed list. Offsets and validity are
+    /// read as usual — the list shape is unchanged, only the elements are narrowed to the
+    /// projected leaf path. The pushdown recurses naturally: a struct elements child routes
+    /// the projection to one field, and a nested list elements child peels the next level.
     fn project_element_field(
         &self,
         row_range: &Range<u64>,
         expr: &BoundExpression,
-        field: FieldName,
+        path: &[FieldName],
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
-        let elements_root = root().bind(self.elements.dtype())?;
-        let elements_expr = bound::get_item(field, elements_root);
+        // Descend the path in element space: struct level → get_item, list level →
+        // list_get_item (which itself recurses through deeper list nesting).
+        let mut elements_expr = root().bind(self.elements.dtype())?;
+        for field in path {
+            elements_expr = match elements_expr.dtype() {
+                DType::List(..) | DType::FixedSizeList(..) => {
+                    bound::list_get_item(field.clone(), elements_expr)
+                }
+                _ => bound::get_item(field.clone(), elements_expr),
+            };
+        }
         let narrowed_dtype = DType::List(
             elements_expr.dtype().clone().into(),
             self.layout.dtype().nullability(),
         );
-        let outer_expr = rewrite_element_projection_expr(expr, &narrowed_dtype)?;
+        let outer_expr = rewrite_element_projection_expr(expr, path, &narrowed_dtype)?;
         self.project_all(row_range, &outer_expr, &elements_expr, mask)
     }
 }
@@ -507,9 +518,9 @@ impl LayoutReader for ListReader {
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
         // Read as little as possible based on which list children the expression needs.
-        // A single-field element projection narrows the elements read to that field.
-        if let Some(field) = extract_element_projection(expr) {
-            return self.project_element_field(row_range, expr, field, mask);
+        // An element-projection chain narrows the elements read to its leaf path.
+        if let Some(path) = extract_element_projection(expr) {
+            return self.project_element_field(row_range, expr, &path, mask);
         }
         match get_necessary_bound_list_children(expr) {
             ListChildrenNeeded::Validity => self.project_validity(row_range, expr, mask),
@@ -1195,6 +1206,91 @@ mod tests {
             projected_count.load(Ordering::Relaxed),
             root_count.load(Ordering::Relaxed)
         );
+        Ok(())
+    }
+
+    /// Two-level nesting shaped like a trace block: `List<Struct{x, inner: List<Struct{name,
+    /// dur}>}>`, shredded at every level.
+    fn create_nested_trace_shape() -> ArrayRef {
+        let spans = StructArray::from_fields(&[
+            (
+                "name",
+                vortex_array::arrays::VarBinViewArray::from_iter_str(["a", "b", "c", "d", "e"])
+                    .into_array(),
+            ),
+            ("dur", buffer![1u64, 2, 3, 4, 5].into_array()),
+        ])
+        .expect("fields are valid")
+        .into_array();
+        let inner = ListArray::try_new(
+            spans,
+            buffer![0u32, 2, 4, 5].into_array(),
+            Validity::NonNullable,
+        )
+        .expect("array is valid")
+        .into_array();
+        let outer_elements = StructArray::from_fields(&[
+            ("x", buffer![100i64, 200, 300].into_array()),
+            ("inner", inner),
+        ])
+        .expect("fields are valid")
+        .into_array();
+        ListArray::try_new(
+            outer_elements,
+            buffer![0u32, 2, 3].into_array(),
+            Validity::NonNullable,
+        )
+        .expect("array is valid")
+        .into_array()
+    }
+
+    /// Strategy shredding both levels: outer elements struct routes `inner` through another
+    /// shredded list strategy, mirroring what `TableStrategy::with_list_layout` produces.
+    fn nested_shredded_strategy() -> ListLayoutStrategy {
+        let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
+        let inner_list = struct_elements_list_strategy();
+        let outer_struct = StructStrategy::new(Arc::clone(&flat), flat)
+            .with_field_writer("inner", Arc::new(inner_list));
+        ListLayoutStrategy::default().with_elements(Arc::new(outer_struct))
+    }
+
+    /// A `list_get_item` chain descends every nesting level: correctness against the in-memory
+    /// result, and the read must skip both unprojected leaves (`x` at the outer struct, `dur`
+    /// at the span struct).
+    #[tokio::test]
+    async fn element_projection_chain_descends_nesting() -> VortexResult<()> {
+        let list = create_nested_trace_shape();
+        let ctx = LayoutReaderContext::new();
+        let (segments, layout, session) =
+            write_layout(&nested_shredded_strategy(), list.clone()).await?;
+
+        let chain = list_get_item("name", list_get_item("inner", root()));
+
+        let counted = |expr: Expression| {
+            let request_count = Arc::new(AtomicUsize::new(0));
+            let source = Arc::new(CountingSegmentSource {
+                inner: Arc::clone(&segments),
+                request_count: Arc::clone(&request_count),
+            });
+            let reader = layout.new_reader("".into(), source, &session, &ctx)?;
+            let bound = expr.bind(reader.dtype())?;
+            let fut = reader.projection_evaluation(&(0..2), &bound, MaskFuture::new_true(2))?;
+            Ok::<_, vortex_error::VortexError>((fut, request_count))
+        };
+
+        let (fut, chain_count) = counted(chain.clone())?;
+        let result = fut.await?;
+        let (fut, root_count) = counted(root())?;
+        fut.await?;
+
+        let expected = list.apply(&chain)?;
+        let mut exec_ctx = session.create_execution_ctx();
+        assert_arrays_eq!(result, expected, &mut exec_ctx);
+
+        // Chain: outer offsets + inner offsets + name = 3 segments.
+        // Root: those plus `x` and `dur` = 5 segments.
+        assert_eq!(chain_count.load(Ordering::Relaxed), 3);
+        assert_eq!(root_count.load(Ordering::Relaxed), 5);
         Ok(())
     }
 

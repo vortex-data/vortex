@@ -98,32 +98,34 @@ fn rewrite_validity_expr_with_root(
     expr.clone().with_children(children)
 }
 
-/// How an expression uses the list root, while scanning for a single-field element projection.
+/// How an expression uses the list root, while scanning for an element-projection chain.
 enum ElementFieldUse {
     /// No reference to the root anywhere in the (sub)expression.
     NoRoot,
-    /// Every root reference is `list_get_item(field, root())` with this one field.
-    Field(FieldName),
-    /// The root is used some other way (bare root, another field, `is_null`, `list_length`, …).
+    /// Every root reference is the same `list_get_item(fk, … list_get_item(f1, root()) …)`
+    /// tower; the path is innermost-first (`[f1, …, fk]`).
+    Path(Vec<FieldName>),
+    /// The root is used some other way (bare root, differing chains, `is_null`, `list_length`, …).
     Mixed,
 }
 
-/// Returns the single struct field projected out of the list elements, iff *every* root
-/// reference in `expr` has the shape `list_get_item(field, root())` with the same field.
+/// Returns the field path projected out of the list elements, iff *every* root reference in
+/// `expr` is the same tower of `list_get_item` calls over `root()`. The path is returned
+/// innermost-first, i.e. `list_get_item("b", list_get_item("a", root()))` yields `[a, b]`.
 ///
-/// Such an expression only needs that one field of the elements child: the caller can push
-/// `get_item(field, ·)` into the elements read and rewrite this expression with
+/// Such an expression only needs that leaf path of the elements child: the caller can push the
+/// equivalent element-wise projection into the elements read and rewrite this expression with
 /// [`rewrite_element_projection_expr`] to run against the narrowed list.
-pub(super) fn extract_element_projection(expr: &BoundExpression) -> Option<FieldName> {
+pub(super) fn extract_element_projection(expr: &BoundExpression) -> Option<Vec<FieldName>> {
     match element_field_use(expr) {
-        ElementFieldUse::Field(field) => Some(field),
+        ElementFieldUse::Path(path) => Some(path),
         ElementFieldUse::NoRoot | ElementFieldUse::Mixed => None,
     }
 }
 
 fn element_field_use(expr: &BoundExpression) -> ElementFieldUse {
-    if is_bound_element_projection(expr) {
-        return ElementFieldUse::Field(expr.as_::<ListGetItem>().clone());
+    if let Some(path) = chain_path(expr) {
+        return ElementFieldUse::Path(path);
     }
     if expr.is_root() {
         return ElementFieldUse::Mixed;
@@ -134,8 +136,8 @@ fn element_field_use(expr: &BoundExpression) -> ElementFieldUse {
         acc = match (acc, element_field_use(child)) {
             (ElementFieldUse::NoRoot, child_use) => child_use,
             (acc, ElementFieldUse::NoRoot) => acc,
-            (ElementFieldUse::Field(a), ElementFieldUse::Field(b)) if a == b => {
-                ElementFieldUse::Field(a)
+            (ElementFieldUse::Path(a), ElementFieldUse::Path(b)) if a == b => {
+                ElementFieldUse::Path(a)
             }
             _ => return ElementFieldUse::Mixed,
         };
@@ -143,24 +145,36 @@ fn element_field_use(expr: &BoundExpression) -> ElementFieldUse {
     acc
 }
 
-fn is_bound_element_projection(expr: &BoundExpression) -> bool {
-    expr.as_opt::<ListGetItem>().is_some()
-        && expr.children().len() == 1
-        && expr.children()[0].is_root()
+/// If `expr` is a tower of `list_get_item` nodes whose innermost child is `root()`, return the
+/// projected field path innermost-first; otherwise `None`.
+fn chain_path(expr: &BoundExpression) -> Option<Vec<FieldName>> {
+    let field = expr.as_opt::<ListGetItem>()?;
+    if expr.children().len() != 1 {
+        return None;
+    }
+    let child = &expr.children()[0];
+    if child.is_root() {
+        return Some(vec![field.clone()]);
+    }
+    let mut path = chain_path(child)?;
+    path.push(field.clone());
+    Some(path)
 }
 
 /// Rewrite an element-projection expression so it can be evaluated against the narrowed list
-/// (whose elements are already the projected field): `list_get_item(field, root())` becomes
-/// `root()` bound to `new_root_dtype`. All other nodes are rebuilt with rewritten children.
+/// (whose elements are already the projected leaf path): every `list_get_item` tower matching
+/// `path` becomes `root()` bound to `new_root_dtype`. All other nodes are rebuilt with
+/// rewritten children.
 pub(super) fn rewrite_element_projection_expr(
     expr: &BoundExpression,
+    path: &[FieldName],
     new_root_dtype: &DType,
 ) -> VortexResult<BoundExpression> {
-    if is_bound_element_projection(expr) {
+    if chain_path(expr).is_some_and(|p| p == path) {
         debug_assert_eq!(
             expr.dtype(),
             new_root_dtype,
-            "narrowed list dtype must match the list_get_item node it replaces"
+            "narrowed list dtype must match the list_get_item tower it replaces"
         );
         return Ok(BoundExpression::new_root(new_root_dtype.clone()));
     }
@@ -168,7 +182,7 @@ pub(super) fn rewrite_element_projection_expr(
     let children = expr
         .children()
         .iter()
-        .map(|child| rewrite_element_projection_expr(child, new_root_dtype))
+        .map(|child| rewrite_element_projection_expr(child, path, new_root_dtype))
         .collect::<VortexResult<Vec<_>>>()?;
     expr.clone().with_children(children)
 }
