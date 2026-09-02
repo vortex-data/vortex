@@ -22,6 +22,8 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::scalar_fn::fns::like::LikeKernel;
+use vortex_array::scalar_fn::fns::like::LikeOptions;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::test_harness::check_metadata;
 use vortex_array::validity::Validity;
@@ -485,11 +487,9 @@ fn test_onpair_filter_shares_dict() -> vortex_error::VortexResult<()> {
     Ok(())
 }
 
-/// Rebuild an OnPair array, swapping `codes_offsets` for a narrowed
-/// (smaller-ptype) primitive copy. Used by the narrowed-child
-/// regression tests below.
+/// Rebuild an OnPair array with `codes_offsets` cast to `target`.
 #[expect(clippy::cognitive_complexity)]
-fn narrow_codes_offsets(arr: &crate::OnPairArray, target: PType) -> crate::OnPairArray {
+fn cast_codes_offsets(arr: &crate::OnPairArray, target: PType) -> crate::OnPairArray {
     let view = arr.as_view();
     let mut ctx = SESSION.create_execution_ctx();
     let original = view
@@ -530,6 +530,41 @@ fn narrow_codes_offsets(arr: &crate::OnPairArray, target: PType) -> crate::OnPai
     }
 }
 
+#[cfg_attr(miri, ignore)]
+#[test]
+fn test_onpair_prefilter_with_u64_codes_offsets() -> vortex_error::VortexResult<()> {
+    let mut values = vec![Some("ordinary filler"); 1026];
+    values[100] = Some("rare hello needle");
+    let input = VarBinArray::from_iter(
+        values.iter().copied(),
+        DType::Utf8(Nullability::NonNullable),
+    );
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = compress_onpair_indexed(&input.into_array(), &mut ctx)?;
+    let array = cast_codes_offsets(&array, PType::U64)
+        .into_array()
+        .slice(1..1025)?
+        .try_downcast::<OnPair>()
+        .map_err(|array| {
+            vortex_error::vortex_err!("expected sliced OnPair, got {}", array.encoding_id())
+        })?;
+    let pattern = ConstantArray::new("%hello%", array.len()).into_array();
+    let result =
+        <OnPair as LikeKernel>::like(array.as_view(), &pattern, LikeOptions::default(), &mut ctx)?
+            .ok_or_else(|| {
+                vortex_error::vortex_err!("u64 offsets should use the OnPair prefilter")
+            })?;
+    let expected = values[1..1025]
+        .iter()
+        .map(|value| value.map(|value| value.contains("hello")).unwrap_or(false));
+    assert_arrays_eq!(
+        &result,
+        &BoolArray::from_iter(expected),
+        &mut SESSION.create_execution_ctx()
+    );
+    Ok(())
+}
+
 /// Regression: the cascading compressor can narrow `codes_offsets`
 /// from u32 → u16 when every row's token count is small. The previous
 /// `filter` impl read the child as `as_slice::<u32>()` and panicked
@@ -553,7 +588,7 @@ fn test_onpair_filter_with_narrowed_codes_offsets_u16() -> vortex_error::VortexR
 
     // Force `codes_offsets` to u16 so the panicking pre-fix
     // `as_slice::<u32>()` would fire.
-    let arr = narrow_codes_offsets(&arr, PType::U16);
+    let arr = cast_codes_offsets(&arr, PType::U16);
     assert_eq!(
         arr.as_view().codes_offsets().dtype().as_ptype(),
         PType::U16,
@@ -606,7 +641,7 @@ fn test_onpair_filter_with_narrowed_codes_offsets_u8() -> vortex_error::VortexRe
     );
     let mut ctx = SESSION.create_execution_ctx();
     let arr = compress_onpair(&varbin.into_array(), &mut ctx)?;
-    let arr = narrow_codes_offsets(&arr, PType::U8);
+    let arr = cast_codes_offsets(&arr, PType::U8);
     assert_eq!(arr.as_view().codes_offsets().dtype().as_ptype(), PType::U8);
 
     let mask = vortex_mask::Mask::from_iter((0..n).map(|i| i % 2 == 0));
