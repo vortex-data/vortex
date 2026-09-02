@@ -4,11 +4,12 @@
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 set -eu
-cmake -Bbuild -DBUILD_TESTS=1 -DCMAKE_CXX_FLAGS='-fprofile-arcs -ftest-coverage'
+cmake -Bbuild -DVORTEX_BUILD_TESTING=ON \
+    -DCMAKE_CXX_FLAGS='-fprofile-arcs -ftest-coverage'
 cmake --build build -j
 ctest --test-dir build --output-on-failure
 
-geninfo build/CMakeFiles/vortex_cxx_shared.dir/ \
+geninfo build/CMakeFiles/vortex_cxx.dir/ \
     build/tests/CMakeFiles/vortex_cxx_test.dir/ \
     --rc geninfo_unexecuted_blocks=1 \
     --exclude /usr --exclude build/_deps --exclude tests \

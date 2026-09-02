@@ -140,8 +140,6 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y lcov libjson-xs-perl
           fi
-      - name: Build FFI library
-        run: cargo build -p vortex-ffi
       - name: Build and test C++ API with coverage
         working-directory: lang/cpp
         run: ./gcov-report.sh

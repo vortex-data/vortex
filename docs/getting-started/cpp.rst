@@ -10,39 +10,59 @@ The only dependency apart from Vortex is ``nanoarrow``.
    in using Vortex from C++ or you want a feature not covered yet e.g.
    extension support.
 
-Installation
-------------
+Building from source
+--------------------
 
-We don't provide prebuilt library files (yet) so you will need to build Vortex
-from source, and for that you will need:
-
-- C++20,
-- Rust toolchain,
-- and CMake 3.10.
+Vortex does not provide prebuilt C++ libraries yet. Building from source requires
+C++20, CMake 3.28 or newer with a single-config generator, and native Cargo and
+rustc 1.95 or newer with the target standard library installed. The initial CMake
+integration builds static position-independent-code libraries only. Use a complete
+workspace checkout; the C++ directory cannot be built from an isolated source copy.
 
 .. code-block:: bash
 
     git clone --depth 1 https://github.com/vortex-data/vortex
     cd vortex
-    cargo build --release -p vortex-ffi
 
-    cmake -S lang/cpp -Bbuild -DCMAKE_BUILD_TYPE=Release
-    # To build the examples, pass -DBUILD_EXAMPLES=1
-    # cmake -S lang/cpp -Bbuild -DBUILD_EXAMPLES=1
+    cmake -S lang/cpp -B build/cpp -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DVORTEX_BUILD_EXAMPLES=ON
+    cmake --build build/cpp --parallel
 
-    cmake --build build -j
+Configuration queries Cargo and rustc and validates the native target and Rust
+standard library. The locked ``vortex-ffi`` compilation occurs only when the CMake
+build runs, so a separate ``cargo build`` step is neither required nor recommended.
+Building examples can download nanoarrow during configure; Cargo can download
+locked Rust dependencies during the build.
 
-This produces a shared and a static library which you can use directly or via
+Tests and examples default to ``OFF``. ``VORTEX_WARNINGS_AS_ERRORS`` defaults to
+``ON`` for a standalone build and ``OFF`` when a parent adds ``lang/cpp``.
+
+Source-tree consumers add ``lang/cpp`` and link the canonical target:
 
 .. code-block:: cmake
 
-    # static library
-    target_link_libraries(target PRIVATE vortex_cxx)
-    # shared library
-    target_link_libraries(target PRIVATE vortex_cxx_shared)
+    add_subdirectory(path/to/vortex/lang/cpp vortex-cpp)
+    target_link_libraries(target PRIVATE Vortex::cpp_static)
 
-Have a look at the `examples
-<https://github.com/vortex-data/vortex/tree/develop/lang/cpp/examples>`_
+The Vortex archives are PIC and can be embedded into a shared parent. Keep calls
+behind a private C++ translation unit and use the parent's normal version script or
+exported-symbol allowlist: the shared parent owns its public ABI, and the Vortex
+interface target does not apply parent-wide symbol-export policy.
+
+The CMake integration is source-only: it does not provide installation rules or a
+``find_package(Vortex)`` package. Downstream projects should vendor or fetch a pinned
+Vortex checkout and add ``lang/cpp`` directly.
+
+macOS arm64 and x86_64 are modeled, but only Apple Silicon is currently validated;
+macOS is not a cuDF integration target. GNU/Linux x86_64 and aarch64 are modeled,
+while full GCC 14, Conda compiler-wrapper, glibc 2.28, and cuDF validation remains
+deferred.
+
+See the `C++ bindings README
+<https://github.com/vortex-data/vortex/blob/develop/lang/cpp/README.md>`_ for all CMake
+options, cache behavior, and source-integration rules. Have a look at the
+`examples <https://github.com/vortex-data/vortex/tree/develop/lang/cpp/examples>`_
 directory as well.
 
 Reading files
@@ -205,7 +225,7 @@ Now you can build the example and read back the generated files:
 
 .. code-block::
 
-    ./build/examples/writer people0.vortex
-    ./build/examples/writer people1.vortex
-    ./build/examples/writer me.vortex
-    ./build/examples/reader
+    ./build/cpp/examples/writer people0.vortex
+    ./build/cpp/examples/writer people1.vortex
+    ./build/cpp/examples/writer me.vortex
+    ./build/cpp/examples/reader

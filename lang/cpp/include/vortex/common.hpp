@@ -17,7 +17,6 @@ struct float16_t {
     constexpr friend bool operator==(float16_t, float16_t) = default;
     // NOLINTNEXTLINE
     constexpr operator float() const {
-        float result;
         const uint32_t sign = (bits >> 15) & 1;
         const uint32_t exponent = (bits >> 10) & 0x1F;
         const uint32_t mantissa = bits & 0x3FF;

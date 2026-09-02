@@ -16,7 +16,7 @@ file(GLOB TEST_FILES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
 add_executable(vortex_cxx_test ${TEST_FILES})
 target_include_directories(vortex_cxx_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(vortex_cxx_test PRIVATE
-    vortex_cxx_shared
+    Vortex::cpp_static
     Catch2::Catch2WithMain
     magic_enum::magic_enum
     nanoarrow_shared)

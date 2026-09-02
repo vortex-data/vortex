@@ -585,23 +585,21 @@ jobs:
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: "true"
+
       - name: Install Rust nightly toolchain
         run: |
           rustup toolchain install $NIGHTLY_TOOLCHAIN
           rustup component add --toolchain $NIGHTLY_TOOLCHAIN rust-src rustfmt clippy llvm-tools-preview
-      - name: Build FFI library (asan)
-        run: |
-          RUSTFLAGS="-A warnings -Cunsafe-allow-abi-mismatch=sanitizer \
-                -C debuginfo=2 -C opt-level=0 -C strip=none -Zexternal-clangrt \
-                -Zsanitizer=address,leak" \
-          cargo +$NIGHTLY_TOOLCHAIN build --locked --no-default-features \
-            --target x86_64-unknown-linux-gnu -Zbuild-std \
-            -p vortex-ffi
       - name: Build C++ tests and examples (asan)
+        env:
+          RUSTUP_TOOLCHAIN: ${{ env.NIGHTLY_TOOLCHAIN }}
         run: |
-          mkdir -p build
-          cmake -S lang/cpp -Bbuild -DSANITIZER=asan -DBUILD_TESTS=1 -DBUILD_EXAMPLES=1 -DTARGET_TRIPLE="x86_64-unknown-linux-gnu"
-          cmake --build build --parallel $(nproc)
+          cmake -S lang/cpp -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DVORTEX_SANITIZER=asan \
+            -DVORTEX_BUILD_TESTING=ON \
+            -DVORTEX_BUILD_EXAMPLES=ON
+          cmake --build build --parallel
       - name: Run C++ tests
         run: |
           build/tests/vortex_cxx_test
