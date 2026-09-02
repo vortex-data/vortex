@@ -406,12 +406,14 @@ impl<T> BufferMut<T> {
     }
 
     /// Returns a raw pointer to the buffer's data.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn as_ptr(&self) -> *const T {
         self.ptr.as_ptr()
     }
 
     /// Returns a mutable raw pointer to the buffer's data.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn as_mut_ptr(&mut self) -> *mut T {
         self.ptr.as_ptr()

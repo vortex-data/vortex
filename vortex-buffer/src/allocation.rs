@@ -276,21 +276,25 @@ impl Allocation {
         }
     }
 
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub(crate) fn ptr(&self) -> NonNull<u8> {
         self.ptr
     }
 
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub(crate) fn size(&self) -> usize {
         self.layout.size()
     }
 
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub(crate) fn alignment(&self) -> usize {
         self.layout.align()
     }
 
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub(crate) fn allocator(&self) -> &BufferAllocatorRef {
         &self.allocator
@@ -350,6 +354,7 @@ pub(crate) enum BufferBacking {
 }
 
 impl BufferBacking {
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub(crate) fn allocator(&self) -> &BufferAllocatorRef {
         match self {
