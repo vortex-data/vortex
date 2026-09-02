@@ -11,7 +11,8 @@ use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::VortexSessionExecute;
-use vortex_array::aggregate_fn::fns::sum::sum;
+use vortex_array::aggregate_fn::AccumulatorRef;
+use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::builders::ArrayBuilder;
@@ -21,7 +22,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
 use vortex_array::scalar::Scalar;
@@ -67,7 +67,12 @@ pub fn accumulate_stats(
 
 /// Accumulates write-time statistics for a single file column.
 struct StatsAccumulator {
-    builders: Vec<Box<dyn StatsArrayBuilder>>,
+    aggregates: Vec<(AggregateFnRef, AccumulatorRef)>,
+    /// Bespoke truncating builders for Utf8/Binary Min/Max, which track per-value exactness
+    /// (`Precision::Exact` vs `Inexact`) that the generic `BoundedMax`/`BoundedMin` aggregate fns
+    /// can't express (they treat truncatability as a static, config-level property, not a
+    /// per-value fact).
+    truncated: Vec<Box<dyn StatsArrayBuilder>>,
     length: usize,
 }
 
@@ -75,33 +80,51 @@ impl StatsAccumulator {
     fn new(dtype: &DType, stats: &[Stat], max_variable_length_statistics_size: usize) -> Self {
         if !supports_file_stats(dtype) {
             return Self {
-                builders: Vec::new(),
+                aggregates: Vec::new(),
+                truncated: Vec::new(),
                 length: 0,
             };
         }
 
-        let builders = stats
-            .iter()
-            .filter_map(|&stat| {
-                stat.dtype(dtype).map(|stat_dtype| {
-                    stats_builder_with_capacity(
+        let is_varlen = is_varlen_dtype(dtype);
+        let mut aggregates = Vec::new();
+        let mut truncated: Vec<Box<dyn StatsArrayBuilder>> = Vec::new();
+
+        for &stat in stats {
+            if is_varlen && matches!(stat, Stat::Min | Stat::Max) {
+                if let Some(stat_dtype) = stat.dtype(dtype) {
+                    truncated.push(stats_builder_with_capacity(
                         stat,
                         &stat_dtype.as_nullable(),
                         1024,
                         max_variable_length_statistics_size,
-                    )
-                })
-            })
-            .collect::<Vec<_>>();
+                    ));
+                }
+                continue;
+            }
+
+            // `IsConstant`/`IsSorted`/`IsStrictSorted` have no aggregate-fn equivalent, and a
+            // dtype that doesn't support a given aggregate simply fails to build an accumulator —
+            // both cases are silently skipped, matching this stat's absence from the result.
+            if let Some(aggregate_fn) = stat.aggregate_fn()
+                && let Ok(accumulator) = aggregate_fn.accumulator(dtype)
+            {
+                aggregates.push((aggregate_fn, accumulator));
+            }
+        }
 
         Self {
-            builders,
+            aggregates,
+            truncated,
             length: 0,
         }
     }
 
     fn push_chunk(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
-        for builder in &mut self.builders {
+        for (_, accumulator) in &mut self.aggregates {
+            accumulator.accumulate(array, ctx)?;
+        }
+        for builder in &mut self.truncated {
             if let Some(value) = array.statistics().compute_stat(builder.stat(), ctx)? {
                 builder.append_scalar(value.cast(&value.dtype().as_nullable())?)?;
             } else {
@@ -112,12 +135,15 @@ impl StatsAccumulator {
         Ok(())
     }
 
-    fn as_array(&mut self, ctx: &mut ExecutionCtx) -> VortexResult<Option<StructArray>> {
+    /// Builds the intermediate per-chunk table backing the `truncated` (Utf8/Binary Min/Max)
+    /// builders, from which the file-wide truncated aggregate is re-derived. Returns `None` if
+    /// there are no such builders, or all their columns ended up all-null.
+    fn truncated_array(&mut self, ctx: &mut ExecutionCtx) -> VortexResult<Option<StructArray>> {
         let mut names = Vec::new();
         let mut fields = Vec::new();
 
         for builder in self
-            .builders
+            .truncated
             .iter_mut()
             // We sort the stats so the DType is deterministic based on which stats are present.
             .sorted_unstable_by_key(|builder| builder.stat())
@@ -141,46 +167,45 @@ impl StatsAccumulator {
     }
 
     /// Returns an aggregated stats set for the table.
-    fn as_stats_set(&mut self, stats: &[Stat], ctx: &mut ExecutionCtx) -> VortexResult<StatsSet> {
+    fn as_stats_set(&mut self, ctx: &mut ExecutionCtx) -> VortexResult<StatsSet> {
         let mut stats_set = StatsSet::default();
-        let Some(stats_table) = self.as_array(ctx)? else {
+
+        for (aggregate_fn, accumulator) in &self.aggregates {
+            if let Some(stat) = Stat::from_aggregate_fn(aggregate_fn)
+                && let Some(v) = accumulator.final_scalar()?.into_value()
+            {
+                stats_set.set(stat, Precision::exact(v));
+            }
+        }
+
+        let Some(stats_table) = self.truncated_array(ctx)? else {
             return Ok(stats_set);
         };
 
-        for &stat in stats {
+        for builder in &self.truncated {
+            let stat = builder.stat();
             let Some(values) = stats_table.unmasked_field_by_name_opt(stat.name()) else {
                 continue;
             };
 
-            match stat {
-                Stat::Max if is_varlen_dtype(values.dtype()) && !values.all_valid(ctx)? => {
-                    // A null truncated varlen max can mean either an empty chunk or no finite
-                    // upper bound, so aggregating by skipping nulls would be unsound.
-                    continue;
-                }
-                Stat::Min | Stat::Max | Stat::Sum => {
-                    if let Some(s) = values.statistics().compute_stat(stat, ctx)?
-                        && let Some(v) = s.into_value()
-                    {
-                        let precision = if stat_was_truncated(&stats_table, stat, ctx)? {
-                            Precision::inexact(v)
-                        } else {
-                            Precision::exact(v)
-                        };
-                        stats_set.set(stat, precision)
-                    }
-                }
-                Stat::NullCount | Stat::NaNCount | Stat::UncompressedSizeInBytes => {
-                    if let Some(sum_value) = sum(values, ctx)?
-                        .cast(&DType::Primitive(PType::U64, Nullability::Nullable))?
-                        .into_value()
-                    {
-                        stats_set.set(stat, Precision::exact(sum_value));
-                    }
-                }
-                Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted => {}
+            if stat == Stat::Max && !values.all_valid(ctx)? {
+                // A null truncated varlen max can mean either an empty chunk or no finite
+                // upper bound, so aggregating by skipping nulls would be unsound.
+                continue;
+            }
+
+            if let Some(s) = values.statistics().compute_stat(stat, ctx)?
+                && let Some(v) = s.into_value()
+            {
+                let precision = if stat_was_truncated(&stats_table, stat, ctx)? {
+                    Precision::inexact(v)
+                } else {
+                    Precision::exact(v)
+                };
+                stats_set.set(stat, precision);
             }
         }
+
         Ok(stats_set)
     }
 }
@@ -213,6 +238,12 @@ fn is_varlen_dtype(dtype: &DType) -> bool {
     matches!(dtype, DType::Utf8(_) | DType::Binary(_))
 }
 
+/// Builds a bespoke truncating builder for Utf8/Binary Min/Max.
+///
+/// # Panics
+///
+/// Panics if `stat` is not `Min` or `Max`, or `dtype` is not `Utf8`/`Binary` — callers only
+/// reach this for varlen Min/Max (see [`StatsAccumulator::new`]).
 fn stats_builder_with_capacity(
     stat: Stat,
     dtype: &DType,
@@ -220,34 +251,36 @@ fn stats_builder_with_capacity(
     max_length: usize,
 ) -> Box<dyn StatsArrayBuilder> {
     let values_builder = builder_with_capacity(dtype, capacity);
-    match stat {
-        Stat::Max => match dtype {
-            DType::Utf8(_) => Box::new(TruncatedMaxBinaryStatsBuilder::<BufferString>::new(
+    match (stat, dtype) {
+        (Stat::Max, DType::Utf8(_)) => {
+            Box::new(TruncatedMaxBinaryStatsBuilder::<BufferString>::new(
                 values_builder,
                 BoolBuilder::with_capacity(Nullability::NonNullable, capacity),
                 max_length,
-            )),
-            DType::Binary(_) => Box::new(TruncatedMaxBinaryStatsBuilder::<ByteBuffer>::new(
+            ))
+        }
+        (Stat::Max, DType::Binary(_)) => {
+            Box::new(TruncatedMaxBinaryStatsBuilder::<ByteBuffer>::new(
                 values_builder,
                 BoolBuilder::with_capacity(Nullability::NonNullable, capacity),
                 max_length,
-            )),
-            _ => Box::new(StatNameArrayBuilder::new(stat, values_builder)),
-        },
-        Stat::Min => match dtype {
-            DType::Utf8(_) => Box::new(TruncatedMinBinaryStatsBuilder::<BufferString>::new(
+            ))
+        }
+        (Stat::Min, DType::Utf8(_)) => {
+            Box::new(TruncatedMinBinaryStatsBuilder::<BufferString>::new(
                 values_builder,
                 BoolBuilder::with_capacity(Nullability::NonNullable, capacity),
                 max_length,
-            )),
-            DType::Binary(_) => Box::new(TruncatedMinBinaryStatsBuilder::<ByteBuffer>::new(
+            ))
+        }
+        (Stat::Min, DType::Binary(_)) => {
+            Box::new(TruncatedMinBinaryStatsBuilder::<ByteBuffer>::new(
                 values_builder,
                 BoolBuilder::with_capacity(Nullability::NonNullable, capacity),
                 max_length,
-            )),
-            _ => Box::new(StatNameArrayBuilder::new(stat, values_builder)),
-        },
-        _ => Box::new(StatNameArrayBuilder::new(stat, values_builder)),
+            ))
+        }
+        _ => unreachable!("stats_builder_with_capacity is only called for varlen Min/Max"),
     }
 }
 
@@ -271,38 +304,6 @@ trait StatsArrayBuilder: Send {
     fn append_null(&mut self);
 
     fn finish(&mut self) -> NamedArrays;
-}
-
-struct StatNameArrayBuilder {
-    stat: Stat,
-    builder: Box<dyn ArrayBuilder>,
-}
-
-impl StatNameArrayBuilder {
-    fn new(stat: Stat, builder: Box<dyn ArrayBuilder>) -> Self {
-        Self { stat, builder }
-    }
-}
-
-impl StatsArrayBuilder for StatNameArrayBuilder {
-    fn stat(&self) -> Stat {
-        self.stat
-    }
-
-    fn append_scalar(&mut self, value: Scalar) -> VortexResult<()> {
-        self.builder.append_scalar(&value)
-    }
-
-    fn append_null(&mut self) {
-        self.builder.append_null()
-    }
-
-    fn finish(&mut self) -> NamedArrays {
-        NamedArrays {
-            names: vec![self.stat.name().into()],
-            arrays: vec![self.builder.finish()],
-        }
-    }
 }
 
 struct TruncatedMaxBinaryStatsBuilder<T: ScalarTruncation> {
@@ -525,14 +526,13 @@ impl StatsNode {
     /// Appends this node's `StatsSet`s, in the same post-order as [`postorder_stats_layout`].
     fn collect_stats_sets(
         &mut self,
-        stats: &[Stat],
         ctx: &mut ExecutionCtx,
         out: &mut Vec<StatsSet>,
     ) -> VortexResult<()> {
         match self {
             Self::Skipped => Ok(()),
             Self::Leaf(acc) => {
-                out.push(acc.as_stats_set(stats, ctx)?);
+                out.push(acc.as_stats_set(ctx)?);
                 Ok(())
             }
             Self::Struct {
@@ -540,10 +540,10 @@ impl StatsNode {
                 null_count,
             } => {
                 for (_, child) in children.iter_mut() {
-                    child.collect_stats_sets(stats, ctx, out)?;
+                    child.collect_stats_sets(ctx, out)?;
                 }
                 if let Some(null_count) = null_count {
-                    out.push(null_count.as_stats_set(stats, ctx)?);
+                    out.push(null_count.as_stats_set(ctx)?);
                 }
                 Ok(())
             }
@@ -555,7 +555,6 @@ impl StatsNode {
 /// nested (possibly nullable) structs. See [`postorder_stats_layout`] for the entry ordering.
 #[derive(Clone)]
 pub struct FileStatsAccumulator {
-    stats: Arc<[Stat]>,
     root: Arc<Mutex<StatsNode>>,
     ctx: Arc<Mutex<ExecutionCtx>>,
 }
@@ -574,7 +573,6 @@ impl FileStatsAccumulator {
         )));
 
         Self {
-            stats,
             root,
             ctx: Arc::new(Mutex::new(session.create_execution_ctx())),
         }
@@ -595,7 +593,7 @@ impl FileStatsAccumulator {
         let mut out = Vec::new();
         self.root
             .lock()
-            .collect_stats_sets(&self.stats, &mut ctx, &mut out)
+            .collect_stats_sets(&mut ctx, &mut out)
             .vortex_expect("collect_stats_sets should not fail");
         out
     }
@@ -610,6 +608,7 @@ mod tests {
     use vortex_array::arrays::bool::BoolArrayExt;
     use vortex_array::builders::VarBinViewBuilder;
     use vortex_array::dtype::FieldNames;
+    use vortex_array::dtype::PType;
     use vortex_array::scalar::PValue;
     use vortex_array::scalar::ScalarValue;
     use vortex_buffer::BitBuffer;
@@ -635,7 +634,7 @@ mod tests {
         acc.push_chunk(&builder2.finish(), &mut ctx)
             .vortex_expect("push_chunk should succeed for test data");
         let stats_table = acc
-            .as_array(&mut ctx)
+            .truncated_array(&mut ctx)
             .unwrap()
             .expect("Must have stats table");
         assert_eq!(
@@ -680,7 +679,7 @@ mod tests {
             .vortex_expect("push_chunk should succeed for test data");
 
         let stats = acc
-            .as_stats_set(&[Stat::Max, Stat::Min], &mut ctx)
+            .as_stats_set(&mut ctx)
             .vortex_expect("as_stats_set should succeed for test data");
 
         assert!(matches!(stats.get(Stat::Min), Precision::Inexact(_)));
@@ -688,20 +687,65 @@ mod tests {
     }
 
     #[test]
-    fn fixed_width_stats_omit_is_truncated_columns() {
+    fn fixed_width_stats_omit_is_truncated_columns() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         let array = buffer![0, 1, 2].into_array();
         let mut acc = StatsAccumulator::new(array.dtype(), &[Stat::Max, Stat::Min, Stat::Sum], 12);
         acc.push_chunk(&array, &mut ctx)
             .vortex_expect("push_chunk should succeed for test array");
-        let stats_table = acc
-            .as_array(&mut ctx)
-            .unwrap()
-            .expect("Must have stats table");
+
+        // Fixed-width Min/Max/Sum are AggRef-backed now, so there's no intermediate
+        // truncated-stats table at all — they resolve directly through `as_stats_set`.
+        assert!(acc.truncated_array(&mut ctx)?.is_none());
+
+        let stats = acc.as_stats_set(&mut ctx)?;
         assert_eq!(
-            stats_table.names().as_ref(),
-            &[Stat::Max.name(), Stat::Min.name(), Stat::Sum.name()]
+            stats.get(Stat::Max).as_exact(),
+            Some(ScalarValue::from(2i32))
         );
+        assert_eq!(
+            stats.get(Stat::Min).as_exact(),
+            Some(ScalarValue::from(0i32))
+        );
+        assert_eq!(
+            stats.get(Stat::Sum).as_exact(),
+            Some(ScalarValue::from(3i64))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn aggregates_persist_across_multiple_chunks() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let dtype = i32_dtype();
+        let mut acc = StatsAccumulator::new(
+            &dtype,
+            &[Stat::Max, Stat::Min, Stat::Sum, Stat::NullCount],
+            12,
+        );
+
+        acc.push_chunk(&buffer![0, 5, 2].into_array(), &mut ctx)?;
+        acc.push_chunk(&buffer![7, 1, 3].into_array(), &mut ctx)?;
+        acc.push_chunk(&buffer![-4, 9].into_array(), &mut ctx)?;
+
+        let stats = acc.as_stats_set(&mut ctx)?;
+        assert_eq!(
+            stats.get(Stat::Max).as_exact(),
+            Some(ScalarValue::from(9i32))
+        );
+        assert_eq!(
+            stats.get(Stat::Min).as_exact(),
+            Some(ScalarValue::from(-4i32))
+        );
+        assert_eq!(
+            stats.get(Stat::Sum).as_exact(),
+            Some(ScalarValue::from(23i64))
+        );
+        assert_eq!(
+            stats.get(Stat::NullCount).as_exact(),
+            Some(ScalarValue::from(0u64))
+        );
+        Ok(())
     }
 
     fn i32_dtype() -> DType {
@@ -810,7 +854,7 @@ mod tests {
         node.push_chunk(&outer, &mut ctx)?;
 
         let mut stats_sets = Vec::new();
-        node.collect_stats_sets(&requested, &mut ctx, &mut stats_sets)?;
+        node.collect_stats_sets(&mut ctx, &mut stats_sets)?;
 
         // `a.b`'s stats come first (post-order), then `a`'s own null-count entry.
         assert_eq!(stats_sets.len(), 2);
