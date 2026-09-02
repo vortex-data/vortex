@@ -24,6 +24,33 @@
 //! and compressed by the same machinery as data. Probing an index is therefore just a pruned scan
 //! over the index child: a sorted key column's zone map narrows the probe to a handful of zones.
 //!
+//! # Nesting
+//!
+//! Both child slots hold an ordinary [`LayoutRef`], so nesting is not special-cased anywhere in
+//! this module — it falls out of every child being read and written through the generic
+//! [`crate::LayoutReader`] and [`crate::LayoutStrategy`] traits:
+//!
+//! - **Data child.** Slot 0 can be any layout — chunked, zoned, struct, flat, or another
+//!   `vortex.indexed` — since [`writer::IndexedStrategy`] writes it through a plain
+//!   `Arc<dyn LayoutStrategy>` and [`reader::IndexedReader`] reads it back through the generic
+//!   reader trait rather than assuming a concrete kind. A data child that is itself wrapped in
+//!   `vortex.indexed` prunes with its own indexes when the outer wrapper delegates a
+//!   `pruning_evaluation`/`filter_evaluation` call to it, so a struct layout whose fields are
+//!   independently indexed, or two stacked `vortex.indexed` layers with different index kinds,
+//!   both work without this layout knowing about it.
+//! - **Index child.** Index content is written through the same kind of `Arc<dyn LayoutStrategy>`
+//!   and probed by running an ordinary scan (`ScanBuilder`) over it, so it too can be chunked,
+//!   zone-mapped, or itself wrapped in `vortex.indexed`. Wrapping an index child in another index
+//!   (for example, a small index over keys that point into a large posting list) prunes the probe
+//!   scan the same way it would prune a plain data scan.
+//! - **`vortex.indexed` as someone else's child.** Since it is an ordinary [`LayoutRef`], this
+//!   layout is not restricted to the top of a file — it can equally be a struct field, one chunk
+//!   of a chunked layout, or the child of any other layout that composes over children.
+//!
+//! The one thing that does not nest is the [`IndexSession`] registry itself: every level of
+//! nesting is resolved against the same session passed down from the reader, so an index kind
+//! unregistered at any level degrades to inert there, independent of the other levels.
+//!
 //! # What ships here
 //!
 //! The generic wrapper only: [`Indexed`], [`writer::IndexedStrategy`] and [`reader::IndexedReader`],
