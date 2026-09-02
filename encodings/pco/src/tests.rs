@@ -4,6 +4,8 @@
 
 use std::sync::LazyLock;
 
+use num_traits::NumCast;
+use rstest::rstest;
 use vortex_array::ArrayContext;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -12,8 +14,10 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::assert_nth_scalar;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::match_each_native_ptype;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::SerializedArray;
 use vortex_array::session::ArraySessionExt;
@@ -220,4 +224,81 @@ fn test_serde() -> VortexResult<()> {
         .execute_arrow(decoded, Some(&data_type), &mut ctx)?;
     assert!(pco_arrow == decoded_arrow);
     Ok(())
+}
+
+/// Round-trip `values` through Pco compression, checking both full decompression and a slice.
+fn assert_pco_roundtrip<T: NativePType>(values: Vec<T>) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = PrimitiveArray::from_iter(values.clone());
+    let compressed = Pco::from_primitive(array.as_view(), 3, 0, &mut ctx)?;
+
+    let unsliced_validity = compressed.unsliced_validity();
+    let decompressed = compressed.decompress(&unsliced_validity, &mut ctx)?;
+    assert_arrays_eq!(
+        decompressed,
+        PrimitiveArray::from_iter(values.clone()),
+        &mut ctx
+    );
+
+    let slice = compressed.slice(1..values.len() - 1)?;
+    assert_arrays_eq!(
+        slice,
+        PrimitiveArray::from_iter(values[1..values.len() - 1].to_vec()),
+        &mut ctx
+    );
+    Ok(())
+}
+
+/// Round-trip a nullable array of `values` with every third entry null.
+fn assert_pco_nullable_roundtrip<T: NativePType>(values: Vec<T>) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let options = values
+        .iter()
+        .enumerate()
+        .map(|(i, v)| (i % 3 != 0).then_some(*v))
+        .collect::<Vec<_>>();
+    let array = PrimitiveArray::from_option_iter(options.clone());
+    let compressed = Pco::from_primitive(array.as_view(), 3, 0, &mut ctx)?;
+
+    assert_arrays_eq!(
+        compressed,
+        PrimitiveArray::from_option_iter(options),
+        &mut ctx
+    );
+    Ok(())
+}
+
+#[test]
+fn test_roundtrip_u8() -> VortexResult<()> {
+    let values: Vec<u8> = (0..=u8::MAX).collect();
+    assert_pco_roundtrip(values.clone())?;
+    assert_pco_nullable_roundtrip(values)
+}
+
+#[test]
+fn test_roundtrip_i8() -> VortexResult<()> {
+    let values: Vec<i8> = (i8::MIN..=i8::MAX).collect();
+    assert_pco_roundtrip(values.clone())?;
+    assert_pco_nullable_roundtrip(values)
+}
+
+#[rstest]
+#[case(PType::U8)]
+#[case(PType::U16)]
+#[case(PType::U32)]
+#[case(PType::U64)]
+#[case(PType::I8)]
+#[case(PType::I16)]
+#[case(PType::I32)]
+#[case(PType::I64)]
+#[case(PType::F16)]
+#[case(PType::F32)]
+#[case(PType::F64)]
+fn test_roundtrip_each_ptype(#[case] ptype: PType) -> VortexResult<()> {
+    match_each_native_ptype!(ptype, |T| {
+        let values = (0..100_u8)
+            .map(|i| <T as NumCast>::from(i).vortex_expect("0..100 fits in every native ptype"))
+            .collect::<Vec<T>>();
+        assert_pco_roundtrip(values)
+    })
 }

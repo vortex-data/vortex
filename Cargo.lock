@@ -11400,6 +11400,7 @@ dependencies = [
 name = "vortex-pco"
 version = "0.1.0"
 dependencies = [
+ "num-traits",
  "pco",
  "prost 0.14.4",
  "rstest",
