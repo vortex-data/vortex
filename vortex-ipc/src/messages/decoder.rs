@@ -30,6 +30,58 @@ pub enum DecoderMessage {
     DType(FlatBuffer),
 }
 
+/// Upper bounds on the sizes an IPC message is allowed to declare.
+///
+/// A message declares the length of its flatbuffer header and of its body before either has been
+/// received. Callers of [`MessageDecoder::read_next`] are expected to allocate a buffer of the
+/// size reported by [`PollRead::NeedMore`], so an unbounded declared size lets a few bytes of
+/// input request an arbitrarily large allocation. The decoder rejects a message whose declared
+/// sizes exceed these limits before reporting `NeedMore`, so no caller ever allocates on behalf
+/// of an oversized declaration.
+///
+/// The defaults are far above any message Vortex writes; raise them only when a producer is
+/// known to emit larger messages, and prefer [`Self::UNLIMITED`] only for trusted local input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MessageLimits {
+    /// The largest flatbuffer header, in bytes, that a message may declare.
+    pub max_header_size: usize,
+    /// The largest body, in bytes, that a message may declare.
+    pub max_body_size: usize,
+}
+
+impl MessageLimits {
+    /// The default header limit: 16 MiB.
+    ///
+    /// A header holds only flatbuffer-encoded metadata (the encoding ids, row count, and dtype),
+    /// which stays in the kilobytes even for very wide schemas.
+    pub const DEFAULT_MAX_HEADER_SIZE: usize = 16 << 20;
+
+    /// The default body limit: 1 GiB.
+    ///
+    /// A body holds the serialized buffers of a single array message. Writers chunk their output
+    /// well below this, so the limit only rejects declarations that could not have come from a
+    /// well-formed stream.
+    pub const DEFAULT_MAX_BODY_SIZE: usize = 1 << 30;
+
+    /// Limits that permit any size representable by the format.
+    ///
+    /// Only use this when the byte stream is trusted: it restores the behaviour where a malformed
+    /// message can request an arbitrarily large allocation.
+    pub const UNLIMITED: Self = Self {
+        max_header_size: usize::MAX,
+        max_body_size: usize::MAX,
+    };
+}
+
+impl Default for MessageLimits {
+    fn default() -> Self {
+        Self {
+            max_header_size: Self::DEFAULT_MAX_HEADER_SIZE,
+            max_body_size: Self::DEFAULT_MAX_BODY_SIZE,
+        }
+    }
+}
+
 #[derive(Default)]
 enum State {
     #[default]
@@ -67,9 +119,24 @@ pub enum PollRead {
 pub struct MessageDecoder {
     /// The current state of the decoder.
     state: State,
+    /// Bounds on the sizes a message may declare.
+    limits: MessageLimits,
 }
 
 impl MessageDecoder {
+    /// Create a decoder that enforces the given [`MessageLimits`].
+    pub fn new(limits: MessageLimits) -> Self {
+        Self {
+            state: State::default(),
+            limits,
+        }
+    }
+
+    /// The size limits this decoder enforces.
+    pub fn limits(&self) -> MessageLimits {
+        self.limits
+    }
+
     /// Attempt to read the next message from the bytes object.
     ///
     /// If the message is incomplete, the function will return `NeedMore` with the _total_ number
@@ -83,8 +150,16 @@ impl MessageDecoder {
                         return Ok(PollRead::NeedMore(4));
                     }
 
-                    let msg_length = bytes.get_u32_le();
-                    self.state = State::Header(msg_length as usize);
+                    let msg_length = bytes.get_u32_le() as usize;
+                    // Checked before `NeedMore` so that a caller sizing its buffer from the
+                    // reported value never allocates for an oversized declaration.
+                    if msg_length > self.limits.max_header_size {
+                        vortex_bail!(
+                            "IPC message header size {msg_length} exceeds the limit of {} bytes",
+                            self.limits.max_header_size
+                        );
+                    }
+                    self.state = State::Header(msg_length);
                 }
                 State::Header(msg_length) => {
                     if bytes.remaining() < *msg_length {
@@ -107,6 +182,14 @@ impl MessageDecoder {
                     let body_length = usize::try_from(msg.body_size()).map_err(|_| {
                         vortex_err!("body size {} is too large for usize", msg.body_size())
                     })?;
+                    // As above: reject an oversized declaration before a caller sizes its buffer
+                    // from the `NeedMore` below.
+                    if body_length > self.limits.max_body_size {
+                        vortex_bail!(
+                            "IPC message body size {body_length} exceeds the limit of {} bytes",
+                            self.limits.max_body_size
+                        );
+                    }
                     if bytes.remaining() < body_length {
                         return Ok(PollRead::NeedMore(body_length));
                     }
@@ -215,5 +298,97 @@ mod test {
         let array = ConstantArray::new(10i32, 20);
         assert_eq!(array.nbuffers(), 1, "Array should have a single buffer");
         write_and_read(&array.into_array());
+    }
+
+    /// Build a `BufferMessage` header declaring `body_size` bytes, prefixed by its length.
+    ///
+    /// The body itself is omitted: the point is that the decoder must reject the declaration
+    /// before any caller sizes a buffer from it.
+    fn message_declaring_body(body_size: u64) -> BytesMut {
+        let mut fbb = flatbuffers::FlatBufferBuilder::new();
+        let header = fb::BufferMessage::create(
+            &mut fbb,
+            &fb::BufferMessageArgs {
+                alignment_exponent: 0,
+            },
+        )
+        .as_union_value();
+
+        let mut msg = fb::MessageBuilder::new(&mut fbb);
+        msg.add_version(Default::default());
+        msg.add_header_type(MessageHeader::BufferMessage);
+        msg.add_header(header);
+        msg.add_body_size(body_size);
+        let msg = msg.finish();
+        fbb.finish_minimal(msg);
+
+        let header_bytes = fbb.finished_data();
+        let mut out = BytesMut::new();
+        out.extend_from_slice(&u32::try_from(header_bytes.len()).unwrap().to_le_bytes());
+        out.extend_from_slice(header_bytes);
+        out
+    }
+
+    #[test]
+    fn rejects_oversized_declared_header() {
+        // Four bytes of input claiming a ~4 GiB header.
+        let mut buffer = BytesMut::from(&u32::MAX.to_le_bytes()[..]);
+
+        let err = MessageDecoder::default()
+            .read_next(&mut buffer)
+            .expect_err("an oversized header declaration must be rejected");
+        assert!(
+            err.to_string().contains("exceeds the limit"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_oversized_declared_body() {
+        // A well-formed header declaring a 256 TiB body, with none of it present.
+        let mut buffer = message_declaring_body(1 << 48);
+
+        let err = MessageDecoder::default()
+            .read_next(&mut buffer)
+            .expect_err("an oversized body declaration must be rejected");
+        assert!(
+            err.to_string().contains("exceeds the limit"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn body_within_limit_asks_for_more_bytes() {
+        // A body under the limit still round-trips through `NeedMore`, so the check rejects only
+        // oversized declarations rather than short-circuiting the normal incomplete-read path.
+        let mut buffer = message_declaring_body(4096);
+
+        match MessageDecoder::default().read_next(&mut buffer).unwrap() {
+            PollRead::NeedMore(n) => assert_eq!(n, 4096),
+            otherwise => vortex_panic!("Expected NeedMore, got {:?}", otherwise),
+        }
+    }
+
+    #[test]
+    fn limits_are_configurable() {
+        let limits = MessageLimits {
+            max_body_size: 128,
+            ..MessageLimits::default()
+        };
+
+        let mut buffer = message_declaring_body(4096);
+        assert!(
+            MessageDecoder::new(limits).read_next(&mut buffer).is_err(),
+            "a body above the configured limit must be rejected"
+        );
+
+        let mut buffer = message_declaring_body(4096);
+        match MessageDecoder::new(MessageLimits::UNLIMITED)
+            .read_next(&mut buffer)
+            .unwrap()
+        {
+            PollRead::NeedMore(n) => assert_eq!(n, 4096),
+            otherwise => vortex_panic!("Expected NeedMore, got {:?}", otherwise),
+        }
     }
 }

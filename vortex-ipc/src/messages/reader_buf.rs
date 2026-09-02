@@ -7,6 +7,7 @@ use vortex_error::vortex_err;
 
 use crate::messages::DecoderMessage;
 use crate::messages::MessageDecoder;
+use crate::messages::MessageLimits;
 use crate::messages::PollRead;
 
 /// An IPC message reader backed by a `Read` stream.
@@ -17,9 +18,14 @@ pub struct BufMessageReader<B> {
 
 impl<B: Buf> BufMessageReader<B> {
     pub fn new(buffer: B) -> Self {
+        Self::with_limits(buffer, MessageLimits::default())
+    }
+
+    /// Create a reader that enforces the given [`MessageLimits`] on the buffered messages.
+    pub fn with_limits(buffer: B, limits: MessageLimits) -> Self {
         BufMessageReader {
             buffer,
-            decoder: MessageDecoder::default(),
+            decoder: MessageDecoder::new(limits),
         }
     }
 }

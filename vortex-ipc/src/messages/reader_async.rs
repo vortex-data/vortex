@@ -15,6 +15,7 @@ use vortex_error::vortex_err;
 
 use crate::messages::DecoderMessage;
 use crate::messages::MessageDecoder;
+use crate::messages::MessageLimits;
 use crate::messages::PollRead;
 
 pin_project! {
@@ -30,10 +31,15 @@ pin_project! {
 
 impl<R> AsyncMessageReader<R> {
     pub fn new(read: R) -> Self {
+        Self::with_limits(read, MessageLimits::default())
+    }
+
+    /// Create a reader that enforces the given [`MessageLimits`] on the incoming stream.
+    pub fn with_limits(read: R, limits: MessageLimits) -> Self {
         AsyncMessageReader {
             read,
             buffer: BytesMut::new(),
-            decoder: MessageDecoder::default(),
+            decoder: MessageDecoder::new(limits),
             state: ReadState::default(),
         }
     }
