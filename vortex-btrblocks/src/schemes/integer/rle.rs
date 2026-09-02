@@ -25,6 +25,8 @@ use vortex_fastlanes::RLE;
 use vortex_fastlanes::RLEArrayExt;
 use vortex_fastlanes::RLEArraySlotsExt;
 
+#[cfg(feature = "unstable_encodings")]
+use super::DeltaScheme;
 use super::RUN_LENGTH_THRESHOLD;
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
@@ -60,38 +62,28 @@ pub(crate) fn rle_compress(
         exec_ctx,
     )?;
 
-    // Delta is an unstable encoding, once we deem it stable we can switch over to this always.
-    #[cfg(feature = "unstable_encodings")]
     let compressed_indices = {
         let rle_indices_primitive = rle_array
             .indices()
             .clone()
             .execute::<PrimitiveArray>(exec_ctx)?
             .narrow(exec_ctx)?;
-        try_compress_delta(
-            compressor,
-            &rle_indices_primitive.into_array(),
-            &compress_ctx,
-            scheme.id(),
-            1,
-            exec_ctx,
-        )?
-    };
-
-    #[cfg(not(feature = "unstable_encodings"))]
-    let compressed_indices = {
-        let rle_indices_primitive = rle_array
-            .indices()
-            .clone()
-            .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow(exec_ctx)?;
-        compressor.compress_child(
-            &rle_indices_primitive.into_array(),
-            &compress_ctx,
-            scheme.id(),
-            1,
-            exec_ctx,
-        )?
+        let rle_indices = rle_indices_primitive.into_array();
+        #[cfg(feature = "unstable_encodings")]
+        if compressor.has_scheme(DeltaScheme::default().id()) {
+            try_compress_delta(
+                compressor,
+                &rle_indices,
+                &compress_ctx,
+                scheme.id(),
+                1,
+                exec_ctx,
+            )?
+        } else {
+            compressor.compress_child(&rle_indices, &compress_ctx, scheme.id(), 1, exec_ctx)?
+        }
+        #[cfg(not(feature = "unstable_encodings"))]
+        compressor.compress_child(&rle_indices, &compress_ctx, scheme.id(), 1, exec_ctx)?
     };
 
     let rle_offsets_primitive = rle_array

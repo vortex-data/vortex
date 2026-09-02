@@ -6,11 +6,14 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::array_session;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::extension::datetime::Date;
+use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::session::ArraySessionExt;
 use vortex_buffer::ByteBufferMut;
 use vortex_edition::ComponentKind;
@@ -41,10 +44,7 @@ use super::CORE_2026_08_2;
 use super::CORE_2026_08_3;
 use super::DEFAULT_CORE_EDITION;
 use super::DEFAULT_PREVIEW_EDITION;
-use super::DELTA_2025_05_0;
 use super::EDITION_DECLARATIONS;
-use super::LIST_2026_06_0;
-use super::PATCHES_2026_04_0;
 use super::PREVIEW_2026_08_0;
 
 fn session() -> Result<EditionSession, EditionError> {
@@ -137,22 +137,6 @@ fn core_2026_08_3_is_frozen_and_adds_variants() {
 }
 
 #[test]
-fn components_have_independent_edition_families() {
-    let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
-    let delta = session.components_in(&DELTA_2025_05_0, ComponentKind::Array);
-    assert_eq!(delta.len(), 1);
-    assert_eq!(delta[0].component_id.as_str(), "fastlanes.delta");
-
-    let patches = session.components_in(&PATCHES_2026_04_0, ComponentKind::Array);
-    assert_eq!(patches.len(), 1);
-    assert_eq!(patches[0].component_id.as_str(), "vortex.patched");
-
-    let list = session.components_in(&LIST_2026_06_0, ComponentKind::Layout);
-    assert_eq!(list.len(), 1);
-    assert_eq!(list[0].component_id.as_str(), "vortex.list");
-}
-
-#[test]
 fn preview_starts_empty() {
     let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
     for kind in [
@@ -233,17 +217,10 @@ fn default_session_enables_the_write_editions() {
             .contains(&Id::from("vortex.pco"))
     );
 
-    for edition in [
-        DEFAULT_PREVIEW_EDITION,
-        DELTA_2025_05_0,
-        LIST_2026_06_0,
-        PATCHES_2026_04_0,
-    ] {
-        #[cfg(feature = "unstable_encodings")]
-        assert!(enabled.contains(&edition));
-        #[cfg(not(feature = "unstable_encodings"))]
-        assert!(!enabled.contains(&edition));
-    }
+    #[cfg(feature = "unstable_encodings")]
+    assert!(enabled.contains(&DEFAULT_PREVIEW_EDITION));
+    #[cfg(not(feature = "unstable_encodings"))]
+    assert!(!enabled.contains(&DEFAULT_PREVIEW_EDITION));
 }
 
 #[test]
@@ -412,6 +389,49 @@ fn writer_test_session() -> VortexResult<VortexSession> {
         .enable_edition(WRITER_TEST_EDITION)
         .map_err(|error| vortex_err!("{error}"))?;
     Ok(session)
+}
+
+#[tokio::test]
+async fn disabling_editions_allows_uneditioned_components() -> VortexResult<()> {
+    let enforced_session = array_session()
+        .with::<EditionSession>()
+        .with::<LayoutSession>()
+        .with::<RuntimeSession>();
+    vortex_file::register_default_encodings(&enforced_session);
+    let array = ExtensionArray::try_new(
+        Date::new(TimeUnit::Days, Nullability::NonNullable).erased(),
+        sequential_integers().into_array(),
+    )?
+    .into_array();
+
+    let mut rejected = ByteBufferMut::empty();
+    let error = enforced_session
+        .write_options()
+        .write(&mut rejected, array.clone().to_array_stream())
+        .await
+        .err()
+        .ok_or_else(|| {
+            vortex_err!("writer with no enabled editions accepted an extension dtype")
+        })?;
+    assert!(
+        error
+            .to_string()
+            .contains("Extension DType vortex.date not permitted"),
+        "unexpected error: {error}"
+    );
+
+    let uneditioned_session = array_session()
+        .with::<LayoutSession>()
+        .with::<RuntimeSession>();
+    vortex_file::register_default_encodings(&uneditioned_session);
+    let mut buffer = ByteBufferMut::empty();
+    uneditioned_session
+        .write_options()
+        .disable_editions()
+        .write(&mut buffer, array.to_array_stream())
+        .await?;
+    assert!(!buffer.is_empty());
+    Ok(())
 }
 
 /// Write `array` with `session` and return the buffer, or the error the writer raised.

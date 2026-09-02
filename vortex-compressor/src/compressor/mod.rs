@@ -65,6 +65,13 @@ impl CascadingCompressor {
             root_exclusions,
         }
     }
+
+    /// Returns whether the compressor was configured with `scheme`.
+    pub fn has_scheme(&self, scheme: SchemeId) -> bool {
+        self.schemes
+            .iter()
+            .any(|candidate| candidate.id() == scheme)
+    }
 }
 
 // NB: Cascading compression logic is located in `vortex-compressor/src/compressor/cascade.rs`.

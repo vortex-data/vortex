@@ -7,9 +7,9 @@ that recognizes every ID in the set.
 
 Editions belong to independently versioned families and are cumulative within a family. Each edition includes all
 components from the preceding edition in that family, plus any additions. A writer selects at most one edition from
-each family and may use the union of their component IDs. For example, selecting `core2026.08.3`,
-`delta2025.05.0`, and `patches2026.04.0` allows the core components together with Delta and Patched arrays.
-Every family names the origin library or project whose release versions its editions use.
+each family and may use the union of their component IDs. For example, selecting `core2026.08.3` and
+`tensor2026.04.0` allows the core components together with tensor arrays and dtypes. Every family names the origin
+library or project whose release versions its editions use.
 
 The first frozen edition, `core2025.05.0`, contains the components that Vortex `0.36.0` could write. This marks the
 start of the Vortex file format's stability guarantee. Every Vortex release from `0.36.0` onward can read
@@ -83,18 +83,24 @@ the previous selection.
 You can change the default configuration to:
 
 - **Target an older `core` edition** when the file must remain readable by an older Vortex deployment.
-- **Enable another family** to use components outside `core`. Vortex currently defines `preview`, `delta`, `list`,
-  `patches`, `tensor`, `zstd`, `spatial`, and `json` in addition to `core`.
+- **Enable another family** to use components outside `core`. Vortex currently defines `preview`, `tensor`, `zstd`,
+  `spatial`, and `json` in addition to `core`.
 
 Sessions created without the Vortex facade must register and enable their editions before writing files.
+
+For experimental or custom components that do not belong to an edition, the Rust writer exposes
+`disable_editions()`. This disables every edition check for that write: every array representation registered in the
+session is eligible for compression and serialization, while layouts, extension dtypes, and aggregate functions are
+unrestricted. It does not register missing readers, so files written this way have no edition compatibility guarantee.
 
 Compression and edition compatibility are separate. Compressors produce current in-memory arrays and do not select a
 wire ID. The writer maps each allowed serialized ID to its current in-memory encoding and restricts the default
 BtrBlocks compressor to schemes producing those encodings. Custom compressors remain unrestricted, with serialization
-providing the final compatibility boundary. At that boundary, the array plugin produces an ID, metadata, buffers, and
-children. The serialization context interns the returned ID and fails the write if the selected editions do not permit
-it. A serializer may emit a historical ID when the value satisfies that ID's frozen contract, but it does not inspect
-the edition allowlist. A custom layout or compressor therefore cannot bypass the final wire-ID check.
+providing the final compatibility boundary when edition enforcement is enabled. At that boundary, the array plugin
+produces an ID, metadata, buffers, and children. The serialization context interns the returned ID and fails the write
+if the selected editions do not permit it. A serializer may emit a historical ID when the value satisfies that ID's
+frozen contract, but it does not inspect the edition allowlist. Without disabling edition enforcement, a custom layout
+or compressor therefore cannot bypass the final wire-ID check.
 
 ## How editions change
 
@@ -240,9 +246,8 @@ families until it meets the preview compatibility bar.
 ## Independently versioned component families
 
 Components that are ready for focused testing but are not yet ready for the shared preview set advance through their own
-families. Delta arrays use `delta`, Patched arrays use `patches`, and list layouts use `list`. Optional modules similarly
-use families such as `tensor`, `zstd`, `spatial`, and `json`. Each family can evolve without coupling its chronology or
-selection to unrelated components.
+families. Optional modules use families such as `tensor`, `zstd`, `spatial`, and `json`. Each family can evolve without
+coupling its chronology or selection to unrelated components.
 
 The wire format is expected to be complete when its first draft edition is published and should change only when
 necessary to resolve an issue discovered during testing. If a correction changes what readers must understand, give the
@@ -358,18 +363,6 @@ core. Optional plugin families state their own policy.
 #### `preview2026.08.0`
 
 This edition currently adds no components.
-
-#### `delta2025.05.0`
-
-- `array`: `fastlanes.delta`
-
-#### `patches2026.04.0`
-
-- `array`: `vortex.patched`
-
-#### `list2026.06.0`
-
-- `layout`: `vortex.list`
 
 #### `tensor2026.04.0`
 
