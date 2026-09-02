@@ -124,6 +124,8 @@ impl ScalarFnVTable for ListGetItem {
     }
 
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        // The options are a single field name, identical to `GetItem`'s, so the same proto
+        // message is reused; the fn id keeps the two distinct on the wire.
         Ok(Some(
             pb::GetItemOpts {
                 path: instance.to_string(),
@@ -232,14 +234,17 @@ impl ScalarFnVTable for ListGetItem {
 
 #[cfg(test)]
 mod tests {
+    use prost::Message;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_proto::expr as pb;
 
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::BoolArray;
+    use crate::arrays::FixedSizeListArray;
     use crate::arrays::ListArray;
     use crate::arrays::ListViewArray;
     use crate::arrays::StructArray;
@@ -247,26 +252,33 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::expr::Expression;
     use crate::expr::list_get_item;
+    use crate::expr::proto::ExprSerializeProtoExt;
     use crate::expr::root;
     use crate::validity::Validity;
 
     /// 4 struct elements {a: i32, b: i64} in 3 lists of lengths [2, 1, 1].
-    fn create_list_of_structs(validity: Validity) -> ArrayRef {
-        let elements = StructArray::from_fields(&[
+    fn create_list_of_structs(validity: Validity) -> VortexResult<ArrayRef> {
+        let elements = create_struct_elements()?;
+        Ok(
+            ListArray::try_new(elements, buffer![0u32, 2, 3, 4].into_array(), validity)?
+                .into_array(),
+        )
+    }
+
+    /// 4 struct elements {a: i32, b: i64}.
+    fn create_struct_elements() -> VortexResult<ArrayRef> {
+        Ok(StructArray::from_fields(&[
             ("a", buffer![10i32, 11, 20, 30].into_array()),
             ("b", buffer![-1i64, -2, -3, -4].into_array()),
-        ])
-        .unwrap()
-        .into_array();
-        ListArray::try_new(elements, buffer![0u32, 2, 3, 4].into_array(), validity)
-            .unwrap()
-            .into_array()
+        ])?
+        .into_array())
     }
 
     #[test]
     fn projects_field_and_keeps_shape() -> VortexResult<()> {
-        let list = create_list_of_structs(Validity::NonNullable);
+        let list = create_list_of_structs(Validity::NonNullable)?;
         let result = list.apply(&list_get_item("a", root()))?;
 
         assert_eq!(
@@ -291,7 +303,7 @@ mod tests {
     #[test]
     fn carries_list_validity() -> VortexResult<()> {
         let validity = Validity::Array(BoolArray::from_iter([true, false, true]).into_array());
-        let list = create_list_of_structs(validity.clone());
+        let list = create_list_of_structs(validity.clone())?;
         let result = list.apply(&list_get_item("b", root()))?;
 
         let expected = ListArray::try_new(
@@ -307,13 +319,8 @@ mod tests {
 
     #[test]
     fn projects_through_listview() -> VortexResult<()> {
-        let elements = StructArray::from_fields(&[
-            ("a", buffer![10i32, 11, 20, 30].into_array()),
-            ("b", buffer![-1i64, -2, -3, -4].into_array()),
-        ])?
-        .into_array();
         let lv = ListViewArray::try_new(
-            elements,
+            create_struct_elements()?,
             buffer![0u32, 2, 3].into_array(),
             buffer![2u32, 1, 1].into_array(),
             Validity::NonNullable,
@@ -335,7 +342,7 @@ mod tests {
     #[test]
     fn projects_through_nested_lists() -> VortexResult<()> {
         // List<List<Struct{a, b}>>: outer offsets [0, 2, 3] over inner lists [0, 2, 3, 4].
-        let inner = create_list_of_structs(Validity::NonNullable);
+        let inner = create_list_of_structs(Validity::NonNullable)?;
         let outer = ListArray::try_new(
             inner,
             buffer![0u32, 2, 3].into_array(),
@@ -363,9 +370,39 @@ mod tests {
     }
 
     #[test]
-    fn unknown_field_fails_to_bind() {
-        let list = create_list_of_structs(Validity::NonNullable);
+    fn projects_through_fixed_size_list() -> VortexResult<()> {
+        // 2 lists of size 2 over the 4 struct elements.
+        let fsl = FixedSizeListArray::new(create_struct_elements()?, 2, Validity::NonNullable, 2)
+            .into_array();
+        let result = fsl.apply(&list_get_item("b", root()))?;
+
+        let expected = FixedSizeListArray::new(
+            buffer![-1i64, -2, -3, -4].into_array(),
+            2,
+            Validity::NonNullable,
+            2,
+        )
+        .into_array();
+        assert_eq!(result.dtype(), expected.dtype());
+        let mut ctx = array_session().create_execution_ctx();
+        assert_arrays_eq!(result, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn unknown_field_fails_to_bind() -> VortexResult<()> {
+        let list = create_list_of_structs(Validity::NonNullable)?;
         assert!(list.apply(&list_get_item("missing", root())).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_proto_round_trip() -> VortexResult<()> {
+        let expr = list_get_item("a", list_get_item("inner", root()));
+        let buf = expr.serialize_proto()?.encode_to_vec();
+        let decoded = pb::Expr::decode(buf.as_slice())?;
+        assert_eq!(expr, Expression::from_proto(&decoded, &array_session())?);
+        Ok(())
     }
 
     #[test]
