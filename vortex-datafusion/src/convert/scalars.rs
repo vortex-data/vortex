@@ -113,13 +113,13 @@ impl TryToDataFusion<ScalarValue> for Scalar {
             }
             // SAFETY: By construction Utf8 scalar values are utf8
             DType::Utf8(_) => ScalarValue::Utf8(self.as_utf8().value().cloned().map(|s| unsafe {
-                String::from_utf8_unchecked(Vec::<u8>::from(s.into_inner().into_inner()))
+                String::from_utf8_unchecked(Vec::<u8>::from(s.into_inner().into_bytes()))
             })),
             DType::Binary(_) => ScalarValue::Binary(
                 self.as_binary()
                     .value()
                     .cloned()
-                    .map(|b| Vec::<u8>::from(b.into_inner())),
+                    .map(|b| Vec::<u8>::from(b.into_bytes())),
             ),
             dtype @ DType::List(..) => vortex_bail!(
                 "cannot convert Vortex scalar dtype {dtype} to DataFusion ScalarValue: unsupported scalar type"
@@ -794,7 +794,7 @@ mod tests {
             .value()
             .cloned()
             .unwrap()
-            .into_inner()
+            .into_bytes()
             .into();
         assert_eq!(result_bytes, vec![1u8, 2, 3, 4, 5]);
     }

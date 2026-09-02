@@ -81,7 +81,7 @@ impl MessageEncoder {
                 )
                 .as_union_value();
 
-                buffers.extend(array_buffers.into_iter().map(|b| b.into_inner()));
+                buffers.extend(array_buffers.into_iter().map(|b| b.into_bytes()));
 
                 (header, body_len)
             }
@@ -94,7 +94,7 @@ impl MessageEncoder {
                 )
                 .as_union_value();
                 let body_len = buffer.len() as u64;
-                buffers.push(buffer.clone().into_inner());
+                buffers.push(buffer.clone().into_bytes());
 
                 (header, body_len)
             }
@@ -102,7 +102,7 @@ impl MessageEncoder {
                 let header =
                     fb::DTypeMessage::create(&mut fbb, &fb::DTypeMessageArgs {}).as_union_value();
 
-                let buffer = dtype.write_flatbuffer_bytes()?.into_inner().into_inner();
+                let buffer = dtype.write_flatbuffer_bytes()?.into_inner().into_bytes();
                 let body_len = buffer.len() as u64;
                 buffers.push(buffer);
 
@@ -129,7 +129,7 @@ impl MessageEncoder {
             .map_err(|_| vortex_err!("Array flatbuffer length must fit into u32"))?;
 
         buffers[0] = Bytes::from(fb_buffer_len.to_le_bytes().to_vec());
-        buffers[1] = fb_buffer.into_inner().into_inner();
+        buffers[1] = fb_buffer.into_inner().into_bytes();
 
         Ok(buffers)
     }

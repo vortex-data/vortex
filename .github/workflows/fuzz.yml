@@ -149,7 +149,7 @@ jobs:
     uses: ./.github/workflows/run-fuzzer.yml
     with:
       fuzz_target: fsst_like
-      jobs: 16
+      jobs: 4
     secrets:
       R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
       R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
