@@ -18,7 +18,6 @@
     reason = "benchmark fixtures use indices that fit in the chosen widths"
 )]
 
-use std::mem::size_of;
 use std::sync::LazyLock;
 
 use divan::Bencher;
@@ -38,6 +37,10 @@ use vortex_array::dtype::DecimalDType;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_session::VortexSession;
 
+mod support;
+
+use support::fixed_width_array_len;
+
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
@@ -51,15 +54,10 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 /// Sized to keep CodSpeed simulation under 1ms per benchmark.
 const LEN: usize = 4_096;
 
-/// Primitive cases process at least this many rows and this many value bytes per varying input.
-/// This lengthens narrow integer cases while keeping the current CodSpeed simulations below 1 ms.
-const MIN_PRIMITIVE_LEN: usize = 16_384;
-const MIN_PRIMITIVE_INPUT_BYTES: usize = 96 * 1_024;
-
-const I8_LEN: usize = primitive_len::<i8>();
-const I16_LEN: usize = primitive_len::<i16>();
-const I32_LEN: usize = primitive_len::<i32>();
-const I64_LEN: usize = primitive_len::<i64>();
+const I8_LEN: usize = fixed_width_array_len::<i8>();
+const I16_LEN: usize = fixed_width_array_len::<i16>();
+const I32_LEN: usize = fixed_width_array_len::<i32>();
+const I64_LEN: usize = fixed_width_array_len::<i64>();
 
 /// Per-row against per-row, short and long. This is the shape the operators are tuned for, so it
 /// is the one every operator is measured on.
@@ -317,8 +315,8 @@ fn div_decimal_i128_nullable(bencher: Bencher) {
 #[vortex_bench_support::cpu_features]
 #[divan::bench]
 fn lt_i64_nullable(bencher: Bencher) {
-    let lhs = primitive_nullable(0, 7, LEN).into_array();
-    let rhs = primitive_nullable(1_000_000, 5, LEN).into_array();
+    let lhs = primitive_nullable(0, 7, I64_LEN).into_array();
+    let rhs = primitive_nullable(1_000_000, 5, I64_LEN).into_array();
 
     bench_bool(bencher, lhs, rhs, Operator::Lt);
 }
@@ -359,15 +357,6 @@ fn bench_binary<T: Executable + 'static>(
             .execute::<T>(&mut ctx)
             .unwrap()
     });
-}
-
-const fn primitive_len<T>() -> usize {
-    let input_len = MIN_PRIMITIVE_INPUT_BYTES / size_of::<T>();
-    if input_len > MIN_PRIMITIVE_LEN {
-        input_len
-    } else {
-        MIN_PRIMITIVE_LEN
-    }
 }
 
 fn primitive_nonnull(base: i64, len: usize) -> PrimitiveArray {

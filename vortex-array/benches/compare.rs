@@ -46,6 +46,10 @@ use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 
+mod support;
+
+use support::fixed_width_array_len;
+
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
@@ -53,8 +57,14 @@ fn main() {
     divan::main();
 }
 
-// Sized to keep CodSpeed simulation under 1ms per benchmark.
+// Sized to keep the more expensive CodSpeed simulations under 1ms per benchmark.
 const ARRAY_SIZE: usize = 8_192;
+
+const F32_ARRAY_SIZE: usize = fixed_width_array_len::<f32>();
+const F64_ARRAY_SIZE: usize = fixed_width_array_len::<f64>();
+const I64_ARRAY_SIZE: usize = fixed_width_array_len::<i64>();
+const U8_ARRAY_SIZE: usize = fixed_width_array_len::<u8>();
+const U64_ARRAY_SIZE: usize = fixed_width_array_len::<u64>();
 
 fn bench_compare(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, op: Operator) {
     let session = vortex_array::array_session();
@@ -85,9 +95,9 @@ fn bool_array_nullable(rng: &mut StdRng) -> ArrayRef {
     .into_array()
 }
 
-fn int_array(rng: &mut StdRng) -> ArrayRef {
+fn int_array(rng: &mut StdRng, len: usize) -> ArrayRef {
     let range = Uniform::new(0i64, 100_000_000).unwrap();
-    (0..ARRAY_SIZE)
+    (0..len)
         .map(|_| rng.sample(range))
         .collect::<Buffer<_>>()
         .into_array()
@@ -96,37 +106,37 @@ fn int_array(rng: &mut StdRng) -> ArrayRef {
 fn int_array_nullable(rng: &mut StdRng) -> ArrayRef {
     let range = Uniform::new(0i64, 100_000_000).unwrap();
     PrimitiveArray::new(
-        (0..ARRAY_SIZE)
+        (0..I64_ARRAY_SIZE)
             .map(|_| rng.sample(range))
             .collect::<Buffer<_>>(),
-        Validity::from_iter((0..ARRAY_SIZE).map(|_| rng.random_bool(0.9))),
+        Validity::from_iter((0..I64_ARRAY_SIZE).map(|_| rng.random_bool(0.9))),
     )
     .into_array()
 }
 
 fn float_array(rng: &mut StdRng) -> ArrayRef {
-    (0..ARRAY_SIZE)
+    (0..F64_ARRAY_SIZE)
         .map(|_| rng.random_range(0.0f64..1.0))
         .collect::<Buffer<_>>()
         .into_array()
 }
 
 fn u8_array(rng: &mut StdRng) -> ArrayRef {
-    (0..ARRAY_SIZE)
+    (0..U8_ARRAY_SIZE)
         .map(|_| rng.random::<u8>())
         .collect::<Buffer<_>>()
         .into_array()
 }
 
 fn u64_array(rng: &mut StdRng) -> ArrayRef {
-    (0..ARRAY_SIZE)
+    (0..U64_ARRAY_SIZE)
         .map(|_| rng.random::<u64>())
         .collect::<Buffer<_>>()
         .into_array()
 }
 
 fn f32_array(rng: &mut StdRng) -> ArrayRef {
-    (0..ARRAY_SIZE)
+    (0..F32_ARRAY_SIZE)
         .map(|_| rng.random_range(0.0f32..1.0))
         .collect::<Buffer<_>>()
         .into_array()
@@ -178,8 +188,8 @@ fn compare_bool_constant(bencher: Bencher) {
 #[divan::bench]
 fn compare_int(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
-    let arr1 = int_array(&mut rng);
-    let arr2 = int_array(&mut rng);
+    let arr1 = int_array(&mut rng, I64_ARRAY_SIZE);
+    let arr2 = int_array(&mut rng, I64_ARRAY_SIZE);
     bench_compare(bencher, arr1, arr2, Operator::Gte);
 }
 
@@ -196,8 +206,8 @@ fn compare_int_nullable(bencher: Bencher) {
 #[divan::bench]
 fn compare_int_constant(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
-    let arr = int_array(&mut rng);
-    let constant = ConstantArray::new(50_000_000i64, ARRAY_SIZE).into_array();
+    let arr = int_array(&mut rng, I64_ARRAY_SIZE);
+    let constant = ConstantArray::new(50_000_000i64, I64_ARRAY_SIZE).into_array();
     bench_compare(bencher, arr, constant, Operator::Gte);
 }
 
@@ -232,8 +242,8 @@ fn compare_f32(bencher: Bencher) {
 #[divan::bench]
 fn compare_int_eq(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
-    let arr1 = int_array(&mut rng);
-    let arr2 = int_array(&mut rng);
+    let arr1 = int_array(&mut rng, I64_ARRAY_SIZE);
+    let arr2 = int_array(&mut rng, I64_ARRAY_SIZE);
     bench_compare(bencher, arr1, arr2, Operator::Eq);
 }
 
@@ -279,9 +289,12 @@ fn compare_string_constant(bencher: Bencher) {
 }
 
 fn struct_array(rng: &mut StdRng) -> ArrayRef {
-    StructArray::from_fields(&[("a", int_array(rng)), ("b", int_array(rng))])
-        .unwrap()
-        .into_array()
+    StructArray::from_fields(&[
+        ("a", int_array(rng, ARRAY_SIZE)),
+        ("b", int_array(rng, ARRAY_SIZE)),
+    ])
+    .unwrap()
+    .into_array()
 }
 
 #[divan::bench]
