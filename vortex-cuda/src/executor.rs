@@ -167,8 +167,15 @@ impl CudaExecutionCtx {
         let mut launcher = self.launch_builder(function);
         build_args(&mut launcher);
 
-        let events = launch_cuda_kernel_impl(&mut launcher, self.strategy.event_flags(), len)?;
-        self.strategy.on_complete(&events, len)?;
+        if let Some(events) = launch_cuda_kernel_impl(
+            &mut launcher,
+            self.strategy
+                .records_events()
+                .then(|| self.strategy.event_flags()),
+            len,
+        )? {
+            self.strategy.on_complete(&events, len)?;
+        }
         Ok(())
     }
 
@@ -187,9 +194,15 @@ impl CudaExecutionCtx {
         let mut launcher = self.launch_builder(function);
         build_args(&mut launcher);
 
-        let events =
-            launch_cuda_kernel_with_config(&mut launcher, cfg, self.strategy.event_flags())?;
-        self.strategy.on_complete(&events, len)?;
+        if let Some(events) = launch_cuda_kernel_with_config(
+            &mut launcher,
+            cfg,
+            self.strategy
+                .records_events()
+                .then(|| self.strategy.event_flags()),
+        )? {
+            self.strategy.on_complete(&events, len)?;
+        }
         Ok(())
     }
 
