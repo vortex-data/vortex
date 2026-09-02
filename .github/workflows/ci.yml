@@ -64,40 +64,11 @@ jobs:
             -c .yamllint.yaml \
             .github/
 
-  python-lint:
-    name: "Python (lint)"
-    runs-on: >-
-      ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=python-lint', github.run_id)
-          || 'ubuntu-latest' }}
-    timeout-minutes: 10
-    steps:
-      - uses: runs-on/action@v2
-        if: github.repository == 'vortex-data/vortex'
-        with:
-          sccache: s3
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - uses: ./.github/actions/setup-prebuild
-        with:
-          enable-sccache: "true"
-      # Use uvx for ruff to avoid building the Rust extension (saves ~4.5 min)
-      - name: Python Lint - Format
-        run: uvx ruff format --check .
-      - name: Python Lint - Ruff
-        run: uvx ruff check .
-      # PyRight needs the project for type information, so use uv run
-      - name: Python Lint - PyRight
-        env:
-          MATURIN_PEP517_ARGS: "--profile ci"
-        run: |
-          uv sync --all-packages
-          uv run basedpyright vortex-python
-
   python-test:
-    name: "Python (test)"
+    name: "Python (lint and test)"
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-ci-large/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=python-test', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-large/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=python-lint-test', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     env:
@@ -112,6 +83,16 @@ jobs:
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: "true"
+
+      # Use uvx for ruff to avoid building the Rust extension.
+      - name: Python Lint - Format
+        run: uvx ruff format --check .
+      - name: Python Lint - Ruff
+        run: uvx ruff check .
+      - name: Python Lint - PyRight
+        run: |
+          uv sync --all-packages
+          uv run basedpyright vortex-python
 
       - name: Pytest - Vortex
         run: |
@@ -713,7 +694,7 @@ jobs:
         working-directory: ./wasm-test
 
   generated-files:
-    name: "Check generated source files are up to date"
+    name: "Generated files and C API"
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=generated-files', github.run_id)
@@ -755,6 +736,14 @@ jobs:
           git status --porcelain
           test -z "$(git status --porcelain)"
 
+      - name: Build and run C API tests
+        working-directory: vortex-ffi
+        run: |
+          mkdir build
+          cmake -Bbuild -DRUST_BUILD_PROFILE=ci
+          cmake --build build -j $(nproc)
+          ctest --test-dir build -j $(nproc)
+
       - name: "Checkout develop flatbuffers"
         working-directory: vortex-flatbuffers/
         run: |
@@ -765,30 +754,3 @@ jobs:
         working-directory: vortex-flatbuffers/
         run: |
           find flatbuffers/ -type f -name "*.fbs" | sed 's/^flatbuffers\///' | xargs -I{} -n1 flatc -I flatbuffers.HEAD --conform-includes flatbuffers --conform flatbuffers/{} flatbuffers.HEAD/{}
-
-  ffi-c-test:
-    name: "C API test build"
-    timeout-minutes: 10
-    runs-on: >-
-      ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=cxx-build', github.run_id)
-          || 'ubuntu-latest' }}
-    steps:
-      - uses: runs-on/action@v2
-        if: github.repository == 'vortex-data/vortex'
-        with:
-          sccache: s3
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - uses: ./.github/actions/setup-prebuild
-        with:
-          enable-sccache: "true"
-      - name: "regenerate FFI header file"
-        run: |
-          cargo +$NIGHTLY_TOOLCHAIN build --profile ci -p vortex-ffi
-      - name: Build and run C++ unit tests
-        run: |
-          cd vortex-ffi
-          mkdir build
-          cmake -Bbuild -DRUST_BUILD_PROFILE=ci
-          cmake --build build -j $(nproc)
-          ctest --test-dir build -j $(nproc)
