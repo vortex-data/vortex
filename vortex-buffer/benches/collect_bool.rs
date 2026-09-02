@@ -105,9 +105,18 @@ fn bench_words_gather(
     // One output buffer for every iteration rather than one per iteration through
     // `with_inputs`: divan builds a sample's inputs up front, and `sample_size` of them would
     // leave the loop writing to cold memory (see `cpu_features`). Every word is assigned, so
-    // nothing carries over.
+    // nothing carries over. The bools stay the per-iteration input so the loop takes divan's
+    // input-slot path, as it did with a buffer per iteration; the zero-sized-input path
+    // black-boxes every iteration, which on a 10 ns case is a measurable share. `black_box`
+    // keeps the stores observable: nothing reads the buffer before it is freed, so they would
+    // otherwise be fair game for the optimizer.
     let mut words = vec![0u64; len.div_ceil(64)];
-    bencher.bench_local(|| collect(&mut words, len, &bools));
+    bencher
+        .with_inputs(|| bools.as_slice())
+        .bench_local_refs(|bools| {
+            collect(&mut words, len, bools);
+            divan::black_box(&words);
+        });
 }
 
 #[vortex_bench_support::cpu_features]
