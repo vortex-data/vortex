@@ -349,7 +349,9 @@ fn lanezip_checked_add_u32(bencher: Bencher, n: usize) {
             LaneZip::new(lhs.as_slice(), rhs.as_slice())
                 .try_map_masked_into(&combined, out.as_mut_slice(), |(a, b)| a.checked_add(b))
                 .unwrap();
-            (combined, out)
+            // Dropped here rather than returned, so the output block is recycled every
+            // iteration instead of `sample_size` of them piling up cold (see `cpu_features`).
+            divan::black_box_drop((combined, out));
         });
 }
 
@@ -368,7 +370,7 @@ fn arrow_checked_add_u32(bencher: Bencher, n: usize) {
 
     bencher
         .with_inputs(|| (lhs_arr.clone(), rhs_arr.clone()))
-        .bench_values(|(lhs, rhs)| add(&lhs, &rhs).unwrap());
+        .bench_values(|(lhs, rhs)| divan::black_box_drop(add(&lhs, &rhs).unwrap()));
 }
 
 // -----------------------------------------------------------------------------

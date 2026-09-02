@@ -14,9 +14,10 @@ use syn::ItemFn;
 use syn::ReturnType;
 use syn::parse_macro_input;
 
-/// Stack size of the thread [`main`] runs the benchmarks on, matching the 8 MiB Linux gives the
-/// main thread so nothing that fit before overflows now.
-const BENCH_THREAD_STACK_SIZE: usize = 8 << 20;
+/// Stack size of the thread [`main`] runs the benchmarks on: the 16 MiB the walltime runners
+/// give the main thread (`ulimit -s`), so nothing that fit before overflows now. It is only
+/// reserved, not committed, so there is no cost to matching the larger figure.
+const BENCH_THREAD_STACK_SIZE: usize = 16 << 20;
 
 /// Measure this benchmark on every walltime CPU-feature leg instead of in simulation.
 ///
@@ -43,6 +44,12 @@ const BENCH_THREAD_STACK_SIZE: usize = 8 << 20;
 /// smallest argument: 64 for a 2 µs case, 16 for a 10 µs one, 4 for 50 µs. When the arguments
 /// span a wide range, add `sample_count` below the default of 1,000 so the largest one does
 /// not take seconds.
+///
+/// A larger sample changes what divan keeps alive: it builds a sample's `with_inputs` up
+/// front and holds its outputs until the sample ends, so with `sample_size` of each in
+/// flight, an input built per iteration or an output of any size is written to cold memory
+/// instead of a block the allocator just recycled. Build inputs once, and drop a large output
+/// inside the closure with `divan::black_box_drop` rather than returning it.
 ///
 /// Spell it out in full rather than importing it: benchmark files are read a function at a
 /// time, and the path says where the behaviour comes from. The binary's `fn main` carries

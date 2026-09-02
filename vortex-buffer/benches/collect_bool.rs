@@ -102,9 +102,12 @@ fn bench_words_gather(
     collect: impl Fn(&mut [u64], usize, &[bool]) + Sync,
 ) {
     let bools = make_bools(len);
-    bencher
-        .with_inputs(|| vec![0u64; len.div_ceil(64)])
-        .bench_refs(|words| collect(words, len, &bools));
+    // One output buffer for every iteration rather than one per iteration through
+    // `with_inputs`: divan builds a sample's inputs up front, and `sample_size` of them would
+    // leave the loop writing to cold memory (see `cpu_features`). Every word is assigned, so
+    // nothing carries over.
+    let mut words = vec![0u64; len.div_ceil(64)];
+    bencher.bench_local(|| collect(&mut words, len, &bools));
 }
 
 #[vortex_bench_support::cpu_features]

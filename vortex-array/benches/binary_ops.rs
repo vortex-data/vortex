@@ -353,12 +353,16 @@ fn bench_binary<T: Executable + 'static>(
     let mut ctx = SESSION.create_execution_ctx();
     let len = lhs.len();
 
+    // Dropped in the loop rather than returned: divan holds a sample's outputs until it ends,
+    // and with `sample_size` of them alive the next one is written to cold memory.
     bencher.counter(ItemsCount::new(len)).bench_local(|| {
-        lhs.clone()
-            .binary(rhs.clone(), operator)
-            .unwrap()
-            .execute::<T>(&mut ctx)
-            .unwrap()
+        divan::black_box_drop(
+            lhs.clone()
+                .binary(rhs.clone(), operator)
+                .unwrap()
+                .execute::<T>(&mut ctx)
+                .unwrap(),
+        )
     });
 }
 

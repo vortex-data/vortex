@@ -53,13 +53,17 @@ fn scalar_subtract(bencher: Bencher) {
     bencher
         .with_inputs(|| (&chunked, SESSION.create_execution_ctx()))
         .bench_refs(|(chunked, ctx)| {
-            chunked
-                .clone()
-                .binary(
-                    ConstantArray::new(Scalar::from(to_subtract), chunked.len()).into_array(),
-                    Operator::Sub,
-                )
-                .unwrap()
-                .execute::<RecursiveCanonical>(ctx)
+            // Dropped here rather than returned, so the output is recycled every iteration
+            // instead of `sample_size` of them piling up cold (see `cpu_features`).
+            divan::black_box_drop(
+                chunked
+                    .clone()
+                    .binary(
+                        ConstantArray::new(Scalar::from(to_subtract), chunked.len()).into_array(),
+                        Operator::Sub,
+                    )
+                    .unwrap()
+                    .execute::<RecursiveCanonical>(ctx),
+            );
         });
 }
