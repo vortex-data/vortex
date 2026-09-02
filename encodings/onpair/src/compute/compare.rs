@@ -19,6 +19,7 @@ use vortex_error::VortexResult;
 use crate::OnPair;
 use crate::OnPairArraySlotsExt;
 use crate::array::dict_view;
+use crate::decode::CodesWindow;
 use crate::decode::collect_codes_window;
 
 impl CompareKernel for OnPair {
@@ -71,9 +72,14 @@ impl CompareKernel for OnPair {
             let window = collect_codes_window(lhs, ctx)?;
 
             let negated = operator == CompareOperator::NotEq;
-            BitBuffer::collect_bool(lhs.len(), |i| {
-                search::equals(window.row(i), &query) != negated
-            })
+            match &window {
+                CodesWindow::U32(window) => BitBuffer::collect_bool(lhs.len(), |i| {
+                    search::equals(window.row(i), &query) != negated
+                }),
+                CodesWindow::U64(window) => BitBuffer::collect_bool(lhs.len(), |i| {
+                    search::equals(window.row(i), &query) != negated
+                }),
+            }
         };
 
         Ok(Some(
