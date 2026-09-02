@@ -28,7 +28,7 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
-      - uses: ./.github/actions/setup-rust
+      - uses: ./.github/actions/setup-prebuild
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}

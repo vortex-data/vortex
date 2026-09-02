@@ -18,10 +18,10 @@ on:
         type: number
         default: 18000
       runner:
-        description: "Runner name from .github-private runs-on.yml (e.g., arm64-medium, gpu)"
+        description: "Runner name from .github-private runs-on.yml (e.g., arm64-fuzz, gpu)"
         required: false
         type: string
-        default: "arm64-medium"
+        default: "arm64-fuzz"
       extra_features:
         description: "Extra cargo features to enable (e.g., cuda)"
         required: false
@@ -33,7 +33,7 @@ on:
         type: string
         default: ""
       jobs:
-        description: "Number of parallel fuzzing jobs (libfuzzer -fork=N). Set to match available vCPUs."
+        description: "Number of parallel fuzzing jobs (libfuzzer -fork=N)."
         required: false
         type: number
         default: 1
@@ -78,13 +78,36 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
+      - uses: ./.github/actions/setup-prebuild
+        if: >-
+          github.repository == 'vortex-data/vortex' &&
+          contains(fromJSON('["arm64-fuzz", "arm64-medium"]'), inputs.runner)
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
+          enable-sccache: "true"
+
       - uses: ./.github/actions/setup-rust
+        if: >-
+          github.repository != 'vortex-data/vortex' ||
+          !contains(fromJSON('["arm64-fuzz", "arm64-medium"]'), inputs.runner)
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
           enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
 
+      - name: Check LLVM toolchain
+        id: llvm-toolchain
+        shell: bash
+        run: |
+          if command -v clang >/dev/null && command -v llvm-symbolizer >/dev/null; then
+            echo "installed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "installed=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install llvm
+        if: steps.llvm-toolchain.outputs.installed != 'true'
         uses: aminya/setup-cpp@v1
         with:
           compiler: llvm

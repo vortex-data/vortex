@@ -1,5 +1,5 @@
 name: "Setup Prebuild"
-description: "Prebuild AMIs — uses pre-installed tools, falls back to full setup-rust for forks"
+description: "Use pre-installed AMI tools and install any missing requirements"
 
 inputs:
   repo-token:
@@ -16,6 +16,10 @@ inputs:
   targets:
     description: "optional targets override (e.g. wasm32-unknown-unknown)"
     required: false
+  protoc-version:
+    description: "protoc version expected in the prebuilt image"
+    default: "29.3"
+    required: false
   enable-sccache:
     description: "Should sccache be enabled."
     required: false
@@ -24,7 +28,122 @@ inputs:
 runs:
   using: "composite"
   steps:
-    # Prebuild path: tools already installed, just configure sccache
+    - name: Resolve toolchain config
+      if: github.repository == 'vortex-data/vortex'
+      id: toolchain-config
+      shell: bash
+      run: |
+        DEFAULT_VERSION=$(grep channel rust-toolchain.toml | awk -F'"' '{print $2}')
+        TOOLCHAIN="${TOOLCHAIN_OVERRIDE:-$DEFAULT_VERSION}"
+        echo "toolchain=$TOOLCHAIN" >> "$GITHUB_OUTPUT"
+      env:
+        TOOLCHAIN_OVERRIDE: ${{ inputs.toolchain }}
+
+    - name: Check for rustup
+      if: github.repository == 'vortex-data/vortex'
+      id: check-rustup
+      shell: bash
+      run: echo "exists=$(command -v rustup &> /dev/null && echo 'true' || echo 'false')" >> "$GITHUB_OUTPUT"
+
+    - name: Install Rust
+      if: github.repository == 'vortex-data/vortex' && steps.check-rustup.outputs.exists != 'true'
+      uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c  # stable
+      with:
+        toolchain: ${{ steps.toolchain-config.outputs.toolchain }}
+        targets: ${{ inputs.targets }}
+        components: ${{ inputs.components }}
+
+    - name: Reconcile prebuilt Rust installation
+      if: github.repository == 'vortex-data/vortex' && steps.check-rustup.outputs.exists == 'true'
+      shell: bash
+      run: |
+        TOOLCHAIN_FOUND=false
+        for INSTALLED in $(rustup toolchain list | awk '{print $1}'); do
+          case "$INSTALLED" in
+            "$TOOLCHAIN"|"$TOOLCHAIN"-*) TOOLCHAIN_FOUND=true ;;
+          esac
+        done
+        if [ "$TOOLCHAIN_FOUND" != true ]; then
+          rustup toolchain install "$TOOLCHAIN" --profile minimal
+        fi
+
+        TOOLCHAIN_HOST=$(rustc +"$TOOLCHAIN" --print host-tuple)
+        INSTALLED_COMPONENTS=$(rustup component list --toolchain "$TOOLCHAIN" --installed)
+        MISSING_COMPONENTS=()
+        IFS=',' read -ra REQUESTED_COMPONENTS <<< "$COMPONENTS"
+        for COMPONENT in "${REQUESTED_COMPONENTS[@]}"; do
+          COMPONENT=${COMPONENT// /}
+          [ -z "$COMPONENT" ] && continue
+          if [ "$COMPONENT" = llvm-tools ]; then
+            COMPONENT=llvm-tools-preview
+          fi
+          if ! grep -Fqx "$COMPONENT" <<< "$INSTALLED_COMPONENTS" && \
+             ! grep -Fqx "$COMPONENT-$TOOLCHAIN_HOST" <<< "$INSTALLED_COMPONENTS"; then
+            MISSING_COMPONENTS+=("$COMPONENT")
+          fi
+        done
+        if [ ${#MISSING_COMPONENTS[@]} -gt 0 ]; then
+          rustup component add --toolchain "$TOOLCHAIN" "${MISSING_COMPONENTS[@]}"
+        fi
+
+        INSTALLED_TARGETS=$(rustup target list --toolchain "$TOOLCHAIN" --installed)
+        MISSING_TARGETS=()
+        IFS=',' read -ra REQUESTED_TARGETS <<< "$TARGETS"
+        for TARGET in "${REQUESTED_TARGETS[@]}"; do
+          TARGET=${TARGET// /}
+          [ -z "$TARGET" ] && continue
+          if ! grep -Fqx "$TARGET" <<< "$INSTALLED_TARGETS"; then
+            MISSING_TARGETS+=("$TARGET")
+          fi
+        done
+        if [ ${#MISSING_TARGETS[@]} -gt 0 ]; then
+          rustup target add --toolchain "$TOOLCHAIN" "${MISSING_TARGETS[@]}"
+        fi
+      env:
+        TOOLCHAIN: ${{ steps.toolchain-config.outputs.toolchain }}
+        COMPONENTS: ${{ inputs.components }}
+        TARGETS: ${{ inputs.targets }}
+
+    - name: Reconcile mold installation
+      if: github.repository == 'vortex-data/vortex' && runner.os == 'Linux'
+      shell: bash
+      run: |
+        if ! command -v mold >/dev/null; then
+          sudo apt-get update
+          sudo apt-get install -y mold
+        fi
+
+    - name: Check protoc installation
+      if: github.repository == 'vortex-data/vortex' && runner.os == 'Linux'
+      id: check-protoc
+      shell: bash
+      run: |
+        EXPECTED="libprotoc $PROTOC_VERSION"
+        ACTUAL=$(protoc --version 2>/dev/null || true)
+        echo "install=$([ "$ACTUAL" = "$EXPECTED" ] && echo false || echo true)" >> "$GITHUB_OUTPUT"
+      env:
+        PROTOC_VERSION: ${{ inputs.protoc-version }}
+
+    - name: Install protoc
+      if: steps.check-protoc.outputs.install == 'true'
+      uses: ./.github/actions/setup-protoc
+      with:
+        protoc_version: ${{ inputs.protoc-version }}
+
+    - name: Check sccache installation
+      if: github.repository == 'vortex-data/vortex' && inputs.enable-sccache == 'true'
+      id: check-sccache
+      shell: bash
+      run: echo "installed=$(command -v sccache >/dev/null && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+    - name: Install sccache
+      if: >-
+        github.repository == 'vortex-data/vortex' &&
+        inputs.enable-sccache == 'true' &&
+        steps.check-sccache.outputs.installed != 'true'
+      uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696  # v0.0.10
+
+    # Prebuild path: configure the bundled (or fallback-installed) sccache.
     - name: Configure sccache timeout
       if: github.repository == 'vortex-data/vortex' && inputs.enable-sccache == 'true'
       shell: bash
