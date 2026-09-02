@@ -33,9 +33,6 @@ pub struct Buffer<T> {
     pub(crate) ptr: NonNull<T>,
     pub(crate) length: usize,
     pub(crate) alignment: Alignment,
-    pub(crate) physical_alignment: Alignment,
-    // One physical-alignment block is reserved outside the logical capacity.
-    pub(crate) overallocated: bool,
     pub(crate) backing: Option<Arc<BufferBacking>>,
 }
 
@@ -51,8 +48,6 @@ impl<T> Default for Buffer<T> {
             ptr: empty_ptr(),
             length: 0,
             alignment: Alignment::of::<T>(),
-            physical_alignment: Alignment::MAX,
-            overallocated: false,
             backing: None,
         }
     }
@@ -94,8 +89,6 @@ impl<T> Buffer<T> {
         offset: usize,
         length: usize,
         alignment: Alignment,
-        physical_alignment: Alignment,
-        overallocated: bool,
     ) -> Self {
         // SAFETY: BufferMut keeps offset within allocation, including for empty buffers.
         let ptr = unsafe { allocation.ptr().add(offset).cast() };
@@ -103,8 +96,6 @@ impl<T> Buffer<T> {
             ptr,
             length,
             alignment,
-            physical_alignment,
-            overallocated,
             backing: Some(Arc::new(BufferBacking::Owned(allocation))),
         }
     }
@@ -121,8 +112,6 @@ impl<T> Buffer<T> {
             ptr,
             length,
             alignment,
-            physical_alignment: alignment,
-            overallocated: false,
             backing: Some(Arc::new(BufferBacking::External { _owner: owner })),
         }
     }
@@ -138,8 +127,6 @@ impl<T> Buffer<T> {
             ptr,
             length,
             alignment,
-            physical_alignment: alignment,
-            overallocated: false,
             backing: Some(Arc::new(BufferBacking::Bytes(bytes))),
         }
     }
@@ -159,8 +146,6 @@ impl<T> Buffer<T> {
             ptr,
             length,
             alignment,
-            physical_alignment: alignment,
-            overallocated: false,
             backing: Some(Arc::new(BufferBacking::Arrow(arrow))),
         }
     }
@@ -254,8 +239,6 @@ impl<T> Buffer<T> {
             ptr: empty_ptr(),
             length: 0,
             alignment,
-            physical_alignment: Alignment::MAX,
-            overallocated: false,
             backing: None,
         }
     }
@@ -315,8 +298,6 @@ impl<T> Buffer<T> {
             ptr: buffer.ptr.cast(),
             length: buffer.length / size_of::<T>(),
             alignment,
-            physical_alignment: buffer.physical_alignment,
-            overallocated: buffer.overallocated,
             backing: buffer.backing,
         }
     }
@@ -532,8 +513,6 @@ impl<T> Buffer<T> {
             ptr: unsafe { self.ptr.add(begin) },
             length: end - begin,
             alignment,
-            physical_alignment: self.physical_alignment,
-            overallocated: self.overallocated,
             backing: self.backing.clone(),
         }
     }
@@ -588,8 +567,6 @@ impl<T> Buffer<T> {
             ptr: NonNull::new(subset.as_ptr().cast_mut()).vortex_expect("slice pointer is null"),
             length: subset.len(),
             alignment,
-            physical_alignment: self.physical_alignment,
-            overallocated: self.overallocated,
             backing: self.backing.clone(),
         }
     }
@@ -628,8 +605,6 @@ impl<T> Buffer<T> {
             ptr: self.ptr.cast(),
             length: self.length * size_of::<T>(),
             alignment: self.alignment,
-            physical_alignment: self.physical_alignment,
-            overallocated: self.overallocated,
             backing: self.backing,
         }
     }
@@ -640,8 +615,6 @@ impl<T> Buffer<T> {
             ptr,
             length,
             alignment,
-            physical_alignment,
-            overallocated,
             backing,
         } = self;
         let Some(backing) = backing else {
@@ -652,24 +625,14 @@ impl<T> Buffer<T> {
                 ptr,
                 length,
                 alignment,
-                physical_alignment,
-                overallocated,
                 backing: Some(backing),
             });
         }
         match Arc::try_unwrap(backing) {
             Ok(BufferBacking::Owned(allocation)) => {
                 let offset = ptr.addr().get() - allocation.ptr().addr().get();
-                let overallocated = overallocated
-                    && offset
-                        == allocation
-                            .ptr()
-                            .as_ptr()
-                            .align_offset(physical_alignment.as_usize());
                 let capacity = if allocation.size() == 0 {
                     0
-                } else if overallocated {
-                    (allocation.size() - physical_alignment.as_usize()) / size_of::<T>()
                 } else {
                     (allocation.size() - offset) / size_of::<T>()
                 };
@@ -679,8 +642,6 @@ impl<T> Buffer<T> {
                     length,
                     capacity,
                     alignment,
-                    physical_alignment,
-                    overallocated,
                     _marker: Default::default(),
                 })
             }
@@ -689,8 +650,6 @@ impl<T> Buffer<T> {
                 ptr,
                 length,
                 alignment,
-                physical_alignment,
-                overallocated,
                 backing: Some(backing),
             }),
         }
@@ -762,8 +721,6 @@ impl<T> Buffer<T> {
             ptr: self.ptr.cast(),
             length: self.length,
             alignment: self.alignment,
-            physical_alignment: self.physical_alignment,
-            overallocated: self.overallocated,
             backing: self.backing,
         }
     }
@@ -869,14 +826,7 @@ where
         if std::mem::needs_drop::<T>() {
             Self::from_owner(Wrapper(value), alignment)
         } else {
-            Self::from_allocation(
-                Allocation::from_vec(value),
-                0,
-                length,
-                alignment,
-                alignment,
-                false,
-            )
+            Self::from_allocation(Allocation::from_vec(value), 0, length, alignment)
         }
     }
 }

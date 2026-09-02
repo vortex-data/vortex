@@ -29,9 +29,6 @@ pub struct BufferMut<T> {
     pub(crate) length: usize,
     pub(crate) capacity: usize,
     pub(crate) alignment: Alignment,
-    pub(crate) physical_alignment: Alignment,
-    // One physical-alignment block is reserved outside the logical capacity.
-    pub(crate) overallocated: bool,
     pub(crate) _marker: std::marker::PhantomData<T>,
 }
 
@@ -134,14 +131,17 @@ impl<T> BufferMut<T> {
         let offset = allocation.ptr().as_ptr().align_offset(actual.as_usize());
         // SAFETY: the allocation includes enough padding to reach this aligned pointer.
         let ptr = unsafe { allocation.ptr().add(offset).cast() };
+        let capacity = if size_of::<T>() == 0 {
+            capacity
+        } else {
+            (allocation.size() - offset) / size_of::<T>()
+        };
         Self {
             allocation,
             ptr,
             length: 0,
             capacity,
             alignment,
-            physical_alignment: actual,
-            overallocated: true,
             _marker: Default::default(),
         }
     }
@@ -226,14 +226,17 @@ impl<T> BufferMut<T> {
             .align_offset(actual_alignment.as_usize());
         // SAFETY: the allocation includes enough padding to reach this aligned pointer.
         let ptr = unsafe { allocation.ptr().add(offset).cast() };
+        let capacity = if size_of::<T>() == 0 {
+            len
+        } else {
+            (allocation.size() - offset) / size_of::<T>()
+        };
         Self {
             allocation,
             ptr,
             length: len,
-            capacity: len,
+            capacity,
             alignment,
-            physical_alignment: actual_alignment,
-            overallocated: true,
             _marker: Default::default(),
         }
     }
@@ -475,16 +478,16 @@ impl<T> BufferMut<T> {
         let required_size = required
             .checked_mul(size_of::<T>())
             .vortex_expect("buffer capacity overflow");
-        let physical_alignment = max(self.alignment, self.physical_alignment);
+        let alignment = self.alignment;
         let current_size = self
             .capacity
             .checked_mul(size_of::<T>())
             .vortex_expect("buffer capacity overflow");
         let logical_size = required_size
             .max(current_size.saturating_mul(2))
-            .max(physical_alignment.as_usize());
+            .max(Alignment::DEFAULT_ALIGNMENT.as_usize());
         let allocation_size = logical_size
-            .checked_add(physical_alignment.as_usize())
+            .checked_add(alignment.as_usize())
             .vortex_expect("buffer capacity overflow");
         let allocation_alignment = if self.allocation.size() == 0 {
             1
@@ -498,10 +501,7 @@ impl<T> BufferMut<T> {
         let new_offset = if self.allocation.allocator().is_statically_allocated() {
             let allocation =
                 Allocation::allocate(layout, BufferAllocatorRef::statically_allocated());
-            let new_offset = allocation
-                .ptr()
-                .as_ptr()
-                .align_offset(physical_alignment.as_usize());
+            let new_offset = allocation.ptr().as_ptr().align_offset(alignment.as_usize());
             // SAFETY: both allocations have room for the initialized elements and do not overlap.
             unsafe {
                 std::ptr::copy_nonoverlapping(
@@ -518,7 +518,7 @@ impl<T> BufferMut<T> {
                 .allocation
                 .ptr()
                 .as_ptr()
-                .align_offset(physical_alignment.as_usize());
+                .align_offset(alignment.as_usize());
             if new_offset != old_offset {
                 // SAFETY: grow preserved the initialized elements at old_offset. The new allocation
                 // has room for the requested elements plus alignment padding, and copy permits
@@ -533,11 +533,9 @@ impl<T> BufferMut<T> {
             }
             new_offset
         };
-        // SAFETY: new_offset was computed within the allocation for physical_alignment.
+        // SAFETY: new_offset was computed within the allocation for alignment.
         self.ptr = unsafe { self.allocation.ptr().add(new_offset).cast() };
         self.capacity = logical_size / size_of::<T>();
-        self.physical_alignment = physical_alignment;
-        self.overallocated = true;
     }
 
     /// Returns the spare capacity of the buffer as a slice of `MaybeUninit<T>`.
@@ -681,22 +679,16 @@ impl<T> BufferMut<T> {
 
     /// Return the [`ByteBufferMut`] for this [`BufferMut`].
     pub fn into_byte_buffer(self) -> ByteBufferMut {
-        let offset = self.ptr.cast::<u8>().addr().get() - self.allocation.ptr().addr().get();
-        let capacity = if self.allocation.size() == 0 {
-            0
-        } else if self.overallocated {
-            self.allocation.size() - self.physical_alignment.as_usize()
-        } else {
-            self.allocation.size() - offset
-        };
+        let capacity = self
+            .capacity
+            .checked_mul(size_of::<T>())
+            .vortex_expect("buffer capacity overflow");
         ByteBufferMut {
             allocation: self.allocation,
             ptr: self.ptr.cast(),
             length: self.length * size_of::<T>(),
             capacity,
             alignment: self.alignment,
-            physical_alignment: self.physical_alignment,
-            overallocated: self.overallocated,
             _marker: Default::default(),
         }
     }
@@ -704,14 +696,7 @@ impl<T> BufferMut<T> {
     /// Freeze the `BufferMut` into a `Buffer`.
     pub fn freeze(self) -> Buffer<T> {
         let offset = self.ptr.cast::<u8>().addr().get() - self.allocation.ptr().addr().get();
-        Buffer::from_allocation(
-            self.allocation,
-            offset,
-            self.length,
-            self.alignment,
-            self.physical_alignment,
-            self.overallocated,
-        )
+        Buffer::from_allocation(self.allocation, offset, self.length, self.alignment)
     }
 
     /// Map each element of the buffer with a closure.
@@ -774,8 +759,6 @@ impl<T> BufferMut<T> {
             length: self.length,
             capacity: self.capacity,
             alignment: self.alignment,
-            physical_alignment: self.physical_alignment,
-            overallocated: self.overallocated,
             _marker: std::marker::PhantomData,
         }
     }
