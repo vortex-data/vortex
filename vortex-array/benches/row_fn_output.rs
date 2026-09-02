@@ -120,7 +120,11 @@ impl BenchPrimitive for i64 {
     }
 }
 
-/// Primitive input that declines null-tolerant decoding to exercise the filtered fallback.
+/// Primitive input that forces partially valid batches through the filtered fallback.
+///
+/// `DENSE_SAFE = false` selects valid-only execution. This type inherits the conservative
+/// null-tolerant decode implementation, so direct valid-row execution declines the original
+/// nullable input. A partially valid input must therefore use the executor's filtered fallback.
 struct FilteredI64;
 
 // SAFETY: the view is a native slice, and its reported length is the slice length.
