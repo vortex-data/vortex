@@ -94,6 +94,7 @@ const fn i32_gather_can_address(values_len: usize) -> bool {
 /// `size_of::<Out>()`). Each valid lane copies the initialized representation of an existing
 /// `Out`; invalid lanes are masked and cause a panic before the output buffer is initialized.
 /// Gather instructions tolerate the source's potentially weaker alignment.
+#[allow(clippy::inline_always)]
 #[inline(always)]
 fn exec_take<Out, Lane, Idx, Gather>(values: &[Out], indices: &[Idx]) -> Buffer<Out>
 where

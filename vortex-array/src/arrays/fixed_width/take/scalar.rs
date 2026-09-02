@@ -6,6 +6,7 @@ use vortex_buffer::BufferMut;
 
 use crate::dtype::IntegerPType;
 
+#[allow(clippy::inline_always)]
 #[inline(always)]
 pub(crate) fn take_values_scalar<T: Copy, I: IntegerPType>(
     values: &[T],

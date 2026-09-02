@@ -370,6 +370,7 @@ pub(crate) fn make_zero_state(return_dtype: &DType) -> SumState {
 }
 
 /// Checked add for u64, returning true if overflow occurred.
+#[allow(clippy::inline_always)]
 #[inline(always)]
 fn checked_add_u64(acc: &mut u64, val: u64) -> bool {
     match acc.checked_add(val) {
@@ -382,6 +383,7 @@ fn checked_add_u64(acc: &mut u64, val: u64) -> bool {
 }
 
 /// Checked add for i64, returning true if overflow occurred.
+#[allow(clippy::inline_always)]
 #[inline(always)]
 fn checked_add_i64(acc: &mut i64, val: i64) -> bool {
     match acc.checked_add(val) {

@@ -17,6 +17,7 @@ use crate::bit::unset_bit_unchecked;
 use crate::buffer_mut;
 
 /// Sets all bits in the bit-range `[start_bit, end_bit)` of `slice` to `value`.
+#[allow(clippy::inline_always)]
 #[inline(always)]
 pub(crate) fn fill_bits(slice: &mut [u8], start_bit: usize, end_bit: usize, value: bool) {
     if start_bit >= end_bit {
@@ -156,6 +157,7 @@ impl BitBufferMut {
     }
 
     /// Create a new empty `BitBufferMut`.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn empty() -> Self {
         Self::with_capacity(0)
@@ -242,24 +244,28 @@ impl BitBufferMut {
     }
 
     /// Get the current populated length of the buffer.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn len(&self) -> usize {
         self.len
     }
 
     /// True if the buffer has length 0.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
 
     /// Get the current bit offset of the buffer.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn offset(&self) -> usize {
         self.offset
     }
 
     /// Get the value at the requested index.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn value(&self, index: usize) -> bool {
         assert!(index < self.len);
@@ -272,12 +278,14 @@ impl BitBufferMut {
     /// # Safety
     ///
     /// The caller must ensure that `index` is less than the length of the buffer.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub unsafe fn value_unchecked(&self, index: usize) -> bool {
         unsafe { get_bit_unchecked(self.buffer.as_ptr(), self.offset + index) }
     }
 
     /// Get the bit capacity of the buffer.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn capacity(&self) -> usize {
         (self.buffer.capacity() * 8) - self.offset
@@ -385,6 +393,7 @@ impl BitBufferMut {
     ///
     /// - `new_len` must be less than or equal to [`capacity()`](Self::capacity)
     /// - The elements at `old_len..new_len` must be initialized
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub unsafe fn set_len(&mut self, new_len: usize) {
         debug_assert!(
@@ -502,6 +511,7 @@ impl BitBufferMut {
     ///
     /// This operates on an arbitrary range within the existing length of the buffer.
     /// Panics if `end > self.len` or `start > end`.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn fill_range(&mut self, start: usize, end: usize, value: bool) {
         assert!(end <= self.len, "end {end} exceeds len {}", self.len);
@@ -517,6 +527,7 @@ impl BitBufferMut {
     /// # Safety
     ///
     /// The caller must ensure that `start <= end <= self.len`.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub unsafe fn fill_range_unchecked(&mut self, start: usize, end: usize, value: bool) {
         fill_bits(

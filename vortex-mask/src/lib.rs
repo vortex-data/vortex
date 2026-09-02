@@ -304,6 +304,7 @@ impl Mask {
         }))
     }
 
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     fn check_slices(len: usize, vec: &[(usize, usize)]) {
         assert!(vec.iter().all(|&(b, e)| b < e && e <= len));

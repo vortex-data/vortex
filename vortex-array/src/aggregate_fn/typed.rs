@@ -63,11 +63,13 @@ pub(super) struct AggregateFnInner<V: AggregateFnVTable> {
 }
 
 impl<V: AggregateFnVTable> DynAggregateFn for AggregateFnInner<V> {
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     fn as_any(&self) -> &dyn Any {
         self
     }
 
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     fn id(&self) -> AggregateFnId {
         V::id(&self.vtable)

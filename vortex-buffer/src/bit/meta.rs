@@ -71,18 +71,21 @@ impl BitBufferMeta {
     }
 
     /// The sub-byte bit offset. Always `< 8`.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn offset(&self) -> usize {
         self.offset
     }
 
     /// The logical length of the bitset in bits.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn len(&self) -> usize {
         self.len
     }
 
     /// Returns `true` if the bitset is empty.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
         self.len == 0

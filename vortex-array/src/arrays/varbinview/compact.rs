@@ -65,6 +65,7 @@ impl VarBinViewArray {
 
     /// Iterates over all valid, non-inlined views, calling the provided
     /// closure for each one.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     fn iter_valid_views<F>(&self, ctx: &mut ExecutionCtx, mut f: F) -> VortexResult<()>
     where

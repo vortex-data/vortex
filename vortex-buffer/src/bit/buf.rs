@@ -308,12 +308,14 @@ impl BitBuffer {
     }
 
     /// Offset of the start of the buffer in bits.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn offset(&self) -> usize {
         self.offset
     }
 
     /// Get a reference to the underlying buffer.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn inner(&self) -> &ByteBuffer {
         &self.buffer

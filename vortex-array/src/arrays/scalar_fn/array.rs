@@ -32,6 +32,7 @@ impl Display for ScalarFnData {
 
 impl ScalarFnData {
     /// Get the scalar function bound to this array.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn scalar_fn(&self) -> &ScalarFnRef {
         &self.scalar_fn

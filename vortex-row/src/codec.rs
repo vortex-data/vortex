@@ -1152,6 +1152,7 @@ fn encode_non_empty_varlen_body(bytes: &[u8], out: &mut [u8], descending: bool) 
 /// # Safety
 /// `src` must be valid for 32 reads, `dst` valid for 32 writes, and the regions must not
 /// overlap.
+#[allow(clippy::inline_always)]
 #[inline(always)]
 unsafe fn xor_copy_block(src: *const u8, dst: *mut u8) {
     // Four u64 lanes of 8 bytes each = 32 bytes total.

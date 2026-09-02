@@ -204,12 +204,14 @@ impl<T> BufferMut<T> {
     }
 
     /// Get the alignment of the buffer.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn alignment(&self) -> Alignment {
         self.alignment
     }
 
     /// Returns the length of the buffer.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn len(&self) -> usize {
         debug_assert_eq!(self.length, self.bytes.len() / size_of::<T>());
@@ -217,6 +219,7 @@ impl<T> BufferMut<T> {
     }
 
     /// Returns whether the buffer is empty.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
         self.length == 0

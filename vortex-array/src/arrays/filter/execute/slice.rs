@@ -14,6 +14,7 @@ use vortex_mask::MaskValues;
 
 /// Invoke `f` with each `(word, word_start, word_len)` of the mask bitmap, where `word` holds
 /// the mask bits for elements `word_start..word_start + word_len` in its low `word_len` bits.
+#[allow(clippy::inline_always)]
 #[inline(always)]
 pub(super) fn for_each_mask_word(mask: &MaskValues, mut f: impl FnMut(u64, usize, usize)) {
     let bits = mask.bit_buffer();

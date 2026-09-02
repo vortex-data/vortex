@@ -112,12 +112,14 @@ impl<'a> BitBufferView<'a> {
     }
 
     /// Offset of the start of the view in bits. Always `< 8`.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn offset(&self) -> usize {
         self.offset
     }
 
     /// Get a reference to the underlying byte slice.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn inner(&self) -> &'a [u8] {
         self.buffer
@@ -301,6 +303,7 @@ impl<'a> BitBufferMutView<'a> {
     }
 
     /// Offset of the start of the view in bits. Always `< 8`.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn offset(&self) -> usize {
         self.offset
@@ -429,6 +432,7 @@ impl<'a> BitBufferMutView<'a> {
     /// Sets all bits in the range `[start, end)` to `value`.
     ///
     /// Panics if `end > self.len()` or `start > end`.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn fill_range(&mut self, start: usize, end: usize, value: bool) {
         assert!(end <= self.len, "end {end} exceeds len {}", self.len);
@@ -442,6 +446,7 @@ impl<'a> BitBufferMutView<'a> {
     /// # Safety
     ///
     /// Caller must ensure that `start <= end <= self.len()`.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub unsafe fn fill_range_unchecked(&mut self, start: usize, end: usize, value: bool) {
         fill_bits(self.buffer, self.offset + start, self.offset + end, value);

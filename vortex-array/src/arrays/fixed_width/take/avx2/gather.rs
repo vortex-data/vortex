@@ -110,6 +110,7 @@ macro_rules! impl_gather {
             const STRIDE: usize = $STRIDE;
 
             #[allow(unused_unsafe, clippy::cast_possible_truncation)]
+            #[allow(clippy::inline_always)]
             #[inline(always)]
             unsafe fn gather(
                 indices: *const $idx,

@@ -479,6 +479,7 @@ struct LoopState<T> {
 }
 
 /// Inner loop for non-null chunks of 64 values.
+#[allow(clippy::inline_always)]
 #[inline(always)]
 fn inner_loop_nonnull<T: IntegerPType>(
     values: &[T; 64],
@@ -500,6 +501,7 @@ fn inner_loop_nonnull<T: IntegerPType>(
 }
 
 /// Inner loop for nullable chunks of 64 values.
+#[allow(clippy::inline_always)]
 #[inline(always)]
 fn inner_loop_nullable<T: IntegerPType>(
     values: &[T; 64],
@@ -524,6 +526,7 @@ fn inner_loop_nullable<T: IntegerPType>(
 }
 
 /// Fallback inner loop for remainder values.
+#[allow(clippy::inline_always)]
 #[inline(always)]
 fn inner_loop_naive<T: IntegerPType>(
     values: &[T],

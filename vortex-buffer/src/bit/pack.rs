@@ -56,6 +56,7 @@ where
 /// the wider pack saves — and an indirect call per word is worse still (~4x on cheap
 /// predicates), since an opaque call target blocks fill/pack fusion regardless of how cheap
 /// the kernel *selection* is. For provably cheap predicates, use [`collect_bool_words_multiversioned`].
+#[allow(clippy::inline_always)]
 #[inline(always)]
 pub(crate) fn collect_bool_words_inline<F>(words: &mut [u64], len: usize, f: F)
 where
@@ -150,6 +151,7 @@ where
 ///
 /// Marked `#[inline(always)]` so each `#[target_feature]` wrapper gets its own fully-inlined
 /// copy compiled with that feature set.
+#[allow(clippy::inline_always)]
 #[inline(always)]
 fn collect_bool_words_with<F, P>(words: &mut [u64], len: usize, mut f: F, pack: P)
 where

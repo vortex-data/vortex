@@ -270,24 +270,28 @@ impl<T> Buffer<T> {
     }
 
     /// Returns the length of the buffer in elements of type T.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn len(&self) -> usize {
         self.length
     }
 
     /// Returns whether the buffer is empty.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
         self.length == 0
     }
 
     /// Returns the alignment of the buffer.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn alignment(&self) -> Alignment {
         self.alignment
     }
 
     /// Returns a slice over the buffer of elements of type T.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn as_slice(&self) -> &[T] {
         // SAFETY: alignment of Buffer is checked on construction
@@ -295,6 +299,7 @@ impl<T> Buffer<T> {
     }
 
     /// Return a view over the buffer as an opaque byte slice.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn as_bytes(&self) -> &[u8] {
         self.bytes.as_ref()
@@ -313,6 +318,7 @@ impl<T> Buffer<T> {
     ///
     /// Requires that `begin <= end` and `end <= self.len()`.
     /// Also requires that both `begin` and `end` are aligned to the buffer's required alignment.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn slice(&self, range: impl RangeBounds<usize>) -> Self {
         self.slice_with_alignment(range, self.alignment)
@@ -324,6 +330,7 @@ impl<T> Buffer<T> {
     /// # Panics
     ///
     /// Requires that `begin <= end` and `end <= self.len()`.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn slice_unaligned(&self, range: impl RangeBounds<usize>) -> Self {
         self.slice_with_alignment(range, Alignment::of::<u8>())
@@ -399,6 +406,7 @@ impl<T> Buffer<T> {
     ///
     /// # Panics:
     /// Requires that the given sub slice is in fact contained within the Bytes buffer; otherwise this function will panic.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn slice_ref(&self, subset: &[T]) -> Self {
         self.slice_ref_with_alignment(subset, Alignment::of::<T>())

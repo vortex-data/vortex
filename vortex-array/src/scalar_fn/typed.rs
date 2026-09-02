@@ -113,11 +113,13 @@ pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
 }
 
 impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     fn as_any(&self) -> &dyn Any {
         self
     }
 
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     fn id(&self) -> ScalarFnId {
         V::id(&self.vtable)

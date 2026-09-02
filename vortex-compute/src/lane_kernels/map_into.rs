@@ -57,6 +57,7 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
         R: Copy + Default,
         F: Fn(Self::Item) -> Option<R>,
     {
+        #[allow(clippy::inline_always)]
         #[inline(always)]
         fn chunk<S, R, F>(
             values: &S,
@@ -126,6 +127,7 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
     where
         F: Fn(Self::Item) -> R,
     {
+        #[allow(clippy::inline_always)]
         #[inline(always)]
         fn chunk<S, R, F>(values: &S, out: &mut [MaybeUninit<R>], f: &F, base: usize, count: usize)
         where
@@ -181,6 +183,7 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
     where
         F: Fn(Self::Item) -> bool,
     {
+        #[allow(clippy::inline_always)]
         #[inline(always)]
         fn chunk<S, F>(values: &S, f: &F, base: usize, count: usize) -> u64
         where
@@ -299,6 +302,7 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
         /// Returns `true` if any lane in `[base, base+count)` failed (OR-reduced);
         /// the cold attribution path is called at the kernel level so it can be
         /// inlined separately for full vs remainder.
+        #[allow(clippy::inline_always)]
         #[inline(always)]
         fn chunk<S, R, F>(
             values: &S,

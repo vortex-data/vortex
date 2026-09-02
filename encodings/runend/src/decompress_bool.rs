@@ -101,6 +101,7 @@ pub fn runend_decode_typed_bool(
 /// Fast path for few runs with no offset. Uses direct slice access to minimize overhead.
 /// This avoids the `trimmed_ends_iter` iterator chain which adds significant overhead
 /// for small numbers of runs.
+#[allow(clippy::inline_always)]
 #[inline(always)]
 fn decode_few_runs_no_offset<E: vortex_array::dtype::IntegerPType>(
     ends: &[E],
@@ -220,6 +221,7 @@ fn decode_bool_nullable(
 }
 
 /// Sequential decode for few runs - avoids prefill overhead.
+#[allow(clippy::inline_always)]
 #[inline(always)]
 fn decode_nullable_sequential(
     run_ends: impl Iterator<Item = usize>,

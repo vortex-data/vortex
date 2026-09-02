@@ -32,6 +32,7 @@ struct FoRStrategy<T> {
 }
 
 impl<T: PhysicalPType<Physical = T> + FoR> UnpackStrategy<T> for FoRStrategy<T> {
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     unsafe fn unpack_chunk(
         &self,

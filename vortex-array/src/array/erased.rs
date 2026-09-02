@@ -84,12 +84,14 @@ impl ArrayRef {
     }
 
     /// Returns a reference to the `dyn DynArrayData` inside the inner.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub(crate) fn dyn_array(&self) -> &dyn DynArrayData {
         &self.0.data
     }
 
     /// Returns a mutable reference to the inner if this is the sole owner.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub(crate) fn inner_mut(&mut self) -> Option<&mut ArrayInner<dyn DynArrayData>> {
         Arc::get_mut(&mut self.0)
@@ -119,6 +121,7 @@ impl ArrayRef {
     ///
     /// # Safety
     /// The caller must guarantee the concrete type behind `dyn DynArrayData` is `ArrayData<V>`.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub(crate) unsafe fn downcast_inner_unchecked<V: VTable>(
         self,
@@ -791,6 +794,7 @@ impl ArrayRef {
 }
 
 impl IntoArray for ArrayRef {
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     fn into_array(self) -> ArrayRef {
         self

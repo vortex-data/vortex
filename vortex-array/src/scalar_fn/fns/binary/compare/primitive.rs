@@ -93,6 +93,7 @@ fn compare_primitive_typed<T: NativePType>(
     Ok(BoolArray::try_new(bits, validity)?.into_array())
 }
 
+#[allow(clippy::inline_always)]
 #[inline(always)]
 fn apply_op<T: NativePType>(lhs: T, rhs: T, op: CompareOperator) -> bool {
     match op {
