@@ -313,11 +313,13 @@ pub fn reader_get_progress_in_file(file: &OpenFileReader) -> f64 {
 
 /// Called by one thread in planning phase
 pub fn can_get_partition_stats(bind: &BindState) -> bool {
-    // Re-reading footers on every request is costly so me mimic DuckDB's
+    // Re-reading footers on every request is costly so we mimic DuckDB's
     // TryLoadCaches for Parquet and load them once per file
     !bind.no_footer_caches
     // This function is called during planning where we haven't read data yet.
-    // If there's a filter, we need to read the data to evaluate stats
+    // If there's a filter, we need to read the data to evaluate stats.
+    // Even if we could do this fast, we report some filters here as not pushed
+    // (see table_function.rs) and stats would be incorrect.
         && bind.filters.is_empty()
 }
 

@@ -8,6 +8,7 @@
 
 using namespace duckdb;
 
+// Convert Vortex statistics to DuckDB statistics
 unique_ptr<BaseStatistics> to_duckdb_statistics(duckdb_column_statistics &statistics);
 
 struct VortexBindData final : TableFunctionData {
