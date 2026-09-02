@@ -378,8 +378,6 @@ get_unwrap = "deny"
 host_endian_bytes = "deny"
 if_then_some_else_none = "deny"
 inconsistent_struct_constructor = "deny"
-# Existing deliberate uses carry a per-site `#[allow(clippy::inline_always)]`. New ones need the
-# same explicit opt-out, backed by a measurement.
 inline_always = "deny"
 manual_assert = "deny"
 manual_is_variant_and = "deny"
