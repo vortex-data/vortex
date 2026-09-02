@@ -734,7 +734,7 @@ fn map_array(
         map_dtype,
         nullability,
         rows.len(),
-        vortex_buffer::BufferAllocatorRef::static_ref(),
+        BufferAllocatorRef::static_ref(),
     );
     for row in rows {
         let scalar = match row {
