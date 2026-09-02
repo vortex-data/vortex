@@ -9,12 +9,11 @@
 //! snapshot untouched, so snapshot churn in a later change is the reviewable signal of a
 //! behavior change.
 //!
-//! Three variants cover the edition and feature matrix:
+//! Two variants cover the edition and feature matrix:
 //!
-//! - `default`: the schemes permitted by the default `core` edition.
-//! - `uneditioned`: every registered scheme, with no edition filter — pins Delta / Patches
-//!   selection, which belong to no edition.
-//! - `compact`: `uneditioned` + `zstd` + `pco`, with
+//! - `regular`: the schemes permitted by the default `core` edition.
+//! - `compact`: the schemes permitted by the default `core` and opt-in `zstd` editions, with
+//!   the `zstd` + `pco` features and
 //!   [`BtrBlocksCompressorBuilder::with_compact`] — pins Zstd / Pco selection.
 //!
 //! Every corpus entry is longer than 1024 values so the sampling-based estimation path is
@@ -427,21 +426,23 @@ fn compressor_for_session(
 }
 
 #[test]
-fn golden_default() -> VortexResult<()> {
+fn golden_regular() -> VortexResult<()> {
     let session = edition_session(&[CORE_2026_08_3])?;
     let compressor = compressor_for_session(&session, BtrBlocksCompressorBuilder::default());
-    golden_corpus_snapshots("default", &compressor)
-}
-
-#[test]
-fn golden_uneditioned() -> VortexResult<()> {
-    let compressor = without_onpair(BtrBlocksCompressorBuilder::default()).build();
-    golden_corpus_snapshots("uneditioned", &compressor)
+    golden_corpus_snapshots("regular", &compressor)
 }
 
 #[cfg(all(feature = "zstd", feature = "pco"))]
 #[test]
 fn golden_compact() -> VortexResult<()> {
-    let compressor = without_onpair(BtrBlocksCompressorBuilder::default().with_compact()).build();
+    let session = edition_session(&[CORE_2026_08_3])?;
+    vortex_zstd::initialize(&session);
+    session
+        .enable_edition(vortex_zstd::editions::ZSTD_2026_02)
+        .map_err(|error| vortex_err!("{error}"))?;
+    let compressor = compressor_for_session(
+        &session,
+        BtrBlocksCompressorBuilder::default().with_compact(),
+    );
     golden_corpus_snapshots("compact", &compressor)
 }

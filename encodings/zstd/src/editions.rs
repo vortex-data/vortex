@@ -17,7 +17,7 @@ pub static FAMILY: EditionFamily = EditionFamily {
     origin: "vortex-zstd",
     doc: "Optional Zstd-backed serialized array representations. A reader built without \
 `vortex-zstd` cannot resolve these members, so they are versioned independently of `core` and \
-enabled only when the crate is initialized with the corresponding feature.",
+must be enabled explicitly by the caller.",
 };
 
 /// The February 2026 draft edition of the `zstd` family.
@@ -45,5 +45,17 @@ mod tests {
         let session = vortex_array::array_session();
         crate::initialize(&session);
         validate_edition(&session.editions(), &ZSTD_2026_02)
+    }
+
+    #[test]
+    fn initialize_does_not_enable_zstd_edition() {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        assert!(
+            !session
+                .enabled_editions()
+                .editions()
+                .contains(&ZSTD_2026_02)
+        );
     }
 }

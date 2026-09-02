@@ -42,7 +42,7 @@ mod zstd_buffers;
 #[cfg(test)]
 mod test;
 
-/// Register the Zstd encodings and their optional edition with a Vortex session.
+/// Register the Zstd encodings and their optional edition declaration with a Vortex session.
 pub fn initialize(session: &VortexSession) {
     session.arrays().register(Zstd);
     session.arrays().register(ZstdBuffers);
@@ -57,10 +57,6 @@ pub fn initialize(session: &VortexSession) {
             .map_err(|error| vortex_err!("{error}"))
             .vortex_expect("Zstd edition declaration is valid");
     }
-    session
-        .enable_edition(editions::ZSTD_2026_02)
-        .map_err(|error| vortex_err!("{error}"))
-        .vortex_expect("Zstd edition is registered");
 }
 
 /// Ensure Vortex metadata agrees with the content size declared by a zstd frame.

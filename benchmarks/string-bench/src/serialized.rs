@@ -39,9 +39,9 @@ use vortex::layout::LayoutStrategy;
 use vortex::session::VortexSession;
 use vortex_bench::Format;
 use vortex_bench::measurements::CustomUnitMeasurement;
-use vortex_bench::retain_edition_encodings;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::SchemeId;
+use vortex_btrblocks::schemes::integer::DeltaScheme;
 use vortex_btrblocks::schemes::string::FSSTScheme;
 use vortex_btrblocks::schemes::string::NullDominatedSparseScheme;
 use vortex_btrblocks::schemes::string::OnPairScheme;
@@ -169,19 +169,17 @@ impl SerializedResult {
 }
 
 /// Build the file writer strategy that forces one selected string scheme while
-/// leaving non-string child compression enabled.
-fn serialized_write_strategy(
-    session: &VortexSession,
-    encoder: StringEncoder,
-) -> Arc<dyn LayoutStrategy> {
+/// leaving editioned non-string child compression enabled.
+fn serialized_write_strategy(encoder: StringEncoder) -> Arc<dyn LayoutStrategy> {
     let forced = encoder.scheme_id();
     let compressor = BtrBlocksCompressorBuilder::default().exclude_schemes(
         default_string_scheme_ids()
             .into_iter()
-            .filter(|&id| id != forced),
+            .filter(|&id| id != forced)
+            .chain([DeltaScheme::default().id()]),
     );
     WriteStrategyBuilder::default()
-        .with_btrblocks_builder(retain_edition_encodings(session, compressor))
+        .with_btrblocks_builder(compressor)
         .build()
 }
 
@@ -253,7 +251,7 @@ async fn prepare_serialized_file(
     verify: bool,
     ctx: &mut ExecutionCtx,
 ) -> Result<SerializedFile> {
-    let strategy = serialized_write_strategy(session, encoder);
+    let strategy = serialized_write_strategy(encoder);
     let data = write_serialized_file(session, input, &strategy).await?;
     let file_bytes = data.len() as u64;
 
