@@ -595,7 +595,7 @@ impl<T> Buffer<T> {
     }
 
     /// Returns the underlying bytes without copying.
-    pub fn into_inner(self) -> Bytes {
+    pub fn into_bytes(self) -> Bytes {
         if let Some(backing) = self.backing.as_ref()
             && let BufferBacking::Bytes(bytes) = backing.as_ref()
         {
@@ -1154,7 +1154,7 @@ mod test {
             buffer.backing.as_deref(),
             Some(BufferBacking::Bytes(_))
         ));
-        let bytes = buffer.into_inner();
+        let bytes = buffer.into_bytes();
 
         assert_eq!(bytes.as_ptr(), ptr);
         assert_eq!(bytes.as_ref(), &[1, 2, 3, 4]);

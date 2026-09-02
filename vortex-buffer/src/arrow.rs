@@ -57,7 +57,7 @@ impl ByteBuffer {
             let offset = self.ptr.addr().get() - arrow.as_ptr().addr();
             return arrow.slice_with_length(offset, self.length);
         }
-        arrow_buffer::Buffer::from(self.into_inner())
+        arrow_buffer::Buffer::from(self.into_bytes())
     }
 
     /// Convert an Arrow scalar buffer into a Vortex scalar buffer.

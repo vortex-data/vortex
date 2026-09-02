@@ -58,3 +58,7 @@ harness = false
 [[bench]]
 name = "collect_bool"
 harness = false
+
+[[bench]]
+name = "allocation"
+harness = false
