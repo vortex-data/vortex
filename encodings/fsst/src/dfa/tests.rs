@@ -18,6 +18,7 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar_fn::fns::like::Like;
+use vortex_array::scalar_fn::fns::like::LikeKernel;
 use vortex_array::scalar_fn::fns::like::LikeOptions;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
@@ -26,6 +27,8 @@ use super::FsstMatcher;
 use super::LikeKind;
 use super::flat_contains::FlatContainsDfa;
 use super::prefix::FlatPrefixDfa;
+use super::suffix::SuffixMatcher;
+use crate::FSST;
 use crate::FSSTArray;
 use crate::fsst_compress;
 use crate::fsst_train_compressor;
@@ -68,6 +71,22 @@ fn assert_owned_prefix(pattern: &[u8], expected: &[u8]) {
     assert_eq!(actual.as_ref(), expected);
 }
 
+fn assert_borrowed_suffix(pattern: &[u8], expected: &[u8]) {
+    let Some(LikeKind::Suffix(actual)) = LikeKind::parse(pattern) else {
+        panic!("expected borrowed suffix pattern");
+    };
+    assert!(matches!(actual, Cow::Borrowed(_)));
+    assert_eq!(actual.as_ref(), expected);
+}
+
+fn assert_owned_suffix(pattern: &[u8], expected: &[u8]) {
+    let Some(LikeKind::Suffix(actual)) = LikeKind::parse(pattern) else {
+        panic!("expected owned suffix pattern");
+    };
+    assert!(matches!(actual, Cow::Owned(_)));
+    assert_eq!(actual.as_ref(), expected);
+}
+
 fn assert_borrowed_contains(pattern: &[u8], expected: &[u8]) {
     let Some(LikeKind::Contains(actual)) = LikeKind::parse(pattern) else {
         panic!("expected borrowed contains pattern");
@@ -88,6 +107,7 @@ fn assert_owned_contains(pattern: &[u8], expected: &[u8]) {
 fn test_like_kind_parse_plain_patterns() {
     assert_borrowed_prefix(b"http%", b"http");
     assert_borrowed_contains(b"%needle%", b"needle");
+    assert_borrowed_suffix(b"%suffix", b"suffix");
     assert_borrowed_prefix(b"%", b"");
 }
 
@@ -101,14 +121,20 @@ fn test_like_kind_parse_escaped_patterns() {
     assert_owned_contains(br"%\_%", b"_");
     assert_owned_contains(br"%\\%", b"\\");
     assert_owned_contains(br"%has\%middle%", b"has%middle");
+    assert_owned_suffix(br"%\%", b"%");
+    assert_owned_suffix(br"%\_", b"_");
+    assert_owned_suffix(br"%has\%middle", b"has%middle");
 }
 
 #[test]
 fn test_like_kind_parse_unsupported_patterns() {
-    assert!(LikeKind::parse(b"%suffix").is_none());
     assert!(LikeKind::parse(b"a_c").is_none());
-    assert!(LikeKind::parse(br"%\%").is_none());
     assert!(LikeKind::parse(br"foo\%bar").is_none());
+    // A `%` in the middle is neither prefix, contains, nor suffix.
+    assert!(LikeKind::parse(b"a%b").is_none());
+    assert!(LikeKind::parse(b"%a%b").is_none());
+    // `_` anywhere in the tail still disqualifies a suffix.
+    assert!(LikeKind::parse(b"%a_b").is_none());
 }
 
 /// No symbols — all bytes escaped. Simplest case to see the two tables.
@@ -251,6 +277,189 @@ fn test_contains_pushdown_len_254_with_escapes() {
     assert!(!matcher.matches(&escaped(&mismatch)));
 }
 
+/// No symbols — every byte escaped, so every token the walk sees is a literal.
+#[test]
+fn test_suffix_matcher_no_symbols() -> VortexResult<()> {
+    let matcher = SuffixMatcher::new(&[], &[], b"ab")?;
+
+    assert!(matcher.matches(&escaped(b"ab")));
+    assert!(matcher.matches(&escaped(b"xab")));
+    assert!(matcher.matches(&escaped(b"abab")));
+    // Only the end matters: "ab" occurs, but not last.
+    assert!(!matcher.matches(&escaped(b"abx")));
+    assert!(!matcher.matches(&escaped(b"a")));
+    assert!(!matcher.matches(&escaped(b"ba")));
+    assert!(!matcher.matches(&[]));
+
+    Ok(())
+}
+
+/// A suffix whose bytes repeat, so the walk consumes the same byte value twice and the
+/// two steps must be counted separately rather than collapsing.
+#[test]
+fn test_suffix_matcher_repeated_chars() -> VortexResult<()> {
+    let matcher = SuffixMatcher::new(&[], &[], b"aa")?;
+
+    assert!(matcher.matches(&escaped(b"aa")));
+    assert!(matcher.matches(&escaped(b"aaa")));
+    assert!(matcher.matches(&escaped(b"baa")));
+    assert!(!matcher.matches(&escaped(b"aab")));
+    assert!(!matcher.matches(&escaped(b"a")));
+
+    Ok(())
+}
+
+/// With symbols — the suffix can be covered by one symbol, or straddle a symbol and a
+/// literal.
+///
+/// Symbol table: code 0 = "ab", code 1 = "ba"
+/// Suffix: "ab"
+#[test]
+fn test_suffix_matcher_with_symbols() -> VortexResult<()> {
+    let symbols = [sym(b"ab"), sym(b"ba")];
+    let lengths = [2u8, 2];
+    let matcher = SuffixMatcher::new(&symbols, &lengths, b"ab")?;
+
+    // "ab" as one symbol.
+    assert!(matcher.matches(&[0]));
+    // "abab": the last symbol alone carries the whole suffix.
+    assert!(matcher.matches(&[0, 0]));
+    // "abba" ends in "ba".
+    assert!(!matcher.matches(&[0, 1]));
+    // "ba" + escaped 'b' → "bab": the suffix straddles a symbol and a literal.
+    assert!(matcher.matches(&[1, ESCAPE_CODE, b'b']));
+    // "ba" + escaped "ab" → "baab", matched from two literals.
+    assert!(matcher.matches(&[1, ESCAPE_CODE, b'a', ESCAPE_CODE, b'b']));
+    // "ba" alone is a partial match only.
+    assert!(!matcher.matches(&[1]));
+    // "ab" + escaped 'a' → "aba".
+    assert!(!matcher.matches(&[0, ESCAPE_CODE, b'a']));
+
+    Ok(())
+}
+
+/// Backward walking has to tell a symbol code from an escaped literal that happens to
+/// share its byte value. Only the parity of the `ESCAPE_CODE` run to the left does that,
+/// and a literal `0xFF` is what makes the run longer than one.
+#[test]
+fn test_suffix_matcher_escape_run_parity() -> VortexResult<()> {
+    let symbols = [sym(b"ab")];
+    let lengths = [2u8];
+    let matcher = SuffixMatcher::new(&symbols, &lengths, b"ab")?;
+
+    // One escape: the trailing 0 is the literal `0x00`, so the string is "\0", not "ab".
+    // Reading it as a code instead would decode "ab" and match.
+    assert!(!matcher.matches(&[ESCAPE_CODE, 0]));
+    // Two escapes: they pair off into a literal `0xFF`, leaving 0 to be symbol "ab".
+    assert!(matcher.matches(&[ESCAPE_CODE, ESCAPE_CODE, 0]));
+    // The run terminates at the first byte that is not `ESCAPE_CODE`: "ab" + literal
+    // `0x00`, which does not end in "ab".
+    assert!(!matcher.matches(&[0, ESCAPE_CODE, 0]));
+    // Same run, one escape longer: "ab" + literal `0xFF` + symbol "ab".
+    assert!(matcher.matches(&[0, ESCAPE_CODE, ESCAPE_CODE, 0]));
+    // A dangling escape marker is a truncated stream, not a match.
+    assert!(!matcher.matches(&[0, ESCAPE_CODE]));
+    // Runs longer than two: a scan that only looked back one or two bytes would read the
+    // trailing 0 as symbol "ab" here and match. Decoded: `0xFF` then `0x00`.
+    assert!(!matcher.matches(&[ESCAPE_CODE, ESCAPE_CODE, ESCAPE_CODE, 0]));
+    // Four escapes pair off into two literal `0xFF`s, so the 0 is symbol "ab" again.
+    assert!(matcher.matches(&[ESCAPE_CODE, ESCAPE_CODE, ESCAPE_CODE, ESCAPE_CODE, 0]));
+    // A truncated stream found *after* a token has already matched: the walk still owes a
+    // byte and the only thing left is a dangling marker.
+    assert!(!matcher.matches(&[ESCAPE_CODE, ESCAPE_CODE, ESCAPE_CODE, b'b']));
+
+    Ok(())
+}
+
+/// A literal `0xFF` compared against the suffix itself, not merely skipped over. The
+/// kernel accepts binary patterns, so a suffix can contain `0xFF`.
+#[test]
+fn test_suffix_matcher_literal_escape_byte_in_suffix() -> VortexResult<()> {
+    let matcher = SuffixMatcher::new(&[sym(b"ab")], &[2u8], &[b'a', ESCAPE_CODE])?;
+
+    // Symbol "ab" then escaped `0xFF` → "ab\xFF", whose last two bytes are 'b', 0xFF.
+    assert!(!matcher.matches(&[0, ESCAPE_CODE, ESCAPE_CODE]));
+    // Escaped 'a' then escaped `0xFF` → "a\xFF".
+    assert!(matcher.matches(&[ESCAPE_CODE, b'a', ESCAPE_CODE, ESCAPE_CODE]));
+    // Escaped `0xFF` alone is one byte short of the suffix.
+    assert!(!matcher.matches(&[ESCAPE_CODE, ESCAPE_CODE]));
+
+    Ok(())
+}
+
+/// A final symbol longer than the suffix must be compared on its *tail*. Aligning on its
+/// head instead would accept `"...abcx" LIKE '%abc'`.
+#[test]
+fn test_suffix_matcher_symbol_longer_than_suffix() -> VortexResult<()> {
+    let symbols = [sym(b"abcx"), sym(b"xabc")];
+    let lengths = [4u8, 4];
+    let matcher = SuffixMatcher::new(&symbols, &lengths, b"abc")?;
+
+    // "xabc" ends with the suffix; its leading 'x' is simply outside it.
+    assert!(matcher.matches(&[1]));
+    // "abcx" contains the suffix but does not end with it.
+    assert!(!matcher.matches(&[0]));
+    // Same distinction when an earlier symbol precedes it.
+    assert!(matcher.matches(&[0, 1]));
+    assert!(!matcher.matches(&[1, 0]));
+
+    Ok(())
+}
+
+/// A code byte past the end of the symbol table is only producible by a corrupt file, and
+/// must answer "no match" rather than panic — the prefix and contains DFAs absorb the same
+/// byte in their table padding.
+#[test]
+fn test_suffix_matcher_code_beyond_symbol_table() -> VortexResult<()> {
+    let matcher = SuffixMatcher::new(&[sym(b"ab")], &[2u8], b"ab")?;
+
+    assert!(!matcher.matches(&[5]));
+    assert!(!matcher.matches(&[ESCAPE_CODE, ESCAPE_CODE, 5]));
+    // Reachable past the first token too, where the walk still owes suffix bytes.
+    assert!(!matcher.matches(&[5, ESCAPE_CODE, b'b']));
+    // The largest code that is not `ESCAPE_CODE`.
+    assert!(!matcher.matches(&[254]));
+
+    Ok(())
+}
+
+#[test]
+fn test_suffix_pushdown_len_254_with_escapes() {
+    // Heterogeneous, so that every step of the 254-byte walk reads a different byte and an
+    // off-by-one in the suffix index cannot pass.
+    let suffix: String = (0..SuffixMatcher::MAX_SUFFIX_LEN)
+        .map(|i| char::from(b'a' + u8::try_from(i % 26).unwrap()))
+        .collect();
+    let pattern = format!("%{suffix}");
+    let symbols: Vec<Symbol> = vec![];
+    let matcher = FsstMatcher::try_new(&symbols, &[], pattern.as_bytes())
+        .unwrap()
+        .expect("suffix of MAX_SUFFIX_LEN should be pushed down");
+    assert!(matcher.matches(&escaped(suffix.as_bytes())));
+    assert!(matcher.matches(&escaped(format!("prefix{suffix}").as_bytes())));
+    // Mismatch in the interior, so the walk has to run before it can fail.
+    let mut interior = suffix.clone().into_bytes();
+    interior[SuffixMatcher::MAX_SUFFIX_LEN / 2] = b'!';
+    assert!(!matcher.matches(&escaped(&interior)));
+    // Mismatch at the far end of the walk.
+    let mut first = suffix.clone().into_bytes();
+    first[0] = b'!';
+    assert!(!matcher.matches(&escaped(&first)));
+    assert!(!matcher.matches(&escaped(format!("{suffix}b").as_bytes())));
+}
+
+#[test]
+fn test_suffix_pushdown_rejects_len_255() {
+    let suffix = "a".repeat(SuffixMatcher::MAX_SUFFIX_LEN + 1);
+    let pattern = format!("%{suffix}");
+    let symbols: Vec<Symbol> = vec![];
+    assert!(
+        FsstMatcher::try_new(&symbols, &[], pattern.as_bytes())
+            .unwrap()
+            .is_none()
+    );
+}
+
 #[test]
 fn test_contains_pushdown_rejects_len_255() {
     let needle = "a".repeat(FlatContainsDfa::MAX_NEEDLE_LEN + 1);
@@ -277,11 +486,30 @@ fn make_fsst_str(strings: &[Option<&str>]) -> FSSTArray {
     fsst_compress(&array, &compressor, &mut ctx).unwrap()
 }
 
+/// Evaluates LIKE over an FSST array, asserting first that the kernel pushed the pattern
+/// down.
+///
+/// Without that assertion these cases prove nothing about this module: the fallback
+/// decompresses and returns the same booleans, so every one of them would still pass with
+/// pushdown disabled. Every pattern in the table below is a shape the module claims to
+/// handle, so `None` here is a regression whichever shape it is.
 fn run_like(array: FSSTArray, pattern_arr: ArrayRef) -> VortexResult<BoolArray> {
+    let mut ctx = SESSION.create_execution_ctx();
+    assert!(
+        <FSST as LikeKernel>::like(
+            array.as_view(),
+            &pattern_arr,
+            LikeOptions::default(),
+            &mut ctx
+        )?
+        .is_some(),
+        "pattern should be pushed down, not evaluated by decompressing"
+    );
+
     let arr: ArrayRef = array.into_array();
     let result = Like::try_new(arr, pattern_arr, LikeOptions::default())?
         .into_array()
-        .execute::<Canonical>(&mut SESSION.create_execution_ctx())?;
+        .execute::<Canonical>(&mut ctx)?;
     Ok(result.into_bool())
 }
 
@@ -345,6 +573,22 @@ fn run_like(array: FSSTArray, pattern_arr: ArrayRef) -> VortexResult<BoolArray> 
     "%abcabcabc%",
     &[true, true, false, false]
 )]
+// ---- suffix (`%suffix`) end-to-end ----
+#[case(&["abc", "xabc", "abcx", "bc", ""], "%abc", &[true, true, false, false, false])]
+#[case(&[""], "%a", &[false])]
+// The needle occurs, but not at the end.
+#[case(&["abcabc", "abcabcx"], "%abc", &[true, false])]
+// Repeated bytes: the walk owes two steps of the same byte value.
+#[case(&["aa", "aaa", "aab", "a"], "%aa", &[true, true, false, false])]
+// Suffix equal to the whole string, and one byte longer than it.
+#[case(&["hello", "hell"], "%hello", &[true, false])]
+// Overlapping suffix, where a shorter tail of it also occurs earlier.
+#[case(&["abab", "ababab", "ababa", "xabab"], "%abab", &[true, true, false, true])]
+// Multi-byte UTF-8 tails.
+#[case(&["café latte", "café", "caf"], "%café", &[false, true, false])]
+#[case(&["日本語テスト", "テスト", "テストx"], "%テスト", &[true, true, false])]
+// An escaped literal `%` as the suffix — previously fell back, now pushed down.
+#[case(&["100%", "100", "%100"], r"%\%", &[true, false, false])]
 fn test_like_edge_cases(
     #[case] strings: &[&str],
     #[case] pattern: &str,
