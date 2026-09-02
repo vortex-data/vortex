@@ -35,7 +35,7 @@ jobs:
     timeout-minutes: 60
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=bench-dedicated/family=c6id.8xlarge/extras=s3-cache/tag=build-{1}', github.run_id, matrix.benchmark.id)
+          && format('runs-on={0}/runner=bench-dedicated/family=c8id.8xlarge/extras=s3-cache/tag=build-{1}', github.run_id, matrix.benchmark.id)
           || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
@@ -53,7 +53,7 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - uses: ./.github/actions/setup-rust
+      - uses: ./.github/actions/setup-prebuild
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
@@ -83,7 +83,7 @@ jobs:
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=bench-dedicated/family=c6id.metal/extras=s3-cache/tag={1}', github.run_id, matrix.benchmark.id)
+          && format('runs-on={0}/runner=bench-dedicated/family=c8id.32xlarge/extras=s3-cache/tag={1}', github.run_id, matrix.benchmark.id)
           || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
