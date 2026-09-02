@@ -3,6 +3,7 @@
 
 use itertools::Itertools;
 use num_traits::AsPrimitive;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -75,6 +76,7 @@ fn filter_select_var_bin_by_slice(
                     .execute_mask(values.as_ref().len(), ctx)
                     .vortex_expect("Failed to compute validity mask"),
                 selection_count,
+                ctx.allocator().clone(),
             )
         })
     })
@@ -87,13 +89,14 @@ fn filter_select_var_bin_by_slice_primitive_offset<O, B>(
     mask_slices: &[(usize, usize)],
     logical_validity: Mask,
     selection_count: usize,
+    allocator: BufferAllocatorRef,
 ) -> VortexResult<VarBinArray>
 where
     O: IntegerPType,
     B: OffsetBuilderPType,
     usize: AsPrimitive<B>,
 {
-    let mut builder = VarBinBuilder::<B>::with_capacity(dtype, selection_count);
+    let mut builder = VarBinBuilder::<B>::with_capacity(dtype, selection_count, allocator);
     match logical_validity.bit_buffer() {
         AllOr::All => {
             for &(start, end) in mask_slices {
@@ -180,6 +183,7 @@ fn filter_select_var_bin_by_index(
                     .execute_mask(values.as_ref().len(), ctx)
                     .vortex_expect("Failed to compute validity mask"),
                 selection_count,
+                ctx.allocator().clone(),
             )
         })
     })
@@ -192,6 +196,7 @@ fn filter_select_var_bin_by_index_primitive_offset<O: IntegerPType, B: OffsetBui
     mask_indices: &[usize],
     mask: Mask,
     selection_count: usize,
+    allocator: BufferAllocatorRef,
 ) -> VortexResult<VarBinArray> {
     let value_at = |idx: usize| -> VortexResult<&[u8]> {
         let start = offsets[idx]
@@ -203,7 +208,7 @@ fn filter_select_var_bin_by_index_primitive_offset<O: IntegerPType, B: OffsetBui
         Ok(&data[start..end])
     };
 
-    let mut builder = VarBinBuilder::<B>::with_capacity(dtype, selection_count);
+    let mut builder = VarBinBuilder::<B>::with_capacity(dtype, selection_count, allocator);
     match mask.bit_buffer() {
         AllOr::All => {
             for idx in mask_indices.iter().copied() {

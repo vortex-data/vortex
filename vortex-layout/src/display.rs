@@ -278,7 +278,11 @@ mod tests {
 
                     // Create utf8 array (2 buffers: views + data)
                     let (ptr2, eof2) = SequenceId::root().split();
-                    let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(NonNullable), 5);
+                    let mut builder = VarBinViewBuilder::with_capacity(
+                        DType::Utf8(NonNullable),
+                        5,
+                        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+                    );
                     for s in [
                         "hello world this is long",
                         "another long string",

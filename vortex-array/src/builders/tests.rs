@@ -50,7 +50,6 @@ use crate::assert_arrays_eq;
 use crate::builders::ArrayBuilder;
 use crate::builders::ListBuilder;
 use crate::builders::builder_with_capacity;
-use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::Nullability;
@@ -96,7 +95,7 @@ fn builder_reuses_its_allocator_after_finish() {
         ]),
         Nullability::Nullable,
     );
-    let mut builder = builder_with_capacity_in(allocator, &dtype, 1);
+    let mut builder = builder_with_capacity(&dtype, 1, allocator);
 
     builder.append_null();
     drop(builder.finish());
@@ -166,12 +165,20 @@ fn test_append_zeros_matches_default_value(#[case] dtype: DType) {
     let num_elements = 5;
 
     // Builder 1: Use append_zeros.
-    let mut builder_zeros = builder_with_capacity(&dtype, num_elements);
+    let mut builder_zeros = builder_with_capacity(
+        &dtype,
+        num_elements,
+        BufferAllocatorRef::statically_allocated(),
+    );
     builder_zeros.append_zeros(num_elements);
     let array_zeros = builder_zeros.finish();
 
     // Builder 2: Manually append default values.
-    let mut builder_manual = builder_with_capacity(&dtype, num_elements);
+    let mut builder_manual = builder_with_capacity(
+        &dtype,
+        num_elements,
+        BufferAllocatorRef::statically_allocated(),
+    );
     let default_scalar = Scalar::zero_value(&dtype);
     for _ in 0..num_elements {
         builder_manual.append_scalar(&default_scalar).unwrap();
@@ -266,7 +273,8 @@ fn test_append_zeros_matches_default_value(#[case] dtype: DType) {
 )]
 #[should_panic(expected = "non-nullable")]
 fn test_append_nulls_panics_on_non_nullable(#[case] dtype: DType, #[case] count: usize) {
-    let mut builder = builder_with_capacity(&dtype, count);
+    let mut builder =
+        builder_with_capacity(&dtype, count, BufferAllocatorRef::statically_allocated());
     builder.append_nulls(count);
 }
 
@@ -279,7 +287,7 @@ fn test_append_nulls_panics_on_non_nullable(#[case] dtype: DType, #[case] count:
 #[case::nullable_utf8(DType::Utf8(Nullability::Nullable), true)]
 #[case::non_nullable_utf8(DType::Utf8(Nullability::NonNullable), false)]
 fn test_append_defaults_behavior(#[case] dtype: DType, #[case] should_be_null: bool) {
-    let mut builder = builder_with_capacity(&dtype, 3);
+    let mut builder = builder_with_capacity(&dtype, 3, BufferAllocatorRef::statically_allocated());
     builder.append_defaults(3);
     let array = builder.finish();
 
@@ -318,8 +326,8 @@ where
     F: FnMut(&mut dyn ArrayBuilder),
 {
     // Create two identical builders.
-    let mut builder1 = builder_with_capacity(dtype, 10);
-    let mut builder2 = builder_with_capacity(dtype, 10);
+    let mut builder1 = builder_with_capacity(dtype, 10, BufferAllocatorRef::statically_allocated());
+    let mut builder2 = builder_with_capacity(dtype, 10, BufferAllocatorRef::statically_allocated());
 
     // Fill both builders with the same data.
     fill_builder(builder1.as_mut());
@@ -613,7 +621,11 @@ fn test_to_canonical_f32() {
 ))]
 fn test_append_scalar_comprehensive(#[case] dtype: DType) {
     let num_elements = 3;
-    let mut builder = builder_with_capacity(&dtype, num_elements * 2);
+    let mut builder = builder_with_capacity(
+        &dtype,
+        num_elements * 2,
+        BufferAllocatorRef::statically_allocated(),
+    );
 
     // Create test scalars based on the dtype.
     let scalars = create_test_scalars_for_dtype(&dtype, num_elements);
@@ -790,7 +802,7 @@ fn assert_scalars_equal(actual: &Scalar, expected: &Scalar, dtype: &DType, index
 #[case::utf8(DType::Utf8(Nullability::Nullable))]
 #[case::binary(DType::Binary(Nullability::Nullable))]
 fn test_append_scalar_mixed_nulls(#[case] dtype: DType) {
-    let mut builder = builder_with_capacity(&dtype, 6);
+    let mut builder = builder_with_capacity(&dtype, 6, BufferAllocatorRef::statically_allocated());
 
     // Create a pattern of valid, null, valid, null, valid.
     let test_scalars = create_test_scalars_for_dtype(&dtype, 3);
@@ -868,7 +880,11 @@ fn test_append_scalar_mixed_nulls(#[case] dtype: DType) {
 #[test]
 fn test_append_scalar_wrong_dtype_rejection() {
     // Test bool builder rejecting i32 scalar.
-    let mut bool_builder = builder_with_capacity(&DType::Bool(Nullability::NonNullable), 1);
+    let mut bool_builder = builder_with_capacity(
+        &DType::Bool(Nullability::NonNullable),
+        1,
+        BufferAllocatorRef::statically_allocated(),
+    );
     let i32_scalar = Scalar::from(42i32);
     assert!(
         bool_builder.append_scalar(&i32_scalar).is_err(),
@@ -876,8 +892,11 @@ fn test_append_scalar_wrong_dtype_rejection() {
     );
 
     // Test i32 builder rejecting string scalar.
-    let mut i32_builder =
-        builder_with_capacity(&DType::Primitive(PType::I32, Nullability::NonNullable), 1);
+    let mut i32_builder = builder_with_capacity(
+        &DType::Primitive(PType::I32, Nullability::NonNullable),
+        1,
+        BufferAllocatorRef::statically_allocated(),
+    );
     let string_scalar = Scalar::utf8("test", Nullability::NonNullable);
     assert!(
         i32_builder.append_scalar(&string_scalar).is_err(),
@@ -885,7 +904,11 @@ fn test_append_scalar_wrong_dtype_rejection() {
     );
 
     // Test string builder rejecting binary scalar.
-    let mut string_builder = builder_with_capacity(&DType::Utf8(Nullability::NonNullable), 1);
+    let mut string_builder = builder_with_capacity(
+        &DType::Utf8(Nullability::NonNullable),
+        1,
+        BufferAllocatorRef::statically_allocated(),
+    );
     let binary_scalar = Scalar::binary(vec![0u8, 1, 2], Nullability::NonNullable);
     assert!(
         string_builder.append_scalar(&binary_scalar).is_err(),
@@ -898,7 +921,7 @@ fn test_append_scalar_wrong_dtype_rejection() {
 #[test]
 fn test_append_scalar_repeated_same_instance() {
     let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-    let mut builder = builder_with_capacity(&dtype, 5);
+    let mut builder = builder_with_capacity(&dtype, 5, BufferAllocatorRef::statically_allocated());
 
     let scalar = Scalar::primitive(42i32, Nullability::NonNullable);
 
@@ -974,7 +997,8 @@ fn test_children_are_not_canonicalized(
 ) -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
 
-    let mut builder = builder_with_capacity(array.dtype(), 0);
+    let mut builder =
+        builder_with_capacity(array.dtype(), 0, BufferAllocatorRef::statically_allocated());
     array.append_to_builder(builder.as_mut(), &mut ctx)?;
     array.append_to_builder(builder.as_mut(), &mut ctx)?;
     let built = builder.finish();
@@ -1006,7 +1030,8 @@ fn test_children_are_chunked_on_the_boundaries_they_are_appended_on() -> VortexR
     let elements = ConstantArray::new(1i32, 2).into_array();
     let array = FixedSizeListArray::new(elements, 2, Validity::NonNullable, 1).into_array();
 
-    let mut builder = builder_with_capacity(array.dtype(), 0);
+    let mut builder =
+        builder_with_capacity(array.dtype(), 0, BufferAllocatorRef::statically_allocated());
     for _ in 0..CHUNK_LEN {
         array.append_to_builder(builder.as_mut(), &mut ctx)?;
     }
@@ -1024,7 +1049,8 @@ fn test_children_are_chunked_on_the_boundaries_they_are_appended_on() -> VortexR
     );
 
     // The same values appended as scalars land in a single canonical child.
-    let mut builder = builder_with_capacity(array.dtype(), 0);
+    let mut builder =
+        builder_with_capacity(array.dtype(), 0, BufferAllocatorRef::statically_allocated());
     let scalar = array.execute_scalar(0, &mut ctx)?;
     for _ in 0..CHUNK_LEN {
         builder.append_scalar(&scalar)?;
@@ -1053,7 +1079,8 @@ fn test_struct_builder_interleaves_arrays_and_scalars() -> VortexResult<()> {
         vec![Scalar::primitive(1i32, Nullability::NonNullable)],
     );
 
-    let mut builder = builder_with_capacity(array.dtype(), 0);
+    let mut builder =
+        builder_with_capacity(array.dtype(), 0, BufferAllocatorRef::statically_allocated());
     builder.append_scalar(&scalar)?;
     array.append_to_builder(builder.as_mut(), &mut ctx)?;
     builder.append_scalar(&scalar)?;
@@ -1089,7 +1116,8 @@ fn test_appended_validity_is_not_materialized() -> VortexResult<()> {
     )?
     .into_array();
 
-    let mut builder = builder_with_capacity(array.dtype(), 0);
+    let mut builder =
+        builder_with_capacity(array.dtype(), 0, BufferAllocatorRef::statically_allocated());
     array.append_to_builder(builder.as_mut(), &mut ctx)?;
     array.append_to_builder(builder.as_mut(), &mut ctx)?;
     let built = builder.finish();
@@ -1166,6 +1194,7 @@ fn test_list_offsets_are_rebased_across_element_chunks(
             Nullability::NonNullable,
         ),
         0,
+        BufferAllocatorRef::statically_allocated(),
     );
     lists.append_to_builder(builder.as_mut(), &mut ctx)?;
     lists.append_to_builder(builder.as_mut(), &mut ctx)?;
@@ -1189,8 +1218,13 @@ fn test_list_builder_offsets_are_rebased_across_element_chunks() -> VortexResult
     let mut ctx = array_session().create_execution_ctx();
     let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
 
-    let mut builder =
-        ListBuilder::<u64>::with_capacity(element_dtype, Nullability::NonNullable, 0, 0);
+    let mut builder = ListBuilder::<u64>::with_capacity(
+        element_dtype,
+        Nullability::NonNullable,
+        0,
+        0,
+        BufferAllocatorRef::statically_allocated(),
+    );
     for value in 0..3i32 {
         builder
             .append_array_as_list(&ConstantArray::new(value, CHUNK_LEN).into_array(), &mut ctx)?;
@@ -1240,7 +1274,8 @@ fn test_validity_survives_chunked_children(
 ) -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
 
-    let mut builder = builder_with_capacity(array.dtype(), 0);
+    let mut builder =
+        builder_with_capacity(array.dtype(), 0, BufferAllocatorRef::statically_allocated());
     array.append_to_builder(builder.as_mut(), &mut ctx)?;
     builder.append_nulls(1);
     array.append_to_builder(builder.as_mut(), &mut ctx)?;
@@ -1248,7 +1283,8 @@ fn test_validity_survives_chunked_children(
 
     assert!(child_of(&built).is::<Chunked>());
 
-    let mut null = builder_with_capacity(array.dtype(), 1);
+    let mut null =
+        builder_with_capacity(array.dtype(), 1, BufferAllocatorRef::statically_allocated());
     null.append_nulls(1);
     let expected = ChunkedArray::try_new(
         vec![array.clone(), null.finish(), array],
@@ -1265,7 +1301,8 @@ fn test_chunked_children_canonicalize_recursively() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
 
     let array = StructArray::try_from_iter([("a", constant_i32())])?.into_array();
-    let mut builder = builder_with_capacity(array.dtype(), 0);
+    let mut builder =
+        builder_with_capacity(array.dtype(), 0, BufferAllocatorRef::statically_allocated());
     array.append_to_builder(builder.as_mut(), &mut ctx)?;
     array.append_to_builder(builder.as_mut(), &mut ctx)?;
     let built = builder.finish();

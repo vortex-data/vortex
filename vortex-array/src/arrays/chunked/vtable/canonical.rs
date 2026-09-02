@@ -24,7 +24,7 @@ use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::listview::ListViewRebuildMode;
 use crate::arrays::variant::VariantArraySlotsExt;
-use crate::builders::builder_with_capacity_in;
+use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -70,7 +70,7 @@ pub(super) fn _canonicalize(
         DType::Variant(_) => Canonical::Variant(pack_variant_chunks(owned_chunks, ctx)?),
         _ => {
             let mut builder =
-                builder_with_capacity_in(ctx.allocator().clone(), array.dtype(), array.len());
+                builder_with_capacity(array.dtype(), array.len(), ctx.allocator().clone());
             array.array().append_to_builder(builder.as_mut(), ctx)?;
             builder.finish_into_canonical(ctx)
         }

@@ -372,7 +372,12 @@ mod tests {
             false,
         )?;
         let dtype = DType::Map(map_dtype.clone(), Nullable);
-        let mut builder = MapBuilder::<u64, u64>::with_capacity(map_dtype, Nullable, 3);
+        let mut builder = MapBuilder::<u64, u64>::with_capacity(
+            map_dtype,
+            Nullable,
+            3,
+            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+        );
         let rows: [&[(i32, &str)]; 3] = [
             &[(1, "a"), (2, "b")],
             &[(3, "c"), (4, "d"), (5, "e")],

@@ -155,6 +155,7 @@ fn chunked_canonicalize_into(
             let mut builder = VarBinViewBuilder::with_capacity(
                 DType::Binary(Nullability::NonNullable),
                 array.len(),
+                ctx.allocator().clone(),
             );
             array.append_to_builder(&mut builder, ctx).unwrap();
             builder.finish()

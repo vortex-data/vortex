@@ -202,7 +202,11 @@ mod tests {
         let sum_dtype = Sum
             .partial_dtype(&NumericalAggregateOpts::default(), elem_dtype)
             .expect("sum partial dtype");
-        let mut builder = builder_with_capacity(&sum_dtype, ranges.len());
+        let mut builder = builder_with_capacity(
+            &sum_dtype,
+            ranges.len(),
+            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+        );
         for (i, &(offset, size)) in ranges.iter().enumerate() {
             if group_valid[i] {
                 let slice = elements.slice(offset..offset + size)?;

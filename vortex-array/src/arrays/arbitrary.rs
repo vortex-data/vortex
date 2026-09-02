@@ -144,7 +144,11 @@ fn random_array_chunk(
         d @ DType::Decimal(decimal, n) => {
             let elem_len = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
             match_each_decimal_value_type!(DecimalType::smallest_decimal_value_type(decimal), |D| {
-                let mut builder = DecimalBuilder::new::<D>(*decimal, *n);
+                let mut builder = DecimalBuilder::new::<D>(
+                    *decimal,
+                    *n,
+                    vortex_buffer::BufferAllocatorRef::statically_allocated(),
+                );
                 for _i in 0..elem_len {
                     let random_decimal = random_scalar(u, d)?;
                     builder.append_scalar(&random_decimal).vortex_expect(
@@ -213,7 +217,12 @@ fn random_map(
     let key_dtype = map_dtype.key_dtype();
     let value_dtype = map_dtype.value_dtype();
     let dtype = DType::Map(map_dtype.clone(), nullability);
-    let mut builder = MapBuilder::<u64, u64>::with_capacity(map_dtype, nullability, array_length);
+    let mut builder = MapBuilder::<u64, u64>::with_capacity(
+        map_dtype,
+        nullability,
+        array_length,
+        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+    );
 
     for _ in 0..array_length {
         if nullability == Nullability::Nullable && u.arbitrary::<bool>()? {
@@ -250,8 +259,13 @@ fn random_fixed_size_list(
 ) -> Result<ArrayRef> {
     let array_length = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
 
-    let mut builder =
-        FixedSizeListBuilder::with_capacity(Arc::clone(elem_dtype), list_size, null, array_length);
+    let mut builder = FixedSizeListBuilder::with_capacity(
+        Arc::clone(elem_dtype),
+        list_size,
+        null,
+        array_length,
+        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+    );
 
     for _ in 0..array_length {
         if null == Nullability::Nullable && u.arbitrary::<bool>()? {
@@ -304,8 +318,13 @@ fn random_list_with_offset_type<O: OffsetBuilderPType>(
     null: Nullability,
     array_length: usize,
 ) -> Result<ArrayRef> {
-    let mut builder =
-        ListViewBuilder::<O, O>::with_capacity(Arc::clone(elem_dtype), null, array_length, 10);
+    let mut builder = ListViewBuilder::<O, O>::with_capacity(
+        Arc::clone(elem_dtype),
+        null,
+        array_length,
+        10,
+        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+    );
 
     for _ in 0..array_length {
         if null == Nullability::Nullable && u.arbitrary::<bool>()? {

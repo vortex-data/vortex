@@ -3,6 +3,7 @@
 
 use bytes::bytes_dict_builder;
 use primitive::primitive_dict_builder;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
@@ -44,15 +45,19 @@ pub trait DictEncoder: Send {
     fn codes_ptype(&self) -> PType;
 }
 
-pub fn dict_encoder(array: &ArrayRef, constraints: &DictConstraints) -> Box<dyn DictEncoder> {
+pub fn dict_encoder(
+    array: &ArrayRef,
+    constraints: &DictConstraints,
+    allocator: BufferAllocatorRef,
+) -> Box<dyn DictEncoder> {
     let dict_builder: Box<dyn DictEncoder> = if let Some(pa) = array.as_opt::<Primitive>() {
         match_each_native_ptype!(pa.ptype(), |P| {
-            primitive_dict_builder::<P>(pa.dtype().nullability(), constraints)
+            primitive_dict_builder::<P>(pa.dtype().nullability(), constraints, allocator)
         })
     } else if let Some(vbv) = array.as_opt::<VarBinView>() {
-        bytes_dict_builder(vbv.dtype().clone(), constraints)
+        bytes_dict_builder(vbv.dtype().clone(), constraints, allocator)
     } else if let Some(vb) = array.as_opt::<VarBin>() {
-        bytes_dict_builder(vb.dtype().clone(), constraints)
+        bytes_dict_builder(vb.dtype().clone(), constraints, allocator)
     } else {
         vortex_panic!("Can only encode primitive or varbin/view arrays")
     };
@@ -67,7 +72,7 @@ pub fn dict_encode_with_constraints(
     constraints: &DictConstraints,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<DictArray> {
-    let mut encoder = dict_encoder(array, constraints);
+    let mut encoder = dict_encoder(array, constraints, ctx.allocator().clone());
     let codes = encoder.encode(array, ctx)?.narrow(ctx)?;
     // SAFETY: The encoding process will produce a value set of codes and values
     // All values in the dictionary are guaranteed to be referenced by at least one code

@@ -176,7 +176,6 @@ impl BitBufferMut {
     }
 
     /// Create an empty mutable bit buffer with the provided allocator.
-    #[inline(always)]
     pub fn empty_in(allocator: BufferAllocatorRef) -> Self {
         Self::with_capacity_in(0, allocator)
     }

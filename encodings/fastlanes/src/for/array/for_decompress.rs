@@ -112,6 +112,7 @@ pub(crate) fn fused_decompress<
     let mut builder = PrimitiveBuilder::<T>::with_capacity(
         for_.reference_scalar().dtype().nullability(),
         bp.len(),
+        ctx.allocator().clone(),
     );
     let mut uninit_range = builder.uninit_range(bp.len());
     unsafe {

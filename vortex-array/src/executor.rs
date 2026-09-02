@@ -36,7 +36,7 @@ use crate::Canonical;
 use crate::IntoArray;
 use crate::array::ArrayId;
 use crate::builders::ArrayBuilder;
-use crate::builders::builder_with_capacity_in;
+use crate::builders::builder_with_capacity;
 use crate::dtype::DType;
 use crate::matcher::Matcher;
 use crate::memory::BufferAllocatorRef;
@@ -292,10 +292,10 @@ impl ArrayRef {
                 ExecutionStep::AppendChild(i) => {
                     if current_builder.is_none() {
                         trace_op!(record_builder_start(&array));
-                        current_builder = Some(builder_with_capacity_in(
-                            ctx.allocator().clone(),
+                        current_builder = Some(builder_with_capacity(
                             array.dtype(),
                             array.len(),
+                            ctx.allocator().clone(),
                         ));
                     }
                     let (parent, child) = unsafe { array.take_slot_unchecked(i) }?;
@@ -542,7 +542,7 @@ impl Executable for ArrayRef {
                 // Single-step: build the entire parent via the builder path.
                 trace_op!(record_builder_start(&array));
                 let builder =
-                    builder_with_capacity_in(ctx.allocator().clone(), array.dtype(), array.len());
+                    builder_with_capacity(array.dtype(), array.len(), ctx.allocator().clone());
                 let mut builder = execute_into_builder(array, builder, ctx)?;
                 let output = builder.finish();
                 trace_op!(record_builder_finish(&output));

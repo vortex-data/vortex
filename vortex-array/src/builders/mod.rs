@@ -17,10 +17,11 @@
 //! ```
 //! use vortex_array::builders::{builder_with_capacity, ArrayBuilder};
 //! use vortex_array::dtype::{DType, Nullability};
+//! use vortex_array::memory::BufferAllocatorRef;
 //! use vortex_array::{VortexSessionExecute, array_session};
 //!
 //! // Create a new builder for string data.
-//! let mut builder = builder_with_capacity(&DType::Utf8(Nullability::NonNullable), 4);
+//! let mut builder = builder_with_capacity(&DType::Utf8(Nullability::NonNullable), 4, BufferAllocatorRef::statically_allocated());
 //!
 //! builder.append_scalar(&"a".into()).unwrap();
 //! builder.append_scalar(&"b".into()).unwrap();
@@ -368,10 +369,11 @@ macro_rules! __match_each_map_builder_size {
 /// ```
 /// use vortex_array::builders::{builder_with_capacity, ArrayBuilder};
 /// use vortex_array::dtype::{DType, Nullability};
+/// use vortex_array::memory::BufferAllocatorRef;
 /// use vortex_array::{VortexSessionExecute, array_session};
 ///
 /// // Create a new builder for string data.
-/// let mut builder = builder_with_capacity(&DType::Utf8(Nullability::NonNullable), 4);
+/// let mut builder = builder_with_capacity(&DType::Utf8(Nullability::NonNullable), 4, BufferAllocatorRef::statically_allocated());
 ///
 /// builder.append_scalar(&"a".into()).unwrap();
 /// builder.append_scalar(&"b".into()).unwrap();
@@ -386,22 +388,17 @@ macro_rules! __match_each_map_builder_size {
 /// assert_eq!(strings.execute_scalar(2, &mut ctx).unwrap(), "c".into());
 /// assert_eq!(strings.execute_scalar(3, &mut ctx).unwrap(), "d".into());
 /// ```
-pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBuilder> {
-    builder_with_capacity_in(BufferAllocatorRef::statically_allocated(), dtype, capacity)
-}
-
-/// Construct a canonical builder using the provided buffer allocator.
-pub fn builder_with_capacity_in(
-    allocator: BufferAllocatorRef,
+pub fn builder_with_capacity(
     dtype: &DType,
     capacity: usize,
+    allocator: BufferAllocatorRef,
 ) -> Box<dyn ArrayBuilder> {
     match dtype {
         DType::Null => Box::new(NullBuilder::new()),
-        DType::Bool(n) => Box::new(BoolBuilder::with_capacity_in(*n, capacity, allocator)),
+        DType::Bool(n) => Box::new(BoolBuilder::with_capacity(*n, capacity, allocator)),
         DType::Primitive(ptype, n) => {
             match_each_native_ptype!(ptype, |P| {
-                Box::new(PrimitiveBuilder::<P>::with_capacity_in(
+                Box::new(PrimitiveBuilder::<P>::with_capacity(
                     *n, capacity, allocator,
                 ))
             })
@@ -410,7 +407,7 @@ pub fn builder_with_capacity_in(
             match_each_decimal_value_type!(
                 DecimalType::smallest_decimal_value_type(decimal_type),
                 |D| {
-                    Box::new(DecimalBuilder::with_capacity_in::<D>(
+                    Box::new(DecimalBuilder::with_capacity::<D>(
                         capacity,
                         *decimal_type,
                         *n,
@@ -419,31 +416,31 @@ pub fn builder_with_capacity_in(
                 }
             )
         }
-        DType::Utf8(n) => Box::new(VarBinViewBuilder::with_capacity_in(
+        DType::Utf8(n) => Box::new(VarBinViewBuilder::with_capacity(
             DType::Utf8(*n),
             capacity,
             allocator,
         )),
-        DType::Binary(n) => Box::new(VarBinViewBuilder::with_capacity_in(
+        DType::Binary(n) => Box::new(VarBinViewBuilder::with_capacity(
             DType::Binary(*n),
             capacity,
             allocator,
         )),
-        DType::List(dtype, n) => Box::new(ListViewBuilder::<u64, u64>::with_capacity_in(
+        DType::List(dtype, n) => Box::new(ListViewBuilder::<u64, u64>::with_capacity(
             Arc::clone(dtype),
             *n,
             2 * capacity, // Arbitrarily choose 2 times the `offsets` capacity here.
             capacity,
             allocator,
         )),
-        DType::Map(map_dtype, nullability) => Box::new(MapBuilder::<u64, u64>::with_capacity_in(
+        DType::Map(map_dtype, nullability) => Box::new(MapBuilder::<u64, u64>::with_capacity(
             map_dtype.clone(),
             *nullability,
             capacity,
             allocator,
         )),
         DType::FixedSizeList(elem_dtype, list_size, null) => {
-            Box::new(FixedSizeListBuilder::with_capacity_in(
+            Box::new(FixedSizeListBuilder::with_capacity(
                 Arc::clone(elem_dtype),
                 *list_size,
                 *null,
@@ -451,7 +448,7 @@ pub fn builder_with_capacity_in(
                 allocator,
             ))
         }
-        DType::Struct(struct_dtype, n) => Box::new(StructBuilder::with_capacity_in(
+        DType::Struct(struct_dtype, n) => Box::new(StructBuilder::with_capacity(
             struct_dtype.clone(),
             *n,
             capacity,
@@ -461,7 +458,7 @@ pub fn builder_with_capacity_in(
         DType::Variant(_) => {
             unimplemented!()
         }
-        DType::Extension(ext_dtype) => Box::new(ExtensionBuilder::with_capacity_in(
+        DType::Extension(ext_dtype) => Box::new(ExtensionBuilder::with_capacity(
             ext_dtype.clone(),
             capacity,
             allocator,

@@ -477,8 +477,12 @@ mod tests {
             false,
         )?;
         let dtype = DType::Map(map_dtype.clone(), Nullability::Nullable);
-        let mut builder =
-            MapBuilder::<u64, u64>::with_capacity(map_dtype, Nullability::Nullable, rows.len());
+        let mut builder = MapBuilder::<u64, u64>::with_capacity(
+            map_dtype,
+            Nullability::Nullable,
+            rows.len(),
+            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+        );
 
         for row in rows {
             let scalar = match row {

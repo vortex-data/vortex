@@ -25,12 +25,7 @@ pub struct LazyBitBufferBuilder {
 impl LazyBitBufferBuilder {
     /// Creates a new empty builder.
     /// `capacity` is the number of bits in the null buffer.
-    pub fn new(capacity: usize) -> Self {
-        Self::new_in(capacity, BufferAllocatorRef::statically_allocated())
-    }
-
-    /// Creates a new empty builder with the provided allocator.
-    pub fn new_in(capacity: usize, allocator: BufferAllocatorRef) -> Self {
+    pub fn new(capacity: usize, allocator: BufferAllocatorRef) -> Self {
         Self {
             inner: None,
             len: 0,

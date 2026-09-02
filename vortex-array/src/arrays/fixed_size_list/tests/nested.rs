@@ -413,6 +413,7 @@ fn test_fsl_of_list() {
         Nullability::NonNullable,
         12,
         6,
+        vortex_buffer::BufferAllocatorRef::statically_allocated(),
     );
 
     // Add 6 lists (2 FSL * 3 lists each).
@@ -494,6 +495,7 @@ fn test_fsl_of_nullable_list() {
         Nullability::Nullable,
         8,
         4,
+        vortex_buffer::BufferAllocatorRef::statically_allocated(),
     );
 
     // Add 4 lists (2 FSL * 2 lists each).

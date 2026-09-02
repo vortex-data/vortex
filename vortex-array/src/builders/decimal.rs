@@ -95,26 +95,16 @@ macro_rules! delegate_fn {
 
 impl DecimalBuilder {
     /// Creates a new `DecimalBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
-    pub fn new<T: NativeDecimalType>(decimal: DecimalDType, nullability: Nullability) -> Self {
-        Self::with_capacity::<T>(DEFAULT_BUILDER_CAPACITY, decimal, nullability)
+    pub fn new<T: NativeDecimalType>(
+        decimal: DecimalDType,
+        nullability: Nullability,
+        allocator: BufferAllocatorRef,
+    ) -> Self {
+        Self::with_capacity::<T>(DEFAULT_BUILDER_CAPACITY, decimal, nullability, allocator)
     }
 
     /// Creates a new `DecimalBuilder` with the given `capacity`.
     pub fn with_capacity<T: NativeDecimalType>(
-        capacity: usize,
-        decimal: DecimalDType,
-        nullability: Nullability,
-    ) -> Self {
-        Self::with_capacity_in::<T>(
-            capacity,
-            decimal,
-            nullability,
-            BufferAllocatorRef::statically_allocated(),
-        )
-    }
-
-    /// Creates a decimal builder with the given capacity and allocator.
-    pub fn with_capacity_in<T: NativeDecimalType>(
         capacity: usize,
         decimal: DecimalDType,
         nullability: Nullability,
@@ -128,7 +118,7 @@ impl DecimalBuilder {
                     allocator.clone(),
                 ))
             }),
-            nulls: LazyBitBufferBuilder::new_in(capacity, allocator),
+            nulls: LazyBitBufferBuilder::new(capacity, allocator),
         }
     }
 
@@ -319,6 +309,8 @@ impl_from_buffer!(i256, I256);
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::BufferAllocatorRef;
+
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::assert_arrays_eq;
@@ -331,13 +323,21 @@ mod tests {
     fn test_mixed_extend() {
         let values = 42i8;
 
-        let mut i8s = DecimalBuilder::new::<i8>(DecimalDType::new(2, 1), false.into());
+        let mut i8s = DecimalBuilder::new::<i8>(
+            DecimalDType::new(2, 1),
+            false.into(),
+            BufferAllocatorRef::statically_allocated(),
+        );
         for v in 0..values {
             i8s.append_value(v);
         }
         let i8s = i8s.finish();
 
-        let mut i128s = DecimalBuilder::new::<i128>(DecimalDType::new(2, 1), false.into());
+        let mut i128s = DecimalBuilder::new::<i128>(
+            DecimalDType::new(2, 1),
+            false.into(),
+            BufferAllocatorRef::statically_allocated(),
+        );
         i8s.append_to_builder(&mut i128s, &mut array_session().create_execution_ctx())
             .unwrap();
         let i128s = i128s.finish();
@@ -359,7 +359,11 @@ mod tests {
         use crate::scalar::Scalar;
 
         // Simply test that the builder accepts its own finish output via scalar.
-        let mut builder = DecimalBuilder::new::<i64>(DecimalDType::new(10, 2), true.into());
+        let mut builder = DecimalBuilder::new::<i64>(
+            DecimalDType::new(10, 2),
+            true.into(),
+            BufferAllocatorRef::statically_allocated(),
+        );
         builder.append_value(1234i64);
         builder.append_value(5678i64);
         builder.append_null();
@@ -372,7 +376,11 @@ mod tests {
         assert_arrays_eq!(&array, &expected, &mut ctx);
 
         // Test by taking a scalar from the array and appending it to a new builder.
-        let mut builder2 = DecimalBuilder::new::<i64>(DecimalDType::new(10, 2), true.into());
+        let mut builder2 = DecimalBuilder::new::<i64>(
+            DecimalDType::new(10, 2),
+            true.into(),
+            BufferAllocatorRef::statically_allocated(),
+        );
         for i in 0..array.len() {
             let scalar = array
                 .execute_scalar(i, &mut array_session().create_execution_ctx())
@@ -384,7 +392,11 @@ mod tests {
         assert_arrays_eq!(&array2, &array, &mut ctx);
 
         // Test wrong dtype error.
-        let mut builder = DecimalBuilder::new::<i64>(DecimalDType::new(10, 2), false.into());
+        let mut builder = DecimalBuilder::new::<i64>(
+            DecimalDType::new(10, 2),
+            false.into(),
+            BufferAllocatorRef::statically_allocated(),
+        );
         let wrong_scalar = Scalar::from(true);
         assert!(builder.append_scalar(&wrong_scalar).is_err());
     }

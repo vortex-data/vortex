@@ -219,17 +219,29 @@ fn stats_builder_with_capacity(
     capacity: usize,
     max_length: usize,
 ) -> Box<dyn StatsArrayBuilder> {
-    let values_builder = builder_with_capacity(dtype, capacity);
+    let values_builder = builder_with_capacity(
+        dtype,
+        capacity,
+        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+    );
     match stat {
         Stat::Max => match dtype {
             DType::Utf8(_) => Box::new(TruncatedMaxBinaryStatsBuilder::<BufferString>::new(
                 values_builder,
-                BoolBuilder::with_capacity(Nullability::NonNullable, capacity),
+                BoolBuilder::with_capacity(
+                    Nullability::NonNullable,
+                    capacity,
+                    vortex_buffer::BufferAllocatorRef::statically_allocated(),
+                ),
                 max_length,
             )),
             DType::Binary(_) => Box::new(TruncatedMaxBinaryStatsBuilder::<ByteBuffer>::new(
                 values_builder,
-                BoolBuilder::with_capacity(Nullability::NonNullable, capacity),
+                BoolBuilder::with_capacity(
+                    Nullability::NonNullable,
+                    capacity,
+                    vortex_buffer::BufferAllocatorRef::statically_allocated(),
+                ),
                 max_length,
             )),
             _ => Box::new(StatNameArrayBuilder::new(stat, values_builder)),
@@ -237,12 +249,20 @@ fn stats_builder_with_capacity(
         Stat::Min => match dtype {
             DType::Utf8(_) => Box::new(TruncatedMinBinaryStatsBuilder::<BufferString>::new(
                 values_builder,
-                BoolBuilder::with_capacity(Nullability::NonNullable, capacity),
+                BoolBuilder::with_capacity(
+                    Nullability::NonNullable,
+                    capacity,
+                    vortex_buffer::BufferAllocatorRef::statically_allocated(),
+                ),
                 max_length,
             )),
             DType::Binary(_) => Box::new(TruncatedMinBinaryStatsBuilder::<ByteBuffer>::new(
                 values_builder,
-                BoolBuilder::with_capacity(Nullability::NonNullable, capacity),
+                BoolBuilder::with_capacity(
+                    Nullability::NonNullable,
+                    capacity,
+                    vortex_buffer::BufferAllocatorRef::statically_allocated(),
+                ),
                 max_length,
             )),
             _ => Box::new(StatNameArrayBuilder::new(stat, values_builder)),
@@ -523,10 +543,18 @@ mod tests {
     #[case(DType::Binary(Nullability::NonNullable))]
     fn truncates_accumulated_stats(#[case] dtype: DType) {
         let mut ctx = array_session().create_execution_ctx();
-        let mut builder = VarBinViewBuilder::with_capacity(dtype.clone(), 2);
+        let mut builder = VarBinViewBuilder::with_capacity(
+            dtype.clone(),
+            2,
+            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+        );
         builder.append_value("Value to be truncated");
         builder.append_value("untruncated");
-        let mut builder2 = VarBinViewBuilder::with_capacity(dtype, 2);
+        let mut builder2 = VarBinViewBuilder::with_capacity(
+            dtype,
+            2,
+            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+        );
         builder2.append_value("Another");
         builder2.append_value("wait a minute");
         let mut acc =
@@ -573,7 +601,11 @@ mod tests {
     #[case(DType::Binary(Nullability::NonNullable))]
     fn truncated_accumulated_stats_are_inexact(#[case] dtype: DType) {
         let mut ctx = array_session().create_execution_ctx();
-        let mut builder = VarBinViewBuilder::with_capacity(dtype, 2);
+        let mut builder = VarBinViewBuilder::with_capacity(
+            dtype,
+            2,
+            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+        );
         builder.append_value("Value to be truncated");
         builder.append_value("Another truncated value");
         let mut acc = StatsAccumulator::new(builder.dtype(), &[Stat::Max, Stat::Min], 12);

@@ -386,7 +386,11 @@ mod tests {
     /// the top level - recursively canonicalize it before measuring.
     fn materialized_uncompressed_size_in_bytes(array: &ArrayRef) -> u64 {
         let mut ctx = array_session().create_execution_ctx();
-        let mut builder = builder_with_capacity(array.dtype(), array.len());
+        let mut builder = builder_with_capacity(
+            array.dtype(),
+            array.len(),
+            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+        );
         array
             .append_to_builder(builder.as_mut(), &mut ctx)
             .vortex_expect("appended");

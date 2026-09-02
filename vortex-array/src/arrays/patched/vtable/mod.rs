@@ -457,7 +457,11 @@ mod tests {
             .unwrap()
             .into_array();
 
-        let mut builder = builder_with_capacity(array.dtype(), array.len());
+        let mut builder = builder_with_capacity(
+            array.dtype(),
+            array.len(),
+            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+        );
         array.append_to_builder(builder.as_mut(), &mut ctx).unwrap();
 
         let result = builder.finish();
@@ -492,7 +496,11 @@ mod tests {
             .slice(3..1024)
             .unwrap();
 
-        let mut builder = builder_with_capacity(array.dtype(), array.len());
+        let mut builder = builder_with_capacity(
+            array.dtype(),
+            array.len(),
+            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+        );
         array.append_to_builder(builder.as_mut(), &mut ctx).unwrap();
 
         let result = builder.finish();
@@ -527,7 +535,11 @@ mod tests {
             .unwrap()
             .into_array();
 
-        let mut builder = builder_with_capacity(array.dtype(), array.len());
+        let mut builder = builder_with_capacity(
+            array.dtype(),
+            array.len(),
+            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+        );
         array.append_to_builder(builder.as_mut(), &mut ctx).unwrap();
 
         let result = builder.finish();

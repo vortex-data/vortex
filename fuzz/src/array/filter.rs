@@ -123,8 +123,11 @@ pub fn filter_canonical_array(
             .map(|a| a.into_array())
         }
         DType::Map(..) => {
-            let mut builder =
-                builder_with_capacity(array.dtype(), filter.iter().filter(|b| **b).count());
+            let mut builder = builder_with_capacity(
+                array.dtype(),
+                filter.iter().filter(|b| **b).count(),
+                ctx.allocator().clone(),
+            );
             for (idx, keep) in filter.iter().enumerate() {
                 if *keep {
                     builder.append_scalar(&array.execute_scalar(idx, ctx)?)?;

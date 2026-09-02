@@ -52,7 +52,7 @@ impl ZipKernel for VarBinView {
             buffers.extend_from_iter(if_false.data_buffers().iter().map(|b| b.as_host().clone()));
 
         let mut views_builder = BufferMut::<BinaryView>::with_capacity(len);
-        let mut validity_builder = LazyBitBufferBuilder::new(len);
+        let mut validity_builder = LazyBitBufferBuilder::new(len, ctx.allocator().clone());
 
         let true_validity = if_true.varbinview_validity().execute_mask(len, ctx)?;
         let false_validity = if_false.varbinview_validity().execute_mask(len, ctx)?;

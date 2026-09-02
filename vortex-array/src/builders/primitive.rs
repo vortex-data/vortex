@@ -33,28 +33,19 @@ pub struct PrimitiveBuilder<T> {
 
 impl<T: NativePType> PrimitiveBuilder<T> {
     /// Creates a new `PrimitiveBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
-    pub fn new(nullability: Nullability) -> Self {
-        Self::with_capacity(nullability, DEFAULT_BUILDER_CAPACITY)
+    pub fn new(nullability: Nullability, allocator: BufferAllocatorRef) -> Self {
+        Self::with_capacity(nullability, DEFAULT_BUILDER_CAPACITY, allocator)
     }
 
     /// Creates a new `PrimitiveBuilder` with the given `capacity`.
-    pub fn with_capacity(nullability: Nullability, capacity: usize) -> Self {
-        Self::with_capacity_in(
-            nullability,
-            capacity,
-            BufferAllocatorRef::statically_allocated(),
-        )
-    }
-
-    /// Creates a builder with the given capacity and allocator.
-    pub fn with_capacity_in(
+    pub fn with_capacity(
         nullability: Nullability,
         capacity: usize,
         allocator: BufferAllocatorRef,
     ) -> Self {
         Self {
             values: BufferMut::with_capacity_in(capacity, allocator.clone()),
-            nulls: LazyBitBufferBuilder::new_in(capacity, allocator),
+            nulls: LazyBitBufferBuilder::new(capacity, allocator),
             dtype: DType::Primitive(T::PTYPE, nullability),
         }
     }
@@ -97,10 +88,11 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     /// use std::mem::MaybeUninit;
     /// use vortex_array::builders::{ArrayBuilder, PrimitiveBuilder};
     /// use vortex_array::dtype::Nullability;
+    /// use vortex_array::memory::BufferAllocatorRef;
     ///
     /// // Create a new builder.
     /// let mut builder: PrimitiveBuilder<i32> =
-    ///     PrimitiveBuilder::with_capacity(Nullability::NonNullable, 5);
+    ///     PrimitiveBuilder::with_capacity(Nullability::NonNullable, 5, BufferAllocatorRef::statically_allocated());
     ///
     /// // Populate the values.
     /// let mut uninit_range = builder.uninit_range(5);
@@ -387,7 +379,11 @@ mod tests {
     #[test]
     fn test_multiple_uninit_ranges_correct_offsets() {
         let mut ctx = array_session().create_execution_ctx();
-        let mut builder = PrimitiveBuilder::<i32>::with_capacity(Nullability::NonNullable, 10);
+        let mut builder = PrimitiveBuilder::<i32>::with_capacity(
+            Nullability::NonNullable,
+            10,
+            BufferAllocatorRef::statically_allocated(),
+        );
 
         // First range.
         let mut range1 = builder.uninit_range(3);
@@ -430,7 +426,11 @@ mod tests {
     /// This test ensures the new API works correctly.
     #[test]
     fn test_append_mask_on_uninit_range() {
-        let mut builder = PrimitiveBuilder::<i32>::with_capacity(Nullability::Nullable, 5);
+        let mut builder = PrimitiveBuilder::<i32>::with_capacity(
+            Nullability::Nullable,
+            5,
+            BufferAllocatorRef::statically_allocated(),
+        );
         let mut range = builder.uninit_range(3);
 
         // Create a mask for 3 values.
@@ -480,7 +480,11 @@ mod tests {
         expected = "Tried to append a mask to an `UninitRange` that was beyond the allowed range"
     )]
     fn test_append_mask_wrong_length_panics() {
-        let mut builder = PrimitiveBuilder::<i32>::with_capacity(Nullability::Nullable, 10);
+        let mut builder = PrimitiveBuilder::<i32>::with_capacity(
+            Nullability::Nullable,
+            10,
+            BufferAllocatorRef::statically_allocated(),
+        );
         let mut range = builder.uninit_range(5);
 
         // Try to append a mask with wrong length (3 instead of 5).
@@ -498,7 +502,11 @@ mod tests {
     #[test]
     fn test_copy_from_slice_with_offsets() {
         let mut ctx = array_session().create_execution_ctx();
-        let mut builder = PrimitiveBuilder::<i32>::with_capacity(Nullability::NonNullable, 10);
+        let mut builder = PrimitiveBuilder::<i32>::with_capacity(
+            Nullability::NonNullable,
+            10,
+            BufferAllocatorRef::statically_allocated(),
+        );
         let mut range = builder.uninit_range(6);
 
         // Copy to different offsets.
@@ -526,7 +534,11 @@ mod tests {
     /// modify individual bits with relative indexing.
     #[test]
     fn test_set_bit_relative_indexing() {
-        let mut builder = PrimitiveBuilder::<i32>::with_capacity(Nullability::Nullable, 10);
+        let mut builder = PrimitiveBuilder::<i32>::with_capacity(
+            Nullability::Nullable,
+            10,
+            BufferAllocatorRef::statically_allocated(),
+        );
 
         // First add some values to the builder.
         builder.append_value(100);
@@ -600,7 +612,10 @@ mod tests {
     #[test]
     #[should_panic(expected = "cannot create an uninit range of length 0")]
     fn test_zero_length_uninit_range_panics() {
-        let mut builder = PrimitiveBuilder::<i32>::new(Nullability::NonNullable);
+        let mut builder = PrimitiveBuilder::<i32>::new(
+            Nullability::NonNullable,
+            BufferAllocatorRef::statically_allocated(),
+        );
         let _range = builder.uninit_range(0);
     }
 
@@ -608,7 +623,11 @@ mod tests {
     #[test]
     #[should_panic(expected = "uninit_range of len 261 exceeds builder with length 0 and capacity")]
     fn test_uninit_range_exceeds_capacity_panics() {
-        let mut builder = PrimitiveBuilder::<i32>::with_capacity(Nullability::NonNullable, 5);
+        let mut builder = PrimitiveBuilder::<i32>::with_capacity(
+            Nullability::NonNullable,
+            5,
+            BufferAllocatorRef::statically_allocated(),
+        );
         let _range = builder.uninit_range(261);
     }
 
@@ -619,7 +638,11 @@ mod tests {
     #[cfg(debug_assertions)]
     #[should_panic(expected = "tried to copy a slice into a `UninitRange` past its boundary")]
     fn test_copy_from_slice_out_of_bounds() {
-        let mut builder = PrimitiveBuilder::<i32>::with_capacity(Nullability::NonNullable, 10);
+        let mut builder = PrimitiveBuilder::<i32>::with_capacity(
+            Nullability::NonNullable,
+            10,
+            BufferAllocatorRef::statically_allocated(),
+        );
         let mut range = builder.uninit_range(3);
 
         // Try to copy 3 elements starting at offset 1 (would need 4 slots total).
@@ -631,7 +654,11 @@ mod tests {
     /// This test demonstrates proper usage of the unsafe `finish` method.
     #[test]
     fn test_finish_unsafe_contract() {
-        let mut builder = PrimitiveBuilder::<i32>::with_capacity(Nullability::Nullable, 5);
+        let mut builder = PrimitiveBuilder::<i32>::with_capacity(
+            Nullability::Nullable,
+            5,
+            BufferAllocatorRef::statically_allocated(),
+        );
         let mut range = builder.uninit_range(3);
 
         // Set validity mask.
@@ -659,7 +686,11 @@ mod tests {
         use crate::dtype::DType;
         use crate::scalar::Scalar;
 
-        let mut builder = PrimitiveBuilder::<i32>::with_capacity(Nullability::Nullable, 10);
+        let mut builder = PrimitiveBuilder::<i32>::with_capacity(
+            Nullability::Nullable,
+            10,
+            BufferAllocatorRef::statically_allocated(),
+        );
 
         // Test appending a valid primitive value.
         let scalar1 = Scalar::primitive(42i32, Nullability::Nullable);
@@ -710,7 +741,11 @@ mod tests {
         );
 
         // Test wrong dtype error.
-        let mut builder = PrimitiveBuilder::<i32>::with_capacity(Nullability::NonNullable, 10);
+        let mut builder = PrimitiveBuilder::<i32>::with_capacity(
+            Nullability::NonNullable,
+            10,
+            BufferAllocatorRef::statically_allocated(),
+        );
         let wrong_scalar = Scalar::from(true);
         assert!(builder.append_scalar(&wrong_scalar).is_err());
     }

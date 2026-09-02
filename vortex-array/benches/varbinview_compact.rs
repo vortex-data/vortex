@@ -93,7 +93,11 @@ fn compact_sliced_impl(bencher: Bencher, (output_size, utilization_pct): (usize,
 
 /// Creates a base VarBinViewArray with mix of inlined and outlined strings.
 fn build_varbinview_fixture(len: usize) -> VarBinViewArray {
-    let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::NonNullable), len);
+    let mut builder = VarBinViewBuilder::with_capacity(
+        DType::Utf8(Nullability::NonNullable),
+        len,
+        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+    );
     let mut rng = StdRng::seed_from_u64(42);
 
     for _ in 0..len {

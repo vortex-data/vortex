@@ -80,7 +80,12 @@ fn map_array_from_rows(
 ) -> VortexResult<MapArray> {
     let rows = rows.into_iter().collect::<Vec<_>>();
     let dtype = DType::Map(map_dtype.clone(), nullability);
-    let mut builder = MapBuilder::<u64, u64>::with_capacity(map_dtype, nullability, rows.len());
+    let mut builder = MapBuilder::<u64, u64>::with_capacity(
+        map_dtype,
+        nullability,
+        rows.len(),
+        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+    );
 
     for row in rows {
         let scalar = match row {
@@ -222,7 +227,12 @@ fn scalar_access_preserves_variable_entry_counts_and_utf8_pairs() -> VortexResul
         false,
     )?;
     let dtype = DType::Map(map_dtype.clone(), Nullability::Nullable);
-    let mut builder = MapBuilder::<u64, u64>::with_capacity(map_dtype, Nullability::Nullable, 4);
+    let mut builder = MapBuilder::<u64, u64>::with_capacity(
+        map_dtype,
+        Nullability::Nullable,
+        4,
+        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+    );
     let rows = [
         Some(vec![
             (
@@ -648,6 +658,7 @@ fn builder_appends_existing_map_arrays() -> VortexResult<()> {
         source.map_dtype().clone(),
         source.dtype().nullability(),
         0,
+        vortex_buffer::BufferAllocatorRef::statically_allocated(),
     );
     let mut ctx = array_session().create_execution_ctx();
     builder.append_map_array(source.as_view(), &mut ctx)?;

@@ -361,7 +361,8 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
             self.options.clone(),
             self.dtype.clone(),
         )?;
-        let mut states = builder_with_capacity(&self.partial_dtype, grouped.len());
+        let mut states =
+            builder_with_capacity(&self.partial_dtype, grouped.len(), ctx.allocator().clone());
         let group_ranges = grouped.group_ranges(ctx)?;
         let group_validity = grouped.group_validity(ctx)?;
 

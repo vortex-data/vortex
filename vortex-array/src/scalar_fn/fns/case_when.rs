@@ -354,7 +354,7 @@ fn merge_case_branches(
         return else_value.cast(output_dtype);
     }
 
-    let builder = builder_with_capacity(&output_dtype, else_value.len());
+    let builder = builder_with_capacity(&output_dtype, else_value.len(), ctx.allocator().clone());
 
     let fragmented = spans.len() > else_value.len() / SLICE_CROSSOVER_RUN_LEN;
     if fragmented {
