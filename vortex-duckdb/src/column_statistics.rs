@@ -24,17 +24,14 @@ pub struct ColumnStatistics {
 }
 
 impl ColumnStatistics {
-    pub fn try_from(stats: &ColumnStatisticsAggregate, dtype: DType) -> VortexResult<Self> {
-        let min = stats.min.as_ref().and_then(|value| {
-            Scalar::try_new(dtype.clone(), Some(value.clone()))
+    pub fn try_from(stats: ColumnStatisticsAggregate, dtype: DType) -> VortexResult<Self> {
+        let to_value = |value: ScalarValue| {
+            Scalar::try_new(dtype.clone(), Some(value))
                 .and_then(|scalar| scalar.try_to_duckdb_scalar())
                 .ok()
-        });
-        let max = stats.max.as_ref().and_then(|value| {
-            Scalar::try_new(dtype.clone(), Some(value.clone()))
-                .and_then(|scalar| scalar.try_to_duckdb_scalar())
-                .ok()
-        });
+        };
+        let min = stats.min.and_then(to_value);
+        let max = stats.max.and_then(to_value);
 
         let max_string_length = stats
             .max_string_length

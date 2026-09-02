@@ -181,18 +181,14 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
 
     // Getting splits is non-trivial work so we prefer doing it here under file
     // lock and not in reader_try_initialize_scan under global lock.
-    let ordered = global.file_row_number_column_pos.is_some();
     let reader = Arc::clone(&file.reader);
     let filter = &global.filter;
-    let mut builder = ScanBuilder::new(SESSION.clone(), reader)
+    let builder = ScanBuilder::new(SESSION.clone(), reader)
         .with_projection(global.projection.clone())
-        .with_ordered(ordered)
         .with_some_filter(filter.filter.clone())
         .with_selection(filter.row_selection.clone());
-    if let Some(row_range) = filter.row_range.as_ref() {
-        builder = builder.with_row_range(row_range.clone());
-    }
-    let mut splits = builder.build()?;
+    let scan = builder.prepare()?;
+    let mut splits = scan.execute(filter.row_range.clone())?;
 
     // threads take last element of file.splits so we need to reverse
     splits.reverse();
@@ -296,7 +292,7 @@ pub fn reader_get_statistics(
     let dtype = fields.field_by_index(index)?;
 
     let stats = ColumnStatisticsAggregate::new(stats_sets.get(index)?);
-    match ColumnStatistics::try_from(&stats, dtype) {
+    match ColumnStatistics::try_from(stats, dtype) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),
     }
@@ -328,12 +324,38 @@ pub fn can_get_partition_stats(bind: &BindState) -> bool {
 /// If any footer is not present, it sets a flag in BindState so we won't try
 /// again.
 pub fn footer_get_cached(bind: &mut BindState, path: &str) -> VortexResult<Option<Footer>> {
-    let url = parse_uri_or_path(path)?;
-    let path = resolve_path(&url)?;
-    let key = object_path_from_literal(&path).to_string();
-    let footer = SESSION.get::<MultiFileSession>().get_footer(&key);
+    let session = SESSION
+        .get_opt::<MultiFileSession>()
+        .vortex_expect("MultiFileSession not found");
+    let footer = match fast_footer_key(path) {
+        Some(key) => session.get_footer(key),
+        None => {
+            let url = parse_uri_or_path(path)?;
+            let path = resolve_path(&url)?;
+            session.get_footer(object_path_from_literal(&path).as_ref())
+        }
+    };
     bind.no_footer_caches |= footer.is_none();
     Ok(footer)
+}
+
+/// For absolute local paths without special characters we don't need
+/// allocations to get a footer key
+fn fast_footer_key(path: &str) -> Option<&str> {
+    let key = path.strip_prefix('/')?;
+    if key.is_empty() {
+        return None;
+    }
+    key.split('/')
+        .all(|part| {
+            !part.is_empty()
+                && part != "."
+                && part != ".."
+                && part
+                    .bytes() // Characters Url doesn't percent-encode
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'~' | b'-'))
+        })
+        .then_some(key)
 }
 
 /// Called by one thread for every footer in planning phase
@@ -345,8 +367,43 @@ pub fn footer_get_statistics(footer: &Footer, index: usize) -> Option<ColumnStat
     let dtype = fields.field_by_index(index)?;
     let stats = stats.stats_sets().get(index)?;
     let stats = ColumnStatisticsAggregate::new(stats);
-    match ColumnStatistics::try_from(&stats, dtype) {
+    match ColumnStatistics::try_from(stats, dtype) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    #[case("/data/file.vortex")]
+    #[case("/a~b/c-1_2.file.vortex")]
+    #[case("/x/y/z")]
+    fn test_fast_key(#[case] path: &str) -> VortexResult<()> {
+        let url = parse_uri_or_path(path)?;
+        let slow = object_path_from_literal(&resolve_path(&url)?).to_string();
+        assert_eq!(fast_footer_key(path), Some(slow.as_str()));
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::relative("data/file.vortex")]
+    #[case::scheme("s3://bucket/file.vortex")]
+    #[case::file_url("file:///a/b.vortex")]
+    #[case::empty_segment("/a//b")]
+    #[case::dot_segment("/a/./b")]
+    #[case::dotdot_segment("/a/../b")]
+    #[case::trailing_slash("/a/b/")]
+    #[case::root("/")]
+    #[case::space("/a b/c.vortex")]
+    #[case::percent("/a%20b/c.vortex")]
+    #[case::non_ascii("/ололо/file.vortex")]
+    #[case::glob("/a/*.vortex")]
+    fn test_no_fast_key(#[case] path: &str) {
+        assert_eq!(fast_footer_key(path), None);
     }
 }
