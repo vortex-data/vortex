@@ -7,14 +7,21 @@
 //! `unchecked_*` entry points of the `fastlanes` crate dispatch on the width with a `match` on
 //! every call. A [`BitPackedArray`](crate::BitPackedArray) knows its width but is type erased, so
 //! it cannot name the instantiation statically. Instead, the array resolves function pointers to
-//! the concrete instantiations once, lazily, and hands them out as [`BitPackedKernels`]. The
-//! decoding paths then call the resolved kernels block after block without re-dispatching.
+//! the concrete instantiations once, when it is constructed, and hands them out as
+//! [`BitPackedKernels`]. The decoding paths then call the resolved kernels block after block
+//! without re-dispatching.
+
+use std::mem;
 
 use fastlanes::BitPacking;
 use fastlanes::BitPackingCompare;
 use fastlanes::FastLanesComparable;
 use fastlanes::FoR;
 use vortex_array::dtype::NativePType;
+use vortex_array::dtype::PType;
+use vortex_array::match_each_unsigned_integer_ptype;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
 /// Packs one FastLanes block of 1024 values.
@@ -52,6 +59,9 @@ pub type UnpackCmpFn<P, V, F> = fn(packed: &[P], output: &mut [u64; 16], cmp: F,
 /// width. The kernels check the block lengths they are handed and panic on a mismatch.
 #[derive(Clone, Copy, Debug)]
 pub struct BitPackedKernels<P> {
+    /// The unsigned [`PType`] of `P`, kept so the type-erased form can check it before
+    /// re-typing the pointers.
+    ptype: PType,
     bit_width: u8,
     /// Unpacks one packed block into 1024 values.
     pub unpack: UnpackFn<P>,
@@ -75,24 +85,82 @@ impl<P: BitPackedPhysical> BitPackedKernels<P> {
     }
 }
 
-/// [`BitPackedKernels`] resolved for one of the physical types, stored type erased by
+/// [`BitPackedKernels`] with the physical type erased, as stored by
 /// [`BitPackedData`](crate::BitPackedData).
-#[derive(Clone, Copy, Debug)]
-pub enum ResolvedKernels {
-    U8(BitPackedKernels<u8>),
-    U16(BitPackedKernels<u16>),
-    U32(BitPackedKernels<u32>),
-    U64(BitPackedKernels<u64>),
+///
+/// The function pointers are those of a `BitPackedKernels<P>` for the recorded `ptype`, cast to
+/// a placeholder element type. [`Self::typed`] casts them back; they are never called in the
+/// erased form.
+pub type ResolvedKernels = BitPackedKernels<()>;
+
+impl ResolvedKernels {
+    /// Resolves the kernels for an array of `ptype` packed to `bit_width` bits.
+    ///
+    /// Signed types resolve to their unsigned counterpart, which is what the packed buffer holds.
+    pub fn try_new(ptype: PType, bit_width: u8) -> VortexResult<Self> {
+        vortex_ensure!(ptype.is_int(), MismatchedTypes: "integer", ptype);
+        vortex_ensure!(
+            bit_width as usize <= ptype.bit_width(),
+            "Unsupported bit width {bit_width} for {ptype}"
+        );
+        Ok(match_each_unsigned_integer_ptype!(
+            ptype.to_unsigned(),
+            |P| { P::resolve_kernels(bit_width).erase() }
+        ))
+    }
+
+    /// The kernels typed for `P`, which must be the physical type they were resolved for.
+    ///
+    /// # Panics
+    ///
+    /// If `P` is not the physical type the kernels were resolved for.
+    #[inline]
+    pub fn typed<P: BitPackedPhysical>(self) -> BitPackedKernels<P> {
+        assert!(
+            self.ptype == P::PTYPE,
+            "BitPacked kernels were resolved for a different physical type"
+        );
+        // SAFETY: `ptype` records the `P` these pointers were erased from (see `erase`), and
+        // transmuting a function pointer back to its original signature is lossless.
+        unsafe {
+            BitPackedKernels {
+                ptype: self.ptype,
+                bit_width: self.bit_width,
+                unpack: mem::transmute::<UnpackFn<()>, UnpackFn<P>>(self.unpack),
+                unpack_single: mem::transmute::<UnpackSingleFn<()>, UnpackSingleFn<P>>(
+                    self.unpack_single,
+                ),
+                unfor_pack: mem::transmute::<UnforPackFn<()>, UnforPackFn<P>>(self.unfor_pack),
+            }
+        }
+    }
+}
+
+impl<P: BitPackedPhysical> BitPackedKernels<P> {
+    /// Erases `P` from the function pointers; [`ResolvedKernels::typed`] restores it.
+    fn erase(self) -> ResolvedKernels {
+        // SAFETY: Function pointers of every signature share one layout, and the erased pointers
+        // are only ever called after `typed` casts them back to this signature, which `ptype`
+        // enforces.
+        unsafe {
+            BitPackedKernels {
+                ptype: self.ptype,
+                bit_width: self.bit_width,
+                unpack: mem::transmute::<UnpackFn<P>, UnpackFn<()>>(self.unpack),
+                unpack_single: mem::transmute::<UnpackSingleFn<P>, UnpackSingleFn<()>>(
+                    self.unpack_single,
+                ),
+                unfor_pack: mem::transmute::<UnforPackFn<P>, UnforPackFn<()>>(self.unfor_pack),
+            }
+        }
+    }
 }
 
 /// The physical storage types of a bit-packed array, i.e. the unsigned integers the FastLanes
 /// kernels are implemented for. Signed arrays are packed as their unsigned counterpart.
 pub trait BitPackedPhysical: NativePType + BitPacking + BitPackingCompare + FoR {
     /// Resolves the kernels for `bit_width`, which must not exceed the width of `Self`.
-    fn resolve_kernels(bit_width: u8) -> ResolvedKernels;
-
-    /// Returns the kernels if `resolved` holds kernels for `Self`.
-    fn kernels_from(resolved: &ResolvedKernels) -> Option<BitPackedKernels<Self>>;
+    fn resolve_kernels(bit_width: u8) -> BitPackedKernels<Self>;
 
     /// Resolves the pack kernel for `bit_width`, which must not exceed the width of `Self`.
     ///
@@ -166,30 +234,24 @@ fn block_len_mismatch(expected: usize, actual: usize) -> ! {
 }
 
 macro_rules! impl_bitpacked_physical {
-    ($P:ty, $variant:ident, $bits:literal) => {
+    ($P:ty, $bits:literal) => {
         impl BitPackedPhysical for $P {
-            fn resolve_kernels(bit_width: u8) -> ResolvedKernels {
+            fn resolve_kernels(bit_width: u8) -> BitPackedKernels<Self> {
                 seq_macro::seq!(W in 0..=$bits {
                     match bit_width {
-                        #(W => ResolvedKernels::$variant(BitPackedKernels {
+                        #(W => BitPackedKernels {
+                            ptype: <$P as NativePType>::PTYPE,
                             bit_width,
                             unpack: unpack::<$P, W, { 1024 * W / $bits }>,
                             unpack_single: unpack_single::<$P, W, { 1024 * W / $bits }>,
                             unfor_pack: unfor_pack::<$P, W, { 1024 * W / $bits }>,
-                        }),)*
+                        },)*
                         _ => vortex_panic!(
                             "Unsupported bit width {bit_width} for {}",
                             <$P as NativePType>::PTYPE
                         ),
                     }
                 })
-            }
-
-            fn kernels_from(resolved: &ResolvedKernels) -> Option<BitPackedKernels<Self>> {
-                match resolved {
-                    ResolvedKernels::$variant(kernels) => Some(*kernels),
-                    _ => None,
-                }
             }
 
             fn resolve_pack(bit_width: u8) -> PackFn<Self> {
@@ -223,10 +285,10 @@ macro_rules! impl_bitpacked_physical {
     };
 }
 
-impl_bitpacked_physical!(u8, U8, 8);
-impl_bitpacked_physical!(u16, U16, 16);
-impl_bitpacked_physical!(u32, U32, 32);
-impl_bitpacked_physical!(u64, U64, 64);
+impl_bitpacked_physical!(u8, 8);
+impl_bitpacked_physical!(u16, 16);
+impl_bitpacked_physical!(u32, 32);
+impl_bitpacked_physical!(u64, 64);
 
 #[cfg(test)]
 mod tests {
@@ -236,15 +298,22 @@ mod tests {
     use super::*;
 
     /// Every width of every physical type resolves to kernels that agree with the runtime-width
-    /// FastLanes entry points.
+    /// FastLanes entry points, both directly and after a round trip through the erased form.
     fn assert_kernels_match_fastlanes<P>()
     where
         P: BitPackedPhysical + WrappingAdd + FastLanesComparable<Bitpacked = P>,
     {
         let values: [P; 1024] = std::array::from_fn(|i| P::from(i % 251).unwrap());
         for bit_width in 0..=(8 * size_of::<P>() as u8) {
-            let kernels = P::kernels_from(&P::resolve_kernels(bit_width)).unwrap();
+            let kernels = ResolvedKernels::try_new(P::PTYPE, bit_width)
+                .unwrap()
+                .typed::<P>();
             assert_eq!(kernels.bit_width(), bit_width);
+            assert_eq!(
+                kernels.unpack as usize,
+                P::resolve_kernels(bit_width).unpack as usize,
+                "erased round trip at width {bit_width}"
+            );
 
             let block_len = kernels.packed_block_len();
             let mut expected_packed = vec![P::zero(); block_len];
@@ -311,17 +380,33 @@ mod tests {
     }
 
     #[test]
-    fn kernels_from_rejects_other_types() {
-        let resolved = u16::resolve_kernels(3);
-        assert!(u16::kernels_from(&resolved).is_some());
-        assert!(u8::kernels_from(&resolved).is_none());
-        assert!(u32::kernels_from(&resolved).is_none());
+    fn signed_resolves_to_unsigned_kernels() {
+        let resolved = ResolvedKernels::try_new(PType::I16, 3).unwrap();
+        assert_eq!(
+            resolved.typed::<u16>().unpack as usize,
+            u16::resolve_kernels(3).unpack as usize
+        );
+    }
+
+    #[test]
+    fn rejects_width_beyond_type() {
+        assert!(ResolvedKernels::try_new(PType::U8, 9).is_err());
+        assert!(ResolvedKernels::try_new(PType::F32, 3).is_err());
+        assert!(ResolvedKernels::try_new(PType::U8, 8).is_ok());
+    }
+
+    #[test]
+    #[should_panic(expected = "resolved for a different physical type")]
+    fn typed_rejects_other_types() {
+        ResolvedKernels::try_new(PType::U16, 3)
+            .unwrap()
+            .typed::<u8>();
     }
 
     #[test]
     #[should_panic(expected = "Expected a FastLanes block of 1024 elements")]
     fn unpack_rejects_short_output() {
-        let kernels = u8::kernels_from(&u8::resolve_kernels(1)).unwrap();
+        let kernels = u8::resolve_kernels(1);
         let packed = [0u8; 128];
         let mut output = [0u8; 512];
         (kernels.unpack)(&packed, &mut output);

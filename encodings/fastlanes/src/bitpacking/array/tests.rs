@@ -83,7 +83,7 @@ fn global_bit_width_and_block_offsets_are_exclusive(
 ) -> VortexResult<()> {
     let packed = BufferHandle::new_host(ByteBuffer::zeroed(128));
     let data = if constant {
-        BitPackedData::try_new(packed, None, 1, 0)?
+        BitPackedData::try_new(packed, None, PType::U32, 1, 0)?
     } else {
         BitPackedData::try_new_blocked(packed, None, 0)?
     };

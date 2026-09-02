@@ -163,6 +163,7 @@ impl ArrayPlugin for BitPackedPlugin {
         let data = BitPackedData::try_new(
             packed,
             patches,
+            dtype.as_ptype(),
             u8::try_from(metadata.bit_width).map_err(|_| {
                 vortex_err!(
                     "BitPackedMetadata bit_width {} does not fit in u8",
