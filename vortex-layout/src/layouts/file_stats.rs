@@ -19,6 +19,7 @@ use vortex_array::builders::BoolBuilder;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
+use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::expr::stats::Precision;
@@ -33,7 +34,6 @@ use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::layouts::zoned::MAX_IS_TRUNCATED;
@@ -417,13 +417,146 @@ impl<T: ScalarTruncation> StatsArrayBuilder for TruncatedMinBinaryStatsBuilder<T
     }
 }
 
-/// An array stream processor that computes aggregate statistics for all fields.
+/// Computes the post-order sequence of `(FieldPath, DType)` entries that file-level statistics
+/// are stored against.
 ///
-/// Note: for now this only collects top-level struct fields.
+/// Each leaf field (including opaque `List`/`FixedSizeList` columns, which are not recursed into)
+/// gets one entry. Each **nullable** struct additionally gets a trailing entry, keyed by its own
+/// path and dtype, inserted immediately after its children's entries — this carries the struct's
+/// own null count. Dtypes that don't support file stats (see [`supports_file_stats`]), such as
+/// [`DType::Variant`], are skipped entirely: no entry is emitted for them or anything beneath
+/// them.
+///
+/// This function is the single source of truth for the number and order of stats entries, used
+/// both when accumulating stats at write time and when reconstructing them from the footer at
+/// read time, so no paths or dtypes need to be persisted in the flatbuffer itself.
+pub fn postorder_stats_layout(dtype: &DType) -> Vec<(FieldPath, DType)> {
+    let mut out = Vec::new();
+    postorder_stats_layout_into(dtype, FieldPath::root(), &mut out);
+    out
+}
+
+fn postorder_stats_layout_into(dtype: &DType, path: FieldPath, out: &mut Vec<(FieldPath, DType)>) {
+    match dtype.as_struct_fields_opt() {
+        Some(struct_fields) => {
+            for (name, field_dtype) in struct_fields.names().iter().zip(struct_fields.fields()) {
+                postorder_stats_layout_into(&field_dtype, path.clone().push(name.clone()), out);
+            }
+            if dtype.nullability() == Nullability::Nullable {
+                out.push((path, dtype.clone()));
+            }
+        }
+        None if !supports_file_stats(dtype) => {}
+        None => out.push((path, dtype.clone())),
+    }
+}
+
+/// A node in the tree of accumulators mirroring [`postorder_stats_layout`]'s walk of a `DType`.
+enum StatsNode {
+    /// An opaque leaf: a non-struct dtype, including `List`/`FixedSizeList` (not recursed into).
+    Leaf(StatsAccumulator),
+    /// A dtype that does not support file stats (e.g. [`DType::Variant`]); contributes no entries.
+    Skipped,
+    Struct {
+        /// One child per struct field, in declaration order.
+        children: Vec<(FieldName, StatsNode)>,
+        /// Accumulates the struct's own null count. `Some` iff the struct itself is nullable.
+        null_count: Option<StatsAccumulator>,
+    },
+}
+
+impl StatsNode {
+    fn build(dtype: &DType, stats: &[Stat], max_variable_length_statistics_size: usize) -> Self {
+        match dtype.as_struct_fields_opt() {
+            Some(struct_fields) => {
+                let children = struct_fields
+                    .names()
+                    .iter()
+                    .zip(struct_fields.fields())
+                    .map(|(name, field_dtype)| {
+                        (
+                            name.clone(),
+                            Self::build(&field_dtype, stats, max_variable_length_statistics_size),
+                        )
+                    })
+                    .collect();
+                let null_count = (dtype.nullability() == Nullability::Nullable).then(|| {
+                    StatsAccumulator::new(dtype, stats, max_variable_length_statistics_size)
+                });
+                Self::Struct {
+                    children,
+                    null_count,
+                }
+            }
+            None if !supports_file_stats(dtype) => Self::Skipped,
+            None => Self::Leaf(StatsAccumulator::new(
+                dtype,
+                stats,
+                max_variable_length_statistics_size,
+            )),
+        }
+    }
+
+    fn push_chunk(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+        match self {
+            Self::Skipped => Ok(()),
+            Self::Leaf(acc) => acc.push_chunk(array, ctx),
+            Self::Struct {
+                children,
+                null_count,
+            } => {
+                // The struct's own `ArrayRef` already carries the validity needed to compute its
+                // null count, so we push it directly rather than building a synthetic array.
+                if let Some(null_count) = null_count {
+                    null_count.push_chunk(array, ctx)?;
+                }
+                let struct_array = array.clone().execute::<StructArray>(ctx)?;
+                for ((_, child), field) in children
+                    .iter_mut()
+                    .zip_eq(struct_array.iter_unmasked_fields())
+                {
+                    child.push_chunk(field, ctx)?;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// Appends this node's `StatsSet`s, in the same post-order as [`postorder_stats_layout`].
+    fn collect_stats_sets(
+        &mut self,
+        stats: &[Stat],
+        ctx: &mut ExecutionCtx,
+        out: &mut Vec<StatsSet>,
+    ) -> VortexResult<()> {
+        match self {
+            Self::Skipped => Ok(()),
+            Self::Leaf(acc) => {
+                out.push(acc.as_stats_set(stats, ctx)?);
+                Ok(())
+            }
+            Self::Struct {
+                children,
+                null_count,
+            } => {
+                for (_, child) in children.iter_mut() {
+                    child.collect_stats_sets(stats, ctx, out)?;
+                }
+                if let Some(null_count) = null_count {
+                    out.push(null_count.as_stats_set(stats, ctx)?);
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+/// An array stream processor that computes aggregate statistics for every field, recursing into
+/// nested (possibly nullable) structs. See [`postorder_stats_layout`] for the entry ordering.
 #[derive(Clone)]
 pub struct FileStatsAccumulator {
     stats: Arc<[Stat]>,
-    accumulators: Arc<Mutex<Vec<StatsAccumulator>>>,
+    root: Arc<Mutex<StatsNode>>,
     ctx: Arc<Mutex<ExecutionCtx>>,
 }
 
@@ -434,38 +567,15 @@ impl FileStatsAccumulator {
         max_variable_length_statistics_size: usize,
         session: &VortexSession,
     ) -> Self {
-        let accumulators = Arc::new(Mutex::new(match dtype.as_struct_fields_opt() {
-            Some(struct_dtype) => {
-                if dtype.nullability() == Nullability::Nullable {
-                    // top level dtype could be nullable, but we don't support it yet
-                    vortex_panic!(
-                        "FileStatsAccumulator temporarily does not support nullable top-level structs, got: {}. Use Validity::NonNullable",
-                        dtype
-                    );
-                }
-
-                struct_dtype
-                    .fields()
-                    .map(|field_dtype| {
-                        StatsAccumulator::new(
-                            &field_dtype,
-                            &stats,
-                            max_variable_length_statistics_size,
-                        )
-                    })
-                    .collect()
-            }
-            None => [StatsAccumulator::new(
-                dtype,
-                &stats,
-                max_variable_length_statistics_size,
-            )]
-            .into(),
-        }));
+        let root = Arc::new(Mutex::new(StatsNode::build(
+            dtype,
+            &stats,
+            max_variable_length_statistics_size,
+        )));
 
         Self {
             stats,
-            accumulators,
+            root,
             ctx: Arc::new(Mutex::new(session.create_execution_ctx())),
         }
     }
@@ -476,32 +586,18 @@ impl FileStatsAccumulator {
     ) -> VortexResult<(SequenceId, ArrayRef)> {
         let (sequence_id, chunk) = chunk?;
         let mut ctx = self.ctx.lock();
-        if chunk.dtype().is_struct() {
-            let struct_chunk = chunk.clone().execute::<StructArray>(&mut ctx)?;
-            for (acc, field) in self
-                .accumulators
-                .lock()
-                .iter_mut()
-                .zip_eq(struct_chunk.iter_unmasked_fields())
-            {
-                acc.push_chunk(field, &mut ctx)?;
-            }
-        } else {
-            self.accumulators.lock()[0].push_chunk(&chunk, &mut ctx)?;
-        }
+        self.root.lock().push_chunk(&chunk, &mut ctx)?;
         Ok((sequence_id, chunk))
     }
 
     pub fn stats_sets(&self) -> Vec<StatsSet> {
         let mut ctx = self.ctx.lock();
-        self.accumulators
+        let mut out = Vec::new();
+        self.root
             .lock()
-            .iter_mut()
-            .map(|acc| {
-                acc.as_stats_set(&self.stats, &mut ctx)
-                    .vortex_expect("as_stats_table should not fail")
-            })
-            .collect()
+            .collect_stats_sets(&self.stats, &mut ctx, &mut out)
+            .vortex_expect("collect_stats_sets should not fail");
+        out
     }
 }
 
@@ -513,6 +609,9 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::bool::BoolArrayExt;
     use vortex_array::builders::VarBinViewBuilder;
+    use vortex_array::dtype::FieldNames;
+    use vortex_array::scalar::PValue;
+    use vortex_array::scalar::ScalarValue;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
 
@@ -603,5 +702,122 @@ mod tests {
             stats_table.names().as_ref(),
             &[Stat::Max.name(), Stat::Min.name(), Stat::Sum.name()]
         );
+    }
+
+    fn i32_dtype() -> DType {
+        DType::Primitive(PType::I32, Nullability::NonNullable)
+    }
+
+    #[test]
+    fn postorder_layout_flat_struct() {
+        let dtype = DType::struct_(
+            [
+                ("a", i32_dtype()),
+                ("b", DType::Bool(Nullability::Nullable)),
+            ],
+            Nullability::NonNullable,
+        );
+        let layout = postorder_stats_layout(&dtype);
+        assert_eq!(
+            layout,
+            vec![
+                (FieldPath::from_name("a"), i32_dtype()),
+                (
+                    FieldPath::from_name("b"),
+                    DType::Bool(Nullability::Nullable)
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn postorder_layout_nested_nullable_struct_trails_children() {
+        let inner = DType::struct_([("b", i32_dtype())], Nullability::Nullable);
+        let dtype = DType::struct_([("a", inner.clone())], Nullability::NonNullable);
+
+        let layout = postorder_stats_layout(&dtype);
+        assert_eq!(
+            layout,
+            vec![
+                (FieldPath::from_name("a").push("b"), i32_dtype()),
+                (FieldPath::from_name("a"), inner),
+            ]
+        );
+    }
+
+    #[test]
+    fn postorder_layout_non_nullable_nested_struct_has_no_own_entry() {
+        let inner = DType::struct_([("b", i32_dtype())], Nullability::NonNullable);
+        let dtype = DType::struct_([("a", inner)], Nullability::NonNullable);
+
+        let layout = postorder_stats_layout(&dtype);
+        assert_eq!(
+            layout,
+            vec![(FieldPath::from_name("a").push("b"), i32_dtype())]
+        );
+    }
+
+    #[test]
+    fn postorder_layout_nullable_root_struct_gets_trailing_root_entry() {
+        let dtype = DType::struct_([("a", i32_dtype())], Nullability::Nullable);
+
+        let layout = postorder_stats_layout(&dtype);
+        assert_eq!(
+            layout,
+            vec![
+                (FieldPath::from_name("a"), i32_dtype()),
+                (FieldPath::root(), dtype),
+            ]
+        );
+    }
+
+    #[test]
+    fn postorder_layout_list_field_is_opaque_leaf() {
+        let list_dtype = DType::list(i32_dtype(), Nullability::NonNullable);
+        let dtype = DType::struct_([("a", list_dtype.clone())], Nullability::NonNullable);
+
+        let layout = postorder_stats_layout(&dtype);
+        assert_eq!(layout, vec![(FieldPath::from_name("a"), list_dtype)]);
+    }
+
+    #[test]
+    fn postorder_layout_variant_field_is_skipped() {
+        let dtype = DType::struct_(
+            [
+                ("a", i32_dtype()),
+                ("v", DType::Variant(Nullability::NonNullable)),
+            ],
+            Nullability::NonNullable,
+        );
+
+        let layout = postorder_stats_layout(&dtype);
+        assert_eq!(layout, vec![(FieldPath::from_name("a"), i32_dtype())]);
+    }
+
+    #[test]
+    fn nested_nullable_struct_accumulates_its_own_null_count() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+
+        let b = buffer![1i32, 2, 3].into_array();
+        let inner_validity =
+            Validity::Array(BoolArray::from_iter([true, false, true]).into_array());
+        let inner = StructArray::new(FieldNames::from(["b"]), [b], 3, inner_validity).into_array();
+        let outer = StructArray::new(FieldNames::from(["a"]), [inner], 3, Validity::NonNullable)
+            .into_array();
+
+        let requested = [Stat::NullCount, Stat::Min, Stat::Max];
+        let mut node = StatsNode::build(outer.dtype(), &requested, 1024);
+        node.push_chunk(&outer, &mut ctx)?;
+
+        let mut stats_sets = Vec::new();
+        node.collect_stats_sets(&requested, &mut ctx, &mut stats_sets)?;
+
+        // `a.b`'s stats come first (post-order), then `a`'s own null-count entry.
+        assert_eq!(stats_sets.len(), 2);
+        assert_eq!(
+            stats_sets[1].get(Stat::NullCount).as_exact(),
+            Some(ScalarValue::Primitive(PValue::U64(1)))
+        );
+        Ok(())
     }
 }

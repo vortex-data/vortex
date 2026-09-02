@@ -13,7 +13,6 @@ use std::sync::Arc;
 use vortex_array::MaskFuture;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
-use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
 use vortex_error::VortexResult;
@@ -40,29 +39,16 @@ use crate::pruning::can_prune_file_stats;
 pub struct FileStatsLayoutReader {
     child: LayoutReaderRef,
     file_stats: FileStatistics,
-    struct_fields: StructFields,
     session: VortexSession,
     prune_cache: DashMap<ExactBoundExpr, bool>,
 }
 
 impl FileStatsLayoutReader {
     /// Creates a new `FileStatsLayoutReader` wrapping the given child reader.
-    ///
-    /// The `struct_fields` are derived from the child reader's dtype. If the dtype is not a
-    /// struct, the available stats will be empty and no pruning will occur.
-    ///
-    /// Pre-computes the set of available stat field paths from the struct fields and file stats.
     pub fn new(child: LayoutReaderRef, file_stats: FileStatistics, session: VortexSession) -> Self {
-        let struct_fields = child
-            .dtype()
-            .as_struct_fields_opt()
-            .cloned()
-            .unwrap_or_default();
-
         Self {
             child,
             file_stats,
-            struct_fields,
             session,
             prune_cache: Default::default(),
         }
@@ -77,7 +63,6 @@ impl FileStatsLayoutReader {
             expr,
             self.child.row_count(),
             &self.file_stats,
-            &self.struct_fields,
             &self.session,
         )
     }
@@ -171,6 +156,7 @@ mod tests {
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::datetime::TemporalData;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldPath;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::expr::checked_add;
@@ -217,6 +203,7 @@ mod tests {
         FileStatistics::new(
             Arc::from([stats]),
             Arc::from([DType::Primitive(PType::I32, Nullability::NonNullable)]),
+            Arc::from([FieldPath::from_name("col")]),
         )
     }
 
@@ -229,6 +216,7 @@ mod tests {
         FileStatistics::new(
             Arc::from([stats]),
             Arc::from([DType::Primitive(PType::I32, Nullability::Nullable)]),
+            Arc::from([FieldPath::from_name("col")]),
         )
     }
 
@@ -389,7 +377,11 @@ mod tests {
             // File-level stats: 1 null in deleted_at.
             let mut stats = StatsSet::default();
             stats.set(Stat::NullCount, Precision::exact(ScalarValue::from(1u64)));
-            let file_stats = FileStatistics::new(Arc::from([stats]), Arc::from([ts_dtype]));
+            let file_stats = FileStatistics::new(
+                Arc::from([stats]),
+                Arc::from([ts_dtype]),
+                Arc::from([FieldPath::from_name("deleted_at")]),
+            );
 
             let reader = FileStatsLayoutReader::new(child, file_stats, SESSION.clone());
 
