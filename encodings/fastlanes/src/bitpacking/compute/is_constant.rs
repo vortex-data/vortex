@@ -56,8 +56,8 @@ fn bitpacked_is_constant<T: BitPackedUnpack, const WIDTH: usize>(
     array: ArrayView<'_, BitPacked>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<bool> {
-    let bit_unpack_iterator = array.unpacked_chunks::<T>()?;
     let mut scratch = [const { MaybeUninit::<T>::uninit() }; 1024];
+    let mut bit_unpack_iterator = array.unpacked_chunks::<T>(&mut scratch)?;
     let patches = array
         .patches()
         .map(|p| -> VortexResult<_> {
@@ -70,7 +70,7 @@ fn bitpacked_is_constant<T: BitPackedUnpack, const WIDTH: usize>(
 
     let mut header_constant_value = None;
     let mut current_idx = 0;
-    if let Some(header) = bit_unpack_iterator.initial(&mut scratch) {
+    if let Some(header) = bit_unpack_iterator.initial() {
         if let Some((indices, patches, offset)) = &patches {
             apply_patches(
                 header,
@@ -90,7 +90,7 @@ fn bitpacked_is_constant<T: BitPackedUnpack, const WIDTH: usize>(
 
     let mut first_chunk_value = None;
     {
-        let mut chunks_iter = bit_unpack_iterator.full_chunks(&mut scratch);
+        let mut chunks_iter = bit_unpack_iterator.full_chunks();
         while let Some(chunk) = chunks_iter.next() {
             if let Some((indices, patches, offset)) = &patches {
                 let chunk_len = chunk.len();
@@ -124,7 +124,7 @@ fn bitpacked_is_constant<T: BitPackedUnpack, const WIDTH: usize>(
         }
     }
 
-    if let Some(trailer) = bit_unpack_iterator.trailer(&mut scratch) {
+    if let Some(trailer) = bit_unpack_iterator.trailer() {
         if let Some((indices, patches, offset)) = &patches {
             let chunk_len = trailer.len();
             apply_patches(

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::mem::MaybeUninit;
+
 use fastlanes::FoR;
 use num_traits::PrimInt;
 use num_traits::WrappingAdd;
@@ -19,6 +21,7 @@ use vortex_error::VortexResult;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
+use crate::FL_CHUNK_SIZE;
 use crate::FoRArray;
 use crate::bitpack_decompress;
 use crate::r#for::array::FoRArrayExt;
@@ -93,14 +96,16 @@ pub(crate) fn fused_decompress<
         .vortex_expect("cannot be null");
 
     let strategy = FoRStrategy { reference: ref_ };
+    let mut scratch = [const { MaybeUninit::<T>::uninit() }; FL_CHUNK_SIZE];
 
     // Create [`UnpackedChunks`] with FoR strategy.
     let mut unpacked = UnpackedChunks::try_new_with_strategy(
         strategy,
-        bp.packed().as_host().clone(),
+        bp.packed_slice::<T>(),
         bp.bit_width() as usize,
         bp.offset() as usize,
         bp.len(),
+        &mut scratch,
     )?;
 
     let mut builder = PrimitiveBuilder::<T>::with_capacity(

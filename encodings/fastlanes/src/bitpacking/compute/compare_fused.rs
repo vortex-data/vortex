@@ -11,9 +11,8 @@
 //! `[bool; 1024]` or `[T; 1024]` scratch. A single SIMD [`transpose_bits`] per block then rotates
 //! that mask into logical row order.
 //!
-//! The packed blocks are walked through the regular [`crate::unpack_iter::BitUnpackedChunks`]
-//! iterator (via [`crate::unpack_iter::BitUnpackedChunks::for_each_packed_chunk`]) rather than a
-//! bespoke chunk loop, so chunk sizing and bounds live in one place.
+//! The packed blocks are walked through [`crate::unpack_iter::for_each_packed_chunk`], so chunk
+//! sizing and bounds live in one place without allocating an unpack scratch buffer.
 //!
 //! Slicing is handled by working in *padded* coordinates: bit `offset + i` holds element `i`. The
 //! output buffer is over-allocated to whole 1024-bit blocks, so every block - the sliced first
@@ -50,6 +49,7 @@ use super::stream_predicate::stream_predicate;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::unpack_iter::BitPacked as BitPackedIter;
+use crate::unpack_iter::for_each_packed_chunk;
 
 const CHUNK_SIZE: usize = 1024;
 const U64_BITS: usize = u64::BITS as usize;
@@ -92,29 +92,31 @@ where
     let num_chunks = (offset + len).div_ceil(CHUNK_SIZE);
     let mut words: BufferMut<u64> = BufferMut::zeroed(num_chunks * WORDS_PER_CHUNK);
 
-    let chunks = array.unpacked_chunks::<T>()?;
     {
         let words = words.as_mut_slice();
         let mut lane_major = [0u64; WORDS_PER_CHUNK];
-        chunks.for_each_packed_chunk(|packed_chunk, range| {
-            // Block starts are always 1024-aligned (padded coords), so the slot is a full block.
-            let out = words[range.start / U64_BITS..]
-                .first_chunk_mut::<WORDS_PER_CHUNK>()
-                .vortex_expect("over-allocated buffer holds a full block per chunk");
-            // SAFETY: `packed_chunk` holds exactly `128 * bit_width / size_of::<U>()` packed
-            // elements and `bit_width <= U::T`, satisfying `unchecked_unpack_cmp`'s contract. The
-            // kernel assigns every word in `transposed`, so its previous contents are irrelevant.
-            unsafe {
-                <<T as PhysicalPType>::Physical as BitPackingCompare>::unchecked_unpack_cmp::<T, _>(
-                    bit_width,
-                    packed_chunk,
-                    &mut lane_major,
-                    cmp,
-                    rhs,
-                );
-            }
-            transpose_bits::<<T as PhysicalPType>::Physical>(&lane_major, out);
-        });
+        for_each_packed_chunk::<T, _>(
+            array.packed_slice::<<T as PhysicalPType>::Physical>(),
+            bit_width,
+            offset,
+            len,
+            |packed_chunk, range| {
+                // Block starts are always 1024-aligned (padded coords), so the slot is a full block.
+                let out = words[range.start / U64_BITS..]
+                    .first_chunk_mut::<WORDS_PER_CHUNK>()
+                    .vortex_expect("over-allocated buffer holds a full block per chunk");
+                // SAFETY: `packed_chunk` holds exactly `128 * bit_width / size_of::<U>()` packed
+                // elements and `bit_width <= U::T`, satisfying `unchecked_unpack_cmp`'s contract. The
+                // kernel assigns every word in `transposed`, so its previous contents are irrelevant.
+                unsafe {
+                    <<T as PhysicalPType>::Physical as BitPackingCompare>::unchecked_unpack_cmp::<
+                        T,
+                        _,
+                    >(bit_width, packed_chunk, &mut lane_major, cmp, rhs);
+                }
+                transpose_bits::<<T as PhysicalPType>::Physical>(&lane_major, out);
+            },
+        )?;
     }
 
     let mut bits = BitBufferMut::from_buffer(words.into_byte_buffer(), offset, len);

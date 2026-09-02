@@ -22,6 +22,7 @@ use vortex_error::VortexResult;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
+use crate::FL_CHUNK_SIZE;
 use crate::unpack_iter::BitPacked as BitPackedUnpack;
 use crate::unpack_iter::BitUnpackedChunks;
 
@@ -102,7 +103,7 @@ where
     F: BitPackedUnpack,
     T: NativePType,
     M: Fn(F) -> T,
-    D: FnOnce(&mut BitUnpackedChunks<F>, &mut [MaybeUninit<T>], &M),
+    D: FnOnce(&mut BitUnpackedChunks<'_, F>, &mut [MaybeUninit<T>], &M),
 {
     if array.is_empty() {
         return Ok(());
@@ -119,7 +120,8 @@ where
     // SAFETY: `decode` writes a value to every slot in this range.
     let uninit_slice = unsafe { uninit_range.slice_uninit_mut(0, len) };
 
-    let mut chunks = array.unpacked_chunks::<F>()?;
+    let mut scratch = [const { MaybeUninit::<F>::uninit() }; FL_CHUNK_SIZE];
+    let mut chunks = array.unpacked_chunks::<F>(&mut scratch)?;
     decode(&mut chunks, uninit_slice, &map);
 
     if let Some(patches) = array.patches() {
