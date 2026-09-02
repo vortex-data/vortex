@@ -144,6 +144,10 @@ jobs:
       # crate that adds an `#[cpu_features]` benchmark is picked up without editing this workflow.
       # Building the whole workspace would do the same, but links every bench binary in it
       # — with debuginfo, from the bench profile — to measure only the tagged ones.
+      #
+      # A tagged binary must also run under `#[vortex_bench_support::main]`: ASLR is off on
+      # these runners, so without it the numbers depend on the size of the environment
+      # block, which differs between a push and a pull request. See that attribute's docs.
       - name: Select packages with tagged benchmarks
         id: select
         run: |
@@ -152,16 +156,23 @@ jobs:
 
           meta = json.loads(subprocess.check_output(
               ["cargo", "metadata", "--no-deps", "--format-version", "1"]))
-          tagged = sorted(
-              package["name"]
-              for package in meta["packages"]
-              for target in package["targets"]
-              if "bench" in target["kind"]
-              and "cpu_features]" in pathlib.Path(target["src_path"]).read_text()
-          )
+          tagged = {}
+          for package in meta["packages"]:
+              for target in package["targets"]:
+                  if "bench" not in target["kind"]:
+                      continue
+                  source = pathlib.Path(target["src_path"]).read_text()
+                  if "cpu_features]" in source:
+                      tagged[target["src_path"]] = (package["name"], "bench_support::main]" in source)
           if not tagged:
               raise SystemExit("no benchmark carries `#[cpu_features]`; this job has nothing to measure")
-          print("packages=" + " ".join(f"-p {name}" for name in dict.fromkeys(tagged)))
+          unwrapped = sorted(path for path, (_, wrapped) in tagged.items() if not wrapped)
+          if unwrapped:
+              raise SystemExit(
+                  "these carry `#[cpu_features]` but their `fn main` lacks "
+                  "`#[vortex_bench_support::main]`:\n  " + "\n  ".join(unwrapped))
+          packages = sorted({name for name, _ in tagged.values()})
+          print("packages=" + " ".join(f"-p {name}" for name in packages))
           EOF
       - name: Build benchmarks
         env:
@@ -185,15 +196,11 @@ jobs:
       # so this selects paths of the form `<bench target>::<features>::<name>`. That middle
       # component only exists because `#[cpu_features]` puts it there: an untagged benchmark has one
       # component fewer and cannot match, whatever it is called.
+      # How many samples to take and how many iterations each one runs are set on the
+      # benchmarks by `#[cpu_features]`, not here: a `DIVAN_SAMPLE_COUNT` or
+      # `DIVAN_SAMPLE_SIZE` in the environment would override every one of them.
       - name: Run benchmarks
         uses: CodSpeedHQ/action@4296e51e7041e24dadb86d1d6e8b9320d223dbe8  # v5
-        env:
-          # divan's default of 100 samples leaves these benchmarks too noisy to compare
-          # across runs: the same commit measured twice varied by up to 2.2x on the 1,024
-          # element cases and ~50-70% on the 65,536 element ones. At 1,000 samples the same
-          # experiment stays within ~6-10%, and the suite still runs in seconds, so the extra
-          # sampling is close to free next to the minute-plus spent building it.
-          DIVAN_SAMPLE_COUNT: "1000"
         with:
           run: bash scripts/bench-taskset.sh cargo codspeed run -- '.*::${{ matrix.features }}::'
           token: ${{ secrets.CODSPEED_TOKEN }}

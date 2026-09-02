@@ -31,6 +31,7 @@ use vortex_buffer::collect_bool_word_scalar;
 #[cfg(not(codspeed))]
 use vortex_buffer::pack_bool_word_swar;
 
+#[vortex_bench_support::main]
 fn main() {
     // Pre-warm CPUID feature detection so the one-time probe cost is never
     // included in any benchmark iteration.
@@ -107,7 +108,7 @@ fn bench_words_gather(
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(args = INPUT_SIZE)]
+#[divan::bench(args = INPUT_SIZE, sample_size = 2048, sample_count = 200)]
 fn words_gather_dispatch(bencher: Bencher, len: usize) {
     bench_words_gather(bencher, len, |words, len, bools| {
         // SAFETY: `collect_bool_words` invokes the predicate with indices `0..len` only.
@@ -116,7 +117,7 @@ fn words_gather_dispatch(bencher: Bencher, len: usize) {
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(args = INPUT_SIZE)]
+#[divan::bench(args = INPUT_SIZE, sample_size = 256, sample_count = 200)]
 fn words_gather_scalar(bencher: Bencher, len: usize) {
     bench_words_gather(bencher, len, |words, len, bools| {
         // SAFETY: `collect_bool_words_old` invokes the predicate with indices `0..len` only.

@@ -22,6 +22,7 @@ use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
 
+#[vortex_bench_support::main]
 fn main() {
     LazyLock::force(&SESSION);
     divan::main();
@@ -30,7 +31,7 @@ fn main() {
 static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench]
+#[divan::bench(sample_size = 16)]
 fn scalar_subtract(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
     let range = Uniform::new(0i64, 100_000_000).unwrap();

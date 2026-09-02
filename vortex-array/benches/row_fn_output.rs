@@ -35,6 +35,7 @@ use vortex_session::registry::CachedId;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
+#[vortex_bench_support::main]
 fn main() {
     LazyLock::force(&SESSION);
     divan::main();
@@ -182,35 +183,35 @@ impl RowFn for DeferredI64 {
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(types = [i32, i64], args = INPUT_SHAPES)]
+#[divan::bench(types = [i32, i64], args = INPUT_SHAPES, sample_size = 32)]
 fn infallible_bool<T: BenchPrimitive>(bencher: Bencher, &shape: &InputShape) {
     let function = InfallibleBool::<T>(PhantomData);
     bench_row_fn(bencher, &function, make_args::<T>(shape));
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(args = CONSTANT_SHAPES)]
+#[divan::bench(args = CONSTANT_SHAPES, sample_size = 32)]
 fn infallible_bool_constant(bencher: Bencher, &shape: &InputShape) {
     let function = InfallibleBool::<i64>(PhantomData);
     bench_row_fn(bencher, &function, make_args::<i64>(shape));
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(types = [i32, i64], args = INPUT_SHAPES)]
+#[divan::bench(types = [i32, i64], args = INPUT_SHAPES, sample_size = 32)]
 fn deferred_bool<T: BenchPrimitive>(bencher: Bencher, &shape: &InputShape) {
     let function = DeferredBool::<T>(PhantomData);
     bench_row_fn(bencher, &function, make_args::<T>(shape));
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(args = CONSTANT_SHAPES)]
+#[divan::bench(args = CONSTANT_SHAPES, sample_size = 32)]
 fn deferred_bool_constant(bencher: Bencher, &shape: &InputShape) {
     let function = DeferredBool::<i64>(PhantomData);
     bench_row_fn(bencher, &function, make_args::<i64>(shape));
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(args = INPUT_SHAPES)]
+#[divan::bench(args = INPUT_SHAPES, sample_size = 8)]
 fn deferred_i64(bencher: Bencher, &shape: &InputShape) {
     bench_row_fn(bencher, &DeferredI64, make_args::<i64>(shape));
 }

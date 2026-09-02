@@ -48,6 +48,7 @@ use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_compute::lane_kernels::LaneZip;
 use vortex_compute::lane_kernels::ReinterpretSink;
 
+#[vortex_bench_support::main]
 fn main() {
     assert_overflow_parity();
     assert_null_overflow_suppressed();
@@ -330,7 +331,7 @@ fn add_fixture(n: usize) -> AddFixture {
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(args = SIZES)]
+#[divan::bench(args = SIZES, sample_size = 16)]
 fn lanezip_checked_add_u32(bencher: Bencher, n: usize) {
     let f = add_fixture(n);
     bencher
@@ -353,7 +354,7 @@ fn lanezip_checked_add_u32(bencher: Bencher, n: usize) {
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(args = SIZES)]
+#[divan::bench(args = SIZES, sample_size = 8)]
 fn arrow_checked_add_u32(bencher: Bencher, n: usize) {
     let f = add_fixture(n);
     let lhs_arr: ArrowArrayRef = Arc::new(UInt32Array::new(
