@@ -333,7 +333,8 @@ fn unpack_chunks<
             let skip = offset.saturating_sub(range.start);
             let dst = &mut output[range.start + skip - offset..range.end - offset];
             if dst.len() == FL_CHUNK_SIZE {
-                // SAFETY: `dst` has room for a chunk.
+                // SAFETY: `packed` holds one chunk at the kernel's bit width and `dst` has room
+                // for a chunk.
                 unsafe { unfor_pack_into(unfor_pack, packed, reference, dst) };
             } else {
                 // SAFETY: as above, with `scratch` as the destination.
@@ -348,7 +349,8 @@ fn unpack_chunks<
 ///
 /// # Safety
 ///
-/// `dst` must have room for a full chunk.
+/// `packed` must hold one chunk at the bit width `unfor_pack` was resolved for, and `dst` must
+/// have room for a full chunk.
 #[inline]
 unsafe fn unfor_pack_into<T>(
     unfor_pack: UnforPackFn<T>,
@@ -356,10 +358,14 @@ unsafe fn unfor_pack_into<T>(
     reference: T,
     dst: &mut [MaybeUninit<T>],
 ) {
-    // SAFETY: the caller guarantees the size, and the unpack initializes every value of `dst`.
-    unfor_pack(packed, reference, unsafe {
-        mem::transmute::<&mut [MaybeUninit<T>], &mut [T]>(dst)
-    });
+    // SAFETY: the caller guarantees the sizes, and the unpack initializes every value of `dst`.
+    unsafe {
+        unfor_pack(
+            packed,
+            reference,
+            mem::transmute::<&mut [MaybeUninit<T>], &mut [T]>(dst),
+        );
+    }
 }
 
 /// Write each patch value plus the reference of the chunk it falls in.

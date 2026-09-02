@@ -65,7 +65,7 @@ pub(crate) fn initialize(session: &VortexSession) {
 impl ArrayHash for BitPackedData {
     fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: EqMode) {
         self.offset.hash(state);
-        self.global_bit_width.hash(state);
+        self.global_bit_width().hash(state);
         self.packed.array_hash(state, accuracy);
         self.patches_data.hash(state);
     }
@@ -74,7 +74,7 @@ impl ArrayHash for BitPackedData {
 impl ArrayEq for BitPackedData {
     fn array_eq(&self, other: &Self, accuracy: EqMode) -> bool {
         self.offset == other.offset
-            && self.global_bit_width == other.global_bit_width
+            && self.global_bit_width() == other.global_bit_width()
             && self.packed.array_eq(&other.packed, accuracy)
             && self.patches_data == other.patches_data
     }
@@ -100,7 +100,7 @@ impl VTable for BitPacked {
     ) -> VortexResult<()> {
         vortex_ensure_eq!(slots.len(), BitPackedSlots::COUNT);
         let bp_slots = BitPackedSlotsView::from_slots(slots);
-        match (data.global_bit_width, bp_slots.block_offsets) {
+        match (data.global_bit_width(), bp_slots.block_offsets) {
             (Some(_), None) => {}
             (None, Some(block_offsets)) => validate_block_offsets(
                 block_offsets,
@@ -121,7 +121,7 @@ impl VTable for BitPacked {
             dtype.as_ptype(),
             &validity,
             patches.as_ref(),
-            data.global_bit_width,
+            data.global_bit_width(),
             len,
             data.offset,
         )

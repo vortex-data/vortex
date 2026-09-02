@@ -190,21 +190,19 @@ pub struct BitPackedData {
     /// The offset within the first block (created with a slice).
     /// 0 <= offset < 1024
     pub(super) offset: u16,
-    /// The bit width shared by every block, or `None` when the block offsets child holds each
-    /// block's boundaries.
-    pub(super) global_bit_width: Option<u8>,
     pub(super) packed: BufferHandle,
     /// Patch metadata for reconstructing Patches from slots.
     pub(super) patches_data: Option<PatchesData>,
     /// FastLanes kernels for the physical type and global bit width of this array, resolved at
-    /// construction so that decoding never dispatches on the runtime bit width. `None` when the
-    /// blocks have per-block bit widths.
+    /// construction so that decoding never dispatches on the runtime bit width. Also the only
+    /// record of the global bit width. `None` when the block offsets child holds each block's
+    /// boundaries.
     kernels: Option<ResolvedKernels>,
 }
 
 impl Display for BitPackedData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self.global_bit_width {
+        match self.global_bit_width() {
             Some(bit_width) => write!(f, "bit_width: {}, offset: {}", bit_width, self.offset),
             None => write!(f, "offset: {}", self.offset),
         }
@@ -267,7 +265,6 @@ impl BitPackedData {
 
         Ok(Self {
             offset,
-            global_bit_width: Some(bit_width),
             packed,
             patches_data: patches.as_ref().map(PatchesData::from_patches),
             kernels: Some(ResolvedKernels::try_new(ptype, bit_width)?),
@@ -287,7 +284,6 @@ impl BitPackedData {
 
         Ok(Self {
             offset,
-            global_bit_width: None,
             packed,
             patches_data: patches.as_ref().map(PatchesData::from_patches),
             kernels: None,
@@ -389,6 +385,13 @@ impl BitPackedData {
         BitUnpackedChunks::try_new(self, len, scratch)
     }
 
+    /// The bit width shared by every block, or `None` when the block offsets child holds each
+    /// block's boundaries.
+    #[inline]
+    pub(super) fn global_bit_width(&self) -> Option<u8> {
+        self.kernels.as_ref().map(ResolvedKernels::bit_width)
+    }
+
     /// The FastLanes kernels for this array's global bit width, resolved when the array was
     /// built.
     ///
@@ -468,7 +471,7 @@ pub trait BitPackedArrayExt: BitPackedArraySlotsExt {
     /// offsets.
     #[inline]
     fn bit_widths(&self) -> BitWidthsView<'_> {
-        match (self.global_bit_width, self.block_offsets()) {
+        match (self.global_bit_width(), self.block_offsets()) {
             (Some(bit_width), None) => BitWidthsView::Global(bit_width),
             (None, Some(block_offsets)) => BitWidthsView::Blocked(block_offsets),
             _ => vortex_panic!(

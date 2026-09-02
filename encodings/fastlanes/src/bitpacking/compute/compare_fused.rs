@@ -109,9 +109,10 @@ where
                 let out = words[range.start / U64_BITS..]
                     .first_chunk_mut::<WORDS_PER_CHUNK>()
                     .vortex_expect("over-allocated buffer holds a full block per chunk");
-                // The kernel assigns every word in `lane_major`, so its previous contents are
-                // irrelevant.
-                unpack_cmp(packed_chunk, &mut lane_major, cmp, rhs);
+                // SAFETY: `packed_chunk` holds exactly one block at the array's bit width, which is
+                // the width `unpack_cmp` was resolved for. The kernel assigns every word in
+                // `lane_major`, so its previous contents are irrelevant.
+                unsafe { unpack_cmp(packed_chunk, &mut lane_major, cmp, rhs) };
                 transpose_bits::<<T as PhysicalPType>::Physical>(&lane_major, out);
             },
         )?;
