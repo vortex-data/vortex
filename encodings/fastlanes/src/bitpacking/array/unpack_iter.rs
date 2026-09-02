@@ -24,9 +24,12 @@ const CHUNK_SIZE: usize = FL_CHUNK_SIZE;
 pub trait UnpackStrategy<T: PhysicalPType> {
     /// Unpack a chunk of packed data into the destination buffer.
     ///
-    /// `chunk` must contain exactly one packed block (`128 * bit_width / size_of::<T>()`
-    /// elements) and `dst` exactly `CHUNK_SIZE` elements.
-    fn unpack_chunk(&self, chunk: &[T::Physical], dst: &mut [T::Physical]);
+    /// # Safety
+    ///
+    /// - `chunk` must contain exactly one packed block (`128 * bit_width / size_of::<T>()`
+    ///   elements)
+    /// - `dst` must contain exactly `CHUNK_SIZE` elements
+    unsafe fn unpack_chunk(&self, chunk: &[T::Physical], dst: &mut [T::Physical]);
 }
 
 /// BitPacking strategy - plain bitpacking without reference value, using the unpack kernel
@@ -38,8 +41,9 @@ pub struct BitPackingStrategy<P> {
 impl<T: BitPacked> UnpackStrategy<T> for BitPackingStrategy<T::Physical> {
     #[allow(clippy::inline_always)]
     #[inline(always)]
-    fn unpack_chunk(&self, chunk: &[T::Physical], dst: &mut [T::Physical]) {
-        (self.unpack)(chunk, dst);
+    unsafe fn unpack_chunk(&self, chunk: &[T::Physical], dst: &mut [T::Physical]) {
+        // SAFETY: The caller upholds the `unpack_chunk` length contract, which is `UnpackFn`'s.
+        unsafe { (self.unpack)(chunk, dst) }
     }
 }
 
@@ -170,9 +174,13 @@ impl<'a, T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<'a, T, S> {
             } else {
                 CHUNK_SIZE - self.offset
             };
-            self.strategy.unpack_chunk(chunk, dst);
-            // SAFETY: `unpack_chunk` initialized every element of the buffer.
-            unsafe { mem::transmute(&mut self.scratch[self.offset..][..header_end_slice]) }
+            // SAFETY:
+            // 1. chunk is elems_per_chunk.
+            // 2. buffer is exactly CHUNK_SIZE, and `unpack_chunk` initializes all of it.
+            unsafe {
+                self.strategy.unpack_chunk(chunk, dst);
+                mem::transmute(&mut self.scratch[self.offset..][..header_end_slice])
+            }
         })
     }
 
@@ -293,9 +301,13 @@ impl<'a, T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<'a, T, S> {
                 [(self.num_chunks - 1) * self.elems_per_chunk()..][..self.elems_per_chunk()];
             let dst: &mut [MaybeUninit<T>] = self.scratch;
             let dst: &mut [T::Physical] = unsafe { mem::transmute(dst) };
-            self.strategy.unpack_chunk(chunk, dst);
-            // SAFETY: `unpack_chunk` initialized every element of the buffer.
-            unsafe { mem::transmute(&mut self.scratch[..self.last_chunk_length]) }
+            // SAFETY:
+            // 1. chunk is elems_per_chunk.
+            // 2. buffer is exactly CHUNK_SIZE, and `unpack_chunk` initializes all of it.
+            unsafe {
+                self.strategy.unpack_chunk(chunk, dst);
+                mem::transmute(&mut self.scratch[..self.last_chunk_length])
+            }
         })
     }
 
@@ -397,9 +409,12 @@ impl<'a, T: BitPacked + 'a> LendingIterator for BitUnpackIterator<'a, T> {
         let chunk = &self.packed[self.idx * self.elems_per_chunk..][..self.elems_per_chunk];
 
         let dst: &mut [MaybeUninit<T>] = self.buffer;
-        // SAFETY: &[MaybeUninit<T>] and &[T::Physical] have the same layout.
-        let dst: &mut [T::Physical] = unsafe { mem::transmute(dst) };
-        (self.unpack)(chunk, dst);
+        // SAFETY: &[MaybeUninit<T>] and &[T::Physical] have the same layout; `chunk` is exactly
+        // `elems_per_chunk` and `dst` exactly CHUNK_SIZE.
+        unsafe {
+            let dst: &mut [T::Physical] = mem::transmute(dst);
+            (self.unpack)(chunk, dst);
+        }
         self.idx += 1;
         // SAFETY: The buffer has the appropriate lifetime, the iterator signature doesn't account for it
         Some(unsafe { mem::transmute::<&mut [MaybeUninit<T>; 1024], &mut [T; 1024]>(self.buffer) })

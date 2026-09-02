@@ -75,7 +75,7 @@ pub struct BitPackedMetadata {
 impl ArrayHash for BitPackedData {
     fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: EqMode) {
         self.offset.hash(state);
-        self.bit_width.hash(state);
+        self.bit_width().hash(state);
         self.packed.array_hash(state, accuracy);
         self.patches_data.hash(state);
     }
@@ -84,7 +84,7 @@ impl ArrayHash for BitPackedData {
 impl ArrayEq for BitPackedData {
     fn array_eq(&self, other: &Self, accuracy: EqMode) -> bool {
         self.offset == other.offset
-            && self.bit_width == other.bit_width
+            && self.bit_width() == other.bit_width()
             && self.packed.array_eq(&other.packed, accuracy)
             && self.patches_data == other.patches_data
     }
@@ -118,7 +118,7 @@ impl VTable for BitPacked {
             dtype.as_ptype(),
             &validity,
             patches.as_ref(),
-            data.bit_width,
+            data.bit_width(),
             len,
             data.offset,
         )
@@ -331,7 +331,7 @@ impl BitPacked {
         let data = array.into_data();
         BitPackedDataParts {
             offset: data.offset,
-            bit_width: data.bit_width,
+            bit_width: data.bit_width(),
             len,
             packed: data.packed,
             patches,

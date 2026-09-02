@@ -26,37 +26,50 @@ use vortex_error::vortex_panic;
 
 /// Packs one FastLanes block of 1024 values.
 ///
+/// # Safety
+///
 /// `input` must hold exactly 1024 elements and `output` exactly `128 * bit_width / size_of::<P>()`.
-pub type PackFn<P> = fn(input: &[P], output: &mut [P]);
+/// The lengths are checked only with `debug_assert`.
+pub type PackFn<P> = unsafe fn(input: &[P], output: &mut [P]);
 
 /// Unpacks one FastLanes block of 1024 values.
 ///
-/// `packed` must hold exactly [`BitPackedKernels::packed_block_len`] elements and `output`
-/// exactly 1024.
-pub type UnpackFn<P> = fn(packed: &[P], output: &mut [P]);
-
-/// Unpacks the value at `index` (`< 1024`) of one packed FastLanes block.
+/// # Safety
 ///
-/// `packed` must hold exactly [`BitPackedKernels::packed_block_len`] elements.
-pub type UnpackSingleFn<P> = fn(packed: &[P], index: usize) -> P;
+/// `packed` must hold exactly [`BitPackedKernels::packed_block_len`] elements and `output`
+/// exactly 1024. The lengths are checked only with `debug_assert`.
+pub type UnpackFn<P> = unsafe fn(packed: &[P], output: &mut [P]);
+
+/// Unpacks the value at `index` of one packed FastLanes block.
+///
+/// # Safety
+///
+/// `packed` must hold exactly [`BitPackedKernels::packed_block_len`] elements. The length is
+/// checked only with `debug_assert`. An `index` of 1024 or more panics.
+pub type UnpackSingleFn<P> = unsafe fn(packed: &[P], index: usize) -> P;
 
 /// Unpacks one FastLanes block and wrapping-adds `reference` to every value.
 ///
+/// # Safety
+///
 /// `packed` must hold exactly [`BitPackedKernels::packed_block_len`] elements and `output`
-/// exactly 1024.
-pub type UnforPackFn<P> = fn(packed: &[P], reference: P, output: &mut [P]);
+/// exactly 1024. The lengths are checked only with `debug_assert`.
+pub type UnforPackFn<P> = unsafe fn(packed: &[P], reference: P, output: &mut [P]);
 
 /// Unpacks one FastLanes block, comparing each value against `rhs` with `cmp` and writing the
 /// results as a lane-major 1024-bit mask. See [`BitPackingCompare::unpack_cmp`] for the layout.
 ///
-/// `packed` must hold exactly `128 * bit_width / size_of::<P>()` elements.
-pub type UnpackCmpFn<P, V, F> = fn(packed: &[P], output: &mut [u64; 16], cmp: F, rhs: V);
+/// # Safety
+///
+/// `packed` must hold exactly `128 * bit_width / size_of::<P>()` elements. The length is checked
+/// only with `debug_assert`.
+pub type UnpackCmpFn<P, V, F> = unsafe fn(packed: &[P], output: &mut [u64; 16], cmp: F, rhs: V);
 
 /// FastLanes kernels resolved for one bit width of physical type `P`.
 ///
 /// Obtained from [`BitPackedData::kernels`](crate::BitPackedData::kernels). Each kernel is the
 /// const-width instantiation for the array's bit width, so calling it does not dispatch on the
-/// width. The kernels check the block lengths they are handed and panic on a mismatch.
+/// width.
 #[derive(Clone, Copy, Debug)]
 pub struct BitPackedKernels<P> {
     /// The unsigned [`PType`] of `P`, kept so the type-erased form can check it before
@@ -71,13 +84,15 @@ pub struct BitPackedKernels<P> {
     pub unfor_pack: UnforPackFn<P>,
 }
 
-impl<P: BitPackedPhysical> BitPackedKernels<P> {
+impl<P> BitPackedKernels<P> {
     /// The bit width the kernels were resolved for.
     #[inline]
     pub fn bit_width(&self) -> u8 {
         self.bit_width
     }
+}
 
+impl<P: BitPackedPhysical> BitPackedKernels<P> {
     /// The number of `P` elements holding one packed block of 1024 values.
     #[inline]
     pub fn packed_block_len(&self) -> usize {
@@ -176,27 +191,34 @@ pub trait BitPackedPhysical: NativePType + BitPacking + BitPackingCompare + FoR 
         F: Fn(V, V) -> bool;
 }
 
-fn pack<P: BitPacking, const W: usize, const B: usize>(input: &[P], output: &mut [P]) {
-    P::pack::<W, B>(as_block(input), as_block_mut(output));
+unsafe fn pack<P: BitPacking, const W: usize, const B: usize>(input: &[P], output: &mut [P]) {
+    // SAFETY: The caller upholds the `PackFn` length contract.
+    unsafe { P::pack::<W, B>(as_block(input), as_block_mut(output)) }
 }
 
-fn unpack<P: BitPacking, const W: usize, const B: usize>(packed: &[P], output: &mut [P]) {
-    P::unpack::<W, B>(as_block(packed), as_block_mut(output));
+unsafe fn unpack<P: BitPacking, const W: usize, const B: usize>(packed: &[P], output: &mut [P]) {
+    // SAFETY: The caller upholds the `UnpackFn` length contract.
+    unsafe { P::unpack::<W, B>(as_block(packed), as_block_mut(output)) }
 }
 
-fn unpack_single<P: BitPacking, const W: usize, const B: usize>(packed: &[P], index: usize) -> P {
-    P::unpack_single::<W, B>(as_block(packed), index)
+unsafe fn unpack_single<P: BitPacking, const W: usize, const B: usize>(
+    packed: &[P],
+    index: usize,
+) -> P {
+    // SAFETY: The caller upholds the `UnpackSingleFn` length contract.
+    P::unpack_single::<W, B>(unsafe { as_block(packed) }, index)
 }
 
-fn unfor_pack<P: FoR, const W: usize, const B: usize>(
+unsafe fn unfor_pack<P: FoR, const W: usize, const B: usize>(
     packed: &[P],
     reference: P,
     output: &mut [P],
 ) {
-    P::unfor_pack::<W, B>(as_block(packed), reference, as_block_mut(output));
+    // SAFETY: The caller upholds the `UnforPackFn` length contract.
+    unsafe { P::unfor_pack::<W, B>(as_block(packed), reference, as_block_mut(output)) }
 }
 
-fn unpack_cmp<P: BitPackingCompare, const W: usize, const B: usize, V, F>(
+unsafe fn unpack_cmp<P: BitPackingCompare, const W: usize, const B: usize, V, F>(
     packed: &[P],
     output: &mut [u64; 16],
     cmp: F,
@@ -205,32 +227,32 @@ fn unpack_cmp<P: BitPackingCompare, const W: usize, const B: usize, V, F>(
     V: FastLanesComparable<Bitpacked = P>,
     F: Fn(V, V) -> bool,
 {
-    P::unpack_cmp::<W, B, V, F>(as_block(packed), output, cmp, rhs);
+    // SAFETY: The caller upholds the `UnpackCmpFn` length contract.
+    P::unpack_cmp::<W, B, V, F>(unsafe { as_block(packed) }, output, cmp, rhs);
 }
 
+/// Reinterprets `slice` as a block of exactly `N` elements.
+///
+/// # Safety
+///
+/// `slice.len()` must be `N`. This is checked only with `debug_assert`.
 #[inline(always)]
-fn as_block<P, const N: usize>(slice: &[P]) -> &[P; N] {
-    match slice.try_into() {
-        Ok(block) => block,
-        Err(_) => block_len_mismatch(N, slice.len()),
-    }
+unsafe fn as_block<P, const N: usize>(slice: &[P]) -> &[P; N] {
+    debug_assert_eq!(slice.len(), N);
+    // SAFETY: The caller guarantees `N` elements, and `[P; N]` has the alignment of `P`.
+    unsafe { &*slice.as_ptr().cast::<[P; N]>() }
 }
 
+/// Reinterprets `slice` as a mutable block of exactly `N` elements.
+///
+/// # Safety
+///
+/// `slice.len()` must be `N`. This is checked only with `debug_assert`.
 #[inline(always)]
-fn as_block_mut<P, const N: usize>(slice: &mut [P]) -> &mut [P; N] {
-    let len = slice.len();
-    match slice.try_into() {
-        Ok(block) => block,
-        Err(_) => block_len_mismatch(N, len),
-    }
-}
-
-/// Kept out of line so the kernel wrappers stay frameless trampolines: the panic formatting
-/// would otherwise reserve stack on every call.
-#[cold]
-#[inline(never)]
-fn block_len_mismatch(expected: usize, actual: usize) -> ! {
-    vortex_panic!("Expected a FastLanes block of {expected} elements, got {actual}")
+unsafe fn as_block_mut<P, const N: usize>(slice: &mut [P]) -> &mut [P; N] {
+    debug_assert_eq!(slice.len(), N);
+    // SAFETY: The caller guarantees `N` elements, and `[P; N]` has the alignment of `P`.
+    unsafe { &mut *slice.as_mut_ptr().cast::<[P; N]>() }
 }
 
 macro_rules! impl_bitpacked_physical {
@@ -322,20 +344,23 @@ mod tests {
             unsafe { P::unchecked_pack(bit_width as usize, &values, &mut expected_packed) };
 
             let mut packed = vec![P::zero(); block_len];
-            P::resolve_pack(bit_width)(&values, &mut packed);
+            // SAFETY: `values` holds 1024 values and `packed` exactly one block at `bit_width`.
+            unsafe { P::resolve_pack(bit_width)(&values, &mut packed) };
             assert_eq!(packed, expected_packed, "pack at width {bit_width}");
 
             let mut expected = [P::zero(); 1024];
             // SAFETY: `packed` holds exactly one block at `bit_width` and `expected` 1024 values.
             unsafe { P::unchecked_unpack(bit_width as usize, &packed, &mut expected) };
 
+            // SAFETY: `packed` holds exactly one block at `bit_width` and `unpacked` 1024 values.
             let mut unpacked = [P::zero(); 1024];
-            (kernels.unpack)(&packed, &mut unpacked);
+            unsafe { (kernels.unpack)(&packed, &mut unpacked) };
             assert_eq!(unpacked, expected, "unpack at width {bit_width}");
 
             for index in [0, 1, 511, 1023] {
                 assert_eq!(
-                    (kernels.unpack_single)(&packed, index),
+                    // SAFETY: `packed` holds exactly one block at `bit_width`.
+                    unsafe { (kernels.unpack_single)(&packed, index) },
                     expected[index],
                     "unpack_single at width {bit_width} index {index}"
                 );
@@ -343,7 +368,8 @@ mod tests {
 
             let reference = P::from(7).unwrap();
             let mut unfor = [P::zero(); 1024];
-            (kernels.unfor_pack)(&packed, reference, &mut unfor);
+            // SAFETY: `packed` holds exactly one block at `bit_width` and `unfor` 1024 values.
+            unsafe { (kernels.unfor_pack)(&packed, reference, &mut unfor) };
             for (got, want) in unfor.iter().zip(expected) {
                 assert_eq!(
                     *got,
@@ -354,7 +380,10 @@ mod tests {
 
             let rhs = P::from(100).unwrap();
             let mut mask = [0u64; 16];
-            P::resolve_unpack_cmp::<P, _>(bit_width)(&packed, &mut mask, |a, b| a < b, rhs);
+            // SAFETY: `packed` holds exactly one block at `bit_width`.
+            unsafe {
+                P::resolve_unpack_cmp::<P, _>(bit_width)(&packed, &mut mask, |a, b| a < b, rhs)
+            };
             let mut expected_mask = [0u64; 16];
             // SAFETY: `packed` holds exactly one block at `bit_width`.
             unsafe {
@@ -401,14 +430,5 @@ mod tests {
         ResolvedKernels::try_new(PType::U16, 3)
             .unwrap()
             .typed::<u8>();
-    }
-
-    #[test]
-    #[should_panic(expected = "Expected a FastLanes block of 1024 elements")]
-    fn unpack_rejects_short_output() {
-        let kernels = u8::resolve_kernels(1);
-        let packed = [0u8; 128];
-        let mut output = [0u8; 512];
-        (kernels.unpack)(&packed, &mut output);
     }
 }

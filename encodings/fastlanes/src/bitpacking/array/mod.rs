@@ -75,18 +75,23 @@ pub struct BitPackedData {
     /// The offset within the first block (created with a slice).
     /// 0 <= offset < 1024
     pub(super) offset: u16,
-    pub(super) bit_width: u8,
     pub(super) packed: BufferHandle,
     /// Patch metadata for reconstructing Patches from slots.
     pub(super) patches_data: Option<PatchesData>,
     /// FastLanes kernels for the physical type and bit width of this array, resolved at
-    /// construction so that decoding never dispatches on the runtime bit width.
+    /// construction so that decoding never dispatches on the runtime bit width. Also the only
+    /// record of the bit width.
     kernels: ResolvedKernels,
 }
 
 impl Display for BitPackedData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "bit_width: {}, offset: {}", self.bit_width, self.offset)
+        write!(
+            f,
+            "bit_width: {}, offset: {}",
+            self.bit_width(),
+            self.offset
+        )
     }
 }
 
@@ -146,7 +151,6 @@ impl BitPackedData {
 
         Ok(Self {
             offset,
-            bit_width,
             packed,
             patches_data: patches.as_ref().map(PatchesData::from_patches),
             kernels: ResolvedKernels::try_new(ptype, bit_width)?,
@@ -250,7 +254,7 @@ impl BitPackedData {
     /// Bit-width of the packed values
     #[inline]
     pub fn bit_width(&self) -> u8 {
-        self.bit_width
+        self.kernels.bit_width()
     }
 
     /// The FastLanes kernels for this array's bit width, resolved when the array was built.

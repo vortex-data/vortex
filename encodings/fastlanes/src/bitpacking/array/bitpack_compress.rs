@@ -165,13 +165,15 @@ pub fn bitpack_primitive<T: BitPackedPhysical>(array: &[T], bit_width: u8) -> Bu
     (0..num_full_chunks).for_each(|i| {
         let start_elem = i * 1024;
         let output_len = output.len();
-        // SAFETY: The capacity holds every block, and `pack` initializes the new elements before
-        // they are read.
-        unsafe { output.set_len(output_len + packed_len) };
-        pack(
-            &array[start_elem..][..1024],
-            &mut output[output_len..][..packed_len],
-        );
+        // SAFETY: The capacity holds every block, so the new slots exist; the input is exactly
+        // 1024 values and the output exactly one block, which `pack` fully initializes.
+        unsafe {
+            output.set_len(output_len + packed_len);
+            pack(
+                &array[start_elem..][..1024],
+                &mut output[output_len..][..packed_len],
+            );
+        }
     });
 
     // Pad the last chunk with zeros to a full 1024 elements.
@@ -181,10 +183,12 @@ pub fn bitpack_primitive<T: BitPackedPhysical>(array: &[T], bit_width: u8) -> Bu
         last_chunk[..last_chunk_size].copy_from_slice(&array[array.len() - last_chunk_size..]);
 
         let output_len = output.len();
-        // SAFETY: The capacity holds every block, and `pack` initializes the new elements before
-        // they are read.
-        unsafe { output.set_len(output_len + packed_len) };
-        pack(&last_chunk, &mut output[output_len..][..packed_len]);
+        // SAFETY: The capacity holds every block, so the new slots exist; the input is exactly
+        // 1024 values and the output exactly one block, which `pack` fully initializes.
+        unsafe {
+            output.set_len(output_len + packed_len);
+            pack(&last_chunk, &mut output[output_len..][..packed_len]);
+        }
     }
 
     output.freeze()

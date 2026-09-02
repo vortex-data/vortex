@@ -192,7 +192,8 @@ pub fn unpack_single_primitive<P: BitPackedPhysical>(
     let elems_per_chunk = kernels.packed_block_len();
 
     let packed_chunk = &packed[chunk_index * elems_per_chunk..][..elems_per_chunk];
-    (kernels.unpack_single)(packed_chunk, index_in_chunk)
+    // SAFETY: `packed_chunk` is exactly one block at the width `kernels` were resolved for.
+    unsafe { (kernels.unpack_single)(packed_chunk, index_in_chunk) }
 }
 
 pub fn count_exceptions(bit_width: u8, bit_width_freq: &[usize]) -> usize {

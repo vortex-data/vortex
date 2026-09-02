@@ -140,17 +140,23 @@ fn filter_with_indices<T: BitPackedPhysical>(
 
             if indices_within_chunk.len() == 1024 {
                 // Unpack the entire chunk.
-                let values_len = values.len();
-                // SAFETY: The capacity holds every index, and `unpack` initializes all 1024
-                // values before they are read.
-                unsafe { values.set_len(values_len + 1024) };
-                (kernels.unpack)(packed, &mut values.as_mut_slice()[values_len..]);
+                // SAFETY: The capacity holds every index, so the 1024 new slots exist; `packed`
+                // is exactly one block and `unpack` initializes all 1024 slots before they are
+                // read.
+                unsafe {
+                    let values_len = values.len();
+                    values.set_len(values_len + 1024);
+                    (kernels.unpack)(packed, &mut values.as_mut_slice()[values_len..]);
+                }
             } else if indices_within_chunk.len() > UNPACK_CHUNK_THRESHOLD {
                 // Unpack into a temporary chunk and then copy the values.
-                let dst: &mut [MaybeUninit<T>] = &mut unpacked;
-                // SAFETY: &[MaybeUninit<T>] and &[T] have the same layout.
-                let dst: &mut [T] = unsafe { std::mem::transmute(dst) };
-                (kernels.unpack)(packed, dst);
+                // SAFETY: &[MaybeUninit<T>] and &[T] have the same layout; `packed` is exactly
+                // one block and `unpacked` exactly 1024 values.
+                unsafe {
+                    let dst: &mut [MaybeUninit<T>] = &mut unpacked;
+                    let dst: &mut [T] = std::mem::transmute(dst);
+                    (kernels.unpack)(packed, dst);
+                }
                 values.extend_trusted(
                     indices_within_chunk
                         .iter()
@@ -158,10 +164,11 @@ fn filter_with_indices<T: BitPackedPhysical>(
                 );
             } else {
                 // Otherwise, unpack each element individually.
+                // SAFETY: `packed` is exactly one block and every index is within the chunk.
                 values.extend_trusted(
                     indices_within_chunk
                         .iter()
-                        .map(|&idx| (kernels.unpack_single)(packed, idx)),
+                        .map(|&idx| unsafe { (kernels.unpack_single)(packed, idx) }),
                 );
             }
         },

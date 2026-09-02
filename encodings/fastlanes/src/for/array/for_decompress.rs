@@ -40,8 +40,10 @@ struct FoRStrategy<T> {
 impl<T: PhysicalPType<Physical = T> + BitPackedPhysical> UnpackStrategy<T> for FoRStrategy<T> {
     #[allow(clippy::inline_always)]
     #[inline(always)]
-    fn unpack_chunk(&self, chunk: &[T::Physical], dst: &mut [T::Physical]) {
-        (self.unfor_pack)(chunk, self.reference, dst);
+    unsafe fn unpack_chunk(&self, chunk: &[T::Physical], dst: &mut [T::Physical]) {
+        // SAFETY: The caller upholds the `unpack_chunk` length contract, which is
+        // `UnforPackFn`'s.
+        unsafe { (self.unfor_pack)(chunk, self.reference, dst) }
     }
 }
 

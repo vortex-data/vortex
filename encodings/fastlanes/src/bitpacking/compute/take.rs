@@ -102,10 +102,13 @@ fn take_primitive<T: BitPackedPhysical, I: IntegerPType>(
         // this loop only runs if we have at least UNPACK_CHUNK_THRESHOLD offsets
         for offset_chunk in offset_chunks {
             if !have_unpacked {
-                let dst: &mut [MaybeUninit<T>] = &mut unpacked;
-                // SAFETY: &[MaybeUninit<T>] and &[T] have the same layout.
-                let dst: &mut [T] = unsafe { mem::transmute(dst) };
-                (kernels.unpack)(packed, dst);
+                // SAFETY: &[MaybeUninit<T>] and &[T] have the same layout; `packed` is exactly
+                // one block and `unpacked` exactly 1024 values.
+                unsafe {
+                    let dst: &mut [MaybeUninit<T>] = &mut unpacked;
+                    let dst: &mut [T] = mem::transmute(dst);
+                    (kernels.unpack)(packed, dst);
+                }
                 have_unpacked = true;
             }
 
@@ -125,7 +128,8 @@ fn take_primitive<T: BitPackedPhysical, I: IntegerPType>(
                 // we had fewer than UNPACK_CHUNK_THRESHOLD offsets in the first place,
                 // so we need to unpack each one individually
                 for &index in remainder {
-                    output.push((kernels.unpack_single)(packed, index));
+                    // SAFETY: `packed` is exactly one block and `index` is within the chunk.
+                    output.push(unsafe { (kernels.unpack_single)(packed, index) });
                 }
             }
         }
