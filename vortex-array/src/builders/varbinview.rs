@@ -800,6 +800,7 @@ impl ArrayBuilder for VarBinViewBuilder {
 }
 
 impl VarBinViewBuilder {
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     fn push_view(
         &mut self,
