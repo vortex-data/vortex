@@ -189,6 +189,28 @@ pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
     Ok(score)
 }
 
+impl CascadingCompressor {
+    /// Estimates a scheme's compression ratio exactly as
+    /// [`DeferredEstimate::Sample`](crate::scheme::DeferredEstimate::Sample) would.
+    ///
+    /// This is for [`DeferredEstimate::Callback`](crate::scheme::DeferredEstimate::Callback)
+    /// implementations that gate a scheme with a custom cheap check but, once the gate passes,
+    /// want to compete in selection on the same sampled score as every other scheme.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if sample compression fails.
+    pub fn estimate_by_sampling(
+        &self,
+        scheme: &dyn Scheme,
+        array: &ArrayRef,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<EstimateScore> {
+        estimate_compression_ratio_with_sampling(self, scheme, array, compress_ctx, exec_ctx)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;

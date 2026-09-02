@@ -126,3 +126,78 @@ fn varbin_scheme_shrinks_output() -> VortexResult<()> {
     }
     Ok(())
 }
+
+/// FSST on binary is gated by a tiny trial compression: structured payloads must still reach
+/// FSST somewhere in the tree, while incompressible payloads must never pay for a symbol table.
+#[test]
+fn fsst_binary_gate() -> VortexResult<()> {
+    let compressor = BtrBlocksCompressorBuilder::default().build();
+    for (name, array, expect_fsst) in [
+        ("shared prefix", &cases()[2].1, true),
+        ("random 16B (hash)", &cases()[1].1, false),
+        ("random 256B", &cases()[3].1, false),
+    ] {
+        let mut ctx = SESSION.create_execution_ctx();
+        let tree = compressor
+            .compress(array, &mut ctx)?
+            .display_tree()
+            .to_string();
+        assert_eq!(
+            tree.contains("fsst"),
+            expect_fsst,
+            "{name}: unexpected FSST selection\n{tree}"
+        );
+    }
+    Ok(())
+}
+
+/// Same bytes, two dtypes: Binary takes the `VarBinScheme` path, Utf8 takes FSST.
+#[test]
+fn fsst_versus_varbin_on_identical_bytes() -> VortexResult<()> {
+    let compressor = BtrBlocksCompressorBuilder::default().build();
+    let mut seed = 99u64;
+
+    let shared_prefix: Vec<String> = (0..N).map(|i| format!("PREFIX_{i:09}")).collect();
+    let hex_random: Vec<String> = (0..N)
+        .map(|_| {
+            (0..16)
+                .map(|_| format!("{:02x}", (lcg(&mut seed) >> 33) as u8))
+                .collect()
+        })
+        .collect();
+
+    println!(
+        "{:<20}{:>14}{:>14}{:>9}",
+        "case", "binary", "utf8(fsst)", "fsst/bin"
+    );
+    for (name, vals) in [
+        ("shared prefix", &shared_prefix),
+        ("hex random", &hex_random),
+    ] {
+        let as_bin = VarBinViewArray::from_iter_bin(vals.iter().map(|v| v.as_bytes())).into_array();
+        let as_str = VarBinViewArray::from_iter_str(vals.iter().map(|v| v.as_str())).into_array();
+
+        let bin_bytes = {
+            let mut ctx = SESSION.create_execution_ctx();
+            compressor.compress(&as_bin, &mut ctx)?.nbytes()
+        };
+        let utf8_bytes = {
+            let mut ctx = SESSION.create_execution_ctx();
+            compressor.compress(&as_str, &mut ctx)?.nbytes()
+        };
+        println!(
+            "{:<20}{:>14}{:>14}{:>9.2}",
+            name,
+            bin_bytes,
+            utf8_bytes,
+            utf8_bytes as f64 / bin_bytes as f64
+        );
+
+        // FSST compresses bytes, not codepoints, so the dtype must not change the result.
+        assert_eq!(
+            bin_bytes, utf8_bytes,
+            "{name}: binary and utf8 must compress identically"
+        );
+    }
+    Ok(())
+}
