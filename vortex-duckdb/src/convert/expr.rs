@@ -386,6 +386,31 @@ fn can_push_cast(cast: &duckdb::BoundCast<'_>, target: &duckdb::LogicalTypeRef) 
     !cast.is_try && target.is_primitive_integer() && cast.child.return_type().is_primitive_integer()
 }
 
+fn can_push_in_list(operator: &BoundOperator<'_>) -> bool {
+    let mut children = operator.children();
+    let Some(element) = children.next() else {
+        return false;
+    };
+    if !can_push_expression(element) {
+        return false;
+    }
+
+    let mut member_count = 0;
+    for child in children {
+        let Some(BoundConstant(constant)) = child.as_class() else {
+            return false;
+        };
+        let Ok(member) = Scalar::try_from(constant.value) else {
+            return false;
+        };
+        if member.is_null() {
+            return false;
+        }
+        member_count += 1;
+    }
+    member_count > 0
+}
+
 // Called before pushdown_complex_filter or a table filter expression call.
 // As we support complex filter pushdown, Duckdb pushes expressions to Vortex.
 // However, it doesn't know what type of expressions we can handle. Here we list
@@ -433,13 +458,18 @@ pub fn can_push_expression(value: &duckdb::ExpressionRef) -> bool {
             // columns are native.
         }
         ExpressionClass::BoundOperator(op) => {
+            if matches!(
+                op.op,
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_IN
+                    | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_NOT_IN
+            ) {
+                return can_push_in_list(&op);
+            }
             if !matches!(
                 op.op,
                 DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_NOT
                     | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NULL
                     | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NOT_NULL
-                    | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_IN
-                    | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_NOT_IN
             ) {
                 return false;
             }
@@ -740,6 +770,9 @@ fn try_from_compare_in(
     else {
         return Ok(None);
     };
+    if list_elements.is_empty() || list_elements.iter().any(Scalar::is_null) {
+        return Ok(None);
+    }
     let list = Scalar::list(
         Arc::new(list_elements[0].dtype().clone()),
         list_elements,

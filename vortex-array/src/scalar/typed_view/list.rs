@@ -142,6 +142,11 @@ impl<'a> ListScalar<'a> {
         self.elements.is_none()
     }
 
+    #[inline]
+    pub(crate) fn values(&self) -> Option<&'a [Option<ScalarValue>]> {
+        self.elements
+    }
+
     /// Returns the data type of the list's elements.
     pub fn element_dtype(&self) -> &DType {
         self.dtype
