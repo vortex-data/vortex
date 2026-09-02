@@ -730,6 +730,7 @@ impl<T> BufferMut<T> {
             let allocator = self.allocation.allocator().clone();
             let mut aligned = Self::with_capacity_aligned_in(capacity, alignment, allocator);
             aligned.extend_from_slice(&self);
+            aligned.capacity = capacity;
             aligned
         }
     }
