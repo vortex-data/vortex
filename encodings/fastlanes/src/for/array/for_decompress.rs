@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use fastlanes::FoR;
 use num_traits::PrimInt;
 use num_traits::WrappingAdd;
@@ -8,6 +10,8 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::PrimitiveBuilder;
+use vortex_array::chunk_iter::ChunkMut;
+use vortex_array::chunk_iter::ChunkSink;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PhysicalPType;
 use vortex_array::dtype::UnsignedPType;
@@ -21,6 +25,7 @@ use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::FoRArray;
 use crate::bitpack_decompress;
+use crate::bitpacking::chunked_decompress;
 use crate::r#for::array::FoRArrayExt;
 use crate::r#for::array::FoRArraySlotsExt;
 use crate::unpack_iter::UnpackStrategy;
@@ -135,6 +140,107 @@ pub(crate) fn fused_decompress<
     }
 
     Ok(builder.finish_into_primitive())
+}
+
+/// Whether [`decompress_chunks`] can stream: either the fused FoR+BitPacked path applies, or the
+/// encoded child itself supports streaming (generic composition).
+pub(crate) fn supports_decompress_chunks(array: ArrayView<'_, crate::FoR>) -> bool {
+    (array.reference_scalar().dtype().is_unsigned_int() && array.encoded().is::<BitPacked>())
+        || array.encoded().supports_decompress_chunks()
+}
+
+/// Streaming chunked decompression for FoR arrays.
+///
+/// When the child is a [`BitPacked`] array (the common layout), this streams through the fused
+/// [`FoRStrategy`] unpack kernel — the reference is folded into `unchecked_unfor_pack` itself,
+/// exactly like [`fused_decompress`], so there is no extra add pass at all.
+///
+/// Otherwise FoR composes generically over any encoded child: each chunk the child streams up is
+/// shifted by the reference value in place (one pass over an L1-resident chunk) and forwarded to
+/// the downstream sink. The adapter lives on this stack frame — no heap state is added on the
+/// way down.
+pub(crate) fn decompress_chunks(
+    array: ArrayView<'_, crate::FoR>,
+    ctx: &mut ExecutionCtx,
+    sink: &mut dyn ChunkSink,
+) -> VortexResult<()> {
+    // Fused fast path, mirroring the dispatch in `decompress`.
+    if array.reference_scalar().dtype().is_unsigned_int()
+        && let Some(bp) = array.encoded().as_opt::<BitPacked>()
+    {
+        return match_each_unsigned_integer_ptype!(array.ptype(), |T| {
+            fused_decompress_chunks::<T>(array, bp, ctx, sink)
+        });
+    }
+
+    match_each_integer_ptype!(array.ptype(), |T| {
+        let reference = array
+            .reference_scalar()
+            .as_primitive()
+            .typed_value::<T>()
+            .vortex_expect("reference must be non-null");
+        if reference == 0 {
+            array.encoded().decompress_chunks(ctx, sink)
+        } else {
+            let mut adapter = AddReferenceSink {
+                reference,
+                inner: sink,
+            };
+            array.encoded().decompress_chunks(ctx, &mut adapter)
+        }
+    })
+}
+
+/// Stream FoR-over-BitPacked chunks through the fused unpack kernel: each FastLanes block is
+/// unpacked with the reference added by `unchecked_unfor_pack`, patched in place (patch values
+/// get the reference applied up front), and handed to the sink.
+fn fused_decompress_chunks<T: PhysicalPType<Physical = T> + UnsignedPType + FoR + WrappingAdd>(
+    for_: ArrayView<'_, crate::FoR>,
+    bp: ArrayView<'_, BitPacked>,
+    ctx: &mut ExecutionCtx,
+    sink: &mut dyn ChunkSink,
+) -> VortexResult<()> {
+    if bp.as_ref().is_empty() {
+        return Ok(());
+    }
+
+    let ref_ = for_
+        .reference_scalar()
+        .as_primitive()
+        .as_::<T>()
+        .vortex_expect("cannot be null");
+
+    let mut unpacked = UnpackedChunks::try_new_with_strategy(
+        FoRStrategy { reference: ref_ },
+        bp.packed().as_host().clone(),
+        bp.bit_width() as usize,
+        bp.offset() as usize,
+        bp.len(),
+    )?;
+
+    let patch_list = match bp.patches() {
+        None => Vec::new(),
+        Some(patches) => {
+            chunked_decompress::build_patch_list(&patches, ctx, |v: T| v.wrapping_add(&ref_))?
+        }
+    };
+
+    chunked_decompress::stream_unpacked_chunks(&mut unpacked, &patch_list, sink)
+}
+
+struct AddReferenceSink<'a, T> {
+    reference: T,
+    inner: &'a mut dyn ChunkSink,
+}
+
+impl<T: NativePType + WrappingAdd> ChunkSink for AddReferenceSink<'_, T> {
+    #[inline]
+    fn accept(&mut self, mut chunk: ChunkMut<'_>, row_range: Range<usize>) -> VortexResult<()> {
+        for v in chunk.as_slice_mut::<T>() {
+            *v = v.wrapping_add(&self.reference);
+        }
+        self.inner.accept(chunk, row_range)
+    }
 }
 
 fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(

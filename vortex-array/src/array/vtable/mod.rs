@@ -187,6 +187,46 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// incorrectly contains null values.
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult>;
 
+    /// Returns whether this encoding can stream decompressed chunks via
+    /// [`decompress_chunks`](Self::decompress_chunks) without materializing anything.
+    ///
+    /// Defaults to `false`: streaming is an explicit capability, never a silent fallback. Leaf
+    /// encodings that override `decompress_chunks` return `true`; wrapper encodings must
+    /// propagate the check into the children their implementation streams from (e.g. via
+    /// [`ArrayRef::supports_decompress_chunks`](crate::ArrayRef::supports_decompress_chunks)),
+    /// so support of the whole tree is decided before any chunk is emitted.
+    fn supports_decompress_chunks(array: ArrayView<'_, Self>) -> bool {
+        _ = array;
+        false
+    }
+
+    /// Stream the array's decompressed values through `sink` in cache-resident chunks.
+    ///
+    /// See [`chunk_iter`](crate::chunk_iter) for the contract and cost model. The whole point of
+    /// this method is to decompress and transform block-by-block while the block is L1-resident;
+    /// implementations must therefore stream directly out of their decompression kernel (leaf
+    /// encodings) or interpose a stack-allocated [`ChunkSink`](crate::chunk_iter::ChunkSink)
+    /// adapter and recurse into their child via
+    /// [`ArrayRef::decompress_chunks`](crate::ArrayRef::decompress_chunks) (wrappers) — never
+    /// materialize the array. Encodings that cannot do this leave the default, which reports
+    /// unsupported; callers wanting a materializing fallback opt in by name via
+    /// [`ArrayRef::decompress_chunks_or_materialize`](crate::ArrayRef::decompress_chunks_or_materialize).
+    ///
+    /// Only called when [`supports_decompress_chunks`](Self::supports_decompress_chunks) returned
+    /// `true`; the caller guarantees the array is primitive-typed. Implementations must emit
+    /// contiguous, in-order chunks covering exactly `0..len` (checked in debug builds).
+    fn decompress_chunks(
+        array: ArrayView<'_, Self>,
+        ctx: &mut ExecutionCtx,
+        sink: &mut dyn crate::chunk_iter::ChunkSink,
+    ) -> VortexResult<()> {
+        _ = (ctx, sink);
+        vortex_bail!(
+            "decompress_chunks is not supported by encoding {}",
+            array.encoding_id()
+        )
+    }
+
     /// Attempt to reduce the array to a simpler representation without changing logical values.
     ///
     /// Reductions are opportunistic and may return `Ok(None)` when no cheaper representation is

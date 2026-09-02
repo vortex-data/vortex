@@ -19,6 +19,7 @@ use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
+use vortex_array::chunk_iter::ChunkSink;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
@@ -49,6 +50,7 @@ use crate::bitpack_decompress::unpack_into_primitive_builder;
 use crate::bitpacking::array::BitPackedSlots;
 use crate::bitpacking::array::BitPackedSlotsView;
 use crate::bitpacking::array::PATCH_SLOTS;
+use crate::bitpacking::chunked_decompress;
 use crate::bitpacking::vtable::rules::RULES;
 mod kernels;
 mod operations;
@@ -296,6 +298,18 @@ impl VTable for BitPacked {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn supports_decompress_chunks(_array: ArrayView<'_, Self>) -> bool {
+        true
+    }
+
+    fn decompress_chunks(
+        array: ArrayView<'_, Self>,
+        ctx: &mut ExecutionCtx,
+        sink: &mut dyn ChunkSink,
+    ) -> VortexResult<()> {
+        chunked_decompress::decompress_chunks(array, ctx, sink)
     }
 }
 

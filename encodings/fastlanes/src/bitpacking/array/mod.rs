@@ -26,6 +26,7 @@ use vortex_error::vortex_err;
 
 pub mod bitpack_compress;
 pub mod bitpack_decompress;
+pub(crate) mod chunked_decompress;
 pub mod unpack_iter;
 
 use crate::BitPackedArray;

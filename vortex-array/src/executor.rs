@@ -265,6 +265,25 @@ impl ArrayRef {
                 ));
             }
 
+            // Step 2c: stream-to-canonical shortcut. When the whole encoding tree supports
+            // chunked decompression (the capability cascades: each encoding only advertises
+            // support when the children it streams from do) and is at least two streaming
+            // levels deep, decompress blocks straight into the canonical builder while each
+            // block is L1-resident, instead of materializing a full intermediate per level.
+            if current_builder.is_none()
+                && crate::chunk_iter::should_execute_via_chunks(&current_array)
+            {
+                let stats = current_array.statistics().to_array_stats();
+                let result = crate::chunk_iter::execute_via_chunks(&current_array, ctx)?;
+                trace_op!(record_execute_done(&result.as_ref()));
+                let result = result.into_array();
+                result
+                    .statistics()
+                    .set_iter(StatsSet::from(stats).into_iter());
+                current_array = result;
+                continue;
+            }
+
             let expected_len = current_array.len();
             let expected_dtype = current_array.dtype().clone();
             let stats = current_array.statistics().to_array_stats();

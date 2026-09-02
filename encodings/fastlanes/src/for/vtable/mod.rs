@@ -18,6 +18,7 @@ use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::chunk_iter::ChunkSink;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
@@ -36,6 +37,7 @@ use crate::FoRData;
 use crate::r#for::array::FoRArrayExt;
 use crate::r#for::array::FoRSlots;
 use crate::r#for::array::FoRSlotsView;
+use crate::r#for::array::for_decompress;
 use crate::r#for::array::for_decompress::decompress;
 use crate::r#for::vtable::rules::PARENT_RULES;
 
@@ -160,6 +162,18 @@ impl VTable for FoR {
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(decompress(&array, ctx)?.into_array()))
+    }
+
+    fn supports_decompress_chunks(array: ArrayView<'_, Self>) -> bool {
+        for_decompress::supports_decompress_chunks(array)
+    }
+
+    fn decompress_chunks(
+        array: ArrayView<'_, Self>,
+        ctx: &mut ExecutionCtx,
+        sink: &mut dyn ChunkSink,
+    ) -> VortexResult<()> {
+        for_decompress::decompress_chunks(array, ctx, sink)
     }
 }
 

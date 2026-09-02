@@ -45,6 +45,8 @@ use crate::arrays::primitive::PrimitiveDataParts;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::PrimitiveBuilder;
+use crate::chunk_iter::ChunkMut;
+use crate::chunk_iter::ChunkSink;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
@@ -308,6 +310,111 @@ impl VTable for Patched {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn supports_decompress_chunks(array: ArrayView<'_, Self>) -> bool {
+        array.inner().supports_decompress_chunks()
+    }
+
+    fn decompress_chunks(
+        array: ArrayView<'_, Self>,
+        ctx: &mut ExecutionCtx,
+        sink: &mut dyn ChunkSink,
+    ) -> VortexResult<()> {
+        if array.as_ref().is_empty() {
+            return Ok(());
+        }
+
+        let len = array.as_ref().len();
+        let offset = array.offset();
+        let n_lanes = array.n_lanes();
+
+        // The patch children are tiny relative to the array; materialize them once up front and
+        // flatten the lane-transposed layout into row-sorted (row, value) pairs so the per-chunk
+        // wrapper below only advances a cursor.
+        let lane_offsets = array
+            .lane_offsets()
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?;
+        let indices = array
+            .patch_indices()
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?;
+        let values = array
+            .patch_values()
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?;
+
+        match_each_native_ptype!(values.ptype(), |V| {
+            let mut adapter = PatchChunkSink {
+                patch_list: build_row_sorted_patches::<V>(
+                    lane_offsets.as_slice::<u32>(),
+                    indices.as_slice::<u16>(),
+                    values.as_slice::<V>(),
+                    offset,
+                    len,
+                    n_lanes,
+                ),
+                cursor: 0,
+                inner: sink,
+            };
+            array.inner().decompress_chunks(ctx, &mut adapter)
+        })
+    }
+}
+
+/// Flatten the lane-transposed patch layout into row-sorted (row, value) pairs so the streaming
+/// chunk wrapper only advances a cursor.
+fn build_row_sorted_patches<V: NativePType>(
+    lane_offsets: &[u32],
+    indices: &[u16],
+    values: &[V],
+    offset: usize,
+    len: usize,
+    n_lanes: usize,
+) -> Vec<(usize, V)> {
+    let mut patch_list: Vec<(usize, V)> = Vec::with_capacity(values.len());
+    let n_chunks = (offset + len).div_ceil(1024);
+    for chunk in 0..n_chunks {
+        let start = lane_offsets[chunk * n_lanes] as usize;
+        let stop = lane_offsets[chunk * n_lanes + n_lanes] as usize;
+        for idx in start..stop {
+            // The indices slice is measured as an offset into the 1024-value chunk.
+            let index = chunk * 1024 + indices[idx] as usize;
+            if index < offset || index >= offset + len {
+                continue;
+            }
+            patch_list.push((index - offset, values[idx]));
+        }
+    }
+    // Patches are sorted by (chunk, lane), not by row; the stable sort preserves the original
+    // application order for any duplicate rows.
+    patch_list.sort_by_key(|&(row, _)| row);
+    patch_list
+}
+
+/// Sink adapter that overwrites patched rows in each streamed chunk before forwarding it.
+struct PatchChunkSink<'a, V> {
+    patch_list: Vec<(usize, V)>,
+    cursor: usize,
+    inner: &'a mut dyn ChunkSink,
+}
+
+impl<V: NativePType> ChunkSink for PatchChunkSink<'_, V> {
+    #[inline]
+    fn accept(
+        &mut self,
+        mut chunk: ChunkMut<'_>,
+        row_range: std::ops::Range<usize>,
+    ) -> VortexResult<()> {
+        let out = chunk.as_slice_mut::<V>();
+        while let Some(&(row, value)) = self.patch_list.get(self.cursor)
+            && row < row_range.end
+        {
+            out[row - row_range.start] = value;
+            self.cursor += 1;
+        }
+        self.inner.accept(chunk, row_range)
     }
 }
 

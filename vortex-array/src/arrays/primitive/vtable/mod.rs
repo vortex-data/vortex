@@ -17,6 +17,9 @@ use crate::arrays::primitive::PrimitiveData;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::PrimitiveBuilder;
+use crate::chunk_iter::ChunkMut;
+use crate::chunk_iter::ChunkSink;
+use crate::chunk_iter::DECOMPRESS_CHUNK_LEN;
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
@@ -179,6 +182,30 @@ impl VTable for Primitive {
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
+    }
+
+    fn supports_decompress_chunks(_array: ArrayView<'_, Self>) -> bool {
+        true
+    }
+
+    fn decompress_chunks(
+        array: ArrayView<'_, Self>,
+        _ctx: &mut ExecutionCtx,
+        sink: &mut dyn ChunkSink,
+    ) -> VortexResult<()> {
+        // Already decompressed: stream the buffer through one reusable L1-resident scratch chunk
+        // (chunks are handed out mutably, so the shared buffer cannot be exposed directly).
+        match_each_native_ptype!(array.ptype(), |P| {
+            let values = array.as_slice::<P>();
+            let mut scratch = vec![P::default(); values.len().min(DECOMPRESS_CHUNK_LEN)];
+            for (i, chunk) in values.chunks(DECOMPRESS_CHUNK_LEN).enumerate() {
+                let start = i * DECOMPRESS_CHUNK_LEN;
+                let scratch = &mut scratch[..chunk.len()];
+                scratch.copy_from_slice(chunk);
+                sink.accept(ChunkMut::new(scratch), start..start + chunk.len())?;
+            }
+            Ok(())
+        })
     }
 
     fn append_to_builder(
