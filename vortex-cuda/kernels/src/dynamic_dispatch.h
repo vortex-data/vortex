@@ -197,6 +197,7 @@ union ScalarParams {
     /// element type.
     struct DictParams {
         uint32_t values_smem_byte_offset; // byte offset to decoded dict values in smem
+        uint32_t values_len;
     } dict;
 };
 

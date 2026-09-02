@@ -170,7 +170,8 @@ __device__ inline void scalar_op(T *values, const struct ScalarOp &op, char *__r
         const T *dict = reinterpret_cast<const T *>(smem + op.params.dict.values_smem_byte_offset);
 #pragma unroll
         for (uint32_t i = 0; i < N; ++i) {
-            values[i] = dict[static_cast<uint32_t>(values[i])];
+            const uint32_t code = static_cast<uint32_t>(values[i]);
+            values[i] = code < op.params.dict.values_len ? dict[code] : T {};
         }
         break;
     }

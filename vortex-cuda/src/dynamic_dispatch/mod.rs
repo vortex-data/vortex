@@ -415,13 +415,14 @@ impl ScalarOp {
 
     /// Dictionary gather: use current value as index into decoded values
     /// in shared memory (populated by an earlier input stage).
-    pub fn dict(values_smem_byte_offset: u32, output_ptype: PTypeTag) -> Self {
+    pub fn dict(values_smem_byte_offset: u32, values_len: u32, output_ptype: PTypeTag) -> Self {
         Self {
             op_code: ScalarOp_ScalarOpCode_DICT,
             output_ptype,
             params: ScalarParams {
                 dict: ScalarParams_DictParams {
                     values_smem_byte_offset,
+                    values_len,
                 },
             },
         }
@@ -691,7 +692,7 @@ mod tests {
                     SourceOp::bitunpack(6, 0),
                     &[
                         ScalarOp::frame_of_ref(42, PTypeTag_PTYPE_U32),
-                        ScalarOp::dict(0, PTypeTag_PTYPE_U32),
+                        ScalarOp::dict(0, 256, PTypeTag_PTYPE_U32),
                     ],
                 ),
             ],
@@ -2519,20 +2520,38 @@ mod tests {
         Ok(())
     }
 
-    /// Dict with nullable codes must fall back to Unfused (not fused).
+    /// Dict with nullable codes fuses. Null positions may contain arbitrary
+    /// physical codes, so exercise out-of-range values as well.
     #[crate::test]
-    fn test_dict_nullable_codes_rejected() -> VortexResult<()> {
+    async fn test_dict_nullable_codes_fuses() -> VortexResult<()> {
         use vortex::buffer::buffer;
 
-        let codes = PrimitiveArray::from_option_iter([Some(0u32), None, Some(1), None, Some(2)]);
-        let values = PrimitiveArray::new(buffer![10u32, 20, 30], NonNullable);
+        let mut cpu_ctx = array_session().create_execution_ctx();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&cuda_session())?;
+
+        let codes = PrimitiveArray::new(
+            buffer![0u32, u32::MAX, 1, 99, 2],
+            Validity::from_iter([true, false, true, false, true]),
+        );
+        let values = PrimitiveArray::from_option_iter([Some(10u32), None, Some(30)]);
         let dict = DictArray::try_new(codes.into_array(), values.into_array())?;
 
-        let plan = DispatchPlan::new(&dict.into_array(), CudaDispatchMode::Auto)?;
+        let plan = DispatchPlan::new(&dict.clone().into_array(), CudaDispatchMode::Auto)?;
         assert!(
-            matches!(plan, DispatchPlan::Unfused),
-            "Dict with nullable codes should fall back to Unfused"
+            matches!(plan, DispatchPlan::Fused(..)),
+            "Dict with nullable codes should fuse"
         );
+
+        let gpu = dict
+            .clone()
+            .into_array()
+            .execute_cuda(&mut cuda_ctx)
+            .await?
+            .into_host()
+            .await?
+            .into_array();
+
+        assert_arrays_eq!(dict, gpu, &mut cpu_ctx);
         Ok(())
     }
 

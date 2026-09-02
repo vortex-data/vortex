@@ -93,11 +93,6 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
     }
     if id == Dict.id() {
         let arr = array.as_::<Dict>();
-        // Nullable codes could hold garbage values at null positions, causing
-        // out-of-bounds shared memory reads in the DICT gather scalar op.
-        if arr.codes().dtype().is_nullable() {
-            return false;
-        }
         // Dict codes and values may have different byte widths.
         // The kernel handles mixed widths via widening input stages,
         // but only when codes are no wider than values (the output type).
@@ -303,9 +298,9 @@ impl DispatchPlan {
     /// - **F16 primitives** are not supported (no reinterpret path in the kernel).
     /// - **ALP** is supported for f32 and f64 only (including patches).
     /// - **BitPacked** with patches is supported.
-    /// - **Dict** with nullable codes is rejected (garbage at null positions
-    ///   could OOB the DICT gather). Dict with codes wider than values is
-    ///   also rejected (load would truncate code indices).
+    /// - **Dict** with codes wider than values is rejected (load would truncate
+    ///   code indices). Nullable codes are safe because the gather bounds-checks
+    ///   their unspecified physical values and validity is propagated separately.
     /// - **RunEnd** with nullable ends is rejected (garbage values break the
     ///   binary search). RunEnd with ends wider than values is also rejected.
     /// - Validity is propagated from the root array to the output.
@@ -757,8 +752,6 @@ impl FusedPlan {
     /// Cases that require a separate kernel dispatch:
     ///
     /// - **F16 primitives** — no reinterpret path in the kernel.
-    /// - **Dict with nullable codes** — garbage at null positions could OOB
-    ///   the DICT gather in shared memory.
     /// - **Dict with codes wider than values** — `load_element<T>()` would
     ///   truncate the code indices.
     /// - **RunEnd with nullable ends** — garbage values break the binary
@@ -806,7 +799,11 @@ impl FusedPlan {
         // DICT scalar op: pass byte offset directly (C ABI uses byte offsets).
         // output_ptype is the values' ptype — DICT transforms codes → values.
         pipeline.scalar_ops.push((
-            ScalarOp::dict(values_smem_byte_offset, ptype_to_tag(values_ptype)),
+            ScalarOp::dict(
+                values_smem_byte_offset,
+                values_len,
+                ptype_to_tag(values_ptype),
+            ),
             None,
         ));
         Ok(pipeline)
