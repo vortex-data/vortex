@@ -1155,6 +1155,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "beef"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a8241f3ebb85c056b509d4327ad0358fbbba6ffb340bf388f26350aeda225b1"
+
+[[package]]
 name = "better_io"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6364,6 +6370,72 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
 
 [[package]]
+name = "logos"
+version = "0.15.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff472f899b4ec2d99161c51f60ff7075eeb3097069a36050d8037a6325eb8154"
+dependencies = [
+ "logos-derive 0.15.1",
+]
+
+[[package]]
+name = "logos"
+version = "0.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eb2c55a318a87600ea870ff8c2012148b44bf18b74fad48d0f835c38c7d07c5f"
+dependencies = [
+ "logos-derive 0.16.1",
+]
+
+[[package]]
+name = "logos-codegen"
+version = "0.15.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "192a3a2b90b0c05b27a0b2c43eecdb7c415e29243acc3f89cc8247a5b693045c"
+dependencies = [
+ "beef",
+ "fnv",
+ "lazy_static",
+ "proc-macro2",
+ "quote",
+ "regex-syntax",
+ "rustc_version",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "logos-codegen"
+version = "0.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "58b3ffaa284e1350d017a57d04ada118c4583cf260c8fb01e0fe28a2e9cf8970"
+dependencies = [
+ "fnv",
+ "proc-macro2",
+ "quote",
+ "regex-automata",
+ "regex-syntax",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "logos-derive"
+version = "0.15.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "605d9697bcd5ef3a42d38efc51541aa3d6a4a25f7ab6d1ed0da5ac632a26b470"
+dependencies = [
+ "logos-codegen 0.15.1",
+]
+
+[[package]]
+name = "logos-derive"
+version = "0.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52d3a9855747c17eaf4383823f135220716ab49bea5fbea7dd42cc9a92f8aa31"
+dependencies = [
+ "logos-codegen 0.16.1",
+]
+
+[[package]]
 name = "loom"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6535,6 +6607,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d1219ed1b7f229ee7104d281dd01d6802fe28bb6e95d292942c4daacdeb798c0"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "miette"
+version = "7.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f98efec8807c63c752b5bd61f862c165c115b0a35685bdcfd9238c7aeb592b7"
+dependencies = [
+ "cfg-if",
+ "miette-derive",
+ "unicode-width 0.1.14",
+]
+
+[[package]]
+name = "miette-derive"
+version = "7.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db5b29714e950dbb20d5e6f74f9dcec4edbcc1067bb7f8ed198c097b8c1a818b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -7828,12 +7922,51 @@ dependencies = [
 ]
 
 [[package]]
+name = "prost-reflect"
+version = "0.16.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "01b80ea363c31af2de2b92e3c07ed1156628f7838c4afb4df75ee78a37fedbd1"
+dependencies = [
+ "logos 0.16.1",
+ "miette",
+ "prost 0.14.4",
+ "prost-types",
+]
+
+[[package]]
 name = "prost-types"
 version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f94967dc7688f3054c7fac87473ffae4cc4c3904800e2d9f5b857246d8963b0a"
 dependencies = [
  "prost 0.14.4",
+]
+
+[[package]]
+name = "protox"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f25a07a73c6717f0b9bbbd685918f5df9815f7efba450b83d9c9dea41f0e3a1"
+dependencies = [
+ "bytes",
+ "miette",
+ "prost 0.14.4",
+ "prost-reflect",
+ "prost-types",
+ "protox-parse",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "protox-parse"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "072eee358134396a4643dff81cfff1c255c9fbd3fb296be14bdb6a26f9156366"
+dependencies = [
+ "logos 0.15.1",
+ "miette",
+ "prost-types",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -10490,7 +10623,6 @@ dependencies = [
  "vortex-error",
  "vortex-fastlanes",
  "vortex-file",
- "vortex-flatbuffers",
  "vortex-fsst",
  "vortex-io",
  "vortex-ipc",
@@ -10499,7 +10631,6 @@ dependencies = [
  "vortex-metrics",
  "vortex-parquet-variant",
  "vortex-pco",
- "vortex-proto",
  "vortex-runend",
  "vortex-scan",
  "vortex-sequence",
@@ -10562,6 +10693,7 @@ dependencies = [
  "pin-project-lite",
  "primitive-types",
  "prost 0.14.4",
+ "prost-types",
  "rand 0.10.2",
  "rand_distr 0.6.0",
  "regex",
@@ -10583,11 +10715,10 @@ dependencies = [
  "vortex-array-macros",
  "vortex-bench-support",
  "vortex-buffer",
+ "vortex-build",
  "vortex-compute",
  "vortex-error",
- "vortex-flatbuffers",
  "vortex-mask",
- "vortex-proto",
  "vortex-session",
  "vortex-utils",
 ]
@@ -10749,6 +10880,14 @@ dependencies = [
  "tracing",
  "vortex-bench-support",
  "vortex-error",
+]
+
+[[package]]
+name = "vortex-build"
+version = "0.1.0"
+dependencies = [
+ "prost-build",
+ "protox",
 ]
 
 [[package]]
@@ -11104,13 +11243,13 @@ dependencies = [
  "vortex-array",
  "vortex-btrblocks",
  "vortex-buffer",
+ "vortex-build",
  "vortex-bytebool",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
  "vortex-edition",
  "vortex-error",
  "vortex-fastlanes",
- "vortex-flatbuffers",
  "vortex-fsst",
  "vortex-io",
  "vortex-layout",
@@ -11127,15 +11266,6 @@ dependencies = [
  "vortex-utils",
  "vortex-zigzag",
  "vortex-zstd",
-]
-
-[[package]]
-name = "vortex-flatbuffers"
-version = "0.1.0"
-dependencies = [
- "flatbuffers",
- "vortex-buffer",
- "vortex-error",
 ]
 
 [[package]]
@@ -11228,8 +11358,8 @@ dependencies = [
  "tokio",
  "vortex-array",
  "vortex-buffer",
+ "vortex-build",
  "vortex-error",
- "vortex-flatbuffers",
  "vortex-session",
 ]
 
@@ -11271,7 +11401,6 @@ dependencies = [
  "vortex-arrow",
  "vortex-edition",
  "vortex-error",
- "vortex-proto",
  "vortex-session",
 ]
 
@@ -11309,8 +11438,8 @@ dependencies = [
  "vortex-arrow",
  "vortex-btrblocks",
  "vortex-buffer",
+ "vortex-build",
  "vortex-error",
- "vortex-flatbuffers",
  "vortex-io",
  "vortex-mask",
  "vortex-metrics",
@@ -11392,7 +11521,6 @@ dependencies = [
  "vortex-json",
  "vortex-layout",
  "vortex-mask",
- "vortex-proto",
  "vortex-session",
 ]
 
@@ -11409,14 +11537,6 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-session",
-]
-
-[[package]]
-name = "vortex-proto"
-version = "0.1.0"
-dependencies = [
- "prost 0.14.4",
- "prost-types",
 ]
 
 [[package]]
@@ -11529,7 +11649,6 @@ dependencies = [
  "vortex-buffer",
  "vortex-error",
  "vortex-mask",
- "vortex-proto",
  "vortex-session",
 ]
 
@@ -12224,35 +12343,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "xshell"
-version = "0.2.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e7290c623014758632efe00737145b6867b66292c42167f2ec381eb566a373d"
-dependencies = [
- "xshell-macros",
-]
-
-[[package]]
-name = "xshell-macros"
-version = "0.2.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32ac00cd3f8ec9c1d33fb3e7958a82df6989c42d747bd326c822b1d625283547"
-
-[[package]]
 name = "xtask"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
  "git2",
- "prost-build",
  "toml",
  "vortex-edition",
  "vortex-json",
  "vortex-spatial",
  "vortex-tensor",
  "vortex-zstd",
- "xshell",
 ]
 
 [[package]]

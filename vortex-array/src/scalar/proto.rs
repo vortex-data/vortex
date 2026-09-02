@@ -14,16 +14,16 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
-use vortex_proto::scalar as pb;
-use vortex_proto::scalar::ListValue;
-use vortex_proto::scalar::UnionValue as PbUnionValue;
-use vortex_proto::scalar::scalar_value::Kind;
 use vortex_session::VortexSession;
 
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::dtype::half::f16;
 use crate::dtype::i256;
+use crate::proto::scalar as pb;
+use crate::proto::scalar::ListValue;
+use crate::proto::scalar::UnionValue as PbUnionValue;
+use crate::proto::scalar::scalar_value::Kind;
 use crate::scalar::DecimalValue;
 use crate::scalar::PValue;
 use crate::scalar::Scalar;
@@ -534,7 +534,6 @@ mod tests {
     use vortex_buffer::BufferString;
     use vortex_error::VortexError;
     use vortex_error::vortex_panic;
-    use vortex_proto::scalar as pb;
     use vortex_session::VortexSession;
 
     use super::*;
@@ -544,6 +543,7 @@ mod tests {
     use crate::dtype::PType;
     use crate::dtype::UnionVariants;
     use crate::dtype::half::f16;
+    use crate::proto::scalar as pb;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;

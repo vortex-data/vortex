@@ -54,6 +54,9 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
+      # Alpine only packages flatc versions we cannot use, so this builds the pinned one.
+      - uses: ./.github/actions/setup-flatc
+
       - name: Install nextest
         shell: bash
         # Prebuilt static musl nextest binary; building it from source would

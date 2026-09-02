@@ -11,10 +11,17 @@ license = { workspace = true }
 readme = "README.md"
 repository = { workspace = true }
 rust-version = { workspace = true }
+
+# Exports the `flatbuffers` and `proto` schema directories to dependent build scripts.
+links = "vortex-array"
 version = { workspace = true }
 
 [package.metadata.docs.rs]
 all-features = true
+
+[package.metadata.cargo-shear]
+# Referenced only by the generated Protocol Buffers bindings.
+ignored = ["prost-types"]
 
 [lints]
 workspace = true
@@ -47,6 +54,7 @@ primitive-types = { workspace = true, optional = true, features = [
     "arbitrary",
 ] }
 prost = { workspace = true }
+prost-types = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
 regex-syntax = { workspace = true }
@@ -66,9 +74,7 @@ vortex-array-macros = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-compute = { workspace = true }
 vortex-error = { workspace = true, features = ["flatbuffers"] }
-vortex-flatbuffers = { workspace = true, features = ["array", "dtype"] }
 vortex-mask = { workspace = true }
-vortex-proto = { workspace = true, features = ["dtype", "expr", "scalar"] }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true, features = ["dyn-traits"] }
 
@@ -81,6 +87,9 @@ _test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
 serde = ["dep:serde", "vortex-buffer/serde", "vortex-mask/serde"]
 # Exposes experimental row-function APIs without compatibility guarantees.
 unstable_row_fns = []
+
+[build-dependencies]
+vortex-build = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }

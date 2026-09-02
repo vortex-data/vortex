@@ -735,12 +735,9 @@ jobs:
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: "true"
+      - uses: ./.github/actions/setup-flatc
       - name: Install nightly for cbindgen macro expansion
         run: rustup toolchain install $NIGHTLY_TOOLCHAIN
-      - name: "regenerate all .fbs/.proto Rust code"
-        run: |
-          cargo run --profile ci -p xtask -- generate-fbs
-          cargo run --profile ci -p xtask -- generate-proto
       - name: "regenerate the edition records"
         run: |
           cargo run --profile ci -p xtask -- generate-editions
@@ -759,16 +756,27 @@ jobs:
           git status --porcelain
           test -z "$(git status --porcelain)"
 
-      - name: "Checkout develop flatbuffers"
-        working-directory: vortex-flatbuffers/
+      # Schemas live under `<crate>/flatbuffers/` but resolve includes against those dirs
+      # collectively, so flatten each revision into one tree for flatc to compare.
+      - name: "Collect flatbuffer schemas from this revision and from develop"
         run: |
-          cp -R flatbuffers flatbuffers.HEAD
           git fetch origin develop --depth 1
-          git checkout origin/develop -- flatbuffers
+          collect() {
+            git ls-tree -r --name-only "$1" \
+              | grep -E '(^|/)flatbuffers/.*\.fbs$' \
+              | while read -r path; do
+                  rel="${path#*/flatbuffers/}"
+                  mkdir -p "$2/$(dirname "$rel")"
+                  git show "$1:$path" > "$2/$rel"
+                done
+          }
+          collect HEAD "$RUNNER_TEMP/fbs.head"
+          collect origin/develop "$RUNNER_TEMP/fbs.develop"
       - name: "Verify flatbuffer back-compat"
-        working-directory: vortex-flatbuffers/
+        working-directory: ${{ runner.temp }}
         run: |
-          find flatbuffers/ -type f -name "*.fbs" | sed 's/^flatbuffers\///' | xargs -I{} -n1 flatc -I flatbuffers.HEAD --conform-includes flatbuffers --conform flatbuffers/{} flatbuffers.HEAD/{}
+          find fbs.develop/ -type f -name "*.fbs" | sed 's|^fbs.develop/||' \
+            | xargs -I{} -n1 flatc -I fbs.head --conform-includes fbs.develop --conform fbs.develop/{} fbs.head/{}
 
   ffi-c-test:
     name: "C API test build"

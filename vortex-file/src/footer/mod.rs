@@ -27,17 +27,18 @@ use itertools::Itertools;
 pub use segment::*;
 use vortex_array::ArrayId;
 use vortex_array::dtype::DType;
+use vortex_array::flatbuffers::FlatBuffer;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_flatbuffers::FlatBuffer;
-use vortex_flatbuffers::footer as fb;
 use vortex_layout::LayoutEncodingId;
 use vortex_layout::LayoutRef;
 use vortex_layout::layout_from_flatbuffer_with_options;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
+
+use crate::flatbuffers::footer as fb;
 
 /// Maximum number of user-defined metadata segments. Keeps postscript bookkeeping small so the
 /// footer and required segments still fit the initial tail read.

@@ -12,7 +12,6 @@ use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -39,6 +38,7 @@ use crate::dtype::DType;
 use crate::expr::display::ExprDisplay;
 use crate::expr::expression::Expression;
 use crate::expr::lit;
+use crate::proto::expr as pb;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;

@@ -1,5 +1,5 @@
 name: "Setup flatc"
-description: "Download and install flatc binary"
+description: "Install the pinned flatc, from the official release binary or from source"
 inputs:
   flatc_version:
     description: "Version of the flatc binary"
@@ -7,10 +7,79 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Download flatc
-      id: download-flatc
+    # The generated bindings are not source-compatible across flatc releases (24.x names a
+    # `size` field `size_`, for example), so the version has to match exactly. Distro packages
+    # lag well behind it, hence the release binary, or a source build where none is published.
+    - name: Install flatc
       shell: bash
       run: |
-        wget -O /tmp/flatc.zip "https://github.com/google/flatbuffers/releases/download/v${{ inputs.flatc_version }}/Linux.flatc.binary.clang++-18.zip"
-        unzip /tmp/flatc.zip flatc
-        mv flatc /usr/local/bin/
+        set -euo pipefail
+
+        VERSION="${{ inputs.flatc_version }}"
+        if [ "$(flatc --version 2>/dev/null)" = "flatc version ${VERSION}" ]; then
+          echo "flatc ${VERSION} is already installed"
+          exit 0
+        fi
+
+        ARCH=$(uname -m)
+        OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+
+        # Official binaries exist for x86_64 glibc Linux, macOS and Windows only.
+        ASSET=""
+        case "$OS" in
+          linux)
+            if [ "$ARCH" = "x86_64" ] && ! ldd /bin/sh 2>&1 | grep -qi musl; then
+              ASSET="Linux.flatc.binary.clang++-18.zip"
+            fi
+            ;;
+          darwin)
+            case "$ARCH" in
+              arm64)  ASSET="Mac.flatc.binary.zip" ;;
+              x86_64) ASSET="MacIntel.flatc.binary.zip" ;;
+            esac
+            ;;
+          *) ASSET="Windows.flatc.binary.zip" ;;
+        esac
+
+        # This sometimes runs in a container where the user is root and there is no sudo.
+        if command -v sudo &>/dev/null
+        then
+          CMD=sudo
+        else
+          CMD=
+        fi
+
+        RELEASE="https://github.com/google/flatbuffers/releases/download/v${VERSION}"
+        if [ -n "$ASSET" ]; then
+          curl -fsSL -o /tmp/flatc.zip "${RELEASE}/${ASSET}"
+          unzip -o /tmp/flatc.zip -d /tmp/flatc
+          rm -f /tmp/flatc.zip
+        else
+          echo "No official flatc binary for ${OS}/${ARCH}; building ${VERSION} from source"
+          git clone --depth 1 --branch "v${VERSION}" \
+            https://github.com/google/flatbuffers.git /tmp/flatbuffers
+          cmake -S /tmp/flatbuffers -B /tmp/flatbuffers/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DFLATBUFFERS_BUILD_TESTS=OFF \
+            -DFLATBUFFERS_BUILD_FLATLIB=OFF \
+            -DFLATBUFFERS_BUILD_FLATHASH=OFF \
+            -DFLATBUFFERS_INSTALL=OFF
+          cmake --build /tmp/flatbuffers/build --target flatc \
+            --parallel "$(nproc 2>/dev/null || echo 4)"
+          mkdir -p /tmp/flatc
+          mv /tmp/flatbuffers/build/flatc /tmp/flatc/flatc
+          rm -rf /tmp/flatbuffers
+        fi
+
+        if [ "$OS" = "linux" ] || [ "$OS" = "darwin" ]; then
+          $CMD mv /tmp/flatc/flatc /usr/local/bin/
+        else
+          # Windows runners do not have /usr/local/bin on PATH for non-bash steps.
+          mkdir -p "$HOME/.local/bin"
+          mv /tmp/flatc/flatc.exe "$HOME/.local/bin/"
+          cygpath -w "$HOME/.local/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/bin:$PATH"
+        fi
+
+        rm -rf /tmp/flatc
+        flatc --version

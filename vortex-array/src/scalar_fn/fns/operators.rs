@@ -6,7 +6,8 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use vortex_error::VortexError;
-use vortex_proto::expr::binary_opts::BinaryOp;
+
+use crate::proto::expr::binary_opts::BinaryOp;
 
 /// Equalities, inequalities, and boolean operations over possibly null values.
 ///

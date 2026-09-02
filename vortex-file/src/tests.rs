@@ -75,7 +75,6 @@ use vortex_buffer::buffer;
 use vortex_edition::EditionSession;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_flatbuffers::footer as fb;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::DynLayout;
 use vortex_layout::LayoutStrategy;
@@ -99,6 +98,7 @@ use crate::V1_FOOTER_FBS_SIZE;
 use crate::VERSION;
 use crate::VortexFile;
 use crate::WriteOptionsSessionExt;
+use crate::flatbuffers::footer as fb;
 use crate::footer::SegmentSpec;
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = array_session()

@@ -15,13 +15,13 @@ mod tests {
 
     use rstest::rstest;
     use vortex_buffer::ByteBuffer;
-    use vortex_proto::scalar as pb;
 
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::i256;
+    use crate::proto::scalar as pb;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
