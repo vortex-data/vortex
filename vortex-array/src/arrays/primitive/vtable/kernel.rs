@@ -15,6 +15,8 @@ use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastExecuteAdaptor;
 use crate::scalar_fn::fns::fill_null::FillNull;
 use crate::scalar_fn::fns::fill_null::FillNullExecuteAdaptor;
+use crate::scalar_fn::fns::list_contains::ListContains;
+use crate::scalar_fn::fns::list_contains::ListContainsElementExecuteAdaptor;
 use crate::scalar_fn::fns::zip::Zip;
 use crate::scalar_fn::fns::zip::ZipExecuteAdaptor;
 
@@ -30,6 +32,11 @@ pub(crate) fn initialize(session: &VortexSession) {
         FillNull.id(),
         Primitive,
         FillNullExecuteAdaptor(Primitive),
+    );
+    kernels.register_execute_parent_kernel(
+        ListContains.id(),
+        Primitive,
+        ListContainsElementExecuteAdaptor(Primitive),
     );
     kernels.register_execute_parent_kernel(Dict.id(), Primitive, TakeExecuteAdaptor(Primitive));
     kernels.register_execute_parent_kernel(Zip.id(), Primitive, ZipExecuteAdaptor(Primitive));

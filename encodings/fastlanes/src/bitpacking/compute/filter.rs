@@ -22,7 +22,8 @@ use vortex_mask::Mask;
 use vortex_mask::MaskValuesRef;
 
 use super::chunked_indices;
-use super::take::UNPACK_CHUNK_THRESHOLD;
+use super::unpack_chunk_threshold;
+use super::unpack_indices_into;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::BitPackedData;
@@ -150,8 +151,10 @@ fn filter_with_indices<T: NativePType + BitPacking>(
                         &mut values.as_mut_slice()[values_len..],
                     );
                 }
-            } else if indices_within_chunk.len() > UNPACK_CHUNK_THRESHOLD {
+            } else if indices_within_chunk.len() > unpack_chunk_threshold::<T>() {
                 // Unpack into a temporary chunk and then copy the values.
+                // SAFETY: The validated bit width fits `T`. The source and destination contain
+                // one complete FastLanes block. The call initializes every destination value.
                 unsafe {
                     let dst: &mut [MaybeUninit<T>] = &mut unpacked;
                     let dst: &mut [T] = std::mem::transmute(dst);
@@ -160,13 +163,11 @@ fn filter_with_indices<T: NativePType + BitPacking>(
                 values.extend_trusted(
                     indices_within_chunk
                         .iter()
+                        // SAFETY: The preceding unpack initialized the complete temporary block.
                         .map(|&idx| unsafe { unpacked.get_unchecked(idx).assume_init() }),
                 );
             } else {
-                // Otherwise, unpack each element individually.
-                values.extend_trusted(indices_within_chunk.iter().map(|&idx| unsafe {
-                    BitPacking::unchecked_unpack_single(bit_width, packed, idx)
-                }));
+                unpack_indices_into(&mut values, bit_width, packed, indices_within_chunk);
             }
         },
     );
@@ -186,9 +187,12 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
+    use super::filter_with_indices;
+    use super::unpack_chunk_threshold;
     use crate::BitPackedData;
     use crate::bitpacking::array::BitPackedArrayExt;
 
@@ -197,6 +201,56 @@ mod tests {
         crate::initialize(&session);
         session
     });
+
+    #[test]
+    fn sparse_extraction_covers_batch_and_full_chunk_paths() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        macro_rules! check_type {
+            ($T:ty, $bit_width:expr) => {{
+                let values = (0..2_048)
+                    .map(|index| (index % 127) as $T)
+                    .collect::<Vec<_>>();
+                let packed = BitPackedData::encode(
+                    &PrimitiveArray::from_iter(values.iter().copied()).into_array(),
+                    $bit_width,
+                    &mut ctx,
+                )?;
+                let threshold = unpack_chunk_threshold::<$T>();
+
+                for selected in [threshold, threshold + 1] {
+                    let indices = (0..selected)
+                        .map(|index| index * 1_024 / selected)
+                        .collect::<Vec<_>>();
+                    let actual = filter_with_indices::<$T>(&packed, &indices);
+                    let expected = indices
+                        .iter()
+                        .map(|&index| values[index])
+                        .collect::<Vec<_>>();
+                    assert_eq!(actual.as_slice(), expected);
+                }
+            }};
+        }
+
+        check_type!(u8, 7);
+        check_type!(u16, 15);
+        check_type!(u32, 31);
+        check_type!(u64, 63);
+        Ok(())
+    }
+
+    #[test]
+    fn sparse_extraction_supports_zero_width() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let packed = BitPackedData::encode(
+            &PrimitiveArray::from_iter([0u32; 2_048]).into_array(),
+            0,
+            &mut ctx,
+        )?;
+        let actual = filter_with_indices::<u32>(&packed, &[0, 17, 1_023, 1_024, 2_047]);
+        assert_eq!(actual.as_slice(), &[0; 5]);
+        Ok(())
+    }
 
     #[test]
     fn take_indices() {
