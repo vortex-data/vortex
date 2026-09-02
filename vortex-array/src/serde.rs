@@ -84,7 +84,7 @@ impl ArrayRef {
             .unwrap_or_else(FlatBuffer::alignment);
 
         // Create a shared buffer of zeros we can use for padding
-        let zeros = ByteBuffer::zeroed(*max_alignment);
+        let zeros = ByteBuffer::zeroed(max_alignment.as_usize());
 
         // We push an empty buffer with the maximum alignment, so then subsequent buffers
         // will be aligned. For subsequent buffers, we always push a 1-byte alignment.
@@ -96,7 +96,7 @@ impl ArrayRef {
         // Push all the array buffers with padding as necessary.
         for buffer in array_buffers {
             let padding = if options.include_padding {
-                let padding = pos.next_multiple_of(*buffer.alignment()) - pos;
+                let padding = pos.next_multiple_of(buffer.alignment().as_usize()) - pos;
                 if padding > 0 {
                     pos += padding;
                     buffers.push(zeros.slice(0..padding));
@@ -138,7 +138,7 @@ impl ArrayRef {
         let fb_length = fb_buffer.len();
 
         if options.include_padding {
-            let padding = pos.next_multiple_of(*FlatBuffer::alignment()) - pos;
+            let padding = pos.next_multiple_of(FlatBuffer::alignment().as_usize()) - pos;
             if padding > 0 {
                 buffers.push(zeros.slice(0..padding));
             }

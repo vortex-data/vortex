@@ -356,7 +356,7 @@ fn compute_output_layout(
     let mut total_size = 0usize;
 
     for (&size, &alignment) in output_sizes.iter().zip(output_alignments.iter()) {
-        total_size = total_size.next_multiple_of(*alignment);
+        total_size = total_size.next_multiple_of(alignment.as_usize());
         offsets.push(total_size);
         total_size += size;
     }

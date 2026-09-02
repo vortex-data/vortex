@@ -1144,7 +1144,7 @@ impl ZstdData {
 
         let value_bytes = values.buffer_handle().try_to_host_sync()?;
         // Align frames to buffer alignment. This is necessary for overaligned buffers.
-        let alignment = *value_bytes.alignment();
+        let alignment = value_bytes.alignment().as_usize();
         let step_width = (values_per_frame * byte_width).div_ceil(alignment) * alignment;
 
         let frame_byte_starts = (0..n_values * byte_width)

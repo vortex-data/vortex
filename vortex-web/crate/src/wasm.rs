@@ -244,7 +244,7 @@ impl VortexFileHandle {
                     index: i,
                     byte_offset: spec.offset,
                     byte_length: spec.length,
-                    alignment: *spec.alignment,
+                    alignment: spec.alignment.as_usize(),
                     column,
                     layout_path,
                 }

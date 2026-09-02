@@ -228,7 +228,7 @@ impl State {
         let mut requests = vec![first_req];
         let mut current_start = requests[0].offset;
         let mut current_end = requests[0].offset + requests[0].length as u64;
-        let align = *self.coalesced_buffer_alignment as u64;
+        let align = self.coalesced_buffer_alignment.as_usize() as u64;
 
         // Track requests that we've already decided to remove (or that were cancelled) so that
         // we don't repeatedly process them during range scans.
@@ -593,7 +593,7 @@ mod tests {
                 assert_eq!(coalesced.alignment(), Alignment::new(4));
                 for req in coalesced.requests() {
                     let rel = req.offset - coalesced.range().start;
-                    assert_eq!(rel % *req.alignment as u64, 0);
+                    assert_eq!(rel % req.alignment.as_usize() as u64, 0);
                 }
             }
             _ => panic!("Expected coalesced request"),

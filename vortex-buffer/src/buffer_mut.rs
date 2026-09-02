@@ -75,7 +75,7 @@ impl<T> BufferMut<T> {
             );
         }
 
-        let mut bytes = BytesMut::with_capacity((capacity * size_of::<T>()) + *actual);
+        let mut bytes = BytesMut::with_capacity((capacity * size_of::<T>()) + actual.as_usize());
         bytes.align_empty(actual);
 
         Self {
@@ -112,8 +112,8 @@ impl<T> BufferMut<T> {
     ) -> Self {
         let preferred_alignment = preferred_alignment.unwrap_or(Alignment::of::<u8>());
         let actual_alignment = max(preferred_alignment, alignment);
-        let mut bytes = BytesMut::zeroed((len * size_of::<T>()) + *actual_alignment);
-        bytes.advance(bytes.as_ptr().align_offset(*actual_alignment));
+        let mut bytes = BytesMut::zeroed((len * size_of::<T>()) + actual_alignment.as_usize());
+        bytes.advance(bytes.as_ptr().align_offset(actual_alignment.as_usize()));
         unsafe { bytes.set_len(len * size_of::<T>()) };
         let actual_len = bytes.len().checked_div(size_of::<T>()).unwrap_or(0);
         Self {
@@ -282,7 +282,8 @@ impl<T> BufferMut<T> {
     /// A separate function so we can inline the reserve call's fast path. According to `BytesMut`
     /// this has significant performance implications.
     fn reserve_allocate(&mut self, additional: usize) {
-        let new_capacity: usize = ((self.length + additional) * size_of::<T>()) + *self.alignment;
+        let new_capacity: usize =
+            ((self.length + additional) * size_of::<T>()) + self.alignment.as_usize();
         // Make sure we at least double in size each time we re-allocate to amortize the cost
         let new_capacity = new_capacity.max(self.bytes.capacity() * 2);
 
@@ -532,7 +533,7 @@ impl<T> BufferMut<T> {
     ///
     /// If the data is not aligned, we copy it into a new allocation.
     pub fn aligned(self, alignment: Alignment) -> Self {
-        if self.as_ptr().align_offset(*alignment) == 0 {
+        if self.as_ptr().align_offset(alignment.as_usize()) == 0 {
             Self {
                 bytes: self.bytes,
                 length: self.length,
@@ -866,7 +867,7 @@ impl AlignedBytesMut for BytesMut {
             vortex_panic!("ByteBufferMut must be empty");
         }
 
-        let padding = self.as_ptr().align_offset(*alignment);
+        let padding = self.as_ptr().align_offset(alignment.as_usize());
         self.capacity()
             .checked_sub(padding)
             .vortex_expect("Not enough capacity to align buffer");
@@ -1017,7 +1018,10 @@ mod test {
 
         let mut buf = BufferMut::<u32>::zeroed(LEN);
 
-        assert_eq!(buf.as_ptr().align_offset(*Alignment::of::<u32>()), 0);
+        assert_eq!(
+            buf.as_ptr().align_offset(Alignment::of::<u32>().as_usize()),
+            0
+        );
         assert_eq!(buf.as_slice(), &[0; LEN]);
 
         buf[3] = 7;
@@ -1031,7 +1035,7 @@ mod test {
 
         let mut buf = BufferMut::<u32>::zeroed_aligned(LEN, alignment);
 
-        assert_eq!(buf.as_ptr().align_offset(*alignment), 0);
+        assert_eq!(buf.as_ptr().align_offset(alignment.as_usize()), 0);
         assert_eq!(buf.as_slice(), &[0; LEN]);
 
         buf[3] = 7;

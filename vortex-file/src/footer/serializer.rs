@@ -246,7 +246,7 @@ fn write_buffer(
         .map_err(|_| vortex_err!("metadata segment length exceeds maximum u32"))?;
     let alignment = buffer.alignment();
 
-    let padding = offset.next_multiple_of(*alignment as u64) - *offset;
+    let padding = offset.next_multiple_of(alignment.as_usize() as u64) - *offset;
     let segment_offset = *offset + padding;
 
     let segment = PostscriptSegment {

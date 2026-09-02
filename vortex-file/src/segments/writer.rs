@@ -70,7 +70,7 @@ impl SegmentSink for BufferedSegmentSink {
 
             // Add any padding required to align the segment.
             let byte_offset = self.byte_offset.load(Ordering::Relaxed);
-            let padding = byte_offset.next_multiple_of(*alignment as u64) - byte_offset;
+            let padding = byte_offset.next_multiple_of(alignment.as_usize() as u64) - byte_offset;
             let offset = byte_offset + padding;
             specs.push(SegmentSpec {
                 offset,

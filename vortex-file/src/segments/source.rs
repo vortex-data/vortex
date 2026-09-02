@@ -309,7 +309,7 @@ impl FileSegmentSource {
         let coalesce_config = reader.coalesce_config().map(|mut config| {
             // Aligning the coalesced start down can add up to (alignment - 1) bytes.
             // Increase max_size to keep the effective payload window consistent.
-            let extra = (*max_alignment as u64).saturating_sub(1);
+            let extra = (max_alignment.as_usize() as u64).saturating_sub(1);
             config.max_size = config.max_size.saturating_add(extra);
             config
         });

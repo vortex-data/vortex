@@ -90,7 +90,7 @@ pub async fn exec_segments(session: &VortexSession, args: SegmentsArgs) -> Vorte
                         row_count: seg.row_count,
                         byte_offset: seg.spec.offset,
                         byte_length: seg.spec.length,
-                        alignment: *seg.spec.alignment,
+                        alignment: seg.spec.alignment.as_usize(),
                         byte_gap,
                     }
                 })

@@ -28,7 +28,7 @@ impl<T: ArrowNativeType> Buffer<T> {
         let bytes = Bytes::from_owner(ArrowWrapper(arrow.into_inner()));
 
         let alignment = Alignment::of::<T>();
-        if bytes.as_ptr().align_offset(*alignment) != 0 {
+        if bytes.as_ptr().align_offset(alignment.as_usize()) != 0 {
             vortex_panic!(
                 "Arrow buffer is not aligned to the requested alignment: {}",
                 alignment
@@ -67,7 +67,7 @@ impl ByteBuffer {
         let length = arrow.len();
 
         let bytes = Bytes::from_owner(ArrowWrapper(arrow));
-        if bytes.as_ptr().align_offset(*alignment) != 0 {
+        if bytes.as_ptr().align_offset(alignment.as_usize()) != 0 {
             vortex_panic!(
                 "Arrow buffer is not aligned to the requested alignment: {}",
                 alignment
