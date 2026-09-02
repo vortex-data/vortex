@@ -39,28 +39,23 @@ use vortex_array::dtype::PType;
 use vortex_array::dtype::PType::I32;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::Expression;
 use vortex_array::expr::and;
-use vortex_array::expr::cast;
+use vortex_array::expr::bound;
 use vortex_array::expr::col;
 use vortex_array::expr::eq;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
-use vortex_array::expr::gt_eq;
 use vortex_array::expr::lit;
 use vortex_array::expr::lt;
-use vortex_array::expr::lt_eq;
 use vortex_array::expr::or;
 use vortex_array::expr::root;
-use vortex_array::expr::select;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::extension::datetime::TimestampOptions;
 use vortex_array::field_path;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::scalar_fn::fns::pack::Pack;
-use vortex_array::scalar_fn::fns::pack::PackOptions;
+use vortex_array::scalar_fn::fns::between::BetweenOptions;
+use vortex_array::scalar_fn::fns::between::StrictComparison;
 use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
@@ -113,12 +108,6 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 
 fn strict_sorted(indices: Buffer<u64>) -> StrictSortedBuffer<u64> {
     StrictSortedBuffer::try_new(indices).expect("test indices should be strictly increasing")
-}
-
-fn bind_scan_expr(file: &VortexFile, expr: Expression) -> BoundExpression {
-    expr.optimize_recursive(file.dtype())
-        .and_then(|expr| expr.bind(file.dtype()))
-        .vortex_expect("scan expression should bind")
 }
 
 #[tokio::test]
@@ -328,7 +317,10 @@ async fn test_read_projection() {
     let array = file
         .scan()
         .unwrap()
-        .with_projection(bind_scan_expr(&file, select(["strings"], root())))
+        .with_projection(bound::select(
+            ["strings"],
+            bound::root(file.dtype().clone()),
+        ))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -354,7 +346,10 @@ async fn test_read_projection() {
     let array = file
         .scan()
         .unwrap()
-        .with_projection(bind_scan_expr(&file, select(["numbers"], root())))
+        .with_projection(bound::select(
+            ["numbers"],
+            bound::root(file.dtype().clone()),
+        ))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -529,15 +524,12 @@ async fn issue_5385_filter_casted_column() {
     let result = file
         .scan()
         .unwrap()
-        .with_filter(bind_scan_expr(
-            &file,
-            eq(
-                cast(
-                    get_item("x", root()),
-                    DType::Primitive(PType::U16, Nullability::NonNullable),
-                ),
-                lit(1u16),
+        .with_filter(bound::eq(
+            bound::cast(
+                bound::col("x", file.dtype().clone()),
+                DType::Primitive(PType::U16, Nullability::NonNullable),
             ),
+            bound::lit(1u16),
         ))
         .into_array_stream()
         .unwrap()
@@ -582,9 +574,9 @@ async fn filter_string() {
     let result: Vec<_> = file
         .scan()
         .unwrap()
-        .with_filter(bind_scan_expr(
-            &file,
-            eq(get_item("name", root()), lit("Joseph")),
+        .with_filter(bound::eq(
+            bound::col("name", file.dtype().clone()),
+            bound::lit("Joseph"),
         ))
         .into_array_stream()
         .unwrap()
@@ -643,14 +635,14 @@ async fn filter_or() {
     let result: Vec<_> = file
         .scan()
         .unwrap()
-        .with_filter(bind_scan_expr(
-            &file,
-            or(
-                eq(get_item("name", root()), lit("Angela")),
-                and(
-                    gt_eq(get_item("age", root()), lit(20)),
-                    lt_eq(get_item("age", root()), lit(30)),
-                ),
+        .with_filter(bound::or(
+            bound::eq(
+                bound::col("name", file.dtype().clone()),
+                bound::lit("Angela"),
+            ),
+            bound::and(
+                bound::gt_eq(bound::col("age", file.dtype().clone()), bound::lit(20)),
+                bound::lt_eq(bound::col("age", file.dtype().clone()), bound::lit(30)),
             ),
         ))
         .into_array_stream()
@@ -712,12 +704,16 @@ async fn filter_and() {
     let result: Vec<_> = file
         .scan()
         .unwrap()
-        .with_filter(bind_scan_expr(
-            &file,
-            and(
-                gt(get_item("age", root()), lit(21)),
-                lt_eq(get_item("age", root()), lit(33)),
-            ),
+        // `and(gt, lt_eq)` over one column is what the optimizer folds into a `between`, so
+        // build that form directly rather than round-tripping through the optimizer.
+        .with_filter(bound::between(
+            bound::col("age", file.dtype().clone()),
+            bound::lit(21),
+            bound::lit(33),
+            BetweenOptions {
+                lower_strict: StrictComparison::Strict,
+                upper_strict: StrictComparison::NonStrict,
+            },
         ))
         .into_array_stream()
         .unwrap()
@@ -923,9 +919,9 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let actual_kept_array = file
         .scan()
         .unwrap()
-        .with_filter(bind_scan_expr(
-            &file,
-            gt(get_item("numbers", root()), lit(50_i16)),
+        .with_filter(bound::gt(
+            bound::col("numbers", file.dtype().clone()),
+            bound::lit(50_i16),
         ))
         .with_row_indices(strict_sorted(Buffer::empty()))
         .into_array_stream()
@@ -944,9 +940,9 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let actual_kept_array = file
         .scan()
         .unwrap()
-        .with_filter(bind_scan_expr(
-            &file,
-            gt(get_item("numbers", root()), lit(50_i16)),
+        .with_filter(bound::gt(
+            bound::col("numbers", file.dtype().clone()),
+            bound::lit(50_i16),
         ))
         .with_row_indices(strict_sorted(Buffer::from_iter(kept_indices)))
         .into_array_stream()
@@ -975,9 +971,9 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let actual_array = file
         .scan()
         .unwrap()
-        .with_filter(bind_scan_expr(
-            &file,
-            gt(get_item("numbers", root()), lit(50_i16)),
+        .with_filter(bound::gt(
+            bound::col("numbers", file.dtype().clone()),
+            bound::lit(50_i16),
         ))
         .with_row_indices(strict_sorted((0..500).collect::<Buffer<_>>()))
         .into_array_stream()
@@ -1040,9 +1036,9 @@ async fn filter_string_chunked() {
     let actual_array = file
         .scan()
         .unwrap()
-        .with_filter(bind_scan_expr(
-            &file,
-            eq(get_item("name", root()), lit("Joseph")),
+        .with_filter(bound::eq(
+            bound::col("name", file.dtype().clone()),
+            bound::lit("Joseph"),
         ))
         .into_array_stream()
         .unwrap()
@@ -1133,12 +1129,9 @@ async fn test_pruning_with_or() {
     let actual_array = file
         .scan()
         .unwrap()
-        .with_filter(bind_scan_expr(
-            &file,
-            or(
-                lt_eq(get_item("letter", root()), lit("J")),
-                lt(get_item("number", root()), lit(25)),
-            ),
+        .with_filter(bound::or(
+            bound::lt_eq(bound::col("letter", file.dtype().clone()), bound::lit("J")),
+            bound::lt(bound::col("number", file.dtype().clone()), bound::lit(25)),
         ))
         .into_array_stream()
         .unwrap()
@@ -1211,9 +1204,9 @@ async fn test_repeated_projection() {
     let actual = file
         .scan()
         .unwrap()
-        .with_projection(bind_scan_expr(
-            &file,
-            select(["strings", "strings"], root()),
+        .with_projection(bound::select(
+            ["strings", "strings"],
+            bound::root(file.dtype().clone()),
         ))
         .into_array_stream()
         .unwrap()
@@ -1391,16 +1384,7 @@ async fn write_nullable_nested_struct() -> VortexResult<()> {
 #[tokio::test]
 async fn scan_empty_fields() -> VortexResult<()> {
     let array = (0..10000).collect::<PrimitiveArray>();
-    let projection = Pack
-        .new_expr(
-            PackOptions {
-                names: Default::default(),
-                nullability: Nullability::Nullable,
-            },
-            [],
-        )
-        .optimize_recursive(array.dtype())?
-        .bind(array.dtype())?;
+    let projection = bound::pack(Vec::<(&str, BoundExpression)>::new(), Nullability::Nullable);
 
     let result = round_trip(&array.clone().into_array(), |scan| {
         Ok(scan.with_projection(projection))
@@ -2375,7 +2359,10 @@ async fn test_large_flat_chunk_scan_subdivides_splits() -> VortexResult<()> {
     // A filtered scan crossing sub-split boundaries selects exactly the matching rows.
     let result = file
         .scan()?
-        .with_filter(bind_scan_expr(&file, gt(root(), lit(0i32))))
+        .with_filter(bound::gt(
+            bound::root(file.dtype().clone()),
+            bound::lit(0i32),
+        ))
         .into_array_stream()?
         .read_all()
         .await?;
@@ -2422,7 +2409,10 @@ async fn test_flat_chunk_scan_with_row_count_splits(
     let result = file
         .scan()?
         .with_split_by(SplitBy::RowCount(rows_per_split))
-        .with_filter(bind_scan_expr(&file, gt(root(), lit(0i32))))
+        .with_filter(bound::gt(
+            bound::root(file.dtype().clone()),
+            bound::lit(0i32),
+        ))
         .into_array_stream()?
         .read_all()
         .await?;

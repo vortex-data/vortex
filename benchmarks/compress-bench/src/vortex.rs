@@ -14,8 +14,7 @@ use futures::StreamExt;
 use futures::pin_mut;
 use vortex::array::IntoArray;
 use vortex::dtype::FieldNames;
-use vortex::expr::root;
-use vortex::expr::select;
+use vortex::expr::bound;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex_arrow::ArrowSessionExt;
@@ -70,9 +69,7 @@ impl Compressor for VortexCompressor {
         if let Some(cols) = read_projection(root_columns) {
             // Columns are named "0".."num_columns-1"; project the given subset.
             let names: FieldNames = cols.iter().map(|i| i.to_string()).collect();
-            let projection = select(names, root())
-                .optimize_recursive(&source_dtype)?
-                .bind(&source_dtype)?;
+            let projection = bound::select(names, bound::root(source_dtype.clone()));
             scan = scan.with_projection(projection);
         }
         let schema = Arc::new(SESSION.arrow().to_arrow_schema(&scan.dtype()?)?);

@@ -246,9 +246,12 @@ mod tests {
     use crate::expr::not;
     use crate::expr::not_eq;
     use crate::expr::or;
+    use crate::expr::pack;
     use crate::expr::select;
     use crate::expr::select_exclude;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::fns::between::BetweenOptions;
+    use crate::scalar_fn::fns::between::StrictComparison;
     use crate::scalar_fn::fns::literal::Literal;
 
     #[test]
@@ -430,5 +433,94 @@ mod tests {
         assert!(expression.contains::<Literal>().unwrap());
         let expression = root();
         assert!(!expression.contains::<Literal>().unwrap());
+    }
+
+    /// Scan callers that know their expression statically build it with the `bound::*`
+    /// constructors instead of `optimize_recursive(..).bind(..)`. Both must agree, otherwise
+    /// those call sites would silently ship a different expression to the scan.
+    #[test]
+    fn bound_constructors_match_optimize_then_bind() -> vortex_error::VortexResult<()> {
+        let u64_scope = DType::Primitive(PType::U64, Nullability::NonNullable);
+        let struct_scope = DType::Struct(
+            StructFields::from_iter([
+                ("name", DType::Utf8(Nullability::Nullable)),
+                ("age", DType::Primitive(PType::I32, Nullability::Nullable)),
+            ]),
+            Nullability::NonNullable,
+        );
+
+        let cases: Vec<(DType, Expression, BoundExpression)> = vec![
+            (
+                u64_scope.clone(),
+                gt(root(), lit(2u64)),
+                bound::gt(bound::root(u64_scope), bound::lit(2u64)),
+            ),
+            (
+                struct_scope.clone(),
+                select(["name"], root()),
+                bound::select(["name"], bound::root(struct_scope.clone())),
+            ),
+            (
+                struct_scope.clone(),
+                pack([("name", col("name"))], Nullability::NonNullable),
+                bound::pack(
+                    [("name", bound::col("name", struct_scope.clone()))],
+                    Nullability::NonNullable,
+                ),
+            ),
+            (
+                struct_scope.clone(),
+                eq(get_item("name", root()), lit("Joseph")),
+                bound::eq(
+                    bound::col("name", struct_scope.clone()),
+                    bound::lit("Joseph"),
+                ),
+            ),
+            (
+                struct_scope.clone(),
+                or(
+                    eq(get_item("name", root()), lit("Angela")),
+                    and(
+                        gt_eq(get_item("age", root()), lit(20)),
+                        lt_eq(get_item("age", root()), lit(30)),
+                    ),
+                ),
+                bound::or(
+                    bound::eq(
+                        bound::col("name", struct_scope.clone()),
+                        bound::lit("Angela"),
+                    ),
+                    bound::and(
+                        bound::gt_eq(bound::col("age", struct_scope.clone()), bound::lit(20)),
+                        bound::lt_eq(bound::col("age", struct_scope.clone()), bound::lit(30)),
+                    ),
+                ),
+            ),
+            // `and(gt, lt_eq)` over a single column is folded into a `between`, so the direct
+            // form is the `between` rather than the conjunction it was written as.
+            (
+                struct_scope.clone(),
+                and(
+                    gt(get_item("age", root()), lit(21)),
+                    lt_eq(get_item("age", root()), lit(33)),
+                ),
+                bound::between(
+                    bound::col("age", struct_scope),
+                    bound::lit(21),
+                    bound::lit(33),
+                    BetweenOptions {
+                        lower_strict: StrictComparison::Strict,
+                        upper_strict: StrictComparison::NonStrict,
+                    },
+                ),
+            ),
+        ];
+
+        for (scope, unbound, direct) in cases {
+            let via_optimizer = unbound.optimize_recursive(&scope)?.bind(&scope)?;
+            assert_eq!(via_optimizer, direct, "mismatch for {unbound}");
+        }
+
+        Ok(())
     }
 }

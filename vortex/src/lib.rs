@@ -66,7 +66,7 @@
 //! use vortex::VortexSessionDefault;
 //! use vortex::array::{IntoArray, stream::ArrayStreamExt};
 //! use vortex::array::arrays::PrimitiveArray;
-//! use vortex::array::expr::{gt, lit, root};
+//! use vortex::array::expr::bound;
 //! use vortex::array::validity::Validity;
 //! use vortex::buffer::{ByteBufferMut, buffer};
 //! use vortex::file::{OpenOptionsSessionExt, WriteOptionsSessionExt};
@@ -85,9 +85,7 @@
 //! let file = session
 //!     .open_options()
 //!     .open_buffer(bytes)?;
-//! let filter = gt(root(), lit(2u64))
-//!     .optimize_recursive(file.dtype())?
-//!     .bind(file.dtype())?;
+//! let filter = bound::gt(bound::root(file.dtype().clone()), bound::lit(2u64));
 //! let filtered = file
 //!     .scan()?
 //!     .with_filter(filter)
@@ -356,10 +354,7 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::dtype::FieldNames;
-    use vortex_array::expr::gt;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::root;
-    use vortex_array::expr::select;
+    use vortex_array::expr::bound;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
     use vortex_btrblocks::BtrBlocksCompressorBuilder;
@@ -454,9 +449,7 @@ mod test {
 
         // [read]
         let file = session.open_options().open_path(path.clone()).await?;
-        let filter = gt(root(), lit(2u64))
-            .optimize_recursive(file.dtype())?
-            .bind(file.dtype())?;
+        let filter = bound::gt(bound::root(file.dtype().clone()), bound::lit(2u64));
         let array = file
             .scan()?
             .with_filter(filter)
@@ -554,9 +547,7 @@ mod test {
 
         // Read the file back, but project down to just the "value" column.
         let file = session.open_options().open_path(path.clone()).await?;
-        let projection = select(["value"], root())
-            .optimize_recursive(file.dtype())?
-            .bind(file.dtype())?;
+        let projection = bound::select(["value"], bound::root(file.dtype().clone()));
         let projected = file
             .scan()?
             .with_projection(projection)
