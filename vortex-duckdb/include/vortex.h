@@ -11,6 +11,8 @@
 
 #pragma once
 
+#define SPLITS_PER_SCAN 2
+
 #define COUNT_STAR_PROJ_IDX UINT64_MAX
 
 #ifdef __cplusplus

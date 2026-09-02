@@ -10,6 +10,7 @@ use std::sync::atomic::Ordering;
 
 use custom_labels::CURRENT_LABELSET;
 use futures::future::BoxFuture;
+use futures::stream::BoxStream;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use parking_lot::Mutex;
@@ -163,13 +164,17 @@ assert_impl_all!(GlobalState: Send, Sync);
 
 pub type Split = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
 
+/// Stream of split results, driving up to [`crate::file_reader::SPLITS_PER_SCAN`]
+/// splits concurrently so IO for later splits overlaps decoding of earlier ones.
+pub type SplitStream = BoxStream<'static, VortexResult<Option<ArrayRef>>>;
+
 /// field position, accumulator
 pub type Partials = Vec<(usize, Box<dyn DynAccumulator>)>;
 
 /// Per-thread scan state
 pub struct LocalState {
     pub exporter: Option<ArrayExporter>,
-    pub split: Option<Split>,
+    pub splits: Option<SplitStream>,
 
     /// Empty for non-aggregate scan
     pub partials: Partials,
@@ -368,7 +373,7 @@ pub fn init_local(bind_data: &BindState, global: &GlobalState) -> LocalState {
     LocalState {
         exporter: None,
         partials,
-        split: None,
+        splits: None,
         finished: false,
     }
 }
