@@ -4,7 +4,7 @@
 import vortex as vx
 
 
-def test_factories():
+def test_factories() -> None:
     assert str(vx.null()) == "null"
     assert str(vx.bool_()) == "bool"
     assert str(vx.bool_(nullable=True)) == "bool?"

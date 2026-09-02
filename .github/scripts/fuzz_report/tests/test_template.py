@@ -14,7 +14,7 @@ from fuzz_report.template import render_template, render_template_to_file
 
 
 @pytest.fixture
-def simple_template(tmp_path):
+def simple_template(tmp_path) -> str:
     """Create a simple template file."""
     content = "# {{TITLE}}\n\nTarget: {{TARGET}}\nValue: {{VALUE}}\nMissing: {{MISSING}}\n"
     path = tmp_path / "simple.md"
@@ -23,7 +23,7 @@ def simple_template(tmp_path):
 
 
 @pytest.fixture
-def conditional_template(tmp_path):
+def conditional_template(tmp_path) -> str:
     """Create a template with Jinja2 conditionals."""
     content = "# Title\n{% if ANALYSIS %}\n### Analysis\n{{ANALYSIS}}\n{% endif %}\nFooter\n"
     path = tmp_path / "conditional.md"
@@ -32,19 +32,19 @@ def conditional_template(tmp_path):
 
 
 @pytest.fixture
-def new_issue_template():
+def new_issue_template() -> str:
     """Path to the actual new_issue.md template."""
     return str(Path(__file__).parent.parent / "templates" / "new_issue.md")
 
 
 @pytest.fixture
-def related_comment_template():
+def related_comment_template() -> str:
     """Path to the actual related_comment.md template."""
     return str(Path(__file__).parent.parent / "templates" / "related_comment.md")
 
 
 class TestRenderTemplate:
-    def test_with_variables(self, simple_template):
+    def test_with_variables(self, simple_template) -> None:
         variables = {
             "TITLE": "Test Title",
             "TARGET": "file_io",
@@ -56,7 +56,7 @@ class TestRenderTemplate:
         assert "42" in result
         assert "(not set)" in result  # MISSING
 
-    def test_with_env_variables(self, simple_template):
+    def test_with_env_variables(self, simple_template) -> None:
         os.environ["TITLE"] = "Env Title"
         os.environ["TARGET"] = "env_target"
         os.environ["VALUE"] = "99"
@@ -70,7 +70,7 @@ class TestRenderTemplate:
             del os.environ["TARGET"]
             del os.environ["VALUE"]
 
-    def test_variables_override_env(self, simple_template):
+    def test_variables_override_env(self, simple_template) -> None:
         os.environ["TITLE"] = "Env Title"
         try:
             result = render_template(
@@ -83,13 +83,13 @@ class TestRenderTemplate:
         finally:
             del os.environ["TITLE"]
 
-    def test_missing_variable(self, simple_template):
+    def test_missing_variable(self, simple_template) -> None:
         result = render_template(simple_template, {}, use_env=False)
         assert result.count("(not set)") == 4
 
 
 class TestConditionals:
-    def test_if_shown_when_truthy(self, conditional_template):
+    def test_if_shown_when_truthy(self, conditional_template) -> None:
         result = render_template(
             conditional_template,
             {"ANALYSIS": "Root cause is X"},
@@ -98,7 +98,7 @@ class TestConditionals:
         assert "### Analysis" in result
         assert "Root cause is X" in result
 
-    def test_if_hidden_when_empty(self, conditional_template):
+    def test_if_hidden_when_empty(self, conditional_template) -> None:
         result = render_template(
             conditional_template,
             {"ANALYSIS": ""},
@@ -106,7 +106,7 @@ class TestConditionals:
         )
         assert "### Analysis" not in result
 
-    def test_if_hidden_when_not_set(self, conditional_template):
+    def test_if_hidden_when_not_set(self, conditional_template) -> None:
         result = render_template(
             conditional_template,
             {},
@@ -114,13 +114,13 @@ class TestConditionals:
         )
         assert "### Analysis" not in result
 
-    def test_footer_always_present(self, conditional_template):
+    def test_footer_always_present(self, conditional_template) -> None:
         result = render_template(conditional_template, {}, use_env=False)
         assert "Footer" in result
 
 
 class TestRenderTemplateToFile:
-    def test_writes_to_file(self, simple_template, tmp_path):
+    def test_writes_to_file(self, simple_template, tmp_path) -> None:
         variables = {"TITLE": "Test", "TARGET": "test", "VALUE": "1"}
         output_path = tmp_path / "output.md"
         render_template_to_file(simple_template, str(output_path), variables, use_env=False)
@@ -154,7 +154,7 @@ class TestDownstreamGrepCompatibility:
         "CLAUDE_ANALYSIS": "The crash is caused by an off-by-one error.",
     }
 
-    def test_target_grep_pattern(self, new_issue_template):
+    def test_target_grep_pattern(self, new_issue_template) -> None:
         """Verify **Target**: `value` matches downstream grep."""
         rendered = render_template(new_issue_template, self.SAMPLE_VARS, use_env=False)
         # Simulate: grep -oP '(?<=\*\*Target\*\*: `)[^`]+'
@@ -162,7 +162,7 @@ class TestDownstreamGrepCompatibility:
         assert match is not None, f"Target pattern not found in:\n{rendered}"
         assert match.group(1) == "file_io"
 
-    def test_crash_file_grep_pattern(self, new_issue_template):
+    def test_crash_file_grep_pattern(self, new_issue_template) -> None:
         """Verify **Crash File**: `value` matches downstream grep."""
         rendered = render_template(new_issue_template, self.SAMPLE_VARS, use_env=False)
         # Simulate: grep -oP '(?<=\*\*Crash File\*\*: `)[^`]+'
@@ -170,7 +170,7 @@ class TestDownstreamGrepCompatibility:
         assert match is not None, f"Crash File pattern not found in:\n{rendered}"
         assert match.group(1) == "crash-abc123"
 
-    def test_artifact_url_grep_pattern(self, new_issue_template):
+    def test_artifact_url_grep_pattern(self, new_issue_template) -> None:
         """Verify artifact URL matches downstream grep."""
         rendered = render_template(new_issue_template, self.SAMPLE_VARS, use_env=False)
         # Simulate: grep -oP 'https://[^\s]+/artifacts/[0-9]+'
@@ -178,33 +178,33 @@ class TestDownstreamGrepCompatibility:
         assert match is not None, f"Artifact URL pattern not found in:\n{rendered}"
         assert "67890" in match.group(0)
 
-    def test_hidden_hashes_present(self, new_issue_template):
+    def test_hidden_hashes_present(self, new_issue_template) -> None:
         """Verify hidden HTML comment with hashes is present."""
         rendered = render_template(new_issue_template, self.SAMPLE_VARS, use_env=False)
         assert "<!-- seed_hash:aaa111" in rendered
         assert "stack_hash:bbb222" in rendered
         assert "message_hash:ccc333" in rendered
 
-    def test_claude_analysis_shown_when_present(self, new_issue_template):
+    def test_claude_analysis_shown_when_present(self, new_issue_template) -> None:
         """Claude analysis section should appear when provided."""
         rendered = render_template(new_issue_template, self.SAMPLE_VARS, use_env=False)
         assert "Root Cause Analysis" in rendered
         assert "off-by-one error" in rendered
 
-    def test_claude_analysis_hidden_when_empty(self, new_issue_template):
+    def test_claude_analysis_hidden_when_empty(self, new_issue_template) -> None:
         """Claude analysis section should not appear when empty."""
         vars_no_analysis = {**self.SAMPLE_VARS, "CLAUDE_ANALYSIS": ""}
         rendered = render_template(new_issue_template, vars_no_analysis, use_env=False)
         assert "Root Cause Analysis" not in rendered
 
-    def test_stack_trace_in_details(self, new_issue_template):
+    def test_stack_trace_in_details(self, new_issue_template) -> None:
         """Stack trace should be inside a <details> block."""
         rendered = render_template(new_issue_template, self.SAMPLE_VARS, use_env=False)
         assert "<details>" in rendered
         assert "Stack Trace" in rendered
         assert "Debug Output" not in rendered
 
-    def test_related_comment_target_pattern(self, related_comment_template):
+    def test_related_comment_target_pattern(self, related_comment_template) -> None:
         """Related comment template should also have compatible Target pattern."""
         vars_with_dedup = {
             **self.SAMPLE_VARS,
@@ -216,7 +216,7 @@ class TestDownstreamGrepCompatibility:
         assert match is not None
         assert match.group(1) == "file_io"
 
-    def test_full_end_to_end_grep_simulation(self, new_issue_template):
+    def test_full_end_to_end_grep_simulation(self, new_issue_template) -> None:
         """Full simulation of the three grep commands from fuzzer-fix-automation.yml."""
         rendered = render_template(new_issue_template, self.SAMPLE_VARS, use_env=False)
 

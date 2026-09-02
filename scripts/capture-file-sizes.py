@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Capture file sizes from benchmark data directories")
     parser.add_argument("data_dir", help="Data directory (e.g., vortex-bench/data)")
     parser.add_argument("--benchmark", required=True, help="Benchmark name (e.g., clickbench)")

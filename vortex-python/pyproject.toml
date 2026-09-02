@@ -91,5 +91,9 @@ dev = [
     "protobuf>=6.33.5",
 ]
 
-[tool.basedpyright]
-exclude = ["python/vortex/_lib/store/**.pyi"]
+[tool.ty.environment]
+root = ["python", "."]
+
+[tool.ty.src]
+# Vendored obstore stubs are not checked.
+exclude = ["python/vortex/_lib/store/**/*.pyi"]

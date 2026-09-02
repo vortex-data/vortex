@@ -65,7 +65,7 @@ def put_object(
     return result.returncode == 0
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Upload a file to S3 with retry and optional optimistic locking")
     parser.add_argument("--bucket", required=True, help="S3 bucket name")
     parser.add_argument("--key", required=True, help="S3 object key")

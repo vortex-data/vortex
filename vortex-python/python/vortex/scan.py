@@ -5,9 +5,9 @@ from __future__ import annotations
 
 from typing import final
 
-from ._lib import scan as _scan  # pyright: ignore[reportMissingModuleSource]
-from ._lib.iter import ArrayIterator  # pyright: ignore[reportMissingModuleSource]
-from ._lib.scalar import Scalar  # pyright: ignore[reportMissingModuleSource]
+from ._lib import scan as _scan
+from ._lib.iter import ArrayIterator
+from ._lib.scalar import Scalar
 
 
 @final
@@ -16,7 +16,7 @@ class RepeatedScan:
     A prepared scan that is optimized for repeated execution.
     """
 
-    def __init__(self, scan: _scan.RepeatedScan):
+    def __init__(self, scan: _scan.RepeatedScan) -> None:
         self._scan = scan
 
     def execute(

@@ -17,7 +17,7 @@ packages = ["dummy"] # Required for workspace project
 # Shared dev tooling. Member-specific dev deps live in each member's pyproject.toml.
 # `uv sync --all-packages` picks up dev groups from all workspace members.
 dev = [
-    "basedpyright>=1.31",
+    "ty>=0.0.74",
     "ipython>=8.26.0",
     "pip>=23.3.2",
     "pytest>=7.4.0",
@@ -54,9 +54,18 @@ extend-exclude = [".venv", "vortex-duckdb/duckdb/**"]
 exclude = ["*.md"]
 
 [tool.ruff.lint]
-select = ["F", "E", "W", "UP", "I"]
+select = ["F", "E", "W", "UP", "I", "ANN"]
 # Do not auto-fix unused variables. This is really annoying when IntelliJ runs autofix while editing.
 unfixable = ["F841"]
+
+[tool.ruff.lint.per-file-ignores]
+# Pytest supplies fixture parameters dynamically.
+"**/test*/**/*.py" = ["ANN001"]
+# These integration hooks receive values from untyped external runtimes.
+"docs/conf.py" = ["ANN001"]
+"scripts/cudf-parquet-read.py" = ["ANN001"]
+"scripts/post-ingest.py" = ["ANN001"]
+"scripts/vortex_gdb.py" = ["ANN001"]
 
 [tool.ruff.lint.isort]
 known-first-party = [
@@ -73,5 +82,22 @@ log_cli = true
 log_cli_level = "INFO"
 xfail_strict = true
 
-[tool.basedpyright]
-exclude = ["vortex-python/python/vortex/_lib/store/**.pyi"]
+[tool.ty.environment]
+# First-party source roots so `vortex` and `vortex_cuda` resolve without an
+# editable install of the Rust extensions.
+root = [
+    "vortex-python/python",
+    "vortex-python",
+    "vortex-python-cuda/python",
+    "vortex-python-cuda",
+]
+
+[tool.ty.src]
+# Vendored obstore stubs are not checked.
+exclude = ["vortex-python/python/vortex/_lib/store/**/*.pyi"]
+
+[tool.ty.rules]
+missing-type-argument = "error"
+unsound-assignment = "error"
+unsound-return-statement = "error"
+unsound-yield = "error"

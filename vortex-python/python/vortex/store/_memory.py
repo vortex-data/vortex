@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: MIT
 # SPDX-FileCopyrightText: Copyright (c) 2024 Development Seed
 
-from .._lib import store as _store  # pyright: ignore[reportMissingModuleSource]
+from typing import Self
+
+from .._lib import store as _store
 
 
 class MemoryStore(_store.MemoryStore):
@@ -12,5 +14,5 @@ class MemoryStore(_store.MemoryStore):
         store = MemoryStore()
     """
 
-    def __new__(cls):
+    def __new__(cls) -> Self:
         return super().__new__(cls)

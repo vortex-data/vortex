@@ -5,6 +5,6 @@ import sys
 
 
 def main() -> None:
-    from vortex._lib.cli import launch  # pyright: ignore[reportMissingModuleSource]
+    from vortex._lib.cli import launch
 
     launch(sys.argv)

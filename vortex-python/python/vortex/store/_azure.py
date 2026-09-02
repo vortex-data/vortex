@@ -7,7 +7,7 @@ from typing import Any, Protocol, Self, TypeAlias, TypedDict, Unpack
 
 from typing_extensions import override
 
-from .._lib import store as _store  # pyright: ignore[reportMissingModuleSource]
+from .._lib import store as _store
 from ._client import ClientConfig
 from ._retry import RetryConfig
 
@@ -252,7 +252,7 @@ class AzureCredentialProvider(Protocol):
 
     """
 
-    def __call__(self) -> AzureCredential | Coroutine[Any, Any, AzureCredential]:  # pyright: ignore[reportExplicitAny]
+    def __call__(self) -> AzureCredential | Coroutine[Any, Any, AzureCredential]:
         """Return an ``AzureCredential``."""
         ...
 
@@ -273,7 +273,7 @@ class AzureStore(_store.AzureStore):
         client_options: ClientConfig | None = None,
         retry_config: RetryConfig | None = None,
         credential_provider: AzureCredentialProvider | None = None,
-        **kwargs: Unpack[AzureConfig],  # pyright: ignore[reportGeneralTypeIssues]
+        **kwargs: Unpack[AzureConfig],  # ty: ignore[invalid-type-form]
     ) -> Self:
         """Construct a new AzureStore.
 
@@ -294,7 +294,7 @@ class AzureStore(_store.AzureStore):
             AzureStore
 
         """
-        return super().__new__(  # pyright: ignore[reportUnknownVariableType]
+        return super().__new__(
             cls,
             container_name,
             prefix=prefix,
@@ -302,7 +302,8 @@ class AzureStore(_store.AzureStore):
             client_options=client_options,
             retry_config=retry_config,
             credential_provider=credential_provider,
-            **kwargs,  # pyright: ignore[reportCallIssue]
+            # container_name appears in both AzureConfig and explicitly above
+            **kwargs,  # ty: ignore[parameter-already-assigned]
         )
 
     @override
@@ -373,8 +374,8 @@ class AzureStore(_store.AzureStore):
         return super().__eq__(value)
 
     @override
-    def __getnewargs_ex__(self):  # pyright: ignore[reportUnknownParameterType]
-        return super().__getnewargs_ex__()  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
+    def __getnewargs_ex__(self) -> tuple[tuple[()], dict[str, object]]:
+        return super().__getnewargs_ex__()
 
     @property
     @override

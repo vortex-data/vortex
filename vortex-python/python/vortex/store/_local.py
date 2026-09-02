@@ -2,11 +2,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024 Development Seed
 
 from pathlib import Path
-from typing import Self
+from typing import Self, cast
 
 from typing_extensions import override
 
-from .._lib import store as _store  # pyright: ignore[reportMissingModuleSource]
+from .._lib import store as _store
 
 
 class LocalStore(_store.LocalStore):
@@ -67,7 +67,12 @@ class LocalStore(_store.LocalStore):
             store = LocalStore.from_url(url)
 
         """
-        return super(cls).from_url(url, automatic_cleanup=automatic_cleanup, mkdir=mkdir)
+        return cast(
+            Self,
+            super(cls).from_url(  # ty: ignore[unresolved-attribute]
+                url, automatic_cleanup=automatic_cleanup, mkdir=mkdir
+            ),
+        )
 
     @override
     def __eq__(self, value: object, /) -> bool:

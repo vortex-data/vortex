@@ -134,9 +134,9 @@ jobs:
         env:
           MATURIN_PEP517_ARGS: "--profile ci"
         run: |
-          # --all-packages installs the shared dev tooling (basedpyright) from the
+          # --all-packages installs the shared dev tooling (ty) from the
           # root `dev` group; --extra cuda adds the vortex-data-cuda extension.
-          uv run --all-packages --extra cuda basedpyright vortex-python vortex-python-cuda
+          uv run --all-packages --extra cuda ty check vortex-python vortex-python-cuda
           uv run --all-packages --extra cuda pytest --benchmark-disable vortex-python/test/test_cuda.py vortex-python-cuda/test
 
   cuda-test-sanitizer:

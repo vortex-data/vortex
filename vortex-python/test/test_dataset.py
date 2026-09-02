@@ -25,34 +25,34 @@ def record(x: int, columns: list[str] | set[str] | None = None) -> dict[str, int
 
 
 @pytest.fixture(scope="session")
-def ds(tmpdir_factory) -> vx.dataset.VortexDataset:  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
-    fname = tmpdir_factory.mktemp("data") / "foo.vortex"  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+def ds(tmpdir_factory) -> vx.dataset.VortexDataset:
+    fname = tmpdir_factory.mktemp("data") / "foo.vortex"
 
-    assert not os.path.exists(fname)  # pyright: ignore[reportUnknownArgumentType]
+    assert not os.path.exists(fname)
 
     a = pa.array([record(x) for x in range(1_000_000)])
-    vx.io.write(vx.array(a), str(fname))  # pyright: ignore[reportUnknownArgumentType]
-    return vx.dataset.VortexDataset.from_path(str(fname))  # pyright: ignore[reportUnknownArgumentType]
+    vx.io.write(vx.array(a), str(fname))
+    return vx.dataset.VortexDataset.from_path(str(fname))
 
 
-def test_schema(ds: pd.Dataset):
+def test_schema(ds: pd.Dataset) -> None:
     assert ds.schema == pa.schema(
         [("index", pa.int64()), ("string", pa.string_view()), ("bool", pa.bool_()), ("float", pa.float64())]
     )
 
 
-def test_scanner_schema(ds: vx.dataset.VortexDataset):
+def test_scanner_schema(ds: vx.dataset.VortexDataset) -> None:
     scanner = vx.dataset.VortexScanner(ds)
     assert scanner.schema == pa.schema(
         [("index", pa.int64()), ("string", pa.string_view()), ("bool", pa.bool_()), ("float", pa.float64())]
     )
 
 
-def test_head(ds: pd.Dataset):
+def test_head(ds: pd.Dataset) -> None:
     assert ds.head(1).to_pylist() == [{"index": 0, "string": "0", "bool": True, "float": 0.0}]
 
 
-def test_take(ds: pd.Dataset):
+def test_take(ds: pd.Dataset) -> None:
     assert ds.take(pa.array([10, 50, 1_000, 999_999])).to_pylist() == [
         {"index": 10, "string": "10", "bool": True, "float": math.sqrt(10)},
         {"index": 50, "string": "50", "bool": True, "float": math.sqrt(50.0)},
@@ -61,7 +61,7 @@ def test_take(ds: pd.Dataset):
     ]
 
 
-def test_to_batches(ds: pd.Dataset):
+def test_to_batches(ds: pd.Dataset) -> None:
     assert sum(len(x) for x in ds.to_batches(columns=["float", "bool"])) == 1_000_000
 
     schema = pa.struct([("string", pa.string_view()), ("bool", pa.bool_())])
@@ -72,7 +72,7 @@ def test_to_batches(ds: pd.Dataset):
     )
 
 
-def test_use_threads_configures_worker_pool(monkeypatch: pytest.MonkeyPatch):
+def test_use_threads_configures_worker_pool(monkeypatch: pytest.MonkeyPatch) -> None:
     current_workers = 3
     calls: list[int | None] = []
 
@@ -87,12 +87,12 @@ def test_use_threads_configures_worker_pool(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(vx_dataset, "_worker_threads", fake_worker_threads)
     monkeypatch.setattr(vx_dataset, "_set_worker_threads", fake_set_worker_threads)
 
-    with vx_dataset._temporary_worker_threads(True):  # pyright: ignore[reportPrivateUsage]
+    with vx_dataset._temporary_worker_threads(True):
         assert current_workers == 11
 
     assert current_workers == 3
 
-    with vx_dataset._temporary_worker_threads(False):  # pyright: ignore[reportPrivateUsage]
+    with vx_dataset._temporary_worker_threads(False):
         assert current_workers == 0
 
     assert current_workers == 3
@@ -107,7 +107,7 @@ def test_use_threads_configures_worker_pool(monkeypatch: pytest.MonkeyPatch):
         ],
     )
 
-    batches = list(vx_dataset._read_batches_with_temporary_worker_threads(reader, True))  # pyright: ignore[reportPrivateUsage]
+    batches = list(vx_dataset._read_batches_with_temporary_worker_threads(reader, True))
 
     assert [batch.to_pylist() for batch in batches] == [[{"x": 1}], [{"x": 2}]]
     assert current_workers == 3
@@ -115,7 +115,7 @@ def test_use_threads_configures_worker_pool(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.mark.parametrize("batch_size", [1234, 8192, 1 << 31])
-def test_to_batch_size(ds: pd.Dataset, batch_size: int):
+def test_to_batch_size(ds: pd.Dataset, batch_size: int) -> None:
     batch_sizes = [len(x) for x in ds.to_batches(batch_size=batch_size)]
     n_rows = ds.count_rows()
     if n_rows < batch_size:
@@ -127,7 +127,7 @@ def test_to_batch_size(ds: pd.Dataset, batch_size: int):
         assert batch_sizes[-1] == n_rows % batch_size
 
 
-def test_to_table(ds: pd.Dataset):
+def test_to_table(ds: pd.Dataset) -> None:
     tbl = ds.to_table(columns=["bool", "float"], filter=pc.field("float") > 100)
     # TODO(aduffy): add back once pyarrow supports casting to/from string_view
     # assert 0 == len(tbl.filter(pc.field("string") <= "10000"))
@@ -143,8 +143,8 @@ def test_to_table(ds: pd.Dataset):
     )
 
 
-def test_to_record_batch_reader_with_polars(ds: pd.Dataset):
-    pldf = polars.scan_pyarrow_dataset(ds).collect()  # pyright: ignore[reportUnknownMemberType]
+def test_to_record_batch_reader_with_polars(ds: pd.Dataset) -> None:
+    pldf = polars.scan_pyarrow_dataset(ds).collect()
     assert len(pldf) == 1_000_000
     assert pldf.schema["index"] == polars.Int64
     assert pldf.schema["string"] == polars.Utf8
@@ -152,7 +152,7 @@ def test_to_record_batch_reader_with_polars(ds: pd.Dataset):
     assert pldf.schema["float"] == polars.Float64
 
 
-def test_filter(ds: vx.dataset.VortexDataset):
+def test_filter(ds: vx.dataset.VortexDataset) -> None:
     tbl = ds.to_table(filter=(pc.field("string") >= "950000") & (pc.field("float") < 975.0))
     assert len(tbl) == 6176
 
@@ -172,7 +172,7 @@ def test_filter(ds: vx.dataset.VortexDataset):
     assert len(tbl) == 20
 
 
-def test_filter_with_nested_null_dtype(tmp_path: Path):
+def test_filter_with_nested_null_dtype(tmp_path: Path) -> None:
     path = tmp_path / "test.vortex"
 
     batch = pa.RecordBatch.from_pylist(
@@ -191,8 +191,8 @@ def test_filter_with_nested_null_dtype(tmp_path: Path):
     assert actual.to_pylist() == [{"a": 0, "b": {"x": None}}]
 
 
-def test_duckdb(ds: vx.dataset.VortexDataset):
-    assert ds  # pyright cannot determine that ds is used by duckdb.execute
+def test_duckdb(ds: vx.dataset.VortexDataset) -> None:
+    assert ds  # the type checker cannot determine that ds is used by duckdb.execute
 
     tbl = duckdb.execute("select * from ds where string >= '950000' and float < 975.0").arrow().read_all()
     assert len(tbl) == 6176
@@ -213,7 +213,7 @@ def test_duckdb(ds: vx.dataset.VortexDataset):
     assert tbl.schema == pa.schema([("hi_mom", pa.utf8()), ("yolo", pa.float64())])
 
 
-def test_fragment_schema(ds: vx.dataset.VortexDataset):
+def test_fragment_schema(ds: vx.dataset.VortexDataset) -> None:
     fragments = ds.get_fragments()
     for i, f in enumerate(fragments):
         assert f.physical_schema == pa.schema(
@@ -223,7 +223,7 @@ def test_fragment_schema(ds: vx.dataset.VortexDataset):
     assert ds.head(1).to_pylist() == [{"index": 0, "string": "0", "bool": True, "float": 0.0}]
 
 
-def test_fragment_take(ds: vx.dataset.VortexDataset):
+def test_fragment_take(ds: vx.dataset.VortexDataset) -> None:
     fragments = list(ds.get_fragments())
     assert fragments[0].take(pa.array([10, 50, 1_000])).to_pylist() == [
         {"index": 10, "string": "10", "bool": True, "float": math.sqrt(10)},
@@ -239,7 +239,7 @@ def test_fragment_take(ds: vx.dataset.VortexDataset):
     ]
 
 
-def test_fragment_to_batches(ds: vx.dataset.VortexDataset):
+def test_fragment_to_batches(ds: vx.dataset.VortexDataset) -> None:
     fragments = list(ds.get_fragments())
 
     assert sum(len(x) for f in fragments for x in f.to_batches(columns=["float", "bool"])) == 1_000_000
@@ -253,7 +253,7 @@ def test_fragment_to_batches(ds: vx.dataset.VortexDataset):
 
 
 @pytest.mark.parametrize("batch_size", [1234, 8192, 1 << 31])
-def test_fragment_to_batch_size(ds: vx.dataset.VortexDataset, batch_size: int):
+def test_fragment_to_batch_size(ds: vx.dataset.VortexDataset, batch_size: int) -> None:
     fragments = list(ds.get_fragments())
 
     remainder = 0
@@ -273,7 +273,7 @@ def test_fragment_to_batch_size(ds: vx.dataset.VortexDataset, batch_size: int):
             assert batch_sizes[-1] == last_batch_size
 
 
-def test_fragment_to_table(ds: vx.dataset.VortexDataset):
+def test_fragment_to_table(ds: vx.dataset.VortexDataset) -> None:
     fragments = list(ds.get_fragments())
 
     frag_row_count = 0
@@ -291,7 +291,7 @@ def test_fragment_to_table(ds: vx.dataset.VortexDataset):
     assert frag_row_count == 989_999
 
 
-def test_get_fragments(ds: vx.dataset.VortexDataset):
+def test_get_fragments(ds: vx.dataset.VortexDataset) -> None:
     assert len(list(ds.get_fragments())) == 26
 
     assert ds.count_rows() == sum(f.count_rows() for f in ds.get_fragments())

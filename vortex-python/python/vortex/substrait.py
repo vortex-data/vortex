@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from substrait.extended_expression_pb2 import ExpressionReference, ExtendedExpression
     from substrait.extensions.extensions_pb2 import (
         SimpleExtensionDeclaration,
-        SimpleExtensionURI,  # pyright: ignore[reportDeprecated]
+        SimpleExtensionURI,  # ty: ignore[deprecated]
     )
     from substrait.type_pb2 import NamedStruct, Type
 else:
@@ -29,8 +29,8 @@ else:
         from substrait.gen.proto.extensions.extensions_pb2 import SimpleExtensionDeclaration, SimpleExtensionURI
         from substrait.gen.proto.type_pb2 import NamedStruct, Type
 
-from ._lib import dtype as _dtype  # pyright: ignore[reportMissingModuleSource]
-from ._lib import expr as _expr  # pyright: ignore[reportMissingModuleSource]
+from ._lib import dtype as _dtype
+from ._lib import expr as _expr
 
 ExtensionTypes = dict[int, str]
 TypeVariations = dict[int, str]
@@ -465,7 +465,7 @@ def function_argument(
 
 def extension_function(
     substrait_object: SimpleExtensionDeclaration.ExtensionFunction,
-    extension_uris: RepeatedCompositeFieldContainer[SimpleExtensionURI],  # pyright: ignore[reportDeprecated]
+    extension_uris: RepeatedCompositeFieldContainer[SimpleExtensionURI],  # ty: ignore[deprecated]
 ) -> Callable[..., _expr.Expr]:
     # https://github.com/substrait-io/substrait/blob/main/proto/substrait/extensions/extensions.proto#L57
     match extension_uris[substrait_object.extension_uri_reference].uri:

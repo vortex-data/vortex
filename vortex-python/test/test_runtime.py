@@ -6,7 +6,7 @@ import pytest
 import vortex as vx
 
 
-def test_worker_threads():
+def test_worker_threads() -> None:
     original = vx.worker_threads()
     try:
         vx.set_worker_threads(0)
@@ -18,7 +18,7 @@ def test_worker_threads():
         vx.set_worker_threads(original)
 
 
-def test_set_worker_threads_none_resets_to_available_parallelism():
+def test_set_worker_threads_none_resets_to_available_parallelism() -> None:
     original = vx.worker_threads()
     try:
         vx.set_worker_threads(0)
@@ -28,6 +28,6 @@ def test_set_worker_threads_none_resets_to_available_parallelism():
         vx.set_worker_threads(original)
 
 
-def test_set_worker_threads_rejects_negative():
+def test_set_worker_threads_rejects_negative() -> None:
     with pytest.raises(ValueError):
         vx.set_worker_threads(-1)

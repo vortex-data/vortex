@@ -7,7 +7,7 @@ import argparse
 import os.path
 import timeit
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import date
 from typing import Any
 
@@ -16,7 +16,7 @@ import polars as pl
 import vortex as vx
 
 # 0: No., 1: SQL, 2: Polars
-queries: list[tuple[str, str, Callable[[pl.LazyFrame], Any]]] = [  # pyright: ignore[reportExplicitAny]
+queries: list[tuple[str, str, Callable[[pl.LazyFrame], Any]]] = [
     ("Q0", "SELECT COUNT(*) FROM hits;", lambda x: x.select(pl.len()).collect().height),
     (
         "Q1",
@@ -35,17 +35,17 @@ queries: list[tuple[str, str, Callable[[pl.LazyFrame], Any]]] = [  # pyright: ig
     (
         "Q3",
         "SELECT AVG(UserID) FROM hits;",
-        lambda x: x.select(pl.col("UserID").mean()).collect().item(),  # pyright: ignore[reportAny]
+        lambda x: x.select(pl.col("UserID").mean()).collect().item(),
     ),
     (
         "Q4",
         "SELECT COUNT(DISTINCT UserID) FROM hits;",
-        lambda x: x.select(pl.col("UserID").n_unique()).collect().item(),  # pyright: ignore[reportAny]
+        lambda x: x.select(pl.col("UserID").n_unique()).collect().item(),
     ),
     (
         "Q5",
         "SELECT COUNT(DISTINCT SearchPhrase) FROM hits;",
-        lambda x: x.select(pl.col("SearchPhrase").n_unique()).collect().item(),  # pyright: ignore[reportAny]
+        lambda x: x.select(pl.col("SearchPhrase").n_unique()).collect().item(),
     ),
     (
         "Q6",
@@ -187,7 +187,7 @@ queries: list[tuple[str, str, Callable[[pl.LazyFrame], Any]]] = [  # pyright: ig
     (
         "Q20",
         "SELECT COUNT(*) FROM hits WHERE URL LIKE '%google%';",
-        lambda x: x.filter(pl.col("URL").str.contains("google")).select(pl.len()).collect().item(),  # pyright: ignore[reportAny]
+        lambda x: x.filter(pl.col("URL").str.contains("google")).select(pl.len()).collect().item(),
     ),
     (
         "Q21",
@@ -511,7 +511,7 @@ queries: list[tuple[str, str, Callable[[pl.LazyFrame], Any]]] = [  # pyright: ig
 ]
 
 
-def run_timings(lf: pl.LazyFrame, name: str, src: str, load_time: int | None) -> dict[str, Any] | None:  # pyright: ignore[reportExplicitAny]
+def run_timings(lf: pl.LazyFrame, name: str, src: str, load_time: int | None) -> dict[str, Any] | None:
     queries_times: list[list[float | None]] = []
     for q in queries:
         # if q[0] == "Q19":
@@ -523,7 +523,7 @@ def run_timings(lf: pl.LazyFrame, name: str, src: str, load_time: int | None) ->
         for _ in range(3):
             start = timeit.default_timer()
             try:
-                result = q[2](lf)  # pyright: ignore[reportAny]
+                result = q[2](lf)
             except Exception as e:
                 print("Failed", e)
                 result = None
@@ -564,14 +564,14 @@ def run_timings(lf: pl.LazyFrame, name: str, src: str, load_time: int | None) ->
 
 PARSER = argparse.ArgumentParser()
 
-PARSER.add_argument(  # pyright: ignore[reportUnusedCallResult]
+PARSER.add_argument(
     "--path",
     type=str,
     default="hits.parquet",
     help="Path to the parquet file",
 )
 
-PARSER.add_argument(  # pyright: ignore[reportUnusedCallResult]
+PARSER.add_argument(
     "--formats",
     nargs="+",
     choices=("vortex", "parquet"),
@@ -579,7 +579,7 @@ PARSER.add_argument(  # pyright: ignore[reportUnusedCallResult]
     help="Formats to run",
 )
 
-PARSER.add_argument(  # pyright: ignore[reportUnusedCallResult]
+PARSER.add_argument(
     "-q",
     "--queries",
     nargs="+",
@@ -588,36 +588,36 @@ PARSER.add_argument(  # pyright: ignore[reportUnusedCallResult]
     help="Queries to run",
 )
 
-PARSER.add_argument("-i", "--iterations", type=int, default=3, help="Number of iterations to run")  # pyright: ignore[reportUnusedCallResult]
+PARSER.add_argument("-i", "--iterations", type=int, default=3, help="Number of iterations to run")
 
 
-def main(args: argparse.Namespace):
-    assert isinstance(args.path, str)  # pyright: ignore[reportAny]
-    assert isinstance(args.queries, list)  # pyright: ignore[reportAny]
-    assert isinstance(args.formats, list | None)  # pyright: ignore[reportAny]
+def main(args: argparse.Namespace) -> None:
+    assert isinstance(args.path, str)
+    assert isinstance(args.queries, list)
+    assert isinstance(args.formats, list | None)
 
     if not os.path.exists(args.path):
         raise ValueError(f"File {args.path} does not exist")
 
     results: defaultdict[str, list[float]] = defaultdict(list)
 
-    def run_queries(format: str, lf: pl.LazyFrame):
-        for q in args.queries:  # pyright: ignore[reportAny]
+    def run_queries(format: str, lf: pl.LazyFrame) -> None:
+        for q in args.queries:
             assert isinstance(q, int)
 
             timings = []
-            for _ in range(args.iterations):  # pyright: ignore[reportAny]
+            for _ in range(args.iterations):
                 start = timeit.default_timer()
                 try:
-                    _result: Callable[[pl.LazyFrame], Any] = queries[q][2](lf)  # pyright: ignore[reportExplicitAny, reportAny]
+                    _result: Callable[[pl.LazyFrame], Any] = queries[q][2](lf)
                 except Exception as e:
                     print(f"Failed Q{q}", e)
-                timings.append(timeit.default_timer() - start)  # pyright: ignore[reportUnknownMemberType]
-            average = sum(timings) / len(timings)  # pyright: ignore[reportUnknownArgumentType]
+                timings.append(timeit.default_timer() - start)
+            average = sum(timings) / len(timings)
             results[format].append(average)
             print(f"{format} Q{q}", average)
 
-    if args.formats is None or "vortex" in args.formats:  # pyright: ignore[reportUnknownMemberType]
+    if args.formats is None or "vortex" in args.formats:
         vx_base, _ = os.path.splitext(args.path)
         vx_path = f"{vx_base}.vortex"
 
@@ -626,9 +626,9 @@ def main(args: argparse.Namespace):
 
             pf = pq.ParquetFile(args.path)
 
-            def _iter():
+            def _iter() -> Iterator[vx.Array]:
                 for i in range(pf.num_row_groups):
-                    arr = pf.read_row_group(i).to_struct_array()  # pyright: ignore[reportUnknownMemberType]
+                    arr = pf.read_row_group(i).to_struct_array()
                     arr = vx.Array.from_arrow(arr)
                     yield arr
 
@@ -638,7 +638,7 @@ def main(args: argparse.Namespace):
         lf = vx.open(vx_path).to_polars()
         run_queries("vortex", lf)
 
-    if args.formats is None or "parquet" in args.formats:  # pyright: ignore[reportUnknownMemberType]
+    if args.formats is None or "parquet" in args.formats:
         lf = pl.scan_parquet(args.path)
         run_queries("parquet", lf)
 

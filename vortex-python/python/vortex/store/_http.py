@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: MIT
 # SPDX-FileCopyrightText: Copyright (c) 2024 Development Seed
 
-from typing import Self
+from typing import Self, cast
 
 from typing_extensions import override
 
-from .._lib import store as _store  # pyright: ignore[reportMissingModuleSource]
+from .._lib import store as _store
 from ._client import ClientConfig
 from ._retry import RetryConfig
 
@@ -19,7 +19,7 @@ class HTTPStore(_store.HTTPStore):
         *,
         client_options: ClientConfig | None = None,
         retry_config: RetryConfig | None = None,
-    ):
+    ) -> Self:
         """Construct a new HTTPStore from a URL.
 
         Any path on the URL will be assigned as the ``prefix`` for the store. So if you
@@ -53,15 +53,20 @@ class HTTPStore(_store.HTTPStore):
 
         This is an alias of the :class:`~vortex.store.HTTPStore` constructor.
         """
-        return super(cls).from_url(url, client_options=client_options, retry_config=retry_config)
+        return cast(
+            Self,
+            super(cls).from_url(  # ty: ignore[unresolved-attribute]
+                url, client_options=client_options, retry_config=retry_config
+            ),
+        )
 
     @override
     def __eq__(self, value: object) -> bool:
         return super().__eq__(value)
 
     @override
-    def __getnewargs_ex__(self):  # pyright: ignore[reportUnknownParameterType]
-        return super().__getnewargs_ex__()  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
+    def __getnewargs_ex__(self) -> tuple[tuple[()], dict[str, object]]:
+        return super().__getnewargs_ex__()
 
     @property
     @override

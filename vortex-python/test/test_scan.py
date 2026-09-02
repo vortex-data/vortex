@@ -26,29 +26,29 @@ def vxscan(vxfile: vx.VortexFile) -> vx.RepeatedScan:
 
 
 @pytest.fixture(scope="session")
-def vxfile(tmpdir_factory) -> vx.VortexFile:  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
-    fname = tmpdir_factory.mktemp("data") / "foo.vortex"  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+def vxfile(tmpdir_factory) -> vx.VortexFile:
+    fname = tmpdir_factory.mktemp("data") / "foo.vortex"
 
-    if not os.path.exists(fname):  # pyright: ignore[reportUnknownArgumentType]
+    if not os.path.exists(fname):
         a = pa.array([record(x) for x in range(1_000)])
         arr = vx.compress(vx.array(a))
-        vx.io.write(arr, str(fname))  # pyright: ignore[reportUnknownArgumentType]
-    return vx.open(str(fname))  # pyright: ignore[reportUnknownArgumentType]
+        vx.io.write(arr, str(fname))
+    return vx.open(str(fname))
 
 
-def test_execute(vxscan: RepeatedScan):
+def test_execute(vxscan: RepeatedScan) -> None:
     for _ in vxscan.execute():
         pass
 
 
-def test_execute_row_range(vxscan: RepeatedScan):
+def test_execute_row_range(vxscan: RepeatedScan) -> None:
     total_rows = 0
     for rb in vxscan.execute(row_range=(10, 20)):
         total_rows += len(rb)
     assert total_rows == 10
 
 
-def test_scalar_at(vxscan: RepeatedScan):
+def test_scalar_at(vxscan: RepeatedScan) -> None:
     scalar = vxscan.scalar_at(10)
     assert scalar.as_py() == {
         "index": 10,
@@ -58,7 +58,7 @@ def test_scalar_at(vxscan: RepeatedScan):
     }
 
 
-def test_scan_with_cast(vxfile: vx.VortexFile):
+def test_scan_with_cast(vxfile: vx.VortexFile) -> None:
     actual = vxfile.scan(expr=ve.cast(ve.column("index"), vx.int_(16)) == ve.literal(vx.int_(16), 1)).read_all()
     expected = pa.array(
         [{"index": 1, "string": pa.scalar("1", pa.string_view()), "bool": False, "float": math.sqrt(1)}]
@@ -66,11 +66,11 @@ def test_scan_with_cast(vxfile: vx.VortexFile):
     assert str(actual.to_arrow_array()) == str(expected)
 
 
-def test_scanner_property_projected(vxfile: vx.VortexFile):
+def test_scanner_property_projected(vxfile: vx.VortexFile) -> None:
     assert vxfile.to_dataset().scanner(columns=["bool"]).projected_schema == pa.schema([("bool", pa.bool_())])
 
 
-def test_scanner_property_dataset_schema(vxfile: vx.VortexFile):
+def test_scanner_property_dataset_schema(vxfile: vx.VortexFile) -> None:
     assert vxfile.to_dataset().scanner().dataset_schema == pa.schema(
         [("index", pa.int64()), ("string", pa.string_view()), ("bool", pa.bool_()), ("float", pa.float64())]
     )

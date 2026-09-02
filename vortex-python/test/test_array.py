@@ -7,19 +7,19 @@ import pytest
 import vortex
 
 
-def test_primitive_array_round_trip():
+def test_primitive_array_round_trip() -> None:
     a = pa.array([0, 1, 2, 3])
     arr = vortex.array(a)
     assert arr.to_arrow_array() == a
 
 
-def test_array_with_nulls():
+def test_array_with_nulls() -> None:
     a = pa.array([b"123", None], type=pa.string_view())
     arr = vortex.array(a)
     assert arr.to_arrow_array() == a
 
 
-def test_varbin_array_round_trip():
+def test_varbin_array_round_trip() -> None:
     a = pa.array(["a", "b", "c"], type=pa.string_view())
     arr = vortex.array(a)
     assert arr.to_arrow_array() == a
@@ -36,14 +36,14 @@ def test_varbin_offset_arrow_type(
     source_type: pa.DataType,
     target_type: pa.DataType,
     values: list[str | bytes | None],
-):
+) -> None:
     source = pa.array(values, type=source_type)
     result = vortex.array(source).to_arrow_array(arrow_type=target_type)
     assert result.type == target_type
     assert result == pa.array(values, type=target_type)
 
 
-def test_varbin_array_take():
+def test_varbin_array_take() -> None:
     a = vortex.array(pa.array(["a", "b", "c", "d"], type=pa.string_view()))
     assert a.take(vortex.array(pa.array([0, 2]))).to_arrow_array() == pa.array(
         ["a", "c"],
@@ -51,14 +51,14 @@ def test_varbin_array_take():
     )
 
 
-def test_empty_array():
+def test_empty_array() -> None:
     a = pa.array([], type=pa.uint8())
     primitive = vortex.array(a)
     assert primitive.to_arrow_array().type == pa.uint8()
 
 
 @pytest.mark.xfail(raises=IndexError)
-def test_scalar_at_out_of_bounds():
+def test_scalar_at_out_of_bounds() -> None:
     a = vortex.array([10, 42, 999, 1992])
     _s = a.scalar_at(10)
 
@@ -71,7 +71,7 @@ def test_scalar_at_out_of_bounds():
         pa.binary(3),
     ],
 )
-def test_unsupported_arrow_type_raises_value_error(arrow_type: pa.DataType):
+def test_unsupported_arrow_type_raises_value_error(arrow_type: pa.DataType) -> None:
     # Regression test for https://github.com/vortex-data/vortex/issues/8346:
     # unsupported Arrow types must surface as a clean ValueError, not a PanicException.
     table = pa.table({"c0": pa.array([], type=arrow_type)})

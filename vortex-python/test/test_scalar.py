@@ -25,13 +25,13 @@ import vortex as vx
 )
 def test_round_trip(
     value: bool | int | float | bytes | str | list[int] | dict[str, str] | None, scalar_cls: type[vx.Scalar]
-):
+) -> None:
     scalar = vx.scalar(value)
     assert isinstance(scalar, scalar_cls)
     assert scalar.as_py() == value
 
 
-def test_f16():
+def test_f16() -> None:
     scalar = vx.scalar(1.0, dtype=vx.float_(16))
     assert scalar.dtype == vx.float_(16)
     assert scalar.as_py() == 1.0

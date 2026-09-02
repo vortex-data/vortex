@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Literal, TypeAlias
 import pyarrow as pa
 import pyarrow.compute as pc
 import pytest
-from vortex.arrow.expression import _schema_for_substrait, arrow_to_vortex  # pyright: ignore[reportPrivateUsage]
+from vortex.arrow.expression import _schema_for_substrait, arrow_to_vortex
 
 import vortex as vx
 import vortex.expr as ve
@@ -38,17 +38,17 @@ UNSIGNED_NULL_CASES: list[UnsignedNullCase] = [
 class TestSchemaForSubstrait:
     """Verifies mapping: string_view=>string, binary_view=>binary, else unchanged"""
 
-    def test_string_view_mapped_to_string(self):
+    def test_string_view_mapped_to_string(self) -> None:
         schema = pa.schema([("col", pa.string_view())])
         result = _schema_for_substrait(schema)
-        assert result.field("col").type == pa.string()  # pyright: ignore[reportUnknownMemberType]
+        assert result.field("col").type == pa.string()
 
-    def test_binary_view_mapped_to_binary(self):
+    def test_binary_view_mapped_to_binary(self) -> None:
         schema = pa.schema([("col", pa.binary_view())])
         result = _schema_for_substrait(schema)
-        assert result.field("col").type == pa.binary()  # pyright: ignore[reportUnknownMemberType]
+        assert result.field("col").type == pa.binary()
 
-    def test_other_types_unchanged(self):
+    def test_other_types_unchanged(self) -> None:
         schema = pa.schema(
             [
                 ("int_col", pa.int64()),
@@ -60,7 +60,7 @@ class TestSchemaForSubstrait:
         result = _schema_for_substrait(schema)
         assert result == schema
 
-    def test_mixed_schema(self):
+    def test_mixed_schema(self) -> None:
         schema = pa.schema(
             [
                 ("sv", pa.string_view()),
@@ -84,25 +84,25 @@ class TestSchemaForSubstrait:
 class TestArrowToVortexWithViews:
     """Tests comparisons over string_views and binary_views"""
 
-    def test_string_view_equality_expression(self):
+    def test_string_view_equality_expression(self) -> None:
         schema = pa.schema([("name", pa.string_view())])
         expr = pc.field("name") == "alice"
         vortex_expr = arrow_to_vortex(expr, schema)
         assert vortex_expr is not None
 
-    def test_binary_view_equality_expression(self):
+    def test_binary_view_equality_expression(self) -> None:
         schema = pa.schema([("data", pa.binary_view())])
         expr = pc.field("data") == b"hello"
         vortex_expr = arrow_to_vortex(expr, schema)
         assert vortex_expr is not None
 
-    def test_string_view_comparison_expression(self):
+    def test_string_view_comparison_expression(self) -> None:
         schema = pa.schema([("name", pa.string_view())])
         expr = pc.field("name") > "bob"
         vortex_expr = arrow_to_vortex(expr, schema)
         assert vortex_expr is not None
 
-    def test_mixed_view_and_regular_types(self):
+    def test_mixed_view_and_regular_types(self) -> None:
         schema = pa.schema(
             [
                 ("id", pa.int64()),
@@ -121,20 +121,20 @@ class TestArrowToVortexWithViews:
             (pa.binary_view(), b"test"),
         ],
     )
-    def test_view_types_parametrized(self, view_type, value):  # pyright: ignore[reportMissingParameterType, reportUnknownParameterType]
-        schema = pa.schema([("col", view_type)])  # pyright: ignore[reportUnknownArgumentType]
-        expr = pc.field("col") == value  # pyright: ignore[reportUnknownVariableType]
-        vortex_expr = arrow_to_vortex(expr, schema)  # pyright: ignore[reportUnknownArgumentType]
+    def test_view_types_parametrized(self, view_type, value) -> None:
+        schema = pa.schema([("col", view_type)])
+        expr = pc.field("col") == value
+        vortex_expr = arrow_to_vortex(expr, schema)
         assert vortex_expr is not None
 
-    def test_null_literal_expression(self):
+    def test_null_literal_expression(self) -> None:
         schema = pa.schema([("id", pa.int64())])
         expr = pc.field("id") == pa.scalar(None, type=pa.int64())
         vortex_expr = arrow_to_vortex(expr, schema)
         assert vortex_expr is not None
 
     @pytest.mark.parametrize(("arrow_type", "width"), UNSIGNED_NULL_CASES)
-    def test_unsigned_null_literal_expression(self, arrow_type: pa.DataType, width: UIntWidth):
+    def test_unsigned_null_literal_expression(self, arrow_type: pa.DataType, width: UIntWidth) -> None:
         schema = pa.schema([("u", arrow_type)])
         expr = pc.field("u") == pa.scalar(None, type=arrow_type)
 
@@ -144,7 +144,7 @@ class TestArrowToVortexWithViews:
         assert str(actual) == str(expected)
 
 
-def test_substrait_typed_null_literal():
+def test_substrait_typed_null_literal() -> None:
     literal: Expression.Literal = Expression.Literal()
     literal.null.i64.nullability = Type.NULLABILITY_NULLABLE
 

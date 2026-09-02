@@ -85,13 +85,13 @@ jobs:
         run: uvx ruff format --check .
       - name: Python Lint - Ruff
         run: uvx ruff check .
-      # PyRight needs the project for type information, so use uv run
-      - name: Python Lint - PyRight
-        env:
-          MATURIN_PEP517_ARGS: "--profile ci"
+      # ty needs the Python dependencies for type information, but resolves the
+      # vortex package itself from the in-tree sources and stubs, so skip the
+      # Rust extension build entirely.
+      - name: Python Lint - ty
         run: |
-          uv sync --all-packages
-          uv run basedpyright vortex-python
+          uv sync --all-packages --no-install-package vortex-data --no-install-package vortex-data-cuda
+          uv run --no-sync ty check vortex-python
 
   python-test:
     name: "Python (test)"

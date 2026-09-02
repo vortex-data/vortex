@@ -23,13 +23,14 @@ Run with:
 import importlib.util
 import json
 from pathlib import Path
+from types import ModuleType
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MODULE_PATH = REPO_ROOT / "scripts" / "_measurement_id.py"
 GOLDEN_PATH = REPO_ROOT / "scripts" / "measurement_id_golden.json"
 
 
-def load_measurement_id_module():
+def load_measurement_id_module() -> ModuleType:
     spec = importlib.util.spec_from_file_location("_measurement_id", MODULE_PATH)
     assert spec is not None
     module = importlib.util.module_from_spec(spec)
@@ -38,7 +39,7 @@ def load_measurement_id_module():
     return module
 
 
-def test_every_golden_vector_reproduces():
+def test_every_golden_vector_reproduces() -> None:
     module = load_measurement_id_module()
     golden = json.loads(GOLDEN_PATH.read_text())
     assert golden["seed"] == 0
@@ -52,7 +53,7 @@ def test_every_golden_vector_reproduces():
         )
 
 
-def test_every_fact_table_is_covered():
+def test_every_fact_table_is_covered() -> None:
     """Every port function must have at least one golden vector, so a new fact table cannot be
     wired into `MEASUREMENT_ID_BY_TABLE` without also pinning its hash."""
     module = load_measurement_id_module()

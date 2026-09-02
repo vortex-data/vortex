@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 
-from ._lib.expr import (  # pyright: ignore[reportMissingModuleSource]
+from ._lib.expr import (
     Expr,
     add,
     and_,

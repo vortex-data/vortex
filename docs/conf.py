@@ -116,7 +116,7 @@ hawkmoth_transform_default = "c_to_rust"
 C_DOCS: set[str] | None = None
 
 
-def _replace_rust_references(app, lines, transform, options):
+def _replace_rust_references(app, lines, transform, options) -> None:
     """Replace Rust references with C equivalents in hawkmoth docstrings.
 
     See: https://hawkmoth.readthedocs.io/en/stable/extending.html#event-hawkmoth-process-docstring
@@ -154,7 +154,7 @@ def _replace_rust_references(app, lines, transform, options):
     # Pattern to match [`crate::path::to::function`]
     pattern = r"\[`([^:]+::)*?(vx_[^`]+)`\]"
 
-    def replace_match(match):
+    def replace_match(match) -> str:
         # Extract the function name (already starts with vx_)
         # TODO(ngates): detect if the reference is a function or a type
         func_name = match.group(2)
@@ -183,7 +183,7 @@ def _replace_rust_references(app, lines, transform, options):
         lines[i] = re.sub(pattern, replace_match, line)
 
 
-def _post_process(app, builder):
+def _post_process(app, builder) -> None:
     """Post-process the documentation after writing."""
     global C_DOCS
     if C_DOCS:
@@ -200,7 +200,9 @@ os.environ["COLUMNS"] = "80"
 os.environ["POLARS_TABLE_WIDTH"] = "80"
 
 
-def _convert_python_fenced_blocks_from_rust_to_valid_reST_blocks(app, what, name, obj, options, lines: list[str]):
+def _convert_python_fenced_blocks_from_rust_to_valid_reST_blocks(
+    app, what, name, obj, options, lines: list[str]
+) -> None:
     """Remove Markdown-style code fences from Python docs written in Rust.
 
     We would like `cargo test` to Just Work (TM). Unfortunately, by default, it executes any
@@ -252,7 +254,7 @@ def _convert_python_fenced_blocks_from_rust_to_valid_reST_blocks(app, what, name
             in_block = False
 
 
-def _resolve_breathe_cpp_references(app, env, node, contnode):
+def _resolve_breathe_cpp_references(app, env, node, contnode) -> object | None:
     """Resolve relative C++ references emitted by Breathe.
 
     Breathe emits cross-namespace parameter types with relative qualifiers (e.g. ``scalar::Scalar``
@@ -275,7 +277,7 @@ def _resolve_breathe_cpp_references(app, env, node, contnode):
     )
 
 
-def setup(app):
+def setup(app) -> None:
     app.connect("hawkmoth-process-docstring", _replace_rust_references)
     app.connect("write-started", _post_process)
     app.connect("autodoc-process-docstring", _convert_python_fenced_blocks_from_rust_to_valid_reST_blocks)

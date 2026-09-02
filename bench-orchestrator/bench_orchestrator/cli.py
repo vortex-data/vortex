@@ -6,11 +6,12 @@
 import json
 import os
 import subprocess
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Annotated
+from typing import Annotated, TextIO
 
 import pandas as pd
 import typer
@@ -119,7 +120,7 @@ def backends_for_engines(engines: list[Engine]) -> list[Engine]:
 
 
 @contextmanager
-def open_results_output(path: Path | None):
+def open_results_output(path: Path | None) -> Iterator[TextIO | None]:
     """Open an optional compatibility JSONL output file."""
     if path is None:
         yield None
@@ -133,7 +134,7 @@ def open_results_output(path: Path | None):
 
 
 @contextmanager
-def temporary_ingest_output_dir(enabled: bool):
+def temporary_ingest_output_dir(enabled: bool) -> Iterator[Path | None]:
     """Create a temporary directory for per-backend ingest JSONL files."""
     if not enabled:
         yield None
@@ -177,7 +178,11 @@ def drop_os_caches() -> None:
         pass
 
 
-def write_result_line(line: str, store_writer, compatibility_file) -> None:
+def write_result_line(
+    line: str,
+    store_writer: Callable[[str], object],
+    compatibility_file: TextIO | None,
+) -> None:
     """Write a raw result line to the run store and optional compatibility output."""
     store_writer(line)
     if compatibility_file is None:
@@ -458,19 +463,19 @@ def run(
         PORT = 9001
 
         class TraceRequestHandler(http.server.SimpleHTTPRequestHandler):
-            def do_GET(self):
+            def do_GET(self) -> None:
                 if self.path == "/trace.json":
                     self.path = "trace.json"
                 return super().do_GET()
 
-            def do_POST(self):
+            def do_POST(self) -> None:
                 self.send_error(404, "File not found")
 
-            def end_headers(self):
+            def end_headers(self) -> None:
                 self.send_header("Access-Control-Allow-Origin", "*")
                 super().end_headers()
 
-        def start_server():
+        def start_server() -> None:
             socketserver.TCPServer.allow_reuse_address = True
             with socketserver.TCPServer(("", PORT), TraceRequestHandler) as httpd:
                 console.print(f"[green]Serving trace on http://{HOST}:{PORT}/trace.json[/green]")

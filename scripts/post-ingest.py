@@ -30,8 +30,11 @@ import os
 import subprocess
 import sys
 import urllib.request
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import ModuleType
+from typing import TypeVar
 
 # MUST equal `benchmarks-website/web/lib/schema-version.ts::SCHEMA_VERSION`.
 # Bumping this is a coordinated change across the website contract, v3.rs, and
@@ -214,10 +217,12 @@ _RECORD_FIELDS: dict[str, tuple[frozenset[str], frozenset[str]]] = {
     ),
 }
 
-_MEASUREMENT_ID_MODULE = None
+_T = TypeVar("_T")
+
+_MEASUREMENT_ID_MODULE: ModuleType | None = None
 
 
-def _measurement_id_module():
+def _measurement_id_module() -> ModuleType:
     """Lazily load `scripts/_measurement_id.py` by path (cached).
 
     Loaded by file path rather than `import _measurement_id` so it resolves
@@ -742,7 +747,7 @@ def _upsert_commit(conn, commit: dict) -> None:
 _WRITE_CONFLICT_ATTEMPTS = 128
 
 
-def _retry_write_conflicts(op):
+def _retry_write_conflicts(op: Callable[[], _T]) -> _T:
     """Retry `op` on a Postgres write conflict.
 
     Row-level `ON CONFLICT DO UPDATE` upserts touching the same commits or
@@ -831,7 +836,7 @@ def _rds_iam_token(*, host: str, port: int, user: str, region: str | None) -> st
 _INGEST_ROLE = "bench_ingest"
 
 
-def connect_postgres(dsn: str, region: str | None):
+def connect_postgres(dsn: str, region: str | None) -> object:
     """Open a psycopg connection to the RDS Postgres ingest target.
 
     Enforces the ingest contract: verify-full TLS, and authentication only as the

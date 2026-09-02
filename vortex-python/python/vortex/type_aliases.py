@@ -4,9 +4,9 @@ from typing import TypeAlias
 
 import pyarrow as pa
 
-from ._lib.arrays import Array  # pyright: ignore[reportMissingModuleSource]
-from ._lib.expr import Expr  # pyright: ignore[reportMissingModuleSource]
-from ._lib.iter import ArrayIterator  # pyright: ignore[reportMissingModuleSource]
+from ._lib.arrays import Array
+from ._lib.expr import Expr
+from ._lib.iter import ArrayIterator
 
 # TypeAliases do not support __doc__.
 IntoProjection: TypeAlias = Expr | list[str] | None

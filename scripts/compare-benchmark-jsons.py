@@ -16,6 +16,7 @@ import os
 import re
 import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from io import StringIO
 from typing import Any
@@ -96,13 +97,13 @@ def split_file_size_rows(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     return df[mask].copy(), df[~mask].copy()
 
 
-def identity_value(value: Any) -> Any:
+def identity_value(value: object) -> object:
     """Normalize missing values so benchmark identities compare reliably."""
 
     return None if pd.isna(value) else value
 
 
-def dataset_key(value: Any) -> str | None:
+def dataset_key(value: object) -> str | None:
     """Normalize dataset metadata into the join-key representation."""
 
     if isinstance(value, dict):
@@ -110,7 +111,7 @@ def dataset_key(value: Any) -> str | None:
     return None
 
 
-def normalize_format_name(value: Any) -> str | None:
+def normalize_format_name(value: object) -> str | None:
     """Map serialized format identifiers to the reporter's established labels."""
 
     value = identity_value(value)
@@ -120,7 +121,7 @@ def normalize_format_name(value: Any) -> str | None:
     return FORMAT_DISPLAY_NAMES.get(value, value)
 
 
-def comparison_target(name: Any, target: Any = None) -> tuple[str, str, int | str | None]:
+def comparison_target(name: object, target: object = None) -> tuple[str, str, int | str | None]:
     """Return the engine, display format, and optional SQL query number."""
 
     target_engine = None
@@ -154,14 +155,14 @@ def comparison_target(name: Any, target: Any = None) -> tuple[str, str, int | st
     return engine, file_format, query
 
 
-def extract_target_fields(name: str, target: Any = None) -> pd.Series:
+def extract_target_fields(name: str, target: object = None) -> pd.Series:
     """Extract target metadata, using the benchmark name when needed."""
 
     engine, file_format, query = comparison_target(name, target)
     return pd.Series({"engine": engine, "file_format": file_format, "query": query})
 
 
-def benchmark_identity(row: Any) -> tuple[Any, Any, Any, str, str, Any] | None:
+def benchmark_identity(row: object) -> tuple[Any, Any, Any, str, str, Any] | None:
     """Return the measurement identity used to find a matching baseline."""
 
     if row.get("metric") == FILE_SIZE_METRIC or isinstance(row.get("file_size"), dict):
@@ -362,7 +363,7 @@ def normalize_measurement_rows(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def positive_samples(values: Any) -> np.ndarray:
+def positive_samples(values: object) -> np.ndarray:
     """Keep only finite, strictly positive runtime samples."""
 
     if not isinstance(values, (list, tuple, np.ndarray, pd.Series)):
@@ -371,7 +372,7 @@ def positive_samples(values: Any) -> np.ndarray:
     return samples[np.isfinite(samples) & (samples > 0)]
 
 
-def ordered_runtimes(values: Any) -> np.ndarray:
+def ordered_runtimes(values: object) -> np.ndarray:
     """Return the recorded runs in run order, or an empty array when unavailable."""
 
     if not isinstance(values, (list, tuple, np.ndarray, pd.Series)):
@@ -379,7 +380,7 @@ def ordered_runtimes(values: Any) -> np.ndarray:
     return np.asarray(values, dtype=float)
 
 
-def cold_runtime(values: Any) -> float:
+def cold_runtime(values: object) -> float:
     """Return the first recorded run, which is the cold-start measurement."""
 
     runs = ordered_runtimes(values)
@@ -389,7 +390,7 @@ def cold_runtime(values: Any) -> float:
     return first if np.isfinite(first) and first > 0 else float("nan")
 
 
-def hot_runtimes(values: Any) -> list[float]:
+def hot_runtimes(values: object) -> list[float]:
     """Return the runs after the first, which are the warmed-up measurements."""
 
     runs = ordered_runtimes(values)
@@ -398,7 +399,7 @@ def hot_runtimes(values: Any) -> list[float]:
     return [float(sample) for sample in positive_samples(runs[1:])]
 
 
-def hot_runtime(values: Any, reported_value: Any) -> float:
+def hot_runtime(values: object, reported_value: object) -> float:
     """Return the median hot run, falling back to the runner-reported value.
 
     Rows written before the runner recorded every run, and non-query measurements
@@ -414,7 +415,7 @@ def hot_runtime(values: Any, reported_value: Any) -> float:
     return float(reported_value)
 
 
-def log_runtime_stats(values: Any) -> dict[str, float]:
+def log_runtime_stats(values: object) -> dict[str, float]:
     """Summarize repeated runtimes on the log scale."""
 
     samples = positive_samples(values)
@@ -437,8 +438,8 @@ def log_runtime_stats(values: Any) -> dict[str, float]:
 
 
 def ratio_stats(
-    base_values: Any,
-    pr_values: Any,
+    base_values: object,
+    pr_values: object,
     base_median: float,
     pr_median: float,
 ) -> dict[str, float]:
@@ -752,11 +753,11 @@ def format_change_marker(ratio: float, improvement_threshold: float, regression_
 
 
 def format_delta_cell(
-    pr_value: Any,
-    base_value: Any,
+    pr_value: object,
+    base_value: object,
     improvement_threshold: float,
     regression_threshold: float,
-    render: Any = None,
+    render: Callable[[object], str] | None = None,
     mark: bool = True,
 ) -> str:
     """Render one cell as PR value, base value, and the change between them.
@@ -1270,7 +1271,12 @@ def main() -> None:
 
         # Each cell carries the PR value, the base value, and the change between
         # them, so one row fits the three measurements without going ten columns wide.
-        def delta_cell(pr_value: Any, base_value: Any, render: Any = None, mark: bool = True) -> str:
+        def delta_cell(
+            pr_value: object,
+            base_value: object,
+            render: Callable[[object], str] | None = None,
+            mark: bool = True,
+        ) -> str:
             return format_delta_cell(pr_value, base_value, improvement_threshold, regression_threshold, render, mark)
 
         hot_cells = [

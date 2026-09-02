@@ -18,4 +18,8 @@ target-version = "py311"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "W"]
+select = ["E", "F", "I", "W", "ANN"]
+
+[tool.ruff.lint.per-file-ignores]
+# Pytest supplies fixture parameters dynamically.
+"**/tests/**/*.py" = ["ANN001"]

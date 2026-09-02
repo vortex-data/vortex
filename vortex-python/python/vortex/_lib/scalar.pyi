@@ -2,13 +2,13 @@
 #  SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 from decimal import Decimal
-from typing import Any, TypeAlias, final
+from typing import TypeAlias, final
 
 from .dtype import DType
 
 ScalarPyType: TypeAlias = None | int | float | str | Decimal | bytes | list[ScalarPyType] | dict[str, ScalarPyType]
 
-def scalar(value: Any, *, dtype: DType | None = None) -> Scalar: ...  # pyright: ignore[reportAny, reportExplicitAny]
+def scalar(value: object, *, dtype: DType | None = None) -> Scalar: ...
 
 class Scalar:
     @property

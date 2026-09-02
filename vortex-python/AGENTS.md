@@ -25,7 +25,7 @@ If Python docstrings, `docs/api/python/`, or Sphinx configuration change, also f
 ## Linting and Formatting
 
 ```bash
-uv run basedpyright vortex-python
+uv run ty check vortex-python
 uv run ruff format --check <changed-python-files>
 uv run ruff check <changed-python-files>
 ```

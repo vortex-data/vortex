@@ -178,7 +178,7 @@ class LocalStore:
         ```
         """
 
-    def __eq__(self, value: object, /) -> bool: ...  # pyright: ignore[reportImplicitOverride]
+    def __eq__(self, value: object, /) -> bool: ...
     def __getnewargs_ex__(self) -> tuple[tuple[()], dict[str, object]]: ...
     @property
     def prefix(self) -> Path | None:

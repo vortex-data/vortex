@@ -3,6 +3,6 @@
 
 """Register Python extension types with the process-wide Vortex registry."""
 
-from vortex._lib.registry import register  # pyright: ignore[reportMissingModuleSource]
+from vortex._lib.registry import register
 
 __all__ = ["register"]

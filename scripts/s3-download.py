@@ -10,7 +10,7 @@ import sys
 import time
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Download a file from S3 with retry")
     parser.add_argument("s3_url", help="S3 URL to download (e.g. s3://bucket/key)")
     parser.add_argument("output", help="Local output file path")

@@ -3,11 +3,11 @@
 
 from collections.abc import Coroutine
 from datetime import datetime
-from typing import Any, Literal, NotRequired, Protocol, Self, TypeAlias, TypedDict, Unpack
+from typing import Any, Literal, NotRequired, Protocol, Self, TypeAlias, TypedDict, Unpack, cast
 
 from typing_extensions import override
 
-from .._lib import store as _store  # pyright: ignore[reportMissingModuleSource]
+from .._lib import store as _store
 from ._client import ClientConfig
 from ._retry import RetryConfig
 
@@ -404,7 +404,7 @@ class S3CredentialProvider(Protocol):
 
     """
 
-    def __call__(self) -> S3Credential | Coroutine[Any, Any, S3Credential]:  # pyright: ignore[reportExplicitAny]
+    def __call__(self) -> S3Credential | Coroutine[Any, Any, S3Credential]:
         """Return an ``S3Credential``."""
         ...
 
@@ -438,7 +438,7 @@ class S3Store(_store.S3Store):
         client_options: ClientConfig | None = None,
         retry_config: RetryConfig | None = None,
         credential_provider: S3CredentialProvider | None = None,
-        **kwargs: Unpack[S3Config],  # pyright: ignore[reportGeneralTypeIssues]
+        **kwargs: Unpack[S3Config],  # ty: ignore[invalid-type-form]
     ) -> Self:
         """Create a new S3Store.
 
@@ -459,7 +459,7 @@ class S3Store(_store.S3Store):
             S3Store
 
         """
-        return super().__new__(  # pyright: ignore[reportUnknownVariableType]
+        return super().__new__(
             cls,
             bucket,
             prefix=prefix,
@@ -467,7 +467,8 @@ class S3Store(_store.S3Store):
             client_options=client_options,
             retry_config=retry_config,
             credential_provider=credential_provider,
-            **kwargs,  # pyright: ignore[reportCallIssue]  bucket appears in both S3Config and explicitly above
+            # bucket appears in both S3Config and explicitly above
+            **kwargs,  # ty: ignore[parameter-already-assigned]
         )
 
     @override
@@ -514,13 +515,16 @@ class S3Store(_store.S3Store):
             S3Store
 
         """
-        return super(cls).from_url(
-            url,
-            config=config,
-            client_options=client_options,
-            retry_config=retry_config,
-            credential_provider=credential_provider,
-            **kwargs,
+        return cast(
+            Self,
+            super(cls).from_url(  # ty: ignore[unresolved-attribute]
+                url,
+                config=config,
+                client_options=client_options,
+                retry_config=retry_config,
+                credential_provider=credential_provider,
+                **kwargs,
+            ),
         )
 
     @override
@@ -528,8 +532,8 @@ class S3Store(_store.S3Store):
         return super().__eq__(value)
 
     @override
-    def __getnewargs_ex__(self):  # pyright: ignore[reportUnknownParameterType]
-        return super().__getnewargs_ex__()  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
+    def __getnewargs_ex__(self) -> tuple[tuple[()], dict[str, object]]:
+        return super().__getnewargs_ex__()
 
     @property
     @override

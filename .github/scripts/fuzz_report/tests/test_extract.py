@@ -121,26 +121,26 @@ class TestIsNoiseFrame:
     still error-handling boilerplate, driven by the NOISE_FRAME_PATHS deny list.
     """
 
-    def test_deny_list_is_not_empty(self):
+    def test_deny_list_is_not_empty(self) -> None:
         assert len(NOISE_FRAME_PATHS) > 0
 
     @pytest.mark.parametrize("path", NOISE_FRAME_PATHS)
-    def test_all_deny_list_entries_are_noise(self, path: str):
+    def test_all_deny_list_entries_are_noise(self, path: str) -> None:
         assert _is_noise_frame("some_func", f"{path}:1:1")
 
-    def test_closure_in_vortex_error_is_noise(self):
+    def test_closure_in_vortex_error_is_noise(self) -> None:
         assert _is_noise_frame(
             "{closure#1}<vortex_scalar::scalar::Scalar, vortex_error::VortexError>",
             "vortex-error/src/lib.rs:457:9",
         )
 
-    def test_bare_closure_is_noise(self):
+    def test_bare_closure_is_noise(self) -> None:
         assert _is_noise_frame("{closure#0}", "some/other/path.rs:1:1")
 
-    def test_real_frame_is_not_noise(self):
+    def test_real_frame_is_not_noise(self) -> None:
         assert not _is_noise_frame("decimal", "vortex-scalar/src/constructor.rs:61:10")
 
-    def test_real_frame_with_generics_is_not_noise(self):
+    def test_real_frame_with_generics_is_not_noise(self) -> None:
         assert not _is_noise_frame(
             "invoke<vortex_array::arrays::decimal::vtable::DecimalVTable>",
             "vortex-array/src/vtable/compute.rs:120:9",
@@ -152,64 +152,64 @@ class TestIsNoiseFunc:
     that lack file paths (libfuzzer ``#N 0x… in func``, dash ``N: 0x… - func``).
     """
 
-    def test_prefix_list_is_not_empty(self):
+    def test_prefix_list_is_not_empty(self) -> None:
         assert len(NOISE_FUNC_PREFIXES) > 0
 
     @pytest.mark.parametrize("prefix", NOISE_FUNC_PREFIXES)
-    def test_all_prefixes_are_noise(self, prefix: str):
+    def test_all_prefixes_are_noise(self, prefix: str) -> None:
         assert _is_noise_func(f"{prefix}some_function")
 
-    def test_std_panicking_is_noise(self):
+    def test_std_panicking_is_noise(self) -> None:
         assert _is_noise_func("std::panicking::begin_panic_handler")
 
-    def test_core_panicking_is_noise(self):
+    def test_core_panicking_is_noise(self) -> None:
         assert _is_noise_func("core::panicking::panic_fmt")
 
-    def test_dunder_sanitizer_is_noise(self):
+    def test_dunder_sanitizer_is_noise(self) -> None:
         assert _is_noise_func("__sanitizer_print_stack_trace")
 
-    def test_name_list_is_not_empty(self):
+    def test_name_list_is_not_empty(self) -> None:
         assert len(NOISE_FUNC_NAMES) > 0
 
     @pytest.mark.parametrize("name", sorted(NOISE_FUNC_NAMES))
-    def test_all_exact_names_are_noise(self, name: str):
+    def test_all_exact_names_are_noise(self, name: str) -> None:
         assert _is_noise_func(name)
 
-    def test_vortex_expect_is_noise(self):
+    def test_vortex_expect_is_noise(self) -> None:
         assert _is_noise_func("vortex_expect")
 
-    def test_vortex_expect_with_generics_is_noise(self):
+    def test_vortex_expect_with_generics_is_noise(self) -> None:
         assert _is_noise_func(
             "vortex_expect<vortex_scalar::scalar::Scalar, vortex_error::VortexError>"
         )
 
-    def test_vortex_unwrap_is_noise(self):
+    def test_vortex_unwrap_is_noise(self) -> None:
         assert _is_noise_func("vortex_unwrap")
 
-    def test_fuzzer_print_stack_trace_is_noise(self):
+    def test_fuzzer_print_stack_trace_is_noise(self) -> None:
         assert _is_noise_func("fuzzer::PrintStackTrace")
 
-    def test_fuzzer_prefix_is_noise(self):
+    def test_fuzzer_prefix_is_noise(self) -> None:
         assert _is_noise_func("fuzzer::Fuzzer::ExecuteCallback")
 
-    def test_vortex_func_is_not_noise(self):
+    def test_vortex_func_is_not_noise(self) -> None:
         assert not _is_noise_func("vortex_array::compute::slice::slice_primitive")
 
-    def test_fuzz_func_is_not_noise(self):
+    def test_fuzz_func_is_not_noise(self) -> None:
         assert not _is_noise_func("fuzz::array::run_fuzz_action")
 
-    def test_plain_func_is_not_noise(self):
+    def test_plain_func_is_not_noise(self) -> None:
         assert not _is_noise_func("decimal")
 
 
 class TestExtractPanicLocation:
-    def test_standard_format(self):
+    def test_standard_format(self) -> None:
         assert extract_panic_location(INDEX_BOUNDS_LOG) == "vortex-array/src/compute/slice.rs:142"
 
-    def test_unknown_when_missing(self):
+    def test_unknown_when_missing(self) -> None:
         assert extract_panic_location("no panic here") == "unknown"
 
-    def test_panicked_at_noise_path_is_skipped(self):
+    def test_panicked_at_noise_path_is_skipped(self) -> None:
         """vortex_expect panics report vortex-error/src/lib.rs as the
         `panicked at` location. This is the macro site, not the real crash.
         The extractor must skip it and find the real location from the
@@ -230,7 +230,7 @@ stack backtrace:
         assert "lib.rs" not in loc
         assert "constructor.rs:61" in loc
 
-    def test_fallback_skips_noise_paths(self):
+    def test_fallback_skips_noise_paths(self) -> None:
         """When the `panicked at` line is absent, the fallback regex scans for
         vortex paths in the log. It must skip NOISE_FRAME_PATHS like
         vortex-error/src/lib.rs and return the real crash site instead.
@@ -249,11 +249,11 @@ stack backtrace:
 
 
 class TestExtractCrashLocation:
-    def test_with_vortex_frame(self):
+    def test_with_vortex_frame(self) -> None:
         loc = extract_crash_location(LIBFUZZER_FRAME_LOG)
         assert "vortex" in loc
 
-    def test_fallback_to_panic_location(self):
+    def test_fallback_to_panic_location(self) -> None:
         # Log with panic but no stack frames in "#N 0x... in ..." format
         log = """thread 'main' panicked at vortex-array/src/compute/slice.rs:142:5:
 index out of bounds
@@ -261,7 +261,7 @@ index out of bounds
         loc = extract_crash_location(log)
         assert "slice.rs:142" in loc
 
-    def test_skips_vortex_error_boilerplate(self):
+    def test_skips_vortex_error_boilerplate(self) -> None:
         """Two layers of noise filtering in the Rust backtrace format:
 
         Layer 1 (implicit via regex): Frames from /rustc/ stdlib paths like
@@ -282,7 +282,7 @@ index out of bounds
         # Result: the real crash site
         assert "decimal" in loc
 
-    def test_skips_fuzzer_print_stack_trace(self):
+    def test_skips_fuzzer_print_stack_trace(self) -> None:
         """libfuzzer inserts its own C++ frames like fuzzer::PrintStackTrace
         early in the crash handler stack.  These must be skipped.
         """
@@ -312,48 +312,48 @@ stack backtrace:
 
 
 class TestExtractPanicMessage:
-    def test_index_bounds(self):
+    def test_index_bounds(self) -> None:
         msg = extract_panic_message(INDEX_BOUNDS_LOG)
         assert "index out of bounds" in msg
 
-    def test_scalar_mismatch(self):
+    def test_scalar_mismatch(self) -> None:
         msg = extract_panic_message(SCALAR_MISMATCH_LOG)
         assert "mismatch" in msg.lower()
 
-    def test_error_format(self):
+    def test_error_format(self) -> None:
         log = "==123== ERROR: libFuzzer: timeout after 120 seconds"
         msg = extract_panic_message(log)
         assert "timeout" in msg.lower()
 
 
 class TestExtractErrorVariant:
-    def test_index_out_of_bounds(self):
+    def test_index_out_of_bounds(self) -> None:
         assert extract_error_variant(INDEX_BOUNDS_LOG) == "IndexOutOfBounds"
 
-    def test_scalar_mismatch(self):
+    def test_scalar_mismatch(self) -> None:
         assert extract_error_variant(SCALAR_MISMATCH_LOG) == "ScalarMismatch"
 
-    def test_timeout(self):
+    def test_timeout(self) -> None:
         assert extract_error_variant(TIMEOUT_LOG) == "Timeout"
 
-    def test_unknown(self):
+    def test_unknown(self) -> None:
         assert extract_error_variant("some random log") == "unknown"
 
 
 class TestExtractStackFrames:
-    def test_dash_format(self):
+    def test_dash_format(self) -> None:
         frames = extract_stack_frames(INDEX_BOUNDS_LOG)
         assert len(frames) > 0
         assert any("vortex" in f for f in frames)
 
-    def test_in_format(self):
+    def test_in_format(self) -> None:
         frames = extract_stack_frames(LIBFUZZER_FRAME_LOG)
         assert len(frames) > 0
         assert any("vortex" in f for f in frames)
         # std:: frames should be filtered out
         assert all(not f.startswith("std::") for f in frames)
 
-    def test_in_format_non_vortex_crash(self):
+    def test_in_format_non_vortex_crash(self) -> None:
         """Crashes in non-vortex code (e.g. fuzz/) should still be captured."""
         log = """\
 stack backtrace:
@@ -368,11 +368,11 @@ stack backtrace:
         assert all(not f.startswith("std::") for f in frames)
         assert all(not f.startswith("__") for f in frames)
 
-    def test_no_frames(self):
+    def test_no_frames(self) -> None:
         frames = extract_stack_frames("no stack trace here")
         assert frames == ["unknown"]
 
-    def test_skips_vortex_error_boilerplate(self):
+    def test_skips_vortex_error_boilerplate(self) -> None:
         """Two layers of noise filtering in the Rust backtrace format:
 
         Layer 1 (implicit via regex): Frames from /rustc/ stdlib paths like
@@ -398,23 +398,23 @@ stack backtrace:
 
 
 class TestExtractStackTraceRaw:
-    def test_extracts_backtrace(self):
+    def test_extracts_backtrace(self) -> None:
         raw = extract_stack_trace_raw(INDEX_BOUNDS_LOG)
         assert "stack backtrace:" in raw
         assert "vortex_array" in raw
 
-    def test_empty_when_missing(self):
+    def test_empty_when_missing(self) -> None:
         raw = extract_stack_trace_raw("no stack trace")
         assert raw == ""
 
 
 class TestExtractDebugOutput:
-    def test_extracts_debug(self):
+    def test_extracts_debug(self) -> None:
         output = extract_debug_output(DEBUG_OUTPUT_LOG)
         assert "Array" in output
         assert "Int32" in output
 
-    def test_empty_when_missing(self):
+    def test_empty_when_missing(self) -> None:
         output = extract_debug_output("no debug output")
         assert output == ""
 
@@ -431,20 +431,20 @@ class TestGetCrashType:
             ("", "unknown"),
         ],
     )
-    def test_crash_types(self, filename: str, expected: str):
+    def test_crash_types(self, filename: str, expected: str) -> None:
         assert get_crash_type(filename) == expected
 
 
 class TestNormalizeMessage:
-    def test_replaces_numbers(self):
+    def test_replaces_numbers(self) -> None:
         assert normalize_message("index 15 of len 10") == "index N of len N"
 
-    def test_preserves_text(self):
+    def test_preserves_text(self) -> None:
         assert normalize_message("no numbers here") == "no numbers here"
 
 
 class TestExtractCrashInfo:
-    def test_full_extraction(self):
+    def test_full_extraction(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = Path(tmpdir) / "fuzz_output.log"
             crash_path = Path(tmpdir) / "crash-abc123"
@@ -462,7 +462,7 @@ class TestExtractCrashInfo:
             assert info.stack_trace_raw != ""
             assert info.crash_location != "unknown"
 
-    def test_without_crash_file(self):
+    def test_without_crash_file(self) -> None:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
             f.write(INDEX_BOUNDS_LOG)
             f.flush()
@@ -474,7 +474,7 @@ class TestExtractCrashInfo:
         finally:
             Path(log_path).unlink()
 
-    def test_serialization_roundtrip(self):
+    def test_serialization_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = Path(tmpdir) / "fuzz_output.log"
             log_path.write_text(INDEX_BOUNDS_LOG)

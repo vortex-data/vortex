@@ -9,10 +9,10 @@ from jinja2 import BaseLoader, Environment, Undefined
 class _NotSetUndefined(Undefined):
     """Jinja2 undefined that renders as '(not set)' and is falsy."""
 
-    def __str__(self):
+    def __str__(self) -> str:
         return "(not set)"
 
-    def __bool__(self):
+    def __bool__(self) -> bool:
         return False
 
 

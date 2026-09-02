@@ -129,7 +129,7 @@ def test_variant_get_paths() -> None:
 
 def test_variant_get_rejects_bad_path() -> None:
     with pytest.raises(TypeError):
-        _ = ve.variant_get(ve.column("payload"), [1.5])  # pyright: ignore[reportArgumentType]
+        _ = ve.variant_get(ve.column("payload"), [1.5])  # ty: ignore[invalid-argument-type]
 
 
 def test_ext_storage_returns_expr() -> None:
@@ -138,7 +138,7 @@ def test_ext_storage_returns_expr() -> None:
 
 def test_merge_rejects_unknown_duplicate_handling() -> None:
     with pytest.raises(ValueError):
-        _ = ve.merge([ve.select(["name"])], duplicate_handling="nonsense")  # pyright: ignore[reportArgumentType]
+        _ = ve.merge([ve.select(["name"])], duplicate_handling="nonsense")  # ty: ignore[invalid-argument-type]
 
 
 def test_case_when_requires_a_pair() -> None:
