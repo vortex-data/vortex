@@ -194,6 +194,133 @@ pub fn bitpack_primitive<T: NativePType + BitPacking>(array: &[T], bit_width: u8
     output.freeze()
 }
 
+/// Maps and bit-packs primitive values without a full intermediate buffer.
+///
+/// The mapped values must fit in `bit_width` bits. This function does not create patches.
+pub fn bitpack_primitive_map<S, T, F>(array: &[S], bit_width: u8, mut map: F) -> Buffer<T>
+where
+    T: NativePType + BitPacking,
+    F: FnMut(&S) -> T,
+{
+    if bit_width == 0 {
+        return Buffer::<T>::empty();
+    }
+
+    let bit_width = usize::from(bit_width);
+    let num_chunks = array.len().div_ceil(1024);
+    let num_full_chunks = array.len() / 1024;
+    let packed_len = 128 * bit_width / size_of::<T>();
+    let mut output = BufferMut::<T>::with_capacity(num_chunks * packed_len);
+    let mut mapped = [T::zero(); 1024];
+
+    for chunk_index in 0..num_full_chunks {
+        let start = chunk_index * 1024;
+        mapped
+            .iter_mut()
+            .zip(&array[start..start + 1024])
+            .for_each(|(output, input)| *output = map(input));
+        let output_len = output.len();
+        // SAFETY: The output has capacity for one packed vector and both slices have exact sizes.
+        unsafe {
+            output.set_len(output_len + packed_len);
+            BitPacking::unchecked_pack(bit_width, &mapped, &mut output[output_len..][..packed_len]);
+        }
+    }
+
+    if num_chunks != num_full_chunks {
+        let start = num_full_chunks * 1024;
+        let last_chunk_len = array.len() - start;
+        mapped[..last_chunk_len]
+            .iter_mut()
+            .zip(&array[start..])
+            .for_each(|(output, input)| *output = map(input));
+        mapped[last_chunk_len..].fill(T::zero());
+
+        let output_len = output.len();
+        // SAFETY: The output has capacity for one packed vector and both slices have exact sizes.
+        unsafe {
+            output.set_len(output_len + packed_len);
+            BitPacking::unchecked_pack(bit_width, &mapped, &mut output[output_len..][..packed_len]);
+        }
+    }
+
+    output.freeze()
+}
+
+/// Maps each primitive value to two values and bit-packs both outputs.
+///
+/// Each mapped value must fit in its corresponding bit width. This function does not create
+/// patches.
+pub fn bitpack_primitive_map_pair<S, T, F>(
+    array: &[S],
+    left_bit_width: u8,
+    right_bit_width: u8,
+    mut map: F,
+) -> (Buffer<T>, Buffer<T>)
+where
+    T: NativePType + BitPacking,
+    F: FnMut(&S) -> (T, T),
+{
+    if left_bit_width == 0 && right_bit_width == 0 {
+        return (Buffer::empty(), Buffer::empty());
+    }
+
+    let left_bit_width = usize::from(left_bit_width);
+    let right_bit_width = usize::from(right_bit_width);
+    let num_chunks = array.len().div_ceil(1024);
+    let num_full_chunks = array.len() / 1024;
+    let left_packed_len = 128 * left_bit_width / size_of::<T>();
+    let right_packed_len = 128 * right_bit_width / size_of::<T>();
+    let mut left_output = BufferMut::<T>::with_capacity(num_chunks * left_packed_len);
+    let mut right_output = BufferMut::<T>::with_capacity(num_chunks * right_packed_len);
+    let mut left_mapped = [T::zero(); 1024];
+    let mut right_mapped = [T::zero(); 1024];
+
+    for chunk_index in 0..num_full_chunks {
+        let start = chunk_index * 1024;
+        left_mapped
+            .iter_mut()
+            .zip(&mut right_mapped)
+            .zip(&array[start..start + 1024])
+            .for_each(|((left, right), input)| (*left, *right) = map(input));
+        append_packed_chunk(&mut left_output, &left_mapped, left_bit_width);
+        append_packed_chunk(&mut right_output, &right_mapped, right_bit_width);
+    }
+
+    if num_chunks != num_full_chunks {
+        let start = num_full_chunks * 1024;
+        let last_chunk_len = array.len() - start;
+        left_mapped[..last_chunk_len]
+            .iter_mut()
+            .zip(&mut right_mapped[..last_chunk_len])
+            .zip(&array[start..])
+            .for_each(|((left, right), input)| (*left, *right) = map(input));
+        left_mapped[last_chunk_len..].fill(T::zero());
+        right_mapped[last_chunk_len..].fill(T::zero());
+        append_packed_chunk(&mut left_output, &left_mapped, left_bit_width);
+        append_packed_chunk(&mut right_output, &right_mapped, right_bit_width);
+    }
+
+    (left_output.freeze(), right_output.freeze())
+}
+
+fn append_packed_chunk<T: NativePType + BitPacking>(
+    output: &mut BufferMut<T>,
+    values: &[T; 1024],
+    bit_width: usize,
+) {
+    if bit_width == 0 {
+        return;
+    }
+    let packed_len = 128 * bit_width / size_of::<T>();
+    let output_len = output.len();
+    // SAFETY: The output has capacity for one packed vector and both slices have exact sizes.
+    unsafe {
+        output.set_len(output_len + packed_len);
+        BitPacking::unchecked_pack(bit_width, values, &mut output[output_len..][..packed_len]);
+    }
+}
+
 pub fn gather_patches(
     parray: &PrimitiveArray,
     bit_width: u8,
@@ -462,6 +589,41 @@ mod test {
             best_bit_width(&freq, bytes_per_exception(PType::U8)).unwrap(),
             3
         );
+    }
+
+    #[test]
+    fn bitpack_primitive_map_matches_materialized_input() {
+        for len in [0, 1, 1023, 1024, 1025, 4097] {
+            let input = (0..len).map(|value| value as u32).collect::<Vec<_>>();
+            let mapped = input
+                .iter()
+                .map(|value| value.wrapping_mul(31) & 0x3ff)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                bitpack_primitive_map(&input, 10, |value| value.wrapping_mul(31) & 0x3ff),
+                bitpack_primitive(&mapped, 10),
+            );
+        }
+    }
+
+    #[test]
+    fn bitpack_primitive_map_pair_matches_materialized_inputs() {
+        for len in [0, 1, 1023, 1024, 1025, 4097] {
+            let input = (0..len).map(|value| value as u32).collect::<Vec<_>>();
+            let left = input
+                .iter()
+                .map(|value| value.wrapping_mul(31) & 0x3ff)
+                .collect::<Vec<_>>();
+            let right = input
+                .iter()
+                .map(|value| value.wrapping_mul(7) & 0x7)
+                .collect::<Vec<_>>();
+            let actual = bitpack_primitive_map_pair(&input, 10, 3, |value| {
+                (value.wrapping_mul(31) & 0x3ff, value.wrapping_mul(7) & 0x7)
+            });
+            assert_eq!(actual.0, bitpack_primitive(&left, 10));
+            assert_eq!(actual.1, bitpack_primitive(&right, 3));
+        }
     }
 
     #[test]

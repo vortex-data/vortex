@@ -352,7 +352,7 @@ impl ToJson for CompressionTimingMeasurement {
     fn to_json(&self) -> serde_json::Value {
         let (name, engine) = match self.format {
             Format::ArrowIpc => (format!("arrow-ipc {}", self.name), Engine::Vortex),
-            Format::OnDiskVortex => (self.name.to_string(), Engine::Vortex),
+            Format::OnDiskVortex | Format::VortexCompact => (self.name.to_string(), Engine::Vortex),
             Format::Parquet => (format!("parquet_rs-zstd {}", self.name), Engine::Vortex),
             Format::Lance => (format!("lance {}", self.name), Engine::Vortex),
             _ => vortex_panic!(

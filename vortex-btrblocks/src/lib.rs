@@ -80,6 +80,11 @@ pub use builder::ALL_SCHEMES;
 pub use builder::BtrBlocksCompressorBuilder;
 pub use canonical_compressor::BtrBlocksCompressor;
 pub use schemes::patches::compress_patches;
+use vortex_array::ArrayView;
+use vortex_array::ExecutionCtx;
+use vortex_array::arrays::Primitive;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::match_each_native_ptype;
 pub use vortex_compressor::CascadingCompressor;
 pub use vortex_compressor::scheme::CompressorContext;
 pub use vortex_compressor::scheme::MAX_CASCADE;
@@ -92,3 +97,24 @@ pub use vortex_compressor::stats::FloatStats;
 pub use vortex_compressor::stats::GenerateStatsOptions;
 pub use vortex_compressor::stats::IntegerStats;
 pub use vortex_compressor::stats::StringStats;
+use vortex_error::VortexResult;
+
+fn normalize_null_values(
+    array: ArrayView<'_, Primitive>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray> {
+    let validity = array.validity()?;
+    let primitive = array.into_owned();
+    if validity.definitely_no_nulls() {
+        return Ok(primitive);
+    }
+
+    match_each_native_ptype!(primitive.ptype(), |T| {
+        primitive.map_each_with_validity::<T, T, _>(
+            ctx,
+            |(value, valid)| {
+                if valid { value } else { T::default() }
+            },
+        )
+    })
+}

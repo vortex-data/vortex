@@ -36,6 +36,7 @@ tracing = { workspace = true }
 vortex = { workspace = true }
 vortex-arrow = { workspace = true }
 vortex-bench = { workspace = true }
+vortex-btrblocks = { workspace = true }
 vortex-cuda = { workspace = true, optional = true }
 
 [features]

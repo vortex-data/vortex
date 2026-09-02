@@ -46,13 +46,14 @@ pub use self::preview::PREVIEW_2025_05_0;
 pub use self::preview::PREVIEW_2026_02_0;
 pub use self::preview::PREVIEW_2026_04_0;
 pub use self::preview::PREVIEW_2026_06_0;
+pub use self::preview::PREVIEW_2026_08_0;
 
 /// The `core` edition enabled for writing by the default Vortex session.
 pub const DEFAULT_CORE_EDITION: EditionId = CORE_2026_08_1;
 
 /// The `preview` edition enabled for writing by the default Vortex session when the
 /// `unstable_encodings` feature is selected.
-pub const DEFAULT_PREVIEW_EDITION: EditionId = PREVIEW_2026_06_0;
+pub const DEFAULT_PREVIEW_EDITION: EditionId = PREVIEW_2026_08_0;
 
 /// The first-party Vortex edition declarations.
 pub static EDITION_DECLARATIONS: &[&EditionDeclaration] = &[
@@ -67,6 +68,7 @@ pub static EDITION_DECLARATIONS: &[&EditionDeclaration] = &[
     &preview::v2026_02::DECLARATION,
     &preview::v2026_04::DECLARATION,
     &preview::v2026_06::DECLARATION,
+    &preview::v2026_08::DECLARATION,
 ];
 
 /// Register the Vortex edition declarations with the session's [`EditionSession`].

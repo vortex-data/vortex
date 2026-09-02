@@ -5,6 +5,8 @@
 
 mod alp;
 mod alprd;
+mod float_quant;
+mod ordered_block_residual;
 mod rle;
 mod sparse;
 
@@ -13,6 +15,8 @@ mod pco;
 
 pub use alp::ALPScheme;
 pub use alprd::ALPRDScheme;
+pub use float_quant::FloatQuantScheme;
+pub use ordered_block_residual::OrderedBlockResidualScheme;
 #[cfg(feature = "pco")]
 pub use pco::PcoScheme;
 pub use rle::FloatRLEScheme;

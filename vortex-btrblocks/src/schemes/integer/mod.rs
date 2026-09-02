@@ -4,6 +4,7 @@
 //! Integer compression schemes.
 
 mod bitpacking;
+mod block_residual;
 #[cfg(feature = "unstable_encodings")]
 mod delta;
 mod for_;
@@ -17,6 +18,8 @@ mod zigzag;
 mod pco;
 
 pub use bitpacking::BitPackingScheme;
+pub use block_residual::BlockResidualScheme;
+pub(crate) use block_residual::patch_adjusted_estimate_nbytes;
 #[cfg(feature = "unstable_encodings")]
 pub use delta::DeltaScheme;
 pub use for_::FoRScheme;

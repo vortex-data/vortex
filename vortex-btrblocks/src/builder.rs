@@ -31,6 +31,8 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     // NOTE: ZigZag should precede BitPacking because we don't want negative numbers.
     &integer::ZigZagScheme,
     &integer::BitPackingScheme,
+    #[cfg(feature = "unstable_encodings")]
+    &integer::BlockResidualScheme,
     &integer::SparseScheme,
     &integer::IntDictScheme,
     &integer::RunEndScheme,
@@ -44,6 +46,10 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     ////////////////////////////////////////////////////////////////////////////////////////////////
     &float::ALPScheme,
     &float::ALPRDScheme,
+    #[cfg(feature = "unstable_encodings")]
+    &float::FloatQuantScheme,
+    #[cfg(feature = "unstable_encodings")]
+    &float::OrderedBlockResidualScheme,
     &float::FloatDictScheme,
     &float::NullDominatedSparseScheme,
     &float::FloatRLEScheme,
@@ -170,9 +176,12 @@ impl BtrBlocksCompressorBuilder {
             allow(unused_mut)
         )]
         let mut excluded: Vec<SchemeId> = vec![
+            integer::BlockResidualScheme.id(),
             integer::SparseScheme.id(),
             integer::IntRLEScheme.id(),
             float::ALPRDScheme.id(),
+            float::FloatQuantScheme.id(),
+            float::OrderedBlockResidualScheme.id(),
             float::FloatRLEScheme.id(),
             float::NullDominatedSparseScheme.id(),
             string::NullDominatedSparseScheme.id(),
@@ -222,6 +231,7 @@ impl BtrBlocksCompressorBuilder {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_array::VTable;
     use vortex_fastlanes::FoR;
 
@@ -236,7 +246,46 @@ mod tests {
     #[test]
     fn default_includes_all_schemes() {
         let builder = BtrBlocksCompressorBuilder::default();
-        assert_eq!(builder.schemes.len(), ALL_SCHEMES.len());
+        assert_eq!(
+            builder
+                .schemes
+                .iter()
+                .map(|scheme| scheme.id())
+                .collect::<Vec<_>>(),
+            ALL_SCHEMES
+                .iter()
+                .map(|scheme| scheme.id())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn preview_numeric_schemes_follow_unstable_feature() {
+        let builder = BtrBlocksCompressorBuilder::default();
+        for scheme_id in [
+            integer::BlockResidualScheme.id(),
+            float::FloatQuantScheme.id(),
+            float::OrderedBlockResidualScheme.id(),
+        ] {
+            let present = builder
+                .schemes
+                .iter()
+                .any(|scheme| scheme.id() == scheme_id);
+            assert_eq!(present, cfg!(feature = "unstable_encodings"));
+        }
+    }
+
+    #[cfg(feature = "unstable_encodings")]
+    #[test]
+    fn float_quant_can_be_excluded() {
+        let builder =
+            BtrBlocksCompressorBuilder::default().exclude_schemes([float::FloatQuantScheme.id()]);
+        assert!(
+            !builder
+                .schemes
+                .iter()
+                .any(|scheme| scheme.id() == float::FloatQuantScheme.id())
+        );
     }
 
     #[test]
@@ -260,14 +309,27 @@ mod tests {
         assert_eq!(builder.schemes.len(), ALL_SCHEMES.len());
     }
 
-    #[test]
-    fn cuda_compatible_excludes_alprd() {
+    #[rstest]
+    #[case(float::ALPRDScheme.id())]
+    #[cfg_attr(
+        feature = "unstable_encodings",
+        case(float::FloatQuantScheme.id())
+    )]
+    #[cfg_attr(
+        feature = "unstable_encodings",
+        case(float::OrderedBlockResidualScheme.id())
+    )]
+    #[cfg_attr(
+        feature = "unstable_encodings",
+        case(integer::BlockResidualScheme.id())
+    )]
+    fn cuda_compatible_excludes_non_cuda_schemes(#[case] scheme_id: SchemeId) {
         let builder = BtrBlocksCompressorBuilder::default().only_cuda_compatible();
         assert!(
             !builder
                 .schemes
                 .iter()
-                .any(|s| s.id() == float::ALPRDScheme.id())
+                .any(|scheme| scheme.id() == scheme_id)
         );
     }
 

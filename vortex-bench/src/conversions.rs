@@ -339,10 +339,21 @@ pub async fn write_parquet_as_vortex(
     vortex_path: &str,
     compaction: CompactionStrategy,
 ) -> anyhow::Result<PathBuf> {
+    let write_options = compaction.apply_options(SESSION.write_options());
+    write_parquet_as_vortex_with_options(parquet_path, vortex_path, write_options).await
+}
+
+/// Convert a Parquet file to Vortex with explicit write options.
+///
+/// The function skips conversion when the output file already exists.
+pub async fn write_parquet_as_vortex_with_options(
+    parquet_path: PathBuf,
+    vortex_path: &str,
+    write_options: VortexWriteOptions,
+) -> anyhow::Result<PathBuf> {
     idempotent_async(vortex_path, |output_fname| async move {
         let mut output_file = File::create(&output_fname).await?;
         let data = parquet_to_vortex_chunks(parquet_path).await?;
-        let write_options = compaction.apply_options(SESSION.write_options());
         write_options
             .write(&mut output_file, data.into_array().to_array_stream())
             .await?;

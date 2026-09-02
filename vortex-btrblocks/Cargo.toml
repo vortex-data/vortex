@@ -22,12 +22,14 @@ pco = { workspace = true, optional = true }
 rand = { workspace = true }
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
+vortex-block-residual = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-compressor = { workspace = true }
 vortex-datetime-parts = { workspace = true }
 vortex-decimal-byte-parts = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
+vortex-float-quant = { workspace = true }
 vortex-fsst = { workspace = true }
 vortex-onpair = { workspace = true, optional = true }
 vortex-pco = { workspace = true, optional = true }

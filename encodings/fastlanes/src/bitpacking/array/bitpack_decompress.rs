@@ -17,8 +17,11 @@ use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::patches::Patches;
 use vortex_array::scalar::Scalar;
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
@@ -43,6 +46,114 @@ pub fn unpack_primitive_array<T: BitPackedUnpack>(
     unpack_into_primitive_builder::<T>(array, &mut builder, ctx)?;
     assert_eq!(builder.len(), array.len());
     Ok(builder.finish_into_primitive())
+}
+
+/// Unpacks one bit-packed array and maps each value into the output primitive array.
+pub fn unpack_map<F, T, M>(
+    array: ArrayView<'_, BitPacked>,
+    ctx: &mut ExecutionCtx,
+    map: M,
+) -> VortexResult<PrimitiveArray>
+where
+    F: BitPackedUnpack,
+    T: NativePType,
+    M: Fn(F) -> T,
+{
+    let mut builder = PrimitiveBuilder::with_capacity(array.dtype().nullability(), array.len());
+    unpack_map_into_builder::<F, T, M>(array, &mut builder, ctx, map)?;
+    Ok(builder.finish_into_primitive())
+}
+
+/// Unpacks two aligned bit-packed arrays and maps each value pair into one output buffer.
+///
+/// This path requires equal lengths and offsets. Neither input can contain patches.
+pub fn unpack_pair_map<T, U, F>(
+    left: ArrayView<'_, BitPacked>,
+    right: ArrayView<'_, BitPacked>,
+    mut map: F,
+) -> VortexResult<Buffer<U>>
+where
+    T: BitPackedUnpack + BitPacking,
+    U: NativePType,
+    F: FnMut(T, T) -> U,
+{
+    vortex_ensure!(left.len() == right.len(), "bit-packed pair length differs");
+    vortex_ensure!(
+        left.offset() == right.offset(),
+        "bit-packed pair offset differs"
+    );
+    vortex_ensure!(
+        left.dtype().as_ptype() == T::PTYPE && right.dtype().as_ptype() == T::PTYPE,
+        "bit-packed pair requires {} inputs",
+        T::PTYPE
+    );
+    vortex_ensure!(
+        left.patches().is_none() && right.patches().is_none(),
+        "bit-packed pair mapping does not support patches"
+    );
+    if left.is_empty() {
+        return Ok(Buffer::empty());
+    }
+
+    let len = left.len();
+    let offset = usize::from(left.offset());
+    let num_chunks = (offset + len).div_ceil(1024);
+    let left_width = usize::from(left.bit_width());
+    let right_width = usize::from(right.bit_width());
+    let left_packed_len = 128 * left_width / size_of::<T>();
+    let right_packed_len = 128 * right_width / size_of::<T>();
+    let left_packed = left.packed_slice::<T>();
+    let right_packed = right.packed_slice::<T>();
+    let mut left_values = [T::default(); 1024];
+    let mut right_values = [T::default(); 1024];
+    let mut output = BufferMut::with_capacity(len);
+
+    for chunk_index in 0..num_chunks {
+        if left_width == 0 {
+            left_values.fill(T::default());
+        } else {
+            let start = chunk_index * left_packed_len;
+            // SAFETY: BitPacked validation guarantees one packed FastLanes block here.
+            unsafe {
+                BitPacking::unchecked_unpack(
+                    left_width,
+                    &left_packed[start..start + left_packed_len],
+                    &mut left_values,
+                );
+            }
+        }
+        if right_width == 0 {
+            right_values.fill(T::default());
+        } else {
+            let start = chunk_index * right_packed_len;
+            // SAFETY: BitPacked validation guarantees one packed FastLanes block here.
+            unsafe {
+                BitPacking::unchecked_unpack(
+                    right_width,
+                    &right_packed[start..start + right_packed_len],
+                    &mut right_values,
+                );
+            }
+        }
+
+        let start = if chunk_index == 0 { offset } else { 0 };
+        let logical_start = chunk_index * 1024;
+        let end = (offset + len - logical_start).min(1024);
+        let output_len = output.len();
+        let mapped_len = end - start;
+        for (output, (&left, &right)) in output.spare_capacity_mut()[..mapped_len].iter_mut().zip(
+            left_values[start..end]
+                .iter()
+                .zip(&right_values[start..end]),
+        ) {
+            output.write(map(left, right));
+        }
+        // SAFETY: The loop initialized each new output value.
+        unsafe { output.set_len(output_len + mapped_len) };
+    }
+
+    debug_assert_eq!(output.len(), len);
+    Ok(output.freeze())
 }
 
 /// Unpack a bit-packed array directly into a same-typed `PrimitiveBuilder`.
@@ -203,6 +314,7 @@ pub fn count_exceptions(bit_width: u8, bit_width_freq: &[usize]) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Range;
     use std::sync::Arc;
     use std::sync::LazyLock;
 
@@ -227,6 +339,65 @@ mod tests {
     use crate::BitPackedArray;
     use crate::BitPackedData;
     use crate::bitpack_compress::bitpack_encode;
+
+    #[test]
+    fn unpack_map_preserves_slice_and_validity() -> VortexResult<()> {
+        let values = (0_u32..3073)
+            .map(|value| (value % 17 != 0).then_some(value & 0x3ff))
+            .collect::<Vec<_>>();
+        let input = PrimitiveArray::from_option_iter(values.iter().copied());
+        let mut ctx = SESSION.create_execution_ctx();
+        let packed = bitpack_encode(&input, 10, None, &mut ctx)?.into_array();
+
+        for range in [0..3073, 3..2051, 1023..2050] {
+            let packed = packed.slice(range.clone())?;
+            let actual = unpack_map::<u32, u64, _>(packed.as_::<BitPacked>(), &mut ctx, |value| {
+                u64::from(value) * 17
+            })?;
+            let expected = PrimitiveArray::from_option_iter(
+                values[range]
+                    .iter()
+                    .map(|value| value.map(|value| u64::from(value) * 17)),
+            );
+            assert_arrays_eq!(actual, expected, &mut ctx);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn unpack_pair_map_matches_sliced_inputs() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let left_values = PrimitiveArray::from_iter((0_u32..3073).map(|value| value & 0x3ff));
+        let right_values =
+            PrimitiveArray::from_iter((0_u32..3073).map(|value| value.wrapping_mul(7) & 0x7f));
+        let left = bitpack_encode(&left_values, 10, None, &mut ctx)?.into_array();
+        let right = bitpack_encode(&right_values, 7, None, &mut ctx)?.into_array();
+
+        for range in [
+            Range {
+                start: 0,
+                end: 3073,
+            },
+            3..2051,
+            1023..2050,
+        ] {
+            let left = left.slice(range.clone())?;
+            let right = right.slice(range.clone())?;
+            let actual = unpack_pair_map::<u32, u64, _>(
+                left.as_::<BitPacked>(),
+                right.as_::<BitPacked>(),
+                |left, right| u64::from(left) * 17 + u64::from(right),
+            )?;
+            let expected = left_values.as_slice::<u32>()[range.clone()]
+                .iter()
+                .copied()
+                .zip(right_values.as_slice::<u32>()[range].iter().copied())
+                .map(|(left, right)| u64::from(left) * 17 + u64::from(right))
+                .collect::<Buffer<u64>>();
+            assert_eq!(actual, expected);
+        }
+        Ok(())
+    }
 
     fn encode(array: &PrimitiveArray, bit_width: u8) -> BitPackedArray {
         bitpack_encode(array, bit_width, None, &mut SESSION.create_execution_ctx()).unwrap()

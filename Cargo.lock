@@ -76,9 +76,9 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "alp"
-version = "0.0.2"
+version = "0.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41ceb950ed9f82837662e3f3c470403987f32e3a25e5b741c8f17b3b0cca394d"
+checksum = "639486620c15f839f53206c75be0d1a5a79c743c3e2a097d5e9e4b67fdb966fe"
 dependencies = [
  "fastlanes 0.6.1",
  "itertools 0.15.0",
@@ -1813,6 +1813,7 @@ dependencies = [
  "vortex",
  "vortex-arrow",
  "vortex-bench",
+ "vortex-btrblocks",
  "vortex-cuda",
 ]
 
@@ -8191,6 +8192,7 @@ name = "random-access-bench"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "clap",
  "indicatif",
  "lance-bench",
@@ -8198,6 +8200,7 @@ dependencies = [
  "rand_distr 0.6.0",
  "tabled",
  "tokio",
+ "vortex",
  "vortex-bench",
 ]
 
@@ -10438,6 +10441,7 @@ dependencies = [
  "vortex-alp",
  "vortex-array",
  "vortex-arrow",
+ "vortex-block-residual",
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-bytebool",
@@ -10449,6 +10453,7 @@ dependencies = [
  "vortex-fastlanes",
  "vortex-file",
  "vortex-flatbuffers",
+ "vortex-float-quant",
  "vortex-fsst",
  "vortex-io",
  "vortex-ipc",
@@ -10639,6 +10644,7 @@ dependencies = [
  "uuid",
  "vortex",
  "vortex-arrow",
+ "vortex-btrblocks",
  "vortex-spatial",
  "vortex-tensor",
  "wkb",
@@ -10651,6 +10657,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.3",
+]
+
+[[package]]
+name = "vortex-block-residual"
+version = "0.1.0"
+dependencies = [
+ "fastlanes 0.7.0",
+ "rstest",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-session",
 ]
 
 [[package]]
@@ -10670,12 +10688,14 @@ dependencies = [
  "vortex-alp",
  "vortex-array",
  "vortex-arrow",
+ "vortex-block-residual",
  "vortex-buffer",
  "vortex-compressor",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
  "vortex-error",
  "vortex-fastlanes",
+ "vortex-float-quant",
  "vortex-fsst",
  "vortex-mask",
  "vortex-onpair",
@@ -11059,6 +11079,7 @@ dependencies = [
  "url",
  "vortex-alp",
  "vortex-array",
+ "vortex-block-residual",
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-bytebool",
@@ -11068,6 +11089,7 @@ dependencies = [
  "vortex-error",
  "vortex-fastlanes",
  "vortex-flatbuffers",
+ "vortex-float-quant",
  "vortex-fsst",
  "vortex-io",
  "vortex-layout",
@@ -11093,6 +11115,18 @@ dependencies = [
  "flatbuffers",
  "vortex-buffer",
  "vortex-error",
+]
+
+[[package]]
+name = "vortex-float-quant"
+version = "0.1.0"
+dependencies = [
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-fastlanes",
+ "vortex-session",
+ "vortex-utils",
 ]
 
 [[package]]

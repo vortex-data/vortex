@@ -17,21 +17,48 @@ use vortex::dtype::FieldNames;
 use vortex::expr::root;
 use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
+use vortex::file::VortexWriteOptions;
 use vortex::file::WriteOptionsSessionExt;
 use vortex_arrow::ArrowSessionExt;
+use vortex_bench::CompactionStrategy;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
+use vortex_bench::VortexNumericBundle;
 use vortex_bench::compress::Compressor;
 use vortex_bench::compress::read_projection;
 use vortex_bench::conversions::parquet_to_vortex_chunks;
 
 /// Compressor implementation for Vortex format.
-pub struct VortexCompressor;
+pub struct VortexCompressor {
+    format: Format,
+    numeric_bundle: VortexNumericBundle,
+}
+
+impl VortexCompressor {
+    pub fn new(format: Format, numeric_bundle: VortexNumericBundle) -> Self {
+        assert!(matches!(
+            format,
+            Format::OnDiskVortex | Format::VortexCompact
+        ));
+        Self {
+            format,
+            numeric_bundle,
+        }
+    }
+
+    fn write_options(&self) -> VortexWriteOptions {
+        let options = SESSION.write_options();
+        if self.format == Format::VortexCompact {
+            return CompactionStrategy::Compact.apply_options(options);
+        }
+        self.numeric_bundle.apply_options(options)
+    }
+}
 
 #[async_trait]
 impl Compressor for VortexCompressor {
     fn format(&self) -> Format {
-        Format::OnDiskVortex
+        self.format
     }
 
     async fn compress(&self, parquet_path: &Path) -> Result<(u64, Duration)> {
@@ -41,8 +68,7 @@ impl Compressor for VortexCompressor {
         let mut buf = Vec::new();
         let start = Instant::now();
         let mut cursor = Cursor::new(&mut buf);
-        SESSION
-            .write_options()
+        self.write_options()
             .write(&mut cursor, uncompressed.into_array().to_array_stream())
             .await?;
         let elapsed = start.elapsed();
@@ -55,8 +81,7 @@ impl Compressor for VortexCompressor {
         let uncompressed = parquet_to_vortex_chunks(parquet_path.to_path_buf()).await?;
         let mut buf = Vec::new();
         let mut cursor = Cursor::new(&mut buf);
-        SESSION
-            .write_options()
+        self.write_options()
             .write(&mut cursor, uncompressed.into_array().to_array_stream())
             .await?;
 

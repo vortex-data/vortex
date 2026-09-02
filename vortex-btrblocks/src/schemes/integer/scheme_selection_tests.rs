@@ -9,6 +9,10 @@ use std::sync::LazyLock;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
+#[cfg(feature = "unstable_encodings")]
+use vortex_array::ArrayEq;
+#[cfg(feature = "unstable_encodings")]
+use vortex_array::EqMode;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Constant;
@@ -18,6 +22,8 @@ use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
 use vortex_array::expr::stats::StatsProviderExt;
 use vortex_array::validity::Validity;
+#[cfg(feature = "unstable_encodings")]
+use vortex_block_residual::BlockResidual;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_fastlanes::BitPacked;
@@ -28,6 +34,12 @@ use vortex_session::VortexSession;
 use vortex_sparse::Sparse;
 
 use crate::BtrBlocksCompressor;
+#[cfg(feature = "unstable_encodings")]
+use crate::BtrBlocksCompressorBuilder;
+#[cfg(feature = "unstable_encodings")]
+use crate::SchemeExt;
+#[cfg(feature = "unstable_encodings")]
+use crate::schemes::integer::DeltaScheme;
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 #[test]
@@ -48,6 +60,274 @@ fn test_for_compressed() -> VortexResult<()> {
     let compressed = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
     assert!(compressed.is::<FoR>());
     Ok(())
+}
+
+#[cfg(feature = "unstable_encodings")]
+#[test]
+fn test_block_residual_compressed() -> VortexResult<()> {
+    let values = (0..8_192)
+        .map(|index| {
+            let block = index / 1_024;
+            let residual = (index * 2_654_435_761_usize) % 1_024;
+            (block as i64 - 4) * 1_000_000_000_000 + residual as i64
+        })
+        .collect::<Vec<_>>();
+    let array = PrimitiveArray::from_iter(values);
+    #[cfg(not(feature = "unstable_encodings"))]
+    let compressor = BtrBlocksCompressor::default();
+    #[cfg(feature = "unstable_encodings")]
+    let compressor = BtrBlocksCompressorBuilder::default()
+        .exclude_schemes([DeltaScheme::default().id()])
+        .build();
+    let compressed =
+        compressor.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
+
+    assert!(
+        compressed.is::<BlockResidual>(),
+        "expected BlockResidual, got tree:\n{}",
+        compressed.display_tree()
+    );
+    Ok(())
+}
+
+#[cfg(feature = "unstable_encodings")]
+#[test]
+fn test_block_residual_ignores_null_payloads() -> VortexResult<()> {
+    let values = (0usize..8_192)
+        .map(|index| {
+            let block = index / 1_024;
+            let residual = index.wrapping_mul(2_654_435_761) % 1_024;
+            (block as i64 - 4) * 1_000_000_000_000 + residual as i64
+        })
+        .collect::<Vec<_>>();
+    let validity = Validity::from_iter((0..values.len()).map(|index| index % 17 != 0));
+    let mut alternate = values.clone();
+    for index in (0..alternate.len()).step_by(17) {
+        alternate[index] = i64::MAX - index as i64;
+    }
+    let first = PrimitiveArray::new(Buffer::copy_from(&values), validity.clone()).into_array();
+    let second = PrimitiveArray::new(Buffer::copy_from(&alternate), validity).into_array();
+    let compressor = BtrBlocksCompressor::default();
+    let first = compressor.compress(&first, &mut SESSION.create_execution_ctx())?;
+    let second = compressor.compress(&second, &mut SESSION.create_execution_ctx())?;
+
+    assert!(first.is::<BlockResidual>());
+    assert!(second.is::<BlockResidual>());
+    assert!(first.array_eq(&second, EqMode::Value));
+    Ok(())
+}
+
+#[cfg(feature = "unstable_encodings")]
+#[test]
+fn test_block_residual_compresses_16_bit_integers() -> VortexResult<()> {
+    let signed_values = (0..8_192)
+        .map(|index| {
+            let block = index / 1_024;
+            let residual = (index * 2_654_435_761_usize) % 32;
+            Ok(i16::try_from(block * 1_000 + residual)?)
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+    let unsigned_values = signed_values
+        .iter()
+        .copied()
+        .map(u16::try_from)
+        .collect::<Result<Vec<_>, _>>()?;
+    #[cfg(not(feature = "unstable_encodings"))]
+    let compressor = BtrBlocksCompressor::default();
+    #[cfg(feature = "unstable_encodings")]
+    let compressor = BtrBlocksCompressorBuilder::default()
+        .exclude_schemes([DeltaScheme::default().id()])
+        .build();
+
+    for array in [
+        PrimitiveArray::from_iter(signed_values),
+        PrimitiveArray::from_iter(unsigned_values),
+    ] {
+        let compressed =
+            compressor.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
+        assert!(
+            contains_block_residual(&compressed),
+            "BlockResidual must encode this 16-bit input:\n{}",
+            compressed.display_tree()
+        );
+    }
+    Ok(())
+}
+
+#[cfg(feature = "unstable_encodings")]
+#[test]
+fn test_block_residual_compresses_8_bit_integers() -> VortexResult<()> {
+    let unsigned_values = (0..16_384)
+        .map(|index| {
+            let block = (index / 1_024) % 32;
+            let residual = (index * 2_654_435_761_usize) % 8;
+            u8::try_from(block * 8 + residual)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let signed_values = unsigned_values
+        .iter()
+        .copied()
+        .map(|value| i8::from_le_bytes([value]))
+        .collect::<Vec<_>>();
+    #[cfg(not(feature = "unstable_encodings"))]
+    let compressor = BtrBlocksCompressor::default();
+    #[cfg(feature = "unstable_encodings")]
+    let compressor = BtrBlocksCompressorBuilder::default()
+        .exclude_schemes([DeltaScheme::default().id()])
+        .build();
+
+    for array in [
+        PrimitiveArray::from_iter(signed_values),
+        PrimitiveArray::from_iter(unsigned_values),
+    ] {
+        let compressed =
+            compressor.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
+        assert!(
+            contains_block_residual(&compressed),
+            "BlockResidual must encode this 8-bit input:\n{}",
+            compressed.display_tree()
+        );
+    }
+    Ok(())
+}
+
+#[cfg(feature = "unstable_encodings")]
+#[test]
+fn test_block_residual_rejects_weak_8_bit_gain() -> VortexResult<()> {
+    let unsigned_values = (0..16_384)
+        .map(|index| {
+            let block = (index / 1_024) % 2;
+            let residual = (index * 2_654_435_761_usize) % 128;
+            u8::try_from(block * 128 + residual)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let signed_values = unsigned_values
+        .iter()
+        .copied()
+        .map(|value| i8::from_le_bytes([value]))
+        .collect::<Vec<_>>();
+    #[cfg(not(feature = "unstable_encodings"))]
+    let compressor = BtrBlocksCompressor::default();
+    #[cfg(feature = "unstable_encodings")]
+    let compressor = BtrBlocksCompressorBuilder::default()
+        .exclude_schemes([DeltaScheme::default().id()])
+        .build();
+
+    for array in [
+        PrimitiveArray::from_iter(signed_values),
+        PrimitiveArray::from_iter(unsigned_values),
+    ] {
+        let compressed =
+            compressor.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
+        assert!(
+            !contains_block_residual(&compressed),
+            "BlockResidual must reject this weak 8-bit gain:\n{}",
+            compressed.display_tree()
+        );
+    }
+    Ok(())
+}
+
+#[cfg(feature = "unstable_encodings")]
+#[test]
+fn test_block_residual_rejects_uniform_8_bit_integers() -> VortexResult<()> {
+    let unsigned_values = (0..16_384)
+        .map(|index| u8::try_from((index * 2_654_435_761_usize) % 256))
+        .collect::<Result<Vec<_>, _>>()?;
+    let signed_values = unsigned_values
+        .iter()
+        .copied()
+        .map(|value| i8::from_le_bytes([value]))
+        .collect::<Vec<_>>();
+    #[cfg(not(feature = "unstable_encodings"))]
+    let compressor = BtrBlocksCompressor::default();
+    #[cfg(feature = "unstable_encodings")]
+    let compressor = BtrBlocksCompressorBuilder::default()
+        .exclude_schemes([DeltaScheme::default().id()])
+        .build();
+
+    for array in [
+        PrimitiveArray::from_iter(signed_values),
+        PrimitiveArray::from_iter(unsigned_values),
+    ] {
+        let compressed =
+            compressor.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
+        assert!(
+            !contains_block_residual(&compressed),
+            "BlockResidual must reject this uniform 8-bit input:\n{}",
+            compressed.display_tree()
+        );
+    }
+    Ok(())
+}
+
+#[cfg(feature = "unstable_encodings")]
+#[test]
+fn test_block_residual_rejects_dense_patches() -> VortexResult<()> {
+    let values = (0..8_192_u32).map(|index| if index % 4 == 0 { u32::MAX - index } else { 42 });
+    let array = PrimitiveArray::from_iter(values);
+    let compressed = BtrBlocksCompressor::default()
+        .compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
+
+    assert!(
+        !contains_block_residual(&compressed),
+        "dense patches must not select BlockResidual:\n{}",
+        compressed.display_tree()
+    );
+    Ok(())
+}
+
+#[cfg(feature = "unstable_encodings")]
+#[test]
+fn test_block_residual_composes_with_sparse() -> VortexResult<()> {
+    let values = (0..65_536_usize).map(|index| {
+        if index % 16 == 0 {
+            let value_index = index / 16;
+            let block = value_index / 1_024;
+            let residual = value_index.wrapping_mul(2_654_435_761) % 1_024;
+            block as u64 * 1_000_000_000_000 + residual as u64
+        } else {
+            42
+        }
+    });
+    let array = PrimitiveArray::from_iter(values);
+    let compressed = BtrBlocksCompressor::default()
+        .compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
+
+    assert!(compressed.is::<Sparse>());
+    assert!(
+        contains_block_residual(&compressed),
+        "expected a BlockResidual child:\n{}",
+        compressed.display_tree()
+    );
+    Ok(())
+}
+
+#[cfg(feature = "unstable_encodings")]
+#[test]
+fn test_block_residual_composes_with_runend() -> VortexResult<()> {
+    let values = (0..65_536_usize).map(|index| {
+        let value_index = index / 16;
+        let block = value_index / 1_024;
+        let residual = value_index.wrapping_mul(2_654_435_761) % 1_024;
+        block as u64 * 1_000_000_000_000 + residual as u64
+    });
+    let array = PrimitiveArray::from_iter(values);
+    let compressed = BtrBlocksCompressor::default()
+        .compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
+
+    assert!(compressed.is::<RunEnd>());
+    assert!(
+        contains_block_residual(&compressed),
+        "expected a BlockResidual child:\n{}",
+        compressed.display_tree()
+    );
+    Ok(())
+}
+
+#[cfg(feature = "unstable_encodings")]
+fn contains_block_residual(array: &vortex_array::ArrayRef) -> bool {
+    array.is::<BlockResidual>() || array.children().iter().any(contains_block_residual)
 }
 
 #[test]

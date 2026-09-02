@@ -26,6 +26,7 @@ use vortex_bench::Engine;
 use vortex_bench::Format;
 use vortex_bench::LogFormat;
 use vortex_bench::Target;
+use vortex_bench::VortexNumericBundle;
 use vortex_bench::compress::CompressMeasurements;
 use vortex_bench::compress::CompressOp;
 use vortex_bench::compress::Compressor;
@@ -34,6 +35,9 @@ use vortex_bench::compress::benchmark_decompress;
 use vortex_bench::compress::calculate_ratios;
 use vortex_bench::create_output_writer;
 use vortex_bench::datasets::Dataset;
+use vortex_bench::datasets::feature_vectors::GloveEmbeddingsData;
+use vortex_bench::datasets::feature_vectors::OpenAiEmbeddingsData;
+use vortex_bench::datasets::local_parquet::LocalParquetData;
 use vortex_bench::datasets::struct_list_of_ints::StructListOfInts;
 use vortex_bench::datasets::taxi_data::TaxiData;
 use vortex_bench::datasets::tpch_l_comment::TPCHLCommentCanonical;
@@ -75,6 +79,9 @@ struct Args {
     ops: Vec<CompressOp>,
     #[arg(long)]
     datasets: Option<String>,
+    /// Add a local Parquet file to the benchmark suite.
+    #[arg(long)]
+    parquet_path: Vec<PathBuf>,
     /// Print the dataset names that would run, one per line, and exit.
     /// Knowledge of datasets lies only in this binary so we need
     /// orchestrator to know whan queries to run one by one.
@@ -113,6 +120,9 @@ struct Args {
     ingest_output: Option<PathBuf>,
     #[arg(long)]
     tracing: bool,
+    /// Select the numeric scheme bundle for Vortex compression.
+    #[arg(long, value_enum, default_value_t)]
+    vortex_numeric_bundle: VortexNumericBundle,
     /// Format for the primary stderr log sink. `text` is the default human-readable format;
     /// `json` emits one JSON object per event, suitable for piping into `jq`.
     #[arg(long, value_enum, default_value_t = LogFormat::Text)]
@@ -151,6 +161,7 @@ async fn main() -> anyhow::Result<()> {
     run_compress(
         args.iterations,
         args.datasets.map(|d| Regex::new(&d)).transpose()?,
+        args.parquet_path,
         formats,
         ops,
         mode,
@@ -158,6 +169,7 @@ async fn main() -> anyhow::Result<()> {
         args.display_format,
         args.output_path,
         args.ingest_output,
+        args.vortex_numeric_bundle,
     )
     .await
 }
@@ -184,14 +196,25 @@ impl BenchMode {
 }
 
 /// Get a compressor for the given format.
-fn get_compressor(format: Format, mode: BenchMode) -> Box<dyn Compressor> {
+fn get_compressor(
+    format: Format,
+    mode: BenchMode,
+    vortex_numeric_bundle: VortexNumericBundle,
+) -> Box<dyn Compressor> {
     if let BenchMode::Gpu(options) = mode {
         return gpu_compressor(format, options);
     }
 
     match format {
         Format::ArrowIpc => Box::new(ArrowIpcCompressor),
-        Format::OnDiskVortex => Box::new(VortexCompressor),
+        Format::OnDiskVortex => Box::new(VortexCompressor::new(
+            Format::OnDiskVortex,
+            vortex_numeric_bundle,
+        )),
+        Format::VortexCompact => Box::new(VortexCompressor::new(
+            Format::VortexCompact,
+            VortexNumericBundle::CurrentDefault,
+        )),
         Format::Parquet => Box::new(ParquetCompressor::new()),
         #[cfg(feature = "lance")]
         Format::Lance => Box::new(LanceCompressor),
@@ -212,6 +235,7 @@ const DOC_PATH: &str = "benchmarks/compress-bench/README.md";
 async fn run_compress(
     iterations: usize,
     datasets_filter: Option<Regex>,
+    parquet_paths: Vec<PathBuf>,
     formats: Vec<Format>,
     ops: Vec<CompressOp>,
     mode: BenchMode,
@@ -219,6 +243,7 @@ async fn run_compress(
     display_format: DisplayFormat,
     output_path: Option<PathBuf>,
     ingest_output: Option<PathBuf>,
+    vortex_numeric_bundle: VortexNumericBundle,
 ) -> anyhow::Result<()> {
     let timing_targets = formats
         .iter()
@@ -245,6 +270,10 @@ async fn run_compress(
         //     Some(READ_PROJECTION_COLUMNS),
         // ),
     ];
+    let local_parquet = parquet_paths
+        .into_iter()
+        .map(LocalParquetData::try_new)
+        .collect::<anyhow::Result<Vec<_>>>()?;
 
     // Datasets run in GPU mode. Add one only after a `--gpu-verify` run has confirmed its CUDA
     // decode end to end; a dataset here that cannot decode fails the benchmark job. Between them
@@ -268,6 +297,8 @@ async fn run_compress(
 
     let all_datasets: Vec<&dyn Dataset> = [
         &TaxiData as &dyn Dataset,
+        &GloveEmbeddingsData,
+        &OpenAiEmbeddingsData,
         PBI_DATASETS.get(Arade),
         PBI_DATASETS.get(Bimbo),
         PBI_DATASETS.get(CMSprovider),
@@ -279,13 +310,14 @@ async fn run_compress(
         // Hatred, // panic in fsst_compress_iter
         // TableroSistemaPenal, // Unexpected type error
         // YaleLanguages, // 4th column looks like integer but also contains Y
-        &TPCHLCommentChunked,
+        &TPCHLCommentChunked as &dyn Dataset,
         &TPCHLCommentCanonical,
         &DownloadableDataset::RPlace,
         &DownloadableDataset::AirQuality,
     ]
     .into_iter()
     .chain(structlistofints.iter().map(|d| d as &dyn Dataset))
+    .chain(local_parquet.iter().map(|d| d as &dyn Dataset))
     .collect();
 
     let datasets: Vec<&dyn Dataset> = if mode.is_gpu() {
@@ -325,9 +357,16 @@ async fn run_compress(
     let survey_all = mode.is_gpu();
     let mut failures: Vec<(String, anyhow::Error)> = Vec::new();
 
-    for dataset_handle in datasets.into_iter() {
-        let run =
-            run_benchmark_for_dataset(&progress, &formats, &ops, iterations, dataset_handle, mode);
+    for dataset_handle in datasets {
+        let run = run_benchmark_for_dataset(
+            &progress,
+            &formats,
+            &ops,
+            iterations,
+            dataset_handle,
+            mode,
+            vortex_numeric_bundle,
+        );
 
         // Missing CUDA kernel support surfaces as a panic rather than an error, so the survey
         // has to catch those too or the first unsupported dataset ends the run.
@@ -412,6 +451,7 @@ async fn run_benchmark_for_dataset(
     iterations: usize,
     dataset_handle: &dyn Dataset,
     mode: BenchMode,
+    vortex_numeric_bundle: VortexNumericBundle,
 ) -> anyhow::Result<(CompressMeasurements, Vec<v3::V3Record>)> {
     let bench_name = dataset_handle.name();
     // A GPU decode and a host decode of the same dataset would otherwise publish the same
@@ -441,8 +481,7 @@ async fn run_benchmark_for_dataset(
     let mut v3_records: Vec<v3::V3Record> = Vec::new();
 
     for format in formats {
-        let compressor = get_compressor(*format, mode);
-
+        let compressor = get_compressor(*format, mode, vortex_numeric_bundle);
         for op in ops {
             let time = match op {
                 CompressOp::Compress => {

@@ -34,6 +34,10 @@ use vortex::error::vortex_err;
 use vortex::file::VortexWriteOptions;
 use vortex::file::WriteStrategyBuilder;
 use vortex::utils::aliases::hash_map::HashMap;
+use vortex_btrblocks::SchemeExt;
+use vortex_btrblocks::schemes::float::FloatQuantScheme;
+use vortex_btrblocks::schemes::float::OrderedBlockResidualScheme;
+use vortex_btrblocks::schemes::integer::BlockResidualScheme;
 
 use crate::spatialbench::SpatialBenchBenchmark;
 use crate::vortex_queries::VortexBenchmark;
@@ -70,6 +74,8 @@ pub use datasets::BenchmarkDataset;
 pub use output::BenchmarkOutput;
 pub use output::create_output_writer;
 use vortex::VortexSessionDefault;
+use vortex::editions::EditionSessionExt;
+use vortex::editions::PREVIEW_2026_08_0;
 pub use vortex::error::vortex_panic;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
@@ -80,6 +86,11 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::default().with_tokio();
+    session
+        .enable_edition(PREVIEW_2026_08_0)
+        .unwrap_or_else(|error| {
+            vortex_panic!("numeric benchmark edition is not registered: {error}")
+        });
     vortex_spatial::initialize(&session);
     session
 });
@@ -246,6 +257,49 @@ pub enum CompactionStrategy {
     Compact,
     #[default]
     Default,
+}
+
+/// Numeric scheme bundles for compression benchmarks.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
+pub enum VortexNumericBundle {
+    /// Exclude the new numeric schemes.
+    PriorDefault,
+    /// Add the integer and ordered-float BlockResidual schemes.
+    BlockResidual,
+    /// Use the current Default compressor.
+    #[default]
+    CurrentDefault,
+}
+
+impl VortexNumericBundle {
+    /// Return the stable CLI and file-name component for this bundle.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::PriorDefault => "prior-default",
+            Self::BlockResidual => "block-residual",
+            Self::CurrentDefault => "current-default",
+        }
+    }
+
+    /// Apply this numeric bundle to Vortex write options.
+    pub fn apply_options(self, options: VortexWriteOptions) -> VortexWriteOptions {
+        let compressor = match self {
+            Self::PriorDefault => BtrBlocksCompressorBuilder::default().exclude_schemes([
+                FloatQuantScheme.id(),
+                OrderedBlockResidualScheme.id(),
+                BlockResidualScheme.id(),
+            ]),
+            Self::BlockResidual => {
+                BtrBlocksCompressorBuilder::default().exclude_schemes([FloatQuantScheme.id()])
+            }
+            Self::CurrentDefault => BtrBlocksCompressorBuilder::default(),
+        };
+        options.with_strategy(
+            WriteStrategyBuilder::default()
+                .with_btrblocks_builder(compressor)
+                .build(),
+        )
+    }
 }
 
 impl CompactionStrategy {

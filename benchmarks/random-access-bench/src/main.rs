@@ -4,13 +4,19 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
+use async_trait::async_trait;
 use clap::Parser;
 use clap::ValueEnum;
 use random_access_bench::AccessPattern;
 use random_access_bench::OpenMode;
 use random_access_bench::RunConfig;
+use vortex::file::WriteOptionsSessionExt;
 use vortex_bench::Format;
+use vortex_bench::SESSION;
+use vortex_bench::VortexNumericBundle;
+use vortex_bench::conversions::write_parquet_as_vortex_with_options;
 use vortex_bench::datasets::feature_vectors::FeatureVectorsData;
+use vortex_bench::datasets::local_parquet::LocalParquetData;
 use vortex_bench::datasets::nested_lists::NestedListsData;
 use vortex_bench::datasets::nested_structs::NestedStructsData;
 use vortex_bench::datasets::taxi_data::TaxiData;
@@ -42,6 +48,34 @@ impl DatasetArg {
     }
 }
 
+struct NumericBundleDataset {
+    dataset: Box<dyn BenchDataset>,
+    bundle: VortexNumericBundle,
+}
+
+#[async_trait]
+impl BenchDataset for NumericBundleDataset {
+    fn name(&self) -> &str {
+        self.dataset.name()
+    }
+
+    fn row_count(&self) -> u64 {
+        self.dataset.row_count()
+    }
+
+    async fn path(&self, format: Format) -> Result<PathBuf> {
+        if format != Format::OnDiskVortex {
+            return self.dataset.path(format).await;
+        }
+
+        let parquet_path = self.dataset.path(Format::Parquet).await?;
+        let name = self.dataset.name();
+        let path = format!("random_access/{name}/{name}-{}.vortex", self.bundle.name());
+        let options = self.bundle.apply_options(SESSION.write_options());
+        write_parquet_as_vortex_with_options(parquet_path, &path, options).await
+    }
+}
+
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -67,13 +101,11 @@ struct Args {
     #[arg(long = "ingest-jsonl")]
     ingest_output: Option<PathBuf>,
     /// Which datasets to benchmark random access on.
-    #[arg(
-        long,
-        value_delimiter = ',',
-        value_enum,
-        default_values_t = vec![DatasetArg::Taxi, DatasetArg::FeatureVectors, DatasetArg::NestedLists, DatasetArg::NestedStructs]
-    )]
+    #[arg(long, value_delimiter = ',', value_enum)]
     datasets: Vec<DatasetArg>,
+    /// Add a local Parquet file to the benchmark suite.
+    #[arg(long)]
+    parquet_path: Vec<PathBuf>,
     /// Which access patterns to benchmark.
     #[arg(
         long,
@@ -85,6 +117,9 @@ struct Args {
     /// Whether to reopen the file on each iteration, use a cached handle, or run both.
     #[arg(long, value_enum, default_value_t = OpenMode::Both)]
     open_mode: OpenMode,
+    /// Select the numeric scheme bundle for Vortex files.
+    #[arg(long, value_enum, default_value_t)]
+    vortex_numeric_bundle: VortexNumericBundle,
 }
 
 #[tokio::main]
@@ -92,11 +127,37 @@ async fn main() -> Result<()> {
     let args = Args::parse();
     setup_logging_and_tracing(args.verbose, args.tracing)?;
 
-    let run_config = RunConfig {
-        datasets: args
-            .datasets
+    let dataset_args = if args.datasets.is_empty() && args.parquet_path.is_empty() {
+        vec![
+            DatasetArg::Taxi,
+            DatasetArg::FeatureVectors,
+            DatasetArg::NestedLists,
+            DatasetArg::NestedStructs,
+        ]
+    } else {
+        args.datasets
+    };
+    let mut datasets = dataset_args
+        .into_iter()
+        .map(DatasetArg::into_dataset)
+        .collect::<Vec<_>>();
+    datasets.extend(
+        args.parquet_path
             .into_iter()
-            .map(DatasetArg::into_dataset)
+            .map(LocalParquetData::try_new)
+            .map(|dataset| dataset.map(|dataset| Box::new(dataset) as Box<dyn BenchDataset>))
+            .collect::<Result<Vec<_>>>()?,
+    );
+
+    let run_config = RunConfig {
+        datasets: datasets
+            .into_iter()
+            .map(|dataset| {
+                Box::new(NumericBundleDataset {
+                    dataset,
+                    bundle: args.vortex_numeric_bundle,
+                }) as Box<dyn BenchDataset>
+            })
             .collect(),
         formats: args.formats,
         patterns: args.patterns,

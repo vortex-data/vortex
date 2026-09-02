@@ -42,15 +42,10 @@ fn test_compress() -> VortexResult<()> {
     }
 
     let array = values.into_array();
-    let btr = BtrBlocksCompressor::default();
-    let compressed = btr.compress(&array, &mut SESSION.create_execution_ctx())?;
+    let compressed =
+        BtrBlocksCompressor::default().compress(&array, &mut SESSION.create_execution_ctx())?;
     assert_eq!(compressed.len(), 1024);
-
-    let display = compressed
-        .display_as(DisplayOptions::MetadataOnly)
-        .to_string()
-        .to_lowercase();
-    assert_eq!(display, "vortex.dict(f32, len=1024)");
+    assert_arrays_eq!(compressed, array, &mut SESSION.create_execution_ctx());
 
     Ok(())
 }

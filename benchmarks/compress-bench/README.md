@@ -23,6 +23,26 @@ See [`src/main.rs`](./src/main.rs) for the dataset list and CLI flags (`--format
 cargo run -p compress-bench --profile release_debug
 ```
 
+Compare the default compressor, Compact, and Parquet with Zstd:
+
+```bash
+cargo run -p compress-bench --profile release_debug -- \
+  --formats vortex,vortex-compact,parquet
+```
+
+Compare a numeric scheme bundle with the same command and one of these values:
+
+- `--vortex-numeric-bundle prior-default`
+- `--vortex-numeric-bundle block-residual`
+- `--vortex-numeric-bundle current-default`
+
+Add a local Parquet file with `--parquet-path`. Use `--datasets` to select its file stem.
+
+```bash
+cargo run -p compress-bench --profile release_debug -- \
+  --parquet-path /tmp/input.parquet --datasets '^input$'
+```
+
 ## GPU decompression
 
 `--gpu-decompress` is opt-in, requires the `cuda` feature, and restricts the suite to the

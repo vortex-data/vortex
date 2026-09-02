@@ -1,0 +1,28 @@
+[package]
+name = "vortex-float-quant"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Vortex lossless float transform array encodings"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-fastlanes = { workspace = true }
+vortex-session = { workspace = true }
+vortex-utils = { workspace = true }
+
+[dev-dependencies]
+vortex-array = { workspace = true, features = ["_test-harness"] }
+
+[lints]
+workspace = true

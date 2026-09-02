@@ -14,6 +14,7 @@ use crate::clickbench::Flavor;
 
 pub mod data_downloads;
 pub mod feature_vectors;
+pub mod local_parquet;
 pub mod nested_lists;
 pub mod nested_structs;
 pub mod struct_list_of_ints;

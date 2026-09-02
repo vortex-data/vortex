@@ -26,6 +26,7 @@ workspace = true
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
 vortex-arrow = { workspace = true }
+vortex-block-residual = { workspace = true }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-bytebool = { workspace = true }
@@ -37,6 +38,7 @@ vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-file = { workspace = true, optional = true }
 vortex-flatbuffers = { workspace = true }
+vortex-float-quant = { workspace = true }
 vortex-fsst = { workspace = true }
 vortex-io = { workspace = true }
 vortex-ipc = { workspace = true }

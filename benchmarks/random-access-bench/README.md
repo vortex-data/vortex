@@ -27,3 +27,20 @@ work in each timed iteration. CI drives the full matrix via
 ```bash
 cargo run -p random-access-bench --profile release_debug --features lance
 ```
+
+Compare random access for a numeric scheme bundle with one of these values:
+
+- `--vortex-numeric-bundle prior-default`
+- `--vortex-numeric-bundle block-residual`
+- `--vortex-numeric-bundle current-default`
+
+Each bundle uses a separate Vortex file. Existing files remain available for repeated runs.
+
+Add a local Parquet file with `--parquet-path`. A local path replaces the default dataset list.
+
+```bash
+cargo run -p random-access-bench --profile release_debug -- \
+  --formats vortex --parquet-path /tmp/input.parquet
+```
+
+If `--datasets` also selects built-in datasets, the benchmark runs both groups.

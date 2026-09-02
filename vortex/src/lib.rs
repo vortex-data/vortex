@@ -260,6 +260,11 @@ pub mod encodings {
         pub use vortex_fastlanes::*;
     }
 
+    /// Lossless float quantization with integer child arrays.
+    pub mod float_quant {
+        pub use vortex_float_quant::*;
+    }
+
     /// Fast Static Symbol Table string encoding.
     pub mod fsst {
         pub use vortex_fsst::*;
@@ -268,6 +273,11 @@ pub mod encodings {
     /// Pco numeric compression encoding.
     pub mod pco {
         pub use vortex_pco::*;
+    }
+
+    /// Ordered-float and block-residual numeric encodings.
+    pub mod block_residual {
+        pub use vortex_block_residual::*;
     }
 
     /// Arrow-compatible run-end encoding.
