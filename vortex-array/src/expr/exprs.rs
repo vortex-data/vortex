@@ -17,6 +17,7 @@ use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
+use crate::expr::Variable;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::scalar_fn::EmptyOptions;
@@ -68,6 +69,11 @@ pub fn root() -> Expression {
 /// Creates a bound expression that references a root scope with the given dtype.
 pub fn bound_root(dtype: DType) -> BoundExpression {
     BoundExpression::new_root(dtype)
+}
+
+/// Creates an expression referencing the value bound to `name` in the surrounding scope.
+pub fn var(name: impl AsRef<str>) -> Expression {
+    Variable::new(name).into()
 }
 
 /// Return whether the expression is a root expression.

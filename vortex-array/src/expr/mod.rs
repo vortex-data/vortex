@@ -68,6 +68,7 @@ pub mod scope;
 pub mod stats;
 pub mod transform;
 pub mod traversal;
+pub mod variable;
 
 pub use analysis::*;
 pub use bound_expression::*;
@@ -118,9 +119,11 @@ pub use exprs::root;
 pub use exprs::select;
 pub use exprs::select_exclude;
 pub use exprs::union_child_validities;
+pub use exprs::var;
 pub use exprs::variant_get;
 pub use exprs::zip_expr;
 pub use scope::*;
+pub use variable::*;
 
 pub trait VortexExprExt {
     /// Accumulate all field references from this expression and its children in a set
@@ -163,6 +166,7 @@ impl PartialEq for ExactExpr {
     fn eq(&self, other: &Self) -> bool {
         match (&self.0, &other.0) {
             (Expression::Root, Expression::Root) => true,
+            (Expression::Variable(lhs), Expression::Variable(rhs)) => lhs == rhs,
             (
                 Expression::Scalar {
                     scalar_fn: lhs_fn,
@@ -173,7 +177,9 @@ impl PartialEq for ExactExpr {
                     children: rhs_children,
                 },
             ) => lhs_fn == rhs_fn && Arc::ptr_eq(lhs_children, rhs_children),
-            _ => false,
+            (Expression::Root, _)
+            | (Expression::Scalar { .. }, _)
+            | (Expression::Variable(_), _) => false,
         }
     }
 }
@@ -183,6 +189,10 @@ impl Hash for ExactExpr {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match &self.0 {
             Expression::Root => state.write_u8(0),
+            Expression::Variable(variable) => {
+                state.write_u8(2);
+                variable.hash(state);
+            }
             Expression::Scalar {
                 scalar_fn,
                 children,

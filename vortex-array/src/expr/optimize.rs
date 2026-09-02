@@ -5,7 +5,7 @@ use std::cell::RefCell;
 
 use itertools::Itertools;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
+use vortex_error::vortex_bail;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::dtype::DType;
@@ -32,7 +32,7 @@ impl Expression {
     fn simplify_untyped_node(&self) -> VortexResult<Option<Expression>> {
         match self {
             Expression::Scalar { scalar_fn, .. } => scalar_fn.simplify_untyped(self),
-            Expression::Root => Ok(None),
+            Expression::Root | Expression::Variable(_) => Ok(None),
         }
     }
 
@@ -40,7 +40,7 @@ impl Expression {
     fn simplify_node(&self, ctx: &dyn SimplifyCtx) -> VortexResult<Option<Expression>> {
         match self {
             Expression::Scalar { scalar_fn, .. } => scalar_fn.simplify(self, ctx),
-            Expression::Root => Ok(None),
+            Expression::Root | Expression::Variable(_) => Ok(None),
         }
     }
 
@@ -51,7 +51,7 @@ impl Expression {
     ) -> VortexResult<Option<ExpressionReduceNode<'a>>> {
         match self {
             Expression::Scalar { scalar_fn, .. } => scalar_fn.reduce_expression(node),
-            Expression::Root => Ok(None),
+            Expression::Root | Expression::Variable(_) => Ok(None),
         }
     }
 
@@ -186,16 +186,22 @@ impl SimplifyCtx for SimplifyCache<'_> {
             return Ok(dtype.clone());
         }
 
-        // Otherwise, compute dtype from children
-        let input_dtypes: Vec<_> = expr
-            .children()
-            .iter()
-            .map(|c| self.return_dtype(c))
-            .try_collect()?;
-        let dtype = expr
-            .as_scalar()
-            .ok_or_else(|| vortex_err!("cannot type a non-scalar expression: {expr}"))?
-            .return_dtype(&input_dtypes)?;
+        let dtype = match expr {
+            Expression::Variable(variable) => {
+                vortex_bail!("cannot determine dtype of unbound variable '{variable}'")
+            }
+            Expression::Scalar {
+                scalar_fn,
+                children,
+            } => {
+                let input_dtypes: Vec<_> = children
+                    .iter()
+                    .map(|child| self.return_dtype(child))
+                    .try_collect()?;
+                scalar_fn.return_dtype(&input_dtypes)?
+            }
+            Expression::Root => unreachable!("handled above"),
+        };
         self.dtype_cache
             .borrow_mut()
             .insert(expr.clone(), dtype.clone());

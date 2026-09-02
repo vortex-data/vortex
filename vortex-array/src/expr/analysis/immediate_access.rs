@@ -40,24 +40,29 @@ use crate::scalar_fn::fns::select::Select;
 pub fn make_free_field_annotator(
     scope: &StructFields,
 ) -> impl AnnotationFn<Expression, Annotation = FieldName> {
-    move |expr: &Expression| {
-        if let Some(selection) = expr.as_opt::<Select>() {
-            if expr.child(0).is_root() {
-                return selection
-                    .normalize_to_included_fields(scope.names())
-                    .vortex_expect("Select fields must be valid for scope")
-                    .into_iter()
-                    .collect();
-            }
-        } else if let Some(field_name) = expr.as_opt::<GetItem>() {
-            if expr.child(0).is_root() {
+    move |expr: &Expression| match expr {
+        Expression::Root => scope.names().iter().cloned().collect(),
+        Expression::Variable(_) => vec![],
+        Expression::Scalar {
+            scalar_fn,
+            children,
+        } => {
+            if let Some(selection) = scalar_fn.as_opt::<Select>() {
+                if children[0].is_root() {
+                    return selection
+                        .normalize_to_included_fields(scope.names())
+                        .vortex_expect("Select fields must be valid for scope")
+                        .into_iter()
+                        .collect();
+                }
+            } else if let Some(field_name) = scalar_fn.as_opt::<GetItem>()
+                && children[0].is_root()
+            {
                 return vec![field_name.clone()];
             }
-        } else if expr.is_root() {
-            return scope.names().iter().cloned().collect();
-        }
 
-        vec![]
+            vec![]
+        }
     }
 }
 
@@ -65,25 +70,58 @@ pub fn make_free_field_annotator(
 pub fn make_bound_free_field_annotator(
     scope: &StructFields,
 ) -> impl AnnotationFn<BoundExpression, Annotation = FieldName> {
-    move |expr: &BoundExpression| {
-        let Some(scalar_fn) = expr.as_scalar() else {
-            return scope.names().iter().cloned().collect();
-        };
-
-        if let Some(selection) = scalar_fn.as_opt::<Select>() {
-            if expr.children()[0].is_root() {
-                return selection
-                    .normalize_to_included_fields(scope.names())
-                    .vortex_expect("Select fields must be valid for scope")
-                    .into_iter()
-                    .collect();
+    move |expr: &BoundExpression| match expr {
+        BoundExpression::Root { .. } => scope.names().iter().cloned().collect(),
+        BoundExpression::Variable(_) => vec![],
+        BoundExpression::Scalar {
+            scalar_fn,
+            children,
+            ..
+        } => {
+            if let Some(selection) = scalar_fn.as_opt::<Select>() {
+                if children[0].is_root() {
+                    return selection
+                        .normalize_to_included_fields(scope.names())
+                        .vortex_expect("Select fields must be valid for scope")
+                        .into_iter()
+                        .collect();
+                }
+            } else if let Some(field_name) = scalar_fn.as_opt::<GetItem>()
+                && children[0].is_root()
+            {
+                return vec![field_name.clone()];
             }
-        } else if let Some(field_name) = scalar_fn.as_opt::<GetItem>()
-            && expr.children()[0].is_root()
-        {
-            return vec![field_name.clone()];
-        }
 
-        vec![]
+            vec![]
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_error::VortexResult;
+
+    use super::*;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::expr::Scope;
+    use crate::expr::Variable;
+    use crate::expr::var;
+
+    #[test]
+    fn variables_do_not_access_root_fields() -> VortexResult<()> {
+        let fields = StructFields::from_iter([("a", DType::Null)]);
+        let expression = var("value");
+
+        assert!(make_free_field_annotator(&fields)(&expression).is_empty());
+
+        let root_dtype = DType::Struct(fields.clone(), Nullability::NonNullable);
+        let variable_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let scope =
+            Scope::new(root_dtype).with_bindings([(Variable::new("value"), variable_dtype)])?;
+        let bound = expression.bind_scope(&scope)?;
+        assert!(make_bound_free_field_annotator(&fields)(&bound).is_empty());
+        Ok(())
     }
 }

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
+use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -9,8 +10,10 @@ use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
 use crate::expr::Expression;
+use crate::expr::Variable;
 use crate::scalar_fn::ForeignScalarFnVTable;
 use crate::scalar_fn::ScalarFnId;
+use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::session::ScalarFnSessionExt;
 
 pub trait ExprSerializeProtoExt {
@@ -22,35 +25,74 @@ pub trait ExprSerializeProtoExt {
 /// already-serialized expressions keep round-tripping.
 pub(crate) const ROOT_ID: &str = "vortex.root";
 
+/// The wire id for [`Expression::Variable`].
+pub(crate) const VARIABLE_ID: &str = "vortex.var";
+
+impl Variable {
+    /// Serialize this variable to its protobuf representation.
+    fn serialize_proto(&self) -> pb::Expr {
+        pb::Expr {
+            id: VARIABLE_ID.to_string(),
+            children: vec![],
+            metadata: Some(
+                pb::VariableOpts {
+                    name: self.name().to_string(),
+                }
+                .encode_to_vec(),
+            ),
+        }
+    }
+
+    /// Deserialize a variable expression whose id is [`VARIABLE_ID`].
+    fn from_proto(expr: &pb::Expr) -> VortexResult<Self> {
+        vortex_ensure!(
+            expr.children.is_empty(),
+            "a variable must have no children, got {}",
+            expr.children.len()
+        );
+        let options = pb::VariableOpts::decode(expr.metadata())?;
+        Ok(Self::new(options.name))
+    }
+}
+
+fn serialize_scalar(
+    expression: &Expression,
+    scalar_fn: &ScalarFnRef,
+    children: &[Expression],
+) -> VortexResult<pb::Expr> {
+    let children = children
+        .iter()
+        .map(|child| child.serialize_proto())
+        .try_collect()?;
+
+    let metadata = scalar_fn.options().serialize()?.ok_or_else(|| {
+        vortex_err!(
+            "Expression '{}' is not serializable: {expression}",
+            scalar_fn.id()
+        )
+    })?;
+
+    Ok(pb::Expr {
+        id: scalar_fn.id().to_string(),
+        children,
+        metadata: Some(metadata),
+    })
+}
+
 impl ExprSerializeProtoExt for Expression {
     fn serialize_proto(&self) -> VortexResult<pb::Expr> {
-        let Some(scalar_fn) = self.as_scalar() else {
-            return Ok(pb::Expr {
+        match self {
+            Expression::Root => Ok(pb::Expr {
                 id: ROOT_ID.to_string(),
                 children: vec![],
                 metadata: Some(vec![]),
-            });
-        };
-
-        let children = self
-            .children()
-            .iter()
-            .map(|child| child.serialize_proto())
-            .try_collect()?;
-
-        let metadata = scalar_fn.options().serialize()?.ok_or_else(|| {
-            vortex_err!(
-                "Expression '{}' is not serializable: {}",
-                scalar_fn.id(),
-                self
-            )
-        })?;
-
-        Ok(pb::Expr {
-            id: scalar_fn.id().to_string(),
-            children,
-            metadata: Some(metadata),
-        })
+            }),
+            Expression::Variable(variable) => Ok(variable.serialize_proto()),
+            Expression::Scalar {
+                scalar_fn,
+                children,
+            } => serialize_scalar(self, scalar_fn, children),
+        }
     }
 }
 
@@ -64,6 +106,10 @@ impl Expression {
                 expr.children.len()
             );
             return Ok(Expression::Root);
+        }
+
+        if expr.id == VARIABLE_ID {
+            return Ok(Variable::from_proto(expr)?.into());
         }
 
         #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
@@ -98,6 +144,7 @@ pub fn deserialize_expr_proto(
 #[cfg(test)]
 mod tests {
     use prost::Message;
+    use vortex_error::VortexResult;
     use vortex_proto::expr as pb;
     use vortex_session::VortexSession;
 
@@ -111,6 +158,7 @@ mod tests {
     use crate::expr::lit;
     use crate::expr::or;
     use crate::expr::root;
+    use crate::expr::var;
     use crate::scalar_fn::fns::between::BetweenOptions;
     use crate::scalar_fn::fns::between::StrictComparison;
     use crate::scalar_fn::session::ScalarFnSession;
@@ -139,6 +187,28 @@ mod tests {
         let deser_expr = Expression::from_proto(&s_expr, &array_session()).unwrap();
 
         assert_eq!(&deser_expr, &expr);
+    }
+
+    #[test]
+    fn variable_serde() -> VortexResult<()> {
+        let expression = var("value");
+        let encoded = expression.serialize_proto()?.encode_to_vec();
+        let proto = pb::Expr::decode(encoded.as_slice())?;
+
+        assert_eq!(
+            Expression::from_proto(&proto, &array_session())?,
+            expression
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn variable_rejects_children() -> VortexResult<()> {
+        let mut proto = var("value").serialize_proto()?;
+        proto.children.push(root().serialize_proto()?);
+
+        assert!(Expression::from_proto(&proto, &array_session()).is_err());
+        Ok(())
     }
 
     #[test]
