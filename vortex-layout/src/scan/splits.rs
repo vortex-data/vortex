@@ -22,6 +22,12 @@ pub enum Splits {
     /// The boundaries are sorted in ascending order and deduplicated.
     Natural(Arc<[u64]>),
 
+    /// Physical filter and projection boundaries for a staged filtered scan.
+    FilterProjection {
+        filter: Arc<[u64]>,
+        projection: Arc<[u64]>,
+    },
+
     /// Exact split ranges.
     ///
     /// This is an optimization for when we know the exact rows we need to get from a file (which is

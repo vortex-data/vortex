@@ -45,6 +45,8 @@ use crate::scan::split_by::SplitBy;
 use crate::scan::splits::Splits;
 use crate::scan::splits::attempt_split_ranges;
 
+const SEPARATE_SCAN_SPLITS_ENV: &str = "VORTEX_EXPERIMENTAL_SEPARATE_SCAN_SPLITS";
+
 /// Builder for scanning a [`LayoutReader`] into arrays, streams, iterators, or mapped outputs.
 ///
 /// A scan has three independent row restriction mechanisms:
@@ -72,6 +74,8 @@ pub struct ScanBuilder<A> {
     /// Precomputed full-file natural split boundaries; when set, [`prepare`](Self::prepare)
     /// uses them instead of walking the layout.
     natural_splits: Option<Arc<[u64]>>,
+    /// Whether filtered scans use independent physical filter and projection splits.
+    separate_filter_projection_splits: bool,
     /// The number of splits to make progress on concurrently **per-thread**.
     concurrency: usize,
     /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
@@ -100,6 +104,8 @@ impl ScanBuilder<ArrayRef> {
             selection: Default::default(),
             split_by: SplitBy::Layout,
             natural_splits: None,
+            separate_filter_projection_splits: std::env::var(SEPARATE_SCAN_SPLITS_ENV)
+                .is_ok_and(|value| value == "1"),
             // We default to four tasks per worker thread, which allows for some I/O lookahead
             // without too much impact on work-stealing.
             concurrency: 4,
@@ -210,6 +216,17 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
+    /// Configure filtered streaming scans to evaluate filters and projections over their own
+    /// physical splits.
+    ///
+    /// Exact index ranges continue to use coupled execution. Caller-supplied natural splits are
+    /// ignored because a single boundary set cannot represent both physical split domains.
+    /// This is also enabled by setting `VORTEX_EXPERIMENTAL_SEPARATE_SCAN_SPLITS=1`.
+    pub fn with_separate_filter_projection_splits(mut self, enabled: bool) -> Self {
+        self.separate_filter_projection_splits = enabled;
+        self
+    }
+
     /// Compute the full-file natural split boundaries for the fields referenced by this scan's
     /// projection and filter, ignoring any configured row range.
     ///
@@ -288,6 +305,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             selection: self.selection,
             split_by: self.split_by,
             natural_splits: self.natural_splits,
+            separate_filter_projection_splits: self.separate_filter_projection_splits,
             concurrency: self.concurrency,
             metrics_registry: self.metrics_registry,
             file_stats: self.file_stats,
@@ -331,6 +349,25 @@ impl<A: 'static + Send> ScanBuilder<A> {
         let splits =
             if let Some(ranges) = attempt_split_ranges(&self.selection, self.row_range.as_ref()) {
                 Splits::Ranges(ranges)
+            } else if self.separate_filter_projection_splits
+                && let Some(filter) = bound_filter.as_ref()
+            {
+                let split_range = self
+                    .row_range
+                    .clone()
+                    .unwrap_or_else(|| 0..layout_reader.row_count());
+                let filter_fields = referenced_field_masks(filter, None)?;
+                let projection_fields = referenced_field_masks(&bound_projection, None)?;
+                Splits::FilterProjection {
+                    filter: self
+                        .split_by
+                        .splits(layout_reader.as_ref(), &split_range, &filter_fields)?
+                        .into(),
+                    projection: self
+                        .split_by
+                        .splits(layout_reader.as_ref(), &split_range, &projection_fields)?
+                        .into(),
+                }
             } else if let Some(boundaries) = self.natural_splits {
                 // Caller-supplied full-file boundaries; execution clamps them to the row range.
                 Splits::Natural(boundaries)
@@ -397,13 +434,16 @@ enum LazyScanState<A: 'static + Send> {
     Error(Option<vortex_error::VortexError>),
 }
 
-type PreparedScanTasks<A> = Vec<BoxFuture<'static, VortexResult<Option<A>>>>;
+enum PreparedScan<A: 'static + Send> {
+    Tasks(Vec<BoxFuture<'static, VortexResult<Option<A>>>>),
+    Stream(BoxStream<'static, VortexResult<A>>),
+}
 
 struct PreparingScan<A: 'static + Send> {
     ordered: bool,
     concurrency: usize,
     handle: Handle,
-    task: Task<VortexResult<PreparedScanTasks<A>>>,
+    task: Task<VortexResult<PreparedScan<A>>>,
 }
 
 struct LazyScanStream<A: 'static + Send> {
@@ -432,8 +472,14 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                     let num_workers = get_available_parallelism().unwrap_or(1);
                     let concurrency = builder.concurrency * num_workers;
                     let handle = builder.session.handle();
-                    let task = handle
-                        .spawn_cpu(move || builder.prepare().and_then(|scan| scan.execute(None)));
+                    let task = handle.spawn_cpu(move || {
+                        let scan = builder.prepare()?;
+                        if scan.has_separate_filter_projection_splits() {
+                            Ok(PreparedScan::Stream(scan.execute_stream(None)?))
+                        } else {
+                            Ok(PreparedScan::Tasks(scan.execute(None)?))
+                        }
+                    });
                     self.state = LazyScanState::Preparing(PreparingScan {
                         ordered,
                         concurrency,
@@ -443,7 +489,7 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                 }
                 LazyScanState::Preparing(preparing) => {
                     match ready!(Pin::new(&mut preparing.task).poll(cx)) {
-                        Ok(tasks) => {
+                        Ok(PreparedScan::Tasks(tasks)) => {
                             let ordered = preparing.ordered;
                             let concurrency = preparing.concurrency;
                             let handle = preparing.handle.clone();
@@ -458,6 +504,9 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                                 .filter_map(|chunk| async move { chunk.transpose() })
                                 .boxed();
                             self.state = LazyScanState::Stream(stream);
+                        }
+                        Ok(PreparedScan::Stream(stream)) => {
+                            self.state = LazyScanState::Stream(stream)
                         }
                         Err(err) => self.state = LazyScanState::Error(Some(err)),
                     }

@@ -76,6 +76,10 @@ wasm-bindgen = ["dep:uuid"]
 name = "zone_map_prune"
 harness = false
 
+[[bench]]
+name = "filter_projection_splits"
+harness = false
+
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 uuid = { workspace = true, features = ["js"], optional = true }
 
