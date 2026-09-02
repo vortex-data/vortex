@@ -27,13 +27,13 @@ use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::CudaExecutionCtx;
 use crate::executor::CudaArrayExt;
-use crate::kernel::patches::gpu::ChunkOffsetType;
-use crate::kernel::patches::gpu::ChunkOffsetType_CO_U8;
-use crate::kernel::patches::gpu::ChunkOffsetType_CO_U16;
-use crate::kernel::patches::gpu::ChunkOffsetType_CO_U32;
-use crate::kernel::patches::gpu::ChunkOffsetType_CO_U64;
 use crate::kernel::patches::gpu::GPUPatches;
 use crate::kernel::patches::gpu::PATCH_DERIVE_INDICES_BASE;
+use crate::kernel::patches::gpu::UnsignedType;
+use crate::kernel::patches::gpu::UnsignedType_UNSIGNED_U8;
+use crate::kernel::patches::gpu::UnsignedType_UNSIGNED_U16;
+use crate::kernel::patches::gpu::UnsignedType_UNSIGNED_U32;
+use crate::kernel::patches::gpu::UnsignedType_UNSIGNED_U64;
 use crate::kernel::patches::types::DevicePatches;
 
 // Safe because `GPUPatches` contains only raw pointers, POD integers, and an enum.
@@ -44,7 +44,8 @@ impl GPUPatches {
     /// `chunk_offsets` pointer is the signal `PatchesCursor` checks for.
     pub(crate) const NULL_PATCHES: Self = Self {
         chunk_offsets: std::ptr::null_mut(),
-        chunk_offset_type: ChunkOffsetType_CO_U32,
+        chunk_offset_type: UnsignedType_UNSIGNED_U32,
+        indices_type: UnsignedType_UNSIGNED_U32,
         indices: std::ptr::null_mut(),
         values: std::ptr::null_mut(),
         offset: 0,
@@ -55,14 +56,14 @@ impl GPUPatches {
     };
 }
 
-/// Convert a [`PType`] to the corresponding [`ChunkOffsetType`] for GPU patches.
-pub(crate) fn ptype_to_chunk_offset_type(ptype: PType) -> VortexResult<ChunkOffsetType> {
+/// Convert a [`PType`] to the corresponding [`UnsignedType`] for GPU patches.
+pub(crate) fn ptype_to_unsigned_type(ptype: PType) -> VortexResult<UnsignedType> {
     match ptype {
-        PType::U8 => Ok(ChunkOffsetType_CO_U8),
-        PType::U16 => Ok(ChunkOffsetType_CO_U16),
-        PType::U32 => Ok(ChunkOffsetType_CO_U32),
-        PType::U64 => Ok(ChunkOffsetType_CO_U64),
-        _ => vortex_bail!("Invalid PType for chunk_offsets: {:?}", ptype),
+        PType::U8 => Ok(UnsignedType_UNSIGNED_U8),
+        PType::U16 => Ok(UnsignedType_UNSIGNED_U16),
+        PType::U32 => Ok(UnsignedType_UNSIGNED_U32),
+        PType::U64 => Ok(UnsignedType_UNSIGNED_U64),
+        _ => vortex_bail!("Invalid unsigned PType: {:?}", ptype),
     }
 }
 
@@ -77,7 +78,8 @@ pub(crate) fn build_gpu_patches(
     match device_patches {
         Some(p) => Ok(GPUPatches {
             chunk_offsets: p.chunk_offsets.cuda_device_ptr()? as _,
-            chunk_offset_type: ptype_to_chunk_offset_type(p.chunk_offset_ptype)?,
+            chunk_offset_type: ptype_to_unsigned_type(p.chunk_offset_ptype)?,
+            indices_type: ptype_to_unsigned_type(p.indices_ptype)?,
             indices: p.indices.cuda_device_ptr()? as _,
             values: p.values.cuda_device_ptr()? as _,
             offset: p.offset as u32,

@@ -410,7 +410,8 @@ mod standalone {
     struct NullGpuPatches {
         chunk_offsets: *mut c_void,
         chunk_offset_type: u32,
-        indices: *mut u32,
+        indices_type: u32,
+        indices: *mut c_void,
         values: *mut c_void,
         offset: u32,
         offset_within_chunk: u32,
@@ -425,6 +426,7 @@ mod standalone {
         const NULL: Self = Self {
             chunk_offsets: ptr::null_mut(),
             chunk_offset_type: 2,
+            indices_type: 2,
             indices: ptr::null_mut(),
             values: ptr::null_mut(),
             offset: 0,

@@ -206,11 +206,6 @@ where
             .arg(&patches_arg);
     })?;
 
-    // Patch-free decodes need no host synchronization.
-    if device_patches.is_some() {
-        ctx.synchronize_stream()?;
-    }
-
     let output_buf = CudaDeviceBuffer::new(output_slice);
     let output_handle =
         BufferHandle::new_device(output_buf.slice_typed::<A>(offset..(offset + len)));
@@ -234,6 +229,7 @@ mod tests {
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
     use vortex::buffer::buffer;
+    use vortex::dtype::PType;
     use vortex::encodings::fastlanes::BitPackedArrayExt;
     use vortex::error::VortexExpect;
     use vortex_array::VortexSessionExecute;
@@ -304,6 +300,64 @@ mod tests {
 
         assert_arrays_eq!(bp_with_patches, gpu_result, &mut ctx);
 
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::u8(PrimitiveArray::from_iter([0u8, 100, 200]).into_array())]
+    #[case::u16(PrimitiveArray::from_iter([0u16, 100, 200]).into_array())]
+    #[case::u32(PrimitiveArray::from_iter([0u32, 100, 200]).into_array())]
+    #[case::u64(PrimitiveArray::from_iter([0u64, 100, 200]).into_array())]
+    #[crate::test]
+    fn test_cuda_bitunpack_native_patch_index_widths(
+        #[case] indices: ArrayRef,
+    ) -> VortexResult<()> {
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
+            .vortex_expect("failed to create execution context");
+        let mut values: Vec<u16> = (0..1024).map(|i| i % 16).collect();
+        values[0] = 500;
+        values[100] = 600;
+        values[200] = 700;
+        let expected = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
+
+        let encoded = BitPacked::encode(&expected, 4, &mut ctx)?;
+        let BitPackedDataParts {
+            offset,
+            bit_width,
+            len,
+            packed,
+            patches,
+            validity,
+        } = BitPacked::into_parts(encoded);
+        let original_patches = patches.vortex_expect("expected patches");
+        let native_patches = vortex_array::patches::Patches::new(
+            len,
+            0,
+            indices,
+            original_patches.values().clone(),
+            original_patches.chunk_offsets().clone(),
+        )?;
+        let encoded = BitPacked::try_new(
+            packed,
+            PType::U16,
+            validity,
+            Some(native_patches),
+            bit_width,
+            len,
+            offset,
+        )?;
+
+        let gpu_result = block_on(async {
+            BitPackedExecutor
+                .execute(encoded.into_array(), &mut cuda_ctx)
+                .await
+                .vortex_expect("GPU decompression failed")
+                .into_host()
+                .await
+                .map(|array| array.into_array())
+        })?;
+        assert_arrays_eq!(expected, gpu_result, &mut ctx);
         Ok(())
     }
 
