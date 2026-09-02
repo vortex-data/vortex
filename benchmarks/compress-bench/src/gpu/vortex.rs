@@ -32,6 +32,7 @@ use vortex::layout::scan::split_by::SplitBy;
 use vortex_arrow::ArrowSessionExt;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
+use vortex_bench::benchmark_write_options;
 use vortex_bench::compress::Compressor;
 use vortex_bench::conversions::parquet_to_vortex_chunks_with_batch_size;
 use vortex_cuda::CanonicalCudaExt;
@@ -95,8 +96,7 @@ impl Compressor for GpuVortexCompressor {
                 .only_cuda_compatible()
                 .build(),
         )));
-        SESSION
-            .write_options()
+        benchmark_write_options(SESSION.write_options())
             .with_strategy(strategy)
             .write(&mut output, uncompressed.into_array().to_array_stream())
             .await?;

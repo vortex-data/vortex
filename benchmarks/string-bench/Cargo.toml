@@ -35,6 +35,7 @@ vortex-onpair = { workspace = true }
 [features]
 unstable_encodings = [
     "vortex/unstable_encodings",
+    "vortex-bench/unstable_encodings",
     "vortex-btrblocks/unstable_encodings",
 ]
 

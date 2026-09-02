@@ -18,6 +18,7 @@ use crate::CompactionStrategy;
 use crate::Format;
 use crate::IdempotentPath;
 use crate::SESSION;
+use crate::benchmark_write_options;
 use crate::conversions::parquet_to_vortex_chunks;
 use crate::datasets::Dataset;
 use crate::datasets::data_downloads::download_data;
@@ -99,8 +100,7 @@ pub async fn taxi_data_vortex() -> Result<PathBuf> {
 
         let data = parquet_to_vortex_chunks(taxi_data_parquet().await?).await?;
 
-        SESSION
-            .write_options()
+        benchmark_write_options(SESSION.write_options())
             .write(&mut output_file, data.into_array().to_array_stream())
             .await?;
         output_file.flush().await?;

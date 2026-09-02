@@ -21,15 +21,8 @@ use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldMask;
-use vortex_array::dtype::session::DTypeSessionExt;
-use vortex_array::session::ArraySessionExt;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
-use vortex_edition::ComponentKind;
-use vortex_edition::Edition;
-use vortex_edition::EditionId;
-use vortex_edition::EditionInclusion;
-use vortex_edition::EditionSessionExt;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::VortexFile;
 use vortex_file::WriteOptionsSessionExt;
@@ -41,7 +34,6 @@ use vortex_layout::layouts::repartition::RepartitionStrategy;
 use vortex_layout::layouts::repartition::RepartitionWriterOptions;
 use vortex_layout::scan::split_by::SplitBy;
 use vortex_layout::session::LayoutSession;
-use vortex_layout::session::LayoutSessionExt;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -68,68 +60,8 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         .with::<RuntimeSession>()
         .with_tokio();
     vortex_file::register_default_encodings(&session);
-    enable_all_registered_array_encodings(&session);
     session
 });
-
-const BENCH_EDITION: EditionId = EditionId::new("bench", 2026, 8, 0);
-
-fn enable_all_registered_array_encodings(session: &VortexSession) {
-    let editions = session.editions();
-    editions
-        .declare_edition(Edition {
-            id: BENCH_EDITION,
-            min_library_version: None,
-        })
-        .unwrap();
-    let component_ids = [
-        (
-            ComponentKind::Array,
-            session
-                .arrays()
-                .registry()
-                .read(|map| map.keys().copied().collect::<Vec<_>>()),
-        ),
-        (
-            ComponentKind::Layout,
-            session
-                .layouts()
-                .registry()
-                .read(|map| map.keys().copied().collect::<Vec<_>>()),
-        ),
-        (
-            ComponentKind::DType,
-            session
-                .dtypes()
-                .registry()
-                .read(|map| map.keys().copied().collect::<Vec<_>>()),
-        ),
-    ];
-    for (kind, ids) in component_ids {
-        for id in ids {
-            editions
-                .declare_inclusion(EditionInclusion::new(kind, &id, BENCH_EDITION))
-                .unwrap();
-        }
-    }
-    for id in [
-        "vortex.bounded_max",
-        "vortex.bounded_min",
-        "vortex.max",
-        "vortex.min",
-        "vortex.nan_count",
-        "vortex.null_count",
-    ] {
-        editions
-            .declare_inclusion(EditionInclusion::new(
-                ComponentKind::Aggregate,
-                id,
-                BENCH_EDITION,
-            ))
-            .unwrap();
-    }
-    session.enable_edition(BENCH_EDITION).unwrap();
-}
 
 fn make_file(columns: usize, chunks: usize) -> VortexFile {
     let field_names = (0..columns).map(|c| format!("col_{c}")).collect::<Vec<_>>();
@@ -159,6 +91,7 @@ fn make_file(columns: usize, chunks: usize) -> VortexFile {
         .block_on(
             SESSION
                 .write_options()
+                .disable_editions()
                 .with_strategy(strategy)
                 .write(&mut buf, array.to_array_stream()),
         )
@@ -225,6 +158,7 @@ fn make_misaligned_file(columns: usize, chunks: usize) -> VortexFile {
         .block_on(
             SESSION
                 .write_options()
+                .disable_editions()
                 .with_strategy(strategy.build())
                 .write(&mut buf, array.to_array_stream()),
         )

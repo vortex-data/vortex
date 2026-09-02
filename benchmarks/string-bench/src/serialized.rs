@@ -38,6 +38,7 @@ use vortex::file::WriteStrategyBuilder;
 use vortex::layout::LayoutStrategy;
 use vortex::session::VortexSession;
 use vortex_bench::Format;
+use vortex_bench::benchmark_write_options;
 use vortex_bench::measurements::CustomUnitMeasurement;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::SchemeId;
@@ -191,8 +192,7 @@ async fn write_serialized_file(
     let mut buf = Vec::new();
     {
         let mut cursor = Cursor::new(&mut buf);
-        session
-            .write_options()
+        benchmark_write_options(session.write_options())
             .with_strategy(Arc::clone(strategy))
             .write(&mut cursor, input.to_array_stream())
             .await?;

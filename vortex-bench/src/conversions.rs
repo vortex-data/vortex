@@ -66,6 +66,7 @@ use wkb::writer::write_geometry;
 use crate::CompactionStrategy;
 use crate::Format;
 use crate::SESSION;
+use crate::benchmark_write_options;
 use crate::utils::file::idempotent_async;
 
 /// Memory budget per concurrent conversion stream in GB. This is somewhat arbitary.
@@ -255,7 +256,7 @@ fn write_options_for(
     for name in binary_fields {
         builder = builder.with_field_writer(FieldPath::from_name(name), no_dict_layout());
     }
-    SESSION.write_options().with_strategy(builder.build())
+    benchmark_write_options(SESSION.write_options()).with_strategy(builder.build())
 }
 
 /// A chunked + compressed layout that skips dictionary encoding for opaque `Binary` blobs.

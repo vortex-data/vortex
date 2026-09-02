@@ -41,6 +41,7 @@ use crate::Format;
 use crate::IdempotentPath;
 use crate::SESSION;
 use crate::TableSpec;
+use crate::benchmark_write_options;
 use crate::conversions::parquet_to_vortex_chunks;
 use crate::datasets::Dataset;
 use crate::datasets::data_downloads::decompress_bz2;
@@ -364,8 +365,7 @@ impl PBIData {
                 let data = parquet_to_vortex_chunks(parquet).await?;
                 let vortex_file =
                     idempotent_async(&vortex, async |output_path| -> anyhow::Result<()> {
-                        SESSION
-                            .write_options()
+                        benchmark_write_options(SESSION.write_options())
                             .write(
                                 &mut File::create(output_path)
                                     .await
