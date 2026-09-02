@@ -239,6 +239,7 @@ impl VTable for BitPacked {
         let data = BitPackedData::try_new(
             packed,
             patches,
+            dtype.as_ptype(),
             u8::try_from(metadata.bit_width).map_err(|_| {
                 vortex_err!(
                     "BitPackedMetadata bit_width {} does not fit in u8",
@@ -319,7 +320,7 @@ impl BitPacked {
             s.push(validity_to_child(&validity, len));
             s
         };
-        let data = BitPackedData::try_new(packed, patches, bit_width, offset)?;
+        let data = BitPackedData::try_new(packed, patches, ptype, bit_width, offset)?;
         Array::try_from_parts(ArrayParts::new(BitPacked, dtype, len, data).with_slots(slots))
     }
 
