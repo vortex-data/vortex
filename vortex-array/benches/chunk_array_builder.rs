@@ -49,11 +49,8 @@ fn chunked_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usi
     bencher
         .with_inputs(|| (&chunk, SESSION.create_execution_ctx()))
         .bench_refs(|(chunk, ctx)| {
-            let mut builder = builder_with_capacity(
-                chunk.dtype(),
-                len * chunk_count,
-                ctx.allocator().clone(),
-            );
+            let mut builder =
+                builder_with_capacity(chunk.dtype(), len * chunk_count, ctx.allocator().clone());
             chunk
                 .append_to_builder(builder.as_mut(), ctx)
                 .vortex_expect("append failed");
@@ -68,11 +65,8 @@ fn chunked_opt_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize,
     bencher
         .with_inputs(|| (&chunk, SESSION.create_execution_ctx()))
         .bench_refs(|(chunk, ctx)| {
-            let mut builder = builder_with_capacity(
-                chunk.dtype(),
-                len * chunk_count,
-                ctx.allocator().clone(),
-            );
+            let mut builder =
+                builder_with_capacity(chunk.dtype(), len * chunk_count, ctx.allocator().clone());
             chunk
                 .append_to_builder(builder.as_mut(), ctx)
                 .vortex_expect("append failed");
@@ -206,11 +200,8 @@ fn chunked_constant_i32_append_to_builder(bencher: Bencher, (len, chunk_count): 
     bencher
         .with_inputs(|| (&chunk, SESSION.create_execution_ctx()))
         .bench_refs(|(chunk, ctx)| {
-            let mut builder = builder_with_capacity(
-                chunk.dtype(),
-                len * chunk_count,
-                ctx.allocator().clone(),
-            );
+            let mut builder =
+                builder_with_capacity(chunk.dtype(), len * chunk_count, ctx.allocator().clone());
             chunk
                 .append_to_builder(builder.as_mut(), ctx)
                 .vortex_expect("append failed");
@@ -234,11 +225,8 @@ fn chunked_constant_utf8_append_to_builder(
     bencher
         .with_inputs(|| (&chunk, SESSION.create_execution_ctx()))
         .bench_refs(|(chunk, ctx)| {
-            let mut builder = builder_with_capacity(
-                chunk.dtype(),
-                len * chunk_count,
-                ctx.allocator().clone(),
-            );
+            let mut builder =
+                builder_with_capacity(chunk.dtype(), len * chunk_count, ctx.allocator().clone());
             chunk
                 .append_to_builder(builder.as_mut(), ctx)
                 .vortex_expect("append failed");
