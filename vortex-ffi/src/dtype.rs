@@ -34,6 +34,13 @@ box_wrapper!(
     vx_dtype
 );
 
+/// Create an FFI dtype handle from an owned Vortex dtype.
+///
+/// Layered FFI crates use this function after they validate their host-specific type identifiers.
+pub fn vx_dtype_new_with(dtype: DType) -> *const vx_dtype {
+    vx_dtype::new(dtype)
+}
+
 /// The variant tag for a Vortex data type.
 #[non_exhaustive]
 #[repr(C)]

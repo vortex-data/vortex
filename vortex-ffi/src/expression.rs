@@ -40,7 +40,31 @@ box_wrapper!(
     /// Operations on expressions don't take ownership of input values, and so
     /// input values must be freed by the caller.
     Expression,
-    vx_expression);
+    vx_expression
+);
+
+/// Create an FFI expression handle from an owned Vortex expression.
+///
+/// Layered FFI crates use this function for host-specific expression constructors.
+pub fn vx_expression_new_with(expression: Expression) -> *mut vx_expression {
+    vx_expression::new(expression)
+}
+
+/// Borrow an expression from a layered FFI crate.
+///
+/// # Safety
+///
+/// `expression` must point to a live expression handle for the returned reference lifetime.
+pub unsafe fn vx_expression_ref<'a>(
+    expression: *const vx_expression,
+) -> vortex::error::VortexResult<&'a Expression> {
+    let expression = unsafe {
+        expression
+            .as_ref()
+            .ok_or_else(|| vortex::error::vortex_err!("Vortex expression must not be null"))?
+    };
+    Ok(&expression.0)
+}
 
 /// Create a root expression. A root expression, applied to an array in
 /// vx_array_apply, takes the array itself as opposed to functions like

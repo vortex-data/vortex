@@ -11691,6 +11691,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-velox"
+version = "0.1.0"
+dependencies = [
+ "arrow-array 59.2.0",
+ "arrow-buffer 59.2.0",
+ "arrow-data 59.2.0",
+ "arrow-schema 59.2.0",
+ "bytes",
+ "futures",
+ "rstest",
+ "vortex",
+ "vortex-array",
+ "vortex-arrow",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-ffi",
+ "vortex-io",
+]
+
+[[package]]
 name = "vortex-web-wasm"
 version = "0.1.0"
 dependencies = [

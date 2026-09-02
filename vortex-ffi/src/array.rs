@@ -68,6 +68,13 @@ box_wrapper!(
     vx_array
 );
 
+/// Create an FFI array handle from an owned Vortex array.
+///
+/// Layered FFI crates use this function when their host-specific scan path produces an array.
+pub fn vx_array_new_with(array: ArrayRef) -> *const vx_array {
+    vx_array::new(array)
+}
+
 /// Borrow the [`ArrayRef`] behind a [`vx_array`] handle, erroring on a null pointer.
 ///
 /// A building block for FFI crates layered on top of the base Vortex C API.
