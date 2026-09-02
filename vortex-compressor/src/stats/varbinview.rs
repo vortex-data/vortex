@@ -27,8 +27,7 @@ pub struct StringStats {
 /// Estimate the number of distinct values in the var bin view array.
 fn estimate_distinct_count(varbinview: &VarBinViewArray) -> VortexResult<u32> {
     let views = varbinview.views();
-    // Iterate the views. Equal values have equal heads, so distinct heads under-count rather
-    // than over-count distinct values.
+    // Equal values have equal heads, so distinct heads under-count distinct values.
     // NOTE: there are cases where this performs pessimally, e.g. when we have strings that all
     // share a 4-byte prefix and have the same length.
     let mut distinct = HashSet::with_capacity(views.len() / 2);

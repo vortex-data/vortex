@@ -19,11 +19,9 @@ use crate::validity::Validity;
 
 const LONG: &str = "a value far too long to live inside its own view";
 
-/// Values long enough that a view must spill them to a data buffer.
 const ALPHA: &[u8] = b"alpha_long_value_0";
 const BETA: &[u8] = b"beta_long_value_00";
 const GAMMA: &[u8] = b"gamma_long_value_1";
-/// Short enough to live in the view itself.
 const SHORT: &[u8] = b"short";
 
 /// The rows of [`two_buffer_array`], in order.
@@ -38,8 +36,7 @@ fn ref_view(value: &[u8], buffer_index: u32, offset: u32) -> VortexResult<Binary
     ))
 }
 
-/// An array whose values are spread over two data buffers — one of them at a non-zero offset —
-/// and interleaved with an inlined value that lives in no buffer at all.
+/// Values over two data buffers, one at a non-zero offset, interleaved with an inlined value.
 fn two_buffer_array() -> VortexResult<VarBinViewArray> {
     let mut ctx = array_session().create_execution_ctx();
     let views = Buffer::from_iter([
@@ -60,8 +57,6 @@ fn two_buffer_array() -> VortexResult<VarBinViewArray> {
     )
 }
 
-/// A view's `buffer_index` addresses the resolved buffers in the array's own buffer order, and
-/// its offset is relative to that buffer.
 #[test]
 fn resolves_values_across_data_buffers() -> VortexResult<()> {
     let array = two_buffer_array()?;
@@ -75,7 +70,6 @@ fn resolves_values_across_data_buffers() -> VortexResult<()> {
     Ok(())
 }
 
-/// Resolving up front agrees with the array's own per-element accessor.
 #[rstest]
 #[case::inlined(VarBinViewArray::from_iter_str(["a", "", "twelve bytes"]))]
 #[case::referenced(VarBinViewArray::from_iter_str([LONG, "another long value here"]))]
@@ -87,8 +81,6 @@ fn bytes_matches_bytes_at(#[case] array: VarBinViewArray) {
     }
 }
 
-/// A view taken from [`ResolvedViews::views`] resolves the same as the row it came from, which
-/// is what lets a kernel walk views directly and resolve only the ones it must.
 #[test]
 fn view_bytes_matches_bytes() -> VortexResult<()> {
     let array = two_buffer_array()?;
@@ -102,8 +94,7 @@ fn view_bytes_matches_bytes() -> VortexResult<()> {
     Ok(())
 }
 
-/// Slicing narrows the views, not the buffers, so a sliced row still addresses its buffer by the
-/// unsliced index.
+/// Slicing narrows the views, not the buffers.
 #[test]
 fn resolves_through_a_slice() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
@@ -119,7 +110,6 @@ fn resolves_through_a_slice() -> VortexResult<()> {
     Ok(())
 }
 
-/// Every suffix of every row, inlined and referenced alike.
 #[test]
 fn suffix_bytes_are_value_suffixes() -> VortexResult<()> {
     let array = two_buffer_array()?;
@@ -136,8 +126,6 @@ fn suffix_bytes_are_value_suffixes() -> VortexResult<()> {
     Ok(())
 }
 
-/// `is_ascii` looks past the view into the value, so a non-ASCII byte beyond the inlined prefix
-/// still counts.
 #[rstest]
 #[case::inlined(["short", "tiny"], true)]
 #[case::referenced([LONG, "another long value here"], true)]

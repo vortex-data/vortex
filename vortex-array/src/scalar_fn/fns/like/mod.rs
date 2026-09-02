@@ -307,9 +307,7 @@ fn eval_pattern(haystack: &ResolvedViews<'_>, pattern: &LikePattern, negated: bo
             // prefix matches compare the remaining needle bytes.
             let needle_len = needle.len();
             let prefix_len = needle_len.min(4);
-            // The needle's prefix bytes in the same memory order the view stores its own, so a
-            // masked equality keeps only the bytes the needle actually constrains. This is an
-            // equality test, not an ordering one, so the bytes stay unswapped.
+            // Raw prefix bytes, unswapped: this is a masked equality, not an ordering.
             let needle_prefix = u32::from_le_bytes(BinaryView::prefix_of(needle));
             let prefix_mask = if prefix_len == 4 {
                 u32::MAX

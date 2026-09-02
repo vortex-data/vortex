@@ -9,13 +9,10 @@ use super::*;
 #[case(20, 7, 42)]
 #[case(255, 7, 42)]
 #[case(4096, 7, 42)]
-// Zero buffer index/offset and the `u32` extremes, to confirm the `u128` field assembly does
-// not overflow into neighbouring fields.
+// Zero and `u32::MAX` buffer index/offset, so field assembly cannot overflow unnoticed.
 #[case(13, 0, 0)]
 #[case(13, u32::MAX, u32::MAX)]
 fn new_ref_matches_make_view(#[case] len: u32, #[case] buffer_index: u32, #[case] offset: u32) {
-    // `new_ref` assembles the reference view as a `u128`; it must be byte-identical to the
-    // value-inspecting `make_view` for any value longer than the inline limit.
     let value: Vec<u8> = (0..len)
         .map(|i| u8::try_from(i % 251).vortex_expect("i % 251 fits in u8"))
         .collect();
@@ -31,8 +28,7 @@ fn new_ref_matches_make_view(#[case] len: u32, #[case] buffer_index: u32, #[case
     assert_eq!(r.offset, offset);
 }
 
-/// Byte strings over a three-symbol alphabet, up to `max_len`. `\x00` is included so that a
-/// value's real bytes collide with the zero padding of a shorter one.
+/// Byte strings over `{\x00, a, b}` up to `max_len`; `\x00` collides with zero padding.
 fn values(max_len: usize) -> Vec<Vec<u8>> {
     let mut values = vec![Vec::new()];
     let mut frontier = vec![Vec::new()];
@@ -57,8 +53,6 @@ fn view_of(value: &[u8]) -> BinaryView {
     BinaryView::make_view(value, 0, 0)
 }
 
-/// The comparison words a view carries must agree with the ones computed from its value; the
-/// `_of` constructors exist so a scalar can be compared against views without building one.
 #[test]
 fn words_match_between_view_and_value() {
     for value in values(5).iter().chain(&[vec![b'z'; 40]]) {
@@ -80,9 +74,7 @@ fn words_match_between_view_and_value() {
     }
 }
 
-/// The order prefix refines the value order: a strictly lower prefix proves a strictly lower
-/// value, and equal values always agree on it. Equal prefixes decide nothing, which is why every
-/// caller falls through to a further comparison.
+/// A lower order prefix proves a lower value; an equal one decides nothing.
 #[test]
 fn order_prefix_refines_value_order() {
     let values = values(6);
@@ -102,8 +94,7 @@ fn order_prefix_refines_value_order() {
     }
 }
 
-/// For values short enough to inline, the order prefix, order tail and length together decide the
-/// order outright — no data buffer, and no comparison of the values themselves.
+/// Inlined values are fully ordered by order prefix, then order tail, then length.
 #[test]
 fn order_words_fully_order_inlined_values() {
     let values = values(4)
@@ -124,8 +115,7 @@ fn order_words_fully_order_inlined_values() {
     }
 }
 
-/// The head rules equality out but never in: values that share a length and a four-byte prefix
-/// collide, which is why callers still compare the bytes past the prefix.
+/// The head rules equality out but never in.
 #[test]
 fn head_rules_out_inequality() {
     let values = values(6);

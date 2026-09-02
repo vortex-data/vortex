@@ -1,23 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! A [`VarBinViewArray`] with its data buffers resolved once for per-row access.
+//! A [`VarBinViewArray`] with its data buffers resolved for per-row access.
 
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
 
-/// A canonical [`VarBinViewArray`] with its data buffers resolved: the view structs alongside a
-/// borrowed slice of every data buffer.
-///
-/// A view holds values up to twelve bytes inline and spills longer ones to a data buffer, so
-/// reading a value means indexing the array's buffer list. Resolving that list once turns each
-/// read into a slice index, rather than the buffer-handle lookup a per-element accessor such as
-/// [`VarBinViewData::bytes_at`](crate::arrays::varbinview::VarBinViewData::bytes_at) repeats per
-/// row.
-///
-/// Kernels that compare or match values should still prefer the
-/// [comparison words](BinaryView#comparison-words) a view carries, and resolve the bytes only
-/// once those leave the answer open: for a value in a data buffer, that read is a scattered one.
+/// A canonical [`VarBinViewArray`] with its data buffers resolved to slices, so reading a row is
+/// a slice index rather than a buffer-handle lookup.
 pub struct ResolvedViews<'a> {
     views: &'a [BinaryView],
     buffers: Vec<&'a [u8]>,
@@ -40,10 +30,7 @@ impl<'a> ResolvedViews<'a> {
         self.views
     }
 
-    /// The resolved data buffers, in the order a view's `buffer_index` addresses them.
-    ///
-    /// Pass these to [`BinaryView::bytes`] to read a value from a view held elsewhere, such as a
-    /// sub-slice of [`views`](Self::views).
+    /// The data buffers, indexed by a view's `buffer_index`.
     #[inline]
     pub fn buffers(&self) -> &[&'a [u8]] {
         &self.buffers
@@ -65,10 +52,10 @@ impl<'a> ResolvedViews<'a> {
     ///
     /// # Safety
     ///
-    /// `index` must be strictly less than [`len`](Self::len).
+    /// `index` must be less than [`len`](Self::len).
     #[inline]
     pub unsafe fn view_unchecked(&self, index: usize) -> &'a BinaryView {
-        // SAFETY: caller guarantees index < self.views.len().
+        // SAFETY: caller guarantees index < len.
         unsafe { self.views.get_unchecked(index) }
     }
 
@@ -88,7 +75,7 @@ impl<'a> ResolvedViews<'a> {
         view.bytes(&self.buffers)
     }
 
-    /// Whether every value is pure ASCII, including values under a null.
+    /// Whether every value is ASCII. Validity is not consulted.
     pub fn is_ascii(&self) -> bool {
         self.views
             .iter()
@@ -99,9 +86,7 @@ impl<'a> ResolvedViews<'a> {
     ///
     /// # Safety
     ///
-    /// `suffix_len` must be at most `view.len()`. Buffer bounds are guaranteed by
-    /// [`VarBinViewArray::validate`], which checks every view against its data buffer at
-    /// construction.
+    /// `suffix_len` must be at most `view.len()`.
     #[inline]
     pub unsafe fn suffix_bytes_unchecked(
         &self,
@@ -110,14 +95,12 @@ impl<'a> ResolvedViews<'a> {
     ) -> &'a [u8] {
         let len = view.len() as usize;
         if view.is_inlined() {
-            // SAFETY: inlined values hold `len <= 12` value bytes, and the caller
-            // guarantees `suffix_len <= len`.
+            // SAFETY: caller guarantees suffix_len <= len.
             unsafe { view.as_inlined().value().get_unchecked(len - suffix_len..) }
         } else {
             let view = view.as_view();
             let end = view.offset as usize + len;
-            // SAFETY: validated views reference `buffer_index < buffers.len()` and bytes
-            // `offset..offset + len` within that buffer.
+            // SAFETY: the array validated this view's buffer index and range on construction.
             unsafe {
                 self.buffers
                     .get_unchecked(view.buffer_index as usize)

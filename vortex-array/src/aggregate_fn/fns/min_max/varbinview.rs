@@ -36,8 +36,8 @@ fn compute_min_max_with_validity(
     match array.validity()?.execute_mask(array.len(), ctx)? {
         Mask::AllTrue(_) => extrema = scan(extrema, views, buffers),
         Mask::AllFalse(_) => {}
-        // Each `[start, end)` run is fully valid, so the runs chain through a single scan
-        // state instead of materializing the validity bits and testing them per element.
+        // Each run is fully valid, so runs chain through one scan state instead of testing
+        // validity per element.
         Mask::Values(v) => {
             for &(start, end) in v.slices() {
                 extrema = scan(extrema, &views[start..end], buffers);
@@ -52,8 +52,7 @@ fn compute_min_max_with_validity(
     }))
 }
 
-/// The running extrema of a scan: the smallest and largest values seen so far, each held as its
-/// [order prefix](BinaryView::order_prefix) alongside the bytes it was taken from.
+/// The running extrema of a scan, each as its [order prefix](BinaryView::order_prefix) plus bytes.
 struct Extrema<'a> {
     min_prefix: u32,
     min_bytes: &'a [u8],
@@ -61,17 +60,11 @@ struct Extrema<'a> {
     max_bytes: &'a [u8],
 }
 
-/// Fold the fully-valid `views` into `extrema`, seeding it from the first view if it is empty.
+/// Fold the fully-valid `views` into `extrema`, seeding it from the first view if empty.
 ///
-/// A value whose [`order_prefix`](BinaryView::order_prefix) falls strictly inside the running
-/// `[min, max]` interval is settled by its 16-byte view alone, without reading the value — which
-/// for a value longer than twelve bytes means a read into a data buffer.
-///
-/// Views are folded two at a time. Ordering a pair against itself first means only its smaller
-/// value can lower the minimum and only its larger value can raise the maximum, so a pair that
-/// has to be resolved costs three value comparisons instead of four. That is what keeps the scan
-/// competitive on columns whose values all share their first four bytes, where the prefix never
-/// rejects anything.
+/// A view whose [`order_prefix`](BinaryView::order_prefix) lies strictly inside `[min, max]` is
+/// rejected without reading its value. Views are folded in pairs, ordered against each other
+/// first, so a pair that must be resolved costs three value comparisons rather than four.
 fn scan<'a>(
     extrema: Option<Extrema<'a>>,
     views: &'a [BinaryView],
@@ -127,8 +120,7 @@ fn scan<'a>(
         }
     }
 
-    // An odd view is folded on its own. `min_bytes <= max_bytes` holds by construction, so a
-    // value that lowers the minimum cannot also raise the maximum.
+    // A value that lowers the minimum cannot also raise the maximum.
     for view in remainder {
         let prefix = view.order_prefix();
         if prefix > min_prefix && prefix < max_prefix {
@@ -156,8 +148,7 @@ fn make_scalar(dtype: &DType, value: &[u8]) -> Scalar {
     match dtype {
         DType::Binary(_) => Scalar::binary(value.to_vec(), NonNullable),
         DType::Utf8(_) => {
-            // SAFETY: a `VarBinViewArray` with a Utf8 dtype validates every view's bytes as
-            // UTF-8 on construction.
+            // SAFETY: a Utf8 VarBinViewArray validates its bytes as UTF-8 on construction.
             let value = unsafe { str::from_utf8_unchecked(value) };
             Scalar::utf8(value, NonNullable)
         }
@@ -202,22 +193,19 @@ mod tests {
         )
     }
 
-    // Values are compared by their inline four-byte prefix first, so the cases that matter are
-    // the ones where that prefix cannot decide the order.
+    // The cases that matter are the ones the inline four-byte prefix cannot decide.
     #[rstest]
-    // Prefixes tie and the order is settled past the inline prefix, on both sides of the
-    // twelve-byte boundary between inlined and buffer-backed values.
+    // Prefix ties settled past the prefix, on both sides of the inline boundary.
     #[case::tied_prefix_inlined(&[Some("abcdZ"), Some("abcdA"), Some("abcdM")], "abcdA", "abcdZ")]
     #[case::tied_prefix_outlined(
         &[Some("abcd_long_value_zzz"), Some("abcd_long_value_aaa")],
         "abcd_long_value_aaa",
         "abcd_long_value_zzz"
     )]
-    // One value is a proper prefix of another, so the shorter one sorts first even though its
-    // inline prefix is zero-padded to the same four bytes.
+    // A proper prefix sorts first despite zero-padding to the same four bytes.
     #[case::proper_prefix(&[Some("abcd"), Some("abc"), Some("abcde")], "abc", "abcde")]
     #[case::empty_value(&[Some("a"), Some(""), Some("b")], "", "b")]
-    // Values shorter than the four-byte prefix, mixed with longer ones sharing their bytes.
+    // Values shorter than the prefix, mixed with longer ones sharing their bytes.
     #[case::short_values(&[Some("b"), Some("ab"), Some("abc"), Some("a")], "a", "b")]
     // A single inlined value and a single buffer-backed value are both min and max.
     #[case::single_inlined(&[Some("xy")], "xy", "xy")]
@@ -250,9 +238,7 @@ mod tests {
         Ok(())
     }
 
-    /// Random values over a tiny alphabet, checked against a sorted reference. Short values and
-    /// a three-symbol alphabet make ties on the inline prefix and values that are prefixes of
-    /// one another common, and the varying lengths cover the pairwise fold's odd tail.
+    /// Random short values over a tiny alphabet, so prefix ties and proper prefixes are common.
     #[test]
     fn matches_sorted_reference() -> VortexResult<()> {
         let mut rng = StdRng::seed_from_u64(0);
@@ -286,8 +272,7 @@ mod tests {
         Ok(())
     }
 
-    /// Binary values order by unsigned byte value, including bytes that are not valid UTF-8 and
-    /// interior nulls that the inline prefix cannot distinguish from padding.
+    /// Binary orders by unsigned byte, including non-UTF-8 bytes and interior nulls.
     #[test]
     fn binary_extrema_order_by_byte_value() -> VortexResult<()> {
         let values: Vec<&[u8]> = vec![
