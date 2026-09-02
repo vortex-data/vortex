@@ -236,7 +236,6 @@ unsafe fn unpack_cmp<P: BitPackingCompare, const W: usize, const B: usize, V, F>
 /// # Safety
 ///
 /// `slice.len()` must be `N`. This is checked only with `debug_assert`.
-#[inline(always)]
 unsafe fn as_block<P, const N: usize>(slice: &[P]) -> &[P; N] {
     debug_assert_eq!(slice.len(), N);
     // SAFETY: The caller guarantees `N` elements, and `[P; N]` has the alignment of `P`.
@@ -248,7 +247,6 @@ unsafe fn as_block<P, const N: usize>(slice: &[P]) -> &[P; N] {
 /// # Safety
 ///
 /// `slice.len()` must be `N`. This is checked only with `debug_assert`.
-#[inline(always)]
 unsafe fn as_block_mut<P, const N: usize>(slice: &mut [P]) -> &mut [P; N] {
     debug_assert_eq!(slice.len(), N);
     // SAFETY: The caller guarantees `N` elements, and `[P; N]` has the alignment of `P`.
