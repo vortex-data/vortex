@@ -93,7 +93,7 @@ pub(crate) fn collect_codes_window(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<CodesWindow> {
     let len = array.len();
-    let mut offsets = collect_widened::<u64>(array.codes_offsets(), ctx)?;
+    let offsets = collect_widened::<u64>(array.codes_offsets(), ctx)?;
     vortex_ensure!(
         offsets.len() == len + 1,
         "OnPair codes_offsets has {} entries, expected len + 1 = {}",
@@ -113,13 +113,13 @@ pub(crate) fn collect_codes_window(
         array.codes().len()
     );
     let codes = collect_widened::<u16>(&array.codes().slice(code_start..code_end)?, ctx)?;
-    if code_start != 0 {
-        offsets = Buffer::from(
-            offsets
-                .iter()
-                .map(|offset| offset - code_start as u64)
-                .collect::<Vec<_>>(),
-        );
-    }
+    let offsets = if code_start == 0 {
+        offsets
+    } else {
+        let code_start = code_start as u64;
+        offsets
+            .map_each_in_place(|offset| offset - code_start)
+            .freeze()
+    };
     Ok(CodesWindow { offsets, codes })
 }

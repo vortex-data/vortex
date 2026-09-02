@@ -253,6 +253,15 @@ fn test_onpair_u64_codes_offsets() -> vortex_error::VortexResult<()> {
         .execute::<VarBinViewArray>(&mut ctx)?;
     assert_arrays_eq!(&wide_decoded, &narrow_decoded, &mut ctx);
 
+    // Exercise rebasing when an already-u64 offset child is sliced to a
+    // nonzero starting code position.
+    let sliced = wide.clone().into_array().slice(1..4)?;
+    let needle = ConstantArray::new("https://www.test.org/page", sliced.len()).into_array();
+    let eq = sliced
+        .binary(needle, Operator::Eq)?
+        .execute::<BoolArray>(&mut ctx)?;
+    assert_arrays_eq!(&eq, &BoolArray::from_iter([false, true, false]), &mut ctx);
+
     // Equality compare drives CodesWindow over the u64 codes_offsets.
     let needle = ConstantArray::new("https://www.example.com/page", wide.len()).into_array();
     let eq = wide
