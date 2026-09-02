@@ -5,6 +5,7 @@
 //! `onpair` decoder consumes.
 
 use onpair::CompactDictionaryView;
+use onpair::Offset;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -12,8 +13,8 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
+use vortex_array::dtype::PType;
 use vortex_buffer::Buffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -45,8 +46,9 @@ pub(crate) fn code_boundary_at(
         .ok_or_else(|| vortex_err!("OnPair codes_offsets[{index}] is null"))
 }
 
-/// A validated, materialised window over an array's `codes`: the widened
-/// per-row `codes_offsets` boundaries plus the codes they bound.
+/// A validated, materialised window over an array's `codes`: the per-row
+/// `codes_offsets` boundaries normalized to `u32` or `u64`, plus the codes they
+/// bound.
 ///
 /// `slice` keeps the full `codes` child and only narrows `codes_offsets`, so
 /// for a sliced array the stored window starts at `offsets[0] > 0`. The
@@ -55,12 +57,17 @@ pub(crate) fn code_boundary_at(
 /// Built once per compressed-domain query.
 ///
 /// [`row`]: CodesWindow::row
-pub(crate) struct CodesWindow {
-    offsets: Buffer<u64>,
+pub(crate) enum CodesWindow {
+    U32(TypedCodesWindow<u32>),
+    U64(TypedCodesWindow<u64>),
+}
+
+pub(crate) struct TypedCodesWindow<O> {
+    offsets: Buffer<O>,
     codes: Buffer<u16>,
 }
 
-impl CodesWindow {
+impl<O: Offset> TypedCodesWindow<O> {
     /// The codes for row `i`.
     pub(crate) fn row(&self, i: usize) -> &[u16] {
         &self.codes[self.local(i)..self.local(i + 1)]
@@ -70,7 +77,7 @@ impl CodesWindow {
     pub(crate) fn as_column_view<'a>(
         &'a self,
         dict: CompactDictionaryView<'a>,
-    ) -> onpair::ColumnView<'a, u64> {
+    ) -> onpair::ColumnView<'a, O> {
         onpair::ColumnView {
             dict,
             codes: self.codes.as_slice(),
@@ -80,7 +87,7 @@ impl CodesWindow {
 
     /// Offset `i` into the window's local `codes` slice.
     fn local(&self, i: usize) -> usize {
-        usize::try_from(self.offsets[i]).vortex_expect("code offset fits usize")
+        self.offsets[i].to_usize()
     }
 }
 
@@ -92,8 +99,29 @@ pub(crate) fn collect_codes_window(
     array: ArrayView<'_, OnPair>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<CodesWindow> {
+    let offsets_ptype = array.codes_offsets().dtype().as_ptype();
+    match offsets_ptype {
+        PType::I8 | PType::I16 | PType::I32 | PType::U8 | PType::U16 | PType::U32 => {
+            collect_typed_codes_window::<u32>(array, ctx).map(CodesWindow::U32)
+        }
+        PType::I64 | PType::U64 => {
+            collect_typed_codes_window::<u64>(array, ctx).map(CodesWindow::U64)
+        }
+        ptype => Err(vortex_err!(
+            "OnPair codes_offsets must be integer, found {ptype}"
+        )),
+    }
+}
+
+fn collect_typed_codes_window<O>(
+    array: ArrayView<'_, OnPair>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<TypedCodesWindow<O>>
+where
+    O: NativePType + Offset + Ord,
+{
     let len = array.len();
-    let offsets = collect_widened::<u64>(array.codes_offsets(), ctx)?;
+    let offsets = collect_widened::<O>(array.codes_offsets(), ctx)?;
     vortex_ensure!(
         offsets.len() == len + 1,
         "OnPair codes_offsets has {} entries, expected len + 1 = {}",
@@ -104,8 +132,8 @@ pub(crate) fn collect_codes_window(
         offsets.is_sorted(),
         "OnPair codes_offsets must be nondecreasing"
     );
-    let code_start = usize::try_from(offsets[0]).vortex_expect("code offset fits usize");
-    let code_end = usize::try_from(offsets[len]).vortex_expect("code offset fits usize");
+    let code_start = offsets[0].to_usize();
+    let code_end = offsets[len].to_usize();
     vortex_ensure!(
         code_end <= array.codes().len(),
         "OnPair codes_offsets end {} exceeds codes len {}",
@@ -116,10 +144,9 @@ pub(crate) fn collect_codes_window(
     let offsets = if code_start == 0 {
         offsets
     } else {
-        let code_start = code_start as u64;
         offsets
-            .map_each_in_place(|offset| offset - code_start)
+            .map_each_in_place(|offset| <O as Offset>::from_usize(offset.to_usize() - code_start))
             .freeze()
     };
-    Ok(CodesWindow { offsets, codes })
+    Ok(TypedCodesWindow { offsets, codes })
 }

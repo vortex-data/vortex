@@ -14,6 +14,7 @@ use vortex_error::VortexResult;
 
 use crate::OnPair;
 use crate::array::dict_view;
+use crate::decode::CodesWindow;
 use crate::decode::collect_codes_window;
 use crate::index::token_frequency_index;
 
@@ -49,16 +50,26 @@ impl LikeKernel for OnPair {
             SearchPattern::Exact(needle) => {
                 let window = collect_codes_window(array, ctx)?;
                 let query = search::tokenize(&needle, dict);
-                Some(BitBuffer::collect_bool(array.len(), |row| {
-                    search::equals(window.row(row), &query)
-                }))
+                Some(match &window {
+                    CodesWindow::U32(window) => BitBuffer::collect_bool(array.len(), |row| {
+                        search::equals(window.row(row), &query)
+                    }),
+                    CodesWindow::U64(window) => BitBuffer::collect_bool(array.len(), |row| {
+                        search::equals(window.row(row), &query)
+                    }),
+                })
             }
             SearchPattern::Prefix(prefix) => {
                 let window = collect_codes_window(array, ctx)?;
                 let query = search::PrefixQuery::new(&prefix, dict);
-                Some(BitBuffer::collect_bool(array.len(), |row| {
-                    search::starts_with(window.row(row), &query)
-                }))
+                Some(match &window {
+                    CodesWindow::U32(window) => BitBuffer::collect_bool(array.len(), |row| {
+                        search::starts_with(window.row(row), &query)
+                    }),
+                    CodesWindow::U64(window) => BitBuffer::collect_bool(array.len(), |row| {
+                        search::starts_with(window.row(row), &query)
+                    }),
+                })
             }
             SearchPattern::Contains(needle) => contains(array, dict, &needle, ctx)?,
         };
@@ -91,17 +102,32 @@ fn contains(
             return Ok(None);
         }
         let window = collect_codes_window(array, ctx)?;
-        let view = window.as_column_view(dict);
-        let mut rows = Vec::new();
-        if search::prefilter_candidates(view.codes, view.row_offsets, &analysis, &mut rows).is_err()
-        {
+        let rows = match &window {
+            CodesWindow::U32(window) => {
+                prefilter_and_verify(window.as_column_view(dict), &analysis, needle)
+            }
+            CodesWindow::U64(window) => {
+                prefilter_and_verify(window.as_column_view(dict), &analysis, needle)
+            }
+        };
+        let Ok(rows) = rows else {
             return Ok(None);
-        }
-        search::BytesVerifier::new(needle).retain(view, &mut rows);
+        };
         return Ok(Some(BitBuffer::from_indices(array.len(), rows)));
     }
 
     Ok(None)
+}
+
+fn prefilter_and_verify<O: onpair::Offset>(
+    view: onpair::ColumnView<'_, O>,
+    analysis: &search::PrefilterAnalysis,
+    needle: &[u8],
+) -> Result<Vec<usize>, search::PrefilterError> {
+    let mut rows = Vec::new();
+    search::prefilter_candidates(view.codes, view.row_offsets, analysis, &mut rows)?;
+    search::BytesVerifier::new(needle).retain(view, &mut rows);
+    Ok(rows)
 }
 
 fn classify_like_pattern(pattern: &[u8]) -> Option<SearchPattern> {
