@@ -27,6 +27,7 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::OffsetBuilderPType;
+use crate::executor::ExecutionCtx;
 use crate::legacy_session;
 use crate::match_each_integer_ptype;
 use crate::validity::Validity;
@@ -60,79 +61,12 @@ pub struct VarBinDataParts {
 }
 
 impl VarBinData {
-    /// Creates a new `VarBinArray`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the provided components do not satisfy the invariants documented
-    /// in `VarBinArray::new_unchecked`.
-    pub fn build(offsets: ArrayRef, bytes: ByteBuffer, dtype: DType, validity: Validity) -> Self {
-        Self::try_build(offsets, bytes, dtype, validity).vortex_expect("VarBinArray new")
-    }
-
-    /// Creates a new `VarBinArray`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the provided components do not satisfy the invariants documented
-    /// in `VarBinArray::new_unchecked`.
-    pub fn build_from_handle(
-        offset: ArrayRef,
-        bytes: BufferHandle,
-        dtype: DType,
-        validity: Validity,
-    ) -> Self {
-        Self::try_build_from_handle(offset, bytes, dtype, validity).vortex_expect("VarBinArray new")
-    }
-
     pub(crate) fn make_slots(offsets: ArrayRef, validity: &Validity, len: usize) -> ArraySlots {
         VarBinSlots {
             offsets,
             validity: validity_to_child(validity, len),
         }
         .into_slots()
-    }
-
-    /// Constructs a new `VarBinArray`.
-    ///
-    /// See `VarBinArray::new_unchecked` for more information.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the provided components do not satisfy the invariants documented in
-    /// `VarBinArray::new_unchecked`.
-    pub fn try_build(
-        offsets: ArrayRef,
-        bytes: ByteBuffer,
-        dtype: DType,
-        validity: Validity,
-    ) -> VortexResult<Self> {
-        let bytes = BufferHandle::new_host(bytes);
-        Self::validate(&offsets, &bytes, &dtype, &validity)?;
-
-        // SAFETY: validate ensures all invariants are met.
-        Ok(unsafe { Self::new_unchecked_from_handle(bytes) })
-    }
-
-    /// Constructs a new `VarBinArray` from a `BufferHandle` of memory that may exist
-    /// on the CPU or GPU.
-    ///
-    /// See `VarBinArray::new_unchecked` for more information.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the provided components do not satisfy the invariants documented in
-    /// `VarBinArray::new_unchecked`.
-    pub fn try_build_from_handle(
-        offsets: ArrayRef,
-        bytes: BufferHandle,
-        dtype: DType,
-        validity: Validity,
-    ) -> VortexResult<Self> {
-        Self::validate(&offsets, &bytes, &dtype, &validity)?;
-
-        // SAFETY: validate ensures all invariants are met.
-        Ok(unsafe { Self::new_unchecked_from_handle(bytes) })
     }
 
     /// Creates a new `VarBinArray` without validation from these components:
@@ -187,6 +121,7 @@ impl VarBinData {
         bytes: &BufferHandle,
         dtype: &DType,
         validity: &Validity,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         // Check offsets are non-nullable integer
         vortex_ensure!(
@@ -230,15 +165,19 @@ impl VarBinData {
             && matches!(dtype, DType::Utf8(_))
             && let Some(bytes) = bytes.as_host_opt()
         {
-            Self::validate_utf8(offsets, bytes.as_ref(), validity)?;
+            Self::validate_utf8(offsets, bytes.as_ref(), validity, ctx)?;
         }
 
         Ok(())
     }
 
     /// Validates that every non-null value is valid UTF-8.
-    #[allow(clippy::disallowed_methods)]
-    fn validate_utf8(offsets: &ArrayRef, bytes: &[u8], validity: &Validity) -> VortexResult<()> {
+    fn validate_utf8(
+        offsets: &ArrayRef,
+        bytes: &[u8],
+        validity: &Validity,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         let validate_at = |i: usize, start: usize, end: usize| -> VortexResult<()> {
             let string_bytes = &bytes[start..end];
             simdutf8::basic::from_utf8(string_bytes).map_err(|_| {
@@ -250,16 +189,15 @@ impl VarBinData {
             Ok(())
         };
 
-        let mut ctx = legacy_session().create_execution_ctx();
         // TODO(joe): update the created VarBin with this decompressed Array.
-        let primitive_offsets = offsets.clone().execute::<PrimitiveArray>(&mut ctx)?;
+        let primitive_offsets = offsets.clone().execute::<PrimitiveArray>(ctx)?;
 
         // Array-backed validity is the only variant that needs an execution context: execute it into
         // a mask once. The constant variants resolve null-ness without one. Resolving this before
         // the per-type dispatch keeps the dtype loop simple.
         let mask = match validity {
             Validity::Array(_) => {
-                Some(validity.execute_mask(primitive_offsets.len().saturating_sub(1), &mut ctx)?)
+                Some(validity.execute_mask(primitive_offsets.len().saturating_sub(1), ctx)?)
             }
             _ => None,
         };
@@ -453,18 +391,11 @@ impl Array<VarBin> {
     pub fn new(offsets: ArrayRef, bytes: ByteBuffer, dtype: DType, validity: Validity) -> Self {
         let len = offsets.len().saturating_sub(1);
         let slots = VarBinData::make_slots(offsets, &validity, len);
-        let data = VarBinData::build(
-            slots[VarBinSlots::OFFSETS]
-                .as_ref()
-                .vortex_expect("VarBinArray offsets slot")
-                .clone(),
-            bytes,
-            dtype.clone(),
-            validity,
-        );
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(VarBin, dtype, len, data).with_slots(slots))
-        }
+        // SAFETY: `try_from_parts` validates the components before publishing the array.
+        let data = unsafe { VarBinData::new_unchecked(bytes) };
+
+        Array::try_from_parts(ArrayParts::new(VarBin, dtype, len, data).with_slots(slots))
+            .vortex_expect("VarBinArray new")
     }
 
     /// Creates a new `VarBinArray` without validation.
@@ -514,13 +445,11 @@ impl Array<VarBin> {
     ) -> VortexResult<Self> {
         let len = offsets.len() - 1;
         let bytes = BufferHandle::new_host(bytes);
-        VarBinData::validate(&offsets, &bytes, &dtype, &validity)?;
         let slots = VarBinData::make_slots(offsets, &validity, len);
-        // SAFETY: validate ensures all invariants are met.
+        // SAFETY: `try_from_parts` validates the components before publishing the array.
         let data = unsafe { VarBinData::new_unchecked_from_handle(bytes) };
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(VarBin, dtype, len, data).with_slots(slots))
-        })
+
+        Array::try_from_parts(ArrayParts::new(VarBin, dtype, len, data).with_slots(slots))
     }
 }
 

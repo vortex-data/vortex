@@ -92,6 +92,7 @@ impl VTable for VarBinView {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         vortex_ensure!(
             slots.len() == VarBinViewSlots::COUNT,

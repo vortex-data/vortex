@@ -105,6 +105,7 @@ impl VTable for ALPRD {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let alprd_slots = ALPRDSlotsView::from_slots(slots);
         validate_parts(

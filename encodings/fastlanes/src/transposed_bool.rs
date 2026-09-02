@@ -144,6 +144,7 @@ impl VTable for TransposedBool {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         vortex_ensure!(
             dtype == &DType::Bool(Nullability::NonNullable),

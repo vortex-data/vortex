@@ -24,6 +24,7 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::array::child_to_validity;
 use crate::array::with_empty_buffers;
 use crate::arrays::fixed_size_list::FixedSizeListData;
 use crate::arrays::fixed_size_list::FixedSizeListSlots;
@@ -111,6 +112,7 @@ impl VTable for FixedSizeList {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         vortex_ensure!(
             slots.len() == FixedSizeListSlots::COUNT,
@@ -125,15 +127,14 @@ impl VTable for FixedSizeList {
             .as_ref()
             .vortex_expect("FixedSizeListArray elements slot");
         vortex_ensure!(
-            if *list_size == 0 {
-                data.degenerate_len == len
-            } else {
-                elements.len() / *list_size as usize == len
-            },
-            "FixedSizeListArray length {} does not match outer length {}",
-            len,
-            len
+            *list_size != 0 || data.degenerate_len == len,
+            "FixedSizeListArray degenerate length {} does not match outer length {len}",
+            data.degenerate_len
         );
+
+        let validity =
+            child_to_validity(slots[FixedSizeListSlots::VALIDITY].as_ref(), *nullability);
+        FixedSizeListData::validate(elements, len, *list_size, &validity)?;
 
         let actual_dtype =
             DType::FixedSizeList(Arc::new(elements.dtype().clone()), *list_size, *nullability);
@@ -189,8 +190,8 @@ impl VTable for FixedSizeList {
         let num_elements = len * (*list_size as usize);
         let elements = children.get(0, element_dtype.as_ref(), num_elements)?;
 
-        let data =
-            FixedSizeListData::try_build(elements.clone(), *list_size, validity.clone(), len)?;
+        // SAFETY: `try_from_parts` validates the components before publishing the array.
+        let data = unsafe { FixedSizeListData::new_unchecked(*list_size, len) };
         let slots = FixedSizeListData::make_slots(&elements, &validity, len);
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }

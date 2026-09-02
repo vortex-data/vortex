@@ -83,12 +83,16 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// This is called by [`Array::try_from_parts`](crate::Array::try_from_parts) before the array
     /// is published. Implementations should check dtype, length, slot count, child dtypes/lengths,
     /// metadata bounds, and any buffer shape invariants that unsafe accessors depend on.
+    ///
+    /// `ctx` lets implementations execute child arrays when an invariant cannot be checked from
+    /// metadata alone. Use it sparingly: validation runs on every checked construction.
     fn validate(
         &self,
         data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()>;
 
     /// Returns the number of top-level buffers in the array.
@@ -127,7 +131,12 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
 
     /// Deserialize an array from serialized metadata, buffers, and children.
     ///
-    /// The returned [`ArrayParts`] are still validated by the generic adapter.
+    /// The returned [`ArrayParts`] are passed to checked construction by the generic adapter,
+    /// which runs [`validate`](Self::validate). Implementations should therefore do only the
+    /// bare minimum needed to assemble the parts — decode metadata, check buffer and child
+    /// counts, resolve child dtypes — and leave every semantic invariant to `validate`.
+    /// Repeating those checks here validates the array twice.
+    ///
     /// Deserializers should use the provided `session` to resolve plugin-owned metadata instead of
     /// relying on global state.
     fn deserialize(

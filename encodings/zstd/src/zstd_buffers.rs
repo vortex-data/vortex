@@ -412,6 +412,7 @@ impl VTable for ZstdBuffers {
         _dtype: &DType,
         _len: usize,
         _slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         data.validate()
     }
@@ -504,7 +505,6 @@ impl VTable for ZstdBuffers {
             buffer_alignments: metadata.buffer_alignments.clone(),
         };
 
-        data.validate()?;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 

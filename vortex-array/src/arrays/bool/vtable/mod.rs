@@ -134,10 +134,16 @@ impl VTable for Bool {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let DType::Bool(nullability) = dtype else {
             vortex_bail!("Expected bool dtype, got {dtype:?}");
         };
+        vortex_ensure!(
+            data.meta.offset() < 8,
+            "BoolArray bit offset must be <8, got {}",
+            data.meta.offset()
+        );
         vortex_ensure!(
             data.bits.len() * 8 >= data.meta.offset() + len,
             "BoolArray buffer with offset {} cannot back outer length {} (buffer bits = {})",
@@ -184,7 +190,7 @@ impl VTable for Bool {
 
         let buffer = buffers[0].clone();
         let slots = BoolData::make_slots(&validity, len);
-        let data = BoolData::try_new_from_handle(buffer, metadata.offset as usize, len, validity)?;
+        let data = BoolData::new_from_handle(buffer, metadata.offset as usize, len);
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 

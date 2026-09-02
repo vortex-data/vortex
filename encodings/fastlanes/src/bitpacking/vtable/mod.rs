@@ -107,6 +107,7 @@ impl VTable for BitPacked {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let bp_slots = BitPackedSlotsView::from_slots(slots);
 
@@ -236,7 +237,7 @@ impl VTable for BitPacked {
             s.push(validity_to_child(&validity, len));
             s
         };
-        let data = BitPackedData::try_new(
+        let data = BitPackedData::new(
             packed,
             patches,
             u8::try_from(metadata.bit_width).map_err(|_| {
@@ -251,7 +252,7 @@ impl VTable for BitPacked {
                     metadata.offset
                 )
             })?,
-        )?;
+        );
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
@@ -319,7 +320,7 @@ impl BitPacked {
             s.push(validity_to_child(&validity, len));
             s
         };
-        let data = BitPackedData::try_new(packed, patches, bit_width, offset)?;
+        let data = BitPackedData::new(packed, patches, bit_width, offset);
         Array::try_from_parts(ArrayParts::new(BitPacked, dtype, len, data).with_slots(slots))
     }
 

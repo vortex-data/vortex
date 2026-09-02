@@ -56,15 +56,19 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
             "BitPacked plugin does not recognize serialized ID {}",
             parts.serialized_id,
         );
-        let bitpacked = Array::<BitPacked>::try_from_parts(ArrayVTable::deserialize(
-            &BitPacked,
-            parts.dtype,
-            parts.len,
-            parts.metadata,
-            parts.buffers,
-            parts.children,
-            session,
-        )?)
+        let mut ctx = session.create_execution_ctx();
+        let bitpacked = Array::<BitPacked>::try_from_parts_in(
+            ArrayVTable::deserialize(
+                &BitPacked,
+                parts.dtype,
+                parts.len,
+                parts.metadata,
+                parts.buffers,
+                parts.children,
+                session,
+            )?,
+            &mut ctx,
+        )
         .map_err(|_| vortex_err!("BitPacked plugin should only deserialize fastlanes.bitpacked"))?;
 
         // Create a new BitPackedArray without the interior patches installed.
@@ -82,11 +86,8 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
         let bitpacked_without_patches =
             BitPacked::try_new(packed, ptype, validity, None, bw, len, offset)?.into_array();
 
-        let patched = Patched::from_array_and_patches(
-            bitpacked_without_patches,
-            &patches,
-            &mut session.create_execution_ctx(),
-        )?;
+        let patched =
+            Patched::from_array_and_patches(bitpacked_without_patches, &patches, &mut ctx)?;
 
         Ok(patched.into_array())
     }

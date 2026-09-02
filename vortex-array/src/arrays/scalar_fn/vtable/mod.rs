@@ -82,6 +82,7 @@ impl VTable for ScalarFn {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let scalar_fn = data.scalar_fn();
         vortex_ensure!(

@@ -62,6 +62,7 @@ impl VTable for ZigZag {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let encoded = ZigZagSlotsView::from_slots(slots).encoded;
         let expected_dtype = ZigZagData::dtype_from_encoded_dtype(encoded.dtype())?;

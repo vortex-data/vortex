@@ -84,6 +84,7 @@ impl VTable for Delta {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let delta_slots = DeltaSlotsView::from_slots(slots);
         validate_parts(

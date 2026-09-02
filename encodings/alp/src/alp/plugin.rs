@@ -57,15 +57,19 @@ impl ArrayPlugin for ALPPatchedPlugin {
             "ALP plugin does not recognize serialized ID {}",
             parts.serialized_id,
         );
-        let alp_array = Array::<ALP>::try_from_parts(ArrayVTable::deserialize(
-            &ALP,
-            parts.dtype,
-            parts.len,
-            parts.metadata,
-            parts.buffers,
-            parts.children,
-            session,
-        )?)
+        let mut ctx = session.create_execution_ctx();
+        let alp_array = Array::<ALP>::try_from_parts_in(
+            ArrayVTable::deserialize(
+                &ALP,
+                parts.dtype,
+                parts.len,
+                parts.metadata,
+                parts.buffers,
+                parts.children,
+                session,
+            )?,
+            &mut ctx,
+        )
         .map_err(|_| vortex_err!("ALP plugin should only deserialize vortex.alp"))?;
 
         // Check if there are interior patches to externalize.
@@ -78,11 +82,7 @@ impl ArrayPlugin for ALPPatchedPlugin {
 
         let alp_without_patches = ALP::try_new(encoded, exponents, None)?.into_array();
 
-        let patched = Patched::from_array_and_patches(
-            alp_without_patches,
-            &patches,
-            &mut session.create_execution_ctx(),
-        )?;
+        let patched = Patched::from_array_and_patches(alp_without_patches, &patches, &mut ctx)?;
 
         Ok(patched.into_array())
     }

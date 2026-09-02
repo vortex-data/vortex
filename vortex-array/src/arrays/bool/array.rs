@@ -203,10 +203,9 @@ impl Array<Bool> {
     ) -> VortexResult<Self> {
         let dtype = DType::Bool(validity.nullability());
         let slots = BoolData::make_slots(&validity, len);
-        let data = BoolData::try_new_from_handle(bits, offset, len, validity)?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Bool, dtype, len, data).with_slots(slots))
-        })
+        let data = BoolData::new_from_handle(bits, offset, len);
+
+        Array::try_from_parts(ArrayParts::new(Bool, dtype, len, data).with_slots(slots))
     }
 
     /// Creates a new [`BoolArray`] without validation.
@@ -266,31 +265,13 @@ impl BoolData {
         })
     }
 
-    pub(super) fn try_new_from_handle(
-        bits: BufferHandle,
-        offset: usize,
-        len: usize,
-        validity: Validity,
-    ) -> VortexResult<Self> {
-        vortex_ensure!(offset < 8, "BitBuffer offset must be <8, got {}", offset);
-        if let Some(validity_len) = validity.maybe_len() {
-            vortex_ensure!(
-                validity_len == len,
-                "BoolArray of size {} cannot be built with validity of size {validity_len}",
-                len,
-            );
-        }
-
-        vortex_ensure!(
-            bits.len() * 8 >= (len + offset),
-            "provided BufferHandle with offset {offset} len {len} had size {} bits",
-            bits.len() * 8,
-        );
-
-        Ok(Self {
+    /// Wraps a bit buffer handle. The offset, length, and validity agreement are checked by
+    /// [`VTable::validate`](crate::array::VTable::validate) on construction.
+    pub(super) fn new_from_handle(bits: BufferHandle, offset: usize, len: usize) -> Self {
+        Self {
             bits,
             meta: BitBufferMeta::new(offset, len),
-        })
+        }
     }
 
     pub(super) unsafe fn new_unchecked(bits: BitBuffer, validity: Validity) -> Self {

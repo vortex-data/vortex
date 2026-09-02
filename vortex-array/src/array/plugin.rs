@@ -13,6 +13,7 @@ use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::VTable;
@@ -193,7 +194,7 @@ impl<V: VTable> ArrayPlugin for V {
             self.id(),
             parts.serialized_id,
         );
-        Ok(Array::<V>::try_from_parts(V::deserialize(
+        let parts = V::deserialize(
             self,
             parts.dtype,
             parts.len,
@@ -201,7 +202,9 @@ impl<V: VTable> ArrayPlugin for V {
             parts.buffers,
             parts.children,
             session,
-        )?)?
-        .into_array())
+        )?;
+        let mut ctx = session.create_execution_ctx();
+
+        Ok(Array::<V>::try_from_parts_in(parts, &mut ctx)?.into_array())
     }
 }

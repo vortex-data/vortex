@@ -99,6 +99,7 @@ impl VTable for Extension {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let storage = slots[ExtensionSlots::STORAGE]
             .as_ref()

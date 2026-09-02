@@ -117,9 +117,9 @@ pub(crate) struct ArrayData<V: VTable> {
 impl<V: VTable> ArrayInner<ArrayData<V>> {
     /// Create a new validated [`ArrayInner`] from construction parameters.
     #[doc(hidden)]
-    pub fn try_new(new: ArrayParts<V>) -> VortexResult<Self> {
+    pub fn try_new(new: ArrayParts<V>, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         new.vtable
-            .validate(&new.data, &new.dtype, new.len, &new.slots)?;
+            .validate(&new.data, &new.dtype, new.len, &new.slots, ctx)?;
         Ok(ArrayInner {
             len: new.len,
             encoding_id: new.vtable.id(),
@@ -214,8 +214,17 @@ impl<V: VTable> Array<V> {
     ///
     /// This is the safe construction path for encoding implementors. It calls
     /// [`VTable::validate`] before publishing the array as an [`ArrayRef`].
+    ///
+    /// Prefer [`Array::try_from_parts_in`] when the caller already holds an [`ExecutionCtx`];
+    /// this variant falls back to the legacy global session.
+    #[allow(clippy::disallowed_methods)]
     pub fn try_from_parts(new: ArrayParts<V>) -> VortexResult<Self> {
-        let store = ArrayInner::<ArrayData<V>>::try_new(new)?;
+        Self::try_from_parts_in(new, &mut legacy_session().create_execution_ctx())
+    }
+
+    /// Create a typed array from explicit construction parameters, validating against `ctx`.
+    pub fn try_from_parts_in(new: ArrayParts<V>, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        let store = ArrayInner::<ArrayData<V>>::try_new(new, ctx)?;
         let inner = ArrayRef::from_inner(Arc::new(store));
         Ok(Self {
             inner,

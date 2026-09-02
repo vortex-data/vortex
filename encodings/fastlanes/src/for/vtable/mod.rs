@@ -81,6 +81,7 @@ impl VTable for FoR {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let encoded = FoRSlotsView::from_slots(slots).encoded;
         validate_parts(encoded.dtype(), encoded.len(), &data.reference, dtype, len)

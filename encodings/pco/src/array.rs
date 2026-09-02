@@ -138,6 +138,7 @@ impl VTable for Pco {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let validity = child_to_validity(
             PcoSlotsView::from_slots(slots).validity,

@@ -25,6 +25,7 @@ use crate::array::ArrayId;
 use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::array::child_to_validity;
 use crate::array::with_empty_buffers;
 use crate::arrays::list::ListArraySlotsExt;
 use crate::arrays::list::ListData;
@@ -119,6 +120,7 @@ impl VTable for List {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         vortex_ensure!(
             slots.len() == ListSlots::COUNT,
@@ -132,6 +134,11 @@ impl VTable for List {
         let offsets = slots[ListSlots::OFFSETS]
             .as_ref()
             .vortex_expect("ListArray offsets slot");
+        // Check the children against each other first: those errors name the offending child,
+        // which is more useful than the outer length/dtype mismatch they also produce.
+        let validity = child_to_validity(slots[ListSlots::VALIDITY].as_ref(), dtype.nullability());
+        ListData::validate(elements, offsets, &validity, ctx)?;
+
         vortex_ensure!(
             offsets.len().saturating_sub(1) == len,
             "ListArray length {} does not match outer length {}",
@@ -185,7 +192,8 @@ impl VTable for List {
             len + 1,
         )?;
 
-        let data = ListData::try_build(elements.clone(), offsets.clone(), validity.clone())?;
+        // SAFETY: `try_from_parts` validates the components before publishing the array.
+        let data = unsafe { ListData::new_unchecked() };
         let slots = ListData::make_slots(&elements, &offsets, &validity, len);
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }

@@ -176,6 +176,7 @@ impl VTable for Normalized {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let slots = NormalizedSlotsView::from_slots(slots);
 

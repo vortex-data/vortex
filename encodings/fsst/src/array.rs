@@ -26,7 +26,6 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::TypedArrayRef;
-use vortex_array::VortexSessionExecute;
 use vortex_array::array_slots;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinArray;
@@ -39,7 +38,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::OffsetBuilderPType;
 use vortex_array::dtype::PType;
-use vortex_array::legacy_session;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_varbin_builder;
 use vortex_array::serde::ArrayChildren;
@@ -124,17 +122,15 @@ impl VTable for FSST {
         *ID
     }
 
-    #[allow(clippy::disallowed_methods)]
     fn validate(
         &self,
         data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        // TODO(ctx): trait fixes - VTable::validate has a fixed signature.
-        let mut ctx = legacy_session().create_execution_ctx();
-        data.validate(dtype, len, slots, &mut ctx)
+        data.validate(dtype, len, slots, ctx)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -233,13 +229,12 @@ impl VTable for FSST {
         metadata: &[u8],
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-        session: &VortexSession,
+        _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
         let metadata = FSSTMetadata::decode(metadata)?;
         let symbols = Buffer::<Symbol>::from_byte_buffer(buffers[0].clone().try_to_host_sync()?);
         let symbol_lengths = Buffer::<u8>::from_byte_buffer(buffers[1].clone().try_to_host_sync()?);
 
-        let mut ctx = session.create_execution_ctx();
         if buffers.len() == 2 {
             return Self::deserialize_legacy(
                 self,
@@ -249,7 +244,6 @@ impl VTable for FSST {
                 &symbols,
                 &symbol_lengths,
                 children,
-                &mut ctx,
             );
         }
 
@@ -283,17 +277,6 @@ impl VTable for FSST {
                 vortex_bail!("Expected 2 or 3 children, got {}", children.len());
             };
 
-            FSSTData::validate_parts(
-                symbols.as_slice(),
-                symbol_lengths.as_slice(),
-                &codes_bytes,
-                &codes_offsets,
-                dtype.nullability(),
-                &uncompressed_lengths,
-                dtype,
-                len,
-                &mut ctx,
-            )?;
             let slots = FSSTSlots {
                 uncompressed_lengths,
                 codes_offsets,
@@ -597,21 +580,14 @@ impl FSST {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<FSSTArray> {
         let len = codes.len();
-        FSSTData::validate_parts_from_codes(
-            symbols.as_slice(),
-            symbol_lengths.as_slice(),
-            &codes,
-            &uncompressed_lengths,
-            &dtype,
-            len,
-            ctx,
-        )?;
         let slots = FSSTData::make_slots(&codes, &uncompressed_lengths);
         let codes_bytes = codes.bytes_handle().clone();
         let data = FSSTData::try_new(symbols, symbol_lengths, codes_bytes, len)?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(FSST, dtype, len, data).with_slots(slots))
-        })
+
+        Array::try_from_parts_in(
+            ArrayParts::new(FSST, dtype, len, data).with_slots(slots),
+            ctx,
+        )
     }
 
     pub fn try_new_with_symbol_table(
@@ -622,22 +598,16 @@ impl FSST {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<FSSTArray> {
         let len = codes.len();
-        FSSTData::validate_parts_from_codes(
-            symbol_table.symbols(),
-            symbol_table.symbol_lengths(),
-            &codes,
-            &uncompressed_lengths,
-            &dtype,
-            len,
-            ctx,
-        )?;
         let slots = FSSTData::make_slots(&codes, &uncompressed_lengths);
         let codes_bytes = codes.bytes_handle().clone();
+        // SAFETY: `try_from_parts_in` validates the symbol table shape before publishing.
         let data =
             unsafe { FSSTData::new_unchecked_with_symbol_table(symbol_table, codes_bytes, len) };
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(FSST, dtype, len, data).with_slots(slots))
-        })
+
+        Array::try_from_parts_in(
+            ArrayParts::new(FSST, dtype, len, data).with_slots(slots),
+            ctx,
+        )
     }
 
     /// Legacy deserialization path (2 buffers): the codes were stored as a full
@@ -652,7 +622,6 @@ impl FSST {
         symbols: &Buffer<Symbol>,
         symbol_lengths: &Buffer<u8>,
         children: &dyn ArrayChildren,
-        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayParts<Self>> {
         if children.len() != 2 {
             vortex_bail!(InvalidArgument: "Expected 2 children, got {}", children.len());
@@ -676,15 +645,6 @@ impl FSST {
             len,
         )?;
 
-        FSSTData::validate_parts_from_codes(
-            symbols.as_slice(),
-            symbol_lengths.as_slice(),
-            &codes,
-            &uncompressed_lengths,
-            dtype,
-            len,
-            ctx,
-        )?;
         let slots = FSSTData::make_slots(&codes, &uncompressed_lengths);
         let codes_bytes = codes.bytes_handle().clone();
         let data = FSSTData::try_new(symbols.clone(), symbol_lengths.clone(), codes_bytes, len)?;
@@ -885,28 +845,6 @@ impl FSSTData {
     }
 
     /// Validate using a VarBinArray for the codes (convenience for construction paths).
-    fn validate_parts_from_codes(
-        symbols: &[Symbol],
-        symbol_lengths: &[u8],
-        codes: &VarBinArray,
-        uncompressed_lengths: &ArrayRef,
-        dtype: &DType,
-        len: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<()> {
-        Self::validate_parts(
-            symbols,
-            symbol_lengths,
-            codes.bytes_handle(),
-            codes.offsets(),
-            codes.dtype().nullability(),
-            uncompressed_lengths,
-            dtype,
-            len,
-            ctx,
-        )
-    }
-
     pub(crate) unsafe fn new_unchecked_with_symbol_table(
         symbol_table: Arc<FSSTSymbolTable>,
         codes_bytes: BufferHandle,

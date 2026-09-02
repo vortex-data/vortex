@@ -89,6 +89,7 @@ impl VTable for RLE {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let rle_slots = RLESlotsView::from_slots(slots);
         validate_parts(

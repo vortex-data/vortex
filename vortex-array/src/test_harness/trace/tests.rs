@@ -152,6 +152,7 @@ impl VTable for StackParent {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         vortex_ensure!(dtype == &test_dtype(), "unexpected stack parent dtype");
         vortex_ensure!(len == 3, "unexpected stack parent length");
@@ -266,6 +267,7 @@ impl VTable for StackChild {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         vortex_ensure!(dtype == &test_dtype(), "unexpected stack child dtype");
         vortex_ensure!(len == 3, "unexpected stack child length");

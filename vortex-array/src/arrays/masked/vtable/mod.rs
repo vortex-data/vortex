@@ -23,7 +23,6 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::EqMode;
 use crate::IntoArray;
-use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
@@ -41,7 +40,6 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
-use crate::legacy_session;
 use crate::require_child;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
@@ -73,13 +71,13 @@ impl VTable for Masked {
         *ID
     }
 
-    #[expect(clippy::disallowed_methods)]
     fn validate(
         &self,
         _data: &MaskedData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         vortex_ensure!(
             slots[MaskedSlots::CHILD].is_some(),
@@ -94,7 +92,7 @@ impl VTable for Masked {
             "MaskedArray dtype does not match child and validity"
         );
         vortex_ensure!(
-            child.all_valid(&mut legacy_session().create_execution_ctx())?,
+            child.all_valid(ctx)?,
             "MaskedArray children must not have nulls",
         );
         Ok(())
@@ -164,11 +162,7 @@ impl VTable for Masked {
         };
 
         let validity_slot = validity_to_child(&validity, len);
-        let data = MaskedData::try_new(
-            len,
-            child.all_valid(&mut legacy_session().create_execution_ctx())?,
-            validity,
-        )?;
+        let data = MaskedData::try_new(len, validity)?;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data)
             .with_slots(smallvec![Some(child), validity_slot]))
     }

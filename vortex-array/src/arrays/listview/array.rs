@@ -231,6 +231,7 @@ impl ListViewData {
         offsets: &ArrayRef,
         sizes: &ArrayRef,
         validity: &Validity,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         // Check that offsets and sizes are integer arrays and non-nullable.
         vortex_ensure!(
@@ -263,10 +264,8 @@ impl ListViewData {
 
         // Skip host-only validation when offsets/sizes are not host-resident.
         if offsets.is_host() && sizes.is_host() {
-            #[allow(clippy::disallowed_methods)]
-            let mut ctx = legacy_session().create_execution_ctx();
-            let offsets_primitive = offsets.clone().execute::<PrimitiveArray>(&mut ctx)?;
-            let sizes_primitive = sizes.clone().execute::<PrimitiveArray>(&mut ctx)?;
+            let offsets_primitive = offsets.clone().execute::<PrimitiveArray>(ctx)?;
+            let sizes_primitive = sizes.clone().execute::<PrimitiveArray>(ctx)?;
             // Offsets and sizes are non-negative; reinterpret to unsigned to dispatch over 4 widths
             // each (4x4 instead of 8x8). This is a read-only validation, so result types are moot.
             let offsets_primitive =
@@ -570,14 +569,10 @@ impl Array<ListView> {
         let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
         let len = offsets.len();
         let slots = ListViewData::make_slots(&elements, &offsets, &sizes, &validity, len);
-        ListViewData::validate(&elements, &offsets, &sizes, &validity)
-            .vortex_expect("`ListViewArray` construction failed");
         let data = ListViewData::new();
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(ListView, dtype, len, data).with_slots(slots),
-            )
-        }
+
+        Array::try_from_parts(ArrayParts::new(ListView, dtype, len, data).with_slots(slots))
+            .vortex_expect("`ListViewArray` construction failed")
     }
 
     /// Constructs a new `ListViewArray`.
@@ -590,13 +585,9 @@ impl Array<ListView> {
         let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
         let len = offsets.len();
         let slots = ListViewData::make_slots(&elements, &offsets, &sizes, &validity, len);
-        ListViewData::validate(&elements, &offsets, &sizes, &validity)?;
         let data = ListViewData::try_new()?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(ListView, dtype, len, data).with_slots(slots),
-            )
-        })
+
+        Array::try_from_parts(ArrayParts::new(ListView, dtype, len, data).with_slots(slots))
     }
 
     /// Creates a new `ListViewArray` without validation.

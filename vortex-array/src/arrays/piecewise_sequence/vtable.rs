@@ -60,6 +60,7 @@ impl VTable for PiecewiseSequence {
         dtype: &DType,
         _len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         vortex_ensure!(
             dtype == &DType::from(PType::U64),

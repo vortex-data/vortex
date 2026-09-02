@@ -203,6 +203,7 @@ impl VTable for Sparse {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let patches = SparseData::patches_from_slots(data, len, slots);
         SparseData::validate(&patches, data.fill_scalar(), dtype, len)

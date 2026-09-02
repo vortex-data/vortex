@@ -103,16 +103,18 @@ impl SequenceData {
         )
     }
 
-    /// Constructs a sequence array using two integer values, validated against output `ptype`.
+    /// Constructs a sequence array using two integer values, normalized to output `ptype`.
+    ///
+    /// The sequence invariants are checked by
+    /// [`VTable::validate`](vortex_array::array::VTable::validate) on construction; normalizing
+    /// already rejects a `base` that does not fit `ptype`.
     pub(crate) fn try_new(
         base: PValue,
         multiplier: PValue,
         ptype: PType,
-        nullability: Nullability,
-        length: usize,
+        _nullability: Nullability,
+        _length: usize,
     ) -> VortexResult<Self> {
-        let dtype = DType::Primitive(ptype, nullability);
-        Self::validate(base, multiplier, &dtype, length)?;
         let (base, multiplier) = Self::normalize(base, multiplier, ptype)?;
 
         Ok(unsafe { Self::new_unchecked(base, multiplier) })
@@ -310,6 +312,7 @@ impl VTable for Sequence {
         dtype: &DType,
         len: usize,
         _slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         SequenceData::validate(data.base, data.multiplier, dtype, len)
     }
@@ -504,8 +507,9 @@ impl Sequence {
         let dtype = DType::Primitive(ptype, nullability);
         let data = SequenceData::try_new(base, multiplier, ptype, nullability, length)?;
         let stats = Self::stats(data.multiplier());
+
         Ok(
-            unsafe { Array::from_parts_unchecked(ArrayParts::new(Sequence, dtype, length, data)) }
+            Array::try_from_parts(ArrayParts::new(Sequence, dtype, length, data))?
                 .with_stats_set(stats),
         )
     }
@@ -521,8 +525,9 @@ impl Sequence {
         let dtype = DType::Primitive(ptype, nullability);
         let data = SequenceData::try_new_typed(base, multiplier, nullability, length)?;
         let stats = Self::stats(data.multiplier());
+
         Ok(
-            unsafe { Array::from_parts_unchecked(ArrayParts::new(Sequence, dtype, length, data)) }
+            Array::try_from_parts(ArrayParts::new(Sequence, dtype, length, data))?
                 .with_stats_set(stats),
         )
     }

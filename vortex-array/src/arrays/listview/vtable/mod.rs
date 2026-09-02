@@ -25,6 +25,7 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::array::child_to_validity;
 use crate::array::with_empty_buffers;
 use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::listview::ListViewData;
@@ -123,6 +124,7 @@ impl VTable for ListView {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         vortex_ensure!(
             slots.len() == ListViewSlots::COUNT,
@@ -139,9 +141,15 @@ impl VTable for ListView {
         let sizes = slots[ListViewSlots::SIZES]
             .as_ref()
             .vortex_expect("ListViewArray sizes slot");
+        // Check the children against each other first: those errors name the offending child,
+        // which is more useful than the outer length/dtype mismatch they also produce.
+        let validity =
+            child_to_validity(slots[ListViewSlots::VALIDITY].as_ref(), dtype.nullability());
+        ListViewData::validate(elements, offsets, sizes, &validity, ctx)?;
+
         vortex_ensure!(
-            offsets.len() == len && sizes.len() == len,
-            "ListViewArray length {} does not match outer length {}",
+            offsets.len() == len,
+            "ListViewArray offsets length {} does not match outer length {}",
             offsets.len(),
             len
         );
@@ -210,7 +218,6 @@ impl VTable for ListView {
             len,
         )?;
 
-        ListViewData::validate(&elements, &offsets, &sizes, &validity)?;
         let data = ListViewData::try_new()?;
         let slots = ListViewData::make_slots(&elements, &offsets, &sizes, &validity, len);
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))

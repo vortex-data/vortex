@@ -125,24 +125,15 @@ impl BitPackedData {
     ///   up to the next multiple of 1024.
     ///
     /// Any violation of these preconditions will result in an error.
-    pub fn try_new(
-        packed: BufferHandle,
-        patches: Option<Patches>,
-        bit_width: u8,
-        offset: u16,
-    ) -> VortexResult<Self> {
-        vortex_ensure!(bit_width <= 64, "Unsupported bit width {bit_width}");
-        vortex_ensure!(
-            offset < 1024,
-            "Offset must be less than the full block i.e., 1024, got {offset}"
-        );
-
-        Ok(Self {
+    /// Builds the payload. The bit width and offset bounds are checked by
+    /// [`VTable::validate`](vortex_array::array::VTable::validate) on construction.
+    pub fn new(packed: BufferHandle, patches: Option<Patches>, bit_width: u8, offset: u16) -> Self {
+        Self {
             offset,
             bit_width,
             packed,
             patches_data: patches.as_ref().map(PatchesData::from_patches),
-        })
+        }
     }
 
     pub(crate) fn validate(
@@ -156,6 +147,10 @@ impl BitPackedData {
     ) -> VortexResult<()> {
         vortex_ensure!(ptype.is_int(), MismatchedTypes: "integer", ptype);
         vortex_ensure!(bit_width <= 64, "Unsupported bit width {bit_width}");
+        vortex_ensure!(
+            offset < 1024,
+            "Offset must be less than the full block i.e., 1024, got {offset}"
+        );
 
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure!(

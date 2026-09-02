@@ -75,6 +75,7 @@ impl VTable for Slice {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         vortex_ensure!(
             slots[SliceSlots::CHILD].is_some(),

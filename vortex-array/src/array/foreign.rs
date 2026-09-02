@@ -104,6 +104,7 @@ impl VTable for ForeignArray {
         _dtype: &DType,
         _len: usize,
         _slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         Ok(())
     }

@@ -20,6 +20,7 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::array::child_to_validity;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::varbin::VarBinArrayExt;
 use crate::arrays::varbin::VarBinArraySlotsExt;
@@ -89,10 +90,11 @@ impl VTable for VarBin {
 
     fn validate(
         &self,
-        _data: &VarBinData,
+        data: &VarBinData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         vortex_ensure!(
             slots.len() == VarBinSlots::COUNT,
@@ -109,11 +111,11 @@ impl VTable for VarBin {
             offsets.len().saturating_sub(1),
             len
         );
-        vortex_ensure!(
-            matches!(dtype, DType::Binary(_) | DType::Utf8(_)),
-            "VarBinArray dtype must be binary or utf8, got {dtype}"
-        );
-        Ok(())
+
+        let validity =
+            child_to_validity(slots[VarBinSlots::VALIDITY].as_ref(), dtype.nullability());
+
+        VarBinData::validate(offsets, data.bytes_handle(), dtype, &validity, ctx)
     }
 
     fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
@@ -191,7 +193,8 @@ impl VTable for VarBin {
         }
         let bytes = buffers[0].clone().try_to_host_sync()?;
 
-        let data = VarBinData::try_build(offsets.clone(), bytes, dtype.clone(), validity.clone())?;
+        // SAFETY: `try_from_parts` validates the components before publishing the array.
+        let data = unsafe { VarBinData::new_unchecked(bytes) };
         let slots = VarBinData::make_slots(offsets, &validity, len);
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }

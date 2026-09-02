@@ -120,37 +120,6 @@ impl FixedSizeListData {
         .into_slots()
     }
 
-    /// Creates a new `FixedSizeListArray`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the provided components do not satisfy the invariants documented
-    /// in `FixedSizeListArray::new_unchecked`.
-    pub fn build(elements: ArrayRef, list_size: u32, validity: Validity, len: usize) -> Self {
-        Self::try_build(elements, list_size, validity, len)
-            .vortex_expect("FixedSizeListArray construction failed")
-    }
-
-    /// Constructs a new `FixedSizeListArray`.
-    ///
-    /// See `FixedSizeListArray::new_unchecked` for more information.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the provided components do not satisfy the invariants documented
-    /// in `FixedSizeListArray::new_unchecked`.
-    pub(crate) fn try_build(
-        elements: ArrayRef,
-        list_size: u32,
-        validity: Validity,
-        len: usize,
-    ) -> VortexResult<Self> {
-        Self::validate(&elements, len, list_size, &validity)?;
-
-        // SAFETY: we validate that the inputs are valid above.
-        Ok(unsafe { Self::new_unchecked(list_size, len) })
-    }
-
     /// Creates a new `FixedSizeListArray` without validation from these components:
     ///
     /// * `elements` is the data array where each fixed-size list is a slice.
@@ -258,12 +227,11 @@ impl Array<FixedSizeList> {
             validity.nullability(),
         );
         let slots = FixedSizeListData::make_slots(&elements, &validity, len);
-        let data = FixedSizeListData::build(elements, list_size, validity, len);
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(FixedSizeList, dtype, len, data).with_slots(slots),
-            )
-        }
+        // SAFETY: `try_from_parts` validates the components before publishing the array.
+        let data = unsafe { FixedSizeListData::new_unchecked(list_size, len) };
+
+        Array::try_from_parts(ArrayParts::new(FixedSizeList, dtype, len, data).with_slots(slots))
+            .vortex_expect("FixedSizeListArray construction failed")
     }
 
     /// Constructs a new `FixedSizeListArray`.
@@ -279,12 +247,10 @@ impl Array<FixedSizeList> {
             validity.nullability(),
         );
         let slots = FixedSizeListData::make_slots(&elements, &validity, len);
-        let data = FixedSizeListData::try_build(elements, list_size, validity, len)?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(FixedSizeList, dtype, len, data).with_slots(slots),
-            )
-        })
+        // SAFETY: `try_from_parts` validates the components before publishing the array.
+        let data = unsafe { FixedSizeListData::new_unchecked(list_size, len) };
+
+        Array::try_from_parts(ArrayParts::new(FixedSizeList, dtype, len, data).with_slots(slots))
     }
 
     /// Creates a new `FixedSizeListArray` without validation.

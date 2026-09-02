@@ -61,6 +61,7 @@ impl VTable for Union {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let type_ids = slots
             .get(UnionSlots::TYPE_IDS)

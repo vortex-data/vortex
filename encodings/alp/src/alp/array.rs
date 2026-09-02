@@ -84,6 +84,7 @@ impl VTable for ALP {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let alp_slots = ALPSlotsView::from_slots(slots);
         let patches =

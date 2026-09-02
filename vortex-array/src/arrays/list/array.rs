@@ -136,16 +136,6 @@ impl ListData {
         .into_slots()
     }
 
-    /// Creates a new `ListArray`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the provided components do not satisfy the invariants documented
-    /// in `ListArray::new_unchecked`.
-    pub fn build(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> Self {
-        Self::try_build(elements, offsets, validity).vortex_expect("ListArray new")
-    }
-
     /// Constructs a new `ListArray`.
     ///
     /// See `ListArray::new_unchecked` for more information.
@@ -154,17 +144,6 @@ impl ListData {
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented in
     /// `ListArray::new_unchecked`.
-    pub(crate) fn try_build(
-        elements: ArrayRef,
-        offsets: ArrayRef,
-        validity: Validity,
-    ) -> VortexResult<Self> {
-        Self::validate(&elements, &offsets, &validity)?;
-
-        // SAFETY: validate ensures all invariants are met.
-        Ok(unsafe { Self::new_unchecked() })
-    }
-
     /// Creates a new `ListArray` without validation from these components:
     ///
     /// * `elements` is a flat array containing all list elements concatenated.
@@ -188,11 +167,11 @@ impl ListData {
     /// Validates the components that would be used to create a `ListArray`.
     ///
     /// This function checks all the invariants required by `ListArray::new_unchecked`.
-    #[allow(clippy::disallowed_methods)]
     pub fn validate(
         elements: &ArrayRef,
         offsets: &ArrayRef,
         validity: &Validity,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         // Offsets must have at least one element
         vortex_ensure!(
@@ -209,10 +188,9 @@ impl ListData {
 
         // We can safely unwrap the DType as primitive now
         let offsets_ptype = offsets.dtype().as_ptype();
-        let mut ctx = legacy_session().create_execution_ctx();
 
         // Offsets must be sorted (but not strictly sorted, zero-length lists are allowed)
-        if let Some(is_sorted) = offsets.statistics().compute_is_sorted(&mut ctx) {
+        if let Some(is_sorted) = offsets.statistics().compute_is_sorted(ctx) {
             vortex_ensure!(is_sorted, InvalidArgument: "offsets must be sorted");
         } else {
             vortex_bail!(InvalidArgument: "offsets must report is_sorted statistic");
@@ -220,7 +198,7 @@ impl ListData {
 
         // Validate that offsets min is non-negative, and max does not exceed the length of
         // the elements array.
-        if let Some(min_max) = min_max(offsets, &mut ctx, NumericalAggregateOpts::default())? {
+        if let Some(min_max) = min_max(offsets, ctx, NumericalAggregateOpts::default())? {
             match_each_integer_ptype!(offsets_ptype, |P| {
                 #[allow(clippy::absurd_extreme_comparisons, unused_comparisons)]
                 {
@@ -362,10 +340,11 @@ impl Array<List> {
         let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
         let len = offsets.len().saturating_sub(1);
         let slots = ListData::make_slots(&elements, &offsets, &validity, len);
-        let data = ListData::build(elements, offsets, validity);
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data).with_slots(slots))
-        }
+        // SAFETY: `try_from_parts` validates the components before publishing the array.
+        let data = unsafe { ListData::new_unchecked() };
+
+        Array::try_from_parts(ArrayParts::new(List, dtype, len, data).with_slots(slots))
+            .vortex_expect("ListArray new")
     }
 
     /// Constructs a new `ListArray`.
@@ -377,10 +356,10 @@ impl Array<List> {
         let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
         let len = offsets.len().saturating_sub(1);
         let slots = ListData::make_slots(&elements, &offsets, &validity, len);
-        let data = ListData::try_build(elements, offsets, validity)?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data).with_slots(slots))
-        })
+        // SAFETY: `try_from_parts` validates the components before publishing the array.
+        let data = unsafe { ListData::new_unchecked() };
+
+        Array::try_from_parts(ArrayParts::new(List, dtype, len, data).with_slots(slots))
     }
 
     /// Creates a new `ListArray` without validation.
