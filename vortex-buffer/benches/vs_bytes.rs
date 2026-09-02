@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Head-to-head microbenchmarks against `bytes`, the crate `vortex-buffer` used to be built on.
+//! Head-to-head microbenchmarks against `bytes`, the crate `vortex-buffer` used to be built on,
+//! and against `arrow_buffer::Buffer`, the other aligned buffer Vortex interoperates with.
+//!
+//! `arrow` is the closest comparison in kind: like `vortex`, it over-aligns (to 128 bytes on
+//! x86_64, rounding capacity up to a multiple of 64) and can hand an adopted `Vec` back out. It
+//! differs in allocating an `Arc<Bytes>` for every frozen buffer, which is the cost the tagged
+//! state word in `vortex-bytes` exists to avoid.
 //!
 //! Two `vortex` variants are measured wherever alignment is in play, because the comparison is
 //! otherwise unfair in our favour and then unfair against us:
@@ -12,6 +18,8 @@
 //! * `vortex_unaligned` asks for no over-alignment, which is the like-for-like comparison with
 //!   `bytes::BytesMut`.
 
+use arrow_buffer::Buffer as ArrowBuffer;
+use arrow_buffer::MutableBuffer as ArrowBufferMut;
 use bytes::Buf;
 use bytes::BufMut;
 use bytes::Bytes;
@@ -51,6 +59,16 @@ fn build_bytes(bencher: Bencher, n: usize) {
         let mut b = BytesMut::with_capacity(n);
         b.put_slice(black_box(&src));
         black_box(b.freeze())
+    });
+}
+
+#[divan::bench(args = SIZES)]
+fn build_arrow(bencher: Bencher, n: usize) {
+    let src = payload(n);
+    bencher.bench(|| {
+        let mut b = ArrowBufferMut::with_capacity(n);
+        b.extend_from_slice(black_box(&src));
+        black_box(ArrowBuffer::from(b))
     });
 }
 
@@ -110,6 +128,18 @@ fn grow_bytes(bencher: Bencher, n: usize) {
 }
 
 #[divan::bench(args = SIZES)]
+fn grow_arrow(bencher: Bencher, n: usize) {
+    let chunk = payload(64);
+    bencher.bench(|| {
+        let mut b = ArrowBufferMut::new(0);
+        while b.len() < n {
+            b.extend_from_slice(black_box(&chunk));
+        }
+        black_box(ArrowBuffer::from(b))
+    });
+}
+
+#[divan::bench(args = SIZES)]
 fn grow_vortex(bencher: Bencher, n: usize) {
     let chunk = payload(64);
     bencher.bench(|| {
@@ -144,6 +174,12 @@ fn clone_bytes(bencher: Bencher) {
 }
 
 #[divan::bench]
+fn clone_arrow(bencher: Bencher) {
+    let b = ArrowBuffer::from_vec(payload(4096));
+    bencher.bench(|| black_box(black_box(&b).clone()));
+}
+
+#[divan::bench]
 fn clone_vortex(bencher: Bencher) {
     let b = ByteBuffer::from(payload(4096));
     bencher.bench(|| black_box(black_box(&b).clone()));
@@ -153,6 +189,12 @@ fn clone_vortex(bencher: Bencher) {
 fn slice_bytes(bencher: Bencher) {
     let b = Bytes::from(payload(4096));
     bencher.bench(|| black_box(black_box(&b).slice(64..1088)));
+}
+
+#[divan::bench]
+fn slice_arrow(bencher: Bencher) {
+    let b = ArrowBuffer::from_vec(payload(4096));
+    bencher.bench(|| black_box(black_box(&b).slice_with_length(64, 1024)));
 }
 
 #[divan::bench]
@@ -168,6 +210,16 @@ fn advance_bytes(bencher: Bencher) {
         let mut b = black_box(&b).clone();
         b.advance(64);
         black_box(b)
+    });
+}
+
+/// `arrow` has no in-place advance; `slice(offset)` on a clone is the equivalent.
+#[divan::bench]
+fn advance_arrow(bencher: Bencher) {
+    let b = ArrowBuffer::from_vec(payload(4096));
+    bencher.bench(|| {
+        let b = black_box(&b).clone();
+        black_box(b.slice(64))
     });
 }
 
@@ -198,6 +250,17 @@ fn freeze_thaw_bytes(bencher: Bencher, n: usize) {
 }
 
 #[divan::bench(args = SIZES)]
+fn freeze_thaw_arrow(bencher: Bencher, n: usize) {
+    let src = payload(n);
+    bencher.bench(|| {
+        let mut b = ArrowBufferMut::with_capacity(n);
+        b.extend_from_slice(black_box(&src));
+        let frozen = ArrowBuffer::from(b);
+        black_box(frozen.into_mutable().ok())
+    });
+}
+
+#[divan::bench(args = SIZES)]
 fn freeze_thaw_vortex(bencher: Bencher, n: usize) {
     let src = payload(n);
     bencher.bench(|| {
@@ -223,6 +286,21 @@ fn adopt_vec_then_mutate_bytes(bencher: Bencher, size: usize) {
         });
 }
 
+/// `arrow` can do this one: an adopted `Vec` is a `Deallocation::Standard`, so `into_mutable`
+/// succeeds. Its cost is the `Arc<Bytes>` that `from_vec` allocates and `into_mutable` frees.
+#[divan::bench(args = SIZES)]
+fn adopt_vec_then_mutate_arrow(bencher: Bencher, size: usize) {
+    bencher
+        .with_inputs(|| payload(size))
+        .bench_values(|values: Vec<u8>| {
+            let buffer = ArrowBuffer::from_vec(values);
+            let mutable = buffer
+                .into_mutable()
+                .unwrap_or_else(|buffer| ArrowBufferMut::from(buffer.as_slice().to_vec()));
+            black_box(mutable)
+        });
+}
+
 #[divan::bench(args = SIZES)]
 fn adopt_vec_then_mutate_vortex(bencher: Bencher, size: usize) {
     bencher
@@ -242,6 +320,13 @@ fn adopt_vec_bytes(bencher: Bencher, size: usize) {
 }
 
 #[divan::bench(args = SIZES)]
+fn adopt_vec_arrow(bencher: Bencher, size: usize) {
+    bencher
+        .with_inputs(|| payload(size))
+        .bench_values(|values: Vec<u8>| black_box(ArrowBuffer::from_vec(values)));
+}
+
+#[divan::bench(args = SIZES)]
 fn adopt_vec_vortex(bencher: Bencher, size: usize) {
     bencher
         .with_inputs(|| payload(size))
@@ -254,6 +339,18 @@ fn into_vec_bytes(bencher: Bencher, n: usize) {
     bencher
         .with_inputs(|| Bytes::from(payload(n)))
         .bench_values(|b: Bytes| black_box(Vec::<u8>::from(b)));
+}
+
+#[divan::bench(args = SIZES)]
+fn into_vec_arrow(bencher: Bencher, n: usize) {
+    bencher
+        .with_inputs(|| ArrowBuffer::from_vec(payload(n)))
+        .bench_values(|b: ArrowBuffer| {
+            black_box(
+                b.into_vec::<u8>()
+                    .unwrap_or_else(|buffer| buffer.as_slice().to_vec()),
+            )
+        });
 }
 
 #[divan::bench(args = SIZES)]
