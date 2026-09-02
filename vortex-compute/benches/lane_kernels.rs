@@ -13,6 +13,7 @@
 //! walltime CPU-feature leg rather than in simulation: it is one lane loop compiled
 //! differently per leg. The Vortex cast benches stay in simulation.
 
+#![deny(clippy::undocumented_unsafe_blocks)]
 #![expect(clippy::unwrap_used)]
 
 use std::mem::MaybeUninit;

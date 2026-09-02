@@ -83,6 +83,7 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
                 let opt = f(val);
                 fail_bits |= (opt.is_none() as u64) << bit_idx;
                 let result = opt.unwrap_or_default();
+                // SAFETY: out has the same length as values, so idx is in bounds for both.
                 unsafe { out.get_unchecked_mut(idx).write(result) };
             }
             let valid_failures = fail_bits & src_chunk;
@@ -193,6 +194,7 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
                 let idx = base + bit_idx;
                 // SAFETY: caller guarantees base + count <= len.
                 let val = unsafe { values.get_unchecked(idx) };
+                // SAFETY: out has the same length as values, so idx is in bounds for both.
                 unsafe { out.get_unchecked_mut(idx).write(f(val)) };
             }
         }
@@ -379,6 +381,7 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
                 let opt = f(val);
                 fail_acc |= opt.is_none() as u64;
                 let result = opt.unwrap_or_default();
+                // SAFETY: out has the same length as values, so idx is in bounds for both.
                 unsafe { out.get_unchecked_mut(idx).write(result) };
             }
             fail_acc != 0

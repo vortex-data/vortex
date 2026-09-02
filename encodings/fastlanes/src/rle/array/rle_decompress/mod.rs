@@ -172,11 +172,8 @@ where
         num_chunks,
     };
 
-    let mut buffer = BufferMut::<V>::with_capacity(num_chunks * FL_CHUNK_SIZE);
-    let (out_buf, _) = buffer.spare_capacity_mut().as_chunks_mut::<FL_CHUNK_SIZE>();
-    // SAFETY: `MaybeUninit<T>` and `T` have the same layout, and every chunk below is written
-    // in full before the buffer is read.
-    let out_buf: &mut [[V; FL_CHUNK_SIZE]] = unsafe { std::mem::transmute(out_buf) };
+    let mut buffer = BufferMut::<V>::zeroed(num_chunks * FL_CHUNK_SIZE);
+    let (out_buf, _) = buffer.as_mut_slice().as_chunks_mut::<FL_CHUNK_SIZE>();
 
     let indices = rle.indices;
     assert!(indices.len().is_multiple_of(FL_CHUNK_SIZE));
@@ -190,10 +187,6 @@ where
             Ok(bp) => decode_bitpacked_indices::<V, I>(&bp, &chunks, out_buf, ctx)?,
             Err(indices) => decode_primitive_indices::<V, I>(indices, &chunks, out_buf, ctx)?,
         }
-    }
-
-    unsafe {
-        buffer.set_len(num_chunks * FL_CHUNK_SIZE);
     }
 
     Ok(PrimitiveArray::new(

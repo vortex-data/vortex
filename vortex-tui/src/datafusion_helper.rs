@@ -3,6 +3,7 @@
 
 //! Shared DataFusion query execution utilities for both CLI and TUI.
 
+use std::fmt::Write as _;
 use std::sync::Arc;
 
 use arrow_array::Array as ArrowArray;
@@ -87,6 +88,14 @@ pub async fn create_vortex_context(
     Ok(ctx)
 }
 
+fn encode_hex(bytes: &[u8]) -> String {
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(encoded, "{byte:02x}");
+    }
+    encoded
+}
+
 /// Convert an Arrow array value at a given index to a JSON value.
 ///
 /// # Panics
@@ -166,18 +175,15 @@ pub fn arrow_value_to_json(array: &dyn ArrowArray, idx: usize) -> serde_json::Va
         }
         DataType::Binary => {
             let arr = array.as_any().downcast_ref::<BinaryArray>().unwrap();
-            let hex: String = arr.value(idx).iter().map(|b| format!("{b:02x}")).collect();
-            serde_json::Value::String(hex)
+            serde_json::Value::String(encode_hex(arr.value(idx)))
         }
         DataType::LargeBinary => {
             let arr = array.as_any().downcast_ref::<LargeBinaryArray>().unwrap();
-            let hex: String = arr.value(idx).iter().map(|b| format!("{b:02x}")).collect();
-            serde_json::Value::String(hex)
+            serde_json::Value::String(encode_hex(arr.value(idx)))
         }
         DataType::BinaryView => {
             let arr = array.as_any().downcast_ref::<BinaryViewArray>().unwrap();
-            let hex: String = arr.value(idx).iter().map(|b| format!("{b:02x}")).collect();
-            serde_json::Value::String(hex)
+            serde_json::Value::String(encode_hex(arr.value(idx)))
         }
         DataType::Date32 => {
             let arr = array.as_any().downcast_ref::<Date32Array>().unwrap();

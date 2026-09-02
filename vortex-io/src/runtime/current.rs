@@ -369,7 +369,7 @@ mod tests {
 
         let all_results = results.lock();
         let mut collected: Vec<_> = all_results.iter().flatten().copied().collect();
-        collected.sort();
+        collected.sort_unstable();
         assert_eq!(collected, (0..total_items).collect::<Vec<_>>());
     }
 
@@ -560,7 +560,7 @@ mod tests {
 
         let results = collected.lock();
         let mut values: Vec<_> = results.iter().map(|(_, v)| *v).collect();
-        values.sort();
+        values.sort_unstable();
         assert_eq!(values, (0..num_threads * 5).collect::<Vec<_>>());
     }
 
@@ -660,7 +660,7 @@ mod tests {
 
         let mut all_results = results1;
         all_results.extend(results2);
-        all_results.sort();
+        all_results.sort_unstable();
 
         assert_eq!(all_results, (0..10).collect::<Vec<_>>());
 
@@ -700,7 +700,7 @@ mod tests {
         }
 
         let mut results = received.lock().clone();
-        results.sort();
+        results.sort_unstable();
 
         assert_eq!(results.len(), num_items);
         assert_eq!(results, (0..num_items).collect::<Vec<_>>());

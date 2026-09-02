@@ -198,7 +198,12 @@ fn wkb_centers(column: &dyn Array) -> anyhow::Result<(Vec<f64>, Vec<f64>)> {
 fn bbox_center(geometry: &Geometry<f64>) -> (f64, f64) {
     geometry
         .bounding_rect()
-        .map(|r| ((r.min().x + r.max().x) / 2.0, (r.min().y + r.max().y) / 2.0))
+        .map(|r| {
+            (
+                f64::midpoint(r.min().x, r.max().x),
+                f64::midpoint(r.min().y, r.max().y),
+            )
+        })
         .unwrap_or((f64::NAN, f64::NAN))
 }
 

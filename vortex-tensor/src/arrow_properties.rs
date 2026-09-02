@@ -6,6 +6,7 @@
 //! Storage widths follow the generated shapes so transport failures can shrink to valid inputs.
 
 mod tests {
+    use std::fmt::Write;
     use std::sync::Arc;
 
     use arrow_array::FixedSizeListArray as ArrowFixedSizeListArray;
@@ -160,14 +161,17 @@ mod tests {
         // Vortex metadata treats empty name and permutation lists as unset.
         if let Some(names) = names.as_ref().filter(|names| !names.is_empty()) {
             let quoted: Vec<String> = names.iter().map(|n| format!(r#""{n}""#)).collect();
-            arrow_metadata.push_str(&format!(
+            write!(
+                arrow_metadata,
                 r#","dim_names":[{}]"#,
                 physical(&quoted).join(",")
-            ));
+            )
+            .expect("writing to a String cannot fail");
         }
         if let Some(permutation) = permutation.as_ref().filter(|p| !p.is_empty()) {
             let items: Vec<String> = permutation.iter().map(ToString::to_string).collect();
-            arrow_metadata.push_str(&format!(r#","permutation":[{}]"#, items.join(",")));
+            write!(arrow_metadata, r#","permutation":[{}]"#, items.join(","))
+                .expect("writing to a String cannot fail");
         }
         arrow_metadata.push('}');
 

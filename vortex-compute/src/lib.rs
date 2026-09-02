@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![deny(clippy::undocumented_unsafe_blocks)]
 #![deny(missing_docs)]
 
 //! Lane-level compute kernels over Vortex buffers.

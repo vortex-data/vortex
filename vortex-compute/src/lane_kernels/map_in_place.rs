@@ -186,6 +186,7 @@ pub trait IndexedSinkExt: IndexedSink + Sized {
                 let opt = f(val);
                 fail_bits |= (opt.is_none() as u64) << bit_idx;
                 let result = opt.unwrap_or_default();
+                // SAFETY: the sink has a fixed length and the same lane was read above.
                 unsafe { values.set_unchecked(idx, result) };
             }
             let valid_failures = fail_bits & src_chunk;

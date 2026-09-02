@@ -453,6 +453,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Write;
     use std::sync::LazyLock;
 
     use rstest::rstest;
@@ -508,14 +509,14 @@ mod tests {
         let mut x: u64 = 1;
         let strings: Vec<String> = (0..8192)
             .map(|_| {
-                (0..str_len / 16)
-                    .map(|_| {
-                        x ^= x << 13;
-                        x ^= x >> 7;
-                        x ^= x << 17;
-                        format!("{x:016x}")
-                    })
-                    .collect()
+                let mut string = String::with_capacity(str_len);
+                for _ in 0..str_len / 16 {
+                    x ^= x << 13;
+                    x ^= x >> 7;
+                    x ^= x << 17;
+                    write!(string, "{x:016x}").expect("writing to a String cannot fail");
+                }
+                string
             })
             .collect();
         let array = VarBinViewArray::from_iter_str(strings.iter().map(String::as_str));

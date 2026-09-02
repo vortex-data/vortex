@@ -22,6 +22,7 @@
 //! against the lowercased Parquet schema, while DuckDB's case-insensitive unquoted
 //! identifier resolution makes the original case irrelevant.
 
+use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
@@ -165,10 +166,11 @@ impl Benchmark for AppianBenchmark {
                 .map(|(_, p)| p.as_str())
                 .with_context(|| format!("no columns reported for upstream table {upstream}"))?;
             let out_path = parquet_dir.join(format!("{}.parquet", TABLES[i]));
-            script.push_str(&format!(
-                "COPY (SELECT {projection} FROM src.\"{upstream}\") TO '{}' (FORMAT PARQUET, COMPRESSION zstd, COMPRESSION_LEVEL 3);\n",
+            let _ = writeln!(
+                script,
+                "COPY (SELECT {projection} FROM src.\"{upstream}\") TO '{}' (FORMAT PARQUET, COMPRESSION zstd, COMPRESSION_LEVEL 3);",
                 out_path.display(),
-            ));
+            );
         }
 
         let output = Command::new("duckdb").arg("-c").arg(&script).output()?;

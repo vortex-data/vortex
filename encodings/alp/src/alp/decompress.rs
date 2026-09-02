@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::mem::transmute;
+use std::slice;
 
 use fearless_simd::Level;
 use fearless_simd::Simd;
@@ -76,7 +76,7 @@ fn decode(
 
         // SAFETY: `T::ALPInt` has the same size and alignment as `T`, and every bit pattern is a
         // valid `T`.
-        let decoded_buffer: BufferMut<T> = unsafe { transmute(alp_buffer) };
+        let decoded_buffer: BufferMut<T> = unsafe { alp_buffer.transmute() };
         PrimitiveArray::new::<T>(decoded_buffer.freeze(), validity)
     }))
 }
@@ -126,7 +126,7 @@ fn decompress_chunked(
 
         // SAFETY: `T::ALPInt` has the same size and alignment as `T`, and every bit pattern is a
         // valid `T`.
-        let decoded_buffer: BufferMut<T> = unsafe { transmute(alp_buffer) };
+        let decoded_buffer: BufferMut<T> = unsafe { alp_buffer.transmute() };
         PrimitiveArray::new::<T>(decoded_buffer.freeze(), validity)
     }))
 }
@@ -156,7 +156,9 @@ fn decode_and_patch_chunks<T, I, C>(
 
         // SAFETY: `ALPFloat` is sealed to `f32` and `f64`, whose `ALPInt` (`i32` or `i64`) has the
         // same size and alignment, and both types accept every bit pattern.
-        let decoded_chunk: &mut [T] = unsafe { transmute(chunk_slice) };
+        let decoded_chunk: &mut [T] = unsafe {
+            slice::from_raw_parts_mut(chunk_slice.as_mut_ptr().cast(), chunk_slice.len())
+        };
         patch_chunk(
             decoded_chunk,
             patches_indices,

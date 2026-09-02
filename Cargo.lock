@@ -4157,7 +4157,6 @@ dependencies = [
  "anyhow",
  "clap",
  "mimalloc",
- "similar 3.2.1",
  "tokio",
  "tracing",
  "vortex",
@@ -5562,7 +5561,7 @@ checksum = "b67d3d2e287e4b86c10b3f3b641033d1f89b74bdb39d05f34952e2b9a6fe21cd"
 dependencies = [
  "console 0.16.6",
  "once_cell",
- "similar 2.7.0",
+ "similar",
  "tempfile",
 ]
 
@@ -9782,22 +9781,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "similar"
-version = "3.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2f8bec09ae8fae0f4f265a4559a9334be3929d8504e9b536df0a41302bd1733"
-dependencies = [
- "bstr",
-]
-
-[[package]]
 name = "similar-asserts"
 version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b5b441962c817e33508847a22bd82f03a30cff43642dc2fae8b050566121eb9a"
 dependencies = [
  "console 0.15.11",
- "similar 2.7.0",
+ "similar",
 ]
 
 [[package]]
@@ -9935,7 +9925,7 @@ dependencies = [
  "owo-colors",
  "rand 0.8.8",
  "regex",
- "similar 2.7.0",
+ "similar",
  "subst",
  "tempfile",
  "thiserror 2.0.21",
