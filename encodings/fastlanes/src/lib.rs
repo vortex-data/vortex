@@ -27,6 +27,14 @@
 //! but are not fully binary compatible. See the underlying [fastlanes](https://github.com/spiraldb/fastlanes) crate for more details.
 
 pub use bitpacking::*;
+pub use bitpacking_v2::BitPackedV2;
+pub use bitpacking_v2::BitPackedV2Array;
+pub use bitpacking_v2::BitPackedV2ArrayExt;
+pub use bitpacking_v2::BitPackedV2ArraySlotsExt;
+pub use bitpacking_v2::BitPackedV2Data;
+pub use bitpacking_v2::BitPackedV2DataParts;
+pub use bitpacking_v2::BitPackedV2Slots;
+pub use bitpacking_v2::ChunkWidths;
 pub use delta::*;
 pub use r#for::*;
 pub use rle::*;
@@ -41,6 +49,7 @@ use vortex_error::VortexResult;
 
 pub mod bit_transpose;
 mod bitpacking;
+pub mod bitpacking_v2;
 mod delta;
 mod r#for;
 mod rle;
@@ -86,6 +95,7 @@ pub fn initialize(session: &VortexSession) {
     } else {
         session.arrays().register(BitPacked);
     }
+    session.arrays().register(BitPackedV2);
     session.arrays().register(Delta);
     session.arrays().register(FoR);
     session.arrays().register(RLE);
