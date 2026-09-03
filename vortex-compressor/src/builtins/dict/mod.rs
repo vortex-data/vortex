@@ -7,6 +7,7 @@ mod binary;
 mod float;
 mod integer;
 mod string;
+mod string_candidate;
 
 pub use binary::BinaryDictScheme;
 pub use float::FloatDictScheme;

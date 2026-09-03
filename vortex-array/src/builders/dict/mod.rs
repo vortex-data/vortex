@@ -24,7 +24,9 @@ mod primitive;
 
 #[derive(Clone)]
 pub struct DictConstraints {
+    /// Limits the encoded storage for dictionary values.
     pub max_bytes: usize,
+    /// Limits the number of dictionary values.
     pub max_len: usize,
 }
 
@@ -67,7 +69,48 @@ pub fn dict_encode_with_constraints(
     constraints: &DictConstraints,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<DictArray> {
-    let mut encoder = dict_encoder(array, constraints);
+    let encoder = dict_encoder(array, constraints);
+    dict_encode_with_encoder(array, encoder, ctx)
+}
+
+/// Encodes a variable-width array as a `DictArray` within storage and input-work limits.
+///
+/// The input byte limit counts every valid value, including repeated values. Null values consume
+/// no input bytes. The result contains the prefix completed before a limit was exceeded.
+///
+/// # Errors
+///
+/// Returns an error if array execution fails or the input is not variable-width.
+pub fn dict_encode_with_input_byte_limit(
+    array: &ArrayRef,
+    constraints: &DictConstraints,
+    max_input_bytes: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<DictArray> {
+    let encoder = if let Some(varbinview) = array.as_opt::<VarBinView>() {
+        bytes::bytes_dict_builder_with_input_byte_limit(
+            varbinview.dtype().clone(),
+            constraints,
+            max_input_bytes,
+        )
+    } else if let Some(varbin) = array.as_opt::<VarBin>() {
+        bytes::bytes_dict_builder_with_input_byte_limit(
+            varbin.dtype().clone(),
+            constraints,
+            max_input_bytes,
+        )
+    } else {
+        vortex_bail!("Input-byte limits require a variable-width array")
+    };
+    dict_encode_with_encoder(array, encoder, ctx)
+}
+
+/// Encodes an array with a configured dictionary encoder.
+fn dict_encode_with_encoder(
+    array: &ArrayRef,
+    mut encoder: Box<dyn DictEncoder>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<DictArray> {
     let codes = encoder.encode(array, ctx)?.narrow(ctx)?;
     // SAFETY: The encoding process will produce a value set of codes and values
     // All values in the dictionary are guaranteed to be referenced by at least one code

@@ -3,6 +3,8 @@
 
 //! Sampling utilities for compression ratio estimation.
 
+use std::mem::size_of;
+
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::prelude::StdRng;
@@ -11,8 +13,12 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::VarBinView;
+use vortex_array::arrays::varbinview::BinaryView;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::CascadingCompressor;
 use crate::scheme::CompressorContext;
@@ -42,12 +48,7 @@ pub(crate) fn sample(input: &ArrayRef, sample_size: u32, sample_count: u32) -> A
         return input.clone();
     }
 
-    let slices = stratified_slices(
-        input.len(),
-        sample_size,
-        sample_count,
-        &mut StdRng::seed_from_u64(SAMPLE_SEED),
-    );
+    let slices = sample_slices(input.len(), sample_size, sample_count);
 
     // For every slice, grab the relevant slice and repack into a new PrimitiveArray.
     let chunks: Vec<_> = slices
@@ -60,6 +61,20 @@ pub(crate) fn sample(input: &ArrayRef, sample_size: u32, sample_count: u32) -> A
         .collect();
     // SAFETY: all chunks are slices of `input`, so they share its dtype.
     unsafe { ChunkedArray::new_unchecked(chunks, input.dtype().clone()) }.into_array()
+}
+
+/// Returns deterministic stratified sample ranges for an array length.
+pub(crate) fn sample_slices(
+    length: usize,
+    sample_size: u32,
+    sample_count: u32,
+) -> Vec<(usize, usize)> {
+    stratified_slices(
+        length,
+        sample_size,
+        sample_count,
+        &mut StdRng::seed_from_u64(SAMPLE_SEED),
+    )
 }
 
 /// Computes the number of sample chunks to cover approximately 1% of `len` elements,
@@ -149,7 +164,7 @@ fn partition_indices(length: usize, num_partitions: u32) -> Vec<(usize, usize)> 
 /// # Errors
 ///
 /// Returns an error if sample compression fails.
-pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
+pub(crate) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
     compressor: &CascadingCompressor,
     scheme: &S,
     array: &ArrayRef,
@@ -178,7 +193,7 @@ pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
     };
 
     let after = compressed.nbytes();
-    let before = sample_data.array().nbytes();
+    let before = canonical_visible_nbytes(sample_data.array(), exec_ctx)?;
 
     let score = EstimateScore::from_sample_sizes(before, after);
 
@@ -189,15 +204,101 @@ pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
     Ok(score)
 }
 
+/// Returns the physical canonical size without retained, unreferenced string payload bytes.
+pub(crate) fn canonical_visible_nbytes(
+    array: &ArrayRef,
+    exec_ctx: &mut ExecutionCtx,
+) -> VortexResult<u64> {
+    let Some(array) = array.as_opt::<VarBinView>() else {
+        return Ok(array.nbytes());
+    };
+    let validity = array.validity()?.execute_mask(array.len(), exec_ctx)?;
+    let mut referenced_ranges = HashMap::<(usize, usize), Vec<(usize, usize)>>::new();
+    let mut record_view = |view: &BinaryView| {
+        if view.is_inlined() {
+            return;
+        }
+        let reference = view.as_view();
+        let buffer = array.buffer(reference.buffer_index as usize);
+        referenced_ranges
+            .entry((buffer.as_ptr().addr(), buffer.len()))
+            .or_default()
+            .push((
+                reference.offset as usize,
+                reference.offset as usize + reference.size as usize,
+            ));
+    };
+    match &validity {
+        Mask::AllTrue(_) => array.views().iter().for_each(&mut record_view),
+        Mask::AllFalse(_) => {}
+        Mask::Values(values) => array
+            .views()
+            .iter()
+            .zip(values.bit_buffer().iter())
+            .filter(|(_, is_valid)| *is_valid)
+            .for_each(|(view, _)| record_view(view)),
+    }
+    let outlined_bytes = referenced_ranges.into_values().try_fold(
+        0u64,
+        |total, mut ranges| -> VortexResult<u64> {
+            ranges.sort_unstable();
+            let mut range_total = 0u64;
+            let mut current = None::<(usize, usize)>;
+            for (start, end) in ranges {
+                match current {
+                    Some((current_start, current_end)) if start <= current_end => {
+                        current = Some((current_start, current_end.max(end)));
+                    }
+                    Some((current_start, current_end)) => {
+                        range_total = range_total
+                            .checked_add(u64::try_from(current_end - current_start)?)
+                            .ok_or_else(|| {
+                                vortex_error::vortex_err!("sample byte size overflowed u64")
+                            })?;
+                        current = Some((start, end));
+                    }
+                    None => current = Some((start, end)),
+                }
+            }
+            if let Some((start, end)) = current {
+                range_total = range_total
+                    .checked_add(u64::try_from(end - start)?)
+                    .ok_or_else(|| vortex_error::vortex_err!("sample byte size overflowed u64"))?;
+            }
+            total
+                .checked_add(range_total)
+                .ok_or_else(|| vortex_error::vortex_err!("sample byte size overflowed u64"))
+        },
+    )?;
+    let views_bytes = u64::try_from(array.len())?
+        .checked_mul(u64::try_from(size_of::<BinaryView>())?)
+        .ok_or_else(|| vortex_error::vortex_err!("sample byte size overflowed u64"))?;
+    let validity_bytes = match validity {
+        Mask::Values(values) => u64::try_from(values.len().div_ceil(u8::BITS as usize))?,
+        Mask::AllTrue(_) | Mask::AllFalse(_) => 0,
+    };
+
+    views_bytes
+        .checked_add(outlined_bytes)
+        .and_then(|bytes| bytes.checked_add(validity_bytes))
+        .ok_or_else(|| vortex_error::vortex_err!("sample byte size overflowed u64"))
+}
+
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
+    use vortex_buffer::ByteBuffer;
     use vortex_error::VortexResult;
 
     use super::*;
@@ -217,6 +318,58 @@ mod tests {
             assert_eq!(first.nbytes(), again.nbytes());
             assert_arrays_eq!(&first, &again, &mut ctx);
         }
+        Ok(())
+    }
+
+    #[test]
+    fn visible_size_ignores_unreferenced_string_payload() -> VortexResult<()> {
+        let values = (0..128)
+            .map(|index| format!("outlined-string-value-{index:08x}"))
+            .collect::<Vec<_>>();
+        let source = VarBinViewArray::from_iter_str(&values).into_array();
+        let slice = source.slice(17..19)?;
+        let expected = u64::try_from(2 * size_of::<BinaryView>())?
+            + u64::try_from(values[17].len() + values[18].len())?;
+        let mut exec_ctx = array_session().create_execution_ctx();
+
+        assert!(slice.nbytes() > expected);
+        assert_eq!(canonical_visible_nbytes(&slice, &mut exec_ctx)?, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn visible_size_counts_valid_outlined_values_and_validity() -> VortexResult<()> {
+        let outlined = "an-outlined-string-value";
+        let array = VarBinViewArray::from_iter(
+            [Some("inline"), Some(outlined), None],
+            DType::Utf8(Nullability::Nullable),
+        )
+        .into_array();
+        let expected = u64::try_from(3 * size_of::<BinaryView>() + outlined.len() + 1)?;
+        let mut exec_ctx = array_session().create_execution_ctx();
+
+        assert_eq!(canonical_visible_nbytes(&array, &mut exec_ctx)?, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn visible_size_counts_shared_payload_once() -> VortexResult<()> {
+        let value = b"one shared outlined value";
+        let view = BinaryView::make_view(value, 0, 0);
+        let array = VarBinViewArray::try_new(
+            Buffer::copy_from([view, view]),
+            Arc::from([ByteBuffer::copy_from(value)]),
+            DType::Utf8(Nullability::NonNullable),
+            Validity::NonNullable,
+            &mut array_session().create_execution_ctx(),
+        )?
+        .into_array();
+        let expected = u64::try_from(2 * size_of::<BinaryView>() + value.len())?;
+
+        assert_eq!(
+            canonical_visible_nbytes(&array, &mut array_session().create_execution_ctx())?,
+            expected
+        );
         Ok(())
     }
 }
