@@ -319,20 +319,12 @@ impl StructFields {
         Self::from_fields(names, dtypes)
     }
 
-    /// Create a new [`StructFields`] from names and [`FieldDType`]s that may be backed by a
-    /// flatbuffer, decoding every field dtype so that later reads cannot fail.
+    /// Create a new [`StructFields`] from names and [`FieldDType`]s, decoding every field
+    /// dtype up front.
     ///
-    /// Deserialization must go through this rather than [`Self::from_fields`]. A
-    /// [`FieldDType`] holding a view decodes lazily, and the accessors that decode it
-    /// ([`Self::field`], [`Self::field_by_index`], [`Self::fields`]) return a plain
-    /// [`DType`], as do the [`PartialEq`] and [`Hash`] impls on the field dtype — those
-    /// are trait methods, so their signatures cannot carry a failure. A field dtype whose
-    /// union discriminant is unknown therefore has nowhere to surface except a panic, and
-    /// because the check was lazy the top-level dtype segment parsed cleanly and the panic
-    /// only fired later, while reading the file-statistics footer.
-    ///
-    /// Validating here costs one decode per field at open time, which is the price of the
-    /// accessors staying infallible.
+    /// Deserialization must use this rather than [`Self::from_fields`]: a [`FieldDType`]
+    /// backed by a view decodes lazily, and the accessors that decode it return a plain
+    /// [`DType`], so a field dtype that fails to decode has nowhere to surface but a panic.
     ///
     /// # Errors
     ///

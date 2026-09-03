@@ -746,18 +746,15 @@ mod test {
         assert_eq!(viewed, eager);
     }
 
-    /// The reported crash (#8848): a struct field whose own dtype cannot be decoded.
-    /// Field dtypes used to be decoded lazily, so this parsed cleanly here and
-    /// panicked later, in `StructFields::fields()` while reading the file-statistics
-    /// footer. It must be an error at parse time instead.
+    /// A struct field whose own dtype cannot be decoded must fail here, not later in
+    /// `StructFields::fields()` (#8848).
     #[test]
     fn test_struct_field_with_undecodable_dtype_errors() {
         let mut fbb = FlatBufferBuilder::new();
         let name = fbb.create_string("bad");
         let names = fbb.create_vector(&[name]);
-        // A struct dtype with `names` omitted: the flatbuffer verifier accepts it
-        // (`names` is optional in the schema) but decoding it fails. This is the shape
-        // the fuzzer produced — structurally valid, semantically undecodable.
+        // `names` is optional in the schema, so the verifier accepts this struct but
+        // decoding it fails.
         let inner_struct = fb::Struct_::create(
             &mut fbb,
             &fb::Struct_Args {
@@ -804,8 +801,7 @@ mod test {
         );
     }
 
-    /// The same defect on the union side: `UnionVariants::variants()` also decodes lazily
-    /// and also cannot report a failure.
+    /// The same on the union side.
     #[test]
     fn test_union_variant_with_undecodable_dtype_errors() {
         let mut fbb = FlatBufferBuilder::new();

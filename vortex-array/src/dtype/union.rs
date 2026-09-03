@@ -266,10 +266,7 @@ impl UnionVariants {
     ) -> VortexResult<Self> {
         Self::validate_shape(&names, dtypes.len(), &type_ids)?;
 
-        // Same reasoning as `StructFields::try_from_fields`: `variants`, `variant` and
-        // `variant_by_index` return a plain `DType`, and the `PartialEq`/`Hash` impls on
-        // the variant dtype are trait methods, so a lazily decoded variant dtype has
-        // nowhere to report a bad union discriminant except a panic.
+        // Decode up front for the same reason as `StructFields::try_from_fields`.
         for (name, dtype) in names.iter().zip_eq(dtypes.iter()) {
             dtype
                 .value()
