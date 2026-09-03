@@ -62,8 +62,12 @@ jobs:
           enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
       - name: Build binary
         shell: bash
+        # `-C target-feature=-sve,-sve2`: on Graviton3, `target-cpu=native` (neoverse-v1) makes rustc
+        # 1.98 / LLVM 22 miscompile widening `u8 -> usize` sums at 256-bit SVE, which undersizes
+        # the OnPair and FSST decode buffers for every Vortex file with `u8` string lengths. See
+        # `benchmarks/string-bench/examples/sve_widening_sum.rs`.
         env:
-          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
+          RUSTFLAGS: "-C target-cpu=native -C target-feature=-sve,-sve2 -C force-frame-pointers=yes"
         run: |
           cargo build --bin ${{ matrix.benchmark.id }} --profile release_debug ${{ matrix.benchmark.build_args }} --features unstable_encodings
       - name: Pre-upload benchmark debuginfo to Polar Signals
