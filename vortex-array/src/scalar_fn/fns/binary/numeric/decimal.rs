@@ -15,6 +15,11 @@
 //! declared precision, so an out-of-precision value can reach a kernel and must not be able to
 //! overflow it. An operation that overflows the result precision on a valid lane is an error;
 //! invalid lanes never error.
+//!
+//! Storage width is independent of precision, so two arrays sharing a dtype may still be stored
+//! at different widths. A mismatched pair is widened to the wider of the two before the lane
+//! loop, zero-copy when they already match, so each working width and operator monomorphizes
+//! one array kernel per storage width rather than one per pair of storage widths.
 
 use std::ops::Mul;
 
@@ -38,6 +43,7 @@ use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::decimal::DecimalArrayExt;
+use crate::arrays::decimal::widened_buffer;
 use crate::dtype::BigCast;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
@@ -421,22 +427,23 @@ where
     Op: CheckedDecimalOp,
 {
     debug_assert_eq!(lhs.len(), rhs.len());
-    match_each_decimal_value_type!(lhs.values_type(), |L| {
-        let lhs = lhs.buffer::<L>();
-        match_each_decimal_value_type!(rhs.values_type(), |R| {
-            let rhs = rhs.buffer::<R>();
-            checked_lanes(
-                LaneZip::new(lhs.as_slice(), rhs.as_slice()),
-                valid_rows,
-                |(lhs, rhs)| {
-                    Op::apply(
-                        <W as BigCast>::from(lhs)?,
-                        <W as BigCast>::from(rhs)?,
-                        constants,
-                    )
-                },
-            )
-        })
+    // Dispatch on one storage width, not a pair: a mismatched pair is widened to the wider side
+    // first, which is a copy only in that rare case.
+    let storage = lhs.values_type().max(rhs.values_type());
+    match_each_decimal_value_type!(storage, |L| {
+        let lhs = widened_buffer::<L>(lhs);
+        let rhs = widened_buffer::<L>(rhs);
+        checked_lanes(
+            LaneZip::new(lhs.as_slice(), rhs.as_slice()),
+            valid_rows,
+            |(lhs, rhs)| {
+                Op::apply(
+                    <W as BigCast>::from(lhs)?,
+                    <W as BigCast>::from(rhs)?,
+                    constants,
+                )
+            },
+        )
     })
 }
 
