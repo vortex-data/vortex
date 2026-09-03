@@ -44,5 +44,9 @@ unstable_encodings = [
 name = "string-bench"
 required-features = ["unstable_encodings"]
 
+[[example]]
+name = "arm64_repro"
+required-features = ["unstable_encodings"]
+
 [lints]
 workspace = true
