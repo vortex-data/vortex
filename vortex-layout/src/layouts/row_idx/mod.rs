@@ -15,7 +15,6 @@ pub use expr::*;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
@@ -229,7 +228,6 @@ impl LayoutReader for RowIdxLayoutReader {
                         row_range,
                         expr.clone(),
                         mask,
-                        self.session.clone(),
                     )),
                     Partition::Child => self.child.projection_evaluation(row_range, expr, mask),
                 },
@@ -250,7 +248,6 @@ impl LayoutReader for RowIdxLayoutReader {
                 row_range,
                 expr.clone(),
                 mask,
-                self.session.clone(),
             )),
             Partitioning::Child(expr) => self.child.projection_evaluation(row_range, expr, mask),
             Partitioning::Partitioned(p) => {
@@ -260,7 +257,6 @@ impl LayoutReader for RowIdxLayoutReader {
                         row_range,
                         expr.clone(),
                         mask,
-                        self.session.clone(),
                     )),
                     Partition::Child => self.child.projection_evaluation(row_range, expr, mask),
                 })
@@ -335,25 +331,15 @@ fn row_idx_array_future(
     row_range: &Range<u64>,
     expr: BoundExpression,
     mask: MaskFuture,
-    session: VortexSession,
 ) -> ArrayFuture {
     let row_range = row_range.clone();
     async move {
-        let mask = mask.await?;
-        let array = match mask {
-            Mask::AllTrue(_) => idx_array(row_offset, &row_range).into_array(),
-            Mask::AllFalse(_) => {
-                Canonical::empty(&DType::Primitive(PType::U64, NonNullable)).into_array()
-            }
-            mask @ Mask::Values(_) => {
-                let filtered = idx_array(row_offset, &row_range)
-                    .into_array()
-                    .filter(mask)?;
-                let mut ctx = session.create_execution_ctx();
-                filtered.execute::<Canonical>(&mut ctx)?.into_array()
-            }
-        };
-        array.apply_bound(&expr)
+        // The filter is lazy: trivial masks reduce to the sequence itself or an empty array, and
+        // value masks are left for the consumer to execute alongside the expression.
+        idx_array(row_offset, &row_range)
+            .into_array()
+            .filter(mask.await?)?
+            .apply_bound(&expr)
     }
     .boxed()
 }
@@ -539,8 +525,7 @@ mod tests {
 
     #[test]
     fn row_idx_array_all_true_keeps_sequence() {
-        block_on(|handle| async {
-            let session = new_session().with_handle(handle);
+        block_on(|_| async {
             let expr = root()
                 .bind(&DType::Primitive(PType::U64, Nullability::NonNullable))
                 .unwrap();
@@ -550,7 +535,6 @@ mod tests {
                 &(2..7),
                 expr,
                 MaskFuture::ready(Mask::new_true(5)),
-                session,
             )
             .await
             .unwrap();
@@ -562,8 +546,7 @@ mod tests {
 
     #[test]
     fn row_idx_array_all_false_returns_empty() {
-        block_on(|handle| async {
-            let session = new_session().with_handle(handle);
+        block_on(|_| async {
             let expr = root()
                 .bind(&DType::Primitive(PType::U64, Nullability::NonNullable))
                 .unwrap();
@@ -573,7 +556,6 @@ mod tests {
                 &(2..7),
                 expr,
                 MaskFuture::ready(Mask::new_false(5)),
-                session,
             )
             .await
             .unwrap();
