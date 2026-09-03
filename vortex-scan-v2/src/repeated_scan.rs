@@ -25,6 +25,7 @@ use vortex_layout::plan::PlanRef;
 use vortex_scan::selection::Selection;
 use vortex_utils::parallelism::get_available_parallelism;
 
+use crate::filter::FilterPlan;
 use crate::splits::Splits;
 use crate::tasks::TaskContext;
 use crate::tasks::split_exec;
@@ -34,7 +35,7 @@ pub struct RepeatedScan<A: 'static + Send> {
     execution: PlanExecutionContext,
     projection: PlanRef,
     pruning: Option<PlanRef>,
-    filter: Option<PlanRef>,
+    filter: Option<FilterPlan>,
     ordered: bool,
     row_range: Option<Range<u64>>,
     selection: Selection,
@@ -82,7 +83,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         execution: PlanExecutionContext,
         projection: PlanRef,
         pruning: Option<PlanRef>,
-        filter: Option<PlanRef>,
+        filter: Option<FilterPlan>,
         ordered: bool,
         row_range: Option<Range<u64>>,
         selection: Selection,

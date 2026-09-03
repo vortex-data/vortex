@@ -23,6 +23,7 @@ use vortex_array::expr::checked_add;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
 use vortex_array::expr::lit;
+use vortex_array::expr::lt;
 use vortex_array::expr::pack;
 use vortex_array::expr::root;
 use vortex_array::stream::ArrayStreamExt;
@@ -51,6 +52,7 @@ use vortex_layout::sequence::SequentialArrayStreamExt;
 use vortex_layout::session::LayoutSession;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 
+use crate::FilterMode;
 use crate::ScanBuilder;
 use crate::SplitBy;
 
@@ -110,6 +112,47 @@ fn scans_layout_through_optimized_plans() -> VortexResult<()> {
         let expected = PrimitiveArray::from_iter(6_i32..11).into_array();
 
         assert_arrays_eq!(actual, expected, &mut session.create_execution_ctx());
+        Ok(())
+    })
+}
+
+#[test]
+fn supports_parallel_and_adaptive_filter_modes() -> VortexResult<()> {
+    block_on(|handle| async {
+        let session = array_session()
+            .with::<LayoutSession>()
+            .with::<RuntimeSession>()
+            .with_handle(handle);
+        let segments = Arc::new(TestSegments::default());
+        let (sequence, eof) = SequenceId::root().split();
+        let input = PrimitiveArray::from_iter(0_i32..10).into_array();
+        let layout = FlatLayoutStrategy::default()
+            .write_stream(
+                ArrayContext::empty().into(),
+                Arc::<TestSegments>::clone(&segments),
+                input.to_array_stream().sequenced(sequence),
+                eof,
+                &session,
+            )
+            .await?;
+        let filter = and(gt(root(), lit(2_i32)), lt(root(), lit(8_i32)));
+        let expected = PrimitiveArray::from_iter(3_i32..8).into_array();
+
+        for mode in [FilterMode::Parallel, FilterMode::Adaptive] {
+            let actual = ScanBuilder::try_new(
+                &layout,
+                Arc::<TestSegments>::clone(&segments),
+                session.clone(),
+            )?
+            .with_filter(filter.clone())
+            .with_filter_mode(mode)
+            .with_split_by(SplitBy::RowCount(3))
+            .into_array_stream()?
+            .read_all()
+            .await?;
+
+            assert_arrays_eq!(actual, expected, &mut session.create_execution_ctx());
+        }
         Ok(())
     })
 }

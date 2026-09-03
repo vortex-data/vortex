@@ -10949,6 +10949,7 @@ dependencies = [
  "url",
  "vortex",
  "vortex-arrow",
+ "vortex-scan-v2",
  "vortex-utils",
 ]
 
@@ -11524,6 +11525,7 @@ dependencies = [
 name = "vortex-scan-v2"
 version = "0.1.0"
 dependencies = [
+ "bit-vec",
  "futures",
  "itertools 0.14.0",
  "parking_lot",

@@ -38,6 +38,7 @@ tokio-stream = { workspace = true }
 tracing = { workspace = true, features = ["std", "attributes"] }
 vortex = { workspace = true, features = ["object_store", "tokio", "files"] }
 vortex-arrow = { workspace = true }
+vortex-scan-v2 = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }
 
 [dev-dependencies]
