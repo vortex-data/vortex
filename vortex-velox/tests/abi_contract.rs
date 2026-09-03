@@ -132,7 +132,10 @@ mod tests {
                 concurrency,
             ]
         );
-        check_layout!(vx_velox_natural_split, [struct_size, row_begin, row_end]);
+        check_layout!(
+            vx_velox_natural_split,
+            [struct_size, row_begin, row_end, assignment_byte]
+        );
         check_layout!(
             vx_velox_buffer_owner,
             [struct_size, owner, retain, release, retained_bytes]

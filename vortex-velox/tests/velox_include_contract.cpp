@@ -5,7 +5,7 @@ struct ArrowSchema;
 struct ArrowArray;
 #include "vortex_velox.h"
 
-static_assert(VX_VELOX_ABI_VERSION == 5u);
+static_assert(VX_VELOX_ABI_VERSION == 6u);
 static_assert(VX_VELOX_SELECTION_ALL == 0);
 static_assert(VX_VELOX_OPERATOR_EQ == 0);
 

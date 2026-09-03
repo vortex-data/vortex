@@ -747,9 +747,9 @@ jobs:
         run: |
           BASE="${{ github.event.pull_request.base.sha || 'HEAD^' }}"
           cargo run --profile ci -p xtask -- check-editions --base "$BASE"
-      - name: "regenerate FFI header file"
+      - name: "regenerate C API header files"
         run: |
-          cargo +$NIGHTLY_TOOLCHAIN build --profile ci -p vortex-ffi
+          cargo +$NIGHTLY_TOOLCHAIN build --profile ci -p vortex-ffi -p vortex-velox
       - name: "Make sure no files changed after regenerating"
         run: |
           git status --porcelain

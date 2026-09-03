@@ -53,7 +53,7 @@ pub use visitor::vx_velox_visit_request;
 pub use visitor::vx_velox_visitor;
 
 /// The current major version of the Vortex and Velox adapter ABI.
-pub const VX_VELOX_ABI_VERSION: u32 = 5;
+pub const VX_VELOX_ABI_VERSION: u32 = 6;
 
 /// The adapter supports batched host range reads.
 pub const VX_VELOX_CAPABILITY_BATCH_READ: u64 = 1 << 0;
@@ -111,6 +111,8 @@ pub const VX_VELOX_CAPABILITY_STRUCT_VISITOR: u64 = 1 << 17;
 pub const VX_VELOX_CAPABILITY_LIST_VISITOR: u64 = 1 << 18;
 /// The adapter can preserve canonical map children during native export.
 pub const VX_VELOX_CAPABILITY_MAP_VISITOR: u64 = 1 << 19;
+/// Natural splits include a stable byte-range assignment token.
+pub const VX_VELOX_CAPABILITY_SPLIT_ASSIGNMENT: u64 = 1 << 20;
 
 /// Return the adapter ABI version.
 #[unsafe(no_mangle)]
@@ -141,6 +143,7 @@ pub extern "C" fn vx_velox_capabilities() -> u64 {
         | VX_VELOX_CAPABILITY_STRUCT_VISITOR
         | VX_VELOX_CAPABILITY_LIST_VISITOR
         | VX_VELOX_CAPABILITY_MAP_VISITOR
+        | VX_VELOX_CAPABILITY_SPLIT_ASSIGNMENT
 }
 
 #[cfg(test)]

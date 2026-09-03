@@ -8,6 +8,7 @@ use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
 use vortex::layout::scan::multi::MultiLayoutDataSource;
 use vortex::mask::Mask;
+use vortex_error::VortexExpect;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_io::VortexReadAt;
@@ -34,6 +35,8 @@ pub struct vx_velox_natural_split {
     pub row_begin: u64,
     /// One past the final row in the split.
     pub row_end: u64,
+    /// The file byte that assigns this split to one external byte range.
+    pub assignment_byte: u64,
 }
 
 /// An opened Vortex file that uses Velox callbacks for all reads.
@@ -186,8 +189,24 @@ pub unsafe extern "C-unwind" fn vx_velox_source_natural_split_at(
             .ok_or_else(|| vortex_err!("Natural split index out of bounds: {}", index))?;
         split_out.row_begin = split.start;
         split_out.row_end = split.end;
+        split_out.assignment_byte =
+            split_assignment_byte(index, split, source.file.row_count(), source.file_size);
         Ok(0)
     })
+}
+
+fn split_assignment_byte(index: usize, split: &Range<u64>, row_count: u64, file_size: u64) -> u64 {
+    if index == 0 && split.start == 0 {
+        return 0;
+    }
+    if row_count == 0 {
+        return 0;
+    }
+
+    let midpoint_row = split.start + (split.end - split.start) / 2;
+    let assignment_byte =
+        (u128::from(midpoint_row) * u128::from(file_size)) / u128::from(row_count);
+    u64::try_from(assignment_byte).vortex_expect("The split assignment byte must fit in u64")
 }
 
 /// Evaluate whether natural splits cannot match an expression.

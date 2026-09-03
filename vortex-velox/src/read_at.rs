@@ -901,6 +901,7 @@ mod tests {
         let split_count = unsafe { vx_velox_source_natural_split_count(source) };
         assert!(split_count > 0);
         let mut previous_end = 0;
+        let mut previous_assignment_byte = 0;
         for index in 0..split_count {
             let mut split = vx_velox_natural_split {
                 struct_size: size_of::<vx_velox_natural_split>(),
@@ -914,7 +915,13 @@ mod tests {
             vortex_ensure!(error.is_null(), "natural split lookup returned an error");
             assert_eq!(split.row_begin, previous_end);
             assert!(split.row_end > split.row_begin);
+            assert!(split.assignment_byte >= previous_assignment_byte);
+            assert!(split.assignment_byte < bytes.len() as u64);
+            if index == 0 {
+                assert_eq!(split.assignment_byte, 0);
+            }
             previous_end = split.row_end;
+            previous_assignment_byte = split.assignment_byte;
         }
         assert_eq!(previous_end, ROW_COUNT);
 

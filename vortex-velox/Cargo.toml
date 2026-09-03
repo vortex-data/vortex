@@ -40,6 +40,9 @@ vortex = { workspace = true }
 [dev-dependencies]
 rstest = { workspace = true }
 
+[build-dependencies]
+cbindgen = { workspace = true }
+
 [lib]
 name = "vortex_velox"
 crate-type = ["rlib", "staticlib"]

@@ -11700,6 +11700,7 @@ dependencies = [
  "arrow-schema 59.2.0",
  "async-fs",
  "bytes",
+ "cbindgen",
  "futures",
  "rstest",
  "vortex",
