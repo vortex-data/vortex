@@ -19,6 +19,8 @@ use object_store::path::Path as ObjectPath;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::memory::BufferAllocatorRef;
 use vortex_buffer::Alignment;
+use vortex_buffer::BufferMut;
+use vortex_buffer::DEFAULT_BUFFER_ALLOCATOR;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -48,12 +50,7 @@ pub struct ObjectStoreReadAt {
 impl ObjectStoreReadAt {
     /// Create a new object store source.
     pub fn new(store: Arc<dyn ObjectStore>, path: ObjectPath, handle: Handle) -> Self {
-        Self::new_with_allocator(
-            store,
-            path,
-            handle,
-            BufferAllocatorRef::statically_allocated(),
-        )
+        Self::new_with_allocator(store, path, handle, DEFAULT_BUFFER_ALLOCATOR.clone())
     }
 
     /// Create a new object store source with a custom writable buffer allocator.
@@ -101,7 +98,7 @@ async fn read_object_store_range(
         alignment,
     } = request;
     let range = offset..(offset + length as u64);
-    let mut buffer = allocator.with_capacity_aligned::<u8>(length, alignment);
+    let mut buffer = BufferMut::<u8>::with_capacity_aligned_in(length, alignment, allocator);
     // SAFETY: each return path checks that every byte was initialized.
     unsafe { buffer.set_len(length) };
 

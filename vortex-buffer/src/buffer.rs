@@ -156,10 +156,7 @@ impl<T> Buffer<T> {
 
     /// Returns a new `Buffer<T>` copied from the provided `Vec<T>`, `&[T]`, etc.
     ///
-    /// Due to our underlying usage of `bytes::Bytes`, we are unable to take zero-copy ownership
-    /// of the provided `Vec<T>` while maintaining the ability to convert it back into a mutable
-    /// buffer. We could fix this by forking `Bytes`, or in many other complex ways, but for now
-    /// callers should prefer to construct `Buffer<T>` from a `BufferMut<T>`.
+    /// This always copies. Use [`Buffer::from`] to take ownership of a `Vec<T>` without copying.
     pub fn copy_from(values: impl AsRef<[T]>) -> Self {
         BufferMut::copy_from(values).freeze()
     }
@@ -171,18 +168,15 @@ impl<T> Buffer<T> {
 
     /// Returns a new `Buffer<T>` copied from the provided slice and with the requested alignment.
     ///
-    /// The allocation is over-aligned to [`Alignment::DEFAULT_ALIGNMENT`] when that is larger than
-    /// `alignment`. Use [`copy_from_preferred_aligned`] to control the over-alignment.
-    ///
-    /// [`copy_from_preferred_aligned`]: Self::copy_from_preferred_aligned
+    /// The default allocator may use a larger physical alignment.
     pub fn copy_from_aligned(values: impl AsRef<[T]>, alignment: Alignment) -> Self {
-        Self::copy_from_preferred_aligned(values, alignment, Some(Alignment::DEFAULT_ALIGNMENT))
+        BufferMut::copy_from_aligned(values, alignment).freeze()
     }
 
     /// Returns a new `Buffer<T>` copied from the provided slice and with the requested alignment.
     ///
-    /// The buffer reports `alignment`, but the underlying allocation is over-aligned to the larger
-    /// of `alignment` and `preferred_alignment`.
+    /// `preferred_alignment` raises the alignment requested from the allocator without changing
+    /// the alignment reported by the buffer. The allocator may use a larger alignment.
     pub fn copy_from_preferred_aligned(
         values: impl AsRef<[T]>,
         alignment: Alignment,
@@ -203,18 +197,15 @@ impl<T> Buffer<T> {
 
     /// Create a new zeroed `Buffer` with the requested alignment.
     ///
-    /// The allocation is over-aligned to [`Alignment::DEFAULT_ALIGNMENT`] when that is larger than
-    /// `alignment`. Use [`zeroed_preferred_aligned`] to control the over-alignment.
-    ///
-    /// [`zeroed_preferred_aligned`]: Self::zeroed_preferred_aligned
+    /// The default allocator may use a larger physical alignment.
     pub fn zeroed_aligned(len: usize, alignment: Alignment) -> Self {
-        Self::zeroed_preferred_aligned(len, alignment, Some(Alignment::DEFAULT_ALIGNMENT))
+        BufferMut::zeroed_aligned(len, alignment).freeze()
     }
 
     /// Create a new zeroed `Buffer` with the requested alignment.
     ///
-    /// The buffer reports `alignment`, but the underlying allocation is over-aligned to the larger
-    /// of `alignment` and `preferred_alignment`.
+    /// `preferred_alignment` raises the alignment requested from the allocator without changing
+    /// the alignment reported by the buffer. The allocator may use a larger alignment.
     pub fn zeroed_preferred_aligned(
         len: usize,
         alignment: Alignment,
@@ -400,7 +391,7 @@ impl<T> Buffer<T> {
     pub fn allocator(&self) -> &BufferAllocatorRef {
         match self.backing.as_deref() {
             Some(backing) => backing.allocator(),
-            None => BufferAllocatorRef::static_ref(),
+            None => &crate::allocation::DEFAULT_BUFFER_ALLOCATOR,
         }
     }
 
@@ -635,18 +626,17 @@ impl<T> Buffer<T> {
         match Arc::try_unwrap(backing) {
             Ok(BufferBacking::Owned(allocation)) => {
                 let offset = ptr.addr().get() - allocation.ptr().addr().get();
-                let capacity = if size_of::<T>() == 0 {
-                    usize::MAX
-                } else if allocation.size() == 0 {
-                    0
-                } else {
-                    (allocation.size() - offset) / size_of::<T>()
-                };
+                if offset != 0 {
+                    // SAFETY: the allocation is uniquely owned, both ranges are within it, and
+                    // copy permits overlap. Moving the visible values to the allocation base lets
+                    // BufferMut keep its data pointer equal to its allocation pointer.
+                    unsafe {
+                        std::ptr::copy(ptr.as_ptr(), allocation.ptr().as_ptr().cast::<T>(), length);
+                    }
+                }
                 Ok(BufferMut {
                     allocation,
-                    ptr,
                     length,
-                    capacity,
                     alignment,
                     _marker: Default::default(),
                 })
@@ -1088,6 +1078,14 @@ mod test {
 
         let buffer = Buffer::from(vec);
         assert_eq!(buffer.as_ptr(), ptr);
+        assert!(std::ptr::eq(
+            buffer.allocator().as_ref(),
+            crate::allocation::GLOBAL_ALLOCATOR_REF.as_ref()
+        ));
+        assert!(!std::ptr::eq(
+            buffer.allocator().as_ref(),
+            crate::allocation::DEFAULT_BUFFER_ALLOCATOR.as_ref()
+        ));
 
         let Ok(mut buffer) = buffer.try_into_mut() else {
             panic!("Vec-backed buffer should be uniquely owned")
@@ -1157,6 +1155,7 @@ mod test {
         let Ok(mut sliced) = sliced.try_into_mut() else {
             panic!("uniquely owned slice should become mutable")
         };
+        assert_eq!(sliced.as_slice(), (64..96).collect::<Vec<_>>());
         let capacity = sliced.capacity();
         sliced.push_n(0, capacity - sliced.len());
         assert_eq!(sliced.len(), capacity);

@@ -24,6 +24,7 @@ warn-copy = ["dep:tracing"]
 
 [dependencies]
 allocator-api2 = { workspace = true }
+arcref = { workspace = true }
 arrow-buffer = { workspace = true }
 bitvec = { workspace = true }
 bytes = { workspace = true }

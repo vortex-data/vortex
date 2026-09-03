@@ -19,6 +19,8 @@ use futures::future::BoxFuture;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::memory::BufferAllocatorRef;
 use vortex_buffer::Alignment;
+use vortex_buffer::BufferMut;
+use vortex_buffer::DEFAULT_BUFFER_ALLOCATOR;
 use vortex_error::VortexResult;
 
 use crate::CoalesceConfig;
@@ -71,7 +73,7 @@ pub struct FileReadAt {
 impl FileReadAt {
     /// Open a file for reading.
     pub fn open(path: impl AsRef<Path>, handle: Handle) -> VortexResult<Self> {
-        Self::open_with_allocator(path, handle, BufferAllocatorRef::statically_allocated())
+        Self::open_with_allocator(path, handle, DEFAULT_BUFFER_ALLOCATOR.clone())
     }
 
     /// Open a file for reading using a custom writable buffer allocator.
@@ -126,7 +128,8 @@ impl VortexReadAt for FileReadAt {
         async move {
             handle
                 .spawn_blocking(move || {
-                    let mut buffer = allocator.with_capacity_aligned::<u8>(length, alignment);
+                    let mut buffer =
+                        BufferMut::<u8>::with_capacity_aligned_in(length, alignment, allocator);
                     // SAFETY: read_exact_at initializes every byte before the buffer is frozen.
                     unsafe { buffer.set_len(length) };
                     read_exact_at(&file, buffer.as_mut_slice(), offset)?;

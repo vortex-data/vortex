@@ -25,7 +25,7 @@ impl Alignment {
     /// Default alignment for device-to-host buffer copies.
     pub const HOST_COPY: Self = Alignment::new(256);
 
-    /// Default alignment for all buffers.
+    /// Preferred alignment of the default Vortex allocator.
     ///
     /// Chosen to be larger than any SIMD register (e.g. AVX-512's 64-byte
     /// registers) so that buffers can be processed with vectorized loads/stores

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools as _;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -179,8 +180,8 @@ fn swizzle_list_chunks(
     // We (somewhat arbitrarily) choose `u64` for our offsets and sizes here. These can always be
     // narrowed later by the compressor.
     let allocator = ctx.allocator();
-    let mut offsets = allocator.zeroed::<u64>(len);
-    let mut sizes = allocator.zeroed::<u64>(len);
+    let mut offsets = BufferMut::<u64>::zeroed_in(len, allocator.clone());
+    let mut sizes = BufferMut::<u64>::zeroed_in(len, allocator.clone());
     let offsets_out = offsets.as_mut_slice();
     let sizes_slice_out = sizes.as_mut_slice();
     let mut next_list = 0usize;
@@ -659,10 +660,11 @@ mod tests {
     #[test]
     fn list_canonicalize_uses_memory_session_allocator() {
         let allocations = Arc::new(AtomicUsize::new(0));
-        let session =
-            crate::array_session().with_allocator(BufferAllocatorRef::new(CountingAllocator {
+        let session = crate::array_session().with_allocator(BufferAllocatorRef::new_arc(Arc::new(
+            CountingAllocator {
                 allocations: Arc::clone(&allocations),
-            }));
+            },
+        )));
         let mut ctx = session.create_execution_ctx();
 
         let l1 = ListArray::try_new(
