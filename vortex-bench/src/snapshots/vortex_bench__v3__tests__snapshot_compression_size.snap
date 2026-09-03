@@ -7,5 +7,6 @@ expression: render(&record)
   "commit_sha": "<commit-sha>",
   "dataset": "taxi",
   "format": "lance",
-  "value_bytes": 12345678
+  "value_bytes": 12345678,
+  "uncompressed_bytes": 98765432
 }

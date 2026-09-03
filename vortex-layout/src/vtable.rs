@@ -113,4 +113,13 @@ pub trait VTable: 'static + Clone + Send + Sync + Debug {
         session: &VortexSession,
         ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef>;
+
+    /// Returns `true` if this layout is indivisible: its readers never register natural split
+    /// boundaries strictly inside their row range (see [`crate::LayoutReader::register_splits`]).
+    ///
+    /// Indivisible layouts — like flat, whose readers only ever push the end of the requested
+    /// range — let parent layouts skip materializing the child entirely during split collection.
+    fn is_indivisible(&self) -> bool {
+        false
+    }
 }

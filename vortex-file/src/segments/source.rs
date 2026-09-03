@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
+use std::collections::VecDeque;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -11,19 +12,26 @@ use std::task::Context;
 use std::task::Poll;
 
 use futures::FutureExt;
+use futures::Stream;
 use futures::StreamExt;
 use futures::channel::mpsc;
+use futures::channel::oneshot;
 use futures::future;
 use futures::future::BoxFuture;
 use futures::future::Shared;
+use futures::stream::BoxStream;
+use futures::stream::Fuse;
+use futures::stream::SelectAll;
 use parking_lot::Mutex;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_io::ReadAtRequest;
+use vortex_io::ReadAtStream;
 use vortex_io::VortexReadAt;
 use vortex_io::runtime::Handle;
 use vortex_io::runtime::JoinOutcome;
@@ -37,6 +45,7 @@ use vortex_metrics::MetricBuilder;
 use vortex_metrics::MetricsRegistry;
 
 use crate::SegmentSpec;
+use crate::read::IoRequest;
 use crate::read::IoRequestStream;
 use crate::read::ReadRequest;
 use crate::read::RequestId;
@@ -85,6 +94,188 @@ type SharedDriver = Shared<BoxFuture<'static, ()>>;
 /// observe completion takes the payload and re-raises it; later readers report a graceful error.
 type DriverPanic = Arc<Mutex<Option<Box<dyn Any + Send>>>>;
 
+fn validate_read_result(
+    request: &IoRequest,
+    result: VortexResult<BufferHandle>,
+) -> VortexResult<BufferHandle> {
+    result.and_then(|buffer| {
+        if request.len() != buffer.len() {
+            return Err(vortex_err!(
+                "FileSegmentSource: expected buffer of length {} but received {}. {:?}",
+                request.len(),
+                buffer.len(),
+                request
+            ));
+        }
+        Ok(buffer)
+    })
+}
+
+type IoBatchStream = Fuse<BoxStream<'static, Vec<IoRequest>>>;
+
+enum ReadRangeResultsState {
+    Reading(ReadAtStream),
+    Missing,
+}
+
+/// Matches streamed range results back to their logical requests.
+struct ReadRangeResults {
+    state: ReadRangeResultsState,
+    remaining: Vec<Option<IoRequest>>,
+}
+
+impl ReadRangeResults {
+    fn new(results: ReadAtStream, requests: Vec<IoRequest>) -> Self {
+        Self {
+            state: ReadRangeResultsState::Reading(results),
+            remaining: requests.into_iter().map(Some).collect(),
+        }
+    }
+}
+
+impl Stream for ReadRangeResults {
+    type Item = (IoRequest, VortexResult<BufferHandle>);
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        loop {
+            match &mut self.state {
+                ReadRangeResultsState::Reading(results) => match results.poll_next_unpin(cx) {
+                    Poll::Ready(Some((request, result))) => {
+                        let Some(position) = self.remaining.iter().position(|req| {
+                            req.as_ref().is_some_and(|req| {
+                                req.offset() == request.offset
+                                    && req.len() == request.length
+                                    && req.alignment() == request.alignment
+                            })
+                        }) else {
+                            tracing::warn!(?request, "reader returned an unknown range");
+                            continue;
+                        };
+                        let req = self.remaining[position]
+                            .take()
+                            .vortex_expect("matched request is present");
+                        return Poll::Ready(Some((req, result)));
+                    }
+                    Poll::Ready(None) => self.state = ReadRangeResultsState::Missing,
+                    Poll::Pending => return Poll::Pending,
+                },
+                ReadRangeResultsState::Missing => {
+                    let Some(req) = self.remaining.iter_mut().find_map(Option::take) else {
+                        return Poll::Ready(None);
+                    };
+                    let error = vortex_err!(
+                        "FileSegmentSource: read_ranges ended before resolving request. {:?}",
+                        req
+                    );
+                    return Poll::Ready(Some((req, Err(error))));
+                }
+            }
+        }
+    }
+}
+
+/// Drives request batches while keeping the reader's concurrency slots occupied.
+struct ReadDriver<R> {
+    reader: Arc<R>,
+    batches: IoBatchStream,
+    pending: VecDeque<IoRequest>,
+    reads: SelectAll<ReadRangeResults>,
+    num_active: usize,
+    batches_done: bool,
+    concurrency: usize,
+    metrics: RequestMetrics,
+}
+
+impl<R: VortexReadAt> ReadDriver<R> {
+    fn new(
+        reader: R,
+        batches: BoxStream<'static, Vec<IoRequest>>,
+        concurrency: usize,
+        metrics: RequestMetrics,
+    ) -> Self {
+        Self {
+            reader: Arc::new(reader),
+            batches: batches.fuse(),
+            pending: VecDeque::new(),
+            reads: SelectAll::new(),
+            num_active: 0,
+            batches_done: false,
+            concurrency,
+            metrics,
+        }
+    }
+
+    fn submit_pending(&mut self) {
+        while self.num_active < self.concurrency && !self.pending.is_empty() {
+            let batch_len = (self.concurrency - self.num_active).min(self.pending.len());
+            let reqs = self.pending.drain(..batch_len).collect::<Vec<_>>();
+            self.num_active += batch_len;
+
+            self.metrics.read_ranges_calls.add(1);
+            self.metrics.read_ranges_num_ranges.update(batch_len as f64);
+            if batch_len > 1 {
+                self.metrics.read_ranges_multi.add(1);
+            }
+            tracing::trace!(
+                target: "vortex_file::read_ranges",
+                num_ranges = batch_len,
+                num_active = self.num_active,
+                "submitting positional read batch"
+            );
+
+            let requests = reqs
+                .iter()
+                .map(|req| ReadAtRequest::new(req.offset(), req.len(), req.alignment()))
+                .collect::<Vec<_>>()
+                .into();
+            let results = self.reader.read_ranges(requests);
+            self.reads.push(ReadRangeResults::new(results, reqs));
+        }
+    }
+}
+
+impl<R: VortexReadAt> Stream for ReadDriver<R> {
+    type Item = ();
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.as_mut().get_mut();
+
+        // Observe every batch already available so submission can fill all free slots at once.
+        if !this.batches_done {
+            loop {
+                match this.batches.poll_next_unpin(cx) {
+                    Poll::Ready(Some(batch)) => this.pending.extend(batch),
+                    Poll::Ready(None) => {
+                        this.batches_done = true;
+                        break;
+                    }
+                    Poll::Pending => break,
+                }
+            }
+        }
+
+        this.submit_pending();
+
+        if this.batches_done && this.num_active == 0 {
+            return Poll::Ready(None);
+        }
+
+        match this.reads.poll_next_unpin(cx) {
+            Poll::Ready(Some((req, result))) => {
+                this.num_active -= 1;
+                let result = validate_read_result(&req, result);
+                req.resolve(result);
+                Poll::Ready(Some(()))
+            }
+            Poll::Ready(None) if this.num_active == 0 => Poll::Pending,
+            Poll::Ready(None) => {
+                vortex_panic!("read result streams ended with active requests")
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
 pub struct FileSegmentSource {
     segments: Arc<[SegmentSpec]>,
     /// A queue for sending read request events to the I/O stream.
@@ -118,7 +309,7 @@ impl FileSegmentSource {
         let coalesce_config = reader.coalesce_config().map(|mut config| {
             // Aligning the coalesced start down can add up to (alignment - 1) bytes.
             // Increase max_size to keep the effective payload window consistent.
-            let extra = (*max_alignment as u64).saturating_sub(1);
+            let extra = (max_alignment.as_usize() as u64).saturating_sub(1);
             config.max_size = config.max_size.saturating_add(extra);
             config
         });
@@ -134,37 +325,12 @@ impl FileSegmentSource {
             StreamExt::boxed(recv),
             coalesce_config,
             max_alignment,
-            metrics,
+            concurrency,
+            metrics.clone(),
         )
         .boxed();
 
-        let drive_fut = async move {
-            stream
-                .map(move |req| {
-                    let reader = reader.clone();
-                    async move {
-                        let result = reader
-                            .read_at(req.offset(), req.len(), req.alignment())
-                            .await;
-                        let result = result.and_then(|buffer| {
-                            if req.len() != buffer.len() {
-                                vortex_bail!(
-                                    "FileSegmentSource: expected buffer of length {} but received {}. {:?}",
-                                    req.len(),
-                                    buffer.len(),
-                                    req
-                                )
-                            }
-                            Ok(buffer)
-                        });
-
-                        req.resolve(result);
-                    }
-                })
-                .buffer_unordered(concurrency)
-                .collect::<()>()
-                .await
-        };
+        let drive_fut = ReadDriver::new(reader, stream, concurrency, metrics).collect::<()>();
 
         // Spawn the driver so the runtime makes I/O progress independently of any reader. Readers
         // join it (below) only to surface a panic raised while driving reads.
@@ -229,7 +395,7 @@ impl SegmentSource for FileSegmentSource {
 
         let fut = ReadFuture {
             id,
-            recv: recv.into_future(),
+            recv,
             polled: false,
             finished: false,
             events: self.events.clone(),
@@ -248,7 +414,7 @@ impl SegmentSource for FileSegmentSource {
 /// If dropped, the read request will be canceled where possible.
 struct ReadFuture {
     id: usize,
-    recv: oneshot::AsyncReceiver<VortexResult<BufferHandle>>,
+    recv: oneshot::Receiver<VortexResult<BufferHandle>>,
     polled: bool,
     finished: bool,
     events: mpsc::UnboundedSender<ReadEvent>,
@@ -309,6 +475,7 @@ impl Drop for ReadFuture {
 }
 
 /// Metrics emitted by the file segment request driver.
+#[derive(Clone)]
 pub struct RequestMetrics {
     /// Number of individual segment requests observed by the driver.
     pub individual_requests: Counter,
@@ -316,6 +483,12 @@ pub struct RequestMetrics {
     pub coalesced_requests: Counter,
     /// Distribution of how many segment requests were merged into each physical read.
     pub num_requests_coalesced: Histogram,
+    /// Number of calls made to [`VortexReadAt::read_ranges`].
+    pub read_ranges_calls: Counter,
+    /// Number of `read_ranges` calls containing more than one physical range.
+    pub read_ranges_multi: Counter,
+    /// Distribution of physical range counts submitted per `read_ranges` call.
+    pub read_ranges_num_ranges: Histogram,
 }
 
 impl RequestMetrics {
@@ -329,8 +502,17 @@ impl RequestMetrics {
                 .add_labels(labels.clone())
                 .counter("io.requests.coalesced"),
             num_requests_coalesced: MetricBuilder::new(metrics_registry)
-                .add_labels(labels)
+                .add_labels(labels.clone())
                 .histogram("io.requests.coalesced.num_coalesced"),
+            read_ranges_calls: MetricBuilder::new(metrics_registry)
+                .add_labels(labels.clone())
+                .counter("io.read_ranges.calls"),
+            read_ranges_multi: MetricBuilder::new(metrics_registry)
+                .add_labels(labels.clone())
+                .counter("io.read_ranges.multi_range_calls"),
+            read_ranges_num_ranges: MetricBuilder::new(metrics_registry)
+                .add_labels(labels)
+                .histogram("io.read_ranges.num_ranges"),
         }
     }
 }
@@ -383,11 +565,43 @@ mod tests {
     use std::panic::AssertUnwindSafe;
 
     use futures::future::BoxFuture;
+    use vortex_error::vortex_bail;
     use vortex_io::runtime::tokio::TokioRuntime;
     use vortex_layout::segments::SegmentSource;
     use vortex_metrics::DefaultMetricsRegistry;
 
     use super::*;
+
+    fn io_request(id: RequestId, offset: u64, length: usize) -> IoRequest {
+        let (callback, _receiver) = oneshot::channel();
+        IoRequest::new_single(ReadRequest {
+            id,
+            offset,
+            length,
+            alignment: Alignment::none(),
+            callback,
+        })
+    }
+
+    #[tokio::test]
+    async fn read_range_results_matches_results_and_reports_missing_requests() {
+        let requests = vec![io_request(0, 0, 4), io_request(1, 4, 4)];
+        let unknown = ReadAtRequest::new(8, 4, Alignment::none());
+        let returned = ReadAtRequest::new(4, 4, Alignment::none());
+        let buffer = BufferHandle::new_host(ByteBuffer::from(vec![0; 4]));
+        let results =
+            futures::stream::iter([(unknown, Ok(buffer.clone())), (returned, Ok(buffer))]).boxed();
+
+        let resolved = ReadRangeResults::new(results, requests)
+            .collect::<Vec<_>>()
+            .await;
+
+        assert_eq!(resolved.len(), 2);
+        assert_eq!(resolved[0].0.offset(), 4);
+        assert!(resolved[0].1.is_ok());
+        assert_eq!(resolved[1].0.offset(), 0);
+        assert!(resolved[1].1.is_err());
+    }
 
     #[derive(Clone)]
     struct PanickingReadAt;
@@ -507,6 +721,265 @@ mod tests {
         assert_eq!(
             original_panics, 1,
             "exactly one reader should re-raise the original driver panic"
+        );
+    }
+
+    #[derive(Clone)]
+    struct ReadRangesOnly {
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl VortexReadAt for ReadRangesOnly {
+        fn concurrency(&self) -> usize {
+            4
+        }
+
+        fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+            async { Ok(16) }.boxed()
+        }
+
+        fn read_at(
+            &self,
+            _offset: u64,
+            _length: usize,
+            _alignment: Alignment,
+        ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+            async { panic!("read_at should not be called") }.boxed()
+        }
+
+        fn read_ranges(&self, requests: Arc<[ReadAtRequest]>) -> ReadAtStream {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            let results = requests
+                .iter()
+                .copied()
+                .map(|request| {
+                    let buffer = BufferHandle::new_host(
+                        ByteBuffer::from(vec![0; request.length]).aligned(request.alignment),
+                    );
+                    (request, Ok(buffer))
+                })
+                .collect::<Vec<_>>();
+            futures::stream::iter(results).boxed()
+        }
+    }
+
+    #[tokio::test]
+    async fn read_driver_batches_ready_requests() -> VortexResult<()> {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let segments: Arc<[SegmentSpec]> = (0..4)
+            .map(|i| SegmentSpec {
+                offset: i * 4,
+                length: 4,
+                alignment: Alignment::none(),
+            })
+            .collect();
+        let metrics = DefaultMetricsRegistry::default();
+        let request_metrics = RequestMetrics::new(&metrics, vec![]);
+        let source = FileSegmentSource::open(
+            segments,
+            ReadRangesOnly {
+                calls: Arc::clone(&calls),
+            },
+            TokioRuntime::current(),
+            request_metrics.clone(),
+        );
+
+        let results = future::join_all((0..4).map(|i| source.request(SegmentId::from(i)))).await;
+
+        for result in results {
+            assert_eq!(result?.len(), 4);
+        }
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+        assert_eq!(request_metrics.read_ranges_calls.value(), 1);
+        assert_eq!(request_metrics.read_ranges_multi.value(), 1);
+        assert_eq!(request_metrics.read_ranges_num_ranges.count(), 1);
+        assert_eq!(request_metrics.read_ranges_num_ranges.total(), 4.0);
+        Ok(())
+    }
+
+    #[derive(Clone)]
+    struct ControlledReadRanges {
+        active: Arc<AtomicUsize>,
+        max_active: Arc<AtomicUsize>,
+        batch_sizes: Arc<Mutex<Vec<usize>>>,
+        permits: Arc<tokio::sync::Semaphore>,
+    }
+
+    impl VortexReadAt for ControlledReadRanges {
+        fn concurrency(&self) -> usize {
+            4
+        }
+
+        fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+            async { Ok(24) }.boxed()
+        }
+
+        fn read_at(
+            &self,
+            _offset: u64,
+            _length: usize,
+            _alignment: Alignment,
+        ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+            async { panic!("read_at should not be called") }.boxed()
+        }
+
+        fn read_ranges(&self, requests: Arc<[ReadAtRequest]>) -> ReadAtStream {
+            self.batch_sizes.lock().push(requests.len());
+            let active = self.active.fetch_add(requests.len(), Ordering::SeqCst) + requests.len();
+            self.max_active.fetch_max(active, Ordering::SeqCst);
+
+            let reads = requests
+                .iter()
+                .copied()
+                .map(|request| {
+                    let active = Arc::clone(&self.active);
+                    let permits = Arc::clone(&self.permits);
+                    async move {
+                        let Ok(permit) = permits.acquire_owned().await else {
+                            vortex_panic!("test semaphore unexpectedly closed");
+                        };
+                        permit.forget();
+                        active.fetch_sub(1, Ordering::SeqCst);
+                        let buffer = BufferHandle::new_host(
+                            ByteBuffer::from(vec![0; request.length]).aligned(request.alignment),
+                        );
+                        (request, Ok(buffer))
+                    }
+                })
+                .collect::<Vec<_>>();
+            futures::stream::iter(reads).buffer_unordered(4).boxed()
+        }
+    }
+
+    #[tokio::test]
+    async fn read_driver_refills_global_concurrency_across_batches() -> VortexResult<()> {
+        let active = Arc::new(AtomicUsize::new(0));
+        let max_active = Arc::new(AtomicUsize::new(0));
+        let batch_sizes = Arc::new(Mutex::new(Vec::new()));
+        let permits = Arc::new(tokio::sync::Semaphore::new(0));
+        let segments: Arc<[SegmentSpec]> = (0..6)
+            .map(|i| SegmentSpec {
+                offset: i * 4,
+                length: 4,
+                alignment: Alignment::none(),
+            })
+            .collect();
+        let metrics = DefaultMetricsRegistry::default();
+        let source = FileSegmentSource::open(
+            segments,
+            ControlledReadRanges {
+                active: Arc::clone(&active),
+                max_active: Arc::clone(&max_active),
+                batch_sizes: Arc::clone(&batch_sizes),
+                permits: Arc::clone(&permits),
+            },
+            TokioRuntime::current(),
+            RequestMetrics::new(&metrics, vec![]),
+        );
+        let reads = TokioRuntime::current().spawn(async move {
+            future::join_all((0..6).map(|i| source.request(SegmentId::from(i)))).await
+        });
+
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), async {
+                while active.load(Ordering::SeqCst) != 4 {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .is_ok()
+        );
+
+        permits.add_permits(1);
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), async {
+                while batch_sizes.lock().len() < 2 || active.load(Ordering::SeqCst) != 4 {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .is_ok()
+        );
+        assert_eq!(batch_sizes.lock().as_slice(), [4, 1]);
+        assert_eq!(max_active.load(Ordering::SeqCst), 4);
+
+        permits.add_permits(5);
+        for result in reads.await {
+            assert_eq!(result?.len(), 4);
+        }
+        assert_eq!(max_active.load(Ordering::SeqCst), 4);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn read_driver_keeps_slots_full_while_a_straggler_is_in_flight() -> VortexResult<()> {
+        let active = Arc::new(AtomicUsize::new(0));
+        let max_active = Arc::new(AtomicUsize::new(0));
+        let batch_sizes = Arc::new(Mutex::new(Vec::new()));
+        let permits = Arc::new(tokio::sync::Semaphore::new(0));
+        let segments: Arc<[SegmentSpec]> = (0..8)
+            .map(|i| SegmentSpec {
+                offset: i * 4,
+                length: 4,
+                alignment: Alignment::none(),
+            })
+            .collect();
+        let metrics = DefaultMetricsRegistry::default();
+        let source = FileSegmentSource::open(
+            segments,
+            ControlledReadRanges {
+                active: Arc::clone(&active),
+                max_active: Arc::clone(&max_active),
+                batch_sizes: Arc::clone(&batch_sizes),
+                permits: Arc::clone(&permits),
+            },
+            TokioRuntime::current(),
+            RequestMetrics::new(&metrics, vec![]),
+        );
+        let reads = TokioRuntime::current().spawn(async move {
+            future::join_all((0..8).map(|i| source.request(SegmentId::from(i)))).await
+        });
+
+        wait_for_active_reads(&active, 4).await;
+
+        // Complete three reads while leaving one original read blocked as a straggler. Each freed
+        // slot must be refilled before the next completion; a batch-barrier implementation would
+        // instead fall from four active reads to one and submit no replacement work.
+        for expected_calls in 2..=4 {
+            permits.add_permits(1);
+            assert!(
+                tokio::time::timeout(std::time::Duration::from_secs(1), async {
+                    while batch_sizes.lock().len() < expected_calls
+                        || active.load(Ordering::SeqCst) != 4
+                    {
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await
+                .is_ok()
+            );
+        }
+
+        assert_eq!(batch_sizes.lock().as_slice(), [4, 1, 1, 1]);
+        assert_eq!(active.load(Ordering::SeqCst), 4);
+        assert_eq!(max_active.load(Ordering::SeqCst), 4);
+
+        permits.add_permits(5);
+        for result in reads.await {
+            assert_eq!(result?.len(), 4);
+        }
+        Ok(())
+    }
+
+    async fn wait_for_active_reads(active: &AtomicUsize, expected: usize) {
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), async {
+                while active.load(Ordering::SeqCst) != expected {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .is_ok()
         );
     }
 

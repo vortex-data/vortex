@@ -68,7 +68,7 @@ jobs:
     name: "Python (lint)"
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=python-lint', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=python-lint', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
@@ -97,7 +97,7 @@ jobs:
     name: "Python (test)"
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-large/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=python-test', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-large/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=python-test', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     env:
@@ -126,14 +126,9 @@ jobs:
             pytest --benchmark-disable test/test_hf_datasets.py
         working-directory: vortex-python/
 
-      - name: Doctest - PyVortex
+      - name: Check Python documentation
         run: |
-          uv run --all-packages make doctest
-        working-directory: docs/
-
-      - name: Ensure docs build - PyVortex
-        run: |
-          uv run --all-packages make html
+          uv run --all-packages make check
         working-directory: docs/
 
       # Keep this last: setup-benchmark.sh confines everything except the wrapped
@@ -165,6 +160,21 @@ jobs:
         run: |
           uv run --no-project --with pytest --with xxhash \
             pytest scripts/tests/test_measurement_id.py
+
+  benchmark-reporting:
+    name: "Benchmark reporting"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      # sync: false -- the tests run via `uv run --no-project` and need no workspace packages.
+      - uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+        with:
+          sync: false
+      - name: Pytest - benchmark reporting
+        run: |
+          uv run --no-project --with pytest --with pandas --with numpy --with orjson \
+            --with tabulate pytest scripts/tests/test_benchmark_reporting.py
 
   python-cuda-test:
     name: "Python CUDA (test)"
@@ -205,7 +215,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-small/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-docs', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-small/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-docs', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -242,17 +252,17 @@ jobs:
       matrix:
         config:
           - name: "all-features"
-            runner: amd64-large
+            runner: amd64-ci-large
             args: "--all-features --all-targets"
           - name: "default features"
-            runner: amd64-large
+            runner: amd64-ci-large
             args: "--all-targets"
           - name: "with tokio dispatcher"
-            runner: amd64-small
+            runner: amd64-ci-small
             # Only build the crates that have the tokio features, not re-building other crates with no-default-features
             args: "--no-default-features --features tokio --all-targets -p vortex -p vortex-io -p vortex-file -p vortex-layout"
           - name: "wasm32 with default features"
-            runner: amd64-medium
+            runner: amd64-ci-medium
             target: wasm32-unknown-unknown
             env:
               rustflags: "RUSTFLAGS='-A warnings --cfg getrandom_backend=\"unsupported\"'"
@@ -266,9 +276,7 @@ jobs:
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: "true"
-      - name: Install wasm32 target
-        if: matrix.config.target == 'wasm32-unknown-unknown'
-        run: rustup target add wasm32-unknown-unknown
+          targets: ${{ matrix.config.target }}
       - uses: ./.github/actions/check-rebuild
         with:
           command: "${{matrix.config.env.rustflags}} cargo hack build --profile ci --locked ${{matrix.config.args}} --ignore-private"
@@ -282,7 +290,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-min-deps', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-min-deps', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -295,13 +303,34 @@ jobs:
           enable-sccache: "true"
       - run: cargo minimal-versions check --direct --workspace --ignore-private
 
+  rust-msrv:
+    name: "Rust (MSRV)"
+    timeout-minutes: 30
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-msrv', github.run_id)
+          || 'ubuntu-latest' }}
+    env:
+      RUSTFLAGS: "-A warnings"
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: "true"
+      - name: Check publishable crates against the MSRV
+        run: cargo hack --rust-version --no-dev-deps --ignore-private check --profile ci --all-features
+
   rust-lint:
     name: "Rust (lint)"
     needs: duckdb-ready
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-large/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-lint', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-large/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-lint', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -381,7 +410,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-lint-no-default', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-lint-no-default', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -475,7 +504,7 @@ jobs:
     timeout-minutes: 10
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=btrblocks-golden', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=btrblocks-golden', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -506,7 +535,7 @@ jobs:
     name: "Java"
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/pool=amd64-medium-pre-v2/extras=s3-cache/tag=java', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=java', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
@@ -545,7 +574,7 @@ jobs:
     timeout-minutes: 5
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=cxx-build', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=cxx-build', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -593,7 +622,7 @@ jobs:
     needs: duckdb-ready
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=sql-logic-test', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=sql-logic-test', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
@@ -614,12 +643,54 @@ jobs:
           command: "cargo nextest run --cargo-profile ci -p vortex-sqllogictest --no-run"
           message-format-flag: "--cargo-message-format"
 
+  duckdb-s3-test:
+    name: "DuckDB S3 tests"
+    needs: duckdb-ready
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=duckdb-s3-test', github.run_id)
+          || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: "true"
+      - name: Build DuckDB tests
+        shell: bash
+        run: |
+          cargo nextest run --cargo-profile ci --locked -p vortex-duckdb --no-run
+      - name: Start MinIO
+        shell: bash
+        run: |
+          curl -sSL https://dl.min.io/server/minio/release/linux-amd64/minio -o "${RUNNER_TEMP}/minio"
+          chmod +x "${RUNNER_TEMP}/minio"
+          mkdir -p "${RUNNER_TEMP}/minio-data/vortex-test"
+          MINIO_ROOT_USER=minioadmin MINIO_ROOT_PASSWORD=minioadmin \
+            "${RUNNER_TEMP}/minio" server "${RUNNER_TEMP}/minio-data" --address 127.0.0.1:9000 &
+          until curl -sf http://127.0.0.1:9000/minio/health/live; do sleep 1; done
+      - name: Run tests
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: minioadmin
+          AWS_SECRET_ACCESS_KEY: minioadmin
+          AWS_ENDPOINT: "http://127.0.0.1:9000"
+          AWS_REGION: "us-east-1"
+          AWS_ALLOW_HTTP: "true"
+          VORTEX_DUCKDB_S3_URI: "s3://vortex-test/duckdb"
+        run: |
+          cargo nextest run --cargo-profile ci --locked -p vortex-duckdb --run-ignored all s3_
+
   wasm-integration:
     name: "WASM integration smoke test"
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=wasm-integration', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=wasm-integration', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -631,8 +702,6 @@ jobs:
         with:
           enable-sccache: "true"
           targets: "wasm32-wasip1"
-      - name: Install wasm32-wasip1 target
-        run: rustup target add wasm32-wasip1
       - name: Setup Wasmer
         shell: bash
         run: |
@@ -647,7 +716,7 @@ jobs:
     name: "Check generated source files are up to date"
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=generated-files', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=generated-files', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
@@ -656,6 +725,9 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          # check-editions compares against the merge base, so it needs real history.
+          fetch-depth: 0
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: "true"
@@ -665,6 +737,16 @@ jobs:
         run: |
           cargo run --profile ci -p xtask -- generate-fbs
           cargo run --profile ci -p xtask -- generate-proto
+      - name: "regenerate the edition records"
+        run: |
+          cargo run --profile ci -p xtask -- generate-editions
+      - name: "check frozen edition records never change"
+        # Independent of the regeneration above: a stale record must not mask a frozen one
+        # being edited, nor the other way round.
+        if: "!cancelled()"
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || 'HEAD^' }}"
+          cargo run --profile ci -p xtask -- check-editions --base "$BASE"
       - name: "regenerate FFI header file"
         run: |
           cargo +$NIGHTLY_TOOLCHAIN build --profile ci -p vortex-ffi
@@ -689,7 +771,7 @@ jobs:
     timeout-minutes: 10
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=cxx-build', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=cxx-build', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2

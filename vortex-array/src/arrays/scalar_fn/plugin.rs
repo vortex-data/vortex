@@ -2,16 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
+use crate::ArrayDeserialization;
 use crate::ArrayId;
 use crate::ArrayPlugin;
 use crate::ArrayRef;
+use crate::ArraySerialization;
 use crate::IntoArray;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
-use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::TypedScalarFnInstance;
@@ -64,27 +66,38 @@ impl<V: ScalarFnVTable + ScalarFnArrayVTable> ArrayPlugin for ScalarFnArrayPlugi
         &self,
         array: &ArrayRef,
         session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
+    ) -> VortexResult<Option<ArraySerialization>> {
         // We serialize the scalar function options, along with any scalar function array data.
         let scalar_fn = array.as_::<ExactScalarFn<V>>();
-        <V as ScalarFnArrayVTable>::serialize(&self.0, &scalar_fn, session)
+        Ok(
+            <V as ScalarFnArrayVTable>::serialize(&self.0, &scalar_fn, session)?
+                .map(|metadata| ArraySerialization::from_array(self.id(), array, metadata)),
+        )
     }
 
     fn deserialize(
         &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
+        parts: ArrayDeserialization<'_>,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        let parts = <V as ScalarFnArrayVTable>::deserialize(
-            &self.0, dtype, len, metadata, children, session,
+        vortex_ensure!(
+            parts.serialized_id == self.id(),
+            "scalar function array plugin {} does not recognize serialized ID {}",
+            self.id(),
+            parts.serialized_id,
+        );
+        let len = parts.len;
+        let scalar_parts = <V as ScalarFnArrayVTable>::deserialize(
+            &self.0,
+            parts.dtype,
+            parts.len,
+            parts.metadata,
+            parts.children,
+            session,
         )?;
         Ok(ScalarFnArray::try_new_with_len(
-            TypedScalarFnInstance::new(self.0.clone(), parts.options).erased(),
-            parts.children,
+            TypedScalarFnInstance::new(self.0.clone(), scalar_parts.options).erased(),
+            scalar_parts.children,
             len,
         )?
         .into_array())

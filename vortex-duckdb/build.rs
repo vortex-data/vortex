@@ -30,7 +30,7 @@ const BUILD_MARKER: &str = ".vx-build-complete";
 const DUCKDB_CACHE_DIR: &str = "vortex-duckdb-cache";
 const EXTRACT_MARKER: &str = ".vx-extract-complete";
 
-const SOURCE_FILES: [&str; 11] = [
+const SOURCE_FILES: [&str; 12] = [
     "cpp/vortex_duckdb.cpp",
     "cpp/copy_function.cpp",
     "cpp/expr.cpp",
@@ -40,13 +40,14 @@ const SOURCE_FILES: [&str; 11] = [
     "cpp/cast_pushdown.cpp",
     "cpp/aggregate_fn_pushdown.cpp",
     "cpp/table_filter.cpp",
+    "cpp/multi_file_reader.cpp",
     "cpp/table_function.cpp",
     "cpp/vector.cpp",
 ];
 
 // Duckdb C API function we use.
 // This lowers codegen'd src/cpp.rs by four times.
-const DUCKDB_C_API_FUNCTIONS: [&str; 134] = [
+const DUCKDB_C_API_FUNCTIONS: [&str; 135] = [
     "duckdb_array_type_array_size",
     "duckdb_array_type_child_type",
     "duckdb_array_vector_get_child",
@@ -80,6 +81,7 @@ const DUCKDB_C_API_FUNCTIONS: [&str; 134] = [
     "duckdb_create_selection_vector",
     "duckdb_create_struct_type",
     "duckdb_create_time",
+    "duckdb_create_time_ns",
     "duckdb_create_timestamp",
     "duckdb_create_timestamp_ms",
     "duckdb_create_timestamp_ns",
@@ -352,6 +354,48 @@ fn extract(archive: &Path, dest: &Path) {
     zip::ZipArchive::new(file).unwrap().extract(dest).unwrap();
 }
 
+fn git_apply(repo_dir: &Path, patch: &Path, args: &[&str]) -> bool {
+    let output = Command::new("git")
+        .current_dir(repo_dir)
+        .args(["apply", "-p1"])
+        .args(args)
+        .arg(patch)
+        .output();
+    match output {
+        Ok(out) => out.status.success(),
+        Err(e) => {
+            println!("cargo:error=git is required to patch DuckDB sources: {e}");
+            exit(1);
+        }
+    }
+}
+
+fn apply_source_patches(crate_dir: &Path, repo_dir: &Path) {
+    let mut patches: Vec<PathBuf> = fs::read_dir(crate_dir.join("patches"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "diff"))
+        .collect();
+    patches.sort();
+
+    for patch in patches {
+        // A successful reverse dry-run means the patch is already applied.
+        if git_apply(repo_dir, &patch, &["--check", "--reverse"]) {
+            continue;
+        }
+        if !git_apply(repo_dir, &patch, &[]) {
+            println!(
+                "cargo:error=Failed to apply {} to {}; delete that directory to re-extract \
+                DuckDB sources",
+                patch.display(),
+                repo_dir.display()
+            );
+            exit(1);
+        }
+        println!("cargo:info=Applied {}", patch.display());
+    }
+}
+
 /// Download DuckDB library archive from R2 and extract it.
 /// Return false if archive is not available or download failed
 fn download_prebuilt(version: &DuckDBVersion, library_dir: &Path, target: &str) -> bool {
@@ -525,7 +569,16 @@ fn bindgen_c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
 
 /// Generate libvortex_duckdb.*
 fn compile_cpp(duckdb_include_dir: &Path) {
-    cc::Build::new()
+    let mut build = cc::Build::new();
+    let has_debuginfo = env::var("DEBUG")
+        .map(|v| !matches!(v.as_str(), "false" | "0" | "none" | ""))
+        .unwrap_or(false);
+    if env_true("VX_DUCKDB_DEBUG") || has_debuginfo {
+        build.define("DEBUG", None);
+    } else {
+        build.define("NDEBUG", None);
+    }
+    build
         .std("c++20")
         .flags(["-Wall", "-Wextra", "-Wpedantic", "-Werror"])
         .cpp(true)
@@ -576,8 +629,10 @@ fn cbindgen_rust2c(crate_dir: &Path) {
 
 fn main() {
     println!("cargo:rerun-if-changed=cpp/include");
+    println!("cargo:rerun-if-changed=patches");
     println!("cargo:rerun-if-env-changed=VX_DUCKDB_DEBUG");
     println!("cargo:rerun-if-env-changed=VX_DUCKDB_SAN");
+    println!("cargo:rerun-if-env-changed=DEBUG");
     println!("cargo:rerun-if-env-changed=CARGO_HTTP_TIMEOUT");
     println!("cargo:rerun-if-env-changed=HTTP_TIMEOUT");
     println!("cargo:rerun-if-env-changed=TARGET");
@@ -605,6 +660,7 @@ fn main() {
             "cargo:info=Using DuckDB source from DUCKDB_SOURCE_DIR={}",
             source_dir.display()
         );
+        apply_source_patches(&crate_dir, &source_dir);
         bindgen_c2rust(&crate_dir, &duckdb_include_dir);
         cbindgen_rust2c(&crate_dir);
         compile_cpp(&duckdb_include_dir);
@@ -655,6 +711,8 @@ fn main() {
         fs::remove_file(&source_archive_path).unwrap();
         fs::write(&extract_marker, version.to_string()).unwrap();
     }
+
+    apply_source_patches(&crate_dir, &inner_dir);
 
     drop(fs::remove_file(&duckdb_dir));
     drop(fs::remove_dir_all(&duckdb_dir));

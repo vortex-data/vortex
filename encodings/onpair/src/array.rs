@@ -54,7 +54,7 @@ use vortex_session::registry::CachedId;
 
 use crate::canonical::OnPairDecodePlan;
 use crate::canonical::canonicalize_onpair;
-use crate::canonical::onpair_decode_views;
+use crate::canonical::onpair_decode_bytes;
 use crate::decode::collect_widened;
 use crate::rules::RULES;
 
@@ -232,6 +232,27 @@ fn build_dictionary(
         .map_err(|e| vortex_err!(InvalidArgument: "Unsafe OnPair dictionary: {e}"))
 }
 
+/// A safety-validated dictionary built from host-materialized parts, owned
+/// independently of any array.
+///
+/// [`dict_view`] reaches the same parts through host-only accessors, which panics when
+/// the array's buffers are device-resident. Callers that have already copied the
+/// dictionary blob and its widened offsets to the host — the CUDA executor, which stages
+/// the dictionary on the host regardless — build through this instead.
+pub struct OnPairDictionary(CompactDictionary<OnPairDictionaryStorage>);
+
+impl OnPairDictionary {
+    /// Validates `(bytes, offsets)` and seals them into a dictionary.
+    pub fn try_new(bytes: ByteBuffer, offsets: Buffer<u32>) -> VortexResult<Self> {
+        Ok(Self(build_dictionary(bytes, offsets)?))
+    }
+
+    /// Borrows the dictionary as a view.
+    pub fn as_view(&self) -> CompactDictionaryView<'_> {
+        self.0.as_view()
+    }
+}
+
 /// A safety-validated [`CompactDictionaryView`] over `array`'s dictionary.
 ///
 /// The first successful initialization widens the `dict_offsets` child and
@@ -239,7 +260,7 @@ fn build_dictionary(
 /// dictionary is memoized in [`OnPairData`]. Once cached, subsequent calls —
 /// including on arrays derived by slice / filter / cast, which share the cell —
 /// pay neither cost again.
-pub(crate) fn dict_view<'a>(
+pub fn dict_view<'a>(
     array: ArrayView<'a, OnPair>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<CompactDictionaryView<'a>> {
@@ -605,16 +626,20 @@ impl VTable for OnPair {
             vortex_bail!("append_to_builder for OnPair requires a variable-binary builder")
         };
 
-        let next_buffer_index = builder.completed_block_count() + u32::from(builder.in_progress());
-        let (buffers, views) = onpair_decode_views(array, next_buffer_index, ctx)?;
-        builder.push_buffer_and_adjusted_views(
-            &buffers,
-            &views,
-            array
-                .array()
-                .validity()?
-                .execute_mask(array.array().len(), ctx)?,
-        );
+        // Decode the whole code stream into a new buffer, which the builder adopts as a data
+        // buffer with views built over it in place.
+        let validity = array
+            .array()
+            .validity()?
+            .execute_mask(array.array().len(), ctx)?;
+        let (out_bytes, lengths) = onpair_decode_bytes(array, ctx)?;
+        match_each_integer_ptype!(lengths.ptype(), |P| {
+            builder.append_buffer_with_lengths(
+                out_bytes.freeze(),
+                lengths.as_slice::<P>(),
+                &validity,
+            )
+        });
         Ok(())
     }
 

@@ -245,8 +245,7 @@ impl DataSource for MultiLayoutDataSource {
 
         if deferred_count == 0 {
             Precision::exact(sum)
-        } else if opened_count > 0 {
-            let avg = sum / opened_count;
+        } else if let Some(avg) = sum.checked_div(opened_count) {
             let extrapolated = avg.saturating_mul(total_count);
             Precision::inexact(extrapolated)
         } else {
@@ -489,15 +488,15 @@ fn reader_partition(
         return stream::empty().boxed();
     };
     match &request.partition_selection {
-        Selection::IncludeByIndex(buffer) => {
-            if buffer.as_slice().binary_search(&partition_idx_u64).is_err() {
-                return stream::empty().boxed();
-            }
+        Selection::IncludeByIndex(buffer)
+            if buffer.as_slice().binary_search(&partition_idx_u64).is_err() =>
+        {
+            return stream::empty().boxed();
         }
-        Selection::ExcludeByIndex(buffer) => {
-            if buffer.as_slice().binary_search(&partition_idx_u64).is_ok() {
-                return stream::empty().boxed();
-            }
+        Selection::ExcludeByIndex(buffer)
+            if buffer.as_slice().binary_search(&partition_idx_u64).is_ok() =>
+        {
+            return stream::empty().boxed();
         }
         _ => {}
     };

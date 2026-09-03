@@ -168,10 +168,19 @@ fn binary_falsify<P: NonNanProof>(
             let rhs_falsifier = ctx.falsify(rhs)?;
             or_collect(lhs_falsifier.into_iter().chain(rhs_falsifier))
         }
-        Operator::Or => match (ctx.falsify(lhs)?, ctx.falsify(rhs)?) {
-            (Some(lhs), Some(rhs)) if P::EMIT_UNGUARDED_REWRITES => Some(and(lhs, rhs)),
-            _ => None,
-        },
+        Operator::Or => {
+            // Check before recursing: falsifying the children first would repeat the
+            // whole recursive rewrite once per registered `Binary` rule, which is
+            // exponential in `Or`-nesting depth for chains like `a = 1 OR a = 2 OR ...`.
+            if !P::EMIT_UNGUARDED_REWRITES {
+                return Ok(None);
+            }
+
+            match (ctx.falsify(lhs)?, ctx.falsify(rhs)?) {
+                (Some(lhs), Some(rhs)) => Some(and(lhs, rhs)),
+                _ => None,
+            }
+        }
         Operator::Add | Operator::Sub | Operator::Mul | Operator::Div => None,
     })
 }
@@ -704,6 +713,8 @@ fn stat_fn(expr: BoundExpression, aggregate_fn: AggregateFnRef) -> BoundExpressi
 mod tests {
     use std::sync::Arc;
     use std::sync::LazyLock;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
 
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
@@ -712,6 +723,7 @@ mod tests {
     use crate::aggregate_fn::AggregateFnVTableExt;
     use crate::aggregate_fn::EmptyOptions as AggregateEmptyOptions;
     use crate::aggregate_fn::fns::all_non_nan::AllNonNan;
+    use crate::array_session;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -737,17 +749,23 @@ mod tests {
     use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
     use crate::scalar_fn::EmptyOptions;
+    use crate::scalar_fn::ScalarFnId;
+    use crate::scalar_fn::ScalarFnVTable;
     use crate::scalar_fn::ScalarFnVTableExt;
     use crate::scalar_fn::fns::between::BetweenOptions;
     use crate::scalar_fn::fns::between::StrictComparison;
+    use crate::scalar_fn::fns::binary::Binary;
     use crate::scalar_fn::fns::dynamic::DynamicComparison;
     use crate::scalar_fn::fns::dynamic::DynamicComparisonExpr;
     use crate::scalar_fn::fns::operators::CompareOperator;
     use crate::scalar_fn::internal::row_count::RowCount;
     use crate::stats::expr::StatFn;
     use crate::stats::expr::StatOptions;
+    use crate::stats::rewrite::StatsRewriteCtx;
+    use crate::stats::rewrite::StatsRewriteRule;
+    use crate::stats::session::StatsSessionExt;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
     fn stat(expr: Expression, stat: Stat) -> Expression {
         let aggregate_fn = stat.aggregate_fn().expect("stat should have aggregate fn");
@@ -856,6 +874,53 @@ mod tests {
                 gt_eq(stat(col("a"), Stat::Min), lit(50)),
             ))
         );
+
+        let expr = or(gt(col("a"), lit(10)), lt(col("a"), lit(5)));
+        assert_rewrite_eq!(
+            falsify(&expr)?,
+            Some(and(
+                lt_eq(stat(col("a"), Stat::Max), lit(10)),
+                gt_eq(stat(col("a"), Stat::Min), lit(5)),
+            ))
+        );
+        Ok(())
+    }
+
+    /// Counts how many times the stats rewrite visits a `Binary` node.
+    #[derive(Debug)]
+    struct BinaryVisitCounter(Arc<AtomicUsize>);
+
+    impl StatsRewriteRule for BinaryVisitCounter {
+        fn scalar_fn_id(&self) -> ScalarFnId {
+            Binary.id()
+        }
+
+        fn falsify(
+            &self,
+            _expr: &BoundExpression,
+            _ctx: &StatsRewriteCtx<'_>,
+        ) -> VortexResult<Option<BoundExpression>> {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            Ok(None)
+        }
+    }
+
+    #[test]
+    fn or_chain_falsify_visits_each_node_once() -> VortexResult<()> {
+        let session = array_session();
+        let visits = Arc::new(AtomicUsize::new(0));
+        session
+            .stats()
+            .register_rewrite(BinaryVisitCounter(Arc::clone(&visits)));
+
+        let expr = (1..16).fold(eq(col("a"), lit(0)), |chain, i| {
+            or(chain, eq(col("a"), lit(i)))
+        });
+        let falsifier = expr.bind(&test_scope())?.falsify(&session)?;
+        assert!(falsifier.is_some());
+
+        // One visit per `Binary` node: 16 comparisons plus 15 `or`s.
+        assert_eq!(visits.load(Ordering::Relaxed), 31);
         Ok(())
     }
 

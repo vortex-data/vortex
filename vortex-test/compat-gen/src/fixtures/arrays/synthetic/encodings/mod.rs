@@ -58,8 +58,6 @@ pub fn fixtures() -> Vec<Box<dyn FlatLayoutFixture>> {
         Box::new(constant::ConstantFixture),
     ];
     #[cfg(feature = "unstable_encodings")]
-    fixtures.push(Box::new(
-        decimal_byte_parts_v2::DecimalBytePartsV2Fixture,
-    ));
+    fixtures.push(Box::new(decimal_byte_parts_v2::DecimalBytePartsV2Fixture));
     fixtures
 }

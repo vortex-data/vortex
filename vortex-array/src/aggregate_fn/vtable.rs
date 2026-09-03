@@ -60,15 +60,6 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
         vortex_bail!("Aggregate function {} is not deserializable", self.id());
     }
 
-    /// Coerce the input type for this aggregate function.
-    ///
-    /// This is optionally used by Vortex users when performing type coercion over a Vortex
-    /// expression. The default implementation returns the input type unchanged.
-    fn coerce_args(&self, options: &Self::Options, input_dtype: &DType) -> VortexResult<DType> {
-        let _ = options;
-        Ok(input_dtype.clone())
-    }
-
     /// Return whether this stored aggregate can satisfy `requested`.
     ///
     /// The default implementation only treats exactly equal aggregate functions as satisfying the

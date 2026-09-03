@@ -4,9 +4,7 @@
 //! Benchmarks for `collect_bool` bit packing.
 //!
 //! Three groups, each with a scalar baseline that replicates the previous bit-at-a-time
-//! implementation. Under CodSpeed only the shipped entry points are tracked
-//! (`from_bool_slice`, `collect_bool_u32_gt`); the baselines, the dispatch loop,
-//! per-SIMD-level loops, and the portable SWAR kernel compile out and are for local A/B runs:
+//! implementation:
 //!
 //! - `pack_words_*`: the portable SWAR kernel vs the scalar loop, word by word. The SIMD
 //!   kernels are covered by `words_gather_*` instead, where they can inline.
@@ -14,10 +12,21 @@
 //!   measuring the fused fill + pack pipeline per SIMD level.
 //! - `collect_bool_*` / `from_bool_slice`: the public entry points end to end, with a
 //!   boolean-gather predicate and a `u32` comparison predicate.
+//!
+//! `words_gather_dispatch` and `words_gather_scalar` carry `#[cpu_features]`, so they are
+//! measured on every walltime CPU-feature leg rather than in simulation. Both are written
+//! once and compiled differently per leg: the shipped entry point picks its pack kernel
+//! through `cfg(target_feature)`, and how well the scalar loop auto-vectorizes depends on
+//! the build. Comparing them across legs is the point.
+//!
+//! The hand-written per-kernel benchmarks are not tagged. Each one needs an instruction set
+//! extension the other legs do not build for, so they stay out of CodSpeed entirely and
+//! remain local A/B tools, as do the historical bit-at-a-time baselines.
+//!
+//! A plain `cargo bench` ignores all of it and runs everything on the host.
 
 use divan::Bencher;
 use vortex_buffer::BitBuffer;
-#[cfg(not(codspeed))]
 use vortex_buffer::collect_bool_word_scalar;
 #[cfg(not(codspeed))]
 use vortex_buffer::pack_bool_word_swar;
@@ -86,7 +95,6 @@ fn pack_words_swar(bencher: Bencher, len: usize) {
 
 /// Benchmark a full multiversioned word loop with a bounds-check-free bool gather, measuring
 /// the packing pipeline itself (fill + pack fully inlined) rather than predicate evaluation.
-#[cfg(not(codspeed))]
 fn bench_words_gather(
     bencher: Bencher,
     len: usize,
@@ -98,7 +106,7 @@ fn bench_words_gather(
         .bench_refs(|words| collect(words, len, &bools));
 }
 
-#[cfg(not(codspeed))]
+#[vortex_bench_support::cpu_features]
 #[divan::bench(args = INPUT_SIZE)]
 fn words_gather_dispatch(bencher: Bencher, len: usize) {
     bench_words_gather(bencher, len, |words, len, bools| {
@@ -107,7 +115,7 @@ fn words_gather_dispatch(bencher: Bencher, len: usize) {
     });
 }
 
-#[cfg(not(codspeed))]
+#[vortex_bench_support::cpu_features]
 #[divan::bench(args = INPUT_SIZE)]
 fn words_gather_scalar(bencher: Bencher, len: usize) {
     bench_words_gather(bencher, len, |words, len, bools| {
@@ -164,7 +172,6 @@ fn words_gather_neon(bencher: Bencher, len: usize) {
 
 /// Faithful copy of the previous scalar-only `collect_bool_words` word loop, used as the
 /// baseline for the end-to-end comparison.
-#[cfg(not(codspeed))]
 fn collect_bool_words_old(words: &mut [u64], len: usize, mut f: impl FnMut(usize) -> bool) {
     let full = len / 64;
     let remainder = len % 64;

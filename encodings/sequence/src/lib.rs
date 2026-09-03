@@ -4,7 +4,10 @@
 mod array;
 mod compress;
 mod compute;
+mod eval;
 mod kernel;
+#[cfg(test)]
+mod model_tests;
 mod rules;
 
 /// Represents the equation A\[i\] = a * i + b.

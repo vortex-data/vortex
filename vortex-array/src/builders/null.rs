@@ -5,7 +5,6 @@ use std::any::Any;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -71,8 +70,6 @@ impl ArrayBuilder for NullBuilder {
     }
 
     fn reserve_exact(&mut self, _additional: usize) {}
-
-    unsafe fn set_validity_unchecked(&mut self, _validity: Mask) {}
 
     fn finish(&mut self) -> ArrayRef {
         NullArray::new(self.length).into_array()

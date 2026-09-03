@@ -17,6 +17,7 @@ use crate::bit::unset_bit_unchecked;
 use crate::buffer_mut;
 
 /// Sets all bits in the bit-range `[start_bit, end_bit)` of `slice` to `value`.
+#[allow(clippy::inline_always)]
 #[inline(always)]
 pub(crate) fn fill_bits(slice: &mut [u8], start_bit: usize, end_bit: usize, value: bool) {
     if start_bit >= end_bit {
@@ -102,6 +103,7 @@ pub struct BitBufferMut {
 
 impl BitBufferMut {
     /// Create new bit buffer from given byte buffer and logical bit length
+    #[inline]
     pub fn from_buffer(buffer: ByteBufferMut, offset: usize, len: usize) -> Self {
         assert!(
             len <= buffer.len() * 8,
@@ -125,6 +127,7 @@ impl BitBufferMut {
     }
 
     /// Create a new empty mutable bit buffer with requested capacity (in bits).
+    #[inline]
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             buffer: BufferMut::with_capacity(capacity.div_ceil(8)),
@@ -134,6 +137,7 @@ impl BitBufferMut {
     }
 
     /// Create a new mutable buffer with requested `len` and all bits set to `true`.
+    #[inline]
     pub fn new_set(len: usize) -> Self {
         Self {
             buffer: buffer_mut![0xFF; len.div_ceil(8)],
@@ -143,6 +147,7 @@ impl BitBufferMut {
     }
 
     /// Create a new mutable buffer with requested `len` and all bits set to `false`.
+    #[inline]
     pub fn new_unset(len: usize) -> Self {
         Self {
             buffer: BufferMut::zeroed(len.div_ceil(8)),
@@ -152,12 +157,14 @@ impl BitBufferMut {
     }
 
     /// Create a new empty `BitBufferMut`.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn empty() -> Self {
         Self::with_capacity(0)
     }
 
     /// Create a new mutable buffer with requested `len` and all bits set to `value`.
+    #[inline]
     pub fn full(value: bool, len: usize) -> Self {
         if value {
             Self::new_set(len)
@@ -184,39 +191,17 @@ impl BitBufferMut {
         }
     }
 
-    /// Invokes `f` with indexes `0..len` collecting the boolean results into a new `BitBufferMut`
+    /// Mutable-buffer form of [`BitBuffer::collect_bool`].
     ///
-    /// `f` is invoked exactly once per index, in ascending order, and the results are packed
-    /// with the baseline SIMD byte→bit instruction of the target.
-    ///
-    /// # Performance
-    ///
-    /// The packing is a few instructions per 64 bits, so evaluating `f` is usually the
-    /// bottleneck. In particular, a bounds-checked slice access in `f` (`|i| values[i] > x`)
-    /// blocks vectorization of the gather and can cost ~10x the packing itself. Since `f` only
-    /// ever sees indices `0..len`, callers reading from a slice with `len <= values.len()` may
-    /// soundly use `|i| unsafe { *values.get_unchecked(i) }`.
-    ///
-    /// Prefer this entry point for every predicate. Only switch to
-    /// [`Self::collect_bool_multiversioned`] after carefully checking that your specific `f`
-    /// meets its contract (a trivially cheap, bounds-check-free gather or comparison) —
-    /// ideally with a benchmark.
+    /// Calls `f` in the same order and uses the same packing path.
     #[inline]
     pub fn collect_bool<F: FnMut(usize) -> bool>(len: usize, f: F) -> Self {
         Self::collect_words(len, |words| collect_bool_words(words, len, f))
     }
 
-    /// Like [`Self::collect_bool`], but compiles the packing loop — with `f` inside it — once
-    /// per CPU feature level (AVX-512BW/AVX2/baseline) and selects a clone by runtime feature
-    /// detection.
+    /// Mutable-buffer form of [`BitBuffer::collect_bool_multiversioned`].
     ///
-    /// Calling this asserts that `f` is small and simple enough (e.g. a bounds-check-free slice
-    /// gather or comparison) that duplicating it per feature level and paying a
-    /// `#[target_feature]` call boundary beats inlining it once into your function. For any
-    /// non-trivial `f` that assertion is false — the boundary deoptimizes the predicate — so
-    /// unless you have carefully checked (ideally benchmarked) that your specific `f`
-    /// qualifies, use [`Self::collect_bool`]. See
-    /// [`collect_bool_words_multiversioned`].
+    /// Calls `f` in the same order and uses the same packing path.
     #[inline]
     pub fn collect_bool_multiversioned<F: FnMut(usize) -> bool>(len: usize, f: F) -> Self {
         Self::collect_words(len, |words| {
@@ -247,34 +232,40 @@ impl BitBufferMut {
     }
 
     /// Return the underlying byte buffer.
+    #[inline]
     pub fn inner(&self) -> &ByteBufferMut {
         &self.buffer
     }
 
     /// Consumes the buffer and return the underlying byte buffer.
+    #[inline]
     pub fn into_inner(self) -> ByteBufferMut {
         self.buffer
     }
 
     /// Get the current populated length of the buffer.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn len(&self) -> usize {
         self.len
     }
 
     /// True if the buffer has length 0.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
 
     /// Get the current bit offset of the buffer.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn offset(&self) -> usize {
         self.offset
     }
 
     /// Get the value at the requested index.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn value(&self, index: usize) -> bool {
         assert!(index < self.len);
@@ -287,18 +278,21 @@ impl BitBufferMut {
     /// # Safety
     ///
     /// The caller must ensure that `index` is less than the length of the buffer.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub unsafe fn value_unchecked(&self, index: usize) -> bool {
         unsafe { get_bit_unchecked(self.buffer.as_ptr(), self.offset + index) }
     }
 
     /// Get the bit capacity of the buffer.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn capacity(&self) -> usize {
         (self.buffer.capacity() * 8) - self.offset
     }
 
     /// Reserve additional bit capacity for the buffer.
+    #[inline]
     pub fn reserve(&mut self, additional: usize) {
         let required_bits = self.offset + self.len + additional;
         let required_bytes = required_bits.div_ceil(8); // Rounds up.
@@ -308,6 +302,7 @@ impl BitBufferMut {
     }
 
     /// Clears the bit buffer (but keeps any allocated memory).
+    #[inline]
     pub fn clear(&mut self) {
         // Also clear the byte buffer (not just `len`) so the "bits beyond len are zero"
         // invariant holds; `append_false` and `append_buffer` rely on it.
@@ -398,6 +393,7 @@ impl BitBufferMut {
     ///
     /// - `new_len` must be less than or equal to [`capacity()`](Self::capacity)
     /// - The elements at `old_len..new_len` must be initialized
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub unsafe fn set_len(&mut self, new_len: usize) {
         debug_assert!(
@@ -415,6 +411,7 @@ impl BitBufferMut {
     /// Truncate the buffer to the given length.
     ///
     /// If the given length is greater than the current length, this is a no-op.
+    #[inline]
     pub fn truncate(&mut self, len: usize) {
         if len > self.len {
             return;
@@ -514,6 +511,7 @@ impl BitBufferMut {
     ///
     /// This operates on an arbitrary range within the existing length of the buffer.
     /// Panics if `end > self.len` or `start > end`.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn fill_range(&mut self, start: usize, end: usize, value: bool) {
         assert!(end <= self.len, "end {end} exceeds len {}", self.len);
@@ -529,6 +527,7 @@ impl BitBufferMut {
     /// # Safety
     ///
     /// The caller must ensure that `start <= end <= self.len`.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub unsafe fn fill_range_unchecked(&mut self, start: usize, end: usize, value: bool) {
         fill_bits(
@@ -589,36 +588,20 @@ impl BitBufferMut {
         self.len += bit_len;
     }
 
-    /// Absorbs a mutable buffer that was previously split off.
-    ///
-    /// If the two buffers were previously contiguous and not mutated in a way that causes
-    /// re-allocation i.e., if other was created by calling split_off on this buffer, then this is
-    /// an O(1) operation that just decreases a reference count and sets a few indices.
-    ///
-    /// Otherwise, this method degenerates to self.append_buffer(&other).
-    pub fn unsplit(&mut self, other: Self) {
-        if (self.offset + self.len).is_multiple_of(8) && other.offset == 0 {
-            // We are aligned and can just append the buffers
-            self.buffer.unsplit(other.buffer);
-            self.len += other.len;
-            return;
-        }
-
-        // Otherwise, we need to append the bits one by one
-        self.append_buffer(&other.freeze())
-    }
-
     /// Freeze the buffer in its current state into an immutable `BoolBuffer`.
+    #[inline]
     pub fn freeze(self) -> BitBuffer {
         BitBuffer::new_with_offset(self.buffer.freeze(), self.len, self.offset)
     }
 
     /// Get the underlying bytes as a slice
+    #[inline]
     pub fn as_slice(&self) -> &[u8] {
         self.buffer.as_slice()
     }
 
     /// Get the underlying bytes as a mutable slice
+    #[inline]
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
         self.buffer.as_mut_slice()
     }

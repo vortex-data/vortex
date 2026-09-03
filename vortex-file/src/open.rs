@@ -477,10 +477,12 @@ async fn resolve_metadata(
 #[cfg(feature = "object_store")]
 impl VortexOpenOptions {
     /// Open a Vortex file from an `object_store` backend and path.
+    ///
+    /// `path` is the object's *literal* key, exactly as the store holds it.
     pub async fn open_object_store(
         self,
         object_store: &Arc<dyn object_store::ObjectStore>,
-        path: &str,
+        path: object_store::path::Path,
     ) -> VortexResult<VortexFile> {
         use vortex_io::object_store::ObjectStoreReadAt;
 
@@ -488,7 +490,7 @@ impl VortexOpenOptions {
         let allocator = self.session.allocator();
         let source = Arc::new(ObjectStoreReadAt::new_with_allocator(
             Arc::clone(object_store),
-            path.into(),
+            path,
             handle,
             allocator,
         ));
@@ -498,17 +500,20 @@ impl VortexOpenOptions {
 
 #[cfg(test)]
 mod tests {
+    use std::alloc::Layout;
+    use std::ptr::NonNull;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
+    use allocator_api2::alloc::AllocError;
+    use allocator_api2::alloc::Allocator;
+    use allocator_api2::alloc::Global;
     use futures::future::BoxFuture;
     use parking_lot::Mutex;
     use vortex_array::IntoArray;
     use vortex_array::buffer::BufferHandle;
-    use vortex_array::memory::DefaultHostAllocator;
-    use vortex_array::memory::HostAllocator;
+    use vortex_array::memory::BufferAllocatorRef;
     use vortex_array::memory::MemorySessionExt;
-    use vortex_array::memory::WritableHostBuffer;
     use vortex_buffer::Alignment;
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBuffer;
@@ -573,10 +578,16 @@ mod tests {
         allocations: Arc<AtomicUsize>,
     }
 
-    impl HostAllocator for CountingAllocator {
-        fn allocate(&self, len: usize, alignment: Alignment) -> VortexResult<WritableHostBuffer> {
+    // SAFETY: this forwards memory operations to Global and only counts allocations.
+    unsafe impl Allocator for CountingAllocator {
+        fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
             self.allocations.fetch_add(1, Ordering::Relaxed);
-            DefaultHostAllocator.allocate(len, alignment)
+            Global.allocate(layout)
+        }
+
+        unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
+            // SAFETY: ptr and layout came from Global.
+            unsafe { Global.deallocate(ptr, layout) }
         }
     }
 
@@ -781,7 +792,7 @@ mod tests {
         std::fs::write(&file_path, ByteBuffer::from(buf).as_slice()).unwrap();
 
         let allocations = Arc::new(AtomicUsize::new(0));
-        let session = session.with_allocator(Arc::new(CountingAllocator {
+        let session = session.with_allocator(BufferAllocatorRef::new(CountingAllocator {
             allocations: Arc::clone(&allocations),
         }));
 

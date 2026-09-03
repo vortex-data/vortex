@@ -5,7 +5,6 @@ use std::sync::Arc;
 
 use arrow_array::RecordBatchReader;
 use arrow_array::ffi_stream::ArrowArrayStreamReader;
-use async_fs::File;
 use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -18,7 +17,6 @@ use vortex::array::iter::ArrayIterator;
 use vortex::array::iter::ArrayIteratorAdapter;
 use vortex::array::iter::ArrayIteratorExt;
 use vortex::compressor::BtrBlocksCompressorBuilder;
-use vortex::dtype::DType;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::file::WriteOptionsSessionExt;
@@ -26,16 +24,16 @@ use vortex::file::WriteStrategyBuilder;
 use vortex::io::VortexWrite;
 use vortex::io::object_store::ObjectStoreWrite;
 use vortex::io::runtime::BlockingRuntime;
-use vortex_arrow::FromArrowArray;
-use vortex_arrow::TryFromArrowType;
+use vortex::io::std_file::FileWrite;
+use vortex_arrow::ArrowSessionExt;
 
 use crate::PyVortex;
-use crate::RUNTIME;
 use crate::arrays::PyArray;
 use crate::arrays::PyArrayRef;
 use crate::arrow::FromPyArrow;
 use crate::classes::record_batch_reader_class;
 use crate::classes::table_class;
+use crate::current_runtime;
 use crate::dataset::PyVortexDataset;
 use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
@@ -139,7 +137,8 @@ pub fn read_url<'py>(
         None
     };
 
-    let dataset = py.detach(move || RUNTIME.block_on(PyVortexDataset::from_url(url, store_arc)))?;
+    let dataset =
+        py.detach(move || current_runtime().block_on(PyVortexDataset::from_url(url, store_arc)))?;
     dataset.to_array_inner(py, projection, row_filter, indices, row_range)
 }
 
@@ -250,7 +249,7 @@ pub fn write(
 ) -> PyVortexResult<()> {
     let session = session();
     py.detach(|| {
-        RUNTIME.block_on(async move {
+        current_runtime().block_on(async move {
             match resolve_store(path, store.map(|x| x.into_inner()))? {
                 ResolvedStore::ObjectStore(store, path) => {
                     let mut store = ObjectStoreWrite::new(store, &path).await?;
@@ -262,7 +261,7 @@ pub fn write(
                     VortexResult::Ok(())
                 }
                 ResolvedStore::Path(path) => {
-                    let mut w = File::create(path).await?;
+                    let mut w = FileWrite::create(path, current_runtime().handle()).await?;
                     session
                         .write_options()
                         .write(&mut w, iter.into_inner().into_array_stream())
@@ -314,7 +313,7 @@ impl PyVortexWriteOptions {
     /// >>> vx.io.VortexWriteOptions.default().write(sprl, "chonky.vortex")
     /// >>> import os
     /// >>> os.path.getsize('chonky.vortex')
-    /// 215932
+    /// 215788
     ///
     /// Wow, Vortex manages to use about two bytes per integer! So advanced. So tiny.
     ///
@@ -324,7 +323,7 @@ impl PyVortexWriteOptions {
     ///
     /// >>> vx.io.VortexWriteOptions.compact().write(sprl, "tiny.vortex")
     /// >>> os.path.getsize('tiny.vortex')
-    /// 55060
+    /// 54992
     ///
     /// Random numbers are not (usually) composed of random bytes!
     #[staticmethod]
@@ -385,7 +384,7 @@ impl PyVortexWriteOptions {
                     .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact());
             }
             let strategy = strategy.build();
-            RUNTIME.block_on(async move {
+            current_runtime().block_on(async move {
                 match resolve_store(path, store.map(|x| x.into_inner()))? {
                     ResolvedStore::ObjectStore(store, path) => {
                         let mut store = ObjectStoreWrite::new(store, &path).await?;
@@ -398,7 +397,7 @@ impl PyVortexWriteOptions {
                         VortexResult::Ok(())
                     }
                     ResolvedStore::Path(path) => {
-                        let mut w = File::create(path).await?;
+                        let mut w = FileWrite::create(path, current_runtime().handle()).await?;
                         session
                             .write_options()
                             .with_strategy(strategy)
@@ -464,7 +463,9 @@ fn try_arrow_stream_to_iterator(
     if ob.is_instance(pa_table)? || ob.is_instance(pa_record_batch_reader)? {
         // Convert to Arrow stream using FFI
         let arrow_stream = ArrowArrayStreamReader::from_pyarrow(ob)?;
-        let dtype = DType::try_from_arrow(arrow_stream.schema())
+        let dtype = session()
+            .arrow()
+            .from_arrow_schema(arrow_stream.schema().as_ref())
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
         // Convert Arrow RecordBatch stream to Vortex ArrayIterator
@@ -472,7 +473,8 @@ fn try_arrow_stream_to_iterator(
             .into_iter()
             .map(|batch_result| -> VortexResult<ArrayRef> {
                 let batch = batch_result.map_err(VortexError::from)?;
-                ArrayRef::from_arrow(batch, false)
+                let schema = batch.schema();
+                session().arrow().from_arrow_record_batch(batch, &schema)
             });
 
         Ok(Box::new(ArrayIteratorAdapter::new(dtype, vortex_iter)))

@@ -6,11 +6,8 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
-use futures::StreamExt;
 use vortex_array::ArrayContext;
-use vortex_array::ArrayId;
-use vortex_array::normalize::NormalizeOptions;
-use vortex_array::normalize::Operation;
+use vortex_array::aggregate_fn::AggregateFnId;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
@@ -19,8 +16,6 @@ use crate::LayoutRef;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
-use crate::sequence::SequentialStreamAdapter;
-use crate::sequence::SequentialStreamExt;
 
 /// A shared counter of the bytes that layout strategies are holding but have not yet emitted.
 ///
@@ -79,6 +74,7 @@ impl Drop for BufferedBytesReservation {
 #[derive(Clone)]
 pub struct LayoutWriterContext {
     array_ctx: ArrayContext,
+    allowed_aggregates: Option<Arc<HashSet<AggregateFnId>>>,
     buffered_bytes: BufferedBytesTracker,
 }
 
@@ -87,8 +83,28 @@ impl LayoutWriterContext {
     pub fn new(array_ctx: ArrayContext) -> Self {
         Self {
             array_ctx,
+            allowed_aggregates: None,
             buffered_bytes: BufferedBytesTracker::new(),
         }
+    }
+
+    /// Restrict the aggregate functions this write may record, e.g. in a zone map.
+    ///
+    /// A write that would record an aggregate outside `allowed` fails, matching the array and
+    /// layout contexts: a silently thinner zone map is a file that prunes worse than the
+    /// caller asked for, with nothing in the output saying so. The id set is a plain set of
+    /// ids — callers that source it from editions resolve it themselves.
+    pub fn with_allowed_aggregates(mut self, allowed: HashSet<AggregateFnId>) -> Self {
+        self.allowed_aggregates = Some(Arc::new(allowed));
+        self
+    }
+
+    /// Returns whether `aggregate` may be recorded by this write. Unrestricted contexts
+    /// permit every aggregate.
+    pub fn allows_aggregate(&self, aggregate: &AggregateFnId) -> bool {
+        self.allowed_aggregates
+            .as_ref()
+            .is_none_or(|allowed| allowed.contains(aggregate))
     }
 
     /// Replaces the buffered bytes tracker, so callers can observe the counter from outside the
@@ -175,59 +191,6 @@ pub trait LayoutStrategy: 'static + Send + Sync {
         eof: SequencePointer,
         session: &VortexSession,
     ) -> VortexResult<LayoutRef>;
-}
-
-/// A layout strategy wrapper that rejects arrays containing encodings outside an allow-list.
-///
-/// Canonical encodings are always permitted. Every chunk is recursively validated before it is
-/// passed to the wrapped strategy.
-#[derive(Clone)]
-pub struct LayoutStrategyEncodingValidator {
-    child: Arc<dyn LayoutStrategy>,
-    allowed_encodings: Arc<HashSet<ArrayId>>,
-}
-
-impl LayoutStrategyEncodingValidator {
-    /// Creates a validator around `child` using the supplied encoding allow-list.
-    pub fn new<S: LayoutStrategy>(child: S, allowed_encodings: HashSet<ArrayId>) -> Self {
-        Self {
-            child: Arc::new(child),
-            allowed_encodings: Arc::new(allowed_encodings),
-        }
-    }
-}
-
-#[async_trait]
-impl LayoutStrategy for LayoutStrategyEncodingValidator {
-    async fn write_stream(
-        &self,
-        ctx: LayoutWriterContext,
-        segment_sink: SegmentSinkRef,
-        stream: SendableSequentialStream,
-        eof: SequencePointer,
-        session: &VortexSession,
-    ) -> VortexResult<LayoutRef> {
-        let dtype = stream.dtype().clone();
-        let allowed_encodings = Arc::clone(&self.allowed_encodings);
-        let stream = stream.map(move |chunk| {
-            let (sequence_id, chunk) = chunk?;
-            let chunk = chunk.normalize(&mut NormalizeOptions {
-                allowed: &allowed_encodings,
-                operation: Operation::Error,
-            })?;
-            Ok((sequence_id, chunk))
-        });
-
-        self.child
-            .write_stream(
-                ctx,
-                segment_sink,
-                SequentialStreamAdapter::new(dtype, stream).sendable(),
-                eof,
-                session,
-            )
-            .await
-    }
 }
 
 #[async_trait]

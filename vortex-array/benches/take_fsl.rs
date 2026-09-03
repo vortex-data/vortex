@@ -51,13 +51,16 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 const NUM_LISTS: usize = 500;
 
 /// Number of indices to take.
-const NUM_INDICES: &[usize] = &[100, 1_000];
+///
+/// Together with [`LIST_SIZES`] these are sized so the widest type at the largest list size stays
+/// under 1ms per iteration under codspeed simulation.
+const NUM_INDICES: &[usize] = &[10, 100];
 
-/// Fixed size list lengths (elements per list).
-const LIST_SIZES: &[usize] = &[16, 64, 128, 256, 512, 1024, 2048, 4096];
+/// Fixed size list lengths (elements per list). See [`NUM_INDICES`].
+const LIST_SIZES: &[usize] = &[16, 64, 128, 256];
 
 /// F16 list lengths for isolating the per-index, piecewise, and manual range-copy strategies.
-const F16_STRATEGY_LIST_SIZES: &[usize] = &[1, 2, 4, 8, 16, 64, 128, 256, 512, 1024, 2048, 4096];
+const F16_STRATEGY_LIST_SIZES: &[usize] = &[1, 2, 4, 8, 16, 64, 128, 256, 512, 1024, 2048];
 
 /// F16 strategy benchmarks keep a smaller take width so the forced slow strategies stay cheap.
 const F16_STRATEGY_NUM_INDICES: &[usize] = &[10];

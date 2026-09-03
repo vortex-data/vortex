@@ -117,12 +117,12 @@ fn decompress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64
 
 const RD_BENCH_ARGS: &[(usize, f64)] = &[
     // length, fraction_patch
+    (2_000, 0.0),
+    (2_000, 0.01),
+    (2_000, 0.1),
     (10_000, 0.0),
     (10_000, 0.01),
     (10_000, 0.1),
-    (100_000, 0.0),
-    (100_000, 0.01),
-    (100_000, 0.1),
 ];
 
 fn make_rd_array<T: ALPRDFloat + NativePType>(n: usize, fraction_patch: f64) -> PrimitiveArray {

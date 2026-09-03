@@ -30,6 +30,7 @@ impl<T, const A: usize> ConstBuffer<T, A> {
     }
 
     /// Returns a slice over the buffer of elements of type T.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn as_slice(&self) -> &[T] {
         self.0.as_slice()

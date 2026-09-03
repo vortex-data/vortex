@@ -25,18 +25,17 @@ fn main() {
     divan::main();
 }
 
+// Sized to keep the CodSpeed simulation under 1ms per benchmark.
 const ZCTL_ARGS: &[(usize, usize)] = &[
     // num_lists, list_size
+    (250, 32),
     (1_000, 8),
-    (1_000, 64),
-    (10_000, 8),
 ];
 
 const NON_ZCTL_ARGS: &[(usize, usize)] = &[
     // num_lists, list_size
     (1_000, 8),
     (1_000, 32),
-    (10_000, 8),
 ];
 
 fn make_listview(
@@ -60,8 +59,11 @@ fn make_listview(
 
 #[divan::bench(args = ZCTL_ARGS)]
 fn extend_from_array_zctl(bencher: Bencher, (num_lists, list_size): (usize, usize)) {
-    let source = make_listview(num_lists, list_size, list_size, false);
-    debug_assert!(source.is_zero_copy_to_list());
+    // `ListViewArray::new` never detects zero-copy eligibility, so mark the flag explicitly to
+    // exercise the ZCTL extend path; debug builds validate the invariants.
+    let source = unsafe {
+        make_listview(num_lists, list_size, list_size, false).with_zero_copy_to_list(true)
+    };
     let source = source.into_array();
 
     bencher.with_inputs(|| &source).bench_refs(|source| {

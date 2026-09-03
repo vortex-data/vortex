@@ -3,6 +3,7 @@
 #pragma once
 
 #include "vortex/common.hpp"
+#include "vortex/session.hpp"
 
 #include <vortex.h>
 
@@ -66,16 +67,18 @@ public:
     DataType &operator=(DataType &&) noexcept = default;
 
     /**
-     * Consume an ArrowSchema and convert it into a DataType. The schema must
-     * not be used after this call.
+     * Consume an ArrowSchema and convert it into a DataType, resolving Arrow
+     * extension types through the session's conversion registry. The schema
+     * must not be used after this call.
      */
-    static DataType from_arrow(ArrowSchema *schema);
+    static DataType from_arrow(const Session &session, ArrowSchema *schema);
 
     /**
-     * Convert dtype to an Arrow C schema. Caller is responsible for invoking
+     * Convert dtype to an Arrow C schema, resolving extension types through
+     * the session's conversion registry. Caller is responsible for invoking
      * schema's release() callback.
      */
-    ArrowSchema to_arrow() const;
+    ArrowSchema to_arrow(const Session &session) const;
 
     DataTypeVariant variant() const;
     bool nullable() const;

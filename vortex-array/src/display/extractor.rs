@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt;
+pub use vortex_utils::tree::IndentedFormatter;
+use vortex_utils::tree::TreeDisplayContext;
+pub use vortex_utils::tree::TreeDisplayExtractor as TreeExtractor;
 
 use crate::ArrayRef;
+use crate::arrays::Chunked;
 
 /// Context threaded through tree traversal for percentage calculations etc.
 pub struct TreeContext {
@@ -25,73 +28,18 @@ impl TreeContext {
     pub fn parent_total_size(&self) -> Option<u64> {
         self.ancestor_sizes.last().cloned().flatten()
     }
+}
 
-    pub(crate) fn push(&mut self, size: Option<u64>) {
-        self.ancestor_sizes.push(size);
+impl TreeDisplayContext<ArrayRef> for TreeContext {
+    fn push_parent(&mut self, parent: &ArrayRef) {
+        self.ancestor_sizes.push(if parent.is::<Chunked>() {
+            None
+        } else {
+            Some(parent.nbytes())
+        });
     }
 
-    pub(crate) fn pop(&mut self) {
+    fn pop_parent(&mut self, _parent: &ArrayRef) {
         self.ancestor_sizes.pop();
-    }
-}
-
-/// Wrapper providing access to a [`fmt::Formatter`] and the current indentation string.
-pub struct IndentedFormatter<'a, 'b> {
-    inner: &'a mut fmt::Formatter<'b>,
-    indent: &'a str,
-}
-
-impl<'a, 'b> IndentedFormatter<'a, 'b> {
-    pub(crate) fn new(f: &'a mut fmt::Formatter<'b>, indent: &'a str) -> Self {
-        Self { inner: f, indent }
-    }
-
-    /// Access the indent string and underlying [`fmt::Formatter`] together.
-    pub fn parts(&mut self) -> (&str, &mut fmt::Formatter<'b>) {
-        (self.indent, self.inner)
-    }
-
-    /// The current indentation string.
-    pub fn indent(&self) -> &str {
-        self.indent
-    }
-
-    /// Access the underlying [`fmt::Formatter`].
-    pub fn formatter(&mut self) -> &mut fmt::Formatter<'b> {
-        self.inner
-    }
-}
-
-/// Trait for contributing display information to tree nodes.
-///
-/// Each extractor represents one "dimension" of display (e.g., nbytes, stats, metadata, buffers).
-/// Extractors are composable: you can combine any number of them via [`TreeDisplay::with`].
-///
-/// [`TreeDisplay::with`]: super::TreeDisplay::with
-pub trait TreeExtractor: Send + Sync {
-    /// Write header annotations (space-prefixed) to the formatter.
-    fn write_header(
-        &self,
-        array: &ArrayRef,
-        ctx: &TreeContext,
-        f: &mut fmt::Formatter<'_>,
-    ) -> fmt::Result {
-        let _ = (array, ctx, f);
-        Ok(())
-    }
-
-    /// Write detail lines below the header.
-    ///
-    /// Content written through `f` is automatically indented. Use
-    /// [`f.formatter()`](IndentedFormatter::formatter) to access the underlying
-    /// [`fmt::Formatter`] for formatting flags.
-    fn write_details(
-        &self,
-        array: &ArrayRef,
-        ctx: &TreeContext,
-        f: &mut IndentedFormatter<'_, '_>,
-    ) -> fmt::Result {
-        let _ = (array, ctx, f);
-        Ok(())
     }
 }

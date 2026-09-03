@@ -7,6 +7,7 @@ use std::sync::Weak;
 
 use datafusion_common::Result as DFResult;
 use datafusion_common::config::ConfigOptions;
+use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_datasource::TableSchema;
 use datafusion_datasource::file::FileSource;
 use datafusion_datasource::file_scan_config::FileScanConfig;
@@ -201,7 +202,7 @@ pub struct VortexSource {
     pub(crate) vortex_reader_factory: Option<Arc<dyn VortexReaderFactory>>,
     pub(crate) ordered: bool,
     vx_metrics_registry: Arc<dyn MetricsRegistry>,
-    file_metadata_cache: Option<Arc<dyn FileMetadataCache>>,
+    file_metadata_cache: Option<Arc<FileMetadataCache>>,
     /// Options controlling scan planning and execution behavior.
     options: VortexTableOptions,
 }
@@ -295,10 +296,7 @@ impl VortexSource {
     }
 
     /// Overrides the metadata cache used to reuse Vortex footers across scans.
-    pub fn with_file_metadata_cache(
-        mut self,
-        file_metadata_cache: Arc<dyn FileMetadataCache>,
-    ) -> Self {
+    pub fn with_file_metadata_cache(mut self, file_metadata_cache: Arc<FileMetadataCache>) -> Self {
         self.file_metadata_cache = Some(file_metadata_cache);
         self
     }
@@ -534,6 +532,19 @@ impl FileSource for VortexSource {
     fn table_schema(&self) -> &TableSchema {
         &self.table_schema
     }
+
+    fn apply_expressions(
+        &self,
+        f: &mut dyn FnMut(&Arc<dyn PhysicalExpr>) -> DFResult<TreeNodeRecursion>,
+    ) -> DFResult<TreeNodeRecursion> {
+        datafusion_physical_plan::apply_expression_roots(
+            self.full_predicate
+                .iter()
+                .chain(self.vortex_predicate.iter())
+                .chain(self.projection.iter().map(|expr| &expr.expr)),
+            f,
+        )
+    }
 }
 
 #[cfg(test)]
@@ -603,10 +614,7 @@ mod tests {
     }
 
     fn sort_test_source(schema: Arc<Schema>) -> VortexSource {
-        VortexSource::new(
-            TableSchema::from_file_schema(schema),
-            VortexSession::default(),
-        )
+        VortexSource::new(TableSchema::from(schema), VortexSession::default())
     }
 
     fn octet_length_filter(schema: &Schema) -> PhysicalExprRef {
@@ -660,11 +668,8 @@ mod tests {
             inner: DefaultExpressionConvertor::default(),
         }) as Arc<dyn ExpressionConvertor>;
 
-        let source = VortexSource::new(
-            TableSchema::from_file_schema(file_schema),
-            VortexSession::default(),
-        )
-        .with_expression_convertor(Arc::clone(&expression_convertor));
+        let source = VortexSource::new(TableSchema::from(file_schema), VortexSession::default())
+            .with_expression_convertor(Arc::clone(&expression_convertor));
 
         let config = FileScanConfigBuilder::new(
             ObjectStoreUrl::local_filesystem(),

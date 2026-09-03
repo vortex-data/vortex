@@ -24,11 +24,13 @@ pub struct AnyArray;
 impl Matcher for AnyArray {
     type Match<'a> = &'a ArrayRef;
 
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     fn matches(_array: &ArrayRef) -> bool {
         true
     }
 
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
         Some(array)

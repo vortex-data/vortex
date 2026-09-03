@@ -31,19 +31,18 @@ use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::scan::DataSource as _;
 use vortex::scan::DataSourceRef;
-use vortex_arrow::ToArrowType;
+use vortex_arrow::ArrowSessionExt;
 use vortex_bench::Benchmark;
 use vortex_bench::BenchmarkArg;
-use vortex_bench::CompactionStrategy;
 use vortex_bench::Engine;
 use vortex_bench::Format;
 use vortex_bench::Opt;
 use vortex_bench::Opts;
 use vortex_bench::SESSION;
-use vortex_bench::conversions::convert_parquet_directory_to_vortex;
 use vortex_bench::create_benchmark;
 use vortex_bench::create_output_writer;
 use vortex_bench::display::DisplayFormat;
+use vortex_bench::require_prepared_data;
 use vortex_bench::runner::BenchmarkMode;
 use vortex_bench::runner::BenchmarkQueryResult;
 use vortex_bench::runner::SqlBenchmarkRunner;
@@ -111,6 +110,12 @@ struct Args {
     #[arg(long, default_value_t = false)]
     explain: bool,
 
+    /// Print the selected query indices, one per line, and exit
+    /// Knowledge of query ids lies only in this binary so we need
+    /// orchestrator to know whan queries to run one by one.
+    #[arg(long, default_value_t = false)]
+    print_queries: bool,
+
     #[arg(long, value_delimiter = ',', value_parser = value_parser!(Format))]
     formats: Vec<Format>,
 
@@ -134,29 +139,14 @@ async fn main() -> anyhow::Result<()> {
         args.exclude_queries.as_ref(),
     );
 
-    // Generate Vortex files from Parquet for any Vortex formats requested
-    if benchmark.data_url().scheme() == "file" {
-        benchmark.generate_base_data().await?;
-
-        let base_path = benchmark
-            .data_url()
-            .to_file_path()
-            .map_err(|_| anyhow::anyhow!("Invalid file URL: {}", benchmark.data_url()))?;
-
-        for format in args.formats.iter() {
-            match format {
-                Format::OnDiskVortex => {
-                    convert_parquet_directory_to_vortex(&base_path, CompactionStrategy::Default)
-                        .await?;
-                }
-                Format::VortexCompact => {
-                    convert_parquet_directory_to_vortex(&base_path, CompactionStrategy::Compact)
-                        .await?;
-                }
-                _ => {}
-            }
+    if args.print_queries {
+        for (query_idx, _) in &filtered_queries {
+            println!("{query_idx}");
         }
+        return Ok(());
     }
+
+    require_prepared_data(&*benchmark, &args.formats)?;
 
     let benchmark_name = benchmark.dataset().to_string();
 
@@ -270,8 +260,7 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
             let table_url = ListingTableUrl::try_new(benchmark_base.clone(), pattern)?
                 .with_table_ref(table_ref.clone());
 
-            let listing_options = ListingOptions::new(Arc::clone(&file_format))
-                .with_session_config_options(session.state().config());
+            let listing_options = ListingOptions::new(Arc::clone(&file_format));
             let mut config =
                 ListingTableConfig::new(table_url).with_listing_options(listing_options);
 
@@ -329,7 +318,7 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
             .build()
             .await?;
 
-        let arrow_schema = Arc::new(multi_ds.dtype().to_arrow_schema()?);
+        let arrow_schema = Arc::new(SESSION.arrow().to_arrow_schema(multi_ds.dtype())?);
         let data_source: DataSourceRef = Arc::new(multi_ds);
 
         let table_provider = Arc::new(VortexTable::new(data_source, SESSION.clone(), arrow_schema));

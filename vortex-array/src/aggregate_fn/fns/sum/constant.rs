@@ -15,7 +15,7 @@ use crate::scalar::Scalar;
 ///
 /// Returns `Ok(None)` if the scalar is null (no contribution to the sum).
 /// Returns a null scalar on overflow (saturation).
-pub(super) fn multiply_constant(
+pub(crate) fn multiply_constant(
     scalar: &Scalar,
     len: usize,
     return_dtype: &DType,

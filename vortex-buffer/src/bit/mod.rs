@@ -158,6 +158,7 @@ where
 /// # Panics
 ///
 /// Panics if `index` is not between 0 and length of `buf * 8`.
+#[allow(clippy::inline_always)]
 #[inline(always)]
 pub fn get_bit(buf: &[u8], index: usize) -> bool {
     buf[index / 8] & (1 << (index % 8)) != 0
@@ -168,6 +169,7 @@ pub fn get_bit(buf: &[u8], index: usize) -> bool {
 /// # Safety
 ///
 /// `index` must be between 0 and length of `buf * 8`.
+#[allow(clippy::inline_always)]
 #[inline(always)]
 pub unsafe fn get_bit_unchecked(buf: *const u8, index: usize) -> bool {
     (unsafe { *buf.add(index / 8) } & (1 << (index % 8))) != 0
@@ -178,6 +180,7 @@ pub unsafe fn get_bit_unchecked(buf: *const u8, index: usize) -> bool {
 /// # Safety
 ///
 /// `index` must be between 0 and length of `buf * 8`.
+#[allow(clippy::inline_always)]
 #[inline(always)]
 pub unsafe fn set_bit_unchecked(buf: *mut u8, index: usize) {
     unsafe { *buf.add(index / 8) |= 1 << (index % 8) };
@@ -188,6 +191,7 @@ pub unsafe fn set_bit_unchecked(buf: *mut u8, index: usize) {
 /// # Safety
 ///
 /// `index` must be between 0 and length of `buf * 8`.
+#[allow(clippy::inline_always)]
 #[inline(always)]
 pub unsafe fn unset_bit_unchecked(buf: *mut u8, index: usize) {
     unsafe { *buf.add(index / 8) &= !(1 << (index % 8)) };

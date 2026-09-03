@@ -74,6 +74,7 @@ def test_run_writes_compatibility_results_output(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(cli_module, "ResultStore", lambda: run_store)
     monkeypatch.setattr(cli_module.BenchmarkBuilder, "get_binary_path", lambda self, backend: binary_path)
     monkeypatch.setattr(cli_module, "drop_os_caches", lambda: None)
+    monkeypatch.setattr(BenchmarkExecutor, "list_queries", lambda self, *args, **kwargs: [1])
 
     def fake_run(self, **kwargs):
         kwargs["on_result"](sample_line)
@@ -121,6 +122,7 @@ def test_run_combines_ingest_output_per_backend(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(cli_module, "ResultStore", lambda: run_store)
     monkeypatch.setattr(cli_module.BenchmarkBuilder, "get_binary_path", lambda self, backend: binary_paths[backend])
     monkeypatch.setattr(cli_module, "drop_os_caches", lambda: None)
+    monkeypatch.setattr(BenchmarkExecutor, "list_queries", lambda self, *args, **kwargs: [1])
 
     seen_backend_paths = []
 

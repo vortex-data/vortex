@@ -67,11 +67,11 @@ pub trait FilterKernel: VTable {
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
-/// Common preconditions for filter operations that apply to all arrays.
+/// Short-circuits filter for the inputs that need no encoding-specific work.
 ///
-/// Returns `Some(result)` if the precondition short-circuits the filter operation,
-/// or `None` if the filter should proceed normally.
-fn precondition<V: VTable>(array: ArrayView<'_, V>, mask: &Mask) -> Option<ArrayRef> {
+/// Returns `Some(result)` when the answer is already known, or `None` when the filter must proceed
+/// normally.
+fn short_circuit<V: VTable>(array: ArrayView<'_, V>, mask: &Mask) -> Option<ArrayRef> {
     let true_count = mask.true_count();
 
     // Fast-path for empty mask (all false).
@@ -104,7 +104,7 @@ where
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         assert_eq!(child_idx, 0);
-        if let Some(result) = precondition::<V>(array, parent.filter_mask()) {
+        if let Some(result) = short_circuit::<V>(array, parent.filter_mask()) {
             return Ok(Some(result));
         }
         <V as FilterReduce>::filter(array, parent.filter_mask())
@@ -129,7 +129,7 @@ where
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         assert_eq!(child_idx, 0);
-        if let Some(result) = precondition::<V>(array, parent.filter_mask()) {
+        if let Some(result) = short_circuit::<V>(array, parent.filter_mask()) {
             return Ok(Some(result));
         }
         <V as FilterKernel>::filter(array, parent.filter_mask(), ctx)

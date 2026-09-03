@@ -45,6 +45,23 @@ impl Default for ParquetCompressor {
     }
 }
 
+/// Return the Arrow memory size after decoding the input Parquet file.
+pub fn arrow_uncompressed_size(parquet_path: &Path) -> anyhow::Result<u64> {
+    let file = File::open(parquet_path)?;
+    let reader = ParquetRecordBatchReaderBuilder::try_new(file)?.build()?;
+    let mut total = 0u64;
+
+    for batch in reader {
+        let batch = batch?;
+        let batch_size = u64::try_from(batch.get_array_memory_size())?;
+        total = total
+            .checked_add(batch_size)
+            .ok_or_else(|| anyhow::anyhow!("Arrow memory size exceeds u64"))?;
+    }
+
+    Ok(total)
+}
+
 #[async_trait]
 impl Compressor for ParquetCompressor {
     fn format(&self) -> Format {

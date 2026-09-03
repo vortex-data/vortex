@@ -18,11 +18,14 @@ use crate::CompactionStrategy;
 use crate::Format;
 use crate::IdempotentPath;
 use crate::SESSION;
+use crate::benchmark_write_options;
 use crate::conversions::parquet_to_vortex_chunks;
 use crate::datasets::Dataset;
 use crate::datasets::data_downloads::download_data;
 use crate::idempotent_async;
 use crate::random_access::BenchDataset;
+use crate::random_access::data_path;
+use crate::random_access::parquet_to_arrow_file;
 
 /// Dataset identifier used for data path generation.
 pub const DATASET: &str = "taxi";
@@ -59,6 +62,10 @@ impl BenchDataset for TaxiData {
 
     async fn path(&self, format: Format) -> Result<PathBuf> {
         match format {
+            Format::ArrowIpc => {
+                let parquet_path = taxi_data_parquet().await?;
+                parquet_to_arrow_file(parquet_path, data_path(DATASET, Format::ArrowIpc))
+            }
             Format::OnDiskVortex => taxi_data_vortex().await,
             Format::VortexCompact => taxi_data_vortex_compact().await,
             Format::Parquet => taxi_data_parquet().await,
@@ -93,8 +100,7 @@ pub async fn taxi_data_vortex() -> Result<PathBuf> {
 
         let data = parquet_to_vortex_chunks(taxi_data_parquet().await?).await?;
 
-        SESSION
-            .write_options()
+        benchmark_write_options(SESSION.write_options())
             .write(&mut output_file, data.into_array().to_array_stream())
             .await?;
         output_file.flush().await?;

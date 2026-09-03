@@ -26,21 +26,21 @@ def test_parse_formats_json_accepts_ci_format_arrays() -> None:
     assert formats == [Format.PARQUET, Format.VORTEX, Format.DUCKDB]
 
 
-def test_parse_formats_json_accepts_vortex_native() -> None:
-    formats = parse_formats_json('["parquet","vortex","vortex-geo-native"]')
+def test_parse_formats_json_accepts_vortex_spatial_native() -> None:
+    formats = parse_formats_json('["parquet","vortex","vortex-spatial-native"]')
 
-    assert formats == [Format.PARQUET, Format.VORTEX, Format.VORTEX_NATIVE]
+    assert formats == [Format.PARQUET, Format.VORTEX, Format.VORTEX_SPATIAL_NATIVE]
 
 
-def test_resolve_axis_targets_offers_vortex_native_on_duckdb_only() -> None:
-    # vortex-geo-native is a DuckDB-only lane; the DataFusion axis is dropped as unsupported.
+def test_resolve_axis_targets_offers_vortex_spatial_native_on_duckdb_only() -> None:
+    # vortex-spatial-native is a DuckDB-only lane; the DataFusion axis is dropped as unsupported.
     targets, warnings = resolve_axis_targets(
         [Engine.DATAFUSION, Engine.DUCKDB],
-        [Format.VORTEX_NATIVE],
+        [Format.VORTEX_SPATIAL_NATIVE],
     )
 
-    assert targets == [BenchmarkTarget(engine=Engine.DUCKDB, format=Format.VORTEX_NATIVE)]
-    assert warnings == ["Format vortex-geo-native is not supported by engine datafusion"]
+    assert targets == [BenchmarkTarget(engine=Engine.DUCKDB, format=Format.VORTEX_SPATIAL_NATIVE)]
+    assert warnings == ["Format vortex-spatial-native is not supported by engine datafusion"]
 
 
 def test_resolve_axis_targets_filters_unsupported_combinations() -> None:
@@ -72,19 +72,19 @@ def test_resolve_axis_targets_skips_engines_a_benchmark_cannot_run() -> None:
     assert warnings == ["Benchmark spatialbench does not support engine datafusion"]
 
 
-def test_resolve_axis_targets_expands_spatialbench_three_lanes() -> None:
+def test_resolve_axis_targets_supports_spatialbench_three_lanes() -> None:
     # The single-command three-lane comparison: parquet, WKB vortex, and native-geometry vortex, all
     # on DuckDB.
     targets, warnings = resolve_axis_targets(
         [Engine.DUCKDB],
-        [Format.PARQUET, Format.VORTEX, Format.VORTEX_NATIVE],
+        [Format.PARQUET, Format.VORTEX, Format.VORTEX_SPATIAL_NATIVE],
         Benchmark.SPATIALBENCH,
     )
 
     assert targets == [
         BenchmarkTarget(engine=Engine.DUCKDB, format=Format.PARQUET),
         BenchmarkTarget(engine=Engine.DUCKDB, format=Format.VORTEX),
-        BenchmarkTarget(engine=Engine.DUCKDB, format=Format.VORTEX_NATIVE),
+        BenchmarkTarget(engine=Engine.DUCKDB, format=Format.VORTEX_SPATIAL_NATIVE),
     ]
     assert warnings == []
 

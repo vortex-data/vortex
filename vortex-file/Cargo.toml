@@ -17,6 +17,7 @@ version = { workspace = true }
 all-features = true
 
 [dependencies]
+async-stream = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 flatbuffers = { workspace = true }
@@ -25,7 +26,6 @@ itertools = { workspace = true }
 kanal = { workspace = true }
 moka = { workspace = true, features = ["sync"] }
 object_store = { workspace = true, optional = true }
-oneshot.workspace = true
 parking_lot = { workspace = true }
 pin-project-lite = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
@@ -61,6 +61,8 @@ vortex-zigzag = { workspace = true }
 vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]
+allocator-api2 = { workspace = true }
+divan = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
@@ -72,7 +74,12 @@ vortex-scan = { workspace = true }
 [lints]
 workspace = true
 
+[[bench]]
+name = "split_collection"
+harness = false
+
 [features]
+default = ["wasm-bindgen"]
 object_store = ["dep:object_store", "vortex-io/object_store", "tokio"]
 tokio = [
     "dep:tokio",
@@ -80,6 +87,7 @@ tokio = [
     "vortex-io/tokio",
     "vortex-layout/tokio",
 ]
+wasm-bindgen = ["vortex-layout/wasm-bindgen"]
 zstd = ["dep:vortex-zstd", "vortex-btrblocks/zstd", "vortex-btrblocks/pco"]
 # This feature enables unstable encodings for which we don't guarantee stability.
 unstable_encodings = [

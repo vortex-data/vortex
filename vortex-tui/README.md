@@ -6,6 +6,8 @@ A small, helpful CLI tool for exploring and analyzing Vortex files.
 * `tree`: Print the encoding tree of a Vortex file
 * `inspect`: Inspect Vortex file footer and metadata
 * `convert`: Convert a Parquet file to a Vortex file
+* `query`: Run a SQL query against a Vortex file and print JSON
+* `segments`: Print the segment layout of a Vortex file as JSON
 
 ## Examples
 

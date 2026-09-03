@@ -101,8 +101,11 @@ pub async fn generate_tables(scale_factor: &str, output_dir: PathBuf) -> Result<
                 }
                 // Tag geometry columns with GeoParquet `geo` metadata so DuckDB's `read_parquet`
                 // surfaces them as `GEOMETRY` directly.
-                if let Some(geo) = geo_parquet_metadata(table) {
-                    writer.append_key_value_metadata(KeyValue::new("geo".to_string(), Some(geo)));
+                if let Some(geoparquet_metadata) = geoparquet_metadata(table) {
+                    writer.append_key_value_metadata(KeyValue::new(
+                        "geo".to_string(),
+                        Some(geoparquet_metadata),
+                    ));
                 }
                 writer.close().await?;
 
@@ -162,7 +165,7 @@ async fn generate_zone(scale_factor: f64, parquet_dir: &Path) -> Result<()> {
 }
 
 /// GeoParquet metadata for WKB geometry columns, or `None` when it has none.
-pub(crate) fn geo_parquet_metadata(table: Table) -> Option<String> {
+pub(crate) fn geoparquet_metadata(table: Table) -> Option<String> {
     let geometry_columns = table.geometry_columns();
     let primary = geometry_columns.first()?;
     let columns: serde_json::Map<String, serde_json::Value> = geometry_columns

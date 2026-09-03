@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use itertools::Itertools;
@@ -55,7 +56,8 @@ fn bitpacked_is_constant<T: BitPackedUnpack, const WIDTH: usize>(
     array: ArrayView<'_, BitPacked>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<bool> {
-    let mut bit_unpack_iterator = array.unpacked_chunks::<T>()?;
+    let mut scratch = [const { MaybeUninit::<T>::uninit() }; 1024];
+    let mut bit_unpack_iterator = array.unpacked_chunks::<T>(&mut scratch)?;
     let patches = array
         .patches()
         .map(|p| -> VortexResult<_> {
@@ -87,37 +89,39 @@ fn bitpacked_is_constant<T: BitPackedUnpack, const WIDTH: usize>(
     }
 
     let mut first_chunk_value = None;
-    let mut chunks_iter = bit_unpack_iterator.full_chunks();
-    while let Some(chunk) = chunks_iter.next() {
-        if let Some((indices, patches, offset)) = &patches {
-            let chunk_len = chunk.len();
-            apply_patches(
-                chunk,
-                current_idx..current_idx + chunk_len,
-                indices,
-                patches.as_slice::<T>(),
-                *offset,
-            )
-        }
+    {
+        let mut chunks_iter = bit_unpack_iterator.full_chunks();
+        while let Some(chunk) = chunks_iter.next() {
+            if let Some((indices, patches, offset)) = &patches {
+                let chunk_len = chunk.len();
+                apply_patches(
+                    chunk,
+                    current_idx..current_idx + chunk_len,
+                    indices,
+                    patches.as_slice::<T>(),
+                    *offset,
+                )
+            }
 
-        if !compute_is_constant::<_, WIDTH>(chunk) {
-            return Ok(false);
-        }
-
-        if let Some(chunk_value) = first_chunk_value {
-            if chunk_value != chunk[0] {
+            if !compute_is_constant::<_, WIDTH>(chunk) {
                 return Ok(false);
             }
-        } else {
-            if let Some(header_value) = header_constant_value
-                && header_value != chunk[0]
-            {
-                return Ok(false);
-            }
-            first_chunk_value = Some(chunk[0]);
-        }
 
-        current_idx += chunk.len();
+            if let Some(chunk_value) = first_chunk_value {
+                if chunk_value != chunk[0] {
+                    return Ok(false);
+                }
+            } else {
+                if let Some(header_value) = header_constant_value
+                    && header_value != chunk[0]
+                {
+                    return Ok(false);
+                }
+                first_chunk_value = Some(chunk[0]);
+            }
+
+            current_idx += chunk.len();
+        }
     }
 
     if let Some(trailer) = bit_unpack_iterator.trailer() {

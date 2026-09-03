@@ -14,7 +14,7 @@
 #![expect(clippy::tests_outside_test_module)]
 
 use vortex_array::ArrayContext;
-use vortex_array::ArrayPlugin;
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayVTable;
 use vortex_array::IntoArray;
@@ -23,8 +23,9 @@ use vortex_array::serde::SerializeOptions;
 use vortex_array::session::ArraySessionExt;
 use vortex_buffer::buffer;
 use vortex_decimal_byte_parts::DecimalByteParts;
-use vortex_decimal_byte_parts::DecimalBytePartsV2;
+use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 fn msp() -> ArrayRef {
@@ -39,6 +40,14 @@ fn session() -> VortexSession {
     let session = vortex_array::array_session();
     vortex_decimal_byte_parts::initialize(&session);
     session
+}
+
+/// The wire ID the session's plugin picks for `array`.
+fn serialized_id(session: &VortexSession, array: &ArrayRef) -> VortexResult<ArrayId> {
+    Ok(session
+        .array_serialize(array)?
+        .ok_or_else(|| vortex_err!("byte parts arrays are serializable"))?
+        .serialized_id)
 }
 
 /// A single-child array is the stable shape and is always constructible.
@@ -72,7 +81,7 @@ fn serialized_id_tracks_lower_parts() -> VortexResult<()> {
 
     let flat = DecimalByteParts::try_new(msp(), DecimalDType::new(19, 2))?.into_array();
     assert_eq!(
-        session.array_serialized_id(&flat)?,
+        serialized_id(&session, &flat)?,
         ArrayVTable::id(&DecimalByteParts)
     );
 
@@ -82,10 +91,7 @@ fn serialized_id_tracks_lower_parts() -> VortexResult<()> {
         DecimalDType::new(38, 2),
     )?
     .into_array();
-    assert_eq!(
-        session.array_serialized_id(&wide)?,
-        ArrayPlugin::id(&DecimalBytePartsV2)
-    );
+    assert_eq!(serialized_id(&session, &wide)?, decimal_byte_parts_v2_id());
 
     Ok(())
 }
@@ -142,7 +148,7 @@ fn wide_format_is_refused_where_not_permitted() -> VortexResult<()> {
     let permissive = ArrayContext::empty().with_allowed_ids(
         [
             ArrayVTable::id(&DecimalByteParts),
-            ArrayPlugin::id(&DecimalBytePartsV2),
+            decimal_byte_parts_v2_id(),
             ArrayVTable::id(&vortex_array::arrays::Primitive),
         ]
         .into_iter()
@@ -151,9 +157,7 @@ fn wide_format_is_refused_where_not_permitted() -> VortexResult<()> {
     let serialized = array.serialize(&permissive, &session, &SerializeOptions::default())?;
     assert!(!serialized.is_empty());
     assert!(
-        permissive
-            .to_ids()
-            .contains(&ArrayPlugin::id(&DecimalBytePartsV2)),
+        permissive.to_ids().contains(&decimal_byte_parts_v2_id()),
         "the file's encoding table must carry the v2 format id"
     );
 

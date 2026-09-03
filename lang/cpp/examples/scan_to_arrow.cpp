@@ -31,7 +31,7 @@ int main(int argc, char **argv) {
     Scan scan = ds.scan();
 
     DataType out_dtype = ds.dtype();
-    ArrowSchema schema = out_dtype.to_arrow();
+    ArrowSchema schema = out_dtype.to_arrow(session);
     char schema_buf[10 * 1024];
     const int64_t schema_len = ArrowSchemaToString(&schema, schema_buf, sizeof schema_buf, 1);
     std::cout << "arrow schema: " << std::string_view {schema_buf, static_cast<size_t>(schema_len)} << '\n';

@@ -125,13 +125,11 @@ mod tests {
     use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::ScalarFn;
-    use crate::arrays::scalar_fn::ScalarFnFactoryExt;
     use crate::assert_arrays_eq;
     use crate::dtype::Nullability;
     use crate::executor::VortexSessionExecute;
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar::Scalar;
-    use crate::scalar_fn::EmptyOptions;
     use crate::scalar_fn::fns::mask::Mask as MaskExpr;
 
     /// A constant Boolean mask child must take the metadata-only reduction path (pushing into the
@@ -149,7 +147,7 @@ mod tests {
         )
         .into_array();
 
-        let masked = MaskExpr.try_new_array(input.len(), EmptyOptions, [input, mask])?;
+        let masked = MaskExpr::try_new(input, mask)?.into_array();
         assert!(
             masked.is::<ScalarFn>(),
             "expected an un-optimized ScalarFn wrapper before optimization"

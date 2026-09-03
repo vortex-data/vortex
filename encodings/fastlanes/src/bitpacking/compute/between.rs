@@ -55,10 +55,10 @@ impl BetweenKernel for BitPacked {
         let result = match_each_integer_ptype!(arr_ptype, |T| {
             let lo: T = lower_prim
                 .typed_value::<T>()
-                .vortex_expect("between precondition strips null lower");
+                .vortex_expect("the between short circuit strips a null lower bound");
             let up: T = upper_prim
                 .typed_value::<T>()
-                .vortex_expect("between precondition strips null upper");
+                .vortex_expect("the between short circuit strips a null upper bound");
             between_constant_typed::<T>(array, lo, up, options, nullability, ctx)?
         });
         Ok(Some(result))

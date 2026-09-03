@@ -10,15 +10,29 @@ use crate::duckdb::VectorRef;
 use crate::exporter::copy_from_slice;
 
 impl VectorRef {
-    /// Returns true if all values are null (caller can skip data export).
+    /// Sets validity from the selected range of `mask`.
+    ///
+    /// Returns whether all selected values are null.
+    ///
+    /// # Safety
+    ///
+    /// - `offset + len` must not exceed `mask.len()`.
+    /// - `len` must not exceed the vector capacity.
     pub unsafe fn set_validity(&mut self, mask: &Mask, offset: usize, len: usize) -> bool {
         unsafe { self.set_validity_zero_copy(mask, offset, len, None) }
     }
 
-    /// Like [`set_validity`](Self::set_validity), but attempts a zero-copy path when
-    /// `zero_copy` is provided and the offset is u64-aligned.
+    /// Sets validity from `mask`, using `zero_copy` when its bitmap and `offset` are `u64`-aligned.
     ///
-    /// Returns true if all values are null (caller can skip data export).
+    /// Returns whether all selected values are null.
+    ///
+    /// # Safety
+    ///
+    /// - `offset + len` must not exceed `mask.len()`.
+    /// - `len` must not exceed the vector capacity.
+    /// - A supplied `zero_copy` value must point to the start of the `Mask::Values` bitmap in
+    ///   `mask`. The pointer must be aligned for `u64`, and the buffer must contain only complete
+    ///   `u64` words.
     pub(super) unsafe fn set_validity_zero_copy(
         &mut self,
         mask: &Mask,
@@ -35,27 +49,36 @@ impl VectorRef {
                 self.set_all_false_validity();
                 true
             }
-            Mask::Values(arr) => {
-                let true_count = arr.bit_buffer().slice(offset..(offset + len)).true_count();
+            Mask::Values(values) => {
+                let true_count = values
+                    .bit_buffer()
+                    .slice(offset..(offset + len))
+                    .true_count();
                 if true_count == len {
                     self.set_all_true_validity()
                 } else if true_count == 0 {
                     self.set_all_false_validity()
-                } else if let Some(zc) = zero_copy.filter(|_| offset.is_multiple_of(64)) {
+                } else if let Some(validity_data) = zero_copy.filter(|_| offset.is_multiple_of(64))
+                {
                     let u64_offset = offset / 64;
-                    // SAFETY: the underlying buffer is u64-aligned (checked in
-                    // can_zero_copy_validity) and the VectorBuffer keeps the data alive.
-                    // data_ptr points into the buffer at the start of the validity bitmap.
-                    unsafe { self.set_validity_data(u64_offset, len, zc) };
+
+                    // SAFETY:
+                    // - `zero_copy_validity` points `data_ptr` to an aligned buffer of complete
+                    //   `u64` words.
+                    // - `ValidityExporter::export` bounds the selected range to the mask, and this
+                    //   branch requires a `u64`-aligned offset, so the buffer contains every word.
+                    // - `shared_buffer` keeps the bitmap alive while DuckDB reads it.
+                    unsafe { self.set_validity_data(u64_offset, len, validity_data) };
                 } else {
-                    // If zero_copy is available and offset is aligned, we should
-                    // have taken the branch above. Assert this invariant.
+                    // An available zero-copy buffer with an aligned offset must take the branch
+                    // above.
                     assert!(
                         zero_copy.is_none() || !offset.is_multiple_of(64),
                         "zero-copy validity available and offset {offset} is aligned \
                          but copy path was taken"
                     );
-                    let source = arr.bit_buffer().inner().as_slice();
+
+                    let source = values.bit_buffer().inner().as_slice();
                     copy_from_slice(
                         unsafe { self.ensure_validity_slice(len) },
                         source,

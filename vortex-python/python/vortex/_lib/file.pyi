@@ -5,6 +5,7 @@ from typing import final
 
 import polars as pl
 import pyarrow as pa
+from typing_extensions import override
 
 from vortex.type_aliases import IntoProjection
 
@@ -22,6 +23,10 @@ class VortexFile:
     def __len__(self) -> int: ...
     @property
     def dtype(self) -> DType: ...
+    @property
+    def path(self) -> str: ...
+    @override
+    def __reduce__(self) -> tuple[object, tuple[str, bool]]: ...
     def scan(
         self,
         projection: IntoProjection = None,

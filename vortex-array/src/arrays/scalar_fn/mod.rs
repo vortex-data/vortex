@@ -7,5 +7,4 @@ mod rules;
 mod vtable;
 
 pub use array::ScalarFnArrayExt;
-pub use vtable::ScalarFnFactoryExt;
 pub use vtable::*;

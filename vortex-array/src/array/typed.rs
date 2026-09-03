@@ -348,6 +348,7 @@ impl<V: VTable> Array<V> {
     }
 
     /// Returns the internal [`ArrayRef`].
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn as_array(&self) -> &ArrayRef {
         &self.inner
@@ -361,6 +362,7 @@ impl<V: VTable> Array<V> {
     }
 
     /// Downcast the inner `ArrayRef` to `&ArrayData<V>`.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     fn downcast_inner(&self) -> &ArrayData<V> {
         let any = self.inner.dyn_array().as_any();
@@ -508,6 +510,7 @@ impl<V: VTable> AsRef<ArrayRef> for Array<V> {
 }
 
 impl<V: VTable> IntoArray for Array<V> {
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     fn into_array(self) -> ArrayRef {
         self.inner

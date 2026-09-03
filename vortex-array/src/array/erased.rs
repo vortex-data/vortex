@@ -84,12 +84,14 @@ impl ArrayRef {
     }
 
     /// Returns a reference to the `dyn DynArrayData` inside the inner.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub(crate) fn dyn_array(&self) -> &dyn DynArrayData {
         &self.0.data
     }
 
     /// Returns a mutable reference to the inner if this is the sole owner.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub(crate) fn inner_mut(&mut self) -> Option<&mut ArrayInner<dyn DynArrayData>> {
         Arc::get_mut(&mut self.0)
@@ -119,6 +121,7 @@ impl ArrayRef {
     ///
     /// # Safety
     /// The caller must guarantee the concrete type behind `dyn DynArrayData` is `ArrayData<V>`.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub(crate) unsafe fn downcast_inner_unchecked<V: VTable>(
         self,
@@ -301,6 +304,10 @@ impl ArrayRef {
 
     /// Returns whether all items in the array are valid.
     pub fn all_valid(&self, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
+        if self.is_empty() {
+            return Ok(true);
+        }
+
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(true),
             Validity::AllInvalid => Ok(false),
@@ -310,6 +317,10 @@ impl ArrayRef {
 
     /// Returns whether the array is all invalid.
     pub fn all_invalid(&self, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
+        if self.is_empty() {
+            return Ok(true);
+        }
+
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(false),
             Validity::AllInvalid => Ok(true),
@@ -783,6 +794,7 @@ impl ArrayRef {
 }
 
 impl IntoArray for ArrayRef {
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     fn into_array(self) -> ArrayRef {
         self

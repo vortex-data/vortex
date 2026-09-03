@@ -18,6 +18,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::ArrowSessionExt;
+#[allow(deprecated)]
 use crate::FromArrowArray;
 
 /// A wrapper around a generic Arrow array that can be used as a Datum in Arrow compute.
@@ -109,6 +110,7 @@ impl ArrowDatum for Datum {
     note = "Relies on the hidden global `legacy_session()`; use `from_arrow_columnar` with an explicit `ExecutionCtx` instead"
 )]
 #[allow(clippy::disallowed_methods)]
+#[allow(deprecated)]
 pub fn from_arrow_array_with_len<A>(array: A, len: usize, nullable: bool) -> VortexResult<ArrayRef>
 where
     ArrayRef: FromArrowArray<A>,
@@ -142,19 +144,20 @@ where
 /// This is useful for compute functions that delegate to Arrow using [Datum],
 /// which will return a scalar (length 1 Arrow array) if the input array is constant.
 ///
+/// The array is imported through the [`ArrowSession`](crate::ArrowSession) of `ctx`, so nested
+/// extension fields reach their registered import plugins.
+///
 /// # Error
 ///
 /// The provided array must have length `len` or `1`.
-pub fn from_arrow_columnar<A>(
-    array: A,
+pub fn from_arrow_columnar(
+    array: ArrowArrayRef,
     len: usize,
     nullable: bool,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef>
-where
-    ArrayRef: FromArrowArray<A>,
-{
-    let array = ArrayRef::from_arrow(array, nullable)?;
+) -> VortexResult<ArrayRef> {
+    let session = ctx.session().clone();
+    let array = session.arrow().from_arrow_array(array, nullable)?;
     if array.len() == len {
         return Ok(array);
     }

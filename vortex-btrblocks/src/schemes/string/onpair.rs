@@ -26,6 +26,7 @@ use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
 use crate::SchemeExt;
+use crate::schemes::integer::DeltaScheme;
 use crate::schemes::integer::try_compress_delta;
 
 /// OnPair short-string compression (dict-12).
@@ -175,6 +176,9 @@ fn compress_offsets_child(
     let plain =
         compressor.compress_child(&narrowed, compress_ctx, scheme_id, child_idx, exec_ctx)?;
     if narrowed.len() < OFFSETS_DELTA_MIN_LEN {
+        return Ok(plain);
+    }
+    if !compressor.has_scheme(DeltaScheme::default().id()) {
         return Ok(plain);
     }
     let delta = try_compress_delta(

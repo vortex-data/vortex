@@ -65,6 +65,7 @@ impl VarBinViewArray {
 
     /// Iterates over all valid, non-inlined views, calling the provided
     /// closure for each one.
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     fn iter_valid_views<F>(&self, ctx: &mut ExecutionCtx, mut f: F) -> VortexResult<()>
     where
@@ -159,7 +160,7 @@ pub(crate) struct BufferUtilization {
 }
 
 impl BufferUtilization {
-    fn zero(len: u32) -> Self {
+    pub(crate) fn zero(len: u32) -> Self {
         BufferUtilization {
             len,
             used: 0u32,
@@ -168,7 +169,7 @@ impl BufferUtilization {
         }
     }
 
-    fn add(&mut self, offset: u32, size: u32) {
+    pub(crate) fn add(&mut self, offset: u32, size: u32) {
         self.used += size;
         self.min_offset = self.min_offset.min(offset);
         self.max_offset_end = self.max_offset_end.max(offset + size);

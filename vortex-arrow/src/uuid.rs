@@ -104,7 +104,11 @@ impl ArrowImportVTable for Uuid {
         *ARROW_UUID
     }
 
-    fn from_arrow_field(&self, field: &Field) -> VortexResult<Option<DType>> {
+    fn from_arrow_field(
+        &self,
+        field: &Field,
+        _session: &ArrowSession,
+    ) -> VortexResult<Option<DType>> {
         if !has_valid_extension_type::<ArrowUuid>(field) {
             return Ok(None);
         }
@@ -125,6 +129,7 @@ impl ArrowImportVTable for Uuid {
         array: ArrowArrayRef,
         _field: &Field,
         dtype: &DType,
+        _session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
         let DType::Extension(dtype) = dtype else {
             return Ok(ArrowImport::Unsupported(array));

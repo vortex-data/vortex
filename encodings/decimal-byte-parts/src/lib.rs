@@ -22,10 +22,9 @@ use vortex_session::VortexSession;
 
 /// Initialize decimal-byte-parts encoding in the given session.
 pub fn initialize(session: &VortexSession) {
-    session.arrays().register(DecimalByteParts);
-    // The v2 serialized format deserializes into the same in-memory encoding. Registration
-    // covers reading; writing it is gated by the editions enabled on the writer's session.
-    session.arrays().register(DecimalBytePartsV2);
+    // One plugin owns both serialized formats: registering it reads either ID and writes the
+    // one that fits the array. Which of them a writer may emit is decided by its editions.
+    session.arrays().register(DecimalBytePartsPlugin);
     compute::kernel::initialize(session);
 
     session.aggregate_fns().register_aggregate_kernel(

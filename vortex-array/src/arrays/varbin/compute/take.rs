@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::iter;
 use std::ptr;
+use std::sync::Arc;
 
 use itertools::Itertools as _;
+use num_traits::AsPrimitive;
 use vortex_buffer::BitBufferMut;
+use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
@@ -12,6 +16,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
@@ -22,17 +27,21 @@ use crate::arrays::PiecewiseSequence;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
+use crate::arrays::VarBinViewArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::piecewise_sequence::constant_unsigned_usize;
 use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::arrays::varbin::VarBinArrayExt;
 use crate::arrays::varbin::VarBinArraySlotsExt;
+use crate::arrays::varbinview::BinaryView;
+use crate::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
 use crate::executor::ExecutionCtx;
+use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::validity::Validity;
 
@@ -138,80 +147,141 @@ impl TakeExecute for VarBin {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        if let Some(piecewise_indices) = indices.as_opt::<PiecewiseSequence>()
-            && let Some(taken) = take_contiguous_ranges(array, piecewise_indices, indices, ctx)?
-        {
-            return Ok(Some(taken));
+        let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
+        let offsets = offsets.reinterpret_cast(offsets.ptype().to_unsigned());
+        let last_offset = match_each_unsigned_integer_ptype!(offsets.ptype(), |O| {
+            offsets.as_slice::<O>().last().map_or(0usize, |&o| o.as_())
+        });
+
+        // VarBinView can't hold this buffer, so we can't canonicalize and
+        // take() (take panics). Convert to VarBin
+        if last_offset > MAX_BUFFER_LEN {
+            return Ok(Some(take_varbin(array, indices, ctx)?.into_array()));
         }
 
-        // TODO(joe): Be lazy with execute
-        let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
-        let data = array.bytes();
-        let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
+        let data = array.bytes().clone();
         let dtype = array
             .dtype()
             .clone()
             .union_nullability(indices.dtype().nullability());
-        let array_validity = array
-            .varbin_validity()
-            .execute_mask(array.as_ref().len(), ctx)?;
-        let indices_validity = indices
+        let validity = array.validity()?.take(indices)?;
+
+        let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
+        let indices_mask = indices
             .as_ref()
             .validity()?
             .execute_mask(indices.as_ref().len(), ctx)?;
 
-        // Offsets and indices are non-negative; read them through their unsigned reinterpretations
-        // so we only monomorphize over the 4 unsigned widths each (4x4 instead of 8x8). On take,
-        // offsets get widened to either 32- or 64-bit (to avoid overflow); the built output offsets
-        // are reinterpreted back to `out_offset_ptype` to preserve the result's offset signedness.
-        let out_offset_ptype = taken_offset_ptype(offsets.ptype());
-        let offsets = offsets.reinterpret_cast(offsets.ptype().to_unsigned());
-        let indices = indices.reinterpret_cast(indices.ptype().to_unsigned());
-
-        let array = match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
-            match offsets.ptype() {
-                PType::U8 => take::<I, u8>(
-                    dtype,
-                    offsets.as_slice::<u8>(),
+        let views = match_each_unsigned_integer_ptype!(offsets.ptype(), |O| {
+            match_each_integer_ptype!(indices.ptype(), |I| {
+                take_views(
+                    offsets.as_slice::<O>(),
                     data.as_slice(),
                     indices.as_slice::<I>(),
-                    array_validity,
-                    indices_validity,
-                    out_offset_ptype,
-                ),
-                PType::U16 => take::<I, u16>(
-                    dtype,
-                    offsets.as_slice::<u16>(),
-                    data.as_slice(),
-                    indices.as_slice::<I>(),
-                    array_validity,
-                    indices_validity,
-                    out_offset_ptype,
-                ),
-                PType::U32 => take::<I, u32>(
-                    dtype,
-                    offsets.as_slice::<u32>(),
-                    data.as_slice(),
-                    indices.as_slice::<I>(),
-                    array_validity,
-                    indices_validity,
-                    out_offset_ptype,
-                ),
-                PType::U64 => take::<I, u64>(
-                    dtype,
-                    offsets.as_slice::<u64>(),
-                    data.as_slice(),
-                    indices.as_slice::<I>(),
-                    array_validity,
-                    indices_validity,
-                    out_offset_ptype,
-                ),
-                _ => unreachable!("invalid PType for offsets"),
-            }
+                    &indices_mask,
+                )
+            })
         });
 
-        Ok(Some(array?.into_array()))
+        // SAFETY: every view references buffer 0 which is inside shared data buffer
+        unsafe {
+            Ok(Some(
+                VarBinViewArray::new_unchecked(views, Arc::from([data]), dtype, validity)
+                    .into_array(),
+            ))
+        }
     }
+}
+
+fn take_views<O: UnsignedPType, I: IntegerPType + AsPrimitive<usize>>(
+    offsets: &[O],
+    data: &[u8],
+    indices: &[I],
+    mask: &Mask,
+) -> Buffer<BinaryView> {
+    let build = |idx: usize| -> BinaryView {
+        let start: usize = offsets[idx].as_();
+        let stop: usize = offsets[idx + 1].as_();
+        let value = &data[start..stop];
+        let len = stop - start;
+
+        // Caller guarantees every offset is <= MAX_BUFFER_LEN
+        let start: u32 = start.as_();
+        if len > BinaryView::MAX_INLINED_SIZE {
+            let mut prefix = [0u8; 4];
+            prefix.copy_from_slice(&value[..4]);
+            let len: u32 = len.as_();
+            BinaryView::new_ref(len, prefix, 0, start)
+        } else {
+            BinaryView::make_view(value, 0, start)
+        }
+    };
+
+    match mask.bit_buffer() {
+        AllOr::All => Buffer::from_trusted_len_iter(indices.iter().map(|i| build(i.as_()))),
+        AllOr::None => {
+            Buffer::from_trusted_len_iter(iter::repeat_n(BinaryView::default(), indices.len()))
+        }
+        AllOr::Some(buffer) => {
+            Buffer::from_trusted_len_iter(buffer.iter().zip(indices.iter()).map(|(valid, i)| {
+                if valid {
+                    build(i.as_())
+                } else {
+                    BinaryView::default()
+                }
+            }))
+        }
+    }
+}
+
+/// Take from a VarBin. Referenced bytes are copied
+pub fn take_varbin(
+    array: ArrayView<'_, VarBin>,
+    indices: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<VarBinArray> {
+    if let Some(piecewise_indices) = indices.as_opt::<PiecewiseSequence>()
+        && let Some(taken) = take_contiguous_ranges(array, piecewise_indices, indices, ctx)?
+    {
+        return Ok(taken);
+    }
+
+    let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
+    let data = array.bytes();
+    let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
+    let dtype = array
+        .dtype()
+        .clone()
+        .union_nullability(indices.dtype().nullability());
+    let array_validity = array
+        .varbin_validity()
+        .execute_mask(array.as_ref().len(), ctx)?;
+    let indices_validity = indices
+        .as_ref()
+        .validity()?
+        .execute_mask(indices.as_ref().len(), ctx)?;
+
+    // Offsets and indices are non-negative; read them through their unsigned reinterpretations
+    // so we only monomorphize over the 4 unsigned widths each (4x4 instead of 8x8). On take,
+    // offsets get widened to either 32- or 64-bit (to avoid overflow); the built output offsets
+    // are reinterpreted back to `out_offset_ptype` to preserve the result's offset signedness.
+    let out_offset_ptype = taken_offset_ptype(offsets.ptype());
+    let offsets = offsets.reinterpret_cast(offsets.ptype().to_unsigned());
+    let indices = indices.reinterpret_cast(indices.ptype().to_unsigned());
+
+    match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
+        match_each_unsigned_integer_ptype!(offsets.ptype(), |O| {
+            take::<I, O>(
+                dtype,
+                offsets.as_slice::<O>(),
+                data.as_slice(),
+                indices.as_slice::<I>(),
+                array_validity,
+                indices_validity,
+                out_offset_ptype,
+            )
+        })
+    })
 }
 
 fn take_contiguous_ranges(
@@ -219,7 +289,7 @@ fn take_contiguous_ranges(
     indices: ArrayView<'_, PiecewiseSequence>,
     indices_ref: &ArrayRef,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<ArrayRef>> {
+) -> VortexResult<Option<VarBinArray>> {
     let Some((starts, lengths)) = maybe_contiguous_slices(indices, ctx)? else {
         return Ok(None);
     };
@@ -261,10 +331,12 @@ fn take_contiguous_ranges(
     // SAFETY: output offsets are built from valid input offsets, start at zero, are monotonically
     // non-decreasing, and the copied data buffer has exactly the referenced byte length.
     unsafe {
-        Ok(Some(
-            VarBinArray::new_unchecked(result.offsets, result.data.freeze(), dtype, validity)
-                .into_array(),
-        ))
+        Ok(Some(VarBinArray::new_unchecked(
+            result.offsets,
+            result.data.freeze(),
+            dtype,
+            validity,
+        )))
     }
 }
 

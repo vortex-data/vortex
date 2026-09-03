@@ -262,6 +262,7 @@ pub fn trace_op_with<T>(
 }
 
 /// Returns true when the current thread has an active trace recorder.
+#[allow(clippy::inline_always)]
 #[inline(always)]
 pub(crate) fn is_active() -> bool {
     if ACTIVE_TRACE_COUNT.load(Ordering::Relaxed) == 0 {
@@ -270,6 +271,7 @@ pub(crate) fn is_active() -> bool {
     TRACE_INTEREST.with(|interest| interest.get().is_active())
 }
 
+#[allow(clippy::inline_always)]
 #[inline(always)]
 fn attempts_enabled() -> bool {
     if ATTEMPTS_TRACE_COUNT.load(Ordering::Relaxed) == 0 {

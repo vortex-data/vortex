@@ -63,7 +63,7 @@ use vortex_session::registry::CachedId;
 use crate::canonical::FSST_DECODE_SLACK;
 use crate::canonical::FsstDecodePlan;
 use crate::canonical::canonicalize_fsst;
-use crate::canonical::fsst_decode_views;
+use crate::canonical::fsst_decode_bytes;
 use crate::rules::RULES;
 
 /// A [`FSST`]-encoded Vortex array.
@@ -337,20 +337,20 @@ impl VTable for FSST {
             vortex_bail!("append_to_builder for FSST requires a variable-binary builder")
         };
 
-        // Decompress the whole block of data into a new buffer, and create some views
-        // from it instead. The new buffer lands after any pending in-progress
-        // buffer that push_buffer_and_adjusted_views will flush first.
-        let next_buffer_index = builder.completed_block_count() + u32::from(builder.in_progress());
-        let (buffers, views) = fsst_decode_views(array, next_buffer_index, ctx)?;
-
-        builder.push_buffer_and_adjusted_views(
-            &buffers,
-            &views,
-            array
-                .array()
-                .validity()?
-                .execute_mask(array.array().len(), ctx)?,
-        );
+        // Decompress the whole block of data into a new buffer, which the builder adopts as a
+        // data buffer with views built over it in place.
+        let validity = array
+            .array()
+            .validity()?
+            .execute_mask(array.array().len(), ctx)?;
+        let (uncompressed_bytes, uncompressed_lens) = fsst_decode_bytes(array, ctx)?;
+        match_each_integer_ptype!(uncompressed_lens.ptype(), |P| {
+            builder.append_buffer_with_lengths(
+                uncompressed_bytes.freeze(),
+                uncompressed_lens.as_slice::<P>(),
+                &validity,
+            )
+        });
         Ok(())
     }
 
@@ -1033,6 +1033,7 @@ mod test {
     use fsst::Compressor;
     use fsst::Symbol;
     use prost::Message;
+    use vortex_array::ArrayDeserialization;
     use vortex_array::ArrayPlugin;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
@@ -1158,19 +1159,22 @@ mod test {
 
         let deserialized = ArrayPlugin::deserialize(
             &FSST,
-            &DType::Utf8(Nullability::NonNullable),
-            2,
-            &FSSTMetadata {
-                uncompressed_lengths_ptype: fsst_array
-                    .uncompressed_lengths()
-                    .dtype()
-                    .as_ptype()
-                    .into(),
-                codes_offsets_ptype: fsst_array.codes_offsets().dtype().as_ptype().into(),
-            }
-            .encode_to_vec(),
-            &buffers,
-            &children.as_slice(),
+            ArrayDeserialization::new(
+                vortex_array::ArrayVTable::id(&FSST),
+                &DType::Utf8(Nullability::NonNullable),
+                2,
+                &FSSTMetadata {
+                    uncompressed_lengths_ptype: fsst_array
+                        .uncompressed_lengths()
+                        .dtype()
+                        .as_ptype()
+                        .into(),
+                    codes_offsets_ptype: fsst_array.codes_offsets().dtype().as_ptype().into(),
+                }
+                .encode_to_vec(),
+                &buffers,
+                &children.as_slice(),
+            ),
             &array_session(),
         )?;
 
@@ -1304,20 +1308,23 @@ mod test {
 
         let fsst = ArrayPlugin::deserialize(
             &FSST,
-            &DType::Utf8(Nullability::NonNullable),
-            2,
-            &FSSTMetadata {
-                uncompressed_lengths_ptype: fsst_array
-                    .uncompressed_lengths()
-                    .dtype()
-                    .as_ptype()
-                    .into(),
-                // Legacy array did not store this field, use Protobuf default of 0.
-                codes_offsets_ptype: 0,
-            }
-            .encode_to_vec(),
-            &buffers,
-            &children.as_slice(),
+            ArrayDeserialization::new(
+                vortex_array::ArrayVTable::id(&FSST),
+                &DType::Utf8(Nullability::NonNullable),
+                2,
+                &FSSTMetadata {
+                    uncompressed_lengths_ptype: fsst_array
+                        .uncompressed_lengths()
+                        .dtype()
+                        .as_ptype()
+                        .into(),
+                    // Legacy array did not store this field, use Protobuf default of 0.
+                    codes_offsets_ptype: 0,
+                }
+                .encode_to_vec(),
+                &buffers,
+                &children.as_slice(),
+            ),
             &array_session(),
         )?;
 

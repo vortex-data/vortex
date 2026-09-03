@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -145,10 +144,6 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ArrayBuilder for MapBuilder<O
 
     fn reserve_exact(&mut self, additional: usize) {
         self.entries_builder.reserve_exact(additional);
-    }
-
-    unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        unsafe { self.entries_builder.set_validity_unchecked(validity) };
     }
 
     fn finish(&mut self) -> ArrayRef {

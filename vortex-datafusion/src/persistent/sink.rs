@@ -507,7 +507,7 @@ mod tests {
     #[test]
     fn test_display_as() {
         let session = VortexSession::empty();
-        let table_schema = TableSchema::new(Arc::new(Schema::empty()), Vec::new());
+        let table_schema = TableSchema::from(Arc::new(Schema::empty()));
 
         let config = FileSinkConfig {
             original_url: "".to_owned(),

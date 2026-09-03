@@ -10,10 +10,8 @@ use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::sum::sum;
-use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::builders::ArrayBuilder;
@@ -300,21 +298,9 @@ impl StatsArrayBuilder for StatNameArrayBuilder {
     }
 
     fn finish(&mut self) -> NamedArrays {
-        let array = self.builder.finish();
-        let len = array.len();
-        match self.stat {
-            Stat::Max => NamedArrays {
-                names: vec![self.stat.name().into(), MAX_IS_TRUNCATED.into()],
-                arrays: vec![array, ConstantArray::new(false, len).into_array()],
-            },
-            Stat::Min => NamedArrays {
-                names: vec![self.stat.name().into(), MIN_IS_TRUNCATED.into()],
-                arrays: vec![array, ConstantArray::new(false, len).into_array()],
-            },
-            _ => NamedArrays {
-                names: vec![self.stat.name().into()],
-                arrays: vec![array],
-            },
+        NamedArrays {
+            names: vec![self.stat.name().into()],
+            arrays: vec![self.builder.finish()],
         }
     }
 }
@@ -522,6 +508,7 @@ impl FileStatsAccumulator {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::bool::BoolArrayExt;
@@ -602,7 +589,7 @@ mod tests {
     }
 
     #[test]
-    fn always_adds_is_truncated_column() {
+    fn fixed_width_stats_omit_is_truncated_columns() {
         let mut ctx = array_session().create_execution_ctx();
         let array = buffer![0, 1, 2].into_array();
         let mut acc = StatsAccumulator::new(array.dtype(), &[Stat::Max, Stat::Min, Stat::Sum], 12);
@@ -614,25 +601,7 @@ mod tests {
             .expect("Must have stats table");
         assert_eq!(
             stats_table.names().as_ref(),
-            &[
-                Stat::Max.name(),
-                MAX_IS_TRUNCATED,
-                Stat::Min.name(),
-                MIN_IS_TRUNCATED,
-                Stat::Sum.name(),
-            ]
+            &[Stat::Max.name(), Stat::Min.name(), Stat::Sum.name()]
         );
-        let field1_bool = stats_table
-            .unmasked_field(1)
-            .clone()
-            .execute::<BoolArray>(&mut ctx)
-            .unwrap();
-        assert_eq!(field1_bool.to_bit_buffer(), BitBuffer::from(vec![false]));
-        let field3_bool = stats_table
-            .unmasked_field(3)
-            .clone()
-            .execute::<BoolArray>(&mut ctx)
-            .unwrap();
-        assert_eq!(field3_bool.to_bit_buffer(), BitBuffer::from(vec![false]));
     }
 }

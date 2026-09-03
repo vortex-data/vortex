@@ -57,14 +57,16 @@ use vortex::extension::datetime::TemporalMetadata;
 use vortex::extension::datetime::Time;
 use vortex::extension::datetime::TimeUnit;
 use vortex::extension::datetime::Timestamp;
-use vortex_geo::extension::GeoMetadata;
-use vortex_geo::extension::LineString;
-use vortex_geo::extension::MultiLineString;
-use vortex_geo::extension::MultiPoint;
-use vortex_geo::extension::MultiPolygon;
-use vortex_geo::extension::Point;
-use vortex_geo::extension::Polygon;
-use vortex_geo::extension::WellKnownBinary;
+use vortex::extension::uuid::Uuid;
+use vortex::extension::uuid::UuidMetadata;
+use vortex_spatial::extension::LineString;
+use vortex_spatial::extension::MultiLineString;
+use vortex_spatial::extension::MultiPoint;
+use vortex_spatial::extension::MultiPolygon;
+use vortex_spatial::extension::Point;
+use vortex_spatial::extension::Polygon;
+use vortex_spatial::extension::SpatialMetadata;
+use vortex_spatial::extension::WellKnownBinary;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::cpp::DUCKDB_TYPE;
@@ -173,18 +175,25 @@ impl FromLogicalType for DType {
                 let crs = logical_type.geometry_crs().map(|crs| crs.to_string());
                 DType::Extension(
                     ExtDType::<WellKnownBinary>::try_new(
-                        GeoMetadata { crs },
+                        SpatialMetadata { crs },
                         DType::Binary(nullability),
                     )?
                     .erased(),
                 )
             }
             DUCKDB_TYPE::DUCKDB_TYPE_VARIANT => DType::Variant(nullability),
+            DUCKDB_TYPE::DUCKDB_TYPE_UUID => DType::Extension(
+                ExtDType::<Uuid>::try_with_vtable(
+                    Uuid,
+                    UuidMetadata::default(),
+                    uuid_storage_dtype(nullability),
+                )?
+                .erased(),
+            ),
             other @ (DUCKDB_TYPE::DUCKDB_TYPE_TIME_TZ
             | DUCKDB_TYPE::DUCKDB_TYPE_INTERVAL
             | DUCKDB_TYPE::DUCKDB_TYPE_ENUM
             | DUCKDB_TYPE::DUCKDB_TYPE_MAP
-            | DUCKDB_TYPE::DUCKDB_TYPE_UUID
             | DUCKDB_TYPE::DUCKDB_TYPE_UNION
             | DUCKDB_TYPE::DUCKDB_TYPE_BIT
             | DUCKDB_TYPE::DUCKDB_TYPE_ANY
@@ -254,8 +263,12 @@ impl TryFrom<&DType> for LogicalType {
                     return temporal_to_duckdb(temporal);
                 }
 
+                if ext_dtype.is::<Uuid>() {
+                    return Ok(LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_UUID));
+                }
+
                 // Native geometry types and WKB all surface to DuckDB as GEOMETRY so `ST_*` bind.
-                if let Some(geo) = ext_dtype
+                if let Some(spatial_metadata) = ext_dtype
                     .metadata_opt::<Point>()
                     .or_else(|| ext_dtype.metadata_opt::<LineString>())
                     .or_else(|| ext_dtype.metadata_opt::<MultiPoint>())
@@ -264,7 +277,7 @@ impl TryFrom<&DType> for LogicalType {
                     .or_else(|| ext_dtype.metadata_opt::<MultiPolygon>())
                     .or_else(|| ext_dtype.metadata_opt::<WellKnownBinary>())
                 {
-                    return LogicalType::geometry_type(geo.crs.as_deref());
+                    return LogicalType::geometry_type(spatial_metadata.crs.as_deref());
                 }
 
                 vortex_bail!("Unsupported extension type \"{}\"", ext_dtype.id());
@@ -273,6 +286,14 @@ impl TryFrom<&DType> for LogicalType {
 
         Ok(LogicalType::new(duckdb_type))
     }
+}
+
+fn uuid_storage_dtype(nullability: Nullability) -> DType {
+    DType::FixedSizeList(
+        Arc::new(DType::Primitive(U8, Nullability::NonNullable)),
+        16,
+        nullability,
+    )
 }
 
 fn temporal_to_duckdb(temporal: TemporalMetadata) -> VortexResult<LogicalType> {
@@ -284,10 +305,9 @@ fn temporal_to_duckdb(temporal: TemporalMetadata) -> VortexResult<LogicalType> {
             TimeUnit::Seconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S,
             _ => vortex_bail!("Invalid TimeUnit {} for timestamp", unit),
         },
-        TemporalMetadata::Timestamp(unit, Some(tz)) => {
-            if tz.as_ref() != "UTC" {
-                vortex_bail!("Invalid timezone for timestamp_tz {tz}, must be UTC");
-            }
+        // TIMESTAMP_TZ's timezone is a display unit, time is stored in UTC
+        // microseconds
+        TemporalMetadata::Timestamp(unit, Some(_)) => {
             if unit != &TimeUnit::Microseconds {
                 vortex_bail!(
                     "Invalid TimeUnit {} for timestamp_tz, must be Microseconds",
@@ -384,8 +404,8 @@ mod tests {
     use vortex::extension::datetime::Time;
     use vortex::extension::datetime::Timestamp;
     use vortex::scalar::ScalarValue;
-    use vortex_geo::extension::GeoMetadata;
-    use vortex_geo::extension::WellKnownBinary;
+    use vortex_spatial::extension::SpatialMetadata;
+    use vortex_spatial::extension::WellKnownBinary;
 
     use crate::convert::dtype::FromLogicalType;
     use crate::cpp;
@@ -614,7 +634,7 @@ mod tests {
     fn test_geometry_roundtrip() -> VortexResult<()> {
         let vortex_geometry = DType::Extension(
             ExtDType::<WellKnownBinary>::try_new(
-                GeoMetadata {
+                SpatialMetadata {
                     crs: Some("EPSG:4326".to_string()),
                 },
                 DType::Binary(Nullability::NonNullable),
@@ -634,6 +654,31 @@ mod tests {
 
         let original = DType::from_logical_type(&duckdb_geometry, Nullability::NonNullable)?;
         assert_eq!(original, vortex_geometry);
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(Nullability::NonNullable)]
+    #[case(Nullability::Nullable)]
+    fn test_uuid_roundtrip(#[case] nullability: Nullability) -> VortexResult<()> {
+        use vortex::extension::uuid::Uuid;
+        use vortex::extension::uuid::UuidMetadata;
+
+        let storage = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
+            16,
+            nullability,
+        );
+        let vortex_uuid = DType::Extension(
+            ExtDType::<Uuid>::try_with_vtable(Uuid, UuidMetadata::default(), storage)?.erased(),
+        );
+
+        let duckdb_uuid = LogicalType::try_from(&vortex_uuid)?;
+        assert_eq!(duckdb_uuid.as_type_id(), cpp::DUCKDB_TYPE::DUCKDB_TYPE_UUID);
+
+        let original = DType::from_logical_type(&duckdb_uuid, nullability)?;
+        assert_eq!(original, vortex_uuid);
 
         Ok(())
     }

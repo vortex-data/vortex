@@ -39,7 +39,6 @@ pub(super) trait DynAggregateFn: 'static + Send + Sync + super::sealed::Sealed {
     fn id(&self) -> AggregateFnId;
     fn options_any(&self) -> &dyn Any;
 
-    fn coerce_args(&self, input_dtype: &DType) -> VortexResult<DType>;
     fn can_satisfy(&self, requested: &AggregateFnRef) -> AggregateFnSatisfaction;
     fn return_dtype(&self, input_dtype: &DType) -> Option<DType>;
     fn state_dtype(&self, input_dtype: &DType) -> Option<DType>;
@@ -64,11 +63,13 @@ pub(super) struct AggregateFnInner<V: AggregateFnVTable> {
 }
 
 impl<V: AggregateFnVTable> DynAggregateFn for AggregateFnInner<V> {
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     fn as_any(&self) -> &dyn Any {
         self
     }
 
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     fn id(&self) -> AggregateFnId {
         V::id(&self.vtable)
@@ -76,10 +77,6 @@ impl<V: AggregateFnVTable> DynAggregateFn for AggregateFnInner<V> {
 
     fn options_any(&self) -> &dyn Any {
         &self.options
-    }
-
-    fn coerce_args(&self, input_dtype: &DType) -> VortexResult<DType> {
-        V::coerce_args(&self.vtable, &self.options, input_dtype)
     }
 
     fn can_satisfy(&self, requested: &AggregateFnRef) -> AggregateFnSatisfaction {

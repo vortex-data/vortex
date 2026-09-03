@@ -1,0 +1,69 @@
+--- a/src/include/duckdb/common/multi_file/multi_file_function.hpp
++++ b/src/include/duckdb/common/multi_file/multi_file_function.hpp
+@@ -63,6 +63,9 @@
+ 	virtual void GetVirtualColumns(ClientContext &context, MultiFileBindData &bind_data, virtual_column_map_t &result);
+ 	virtual unique_ptr<MultiFileReaderInterface> Copy();
+ 	virtual FileGlobInput GetGlobInput();
++	virtual bool FinalizeScan(ClientContext &context, GlobalTableFunctionState &global_state, DataChunk &output) {
++		return false;
++	}
+ };
+
+ template <class OP>
+@@ -590,18 +593,30 @@
+
+ 	static OperatorPartitionData MultiFileGetPartitionData(ClientContext &context,
+ 	                                                       TableFunctionGetPartitionInput &input) {
++		if (!input.local_state) {
++			return OperatorPartitionData(0);
++		}
+ 		auto &bind_data = input.bind_data->CastNoConst<MultiFileBindData>();
+ 		auto &data = input.local_state->Cast<MultiFileLocalState>();
+ 		auto &gstate = input.global_state->Cast<MultiFileGlobalState>();
+ 		OperatorPartitionData partition_data(data.batch_index);
+-		bind_data.multi_file_reader->GetPartitionData(context, bind_data.reader_bind, *data.reader_data,
+-		                                              gstate.multi_file_reader_state, input.partition_info,
+-		                                              partition_data);
++		if (data.reader_data) {
++			bind_data.multi_file_reader->GetPartitionData(context, bind_data.reader_bind, *data.reader_data,
++			                                              gstate.multi_file_reader_state, input.partition_info,
++			                                              partition_data);
++		}
+ 		return partition_data;
+ 	}
+
+ 	static void MultiFileScan(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
+ 		if (!data_p.local_state) {
++			auto &finalize_gstate = data_p.global_state->Cast<MultiFileGlobalState>();
++			auto &finalize_bind_data = data_p.bind_data->CastNoConst<MultiFileBindData>();
++			if (finalize_gstate.global_state && finalize_bind_data.interface &&
++			    finalize_bind_data.interface->FinalizeScan(context, *finalize_gstate.global_state, output)) {
++				data_p.async_result = SourceResultType::HAVE_MORE_OUTPUT;
++				return;
++			}
+ 			data_p.async_result = SourceResultType::FINISHED;
+ 			return;
+ 		}
+@@ -610,6 +625,10 @@
+ 		auto &bind_data = data_p.bind_data->CastNoConst<MultiFileBindData>();
+
+ 		if (gstate.finished) {
++			if (bind_data.interface->FinalizeScan(context, *gstate.global_state, output)) {
++				data_p.async_result = SourceResultType::HAVE_MORE_OUTPUT;
++				return;
++			}
+ 			data_p.async_result = SourceResultType::FINISHED;
+ 			return;
+ 		}
+@@ -660,6 +679,11 @@
+ 			}
+
+ 			if (!TryInitializeNextBatch(context, bind_data, data, gstate)) {
++				if (output.size() == 0 &&
++				    bind_data.interface->FinalizeScan(context, *gstate.global_state, output)) {
++					data_p.async_result = SourceResultType::HAVE_MORE_OUTPUT;
++					return;
++				}
+ 				if (output.size() > 0 && data_p.results_execution_mode == AsyncResultsExecutionMode::SYNCHRONOUS) {
+ 					gstate.finished = true;
+ 					data_p.async_result = SourceResultType::HAVE_MORE_OUTPUT;

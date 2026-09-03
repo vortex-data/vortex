@@ -377,6 +377,30 @@ def test_materialize_filter_and_limit_combined(tmp_path: Path):
     assert dataset.to_list() == [{"text": "b", "label": 1}]
 
 
+def test_materialize_filter_with_num_proc(tmp_path: Path):
+    """`num_proc` forks worker processes and pickles the filter into each one."""
+    for shard in range(2):
+        write_vortex(
+            tmp_path / f"train-{shard}.vortex",
+            [{"text": f"{shard}-{i}", "label": i % 2} for i in range(50)],
+        )
+
+    dataset = vx_datasets.load_dataset(
+        tmp_path,
+        data_files="*.vortex",
+        split="train",
+        streaming=False,
+        filter=ve.column("label") == 1,
+        keep_in_memory=True,
+        num_proc=2,
+    )
+
+    assert isinstance(dataset, hf_datasets.Dataset)
+    rows = dataset.to_list()
+    assert len(rows) == 50
+    assert {cast(int, row["label"]) for row in rows} == {1}
+
+
 def test_load_dataset_multi_split_without_mapping_raises(tmp_path: Path):
     write_vortex(tmp_path / "train.vortex", [{"text": "zero"}])
 

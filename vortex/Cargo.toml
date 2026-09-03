@@ -35,7 +35,7 @@ vortex-decimal-byte-parts = { workspace = true }
 vortex-edition = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
-vortex-file = { workspace = true, optional = true, default-features = true }
+vortex-file = { workspace = true, optional = true }
 vortex-flatbuffers = { workspace = true }
 vortex-fsst = { workspace = true }
 vortex-io = { workspace = true }
@@ -43,6 +43,7 @@ vortex-ipc = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
+vortex-parquet-variant = { workspace = true }
 vortex-pco = { workspace = true }
 vortex-proto = { workspace = true, default-features = true }
 vortex-runend = { workspace = true }
@@ -71,7 +72,7 @@ vortex = { path = ".", features = ["tokio"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 
 [features]
-default = ["files", "zstd"]
+default = ["files", "wasm-bindgen", "zstd"]
 files = ["dep:vortex-file"]
 memmap2 = ["vortex-buffer/memmap2"]
 object_store = ["vortex-file?/object_store", "vortex-io/object_store"]
@@ -89,8 +90,15 @@ tokio = [
     "vortex-layout/tokio",
 ]
 zstd = ["dep:vortex-zstd", "vortex-file?/zstd"]
+wasm-bindgen = [
+    "vortex-file?/wasm-bindgen",
+    "vortex-io/wasm-bindgen",
+    "vortex-layout/wasm-bindgen",
+]
 pretty = ["vortex-array/table-display"]
 serde = ["vortex-array/serde", "vortex-buffer/serde", "vortex-mask/serde"]
+# Exposes experimental row-function APIs without compatibility guarantees.
+unstable_row_fns = ["vortex-array/unstable_row_fns"]
 # This feature enabled unstable encodings for which we don't guarantee stability.
 unstable_encodings = [
     "dep:vortex-tensor",
@@ -106,6 +114,11 @@ test = false
 
 [[bench]]
 name = "common_encoding_tree_throughput"
+harness = false
+test = false
+
+[[bench]]
+name = "take_union"
 harness = false
 test = false
 

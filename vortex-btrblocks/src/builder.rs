@@ -175,13 +175,14 @@ impl BtrBlocksCompressorBuilder {
             float::ALPRDScheme.id(),
             float::FloatRLEScheme.id(),
             float::NullDominatedSparseScheme.id(),
+            string::NullDominatedSparseScheme.id(),
             string::StringDictScheme.id(),
             binary::BinaryDictScheme.id(),
         ];
-        #[cfg(feature = "unstable_encodings")]
-        excluded.push(string::OnPairScheme.id());
-        // Delta has no GPU decode kernel and its prefix-sum decode is inherently sequential, so it
-        // is incompatible with pure-GPU decompression paths.
+        // Delta now has a CUDA decode kernel, so arrays that reach the GPU already encoded with
+        // it — the Delta children OnPair emits, for instance — decode there. It stays excluded
+        // from this preset until GPU delta decode is benchmarked against the schemes it would
+        // displace, since the preset picks encodings rather than merely decoding them.
         #[cfg(feature = "unstable_encodings")]
         excluded.push(integer::DeltaScheme::default().id());
         #[cfg(feature = "pco")]
@@ -268,6 +269,22 @@ mod tests {
                 .iter()
                 .any(|s| s.id() == float::ALPRDScheme.id())
         );
+    }
+
+    /// `vortex.sparse` has no CUDA decode kernel, so no sparse scheme may survive this preset.
+    #[test]
+    fn cuda_compatible_excludes_every_sparse_scheme() {
+        let builder = BtrBlocksCompressorBuilder::default().only_cuda_compatible();
+        for excluded in [
+            integer::SparseScheme.id(),
+            float::NullDominatedSparseScheme.id(),
+            string::NullDominatedSparseScheme.id(),
+        ] {
+            assert!(
+                !builder.schemes.iter().any(|s| s.id() == excluded),
+                "{excluded} should be excluded"
+            );
+        }
     }
 
     #[test]

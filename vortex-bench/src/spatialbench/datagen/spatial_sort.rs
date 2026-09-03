@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Spatial clustering of the source parquet, in place, so every downstream lane (parquet,
-//! vortex-WKB, `vortex-geo-native`) reads the same layout.
+//! vortex-WKB, `vortex-spatial-native`) reads the same layout.
 //!
 //! The geometry zone-map prune skips a chunk only when its bounding box is disjoint from the query
 //! region. In generation order every chunk's box spans the whole map, so nothing prunes; ordering
@@ -44,12 +44,12 @@ use tokio::fs::File as TokioFile;
 use tracing::info;
 
 use super::table::Table;
-use super::wkb::geo_parquet_metadata;
+use super::wkb::geoparquet_metadata;
 
 /// Parquet metadata marker: this file is already spatially sorted (makes the step idempotent).
 const SORTED_KEY: &str = "vortex_spatial_sorted";
 
-fn geo_metadata() -> Arc<Metadata> {
+fn geoarrow_metadata() -> Arc<Metadata> {
     Arc::new(Metadata::new(Crs::default(), None))
 }
 
@@ -148,9 +148,11 @@ async fn sort_part(path: &Path, table: Table, geom_col: &str) -> anyhow::Result<
     let mut writer =
         AsyncArrowWriter::try_new(TokioFile::create(&tmp_path).await?, schema, Some(props))?;
     writer.write(&sorted).await?;
-    // A fresh write drops metadata: re-tag geo so DuckDB reads `GEOMETRY`, and add the sorted marker.
-    if let Some(geo) = geo_parquet_metadata(table) {
-        writer.append_key_value_metadata(KeyValue::new("geo".to_string(), Some(geo)));
+    // A fresh write drops metadata: restore the GeoParquet tag so DuckDB reads `GEOMETRY`, and add
+    // the sorted marker.
+    if let Some(geoparquet_metadata) = geoparquet_metadata(table) {
+        writer
+            .append_key_value_metadata(KeyValue::new("geo".to_string(), Some(geoparquet_metadata)));
     }
     writer.append_key_value_metadata(KeyValue::new(
         SORTED_KEY.to_string(),
@@ -170,7 +172,7 @@ async fn sort_part(path: &Path, table: Table, geom_col: &str) -> anyhow::Result<
 
 /// The bounding-box center `(x, y)` of every geometry in a WKB column, whatever its geometry type.
 fn wkb_centers(column: &dyn Array) -> anyhow::Result<(Vec<f64>, Vec<f64>)> {
-    let wkb_type = WkbType::new(geo_metadata());
+    let wkb_type = WkbType::new(geoarrow_metadata());
     // Expanded per concrete WKB array type.
     macro_rules! centers {
         ($array:expr) => {{

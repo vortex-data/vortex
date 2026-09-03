@@ -47,7 +47,8 @@ fn filter_mask(len: usize, fraction_masked: f64, rng: &mut StdRng) -> Mask {
 fn bench_dict_mask(bencher: Bencher, (fraction_valid, fraction_masked): (f64, f64)) {
     let mut rng = StdRng::seed_from_u64(0);
 
-    let len = 65_535;
+    // Sized to keep CodSpeed simulation under 1ms per benchmark.
+    let len = 4_096;
     let codes = PrimitiveArray::from_iter((0..len).map(|_| {
         if rng.random_bool(fraction_valid) {
             1u64

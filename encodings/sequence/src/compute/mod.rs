@@ -18,6 +18,8 @@ mod tests {
     use vortex_array::array_session;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::scalar::PValue;
 
     use crate::Sequence;
     use crate::SequenceArray;
@@ -71,6 +73,28 @@ mod tests {
         5
     ).unwrap())] // Results in [100, 90, 80, 70, 60]
 
+    // Steps that are not representable in the output ptype
+    #[case::sequence_descending_u8(Sequence::try_new(
+        PValue::from(200i32),
+        PValue::from(-3i32),  // Every value fits u8, the step does not
+        PType::U8,
+        Nullability::NonNullable,
+        60
+    ).unwrap())]
+    #[case::sequence_past_i64_max(Sequence::try_new(
+        PValue::from(0i64),
+        PValue::from(1i64 << 62),  // Values run past i64::MAX
+        PType::U64,
+        Nullability::NonNullable,
+        4
+    ).unwrap())]
+    #[case::sequence_constant_longer_than_u8(Sequence::try_new(
+        PValue::from(7u8),
+        PValue::from(0i32),
+        PType::U8,
+        Nullability::NonNullable,
+        500
+    ).unwrap())]
     // Large arrays
     #[case::sequence_large(Sequence::try_new_typed(
         0i64,

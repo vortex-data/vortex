@@ -4,12 +4,15 @@
 use std::sync::Arc;
 
 use futures::FutureExt;
+use futures::StreamExt;
 use futures::future::BoxFuture;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_error::VortexResult;
 
 use crate::CoalesceConfig;
+use crate::ReadAtRequest;
+use crate::ReadAtStream;
 use crate::VortexReadAt;
 use crate::compat::Compat;
 
@@ -39,5 +42,9 @@ impl<R: VortexReadAt> VortexReadAt for Compat<R> {
         alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         Compat::new(self.inner().read_at(offset, length, alignment)).boxed()
+    }
+
+    fn read_ranges(&self, requests: Arc<[ReadAtRequest]>) -> ReadAtStream {
+        Compat::new(self.inner().read_ranges(requests)).boxed()
     }
 }

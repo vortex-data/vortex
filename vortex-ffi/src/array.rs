@@ -10,6 +10,7 @@ use arrow_array::array::make_array;
 use arrow_array::ffi::FFI_ArrowArray;
 use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_array::ffi::from_ffi;
+use arrow_schema::Field;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
@@ -33,7 +34,7 @@ use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
-use vortex_arrow::FromArrowArray;
+use vortex_arrow::ArrowSessionExt;
 
 use crate::box_wrapper;
 use crate::dtype::vx_dtype;
@@ -398,11 +399,12 @@ pub extern "C-unwind" fn vx_array_new_primitive(
 ///
 /// // export an Arrow record batch into (array, schema), then:
 /// vx_error* error = NULL;
-/// const vx_array* vx = vx_array_from_arrow(&array, &schema, false, &error);
+/// const vx_array* vx = vx_array_from_arrow(session, &array, &schema, false, &error);
 /// // ... push it to a sink or write it ...
 /// vx_array_free(vx);
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_from_arrow(
+    session: *const vx_session,
     array: *mut FFI_ArrowArray,
     schema: *mut FFI_ArrowSchema,
     nullable: bool,
@@ -411,12 +413,14 @@ pub unsafe extern "C-unwind" fn vx_array_from_arrow(
     try_or_default(error_out, || {
         vortex_ensure!(!array.is_null(), "null arrow array");
         vortex_ensure!(!schema.is_null(), "null arrow schema");
+        let session = vx_session::as_ref(session);
         let ffi_array = unsafe { ptr::replace(array, FFI_ArrowArray::empty()) };
         let ffi_schema = unsafe { ptr::replace(schema, FFI_ArrowSchema::empty()) };
         let array_data = unsafe { from_ffi(ffi_array, &ffi_schema) }?;
+        let field = Field::try_from(&ffi_schema)?.with_nullable(nullable);
         drop(ffi_schema);
         let arrow_array = make_array(array_data);
-        let vortex_array = ArrayRef::from_arrow(arrow_array.as_ref(), nullable)?;
+        let vortex_array = session.arrow().from_arrow_array(arrow_array, &field)?;
         Ok(vx_array::new(vortex_array))
     })
 }
@@ -644,6 +648,7 @@ mod tests {
     use crate::scalar::*;
     use crate::session::vx_session_free;
     use crate::session::vx_session_new;
+    use crate::session::vx_session_new_with;
     use crate::tests::assert_error;
     use crate::tests::assert_no_error;
 
@@ -977,9 +982,11 @@ mod tests {
         let data = ArrowArrayTrait::into_data(arrow_array::StructArray::from(batch));
         let (mut ffi_array, mut ffi_schema) = to_ffi(&data).unwrap();
 
+        let session = vx_session_new_with(|s| s);
         let mut error = ptr::null_mut();
         let vx = unsafe {
             vx_array_from_arrow(
+                session,
                 &raw mut ffi_array,
                 &raw mut ffi_schema,
                 false,
@@ -990,8 +997,6 @@ mod tests {
         assert!(!vx.is_null());
 
         unsafe {
-            let session = vx_session_new();
-
             assert!(vx_array_has_dtype(vx, vx_dtype_variant::DTYPE_STRUCT));
             assert_eq!(vx_array_len(vx), 3);
             assert!(!vx_array_is_nullable(vx));

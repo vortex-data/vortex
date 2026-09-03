@@ -35,8 +35,6 @@ use pyo3::types::PyType;
 use pyo3::wrap_pyfunction;
 use vortex::dtype::DType;
 use vortex_arrow::ArrowSessionExt;
-use vortex_arrow::ToArrowType;
-use vortex_arrow::TryFromArrowType;
 
 use crate::arrow::FromPyArrow;
 use crate::arrow::ToPyArrow;
@@ -183,7 +181,7 @@ impl PyDType {
     }
 
     fn to_arrow_schema(&self, py: Python) -> PyVortexResult<Py<PyAny>> {
-        Ok(self.0.to_arrow_schema()?.to_pyarrow(py)?)
+        Ok(session().arrow().to_arrow_schema(&self.0)?.to_pyarrow(py)?)
     }
 
     fn __str__(&self) -> String {
@@ -207,7 +205,9 @@ impl PyDType {
         #[pyo3(from_py_with = import_arrow_dtype)] arrow_dtype: DataType,
         non_nullable: bool,
     ) -> PyResult<Bound<'py, PyDType>> {
-        let dtype = DType::try_from_arrow(&Field::new("_", arrow_dtype, !non_nullable))
+        let dtype = session()
+            .arrow()
+            .from_arrow_field(&Field::new("_", arrow_dtype, !non_nullable))
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Self::init(cls.py(), dtype)
     }

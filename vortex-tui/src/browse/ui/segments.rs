@@ -300,7 +300,7 @@ fn to_display_segment_tree(
                 .segments
                 .get_mut(&name)
                 .vortex_expect("Must have segment for name");
-            chunks.sort_by(|a, b| a.spec.offset.cmp(&b.spec.offset));
+            chunks.sort_by_key(|s| s.spec.offset);
 
             // Build leaf nodes for each segment chunk.
             let mut leaves = Vec::with_capacity(chunks.len());

@@ -67,6 +67,12 @@ pub trait LayoutVTablePlugin: 'static + Send + Sync + Debug {
         children: &dyn LayoutChildren,
         build_ctx: &LayoutBuildContext<'_>,
     ) -> VortexResult<LayoutRef>;
+
+    /// Returns `true` if this layout is indivisible: its readers never register natural split
+    /// boundaries strictly inside their row range (see [`VTable::is_indivisible`]).
+    fn is_indivisible(&self) -> bool {
+        false
+    }
 }
 
 /// Backwards-compatible name for the object-safe layout-vtable plugin.
@@ -101,6 +107,10 @@ impl<V: VTable> LayoutVTablePlugin for V {
             build_ctx,
         )?
         .into_layout())
+    }
+
+    fn is_indivisible(&self) -> bool {
+        VTable::is_indivisible(self)
     }
 }
 

@@ -28,9 +28,7 @@ use crate::expr::lit;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
-use crate::scalar_fn::ReduceCtx;
 use crate::scalar_fn::ReduceNode;
-use crate::scalar_fn::ReduceNodeRef;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
@@ -175,12 +173,7 @@ impl ScalarFnVTable for Merge {
         )
     }
 
-    fn reduce(
-        &self,
-        options: &Self::Options,
-        node: &dyn ReduceNode,
-        ctx: &dyn ReduceCtx,
-    ) -> VortexResult<Option<ReduceNodeRef>> {
+    fn reduce<T: ReduceNode>(&self, options: &Self::Options, node: &T) -> VortexResult<Option<T>> {
         let mut names = Vec::with_capacity(node.child_count() * 2);
         let mut children = Vec::with_capacity(node.child_count() * 2);
         let mut duplicate_names = HashSet::<_>::new();
@@ -201,10 +194,10 @@ impl ScalarFnVTable for Merge {
             for name in child_dtype.names().iter() {
                 if let Some(idx) = names.iter().position(|n| n == name) {
                     duplicate_names.insert(name.clone());
-                    children[idx] = Arc::clone(&child);
+                    children[idx] = child.clone();
                 } else {
                     names.push(name.clone());
-                    children.push(Arc::clone(&child));
+                    children.push(child.clone());
                 }
             }
 
@@ -219,10 +212,10 @@ impl ScalarFnVTable for Merge {
         let pack_children: Vec<_> = names
             .iter()
             .zip(children)
-            .map(|(name, child)| ctx.new_node(GetItem.bind(name.clone()), &[child]))
+            .map(|(name, child)| node.new_node(GetItem.bind(name.clone()), &[child]))
             .try_collect()?;
 
-        let pack_expr = ctx.new_node(
+        let pack_expr = node.new_node(
             Pack.bind(PackOptions {
                 names: FieldNames::from(names),
                 nullability: node.node_dtype()?.nullability(),
@@ -245,8 +238,8 @@ impl ScalarFnVTable for Merge {
         true
     }
 
-    fn is_fallible(&self, instance: &Self::Options) -> bool {
-        matches!(instance, DuplicateHandling::Error)
+    fn is_infallible(&self, instance: &Self::Options) -> bool {
+        !matches!(instance, DuplicateHandling::Error)
     }
 }
 

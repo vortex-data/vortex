@@ -70,7 +70,7 @@ pub async fn exec_segments(session: &VortexSession, args: SegmentsArgs) -> Vorte
             let mut segments = segment_tree.segments.remove(name)?;
 
             // Sort by byte offset
-            segments.sort_by(|a, b| a.spec.offset.cmp(&b.spec.offset));
+            segments.sort_by_key(|s| s.spec.offset);
 
             // Convert to output format, computing byte gaps
             let mut current_offset = 0u64;
@@ -90,7 +90,7 @@ pub async fn exec_segments(session: &VortexSession, args: SegmentsArgs) -> Vorte
                         row_count: seg.row_count,
                         byte_offset: seg.spec.offset,
                         byte_length: seg.spec.length,
-                        alignment: *seg.spec.alignment,
+                        alignment: seg.spec.alignment.as_usize(),
                         byte_gap,
                     }
                 })

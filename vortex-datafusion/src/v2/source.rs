@@ -81,6 +81,7 @@ use datafusion_common::Statistics;
 use datafusion_common::arrow::array::AsArray;
 use datafusion_common::arrow::array::RecordBatch;
 use datafusion_common::stats::Precision as DFPrecision;
+use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_datasource::source::DataSource;
 use datafusion_execution::SendableRecordBatchStream;
 use datafusion_execution::TaskContext;
@@ -362,7 +363,7 @@ impl fmt::Debug for VortexDataSource {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("VortexScanSource")
             .field("schema", &self.leftover_schema)
-            .field("projection", &format!("{}", &self.projected_projection))
+            .field("projection", &format!("{}", self.projected_projection))
             .field("filter", &self.filter.as_ref().map(|e| format!("{}", e)))
             .field("limit", &self.limit)
             .finish()
@@ -650,6 +651,19 @@ impl DataSource for VortexDataSource {
         Ok(
             FilterPushdownPropagation::with_parent_pushdown_result(pushdown_results)
                 .with_updated_node(Arc::new(this) as _),
+        )
+    }
+
+    fn apply_expressions(
+        &self,
+        f: &mut dyn FnMut(&Arc<dyn PhysicalExpr>) -> DFResult<TreeNodeRecursion>,
+    ) -> DFResult<TreeNodeRecursion> {
+        datafusion_physical_plan::apply_expression_roots(
+            self.leftover_projection
+                .iter()
+                .flat_map(|projection| projection.iter())
+                .map(|expr| &expr.expr),
+            f,
         )
     }
 }

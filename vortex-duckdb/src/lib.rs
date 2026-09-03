@@ -11,8 +11,12 @@ use std::sync::LazyLock;
 use std::sync::OnceLock;
 
 use vortex::VortexSessionDefault;
+use vortex::cloud::Registry;
+use vortex::editions::CORE_2026_08_3;
+use vortex::editions::EditionSessionExt;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::io::session::RuntimeSessionExt;
@@ -26,7 +30,7 @@ mod convert;
 pub mod duckdb;
 mod exporter;
 mod ffi;
-mod multi_file;
+mod file_reader;
 mod projection;
 mod table_function;
 
@@ -43,9 +47,15 @@ mod e2e_test;
 
 // A global runtime for Vortex operations within DuckDB.
 static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
+/// Process-wide registry, so repeated scans against the same bucket share one client.
+static REGISTRY: LazyLock<Registry> = LazyLock::new(Registry::new);
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::default().with_handle(RUNTIME.handle());
-    vortex_geo::initialize(&session);
+    session
+        .enable_edition(CORE_2026_08_3)
+        .map_err(|error| vortex_err!("{error}"))
+        .vortex_expect("DuckDB-supported draft core edition is registered");
+    vortex_spatial::initialize(&session);
     session
 });
 

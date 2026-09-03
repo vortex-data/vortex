@@ -109,7 +109,7 @@ pub enum Mask {
     /// No values are included.
     AllFalse(usize),
     /// Some values are included, represented as a [`BitBuffer`].
-    Values(Arc<MaskValues>),
+    Values(MaskValuesRef),
 }
 
 impl Debug for Mask {
@@ -145,6 +145,9 @@ pub struct MaskValues {
     // i.e., the fraction of values that are true
     density: f64,
 }
+
+/// A shared reference to [`MaskValues`].
+pub type MaskValuesRef = Arc<MaskValues>;
 
 impl Debug for MaskValues {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -301,6 +304,7 @@ impl Mask {
         }))
     }
 
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     fn check_slices(len: usize, vec: &[(usize, usize)]) {
         assert!(vec.iter().all(|&(b, e)| b < e && e <= len));
@@ -543,6 +547,12 @@ impl Mask {
         assert!(start <= self.len());
         assert!(end <= self.len());
         let len = end - start;
+
+        // Slicing the whole mask is the identity. `Self` is `Arc`-backed, so the clone is cheap
+        // and keeps the cached `indices`/`slices` representations that `from_buffer` would drop.
+        if len == self.len() {
+            return self.clone();
+        }
 
         match &self {
             Self::AllTrue(_) => Self::new_true(len),

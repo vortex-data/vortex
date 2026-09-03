@@ -3,10 +3,15 @@
 
 //! Apache Arrow interoperability for Vortex.
 //!
-//! This crate owns every conversion between Vortex and Arrow: importing Arrow arrays, record
-//! batches, schemas, and fields into Vortex ([`FromArrowArray`], [`FromArrowType`],
-//! [`TryFromArrowType`]), and executing Vortex arrays into Arrow ([`ArrowSession::execute_arrow`]
-//! and the [`ArrowArrayExecutor`] convenience trait).
+//! This crate owns every conversion between Vortex and Arrow. The authoritative entry point is
+//! the [`ArrowSession`]: importing Arrow schemas, fields, and data types into Vortex
+//! ([`ArrowSession::from_arrow_schema`], [`ArrowSession::from_arrow_field`],
+//! [`ArrowSession::from_arrow_datatype`]), importing Arrow arrays and record batches
+//! ([`ArrowSession::from_arrow_array`], [`ArrowSession::from_arrow_record_batch`]),
+//! exporting Vortex dtypes to Arrow
+//! ([`ArrowSession::to_arrow_schema`], [`ArrowSession::to_arrow_field`],
+//! [`ArrowSession::to_arrow_datatype`]), and executing Vortex arrays into Arrow
+//! ([`ArrowSession::execute_arrow`] and the [`ArrowArrayExecutor`] convenience trait).
 //!
 //! The [`ArrowSession`] session variable is created lazily on first use of
 //! [`ArrowSessionExt::arrow`], so no explicit registration is required for plain conversions.
@@ -19,7 +24,7 @@ use vortex_array::legacy_session;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
-mod convert;
+pub mod convert;
 mod datum;
 pub mod dtype;
 mod executor;
@@ -33,8 +38,11 @@ mod uuid;
 pub use convert::IntoVortexArray;
 pub(crate) use convert::nulls;
 pub use datum::*;
+#[allow(deprecated)]
 pub use dtype::FromArrowType;
+#[allow(deprecated)]
 pub use dtype::ToArrowType;
+#[allow(deprecated)]
 pub use dtype::TryFromArrowType;
 pub use executor::*;
 pub use iter::*;
@@ -54,6 +62,7 @@ pub fn initialize(session: &VortexSession) {
 ///
 /// Implementations reuse the underlying Arrow buffers without copying wherever the Arrow and
 /// Vortex memory layouts allow it.
+#[deprecated(note = "Use `ArrowSession` (`from_arrow_array`, `from_arrow_record_batch`) instead")]
 pub trait FromArrowArray<A> {
     /// Convert `array` into a Vortex array whose [`DType`](vortex_array::dtype::DType) has the requested
     /// `nullable` [`Nullability`](vortex_array::dtype::Nullability).
@@ -72,6 +81,9 @@ pub trait FromArrowArray<A> {
     /// Returns an error if `nullable` is `false` but `array` physically contains one or more nulls
     /// (including an Arrow `NullArray`, which is entirely null), or if the Arrow data type is not
     /// supported.
+    #[deprecated(
+        note = "Use `ArrowSession` (`from_arrow_array`, `from_arrow_record_batch`) instead"
+    )]
     fn from_arrow(array: A, nullable: bool) -> VortexResult<Self>
     where
         Self: Sized;

@@ -4,13 +4,26 @@
 //! Execution logic for [`super::FilterArray`].
 //!
 //! The main entrypoint is [`execute_filter`] which filters any [`Canonical`] array.
+//! Before canonical execution, the [`Filter`] implementation of
+//! [`VTable::execute`](crate::array::vtable::VTable::execute) tries these cases in order, the
+//! last of which is [`execute_all_null_filter_fast_path`]:
+//!
+//! | Condition                       | Result                |
+//! | ------------------------------- | --------------------- |
+//! | mask selects nothing            | empty canonical array |
+//! | mask selects everything         | unchanged child       |
+//! | mask selects one contiguous run | zero-copy slice       |
+//! | child is entirely null          | null constant array   |
+//!
+//! Fixed-width canonical arrays then use the strategy ladder in [`buffer`].
 
-use std::sync::Arc;
+use std::ops::Range;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
+use vortex_mask::MaskValuesRef;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -25,7 +38,6 @@ use crate::arrays::MapArray;
 use crate::arrays::NullArray;
 use crate::arrays::VariantArray;
 use crate::arrays::extension::ExtensionArrayExt;
-use crate::arrays::filter::FilterArraySlotsExt;
 use crate::arrays::filter::FilterReduce;
 use crate::arrays::fixed_width;
 use crate::arrays::variant::VariantArraySlotsExt;
@@ -38,47 +50,74 @@ pub(crate) mod buffer;
 pub(crate) mod byte_compress;
 mod fixed_size_list;
 mod listview;
+mod simd_compress;
 mod slice;
 mod struct_;
 mod take;
 mod union;
 mod varbinview;
 
-/// A helper function that lazily filters a [`Validity`] with selection mask values.
-pub(crate) fn filter_validity(validity: Validity, mask: &Arc<MaskValues>) -> Validity {
+/// Lazily filters a [`Validity`] with a partially selective mask.
+pub(crate) fn filter_validity(validity: Validity, mask: &MaskValuesRef) -> Validity {
     validity
-        .filter(&Mask::Values(Arc::clone(mask)))
-        .vortex_expect("Somehow unable to wrap filter around a validity array")
+        .filter(&Mask::Values(MaskValuesRef::clone(mask)))
+        .vortex_expect("filtering validity with a partially selective mask is valid")
+}
+
+pub(super) fn contiguous_filter_range(mask: &Mask) -> Option<Range<usize>> {
+    match mask {
+        Mask::AllTrue(len) => (*len > 0).then_some(0..*len),
+        Mask::AllFalse(_) => None,
+        Mask::Values(values) => contiguous_values_range(values.as_ref()),
+    }
+}
+
+fn contiguous_values_range(mask: &MaskValues) -> Option<Range<usize>> {
+    if let Some(slices) = mask.cached_slices() {
+        return match slices {
+            [(start, end)] => Some(*start..*end),
+            _ => None,
+        };
+    }
+
+    if let Some(indices) = mask.cached_indices() {
+        let start = *indices.first()?;
+        let end = indices.last()?.checked_add(1)?;
+        return (end - start == indices.len()).then_some(start..end);
+    }
+
+    let true_count = mask.true_count();
+    let start = mask.bit_buffer().set_indices().next()?;
+    let end = start.checked_add(true_count)?;
+    if end > mask.len() {
+        return None;
+    }
+
+    // Bound uncached work by probing the candidate run from the cheaper side: counting scans
+    // the run itself while the backward scan covers at most the tail after it.
+    let contiguous = if end - start <= mask.len() - end {
+        mask.bit_buffer().count_range(start, end) == true_count
+    } else {
+        mask.bit_buffer().last_set_index() == Some(end - 1)
+    };
+    contiguous.then_some(start..end)
 }
 
 /// Check for some fast-path execution conditions before calling [`execute_filter`].
-pub(super) fn execute_filter_fast_paths(
+pub(super) fn execute_all_null_filter_fast_path(
     array: ArrayView<'_, Filter>,
+    selected_count: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
-    let true_count = array.mask.true_count();
-
-    // If the mask selects nothing, the output is empty.
-    if true_count == 0 {
-        return Ok(Some(Canonical::empty(array.dtype()).into_array()));
-    }
-
-    // If the mask selects everything, then we can just fully decompress the whole thing.
-    if true_count == array.mask.len() {
-        return Ok(Some(array.child().clone()));
-    }
-
-    // Also check if the array itself is completely null, in which case we only care about the total
-    // number of nulls, not the values.
-    let child_arr = array.array();
-    if child_arr
+    let child = array.array();
+    if child
         .validity()?
-        .execute_mask(child_arr.len(), ctx)?
+        .execute_mask(child.len(), ctx)?
         .true_count()
         == 0
     {
         return Ok(Some(
-            ConstantArray::new(Scalar::null(array.dtype().clone()), true_count).into_array(),
+            ConstantArray::new(Scalar::null(array.dtype().clone()), selected_count).into_array(),
         ));
     }
 
@@ -86,7 +125,7 @@ pub(super) fn execute_filter_fast_paths(
 }
 
 /// Filter a canonical array by a mask, returning a new canonical array.
-pub(super) fn execute_filter(canonical: Canonical, mask: &Arc<MaskValues>) -> Canonical {
+pub(super) fn execute_filter(canonical: Canonical, mask: &MaskValuesRef) -> Canonical {
     match canonical {
         Canonical::Null(_) => Canonical::Null(NullArray::new(mask.true_count())),
         Canonical::Bool(a) => Canonical::Bool(bool::filter_bool(&a, mask)),
@@ -103,12 +142,12 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Arc<MaskValues>) -> Ca
         Canonical::Extension(a) => {
             let filtered_storage = a
                 .storage_array()
-                .filter(Mask::Values(Arc::clone(mask)))
+                .filter(Mask::Values(MaskValuesRef::clone(mask)))
                 .vortex_expect("ExtensionArray storage type somehow could not be filtered");
             Canonical::Extension(ExtensionArray::new(a.ext_dtype().clone(), filtered_storage))
         }
         Canonical::Variant(a) => {
-            let filter_mask = Mask::Values(Arc::clone(mask));
+            let filter_mask = Mask::Values(MaskValuesRef::clone(mask));
             let filtered_core_storage = a
                 .core_storage()
                 .filter(filter_mask.clone())
@@ -126,10 +165,86 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Arc<MaskValues>) -> Ca
     }
 }
 
-fn filter_map(array: &MapArray, mask: &Arc<MaskValues>) -> MapArray {
-    let filter_mask = Mask::Values(Arc::clone(mask));
+fn filter_map(array: &MapArray, mask: &MaskValuesRef) -> MapArray {
+    let filter_mask = Mask::Values(MaskValuesRef::clone(mask));
     let filtered = <Map as FilterReduce>::filter(array.as_view(), &filter_mask)
         .vortex_expect("MapArray somehow could not be filtered")
         .vortex_expect("Map filter reduce always produces an array");
     filtered.as_::<Map>().into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::BitBuffer;
+    use vortex_error::VortexResult;
+
+    use super::*;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
+    use crate::arrays::PrimitiveArray;
+
+    #[test]
+    fn uncached_contiguous_filter_executes_as_zero_copy_slice() -> VortexResult<()> {
+        let array = PrimitiveArray::from_iter(0i32..128);
+        let original = array.to_buffer::<i32>();
+        let mask = Mask::from_buffer(BitBuffer::from_iter(
+            (0..128).map(|index| (37..91).contains(&index)),
+        ));
+        assert!(mask.values().is_some_and(|values| {
+            values.cached_indices().is_none() && values.cached_slices().is_none()
+        }));
+
+        let filtered = array
+            .into_array()
+            .filter(mask)?
+            .execute::<PrimitiveArray>(&mut array_session().create_execution_ctx())?;
+        let filtered_values = filtered.to_buffer::<i32>();
+
+        assert_eq!(filtered_values.as_slice(), &(37..91).collect::<Vec<_>>());
+        assert_eq!(filtered_values.as_ptr(), original.as_ptr().wrapping_add(37));
+        Ok(())
+    }
+
+    #[test]
+    fn uncached_contiguous_range_handles_sparse_and_dense_masks() {
+        let cases = [
+            (
+                Mask::from_buffer(BitBuffer::from_iter(
+                    (0..128).map(|index| (37..41).contains(&index)),
+                )),
+                Some(37..41),
+            ),
+            (
+                Mask::from_buffer(BitBuffer::from_iter(
+                    (0..128).map(|index| (3..125).contains(&index)),
+                )),
+                Some(3..125),
+            ),
+            (
+                Mask::from_buffer(BitBuffer::from_iter(
+                    (0..128).map(|index| (100..128).contains(&index)),
+                )),
+                Some(100..128),
+            ),
+            (
+                Mask::from_buffer(BitBuffer::from_iter(
+                    (0..128).map(|index| matches!(index, 1 | 40 | 90)),
+                )),
+                None,
+            ),
+            (
+                Mask::from_buffer(BitBuffer::from_iter(
+                    (0..128).map(|index| !matches!(index, 17 | 63)),
+                )),
+                None,
+            ),
+        ];
+
+        for (mask, expected) in cases {
+            assert!(mask.values().is_some_and(|values| {
+                values.cached_indices().is_none() && values.cached_slices().is_none()
+            }));
+            assert_eq!(contiguous_filter_range(&mask), expected);
+        }
+    }
 }

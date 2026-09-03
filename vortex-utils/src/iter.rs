@@ -3,6 +3,8 @@
 
 //! Iterator extension traits.
 
+use std::convert::Infallible;
+
 /// An extension trait for iterators that provides balanced binary tree reduction.
 ///
 /// Unlike [`Iterator::reduce`], which builds a left-leaning linear chain of depth N,
@@ -27,7 +29,6 @@ pub trait ReduceBalancedIterExt: Iterator {
     /// Returns `None` if the iterator is empty.
     fn reduce_balanced<F>(self, combine: F) -> Option<Self::Item>
     where
-        Self::Item: Clone,
         F: Fn(Self::Item, Self::Item) -> Self::Item;
 
     /// Fallible version of [`reduce_balanced`](ReduceBalancedIterExt::reduce_balanced).
@@ -35,50 +36,22 @@ pub trait ReduceBalancedIterExt: Iterator {
     /// Short-circuits on the first error.
     fn try_reduce_balanced<F, E>(self, combine: F) -> Result<Option<Self::Item>, E>
     where
-        Self::Item: Clone,
         F: Fn(Self::Item, Self::Item) -> Result<Self::Item, E>;
 }
 
 impl<I: Iterator + Sized> ReduceBalancedIterExt for I {
     fn reduce_balanced<F>(self, combine: F) -> Option<Self::Item>
     where
-        Self::Item: Clone,
         F: Fn(Self::Item, Self::Item) -> Self::Item,
     {
-        let mut items: Vec<_> = self.collect();
-        if items.is_empty() {
-            return None;
+        match self.try_reduce_balanced(|lhs, rhs| Ok::<_, Infallible>(combine(lhs, rhs))) {
+            Ok(result) => result,
+            Err(never) => match never {},
         }
-        if items.len() == 1 {
-            return items.pop();
-        }
-
-        while items.len() > 1 {
-            let len = items.len();
-
-            for target_idx in 0..(len / 2) {
-                let item_idx = target_idx * 2;
-                let new = combine(items[item_idx].clone(), items[item_idx + 1].clone());
-                items[target_idx] = new;
-            }
-
-            if !len.is_multiple_of(2) {
-                // Merge the odd element into the last paired element so it stays inside the tree.
-                let lhs = items[(len / 2) - 1].clone();
-                let rhs = items[len - 1].clone();
-                items[len / 2 - 1] = combine(lhs, rhs);
-            }
-
-            items.truncate(len / 2);
-        }
-
-        assert_eq!(items.len(), 1);
-        items.pop()
     }
 
     fn try_reduce_balanced<F, E>(self, combine: F) -> Result<Option<Self::Item>, E>
     where
-        Self::Item: Clone,
         F: Fn(Self::Item, Self::Item) -> Result<Self::Item, E>,
     {
         let mut items: Vec<_> = self.collect();
@@ -89,22 +62,27 @@ impl<I: Iterator + Sized> ReduceBalancedIterExt for I {
             return Ok(items.pop());
         }
 
+        // Each pass consumes one level of the reduction tree, combining adjacent pairs into the
+        // next level. The two vectors swap roles between passes so items can be moved rather than
+        // cloned while retaining their allocations.
+        let mut next = Vec::with_capacity(items.len() / 2);
         while items.len() > 1 {
-            let len = items.len();
-
-            for target_idx in 0..(len / 2) {
-                let item_idx = target_idx * 2;
-                let new = combine(items[item_idx].clone(), items[item_idx + 1].clone())?;
-                items[target_idx] = new;
+            next.clear();
+            let mut iter = items.drain(..);
+            while let Some(lhs) = iter.next() {
+                if let Some(rhs) = iter.next() {
+                    next.push(combine(lhs, rhs)?);
+                } else {
+                    // Folding an odd tail into the preceding pair keeps it at the current tree
+                    // level instead of carrying it forward as a shallower subtree.
+                    let Some(previous) = next.pop() else {
+                        unreachable!("a reduction level with an odd tail has a preceding pair")
+                    };
+                    next.push(combine(previous, lhs)?);
+                }
             }
-
-            if !len.is_multiple_of(2) {
-                let lhs = items[(len / 2) - 1].clone();
-                let rhs = items[len - 1].clone();
-                items[len / 2 - 1] = combine(lhs, rhs)?;
-            }
-
-            items.truncate(len / 2);
+            drop(iter);
+            std::mem::swap(&mut items, &mut next);
         }
 
         assert_eq!(items.len(), 1);
@@ -175,6 +153,19 @@ mod tests {
             .map(String::from)
             .reduce_balanced(|a, b| format!("({a}+{b})"));
         assert_eq!(result, Some("((a+b)+((c+d)+e))".to_string()));
+    }
+
+    #[test]
+    fn test_non_clone_items() {
+        #[derive(Debug, PartialEq, Eq)]
+        struct NonClone(String);
+
+        let result = ["a", "b", "c"]
+            .into_iter()
+            .map(|value| NonClone(value.to_owned()))
+            .reduce_balanced(|NonClone(lhs), NonClone(rhs)| NonClone(format!("({lhs}+{rhs})")));
+
+        assert_eq!(result, Some(NonClone("((a+b)+c)".to_owned())));
     }
 
     #[test]

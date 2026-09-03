@@ -19,13 +19,14 @@ fn main() {
     divan::main();
 }
 
+// `unique_values` must stay <= `len`, since codes index the values array.
 const BENCH_ARGS: &[(usize, usize, usize)] = &[
-    (1000, 10, 10),
-    (1000, 100, 10),
-    (1000, 1000, 10),
-    (1000, 10, 100),
-    (1000, 100, 100),
-    (1000, 1000, 100),
+    (250, 10, 2),
+    (250, 100, 2),
+    (250, 250, 2),
+    (250, 10, 5),
+    (250, 100, 5),
+    (250, 250, 5),
 ];
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {

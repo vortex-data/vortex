@@ -114,8 +114,7 @@ impl RandomAccessor for LanceRandomAccessor {
     }
 
     async fn take(&self, indices: &[u64]) -> anyhow::Result<RandomAccessorRet> {
-        Ok(RandomAccessorRet::RecordBatch(
-            self.dataset.take(indices, self.projection.clone()).await?,
-        ))
+        let batch = self.dataset.take(indices, self.projection.clone()).await?;
+        Ok(RandomAccessorRet::Native(Box::new(batch)))
     }
 }

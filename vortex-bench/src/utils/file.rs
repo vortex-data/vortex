@@ -130,7 +130,7 @@ pub fn resolve_data_url(remote_data_dir: Option<&str>, local_subdir: &str) -> Re
         None => {
             let data_dir = data_dir().join(local_subdir);
             Url::from_directory_path(&data_dir).map_err(|_| {
-                anyhow::anyhow!("Failed to create URL from directory path: {:?}", &data_dir)
+                anyhow::anyhow!("Failed to create URL from directory path: {:?}", data_dir)
             })
         }
         Some(remote_data_dir) => {

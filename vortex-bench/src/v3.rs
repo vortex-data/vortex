@@ -188,6 +188,8 @@ pub struct CompressionSizeRecord {
     pub format: String,
     /// Size in bytes.
     pub value_bytes: u64,
+    /// Arrow memory size after decoding the source Parquet file.
+    pub uncompressed_bytes: u64,
 }
 
 /// A single take-time timing from `random-access-bench`.
@@ -199,6 +201,8 @@ pub struct RandomAccessTimeRecord {
     pub dataset: String,
     /// On-disk format the timing applies to.
     pub format: String,
+    /// File access mode: `cached` reuses an accessor and `reopen` opens one per take.
+    pub open_mode: String,
     /// Median per-iteration wall time in nanoseconds.
     pub value_ns: u64,
     /// Per-iteration wall times in nanoseconds.
@@ -401,6 +405,7 @@ pub fn compression_size_record(
     dataset_variant: Option<&str>,
     format: Format,
     value_bytes: u64,
+    uncompressed_bytes: u64,
 ) -> V3Record {
     V3Record::CompressionSize(CompressionSizeRecord {
         commit_sha: GIT_COMMIT_ID.clone(),
@@ -408,17 +413,23 @@ pub fn compression_size_record(
         dataset_variant: dataset_variant.map(str::to_string),
         format: format.name().to_string(),
         value_bytes,
+        uncompressed_bytes,
     })
 }
 
 /// Build a `random_access_time` record from a [`TimingMeasurement`].
-pub fn random_access_record(timing: &TimingMeasurement, dataset: &str) -> V3Record {
+pub fn random_access_record(
+    timing: &TimingMeasurement,
+    dataset: &str,
+    open_mode: &str,
+) -> V3Record {
     let value_ns = duration_as_ns(timing.median_time());
     let all_runtimes_ns = timing.runs.iter().copied().map(duration_as_ns).collect();
     V3Record::RandomAccessTime(RandomAccessTimeRecord {
         commit_sha: GIT_COMMIT_ID.clone(),
         dataset: dataset.to_string(),
         format: timing.target.format.name().to_string(),
+        open_mode: open_mode.to_string(),
         value_ns,
         all_runtimes_ns,
         env_triple: Some(ENV_TRIPLE.clone()),
@@ -613,7 +624,7 @@ mod tests {
 
     #[test]
     fn snapshot_compression_size() -> anyhow::Result<()> {
-        let record = compression_size_record("taxi", None, Format::Lance, 12_345_678);
+        let record = compression_size_record("taxi", None, Format::Lance, 12_345_678, 98_765_432);
         assert_snapshot!(render(&record)?);
         Ok(())
     }
@@ -653,7 +664,7 @@ mod tests {
                 Duration::from_nanos(850_000),
             ],
         };
-        let record = random_access_record(&timing, "taxi");
+        let record = random_access_record(&timing, "taxi", "cached");
         assert_snapshot!(render(&record)?);
         Ok(())
     }
@@ -754,7 +765,7 @@ mod tests {
         };
         assert_eq!(time.dataset, "tpc-h l_comment chunked");
 
-        let record = compression_size_record("CMSprovider", None, Format::OnDiskVortex, 42);
+        let record = compression_size_record("CMSprovider", None, Format::OnDiskVortex, 42, 420);
         let V3Record::CompressionSize(size) = &record else {
             panic!("expected CompressionSize variant, got {record:?}");
         };
@@ -798,7 +809,7 @@ mod tests {
 
     #[test]
     fn jsonl_round_trips_one_record_per_line() -> anyhow::Result<()> {
-        let record = compression_size_record("taxi", None, Format::Parquet, 100);
+        let record = compression_size_record("taxi", None, Format::Parquet, 100, 1_000);
         let mut buf: Vec<u8> = Vec::new();
         write_jsonl(&mut buf, &[record.clone(), record])?;
         let s = String::from_utf8(buf)?;

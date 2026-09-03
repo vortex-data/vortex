@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use datafusion_common::HashMap;
 use datafusion_execution::cache::cache_manager::FileMetadata;
 use vortex::file::Footer;
 use vortex::file::VortexFile;
@@ -40,8 +41,7 @@ impl FileMetadata for CachedVortexMetadata {
             .unwrap_or(1024 * 64)
     }
 
-    #[expect(clippy::disallowed_types)]
-    fn extra_info(&self) -> std::collections::HashMap<String, String> {
+    fn extra_info(&self) -> HashMap<String, String> {
         Default::default()
     }
 }

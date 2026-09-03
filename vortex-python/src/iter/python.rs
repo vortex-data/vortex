@@ -45,7 +45,7 @@ impl Iterator for PythonArrayIterator {
                         if array.dtype() != &self.dtype {
                             Err(PyTypeError::new_err(format!(
                                 "ArrayIterator dtype mismatch. Expected {:?}, got {:?}",
-                                &self.dtype,
+                                self.dtype,
                                 array.dtype()
                             )))
                         } else {

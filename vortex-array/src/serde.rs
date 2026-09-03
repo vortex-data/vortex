@@ -30,6 +30,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::ArrayContext;
 use crate::ArrayRef;
 use crate::ArraySlots;
+use crate::array::ArrayDeserialization;
 use crate::array::ArrayId;
 use crate::array::new_foreign_array;
 use crate::buffer::BufferHandle;
@@ -65,11 +66,10 @@ impl ArrayRef {
         session: &VortexSession,
         options: &SerializeOptions,
     ) -> VortexResult<Vec<ByteBuffer>> {
-        // Collect all array buffers
-        let array_buffers = self
-            .depth_first_traversal()
-            .flat_map(|f| f.buffers())
-            .collect::<Vec<_>>();
+        // Resolve the wire representation once. Serializers may choose historical IDs and may
+        // provide downgraded buffers or children that differ from the in-memory array tree.
+        let root = ArrayNodeFlatBuffer::try_new(ctx, session, self)?;
+        let array_buffers = root.array.buffers();
 
         // Allocate result buffers, including a possible padding buffer for each.
         let mut buffers = vec![];
@@ -84,7 +84,7 @@ impl ArrayRef {
             .unwrap_or_else(FlatBuffer::alignment);
 
         // Create a shared buffer of zeros we can use for padding
-        let zeros = ByteBuffer::zeroed(*max_alignment);
+        let zeros = ByteBuffer::zeroed(max_alignment.as_usize());
 
         // We push an empty buffer with the maximum alignment, so then subsequent buffers
         // will be aligned. For subsequent buffers, we always push a 1-byte alignment.
@@ -96,7 +96,7 @@ impl ArrayRef {
         // Push all the array buffers with padding as necessary.
         for buffer in array_buffers {
             let padding = if options.include_padding {
-                let padding = pos.next_multiple_of(*buffer.alignment()) - pos;
+                let padding = pos.next_multiple_of(buffer.alignment().as_usize()) - pos;
                 if padding > 0 {
                     pos += padding;
                     buffers.push(zeros.slice(0..padding));
@@ -121,7 +121,6 @@ impl ArrayRef {
         // Set up the flatbuffer builder
         let mut fbb = FlatBufferBuilder::new();
 
-        let root = ArrayNodeFlatBuffer::try_new(ctx, session, self)?;
         let fb_root = root.try_write_flatbuffer(&mut fbb)?;
 
         let fb_buffers = fbb.create_vector(&fb_buffers);
@@ -139,7 +138,7 @@ impl ArrayRef {
         let fb_length = fb_buffer.len();
 
         if options.include_padding {
-            let padding = pos.next_multiple_of(*FlatBuffer::alignment()) - pos;
+            let padding = pos.next_multiple_of(FlatBuffer::alignment().as_usize()) - pos;
             if padding > 0 {
                 buffers.push(zeros.slice(0..padding));
             }
@@ -158,20 +157,74 @@ impl ArrayRef {
     }
 }
 
+#[derive(Clone, Debug)]
+struct ArraySerializationTree {
+    source: ArrayRef,
+    serialized_id: ArrayId,
+    metadata: Vec<u8>,
+    buffers: Vec<ByteBuffer>,
+    children: Vec<ArraySerializationTree>,
+}
+
+impl ArraySerializationTree {
+    fn try_new(session: &VortexSession, source: &ArrayRef) -> VortexResult<Self> {
+        let Some(serialization) = session.array_serialize(source)? else {
+            vortex_bail!(
+                "Array {} does not support serialization",
+                source.encoding_id()
+            );
+        };
+        let children = serialization
+            .children
+            .iter()
+            .map(|child| Self::try_new(session, child))
+            .collect::<VortexResult<Vec<_>>>()?;
+
+        Ok(Self {
+            source: source.clone(),
+            serialized_id: serialization.serialized_id,
+            metadata: serialization.metadata,
+            buffers: serialization.buffers,
+            children,
+        })
+    }
+
+    fn nbuffers_recursive(&self) -> usize {
+        self.buffers.len()
+            + self
+                .children
+                .iter()
+                .map(Self::nbuffers_recursive)
+                .sum::<usize>()
+    }
+
+    fn buffers(&self) -> Vec<ByteBuffer> {
+        let mut buffers = Vec::with_capacity(self.nbuffers_recursive());
+        self.append_buffers(&mut buffers);
+        buffers
+    }
+
+    fn append_buffers(&self, buffers: &mut Vec<ByteBuffer>) {
+        buffers.extend(self.buffers.iter().cloned());
+        for child in &self.children {
+            child.append_buffers(buffers);
+        }
+    }
+}
+
 /// A utility struct for creating an [`fba::ArrayNode`] flatbuffer.
 pub struct ArrayNodeFlatBuffer<'a> {
     ctx: &'a ArrayContext,
-    session: &'a VortexSession,
-    array: &'a ArrayRef,
-    buffer_idx: u16,
+    array: ArraySerializationTree,
 }
 
 impl<'a> ArrayNodeFlatBuffer<'a> {
     pub fn try_new(
         ctx: &'a ArrayContext,
         session: &'a VortexSession,
-        array: &'a ArrayRef,
+        array: &ArrayRef,
     ) -> VortexResult<Self> {
+        let array = ArraySerializationTree::try_new(session, array)?;
         let n_buffers_recursive = array.nbuffers_recursive();
         if n_buffers_recursive > u16::MAX as usize {
             vortex_bail!(
@@ -179,53 +232,42 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
                 n_buffers_recursive
             );
         };
-        Ok(Self {
-            ctx,
-            session,
-            array,
-            buffer_idx: 0,
-        })
+        Ok(Self { ctx, array })
     }
 
     pub fn try_write_flatbuffer<'fb>(
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> VortexResult<WIPOffset<fba::ArrayNode<'fb>>> {
-        // The id written to the file is the plugin's serialized format id, which may differ
-        // from the in-memory encoding id. The permitted-encoding check applies to it: what is
-        // gated is the bytes a reader will meet, not the in-memory representation.
-        let serialized_id = self.session.array_serialized_id(self.array)?;
-        let encoding_idx = self
-            .ctx
-            .intern(&serialized_id)
-            .ok_or_else(|| vortex_err!("Array encoding {} not permitted by ctx", serialized_id))?;
+        self.try_write_node(fbb, &self.array, 0)
+    }
 
-        let metadata_bytes = self.session.array_serialize(self.array)?.ok_or_else(|| {
+    fn try_write_node<'fb>(
+        &self,
+        fbb: &mut FlatBufferBuilder<'fb>,
+        array: &ArraySerializationTree,
+        buffer_idx: u16,
+    ) -> VortexResult<WIPOffset<fba::ArrayNode<'fb>>> {
+        let encoding_idx = self.ctx.intern(&array.serialized_id).ok_or_else(|| {
             vortex_err!(
-                "Array {} does not support serialization",
-                self.array.encoding_id()
+                "Serialized array ID {} not permitted by ctx",
+                array.serialized_id
             )
         })?;
-        let metadata = Some(fbb.create_vector(metadata_bytes.as_slice()));
+
+        let metadata = Some(fbb.create_vector(array.metadata.as_slice()));
 
         // Assign buffer indices for all child arrays.
-        let nbuffers = u16::try_from(self.array.nbuffers())
+        let nbuffers = u16::try_from(array.buffers.len())
             .map_err(|_| vortex_err!("Array can have at most u16::MAX buffers"))?;
-        let mut child_buffer_idx = self.buffer_idx + nbuffers;
+        let mut child_buffer_idx = buffer_idx + nbuffers;
 
-        let children = self
-            .array
-            .children()
+        let children = array
+            .children
             .iter()
             .map(|child| {
                 // Update the number of buffers required.
-                let msg = ArrayNodeFlatBuffer {
-                    ctx: self.ctx,
-                    session: self.session,
-                    array: child,
-                    buffer_idx: child_buffer_idx,
-                }
-                .try_write_flatbuffer(fbb)?;
+                let msg = self.try_write_node(fbb, child, child_buffer_idx)?;
 
                 child_buffer_idx = u16::try_from(child.nbuffers_recursive())
                     .ok()
@@ -237,8 +279,8 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
             .collect::<VortexResult<Vec<_>>>()?;
         let children = Some(fbb.create_vector(&children));
 
-        let buffers = Some(fbb.create_vector_from_iter((0..nbuffers).map(|i| i + self.buffer_idx)));
-        let stats = Some(self.array.statistics().write_flatbuffer(fbb)?);
+        let buffers = Some(fbb.create_vector_from_iter((0..nbuffers).map(|i| i + buffer_idx)));
+        let stats = Some(array.source.statistics().write_flatbuffer(fbb)?);
 
         Ok(fba::ArrayNode::create(
             fbb,
@@ -338,8 +380,17 @@ impl SerializedArray {
 
         let buffers = self.collect_buffers()?;
 
-        let decoded =
-            plugin.deserialize(dtype, len, self.metadata(), &buffers, &children, session)?;
+        let decoded = plugin.deserialize(
+            ArrayDeserialization::new(
+                encoding_id,
+                dtype,
+                len,
+                self.metadata(),
+                &buffers,
+                &children,
+            ),
+            session,
+        )?;
 
         assert_eq!(
             decoded.len(),
@@ -718,12 +769,235 @@ impl TryFrom<BufferHandle> for SerializedArray {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
     use vortex_buffer::ByteBufferMut;
+    use vortex_error::vortex_ensure;
+    use vortex_session::registry::CachedId;
 
     use super::*;
+    use crate::Array;
+    use crate::ArrayPlugin;
+    use crate::ArraySerialization;
+    use crate::ArrayVTable;
     use crate::IntoArray;
     use crate::array_session;
+    use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
+
+    static SERIALIZER_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+    fn old_primitive_id() -> ArrayId {
+        ArrayVTable::id(&Primitive)
+    }
+
+    fn new_primitive_id() -> ArrayId {
+        static ID: CachedId = CachedId::new("vortex.test.primitive_v2");
+        *ID
+    }
+
+    #[derive(Debug)]
+    struct VersionedPrimitivePlugin;
+
+    impl ArrayPlugin for VersionedPrimitivePlugin {
+        fn id(&self) -> ArrayId {
+            old_primitive_id()
+        }
+
+        fn serialized_ids(&self) -> Vec<ArrayId> {
+            vec![old_primitive_id(), new_primitive_id()]
+        }
+
+        fn serialize(
+            &self,
+            array: &ArrayRef,
+            _session: &VortexSession,
+        ) -> VortexResult<Option<ArraySerialization>> {
+            vortex_ensure!(
+                array.encoding_id() == self.id(),
+                "versioned primitive serializer received {}",
+                array.encoding_id(),
+            );
+
+            let serialized_id = if array.len() <= 4 {
+                old_primitive_id()
+            } else {
+                new_primitive_id()
+            };
+
+            Ok(Some(ArraySerialization::from_array(
+                serialized_id,
+                array,
+                vec![],
+            )))
+        }
+
+        fn deserialize(
+            &self,
+            parts: ArrayDeserialization<'_>,
+            session: &VortexSession,
+        ) -> VortexResult<ArrayRef> {
+            vortex_ensure!(
+                parts.serialized_id == old_primitive_id()
+                    || parts.serialized_id == new_primitive_id(),
+                "versioned primitive deserializer does not recognize {}",
+                parts.serialized_id,
+            );
+            vortex_ensure!(
+                parts.serialized_id != old_primitive_id() || parts.len <= 4,
+                "old primitive wire ID cannot represent length {}",
+                parts.len,
+            );
+            Ok(Array::<Primitive>::try_from_parts(ArrayVTable::deserialize(
+                &Primitive,
+                parts.dtype,
+                parts.len,
+                parts.metadata,
+                parts.buffers,
+                parts.children,
+                session,
+            )?)?
+            .into_array())
+        }
+    }
+
+    #[derive(Debug)]
+    struct CountingVersionedPrimitivePlugin;
+
+    impl ArrayPlugin for CountingVersionedPrimitivePlugin {
+        fn id(&self) -> ArrayId {
+            VersionedPrimitivePlugin.id()
+        }
+
+        fn serialized_ids(&self) -> Vec<ArrayId> {
+            VersionedPrimitivePlugin.serialized_ids()
+        }
+
+        fn serialize(
+            &self,
+            array: &ArrayRef,
+            session: &VortexSession,
+        ) -> VortexResult<Option<ArraySerialization>> {
+            SERIALIZER_CALLS.fetch_add(1, Ordering::Relaxed);
+            VersionedPrimitivePlugin.serialize(array, session)
+        }
+
+        fn deserialize(
+            &self,
+            parts: ArrayDeserialization<'_>,
+            session: &VortexSession,
+        ) -> VortexResult<ArrayRef> {
+            VersionedPrimitivePlugin.deserialize(parts, session)
+        }
+    }
+
+    fn versioned_primitive_session() -> VortexSession {
+        let session = array_session();
+        session.arrays().register(VersionedPrimitivePlugin);
+        session
+    }
+
+    fn restricted_context(ids: &[ArrayId]) -> ArrayContext {
+        ArrayContext::new(ids.to_vec()).with_allowed_ids(ids.iter().copied().collect())
+    }
+
+    fn serialize_blob(
+        array: &ArrayRef,
+        ctx: &ArrayContext,
+        session: &VortexSession,
+    ) -> VortexResult<ByteBuffer> {
+        let mut blob = ByteBufferMut::empty();
+        for buffer in array.serialize(ctx, session, &SerializeOptions::default())? {
+            blob.extend_from_slice(buffer.as_ref());
+        }
+        Ok(blob.freeze())
+    }
+
+    #[test]
+    fn one_serializer_selects_the_earliest_lossless_wire_id() -> VortexResult<()> {
+        let session = array_session();
+        session.arrays().register(CountingVersionedPrimitivePlugin);
+        let ctx = restricted_context(&[old_primitive_id(), new_primitive_id()]);
+        let array = PrimitiveArray::from_iter([1i32, 2, 3, 4]).into_array();
+
+        SERIALIZER_CALLS.store(0, Ordering::Relaxed);
+        let serialized = SerializedArray::try_from(serialize_blob(&array, &ctx, &session)?)?;
+        assert_eq!(SERIALIZER_CALLS.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            ReadContext::new(ctx.to_ids()).resolve(serialized.encoding_id()),
+            Some(old_primitive_id())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn serializer_uses_a_newer_id_only_when_the_old_variant_cannot_represent_the_value()
+    -> VortexResult<()> {
+        let session = versioned_primitive_session();
+        let ctx = restricted_context(&[old_primitive_id(), new_primitive_id()]);
+        let array = PrimitiveArray::from_iter(0..8i32).into_array();
+        let serialized = SerializedArray::try_from(serialize_blob(&array, &ctx, &session)?)?;
+        let read_ctx = ReadContext::new(ctx.to_ids());
+
+        assert_eq!(
+            read_ctx.resolve(serialized.encoding_id()),
+            Some(new_primitive_id())
+        );
+        let decoded = serialized.decode(array.dtype(), array.len(), &read_ctx, &session)?;
+        assert_eq!(decoded.encoding_id(), old_primitive_id());
+        Ok(())
+    }
+
+    #[test]
+    fn serialization_fails_when_serialized_id_is_not_permitted() -> VortexResult<()> {
+        let session = versioned_primitive_session();
+        let ctx = restricted_context(&[old_primitive_id()]);
+        let array = PrimitiveArray::from_iter(0..8i32).into_array();
+
+        let error = array
+            .serialize(&ctx, &session, &SerializeOptions::default())
+            .expect_err("the serialized ID is not permitted");
+        assert!(error.to_string().contains("not permitted by ctx"));
+        Ok(())
+    }
+
+    #[test]
+    fn old_reader_rejects_a_new_serialized_id() -> VortexResult<()> {
+        let writer_session = versioned_primitive_session();
+        let ctx = restricted_context(&[new_primitive_id()]);
+        let array = PrimitiveArray::from_iter(0..8i32).into_array();
+        let serialized = SerializedArray::try_from(serialize_blob(&array, &ctx, &writer_session)?)?;
+        let read_ctx = ReadContext::new(ctx.to_ids());
+
+        let old_session = array_session();
+        let error = serialized
+            .decode(array.dtype(), array.len(), &read_ctx, &old_session)
+            .expect_err("an old reader must not recognize the new wire ID");
+        assert!(error.to_string().contains("Unknown encoding"));
+        Ok(())
+    }
+
+    #[test]
+    fn deserializer_enforces_the_exact_wire_id_contract() -> VortexResult<()> {
+        let session = versioned_primitive_session();
+        let write_ctx = restricted_context(&[new_primitive_id()]);
+        let array = PrimitiveArray::from_iter(0..8i32).into_array();
+        let serialized = SerializedArray::try_from(serialize_blob(&array, &write_ctx, &session)?)?;
+
+        // Interpret the encoded index as the old ID to simulate a file that uses the old tag for
+        // a representation outside that tag's frozen contract.
+        let error = serialized
+            .decode(
+                array.dtype(),
+                array.len(),
+                &ReadContext::new([old_primitive_id()]),
+                &session,
+            )
+            .expect_err("the old wire contract must be enforced by the current deserializer");
+        assert!(error.to_string().contains("old primitive wire ID"));
+        Ok(())
+    }
 
     /// A corrupt array tree can declare a buffer that extends past the backing segment. Slicing
     /// such a buffer must return a [`VortexError`] rather than panicking (see issue #8819).

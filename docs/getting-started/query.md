@@ -51,7 +51,8 @@ vx segments yellow_tripdata_2024-01.vortex
 vx inspect yellow_tripdata_2024-01.vortex
 ```
 
-All inspection commands support `--json` for machine-readable output.
+`vx inspect` and `vx tree layout` take `--json` for machine-readable output; `vx segments` always
+emits JSON.
 
 ## Standalone SQL
 

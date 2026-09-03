@@ -95,7 +95,7 @@ final class VortexPartitionReader implements PartitionReader<ColumnarBatch> {
                         return true;
                     }
                 } catch (IOException e) {
-                    throw new RuntimeException(e);
+                    throw failure("load a batch from", e);
                 }
                 closeCurrentReader();
             }
@@ -119,7 +119,7 @@ final class VortexPartitionReader implements PartitionReader<ColumnarBatch> {
         try {
             root = currentReader.getVectorSchemaRoot();
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw failure("read the loaded batch of", e);
         }
 
         int rowCount = root.getRowCount();
@@ -157,12 +157,17 @@ final class VortexPartitionReader implements PartitionReader<ColumnarBatch> {
         session = null;
     }
 
+    /** Wraps a failure with the paths being read, the one fact a stack trace alone does not give. */
+    private RuntimeException failure(String what, IOException cause) {
+        return new RuntimeException(String.format("Failed to %s %s", what, spark.paths()), cause);
+    }
+
     private void closeCurrentReader() {
         if (currentReader != null) {
             try {
                 currentReader.close();
             } catch (IOException e) {
-                throw new RuntimeException(e);
+                throw failure("close the reader over", e);
             }
             currentReader = null;
         }

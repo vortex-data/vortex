@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Row-wise comparison of nested (struct, list, fixed-size list) arrays.
+//! Row-wise comparison of nested (struct, list, fixed-size list, map) arrays.
 //!
 //! Nested comparisons canonicalize both operands recursively and build a tree of row
 //! comparators, one per nested level. The ordering semantics match [`Scalar`] comparison:
 //! structs compare field-by-field in declaration order, lists compare element-by-element and
-//! then by length, and a null value (at any nesting depth) orders before every non-null value.
-//! Only top-level nulls make the comparison result null.
+//! then by length, maps compare as the list of their `{key, value}` entries, and a null value
+//! (at any nesting depth) orders before every non-null value. Only top-level nulls make the
+//! comparison result null.
 //!
 //! [`Scalar`]: crate::scalar::Scalar
 
@@ -28,6 +29,7 @@ use crate::arrays::DecimalArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListViewArray;
+use crate::arrays::MapArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
@@ -35,6 +37,7 @@ use crate::arrays::decimal::widened_buffer;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use crate::arrays::listview::ListViewArraySlotsExt;
+use crate::arrays::map::MapArraySlotsExt;
 use crate::arrays::struct_::StructArrayExt;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
@@ -214,7 +217,12 @@ fn build_values_comparator(
             let rhs = rhs.clone().execute::<ExtensionArray>(ctx)?;
             build_comparator(lhs.storage_array(), rhs.storage_array(), ctx)?
         }
-        DType::Map(..) | DType::Union(..) | DType::Variant(_) => {
+        DType::Map(..) => {
+            let lhs = lhs.clone().execute::<MapArray>(ctx)?;
+            let rhs = rhs.clone().execute::<MapArray>(ctx)?;
+            build_values_comparator(lhs.entries(), rhs.entries(), ctx)?
+        }
+        DType::Union(..) | DType::Variant(_) => {
             vortex_bail!("compare is not supported for dtype {}", lhs.dtype())
         }
     })

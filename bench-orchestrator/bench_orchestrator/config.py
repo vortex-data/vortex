@@ -43,7 +43,7 @@ class Format(Enum):
     PARQUET = "parquet"
     VORTEX = "vortex"
     VORTEX_COMPACT = "vortex-compact"
-    VORTEX_NATIVE = "vortex-geo-native"
+    VORTEX_SPATIAL_NATIVE = "vortex-spatial-native"
     DUCKDB = "duckdb"
     LANCE = "lance"
 
@@ -77,7 +77,7 @@ ENGINE_FORMATS: dict[Engine, list[Format]] = {
         Format.PARQUET,
         Format.VORTEX,
         Format.VORTEX_COMPACT,
-        Format.VORTEX_NATIVE,
+        Format.VORTEX_SPATIAL_NATIVE,
         Format.DUCKDB,
     ],
     Engine.LANCE: [Format.LANCE],

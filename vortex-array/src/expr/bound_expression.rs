@@ -22,7 +22,6 @@ use crate::expr::traversal::TraversalOrder;
 use crate::expr::traversal::pre_order_visit_down;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::fns::root::Root;
 use crate::stats::rewrite::StatsRewriteCtx;
 
 /// An [`Expression`] that has been type-checked against a [`Scope`].
@@ -33,17 +32,11 @@ use crate::stats::rewrite::StatsRewriteCtx;
 /// Binding is purely logical: it deals only in [`DType`]s and never sees an array, a length, or an
 /// encoding.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct BoundExpression {
-    kind: BoundKind,
-    dtype: DType,
-}
-
-/// The per-variant contents of a [`BoundExpression`], mirroring the logical variants of
-/// [`Expression`].
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum BoundKind {
+pub enum BoundExpression {
     /// A scalar function applied to bound children.
     Scalar {
+        /// The dtype this node evaluates to.
+        dtype: DType,
         /// The scalar function for this node.
         scalar_fn: ScalarFnRef,
         /// The bound children, in argument order.
@@ -53,7 +46,10 @@ pub enum BoundKind {
         children: Arc<Vec<BoundExpression>>,
     },
     /// The scope itself. Its dtype is the scope's root dtype.
-    Root,
+    Root {
+        /// The dtype this node evaluates to.
+        dtype: DType,
+    },
 }
 
 /// A bound-expression wrapper that compares shared tree identity instead of structure.
@@ -62,21 +58,26 @@ pub struct ExactBoundExpr(pub BoundExpression);
 
 impl PartialEq for ExactBoundExpr {
     fn eq(&self, other: &Self) -> bool {
-        match (&self.0.kind, &other.0.kind) {
-            (BoundKind::Root, BoundKind::Root) => self.0.dtype == other.0.dtype,
+        match (&self.0, &other.0) {
             (
-                BoundKind::Scalar {
+                BoundExpression::Root { dtype: lhs_dtype },
+                BoundExpression::Root { dtype: rhs_dtype },
+            ) => lhs_dtype == rhs_dtype,
+            (
+                BoundExpression::Scalar {
+                    dtype: lhs_dtype,
                     scalar_fn: lhs_fn,
                     children: lhs_children,
                 },
-                BoundKind::Scalar {
+                BoundExpression::Scalar {
+                    dtype: rhs_dtype,
                     scalar_fn: rhs_fn,
                     children: rhs_children,
                 },
             ) => {
                 lhs_fn == rhs_fn
                     && Arc::ptr_eq(lhs_children, rhs_children)
-                    && self.0.dtype == other.0.dtype
+                    && lhs_dtype == rhs_dtype
             }
             _ => false,
         }
@@ -89,11 +90,12 @@ impl Hash for ExactBoundExpr {
     fn hash<H: Hasher>(&self, state: &mut H) {
         // DType differences are resolved by equality. Omitting the potentially lazy dtype keeps
         // identity-keyed cache lookups from deserializing an entire schema just to compute a hash.
-        match &self.0.kind {
-            BoundKind::Root => state.write_u8(0),
-            BoundKind::Scalar {
+        match &self.0 {
+            BoundExpression::Root { .. } => state.write_u8(0),
+            BoundExpression::Scalar {
                 scalar_fn,
                 children,
+                ..
             } => {
                 state.write_u8(1);
                 scalar_fn.hash(state);
@@ -106,10 +108,7 @@ impl Hash for ExactBoundExpr {
 impl BoundExpression {
     /// Create a bound root expression with the given dtype.
     pub fn new_root(dtype: DType) -> Self {
-        Self {
-            kind: BoundKind::Root,
-            dtype,
-        }
+        Self::Root { dtype }
     }
 
     /// Create a bound scalar node from a scalar function and already-bound children.
@@ -117,7 +116,10 @@ impl BoundExpression {
         scalar_fn: ScalarFnRef,
         children: impl IntoIterator<Item = BoundExpression>,
     ) -> VortexResult<Self> {
-        let children = Vec::from_iter(children);
+        Self::try_new_vec(scalar_fn, children.into_iter().collect())
+    }
+
+    fn try_new_vec(scalar_fn: ScalarFnRef, children: Vec<BoundExpression>) -> VortexResult<Self> {
         vortex_ensure!(
             scalar_fn.signature().arity().matches(children.len()),
             "Expression arity mismatch: expected {} children but got {}",
@@ -131,12 +133,10 @@ impl BoundExpression {
             .collect_vec();
         let dtype = scalar_fn.return_dtype(&arg_dtypes)?;
 
-        Ok(Self {
-            kind: BoundKind::Scalar {
-                scalar_fn,
-                children: children.into(),
-            },
+        Ok(Self::Scalar {
             dtype,
+            scalar_fn,
+            children: children.into(),
         })
     }
 
@@ -146,7 +146,7 @@ impl BoundExpression {
         children: impl IntoIterator<Item = BoundExpression>,
     ) -> VortexResult<Self> {
         let children = Vec::from_iter(children);
-        let BoundKind::Scalar { scalar_fn, .. } = &self.kind else {
+        let BoundExpression::Scalar { scalar_fn, .. } = &self else {
             vortex_ensure!(
                 children.is_empty(),
                 "Root expression cannot have {} children",
@@ -155,24 +155,21 @@ impl BoundExpression {
             return Ok(self);
         };
 
-        Self::try_new(scalar_fn.clone(), children)
+        Self::try_new_vec(scalar_fn.clone(), children)
     }
 
     /// The dtype this expression evaluates to.
     pub fn dtype(&self) -> &DType {
-        &self.dtype
+        match self {
+            Self::Scalar { dtype, .. } | Self::Root { dtype } => dtype,
+        }
     }
 
-    /// The per-variant contents of this node.
-    pub fn kind(&self) -> &BoundKind {
-        &self.kind
-    }
-
-    /// The bound children of this node, in argument order. Empty for [`BoundKind::Root`].
+    /// The bound children of this node, in argument order. Empty for [`BoundExpression::Root`].
     pub fn children(&self) -> &[BoundExpression] {
-        match &self.kind {
-            BoundKind::Scalar { children, .. } => children.as_slice(),
-            BoundKind::Root => &[],
+        match self {
+            Self::Scalar { children, .. } => children.as_slice(),
+            Self::Root { .. } => &[],
         }
     }
 
@@ -183,9 +180,9 @@ impl BoundExpression {
 
     /// The scalar function for this node, or `None` if it is the scope root.
     pub fn as_scalar(&self) -> Option<&ScalarFnRef> {
-        match &self.kind {
-            BoundKind::Scalar { scalar_fn, .. } => Some(scalar_fn),
-            BoundKind::Root => None,
+        match self {
+            Self::Scalar { scalar_fn, .. } => Some(scalar_fn),
+            Self::Root { .. } => None,
         }
     }
 
@@ -224,7 +221,23 @@ impl BoundExpression {
 
     /// Whether this node is the scope root.
     pub fn is_root(&self) -> bool {
-        matches!(self.kind, BoundKind::Root)
+        matches!(self, Self::Root { .. })
+    }
+
+    /// Return whether every scope root in this expression has `dtype`.
+    ///
+    /// Expressions without a scope root, such as literals, match every dtype.
+    pub fn is_root_bound_to(&self, dtype: &DType) -> bool {
+        let mut is_bound_to = true;
+        pre_order_visit_down(self, |node| {
+            if node.is_root() && node.dtype() != dtype {
+                is_bound_to = false;
+                return Ok(TraversalOrder::Stop);
+            }
+            Ok(TraversalOrder::Continue)
+        })
+        .vortex_expect("bound expression traversal cannot not fail");
+        is_bound_to
     }
 
     /// Return an expression that proves this predicate is definitely false from statistics.
@@ -245,9 +258,9 @@ impl BoundExpression {
 
 impl Display for BoundExpression {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self.kind() {
-            BoundKind::Scalar { scalar_fn, .. } => scalar_fn.fmt_sql(self, f),
-            BoundKind::Root => f.write_str("$"),
+        match self {
+            Self::Scalar { scalar_fn, .. } => scalar_fn.fmt_sql(self, f),
+            Self::Root { .. } => f.write_str("$"),
         }
     }
 }
@@ -264,7 +277,7 @@ impl Expression {
 
     /// Bind this expression against an explicit [`Scope`].
     pub fn bind_scope(&self, scope: &Scope) -> VortexResult<BoundExpression> {
-        if self.is::<Root>() {
+        if self.is_root() {
             return Ok(BoundExpression::new_root(scope.root().clone()));
         }
 
@@ -273,14 +286,17 @@ impl Expression {
             .iter()
             .map(|child| child.bind_scope(scope))
             .try_collect()?;
-        BoundExpression::try_new(self.scalar_fn().clone(), children)
+        let scalar_fn = self
+            .as_scalar()
+            .vortex_expect("root was handled above, so this is a scalar node");
+        BoundExpression::try_new(scalar_fn.clone(), children)
     }
 }
 
 /// Iterative drop to avoid stack overflows on deep trees.
 impl Drop for BoundExpression {
     fn drop(&mut self) {
-        let BoundKind::Scalar { children, .. } = &mut self.kind else {
+        let Self::Scalar { children, .. } = self else {
             return;
         };
         let Some(children) = Arc::get_mut(children) else {
@@ -289,7 +305,7 @@ impl Drop for BoundExpression {
 
         let mut to_drop = std::mem::take(children);
         while let Some(mut child) = to_drop.pop() {
-            if let BoundKind::Scalar { children, .. } = &mut child.kind
+            if let BoundExpression::Scalar { children, .. } = &mut child
                 && let Some(grandchildren) = Arc::get_mut(children)
             {
                 to_drop.append(grandchildren);
@@ -362,6 +378,20 @@ mod tests {
     }
 
     #[test]
+    fn bound_to_checks_every_root() -> VortexResult<()> {
+        let dtype = struct_dtype();
+        let bound = eq(col("a"), col("a")).bind(&dtype)?;
+        assert!(bound.is_root_bound_to(&dtype));
+        assert!(!bound.is_root_bound_to(&DType::Bool(Nullability::NonNullable)));
+        assert!(
+            lit(true)
+                .bind(&dtype)?
+                .is_root_bound_to(&DType::Bool(Nullability::NonNullable))
+        );
+        Ok(())
+    }
+
+    #[test]
     fn bound_display_matches_unbound() -> VortexResult<()> {
         for expr in [root(), col("a"), eq(col("a"), lit(1_i32)), lit(true)] {
             let bound = expr.bind_scope(&scope())?;
@@ -379,8 +409,10 @@ mod tests {
         let bound = eq(col("a"), lit(1_i32)).bind_scope(&scope())?;
         let cloned = bound.clone();
 
-        let (BoundKind::Scalar { children: a, .. }, BoundKind::Scalar { children: b, .. }) =
-            (bound.kind(), cloned.kind())
+        let (
+            BoundExpression::Scalar { children: a, .. },
+            BoundExpression::Scalar { children: b, .. },
+        ) = (&bound, &cloned)
         else {
             unreachable!("eq is a scalar node")
         };

@@ -33,7 +33,8 @@ fn main() {
 static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 const SOURCE_LEN: usize = 512 * 1024;
-const OUTPUT_LEN: usize = 8 * 1024;
+// Sized to keep CodSpeed simulation under 1ms at run length 1.
+const OUTPUT_LEN: usize = 4 * 1024;
 const RUN_LENGTHS: &[usize] = &[1, 4, 16, 64, 256];
 
 #[divan::bench(args = RUN_LENGTHS)]

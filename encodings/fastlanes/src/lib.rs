@@ -48,6 +48,23 @@ mod transposed_bool;
 
 pub const FL_CHUNK_SIZE: usize = 1024;
 
+/// Returns the position in a `FastLanes`-transposed chunk that holds logical element `idx`.
+///
+/// The inverse of [`fastlanes::transpose`], which reads the other way round: it returns the
+/// logical element held by a given transposed position. `fastlanes` exports only that direction,
+/// so accessors that address a transposed chunk by logical index need this one.
+///
+/// `fastlanes::transpose` composes `lane`, `order` and `row` as
+/// `lane * 64 + FL_ORDER[order] * 8 + row`, so recovering them from the transposed position only
+/// needs `FL_ORDER` inverted, and `FL_ORDER` is its own inverse.
+pub(crate) const fn untranspose_idx(idx: usize) -> usize {
+    let lane = idx / 64;
+    let order = fastlanes::FL_ORDER[(idx % 64) / 8];
+    let row = idx % 8;
+
+    row * 128 + order * 16 + lane
+}
+
 use bitpacking::compute::is_constant::BitPackedIsConstantKernel;
 use r#for::compute::is_constant::FoRIsConstantKernel;
 use r#for::compute::is_sorted::FoRIsSortedKernel;
@@ -176,6 +193,16 @@ mod test {
         initialize(&session);
         session
     });
+
+    /// `untranspose_idx` derives the inverse of `fastlanes::transpose` from `FL_ORDER` being
+    /// its own inverse, so prove the round trip over a whole chunk in both directions.
+    #[test]
+    fn untranspose_idx_inverts_transpose() {
+        for idx in 0..FL_CHUNK_SIZE {
+            assert_eq!(untranspose_idx(fastlanes::transpose(idx)), idx, "idx={idx}");
+            assert_eq!(fastlanes::transpose(untranspose_idx(idx)), idx, "idx={idx}");
+        }
+    }
 
     #[test]
     fn fill_forward_nulls_resets_at_chunk_boundary() -> VortexResult<()> {

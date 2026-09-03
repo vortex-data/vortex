@@ -71,7 +71,7 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
             values_nulls: BitBufferMut::empty(),
             hasher: DefaultHashBuilder::default(),
             dtype,
-            max_dict_bytes: constraints.max_bytes,
+            max_dict_bytes: constraints.max_bytes.min(u32::MAX as usize),
             max_dict_len: constraints.max_len,
         }
     }
@@ -286,6 +286,10 @@ impl<Code: UnsignedPType> DictEncoder for BytesDictBuilder<Code> {
     }
 
     fn reset(&mut self) -> ArrayRef {
+        if let Some(lookup) = self.lookup.as_mut() {
+            lookup.clear();
+        }
+        self.null_code = OnceCell::new();
         let views = mem::take(&mut self.views).freeze();
         let buffer = mem::take(&mut self.values).freeze();
         let value_nulls = mem::take(&mut self.values_nulls).freeze();
@@ -318,6 +322,7 @@ mod test {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use super::BytesDictBuilder;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
@@ -325,8 +330,11 @@ mod test {
     use crate::arrays::VarBinViewArray;
     use crate::arrays::dict::DictArraySlotsExt;
     use crate::arrays::varbinview::BinaryView;
+    use crate::assert_arrays_eq;
     use crate::buffer::BufferHandle;
+    use crate::builders::dict::UNCONSTRAINED;
     use crate::builders::dict::dict_encode;
+    use crate::builders::dict::dict_encoder;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::validity::Validity;
@@ -429,5 +437,36 @@ mod test {
         let codes = dict.codes().clone().execute::<PrimitiveArray>(&mut ctx)?;
         assert_eq!(codes.as_slice::<u8>(), &[0, 0, 1, 1, 0, 1, 0, 1]);
         Ok(())
+    }
+
+    #[test]
+    fn reset_clears_dict() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let first = VarBinViewArray::from_iter_str(["one", "two"]).into_array();
+        let mut encoder = dict_encoder(&first, &UNCONSTRAINED);
+
+        assert_arrays_eq!(
+            encoder.encode(&first, &mut ctx)?,
+            PrimitiveArray::from_iter([0u64, 1]),
+            &mut ctx
+        );
+        assert_arrays_eq!(encoder.reset(), first, &mut ctx);
+
+        let second = VarBinViewArray::from_iter_str(["one", "three"]).into_array();
+        assert_arrays_eq!(
+            encoder.encode(&second, &mut ctx)?,
+            PrimitiveArray::from_iter([0u64, 1]),
+            &mut ctx
+        );
+        assert_arrays_eq!(encoder.reset(), second, &mut ctx);
+
+        Ok(())
+    }
+
+    #[test]
+    fn max_dict_bytes_cannot_exceed_the_view_offset_range() {
+        let builder =
+            BytesDictBuilder::<u32>::new(DType::Utf8(Nullability::NonNullable), &UNCONSTRAINED);
+        assert_eq!(builder.max_dict_bytes, u32::MAX as usize);
     }
 }

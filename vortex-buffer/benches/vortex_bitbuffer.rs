@@ -114,7 +114,11 @@ fn append_buffer_vortex_buffer(bencher: Bencher, length: usize) {
         });
 }
 
-#[divan::bench(args = INPUT_SIZE)]
+/// Arrow has no bulk append from a `BooleanBuffer`, so this appends bit-by-bit and runs an
+/// order of magnitude slower than the vortex bulk path; cap the top size accordingly.
+const APPEND_BUFFER_ARROW_INPUT_SIZE: &[usize] = &[128, 1024, 2048, 16_384, 32_768];
+
+#[divan::bench(args = APPEND_BUFFER_ARROW_INPUT_SIZE)]
 fn append_buffer_arrow_buffer(bencher: Bencher, length: usize) {
     bencher
         .with_inputs(|| {

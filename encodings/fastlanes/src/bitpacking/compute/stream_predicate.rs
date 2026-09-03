@@ -15,6 +15,8 @@
 //! [`BitBuffer::collect_bool`]: vortex_buffer::BitBuffer::collect_bool
 //! [`Patches`]: vortex_array::patches::Patches
 
+use std::mem::MaybeUninit;
+
 use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
@@ -32,6 +34,7 @@ use vortex_error::VortexResult;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
+use crate::FL_CHUNK_SIZE;
 use crate::unpack_iter::BitPacked as BitPackedIter;
 
 /// Stream `predicate` over the unpacked values of a [`BitPackedArray`](crate::BitPackedArray), one FastLanes
@@ -50,7 +53,8 @@ where
     let mut words: BufferMut<u64> = BufferMut::zeroed(len.div_ceil(u64::BITS as usize));
 
     if len > 0 {
-        let mut chunks = array.unpacked_chunks::<T>()?;
+        let mut scratch = [const { MaybeUninit::<T>::uninit() }; FL_CHUNK_SIZE];
+        let mut chunks = array.unpacked_chunks::<T>(&mut scratch)?;
         let words = words.as_mut_slice();
 
         if let Some(p) = array.patches() {

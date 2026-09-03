@@ -1,0 +1,85 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+CREATE TABLE u(id UUID, name VARCHAR);
+
+statement ok
+INSERT INTO u VALUES
+  ('550e8400-e29b-41d4-a716-446655440000', 'a'),
+  ('00000000-0000-0000-0000-000000000000', 'zero'),
+  ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'max'),
+  (NULL, 'null');
+
+statement ok
+COPY u TO '${WORK_DIR}/uuid.vortex';
+
+query ?T
+SELECT id, name FROM '${WORK_DIR}/uuid.vortex' ORDER BY name;
+----
+550e8400-e29b-41d4-a716-446655440000 a
+ffffffff-ffff-ffff-ffff-ffffffffffff max
+NULL null
+00000000-0000-0000-0000-000000000000 zero
+
+query T
+SELECT name FROM '${WORK_DIR}/uuid.vortex'
+WHERE id = UUID '550e8400-e29b-41d4-a716-446655440000';
+----
+a
+
+query I
+SELECT count(*) FROM '${WORK_DIR}/uuid.vortex'
+WHERE id > UUID '550e8400-e29b-41d4-a716-446655440000';
+----
+1
+
+query T
+SELECT name FROM '${WORK_DIR}/uuid.vortex'
+WHERE id < UUID '550e8400-e29b-41d4-a716-446655440000';
+----
+zero
+
+query T
+SELECT name FROM '${WORK_DIR}/uuid.vortex'
+WHERE id IN (
+  UUID '00000000-0000-0000-0000-000000000000',
+  UUID 'ffffffff-ffff-ffff-ffff-ffffffffffff'
+)
+ORDER BY name;
+----
+max
+zero
+
+query I
+SELECT count(*) FROM '${WORK_DIR}/uuid.vortex' WHERE id IS NULL;
+----
+1
+
+query I
+SELECT count(*) FROM '${WORK_DIR}/uuid.vortex' WHERE id IS NOT NULL;
+----
+3
+
+query ??
+SELECT min(id), max(id) FROM '${WORK_DIR}/uuid.vortex';
+----
+00000000-0000-0000-0000-000000000000 ffffffff-ffff-ffff-ffff-ffffffffffff
+
+query I
+SELECT count(id) FROM '${WORK_DIR}/uuid.vortex';
+----
+3
+
+# batch processing of UUID aligns columns at 8 bytes but reading uuid's
+# buffer as i128 requires 16 byte alighnemnt. Check this doesn't abort.
+statement ok
+COPY (SELECT range::DECIMAL(38, 2) AS d, gen_random_uuid() AS u FROM range(5000))
+TO '${WORK_DIR}/copy_uuid.vortex' (FORMAT vortex);
+
+query IR
+SELECT count(DISTINCT u), sum(d) FROM '${WORK_DIR}/copy_uuid.vortex';
+----
+5000 12497500

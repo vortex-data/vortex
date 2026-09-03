@@ -11,13 +11,13 @@ use lending_iterator::prelude::Item;
 #[gat(Item)]
 use lending_iterator::prelude::LendingIterator;
 use vortex_array::dtype::PhysicalPType;
-use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::BitPackedData;
+use crate::FL_CHUNK_SIZE;
 
-const CHUNK_SIZE: usize = 1024;
+const CHUNK_SIZE: usize = FL_CHUNK_SIZE;
 
 /// Strategy trait for fastlanes unpacking operations
 pub trait UnpackStrategy<T: PhysicalPType> {
@@ -33,6 +33,7 @@ pub trait UnpackStrategy<T: PhysicalPType> {
 pub struct BitPackingStrategy;
 
 impl<T: PhysicalPType<Physical: BitPacking>> UnpackStrategy<T> for BitPackingStrategy {
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     unsafe fn unpack_chunk(
         &self,
@@ -51,6 +52,8 @@ impl<T: PhysicalPType<Physical: BitPacking>> UnpackStrategy<T> for BitPackingStr
 ///
 /// The usual pattern of usage should follow
 /// ```
+/// use std::mem::MaybeUninit;
+///
 /// use lending_iterator::gat;
 /// use lending_iterator::prelude::Item;
 /// #[gat(Item)]
@@ -64,22 +67,26 @@ impl<T: PhysicalPType<Physical: BitPacking>> UnpackStrategy<T> for BitPackingStr
 ///
 /// let mut ctx = vortex_array::array_session().create_execution_ctx();
 /// let array = BitPackedData::encode(&buffer![2, 3, 4, 5].into_array(), 2, &mut ctx).unwrap();
-/// let mut unpacked_chunks: BitUnpackedChunks<i32> = array.unpacked_chunks().unwrap();
+/// let mut scratch = [const { MaybeUninit::<i32>::uninit() }; 1024];
+/// let mut unpacked_chunks: BitUnpackedChunks<i32> =
+///     array.unpacked_chunks(&mut scratch).unwrap();
 ///
 /// if let Some(header) = unpacked_chunks.initial() {
 ///    // handle partial initial chunk
 /// }
 ///
-/// let mut chunks_iter = unpacked_chunks.full_chunks();
-/// while let Some(chunk) = chunks_iter.next() {
-///     // handle full bitpacked chunks of 1024 elements
+/// {
+///     let mut chunks_iter = unpacked_chunks.full_chunks();
+///     while let Some(chunk) = chunks_iter.next() {
+///         // handle full bitpacked chunks of 1024 elements
+///     }
 /// }
 ///
 /// if let Some(trailer) = unpacked_chunks.trailer() {
 ///     // handle partial trailing chunk
 /// }
 /// ```
-pub struct UnpackedChunks<T: PhysicalPType, S: UnpackStrategy<T>> {
+pub struct UnpackedChunks<'a, T: PhysicalPType, S: UnpackStrategy<T>> {
     strategy: S,
     bit_width: usize,
     offset: usize,
@@ -87,20 +94,25 @@ pub struct UnpackedChunks<T: PhysicalPType, S: UnpackStrategy<T>> {
     num_chunks: usize,
     // 0 indicates full chunk of CHUNK_SIZE
     last_chunk_length: usize,
-    packed: ByteBuffer,
-    buffer: [MaybeUninit<T>; CHUNK_SIZE],
+    packed: &'a [T::Physical],
+    scratch: &'a mut [MaybeUninit<T>; CHUNK_SIZE],
 }
 
-pub type BitUnpackedChunks<T> = UnpackedChunks<T, BitPackingStrategy>;
+pub type BitUnpackedChunks<'a, T> = UnpackedChunks<'a, T, BitPackingStrategy>;
 
-impl<T: BitPacked> BitUnpackedChunks<T> {
-    pub fn try_new(array: &BitPackedData, len: usize) -> VortexResult<Self> {
+impl<'a, T: BitPacked> BitUnpackedChunks<'a, T> {
+    pub fn try_new(
+        array: &'a BitPackedData,
+        len: usize,
+        scratch: &'a mut [MaybeUninit<T>; CHUNK_SIZE],
+    ) -> VortexResult<Self> {
         Self::try_new_with_strategy(
             BitPackingStrategy,
-            array.packed().clone().unwrap_host(),
+            array.packed_slice::<T::Physical>(),
             array.bit_width() as usize,
             array.offset() as usize,
             len,
+            scratch,
         )
     }
 
@@ -109,8 +121,8 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
         let last_chunk_is_sliced = self.last_chunk_is_sliced() as usize;
         let first_chunk_is_sliced = self.first_chunk_is_sliced();
         BitUnpackIterator::new(
-            buffer_as_slice(&self.packed),
-            &mut self.buffer,
+            self.packed,
+            self.scratch,
             self.bit_width,
             elems_per_chunk,
             self.num_chunks - last_chunk_is_sliced,
@@ -119,41 +131,30 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
     }
 }
 
-impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
+impl<'a, T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<'a, T, S> {
     pub fn try_new_with_strategy(
         strategy: S,
-        packed: ByteBuffer,
+        packed: &'a [T::Physical],
         bit_width: usize,
         offset: usize,
         len: usize,
+        scratch: &'a mut [MaybeUninit<T>; CHUNK_SIZE],
     ) -> VortexResult<Self> {
-        vortex_ensure!(
-            offset < CHUNK_SIZE,
-            "Invalid bit-packed offset {offset}, expected < {CHUNK_SIZE}"
-        );
-        let elems_per_chunk = 128 * bit_width / size_of::<T>();
-        let num_chunks = (offset + len).div_ceil(CHUNK_SIZE);
-
-        vortex_ensure!(
-            packed.len() / size_of::<T>() == num_chunks * elems_per_chunk,
-            "Invalid packed length: got {}, expected {}",
-            packed.len() / size_of::<T>(),
-            num_chunks * elems_per_chunk
-        );
-
-        let last_chunk_length = (offset + len) % CHUNK_SIZE;
+        let (num_chunks, last_chunk_length) =
+            validate_packed::<T>(packed.len(), bit_width, offset, len)?;
         Ok(Self {
             strategy,
             bit_width,
             offset,
             len,
-            packed,
-            buffer: [const { MaybeUninit::<T>::uninit() }; CHUNK_SIZE],
             num_chunks,
             last_chunk_length,
+            packed,
+            scratch,
         })
     }
 
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     const fn elems_per_chunk(&self) -> usize {
         128 * self.bit_width / size_of::<T>()
@@ -162,8 +163,8 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
     /// Access first chunk of the array if the last chunk has fewer than 1024 due to slicing
     pub fn initial(&mut self) -> Option<&mut [T]> {
         (self.first_chunk_is_sliced() || self.num_chunks == 1).then(|| {
-            let chunk: &[T::Physical] = &buffer_as_slice(&self.packed)[..self.elems_per_chunk()];
-            let dst: &mut [MaybeUninit<T>] = &mut self.buffer;
+            let chunk: &[T::Physical] = &self.packed[..self.elems_per_chunk()];
+            let dst: &mut [MaybeUninit<T>] = self.scratch;
             let dst: &mut [T::Physical] = unsafe { mem::transmute(dst) };
 
             let header_end_slice = if self.num_chunks == 1 {
@@ -176,7 +177,7 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
             // 2. buffer is exactly CHUNK_SIZE.
             unsafe {
                 self.strategy.unpack_chunk(self.bit_width, chunk, dst);
-                mem::transmute(&mut self.buffer[self.offset..][..header_end_slice])
+                mem::transmute(&mut self.scratch[self.offset..][..header_end_slice])
             }
         })
     }
@@ -235,14 +236,14 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
         }
 
         if self.num_chunks > 1 {
-            let packed_slice: &[T::Physical] = buffer_as_slice(&self.packed);
+            let packed_slice = self.packed;
             let elems_per_chunk = self.elems_per_chunk();
             for i in self.full_chunks_range() {
                 let chunk = &packed_slice[i * elems_per_chunk..][..elems_per_chunk];
                 unsafe {
-                    let dst: &mut [T::Physical] = mem::transmute(&mut self.buffer[..]);
+                    let dst: &mut [T::Physical] = mem::transmute(&mut self.scratch[..]);
                     self.strategy.unpack_chunk(self.bit_width, chunk, dst);
-                    let unpacked: &mut [T] = mem::transmute(&mut self.buffer[..]);
+                    let unpacked: &mut [T] = mem::transmute(&mut self.scratch[..]);
                     f(unpacked, local_idx..local_idx + CHUNK_SIZE);
                 }
                 local_idx += CHUNK_SIZE;
@@ -258,34 +259,6 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
         debug_assert_eq!(local_idx, self.len);
     }
 
-    /// Walk every *packed* chunk in array order, yielding the raw packed FastLanes block and the
-    /// padded bit range it covers, without unpacking it.
-    ///
-    /// Unlike [`Self::for_each_unpacked_chunk`], this does not fill the scratch buffer: it hands
-    /// the still-packed block to the callback so fused kernels (e.g. compare) can unpack and
-    /// consume it in a single pass. Each yielded block holds exactly `elems_per_chunk` packed
-    /// values (the buffer is zero-padded out to a whole final chunk).
-    ///
-    /// The yielded range is in *padded* coordinates: block `c` covers
-    /// `[c * 1024, min((c + 1) * 1024, offset + len))`, so it includes the leading `offset` rows
-    /// that slicing skips. Block starts are therefore always 1024-aligned regardless of `offset`.
-    /// Callers must account for the array's `offset` when mapping a block's rows back to logical
-    /// output positions (e.g. by viewing the output buffer at a bit offset of `offset`).
-    pub(crate) fn for_each_packed_chunk<F>(&self, mut f: F)
-    where
-        F: FnMut(&[T::Physical], Range<usize>),
-    {
-        let packed_slice: &[T::Physical] = buffer_as_slice(&self.packed);
-        let elems_per_chunk = self.elems_per_chunk();
-        let padded_len = self.offset + self.len;
-        for chunk in 0..self.num_chunks {
-            let packed_chunk = &packed_slice[chunk * elems_per_chunk..][..elems_per_chunk];
-            let start = chunk * CHUNK_SIZE;
-            let end = (start + CHUNK_SIZE).min(padded_len);
-            f(packed_chunk, start..end);
-        }
-    }
-
     /// Unpack full chunks into output range starting at the given index.
     fn decode_full_chunks_into_at(
         &mut self,
@@ -298,7 +271,7 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
 
         let mut local_idx = start_idx;
 
-        let packed_slice: &[T::Physical] = buffer_as_slice(&self.packed);
+        let packed_slice = self.packed;
         let elems_per_chunk = self.elems_per_chunk();
         for i in self.full_chunks_range() {
             let chunk = &packed_slice[i * elems_per_chunk..][..elems_per_chunk];
@@ -322,16 +295,16 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
     /// Access last chunk of the array if the last chunk has fewer than 1024 due to slicing
     pub fn trailer(&mut self) -> Option<&mut [T]> {
         (self.last_chunk_is_sliced() && self.num_chunks > 1).then(|| {
-            let chunk: &[T::Physical] = &buffer_as_slice(&self.packed)
+            let chunk: &[T::Physical] = &self.packed
                 [(self.num_chunks - 1) * self.elems_per_chunk()..][..self.elems_per_chunk()];
-            let dst: &mut [MaybeUninit<T>] = &mut self.buffer;
+            let dst: &mut [MaybeUninit<T>] = self.scratch;
             let dst: &mut [T::Physical] = unsafe { mem::transmute(dst) };
             // SAFETY:
             // 1. chunk is elems_per_chunk.
             // 2. buffer is exactly CHUNK_SIZE.
             unsafe {
                 self.strategy.unpack_chunk(self.bit_width, chunk, dst);
-                mem::transmute(&mut self.buffer[..self.last_chunk_length])
+                mem::transmute(&mut self.scratch[..self.last_chunk_length])
             }
         })
     }
@@ -343,6 +316,50 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
     fn first_chunk_is_sliced(&self) -> bool {
         self.offset != 0
     }
+}
+
+/// Walk every packed chunk in array order without allocating an unpack scratch buffer.
+pub(crate) fn for_each_packed_chunk<T, F>(
+    packed: &[T::Physical],
+    bit_width: usize,
+    offset: usize,
+    len: usize,
+    mut f: F,
+) -> VortexResult<()>
+where
+    T: PhysicalPType,
+    F: FnMut(&[T::Physical], Range<usize>),
+{
+    let (num_chunks, _) = validate_packed::<T>(packed.len(), bit_width, offset, len)?;
+    let elems_per_chunk = 128 * bit_width / size_of::<T>();
+    let padded_len = offset + len;
+    for chunk in 0..num_chunks {
+        let packed_chunk = &packed[chunk * elems_per_chunk..][..elems_per_chunk];
+        let start = chunk * CHUNK_SIZE;
+        let end = (start + CHUNK_SIZE).min(padded_len);
+        f(packed_chunk, start..end);
+    }
+    Ok(())
+}
+
+fn validate_packed<T: PhysicalPType>(
+    packed_len: usize,
+    bit_width: usize,
+    offset: usize,
+    len: usize,
+) -> VortexResult<(usize, usize)> {
+    vortex_ensure!(
+        offset < CHUNK_SIZE,
+        "Invalid bit-packed offset {offset}, expected < {CHUNK_SIZE}"
+    );
+    let elems_per_chunk = 128 * bit_width / size_of::<T>();
+    let num_chunks = (offset + len).div_ceil(CHUNK_SIZE);
+    vortex_ensure!(
+        packed_len == num_chunks * elems_per_chunk,
+        "Invalid packed length: got {packed_len}, expected {}",
+        num_chunks * elems_per_chunk
+    );
+    Ok((num_chunks, (offset + len) % CHUNK_SIZE))
 }
 
 /// Iterator over full chunks of bitpacked array that yields unpacked chunks one at a time
@@ -399,17 +416,6 @@ impl<'a, T: BitPacked + 'a> LendingIterator for BitUnpackIterator<'a, T> {
         // SAFETY: The buffer has the appropriate lifetime, the iterator signature doesn't account for it
         Some(unsafe { mem::transmute::<&mut [MaybeUninit<T>; 1024], &mut [T; 1024]>(self.buffer) })
     }
-}
-
-fn buffer_as_slice<T>(buffer: &ByteBuffer) -> &[T] {
-    let packed_ptr: *const T = buffer.as_ptr().cast();
-    // Return number of elements of type `T` packed in the buffer
-    let packed_len = buffer.len() / size_of::<T>();
-
-    // SAFETY: as_slice points to buffer memory that outlives the lifetime of `self`.
-    //  Unfortunately Rust cannot understand this, so we reconstruct the slice from raw parts
-    //  to get it to reinterpret the lifetime.
-    unsafe { std::slice::from_raw_parts(packed_ptr, packed_len) }
 }
 
 fn write_map<T: Copy, U>(src: &[T], dst: &mut [MaybeUninit<U>], f: &mut impl FnMut(T) -> U) {

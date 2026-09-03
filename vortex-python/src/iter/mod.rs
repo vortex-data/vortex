@@ -26,7 +26,6 @@ use vortex::array::iter::ArrayIteratorAdapter;
 use vortex::array::iter::ArrayIteratorExt;
 use vortex::dtype::DType;
 use vortex_arrow::ArrowSessionExt;
-use vortex_arrow::ToArrowType;
 
 use crate::arrays::PyArrayRef;
 use crate::arrow::IntoPyArrow;
@@ -116,7 +115,7 @@ impl PyArrayIterator {
     /// Note that this performs the conversion on the current thread.
     #[allow(clippy::disallowed_methods)]
     fn to_arrow(slf: Bound<Self>) -> PyVortexResult<Py<PyAny>> {
-        let schema = Arc::new(slf.get().dtype().to_arrow_schema()?);
+        let schema = Arc::new(session().arrow().to_arrow_schema(slf.get().dtype())?);
         let target = Field::new_struct("", schema.fields().clone(), false);
 
         let iter = slf.get().take().unwrap_or_else(|| {

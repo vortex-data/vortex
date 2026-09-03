@@ -7,17 +7,17 @@
 //! This enables zero-cost backward compatibility with previously written datasets.
 
 use vortex_array::Array;
+use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayId;
 use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
+use vortex_array::ArraySerialization;
 use vortex_array::ArrayVTable;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Patched;
-use vortex_array::buffer::BufferHandle;
-use vortex_array::dtype::DType;
-use vortex_array::serde::ArrayChildren;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
@@ -42,22 +42,29 @@ impl ArrayPlugin for ALPPatchedPlugin {
         &self,
         array: &ArrayRef,
         session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
+    ) -> VortexResult<Option<ArraySerialization>> {
         // Delegate to ALP's metadata serde
-        ALP.serialize(array, session)
+        ArrayPlugin::serialize(&ALP, array, session)
     }
 
     fn deserialize(
         &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
+        parts: ArrayDeserialization<'_>,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
+        vortex_ensure!(
+            parts.serialized_id == self.id(),
+            "ALP plugin does not recognize serialized ID {}",
+            parts.serialized_id,
+        );
         let alp_array = Array::<ALP>::try_from_parts(ArrayVTable::deserialize(
-            &ALP, dtype, len, metadata, buffers, children, session,
+            &ALP,
+            parts.dtype,
+            parts.len,
+            parts.metadata,
+            parts.buffers,
+            parts.children,
+            session,
         )?)
         .map_err(|_| vortex_err!("ALP plugin should only deserialize vortex.alp"))?;
 
@@ -91,6 +98,7 @@ mod tests {
     use std::f64::consts::PI;
     use std::sync::LazyLock;
 
+    use vortex_array::ArrayDeserialization;
     use vortex_array::ArrayPlugin;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
@@ -133,7 +141,7 @@ mod tests {
 
         let array = alp_encoded.as_array();
 
-        let metadata = SESSION.array_serialize(array)?.unwrap();
+        let serialization = SESSION.array_serialize(array)?.unwrap();
         let children = array.children();
         let buffers = array
             .buffers()
@@ -142,11 +150,14 @@ mod tests {
             .collect::<Vec<_>>();
 
         let deserialized = ALPPatchedPlugin.deserialize(
-            array.dtype(),
-            array.len(),
-            &metadata,
-            &buffers,
-            &children,
+            ArrayDeserialization::new(
+                ALPPatchedPlugin.id(),
+                array.dtype(),
+                array.len(),
+                &serialization.metadata,
+                &buffers,
+                &children,
+            ),
             &SESSION,
         )?;
 
@@ -182,7 +193,7 @@ mod tests {
 
         let array = alp_encoded.as_array();
 
-        let metadata = SESSION.array_serialize(array)?.unwrap();
+        let serialization = SESSION.array_serialize(array)?.unwrap();
         let children = array.children();
         let buffers = array
             .buffers()
@@ -191,11 +202,14 @@ mod tests {
             .collect::<Vec<_>>();
 
         let deserialized = ALPPatchedPlugin.deserialize(
-            array.dtype(),
-            array.len(),
-            &metadata,
-            &buffers,
-            &children,
+            ArrayDeserialization::new(
+                ALPPatchedPlugin.id(),
+                array.dtype(),
+                array.len(),
+                &serialization.metadata,
+                &buffers,
+                &children,
+            ),
             &SESSION,
         )?;
 
@@ -213,7 +227,7 @@ mod tests {
     fn primitive_array_returns_error() {
         let array = PrimitiveArray::from_iter([1.0f64, 2.0, 3.0]).into_array();
 
-        let metadata = SESSION.array_serialize(&array).unwrap().unwrap();
+        let serialization = SESSION.array_serialize(&array).unwrap().unwrap();
         let children = array.children();
         let buffers = array
             .buffers()
@@ -223,11 +237,14 @@ mod tests {
 
         // This panics because PrimitiveArray has no children and ALP requires encoded child.
         let _result = ALPPatchedPlugin.deserialize(
-            array.dtype(),
-            array.len(),
-            &metadata,
-            &buffers,
-            &children,
+            ArrayDeserialization::new(
+                ALPPatchedPlugin.id(),
+                array.dtype(),
+                array.len(),
+                &serialization.metadata,
+                &buffers,
+                &children,
+            ),
             &SESSION,
         );
     }

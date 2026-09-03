@@ -153,6 +153,7 @@ fn collect_lane_bits<P: IntegerPType>(
 ///
 /// Offsets at null positions are not validated, so an out-of-bounds or inverted range is
 /// possible there; such lanes answer `false`, and validity masks them out of the result anyway.
+#[allow(clippy::inline_always)]
 #[inline(always)]
 fn value_eq(bytes: &[u8], start: usize, end: usize, constant: &[u8]) -> bool {
     // A lane can only match when its length equals the constant's, so lanes of a different
@@ -164,6 +165,7 @@ fn value_eq(bytes: &[u8], start: usize, end: usize, constant: &[u8]) -> bool {
 
 /// Order `bytes[start..end]` against `constant`, treating the unvalidated garbage ranges that
 /// can appear at null positions as empty; validity masks those lanes out of the result anyway.
+#[allow(clippy::inline_always)]
 #[inline(always)]
 fn value_cmp(bytes: &[u8], start: usize, end: usize, constant: &[u8]) -> Ordering {
     bytes.get(start..end).unwrap_or_default().cmp(constant)

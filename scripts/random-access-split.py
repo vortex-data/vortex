@@ -18,9 +18,21 @@ BINARY = "target/release_debug/random-access-bench"
 PARTS_DIR = Path("parts")
 
 DATASETS = ["taxi", "feature-vectors", "nested-lists", "nested-structs"]
-FORMATS = ["parquet", "lance", "vortex"]
+FORMATS = ["arrow-ipc", "parquet", "lance", "vortex"]
 PATTERNS = ["correlated", "uniform"]
 OPEN_MODES = ["cached", "reopen"]
+
+
+def drop_os_caches() -> None:
+    try:
+        subprocess.run(["sync"], check=True)
+        subprocess.run(
+            ["sudo", "-n", "sh", "-c", "echo 3 > /proc/sys/vm/drop_caches"],
+            check=True,
+            capture_output=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        pass
 
 
 def run_combinations(emit_ingest_records: bool) -> None:
@@ -30,6 +42,8 @@ def run_combinations(emit_ingest_records: bool) -> None:
         for fmt in FORMATS:
             for pattern in PATTERNS:
                 for open_mode in OPEN_MODES:
+                    drop_os_caches()
+
                     args = [
                         "bash",
                         str(SCRIPT_DIR / "bench-taskset.sh"),
@@ -79,6 +93,15 @@ def merge(pattern: str, key: Callable[[dict], object], out_path: str) -> None:
     Path(out_path).write_text("".join(line + "\n" for line in lines), encoding="utf-8")
 
 
+def ingest_identity(record: dict) -> tuple[object, object, object, object]:
+    return (
+        record["kind"],
+        record["dataset"],
+        record["format"],
+        record["open_mode"],
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -93,7 +116,7 @@ def main() -> None:
     if args.emit_ingest_records:
         merge(
             f"{PARTS_DIR}/*.ingest.jsonl",
-            lambda record: (record["kind"], record["dataset"], record["format"]),
+            ingest_identity,
             "results.ingest.jsonl",
         )
 

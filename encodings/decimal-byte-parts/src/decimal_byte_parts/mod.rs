@@ -6,7 +6,9 @@ use std::fmt::Formatter;
 use std::hash::Hasher;
 
 use vortex_array::Array;
+use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayParts;
+use vortex_array::ArraySerialization;
 use vortex_array::ArrayView;
 pub(crate) mod compute;
 mod limbs;
@@ -162,19 +164,6 @@ impl VTable for DecimalByteParts {
             }
             .encode_to_vec(),
         ))
-    }
-
-    fn serialized_id(&self, array: ArrayView<'_, Self>) -> ArrayId {
-        // The frozen `vortex.decimal_byte_parts` format promises a single child: readers that
-        // predate lower parts require `lower_part_count == 0`, so an array carrying lower
-        // parts must serialize under the v2 format id instead. That id is what the writer's
-        // permitted-encoding check gates, and what a reader without v2 support rejects as an
-        // unknown encoding instead of misreading the children.
-        if array.lower_parts().is_empty() {
-            VTable::id(self)
-        } else {
-            ArrayPlugin::id(&DecimalBytePartsV2)
-        }
     }
 
     fn deserialize(
@@ -355,7 +344,7 @@ impl DecimalByteParts {
     ) -> VortexResult<DecimalBytePartsArray> {
         // Building lower parts in memory is never gated — reading a file requires it. What is
         // gated is the serialized form: an array carrying lower parts serializes under the
-        // `DecimalBytePartsV2` format id, which only editions that contain it may write.
+        // `vortex.decimal_byte_parts_v2` format ID, which only editions that contain it may write.
         let len = msp.len();
         let dtype = DType::Decimal(decimal_dtype, msp.dtype().nullability());
         let slots = DecimalBytePartsSlots { msp, lower_parts }.into_slots();
@@ -365,55 +354,87 @@ impl DecimalByteParts {
     }
 }
 
-/// The `vortex.decimal_byte_parts_v2` serialized format: byte parts carrying lower parts.
+/// The `vortex.decimal_byte_parts_v2` serialized format ID: byte parts carrying lower parts.
 ///
 /// This is a serialized format, not a second in-memory encoding. `vortex.decimal_byte_parts`
-/// froze promising a single child, so an array with lower parts serializes under this id
-/// instead — see [`VTable::serialized_id`] on [`DecimalByteParts`] — and both ids deserialize
-/// back into the same [`DecimalBytePartsArray`]. A reader that predates lower parts fails on
-/// this id with an unknown-encoding error rather than misreading the children.
-#[derive(Clone, Debug)]
-pub struct DecimalBytePartsV2;
+/// froze promising a single child, so an array with lower parts serializes under this ID
+/// instead, and both IDs deserialize back into the same [`DecimalBytePartsArray`]. A reader
+/// that predates lower parts fails on this ID with an unknown-encoding error rather than
+/// misreading the children.
+pub fn decimal_byte_parts_v2_id() -> ArrayId {
+    static ID: CachedId = CachedId::new("vortex.decimal_byte_parts_v2");
+    *ID
+}
 
-impl ArrayPlugin for DecimalBytePartsV2 {
+/// The [`ArrayPlugin`] for [`DecimalByteParts`], owning both of its serialized formats.
+///
+/// An array without lower parts serializes under the frozen `vortex.decimal_byte_parts` ID,
+/// byte-identical to files written before lower parts existed. An array carrying lower parts
+/// serializes under [`decimal_byte_parts_v2_id`]. Reading holds each ID to its own contract:
+/// the frozen ID carries no lower parts and the v2 ID carries at least one, so recognizing the
+/// newer format never widens what the frozen one may mean.
+#[derive(Clone, Debug)]
+pub struct DecimalBytePartsPlugin;
+
+impl ArrayPlugin for DecimalBytePartsPlugin {
     fn id(&self) -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.decimal_byte_parts_v2");
-        *ID
+        VTable::id(&DecimalByteParts)
+    }
+
+    fn serialized_ids(&self) -> Vec<ArrayId> {
+        vec![VTable::id(&DecimalByteParts), decimal_byte_parts_v2_id()]
     }
 
     fn serialize(
         &self,
         array: &ArrayRef,
         session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        // In-memory arrays always carry the `DecimalByteParts` encoding id, so metadata
-        // serialization is resolved through that plugin; both formats share it.
-        ArrayPlugin::serialize(&DecimalByteParts, array, session)
+    ) -> VortexResult<Option<ArraySerialization>> {
+        let Some(mut serialization) = ArrayPlugin::serialize(&DecimalByteParts, array, session)?
+        else {
+            return Ok(None);
+        };
+        if !array.as_::<DecimalByteParts>().lower_parts().is_empty() {
+            serialization.serialized_id = decimal_byte_parts_v2_id();
+        }
+        Ok(Some(serialization))
     }
 
     fn deserialize(
         &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
+        parts: ArrayDeserialization<'_>,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
+        let lower_part_count =
+            DecimalBytesPartsMetadata::decode(parts.metadata)?.lower_part_count()?;
+        if parts.serialized_id == decimal_byte_parts_v2_id() {
+            vortex_ensure!(
+                lower_part_count > 0,
+                "{} must carry at least one lower part",
+                parts.serialized_id
+            );
+        } else {
+            vortex_ensure!(
+                parts.serialized_id == VTable::id(&DecimalByteParts),
+                "DecimalByteParts plugin does not recognize serialized ID {}",
+                parts.serialized_id
+            );
+            vortex_ensure!(
+                lower_part_count == 0,
+                "{} must not carry lower parts, got {lower_part_count}",
+                parts.serialized_id
+            );
+        }
         Ok(Array::try_from_parts(VTable::deserialize(
             &DecimalByteParts,
-            dtype,
-            len,
-            metadata,
-            buffers,
-            children,
+            parts.dtype,
+            parts.len,
+            parts.metadata,
+            parts.buffers,
+            parts.children,
             session,
         )?)?
         .into_array())
-    }
-
-    fn is_supported_encoding(&self, id: &ArrayId) -> bool {
-        *id == ArrayPlugin::id(self) || *id == VTable::id(&DecimalByteParts)
     }
 }
 
@@ -528,11 +549,13 @@ mod tests {
     use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::ArrayRef;
+    use vortex_array::ArrayVTable;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::DecimalArray;
+    use vortex_array::arrays::Primitive;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
@@ -767,6 +790,19 @@ mod tests {
             .lower_parts()
             .len();
 
+        let expected_id = if lower_part_count == 0 {
+            VTable::id(&DecimalByteParts)
+        } else {
+            decimal_byte_parts_v2_id()
+        };
+        assert_eq!(
+            session
+                .array_serialize(&array)?
+                .vortex_expect("byte parts arrays are serializable")
+                .serialized_id,
+            expected_id
+        );
+
         let array_ctx = ArrayContext::empty();
         let serialized = array.serialize(&array_ctx, &session, &SerializeOptions::default())?;
         let mut concat = ByteBufferMut::empty();
@@ -868,10 +904,10 @@ mod tests {
             .and_then(Array::try_from_parts)?
             .into_array();
 
-        assert_eq!(
-            session.array_serialized_id(&array)?,
-            ArrayPlugin::id(&DecimalBytePartsV2)
-        );
+        let serialization = session
+            .array_serialize(&array)?
+            .vortex_expect("byte parts arrays are serializable");
+        assert_eq!(serialization.serialized_id, decimal_byte_parts_v2_id());
 
         let restricted = ArrayContext::empty()
             .with_allowed_ids([VTable::id(&DecimalByteParts)].into_iter().collect());
@@ -935,6 +971,46 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    fn plugin_deserialize_with(
+        serialized_id: ArrayId,
+        lower_part_count: u32,
+        children: Vec<ArrayRef>,
+    ) -> VortexResult<ArrayRef> {
+        let metadata = DecimalBytesPartsMetadata {
+            zeroth_child_ptype: PType::I64 as i32,
+            lower_part_count,
+        }
+        .encode_to_vec();
+        let dtype = DType::Decimal(DecimalDType::new(38, 2), Nullability::NonNullable);
+        DecimalBytePartsPlugin.deserialize(
+            ArrayDeserialization::new(serialized_id, &dtype, 3, &metadata, &[], &children),
+            &array_session(),
+        )
+    }
+
+    /// Each serialized ID keeps its own contract: the frozen ID never carries lower parts, and
+    /// the v2 ID is never written without them.
+    #[rstest]
+    #[case::frozen_without_lower_parts(VTable::id(&DecimalByteParts), 0, vec![msp()], true)]
+    #[case::frozen_with_lower_parts(
+        VTable::id(&DecimalByteParts),
+        1,
+        vec![msp(), lower_part()],
+        false
+    )]
+    #[case::v2_with_lower_parts(decimal_byte_parts_v2_id(), 1, vec![msp(), lower_part()], true)]
+    #[case::v2_without_lower_parts(decimal_byte_parts_v2_id(), 0, vec![msp()], false)]
+    #[case::unknown_id(ArrayVTable::id(&Primitive), 0, vec![msp()], false)]
+    fn plugin_holds_each_id_to_its_contract(
+        #[case] serialized_id: ArrayId,
+        #[case] lower_part_count: u32,
+        #[case] children: Vec<ArrayRef>,
+        #[case] accepted: bool,
+    ) {
+        let result = plugin_deserialize_with(serialized_id, lower_part_count, children);
+        assert_eq!(result.is_ok(), accepted, "{serialized_id}: {result:?}");
     }
 
     #[test]

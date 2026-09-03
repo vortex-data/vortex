@@ -10,7 +10,7 @@ use vortex_error::vortex_err;
 
 use crate::scalar_fn::fns::operators::Operator;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 /// Binary element-wise operations.
 pub enum NumericOperator {
     /// Binary element-wise addition of two arrays or of two scalars.

@@ -242,15 +242,10 @@ pub(crate) fn constant_uncompressed_size_in_bytes(
         | DType::Map(..)
         | DType::FixedSizeList(..)
         | DType::Struct(..)
+        | DType::Union(..)
         | DType::Extension(_) => {
             let canonical = array.array().clone().execute::<Canonical>(ctx)?;
             return canonical_uncompressed_size_in_bytes(&canonical, ctx);
-        }
-        DType::Union(..) => {
-            todo!(
-                "TODO(connor)[Union]: support constant Union size accounting after constant Union \
-                 canonicalization defines inactive sparse-child placeholders"
-            )
         }
         DType::Variant(_) => {
             vortex_bail!("UncompressedSizeInBytes is not supported for Variant arrays")
@@ -343,6 +338,7 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
+    use crate::RecursiveCanonical;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
     use crate::aggregate_fn::AggregateFnVTable;
@@ -381,15 +377,26 @@ mod tests {
     use crate::scalar::ScalarValue;
     use crate::validity::Validity;
 
+    /// The size the array occupies once rebuilt through the canonical builders, which is the
+    /// layout [`UncompressedSizeInBytes`] is defined against: the builders normalize physical
+    /// widths that the input array is free to choose differently, picking the smallest decimal
+    /// value type for a precision and `u64` list-view offsets and sizes.
+    ///
+    /// Builders no longer canonicalize their children, so the finished array is only canonical at
+    /// the top level - recursively canonicalize it before measuring.
     fn materialized_uncompressed_size_in_bytes(array: &ArrayRef) -> u64 {
+        let mut ctx = array_session().create_execution_ctx();
         let mut builder = builder_with_capacity(array.dtype(), array.len());
         array
-            .append_to_builder(
-                builder.as_mut(),
-                &mut array_session().create_execution_ctx(),
-            )
+            .append_to_builder(builder.as_mut(), &mut ctx)
             .vortex_expect("appended");
-        builder.finish().nbytes()
+        builder
+            .finish()
+            .execute::<RecursiveCanonical>(&mut ctx)
+            .vortex_expect("recursively canonicalized")
+            .0
+            .into_array()
+            .nbytes()
     }
 
     fn aggregate(array: &ArrayRef) -> VortexResult<u64> {

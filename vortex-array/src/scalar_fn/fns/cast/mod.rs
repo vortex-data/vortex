@@ -8,6 +8,7 @@ use std::fmt::Formatter;
 
 pub use kernel::*;
 use prost::Message;
+use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -30,6 +31,7 @@ use crate::arrays::ListView;
 use crate::arrays::Map;
 use crate::arrays::Null;
 use crate::arrays::Primitive;
+use crate::arrays::ScalarFnArray;
 use crate::arrays::VarBinView;
 use crate::arrays::struct_::compute::cast::struct_cast;
 use crate::builtins::ArrayBuiltins;
@@ -40,16 +42,24 @@ use crate::expr::lit;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
-use crate::scalar_fn::ReduceCtx;
 use crate::scalar_fn::ReduceNode;
-use crate::scalar_fn::ReduceNodeRef;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::literal::Literal;
 
 /// A cast expression that converts values to a target data type.
 #[derive(Clone)]
 pub struct Cast;
+
+impl Cast {
+    /// Creates a lazy cast of `input` to `target_dtype`.
+    #[expect(clippy::new_ret_no_self, reason = "constructs the lazy result array")]
+    pub fn new(input: ArrayRef, target_dtype: DType) -> ScalarFnArray {
+        ScalarFnArray::try_new(Cast.bind(target_dtype), vec![input])
+            .vortex_expect("Cast has one child and an infallible return dtype")
+    }
+}
 
 impl ScalarFnVTable for Cast {
     type Options = DType;
@@ -144,12 +154,7 @@ impl ScalarFnVTable for Cast {
         }
     }
 
-    fn reduce(
-        &self,
-        target_dtype: &DType,
-        node: &dyn ReduceNode,
-        _ctx: &dyn ReduceCtx,
-    ) -> VortexResult<Option<ReduceNodeRef>> {
+    fn reduce<T: ReduceNode>(&self, target_dtype: &DType, node: &T) -> VortexResult<Option<T>> {
         // Collapse node if child is already the target type
         let child = node.child(0);
         if &child.node_dtype()? == target_dtype {

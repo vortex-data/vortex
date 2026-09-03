@@ -60,7 +60,6 @@ static_assertions = { workspace = true }
 tabled = { workspace = true, optional = true, default-features = false, features = [
     "std",
 ] }
-termtree = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
 vortex-array-macros = { workspace = true }
@@ -80,8 +79,11 @@ cudarc = ["dep:cudarc"]
 table-display = ["dep:tabled"]
 _test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
 serde = ["dep:serde", "vortex-buffer/serde", "vortex-mask/serde"]
+# Exposes experimental row-function APIs without compatibility guarantees.
+unstable_row_fns = []
 
 [dev-dependencies]
+allocator-api2 = { workspace = true }
 divan = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 insta = { workspace = true }
@@ -91,7 +93,12 @@ rstest = { workspace = true }
 serde_json = { workspace = true }
 serde_test = { workspace = true }
 test-with = { workspace = true }
-vortex-array = { path = ".", features = ["_test-harness", "table-display"] }
+vortex-array = { path = ".", features = [
+    "_test-harness",
+    "table-display",
+    "unstable_row_fns",
+] }
+vortex-bench-support = { workspace = true }
 
 [[bench]]
 name = "aggregate_max"
@@ -127,6 +134,10 @@ harness = false
 
 [[bench]]
 name = "binary_ops"
+harness = false
+
+[[bench]]
+name = "row_fn_output"
 harness = false
 
 [[bench]]
@@ -181,6 +192,11 @@ path = "benches/expr/optimize_bench.rs"
 harness = false
 
 [[bench]]
+name = "expr_optimize_predicate"
+path = "benches/expr/optimize_predicate.rs"
+harness = false
+
+[[bench]]
 name = "chunked_dict_builder"
 harness = false
 required-features = ["_test-harness"]
@@ -209,6 +225,10 @@ harness = false
 
 [[bench]]
 name = "varbinview_zip"
+harness = false
+
+[[bench]]
+name = "varbinview_try_new"
 harness = false
 
 [[bench]]
@@ -248,6 +268,10 @@ name = "take_fsl"
 harness = false
 
 [[bench]]
+name = "take_varbin"
+harness = false
+
+[[bench]]
 name = "take_filter"
 harness = false
 
@@ -257,6 +281,10 @@ harness = false
 
 [[bench]]
 name = "filter_fixed_width"
+harness = false
+
+[[bench]]
+name = "filter_list"
 harness = false
 
 [[bench]]

@@ -43,7 +43,6 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::filter::FilterArraySlotsExt;
-use crate::arrays::scalar_fn::ScalarFnFactoryExt;
 use crate::assert_arrays_eq;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -421,10 +420,76 @@ fn trace_optimize_parent_reduce_fixpoint_attempts() -> VortexResult<()> {
         TraceOptions {
             resolution: TraceResolution::ExecutedOnly,
         },
-        || outer.execute::<Canonical>(&mut ctx),
+        || {
+            outer
+                .execute::<Canonical>(&mut ctx)
+                .map(IntoArray::into_array)
+        },
     )?;
 
-    insta::assert_snapshot!(traced.trace.to_string(), @r"
+    // The trace below only records the shape of the execution; pin the values it produced too.
+    assert_arrays_eq!(
+        traced.output,
+        PrimitiveArray::from_iter([2i32, 3]),
+        &mut execution_ctx()
+    );
+    insta::assert_snapshot!(traced.trace.to_string(), @"
+    execute_until target=AnyCanonical root=vortex.filter(i32, len=2)
+      iter 0 current=vortex.filter(i32, len=2) builder_active=false
+        Done array=vortex.slice(i32, len=2)
+      iter 1 current=vortex.slice(i32, len=2) builder_active=false
+        ExecuteSlot slot=0 parent=vortex.slice(i32, len=2) child=vortex.filter(i32, len=4)
+      iter 2 current=vortex.filter(i32, len=4) stack_parent=vortex.slice(i32, len=2) slot=0 builder_active=false
+        Done array=vortex.primitive(i32, len=4)
+      iter 3 current=vortex.primitive(i32, len=4) stack_parent=vortex.slice(i32, len=2) slot=0 builder_active=false
+        pop_frame slot=0 output=vortex.slice(i32, len=2)
+      iter 4 current=vortex.slice(i32, len=2) builder_active=false
+    optimize root=vortex.slice(i32, len=2) session=false
+      reduce_parent static:SliceReduceAdaptor(Primitive) slot=0 parent=vortex.slice(i32, len=2) child=vortex.primitive(i32, len=4) -> vortex.primitive(i32, len=2)
+      done output=vortex.primitive(i32, len=2)
+        Done array=vortex.primitive(i32, len=2)
+      iter 5 current=vortex.primitive(i32, len=2) builder_active=false
+      return output=vortex.primitive(i32, len=2)
+    ");
+
+    Ok(())
+}
+
+/// A filter whose mask is not one contiguous run cannot be answered as a slice, so it has to
+/// execute through its child.
+///
+/// The test above happens to build a contiguous combined mask, which short-circuits before the
+/// child is reached; without this case no trace would cover an executed filter at all.
+#[test]
+fn trace_execute_filter_with_scattered_mask() -> VortexResult<()> {
+    let values = PrimitiveArray::from_iter([0i32, 1, 2, 3, 4, 5]).into_array();
+    let inner = FilterArray::try_new(
+        values,
+        Mask::from_iter([true, false, true, true, false, true]),
+    )?
+    .into_array();
+    // Keeps ranks 0 and 2 of the inner selection — values 0 and 3, which are two runs, not one.
+    let outer =
+        FilterArray::try_new(inner, Mask::from_iter([true, false, true, false]))?.into_array();
+
+    let mut ctx = ExecutionCtx::new(VortexSession::empty().with::<ArraySession>());
+    let traced = trace_op_with(
+        TraceOptions {
+            resolution: TraceResolution::ExecutedOnly,
+        },
+        || {
+            outer
+                .execute::<Canonical>(&mut ctx)
+                .map(IntoArray::into_array)
+        },
+    )?;
+
+    assert_arrays_eq!(
+        traced.output,
+        PrimitiveArray::from_iter([0i32, 3]),
+        &mut execution_ctx()
+    );
+    insta::assert_snapshot!(traced.trace.to_string(), @"
     execute_until target=AnyCanonical root=vortex.filter(i32, len=2)
       iter 0 current=vortex.filter(i32, len=2) builder_active=false
         ExecuteSlot slot=0 parent=vortex.filter(i32, len=2) child=vortex.filter(i32, len=4)
@@ -581,19 +646,6 @@ fn trace_take_on_chunked() -> VortexResult<()> {
     insta::assert_snapshot!(traced.trace.to_string(), @"
     execute_until target=AnyCanonical root=vortex.dict(i32, len=4)
       iter 0 current=vortex.dict(i32, len=4) builder_active=false
-    execute_until target=AnyCanonical root=vortex.chunked(i32, len=4)
-      iter 0 current=vortex.chunked(i32, len=4) builder_active=false
-        builder start array=vortex.chunked(i32, len=4)
-        AppendChild slot=1 parent=vortex.chunked(i32, len=4) child=vortex.dict(i32, len=1)
-        builder append child=vortex.dict(i32, len=1)
-      iter 1 current=vortex.chunked(i32, len=4) builder_active=true
-        AppendChild slot=2 parent=vortex.chunked(i32, len=4) child=vortex.dict(i32, len=3)
-        builder append child=vortex.dict(i32, len=3)
-      iter 2 current=vortex.chunked(i32, len=4) builder_active=true
-        Done array=vortex.primitive(i32, len=0)
-        builder finish output=vortex.primitive(i32, len=4)
-      iter 3 current=vortex.primitive(i32, len=4) builder_active=false
-      return output=vortex.primitive(i32, len=4)
         child_execute_parent session[0]:execute_parent_fn slot=1 parent=vortex.dict(i32, len=4) child=vortex.chunked(i32, len=5) -> vortex.dict(i32, len=4)
       iter 1 current=vortex.dict(i32, len=4) builder_active=false
         child_execute_parent session[0]:execute_parent_fn slot=1 parent=vortex.dict(i32, len=4) child=vortex.primitive(i32, len=4) -> vortex.primitive(i32, len=4)
@@ -672,7 +724,7 @@ fn trace_compare_on_dict() -> VortexResult<()> {
     .into_array();
     let rhs = ConstantArray::new(Scalar::from(20i32), dict.len()).into_array();
 
-    let compared = Binary.try_new_array(dict.len(), Operator::Eq, [dict, rhs])?;
+    let compared = Binary::try_new(dict, rhs, Operator::Eq)?.into_array();
 
     let traced = trace_op(|| compared.optimize())?;
     insta::assert_snapshot!(traced.trace.to_string(), @"
@@ -715,14 +767,15 @@ fn trace_like_on_dict() -> VortexResult<()> {
     let strings = dict_of_strings()?;
     let pattern = ConstantArray::new(Scalar::from("b%"), strings.len()).into_array();
 
-    let like = Like.try_new_array(
-        strings.len(),
+    let like = Like::try_new(
+        strings,
+        pattern,
         LikeOptions {
             negated: false,
             case_insensitive: false,
         },
-        [strings, pattern],
-    )?;
+    )?
+    .into_array();
 
     let traced = trace_op(|| like.optimize())?;
     insta::assert_snapshot!(traced.trace.to_string(), @"

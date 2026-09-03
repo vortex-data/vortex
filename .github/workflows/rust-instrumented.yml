@@ -136,8 +136,10 @@ jobs:
           enable-sccache: "true"
       - name: Install lcov
         run: |
-          sudo apt-get update
-          sudo apt-get install -y lcov libjson-xs-perl
+          if ! command -v lcov >/dev/null || ! dpkg-query -W libjson-xs-perl >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y lcov libjson-xs-perl
+          fi
       - name: Build FFI library
         run: cargo build -p vortex-ffi
       - name: Build and test C++ API with coverage
@@ -166,7 +168,7 @@ jobs:
     name: "Rust tests (${{ matrix.sanitizer }})"
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/pool=amd64-medium-pre-v2/tag=rust-test-sanitizer', github.run_id)
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-test-sanitizer', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     env:

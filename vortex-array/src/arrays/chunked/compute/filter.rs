@@ -71,7 +71,7 @@ fn filter_slices(
     let chunk_filters = chunk_filters(array, slices)?;
 
     // Now, apply the chunk filter to every slice.
-    for (chunk, chunk_filter) in array.iter_chunks().zip(chunk_filters.into_iter()) {
+    for (chunk, chunk_filter) in array.iter_chunks().zip(chunk_filters) {
         match chunk_filter {
             // All => preserve the entire chunk unfiltered.
             ChunkFilter::All => result.push(chunk.clone()),

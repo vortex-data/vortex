@@ -9,6 +9,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::arrays::MaskedArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::ScalarFn;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
@@ -20,6 +21,7 @@ use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::proto::dtype as pb;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -76,6 +78,14 @@ pub fn extract_normalized_children(array: &ArrayRef) -> (ArrayRef, ArrayRef) {
         normalized_array.normalized().clone(),
         normalized_array.norms().clone(),
     )
+}
+
+/// Applies nullable validity without widening a non-nullable result unnecessarily.
+pub(crate) fn reattach_validity(array: ArrayRef, validity: Validity) -> VortexResult<ArrayRef> {
+    match validity {
+        Validity::NonNullable => Ok(array),
+        validity => Ok(MaskedArray::try_new(array, validity)?.into_array()),
+    }
 }
 
 /// Validates that `input_dtype` is a float-valued tensor-like extension dtype.
@@ -370,9 +380,7 @@ pub mod test_helpers {
         ConstantArray::new(ext_scalar, len).into_array()
     }
 
-    /// Creates a [`Normalized`] array from pre-normalized tensor elements and matching norms. The
-    /// caller must ensure every row of `normalized_elements` is unit-norm or zero, since this
-    /// goes through the checked constructor.
+    /// Builds a checked, non-nullable [`Normalized`] test array.
     pub fn normalized_array<T: NativePType>(
         shape: &[usize],
         normalized_elements: &[T],
@@ -382,7 +390,8 @@ pub mod test_helpers {
         let normalized = tensor_array(shape, normalized_elements)?;
         let norms =
             PrimitiveArray::new(Buffer::copy_from(norms), Validity::NonNullable).into_array();
-        Ok(Normalized::try_new(normalized, norms, ctx)?.into_array())
+
+        Ok(Normalized::try_new(normalized, norms, Validity::NonNullable, ctx)?.into_array())
     }
 
     /// Asserts that each element in `actual` is within `1e-10` of the corresponding `expected`

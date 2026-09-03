@@ -371,9 +371,6 @@ impl LayoutReader for StructReader {
         split_range: &SplitRange,
         splits: &mut RowSplits,
     ) -> VortexResult<()> {
-        // In the case of an empty struct, we need to register the end split.
-        splits.push(split_range.root_row_range().end);
-
         // Register splits for the validity child, if there is one
         if let Some(validity_ref) = self.validity()? {
             validity_ref.register_splits(field_mask, split_range, splits)?;
@@ -382,7 +379,13 @@ impl LayoutReader for StructReader {
         self.layout.matching_fields(field_mask, |mask, idx| {
             self.field_reader_by_index(idx)?
                 .register_splits(&[mask], split_range, splits)
-        })
+        })?;
+
+        // In the case of an empty struct, we need to register the end split. Pushed last so it
+        // extends the final field's ascending run rather than starting a run of its own.
+        splits.push(split_range.root_row_range().end);
+
+        Ok(())
     }
 
     fn pruning_evaluation(

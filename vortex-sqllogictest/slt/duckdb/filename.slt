@@ -1,0 +1,143 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+CREATE TABLE partitioned AS SELECT range % 3 AS i, range AS j FROM range(4);
+
+statement ok
+COPY partitioned TO '${WORK_DIR}/filename' (FORMAT vortex, PARTITION_BY (i));
+
+# hive auto detection is turned on, so we get output j, [filename], [i = hive index]
+query ITI
+SELECT * FROM read_vortex('${WORK_DIR}/filename/**/*.vortex', filename=true)
+ORDER BY j;
+----
+0 ${WORK_DIR}/filename/i=0/data_0.vortex 0
+1 ${WORK_DIR}/filename/i=1/data_0.vortex 1
+2 ${WORK_DIR}/filename/i=2/data_0.vortex 2
+3 ${WORK_DIR}/filename/i=0/data_0.vortex 0
+
+query IT
+SELECT * FROM read_vortex('${WORK_DIR}/filename/**/*.vortex', filename=true, hive_partitioning=false)
+ORDER BY j;
+----
+0 ${WORK_DIR}/filename/i=0/data_0.vortex
+1 ${WORK_DIR}/filename/i=1/data_0.vortex
+2 ${WORK_DIR}/filename/i=2/data_0.vortex
+3 ${WORK_DIR}/filename/i=0/data_0.vortex
+
+query II
+SELECT * FROM read_vortex('${WORK_DIR}/filename/**/*.vortex', filename=false)
+ORDER BY j;
+----
+0 0
+1 1
+2 2
+3 0
+
+query TI
+SELECT filename, j FROM read_vortex('${WORK_DIR}/filename/**/*.vortex', filename=true)
+ORDER BY j;
+----
+${WORK_DIR}/filename/i=0/data_0.vortex 0
+${WORK_DIR}/filename/i=1/data_0.vortex 1
+${WORK_DIR}/filename/i=2/data_0.vortex 2
+${WORK_DIR}/filename/i=0/data_0.vortex 3
+
+query ITI
+SELECT j, fname, i FROM read_vortex('${WORK_DIR}/filename/**/*.vortex', filename='fname')
+ORDER BY j;
+----
+0 ${WORK_DIR}/filename/i=0/data_0.vortex 0
+1 ${WORK_DIR}/filename/i=1/data_0.vortex 1
+2 ${WORK_DIR}/filename/i=2/data_0.vortex 2
+3 ${WORK_DIR}/filename/i=0/data_0.vortex 0
+
+query ITI
+SELECT * FROM read_vortex('${WORK_DIR}/filename/**/*.vortex', filename=true)
+WHERE filename NOT LIKE '%i=0%'
+ORDER BY j;
+----
+1 ${WORK_DIR}/filename/i=1/data_0.vortex 1
+2 ${WORK_DIR}/filename/i=2/data_0.vortex 2
+
+query ITI
+SELECT * FROM read_vortex('${WORK_DIR}/filename/**/*.vortex', filename=true)
+WHERE j != 0
+ORDER BY j;
+----
+1 ${WORK_DIR}/filename/i=1/data_0.vortex 1
+2 ${WORK_DIR}/filename/i=2/data_0.vortex 2
+3 ${WORK_DIR}/filename/i=0/data_0.vortex 0
+
+query I
+SELECT j FROM read_vortex('${WORK_DIR}/filename/**/*.vortex', filename=true)
+WHERE filename = '${WORK_DIR}/filename/i=1/data_0.vortex';
+----
+1
+
+query I
+SELECT j FROM read_vortex('${WORK_DIR}/filename/**/*.vortex', filename=true)
+WHERE filename = 'no such file';
+----
+
+query I
+SELECT j FROM read_vortex('${WORK_DIR}/filename/**/*.vortex', filename=true)
+WHERE i = 0 AND j > 1;
+----
+3
+
+query I
+SELECT j FROM read_vortex('${WORK_DIR}/filename/**/*.vortex', filename=true)
+WHERE filename LIKE '%i=0%' AND j >= 0
+ORDER BY j;
+----
+0
+3
+
+query I
+SELECT count(*) FROM read_vortex('${WORK_DIR}/filename/**/*.vortex', filename=true);
+----
+4
+
+query TI
+SELECT filename, count(*) FROM read_vortex('${WORK_DIR}/filename/**/*.vortex', filename=true)
+GROUP BY filename
+ORDER BY filename;
+----
+${WORK_DIR}/filename/i=0/data_0.vortex 2
+${WORK_DIR}/filename/i=1/data_0.vortex 1
+${WORK_DIR}/filename/i=2/data_0.vortex 1
+
+query TI
+SELECT filename, j FROM '${WORK_DIR}/filename/**/*.vortex'
+ORDER BY j;
+----
+${WORK_DIR}/filename/i=0/data_0.vortex 0
+${WORK_DIR}/filename/i=1/data_0.vortex 1
+${WORK_DIR}/filename/i=2/data_0.vortex 2
+${WORK_DIR}/filename/i=0/data_0.vortex 3
+
+query I
+SELECT j FROM '${WORK_DIR}/filename/**/*.vortex'
+WHERE filename LIKE '%i=1%';
+----
+1
+
+statement ok
+COPY (SELECT i AS filename, j FROM partitioned)
+TO '${WORK_DIR}/filename-collision.vortex' (FORMAT vortex);
+
+statement error
+SELECT * FROM read_vortex('${WORK_DIR}/filename-collision.vortex', filename=true);
+
+query IIT
+SELECT * FROM read_vortex('${WORK_DIR}/filename-collision.vortex', filename='other_filename')
+ORDER BY j;
+----
+0 0 ${WORK_DIR}/filename-collision.vortex
+1 1 ${WORK_DIR}/filename-collision.vortex
+2 2 ${WORK_DIR}/filename-collision.vortex
+0 3 ${WORK_DIR}/filename-collision.vortex

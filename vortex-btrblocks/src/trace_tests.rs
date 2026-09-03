@@ -30,7 +30,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::Struct;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::patched::use_experimental_patches;
-use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
@@ -49,7 +48,7 @@ use vortex_array::session::ArraySession;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::test_harness::trace::Traced;
 use vortex_array::test_harness::trace::trace_op;
-use vortex_arrow::FromArrowArray;
+use vortex_arrow::ArrowSessionExt;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -122,7 +121,10 @@ fn lineitem() -> VortexResult<ArrayRef> {
         .with_batch_size(1 << 12)
         .next()
         .expect("at least one batch");
-    ArrayRef::from_arrow(&batch, false)
+    let schema = batch.schema();
+    trace_session()
+        .arrow()
+        .from_arrow_record_batch(batch, &schema)
 }
 
 fn compressed_lineitem() -> VortexResult<ArrayRef> {
@@ -172,11 +174,12 @@ fn shipdate_predicate(column: ArrayRef, len: usize) -> VortexResult<ArrayRef> {
         ext,
         Scalar::primitive_value(PValue::I32(8766), PType::I32, Nullability::NonNullable),
     );
-    Binary.try_new_array(
-        len,
+    Binary::try_new(
+        column,
+        ConstantArray::new(cutoff, len).into_array(),
         Operator::Gte,
-        [column, ConstantArray::new(cutoff, len).into_array()],
     )
+    .map(IntoArray::into_array)
 }
 
 #[test]
@@ -223,11 +226,12 @@ fn quantity_predicate(column: ArrayRef, len: usize) -> VortexResult<ArrayRef> {
         DecimalDType::new(15, 2),
         Nullability::NonNullable,
     );
-    Binary.try_new_array(
-        len,
+    Binary::try_new(
+        column,
+        ConstantArray::new(cutoff, len).into_array(),
         Operator::Lt,
-        [column, ConstantArray::new(cutoff, len).into_array()],
     )
+    .map(IntoArray::into_array)
 }
 
 #[test]
@@ -280,14 +284,12 @@ fn trace_scan_compare_on_compressed_quantity() -> VortexResult<()> {
 ///
 /// The column compresses to `dict -> {bitpacked codes, fsst values}`.
 fn shipmode_predicate(column: ArrayRef, len: usize) -> VortexResult<ArrayRef> {
-    Binary.try_new_array(
-        len,
+    Binary::try_new(
+        column,
+        ConstantArray::new(Scalar::from("AIR"), len).into_array(),
         Operator::Eq,
-        [
-            column,
-            ConstantArray::new(Scalar::from("AIR"), len).into_array(),
-        ],
     )
+    .map(IntoArray::into_array)
 }
 
 #[test]
@@ -331,19 +333,18 @@ fn trace_scan_compare_on_compressed_shipmode() -> VortexResult<()> {
 
 /// Q13-style predicate over the comment column: `l_comment LIKE '%special%'`.
 ///
-/// The column compresses to `fsst -> bitpacked lengths/offsets`.
+/// The column compresses to `fsst -> bitpacked lengths/offsets`, or to `fsst -> delta offsets`
+/// (with bitpacked residuals) when `unstable_encodings` makes Delta available.
 fn comment_predicate(column: ArrayRef, len: usize) -> VortexResult<ArrayRef> {
-    Like.try_new_array(
-        len,
+    Like::try_new(
+        column,
+        ConstantArray::new(Scalar::from("%special%"), len).into_array(),
         LikeOptions {
             negated: false,
             case_insensitive: false,
         },
-        [
-            column,
-            ConstantArray::new(Scalar::from("%special%"), len).into_array(),
-        ],
     )
+    .map(IntoArray::into_array)
 }
 
 #[test]
@@ -358,9 +359,30 @@ fn trace_scan_like_on_compressed_comment() -> VortexResult<()> {
     // No reduce rule rewrites a like over FSST; the FSST like kernel compiles the pattern and
     // matches in compressed space at execution time.
     insta::assert_snapshot!(optimized.trace.to_string(), @"");
+    // Delta is only registered under `unstable_encodings`. Without it the offsets stay bitpacked
+    // and canonicalize inside the FSST kernel, so the scan has no extra children to execute.
+    #[cfg(not(feature = "unstable_encodings"))]
     insta::assert_snapshot!(executed.trace.to_string(), @"
     execute_until target=AnyCanonical root=vortex.like(bool, len=4096)
       iter 0 current=vortex.like(bool, len=4096) builder_active=false
+        child_execute_parent session[0]:execute_parent_fn slot=0 parent=vortex.like(bool, len=4096) child=vortex.fsst(utf8, len=4096) -> vortex.bool(bool, len=4096)
+      iter 1 current=vortex.bool(bool, len=4096) builder_active=false
+      return output=vortex.bool(bool, len=4096)
+    ");
+    #[cfg(feature = "unstable_encodings")]
+    insta::assert_snapshot!(executed.trace.to_string(), @"
+    execute_until target=AnyCanonical root=vortex.like(bool, len=4096)
+      iter 0 current=vortex.like(bool, len=4096) builder_active=false
+    execute_until target=AnyCanonical root=fastlanes.delta(u16, len=4097)
+      iter 0 current=fastlanes.delta(u16, len=4097) builder_active=false
+    execute_until target=AnyCanonical root=fastlanes.bitpacked(u16, len=5120)
+      iter 0 current=fastlanes.bitpacked(u16, len=5120) builder_active=false
+        Done array=vortex.primitive(u16, len=5120)
+      iter 1 current=vortex.primitive(u16, len=5120) builder_active=false
+      return output=vortex.primitive(u16, len=5120)
+        Done array=vortex.primitive(u16, len=4097)
+      iter 1 current=vortex.primitive(u16, len=4097) builder_active=false
+      return output=vortex.primitive(u16, len=4097)
         child_execute_parent session[0]:execute_parent_fn slot=0 parent=vortex.like(bool, len=4096) child=vortex.fsst(utf8, len=4096) -> vortex.bool(bool, len=4096)
       iter 1 current=vortex.bool(bool, len=4096) builder_active=false
       return output=vortex.bool(bool, len=4096)

@@ -45,7 +45,7 @@ use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
-use vortex_arrow::FromArrowArray;
+use vortex_arrow::ArrowSessionExt;
 use vortex_bench::Format;
 use vortex_bench::IdempotentPath;
 use vortex_bench::datasets::Dataset;
@@ -299,9 +299,13 @@ async fn read_parquet_projected(path: PathBuf, column: &str) -> Result<ArrayRef>
 
     let chunks: Vec<ArrayRef> = reader
         .map(|batch| {
-            batch
-                .map_err(anyhow::Error::from)
-                .and_then(|rb| ArrayRef::from_arrow(rb, false).map_err(anyhow::Error::from))
+            batch.map_err(anyhow::Error::from).and_then(|rb| {
+                let schema = rb.schema();
+                SESSION
+                    .arrow()
+                    .from_arrow_record_batch(rb, &schema)
+                    .map_err(anyhow::Error::from)
+            })
         })
         .try_collect()
         .await?;

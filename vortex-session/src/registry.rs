@@ -209,8 +209,10 @@ impl Interner {
 
     /// Intern an ID, returning its index.
     pub fn intern(&self, id: &Id) -> Option<u16> {
-        if let Some(allowed) = &self.allowed
-            && !allowed.contains(id)
+        if self
+            .allowed
+            .as_ref()
+            .is_some_and(|allowed| !allowed.contains(id))
         {
             // ID not permitted, cannot intern.
             return None;

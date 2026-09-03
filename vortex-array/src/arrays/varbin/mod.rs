@@ -11,6 +11,7 @@ pub use array::VarBinSlotsView;
 pub use vtable::VarBinArray;
 
 pub(crate) mod compute;
+pub use compute::take_varbin;
 
 mod vtable;
 pub use vtable::VarBin;

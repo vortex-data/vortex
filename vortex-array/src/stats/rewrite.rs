@@ -137,6 +137,7 @@ fn rewrite(
         &StatsRewriteCtx<'_>,
     ) -> VortexResult<Option<BoundExpression>>,
 ) -> VortexResult<Option<BoundExpression>> {
+    // The scope alone proves nothing about the rows it contains.
     let Some(scalar_fn) = expr.as_scalar() else {
         return Ok(None);
     };

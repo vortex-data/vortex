@@ -158,6 +158,7 @@ mod tests {
     use vortex::buffer::Buffer;
     use vortex::dtype::NativePType;
     use vortex::encodings::fastlanes::BitPacked;
+    use vortex::encodings::fastlanes::BitPackedArrayExt;
     use vortex::encodings::fastlanes::FoR;
     use vortex::encodings::fastlanes::FoRArray;
     use vortex::error::VortexExpect;
@@ -227,5 +228,51 @@ mod tests {
             .into_array();
 
         assert_arrays_eq!(for_array, gpu_result, &mut ctx);
+    }
+
+    /// Patched positions must pick up the frame of reference, exactly like unpacked ones.
+    ///
+    /// The bit-packed exceptions are stored reference-relative, so a decoder that writes them
+    /// straight into the output leaves every patched value short by the reference. A plain
+    /// bit-packed array cannot catch that: its reference is zero.
+    #[rstest]
+    #[case::u32(100_000u32)]
+    #[case::u64(1_000_000u64)]
+    #[crate::test]
+    async fn test_ffor_patched_values_include_reference<T>(#[case] reference: T) -> VortexResult<()>
+    where
+        T: NativePType + Into<Scalar> + From<u32>,
+    {
+        let mut ctx = array_session().create_execution_ctx();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
+            .vortex_expect("failed to create execution context");
+
+        // Values that fit in 8 bits, with a handful that do not and so become patches.
+        let mut values = (0..2048u32)
+            .map(|i| <T as From<u32>>::from(i % 200))
+            .collect::<Vec<_>>();
+        for index in [7, 1023, 1024, 2047] {
+            values[index] = <T as From<u32>>::from(1u32 << 17);
+        }
+
+        let values = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
+        let packed = BitPacked::encode(&values, 8, &mut array_session().create_execution_ctx())?;
+        assert!(
+            packed.patches().is_some(),
+            "test setup expects the exceptions to be stored as patches"
+        );
+        let for_array = FoR::try_new(packed.into_array(), reference.into())?;
+
+        let gpu_result = FoRExecutor
+            .execute(for_array.clone().into_array(), &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU decompression failed")
+            .into_host()
+            .await?
+            .into_array();
+
+        assert_arrays_eq!(for_array, gpu_result, &mut ctx);
+
+        Ok(())
     }
 }

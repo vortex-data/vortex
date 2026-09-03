@@ -2,5 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod read_at;
+mod write;
 
 pub use read_at::*;
+pub use write::*;

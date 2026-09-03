@@ -707,12 +707,15 @@ const vx_array *vx_array_new_primitive(vx_ptype ptype,
  *
  * // export an Arrow record batch into (array, schema), then:
  * vx_error* error = NULL;
- * const vx_array* vx = vx_array_from_arrow(&array, &schema, false, &error);
+ * const vx_array* vx = vx_array_from_arrow(session, &array, &schema, false, &error);
  * // ... push it to a sink or write it ...
  * vx_array_free(vx);
  */
-const vx_array *
-vx_array_from_arrow(FFI_ArrowArray *array, FFI_ArrowSchema *schema, bool nullable, vx_error **error_out);
+const vx_array *vx_array_from_arrow(const vx_session *session,
+                                    FFI_ArrowArray *array,
+                                    FFI_ArrowSchema *schema,
+                                    bool nullable,
+                                    vx_error **error_out);
 
 /**
  * Return UTF-8 string at "index" in a canonical Utf8 array.
@@ -944,14 +947,19 @@ const vx_dtype *vx_dtype_fixed_size_list_element(const vx_dtype *dtype);
 uint32_t vx_dtype_fixed_size_list_size(const vx_dtype *dtype);
 
 /**
- * Convert a dtype to ArrowSchema.
+ * Convert a dtype to ArrowSchema, resolving extension types through `session`'s Arrow
+ * conversion registry.
  * You can use the dtype after conversion
  * On success, returns 0. On error, sets err and returns 1.
  */
-int vx_dtype_to_arrow_schema(const vx_dtype *dtype, FFI_ArrowSchema *schema, vx_error **err);
+int vx_dtype_to_arrow_schema(const vx_session *session,
+                             const vx_dtype *dtype,
+                             FFI_ArrowSchema *schema,
+                             vx_error **err);
 
 /**
- * Create a Vortex dtype from an Arrow C Data Interface schema.
+ * Create a Vortex dtype from an Arrow C Data Interface schema, resolving extension types
+ * through `session`'s Arrow conversion registry.
  *
  * `schema` must point to a valid `ArrowSchema` describing a struct (record-batch) schema. It is
  * *consumed*: its `release` callback is invoked by this function and the caller must not use or
@@ -960,7 +968,8 @@ int vx_dtype_to_arrow_schema(const vx_dtype *dtype, FFI_ArrowSchema *schema, vx_
  *
  * On error, returns NULL and sets `err`.
  */
-const vx_dtype *vx_dtype_from_arrow_schema(FFI_ArrowSchema *schema, vx_error **err);
+const vx_dtype *
+vx_dtype_from_arrow_schema(const vx_session *session, FFI_ArrowSchema *schema, vx_error **err);
 
 /**
  * Free a vx_error
@@ -1346,6 +1355,18 @@ vx_view vx_scalar_get_binary(const vx_scalar *scalar);
  * Returns NULL and sets "err" on error.
  */
 vx_scalar *vx_scalar_new_null(const vx_dtype *dtype, vx_error **err);
+
+/**
+ * Create an extension-typed scalar from its storage scalar.
+ *
+ * "dtype" must be an extension dtype (for example a date or timestamp dtype
+ * taken from a data source's schema, or built via vx_dtype_from_arrow_schema)
+ * and "storage" a scalar of that extension type's storage dtype, compared
+ * ignoring nullability. The storage value is copied.
+ *
+ * Returns NULL and sets "err" on error.
+ */
+vx_scalar *vx_scalar_new_extension(const vx_dtype *dtype, const vx_scalar *storage, vx_error **err);
 
 /**
  * Create a decimal scalar from a signed i8 unscaled value.

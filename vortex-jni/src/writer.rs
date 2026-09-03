@@ -89,9 +89,7 @@ fn resolve_store(
             .map_err(|_| vortex_err!("invalid file URL: {url_or_path}"))?;
         Ok(ResolvedStore::Path(path))
     } else {
-        let path = ObjectStorePath::from_url_path(url.path())
-            .map_err(|_| vortex_err!("invalid object_store path: {}", url.path()))?;
-        let store = make_object_store(&url, properties)?;
+        let (store, path) = make_object_store(&url, properties)?;
         Ok(ResolvedStore::ObjectStore(store, path))
     }
 }

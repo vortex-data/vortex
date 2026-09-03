@@ -18,10 +18,10 @@ use crate::spatialbench::datagen::Table;
 use crate::utils::file::resolve_data_url;
 use crate::workspace_root;
 
-/// Data-dir subfolder for the native-geometry Vortex files (the `vortex-geo-native` lane).
-pub const NATIVE_DIR: &str = "vortex-geo-native";
+/// Data-dir subfolder for the native-geometry Vortex files (the `vortex-spatial-native` lane).
+pub const SPATIAL_NATIVE_DIR: &str = "vortex-spatial-native";
 
-/// SpatialBench geospatial benchmark (Apache Sedona): a `trip` point table, `building` polygons, and
+/// SpatialBench spatial benchmark (Apache Sedona): a `trip` point table, `building` polygons, and
 /// a `customer` attribute table, queried with spatial filters and joins. `zone` polygons are sourced
 /// externally and registered when present. See <https://sedona.apache.org/spatialbench/>.
 pub struct SpatialBenchBenchmark {
@@ -90,14 +90,15 @@ impl Benchmark for SpatialBenchBenchmark {
             .map_err(|_| anyhow::anyhow!("Invalid file URL: {}", self.data_url.as_str()))?;
         datagen::generate_tables(&self.scale_factor, base_data_dir.clone()).await?;
 
-        // `zone` is externally sourced (SpatialBench directly generate it), so
-        // re-tag its parquet with the geo metadata.
-        if let Some(geo) = datagen::wkb::geo_parquet_metadata(Table::Zone) {
+        // `zone` is externally sourced (SpatialBench directly generates it), so restore its
+        // GeoParquet metadata.
+        if let Some(geoparquet_metadata) = datagen::wkb::geoparquet_metadata(Table::Zone) {
             let zone_glob = base_data_dir
                 .join(Format::Parquet.name())
                 .join("zone_*.parquet");
             for zone_file in glob::glob(&zone_glob.to_string_lossy())?.flatten() {
-                crate::conversions::add_geoparquet_metadata(&zone_file, &geo).await?;
+                crate::conversions::add_geoparquet_metadata(&zone_file, &geoparquet_metadata)
+                    .await?;
             }
         }
 
@@ -106,19 +107,19 @@ impl Benchmark for SpatialBenchBenchmark {
         let derived_dirs = [
             base_data_dir.join(Format::OnDiskVortex.name()),
             base_data_dir.join(Format::VortexCompact.name()),
-            base_data_dir.join(NATIVE_DIR),
+            base_data_dir.join(SPATIAL_NATIVE_DIR),
         ];
         datagen::spatially_sort_tables(&base_data_dir.join(Format::Parquet.name()), &derived_dirs)
             .await?;
         Ok(())
     }
 
-    /// The `vortex-geo-native` lane decodes each table's WKB geometry to native GeoArrow once, into the
-    /// `vortex-geo-native` dir, so its queries read DuckDB `GEOMETRY` directly. Idempotent.
+    /// The `vortex-spatial-native` lane decodes each table's WKB geometry to native GeoArrow once, into the
+    /// `vortex-spatial-native` dir, so its queries read DuckDB `GEOMETRY` directly. Idempotent.
     async fn prepare_format(&self, format: Format, base_path: &Path) -> anyhow::Result<()> {
-        if format == Format::VortexNative {
+        if format == Format::VortexSpatialNative {
             let parquet_dir = base_path.join(Format::Parquet.name());
-            let native_dir = base_path.join(NATIVE_DIR);
+            let native_dir = base_path.join(SPATIAL_NATIVE_DIR);
             for table in self.base_tables() {
                 datagen::write_native_vortex(table, &parquet_dir, &native_dir).await?;
             }
@@ -130,11 +131,11 @@ impl Benchmark for SpatialBenchBenchmark {
         &self.data_url
     }
 
-    /// The `vortex-geo-native` lane reads the native-geometry Vortex dir; every other format reads its
+    /// The `vortex-spatial-native` lane reads the native-geometry Vortex dir; every other format reads its
     /// own `{format}` subfolder.
     fn format_path(&self, format: Format, base_url: &Url) -> anyhow::Result<Url> {
         let dir = match format {
-            Format::VortexNative => NATIVE_DIR,
+            Format::VortexSpatialNative => SPATIAL_NATIVE_DIR,
             other => other.name(),
         };
         Ok(base_url.join(&format!("{dir}/"))?)
@@ -168,7 +169,7 @@ impl Benchmark for SpatialBenchBenchmark {
     }
 
     /// Both lanes register the same tables (WKB reads `parquet`/`vortex`, native reads
-    /// `vortex-geo-native`); `zone` is externally sourced and optional, registered only when present.
+    /// `vortex-spatial-native`); `zone` is externally sourced and optional, registered only when present.
     fn table_specs(&self) -> Vec<TableSpec> {
         self.base_tables()
             .iter()

@@ -13,11 +13,16 @@ __device__ void _bit_unpack_8_device(const uint8_t *__restrict in, uint8_t *__re
     }
     __syncwarp();
 
-    // Step 2: Apply patches to shared memory in parallel
+    // Step 2: Apply patches to shared memory in parallel.
+    //
+    // Patch values are stored in the same frame-of-reference domain as the packed values, so
+    // they take the same `+ reference` the lane decoder applies to every unpacked value. For a
+    // plain bit-packed array the reference is zero and this is a no-op; for FoR-over-bit-packed
+    // it is what keeps patched positions from coming out short by the reference.
     PatchesCursor<uint8_t> cursor(patches, blockIdx.x, thread_idx, 32);
     auto patch = cursor.next();
     while (patch.index != FL_CHUNK) {
-        shared_out[patch.index] = patch.value;
+        shared_out[patch.index] = patch.value + reference;
         patch = cursor.next();
     }
     __syncwarp();

@@ -49,7 +49,7 @@ struct Args {
         long,
         value_delimiter = ',',
         value_parser = Format::parse_allowed,
-        default_values = ["parquet", "vortex", "lance"]
+        default_values = ["arrow-ipc", "parquet", "vortex", "lance"]
     )]
     formats: Vec<Format>,
     /// Time limit in seconds for each benchmark target (e.g., 10 for 10 seconds).

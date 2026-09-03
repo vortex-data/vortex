@@ -45,10 +45,10 @@ use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::varbin::builder::VarBinBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::extension::ExtDType;
-use vortex_geo::extension::GeoMetadata;
-use vortex_geo::extension::WellKnownBinary;
 use vortex_runend::RunEnd;
 use vortex_sequence::Sequence;
+use vortex_spatial::extension::SpatialMetadata;
+use vortex_spatial::extension::WellKnownBinary;
 use wkb::writer::WriteOptions;
 
 use crate::RUNTIME;
@@ -992,7 +992,7 @@ fn test_geometry() {
 
         let geometry = ExtensionArray::new(
             ExtDType::<WellKnownBinary>::try_new(
-                GeoMetadata {
+                SpatialMetadata {
                     crs: Some("EPSG:32600".to_string()),
                 },
                 geometry.dtype().clone(),

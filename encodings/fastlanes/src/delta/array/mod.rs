@@ -32,7 +32,7 @@ pub struct DeltaSlots {
 ///
 /// A DeltaArray comprises a sequence of _chunks_ each representing exactly 1,024
 /// delta-encoded values. If the input array length is not a multiple of 1,024, the last chunk
-/// is padded with zeros to fill a complete 1,024-element chunk.
+/// is padded with the last value to fill a complete 1,024-element chunk.
 ///
 /// # Examples
 ///

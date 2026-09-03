@@ -11,7 +11,6 @@ use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
 use vortex_array::scalar_fn::fns::like::Like;
 use vortex_array::scalar_fn::fns::like::LikeOptions;
 use vortex_fsst::FSSTArray;
@@ -121,7 +120,7 @@ fn bench_like(bencher: Bencher, fsst: &FSSTArray, pattern: &str) {
     bencher
         .with_inputs(|| SESSION.create_execution_ctx())
         .bench_refs(|ctx| {
-            Like.try_new_array(len, LikeOptions::default(), [arr.clone(), pattern.clone()])
+            Like::try_new(arr.clone(), pattern.clone(), LikeOptions::default())
                 .unwrap()
                 .into_array()
                 .execute::<Canonical>(ctx)

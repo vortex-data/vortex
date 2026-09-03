@@ -36,7 +36,7 @@ from pathlib import Path
 # MUST equal `benchmarks-website/web/lib/schema-version.ts::SCHEMA_VERSION`.
 # Bumping this is a coordinated change across the website contract, v3.rs, and
 # this script.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 
 
 def parse_args() -> argparse.Namespace:
@@ -187,11 +187,11 @@ _RECORD_FIELDS: dict[str, tuple[frozenset[str], frozenset[str]]] = {
         frozenset({"dataset_variant", "env_triple"}),
     ),
     "compression_size": (
-        frozenset({"commit_sha", "dataset", "format", "value_bytes"}),
+        frozenset({"commit_sha", "dataset", "format", "value_bytes", "uncompressed_bytes"}),
         frozenset({"dataset_variant"}),
     ),
     "random_access_time": (
-        frozenset({"commit_sha", "dataset", "format", "value_ns", "all_runtimes_ns"}),
+        frozenset({"commit_sha", "dataset", "format", "open_mode", "value_ns", "all_runtimes_ns"}),
         frozenset({"env_triple"}),
     ),
     "vector_search_run": (
@@ -388,11 +388,13 @@ _FIELD_TYPES: dict[str, tuple[tuple[str, str], ...]] = {
         ("dataset_variant", "opt_str"),
         ("format", "str"),
         ("value_bytes", "i64"),
+        ("uncompressed_bytes", "i64"),
     ),
     "random_access_time": (
         ("commit_sha", "str"),
         ("dataset", "str"),
         ("format", "str"),
+        ("open_mode", "str"),
         ("value_ns", "i64"),
         ("all_runtimes_ns", "i64_list"),
         ("env_triple", "opt_str"),
@@ -447,6 +449,10 @@ def _validate_record_values(record: dict, kind: str, index: int) -> None:
             raise SystemExit(
                 f"record {index} (query_measurement): memory fields must be populated together (all four or none)"
             )
+    elif kind == "random_access_time" and record["open_mode"] not in ("cached", "reopen"):
+        raise SystemExit(
+            f"record {index} (random_access_time): open_mode must be 'cached' or 'reopen', got {record['open_mode']!r}"
+        )
 
 
 def _upsert_returning_was_update(conn, sql: str, params: tuple) -> bool:
@@ -581,11 +587,12 @@ def _insert_compression_size(conn, mid_mod, r: dict) -> bool:
         """
         INSERT INTO compression_sizes (
             measurement_id, commit_sha, dataset, dataset_variant,
-            format, value_bytes
-        ) VALUES (%s, %s, %s, %s, %s, %s)
+            format, value_bytes, uncompressed_bytes
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (measurement_id) DO UPDATE SET
-            commit_sha   = excluded.commit_sha,
-            value_bytes  = excluded.value_bytes
+            commit_sha          = excluded.commit_sha,
+            value_bytes         = excluded.value_bytes,
+            uncompressed_bytes  = excluded.uncompressed_bytes
         RETURNING (xmax = 0) AS inserted
         """,
         (
@@ -595,6 +602,7 @@ def _insert_compression_size(conn, mid_mod, r: dict) -> bool:
             r.get("dataset_variant"),
             r["format"],
             r["value_bytes"],
+            r["uncompressed_bytes"],
         ),
     )
 
@@ -605,16 +613,18 @@ def _insert_random_access(conn, mid_mod, r: dict) -> bool:
         commit_sha=r["commit_sha"],
         dataset=r["dataset"],
         format=r["format"],
+        open_mode=r["open_mode"],
     )
     return _upsert_returning_was_update(
         conn,
         """
         INSERT INTO random_access_times (
-            measurement_id, commit_sha, dataset, format,
+            measurement_id, commit_sha, dataset, format, open_mode,
             value_ns, all_runtimes_ns, env_triple
-        ) VALUES (%s, %s, %s, %s, %s, %s::bigint[], %s)
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s::bigint[], %s)
         ON CONFLICT (measurement_id) DO UPDATE SET
             commit_sha      = excluded.commit_sha,
+            open_mode       = excluded.open_mode,
             value_ns        = excluded.value_ns,
             all_runtimes_ns = excluded.all_runtimes_ns,
             env_triple      = excluded.env_triple
@@ -625,6 +635,7 @@ def _insert_random_access(conn, mid_mod, r: dict) -> bool:
             r["commit_sha"],
             r["dataset"],
             r["format"],
+            r["open_mode"],
             r["value_ns"],
             r["all_runtimes_ns"],
             r.get("env_triple"),

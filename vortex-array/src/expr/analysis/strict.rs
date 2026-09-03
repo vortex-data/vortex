@@ -12,7 +12,11 @@ use crate::expr::Expression;
 pub fn label_strict(expr: &Expression) -> BooleanLabels<'_> {
     label_tree(
         expr,
-        |expr| expr.signature().is_strict(),
+        |expr| match expr {
+            Expression::Scalar { scalar_fn, .. } => scalar_fn.signature().is_strict(),
+            // Vacuously strict.
+            Expression::Root => true,
+        },
         |acc, &child| acc & child,
     )
 }

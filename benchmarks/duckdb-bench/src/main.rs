@@ -88,6 +88,12 @@ struct Args {
     #[arg(long, default_value_t = false)]
     explain: bool,
 
+    /// Print the selected query indices, one per line, and exit
+    /// Knowledge of query ids lies only in this binary so we need
+    /// orchestrator to know whan queries to run one by one.
+    #[arg(long, default_value_t = false)]
+    print_queries: bool,
+
     #[arg(
         long,
         default_value_t = false,
@@ -110,6 +116,13 @@ fn main() -> anyhow::Result<()> {
         args.queries.as_ref(),
         args.exclude_queries.as_ref(),
     );
+
+    if args.print_queries {
+        for (query_idx, _) in &filtered_queries {
+            println!("{query_idx}");
+        }
+        return Ok(());
+    }
 
     if args.formats.is_empty() {
         anyhow::bail!("provide a format with --formats");

@@ -22,7 +22,14 @@ test = false
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
+git2 = { workspace = true }
 prost-build = { workspace = true }
+toml = { workspace = true }
+vortex-edition = { workspace = true }
+vortex-json = { workspace = true }
+vortex-spatial = { workspace = true }
+vortex-tensor = { workspace = true }
+vortex-zstd = { workspace = true }
 xshell = { workspace = true }
 
 [lints]

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Benchmarks the Vortex [`Interleave`](vortex_array::arrays::Interleave) boolean execute path on a
-//! focused set of configurations:
+//! Benchmarks the Vortex [`Interleave`](vortex_array::arrays::Interleave) Boolean and primitive
+//! execute paths on a focused set of configurations:
 //!
 //! - `round_robin`, 2 children: a merge — `array_index = i % N`, `row_index = i / N`.
 //! - `random`, 2 children: fully random `(array_index, row_index)` per output row.
@@ -26,7 +26,9 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::array_session;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::InterleaveArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_buffer::Buffer;
 
 fn main() {
@@ -130,6 +132,45 @@ fn vortex_inputs(combo: Combo) -> (Vec<ArrayRef>, Buffer<u32>, Buffer<u32>) {
     (values, array_indices, row_indices)
 }
 
+fn primitive_inputs(
+    combo: Combo,
+    mixed_constants: bool,
+) -> (Vec<ArrayRef>, Buffer<u32>, Buffer<u32>) {
+    let mut rng = StdRng::seed_from_u64(0);
+    let values = (0..combo.branches)
+        .map(|branch| {
+            if mixed_constants && branch % 2 == 0 {
+                ConstantArray::new(branch as u64, ARRAY_SIZE).into_array()
+            } else if combo.nullable {
+                PrimitiveArray::from_option_iter(
+                    (0..ARRAY_SIZE)
+                        .map(|row| ((row + branch) % 8 != 0).then_some((row ^ branch) as u64)),
+                )
+                .into_array()
+            } else {
+                PrimitiveArray::from_iter((0..ARRAY_SIZE).map(|row| (row ^ branch) as u64))
+                    .into_array()
+            }
+        })
+        .collect();
+
+    let branch = Uniform::new(0u32, u32::try_from(combo.branches).unwrap()).unwrap();
+    let row = Uniform::new(0u32, u32::try_from(ARRAY_SIZE).unwrap()).unwrap();
+    let array_indices = (0..ARRAY_SIZE)
+        .map(|i| match combo.pattern {
+            Pattern::Random => rng.sample(branch),
+            Pattern::RoundRobin => u32::try_from(i % combo.branches).unwrap(),
+        })
+        .collect();
+    let row_indices = (0..ARRAY_SIZE)
+        .map(|i| match combo.pattern {
+            Pattern::Random => rng.sample(row),
+            Pattern::RoundRobin => u32::try_from((i / combo.branches) % ARRAY_SIZE).unwrap(),
+        })
+        .collect();
+    (values, array_indices, row_indices)
+}
+
 #[divan::bench(args = combos())]
 fn vortex(bencher: Bencher, combo: Combo) {
     let (values, array_indices, row_indices) = vortex_inputs(combo);
@@ -148,4 +189,33 @@ fn vortex(bencher: Bencher, combo: Combo) {
             )
         })
         .bench_refs(|(array, ctx)| array.clone().execute::<Canonical>(ctx));
+}
+
+fn bench_primitive(bencher: Bencher, combo: Combo, mixed_constants: bool) {
+    let (values, array_indices, row_indices) = primitive_inputs(combo, mixed_constants);
+    let session = array_session();
+    bencher
+        .with_inputs(|| {
+            (
+                InterleaveArray::try_new(
+                    values.clone(),
+                    array_indices.clone().into_array(),
+                    row_indices.clone().into_array(),
+                )
+                .unwrap()
+                .into_array(),
+                session.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(array, ctx)| array.clone().execute::<Canonical>(ctx));
+}
+
+#[divan::bench(args = combos())]
+fn primitive(bencher: Bencher, combo: Combo) {
+    bench_primitive(bencher, combo, false);
+}
+
+#[divan::bench(args = combos())]
+fn primitive_mixed_constants(bencher: Bencher, combo: Combo) {
+    bench_primitive(bencher, combo, true);
 }

@@ -3,7 +3,12 @@ SPHINXBUILD   ?= sphinx-build
 SOURCEDIR     = .
 BUILDDIR      = _build
 
-.PHONY: Makefile help
+.PHONY: Makefile check help serve
+
+check:
+	@$(MAKE) --no-print-directory clean
+	@$(MAKE) --no-print-directory html
+	@$(MAKE) --no-print-directory doctest
 
 help:
 	@$(SPHINXBUILD) -M help "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)

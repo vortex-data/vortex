@@ -45,8 +45,8 @@ impl CompareKernel for BitPacked {
             return Ok(None);
         };
 
-        // Adaptor strips null-constant RHS, and the binary scalar-fn coerce_args step has
-        // already promoted both sides to a common ptype.
+        // The adaptor strips a null-constant RHS, and binary expressions require both argument
+        // types to match before dispatch.
         let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
         let lhs_ptype = lhs.dtype().as_ptype();
         if constant_prim.ptype() != lhs_ptype {

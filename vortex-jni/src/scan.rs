@@ -48,6 +48,7 @@ use vortex_arrow::ArrowSessionExt;
 
 use crate::POOL;
 use crate::RUNTIME;
+use crate::arrow_compat::rebase_offsets;
 use crate::data_source::NativeDataSource;
 use crate::errors::try_or_throw;
 use crate::session::session_ref;
@@ -371,7 +372,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_scanArrow(
                                 Some(target.as_ref()),
                                 &mut ctx,
                             )?;
-                            Ok(RecordBatch::from(arrow.as_struct().clone()))
+                            rebase_offsets(RecordBatch::from(arrow.as_struct().clone()))
                         })
                     })
                     .buffered(POOL.worker_count().max(1))

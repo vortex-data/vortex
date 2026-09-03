@@ -177,7 +177,7 @@ mod tests {
         chunk.set_len(2);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk)?),
+            String::try_from(&*chunk)?,
             r#"Chunk - [1 Columns]
 - FLAT INTEGER: 2 = [ NULL, 10]
 "#
@@ -205,7 +205,7 @@ mod tests {
         chunk.set_len(2);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk)?),
+            String::try_from(&*chunk)?,
             r#"Chunk - [1 Columns]
 - CONSTANT INTEGER: 2 = [ NULL]
 "#
@@ -233,7 +233,7 @@ mod tests {
 
         // some-invalid codes cannot be exported as a dictionary.
         assert_eq!(
-            format!("{}", String::try_from(&*chunk)?),
+            String::try_from(&*chunk)?,
             r#"Chunk - [1 Columns]
 - FLAT INTEGER: 3 = [ NULL, 10, NULL]
 "#
@@ -252,7 +252,7 @@ mod tests {
         flat_chunk.set_len(3);
 
         assert_eq!(
-            format!("{}", String::try_from(&*flat_chunk)?),
+            String::try_from(&*flat_chunk)?,
             r#"Chunk - [1 Columns]
 - FLAT INTEGER: 3 = [ NULL, 10, NULL]
 "#
@@ -279,7 +279,7 @@ mod tests {
         chunk.set_len(0);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk)?),
+            String::try_from(&*chunk)?,
             r#"Chunk - [1 Columns]
 - DICTIONARY INTEGER: 0 = [ ]
 "#

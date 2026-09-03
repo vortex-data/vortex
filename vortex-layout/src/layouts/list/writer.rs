@@ -187,8 +187,7 @@ impl LayoutStrategy for ListLayoutStrategy {
                 let ctx = ctx.clone();
                 let segment_sink = Arc::clone(&segment_sink);
                 let session = session.clone();
-                handle.spawn_nested(move |h| async move {
-                    let session = session.with_handle(h);
+                handle.spawn_nested(move |_| async move {
                     strategy
                         .write_stream(ctx, segment_sink, child_stream, child_eof, &session)
                         .await

@@ -33,17 +33,17 @@ def test_build_command_adds_duckdb_cleanup_flag() -> None:
     assert "scale-factor=1.0" in cmd
 
 
-def test_build_command_serializes_vortex_native_format() -> None:
+def test_build_command_serializes_vortex_spatial_native_format() -> None:
     executor = BenchmarkExecutor(Path("/tmp/duckdb-bench"), Engine.DUCKDB)
 
     cmd = executor.build_command(
         benchmark=Benchmark.SPATIALBENCH,
-        formats=[Format.PARQUET, Format.VORTEX, Format.VORTEX_NATIVE],
+        formats=[Format.PARQUET, Format.VORTEX, Format.VORTEX_SPATIAL_NATIVE],
         iterations=1,
         options={"scale-factor": "1.0"},
     )
 
-    assert "parquet,vortex,vortex-geo-native" in cmd
+    assert "parquet,vortex,vortex-spatial-native" in cmd
 
 
 def test_build_command_omits_formats_for_lance_backend() -> None:
@@ -52,13 +52,13 @@ def test_build_command_omits_formats_for_lance_backend() -> None:
     cmd = executor.build_command(
         benchmark=Benchmark.TPCH,
         formats=[Format.LANCE],
-        queries=[1, 3],
+        query=3,
     )
 
     assert cmd[0] == "/tmp/lance-bench"
     assert "--formats" not in cmd
     assert "--queries" in cmd
-    assert "1,3" in cmd
+    assert "3" in cmd
 
 
 def test_build_command_includes_ingest_output_when_set() -> None:

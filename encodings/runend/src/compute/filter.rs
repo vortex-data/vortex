@@ -25,7 +25,20 @@ use crate::RunEnd;
 use crate::array::RunEndArrayExt;
 use crate::array::RunEndArraySlotsExt;
 use crate::compute::take::take_indices_unchecked;
-const FILTER_TAKE_THRESHOLD: f64 = 0.1;
+
+/// Takes directly below this average number of selected rows per source run.
+///
+/// Take scales with the selection size; run filtering scans every run. [#1969] introduced this
+/// heuristic without a focused threshold benchmark. A larger value favors take.
+///
+/// [#1969]: https://github.com/vortex-data/vortex/pull/1969
+const TAKE_SELECTED_ROWS_PER_RUN_THRESHOLD: f64 = 0.1;
+
+/// Takes directly below this row count to avoid fixed run and value filtering costs.
+/// [#1969] introduced the cutoff. A larger value favors take.
+///
+/// [#1969]: https://github.com/vortex-data/vortex/pull/1969
+const MIN_RUN_FILTER_SELECTED_ROWS: usize = 25;
 
 impl FilterKernel for RunEnd {
     fn filter(
@@ -36,87 +49,98 @@ impl FilterKernel for RunEnd {
         let mask_values = mask
             .values()
             .vortex_expect("FilterKernel precondition: mask is Mask::Values");
+        let selected_rows = mask_values.true_count();
+        let source_run_count = array.ends().len();
+        let selected_rows_per_run = selected_rows as f64 / source_run_count as f64;
+        let use_direct_take = selected_rows_per_run < TAKE_SELECTED_ROWS_PER_RUN_THRESHOLD
+            || selected_rows < MIN_RUN_FILTER_SELECTED_ROWS;
 
-        let runs_ratio = mask_values.true_count() as f64 / array.ends().len() as f64;
-
-        if runs_ratio < FILTER_TAKE_THRESHOLD || mask_values.true_count() < 25 {
-            Ok(Some(take_indices_unchecked(
+        if use_direct_take {
+            return Ok(Some(take_indices_unchecked(
                 array,
                 mask_values.indices(),
                 &Validity::NonNullable,
                 ctx,
-            )?))
-        } else {
-            let primitive_run_ends = array.ends().clone().execute::<PrimitiveArray>(ctx)?;
-            let (run_ends, values_mask) =
-                match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |P| {
-                    filter_run_end_primitive(
-                        primitive_run_ends.as_slice::<P>(),
-                        array.offset() as u64,
-                        array.len() as u64,
-                        mask_values.bit_buffer(),
-                    )?
-                });
-            let values = array.values().filter(values_mask)?;
-
-            // SAFETY: guaranteed by implementation of filter_run_end_primitive
-            unsafe {
-                Ok(Some(
-                    RunEnd::new_unchecked(
-                        run_ends.into_array(),
-                        values,
-                        0,
-                        mask_values.true_count(),
-                    )
-                    .into_array(),
-                ))
-            }
+            )?));
         }
+
+        let primitive_run_ends = array.ends().clone().execute::<PrimitiveArray>(ctx)?;
+        let (filtered_run_ends, values_mask) =
+            match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |P| {
+                filter_run_end_primitive(
+                    primitive_run_ends.as_slice::<P>(),
+                    array.offset() as u64,
+                    array.len() as u64,
+                    mask_values.bit_buffer(),
+                )?
+            });
+        let filtered_values = array.values().filter(values_mask)?;
+
+        // SAFETY: `filter_run_end_primitive` returns one strictly increasing end for each retained
+        // run value, with the final end equal to `selected_rows`.
+        let filtered = unsafe {
+            RunEnd::new_unchecked(
+                filtered_run_ends.into_array(),
+                filtered_values,
+                0,
+                selected_rows,
+            )
+        };
+
+        Ok(Some(filtered.into_array()))
     }
 }
 
-// Code adapted from apache arrow-rs https://github.com/apache/arrow-rs/blob/b1f5c250ebb6c1252b4e7c51d15b8e77f4c361fa/arrow-select/src/filter.rs#L425
+/// Recomputes cumulative run ends and selects the run values retained by `mask`.
+///
+/// The caller supplies validated RunEnd metadata for `offset..offset + length` and a mask containing
+/// exactly `length` bits. The returned ends are strictly increasing and contain one entry for each
+/// selected run value.
+///
+/// Adapted from the [Apache Arrow Rust implementation](https://github.com/apache/arrow-rs/blob/b1f5c250ebb6c1252b4e7c51d15b8e77f4c361fa/arrow-select/src/filter.rs#L425).
 pub fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
     run_ends: &[R],
     offset: u64,
     length: u64,
     mask: &BitBuffer,
 ) -> VortexResult<(PrimitiveArray, Mask)> {
-    let mut new_run_ends = buffer_mut![R::zero(); run_ends.len()];
+    let mut filtered_run_ends = buffer_mut![R::zero(); run_ends.len()];
 
-    let mut start = 0u64;
-    let mut j = 0;
-    let mut count = R::zero();
+    let mut run_start = 0u64;
+    let mut retained_run_count = 0;
+    let mut filtered_end = R::zero();
 
-    let new_mask: Mask = BitBuffer::collect_bool(run_ends.len(), |i| {
-        let end = min(run_ends[i].as_() - offset, length);
+    let values_mask: Mask = BitBuffer::collect_bool(run_ends.len(), |run_idx| {
+        let run_end = min(run_ends[run_idx].as_() - offset, length);
 
-        // SIMD popcount of the predicate bits in this run. The range matches the
-        // bit-by-bit `value_unchecked` read it replaces, so `end <= mask.len()`.
-        let start_usize = start
+        // Bulk popcount is SIMD-capable and avoids per-bit reads. The input contract and clamp prove
+        // `run_start_idx <= run_end_idx <= mask.len()`.
+        let run_start_idx = run_start
             .try_into()
             .vortex_expect("run start index must fit in usize");
-        let end_usize = end
+        let run_end_idx = run_end
             .try_into()
             .vortex_expect("run end index must fit in usize");
-        let run_trues = mask.count_range(start_usize, end_usize);
-        count += <R as NumCast>::from(run_trues)
+        let selected_in_run = mask.count_range(run_start_idx, run_end_idx);
+        filtered_end += <R as NumCast>::from(selected_in_run)
             .vortex_expect("run popcount must fit in run-end native type");
-        let keep = run_trues > 0;
+        let retain_run = selected_in_run > 0;
 
-        // this is to avoid branching
-        new_run_ends[j] = count;
-        j += keep as usize;
+        // Always write the current end, then advance only for a retained run. This keeps the loop
+        // branchless.
+        filtered_run_ends[retained_run_count] = filtered_end;
+        retained_run_count += retain_run as usize;
 
-        start = end;
-        keep
+        run_start = run_end;
+        retain_run
     })
     .into();
 
-    new_run_ends.truncate(j);
+    filtered_run_ends.truncate(retained_run_count);
+
     Ok((
-        PrimitiveArray::new(new_run_ends, Validity::NonNullable),
-        new_mask,
+        PrimitiveArray::new(filtered_run_ends, Validity::NonNullable),
+        values_mask,
     ))
 }
 

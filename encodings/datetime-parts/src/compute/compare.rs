@@ -14,6 +14,7 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::binary::CompareKernel;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 
 use crate::array::DateTimeParts;
@@ -180,21 +181,46 @@ fn compare_dtp(
     nullability: Nullability,
 ) -> VortexResult<ArrayRef> {
     // Since nullability is stripped from RHS and carried forward through nullability argument we want to incorporate it into lhs.dtype() that we cast rhs into
-    match ConstantArray::new(rhs, lhs.len())
-        .into_array()
-        .cast(lhs.dtype().with_nullability(nullability))
-    {
-        Ok(casted) => lhs.binary(casted, Operator::from(operator)),
-        // The narrowing cast failed. Therefore, we know lhs < rhs.
+    match Scalar::from(rhs).cast(&lhs.dtype().with_nullability(nullability)) {
+        Ok(casted) => lhs.binary(
+            ConstantArray::new(casted, lhs.len()).into_array(),
+            Operator::from(operator),
+        ),
+        // The narrowing cast failed, so rhs is either > or < every value in lhs.
+        // rhs positive => > all lhs
+        // rhs negative => < all lhs
         _ => {
+            let all_lhs_smaller = rhs > 0;
             let constant_value = match operator {
-                CompareOperator::Eq | CompareOperator::Gte | CompareOperator::Gt => false,
-                CompareOperator::NotEq | CompareOperator::Lte | CompareOperator::Lt => true,
+                CompareOperator::Eq => false,
+                CompareOperator::NotEq => true,
+                CompareOperator::Lt | CompareOperator::Lte => all_lhs_smaller,
+                CompareOperator::Gt | CompareOperator::Gte => !all_lhs_smaller,
             };
-            Ok(
-                ConstantArray::new(Scalar::bool(constant_value, nullability), lhs.len())
-                    .into_array(),
-            )
+            // If there are nulls in lhs, we need to propagate them
+            let validity = match nullability {
+                Nullability::NonNullable => Validity::NonNullable,
+                // lhs may be non-nullable while rhs contributes the nullability.
+                Nullability::Nullable => match lhs.validity()? {
+                    Validity::NonNullable => Validity::AllValid,
+                    validity => validity,
+                },
+            };
+            Ok(match validity {
+                Validity::NonNullable | Validity::AllValid => {
+                    ConstantArray::new(Scalar::bool(constant_value, nullability), lhs.len())
+                        .into_array()
+                }
+                Validity::AllInvalid => {
+                    ConstantArray::new(Scalar::null(DType::Bool(nullability)), lhs.len())
+                        .into_array()
+                }
+                Validity::Array(validity_array) => {
+                    ConstantArray::new(Scalar::bool(constant_value, nullability), lhs.len())
+                        .into_array()
+                        .mask(validity_array)?
+                }
+            })
         }
     }
 }
@@ -207,10 +233,16 @@ mod test {
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::fns::sum::sum;
     use vortex_array::array_session;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::IntegerPType;
     use vortex_array::extension::datetime::TimeUnit;
+    use vortex_array::extension::datetime::Timestamp;
+    use vortex_array::extension::datetime::TimestampOptions;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 
@@ -380,5 +412,102 @@ mod test {
 
         // `CompareOperator::Gt` and `CompareOperator::Gte` only cover the case of all lhs values
         // being larger. Therefore, these cases are not covered by unit tests.
+    }
+
+    #[test]
+    fn compare_date_time_parts_eq_out_of_range_seconds_constant() -> VortexResult<()> {
+        const QUERY_TIMESTAMP_MS: i64 = 1_786_576_785_621;
+
+        let session = array_session();
+        crate::initialize(&session);
+        let mut ctx = session.create_execution_ctx();
+        let timestamp = Scalar::extension::<Timestamp>(
+            TimestampOptions {
+                unit: TimeUnit::Milliseconds,
+                tz: None,
+            },
+            QUERY_TIMESTAMP_MS.into(),
+        );
+        let rhs = ConstantArray::new(timestamp, 1).into_array();
+        let lhs = DateTimeParts::try_new(
+            rhs.dtype().clone(),
+            buffer![20_677i32].into_array(),
+            buffer![0u16].into_array(),
+            buffer![0u16].into_array(),
+        )?;
+
+        let comparison = lhs.into_array().binary(rhs, Operator::Eq)?;
+
+        assert_eq!(true_count(&comparison, &mut ctx), 0);
+        Ok(())
+    }
+
+    /// A days constant below the range of the narrowed storage type must compare as smaller than
+    /// every stored value, not larger.
+    #[test]
+    fn compare_date_time_parts_below_range_days_constant() -> VortexResult<()> {
+        // 1969-12-31, which splits to a day of `-1`: below the minimum of an unsigned days array.
+        const BEFORE_EPOCH_MS: i64 = -86_400_000;
+
+        let session = array_session();
+        crate::initialize(&session);
+        let mut ctx = session.create_execution_ctx();
+        let timestamp = Scalar::extension::<Timestamp>(
+            TimestampOptions {
+                unit: TimeUnit::Milliseconds,
+                tz: None,
+            },
+            BEFORE_EPOCH_MS.into(),
+        );
+        let rhs = ConstantArray::new(timestamp, 1).into_array();
+        // 2026-08-08. Days narrow to `u16` because the column holds no pre-epoch value.
+        let lhs = DateTimeParts::try_new(
+            rhs.dtype().clone(),
+            buffer![20_677u16].into_array(),
+            buffer![0u16].into_array(),
+            buffer![0u16].into_array(),
+        )?
+        .into_array();
+
+        let lt = lhs.binary(rhs.clone(), Operator::Lt)?;
+        assert_eq!(true_count(&lt, &mut ctx), 0);
+
+        let gt = lhs.binary(rhs, Operator::Gt)?;
+        assert_eq!(true_count(&gt, &mut ctx), 1);
+        Ok(())
+    }
+
+    /// A null lhs value stays null, even when the constant is outside the range of the narrowed
+    /// days storage type.
+    #[rstest]
+    #[case(Validity::AllInvalid, [None, None])]
+    #[case(Validity::from_iter([false, true]), [None, Some(true)])]
+    fn compare_date_time_parts_null_out_of_range_days_constant(
+        #[case] days_validity: Validity,
+        #[case] expected: [Option<bool>; 2],
+    ) -> VortexResult<()> {
+        let session = array_session();
+        crate::initialize(&session);
+        let mut ctx = session.create_execution_ctx();
+        // 1969-12-31, a day of `-1`: below the minimum of an unsigned days array.
+        let timestamp = Scalar::extension::<Timestamp>(
+            TimestampOptions {
+                unit: TimeUnit::Milliseconds,
+                tz: None,
+            },
+            (-86_400_000i64).into(),
+        );
+        let rhs = ConstantArray::new(timestamp, 2).into_array();
+        let lhs = DateTimeParts::try_new(
+            rhs.dtype().with_nullability(Nullability::Nullable),
+            PrimitiveArray::new(buffer![20_677u16, 20_678u16], days_validity).into_array(),
+            buffer![0u16, 0u16].into_array(),
+            buffer![0u16, 0u16].into_array(),
+        )?
+        .into_array();
+
+        let gt = lhs.binary(rhs, Operator::Gt)?;
+        assert_arrays_eq!(gt, BoolArray::from_iter(expected), &mut ctx);
+        Ok(())
     }
 }

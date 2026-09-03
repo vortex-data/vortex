@@ -108,21 +108,6 @@ impl<V: ExtVTable> ExtDType<V> {
         V::validate_scalar_value(self, storage_value)
     }
 
-    /// Can a value of `other` be implicitly coerced into this extension type?
-    pub fn can_coerce_from(&self, other: &DType) -> bool {
-        V::can_coerce_from(self, other)
-    }
-
-    /// Can this extension type be implicitly coerced into `other`?
-    pub fn can_coerce_to(&self, other: &DType) -> bool {
-        V::can_coerce_to(self, other)
-    }
-
-    /// Compute the least supertype of this extension type and another type.
-    pub fn least_supertype(&self, other: &DType) -> Option<DType> {
-        V::least_supertype(self, other)
-    }
-
     /// Erase the concrete type information, returning a type-erased extension dtype.
     pub fn erased(self) -> ExtDTypeRef {
         ExtDTypeRef(Arc::new(self))
@@ -148,9 +133,6 @@ pub(super) trait DynExtDType: 'static + Send + Sync + super::sealed::Sealed {
     fn validate_scalar_value(&self, storage_value: &ScalarValue) -> VortexResult<()>;
     fn value_display(&self, f: &mut fmt::Formatter<'_>, storage_value: &ScalarValue)
     -> fmt::Result;
-    fn can_coerce_from(&self, other: &DType) -> bool;
-    fn can_coerce_to(&self, other: &DType) -> bool;
-    fn least_supertype(&self, other: &DType) -> Option<DType>;
 }
 
 /// Blanket impl: thin forwarder to `ExtDType<V>` inherent methods.
@@ -219,17 +201,5 @@ impl<V: ExtVTable> DynExtDType for ExtDType<V> {
                 self.id()
             ),
         }
-    }
-
-    fn can_coerce_from(&self, other: &DType) -> bool {
-        self.can_coerce_from(other)
-    }
-
-    fn can_coerce_to(&self, other: &DType) -> bool {
-        self.can_coerce_to(other)
-    }
-
-    fn least_supertype(&self, other: &DType) -> Option<DType> {
-        self.least_supertype(other)
     }
 }

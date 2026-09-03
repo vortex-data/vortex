@@ -38,6 +38,7 @@ use vortex::file::WriteStrategyBuilder;
 use vortex::layout::LayoutStrategy;
 use vortex::session::VortexSession;
 use vortex_bench::Format;
+use vortex_bench::benchmark_write_options;
 use vortex_bench::measurements::CustomUnitMeasurement;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::SchemeId;
@@ -191,8 +192,7 @@ async fn write_serialized_file(
     let mut buf = Vec::new();
     {
         let mut cursor = Cursor::new(&mut buf);
-        session
-            .write_options()
+        benchmark_write_options(session.write_options())
             .with_strategy(Arc::clone(strategy))
             .write(&mut cursor, input.to_array_stream())
             .await?;
@@ -348,6 +348,8 @@ mod tests {
     use vortex::VortexSessionDefault;
     use vortex::array::Canonical;
     use vortex::array::VortexSessionExecute;
+    use vortex::editions::CORE_2026_08_3;
+    use vortex::editions::EditionSessionExt;
     use vortex::io::runtime::BlockingRuntime;
     use vortex::io::runtime::current::CurrentThreadRuntime;
     use vortex::io::session::RuntimeSessionExt;
@@ -404,6 +406,7 @@ mod tests {
         let (column, expected_uncompressed_bytes) = crate::repeated_fixture();
         let runtime = CurrentThreadRuntime::new();
         let session = VortexSession::default().with_handle(runtime.handle());
+        session.enable_edition(CORE_2026_08_3)?;
 
         for (encoder, expected_label) in [
             (StringEncoder::OnPair, "onpair-12"),

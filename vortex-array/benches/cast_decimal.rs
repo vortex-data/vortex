@@ -39,8 +39,9 @@ fn main() {
     divan::main();
 }
 
-// Kept small enough to stay in L2 so the kernel cost shows up rather than DRAM bandwidth.
-const SIZES: &[usize] = &[65_536];
+// Kept small enough to stay in L2 so the kernel cost shows up rather than DRAM bandwidth,
+// and to keep the CodSpeed simulation under 1ms per benchmark.
+const SIZES: &[usize] = &[16_384];
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 

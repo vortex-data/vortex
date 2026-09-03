@@ -86,17 +86,12 @@ pub struct Registry {
 }
 
 /// Source of the configuration variables consulted when building a store.
-///
-/// Tests construct a registry over a fixed set of variables rather than mutating the process
-/// environment, which is unsound when tests run on multiple threads within one process (the
-/// `std::env::set_var` block became `unsafe` in Rust 2024 for exactly this reason).
 #[derive(Debug, Default)]
 enum EnvSource {
     /// Read from the process environment.
     #[default]
     Process,
     /// A fixed set of variables.
-    #[cfg(test)]
     Fixed(Vec<(String, String)>),
 }
 
@@ -106,7 +101,6 @@ impl EnvSource {
     fn lookup(&self, key: &str) -> Option<String> {
         match self {
             EnvSource::Process => std::env::var(key).ok(),
-            #[cfg(test)]
             EnvSource::Fixed(vars) => vars
                 .iter()
                 .find(|(k, _)| k.eq_ignore_ascii_case(key))
@@ -120,7 +114,6 @@ impl EnvSource {
             EnvSource::Process => std::env::vars()
                 .map(|(k, v)| (k.to_ascii_lowercase(), v))
                 .collect(),
-            #[cfg(test)]
             EnvSource::Fixed(vars) => vars
                 .iter()
                 .map(|(k, v)| (k.to_ascii_lowercase(), v.clone()))
@@ -177,9 +170,12 @@ impl Registry {
         Self::default()
     }
 
-    /// Create a registry over a fixed set of configuration variables.
-    #[cfg(test)]
-    fn with_env<I>(vars: I) -> Self
+    /// Create a registry over a fixed set of configuration variables, consulted instead of the
+    /// process environment when building stores.
+    ///
+    /// Lookups are case-insensitive. Pass each key at most once — the set's consumers disagree
+    /// on which duplicate wins.
+    pub fn with_vars<I>(vars: I) -> Self
     where
         I: IntoIterator<Item = (String, String)>,
     {

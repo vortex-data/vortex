@@ -37,6 +37,7 @@ pub trait IndexedSinkExt: IndexedSink + Sized {
     where
         F: FnMut(Self::Item) -> Self::Write,
     {
+        #[allow(clippy::inline_always)]
         #[inline(always)]
         fn chunk<S, F>(values: &mut S, f: &mut F, base: usize, count: usize)
         where
@@ -88,6 +89,7 @@ pub trait IndexedSinkExt: IndexedSink + Sized {
         Self::Write: Default,
         F: FnMut(Self::Item) -> Option<Self::Write>,
     {
+        #[allow(clippy::inline_always)]
         #[inline(always)]
         fn chunk<S, F>(values: &mut S, base: usize, count: usize, f: &mut F) -> Option<usize>
         where
@@ -162,6 +164,7 @@ pub trait IndexedSinkExt: IndexedSink + Sized {
         /// Bit-pack `is_none()` flags per lane, then AND with `src_chunk` post-loop to
         /// drop null-lane failures. The per-lane attribution work is `OR + shift`
         /// (no `min`/`csel`), giving LLVM more freedom to vectorize the value pipeline.
+        #[allow(clippy::inline_always)]
         #[inline(always)]
         fn chunk<S, F>(
             values: &mut S,

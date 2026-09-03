@@ -193,7 +193,7 @@ mod tests {
 
         // Verify the exported data matches expected format
         assert_eq!(
-            format!("{}", String::try_from(&*chunk).unwrap()),
+            String::try_from(&*chunk).unwrap(),
             r#"Chunk - [1 Columns]
 - FLAT DECIMAL(10,2): 3 = [ 123.45, 678.90, -123.00]
 "#
@@ -226,7 +226,7 @@ mod tests {
 
         // Verify the exported data matches expected format
         assert_eq!(
-            format!("{}", String::try_from(&*chunk).unwrap()),
+            String::try_from(&*chunk).unwrap(),
             r#"Chunk - [1 Columns]
 - FLAT DECIMAL(5,1): 3 = [ 10.0, 11.0, 12.0]
 "#
@@ -256,7 +256,7 @@ mod tests {
 
         // Verify the exported data matches expected format (NULL is represented as NULL)
         assert_eq!(
-            format!("{}", String::try_from(&*chunk).unwrap()),
+            String::try_from(&*chunk).unwrap(),
             r#"Chunk - [1 Columns]
 - FLAT DECIMAL(8,3): 3 = [ 123.456, NULL, 789.012]
 "#

@@ -20,6 +20,7 @@ use vortex_bench::create_output_writer;
 use vortex_bench::display::DisplayFormat;
 use vortex_bench::display::print_measurements_json;
 use vortex_bench::measurements::TimingMeasurement;
+use vortex_bench::random_access::ArrowIpcRandomAccessor;
 use vortex_bench::random_access::BenchDataset;
 use vortex_bench::random_access::ParquetRandomAccessor;
 use vortex_bench::random_access::RandomAccessor;
@@ -64,6 +65,9 @@ const CLUSTER_SIZE: usize = 20;
 
 /// Expected number of indices for the Poisson (uniform) pattern.
 const POISSON_EXPECTED_COUNT: usize = 100;
+
+/// Untimed warm-up duration for cached accessors.
+const CACHED_WARMUP_DURATION: Duration = Duration::from_secs(1);
 
 /// Generate indices for the given dataset and access pattern.
 fn generate_indices(dataset: &dyn BenchDataset, pattern: AccessPattern) -> Vec<u64> {
@@ -114,7 +118,7 @@ fn generate_indices(dataset: &dyn BenchDataset, pattern: AccessPattern) -> Vec<u
 /// Controls whether the file handle is reused or reopened each iteration.
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OpenMode {
-    /// Reuse the file handle across iterations (cached metadata).
+    /// Warm and reuse the file handle across timed iterations.
     #[clap(name = "cached")]
     Cached,
     /// Reopen the file each iteration (includes footer parsing).
@@ -131,10 +135,11 @@ pub enum OpenMode {
 
 /// Run a random access benchmark.
 ///
-/// Runs the take operation repeatedly until the time limit is reached,
-/// collecting timing for each run. When `reopen` is true, the accessor is
-/// recreated from scratch before each iteration so that file metadata
-/// parsing is included in the timing.
+/// Runs the take operation repeatedly until the time limit is reached and
+/// collects timing for each run. Cached mode performs an untimed warm-up first
+/// so that host page-cache state does not affect the recorded measurements.
+/// Both modes prepare the format file before timing starts. Reopen mode creates
+/// the accessor inside each timed iteration.
 #[expect(clippy::too_many_arguments)]
 async fn benchmark_random_access(
     dataset: &dyn BenchDataset,
@@ -147,22 +152,34 @@ async fn benchmark_random_access(
     reopen: bool,
 ) -> Result<RandomAccessRun> {
     let time_limit = Duration::from_secs(time_limit_secs);
-    let overall_start = Instant::now();
     let mut runs = Vec::new();
-    let mut accessor = open_accessor(dataset, format).await?;
+    let prepared_accessor = open_accessor(dataset, format).await?;
+    let cached_accessor = (!reopen).then_some(prepared_accessor);
+
+    if let Some(accessor) = &cached_accessor {
+        let warmup_start = Instant::now();
+        loop {
+            drop(accessor.take(indices).await?);
+            if warmup_start.elapsed() >= CACHED_WARMUP_DURATION {
+                break;
+            }
+        }
+    }
+
+    let overall_start = Instant::now();
 
     loop {
         let start = Instant::now();
-        let arr = accessor.take(indices).await?;
+        let arr = if let Some(accessor) = &cached_accessor {
+            accessor.take(indices).await?
+        } else {
+            open_accessor(dataset, format).await?.take(indices).await?
+        };
         runs.push(start.elapsed());
         drop(arr);
 
         if overall_start.elapsed() >= time_limit {
             break;
-        }
-
-        if reopen {
-            accessor = open_accessor(dataset, format).await?;
         }
     }
 
@@ -218,12 +235,9 @@ fn v3_random_access_dataset_name(dataset: &str, pattern: Option<AccessPattern>) 
 }
 
 fn push_v3_random_access_record(records: &mut Vec<v3::V3Record>, run: &RandomAccessRun) {
-    if run.reopen {
-        return;
-    }
-
     let dataset = v3_random_access_dataset_name(&run.dataset, run.pattern);
-    records.push(v3::random_access_record(&run.timing, &dataset));
+    let open_mode = if run.reopen { "reopen" } else { "cached" };
+    records.push(v3::random_access_record(&run.timing, &dataset, open_mode));
 }
 
 /// Open a random accessor for any supported format.
@@ -240,6 +254,10 @@ async fn open_accessor(
         format.ext()
     );
     match format {
+        Format::ArrowIpc => {
+            let path = dataset.path(format).await?;
+            Ok(Box::new(ArrowIpcRandomAccessor::open(path, name)?))
+        }
         Format::OnDiskVortex | Format::VortexCompact => {
             let path = dataset.path(format).await?;
             Ok(Box::new(
@@ -441,7 +459,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_random_access_records_skip_reopen_variants() {
+    fn v3_random_access_records_include_open_modes() {
         let mut records = Vec::new();
 
         push_v3_random_access_record(&mut records, &fake_run("taxi", None, false));
@@ -454,13 +472,26 @@ mod tests {
             &fake_run("taxi", Some(AccessPattern::Correlated), true),
         );
 
-        assert_eq!(records.len(), 2);
+        assert_eq!(records.len(), 3);
         match &records[0] {
-            v3::V3Record::RandomAccessTime(record) => assert_eq!(record.dataset, "taxi"),
+            v3::V3Record::RandomAccessTime(record) => {
+                assert_eq!(record.dataset, "taxi");
+                assert_eq!(record.open_mode, "cached");
+            }
             other => panic!("expected random-access record, got {other:?}"),
         }
         match &records[1] {
-            v3::V3Record::RandomAccessTime(record) => assert_eq!(record.dataset, "taxi/uniform"),
+            v3::V3Record::RandomAccessTime(record) => {
+                assert_eq!(record.dataset, "taxi/uniform");
+                assert_eq!(record.open_mode, "cached");
+            }
+            other => panic!("expected random-access record, got {other:?}"),
+        }
+        match &records[2] {
+            v3::V3Record::RandomAccessTime(record) => {
+                assert_eq!(record.dataset, "taxi/correlated");
+                assert_eq!(record.open_mode, "reopen");
+            }
             other => panic!("expected random-access record, got {other:?}"),
         }
     }

@@ -5,6 +5,7 @@ package dev.vortex.spark.config;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Map;
@@ -61,15 +62,15 @@ final class HadoopUtilsTest {
     void s3PreservesSchemedEndpoint() {
         Configuration httpConf = emptyConf();
         httpConf.set(HadoopUtils.FS_S3A_ENDPOINT, "http://localhost:9000");
-        assertEquals(
-                "http://localhost:9000",
-                HadoopUtils.s3PropertiesFromHadoopConf(httpConf).get("aws_endpoint"));
+        Map<String, String> httpProperties = HadoopUtils.s3PropertiesFromHadoopConf(httpConf);
+        assertEquals("http://localhost:9000", httpProperties.get("aws_endpoint"));
+        assertEquals("true", httpProperties.get("aws_allow_http"));
 
         Configuration httpsConf = emptyConf();
         httpsConf.set(HadoopUtils.FS_S3A_ENDPOINT, "https://s3.example.com");
-        assertEquals(
-                "https://s3.example.com",
-                HadoopUtils.s3PropertiesFromHadoopConf(httpsConf).get("aws_endpoint"));
+        Map<String, String> httpsProperties = HadoopUtils.s3PropertiesFromHadoopConf(httpsConf);
+        assertEquals("https://s3.example.com", httpsProperties.get("aws_endpoint"));
+        assertNull(httpsProperties.get("aws_allow_http"));
     }
 
     @Test

@@ -9,6 +9,7 @@ use vortex_error::vortex_bail;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
+use super::super::contiguous_filter_range;
 use super::small_take_rank_lookup_len;
 use crate::arrays::PrimitiveArray;
 use crate::dtype::IntegerPType;
@@ -82,7 +83,7 @@ pub(in crate::arrays::filter) fn translate_ranks<P: IntegerPType>(
 
     match filter.indices() {
         AllOr::All => translate_ranks_with(ranks, ranks_validity, filtered_len, |rank| rank),
-        AllOr::None => unreachable!("empty filters are handled by take preconditions"),
+        AllOr::None => unreachable!("empty filters are handled by the filter short circuit"),
         AllOr::Some(filter_indices) => {
             translate_ranks_with(ranks, ranks_validity, filtered_len, |rank| unsafe {
                 *filter_indices.get_unchecked(rank)
@@ -153,7 +154,5 @@ pub(in crate::arrays::filter) fn contiguous_sequential_take_range<P: IntegerPTyp
 
 #[inline]
 pub(in crate::arrays::filter) fn contiguous_filter_start(filter: &Mask) -> Option<usize> {
-    let start = filter.first()?;
-    let end = filter.last()?.checked_add(1)?;
-    (end - start == filter.true_count()).then_some(start)
+    contiguous_filter_range(filter).map(|range| range.start)
 }

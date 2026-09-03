@@ -10,6 +10,8 @@ mod filter;
 mod mask;
 mod take;
 
+pub use take::take_varbin;
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;

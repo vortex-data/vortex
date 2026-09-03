@@ -116,7 +116,7 @@ impl fmt::Display for StatsDisplay<'_> {
 /// Extractor that adds stats annotations (e.g. `[nulls=3, min=5]`) to the header line.
 pub struct StatsExtractor;
 
-impl TreeExtractor for StatsExtractor {
+impl TreeExtractor<ArrayRef, TreeContext> for StatsExtractor {
     fn write_header(
         &self,
         array: &ArrayRef,

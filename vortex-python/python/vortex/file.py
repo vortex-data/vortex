@@ -77,6 +77,11 @@ class VortexFile:
         """The dtype of the file."""
         return self._file.dtype
 
+    @property
+    def path(self) -> str:
+        """The path or URL this file was opened from."""
+        return self._file.path
+
     def splits(self) -> list[tuple[int, int]]:
         return self._file.splits()
 

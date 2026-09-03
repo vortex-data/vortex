@@ -65,6 +65,12 @@ impl MaskFuture {
 
     /// Create a MaskFuture that resolves to a slice of the original mask.
     pub fn slice(&self, range: Range<usize>) -> Self {
+        // Slicing the whole mask is the identity. Cloning shares the existing future instead of
+        // allocating another boxed, shared one that would await it only to hand the mask back.
+        if range.start == 0 && range.end == self.len {
+            return self.clone();
+        }
+
         let inner = self.inner.clone();
         Self::new(range.len(), async move { Ok(inner.await?.slice(range)) })
     }
@@ -90,5 +96,31 @@ impl Future for MaskFuture {
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Self::Output> {
         self.inner.poll_unpin(cx).map_err(VortexError::from)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::BitBuffer;
+
+    use super::*;
+
+    /// Slicing resolves to the same mask the equivalent [`Mask::slice`] would produce, for both
+    /// the full range (which takes the identity fast path) and a sub-range.
+    #[test]
+    fn slice_resolves_to_sliced_mask() -> VortexResult<()> {
+        futures::executor::block_on(async {
+            let mask = Mask::from_buffer(BitBuffer::from_iter([true, false, true, true, false]));
+            let fut = MaskFuture::ready(mask.clone());
+
+            let full = fut.slice(0..mask.len());
+            assert_eq!(full.len(), mask.len());
+            assert_eq!(full.await?, mask);
+
+            let partial = fut.slice(0..mask.len() - 1);
+            assert_eq!(partial.len(), mask.len() - 1);
+            assert_eq!(partial.await?, mask.slice(0..mask.len() - 1));
+            Ok(())
+        })
     }
 }

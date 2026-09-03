@@ -129,6 +129,7 @@ fn filter_pext_fallback(src: &BitBuffer, mask_buf: &BitBuffer, true_count: usize
 /// Extracted so the same logic is shared between the software and hardware paths.
 /// Uses raw pointer writes instead of Vec::push to eliminate bounds checks
 /// in the hot loop — we know the exact output size from true_count.
+#[allow(clippy::inline_always)]
 #[inline(always)]
 #[allow(clippy::cast_possible_truncation)]
 fn filter_inner(
@@ -227,6 +228,7 @@ fn filter_inner(
 /// lookup table per mask byte. Each byte PEXT is a single table lookup with no
 /// data dependencies between bytes, making this faster than the parallel-prefix
 /// approach (~12ns vs ~18ns per word).
+#[allow(clippy::inline_always)]
 #[inline(always)]
 pub fn pext_fallback(src: u64, mask: u64) -> u64 {
     pext_byte_lut(src, mask)
@@ -268,6 +270,7 @@ static BYTE_PEXT_LUT: &[u8; 256 * 256] = &{
 };
 
 /// Byte-level PEXT using precomputed lookup table.
+#[allow(clippy::inline_always)]
 #[inline(always)]
 fn pext_byte_lut(src: u64, mask: u64) -> u64 {
     let src_bytes = src.to_le_bytes();

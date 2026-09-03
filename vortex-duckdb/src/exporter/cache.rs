@@ -21,5 +21,4 @@ pub struct ConversionCache {
     pub dict_cache: DashMap<usize, (ArrayRef, ReusableDict)>,
     pub values_cache: DashMap<usize, (ArrayRef, Arc<Mutex<Vector>>)>,
     pub canonical_cache: DashMap<usize, (ArrayRef, Canonical)>,
-    pub file_index: usize,
 }

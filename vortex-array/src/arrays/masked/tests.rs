@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use rstest::rstest;
+use vortex_buffer::BitBuffer;
+use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -10,6 +12,7 @@ use crate::Canonical;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::array_session;
+use crate::arrays::BoolArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
@@ -39,6 +42,24 @@ fn test_dtype_nullability_with_nullable_child() {
 
     // Child has nullable dtype.
     assert!(child.dtype().is_nullable());
+}
+
+#[test]
+fn test_empty_child_with_array_validity() -> VortexResult<()> {
+    let child_validity =
+        Validity::Array(BoolArray::new(BitBuffer::new_set(0), Validity::NonNullable).into_array());
+    let child = PrimitiveArray::new(Buffer::<i32>::empty(), child_validity).into_array();
+    let validity =
+        Validity::Array(BoolArray::new(BitBuffer::new_set(0), Validity::NonNullable).into_array());
+
+    let mut ctx = array_session().create_execution_ctx();
+    assert!(child.all_valid(&mut ctx)?);
+    assert!(child.all_invalid(&mut ctx)?);
+
+    let array = MaskedArray::try_new(child, validity)?;
+
+    assert!(array.is_empty());
+    Ok(())
 }
 
 #[test]

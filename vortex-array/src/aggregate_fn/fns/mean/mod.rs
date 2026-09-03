@@ -10,7 +10,6 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateFnId;
-use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::combined::BinaryCombined;
@@ -53,7 +52,8 @@ pub fn mean(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
 ///
 /// Implemented as `Sum / Count` via [`BinaryCombined`].
 ///
-/// Booleans and primitive numeric types are cast to f64. Decimals stay decimals.
+/// Booleans and primitive numeric types produce nullable `f64` results.
+/// Decimals produce a nullable decimal result.
 #[derive(Clone, Debug)]
 pub struct Mean;
 
@@ -135,34 +135,6 @@ impl BinaryCombined for Mean {
 
     fn serialize(&self, _options: &CombinedOptions<Self>) -> VortexResult<Option<Vec<u8>>> {
         unimplemented!("mean is not yet serializable");
-    }
-
-    fn coerce_args(
-        &self,
-        _options: &PairOptions<
-            <Sum as AggregateFnVTable>::Options,
-            <Count as AggregateFnVTable>::Options,
-        >,
-        input_dtype: &DType,
-    ) -> VortexResult<DType> {
-        // Advisory hint for query planners: where possible, cast input to the
-        // type we're going to compute the mean in.
-        Ok(coerced_input_dtype(input_dtype).unwrap_or_else(|| input_dtype.clone()))
-    }
-}
-
-/// Hint for callers: what to cast the input to before accumulation.
-///
-/// - Bool stays as bool — `Sum` has a native bool path and bool → f64 isn't
-///   currently a direct cast in vortex.
-/// - Primitive numerics → `f64` so the sum and finalize work without overflow.
-/// - Decimals stay as decimals
-fn coerced_input_dtype(input_dtype: &DType) -> Option<DType> {
-    match input_dtype {
-        DType::Bool(_) => Some(input_dtype.clone()),
-        DType::Primitive(_, n) => Some(DType::Primitive(PType::F64, *n)),
-        DType::Decimal(..) => Some(input_dtype.clone()),
-        _ => None,
     }
 }
 

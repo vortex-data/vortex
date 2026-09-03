@@ -235,7 +235,7 @@ where
 fn cast_decimal_buffer<F, T>(
     values: &[F],
     valid_values: &Mask,
-    mut cast: impl FnMut(F) -> Option<T>,
+    cast: impl Fn(F) -> Option<T>,
 ) -> Result<Buffer<T>, usize>
 where
     F: NativeDecimalType,
@@ -244,14 +244,14 @@ where
     let mut buffer = BufferMut::<T>::with_capacity(values.len());
     match valid_values {
         Mask::AllTrue(_) => {
-            values.try_map_into(&mut buffer.spare_capacity_mut()[..values.len()], &mut cast)?;
+            values.try_map_into(&mut buffer.spare_capacity_mut()[..values.len()], &cast)?;
         }
         Mask::AllFalse(_) => return Ok(BufferMut::<T>::zeroed(values.len()).freeze()),
         Mask::Values(mask) => {
             values.try_map_masked_into(
                 mask.bit_buffer(),
                 &mut buffer.spare_capacity_mut()[..values.len()],
-                &mut cast,
+                &cast,
             )?;
         }
     }

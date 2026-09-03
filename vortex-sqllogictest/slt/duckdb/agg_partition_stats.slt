@@ -1,0 +1,82 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+COPY (
+    WITH cte AS (
+        SELECT generate_series AS i FROM generate_series(100000))
+    SELECT (CASE WHEN i > 0 THEN i::INTEGER ELSE NULL END) AS i FROM cte
+)
+TO '${WORK_DIR}/agg_partition_stats.vortex';
+
+query TT
+EXPLAIN SELECT count(*)
+FROM '${WORK_DIR}/agg_partition_stats.vortex';
+----
+<REGEX>:.*COLUMN_DATA_SCAN.*
+
+query TT
+EXPLAIN SELECT count(*)
+FROM '${WORK_DIR}/agg_partition_stats.vortex';
+----
+<!REGEX>:.*(READ_VORTEX|AGGREGATE).*
+
+query I
+SELECT count(*)
+FROM '${WORK_DIR}/agg_partition_stats.vortex';
+----
+100001
+
+query TT
+EXPLAIN SELECT min(i), max(i)
+FROM '${WORK_DIR}/agg_partition_stats.vortex';
+----
+<REGEX>:.*COLUMN_DATA_SCAN.*
+
+query TT
+EXPLAIN SELECT min(i), max(i)
+FROM '${WORK_DIR}/agg_partition_stats.vortex';
+----
+<!REGEX>:.*(READ_VORTEX|AGGREGATE).*
+
+query II
+SELECT min(i), max(i) FROM '${WORK_DIR}/agg_partition_stats.vortex';
+----
+1 100000
+
+query III
+SELECT count(*), min(i), max(i)
+FROM '${WORK_DIR}/agg_partition_stats.vortex';
+----
+100001 1 100000
+
+statement ok
+COPY (
+    SELECT DATE '2013-07-01' + ((i % 30)::INTEGER) AS d
+    FROM generate_series(1, 5000) t(i))
+TO '${WORK_DIR}/agg_partition_stats-date.vortex';
+
+query TT
+EXPLAIN SELECT min(d), max(d)
+FROM '${WORK_DIR}/agg_partition_stats-date.vortex';
+----
+<REGEX>:.*COLUMN_DATA_SCAN.*
+
+query DD
+SELECT min(d), max(d) FROM '${WORK_DIR}/agg_partition_stats-date.vortex';
+----
+2013-07-01 2013-07-30
+
+query TT
+EXPLAIN SELECT count(*) FROM '${WORK_DIR}/agg_partition_stats.vortex'
+WHERE i > 50000;
+----
+<REGEX>:.*READ_VORTEX.*
+
+query I
+SELECT count(*) FROM '${WORK_DIR}/agg_partition_stats.vortex'
+WHERE i > 50000;
+----
+50000

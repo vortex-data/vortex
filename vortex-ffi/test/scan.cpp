@@ -911,7 +911,7 @@ TEST_CASE("Scan Arrow schema", "[scan]") {
         vx_dtype_free(dtype);
     };
 
-    int res = vx_dtype_to_arrow_schema(dtype, &schema, &error);
+    int res = vx_dtype_to_arrow_schema(session, dtype, &schema, &error);
     REQUIRE(res == 0);
     require_no_error(error);
 

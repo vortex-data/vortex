@@ -339,6 +339,7 @@ where
 {
     type Output = T;
 
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     fn vortex_expect(self, msg: &'static str) -> Self::Output {
         self.map_err(|err| err.into())
@@ -349,6 +350,7 @@ where
 impl<T> VortexExpect for Option<T> {
     type Output = T;
 
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     fn vortex_expect(self, msg: &'static str) -> Self::Output {
         self.unwrap_or_else(|| {

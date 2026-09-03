@@ -114,7 +114,7 @@ impl FilterExpr {
         // 1. The ordering is a heuristic optimization, not a correctness requirement
         // 2. The selectivity values are statistical estimates that change gradually
         // 3. Any ordering will produce correct results, just with different performance
-        let all_selectivity = self
+        let Some(all_selectivity) = self
             .conjunct_selectivity
             .iter()
             .map(|histogram| {
@@ -123,10 +123,14 @@ impl FilterExpr {
                     .quantile(self.selectivity_quantile)
                     .map_err(|e| vortex_err!("{e}")) // Only errors when the quantile is out of range
                     .vortex_expect("quantile out of range")
-                    // If the sketch is empty, its selectivity is 0.
-                    .unwrap_or_default()
             })
-            .collect::<Vec<_>>();
+            .collect::<Option<Vec<_>>>()
+        else {
+            // Preserve the input order until every conjunct has been observed. Treating an unseen
+            // conjunct as perfectly selective can move expensive predicates ahead of selective
+            // predicates based only on which concurrent split finishes first.
+            return;
+        };
 
         {
             let ordering = self.ordering.read();
@@ -190,6 +194,20 @@ mod tests {
                 DType::Bool(Nullability::NonNullable),
             ]
         );
+        Ok(())
+    }
+
+    #[test]
+    fn waits_for_all_conjuncts_before_reordering() -> VortexResult<()> {
+        let dtype = DType::Bool(Nullability::Nullable);
+        let bound = and(root(), not(root())).bind(&dtype)?;
+        let filter = FilterExpr::new(bound);
+
+        filter.report_selectivity(0, 0.9);
+        assert_eq!(*filter.ordering.read(), vec![0, 1]);
+
+        filter.report_selectivity(1, 0.1);
+        assert_eq!(*filter.ordering.read(), vec![1, 0]);
         Ok(())
     }
 }

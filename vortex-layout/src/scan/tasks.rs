@@ -117,10 +117,14 @@ pub fn split_exec<A: 'static + Send>(
                         return Ok(mask);
                     }
 
+                    let input_true_count = mask.true_count();
                     let conjunct_mask = reader
                         .filter_evaluation(&row_range, conjunct, MaskFuture::ready(mask))?
                         .await?;
-                    filter.report_selectivity(idx, conjunct_mask.density());
+                    filter.report_selectivity(
+                        idx,
+                        conditional_selectivity(input_true_count, conjunct_mask.true_count()),
+                    );
 
                     // Filter evaluations return a mask already intersected with the input mask.
                     mask = conjunct_mask;
@@ -150,6 +154,12 @@ pub fn split_exec<A: 'static + Send>(
     Ok(array_fut.boxed())
 }
 
+fn conditional_selectivity(input_true_count: usize, output_true_count: usize) -> f64 {
+    debug_assert!(input_true_count > 0);
+    debug_assert!(output_true_count <= input_true_count);
+    output_true_count as f64 / input_true_count as f64
+}
+
 /// Information needed to execute a single split task.
 ///
 /// Row selection is evaluated before creating a split task so it's not included
@@ -162,4 +172,14 @@ pub struct TaskContext<A> {
     pub projection: BoundExpression,
     /// Function that maps into an A.
     pub mapper: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::conditional_selectivity;
+
+    #[test]
+    fn selectivity_is_relative_to_the_input_mask() {
+        assert_eq!(conditional_selectivity(20, 5), 0.25);
+    }
 }

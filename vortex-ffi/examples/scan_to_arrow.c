@@ -31,7 +31,7 @@ void execute_scan(vx_session *session, vx_scan *scan) {
     }
 
     struct ArrowSchema schema;
-    if (vx_dtype_to_arrow_schema(dtype, &schema, &error)) {
+    if (vx_dtype_to_arrow_schema(session, dtype, &schema, &error)) {
         print_error("Failed to convert dtype to Arrow schema", error);
         vx_error_free(error);
         return;

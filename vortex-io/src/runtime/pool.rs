@@ -11,14 +11,16 @@ use smol::block_on;
 use vortex_error::VortexExpect;
 use vortex_utils::parallelism::get_available_parallelism;
 
+use crate::runtime::smol::SmolExecutor;
+
 #[derive(Clone)]
 pub struct CurrentThreadWorkerPool {
-    executor: Arc<smol::Executor<'static>>,
+    executor: Arc<SmolExecutor>,
     state: Arc<Mutex<PoolState>>,
 }
 
 impl CurrentThreadWorkerPool {
-    pub(super) fn new(executor: Arc<smol::Executor<'static>>) -> Self {
+    pub(super) fn new(executor: Arc<SmolExecutor>) -> Self {
         Self {
             executor,
             state: Arc::new(Mutex::new(PoolState::default())),

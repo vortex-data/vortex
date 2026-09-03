@@ -226,6 +226,42 @@ pub unsafe extern "C-unwind" fn vx_scalar_new_null(
     })
 }
 
+/// Create an extension-typed scalar from its storage scalar.
+///
+/// "dtype" must be an extension dtype (for example a date or timestamp dtype
+/// taken from a data source's schema, or built via vx_dtype_from_arrow_schema)
+/// and "storage" a scalar of that extension type's storage dtype, compared
+/// ignoring nullability. The storage value is copied.
+///
+/// Returns NULL and sets "err" on error.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_scalar_new_extension(
+    dtype: *const vx_dtype,
+    storage: *const vx_scalar,
+    err: *mut *mut vx_error,
+) -> *mut vx_scalar {
+    try_or(err, ptr::null_mut(), || {
+        let dtype = vx_dtype::as_ref(dtype);
+        let storage = vx_scalar::as_ref(storage);
+        let DType::Extension(ext) = dtype else {
+            vortex_bail!(
+                "vx_scalar_new_extension: dtype {} is not an extension type",
+                dtype
+            );
+        };
+        vortex_ensure!(
+            storage.dtype().eq_ignore_nullability(ext.storage_dtype()),
+            "vx_scalar_new_extension: storage scalar dtype {} does not match extension storage dtype {}",
+            storage.dtype(),
+            ext.storage_dtype()
+        );
+        Ok(vx_scalar::new(Scalar::try_new(
+            dtype.clone(),
+            storage.value().cloned(),
+        )?))
+    })
+}
+
 macro_rules! scalar_decimal {
     ($int:ident, $variant:ident) => {
         paste! {
@@ -451,6 +487,8 @@ mod tests {
 
     use vortex::array::IntoArray;
     use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::extension::datetime::Date;
+    use vortex::array::extension::datetime::TimeUnit;
     use vortex::array::validity::Validity;
     use vortex::buffer::buffer;
     use vortex::dtype::DType;
@@ -475,6 +513,7 @@ mod tests {
     use crate::string::vx_view;
     use crate::tests::assert_error;
     use crate::tests::assert_no_error;
+    use crate::vx_error_free;
 
     fn assert_scalar(ptr: *mut vx_scalar, expected: Scalar) {
         assert!(!ptr.is_null());
@@ -896,6 +935,48 @@ mod tests {
             assert_no_error(error);
             assert_eq!(vx_scalar_get_decimal_i64(s), 99999);
             vx_scalar_free(s);
+        }
+    }
+
+    #[test]
+    fn test_scalar_new_extension() {
+        unsafe {
+            let mut error = ptr::null_mut();
+
+            // A day-precision date (the Arrow date32 equivalent): an
+            // extension dtype over i32 storage.
+            let date_dtype = vx_dtype::new(DType::Extension(
+                Date::new(TimeUnit::Days, Nullability::NonNullable).erased(),
+            ));
+            let storage = vx_scalar_new_i32(20_000, false);
+
+            let date = vx_scalar_new_extension(date_dtype, storage, &raw mut error);
+            assert_no_error(error);
+            assert!(!vx_scalar_is_null(date));
+            let roundtrip = vx_scalar_dtype(date);
+            assert!(matches!(vx_dtype::as_ref(roundtrip), DType::Extension(_)));
+            vx_dtype_free(roundtrip);
+            vx_scalar_free(date);
+
+            // Mismatched storage dtype is rejected.
+            let wrong = vx_scalar_new_i64(20_000, false);
+            let rejected = vx_scalar_new_extension(date_dtype, wrong, &raw mut error);
+            assert!(rejected.is_null());
+            assert!(!error.is_null());
+            vx_error_free(error);
+            error = ptr::null_mut();
+            vx_scalar_free(wrong);
+
+            // A non-extension dtype is rejected.
+            let bool_dtype = vx_dtype_new_bool(false);
+            let rejected = vx_scalar_new_extension(bool_dtype, storage, &raw mut error);
+            assert!(rejected.is_null());
+            assert!(!error.is_null());
+            vx_error_free(error);
+
+            vx_scalar_free(storage);
+            vx_dtype_free(bool_dtype);
+            vx_dtype_free(date_dtype);
         }
     }
 }

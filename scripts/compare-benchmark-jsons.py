@@ -14,6 +14,7 @@
 import math
 import os
 import re
+import subprocess
 import sys
 from dataclasses import dataclass
 from io import StringIO
@@ -25,14 +26,27 @@ import pandas as pd
 
 # Analysis overview:
 # - Join base and PR benchmark rows on benchmark identity.
+# - Split each row's repeated runs into a cold run and the hot runs that follow.
 # - Use log-ratios because benchmark slowdowns/speedups are multiplicative.
 # - Treat parquet rows as controls to estimate systemic drift beta(q).
 # - Attribute the remaining change to the PR as alpha(q, c).
 # - Call a row significant only when alpha clears a conservative noise floor.
 # - Collapse those row-level results into a short verdict for the PR comment.
 #
+# Cold vs hot:
+# - The benchmark binary reports every run of a measurement in `all_runtimes`, in
+#   run order. The first run pays cold-start costs (page cache, allocator arenas,
+#   JIT-like warmup in the engines), so mixing it into a single median blends two
+#   different measurements and inflates run-to-run variance.
+# - cold runtime = the first recorded run.
+# - hot runtime = median of every run after the first.
+# - The verdict, geomeans, and per-row significance all use hot runtimes; cold
+#   runtimes are reported alongside them so a cold-start-only change stays visible.
+# - Rows without `all_runtimes` (older baselines, non-query measurements) keep the
+#   runner-reported value as their hot runtime and report no cold runtime.
+#
 # Concretely:
-# - raw ratio = median_runtime_pr / median_runtime_base
+# - raw ratio = hot_runtime_pr / hot_runtime_base
 # - log_ratio = log(raw ratio)
 # - beta(q) = mean(log_ratio) across parquet control rows for query q
 # - alpha(q, c) = log_ratio(q, c) - beta(q)
@@ -216,8 +230,43 @@ def read_jsonl_rows_for_commit(path: str, commit_id: str) -> pd.DataFrame:
     return pd.DataFrame(rows_by_identity.values())
 
 
-def read_latest_baseline_rows(path: str, pr: pd.DataFrame) -> pd.DataFrame:
-    """Read rows from the latest history commit matching the PR benchmark.
+def git_tree_commit_ids() -> set[str]:
+    """Return every commit reachable from the checked-out branch head.
+
+    A shallow checkout reaches only its own tip, so every recorded baseline
+    commit looks unreachable and the report silently degrades into "no
+    baseline is available for this benchmark yet" — indistinguishable from a
+    genuinely new benchmark, and wrong. Refuse the guess and say what to fix.
+    """
+
+    is_shallow = subprocess.run(
+        ["git", "rev-parse", "--is-shallow-repository"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    if is_shallow == "true":
+        raise SystemExit(
+            "Cannot resolve a baseline from a shallow checkout: the baseline is the newest "
+            "recorded commit reachable from HEAD, and a shallow clone reaches only its own "
+            "tip. Check the repository out with `fetch-depth: 0`."
+        )
+
+    commits = subprocess.run(
+        ["git", "rev-list", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    return set(commits.splitlines())
+
+
+def read_latest_baseline_rows(
+    path: str,
+    pr: pd.DataFrame,
+    reachable_commit_ids: set[str],
+) -> pd.DataFrame:
+    """Read rows from the latest reachable commit matching the PR benchmark.
 
     A benchmark can be new to the PR workflow and therefore have no baseline
     yet. Return an empty frame with the PR schema in that case so the report
@@ -236,7 +285,7 @@ def read_latest_baseline_rows(path: str, pr: pd.DataFrame) -> pd.DataFrame:
             record = orjson.loads(line)
             if benchmark_identity(record) in pr_identities:
                 commit_id = record.get("commit_id")
-                if commit_id is not None:
+                if commit_id is not None and commit_id in reachable_commit_ids:
                     baseline_commit_id = commit_id
 
     if baseline_commit_id is None:
@@ -245,15 +294,24 @@ def read_latest_baseline_rows(path: str, pr: pd.DataFrame) -> pd.DataFrame:
     return read_jsonl_rows_for_commit(path, baseline_commit_id)
 
 
-def select_latest_baseline_rows(base: pd.DataFrame, pr: pd.DataFrame) -> pd.DataFrame:
-    """Select rows from the latest baseline commit containing this benchmark.
+def select_latest_baseline_rows(
+    base: pd.DataFrame,
+    pr: pd.DataFrame,
+    reachable_commit_ids: set[str],
+) -> pd.DataFrame:
+    """Select rows from the latest reachable commit containing this benchmark.
 
     The persisted benchmark history is append-only. A row only appears after
-    that benchmark job uploaded results, so the newest commit with matching row
-    identities is the latest successful baseline for the benchmark under test.
+    that benchmark job uploaded results, so the newest reachable commit with
+    matching row identities is the latest successful baseline for the benchmark
+    under test.
     """
 
     if base.empty or "commit_id" not in base.columns:
+        return base
+
+    base = base[base["commit_id"].isin(reachable_commit_ids)].copy()
+    if base.empty:
         return base
 
     commit_ids = base["commit_id"].dropna().unique()
@@ -295,6 +353,12 @@ def normalize_measurement_rows(df: pd.DataFrame) -> pd.DataFrame:
         index=df.index,
     )
     df["query"] = df["query"].astype(object)
+
+    runtimes = df["all_runtimes"] if "all_runtimes" in df.columns else pd.Series(None, index=df.index, dtype=object)
+    values = df["value"] if "value" in df.columns else pd.Series(np.nan, index=df.index)
+    df["cold_value"] = [cold_runtime(runs) for runs in runtimes]
+    df["hot_runtimes"] = pd.Series([hot_runtimes(runs) for runs in runtimes], index=df.index, dtype=object)
+    df["hot_value"] = [hot_runtime(runs, value) for runs, value in zip(runtimes, values)]
     return df
 
 
@@ -305,6 +369,49 @@ def positive_samples(values: Any) -> np.ndarray:
         return np.array([], dtype=float)
     samples = np.asarray(values, dtype=float)
     return samples[np.isfinite(samples) & (samples > 0)]
+
+
+def ordered_runtimes(values: Any) -> np.ndarray:
+    """Return the recorded runs in run order, or an empty array when unavailable."""
+
+    if not isinstance(values, (list, tuple, np.ndarray, pd.Series)):
+        return np.array([], dtype=float)
+    return np.asarray(values, dtype=float)
+
+
+def cold_runtime(values: Any) -> float:
+    """Return the first recorded run, which is the cold-start measurement."""
+
+    runs = ordered_runtimes(values)
+    if runs.size == 0:
+        return float("nan")
+    first = float(runs[0])
+    return first if np.isfinite(first) and first > 0 else float("nan")
+
+
+def hot_runtimes(values: Any) -> list[float]:
+    """Return the runs after the first, which are the warmed-up measurements."""
+
+    runs = ordered_runtimes(values)
+    if runs.size < 2:
+        return []
+    return [float(sample) for sample in positive_samples(runs[1:])]
+
+
+def hot_runtime(values: Any, reported_value: Any) -> float:
+    """Return the median hot run, falling back to the runner-reported value.
+
+    Rows written before the runner recorded every run, and non-query measurements
+    that only ever report one number, have no hot samples to summarize. Those keep
+    the runner's own value so they still appear in the comparison.
+    """
+
+    samples = hot_runtimes(values)
+    if samples:
+        return float(np.median(samples))
+    if reported_value is None or pd.isna(reported_value):
+        return float("nan")
+    return float(reported_value)
 
 
 def log_runtime_stats(values: Any) -> dict[str, float]:
@@ -335,7 +442,11 @@ def ratio_stats(
     base_median: float,
     pr_median: float,
 ) -> dict[str, float]:
-    """Compute the PR/base effect and its sampling error for one matched row."""
+    """Compute the PR/base effect and its sampling error for one matched row.
+
+    The samples and the medians are the hot runs of the row, so cold-start costs
+    neither move the effect nor widen its sampling error.
+    """
 
     base_stats = log_runtime_stats(base_values)
     pr_stats = log_runtime_stats(pr_values)
@@ -436,8 +547,8 @@ def build_statistical_analysis(df: pd.DataFrame, threshold_pct: int) -> dict[str
         df["query"].notna()
         & df["engine"].notna()
         & df["file_format"].notna()
-        & df["value_base"].notna()
-        & df["value_pr"].notna()
+        & df["hot_value_base"].notna()
+        & df["hot_value_pr"].notna()
     ].copy()
 
     if matched.empty:
@@ -447,10 +558,10 @@ def build_statistical_analysis(df: pd.DataFrame, threshold_pct: int) -> dict[str
     rows: list[dict[str, Any]] = []
     for _, row in matched.iterrows():
         stats = ratio_stats(
-            row.get("all_runtimes_base"),
-            row.get("all_runtimes_pr"),
-            float(row["value_base"]),
-            float(row["value_pr"]),
+            row.get("hot_runtimes_base"),
+            row.get("hot_runtimes_pr"),
+            float(row["hot_value_base"]),
+            float(row["hot_value_pr"]),
         )
         rows.append(
             {
@@ -525,10 +636,12 @@ def build_statistical_analysis(df: pd.DataFrame, threshold_pct: int) -> dict[str
     }
 
 
-def calculate_geo_mean(df: pd.DataFrame) -> float:
+def calculate_geometric_mean(df: pd.DataFrame, column: str = "ratio") -> float:
     """Geometric mean of positive ratios from a DataFrame ratio column."""
 
-    valid_ratios = [r for r in df["ratio"] if r > 0 and not pd.isna(r)]
+    if column not in df.columns:
+        return float("nan")
+    valid_ratios = [r for r in df[column] if r > 0 and not pd.isna(r)]
     if len(valid_ratios) > 0:
         return math.exp(sum(math.log(r) for r in valid_ratios) / len(valid_ratios))
     return float("nan")
@@ -568,6 +681,34 @@ def format_performance(
     return f"{ratio:.3f}x {emoji}"
 
 
+def format_target_summary(
+    group: pd.DataFrame,
+    hot_ratio: float,
+    improvement_threshold: float,
+    regression_threshold: float,
+    target_name: str,
+) -> str:
+    """Render one target's hot geomean with its cold geomean beside it.
+
+    The detail tables put a row's hot and cold runs side by side, so the summary
+    reads the same way: a cold-start-only change is visible on the target's own
+    line instead of on a separate one the reader has to cross-reference. Rows that
+    recorded no per-run timings have no cold geomean, and the target then reports
+    its hot geomean alone.
+    """
+
+    hot = format_performance(hot_ratio, improvement_threshold, regression_threshold, target_name)
+    if pd.isna(hot_ratio):
+        return hot
+
+    cold_ratio = calculate_geometric_mean(group, "cold_ratio")
+    if pd.isna(cold_ratio):
+        return f"hot {hot}"
+
+    cold = format_performance(cold_ratio, improvement_threshold, regression_threshold, target_name)
+    return f"hot {hot} · cold {cold}"
+
+
 def format_measurement_value(value: float) -> str:
     """Render integral and fractional measurements for a Markdown table."""
 
@@ -577,7 +718,69 @@ def format_measurement_value(value: float) -> str:
     value = float(value)
     if value.is_integer():
         return str(int(value))
+    # A hot median over an even number of runs lands on a half nanosecond, which
+    # %g renders in scientific notation once it passes nine significant digits.
+    # That fraction is noise next to a measurement this large, so round it away
+    # and keep the column readable.
+    if abs(value) >= 1e6:
+        return str(round(value))
     return f"{value:.9g}"
+
+
+def format_factor(value: float) -> str:
+    """Render a dimensionless factor such as a row's hot/cold ratio."""
+
+    if pd.isna(value) or not np.isfinite(value):
+        return "—"
+    return f"{float(value):.2f}"
+
+
+def format_change_marker(ratio: float, improvement_threshold: float, regression_threshold: float) -> str:
+    """Mark a change that clears the suite's threshold, leaving everything quieter bare.
+
+    Anything inside the threshold is treated as noise for this environment, so it
+    carries no mark at all rather than a colour the reader has to discount.
+    """
+
+    if pd.isna(ratio) or ratio <= 0:
+        return ""
+    if ratio <= improvement_threshold:
+        return "🟢"
+    if ratio >= regression_threshold:
+        return "🔴"
+    return ""
+
+
+def format_delta_cell(
+    pr_value: Any,
+    base_value: Any,
+    improvement_threshold: float,
+    regression_threshold: float,
+    render: Any = None,
+    mark: bool = True,
+) -> str:
+    """Render one cell as PR value, base value, and the change between them.
+
+    Only the runs themselves carry a direction marker. A derived column such as
+    `hot/cold` moves for reasons that are not a win or a loss on their own, so it
+    renders the change unmarked.
+    """
+
+    render = format_measurement_value if render is None else render
+    pr_text = render(pr_value)
+    base_text = render(base_value)
+    if pd.isna(pr_value) or pd.isna(base_value) or float(base_value) <= 0:
+        return f"{pr_text} / {base_text} / no baseline"
+
+    ratio = float(pr_value) / float(base_value)
+    change_text = format_ratio_change(ratio)
+    if not mark:
+        return f"{pr_text} / {base_text} / {change_text}"
+
+    marker = format_change_marker(ratio, improvement_threshold, regression_threshold)
+    if not marker:
+        return f"{pr_text} / {base_text} / {change_text}"
+    return f"{pr_text} / {base_text} / {change_text} {marker}"
 
 
 def format_comparison_ratio(value: float) -> str:
@@ -658,8 +861,9 @@ def format_file_size_report(base_rows: pd.DataFrame, pr_rows: pd.DataFrame) -> s
         return ""
 
     base_data = {key: value for key, value in base_data.items() if key not in ignored}
-    pr_scopes = {(benchmark, scale_factor) for benchmark, scale_factor, _file_format, _file_name in pr_data}
-    base_data = {key: value for key, value in base_data.items() if key[:2] in pr_scopes}
+    # Omit baseline files whose (benchmark, scale factor, format) the PR run skipped entirely.
+    pr_scopes = {(benchmark, scale_factor, file_format) for benchmark, scale_factor, file_format, _file_name in pr_data}
+    base_data = {key: value for key, value in base_data.items() if key[:3] in pr_scopes}
     if not base_data:
         return "_No baseline file sizes found for base commit._"
 
@@ -743,20 +947,6 @@ def format_file_size_report(base_rows: pd.DataFrame, pr_rows: pd.DataFrame) -> s
     print("", file=output)
     print("</details>", file=output)
     return output.getvalue().rstrip()
-
-
-def format_name_with_highlight(
-    name: str, ratio: float, improvement_threshold: float, regression_threshold: float
-) -> str:
-    """Highlight clearly large raw changes in the detailed per-config tables."""
-
-    if pd.isna(ratio):
-        return name
-    if ratio <= improvement_threshold:
-        return f"{name} 🚀"
-    if ratio >= regression_threshold:
-        return f"{name} 🚨"
-    return name
 
 
 def format_signal(signal: str) -> str:
@@ -906,6 +1096,18 @@ def format_report_help() -> str:
             "controls. This answers whether each engine improved or regressed independently.",
             "- **Confidence**: Based on directional consistency, share of rows above "
             "the noise floor, and control-run noise.",
+            "- **Hot vs cold**: Every measurement is run several times. The first run is "
+            "reported as the cold run, and the median of the runs after it is reported as "
+            "the hot run. The verdict and significance use hot runs; each target's "
+            "geomean reports hot and cold beside each other where the individual runs "
+            "were recorded and hot alone where they were not, the cold column shows "
+            "first-run cost per row, and `hot/cold` is how much of "
+            "each run the warm path saves. Rows whose results predate per-run reporting "
+            "show only one value, taken from the value the runner reported.",
+            "- **Table cells**: Each cell reads `PR / base / %diff`. The hot and cold "
+            "columns mark a change as 🔴 slower or 🟢 faster once it clears this suite's "
+            "threshold; anything smaller is noise here and is left unmarked, as is "
+            "`hot/cold`, because a shift in the warm-up ratio is not a win or a loss by itself.",
             "",
             "</details>",
         ]
@@ -961,7 +1163,7 @@ def main() -> None:
 
     pr = pd.read_json(sys.argv[2], lines=True)
     title = format_title(benchmark_name, pr)
-    base = read_latest_baseline_rows(sys.argv[1], pr)
+    base = read_latest_baseline_rows(sys.argv[1], pr, git_tree_commit_ids())
 
     base_commit_ids = set(base["commit_id"].unique())
     pr_commit_id = set(pr["commit_id"].unique())
@@ -979,7 +1181,9 @@ def main() -> None:
     comparison_keys = ["name", "storage", "dataset_key", "engine", "file_format", "unit", "query"]
     df3 = pd.merge(base, pr, on=comparison_keys, how="right", suffixes=("_base", "_pr"))
     df3["unit"] = df3["unit"].fillna("unit")
-    df3["ratio"] = df3["value_pr"] / df3["value_base"]
+    # The headline ratio is the hot-run ratio; the cold ratio is reported beside it.
+    df3["ratio"] = df3["hot_value_pr"] / df3["hot_value_base"]
+    df3["cold_ratio"] = df3["cold_value_pr"] / df3["cold_value_base"]
 
     is_s3_benchmark = "s3" in benchmark_name.lower()
     threshold_pct = 30 if is_s3_benchmark else 10
@@ -993,15 +1197,16 @@ def main() -> None:
     vortex_df = headline_df[headline_df["file_format"].str.startswith("vortex")]
     parquet_df = headline_df[headline_df["file_format"].eq(CONTROL_FORMAT)]
 
-    vortex_geo_mean_ratio = calculate_geo_mean(vortex_df)
-    parquet_geo_mean_ratio = calculate_geo_mean(parquet_df)
+    vortex_geometric_mean_ratio = calculate_geometric_mean(vortex_df)
+    parquet_geometric_mean_ratio = calculate_geometric_mean(parquet_df)
 
     statistical_analysis = build_statistical_analysis(query_df, threshold_pct)
     verdict = build_verdict(statistical_analysis) if statistical_analysis is not None else None
     engine_analyses = build_within_engine_statistical_analyses(query_df, threshold_pct)
     engine_summary = format_within_engine_summary(engine_analyses)
 
-    summary_fields: list[str] = []
+    base_label = str(base_commit_id)[:8] if base_commit_id is not None else "none"
+    summary_fields: list[str] = [f"**Commits**: PR `{pr_commit_id[:8]}` vs base `{base_label}`"]
 
     if verdict is not None:
         summary_fields.append(f"**Verdict**: {verdict['status']} ({verdict['confidence']} confidence)")
@@ -1010,16 +1215,18 @@ def main() -> None:
         summary_fields.append(f"**Engines**: {engine_summary}")
 
     if len(vortex_df) > 0:
-        vortex_performance = format_performance(
-            vortex_geo_mean_ratio,
+        vortex_performance = format_target_summary(
+            vortex_df,
+            vortex_geometric_mean_ratio,
             improvement_threshold,
             regression_threshold,
             "vortex",
         )
         summary_fields.append(f"**Vortex (geomean)**: {vortex_performance}")
     if len(parquet_df) > 0:
-        parquet_performance = format_performance(
-            parquet_geo_mean_ratio,
+        parquet_performance = format_target_summary(
+            parquet_df,
+            parquet_geometric_mean_ratio,
             improvement_threshold,
             regression_threshold,
             "parquet",
@@ -1049,28 +1256,45 @@ def main() -> None:
     print("")
 
     grouped_tables = df3.groupby(["engine", "file_format", "unit"], dropna=False, sort=False)
-    base_label = str(base_commit_id)[:8] if base_commit_id is not None else "none"
     for engine, file_format, unit in sorted(grouped_tables.groups.keys(), key=group_sort_key):
         group_df = grouped_tables.get_group((engine, file_format, unit)).sort_values("name")
         group_performance = format_performance(
-            calculate_geo_mean(group_df),
+            calculate_geometric_mean(group_df),
             improvement_threshold,
             regression_threshold,
             "group",
         )
         significant_improvements = (group_df["ratio"] <= improvement_threshold).sum()
         significant_regressions = (group_df["ratio"] >= regression_threshold).sum()
-        display_df = pd.DataFrame(
-            {
-                "name": [
-                    format_name_with_highlight(name, ratio, improvement_threshold, regression_threshold)
-                    for name, ratio in zip(group_df["name"], group_df["ratio"])
-                ],
-                f"PR {pr_commit_id[:8]} ({unit})": group_df["value_pr"].map(format_measurement_value),
-                f"base {base_label} ({unit})": group_df["value_base"].map(format_measurement_value),
-                "ratio (PR/base)": group_df["ratio"].map(format_comparison_ratio),
-            }
-        )
+        has_cold_runs = group_df[["cold_value_pr", "cold_value_base"]].notna().any().any()
+
+        # Each cell carries the PR value, the base value, and the change between
+        # them, so one row fits the three measurements without going ten columns wide.
+        def delta_cell(pr_value: Any, base_value: Any, render: Any = None, mark: bool = True) -> str:
+            return format_delta_cell(pr_value, base_value, improvement_threshold, regression_threshold, render, mark)
+
+        hot_cells = [
+            delta_cell(pr_value, base_value)
+            for pr_value, base_value in zip(group_df["hot_value_pr"], group_df["hot_value_base"])
+        ]
+        columns = {"name": list(group_df["name"])}
+        # Only label the columns hot/cold where the rows actually recorded every run.
+        if has_cold_runs:
+            columns[f"hot {unit} (PR / base / %diff)"] = hot_cells
+            columns[f"cold {unit} (PR / base / %diff)"] = [
+                delta_cell(pr_value, base_value)
+                for pr_value, base_value in zip(group_df["cold_value_pr"], group_df["cold_value_base"])
+            ]
+            columns["hot/cold (PR / base / %diff)"] = [
+                delta_cell(pr_factor, base_factor, format_factor, mark=False)
+                for pr_factor, base_factor in zip(
+                    group_df["hot_value_pr"] / group_df["cold_value_pr"],
+                    group_df["hot_value_base"] / group_df["cold_value_base"],
+                )
+            ]
+        else:
+            columns[f"{unit} (PR / base / %diff)"] = hot_cells
+        display_df = pd.DataFrame(columns)
         print("<details>")
         summary_text = (
             f"{engine} / {file_format} / {unit} "
@@ -1085,7 +1309,7 @@ def main() -> None:
                 index=False,
                 tablefmt="github",
                 disable_numparse=True,
-                colalign=("left", "right", "right", "right"),
+                colalign=tuple("left" for _ in display_df.columns),
             )
         )
         print("")

@@ -28,6 +28,8 @@ use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
+use crate::arrays::Union;
+use crate::arrays::UnionArray;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VariantArray;
@@ -56,12 +58,7 @@ pub(crate) fn take_canonical(
             Canonical::FixedSizeList(take_fixed_size_list(a, codes, ctx))
         }
         CanonicalView::Struct(a) => Canonical::Struct(take_struct(a, codes)),
-        CanonicalView::Union(_) => {
-            todo!(
-                "TODO(connor)[Union]: implement dictionary execution after Union take supports \
-                 nullable indices and outer null propagation"
-            )
-        }
+        CanonicalView::Union(a) => Canonical::Union(take_union(a, codes)),
         CanonicalView::Extension(a) => Canonical::Extension(take_extension(a, codes, ctx)),
         CanonicalView::Variant(a) => {
             let indices = codes.array().clone();
@@ -175,6 +172,15 @@ fn take_struct(array: ArrayView<'_, Struct>, codes: ArrayView<'_, Primitive>) ->
         .vortex_expect("take struct array")
         .vortex_expect("take struct should not return None")
         .as_::<Struct>()
+        .into_owned()
+}
+
+fn take_union(array: ArrayView<'_, Union>, codes: ArrayView<'_, Primitive>) -> UnionArray {
+    let codes_ref = codes.array();
+    <Union as TakeReduce>::take(array, codes_ref)
+        .vortex_expect("take union array")
+        .vortex_expect("take union should not return None")
+        .as_::<Union>()
         .into_owned()
 }
 

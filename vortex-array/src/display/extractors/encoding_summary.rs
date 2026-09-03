@@ -23,7 +23,7 @@ impl EncodingSummaryExtractor {
     }
 }
 
-impl TreeExtractor for EncodingSummaryExtractor {
+impl TreeExtractor<ArrayRef, TreeContext> for EncodingSummaryExtractor {
     fn write_header(
         &self,
         array: &ArrayRef,

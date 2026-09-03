@@ -6,7 +6,7 @@ connector is published to Maven Central in two flavors:
 - `dev.vortex:vortex-spark_2.13` for Spark 4.x (Scala 2.13)
 - `dev.vortex:vortex-spark_2.12` for Spark 3.5.x (Scala 2.12)
 
-Use the `all` classifier JAR (e.g. `vortex-spark_2.13-0.78.0-all.jar`). It is self-contained:
+Use the `all` classifier JAR (e.g. `vortex-spark_2.13-0.85.0-all.jar`). It is self-contained:
 it bundles the Vortex JNI bindings, native libraries for Linux (x86_64 and aarch64) and macOS
 (aarch64), and relocates its Arrow, Guava, and Jackson dependencies to avoid classpath
 conflicts with Spark. The thin (unclassified) JAR does not work on its own because it
@@ -18,7 +18,7 @@ For `spark-shell`, `spark-submit`, or `pyspark`, pass the `all` JAR with `--jars
 accepts either a local path or a URL, so you can point directly at Maven Central:
 
 ```shell
-spark-shell --jars https://repo1.maven.org/maven2/dev/vortex/vortex-spark_2.13/0.78.0/vortex-spark_2.13-0.78.0-all.jar
+spark-shell --jars https://repo1.maven.org/maven2/dev/vortex/vortex-spark_2.13/0.85.0/vortex-spark_2.13-0.85.0-all.jar
 ```
 
 Or equivalently when building a session programmatically, e.g. in PySpark:
@@ -26,13 +26,13 @@ Or equivalently when building a session programmatically, e.g. in PySpark:
 ```python
 spark = (
     SparkSession.builder
-    .config("spark.jars", "/path/to/vortex-spark_2.13-0.78.0-all.jar")
+    .config("spark.jars", "/path/to/vortex-spark_2.13-0.85.0-all.jar")
     .getOrCreate()
 )
 ```
 
 ```{note}
-`--packages dev.vortex:vortex-spark_2.13:0.78.0` does not work: `--packages` cannot select
+`--packages dev.vortex:vortex-spark_2.13:0.85.0` does not work: `--packages` cannot select
 the `all` classifier and resolves the thin JAR, which fails at runtime with
 `NoClassDefFoundError: dev/vortex/relocated/...`.
 ```
@@ -47,7 +47,7 @@ To depend on the connector from a JVM project, add the `all` classifier to the d
 Gradle (Kotlin):
 
 ```kotlin
-implementation("dev.vortex:vortex-spark_2.13:0.78.0:all")
+implementation("dev.vortex:vortex-spark_2.13:0.85.0:all")
 ```
 
 Maven:
@@ -56,7 +56,7 @@ Maven:
 <dependency>
     <groupId>dev.vortex</groupId>
     <artifactId>vortex-spark_2.13</artifactId>
-    <version>0.78.0</version>
+    <version>0.85.0</version>
     <classifier>all</classifier>
 </dependency>
 ```
@@ -78,6 +78,11 @@ When pointed at a directory, the connector discovers all `.vortex` files and cre
 partition per file.
 
 Column pruning is pushed down — only the columns referenced by the query are read from the file.
+
+Filter pushdown is also supported. Comparisons (`=`, `<>`, `>`, `>=`, `<`, `<=`), `IS NULL`,
+`IS NOT NULL`, `IN`, the string predicates `STARTS_WITH`, `ENDS_WITH` and `CONTAINS`, and a bare
+boolean column are evaluated during the native scan. Anything else, including predicates on
+partition columns, is returned to Spark for post-scan evaluation.
 
 ## Writing Vortex Files
 
@@ -187,6 +192,7 @@ INSERT INTO vortex.`/path/to/data` VALUES (1, 'Alice', 20);
 | `TimestampNTZType` | Timestamp (microseconds, no timezone)  |
 | `ArrayType`        | List                                   |
 | `StructType`       | Struct                                 |
+| `MapType`          | Map                                    |
 
 ## S3 Support
 
@@ -198,3 +204,17 @@ Dataset<Row> df = spark.read()
     .option("path", "s3://bucket/path/to/data")
     .load();
 ```
+
+## Azure Support
+
+Azure Data Lake Storage paths work the same way:
+
+```java
+Dataset<Row> df = spark.read()
+    .format("vortex")
+    .option("path", "abfss://container@account.dfs.core.windows.net/path/to/data")
+    .load();
+```
+
+Account keys are read from the Hadoop configuration: any `fs.azure.account.key*` entry is
+forwarded to the native reader as the storage account key.

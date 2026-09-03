@@ -556,7 +556,7 @@ impl ArrayRef {
                 metadata,
                 stats,
             } => {
-                let extractors: [(bool, Box<dyn TreeExtractor>); 5] = [
+                let extractors: [(bool, Box<dyn TreeExtractor<ArrayRef, TreeContext>>); 5] = [
                     (true, Box::new(EncodingSummaryExtractor)),
                     (*stats, Box::new(NbytesExtractor)),
                     (*stats, Box::new(StatsExtractor)),

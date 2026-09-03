@@ -5,12 +5,15 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::list_contains::ListContainsElementReduce;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::array::Sequence;
-use crate::compute::compare::find_intersection_scalar;
+use crate::compute::compare::Intersection;
+use crate::compute::compare::find_intersection;
 
 impl ListContainsElementReduce for Sequence {
     fn list_contains(
@@ -26,22 +29,30 @@ impl ListContainsElementReduce for Sequence {
             .elements()
             .vortex_expect("non-null element (checked in entry)");
 
+        let nullability = list.dtype().nullability() | element.dtype().nullability();
+
         let mut set_indices: Vec<usize> = Vec::new();
         for intercept in list_elements.iter() {
             let Some(intercept) = intercept.as_primitive().pvalue() else {
                 continue;
             };
-            if let Ok(intersection) = find_intersection_scalar(
+            match find_intersection(
                 element.base(),
                 element.multiplier(),
                 element.len(),
                 intercept,
             ) {
-                set_indices.push(intersection)
+                // Non-integer elements do not match the sequence.
+                None | Some(Intersection::None) => {}
+                Some(Intersection::At(idx)) => set_indices.push(idx),
+                Some(Intersection::All) => {
+                    return Ok(Some(
+                        ConstantArray::new(Scalar::bool(true, nullability), element.len())
+                            .into_array(),
+                    ));
+                }
             }
         }
-
-        let nullability = list.dtype().nullability() | element.dtype().nullability();
 
         Ok(Some(
             BoolArray::from_indices(element.len(), set_indices, nullability.into()).into_array(),
@@ -109,5 +120,23 @@ mod tests {
             let expected = BoolArray::from_iter([Some(true), Some(true), Some(false)]);
             assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
         }
+    }
+
+    #[test]
+    fn test_list_contains_constant_sequence() {
+        let list_scalar = Scalar::list(
+            Arc::new(I32.into()),
+            vec![7.into(), 42.into()],
+            Nullability::Nullable,
+        );
+
+        let array = Sequence::try_new_typed(42i32, 0, Nullability::NonNullable, 3)
+            .unwrap()
+            .into_array();
+
+        let expr = list_contains(lit(list_scalar), root());
+        let result = array.apply(&expr).unwrap();
+        let expected = BoolArray::from_iter([Some(true), Some(true), Some(true)]);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
     }
 }

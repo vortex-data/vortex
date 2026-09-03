@@ -7,6 +7,9 @@
 include ../setup.slt.no
 
 statement ok
+SET disabled_optimizers='statistics_propagation';
+
+statement ok
 COPY (
     SELECT * FROM (VALUES
         ('nan'::DOUBLE),
@@ -123,7 +126,7 @@ COPY (
 query IRR
 SELECT count(x), sum(x), max(x) FROM '${WORK_DIR}/all-null.vortex';
 ----
-0 0 NULL
+0 NULL NULL
 
 query R
 SELECT min(x) FROM '${WORK_DIR}/all-null.vortex';

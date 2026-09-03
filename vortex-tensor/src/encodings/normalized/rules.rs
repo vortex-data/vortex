@@ -18,11 +18,6 @@ pub(super) const RULES: ParentRuleSet<Normalized> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&NormalizedFilterRule),
 ]);
 
-/// Pushes a slice through the encoding into both children.
-///
-/// The norm split is row-wise, so any row subset of a [`Normalized`] array is itself a valid
-/// [`Normalized`] array. Rewriting the slice as two child slices keeps the column encoded instead of
-/// canonicalizing it just to throw most of the rows away.
 #[derive(Debug)]
 struct NormalizedSliceRule;
 
@@ -37,12 +32,13 @@ impl ArrayParentReduceRule<Normalized> for NormalizedSliceRule {
     ) -> VortexResult<Option<ArrayRef>> {
         let range = parent.slice_range();
 
-        // SAFETY: Slicing both children preserves their structure.
+        // SAFETY: Slicing every slot with the same range preserves their dtypes and lengths.
         Ok(Some(
             unsafe {
                 Normalized::new_unchecked(
                     array.normalized().slice(range.clone())?,
                     array.norms().slice(range.clone())?,
+                    array.validity()?.slice(range.clone())?,
                 )
             }
             .into_array(),
@@ -50,11 +46,6 @@ impl ArrayParentReduceRule<Normalized> for NormalizedSliceRule {
     }
 }
 
-/// Pushes a filter through the encoding into both children.
-///
-/// Same row-wise argument as [`NormalizedSliceRule`]. Unlike the generic scalar-function push-down,
-/// this always fires: both children are physically per-row, so filtering them is strictly less
-/// work than reconstructing the tensor column and filtering that.
 #[derive(Debug)]
 struct NormalizedFilterRule;
 
@@ -69,12 +60,13 @@ impl ArrayParentReduceRule<Normalized> for NormalizedFilterRule {
     ) -> VortexResult<Option<ArrayRef>> {
         let mask = parent.filter_mask();
 
-        // SAFETY: Filtering both children with the same mask preserves their structure.
+        // SAFETY: Filtering every slot with the same mask preserves their dtypes and lengths.
         Ok(Some(
             unsafe {
                 Normalized::new_unchecked(
                     array.normalized().filter(mask.clone())?,
                     array.norms().filter(mask.clone())?,
+                    array.validity()?.filter(mask)?,
                 )
             }
             .into_array(),
