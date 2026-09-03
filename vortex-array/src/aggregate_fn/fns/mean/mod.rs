@@ -204,12 +204,12 @@ mod tests {
     use super::*;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::DynGroupedAccumulator;
+    use crate::aggregate_fn::GroupIds;
     use crate::aggregate_fn::GroupedAccumulator;
     use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::DecimalArray;
-    use crate::arrays::FixedSizeListArray;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::DecimalDType;
     use crate::validity::Validity;
@@ -437,11 +437,14 @@ mod tests {
     #[test]
     fn mean_grouped_finalize() -> VortexResult<()> {
         let cases = mean_nan_null();
-        let elements = PrimitiveArray::from_option_iter(
-            cases.iter().flat_map(|(group, _)| group.iter().copied()),
+        let values = PrimitiveArray::from_option_iter(
+            (0..3).flat_map(|row| cases.iter().map(move |(group, _)| group[row])),
         )
         .into_array();
-        let groups = FixedSizeListArray::try_new(elements, 3, Validity::NonNullable, cases.len())?;
+        let groups = (0..cases.len())
+            .map(u32::try_from)
+            .collect::<Result<Vec<_>, _>>()?;
+        let group_ids = GroupIds::from_iter(std::iter::repeat_n(groups, 3).flatten(), cases.len())?;
 
         let mut acc = GroupedAccumulator::try_new(
             Mean::combined(),
@@ -452,7 +455,7 @@ mod tests {
             DType::Primitive(PType::F64, Nullability::Nullable),
         )?;
         let mut ctx = array_session().create_execution_ctx();
-        acc.accumulate_list(&groups.into_array(), &mut ctx)?;
+        acc.accumulate(&values, &group_ids, &mut ctx)?;
         let result = acc.finish()?;
 
         for (case, (_, expected)) in cases.into_iter().enumerate() {

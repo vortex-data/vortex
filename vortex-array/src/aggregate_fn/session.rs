@@ -20,8 +20,9 @@ use crate::aggregate_fn::fns::all_non_null::AllNonNull;
 use crate::aggregate_fn::fns::all_null::AllNull;
 use crate::aggregate_fn::fns::bounded_max::BoundedMax;
 use crate::aggregate_fn::fns::bounded_min::BoundedMin;
+use crate::aggregate_fn::fns::count::COUNT_GROUPED_KERNEL;
+use crate::aggregate_fn::fns::count::COUNT_RUN_GROUPED_KERNEL;
 use crate::aggregate_fn::fns::count::Count;
-use crate::aggregate_fn::fns::count::CountGroupedKernel;
 use crate::aggregate_fn::fns::first::First;
 use crate::aggregate_fn::fns::is_constant::IsConstant;
 use crate::aggregate_fn::fns::is_sorted::IsSorted;
@@ -31,9 +32,11 @@ use crate::aggregate_fn::fns::min::Min;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::nan_count::NanCount;
 use crate::aggregate_fn::fns::null_count::NullCount;
-use crate::aggregate_fn::fns::sum::PrimitiveGroupedSumEncodingKernel;
+use crate::aggregate_fn::fns::sum::SUM_GROUPED_KERNEL;
+use crate::aggregate_fn::fns::sum::SUM_RUN_GROUPED_KERNEL;
 use crate::aggregate_fn::fns::sum::Sum;
-use crate::aggregate_fn::fns::sum_v2::PrimitiveGroupedSumV2EncodingKernel;
+use crate::aggregate_fn::fns::sum_v2::SUM_V2_GROUPED_KERNEL;
+use crate::aggregate_fn::fns::sum_v2::SUM_V2_RUN_GROUPED_KERNEL;
 use crate::aggregate_fn::fns::sum_v2::SumV2;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
@@ -42,7 +45,7 @@ use crate::array::ArrayId;
 use crate::array::VTable;
 use crate::arrays::Chunked;
 use crate::arrays::Dict;
-use crate::arrays::Primitive;
+use crate::arrays::PiecewiseSequence;
 use crate::arrays::chunked::compute::aggregate::ChunkedArrayAggregate;
 use crate::arrays::dict::compute::is_constant::DictIsConstantKernel;
 use crate::arrays::dict::compute::is_sorted::DictIsSortedKernel;
@@ -59,8 +62,7 @@ pub struct AggregateFnSession {
     registry: AggregateFnRegistry,
 
     kernels: AggregateKernelRegistry,
-    grouped_kernels: GroupedKernelRegistry,
-    grouped_encoding_kernels: GroupedEncodingKernelRegistry,
+    grouped_kernels: ArcSwapMap<GroupedAggregateKernelKey, &'static dyn DynGroupedAggregateKernel>,
 }
 
 impl SessionVar for AggregateFnSession {
@@ -74,25 +76,39 @@ impl SessionVar for AggregateFnSession {
 }
 
 type AggregateKernelKey = (ArrayId, Option<AggregateFnId>);
-type GroupedEncodingKernelKey = (ArrayId, AggregateFnId);
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct GroupedAggregateKernelKey {
+    aggregate_id: AggregateFnId,
+    values_id: Option<ArrayId>,
+    group_ids_id: Option<ArrayId>,
+}
+
+impl GroupedAggregateKernelKey {
+    fn new(
+        aggregate_id: AggregateFnId,
+        values_id: Option<ArrayId>,
+        group_ids_id: Option<ArrayId>,
+    ) -> Self {
+        Self {
+            aggregate_id,
+            values_id,
+            group_ids_id,
+        }
+    }
+}
 
 /// Registry of aggregate function plugins, keyed by aggregate function id.
 type AggregateFnRegistry = ArcSwapMap<AggregateFnId, AggregateFnPluginRef>;
 /// Registry of aggregate kernels, keyed by encoding and optional aggregate function.
 type AggregateKernelRegistry = ArcSwapMap<AggregateKernelKey, &'static dyn DynAggregateKernel>;
-/// Registry of encoding-agnostic grouped aggregate kernels, keyed by aggregate function id.
-type GroupedKernelRegistry = ArcSwapMap<AggregateFnId, &'static dyn DynGroupedAggregateKernel>;
-/// Registry of grouped aggregate kernels, keyed by encoding and aggregate function.
-type GroupedEncodingKernelRegistry =
-    ArcSwapMap<GroupedEncodingKernelKey, &'static dyn DynGroupedAggregateKernel>;
 
 impl Default for AggregateFnSession {
     fn default() -> Self {
         let this = Self {
-            registry: AggregateFnRegistry::default(),
-            kernels: AggregateKernelRegistry::default(),
-            grouped_kernels: GroupedKernelRegistry::default(),
-            grouped_encoding_kernels: GroupedEncodingKernelRegistry::default(),
+            registry: ArcSwapMap::default(),
+            kernels: ArcSwapMap::default(),
+            grouped_kernels: ArcSwapMap::default(),
         };
 
         // Register the built-in aggregate functions
@@ -121,19 +137,15 @@ impl Default for AggregateFnSession {
         this.register_aggregate_kernel(Dict.id(), Some(MinMax.id()), &DictMinMaxKernel);
         this.register_aggregate_kernel(Dict.id(), Some(IsConstant.id()), &DictIsConstantKernel);
         this.register_aggregate_kernel(Dict.id(), Some(IsSorted.id()), &DictIsSortedKernel);
+        this.register_grouped_kernel(Count.id(), None, None, &COUNT_GROUPED_KERNEL);
+        this.register_grouped_kernel(Sum.id(), None, None, &SUM_GROUPED_KERNEL);
+        this.register_grouped_kernel(SumV2.id(), None, None, &SUM_V2_GROUPED_KERNEL);
 
-        // Register the built-in grouped aggregate kernels.
-        this.register_grouped_kernel(Count.id(), &CountGroupedKernel);
-        this.register_grouped_encoding_kernel(
-            Primitive.id(),
-            Sum.id(),
-            &PrimitiveGroupedSumEncodingKernel,
-        );
-        this.register_grouped_encoding_kernel(
-            Primitive.id(),
-            SumV2.id(),
-            &PrimitiveGroupedSumV2EncodingKernel,
-        );
+        // Run-encoded group ids let a kernel reduce a whole run per group.
+        let runs = PiecewiseSequence.id();
+        this.register_grouped_kernel(Count.id(), None, Some(runs), &COUNT_RUN_GROUPED_KERNEL);
+        this.register_grouped_kernel(Sum.id(), None, Some(runs), &SUM_RUN_GROUPED_KERNEL);
+        this.register_grouped_kernel(SumV2.id(), None, Some(runs), &SUM_V2_RUN_GROUPED_KERNEL);
 
         this
     }
@@ -203,54 +215,62 @@ impl AggregateFnSession {
         self.kernels.insert(id, kernel);
     }
 
-    /// Returns the grouped aggregate kernel registered for `agg_fn_id`, if any.
+    /// Returns the grouped aggregate kernel registered for this aggregate and pair of encodings.
     ///
-    /// These kernels are independent of the element encoding and are checked for each element
-    /// representation, after any kernel registered for the current element encoding.
+    /// Lookup first checks the exact `(aggregate, values encoding, group ids encoding)` key, then
+    /// falls back through `(aggregate, values encoding, any group ids)`, `(aggregate, any values,
+    /// group ids encoding)`, and finally `(aggregate, any values, any group ids)`.
     pub fn find_grouped_kernel(
         &self,
         agg_fn_id: impl Into<AggregateFnId>,
+        values_id: impl Into<ArrayId>,
+        group_ids_id: impl Into<ArrayId>,
     ) -> Option<&'static dyn DynGroupedAggregateKernel> {
         let fn_id = agg_fn_id.into();
-        self.grouped_kernels
-            .read(|kernels| kernels.get(&fn_id).copied())
+        let values_id = values_id.into();
+        let group_ids_id = group_ids_id.into();
+        self.grouped_kernels.read(|kernels| {
+            kernels
+                .get(&GroupedAggregateKernelKey::new(
+                    fn_id,
+                    Some(values_id),
+                    Some(group_ids_id),
+                ))
+                .or_else(|| {
+                    kernels.get(&GroupedAggregateKernelKey::new(
+                        fn_id,
+                        Some(values_id),
+                        None,
+                    ))
+                })
+                .or_else(|| {
+                    kernels.get(&GroupedAggregateKernelKey::new(
+                        fn_id,
+                        None,
+                        Some(group_ids_id),
+                    ))
+                })
+                .or_else(|| kernels.get(&GroupedAggregateKernelKey::new(fn_id, None, None)))
+                .copied()
+        })
     }
 
-    /// Registers a grouped aggregate kernel for an aggregate function.
+    /// Registers a grouped aggregate kernel.
+    ///
+    /// `values_id` and `group_ids_id` are optional wildcards. Passing `None` for either dimension
+    /// makes the kernel a fallback for that encoding dimension.
     pub fn register_grouped_kernel(
         &self,
         agg_fn_id: impl Into<AggregateFnId>,
+        values_id: Option<ArrayId>,
+        group_ids_id: Option<ArrayId>,
         kernel: &'static dyn DynGroupedAggregateKernel,
     ) {
         let fn_id = agg_fn_id.into();
-        self.grouped_kernels.insert(fn_id, kernel)
-    }
-
-    /// Returns the grouped aggregate kernel registered for `array_id` and `agg_fn_id`, if any.
-    ///
-    /// These kernels are matched against each intermediate element encoding while the grouped
-    /// accumulator executes the element array.
-    pub fn find_grouped_encoding_kernel(
-        &self,
-        array_id: impl Into<ArrayId>,
-        agg_fn_id: impl Into<AggregateFnId>,
-    ) -> Option<&'static dyn DynGroupedAggregateKernel> {
-        let id = array_id.into();
-        let fn_id = agg_fn_id.into();
-        self.grouped_encoding_kernels
-            .read(|kernels| kernels.get(&(id, fn_id)).copied())
-    }
-
-    /// Registers a grouped aggregate kernel for a specific aggregate function and array encoding.
-    pub fn register_grouped_encoding_kernel(
-        &self,
-        array_id: impl Into<ArrayId>,
-        agg_fn_id: impl Into<AggregateFnId>,
-        kernel: &'static dyn DynGroupedAggregateKernel,
-    ) {
-        let id = array_id.into();
-        let fn_id = agg_fn_id.into();
-        self.grouped_encoding_kernels.insert((id, fn_id), kernel)
+        self.grouped_kernels.insert(
+            GroupedAggregateKernelKey::new(fn_id, values_id, group_ids_id),
+            kernel,
+        )
     }
 }
 
@@ -262,3 +282,88 @@ pub trait AggregateFnSessionExt: SessionExt {
     }
 }
 impl<S: SessionExt> AggregateFnSessionExt for S {}
+
+#[cfg(test)]
+mod tests {
+    use std::any::Any;
+
+    use vortex_error::VortexResult;
+    use vortex_session::registry::CachedId;
+
+    use super::*;
+    use crate::ArrayRef;
+    use crate::ExecutionCtx;
+    use crate::aggregate_fn::AggregateFnRef;
+    use crate::aggregate_fn::GroupIds;
+    use crate::arrays::Constant;
+    use crate::arrays::Primitive;
+
+    #[derive(Debug)]
+    struct TestGroupedKernel;
+
+    impl DynGroupedAggregateKernel for TestGroupedKernel {
+        fn grouped_accumulate(
+            &self,
+            _aggregate_fn: &AggregateFnRef,
+            _batch: &ArrayRef,
+            _group_ids: &GroupIds,
+            _states: &mut dyn Any,
+            _ctx: &mut ExecutionCtx,
+        ) -> VortexResult<bool> {
+            Ok(false)
+        }
+    }
+
+    static GENERIC_KERNEL: TestGroupedKernel = TestGroupedKernel;
+    static GROUP_IDS_KERNEL: TestGroupedKernel = TestGroupedKernel;
+    static VALUES_KERNEL: TestGroupedKernel = TestGroupedKernel;
+    static EXACT_KERNEL: TestGroupedKernel = TestGroupedKernel;
+
+    fn assert_same_kernel(
+        actual: Option<&'static dyn DynGroupedAggregateKernel>,
+        expected: &'static dyn DynGroupedAggregateKernel,
+    ) {
+        assert!(std::ptr::eq(
+            actual.expect("expected registered grouped kernel"),
+            expected
+        ));
+    }
+
+    #[test]
+    fn grouped_kernel_lookup_prefers_exact_then_value_then_group_ids() {
+        let session = AggregateFnSession::default();
+        static AGGREGATE_ID: CachedId = CachedId::new("test.grouped_lookup");
+        let aggregate_id = *AGGREGATE_ID;
+        let values_id = Primitive.id();
+        let group_ids_id = Constant.id();
+
+        session.register_grouped_kernel(aggregate_id, None, None, &GENERIC_KERNEL);
+        assert_same_kernel(
+            session.find_grouped_kernel(aggregate_id, values_id, group_ids_id),
+            &GENERIC_KERNEL,
+        );
+
+        session.register_grouped_kernel(aggregate_id, None, Some(group_ids_id), &GROUP_IDS_KERNEL);
+        assert_same_kernel(
+            session.find_grouped_kernel(aggregate_id, values_id, group_ids_id),
+            &GROUP_IDS_KERNEL,
+        );
+
+        session.register_grouped_kernel(aggregate_id, Some(values_id), None, &VALUES_KERNEL);
+        assert_same_kernel(
+            session.find_grouped_kernel(aggregate_id, values_id, group_ids_id),
+            &VALUES_KERNEL,
+        );
+
+        session.register_grouped_kernel(
+            aggregate_id,
+            Some(values_id),
+            Some(group_ids_id),
+            &EXACT_KERNEL,
+        );
+        assert_same_kernel(
+            session.find_grouped_kernel(aggregate_id, values_id, group_ids_id),
+            &EXACT_KERNEL,
+        );
+    }
+}

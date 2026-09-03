@@ -2,8 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod grouped;
+mod grouped_state;
 
-pub(crate) use grouped::PrimitiveGroupedSumV2EncodingKernel;
+pub(crate) use grouped::SUM_V2_GROUPED_KERNEL;
+pub(crate) use grouped::SUM_V2_RUN_GROUPED_KERNEL;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -11,6 +13,7 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use self::grouped_state::SumV2GroupedState;
 use crate::ArrayRef;
 use crate::ArrayView;
 use crate::Canonical;
@@ -20,6 +23,7 @@ use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
+use crate::aggregate_fn::GroupedState;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::sum::Sum;
 use crate::aggregate_fn::fns::sum::SumState;
@@ -120,6 +124,20 @@ impl AggregateFnVTable for SumV2 {
             is_empty: true,
             skip_nans: options.skip_nans,
         })
+    }
+
+    fn grouped_state(
+        &self,
+        options: &Self::Options,
+        input_dtype: &DType,
+        _partial_dtype: &DType,
+    ) -> VortexResult<Box<dyn GroupedState>> {
+        let sum_dtype = self
+            .return_dtype(options, input_dtype)
+            .ok_or_else(|| vortex_err!("Unsupported sum_v2 dtype: {}", input_dtype))?;
+        Ok(Box::new(SumV2GroupedState::try_new(
+            sum_dtype.as_nonnullable(),
+        )?))
     }
 
     fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()> {

@@ -2,7 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod grouped;
-pub(crate) use grouped::CountGroupedKernel;
+pub(crate) use grouped::COUNT_GROUPED_KERNEL;
+pub(crate) use grouped::COUNT_RUN_GROUPED_KERNEL;
+use grouped::CountGroupedState;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::registry::CachedId;
@@ -10,10 +12,13 @@ use vortex_session::registry::CachedId;
 use crate::ArrayRef;
 use crate::Columnar;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::GroupedState;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::nan_count::nan_count;
+use crate::arrays::PrimitiveArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -69,6 +74,15 @@ impl AggregateFnVTable for Count {
         })
     }
 
+    fn grouped_state(
+        &self,
+        _options: &Self::Options,
+        _input_dtype: &DType,
+        _partial_dtype: &DType,
+    ) -> VortexResult<Box<dyn GroupedState>> {
+        Ok(Box::new(CountGroupedState::default()))
+    }
+
     fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()> {
         let val = other
             .as_primitive()
@@ -80,6 +94,16 @@ impl AggregateFnVTable for Count {
 
     fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
         Ok(Scalar::primitive(partial.count, Nullability::NonNullable))
+    }
+
+    fn partials_to_array(
+        &self,
+        partials: &[Self::Partial],
+        _partial_dtype: &DType,
+    ) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(
+            PrimitiveArray::from_iter(partials.iter().map(|partial| partial.count)).into_array(),
+        ))
     }
 
     fn reset(&self, partial: &mut Self::Partial) {

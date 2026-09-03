@@ -15,9 +15,12 @@ use crate::IntoArray;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynGroupedAccumulator;
 use crate::aggregate_fn::GroupedAccumulator;
+use crate::aggregate_fn::GroupedArray;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::sum_v2::SumV2;
 use crate::arrays::ConstantArray;
+use crate::arrays::FixedSizeList;
+use crate::arrays::ListView;
 use crate::dtype::DType;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -124,15 +127,33 @@ impl ScalarFnVTable for ListSum {
 }
 
 /// Sum each list of a canonical `array` into one value per list.
+///
+/// `SumV2` already nulls empty and all-null lists, but dense group ids cannot express a null
+/// group, so those are restored afterwards.
 fn list_sum_impl(
     canonical: ArrayRef,
     elem_dtype: DType,
     options: &NumericalAggregateOpts,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
+    let grouped: GroupedArray = if let Some(fsl) = canonical.as_opt::<FixedSizeList>() {
+        fsl.into_owned().into()
+    } else if let Some(lv) = canonical.as_opt::<ListView>() {
+        lv.into_owned().into()
+    } else {
+        let dtype = canonical.dtype();
+        vortex_bail!("list_sum() requires List or FixedSizeList but got {dtype}")
+    };
+
+    let ranges = grouped.group_ranges(ctx)?;
+    let group_validity = grouped.group_validity(ctx)?;
+
+    let (values, group_ids) = grouped.dense_input_with(&ranges, &group_validity)?;
     let mut acc = GroupedAccumulator::try_new(SumV2, *options, elem_dtype)?;
-    acc.accumulate_list(&canonical, ctx)?;
-    acc.finish()
+    acc.accumulate(&values, &group_ids, ctx)?;
+    let sums = acc.finish()?;
+
+    GroupedArray::mask_null_groups(sums, &group_validity)
 }
 
 #[cfg(test)]

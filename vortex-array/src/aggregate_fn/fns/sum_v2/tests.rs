@@ -3,13 +3,16 @@
 
 use prost::Message;
 use rstest::rstest;
+use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_proto::expr as pb;
 
 use super::SumV2;
 use super::sum_v2;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::Accumulator;
@@ -18,7 +21,9 @@ use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::AggregateFnVTableExt;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::DynGroupedAccumulator;
+use crate::aggregate_fn::GroupIds;
 use crate::aggregate_fn::GroupedAccumulator;
+use crate::aggregate_fn::GroupedArray;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::sum::Sum;
 use crate::array_session;
@@ -26,6 +31,7 @@ use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
+use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
@@ -297,6 +303,118 @@ fn combine_partials_overflow_is_absorbing() -> VortexResult<()> {
     Ok(())
 }
 
+/// Run-encoded ids must agree with the same ids materialized one per row, empty groups included.
+#[test]
+fn grouped_run_ids_match_dense_ids() -> VortexResult<()> {
+    let values = PrimitiveArray::from_option_iter([
+        Some(5i64),
+        None,
+        Some(3),
+        None,
+        None,
+        Some(i64::MAX),
+        Some(1),
+        Some(7),
+    ])
+    .into_array();
+    // An empty group, an all-null group, and a group that overflows.
+    let lengths = buffer![3u64, 0, 2, 2, 1];
+    let num_groups = lengths.len();
+    let group_ids: Buffer<u32> = (0..num_groups)
+        .map(u32::try_from)
+        .collect::<Result<_, _>>()?;
+    let dtype = DType::Primitive(PType::I64, Nullable);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let mut runs =
+        GroupedAccumulator::try_new(SumV2, NumericalAggregateOpts::default(), dtype.clone())?;
+    runs.accumulate(
+        &values,
+        &GroupIds::from_runs(group_ids.clone(), lengths.clone(), num_groups)?,
+        &mut ctx,
+    )?;
+    let runs = runs.finish()?;
+
+    let ids = group_ids
+        .as_ref()
+        .iter()
+        .zip(lengths.as_ref())
+        .flat_map(|(&group_id, &length)| {
+            std::iter::repeat_n(group_id, usize::try_from(length).unwrap_or_default())
+        });
+    let mut dense = GroupedAccumulator::try_new(SumV2, NumericalAggregateOpts::default(), dtype)?;
+    dense.accumulate(&values, &GroupIds::from_iter(ids, num_groups)?, &mut ctx)?;
+    let dense = dense.finish()?;
+
+    // Groups 1 and 3 saw no value, so both finalize to null rather than zero.
+    let expected =
+        PrimitiveArray::from_option_iter([Some(8i64), None, None, None, Some(7)]).into_array();
+    assert_arrays_eq!(&runs, &expected, &mut ctx);
+    assert_arrays_eq!(&runs, &dense, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn grouped_dense_ids_repeat_reorder_and_omit_groups() -> VortexResult<()> {
+    let values =
+        PrimitiveArray::from_option_iter([Some(1i64), None, Some(3), Some(4), Some(5), Some(6)])
+            .into_array();
+    let mut accumulator = GroupedAccumulator::try_new(
+        SumV2,
+        NumericalAggregateOpts::default(),
+        DType::Primitive(PType::I64, Nullable),
+    )?;
+    let mut ctx = array_session().create_execution_ctx();
+    accumulator.accumulate(
+        &values,
+        &GroupIds::from_iter([2u32, 0, 2, 0, 2, 0], 4)?,
+        &mut ctx,
+    )?;
+
+    // Group 1 saw no value at all and group 0 saw only nulls, so both stay empty and finalize to
+    // null; the out-of-order ids still sum into the right groups.
+    let result = accumulator.finish()?;
+    let expected =
+        PrimitiveArray::from_option_iter([Some(10i64), None, Some(9), None]).into_array();
+    assert_arrays_eq!(&result, &expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn grouped_dense_overflow_is_group_local() -> VortexResult<()> {
+    let values =
+        PrimitiveArray::from_option_iter([Some(i64::MAX), Some(1), Some(2), Some(3)]).into_array();
+    let mut accumulator = GroupedAccumulator::try_new(
+        SumV2,
+        NumericalAggregateOpts::default(),
+        DType::Primitive(PType::I64, Nullable),
+    )?;
+    let mut ctx = array_session().create_execution_ctx();
+    accumulator.accumulate(&values, &GroupIds::from_iter([0u32, 0, 1, 1], 2)?, &mut ctx)?;
+
+    let result = accumulator.finish()?;
+    let expected = PrimitiveArray::from_option_iter([None, Some(5i64)]).into_array();
+    assert_arrays_eq!(&result, &expected, &mut ctx);
+    Ok(())
+}
+
+/// Adapt a canonical list array into dense group ids, accumulate it, and finish with the list
+/// contract restored (test-only helper).
+fn finish_grouped_list(
+    accumulator: &mut GroupedAccumulator<SumV2>,
+    groups: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let grouped: GroupedArray = groups
+        .as_opt::<ListView>()
+        .map(|groups| groups.into_owned().into())
+        .vortex_expect("grouped sum_v2 test requires a canonical list view");
+    let (values, group_ids) = grouped.dense_input(ctx)?;
+    accumulator.accumulate(&values, &group_ids, ctx)?;
+    let sums = accumulator.finish()?;
+    GroupedArray::mask_null_groups(sums, &grouped.group_validity(ctx)?)
+}
+
 #[test]
 fn grouped_primitive_tracks_empty_overflow_and_null_groups() -> VortexResult<()> {
     let elements =
@@ -314,9 +432,7 @@ fn grouped_primitive_tracks_empty_overflow_and_null_groups() -> VortexResult<()>
         DType::Primitive(PType::I64, Nullable),
     )?;
     let mut ctx = array_session().create_execution_ctx();
-    accumulator.accumulate_list(&groups, &mut ctx)?;
-
-    let result = accumulator.finish()?;
+    let result = finish_grouped_list(&mut accumulator, &groups, &mut ctx)?;
     let expected =
         PrimitiveArray::from_option_iter([Some(5i64), None, None, None, None]).into_array();
     assert_arrays_eq!(&result, &expected, &mut ctx);
@@ -339,9 +455,7 @@ fn grouped_bool_fallback_tracks_empty_groups() -> VortexResult<()> {
         DType::Bool(Nullable),
     )?;
     let mut ctx = array_session().create_execution_ctx();
-    accumulator.accumulate_list(&groups, &mut ctx)?;
-
-    let result = accumulator.finish()?;
+    let result = finish_grouped_list(&mut accumulator, &groups, &mut ctx)?;
     let expected = PrimitiveArray::from_option_iter([Some(2u64), None, None]).into_array();
     assert_arrays_eq!(&result, &expected, &mut ctx);
     Ok(())
