@@ -347,6 +347,10 @@ jobs:
         id: fmt
         continue-on-error: true
         run: cargo +$NIGHTLY_TOOLCHAIN fmt --all --check
+      - name: Buffer allocator check
+        id: buffer-allocators
+        continue-on-error: true
+        run: python3 scripts/check-buffer-allocators.py
       - name: Rustc check
         id: check
         continue-on-error: true
@@ -370,6 +374,7 @@ jobs:
           script: |
             const failed = Object.entries({
               fmt: '${{ steps.fmt.outcome }}',
+              'buffer-allocators': '${{ steps.buffer-allocators.outcome }}',
               check: '${{ steps.check.outcome }}',
               'check-release': '${{ steps.check-release.outcome }}',
               'clippy-all': '${{ steps.clippy-all.outcome }}',
