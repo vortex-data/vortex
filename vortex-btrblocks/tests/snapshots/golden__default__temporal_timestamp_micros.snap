@@ -3,9 +3,11 @@ source: vortex-btrblocks/tests/golden.rs
 expression: rendered
 ---
 input: vortex.timestamp[µs, tz=UTC](i64), len=16384, nbytes=131072
-root: vortex.ext(vortex.timestamp[µs, tz=UTC](i64), len=16384) nbytes=67584
+root: vortex.ext(vortex.timestamp[µs, tz=UTC](i64), len=16384) nbytes=65680
   metadata: 
-  storage: fastlanes.for(i64, len=16384) nbytes=67584
+  storage: fastlanes.for(i64, len=16384) nbytes=65680
     metadata: reference: 1700000000891673i64
-    encoded: fastlanes.bitpacked(i64, len=16384) nbytes=67584
-      metadata: bit_width: 33, offset: 0
+    encoded: fastlanes.bitpacked(i64, len=16384) nbytes=65680
+      metadata: bit_widths: 16 chunks, max 33, offset: 0
+      width_table: vortex.primitive(u8, len=16) nbytes=16
+        metadata: ptype: u8

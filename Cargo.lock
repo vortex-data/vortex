@@ -10470,6 +10470,7 @@ dependencies = [
  "codspeed-divan-compat",
  "fastlanes 0.7.0",
  "mimalloc",
+ "parking_lot",
  "parquet 59.2.0",
  "rand 0.10.2",
  "serde_json",
