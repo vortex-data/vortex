@@ -162,6 +162,7 @@ pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
         let sample_count = sample_count_approx_one_percent(array.len());
         // `ArrayAndStats` expects a canonical array (so that it can easily compute lazy stats).
         let canonical: Canonical = sample(array, SAMPLE_SIZE, sample_count).execute(exec_ctx)?;
+        let canonical = canonical.compact(exec_ctx)?;
         canonical.into_array()
     };
 

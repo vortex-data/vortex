@@ -1,0 +1,51 @@
+[package]
+name = "vortex-velox"
+description = "Native adapter contract between Vortex and Velox"
+readme = "README.md"
+publish = false
+version = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+keywords = { workspace = true }
+include = [
+    "cinclude/*.h",
+    "src/**/*.rs",
+    "tests/abi_contract.rs",
+    "tests/velox_include_contract.cpp",
+    "Cargo.toml",
+    "README.md",
+]
+edition = { workspace = true }
+rust-version = { workspace = true }
+categories = { workspace = true }
+
+[dependencies]
+arrow-array = { workspace = true }
+arrow-buffer = { workspace = true }
+arrow-data = { workspace = true }
+arrow-schema = { workspace = true }
+async-fs = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-arrow = { workspace = true }
+vortex-error = { workspace = true }
+vortex-fastlanes = { workspace = true }
+vortex-io = { workspace = true }
+vortex = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+
+[build-dependencies]
+cbindgen = { workspace = true }
+
+[lib]
+name = "vortex_velox"
+crate-type = ["rlib", "staticlib"]
+
+[lints]
+workspace = true

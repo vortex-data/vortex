@@ -1,0 +1,76 @@
+language = "C"
+braces = "SameLine"
+pragma_once = false
+cpp_compat = true
+usize_is_size_t = true
+style = "type"
+
+header = """
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+#pragma once
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+// THIS FILE IS AUTO-GENERATED. DO NOT EDIT IT DIRECTLY.
+
+typedef struct ArrowSchema ArrowSchema;
+typedef struct ArrowArray ArrowArray;
+
+typedef struct vx_velox_error vx_velox_error;
+typedef struct vx_velox_session vx_velox_session;
+typedef struct vx_velox_dtype vx_velox_dtype;
+typedef struct vx_velox_scalar vx_velox_scalar;
+typedef struct vx_velox_expression vx_velox_expression;
+typedef struct vx_velox_data_source vx_velox_data_source;
+typedef struct vx_velox_scan vx_velox_scan;
+typedef struct vx_velox_partition vx_velox_partition;
+typedef struct vx_velox_array vx_velox_array;
+typedef struct vx_velox_export_cursor vx_velox_export_cursor;
+"""
+
+[export]
+exclude = [
+    "AdapterError",
+    "ArrayRef",
+    "CursorExport",
+    "DType",
+    "Expression",
+    "MultiLayoutDataSource",
+    "Nullability",
+    "PType",
+    "PartitionState",
+    "Primitive",
+    "Scalar",
+    "ScanState",
+    "VortexSession",
+    "vx_velox_array",
+    "vx_velox_data_source",
+    "vx_velox_dtype",
+    "vx_velox_error",
+    "vx_velox_expression",
+    "vx_velox_export_cursor",
+    "vx_velox_partition",
+    "vx_velox_scalar",
+    "vx_velox_scan",
+    "vx_velox_session",
+    "vx_velox_test_array_from_arrow_apply",
+    "vx_velox_test_writer",
+    "vx_velox_test_writer_abort",
+    "vx_velox_test_writer_close",
+    "vx_velox_test_writer_new",
+    "vx_velox_test_writer_push",
+]
+
+[export.rename]
+"FFI_ArrowSchema" = "ArrowSchema"
+"FFI_ArrowArray" = "ArrowArray"
+"f16" = "uint16_t"
+
+[parse]
+parse_deps = false
+
+[parse.expand]
+crates = ["vortex-velox"]

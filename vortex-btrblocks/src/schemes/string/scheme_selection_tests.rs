@@ -42,7 +42,48 @@ fn test_dict_compressed() -> VortexResult<()> {
     let array_ref = array.into_array();
     let compressed =
         BtrBlocksCompressor::default().compress(&array_ref, &mut SESSION.create_execution_ctx())?;
-    assert!(compressed.is::<Dict>());
+    assert!(
+        compressed.is::<Dict>(),
+        "expected Dict, got {}",
+        compressed.encoding_id()
+    );
+    Ok(())
+}
+
+#[test]
+fn test_dict_compressed_with_more_values_than_sample() -> VortexResult<()> {
+    let distinct_values = (0..4096)
+        .map(|value| format!("repeated string value {value:04}"))
+        .collect::<Vec<_>>();
+    let strings = (0..65_536)
+        .map(|index| Some(distinct_values[index % distinct_values.len()].as_str()))
+        .collect::<Vec<_>>();
+    let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
+    let compressed = BtrBlocksCompressor::default()
+        .compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
+
+    assert!(
+        compressed.is::<Dict>(),
+        "expected Dict, got {}",
+        compressed.encoding_id()
+    );
+    Ok(())
+}
+
+#[test]
+fn test_unique_strings_not_dict_compressed() -> VortexResult<()> {
+    let strings = (0..4096)
+        .map(|value| Some(format!("unique string value {value:04}")))
+        .collect::<Vec<_>>();
+    let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
+    let compressed = BtrBlocksCompressor::default()
+        .compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
+
+    assert!(
+        !compressed.is::<Dict>(),
+        "expected a non-Dict encoding, got {}",
+        compressed.encoding_id()
+    );
     Ok(())
 }
 

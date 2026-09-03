@@ -24,10 +24,10 @@ use vortex_error::VortexResult;
 
 use crate::CascadingCompressor;
 use crate::builtins::IntDictScheme;
+use crate::builtins::dict::varbinview_dict_compression_ratio;
 use crate::scheme::ChildSelection;
 use crate::scheme::CompressionEstimate;
 use crate::scheme::CompressorContext;
-use crate::scheme::DeferredEstimate;
 use crate::scheme::DescendantExclusion;
 use crate::scheme::EstimateVerdict;
 use crate::scheme::Scheme;
@@ -87,17 +87,18 @@ impl Scheme for StringDictScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        let estimated_distinct_values_count = stats.estimated_distinct_count().vortex_expect(
+        let distinct_values_count = stats.distinct_count().vortex_expect(
             "this must be present since `DictScheme` declared that we need distinct values",
         );
 
         // If > 50% of the values are distinct, skip dictionary scheme.
-        if estimated_distinct_values_count > stats.value_count() / 2 {
+        if distinct_values_count > stats.value_count() / 2 {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        // Let sampling determine the expected ratio.
-        CompressionEstimate::Deferred(DeferredEstimate::Sample)
+        CompressionEstimate::Verdict(EstimateVerdict::Ratio(varbinview_dict_compression_ratio(
+            &stats,
+        )))
     }
 
     fn compress(

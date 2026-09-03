@@ -1100,6 +1100,8 @@ pub fn bound_dynamic(
 /// Creates an expression that checks if a value is contained in a list.
 ///
 /// Returns a boolean array indicating whether the value appears in each list.
+/// A null list produces null. An empty list produces false, including for a null value.
+/// A null value produces null for a nonempty list. Null list members do not match any value.
 ///
 /// ```rust
 /// # use vortex_array::expr::{list_contains, lit, root};

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Fused compare kernel for [`BitPackedArray`] against a constant.
+//! Fused predicate kernel for [`BitPackedArray`].
 //!
 //! Where [`super::stream_predicate`] unpacks a full 1024-element FastLanes block into a scratch
 //! buffer and *then* folds a predicate over it, this path hands the comparison down into the
-//! FastLanes [`BitPackingCompare::unchecked_unpack_cmp`] kernel, which compares each value against
-//! the constant *as it is unpacked*, accumulating the boolean results straight into a 1024-bit
+//! FastLanes [`BitPackingCompare::unchecked_unpack_cmp`] kernel, which evaluates each value
+//! *as it is unpacked*, accumulating the boolean results straight into a 1024-bit
 //! mask (`[u64; 16]`) in transposed FastLanes lane order - one register-resident word per lane, no
 //! `[bool; 1024]` or `[T; 1024]` scratch. A single SIMD [`transpose_bits`] per block then rotates
 //! that mask into logical row order.
@@ -20,7 +20,7 @@
 //! slot with no per-block temporary and only one shared scratch `[u64; 16]`. The leading `offset`
 //! garbage rows are represented as the final [`BitBuffer`] bit offset, which naturally handles
 //! sub-byte slices without copy-aligning. Inline patches are spliced in afterwards by overwriting
-//! the bits at the patched indices with `cmp(patch_value, rhs)`.
+//! the bits at the patched indices with the predicate result.
 //!
 //! [`BitPackedArray`]: crate::BitPackedArray
 //! [`BitBuffer`]: vortex_buffer::BitBuffer
@@ -77,6 +77,46 @@ where
     <T as PhysicalPType>::Physical: BitPacking + NativePType + BitPackingCompare,
     F: Fn(T, T) -> bool + Copy,
 {
+    stream_compare_fused_inner(array, rhs, nullability, cmp, ctx)
+}
+
+/// Evaluates `predicate` while FastLanes unpacks each value.
+pub(super) fn stream_predicate_fused<T, F>(
+    array: ArrayView<'_, BitPacked>,
+    nullability: Nullability,
+    predicate: F,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef>
+where
+    T: NativePType
+        + BitPackedIter
+        + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
+    <T as PhysicalPType>::Physical: BitPacking + NativePType + BitPackingCompare,
+    F: Fn(T) -> bool + Copy,
+{
+    stream_compare_fused_inner(
+        array,
+        T::default(),
+        nullability,
+        move |value, _| predicate(value),
+        ctx,
+    )
+}
+
+fn stream_compare_fused_inner<T, F>(
+    array: ArrayView<'_, BitPacked>,
+    rhs: T,
+    nullability: Nullability,
+    cmp: F,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef>
+where
+    T: NativePType
+        + BitPackedIter
+        + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
+    <T as PhysicalPType>::Physical: BitPacking + NativePType + BitPackingCompare,
+    F: Fn(T, T) -> bool + Copy,
+{
     let len = array.len();
     let bit_width = array.bit_width() as usize;
     let offset = array.offset() as usize;
@@ -84,7 +124,7 @@ where
     // A degenerate width has no packed payload for the fused kernel to consume; defer to the scalar
     // streaming predicate, which handles every layout (including the empty array).
     if len == 0 || bit_width == 0 {
-        return stream_predicate::<T, _>(array, nullability, move |v| cmp(v, rhs), ctx);
+        return stream_predicate::<T, _>(array, nullability, move |value| cmp(value, rhs), ctx);
     }
 
     // Over-allocate to whole 1024-bit blocks in padded coordinates so every block - including the
@@ -121,12 +161,12 @@ where
 
     let mut bits = BitBufferMut::from_buffer(words.into_byte_buffer(), offset, len);
 
-    // Patched indices hold placeholder packed values, so their fused result is meaningless;
-    // overwrite each with the comparison against the real patch value.
+    // Patched indices hold placeholder packed values, so their fused result is meaningless.
+    // Overwrite each result with the predicate for the real patch value.
     // TODO(joe): apply patches per `packed_chunked`.
     if let Some(p) = array.patches() {
         let p_idx = p.indices().clone().execute::<PrimitiveArray>(ctx)?;
-        // TODO(joe): push down cmp??
+        // TODO(joe): push down the predicate.
         let p_val = p.values().clone().execute::<PrimitiveArray>(ctx)?;
         let p_off = p.offset();
         match_each_unsigned_integer_ptype!(p_idx.ptype(), |I| {

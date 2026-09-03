@@ -17,12 +17,14 @@ use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use futures::pin_mut;
 use futures::stream::BoxStream;
+use futures::stream::iter;
 use futures::stream::once;
 use futures::try_join;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Dict;
 use vortex_array::builders::dict::DictConstraints;
 use vortex_array::builders::dict::DictEncoder;
@@ -52,6 +54,8 @@ use crate::sequence::SequencePointer;
 use crate::sequence::SequentialStream;
 use crate::sequence::SequentialStreamAdapter;
 use crate::sequence::SequentialStreamExt;
+
+const DICT_LAYOUT_PROBE_ROWS: usize = 65_536;
 
 /// Constraints for dictionary layout encoding.
 ///
@@ -151,10 +155,11 @@ impl LayoutStrategy for DictStrategy {
         let dtype = stream.dtype().clone();
 
         // 0. decide if chunks are eligible for dict encoding
-        let (stream, first_chunk) = peek_first_chunk(stream).await?;
+        let (stream, probe_chunk) =
+            peek_probe_chunk(stream, &dtype, DICT_LAYOUT_PROBE_ROWS).await?;
         let stream = SequentialStreamAdapter::new(dtype.clone(), stream).sendable();
 
-        let should_fallback = match first_chunk {
+        let should_fallback = match probe_chunk {
             None => true, // empty stream
             Some(chunk) => {
                 let mut exec_ctx = session.create_execution_ctx();
@@ -512,19 +517,43 @@ impl Stream for DictionaryTransformer {
     }
 }
 
-async fn peek_first_chunk(
+async fn peek_probe_chunk(
     mut stream: BoxStream<'static, SequencedChunk>,
+    dtype: &DType,
+    probe_rows: usize,
 ) -> VortexResult<(BoxStream<'static, SequencedChunk>, Option<ArrayRef>)> {
-    match stream.next().await {
-        None => Ok((stream.boxed(), None)),
-        Some(Err(e)) => Err(e),
-        Some(Ok((sequence_id, chunk))) => {
-            let chunk_clone = chunk.clone();
-            let reconstructed_stream =
-                once(async move { Ok((sequence_id, chunk_clone)) }).chain(stream);
-            Ok((reconstructed_stream.boxed(), Some(chunk)))
+    let mut buffered = Vec::new();
+    let mut buffered_rows = 0usize;
+
+    while buffered_rows < probe_rows {
+        match stream.next().await {
+            None => break,
+            Some(Err(error)) => return Err(error),
+            Some(Ok((sequence_id, chunk))) => {
+                buffered_rows += chunk.len();
+                buffered.push((sequence_id, chunk));
+            }
         }
     }
+
+    if buffered.is_empty() {
+        return Ok((stream.boxed(), None));
+    }
+
+    let probe_chunks = buffered
+        .iter()
+        .map(|(_, chunk)| chunk.clone())
+        .collect::<Vec<_>>();
+    let probe_chunk = if probe_chunks.len() == 1 {
+        probe_chunks
+            .into_iter()
+            .next()
+            .vortex_expect("one probe chunk")
+    } else {
+        ChunkedArray::try_new(probe_chunks, dtype.clone())?.into_array()
+    };
+    let reconstructed_stream = iter(buffered.into_iter().map(Ok)).chain(stream);
+    Ok((reconstructed_stream.boxed(), Some(probe_chunk)))
 }
 
 pub fn dict_layout_supported(dtype: &DType) -> bool {
@@ -597,10 +626,14 @@ mod tests {
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::PType;
     use vortex_array::session::ArraySession;
+    use vortex_error::VortexExpect;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use super::DICT_LAYOUT_PROBE_ROWS;
     use super::DictionaryTransformer;
     use super::dict_encode_stream;
+    use super::peek_probe_chunk;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialStream;
     use crate::sequence::SequentialStreamAdapter;
@@ -608,6 +641,35 @@ mod tests {
 
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+
+    #[tokio::test]
+    async fn test_probe_uses_bounded_prefix_and_replays_stream() -> VortexResult<()> {
+        let dtype = DType::Utf8(NonNullable);
+        let chunks = (0..10)
+            .map(|chunk_index| {
+                let value = format!("value_{chunk_index}");
+                VarBinArray::from(vec![value.as_str(); 8192]).into_array()
+            })
+            .collect::<Vec<_>>();
+        let mut pointer = SequenceId::root();
+        let stream = futures::stream::iter(
+            chunks
+                .into_iter()
+                .map(move |chunk| Ok((pointer.advance(), chunk))),
+        )
+        .boxed();
+
+        let (mut replayed, probe) =
+            peek_probe_chunk(stream, &dtype, DICT_LAYOUT_PROBE_ROWS).await?;
+        assert_eq!(probe.vortex_expect("probe chunk").len(), 65_536);
+
+        let mut replayed_rows = 0;
+        while let Some(item) = replayed.next().await {
+            replayed_rows += item?.1.len();
+        }
+        assert_eq!(replayed_rows, 81_920);
+        Ok(())
+    }
 
     /// Regression test for a bug where the codes stream dtype was hardcoded to U16 instead of
     /// using the actual codes dtype from the array. When `max_len <= 255`, the dict encoder

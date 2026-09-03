@@ -16,6 +16,8 @@ use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
 use vortex_array::scalar_fn::fns::cast::Cast;
 use vortex_array::scalar_fn::fns::cast::CastExecuteAdaptor;
+use vortex_array::scalar_fn::fns::list_contains::ListContains;
+use vortex_array::scalar_fn::fns::list_contains::ListContainsElementExecuteAdaptor;
 use vortex_session::VortexSession;
 
 use crate::BitPacked;
@@ -36,4 +38,9 @@ pub(crate) fn initialize(session: &VortexSession) {
     kernels.register_execute_parent_kernel(Filter.id(), BitPacked, FilterExecuteAdaptor(BitPacked));
     kernels.register_execute_parent_kernel(Slice.id(), BitPacked, SliceExecuteAdaptor(BitPacked));
     kernels.register_execute_parent_kernel(Dict.id(), BitPacked, TakeExecuteAdaptor(BitPacked));
+    kernels.register_execute_parent_kernel(
+        ListContains.id(),
+        BitPacked,
+        ListContainsElementExecuteAdaptor(BitPacked),
+    );
 }

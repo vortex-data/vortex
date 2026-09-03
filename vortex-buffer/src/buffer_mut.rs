@@ -408,6 +408,11 @@ impl<T> BufferMut<T> {
         self.capacity
     }
 
+    /// Returns the complete size of the retained backing allocation in bytes.
+    pub fn allocation_size(&self) -> usize {
+        self.allocation.size()
+    }
+
     /// Returns a raw pointer to the buffer's data.
     #[allow(clippy::inline_always)]
     #[inline(always)]
@@ -1000,6 +1005,13 @@ mod test {
         }
 
         assert_eq!(buf.alignment(), Alignment::new(1024));
+    }
+
+    #[test]
+    fn allocation_size_includes_alignment_storage() {
+        let buffer = BufferMut::<u8>::with_capacity_aligned(1, Alignment::new(256));
+
+        assert!(buffer.allocation_size() > buffer.capacity());
     }
 
     #[test]

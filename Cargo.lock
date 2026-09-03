@@ -4042,9 +4042,9 @@ dependencies = [
 
 [[package]]
 name = "fastlanes"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34f6c951d711d8a10f08524071f6171bc95c5f857e8b39d91e36ad6353fc4f4f"
+checksum = "9e218082bba8aee4ba5704355ea1ce1f742facbcf748eadbca90de56aa551cd9"
 dependencies = [
  "const_for",
  "num-traits",
@@ -10468,7 +10468,7 @@ dependencies = [
  "anyhow",
  "arrow-array 59.2.0",
  "codspeed-divan-compat",
- "fastlanes 0.7.0",
+ "fastlanes 0.7.1",
  "mimalloc",
  "parquet 59.2.0",
  "rand 0.10.2",
@@ -10871,7 +10871,7 @@ dependencies = [
  "bindgen",
  "codspeed-criterion-compat-walltime",
  "cudarc",
- "fastlanes 0.7.0",
+ "fastlanes 0.7.1",
  "futures",
  "itertools 0.14.0",
  "kanal",
@@ -11045,7 +11045,7 @@ name = "vortex-fastlanes"
 version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
- "fastlanes 0.7.0",
+ "fastlanes 0.7.1",
  "itertools 0.14.0",
  "lending-iterator",
  "num-traits",
@@ -11054,6 +11054,7 @@ dependencies = [
  "rstest",
  "vortex-alp",
  "vortex-array",
+ "vortex-bench-support",
  "vortex-buffer",
  "vortex-error",
  "vortex-fastlanes",
@@ -11690,6 +11691,28 @@ version = "0.1.0"
 dependencies = [
  "dashmap",
  "hashbrown 0.17.1",
+]
+
+[[package]]
+name = "vortex-velox"
+version = "0.1.0"
+dependencies = [
+ "arrow-array 59.2.0",
+ "arrow-buffer 59.2.0",
+ "arrow-data 59.2.0",
+ "arrow-schema 59.2.0",
+ "async-fs",
+ "bytes",
+ "cbindgen",
+ "futures",
+ "rstest",
+ "vortex",
+ "vortex-array",
+ "vortex-arrow",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-fastlanes",
+ "vortex-io",
 ]
 
 [[package]]
