@@ -30,6 +30,7 @@ use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
 use crate::legacy_session;
 use crate::optimizer::ArrayOptimizer;
@@ -62,6 +63,33 @@ impl Debug for Validity {
             Self::Array(arr) => write!(f, "SomeValid({})", arr.display_values()),
         }
     }
+}
+
+/// Verify that every patch index writes inside `[offset, offset + len)`.
+///
+/// [`crate::patches::Patches::new`] already rejects an out-of-range maximum, but it
+/// derives that maximum from `indices[len - 1]`, which is only the maximum when the
+/// indices are sorted — and sortedness is asserted under `debug_assertions` only.
+/// Indices deserialized from a file can therefore be unsorted and out of range yet
+/// still pass construction, reaching a write loop that indexes without checking, so
+/// each site that writes through patch indices scans the whole slice instead.
+///
+/// The check belongs on `Patches` itself; it lives here for now because that type is
+/// being reworked concurrently.
+pub(crate) fn check_patch_indices<I: IntegerPType>(
+    indices: &[I],
+    offset: usize,
+    len: usize,
+) -> VortexResult<()> {
+    for &index in indices {
+        let index: usize = index.as_();
+        if index < offset || index - offset >= len {
+            vortex_bail!(
+                "patch index {index} with offset {offset} is out of bounds for an array of length {len}"
+            );
+        }
+    }
+    Ok(())
 }
 
 impl Validity {
