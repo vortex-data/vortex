@@ -5,6 +5,8 @@
 
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::varbinview::BinaryView;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -15,32 +17,57 @@ use super::GenerateStatsOptions;
 /// Array of variable-length byte/string values, and relevant stats for compression.
 #[derive(Clone, Debug)]
 pub struct StringStats {
-    /// The estimated number of distinct values, or `None` if not computed.
+    /// The number of distinct values, or `None` if not computed.
     /// This _must_ be non-zero.
-    estimated_distinct_count: Option<u32>,
+    distinct_count: Option<u32>,
+    /// The visible bytes across the distinct values.
+    distinct_value_bytes: Option<u64>,
+    /// The visible bytes across all values.
+    value_bytes: u64,
     /// The number of non-null values.
     value_count: u32,
     /// The number of null values.
     null_count: u32,
 }
 
-/// Estimate the number of distinct values in the var bin view array.
-fn estimate_distinct_count(varbinview: &VarBinViewArray) -> VortexResult<u32> {
-    let views = varbinview.views();
-    // Iterate the views. Two values which are equal must have the same first 8-bytes.
-    // NOTE: there are cases where this performs pessimally, e.g. when we have strings that all
-    // share a 4-byte prefix and have the same length.
-    let mut distinct = HashSet::with_capacity(views.len() / 2);
-    views.iter().for_each(|&view| {
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "approximate uniqueness with view prefix"
-        )]
-        let len_and_prefix = view.as_u128() as u64;
-        distinct.insert(len_and_prefix);
-    });
+/// Returns the bytes referenced by a variable-width view.
+fn view_bytes<'a>(buffers: &[&'a ByteBuffer], view: &'a BinaryView) -> &'a [u8] {
+    if view.is_inlined() {
+        view.as_inlined().value()
+    } else {
+        let reference = view.as_view();
+        &buffers[reference.buffer_index as usize][reference.as_range()]
+    }
+}
 
-    Ok(u32::try_from(distinct.len())?)
+/// Counts distinct values and their visible bytes.
+fn count_distinct_values(
+    varbinview: &VarBinViewArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<(u32, u64)> {
+    let views = varbinview.views();
+    let buffers = varbinview
+        .data_buffers()
+        .iter()
+        .map(|buffer| buffer.as_host())
+        .collect::<Vec<_>>();
+    let validity = varbinview
+        .as_ref()
+        .validity()?
+        .execute_mask(varbinview.len(), ctx)?;
+    let mut distinct = HashSet::with_capacity(views.len() / 2);
+    let mut distinct_value_bytes = 0u64;
+
+    for (index, view) in views.iter().enumerate() {
+        if validity.value(index) {
+            let bytes = view_bytes(&buffers, view);
+            if distinct.insert(bytes) {
+                distinct_value_bytes += bytes.len() as u64;
+            }
+        }
+    }
+
+    Ok((u32::try_from(distinct.len())?, distinct_value_bytes))
 }
 
 impl StringStats {
@@ -55,15 +82,21 @@ impl StringStats {
             .compute_null_count(ctx)
             .ok_or_else(|| vortex_err!("Failed to compute null_count"))?;
         let value_count = input.len() - null_count;
-        let estimated_distinct_count = opts
+        let distinct_values = opts
             .count_distinct_values
-            .then(|| estimate_distinct_count(input))
+            .then(|| count_distinct_values(input, ctx))
             .transpose()?;
+        let (distinct_count, distinct_value_bytes) = distinct_values
+            .map(|(count, bytes)| (Some(count), Some(bytes)))
+            .unwrap_or((None, None));
+        let value_bytes = input.views().iter().map(|view| u64::from(view.len())).sum();
 
         Ok(Self {
             value_count: u32::try_from(value_count)?,
             null_count: u32::try_from(null_count)?,
-            estimated_distinct_count,
+            distinct_count,
+            distinct_value_bytes,
+            value_bytes,
         })
     }
 }
@@ -84,11 +117,19 @@ impl StringStats {
             .vortex_expect("StringStats::generate_opts should not fail")
     }
 
-    /// Returns the estimated number of distinct values, or `None` if not computed.
-    ///
-    /// This estimation is always going to be less than or equal to the actual distinct count.
-    pub fn estimated_distinct_count(&self) -> Option<u32> {
-        self.estimated_distinct_count
+    /// Returns the number of distinct values, or `None` if not computed.
+    pub fn distinct_count(&self) -> Option<u32> {
+        self.distinct_count
+    }
+
+    /// Returns the visible bytes across the distinct values.
+    pub fn distinct_value_bytes(&self) -> Option<u64> {
+        self.distinct_value_bytes
+    }
+
+    /// Returns the visible bytes across all values.
+    pub fn value_bytes(&self) -> u64 {
+        self.value_bytes
     }
 
     /// Returns the number of non-null values.

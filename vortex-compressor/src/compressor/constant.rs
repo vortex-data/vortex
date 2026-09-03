@@ -76,9 +76,7 @@ pub(crate) fn is_constant_for_compression(
     if dtype.is_utf8() || dtype.is_binary() {
         let stats = data.varbinview_stats(exec_ctx);
 
-        // The estimated distinct count is a lower bound on the actual distinct count, so a value
-        // above 1 proves the array is not constant without scanning it.
-        if stats.estimated_distinct_count().is_some_and(|c| c > 1) {
+        if stats.distinct_count().is_some_and(|count| count > 1) {
             return Ok(false);
         }
 

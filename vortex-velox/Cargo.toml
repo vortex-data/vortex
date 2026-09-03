@@ -32,6 +32,7 @@ vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-arrow = { workspace = true }
 vortex-error = { workspace = true }
+vortex-fastlanes = { workspace = true }
 vortex-ffi = { path = "../vortex-ffi" }
 vortex-io = { workspace = true }
 vortex = { workspace = true }

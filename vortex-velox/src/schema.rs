@@ -10,6 +10,7 @@ use vortex_ffi::try_or;
 use vortex_ffi::vx_error;
 
 use crate::source::vx_velox_source;
+use crate::temporal::validate_velox_arrow_type;
 
 /// Export an opened source schema through the Arrow C Data Interface.
 ///
@@ -39,6 +40,9 @@ pub unsafe extern "C-unwind" fn vx_velox_source_export_schema(
             .session()
             .arrow()
             .to_arrow_schema(source.file().dtype())?;
+        for field in arrow_schema.fields() {
+            validate_velox_arrow_type(field.data_type())?;
+        }
         let schema = FFI_ArrowSchema::try_from(&arrow_schema)?;
         unsafe { ptr::write(schema_out, schema) };
         Ok(0)

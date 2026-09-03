@@ -17,7 +17,7 @@ extern "C" {
  * contain general vx_* symbols from linked Vortex FFI objects.
  */
 
-#define VX_VELOX_ABI_VERSION                      1u
+#define VX_VELOX_ABI_VERSION                      5u
 #define VX_VELOX_CAPABILITY_BATCH_READ            (UINT64_C(1) << 0)
 #define VX_VELOX_CAPABILITY_CALLBACK_SOURCE       (UINT64_C(1) << 1)
 #define VX_VELOX_CAPABILITY_NATURAL_SPLITS        (UINT64_C(1) << 2)
@@ -28,9 +28,21 @@ extern "C" {
 #define VX_VELOX_CAPABILITY_NATURAL_SPLIT_PRUNING (UINT64_C(1) << 7)
 /* Vortex checks cancellation before each host read callback. */
 #define VX_VELOX_CAPABILITY_READ_CANCELLATION     (UINT64_C(1) << 8)
+#define VX_VELOX_CAPABILITY_EXPORT_CURSOR         (UINT64_C(1) << 9)
+#define VX_VELOX_CAPABILITY_PLAIN_PROJECTION       (UINT64_C(1) << 10)
+#define VX_VELOX_CAPABILITY_VARBIN_VISITOR         (UINT64_C(1) << 11)
+#define VX_VELOX_CAPABILITY_DICTIONARY_VISITOR     (UINT64_C(1) << 12)
+#define VX_VELOX_CAPABILITY_CONSTANT_VISITOR       (UINT64_C(1) << 13)
+#define VX_VELOX_CAPABILITY_BOOL_VISITOR           (UINT64_C(1) << 14)
+#define VX_VELOX_CAPABILITY_DATE_VISITOR           (UINT64_C(1) << 15)
+#define VX_VELOX_CAPABILITY_DECIMAL_VISITOR        (UINT64_C(1) << 16)
+#define VX_VELOX_CAPABILITY_STRUCT_VISITOR         (UINT64_C(1) << 17)
+#define VX_VELOX_CAPABILITY_LIST_VISITOR           (UINT64_C(1) << 18)
+#define VX_VELOX_CAPABILITY_MAP_VISITOR            (UINT64_C(1) << 19)
 
 typedef struct vx_velox_read_at vx_velox_read_at;
 typedef struct vx_velox_source vx_velox_source;
+typedef struct vx_velox_export_cursor vx_velox_export_cursor;
 
 typedef uint32_t vx_velox_ptype;
 #define VX_VELOX_PTYPE_U8  UINT32_C(0)
@@ -143,6 +155,7 @@ typedef uint32_t vx_velox_primitive_type;
 #define VX_VELOX_PRIMITIVE_F16 UINT32_C(8)
 #define VX_VELOX_PRIMITIVE_F32 UINT32_C(9)
 #define VX_VELOX_PRIMITIVE_F64 UINT32_C(10)
+#define VX_VELOX_PRIMITIVE_I128 UINT32_C(11)
 
 typedef uint32_t vx_velox_validity_kind;
 #define VX_VELOX_VALIDITY_NON_NULLABLE UINT32_C(0)
@@ -163,7 +176,8 @@ typedef struct vx_velox_buffer_owner {
  *
  * Vortex copies values into an allocation with uint64_t alignment. The values
  * allocation rounds values_length up to that alignment. Vortex copies a bitmap
- * into a compact byte allocation with validity_bit_offset set to zero.
+ * into a uint64_t-aligned, word-padded allocation. A window rebases the pointer
+ * and reports its remaining bit offset.
  * buffers.retained_bytes is the exact sum of these allocation sizes.
  *
  * The pointers remain valid through visit_primitive. The host must call retain
@@ -172,6 +186,8 @@ typedef struct vx_velox_buffer_owner {
 typedef struct vx_velox_primitive_view {
     size_t struct_size;
     vx_velox_primitive_type primitive_type;
+    uint32_t decimal_precision;
+    int32_t decimal_scale;
     size_t length;
     const uint8_t *values;
     size_t values_length;
@@ -184,6 +200,173 @@ typedef struct vx_velox_primitive_view {
     size_t validity_alignment;
 } vx_velox_primitive_view;
 
+typedef uint32_t vx_velox_varbin_kind;
+#define VX_VELOX_VARBIN_UTF8   UINT32_C(0)
+#define VX_VELOX_VARBIN_BINARY UINT32_C(1)
+
+typedef struct vx_velox_byte_buffer_view {
+    const uint8_t *data;
+    size_t length;
+} vx_velox_byte_buffer_view;
+
+/**
+ * A stable 16-byte variable-width binary view.
+ *
+ * Values of 12 bytes or fewer occupy data directly. Longer values store four
+ * prefix bytes, a uint32_t buffer index, and a uint32_t byte offset in data.
+ * The host must reject lengths above INT32_MAX. Each outlined range fits its
+ * payload buffer.
+ */
+typedef struct vx_velox_binary_view {
+    uint32_t length;
+    uint8_t data[12];
+} vx_velox_binary_view;
+
+/**
+ * A canonical UTF-8 or binary payload and its owner.
+ *
+ * The view buffer and each payload buffer stay valid through visit_varbin.
+ * The host must retain buffers before it stores pointers after the callback.
+ * buffers.retained_bytes includes all retained allocation capacities.
+ */
+typedef struct vx_velox_varbin_view {
+    size_t struct_size;
+    vx_velox_varbin_kind kind;
+    size_t length;
+    const vx_velox_binary_view *views;
+    size_t views_length;
+    const vx_velox_byte_buffer_view *data_buffers;
+    size_t data_buffer_count;
+    vx_velox_validity_kind validity_kind;
+    const uint8_t *validity;
+    size_t validity_length;
+    size_t validity_bit_offset;
+    vx_velox_buffer_owner buffers;
+    size_t views_alignment;
+    size_t validity_alignment;
+} vx_velox_varbin_view;
+
+/**
+ * A canonical packed Boolean payload and its owner.
+ *
+ * The value and validity buffers use least-significant-bit-first order.
+ * The host must retain buffers before it stores pointers after the callback.
+ */
+typedef struct vx_velox_bool_view {
+    size_t struct_size;
+    size_t length;
+    const uint8_t *values;
+    size_t values_length;
+    size_t values_bit_offset;
+    vx_velox_validity_kind validity_kind;
+    const uint8_t *validity;
+    size_t validity_length;
+    size_t validity_bit_offset;
+    vx_velox_buffer_owner buffers;
+    size_t values_alignment;
+    size_t validity_alignment;
+} vx_velox_bool_view;
+
+/**
+ * A dictionary payload for one output window.
+ *
+ * codes owns the integer code buffers. values remains valid only during the
+ * callback. The host can visit the prepared cursor during that callback.
+ */
+typedef struct vx_velox_dictionary_view {
+    size_t struct_size;
+    size_t length;
+    vx_velox_primitive_view codes;
+    const vx_velox_export_cursor *values;
+    size_t values_length;
+} vx_velox_dictionary_view;
+
+/**
+ * A constant payload for one output window.
+ *
+ * value contains one canonical value. It remains valid only during the
+ * callback. The host can visit the prepared cursor during that callback.
+ */
+typedef struct vx_velox_constant_view {
+    size_t struct_size;
+    size_t length;
+    const vx_velox_export_cursor *value;
+} vx_velox_constant_view;
+
+/**
+ * A canonical struct payload for one output window.
+ *
+ * fields contains borrowed prepared cursors in declaration order. The host
+ * visits each field cursor at offset for length rows during this callback.
+ * buffers owns only the parent validity buffer.
+ */
+typedef struct vx_velox_struct_view {
+    size_t struct_size;
+    size_t length;
+    size_t offset;
+    const vx_velox_export_cursor *const *fields;
+    size_t field_count;
+    vx_velox_validity_kind validity_kind;
+    const uint8_t *validity;
+    size_t validity_length;
+    size_t validity_bit_offset;
+    vx_velox_buffer_owner buffers;
+    size_t validity_alignment;
+} vx_velox_struct_view;
+
+/**
+ * A canonical list window.
+ *
+ * offsets and sizes start at the requested parent window. Offset values remain
+ * absolute against the complete elements cursor. buffers retains the complete
+ * prepared metadata allocation. The host must retain buffers before it stores
+ * a metadata pointer. elements is borrowed during the callback. Vectors
+ * imported from elements retain their own owners.
+ */
+typedef struct vx_velox_list_view {
+    size_t struct_size;
+    size_t length;
+    const int32_t *offsets;
+    const int32_t *sizes;
+    const vx_velox_export_cursor *elements;
+    size_t elements_length;
+    vx_velox_validity_kind validity_kind;
+    const uint8_t *validity;
+    size_t validity_length;
+    size_t validity_bit_offset;
+    vx_velox_buffer_owner buffers;
+    size_t offsets_alignment;
+    size_t sizes_alignment;
+    size_t validity_alignment;
+} vx_velox_list_view;
+
+/**
+ * A canonical map window.
+ *
+ * offsets and sizes start at the requested parent window. Offset values remain
+ * absolute against the complete key and value cursors. buffers retains the
+ * complete prepared metadata allocation. The child cursors are borrowed during
+ * the callback. Vectors imported from them retain their own owners.
+ */
+typedef struct vx_velox_map_view {
+    size_t struct_size;
+    size_t length;
+    const int32_t *offsets;
+    const int32_t *sizes;
+    const vx_velox_export_cursor *keys;
+    const vx_velox_export_cursor *values;
+    size_t entries_length;
+    bool keys_sorted;
+    vx_velox_validity_kind validity_kind;
+    const uint8_t *validity;
+    size_t validity_length;
+    size_t validity_bit_offset;
+    vx_velox_buffer_owner buffers;
+    size_t offsets_alignment;
+    size_t sizes_alignment;
+    size_t validity_alignment;
+} vx_velox_map_view;
+
 typedef struct vx_velox_visit_request {
     size_t struct_size;
     const uint64_t *rows;
@@ -193,7 +376,7 @@ typedef struct vx_velox_visit_request {
 /**
  * Host callbacks for one Vortex array visit.
  *
- * One array visit calls visit_primitive synchronously. If the host shares this
+ * One array visit calls the matching callback synchronously. If the host shares this
  * table between simultaneous visits, callbacks can occur concurrently.
  * last_error returns the calling thread's most recent visitor error. Its string
  * remains valid until the next callback on that thread.
@@ -207,6 +390,13 @@ typedef struct vx_velox_visitor {
     void *context;
     int32_t (*visit_primitive)(void *context, const vx_velox_primitive_view *view);
     const char *(*last_error)(void *context);
+    int32_t (*visit_varbin)(void *context, const vx_velox_varbin_view *view);
+    int32_t (*visit_dictionary)(void *context, const vx_velox_dictionary_view *view);
+    int32_t (*visit_constant)(void *context, const vx_velox_constant_view *view);
+    int32_t (*visit_bool)(void *context, const vx_velox_bool_view *view);
+    int32_t (*visit_struct)(void *context, const vx_velox_struct_view *view);
+    int32_t (*visit_list)(void *context, const vx_velox_list_view *view);
+    int32_t (*visit_map)(void *context, const vx_velox_map_view *view);
 } vx_velox_visitor;
 
 /**
@@ -244,6 +434,7 @@ uint64_t vx_velox_capabilities(void);
 vx_view vx_velox_error_message(const vx_error *error);
 void vx_velox_error_free(const vx_error *error);
 vx_session *vx_velox_session_new(void);
+vx_session *vx_velox_session_clone(const vx_session *session);
 void vx_velox_session_free(const vx_session *session);
 
 const vx_dtype *vx_velox_dtype_new_primitive(vx_velox_ptype ptype,
@@ -254,6 +445,9 @@ vx_scalar *vx_velox_scalar_new_bool(bool value, bool nullable);
 vx_scalar *vx_velox_scalar_new_i8(int8_t value, bool nullable);
 vx_scalar *vx_velox_scalar_new_i16(int16_t value, bool nullable);
 vx_scalar *vx_velox_scalar_new_i32(int32_t value, bool nullable);
+vx_scalar *vx_velox_scalar_new_date_days(int32_t value,
+                                        bool nullable,
+                                        vx_error **error_out);
 vx_scalar *vx_velox_scalar_new_i64(int64_t value, bool nullable);
 vx_scalar *vx_velox_scalar_new_f32(float value, bool nullable);
 vx_scalar *vx_velox_scalar_new_f64(double value, bool nullable);
@@ -279,7 +473,11 @@ vx_expression *vx_velox_expression_or(const vx_expression *const *expressions, s
 vx_expression *vx_velox_expression_not(const vx_expression *child);
 vx_expression *vx_velox_expression_is_null(const vx_expression *child);
 vx_expression *vx_velox_expression_list_contains(const vx_expression *list, const vx_expression *value);
+bool vx_velox_can_push_down_integer_values(size_t value_count);
 void vx_velox_expression_free(const vx_expression *expression);
+vx_expression *vx_velox_expression_select(const vx_view *names,
+                                          size_t length,
+                                          vx_error **error_out);
 vx_expression *vx_velox_expression_select_with_row_index(const vx_view *names,
                                                          size_t length,
                                                          vx_view row_index_name,
@@ -335,6 +533,32 @@ int32_t vx_velox_array_visit(const vx_session *session,
                              const vx_velox_visit_request *request,
                              const vx_velox_visitor *visitor,
                              vx_error **error_out);
+
+/**
+ * Create one prepared exporter for several engine-sized output windows.
+ *
+ * memory_callbacks must identify a complete, thread-safe callback table.
+ * The exporter retains its callback context until the last buffer owner releases it.
+ */
+vx_velox_export_cursor *vx_velox_export_cursor_new(const vx_session *session,
+                                                   const vx_array *array,
+                                                   const vx_velox_arrow_memory_callbacks *memory_callbacks,
+                                                   vx_error **error_out);
+
+/** Free one prepared exporter. */
+void vx_velox_export_cursor_free(vx_velox_export_cursor *cursor);
+
+/**
+ * Visit one contiguous output window from a prepared exporter.
+ *
+ * Concurrent visit calls are valid. Do not free the cursor before all visits return.
+ */
+int32_t vx_velox_export_cursor_visit(const vx_velox_export_cursor *cursor,
+                                     size_t offset,
+                                     size_t length,
+                                     const vx_velox_visitor *visitor,
+                                     vx_error **error_out);
+
 int32_t vx_velox_array_export_arrow(const vx_session *session,
                                     const vx_array *array,
                                     const vx_velox_arrow_memory_callbacks *memory_callbacks,

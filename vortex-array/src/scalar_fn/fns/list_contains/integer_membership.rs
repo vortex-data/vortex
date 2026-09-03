@@ -8,7 +8,9 @@ use crate::arrays::Constant;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 
-const MAX_SOURCE_MEMBERS: usize = 4;
+/// Maximum source members for the direct integer membership kernel.
+#[doc(hidden)]
+pub const MAX_DIRECT_INTEGER_MEMBERS: usize = 4;
 
 /// A prepared integer set for constant-list membership kernels.
 ///
@@ -44,7 +46,7 @@ impl<T: IntegerPType> IntegerMembership<T> {
         let Some(elements) = list_array.scalar().as_list().values() else {
             return Ok(None);
         };
-        if elements.len() > MAX_SOURCE_MEMBERS {
+        if elements.len() > MAX_DIRECT_INTEGER_MEMBERS {
             return Ok(None);
         }
 

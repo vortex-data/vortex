@@ -12,7 +12,7 @@ typedef struct ArrowArrayStream FFI_ArrowArrayStream;
 #include "vortex_velox.h"
 #undef USE_OWN_ARROW
 
-static_assert(VX_VELOX_ABI_VERSION == 1u);
+static_assert(VX_VELOX_ABI_VERSION == 5u);
 static_assert(VX_VELOX_SELECTION_ALL == 0);
 static_assert(VX_VELOX_OPERATOR_EQ == 0);
 

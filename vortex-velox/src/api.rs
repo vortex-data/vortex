@@ -10,8 +10,11 @@ use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::expr::root;
+use vortex::extension::datetime::Date;
+use vortex::extension::datetime::TimeUnit;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
+use vortex::scalar_fn::fns::list_contains::MAX_DIRECT_INTEGER_MEMBERS;
 use vortex::scalar_fn::fns::operators::Operator;
 use vortex::scan::ScanRequest;
 use vortex::scan::selection::Selection;
@@ -42,6 +45,7 @@ mod ffi {
         pub fn vx_error_message(error: *const vx_error) -> vx_view;
         pub fn vx_error_free(error: *const vx_error);
         pub fn vx_session_new() -> *mut vx_session;
+        pub fn vx_session_clone(session: *const vx_session) -> *mut vx_session;
         pub fn vx_session_free(session: *const vx_session);
         pub fn vx_dtype_free(dtype: *const vx_dtype);
         pub fn vx_scalar_new_bool(value: bool, nullable: bool) -> *mut vx_scalar;
@@ -67,6 +71,11 @@ mod ffi {
             elements: *const *const vx_scalar,
             length: usize,
             nullable: bool,
+            error_out: *mut *mut vx_error,
+        ) -> *mut vx_scalar;
+        pub fn vx_scalar_new_extension(
+            dtype: *const vx_dtype,
+            storage: *const vx_scalar,
             error_out: *mut *mut vx_error,
         ) -> *mut vx_scalar;
         pub fn vx_scalar_free(scalar: *const vx_scalar);
@@ -244,6 +253,18 @@ pub extern "C-unwind" fn vx_velox_session_new() -> *mut vx_session {
     unsafe { ffi::vx_session_new() }
 }
 
+/// Clone a Vortex session.
+///
+/// # Safety
+///
+/// `session` must point to a live Vortex session.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_velox_session_clone(
+    session: *const vx_session,
+) -> *mut vx_session {
+    unsafe { ffi::vx_session_clone(session) }
+}
+
 /// Free a Vortex session.
 ///
 /// # Safety
@@ -334,6 +355,29 @@ scalar_primitive_wrapper!(
     i32,
     "Create an i32 scalar."
 );
+
+/// Create a date scalar that stores days since the Unix epoch.
+///
+/// # Safety
+///
+/// `error_out` must be null or valid for one error pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_velox_scalar_new_date_days(
+    value: i32,
+    nullable: bool,
+    error_out: *mut *mut vx_error,
+) -> *mut vx_scalar {
+    let dtype = vx_dtype_new_with(DType::Extension(
+        Date::new(TimeUnit::Days, Nullability::from(nullable)).erased(),
+    ));
+    let storage = unsafe { ffi::vx_scalar_new_i32(value, nullable) };
+    let scalar = unsafe { ffi::vx_scalar_new_extension(dtype, storage, error_out) };
+    unsafe {
+        ffi::vx_scalar_free(storage);
+        ffi::vx_dtype_free(dtype);
+    }
+    scalar
+}
 scalar_primitive_wrapper!(
     vx_velox_scalar_new_i64,
     vx_scalar_new_i64,
@@ -539,6 +583,12 @@ pub unsafe extern "C" fn vx_velox_expression_list_contains(
     unsafe { ffi::vx_expression_list_contains(list, value) }
 }
 
+/// Return whether Vortex can push down an integer value set without generic expansion.
+#[unsafe(no_mangle)]
+pub extern "C" fn vx_velox_can_push_down_integer_values(value_count: usize) -> bool {
+    value_count <= MAX_DIRECT_INTEGER_MEMBERS
+}
+
 /// Free an expression.
 ///
 /// # Safety
@@ -736,6 +786,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn clones_adapter_session() {
+        let session = vx_velox_session_new();
+        assert!(!session.is_null());
+        let cloned = unsafe { vx_velox_session_clone(session) };
+        assert!(!cloned.is_null());
+        unsafe {
+            vx_velox_session_free(cloned);
+            vx_velox_session_free(session);
+        }
+    }
+
+    #[test]
     fn translates_scan_options() -> VortexResult<()> {
         let options = vx_velox_scan_options {
             struct_size: size_of::<vx_velox_scan_options>(),
@@ -797,6 +859,12 @@ mod tests {
             }
             vx_velox_dtype_free(dtype);
         }
+    }
+
+    #[test]
+    fn reports_direct_integer_membership_limit() {
+        assert!(vx_velox_can_push_down_integer_values(4));
+        assert!(!vx_velox_can_push_down_integer_values(5));
     }
 
     #[test]

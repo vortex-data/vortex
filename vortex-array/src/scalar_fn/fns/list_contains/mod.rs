@@ -8,6 +8,8 @@ use std::ops::BitOr;
 
 use arrow_buffer::bit_iterator::BitIndexIterator;
 pub use integer_membership::IntegerMembership;
+#[doc(hidden)]
+pub use integer_membership::MAX_DIRECT_INTEGER_MEMBERS;
 pub use kernel::*;
 use num_traits::Zero;
 use vortex_buffer::BitBuffer;

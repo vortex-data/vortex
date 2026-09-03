@@ -56,11 +56,26 @@ mod tests {
         "_Static_assert(sizeof(vx_velox_validity_kind) == sizeof(uint32_t), \"validity width\");\n",
     );
         source.push_str(
+            "_Static_assert(sizeof(vx_velox_varbin_kind) == sizeof(uint32_t), \"varbin width\");\n",
+        );
+        source.push_str(
             "_Static_assert(VX_VELOX_PTYPE_F64 == 10, \"ptype value\");\n\
          _Static_assert(VX_VELOX_OPERATOR_KLEENE_OR == 7, \"operator value\");\n\
          _Static_assert(VX_VELOX_SELECTION_EXCLUDE == 2, \"selection value\");\n\
          _Static_assert(VX_VELOX_PRIMITIVE_F64 == 10, \"primitive value\");\n\
-         _Static_assert(VX_VELOX_VALIDITY_BITMAP == 3, \"validity value\");\n",
+         _Static_assert(VX_VELOX_PRIMITIVE_I128 == 11, \"i128 primitive value\");\n\
+         _Static_assert(VX_VELOX_VALIDITY_BITMAP == 3, \"validity value\");\n\
+         _Static_assert(VX_VELOX_VARBIN_BINARY == 1, \"varbin value\");\n\
+         _Static_assert(VX_VELOX_CAPABILITY_VARBIN_VISITOR == (UINT64_C(1) << 11), \"varbin capability\");\n\
+         _Static_assert(VX_VELOX_CAPABILITY_DICTIONARY_VISITOR == (UINT64_C(1) << 12), \"dictionary capability\");\n\
+         _Static_assert(VX_VELOX_CAPABILITY_CONSTANT_VISITOR == (UINT64_C(1) << 13), \"constant capability\");\n\
+         _Static_assert(VX_VELOX_CAPABILITY_BOOL_VISITOR == (UINT64_C(1) << 14), \"Boolean capability\");\n\
+         _Static_assert(VX_VELOX_CAPABILITY_DATE_VISITOR == (UINT64_C(1) << 15), \"date capability\");\n\
+         _Static_assert(VX_VELOX_CAPABILITY_DECIMAL_VISITOR == (UINT64_C(1) << 16), \"decimal capability\");\n\
+         _Static_assert(VX_VELOX_CAPABILITY_STRUCT_VISITOR == (UINT64_C(1) << 17), \"struct capability\");\n",
+        );
+        source.push_str(
+            "_Static_assert(VX_VELOX_CAPABILITY_LIST_VISITOR == (UINT64_C(1) << 18), \"list capability\");\n",
         );
 
         macro_rules! check_layout {
@@ -127,9 +142,110 @@ mod tests {
             [
                 struct_size,
                 primitive_type,
+                decimal_precision,
+                decimal_scale,
                 length,
                 values,
                 values_length,
+                validity_kind,
+                validity,
+                validity_length,
+                validity_bit_offset,
+                buffers,
+                values_alignment,
+                validity_alignment,
+            ]
+        );
+        check_layout!(vx_velox_byte_buffer_view, [data, length]);
+        check_layout!(vx_velox_binary_view, [length, data]);
+        check_layout!(
+            vx_velox_varbin_view,
+            [
+                struct_size,
+                kind,
+                length,
+                views,
+                views_length,
+                data_buffers,
+                data_buffer_count,
+                validity_kind,
+                validity,
+                validity_length,
+                validity_bit_offset,
+                buffers,
+                views_alignment,
+                validity_alignment,
+            ]
+        );
+        check_layout!(
+            vx_velox_dictionary_view,
+            [struct_size, length, codes, values, values_length]
+        );
+        check_layout!(vx_velox_constant_view, [struct_size, length, value]);
+        check_layout!(
+            vx_velox_struct_view,
+            [
+                struct_size,
+                length,
+                offset,
+                fields,
+                field_count,
+                validity_kind,
+                validity,
+                validity_length,
+                validity_bit_offset,
+                buffers,
+                validity_alignment,
+            ]
+        );
+        check_layout!(
+            vx_velox_list_view,
+            [
+                struct_size,
+                length,
+                offsets,
+                sizes,
+                elements,
+                elements_length,
+                validity_kind,
+                validity,
+                validity_length,
+                validity_bit_offset,
+                buffers,
+                offsets_alignment,
+                sizes_alignment,
+                validity_alignment,
+            ]
+        );
+        check_layout!(
+            vx_velox_map_view,
+            [
+                struct_size,
+                length,
+                offsets,
+                sizes,
+                keys,
+                values,
+                entries_length,
+                keys_sorted,
+                validity_kind,
+                validity,
+                validity_length,
+                validity_bit_offset,
+                buffers,
+                offsets_alignment,
+                sizes_alignment,
+                validity_alignment,
+            ]
+        );
+        check_layout!(
+            vx_velox_bool_view,
+            [
+                struct_size,
+                length,
+                values,
+                values_length,
+                values_bit_offset,
                 validity_kind,
                 validity,
                 validity_length,
@@ -148,6 +264,13 @@ mod tests {
                 context,
                 visit_primitive,
                 last_error,
+                visit_varbin,
+                visit_dictionary,
+                visit_constant,
+                visit_bool,
+                visit_struct,
+                visit_list,
+                visit_map,
             ]
         );
         check_layout!(

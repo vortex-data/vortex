@@ -32,6 +32,8 @@ use vortex_ffi::vx_error;
 use vortex_ffi::vx_session;
 use vortex_ffi::vx_session_ref;
 
+use crate::temporal::validate_velox_arrow_data;
+
 /// Host memory callbacks for one Arrow C Data export.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -75,11 +77,16 @@ struct ArrowMemoryOwner {
     retained_bytes: usize,
 }
 
-struct ArrowMemoryReservation {
+pub(crate) struct ArrowMemoryReservation {
     callbacks: vx_velox_arrow_memory_callbacks,
     retained_bytes: usize,
     active: bool,
 }
+
+// SAFETY: The callback contract requires a thread-safe retained context.
+unsafe impl Send for ArrowMemoryReservation {}
+// SAFETY: The reservation only reads its callback table until exclusive drop.
+unsafe impl Sync for ArrowMemoryReservation {}
 
 // SAFETY: The callback contract permits the retained context to move between threads.
 unsafe impl Send for ArrowMemoryOwner {}
@@ -109,7 +116,7 @@ unsafe extern "C" fn release_accounted_arrow(array: *mut FFI_ArrowArray) {
 }
 
 impl ArrowMemoryReservation {
-    fn try_new(
+    pub(crate) fn try_new(
         callbacks: vx_velox_arrow_memory_callbacks,
         retained_bytes: usize,
     ) -> VortexResult<Self> {
@@ -139,7 +146,7 @@ impl ArrowMemoryReservation {
         })
     }
 
-    fn reconcile(&mut self, actual_retained_bytes: usize) -> VortexResult<()> {
+    pub(crate) fn reconcile(&mut self, actual_retained_bytes: usize) -> VortexResult<()> {
         match actual_retained_bytes.cmp(&self.retained_bytes) {
             std::cmp::Ordering::Less => {
                 let released = self.retained_bytes - actual_retained_bytes;
@@ -185,7 +192,7 @@ impl Drop for ArrowMemoryReservation {
     }
 }
 
-unsafe fn parse_memory_callbacks(
+pub(crate) unsafe fn parse_memory_callbacks(
     callbacks: *const vx_velox_arrow_memory_callbacks,
 ) -> VortexResult<vx_velox_arrow_memory_callbacks> {
     if callbacks.is_null() {
@@ -253,15 +260,15 @@ fn copy_nulls(nulls: &NullBuffer, data_offset: usize) -> VortexResult<NullBuffer
     let bit_length = data_offset
         .checked_add(nulls.len())
         .ok_or_else(|| vortex_err!("Arrow validity bit count overflow"))?;
-    let mut bytes = vec![0_u8; bit_length.div_ceil(8)];
+    let mut words = vec![0_u64; bit_length.div_ceil(u64::BITS as usize)];
     for index in 0..nulls.len() {
         if nulls.is_valid(index) {
             let bit = data_offset + index;
-            bytes[bit / 8] |= 1 << (bit % 8);
+            words[bit / u64::BITS as usize] |= 1 << (bit % u64::BITS as usize);
         }
     }
     Ok(NullBuffer::new(BooleanBuffer::new(
-        Buffer::from(bytes),
+        Buffer::from_vec(words),
         data_offset,
         nulls.len(),
     )))
@@ -334,7 +341,7 @@ fn attach_memory_owner(
 
 const ARROW_RESERVATION_OVERHEAD: usize = 64 * 1024;
 
-fn conservative_arrow_reservation(
+pub(crate) fn conservative_export_reservation(
     array: &vortex::array::ArrayRef,
     execution: &mut vortex::array::ExecutionCtx,
 ) -> VortexResult<usize> {
@@ -423,7 +430,7 @@ pub unsafe extern "C-unwind" fn vx_velox_array_export_arrow(
         }
 
         let mut execution = session.create_execution_ctx();
-        let reserved_bytes = conservative_arrow_reservation(array, &mut execution)?;
+        let reserved_bytes = conservative_export_reservation(array, &mut execution)?;
         let mut reservation = ArrowMemoryReservation::try_new(memory_callbacks, reserved_bytes)?;
         let mut arrow = session
             .arrow()
@@ -436,6 +443,7 @@ pub unsafe extern "C-unwind" fn vx_velox_array_export_arrow(
                 .arrow()
                 .execute_arrow(compact, None, &mut execution)?;
         }
+        validate_velox_arrow_data(&arrow.to_data())?;
         let schema = FFI_ArrowSchema::try_from(arrow.data_type())?;
         let data = copy_arrow_data(&arrow.to_data())?;
         let retained_bytes = data
@@ -457,6 +465,7 @@ pub unsafe extern "C-unwind" fn vx_velox_array_export_arrow(
 
 #[cfg(test)]
 mod tests {
+    use std::mem::align_of;
     use std::ptr;
     use std::sync::Arc;
     use std::sync::atomic::AtomicBool;
@@ -771,6 +780,22 @@ mod tests {
         drop(source);
         assert_eq!(drops.load(Ordering::Relaxed), 1);
         assert_eq!(copied.buffers()[0].as_slice(), bytes);
+        Ok(())
+    }
+
+    #[test]
+    fn copies_arrow_validity_into_word_padded_storage() -> VortexResult<()> {
+        let source = Int32Array::from(vec![Some(1), None, Some(3)]).to_data();
+        let copied = copy_arrow_data(&source)?;
+        let nulls = copied
+            .nulls()
+            .ok_or_else(|| vortex_err!("Copied Arrow data omitted validity"))?;
+
+        assert_eq!(nulls.buffer().len(), size_of::<u64>());
+        assert_eq!(nulls.buffer().as_ptr().addr() % align_of::<u64>(), 0);
+        assert!(nulls.is_valid(0));
+        assert!(!nulls.is_valid(1));
+        assert!(nulls.is_valid(2));
         Ok(())
     }
 

@@ -11706,6 +11706,7 @@ dependencies = [
  "vortex-arrow",
  "vortex-buffer",
  "vortex-error",
+ "vortex-fastlanes",
  "vortex-ffi",
  "vortex-io",
 ]
