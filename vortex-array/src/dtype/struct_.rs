@@ -319,6 +319,46 @@ impl StructFields {
         Self::from_fields(names, dtypes)
     }
 
+    /// Create a new [`StructFields`] from names and [`FieldDType`]s that may be backed by a
+    /// flatbuffer, decoding every field dtype so that later reads cannot fail.
+    ///
+    /// Deserialization must go through this rather than [`Self::from_fields`]. A
+    /// [`FieldDType`] holding a view decodes lazily, and the accessors that decode it
+    /// ([`Self::field`], [`Self::field_by_index`], [`Self::fields`]) return a plain
+    /// [`DType`], as do the [`PartialEq`] and [`Hash`] impls on the field dtype — those
+    /// are trait methods, so their signatures cannot carry a failure. A field dtype whose
+    /// union discriminant is unknown therefore has nowhere to surface except a panic, and
+    /// because the check was lazy the top-level dtype segment parsed cleanly and the panic
+    /// only fired later, while reading the file-statistics footer.
+    ///
+    /// Validating here costs one decode per field at open time, which is the price of the
+    /// accessors staying infallible.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `names` and `dtypes` differ in length, or if any field dtype
+    /// cannot be decoded.
+    pub fn try_from_fields(names: FieldNames, dtypes: Vec<FieldDType>) -> VortexResult<Self> {
+        if names.len() != dtypes.len() {
+            vortex_bail!(
+                "length mismatch between names ({}) and dtypes ({})",
+                names.len(),
+                dtypes.len()
+            );
+        }
+
+        for (name, dtype) in names.iter().zip_eq(dtypes.iter()) {
+            dtype
+                .value()
+                .map_err(|e| e.with_context(format!("invalid dtype for struct field {name}")))?;
+        }
+
+        Ok(Self(Arc::new(StructFieldsInner::from_fields(
+            names,
+            dtypes.into(),
+        ))))
+    }
+
     /// Create a new [`StructFields`] from a  list of names and [`FieldDType`] which can be either lazily or eagerly serialized.
     pub fn from_fields(names: FieldNames, dtypes: Vec<FieldDType>) -> Self {
         if names.len() != dtypes.len() {
