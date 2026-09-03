@@ -9492,6 +9492,7 @@ dependencies = [
  "clap",
  "futures",
  "indicatif",
+ "num-traits",
  "parquet 59.2.0",
  "regex",
  "tabled",
