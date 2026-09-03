@@ -186,6 +186,14 @@ impl ScalarFnVTable for Select {
 
         // "Mask" out the unwanted fields of the child struct `DType`.
         let included_fields = selection.normalize_to_included_fields(struct_fields.names())?;
+        let child_is_pack = child_struct.is::<Pack>();
+
+        // Pack expressions always have all-valid struct validity. Other struct expressions may
+        // carry row validity that rebuilding them as a pack would discard, even with no fields.
+        if !child_is_pack {
+            return Ok(None);
+        }
+
         let all_included_fields_are_nullable = included_fields.iter().all(|name| {
             struct_fields
                 .field(name)
@@ -209,17 +217,13 @@ impl ScalarFnVTable for Select {
         // This is because `get_item` does a validity intersection of the struct validity with its
         // fields, which is not the same as just "masking" out the unwanted fields (a selection).
         //
-        // We can, however, make this simplification when the child of the `select` is already a
-        // `pack` and we know that `get_item` will do no validity intersections.
-        let child_is_pack = child_struct.is::<Pack>();
-
         // `get_item` only performs validity intersection when the struct is nullable but the field
         // is not. This would change the semantics of a `select`, so we can only simplify when this
         // won't happen.
         let would_intersect_validity =
             struct_nullability.is_nullable() && !all_included_fields_are_nullable;
 
-        if child_is_pack && !would_intersect_validity {
+        if !would_intersect_validity {
             let pack_expr = pack(
                 included_fields
                     .into_iter()
@@ -461,5 +465,13 @@ mod tests {
         assert!(result_dtype.is_nullable());
         let fields = result_dtype.as_struct_fields_opt().unwrap();
         assert_eq!(fields.names().as_ref(), &["a", "b"]);
+    }
+
+    #[test]
+    fn empty_selection_from_nullable_root_is_not_simplified() {
+        let dtype = DType::Struct(StructFields::new(["a"].into(), vec![I32.into()]), Nullable);
+        let expr = select(FieldNames::default(), root());
+
+        assert_eq!(expr.optimize_recursive(&dtype).unwrap(), expr);
     }
 }

@@ -192,6 +192,11 @@ path = "benches/expr/optimize_bench.rs"
 harness = false
 
 [[bench]]
+name = "expr_optimizer_comparison"
+path = "benches/expr/optimizer_comparison.rs"
+harness = false
+
+[[bench]]
 name = "expr_optimize_predicate"
 path = "benches/expr/optimize_predicate.rs"
 harness = false

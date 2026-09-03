@@ -44,6 +44,7 @@ use std::hash::Hasher;
 use std::sync::Arc;
 
 use vortex_error::VortexExpect;
+use vortex_session::registry::Id;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::dtype::FieldName;
@@ -63,6 +64,7 @@ mod exprs;
 pub(crate) mod field;
 pub mod forms;
 mod optimize;
+pub mod optimizer;
 pub mod proto;
 pub mod scope;
 pub mod stats;
@@ -120,7 +122,17 @@ pub use exprs::select_exclude;
 pub use exprs::union_child_validities;
 pub use exprs::variant_get;
 pub use exprs::zip_expr;
+pub use optimizer::BoundExpressionOptimizer;
+pub use optimizer::OptimizerRule;
+pub use optimizer::OptimizerRuleRef;
+pub use optimizer::OptimizerRuleRegistry;
 pub use scope::*;
+
+/// A globally unique identifier for an expression node implementation.
+///
+/// Scalar-function nodes reuse their scalar-function ID. Other expression node implementations,
+/// such as higher-order functions and lambda nodes, use IDs from the same global namespace.
+pub type ExpressionId = Id;
 
 pub trait VortexExprExt {
     /// Accumulate all field references from this expression and its children in a set

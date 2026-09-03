@@ -13,9 +13,11 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::dtype::DType;
 use crate::expr::Expression;
+use crate::expr::ExpressionId;
 use crate::expr::display::DisplayTreeExpr;
 use crate::expr::scope::Scope;
 use crate::expr::traversal::TraversalOrder;
@@ -106,6 +108,17 @@ impl Hash for ExactBoundExpr {
 }
 
 impl BoundExpression {
+    /// Return the globally unique ID of this expression node implementation.
+    pub fn id(&self) -> ExpressionId {
+        match self {
+            Self::Scalar { scalar_fn, .. } => scalar_fn.id(),
+            Self::Root { .. } => {
+                static ID: CachedId = CachedId::new("vortex.expr.root");
+                *ID
+            }
+        }
+    }
+
     /// Create a bound root expression with the given dtype.
     pub fn new_root(dtype: DType) -> Self {
         Self::Root { dtype }
