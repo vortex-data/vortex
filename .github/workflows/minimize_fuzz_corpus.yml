@@ -34,6 +34,36 @@ jobs:
       R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
       R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
 
+  ops_unstable_fuzz_minimize:
+    name: "Minimize Array Ops (unstable) Fuzz Corpus"
+    uses: ./.github/workflows/minimize_fuzz_corpus_workflow.yml
+    with:
+      fuzz_target: array_ops
+      fuzz_name: array_ops_unstable_encodings
+      extra_features: "vortex/unstable_encodings"
+      extra_env: "VORTEX_EXPERIMENTAL_PATCHED_ARRAY=1"
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+
+  fsst_like_fuzz_minimize:
+    name: "Minimize FSST LIKE Fuzz Corpus"
+    uses: ./.github/workflows/minimize_fuzz_corpus_workflow.yml
+    with:
+      fuzz_target: fsst_like
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+
+  row_encode_fuzz_minimize:
+    name: "Minimize Row Encoding Fuzz Corpus"
+    uses: ./.github/workflows/minimize_fuzz_corpus_workflow.yml
+    with:
+      fuzz_target: row_encode
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+
   # ============================================================================
   # Compress Roundtrip Fuzzer
   # ============================================================================
@@ -54,8 +84,6 @@ jobs:
     uses: ./.github/workflows/minimize_fuzz_corpus_workflow.yml
     with:
       fuzz_target: compress_gpu
-      family: "g4dn"
-      image: "ubuntu24-gpu-x64"
       extra_features: "cuda"
     secrets:
       R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}

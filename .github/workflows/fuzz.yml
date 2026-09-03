@@ -1,27 +1,31 @@
 name: Fuzz
 
 concurrency:
-  # The group causes runs to queue instead of running in parallel.
+  # Exploration and minimization update the same corpus objects.
   group: fuzz
-  # This ensures each run builds on the previous run's corpus discoveries rather than losing them to
-  # failed compare-and-swap uploads.
   cancel-in-progress: false
 
 on:
   schedule:
-    - cron: "0 */6 * * *"  # every 6 hours
+    - cron: "0 */3 * * *"  # every 3 hours
   workflow_dispatch: { }
 
 jobs:
+  build_cpu_fuzzers:
+    name: "Build CPU fuzzers"
+    uses: ./.github/workflows/build-fuzzers.yml
+
   # ============================================================================
   # IO Fuzzer
   # ============================================================================
   io_fuzz:
     name: "IO Fuzz"
+    needs: build_cpu_fuzzers
     uses: ./.github/workflows/run-fuzzer.yml
     with:
       fuzz_target: file_io
       jobs: 4
+      fuzzer_artifact: ${{ needs.build_cpu_fuzzers.outputs.artifact_name }}
     secrets:
       R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
       R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
@@ -70,10 +74,12 @@ jobs:
   # ============================================================================
   ops_fuzz:
     name: "Array Operations Fuzz"
+    needs: build_cpu_fuzzers
     uses: ./.github/workflows/run-fuzzer.yml
     with:
       fuzz_target: array_ops
       jobs: 4
+      fuzzer_artifact: ${{ needs.build_cpu_fuzzers.outputs.artifact_name }}
     secrets:
       R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
       R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
@@ -106,6 +112,7 @@ jobs:
   # ============================================================================
   ops_fuzz_unstable:
     name: "Array Operations Fuzz (unstable)"
+    needs: build_cpu_fuzzers
     uses: ./.github/workflows/run-fuzzer.yml
     with:
       fuzz_target: array_ops
@@ -113,6 +120,7 @@ jobs:
       extra_features: "vortex/unstable_encodings"
       extra_env: "VORTEX_EXPERIMENTAL_PATCHED_ARRAY=1"
       jobs: 4
+      fuzzer_artifact: ${{ needs.build_cpu_fuzzers.outputs.artifact_name }}
     secrets:
       R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
       R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
@@ -146,10 +154,12 @@ jobs:
   # ============================================================================
   fsst_like_fuzz:
     name: "FSST LIKE Fuzz"
+    needs: build_cpu_fuzzers
     uses: ./.github/workflows/run-fuzzer.yml
     with:
       fuzz_target: fsst_like
       jobs: 4
+      fuzzer_artifact: ${{ needs.build_cpu_fuzzers.outputs.artifact_name }}
     secrets:
       R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
       R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
@@ -182,10 +192,12 @@ jobs:
   # ============================================================================
   row_encode_fuzz:
     name: "Row Encoding Fuzz"
+    needs: build_cpu_fuzzers
     uses: ./.github/workflows/run-fuzzer.yml
     with:
       fuzz_target: row_encode
       jobs: 4
+      fuzzer_artifact: ${{ needs.build_cpu_fuzzers.outputs.artifact_name }}
     secrets:
       R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
       R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
@@ -218,13 +230,38 @@ jobs:
   # ============================================================================
   compress_fuzz:
     name: "Compress Roundtrip Fuzz"
+    needs: build_cpu_fuzzers
     uses: ./.github/workflows/run-fuzzer.yml
     with:
       fuzz_target: compress_roundtrip
       jobs: 4
+      fuzzer_artifact: ${{ needs.build_cpu_fuzzers.outputs.artifact_name }}
     secrets:
       R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
       R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+
+  report-compress-fuzz-failures:
+    name: "Report Compress Roundtrip Fuzz Failures"
+    needs: compress_fuzz
+    if: always() && needs.compress_fuzz.outputs.crashes_found == 'true'
+    permissions:
+      issues: write
+      contents: read
+      id-token: write
+      pull-requests: read
+    uses: ./.github/workflows/report-fuzz-crash.yml
+    with:
+      fuzz_target: compress_roundtrip
+      crash_file: ${{ needs.compress_fuzz.outputs.first_crash_name }}
+      artifact_url: ${{ needs.compress_fuzz.outputs.artifact_url }}
+      artifact_name: compress_roundtrip-crash-artifacts
+      logs_artifact_name: compress_roundtrip-logs
+      branch: ${{ github.ref_name }}
+      commit: ${{ github.sha }}
+    secrets:
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      gh_token: ${{ secrets.GITHUB_TOKEN }}
+      incident_io_alert_token: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
 
   # ============================================================================
   # GPU Compress Fuzzer (CUDA)

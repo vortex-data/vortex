@@ -1,0 +1,136 @@
+name: Validate Fuzz Corpora
+
+on:
+  workflow_call:
+    inputs:
+      fuzzer_artifact:
+        description: "Artifact produced by build-fuzzers.yml"
+        required: true
+        type: string
+      runner:
+        description: "Runner name from .github-private runs-on.yml"
+        required: false
+        type: string
+        default: "arm64-fuzz"
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID:
+        required: true
+      R2_FUZZ_SECRET_ACCESS_KEY:
+        required: true
+
+jobs:
+  validate:
+    name: "Validate existing fuzz seeds"
+    timeout-minutes: 120
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner={1}/disk=large/tag=fuzz-validate', github.run_id, inputs.runner)
+          || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+
+      - name: Download fuzzers
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
+        with:
+          name: ${{ inputs.fuzzer_artifact }}
+
+      - name: Extract fuzzers
+        run: tar -xf cpu-fuzzers.tar.zst
+
+      - name: Restore corpora
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+          AWS_REGION: "us-east-1"
+          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
+        run: |
+          set -euo pipefail
+          for fuzz_name in \
+            array_ops \
+            array_ops_unstable_encodings \
+            compress_roundtrip \
+            file_io \
+            fsst_like \
+            row_encode; do
+            corpus_key="${fuzz_name}_corpus.tar.zst"
+            corpus_dir="fuzz/corpus/${fuzz_name}"
+            mkdir -p "$corpus_dir"
+            if python3 scripts/s3-download.py \
+              "s3://vortex-fuzz-corpus/$corpus_key" "$corpus_key"; then
+              tar -xf "$corpus_key"
+            else
+              echo "No existing corpus found for $fuzz_name"
+            fi
+          done
+
+      - name: Validate corpora without mutation
+        id: validate
+        shell: bash
+        run: |
+          set -uo pipefail
+          validation_failed=false
+
+          validate_corpus() {
+            local fuzz_name=$1
+            local corpus_dir="fuzz/corpus/$fuzz_name"
+            local artifact_dir="fuzz/validation-artifacts/$fuzz_name"
+            local binary="$GITHUB_WORKSPACE/fuzz-binaries/$fuzz_name"
+            local status
+
+            mkdir -p "$artifact_dir" fuzz/validation-logs
+            seed_count=$(find "$corpus_dir" -type f | wc -l)
+            echo "Validating $seed_count seeds for $fuzz_name"
+            if [ "$seed_count" -eq 0 ]; then
+              return
+            fi
+
+            set +e
+            if [ "$fuzz_name" = array_ops_unstable_encodings ]; then
+              find "$corpus_dir" -type f -print0 | \
+                xargs -0 -r -n 1024 -P 4 env VORTEX_EXPERIMENTAL_PATCHED_ARRAY=1 \
+                  "$binary" -rss_limit_mb=0 -artifact_prefix="$artifact_dir/" \
+                  2>&1 | tee "fuzz/validation-logs/${fuzz_name}.log"
+            else
+              find "$corpus_dir" -type f -print0 | \
+                xargs -0 -r -n 1024 -P 4 \
+                  "$binary" -rss_limit_mb=0 -artifact_prefix="$artifact_dir/" \
+                  2>&1 | tee "fuzz/validation-logs/${fuzz_name}.log"
+            fi
+            status=${PIPESTATUS[0]}
+            set -e
+
+            if [ "$status" -ne 0 ]; then
+              echo "::error::Existing seeds failed for $fuzz_name"
+              validation_failed=true
+            fi
+          }
+
+          for fuzz_name in \
+            array_ops \
+            array_ops_unstable_encodings \
+            compress_roundtrip \
+            file_io \
+            fsst_like \
+            row_encode; do
+            validate_corpus "$fuzz_name"
+          done
+
+          if [ "$validation_failed" = true ]; then
+            exit 1
+          fi
+        continue-on-error: true
+
+      - name: Upload validation failures
+        if: steps.validate.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: fuzz-seed-validation-failures
+          path: |
+            fuzz/validation-artifacts
+            fuzz/validation-logs
+          retention-days: 90
+
+      - name: Fail if an existing seed failed
+        if: steps.validate.outcome == 'failure'
+        run: exit 1
