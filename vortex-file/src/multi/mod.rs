@@ -234,7 +234,8 @@ async fn open_file(
     tracing::trace!(path = %file.path, "opening vortex file");
 
     let source = fs.open_read(&file.path).await?;
-    open_cached(session, None, source, file.size, open_options_fn).await
+    let key = source.uri().is_none().then_some(file.path.as_str());
+    open_cached(session, key, source, file.size, open_options_fn).await
 }
 
 /// Open a Vortex file and cache its footer on the session.
