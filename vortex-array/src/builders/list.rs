@@ -60,7 +60,7 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
     pub fn new(
         value_dtype: Arc<DType>,
         nullability: Nullability,
-        allocator: BufferAllocatorRef,
+        allocator: &BufferAllocatorRef,
     ) -> Self {
         Self::with_capacity(
             value_dtype,
@@ -85,12 +85,12 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
         nullability: Nullability,
         elements_capacity: usize,
         capacity: usize,
-        allocator: BufferAllocatorRef,
+        allocator: &BufferAllocatorRef,
     ) -> Self {
         let elements_builder =
-            ChildBuilder::with_capacity(value_dtype.as_ref(), elements_capacity, allocator.clone());
+            ChildBuilder::with_capacity(value_dtype.as_ref(), elements_capacity, allocator);
         let mut offsets_builder =
-            PrimitiveBuilder::<O>::with_capacity(NonNullable, capacity + 1, allocator.clone());
+            PrimitiveBuilder::<O>::with_capacity(NonNullable, capacity + 1, allocator);
 
         // The first offset is always 0 and represents an empty list.
         offsets_builder.append_zero();
@@ -438,7 +438,7 @@ mod tests {
             NonNullable,
             0,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         let list = builder.finish();
@@ -453,7 +453,7 @@ mod tests {
             NonNullable,
             0,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         builder
@@ -496,7 +496,7 @@ mod tests {
             NonNullable,
             0,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         assert!(
@@ -514,7 +514,7 @@ mod tests {
             Nullable,
             0,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         builder
@@ -570,7 +570,7 @@ mod tests {
             Nullable,
             18,
             9,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         list.append_to_builder(&mut builder, &mut ctx).unwrap();
         list.append_to_builder(&mut builder, &mut ctx).unwrap();
@@ -643,11 +643,8 @@ mod tests {
 
         // `builder_with_capacity` produces a `ListViewBuilder` for `DType::List`; appending the
         // `List`-encoded array must dispatch into it instead of bailing.
-        let mut listview_builder = builder_with_capacity(
-            list.dtype(),
-            list.len(),
-            BufferAllocatorRef::statically_allocated(),
-        );
+        let mut listview_builder =
+            builder_with_capacity(list.dtype(), list.len(), BufferAllocatorRef::static_ref());
         list.append_to_builder(listview_builder.as_mut(), &mut ctx)?;
         assert_arrays_eq!(listview_builder.finish(), list, &mut ctx);
 
@@ -658,7 +655,7 @@ mod tests {
             Nullable,
             8,
             4,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         list.append_to_builder(&mut lv_u64_u32, &mut ctx)?;
         assert_arrays_eq!(lv_u64_u32.finish(), list, &mut ctx);
@@ -668,7 +665,7 @@ mod tests {
             Nullable,
             8,
             4,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         list.append_to_builder(&mut lv_i64_i32, &mut ctx)?;
         assert_arrays_eq!(lv_i64_i32.finish(), list, &mut ctx);
@@ -678,7 +675,7 @@ mod tests {
             Nullable,
             8,
             4,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         listview.append_to_builder(&mut lv_u32_u32, &mut ctx)?;
         assert_arrays_eq!(lv_u32_u32.finish(), list, &mut ctx);
@@ -690,7 +687,7 @@ mod tests {
             Nullable,
             8,
             4,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         list.append_to_builder(&mut list_builder, &mut ctx)?;
         assert_arrays_eq!(list_builder.finish(), list, &mut ctx);
@@ -700,7 +697,7 @@ mod tests {
             Nullable,
             8,
             4,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         listview.append_to_builder(&mut list_builder_i32, &mut ctx)?;
         assert_arrays_eq!(list_builder_i32.finish(), list, &mut ctx);
@@ -729,7 +726,7 @@ mod tests {
             Nullable,
             0,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         builder.append_list_array(source.as_view(), &mut ctx)?;
         builder.append_list_array(source.as_view(), &mut ctx)?;
@@ -741,7 +738,7 @@ mod tests {
             Nullable,
             0,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         builder.append_listview_array(source_listview.as_view(), &mut ctx)?;
         builder.append_listview_array(source_listview.as_view(), &mut ctx)?;
@@ -792,7 +789,7 @@ mod tests {
             Nullable,
             0,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         builder.append_listview_array(overlapping.as_view(), &mut ctx)?;
         builder.append_listview_array(sliced.as_view(), &mut ctx)?;
@@ -879,7 +876,7 @@ mod tests {
             Nullable,
             20,
             10,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         // Test appending a valid list.
@@ -956,7 +953,7 @@ mod tests {
             NonNullable,
             20,
             10,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         let wrong_scalar = Scalar::from(42i32);
         assert!(builder.append_scalar(&wrong_scalar).is_err());
@@ -971,7 +968,7 @@ mod tests {
             NonNullable,
             20,
             10,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         // Append a primitive array as a single list entry.
@@ -1026,7 +1023,7 @@ mod tests {
             NonNullable,
             20,
             10,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         let wrong_dtype_arr = buffer![1i64, 2, 3].into_array();
         assert!(

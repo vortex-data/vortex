@@ -49,7 +49,7 @@ impl FixedSizeListBuilder {
         element_dtype: Arc<DType>,
         list_size: u32,
         nullability: Nullability,
-        allocator: BufferAllocatorRef,
+        allocator: &BufferAllocatorRef,
     ) -> Self {
         Self::with_capacity(
             element_dtype,
@@ -66,12 +66,12 @@ impl FixedSizeListBuilder {
         list_size: u32,
         nullability: Nullability,
         capacity: usize,
-        allocator: BufferAllocatorRef,
+        allocator: &BufferAllocatorRef,
     ) -> Self {
         let elements_capacity = capacity * list_size as usize;
 
         let elements_builder =
-            ChildBuilder::with_capacity(&element_dtype, elements_capacity, allocator.clone());
+            ChildBuilder::with_capacity(&element_dtype, elements_capacity, allocator);
         let fsl_dtype = DType::FixedSizeList(element_dtype, list_size, nullability);
         let nulls = ValidityBuilder::new(capacity, allocator);
 
@@ -356,7 +356,7 @@ mod tests {
             3,
             NonNullable,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         let fsl = builder.finish();
@@ -371,7 +371,7 @@ mod tests {
             3,
             NonNullable,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         builder
@@ -413,7 +413,7 @@ mod tests {
             0,
             NonNullable,
             10000000,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         // Append multiple "empty" lists.
@@ -444,7 +444,7 @@ mod tests {
             0,
             Nullable,
             10000000,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         // Mix of null and non-null empty lists.
@@ -478,7 +478,7 @@ mod tests {
             2,
             NonNullable,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         // Add more items than initial capacity.
@@ -512,7 +512,7 @@ mod tests {
             100000000,
             NonNullable,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         let fsl = builder.finish();
@@ -533,7 +533,7 @@ mod tests {
             2,
             Nullable,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         builder
@@ -590,7 +590,7 @@ mod tests {
             3,
             NonNullable,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         builder
@@ -639,7 +639,7 @@ mod tests {
             3,
             NonNullable,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         builder.append_zeros(5);
@@ -672,7 +672,7 @@ mod tests {
             2,
             Nullable,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         assert_eq!(builder.dtype().nullability(), Nullable);
@@ -707,7 +707,7 @@ mod tests {
             2,
             Nullable,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         assert_eq!(builder.dtype().nullability(), Nullable);
@@ -740,7 +740,7 @@ mod tests {
             0,
             NonNullable,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         assert_eq!(builder.len(), 0);
@@ -764,7 +764,7 @@ mod tests {
             3,
             NonNullable,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         // Try to append a list with wrong size.
@@ -804,7 +804,7 @@ mod tests {
             2,
             Nullable,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         let source_array = source.into_array();
@@ -891,7 +891,7 @@ mod tests {
             0,
             Nullable,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         source1
@@ -966,7 +966,7 @@ mod tests {
             3,
             NonNullable,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         // Add some initial data.
@@ -1001,7 +1001,7 @@ mod tests {
             2,
             Nullable,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         // Mix of operations.
@@ -1094,7 +1094,7 @@ mod tests {
             2,
             Nullable,
             10,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         // Test appending a valid fixed-size list.
@@ -1160,7 +1160,7 @@ mod tests {
             2,
             NonNullable,
             10,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         let wrong_scalar = Scalar::from(42i32);
         assert!(builder.append_scalar(&wrong_scalar).is_err());
@@ -1175,7 +1175,7 @@ mod tests {
             3,
             NonNullable,
             10,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         // Append a primitive array as a single list entry.
@@ -1231,7 +1231,7 @@ mod tests {
             3,
             NonNullable,
             10,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         let wrong_dtype_arr = buffer![1i64, 2, 3].into_array();
         assert!(
@@ -1246,7 +1246,7 @@ mod tests {
             3,
             NonNullable,
             10,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         let wrong_len_arr = buffer![1i32, 2].into_array();
         assert!(

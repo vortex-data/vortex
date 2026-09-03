@@ -387,7 +387,7 @@ impl Array<VarBin> {
         let mut builder = VarBinBuilder::<u32>::with_capacity(
             dtype,
             iter.size_hint().0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         for v in iter {
             builder.append(v.as_ref().map(|o| o.as_ref()));
@@ -403,7 +403,7 @@ impl Array<VarBin> {
         let mut builder = VarBinBuilder::<u32>::with_capacity(
             dtype,
             iter.size_hint().0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         for v in iter {
             builder.append_value(v);
@@ -416,11 +416,8 @@ impl Array<VarBin> {
         O: OffsetBuilderPType,
         T: AsRef<[u8]>,
     {
-        let mut builder = VarBinBuilder::<O>::with_capacity(
-            dtype,
-            vec.len(),
-            BufferAllocatorRef::statically_allocated(),
-        );
+        let mut builder =
+            VarBinBuilder::<O>::with_capacity(dtype, vec.len(), BufferAllocatorRef::static_ref());
         for v in vec {
             builder.append_value(v.as_ref());
         }

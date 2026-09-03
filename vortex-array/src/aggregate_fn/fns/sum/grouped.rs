@@ -205,7 +205,7 @@ mod tests {
         let mut builder = builder_with_capacity(
             &sum_dtype,
             ranges.len(),
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         for (i, &(offset, size)) in ranges.iter().enumerate() {
             if group_valid[i] {

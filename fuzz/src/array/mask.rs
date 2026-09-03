@@ -142,8 +142,7 @@ pub fn mask_canonical_array(
         }
         Canonical::Map(array) => {
             let result_dtype = array.dtype().as_nullable();
-            let mut builder =
-                builder_with_capacity(&result_dtype, array.len(), ctx.allocator().clone());
+            let mut builder = builder_with_capacity(&result_dtype, array.len(), ctx.allocator());
             for idx in 0..array.len() {
                 if mask.value(idx) {
                     builder.append_scalar(&array.execute_scalar(idx, ctx)?.cast(&result_dtype)?)?;

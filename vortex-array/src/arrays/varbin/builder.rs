@@ -65,12 +65,12 @@ pub struct VarBinBuilder<O: OffsetBuilderPType> {
 
 impl<O: OffsetBuilderPType> VarBinBuilder<O> {
     /// Creates an empty builder for `dtype`.
-    pub fn new(dtype: DType, allocator: BufferAllocatorRef) -> Self {
+    pub fn new(dtype: DType, allocator: &BufferAllocatorRef) -> Self {
         Self::with_capacity(dtype, 0, allocator)
     }
 
     /// Creates a builder for `dtype` with room for `capacity` values.
-    pub fn with_capacity(dtype: DType, capacity: usize, allocator: BufferAllocatorRef) -> Self {
+    pub fn with_capacity(dtype: DType, capacity: usize, allocator: &BufferAllocatorRef) -> Self {
         assert!(
             matches!(dtype, DType::Utf8(_) | DType::Binary(_)),
             "VarBinBuilder dtype must be Utf8 or Binary, got {dtype}"
@@ -81,7 +81,7 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
             dtype,
             offsets,
             data: BufferMut::empty_aligned_in(Alignment::of::<u8>(), allocator.clone()),
-            validity: BitBufferMut::with_capacity_in(capacity, allocator),
+            validity: BitBufferMut::with_capacity_in(capacity, allocator.clone()),
         }
     }
 
@@ -90,7 +90,7 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
         dtype: DType,
         capacity: usize,
         bytes: usize,
-        allocator: BufferAllocatorRef,
+        allocator: &BufferAllocatorRef,
     ) -> Self {
         let mut builder = Self::with_capacity(dtype, capacity, allocator);
         builder.reserve_data(bytes);
@@ -739,7 +739,7 @@ mod tests {
         let mut builder = VarBinBuilder::<i32>::with_capacity(
             DType::Utf8(Nullable),
             0,
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         builder.append(Some(b"hello"));
         builder.append(None);
@@ -792,7 +792,7 @@ mod tests {
     fn append_n_values_offset_overflow_returns_error() {
         let mut builder = VarBinBuilder::<i32>::new(
             DType::Utf8(Nullable),
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
 
         // The limit is checked before anything is reserved, so the huge byte total is free.
@@ -808,7 +808,7 @@ mod tests {
     fn append_values_rejects_a_short_offset_count() {
         let mut builder = VarBinBuilder::<i32>::new(
             DType::Utf8(Nullable),
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
 
         let result = builder.append_values(b"ab", [1usize, 2].into_iter(), &Mask::new_true(3));
@@ -822,7 +822,7 @@ mod tests {
     fn append_values_rejects_non_monotonic_offsets() {
         let mut builder = VarBinBuilder::<i32>::new(
             DType::Utf8(Nullable),
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
 
         let result = builder.append_values(b"ab", [2usize, 1].into_iter(), &Mask::new_true(2));
@@ -836,7 +836,7 @@ mod tests {
         let mut ctx = array_session().create_execution_ctx();
         let mut builder = VarBinBuilder::<i32>::new(
             DType::Utf8(Nullable),
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
 
         // SAFETY: the closure initializes exactly the 6 bytes it reports.
@@ -867,7 +867,7 @@ mod tests {
     fn append_decoded_rejects_an_offset_overflow_without_decoding() {
         let mut builder = VarBinBuilder::<i32>::new(
             DType::Utf8(Nullable),
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         let num_bytes = i32::MAX as usize + 1;
         let mut decoded = false;
@@ -892,7 +892,7 @@ mod tests {
     fn append_scalar_repeated_rejects_an_offset_overflow() {
         let mut builder = VarBinBuilder::<i32>::new(
             DType::Utf8(Nullable),
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
 
         let result = builder
@@ -908,7 +908,7 @@ mod tests {
     fn append_decoded_rejects_a_short_decode() {
         let mut builder = VarBinBuilder::<i32>::new(
             DType::Utf8(Nullable),
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
 
         // SAFETY: the closure initializes the 3 bytes it reports (none, and it reports 3 — but the
@@ -934,7 +934,7 @@ mod tests {
     fn append_valid_slices_rejects_a_byte_count_mismatch(#[case] validity: Mask) {
         let mut builder = VarBinBuilder::<i32>::new(
             DType::Utf8(Nullable),
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         let values = [b"foo".as_slice(), b"quux".as_slice()];
 
@@ -955,7 +955,7 @@ mod tests {
     fn finish_rejects_mismatched_validity() {
         let mut builder = VarBinBuilder::<i32>::new(
             DType::Utf8(Nullable),
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         builder.validity.append_true();
         drop(builder.finish_into_varbin());
@@ -1016,10 +1016,10 @@ mod tests {
     /// only matched the signed pair would send an unsigned builder down a downcast that assumes
     /// `VarBinViewBuilder` and panic.
     #[rstest]
-    #[case::u32(VarBinBuilder::<u32>::new(DType::Utf8(Nullable), vortex_buffer::BufferAllocatorRef::statically_allocated()))]
-    #[case::u64(VarBinBuilder::<u64>::new(DType::Utf8(Nullable), vortex_buffer::BufferAllocatorRef::statically_allocated()))]
-    #[case::i32(VarBinBuilder::<i32>::new(DType::Utf8(Nullable), vortex_buffer::BufferAllocatorRef::statically_allocated()))]
-    #[case::i64(VarBinBuilder::<i64>::new(DType::Utf8(Nullable), vortex_buffer::BufferAllocatorRef::statically_allocated()))]
+    #[case::u32(VarBinBuilder::<u32>::new(DType::Utf8(Nullable), vortex_buffer::BufferAllocatorRef::static_ref()))]
+    #[case::u64(VarBinBuilder::<u64>::new(DType::Utf8(Nullable), vortex_buffer::BufferAllocatorRef::static_ref()))]
+    #[case::i32(VarBinBuilder::<i32>::new(DType::Utf8(Nullable), vortex_buffer::BufferAllocatorRef::static_ref()))]
+    #[case::i64(VarBinBuilder::<i64>::new(DType::Utf8(Nullable), vortex_buffer::BufferAllocatorRef::static_ref()))]
     fn append_to_every_offset_width(#[case] mut builder: impl ArrayBuilder) -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         let long = "a string that is far too long to be inlined in a view";
@@ -1043,7 +1043,7 @@ mod tests {
         let mut builder = VarBinBuilder::<i32>::with_capacity(
             DType::Utf8(Nullable),
             0,
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         builder.append_value(b"aaa");
         builder.push_null();
@@ -1062,7 +1062,7 @@ mod tests {
     fn empty_builder_offsets_have_is_sorted_stat() -> VortexResult<()> {
         let mut builder = VarBinBuilder::<i32>::new(
             DType::Utf8(Nullable),
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         let array = builder.finish_into_varbin();
 
@@ -1084,7 +1084,7 @@ mod tests {
             let mut builder = VarBinBuilder::<i64>::with_capacity(
                 dtype,
                 8,
-                vortex_buffer::BufferAllocatorRef::statically_allocated(),
+                vortex_buffer::BufferAllocatorRef::static_ref(),
             );
             f(&mut builder)?;
             Ok(builder.finish_into_varbin())
@@ -1092,7 +1092,7 @@ mod tests {
             let mut builder = VarBinBuilder::<i32>::with_capacity(
                 dtype,
                 8,
-                vortex_buffer::BufferAllocatorRef::statically_allocated(),
+                vortex_buffer::BufferAllocatorRef::static_ref(),
             );
             f(&mut builder)?;
             Ok(builder.finish_into_varbin())

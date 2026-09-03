@@ -326,11 +326,8 @@ fn append_repeated_list_run<O: OffsetBuilderPType, S: OffsetBuilderPType>(
         return Ok(());
     };
 
-    let mut elements_builder = builder_with_capacity(
-        scalar.element_dtype(),
-        elements.len(),
-        ctx.allocator().clone(),
-    );
+    let mut elements_builder =
+        builder_with_capacity(scalar.element_dtype(), elements.len(), ctx.allocator());
     for element in &elements {
         elements_builder.append_scalar(element)?;
     }
@@ -367,11 +364,8 @@ fn append_constant_fixed_size_list_run(
     let tile = match elements.iter().all_equal_value() {
         Ok(uniform) => ConstantArray::new(uniform.clone(), elements.len()).into_array(),
         Err(_) => {
-            let mut tile_builder = builder_with_capacity(
-                builder.element_dtype(),
-                elements.len(),
-                ctx.allocator().clone(),
-            );
+            let mut tile_builder =
+                builder_with_capacity(builder.element_dtype(), elements.len(), ctx.allocator());
             for element in &elements {
                 tile_builder.append_scalar(element)?;
             }
@@ -460,7 +454,7 @@ mod tests {
         let mut builder = builder_with_capacity(
             array.dtype(),
             array.len(),
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         array
             .into_array()
@@ -600,7 +594,7 @@ mod tests {
         let mut builder = builder_with_capacity(
             array.dtype(),
             array.len(),
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         array
             .into_array()
@@ -634,7 +628,7 @@ mod tests {
             Nullability::NonNullable,
             0,
             0,
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         array.append_to_builder(&mut builder, &mut ctx)?;
 
@@ -695,7 +689,7 @@ mod tests {
         let mut builder = builder_with_capacity(
             array.dtype(),
             array.len(),
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         array
             .into_array()
@@ -749,7 +743,7 @@ mod tests {
         let mut builder = builder_with_capacity(
             array.dtype(),
             array.len(),
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         array
             .into_array()
@@ -784,7 +778,7 @@ mod tests {
         let mut builder = builder_with_capacity(
             array.dtype(),
             array.len(),
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         array
             .into_array()

@@ -43,7 +43,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> MapBuilder<O, S> {
     pub fn new(
         map_dtype: MapDType,
         nullability: Nullability,
-        allocator: BufferAllocatorRef,
+        allocator: &BufferAllocatorRef,
     ) -> Self {
         Self::with_capacity(map_dtype, nullability, DEFAULT_BUILDER_CAPACITY, allocator)
     }
@@ -53,7 +53,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> MapBuilder<O, S> {
         map_dtype: MapDType,
         nullability: Nullability,
         capacity: usize,
-        allocator: BufferAllocatorRef,
+        allocator: &BufferAllocatorRef,
     ) -> Self {
         let entries_builder = ListViewBuilder::with_capacity(
             Arc::new(map_dtype.entries_dtype()),

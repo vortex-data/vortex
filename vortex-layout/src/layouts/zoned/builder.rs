@@ -132,7 +132,7 @@ impl AggregateStatsArrayBuilder {
             builder: builder_with_capacity(
                 dtype,
                 capacity,
-                vortex_buffer::BufferAllocatorRef::statically_allocated(),
+                vortex_buffer::BufferAllocatorRef::static_ref(),
             ),
         }
     }

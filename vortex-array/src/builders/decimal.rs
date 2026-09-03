@@ -98,7 +98,7 @@ impl DecimalBuilder {
     pub fn new<T: NativeDecimalType>(
         decimal: DecimalDType,
         nullability: Nullability,
-        allocator: BufferAllocatorRef,
+        allocator: &BufferAllocatorRef,
     ) -> Self {
         Self::with_capacity::<T>(DEFAULT_BUILDER_CAPACITY, decimal, nullability, allocator)
     }
@@ -108,7 +108,7 @@ impl DecimalBuilder {
         capacity: usize,
         decimal: DecimalDType,
         nullability: Nullability,
-        allocator: BufferAllocatorRef,
+        allocator: &BufferAllocatorRef,
     ) -> Self {
         Self {
             dtype: DType::Decimal(decimal, nullability),
@@ -118,7 +118,7 @@ impl DecimalBuilder {
                     allocator.clone(),
                 ))
             }),
-            nulls: LazyBitBufferBuilder::new(capacity, allocator),
+            nulls: LazyBitBufferBuilder::new(capacity, allocator.clone()),
         }
     }
 
@@ -326,7 +326,7 @@ mod tests {
         let mut i8s = DecimalBuilder::new::<i8>(
             DecimalDType::new(2, 1),
             false.into(),
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         for v in 0..values {
             i8s.append_value(v);
@@ -336,7 +336,7 @@ mod tests {
         let mut i128s = DecimalBuilder::new::<i128>(
             DecimalDType::new(2, 1),
             false.into(),
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         i8s.append_to_builder(&mut i128s, &mut array_session().create_execution_ctx())
             .unwrap();
@@ -362,7 +362,7 @@ mod tests {
         let mut builder = DecimalBuilder::new::<i64>(
             DecimalDType::new(10, 2),
             true.into(),
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         builder.append_value(1234i64);
         builder.append_value(5678i64);
@@ -379,7 +379,7 @@ mod tests {
         let mut builder2 = DecimalBuilder::new::<i64>(
             DecimalDType::new(10, 2),
             true.into(),
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         for i in 0..array.len() {
             let scalar = array
@@ -395,7 +395,7 @@ mod tests {
         let mut builder = DecimalBuilder::new::<i64>(
             DecimalDType::new(10, 2),
             false.into(),
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         let wrong_scalar = Scalar::from(true);
         assert!(builder.append_scalar(&wrong_scalar).is_err());

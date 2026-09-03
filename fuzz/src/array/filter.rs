@@ -126,7 +126,7 @@ pub fn filter_canonical_array(
             let mut builder = builder_with_capacity(
                 array.dtype(),
                 filter.iter().filter(|b| **b).count(),
-                ctx.allocator().clone(),
+                ctx.allocator(),
             );
             for (idx, keep) in filter.iter().enumerate() {
                 if *keep {

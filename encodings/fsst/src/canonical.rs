@@ -255,7 +255,7 @@ mod tests {
             let mut builder = VarBinBuilder::<i32>::with_capacity(
                 chunked_arr.dtype().clone(),
                 data.len(),
-                ctx.allocator().clone(),
+                ctx.allocator(),
             );
             chunked_arr
                 .into_array()

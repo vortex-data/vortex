@@ -69,8 +69,7 @@ pub(super) fn _canonicalize(
         }
         DType::Variant(_) => Canonical::Variant(pack_variant_chunks(owned_chunks, ctx)?),
         _ => {
-            let mut builder =
-                builder_with_capacity(array.dtype(), array.len(), ctx.allocator().clone());
+            let mut builder = builder_with_capacity(array.dtype(), array.len(), ctx.allocator());
             array.array().append_to_builder(builder.as_mut(), ctx)?;
             builder.finish_into_canonical(ctx)
         }

@@ -84,7 +84,7 @@ fn map_array_from_rows(
         map_dtype,
         nullability,
         rows.len(),
-        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+        vortex_buffer::BufferAllocatorRef::static_ref(),
     );
 
     for row in rows {
@@ -231,7 +231,7 @@ fn scalar_access_preserves_variable_entry_counts_and_utf8_pairs() -> VortexResul
         map_dtype,
         Nullability::Nullable,
         4,
-        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+        vortex_buffer::BufferAllocatorRef::static_ref(),
     );
     let rows = [
         Some(vec![
@@ -658,7 +658,7 @@ fn builder_appends_existing_map_arrays() -> VortexResult<()> {
         source.map_dtype().clone(),
         source.dtype().nullability(),
         0,
-        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+        vortex_buffer::BufferAllocatorRef::static_ref(),
     );
     let mut ctx = array_session().create_execution_ctx();
     builder.append_map_array(source.as_view(), &mut ctx)?;

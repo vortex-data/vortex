@@ -52,7 +52,7 @@ pub fn list_view_from_list(list: ListArray, ctx: &mut ExecutionCtx) -> VortexRes
     // Create `sizes` array by computing differences between consecutive offsets.
     // We use the same `DType` for the sizes as the `offsets` array to ensure compatibility.
     let sizes = match_each_integer_ptype!(list_offsets.ptype(), |O| {
-        build_sizes_from_offsets::<O>(&list_offsets, ctx.allocator().clone())?
+        build_sizes_from_offsets::<O>(&list_offsets, ctx.allocator())?
     });
 
     // We need to slice the `offsets` to remove the last element (`ListArray` has `n + 1` offsets).
@@ -78,7 +78,7 @@ pub fn list_view_from_list(list: ListArray, ctx: &mut ExecutionCtx) -> VortexRes
 /// `offsets` **must** be the `n + 1` sorted offsets of a non-empty `ListArray` of `n` rows.
 fn build_sizes_from_offsets<O: IntegerPType>(
     offsets: &PrimitiveArray,
-    allocator: BufferAllocatorRef,
+    allocator: &BufferAllocatorRef,
 ) -> VortexResult<ArrayRef> {
     let offsets_slice = offsets.as_slice::<O>();
     debug_assert!(offsets_slice.is_sorted());
@@ -153,11 +153,8 @@ unsafe fn build_list_offsets_from_list_view<O: IntegerPType>(
     ctx: &mut ExecutionCtx,
 ) -> ArrayRef {
     let len = list_view.len();
-    let mut offsets_builder = PrimitiveBuilder::<O>::with_capacity(
-        Nullability::NonNullable,
-        len + 1,
-        ctx.allocator().clone(),
-    );
+    let mut offsets_builder =
+        PrimitiveBuilder::<O>::with_capacity(Nullability::NonNullable, len + 1, ctx.allocator());
 
     // Create uninit range for direct memory access.
     let mut offsets_range = offsets_builder.uninit_range(len + 1);

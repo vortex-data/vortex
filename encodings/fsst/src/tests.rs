@@ -33,7 +33,7 @@ pub(crate) fn build_fsst_array(ctx: &mut ExecutionCtx) -> ArrayRef {
     let mut input_array = VarBinBuilder::<i32>::with_capacity(
         DType::Utf8(Nullability::NonNullable),
         3,
-        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+        vortex_buffer::BufferAllocatorRef::static_ref(),
     );
     input_array.append_value(b"The Greeks never said that the limit could not be overstepped");
     input_array.append_value(
@@ -167,7 +167,7 @@ fn fsst_compress_offsets_overflow_i32() {
     let mut builder = VarBinBuilder::<i64>::with_capacity(
         DType::Utf8(Nullability::NonNullable),
         N,
-        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+        vortex_buffer::BufferAllocatorRef::static_ref(),
     );
     for _ in 0..N {
         builder.append_value(&string);

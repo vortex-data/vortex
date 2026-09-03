@@ -84,7 +84,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
     pub fn new(
         element_dtype: Arc<DType>,
         nullability: Nullability,
-        allocator: BufferAllocatorRef,
+        allocator: &BufferAllocatorRef,
     ) -> Self {
         Self::with_capacity(
             element_dtype,
@@ -109,21 +109,15 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
         nullability: Nullability,
         elements_capacity: usize,
         capacity: usize,
-        allocator: BufferAllocatorRef,
+        allocator: &BufferAllocatorRef,
     ) -> Self {
         let elements_builder =
-            ChildBuilder::with_capacity(&element_dtype, elements_capacity, allocator.clone());
+            ChildBuilder::with_capacity(&element_dtype, elements_capacity, allocator);
 
-        let offsets_builder = PrimitiveBuilder::<O>::with_capacity(
-            Nullability::NonNullable,
-            capacity,
-            allocator.clone(),
-        );
-        let sizes_builder = PrimitiveBuilder::<S>::with_capacity(
-            Nullability::NonNullable,
-            capacity,
-            allocator.clone(),
-        );
+        let offsets_builder =
+            PrimitiveBuilder::<O>::with_capacity(Nullability::NonNullable, capacity, allocator);
+        let sizes_builder =
+            PrimitiveBuilder::<S>::with_capacity(Nullability::NonNullable, capacity, allocator);
 
         let nulls = ValidityBuilder::new(capacity, allocator);
 
@@ -680,7 +674,7 @@ mod tests {
             NonNullable,
             0,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         let listview = builder.finish();
@@ -696,7 +690,7 @@ mod tests {
             Nullable,
             0,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         // Append a regular list.
@@ -766,7 +760,7 @@ mod tests {
             NonNullable,
             0,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         builder
@@ -815,7 +809,7 @@ mod tests {
             NonNullable,
             0,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         for i in 0..5 {
@@ -848,7 +842,7 @@ mod tests {
             Nullable,
             0,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         // Test append_zeros (creates empty lists).
@@ -914,7 +908,7 @@ mod tests {
             Nullable,
             0,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         // Add initial data.
@@ -996,7 +990,7 @@ mod tests {
             Nullable,
             0,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         builder.append_list_array(source.as_view(), &mut ctx)?;
         // Append a second time to check growth from a non-empty builder and offset rebasing.
@@ -1034,7 +1028,7 @@ mod tests {
             NonNullable,
             0,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         constant.append_to_builder(&mut builder, &mut ctx)?;
         let listview = builder.finish_into_listview();
@@ -1072,7 +1066,7 @@ mod tests {
             NonNullable,
             0,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         builder.append_listview_array(middle.as_view(), &mut ctx)?;
         // A second append has to rebase onto the elements already in the builder.
@@ -1122,7 +1116,7 @@ mod tests {
             Nullable,
             0,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         builder
             .append_listview_array(source.as_view(), &mut ctx)
@@ -1162,7 +1156,7 @@ mod tests {
             NonNullable,
             0,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         // Create a null list with nullable type (since Scalar::null requires nullable type).
@@ -1189,7 +1183,7 @@ mod tests {
             NonNullable,
             20,
             10,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         // Append a primitive array as a single list entry.
@@ -1251,7 +1245,7 @@ mod tests {
             NonNullable,
             20,
             10,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         let wrong_dtype_arr = buffer![1i64, 2, 3].into_array();
         assert!(

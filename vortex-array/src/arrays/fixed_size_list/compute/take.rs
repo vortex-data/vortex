@@ -77,7 +77,7 @@ fn take_empty_fsl(
             "FixedSizeList take output length overflow: {new_len} lists of size {list_size}"
         )
     })?;
-    let new_elements = default_elements(array, elements_len, ctx.allocator().clone());
+    let new_elements = default_elements(array, elements_len, ctx.allocator());
     let new_validity = if new_len == 0 {
         array.validity()?.take(indices)?
     } else {
@@ -340,7 +340,7 @@ fn bounds_check_valid_indices<I: IntegerPType>(
 fn default_elements(
     array: ArrayView<'_, FixedSizeList>,
     len: usize,
-    allocator: vortex_buffer::BufferAllocatorRef,
+    allocator: &vortex_buffer::BufferAllocatorRef,
 ) -> ArrayRef {
     let mut builder = builder_with_capacity(array.elements().dtype(), len, allocator);
     builder.append_defaults(len);

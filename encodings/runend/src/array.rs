@@ -580,7 +580,7 @@ mod tests {
         let mut builder = VarBinBuilder::<i32>::with_capacity(
             arr.dtype().clone(),
             arr.len(),
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         arr.append_to_builder(&mut builder, &mut ctx).unwrap();
         assert_arrays_eq!(builder.finish_into_varbin(), expected, &mut ctx);

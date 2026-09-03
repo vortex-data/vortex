@@ -277,7 +277,7 @@ mod tests {
         let mut decimal = DecimalBuilder::new::<T>(
             DecimalDType::new(2, 1),
             false.into(),
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         decimal.append_value(10);
         decimal.append_value(11);
@@ -309,7 +309,7 @@ mod tests {
         let mut decimal = DecimalBuilder::new::<T>(
             DecimalDType::new(2, 1),
             false.into(),
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         decimal.append_value(10);
         decimal.append_value(11);
@@ -341,7 +341,7 @@ mod tests {
         let mut decimal = DecimalBuilder::new::<T>(
             DecimalDType::new(2, 1),
             false.into(),
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         decimal.append_value(10);
         decimal.append_value(11);
@@ -373,7 +373,7 @@ mod tests {
         let mut decimal = DecimalBuilder::new::<T>(
             DecimalDType::new(2, 1),
             false.into(),
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         decimal.append_value(10);
         decimal.append_value(11);

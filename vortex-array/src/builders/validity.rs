@@ -39,11 +39,11 @@ pub(crate) struct ValidityBuilder {
 impl ValidityBuilder {
     /// Creates a new `ValidityBuilder` whose null buffer is pre-allocated for `capacity` bits.
     /// Creates a validity builder with the provided allocator.
-    pub fn new(capacity: usize, allocator: BufferAllocatorRef) -> Self {
+    pub fn new(capacity: usize, allocator: &BufferAllocatorRef) -> Self {
         Self {
             runs: Vec::new(),
             runs_len: 0,
-            pending: LazyBitBufferBuilder::new(capacity, allocator),
+            pending: LazyBitBufferBuilder::new(capacity, allocator.clone()),
         }
     }
 
@@ -157,7 +157,7 @@ mod tests {
 
     #[test]
     fn test_whole_array_validity_is_kept_as_a_run() {
-        let mut builder = ValidityBuilder::new(0, BufferAllocatorRef::statically_allocated());
+        let mut builder = ValidityBuilder::new(0, BufferAllocatorRef::static_ref());
 
         builder.append_validity(array_backed(RUN_LEN), RUN_LEN);
         builder.append_validity(array_backed(RUN_LEN), RUN_LEN);
@@ -175,7 +175,7 @@ mod tests {
     /// Uniform runs collapse instead of becoming a bool array.
     #[test]
     fn test_all_valid_runs_stay_lazy() {
-        let mut builder = ValidityBuilder::new(0, BufferAllocatorRef::statically_allocated());
+        let mut builder = ValidityBuilder::new(0, BufferAllocatorRef::static_ref());
 
         builder.append_validity(Validity::AllValid, RUN_LEN);
         builder.append_validity(Validity::AllValid, RUN_LEN);
@@ -190,7 +190,7 @@ mod tests {
     /// at a time does not pay a bool array for validity it never had.
     #[test]
     fn test_short_validity_is_kept_as_a_run_too() {
-        let mut builder = ValidityBuilder::new(0, BufferAllocatorRef::statically_allocated());
+        let mut builder = ValidityBuilder::new(0, BufferAllocatorRef::static_ref());
 
         for _ in 0..RUN_LEN {
             builder.append_validity(Validity::AllInvalid, 1);
@@ -207,7 +207,7 @@ mod tests {
     #[test]
     fn test_bits_and_runs_keep_their_order() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
-        let mut builder = ValidityBuilder::new(0, BufferAllocatorRef::statically_allocated());
+        let mut builder = ValidityBuilder::new(0, BufferAllocatorRef::static_ref());
 
         builder.append_n_nulls(1);
         builder.append_validity(Validity::AllValid, RUN_LEN);
@@ -231,7 +231,7 @@ mod tests {
 
     #[test]
     fn test_non_nullable_finishes_non_nullable() {
-        let mut builder = ValidityBuilder::new(0, BufferAllocatorRef::statically_allocated());
+        let mut builder = ValidityBuilder::new(0, BufferAllocatorRef::static_ref());
 
         builder.append_validity(Validity::NonNullable, RUN_LEN);
         builder.append_n_non_nulls(1);
@@ -244,7 +244,7 @@ mod tests {
 
     #[test]
     fn test_finish_resets_the_builder() {
-        let mut builder = ValidityBuilder::new(0, BufferAllocatorRef::statically_allocated());
+        let mut builder = ValidityBuilder::new(0, BufferAllocatorRef::static_ref());
 
         builder.append_validity(Validity::AllInvalid, RUN_LEN);
         assert_eq!(builder.finish_with_nullability(Nullable).maybe_len(), None);

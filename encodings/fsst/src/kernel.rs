@@ -64,7 +64,7 @@ mod tests {
         let mut builder = VarBinBuilder::<i32>::with_capacity(
             DType::Utf8(Nullability::NonNullable),
             10,
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         builder.append_value(b"hello world");
         builder.append_value(b"foo bar baz");
@@ -138,7 +138,7 @@ mod tests {
         let mut builder = VarBinBuilder::<i32>::with_capacity(
             DType::Utf8(Nullability::Nullable),
             23,
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         // 11 empty strings
         for _ in 0..11 {
@@ -183,7 +183,7 @@ mod tests {
         let mut builder = VarBinBuilder::<i32>::with_capacity(
             DType::Utf8(Nullability::Nullable),
             3,
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         builder.push_null();
         builder.append_value(b"A");
@@ -228,7 +228,7 @@ mod tests {
         let mut builder = VarBinBuilder::<i32>::with_capacity(
             DType::Utf8(Nullability::NonNullable),
             3,
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         builder.append_value(b"hello");
         builder.append_value(b"world!!");

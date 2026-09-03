@@ -33,7 +33,7 @@ pub struct PrimitiveBuilder<T> {
 
 impl<T: NativePType> PrimitiveBuilder<T> {
     /// Creates a new `PrimitiveBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
-    pub fn new(nullability: Nullability, allocator: BufferAllocatorRef) -> Self {
+    pub fn new(nullability: Nullability, allocator: &BufferAllocatorRef) -> Self {
         Self::with_capacity(nullability, DEFAULT_BUILDER_CAPACITY, allocator)
     }
 
@@ -41,11 +41,11 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     pub fn with_capacity(
         nullability: Nullability,
         capacity: usize,
-        allocator: BufferAllocatorRef,
+        allocator: &BufferAllocatorRef,
     ) -> Self {
         Self {
             values: BufferMut::with_capacity_in(capacity, allocator.clone()),
-            nulls: LazyBitBufferBuilder::new(capacity, allocator),
+            nulls: LazyBitBufferBuilder::new(capacity, allocator.clone()),
             dtype: DType::Primitive(T::PTYPE, nullability),
         }
     }
@@ -92,7 +92,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     ///
     /// // Create a new builder.
     /// let mut builder: PrimitiveBuilder<i32> =
-    ///     PrimitiveBuilder::with_capacity(Nullability::NonNullable, 5, BufferAllocatorRef::statically_allocated());
+    ///     PrimitiveBuilder::with_capacity(Nullability::NonNullable, 5, BufferAllocatorRef::static_ref());
     ///
     /// // Populate the values.
     /// let mut uninit_range = builder.uninit_range(5);
@@ -382,7 +382,7 @@ mod tests {
         let mut builder = PrimitiveBuilder::<i32>::with_capacity(
             Nullability::NonNullable,
             10,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         // First range.
@@ -429,7 +429,7 @@ mod tests {
         let mut builder = PrimitiveBuilder::<i32>::with_capacity(
             Nullability::Nullable,
             5,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         let mut range = builder.uninit_range(3);
 
@@ -483,7 +483,7 @@ mod tests {
         let mut builder = PrimitiveBuilder::<i32>::with_capacity(
             Nullability::Nullable,
             10,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         let mut range = builder.uninit_range(5);
 
@@ -505,7 +505,7 @@ mod tests {
         let mut builder = PrimitiveBuilder::<i32>::with_capacity(
             Nullability::NonNullable,
             10,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         let mut range = builder.uninit_range(6);
 
@@ -537,7 +537,7 @@ mod tests {
         let mut builder = PrimitiveBuilder::<i32>::with_capacity(
             Nullability::Nullable,
             10,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         // First add some values to the builder.
@@ -614,7 +614,7 @@ mod tests {
     fn test_zero_length_uninit_range_panics() {
         let mut builder = PrimitiveBuilder::<i32>::new(
             Nullability::NonNullable,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         let _range = builder.uninit_range(0);
     }
@@ -626,7 +626,7 @@ mod tests {
         let mut builder = PrimitiveBuilder::<i32>::with_capacity(
             Nullability::NonNullable,
             5,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         let _range = builder.uninit_range(261);
     }
@@ -641,7 +641,7 @@ mod tests {
         let mut builder = PrimitiveBuilder::<i32>::with_capacity(
             Nullability::NonNullable,
             10,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         let mut range = builder.uninit_range(3);
 
@@ -657,7 +657,7 @@ mod tests {
         let mut builder = PrimitiveBuilder::<i32>::with_capacity(
             Nullability::Nullable,
             5,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         let mut range = builder.uninit_range(3);
 
@@ -689,7 +689,7 @@ mod tests {
         let mut builder = PrimitiveBuilder::<i32>::with_capacity(
             Nullability::Nullable,
             10,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         // Test appending a valid primitive value.
@@ -744,7 +744,7 @@ mod tests {
         let mut builder = PrimitiveBuilder::<i32>::with_capacity(
             Nullability::NonNullable,
             10,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         let wrong_scalar = Scalar::from(true);
         assert!(builder.append_scalar(&wrong_scalar).is_err());

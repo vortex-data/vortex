@@ -343,7 +343,7 @@ fn append_to_varbin_builder(bencher: Bencher, encoding: StringEncoding) {
             let mut builder = VarBinBuilder::<i32>::with_capacity(
                 array.dtype().clone(),
                 array.len(),
-                ctx.allocator().clone(),
+                ctx.allocator(),
             );
             array.append_to_builder(&mut builder, &mut ctx).unwrap();
             builder.finish_into_varbin()

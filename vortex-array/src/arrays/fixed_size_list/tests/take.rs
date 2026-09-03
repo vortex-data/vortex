@@ -314,7 +314,7 @@ fn test_take_nullable_arrays_fsl_specific(
         list_size,
         Nullability::Nullable,
         array_values.len(),
-        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+        vortex_buffer::BufferAllocatorRef::static_ref(),
     );
 
     for value in array_values {

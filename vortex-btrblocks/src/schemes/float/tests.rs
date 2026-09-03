@@ -80,7 +80,7 @@ fn test_sparse_compression() -> VortexResult<()> {
     let mut array = PrimitiveBuilder::<f32>::with_capacity(
         Nullability::Nullable,
         100,
-        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+        vortex_buffer::BufferAllocatorRef::static_ref(),
     );
     array.append_value(f32::NAN);
     array.append_value(-f32::NAN);

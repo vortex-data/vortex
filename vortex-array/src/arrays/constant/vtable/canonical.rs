@@ -131,7 +131,7 @@ pub(crate) fn constant_canonicalize(
         DType::List(..) => Canonical::List(constant_canonical_list_array(
             scalar,
             array.len(),
-            ctx.allocator().clone(),
+            ctx.allocator(),
         )),
         DType::Map(map_dtype, nullability) => {
             let entries_scalar = Scalar::try_new(
@@ -140,11 +140,7 @@ pub(crate) fn constant_canonicalize(
             )?;
             Canonical::Map(MapArray::try_new(
                 map_dtype.clone(),
-                constant_canonical_list_array(
-                    &entries_scalar,
-                    array.len(),
-                    ctx.allocator().clone(),
-                ),
+                constant_canonical_list_array(&entries_scalar, array.len(), ctx.allocator()),
             )?)
         }
         DType::FixedSizeList(element_dtype, list_size, _) => {
@@ -156,7 +152,7 @@ pub(crate) fn constant_canonicalize(
                 *list_size,
                 value.dtype().nullability(),
                 array.len(),
-                ctx.allocator().clone(),
+                ctx.allocator(),
             ))
         }
         DType::Struct(struct_dtype, _) => {
@@ -261,7 +257,7 @@ fn constant_canonical_byte_view(
 fn constant_canonical_list_array(
     scalar: &Scalar,
     len: usize,
-    allocator: BufferAllocatorRef,
+    allocator: &BufferAllocatorRef,
 ) -> ListViewArray {
     let list = scalar.as_list();
 
@@ -317,7 +313,7 @@ fn constant_canonical_fixed_size_list_array(
     list_size: u32,
     list_nullability: Nullability,
     len: usize,
-    allocator: BufferAllocatorRef,
+    allocator: &BufferAllocatorRef,
 ) -> FixedSizeListArray {
     match values {
         None => {

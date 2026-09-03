@@ -73,7 +73,7 @@ fn extend_from_array_zctl(bencher: Bencher, (num_lists, list_size): (usize, usiz
             NonNullable,
             num_lists * list_size,
             num_lists,
-            ctx.allocator().clone(),
+            ctx.allocator(),
         );
         source.append_to_builder(&mut builder, &mut ctx).unwrap();
         divan::black_box(builder.finish_into_listview())
@@ -97,7 +97,7 @@ fn extend_from_array_non_zctl_overlapping(
             Nullable,
             num_lists * list_size,
             num_lists,
-            ctx.allocator().clone(),
+            ctx.allocator(),
         );
         source.append_to_builder(&mut builder, &mut ctx).unwrap();
         divan::black_box(builder.finish_into_listview())

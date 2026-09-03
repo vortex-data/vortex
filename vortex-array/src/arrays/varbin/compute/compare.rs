@@ -306,7 +306,7 @@ mod tests {
         let mut builder = VarBinBuilder::<i64>::with_capacity(
             DType::Utf8(Nullability::NonNullable),
             3,
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         builder.append_value(b"abc");
         builder.append_value(b"xyz");
@@ -331,7 +331,7 @@ mod tests {
         let mut builder = VarBinBuilder::<i64>::with_capacity(
             DType::Binary(Nullability::NonNullable),
             3,
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         builder.append_value(b"abc");
         builder.append_value(b"xyz");

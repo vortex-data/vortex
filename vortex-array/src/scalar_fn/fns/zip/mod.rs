@@ -216,7 +216,7 @@ pub(crate) fn zip_impl(
         &if_true,
         &if_false,
         mask_values.as_ref(),
-        builder_with_capacity(&return_type, if_true.len(), ctx.allocator().clone()),
+        builder_with_capacity(&return_type, if_true.len(), ctx.allocator()),
         ctx,
     )
 }

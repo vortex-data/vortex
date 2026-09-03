@@ -426,11 +426,11 @@ fn execute_sparse_lists_inner<I: IntegerPType, O: OffsetBuilderPType>(
         nullability,
         total_canonical_values,
         len,
-        ctx.allocator().clone(),
+        ctx.allocator(),
     );
     // The fill's elements become an array once, up front. Every gap then appends that same array,
     // so the fill's elements are stored once for the whole result however many gaps reference them.
-    let fill_elements = list_scalar_elements_array(fill_value.as_list(), ctx.allocator().clone());
+    let fill_elements = list_scalar_elements_array(fill_value.as_list(), ctx.allocator());
 
     // One mask for the whole patch array rather than a validity lookup per patch.
     let patch_validity = patch_values
@@ -479,7 +479,7 @@ fn execute_sparse_lists_inner<I: IntegerPType, O: OffsetBuilderPType>(
 /// Materializes a list scalar's elements into an array, or `None` if the scalar is null.
 fn list_scalar_elements_array(
     list: ListScalar,
-    allocator: vortex_buffer::BufferAllocatorRef,
+    allocator: &vortex_buffer::BufferAllocatorRef,
 ) -> Option<ArrayRef> {
     list.elements().map(|elements| {
         let mut builder = builder_with_capacity(list.element_dtype(), elements.len(), allocator);
@@ -564,14 +564,13 @@ fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
         list_size,
         nullability,
         array_len,
-        ctx.allocator().clone(),
+        ctx.allocator(),
     );
     // The fill's elements become an array once, up front, so that a gap does not rebuild them.
     // They are tiled per row rather than shared - a fixed-size list holds its elements back to
     // back - unless they are all the same scalar, in which case the tile stays constant-encoded
     // and the tiling costs nothing.
-    let fill_elements =
-        fixed_size_list_fill_tile(fill_value.as_list(), list_size, ctx.allocator().clone());
+    let fill_elements = fixed_size_list_fill_tile(fill_value.as_list(), list_size, ctx.allocator());
 
     // One mask for the whole patch array rather than a validity lookup per patch.
     let patch_validity = values
@@ -632,7 +631,7 @@ fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
 fn fixed_size_list_fill_tile(
     fill: ListScalar,
     list_size: u32,
-    allocator: vortex_buffer::BufferAllocatorRef,
+    allocator: &vortex_buffer::BufferAllocatorRef,
 ) -> Option<ArrayRef> {
     let elements = fill.elements()?;
 
@@ -786,12 +785,8 @@ fn execute_sparse_decimal<D: NativeDecimalType>(
     len: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let mut builder = DecimalBuilder::with_capacity::<D>(
-        len,
-        decimal_dtype,
-        nullability,
-        ctx.allocator().clone(),
-    );
+    let mut builder =
+        DecimalBuilder::with_capacity::<D>(len, decimal_dtype, nullability, ctx.allocator());
     match fill_value.decimal_value() {
         Some(fill_value) => {
             let fill_value = fill_value
@@ -2215,7 +2210,7 @@ mod test {
 
             let mut varbin_builder = VarBinBuilder::<i32>::new(
                 candidate.dtype().clone(),
-                vortex_buffer::BufferAllocatorRef::statically_allocated(),
+                vortex_buffer::BufferAllocatorRef::static_ref(),
             );
             candidate.append_to_builder(&mut varbin_builder, &mut ctx)?;
             assert_arrays_eq!(varbin_builder.finish_into_varbin(), expected, &mut ctx);

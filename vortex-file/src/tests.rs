@@ -1936,7 +1936,7 @@ fn map_array_from_rows(rows: &[MapRowFixture<'_>], keys_sorted: bool) -> VortexR
         map_dtype,
         Nullability::Nullable,
         rows.len(),
-        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+        vortex_buffer::BufferAllocatorRef::static_ref(),
     );
 
     for row in rows {

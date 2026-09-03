@@ -50,7 +50,7 @@ fn chunked_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usi
         .with_inputs(|| (&chunk, SESSION.create_execution_ctx()))
         .bench_refs(|(chunk, ctx)| {
             let mut builder =
-                builder_with_capacity(chunk.dtype(), len * chunk_count, ctx.allocator().clone());
+                builder_with_capacity(chunk.dtype(), len * chunk_count, ctx.allocator());
             chunk
                 .append_to_builder(builder.as_mut(), ctx)
                 .vortex_expect("append failed");
@@ -66,7 +66,7 @@ fn chunked_opt_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize,
         .with_inputs(|| (&chunk, SESSION.create_execution_ctx()))
         .bench_refs(|(chunk, ctx)| {
             let mut builder =
-                builder_with_capacity(chunk.dtype(), len * chunk_count, ctx.allocator().clone());
+                builder_with_capacity(chunk.dtype(), len * chunk_count, ctx.allocator());
             chunk
                 .append_to_builder(builder.as_mut(), ctx)
                 .vortex_expect("append failed");
@@ -201,7 +201,7 @@ fn chunked_constant_i32_append_to_builder(bencher: Bencher, (len, chunk_count): 
         .with_inputs(|| (&chunk, SESSION.create_execution_ctx()))
         .bench_refs(|(chunk, ctx)| {
             let mut builder =
-                builder_with_capacity(chunk.dtype(), len * chunk_count, ctx.allocator().clone());
+                builder_with_capacity(chunk.dtype(), len * chunk_count, ctx.allocator());
             chunk
                 .append_to_builder(builder.as_mut(), ctx)
                 .vortex_expect("append failed");
@@ -226,7 +226,7 @@ fn chunked_constant_utf8_append_to_builder(
         .with_inputs(|| (&chunk, SESSION.create_execution_ctx()))
         .bench_refs(|(chunk, ctx)| {
             let mut builder =
-                builder_with_capacity(chunk.dtype(), len * chunk_count, ctx.allocator().clone());
+                builder_with_capacity(chunk.dtype(), len * chunk_count, ctx.allocator());
             chunk
                 .append_to_builder(builder.as_mut(), ctx)
                 .vortex_expect("append failed");
@@ -297,7 +297,7 @@ fn make_varbin_chunks(nullable: bool, len: usize, chunk_count: usize) -> ArrayRe
             let mut builder = VarBinBuilder::<i32>::with_capacity(
                 dtype.clone(),
                 len,
-                vortex_buffer::BufferAllocatorRef::statically_allocated(),
+                vortex_buffer::BufferAllocatorRef::static_ref(),
             );
             (0..len).for_each(|_| {
                 if nullable && rng.random_bool(0.2) {

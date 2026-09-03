@@ -47,7 +47,7 @@ enum ChunkFlattener {
 }
 
 impl ChunkFlattener {
-    fn new(dtype: &DType, capacity: usize, allocator: BufferAllocatorRef) -> Self {
+    fn new(dtype: &DType, capacity: usize, allocator: &BufferAllocatorRef) -> Self {
         if dtype.is_nested() {
             Self::Chunks(Vec::new())
         } else {
@@ -103,7 +103,7 @@ fn take_chunked_via_sort(
 
     let chunk_offsets = array.chunk_offset_values();
     let nchunks = array.nchunks();
-    let mut flattener = ChunkFlattener::new(array.dtype(), pairs.len(), ctx.allocator().clone());
+    let mut flattener = ChunkFlattener::new(array.dtype(), pairs.len(), ctx.allocator());
     let mut final_take = BufferMut::<u64>::zeroed(n);
     let mut cursor = 0usize;
     let mut dedup_idx = 0u64;
@@ -228,11 +228,8 @@ fn take_chunked(
         buckets[chunk_idx].push((local_index, original_position));
     }
 
-    let mut flattener = ChunkFlattener::new(
-        array.dtype(),
-        indices_mask.true_count(),
-        ctx.allocator().clone(),
-    );
+    let mut flattener =
+        ChunkFlattener::new(array.dtype(), indices_mask.true_count(), ctx.allocator());
     let mut final_take =
         (!monotonic || indices.dtype().is_nullable()).then(|| BufferMut::<u64>::zeroed(n));
     let mut grouped_position = 0u64;
@@ -509,7 +506,7 @@ fn take_piecewise_chunked(
     // the flattened result in output order.
     let mut bases = vec![0usize; nchunks];
     let mut running = 0usize;
-    let mut flattener = ChunkFlattener::new(array.dtype(), output_len, ctx.allocator().clone());
+    let mut flattener = ChunkFlattener::new(array.dtype(), output_len, ctx.allocator());
     for (chunk_idx, plan) in plans.into_iter().enumerate() {
         if plan.starts.is_empty() {
             continue;

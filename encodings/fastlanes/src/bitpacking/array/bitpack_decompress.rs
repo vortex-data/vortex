@@ -40,11 +40,8 @@ pub fn unpack_primitive_array<T: BitPackedUnpack>(
     array: ArrayView<'_, BitPacked>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
-    let mut builder = PrimitiveBuilder::with_capacity(
-        array.dtype().nullability(),
-        array.len(),
-        ctx.allocator().clone(),
-    );
+    let mut builder =
+        PrimitiveBuilder::with_capacity(array.dtype().nullability(), array.len(), ctx.allocator());
     unpack_into_primitive_builder::<T>(array, &mut builder, ctx)?;
     assert_eq!(builder.len(), array.len());
     Ok(builder.finish_into_primitive())
@@ -303,7 +300,7 @@ mod tests {
             Nullability::NonNullable,
             0,
             0,
-            ctx.allocator().clone(),
+            ctx.allocator(),
         );
         list.clone()
             .into_array()
@@ -315,7 +312,7 @@ mod tests {
             Nullability::NonNullable,
             0,
             0,
-            ctx.allocator().clone(),
+            ctx.allocator(),
         );
         list.clone()
             .into_array()
@@ -334,7 +331,7 @@ mod tests {
             Nullability::NonNullable,
             0,
             0,
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         listview
             .into_array()
@@ -465,7 +462,7 @@ mod tests {
 
         let mut builder = PrimitiveBuilder::<u32>::new(
             Nullability::NonNullable,
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         unpack_map_into_builder(
             bitpacked.as_view(),
@@ -498,7 +495,7 @@ mod tests {
         let mut builder = PrimitiveBuilder::<u32>::with_capacity(
             Nullability::Nullable,
             5,
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         unpack_map_into_builder(
             bitpacked.as_view(),
@@ -540,7 +537,7 @@ mod tests {
         let mut builder = PrimitiveBuilder::<u32>::with_capacity(
             Nullability::NonNullable,
             100,
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         unpack_map_into_builder(
             bitpacked.as_view(),

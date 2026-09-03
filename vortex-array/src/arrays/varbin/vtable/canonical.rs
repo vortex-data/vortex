@@ -65,7 +65,7 @@ mod tests {
         let mut varbin = VarBinBuilder::<i32>::with_capacity(
             dtype.clone(),
             10,
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         varbin.push_null();
         varbin.push_null();

@@ -76,7 +76,7 @@ fn filter_select_var_bin_by_slice(
                     .execute_mask(values.as_ref().len(), ctx)
                     .vortex_expect("Failed to compute validity mask"),
                 selection_count,
-                ctx.allocator().clone(),
+                ctx.allocator(),
             )
         })
     })
@@ -89,7 +89,7 @@ fn filter_select_var_bin_by_slice_primitive_offset<O, B>(
     mask_slices: &[(usize, usize)],
     logical_validity: Mask,
     selection_count: usize,
-    allocator: BufferAllocatorRef,
+    allocator: &BufferAllocatorRef,
 ) -> VortexResult<VarBinArray>
 where
     O: IntegerPType,
@@ -183,7 +183,7 @@ fn filter_select_var_bin_by_index(
                     .execute_mask(values.as_ref().len(), ctx)
                     .vortex_expect("Failed to compute validity mask"),
                 selection_count,
-                ctx.allocator().clone(),
+                ctx.allocator(),
             )
         })
     })
@@ -196,7 +196,7 @@ fn filter_select_var_bin_by_index_primitive_offset<O: IntegerPType, B: OffsetBui
     mask_indices: &[usize],
     mask: Mask,
     selection_count: usize,
-    allocator: BufferAllocatorRef,
+    allocator: &BufferAllocatorRef,
 ) -> VortexResult<VarBinArray> {
     let value_at = |idx: usize| -> VortexResult<&[u8]> {
         let start = offsets[idx]

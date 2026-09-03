@@ -295,7 +295,7 @@ impl ArrayRef {
                         current_builder = Some(builder_with_capacity(
                             array.dtype(),
                             array.len(),
-                            ctx.allocator().clone(),
+                            ctx.allocator(),
                         ));
                     }
                     let (parent, child) = unsafe { array.take_slot_unchecked(i) }?;
@@ -541,8 +541,7 @@ impl Executable for ArrayRef {
             ExecutionStep::AppendChild(_) => {
                 // Single-step: build the entire parent via the builder path.
                 trace_op!(record_builder_start(&array));
-                let builder =
-                    builder_with_capacity(array.dtype(), array.len(), ctx.allocator().clone());
+                let builder = builder_with_capacity(array.dtype(), array.len(), ctx.allocator());
                 let mut builder = execute_into_builder(array, builder, ctx)?;
                 let output = builder.finish();
                 trace_op!(record_builder_finish(&output));

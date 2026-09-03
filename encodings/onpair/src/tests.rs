@@ -69,7 +69,7 @@ fn test_direct_offset_builder() -> vortex_error::VortexResult<()> {
     let mut builder = VarBinBuilder::<i32>::with_capacity(
         input.dtype().clone(),
         input.len(),
-        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+        vortex_buffer::BufferAllocatorRef::static_ref(),
     );
     encoded
         .into_array()

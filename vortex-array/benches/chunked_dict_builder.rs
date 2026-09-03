@@ -44,7 +44,7 @@ fn chunked_dict_primitive_canonical_into<T: NativePType>(
         .with_inputs(|| (&chunk, SESSION.create_execution_ctx()))
         .bench_refs(|(chunk, ctx)| {
             let mut builder =
-                builder_with_capacity(chunk.dtype(), len * chunk_count, ctx.allocator().clone());
+                builder_with_capacity(chunk.dtype(), len * chunk_count, ctx.allocator());
             chunk
                 .append_to_builder(builder.as_mut(), ctx)
                 .vortex_expect("append failed");

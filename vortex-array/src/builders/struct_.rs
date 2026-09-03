@@ -39,7 +39,7 @@ impl StructBuilder {
     pub fn new(
         struct_dtype: StructFields,
         nullability: Nullability,
-        allocator: BufferAllocatorRef,
+        allocator: &BufferAllocatorRef,
     ) -> Self {
         Self::with_capacity(
             struct_dtype,
@@ -54,11 +54,11 @@ impl StructBuilder {
         struct_dtype: StructFields,
         nullability: Nullability,
         capacity: usize,
-        allocator: BufferAllocatorRef,
+        allocator: &BufferAllocatorRef,
     ) -> Self {
         let builders = struct_dtype
             .fields()
-            .map(|dt| ChildBuilder::with_capacity(&dt, capacity, allocator.clone()))
+            .map(|dt| ChildBuilder::with_capacity(&dt, capacity, allocator))
             .collect();
 
         Self {
@@ -237,7 +237,7 @@ mod tests {
             sdt,
             Nullability::NonNullable,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         builder
@@ -257,7 +257,7 @@ mod tests {
             sdt,
             Nullability::Nullable,
             0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         builder
@@ -297,7 +297,7 @@ mod tests {
         let mut builder = StructBuilder::new(
             struct_fields,
             Nullability::Nullable,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         // Test appending a valid struct value.
@@ -356,7 +356,7 @@ mod tests {
         let mut builder = StructBuilder::new(
             struct_fields,
             Nullability::NonNullable,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         let wrong_scalar = Scalar::from(42i32);
         assert!(builder.append_scalar(&wrong_scalar).is_err());

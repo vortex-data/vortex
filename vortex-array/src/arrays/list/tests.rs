@@ -391,7 +391,7 @@ fn test_offset_to_0() {
         Nullability::NonNullable,
         10,
         5,
-        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+        vortex_buffer::BufferAllocatorRef::static_ref(),
     );
     builder
         .append_value(

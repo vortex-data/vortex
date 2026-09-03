@@ -236,7 +236,7 @@ fn test_zstd_append_to_offset_builder() {
     let mut builder = VarBinBuilder::<i32>::with_capacity(
         compressed.dtype().clone(),
         compressed.len(),
-        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+        vortex_buffer::BufferAllocatorRef::static_ref(),
     );
     compressed
         .append_to_builder(&mut builder, &mut ctx)
@@ -383,7 +383,7 @@ fn test_zstd_rejects_corrupt_frame_metadata(
     let mut builder = VarBinBuilder::<i32>::with_capacity(
         compressed.dtype().clone(),
         compressed.len(),
-        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+        vortex_buffer::BufferAllocatorRef::static_ref(),
     );
     assert!(
         compressed
@@ -427,7 +427,7 @@ fn test_zstd_rejects_a_frame_ending_in_a_dangling_length_prefix() -> VortexResul
     let mut varbin = VarBinBuilder::<i32>::with_capacity(
         dtype.clone(),
         2,
-        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+        vortex_buffer::BufferAllocatorRef::static_ref(),
     );
     assert!(compressed.append_to_builder(&mut varbin, &mut ctx).is_err());
     let mut views = VarBinViewBuilder::with_capacity(

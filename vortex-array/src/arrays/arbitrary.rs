@@ -147,7 +147,7 @@ fn random_array_chunk(
                 let mut builder = DecimalBuilder::new::<D>(
                     *decimal,
                     *n,
-                    vortex_buffer::BufferAllocatorRef::statically_allocated(),
+                    vortex_buffer::BufferAllocatorRef::static_ref(),
                 );
                 for _i in 0..elem_len {
                     let random_decimal = random_scalar(u, d)?;
@@ -221,7 +221,7 @@ fn random_map(
         map_dtype,
         nullability,
         array_length,
-        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+        vortex_buffer::BufferAllocatorRef::static_ref(),
     );
 
     for _ in 0..array_length {
@@ -264,7 +264,7 @@ fn random_fixed_size_list(
         list_size,
         null,
         array_length,
-        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+        vortex_buffer::BufferAllocatorRef::static_ref(),
     );
 
     for _ in 0..array_length {
@@ -323,7 +323,7 @@ fn random_list_with_offset_type<O: OffsetBuilderPType>(
         null,
         array_length,
         10,
-        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+        vortex_buffer::BufferAllocatorRef::static_ref(),
     );
 
     for _ in 0..array_length {

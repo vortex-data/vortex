@@ -156,7 +156,7 @@ fn record_batch_to_vortex(batch: RecordBatch) -> VortexResult<ArrayRef> {
     let schema = batch.schema();
     let chunk = SESSION.arrow().from_arrow_record_batch(batch, &schema)?;
     let mut ctx = VortexSession::default().create_execution_ctx();
-    let mut builder = builder_with_capacity(chunk.dtype(), chunk.len(), ctx.allocator().clone());
+    let mut builder = builder_with_capacity(chunk.dtype(), chunk.len(), ctx.allocator());
 
     // Canonicalize the chunk.
     chunk.append_to_builder(builder.as_mut(), &mut ctx)?;

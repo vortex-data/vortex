@@ -21,7 +21,7 @@
 //! use vortex_array::{VortexSessionExecute, array_session};
 //!
 //! // Create a new builder for string data.
-//! let mut builder = builder_with_capacity(&DType::Utf8(Nullability::NonNullable), 4, BufferAllocatorRef::statically_allocated());
+//! let mut builder = builder_with_capacity(&DType::Utf8(Nullability::NonNullable), 4, BufferAllocatorRef::static_ref());
 //!
 //! builder.append_scalar(&"a".into()).unwrap();
 //! builder.append_scalar(&"b".into()).unwrap();
@@ -373,7 +373,7 @@ macro_rules! __match_each_map_builder_size {
 /// use vortex_array::{VortexSessionExecute, array_session};
 ///
 /// // Create a new builder for string data.
-/// let mut builder = builder_with_capacity(&DType::Utf8(Nullability::NonNullable), 4, BufferAllocatorRef::statically_allocated());
+/// let mut builder = builder_with_capacity(&DType::Utf8(Nullability::NonNullable), 4, BufferAllocatorRef::static_ref());
 ///
 /// builder.append_scalar(&"a".into()).unwrap();
 /// builder.append_scalar(&"b".into()).unwrap();
@@ -391,7 +391,7 @@ macro_rules! __match_each_map_builder_size {
 pub fn builder_with_capacity(
     dtype: &DType,
     capacity: usize,
-    allocator: BufferAllocatorRef,
+    allocator: &BufferAllocatorRef,
 ) -> Box<dyn ArrayBuilder> {
     match dtype {
         DType::Null => Box::new(NullBuilder::new()),
@@ -419,12 +419,12 @@ pub fn builder_with_capacity(
         DType::Utf8(n) => Box::new(VarBinViewBuilder::with_capacity(
             DType::Utf8(*n),
             capacity,
-            allocator,
+            allocator.clone(),
         )),
         DType::Binary(n) => Box::new(VarBinViewBuilder::with_capacity(
             DType::Binary(*n),
             capacity,
-            allocator,
+            allocator.clone(),
         )),
         DType::List(dtype, n) => Box::new(ListViewBuilder::<u64, u64>::with_capacity(
             Arc::clone(dtype),

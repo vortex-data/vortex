@@ -29,7 +29,7 @@ pub struct ExtensionBuilder {
 
 impl ExtensionBuilder {
     /// Creates a new `ExtensionBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
-    pub fn new(ext_dtype: ExtDTypeRef, allocator: BufferAllocatorRef) -> Self {
+    pub fn new(ext_dtype: ExtDTypeRef, allocator: &BufferAllocatorRef) -> Self {
         Self::with_capacity(ext_dtype, DEFAULT_BUILDER_CAPACITY, allocator)
     }
 
@@ -37,7 +37,7 @@ impl ExtensionBuilder {
     pub fn with_capacity(
         ext_dtype: ExtDTypeRef,
         capacity: usize,
-        allocator: BufferAllocatorRef,
+        allocator: &BufferAllocatorRef,
     ) -> Self {
         Self {
             storage: ChildBuilder::with_capacity(ext_dtype.storage_dtype(), capacity, allocator),
@@ -145,10 +145,8 @@ mod tests {
         let mut ctx = array_session().create_execution_ctx();
         let ext_dtype = Date::new(TimeUnit::Days, Nullability::Nullable).erased();
 
-        let mut builder = ExtensionBuilder::new(
-            ext_dtype.clone(),
-            BufferAllocatorRef::statically_allocated(),
-        );
+        let mut builder =
+            ExtensionBuilder::new(ext_dtype.clone(), BufferAllocatorRef::static_ref());
 
         // Test appending a valid extension value.
         let storage1 = Scalar::from(Some(42i32));
@@ -178,8 +176,7 @@ mod tests {
         assert_eq!(array.len(), 3);
 
         // Test wrong dtype error.
-        let mut builder =
-            ExtensionBuilder::new(ext_dtype, BufferAllocatorRef::statically_allocated());
+        let mut builder = ExtensionBuilder::new(ext_dtype, BufferAllocatorRef::static_ref());
         let wrong_scalar = Scalar::from(true);
         assert!(builder.append_scalar(&wrong_scalar).is_err());
     }

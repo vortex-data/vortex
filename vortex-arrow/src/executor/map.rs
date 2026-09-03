@@ -376,7 +376,7 @@ mod tests {
             map_dtype,
             Nullable,
             3,
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         let rows: [&[(i32, &str)]; 3] = [
             &[(1, "a"), (2, "b")],

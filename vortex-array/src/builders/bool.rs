@@ -29,7 +29,7 @@ pub struct BoolBuilder {
 }
 
 impl BoolBuilder {
-    pub fn new(nullability: Nullability, allocator: BufferAllocatorRef) -> Self {
+    pub fn new(nullability: Nullability, allocator: &BufferAllocatorRef) -> Self {
         Self::with_capacity(nullability, DEFAULT_BUILDER_CAPACITY, allocator)
     }
 
@@ -37,11 +37,11 @@ impl BoolBuilder {
     pub fn with_capacity(
         nullability: Nullability,
         capacity: usize,
-        allocator: BufferAllocatorRef,
+        allocator: &BufferAllocatorRef,
     ) -> Self {
         Self {
             inner: BitBufferMut::with_capacity_in(capacity, allocator.clone()),
-            nulls: LazyBitBufferBuilder::new(capacity, allocator),
+            nulls: LazyBitBufferBuilder::new(capacity, allocator.clone()),
             dtype: DType::Bool(nullability),
         }
     }
@@ -193,7 +193,7 @@ mod tests {
         let mut builder = builder_with_capacity(
             chunk.dtype(),
             len * chunk_count,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         chunk
             .clone()
@@ -214,11 +214,8 @@ mod tests {
     #[test]
     fn test_append_scalar() {
         let mut ctx = array_session().create_execution_ctx();
-        let mut builder = BoolBuilder::with_capacity(
-            Nullability::Nullable,
-            10,
-            BufferAllocatorRef::statically_allocated(),
-        );
+        let mut builder =
+            BoolBuilder::with_capacity(Nullability::Nullable, 10, BufferAllocatorRef::static_ref());
 
         // Test appending true value.
         let true_scalar = Scalar::bool(true, Nullability::Nullable);
@@ -240,7 +237,7 @@ mod tests {
         let mut builder = BoolBuilder::with_capacity(
             Nullability::NonNullable,
             10,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
         let wrong_scalar = Scalar::from(42i32);
         assert!(builder.append_scalar(&wrong_scalar).is_err());

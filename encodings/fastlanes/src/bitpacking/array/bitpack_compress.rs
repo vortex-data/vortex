@@ -515,7 +515,7 @@ mod test {
         let mut primitive_builder = PrimitiveBuilder::<i32>::with_capacity(
             chunked.dtype().nullability(),
             10 * 100,
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         chunked.append_to_builder(&mut primitive_builder, &mut ctx)?;
         let ca_into = primitive_builder.finish();
@@ -525,7 +525,7 @@ mod test {
         let mut primitive_builder = PrimitiveBuilder::<i32>::with_capacity(
             chunked.dtype().nullability(),
             10 * 100,
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         chunked.append_to_builder(&mut primitive_builder, &mut ctx)?;
         let ca_into = primitive_builder.finish();

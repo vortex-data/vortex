@@ -99,7 +99,7 @@ fn canonical_into_non_nullable(
             let primitive_builder = PrimitiveBuilder::<i32>::with_capacity(
                 chunked.dtype().nullability(),
                 chunk_len * chunk_count,
-                ctx.allocator().clone(),
+                ctx.allocator(),
             );
             (chunked, primitive_builder, ctx)
         })
@@ -180,7 +180,7 @@ fn canonical_into_nullable(
             let primitive_builder = PrimitiveBuilder::<i32>::with_capacity(
                 chunked.dtype().nullability(),
                 chunk_len * chunk_count,
-                ctx.allocator().clone(),
+                ctx.allocator(),
             );
             (chunked, primitive_builder, ctx)
         })

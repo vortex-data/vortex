@@ -65,7 +65,7 @@ fn wkb_extension_array() -> VortexResult<(Vec<u8>, vortex_array::ArrayRef)> {
     let mut builder = VarBinBuilder::<i32>::with_capacity(
         DType::Binary(Nullability::NonNullable),
         3,
-        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+        vortex_buffer::BufferAllocatorRef::static_ref(),
     );
     builder.append_value(&buf);
     builder.append_value(&buf);

@@ -986,7 +986,7 @@ fn test_geometry() {
         let mut geometry = VarBinBuilder::<u32>::with_capacity(
             DType::Binary(Nullability::NonNullable),
             10,
-            vortex::buffer::BufferAllocatorRef::statically_allocated(),
+            vortex::buffer::BufferAllocatorRef::static_ref(),
         );
         for _ in 0..10 {
             geometry.append_value(wkb_binary.as_slice());

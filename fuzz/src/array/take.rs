@@ -118,7 +118,7 @@ pub fn take_canonical_array(
             let mut builder = builder_with_capacity(
                 &array.dtype().union_nullability(nullable),
                 indices_slice_non_opt.len(),
-                ctx.allocator().clone(),
+                ctx.allocator(),
             );
             for idx in indices {
                 if let Some(idx) = idx {
@@ -151,8 +151,7 @@ pub fn take_canonical_array(
         }
         DType::Map(..) => {
             let result_dtype = array.dtype().union_nullability(nullable);
-            let mut builder =
-                builder_with_capacity(&result_dtype, indices.len(), ctx.allocator().clone());
+            let mut builder = builder_with_capacity(&result_dtype, indices.len(), ctx.allocator());
             for idx in indices {
                 if let Some(idx) = idx {
                     builder

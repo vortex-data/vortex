@@ -389,7 +389,7 @@ mod tests {
         let mut builder = builder_with_capacity(
             array.dtype(),
             array.len(),
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         array
             .append_to_builder(builder.as_mut(), &mut ctx)

@@ -370,7 +370,7 @@ mod tests {
                 .into_array(),
         )?;
 
-        let mut builder = VarBinBuilder::<i32>::new(DType::Utf8(Nullable), ctx.allocator().clone());
+        let mut builder = VarBinBuilder::<i32>::new(DType::Utf8(Nullable), ctx.allocator());
         dict.append_to_builder(&mut builder, &mut ctx)?;
 
         let expected = VarBinViewArray::from_iter(

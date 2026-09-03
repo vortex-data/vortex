@@ -127,8 +127,7 @@ pub fn slice_canonical_array(
             .map(|a| a.into_array())
         }
         DType::Map(..) => {
-            let mut builder =
-                builder_with_capacity(array.dtype(), stop - start, ctx.allocator().clone());
+            let mut builder = builder_with_capacity(array.dtype(), stop - start, ctx.allocator());
             for idx in start..stop {
                 builder.append_scalar(&array.execute_scalar(idx, ctx)?)?;
             }

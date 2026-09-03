@@ -222,7 +222,7 @@ fn stats_builder_with_capacity(
     let values_builder = builder_with_capacity(
         dtype,
         capacity,
-        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+        vortex_buffer::BufferAllocatorRef::static_ref(),
     );
     match stat {
         Stat::Max => match dtype {
@@ -231,7 +231,7 @@ fn stats_builder_with_capacity(
                 BoolBuilder::with_capacity(
                     Nullability::NonNullable,
                     capacity,
-                    vortex_buffer::BufferAllocatorRef::statically_allocated(),
+                    vortex_buffer::BufferAllocatorRef::static_ref(),
                 ),
                 max_length,
             )),
@@ -240,7 +240,7 @@ fn stats_builder_with_capacity(
                 BoolBuilder::with_capacity(
                     Nullability::NonNullable,
                     capacity,
-                    vortex_buffer::BufferAllocatorRef::statically_allocated(),
+                    vortex_buffer::BufferAllocatorRef::static_ref(),
                 ),
                 max_length,
             )),
@@ -252,7 +252,7 @@ fn stats_builder_with_capacity(
                 BoolBuilder::with_capacity(
                     Nullability::NonNullable,
                     capacity,
-                    vortex_buffer::BufferAllocatorRef::statically_allocated(),
+                    vortex_buffer::BufferAllocatorRef::static_ref(),
                 ),
                 max_length,
             )),
@@ -261,7 +261,7 @@ fn stats_builder_with_capacity(
                 BoolBuilder::with_capacity(
                     Nullability::NonNullable,
                     capacity,
-                    vortex_buffer::BufferAllocatorRef::statically_allocated(),
+                    vortex_buffer::BufferAllocatorRef::static_ref(),
                 ),
                 max_length,
             )),

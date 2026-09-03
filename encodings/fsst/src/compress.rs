@@ -207,7 +207,7 @@ where
         DType::Binary(strings.dtype().nullability()),
         strings.len(),
         compressor,
-        ctx.allocator().clone(),
+        ctx.allocator(),
     );
     let views = strings.views();
     let buffers = strings.data_buffers();
@@ -245,7 +245,7 @@ where
         DType::Binary(strings.dtype().nullability()),
         strings.len(),
         compressor,
-        ctx.allocator().clone(),
+        ctx.allocator(),
     );
     let bytes = strings.bytes().as_slice();
     match_each_integer_ptype!(offsets.ptype(), |I| {
@@ -295,12 +295,12 @@ impl<'c, O: OffsetBuilderPType + 'static> FsstSink<'c, O> {
         dtype: DType,
         len: usize,
         compressor: &'c Compressor,
-        allocator: BufferAllocatorRef,
+        allocator: &BufferAllocatorRef,
     ) -> Self {
         Self {
             buffer: Vec::with_capacity(DEFAULT_BUFFER_LEN),
-            builder: VarBinBuilder::<O>::with_capacity(dtype, len, allocator.clone()),
-            uncompressed_lengths: BufferMut::with_capacity_in(len, allocator),
+            builder: VarBinBuilder::<O>::with_capacity(dtype, len, allocator),
+            uncompressed_lengths: BufferMut::with_capacity_in(len, allocator.clone()),
             compressor,
         }
     }

@@ -32,7 +32,7 @@ impl ListArray {
             crate::dtype::Nullability::NonNullable,
             2 * iter.size_hint().0,
             iter.size_hint().0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         for v in iter {
@@ -60,7 +60,7 @@ impl ListArray {
             crate::dtype::Nullability::Nullable,
             2 * iter.size_hint().0,
             iter.size_hint().0,
-            BufferAllocatorRef::statically_allocated(),
+            BufferAllocatorRef::static_ref(),
         );
 
         for v in iter {

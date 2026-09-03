@@ -84,7 +84,7 @@ where
     let mut builder = VarBinBuilder::<T::Offset>::with_capacity(
         array.dtype().clone(),
         array.len(),
-        ctx.allocator().clone(),
+        ctx.allocator(),
     );
     array.append_to_builder(&mut builder, ctx)?;
     varbin_to_byte_array::<T>(builder.finish_into_varbin().as_view(), validate_utf8, ctx)

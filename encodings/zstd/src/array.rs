@@ -1772,7 +1772,7 @@ mod tests {
         let slice = decompressed_slice(make_interleaved(&[b"hello", b"world"]), 0, 2, 0, 2);
         let mut builder = VarBinBuilder::<i32>::new(
             DType::Utf8(NonNullable),
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         append_slice_to_varbin(&slice, &Mask::new_true(2), &mut builder)?;
 
@@ -1795,7 +1795,7 @@ mod tests {
         let slice = decompressed_slice(ByteBuffer::copy_from(buffer.as_slice()), 0, 2, 0, 2);
         let mut builder = VarBinBuilder::<i32>::new(
             DType::Utf8(NonNullable),
-            vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         assert!(append_slice_to_varbin(&slice, &Mask::new_true(2), &mut builder).is_err());
         // The builder rejected the values before committing any of them.
