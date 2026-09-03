@@ -27,8 +27,15 @@ pub trait BufferAllocator: Allocator + Debug + Send + Sync + 'static {}
 impl<A> BufferAllocator for A where A: Allocator + Debug + Send + Sync + 'static {}
 
 /// A shared reference to a buffer allocator.
+///
+/// The static allocator does not need shared ownership, so it is stored without an [`Arc`]. This
+/// makes cloning the common static allocator a simple value copy.
 #[derive(Clone)]
-pub struct BufferAllocatorRef(Option<Arc<dyn BufferAllocator>>);
+pub struct BufferAllocatorRef(
+    // `None` selects the static allocator without allocating or updating an Arc reference count.
+    // `Some` keeps a custom allocator alive for as long as its buffers need it.
+    Option<Arc<dyn BufferAllocator>>,
+);
 
 impl BufferAllocatorRef {
     /// Wrap an allocator in a shared reference.

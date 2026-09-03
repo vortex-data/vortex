@@ -30,9 +30,13 @@ use crate::trusted_len::TrustedLen;
 /// An immutable buffer of items of `T`.
 #[derive(Clone)]
 pub struct Buffer<T> {
+    /// The first element in this view, or an aligned dangling pointer when the buffer is empty.
     pub(crate) ptr: NonNull<T>,
+    /// The number of initialized `T` values visible from `ptr`.
     pub(crate) length: usize,
+    /// The minimum alignment promised for `ptr` and preserved by aligned slices.
     pub(crate) alignment: Alignment,
+    /// Shared ownership of the storage containing `ptr`; empty buffers have no backing.
     pub(crate) backing: Option<Arc<BufferBacking>>,
 }
 
@@ -631,7 +635,9 @@ impl<T> Buffer<T> {
         match Arc::try_unwrap(backing) {
             Ok(BufferBacking::Owned(allocation)) => {
                 let offset = ptr.addr().get() - allocation.ptr().addr().get();
-                let capacity = if allocation.size() == 0 {
+                let capacity = if size_of::<T>() == 0 {
+                    usize::MAX
+                } else if allocation.size() == 0 {
                     0
                 } else {
                     (allocation.size() - offset) / size_of::<T>()
