@@ -125,7 +125,7 @@ pub use footer::*;
 pub use forever_constant::*;
 pub use open::*;
 pub use strategy::*;
-use vortex_array::arrays::Patched;
+use vortex_array::arrays::PatchedPlugin;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::session::ArraySessionExt;
 use vortex_pco::Pco;
@@ -179,7 +179,7 @@ pub fn register_default_encodings(session: &VortexSession) {
         let arrays = session.arrays();
         arrays.register(Pco);
         if use_experimental_patches() {
-            arrays.register(Patched);
+            arrays.register(PatchedPlugin);
         }
     }
 

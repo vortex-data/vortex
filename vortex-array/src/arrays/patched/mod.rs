@@ -5,9 +5,6 @@
 //!
 //! # Background
 //!
-//! This is meant to be the foundation of a fully data-parallel patching strategy, based on the
-//! work published in ["G-ALP" from Hepkema et al.](https://ir.cwi.nl/pub/35205/35205.pdf)
-//!
 //! Patching is common when an encoding almost completely covers an array save a few exceptions.
 //! In that case, rather than avoid the encoding entirely, it's preferable to
 //!
@@ -20,88 +17,73 @@
 //! a useful unit of chunking throughout Vortex, and so we use 1024 as a chunk size here
 //! as well.
 //!
-//! # Details
+//! # Layout
 //!
-//! To patch an array, we first divide it into a set of chunks of length 1024, and then within
-//! each chunk, we assign each position to a lane. The number of lanes depends on the width of
-//! the underlying type.
-//!
-//! Thus, rather than sorting patch indices and values by their global offset, they are sorted
-//! primarily by their chunk, and then subsequently by their lanes.
+//! Patches are addressed by **chunk-local indices**. Logical row `i` lives at grid position
+//! `offset + i`, in chunk `(offset + i) / 1024` at local index `(offset + i) % 1024`, so the
+//! index child stays two bytes per patch at any array length.
 //!
 //! The Patched array layout has 4 children
 //!
-//! * `inner`: the inner array is the one containing encoded values, including the filler values
-//!   that need to be patched over at execution time
-//! * `lane_offsets`: this is an indexing buffer that allows you to see into ranges of the other
-//!   two children
-//! * `indices`: An array of `u16` chunk indices, indicating where within the chunk should the value
-//!   be overwritten by the patch value
-//! * `values`: The child array containing the patch values, which should be inserted over
-//!   the values of the `inner` at the locations provided by `indices`
+//! * `inner`: the inner array containing encoded values, including the filler values that need to
+//!   be patched over at execution time
+//! * `patch_indices`: `u16` positions within a chunk, strictly increasing within each chunk
+//! * `patch_values`: the values that overwrite the `inner` at the locations given by
+//!   `patch_indices`
+//! * `chunk_offsets`: `u32` prefix patch counts, one per chunk plus a terminator, so chunk `c`
+//!   owns `patch_indices[chunk_offsets[c]..chunk_offsets[c + 1]]`
 //!
-//! `indices` and `values` are aligned and accessed together.
+//! `patch_indices` and `patch_values` are aligned and accessed together.
 //!
 //! ```text
-//! 
-//!                  chunk 0      chunk 0      chunk 0     chunk 0       chunk 0     chunk 0
-//!                  lane  0      lane 1       lane  2     lane 3        lane  4     lane  5
-//!              ┌────────────┬────────────┬────────────┬────────────┬────────────┬────────────┐
-//! lane_offsets │     0      │     0      │     2      │     2      │     3      │     5      │  ...
-//!              └─────┬──────┴─────┬──────┴─────┬──────┴──────┬─────┴──────┬─────┴──────┬─────┘
-//!                    │            │            │             │            │            │
-//!                    │            │            │             │            │            │
-//!              ┌─────┴────────────┘            └──────┬──────┘     ┌──────┘            └─────┐
-//!              │                                      │            │                         │
-//!              │                                      │            │                         │
-//!              │                                      │            │                         │
-//!              ▼────────────┬────────────┬────────────▼────────────▼────────────┬────────────▼
-//!    indices   │            │            │            │            │            │            │
-//!              │            │            │            │            │            │            │
-//!              ├────────────┼────────────┼────────────┼────────────┼────────────┼────────────┤
-//!    values    │            │            │            │            │            │            │
-//!              │            │            │            │            │            │            │
-//!              └────────────┴────────────┴────────────┴────────────┴────────────┴────────────┘
+//!               chunk 0        chunk 1        chunk 2
+//!              ┌──────────────┬──────────────┬──────────────┬─────┐
+//! chunk_offsets│      0       │      1       │      3       │  5  │
+//!              └──────┬───────┴──────┬───────┴──────┬───────┴─────┘
+//!                     │              │              │
+//!                     ▼              ▼              ▼
+//!              ┌──────┬──────┬──────┬──────┬──────┐
+//! patch_indices│  5   │  6   │  7   │ 152  │ 951  │   (row 1030 is local 6 of chunk 1)
+//!              ├──────┼──────┼──────┼──────┼──────┤
+//! patch_values │ 100  │ 200  │ 300  │ 400  │ 500  │
+//!              └──────┴──────┴──────┴──────┴──────┘
 //! ```
 //!
-//! It turns out that this layout is optimal for executing patching on GPUs, because the
-//! `lane_offsets` allows each thread in a warp to seek to its patches in constant time.
+//! Point lookups select the chunk in constant time and binary search at most 1024 indices.
+//!
+//! # Slicing
+//!
+//! Slicing keeps the patches on their original grid. The `inner` is sliced exactly and
+//! `chunk_offsets` is sliced to the covered chunks, while `patch_indices` and `patch_values` are
+//! shared unchanged. Patches of the first and last chunk whose row falls outside the slice stay
+//! in the children and are skipped on read, so slicing never reads or copies patch data. The
+//! `offset` records where the first row sits inside its chunk.
+//!
+//! # Wire format
+//!
+//! The chunk-local layout is serialized under `vortex.patched_v2`. The retired lane-transposed
+//! layout of RFC 0027 is still readable under `vortex.patched` and is re-sorted into chunk order
+//! on load; see [`PatchedPlugin`].
 
 mod array;
 mod compute;
+mod layout;
+mod plugin;
+#[cfg(test)]
+mod tests;
 mod vtable;
 
 use std::env;
 use std::sync::LazyLock;
 
 pub use array::*;
-use vortex_buffer::ByteBuffer;
+pub use layout::PatchedView;
+pub use plugin::PatchedPlugin;
+pub use plugin::patched_v2_id;
 pub use vtable::*;
 
 pub(crate) fn initialize(session: &vortex_session::VortexSession) {
     vtable::initialize(session);
-}
-
-/// Patches that have been transposed into GPU format.
-struct TransposedPatches {
-    n_lanes: usize,
-    lane_offsets: ByteBuffer,
-    indices: ByteBuffer,
-    values: ByteBuffer,
-}
-
-/// Number of lanes used at patch time for a value of type `V`.
-///
-/// This is *NOT* equal to the number of FastLanes lanes for the type `V`, rather this is going to
-/// correspond to how many "lanes" we will end up copying data on.
-///
-/// When applied on the CPU, this configuration doesn't really matter. On the GPU, it is based
-/// on the number of patches involved here.
-const fn patch_lanes<V: Sized>() -> usize {
-    // For types 32-bits or smaller, we use a 32 lane configuration, and for 64-bit we use 16 lanes.
-    // This matches up with the number of lanes we use to execute copying results from bit-unpacking
-    // from shared to global memory.
-    if size_of::<V>() < 8 { 32 } else { 16 }
 }
 
 /// Flag indicating if experimental patched array support is enabled.

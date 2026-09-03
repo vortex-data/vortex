@@ -12,11 +12,12 @@ use crate::arrays::FilterArray;
 use crate::arrays::Patched;
 use crate::arrays::filter::FilterReduce;
 use crate::arrays::patched::PatchedArrayExt;
+use crate::patches::PATCH_CHUNK_SIZE;
 
 impl FilterReduce for Patched {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
-        // Find the contiguous chunk range that the mask covers. We use this to slice the inner
-        // components, then wrap the rest up with another FilterArray.
+        // Find the contiguous chunk range that the mask covers, slice the array down to it, then
+        // wrap the rest up with another FilterArray.
         //
         // This is helpful when we have a very selective filter that is clustered to a small
         // range.
@@ -30,34 +31,28 @@ impl FilterReduce for Patched {
                 let (first, _) = slices[0];
                 let (_, last) = slices[slices.len() - 1];
 
-                // Convert mask indices to absolute positions by adding offset
                 (
-                    (array.offset() + first) / 1024,
-                    (array.offset() + last).div_ceil(1024),
+                    (array.offset() + first) / PATCH_CHUNK_SIZE,
+                    (array.offset() + last).div_ceil(PATCH_CHUNK_SIZE),
                 )
             }
         };
 
-        let n_chunks = (array.offset() + array.len()).div_ceil(1024);
-
         // If all chunks already covered, there is nothing to do.
-        if chunk_start == 0 && chunk_stop == n_chunks {
+        if chunk_start == 0 && chunk_stop == array.n_chunks() {
             return Ok(None);
         }
 
-        let sliced = array.slice_chunks(chunk_start..chunk_stop)?;
-
-        // Slice the mask according to if the chunk is sliced.
-        // Convert chunk bounds back to mask indices by subtracting offset.
-        let mask_start = (chunk_start * 1024).saturating_sub(array.offset());
-        let mask_end = (chunk_stop * 1024)
+        // Convert the chunk bounds back to rows of this array.
+        let row_start = (chunk_start * PATCH_CHUNK_SIZE).saturating_sub(array.offset());
+        let row_end = (chunk_stop * PATCH_CHUNK_SIZE)
             .saturating_sub(array.offset())
             .min(array.len());
-        let remainder = mask.slice(mask_start..mask_end);
 
-        Ok(Some(
-            FilterArray::new(sliced.into_array(), remainder).into_array(),
-        ))
+        let sliced = array.slice_range(row_start..row_end)?;
+        let remainder = mask.slice(row_start..row_end);
+
+        Ok(Some(FilterArray::new(sliced, remainder).into_array()))
     }
 }
 
@@ -224,7 +219,7 @@ mod tests {
     #[test]
     fn test_filter_with_offset_nonuniform() -> VortexResult<()> {
         // Test filtering with offset > 0 using non-uniform base values.
-        // This catches slice_chunks bugs where inner coordinates are miscalculated.
+        // This catches slicing bugs where inner coordinates are miscalculated.
         let mut ctx = crate::array_session().create_execution_ctx();
 
         // Use non-uniform values so that incorrect slicing is detectable.

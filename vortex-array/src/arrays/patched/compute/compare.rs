@@ -18,6 +18,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::bool::BoolDataParts;
 use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::patched::PatchedArraySlotsExt;
+use crate::arrays::patched::PatchedView;
 use crate::arrays::primitive::NativeValue;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::NativePType;
@@ -42,8 +43,6 @@ impl CompareKernel for Patched {
             return Ok(None);
         };
 
-        // NOTE: due to offset, it's possible that the inner.len != array.len.
-        //  We slice the inner before performing the comparison.
         let result = lhs
             .inner()
             .binary(
@@ -60,49 +59,44 @@ impl CompareKernel for Patched {
         let mut bits =
             BitBufferMut::from_buffer(bits.unwrap_host().into_mut(), meta.offset(), meta.len());
 
-        let lane_offsets = lhs.lane_offsets().clone().execute::<PrimitiveArray>(ctx)?;
         let indices = lhs.patch_indices().clone().execute::<PrimitiveArray>(ctx)?;
         let values = lhs.patch_values().clone().execute::<PrimitiveArray>(ctx)?;
-        let n_lanes = lhs.n_lanes();
+        let chunk_offsets = lhs.chunk_offsets().clone().execute::<PrimitiveArray>(ctx)?;
+        let view = PatchedView::new(
+            lhs.offset(),
+            lhs.len(),
+            indices.as_slice::<u16>(),
+            chunk_offsets.as_slice::<u32>(),
+        );
 
         match_each_native_ptype!(values.ptype(), |V| {
-            let offset = lhs.offset();
-            let indices = indices.as_slice::<u16>();
             let values = values.as_slice::<V>();
             let constant = constant
                 .as_primitive()
                 .as_::<V>()
                 .vortex_expect("compare constant not null");
 
-            let apply_patches = ApplyPatches {
-                bits: &mut bits,
-                offset,
-                n_lanes,
-                lane_offsets: lane_offsets.as_slice::<u32>(),
-                indices,
-                values,
-                constant,
-            };
-
             match operator {
-                CompareOperator::Eq => {
-                    apply_patches.apply(|l, r| NativeValue(l) == NativeValue(r))?;
-                }
+                CompareOperator::Eq => apply_patches(&mut bits, view, values, constant, |l, r| {
+                    NativeValue(l) == NativeValue(r)
+                }),
                 CompareOperator::NotEq => {
-                    apply_patches.apply(|l, r| NativeValue(l) != NativeValue(r))?;
+                    apply_patches(&mut bits, view, values, constant, |l, r| {
+                        NativeValue(l) != NativeValue(r)
+                    })
                 }
-                CompareOperator::Gt => {
-                    apply_patches.apply(|l, r| NativeValue(l) > NativeValue(r))?;
-                }
-                CompareOperator::Gte => {
-                    apply_patches.apply(|l, r| NativeValue(l) >= NativeValue(r))?;
-                }
-                CompareOperator::Lt => {
-                    apply_patches.apply(|l, r| NativeValue(l) < NativeValue(r))?;
-                }
-                CompareOperator::Lte => {
-                    apply_patches.apply(|l, r| NativeValue(l) <= NativeValue(r))?;
-                }
+                CompareOperator::Gt => apply_patches(&mut bits, view, values, constant, |l, r| {
+                    NativeValue(l) > NativeValue(r)
+                }),
+                CompareOperator::Gte => apply_patches(&mut bits, view, values, constant, |l, r| {
+                    NativeValue(l) >= NativeValue(r)
+                }),
+                CompareOperator::Lt => apply_patches(&mut bits, view, values, constant, |l, r| {
+                    NativeValue(l) < NativeValue(r)
+                }),
+                CompareOperator::Lte => apply_patches(&mut bits, view, values, constant, |l, r| {
+                    NativeValue(l) <= NativeValue(r)
+                }),
             }
         });
 
@@ -111,50 +105,21 @@ impl CompareKernel for Patched {
     }
 }
 
-struct ApplyPatches<'a, V: NativePType> {
-    bits: &'a mut BitBufferMut,
-    offset: usize,
-    n_lanes: usize,
-    lane_offsets: &'a [u32],
-    indices: &'a [u16],
-    values: &'a [V],
+/// Overwrite the comparison bit of every patched row with the patch value's own comparison.
+fn apply_patches<V: NativePType>(
+    bits: &mut BitBufferMut,
+    view: PatchedView<'_>,
+    values: &[V],
     constant: V,
-}
-
-impl<V: NativePType> ApplyPatches<'_, V> {
-    fn apply<F>(self, cmp: F) -> VortexResult<()>
-    where
-        F: Fn(V, V) -> bool,
-    {
-        for index in 0..(self.lane_offsets.len() - 1) {
-            let chunk = index / self.n_lanes;
-
-            let lane_start = self.lane_offsets[index] as usize;
-            let lane_end = self.lane_offsets[index + 1] as usize;
-
-            for (&patch_index, &patch_value) in std::iter::zip(
-                &self.indices[lane_start..lane_end],
-                &self.values[lane_start..lane_end],
-            ) {
-                let bit_index = chunk * 1024 + patch_index as usize;
-                // Skip any indices < the offset.
-                if bit_index < self.offset {
-                    continue;
-                }
-                let bit_index = bit_index - self.offset;
-                if bit_index >= self.bits.len() {
-                    break;
-                }
-                if cmp(patch_value, self.constant) {
-                    self.bits.set(bit_index)
-                } else {
-                    self.bits.unset(bit_index)
-                }
-            }
+    cmp: impl Fn(V, V) -> bool,
+) {
+    view.for_each(|row, ordinal| {
+        if cmp(values[ordinal], constant) {
+            bits.set(row)
+        } else {
+            bits.unset(row)
         }
-
-        Ok(())
-    }
+    });
 }
 
 #[cfg(test)]
@@ -177,7 +142,7 @@ mod tests {
     use crate::validity::Validity;
 
     #[test]
-    fn test_basic() {
+    fn test_basic() -> VortexResult<()> {
         let lhs = PrimitiveArray::from_iter(0u32..512).into_array();
         let patches = Patches::new(
             512,
@@ -185,32 +150,31 @@ mod tests {
             buffer![509u16, 510, 511].into_array(),
             buffer![u32::MAX; 3].into_array(),
             None,
-        )
-        .unwrap();
+        )?;
 
         let mut ctx = crate::array_session().create_execution_ctx();
 
-        let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx)
-            .unwrap()
-            .into_array()
-            .try_downcast::<Patched>()
-            .unwrap();
+        let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx)?;
 
         let rhs = ConstantArray::new(u32::MAX, 512).into_array();
 
-        let result =
-            <Patched as CompareKernel>::compare(lhs.as_view(), &rhs, CompareOperator::Eq, &mut ctx)
-                .unwrap()
-                .unwrap();
+        let result = <Patched as CompareKernel>::compare(
+            lhs.as_view(),
+            &rhs,
+            CompareOperator::Eq,
+            &mut ctx,
+        )?
+        .ok_or_else(|| vortex_err!("expected compare result"))?;
 
         let expected =
             BoolArray::from_indices(512, [509, 510, 511], Validity::NonNullable).into_array();
 
         assert_arrays_eq!(expected, result, &mut ctx);
+        Ok(())
     }
 
     #[test]
-    fn test_with_offset() {
+    fn test_with_offset() -> VortexResult<()> {
         let lhs = PrimitiveArray::from_iter(0u32..512).into_array();
         let patches = Patches::new(
             512,
@@ -218,28 +182,33 @@ mod tests {
             buffer![5u16, 510, 511].into_array(),
             buffer![u32::MAX; 3].into_array(),
             None,
-        )
-        .unwrap();
+        )?;
 
         let mut ctx = crate::array_session().create_execution_ctx();
 
-        let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx).unwrap();
+        let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx)?;
         // Slice the array so that the first patch should be skipped.
-        let lhs_ref = lhs.into_array().slice(10..512).unwrap().optimize().unwrap();
-        let lhs = lhs_ref.try_downcast::<Patched>().unwrap();
+        let lhs_ref = lhs.into_array().slice(10..512)?.optimize()?;
+        let lhs = lhs_ref
+            .try_downcast::<Patched>()
+            .map_err(|_| vortex_err!("expected patched array"))?;
 
         assert_eq!(lhs.len(), 502);
 
         let rhs = ConstantArray::new(u32::MAX, lhs.len()).into_array();
 
-        let result =
-            <Patched as CompareKernel>::compare(lhs.as_view(), &rhs, CompareOperator::Eq, &mut ctx)
-                .unwrap()
-                .unwrap();
+        let result = <Patched as CompareKernel>::compare(
+            lhs.as_view(),
+            &rhs,
+            CompareOperator::Eq,
+            &mut ctx,
+        )?
+        .ok_or_else(|| vortex_err!("expected compare result"))?;
 
         let expected = BoolArray::from_indices(502, [500, 501], Validity::NonNullable).into_array();
 
         assert_arrays_eq!(expected, result, &mut ctx);
+        Ok(())
     }
 
     #[test]
@@ -259,10 +228,7 @@ mod tests {
         )?;
 
         let mut ctx = crate::array_session().create_execution_ctx();
-        let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx)?
-            .into_array()
-            .try_downcast::<Patched>()
-            .map_err(|_| vortex_err!("expected patched array"))?;
+        let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx)?;
 
         let rhs = ConstantArray::new(subnormal, 512).into_array();
 
@@ -293,10 +259,7 @@ mod tests {
         )?;
 
         let mut ctx = crate::array_session().create_execution_ctx();
-        let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx)?
-            .into_array()
-            .try_downcast::<Patched>()
-            .map_err(|_| vortex_err!("expected patched array"))?;
+        let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx)?;
 
         let rhs = ConstantArray::new(0.0f32, 10).into_array();
 

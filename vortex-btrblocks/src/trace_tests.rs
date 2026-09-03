@@ -25,7 +25,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::FilterArray;
-use vortex_array::arrays::Patched;
+use vortex_array::arrays::PatchedPlugin;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::Struct;
 use vortex_array::arrays::StructArray;
@@ -83,7 +83,7 @@ fn trace_session() -> VortexSession {
         #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
         arrays.register(vortex_zstd::ZstdBuffers);
         if use_experimental_patches() {
-            arrays.register(Patched);
+            arrays.register(PatchedPlugin);
         }
     }
 

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use rustc_hash::FxHashMap;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 
@@ -14,6 +13,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::patched::PatchedArraySlotsExt;
+use crate::arrays::patched::PatchedView;
 use crate::arrays::primitive::PrimitiveDataParts;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
@@ -43,36 +43,37 @@ impl TakeExecute for Patched {
             ptype,
         } = inner.into_data_parts();
 
-        let indices_ptype = indices.dtype().as_ptype();
+        let take_indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
+        let patch_indices = array
+            .patch_indices()
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?;
+        let patch_values = array
+            .patch_values()
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?;
+        let chunk_offsets = array
+            .chunk_offsets()
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?;
+        let view = PatchedView::new(
+            array.offset(),
+            array.len(),
+            patch_indices.as_slice::<u16>(),
+            chunk_offsets.as_slice::<u32>(),
+        );
 
-        match_each_unsigned_integer_ptype!(indices_ptype, |I| {
+        match_each_unsigned_integer_ptype!(take_indices.ptype(), |I| {
             match_each_native_ptype!(ptype, |V| {
-                let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
-                let lane_offsets = array
-                    .lane_offsets()
-                    .clone()
-                    .execute::<PrimitiveArray>(ctx)?;
-                let patch_indices = array
-                    .patch_indices()
-                    .clone()
-                    .execute::<PrimitiveArray>(ctx)?;
-                let patch_values = array
-                    .patch_values()
-                    .clone()
-                    .execute::<PrimitiveArray>(ctx)?;
                 let mut output = Buffer::<V>::from_byte_buffer(buffer.unwrap_host()).into_mut();
-                take_map(
+                take_patches(
                     output.as_mut(),
-                    indices.as_slice::<I>(),
-                    array.offset(),
-                    array.len(),
-                    array.n_lanes(),
-                    lane_offsets.as_slice::<u32>(),
-                    patch_indices.as_slice::<u16>(),
+                    take_indices.as_slice::<I>(),
+                    view,
                     patch_values.as_slice::<V>(),
                 );
 
-                // SAFETY: output and validity still have same length after take_map returns.
+                // SAFETY: output and validity still have same length after take_patches returns.
                 unsafe {
                     Ok(Some(
                         PrimitiveArray::new_unchecked(output.freeze(), validity).into_array(),
@@ -83,46 +84,19 @@ impl TakeExecute for Patched {
     }
 }
 
-/// Take patches for the given `indices` and apply them onto an `output` using a hash map.
+/// Overwrite each taken row that lands on a patch with the patch value.
 ///
-/// First, builds a hashmap from index to patch value, then uses the hashmap in a loop to collect
-/// the values.
-#[expect(clippy::too_many_arguments)]
-fn take_map<I: IntegerPType, V: NativePType>(
+/// Every lookup is a constant-time chunk select plus a binary search over at most one chunk of
+/// indices. Null take indices may hold any value; out-of-range rows simply find no patch.
+fn take_patches<I: IntegerPType, V: NativePType>(
     output: &mut [V],
-    indices: &[I],
-    offset: usize,
-    len: usize,
-    n_lanes: usize,
-    lane_offsets: &[u32],
-    patch_index: &[u16],
-    patch_value: &[V],
+    take_indices: &[I],
+    view: PatchedView<'_>,
+    patch_values: &[V],
 ) {
-    let n_chunks = (offset + len).div_ceil(1024);
-    // Build a hashmap of patch_index -> values.
-    let mut index_map = FxHashMap::with_capacity_and_hasher(patch_index.len(), Default::default());
-    for chunk in 0..n_chunks {
-        for lane in 0..n_lanes {
-            let lane_start = lane_offsets[chunk * n_lanes + lane];
-            let lane_end = lane_offsets[chunk * n_lanes + lane + 1];
-            for i in lane_start..lane_end {
-                let patch_idx = patch_index[i as usize];
-                let patch_value = patch_value[i as usize];
-
-                let index = chunk * 1024 + patch_idx as usize;
-                if index >= offset && index < offset + len {
-                    index_map.insert(index - offset, patch_value);
-                }
-            }
-        }
-    }
-
-    // Now, iterate the take indices using the prebuilt hashmap.
-    // Undefined/null indices will miss the hash map, which we can ignore.
-    for (output_index, index) in indices.iter().enumerate() {
-        let index = index.as_();
-        if let Some(&patch_value) = index_map.get(&index) {
-            output[output_index] = patch_value;
+    for (output_index, index) in take_indices.iter().enumerate() {
+        if let Some(ordinal) = view.search(index.as_()).to_found() {
+            output[output_index] = patch_values[ordinal];
         }
     }
 }
@@ -139,10 +113,12 @@ mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;
+    use crate::arrays::BoolArray;
     use crate::arrays::Patched;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::patches::Patches;
+    use crate::validity::Validity;
 
     fn make_patched_array(
         base: &[u16],
@@ -200,6 +176,28 @@ mod tests {
     }
 
     #[test]
+    fn test_take_across_chunks() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let base: Vec<u16> = (0..4096).map(|i| (i % 7) as u16).collect();
+        let array = make_patched_array(
+            &base,
+            &[5, 1030, 1031, 2200, 4095],
+            &[1, 2, 3, 4, 5],
+            0..4096,
+        )?;
+
+        let indices = buffer![4095u32, 1031, 6, 2200, 1030, 5, 2199].into_array();
+        #[expect(deprecated)]
+        let result = array.take(indices)?.to_canonical()?.into_array();
+
+        let expected =
+            PrimitiveArray::from_iter([5u16, 3, base[6], 4, 2, 1, base[2199]]).into_array();
+        assert_arrays_eq!(expected, result, &mut ctx);
+
+        Ok(())
+    }
+
+    #[test]
     fn test_take_out_of_order() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         // Array with base values [0, 0, 0, 0, 0] patched at indices [1, 3] with values [10, 30]
@@ -227,10 +225,6 @@ mod tests {
         #[expect(deprecated)]
         let result = array.take(indices)?.to_canonical()?.into_array();
 
-        // execute the array.
-        #[expect(deprecated)]
-        let _canonical = result.to_canonical()?.into_primitive();
-
         let expected = PrimitiveArray::from_iter([99u16, 99, 0, 99]).into_array();
         assert_arrays_eq!(expected, result, &mut ctx);
 
@@ -240,18 +234,11 @@ mod tests {
     #[test]
     fn test_take_with_null_indices() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
-        use crate::arrays::BoolArray;
-        use crate::validity::Validity;
 
         // Array: 10 elements, base value 0, patches at indices 2, 5, 8 with values 20, 50, 80
         let array = make_patched_array(&[0; 10], &[2, 5, 8], &[20, 50, 80], 0..10)?;
 
-        // Take 10 indices, with nulls at positions 1, 4, 7
-        // Indices: [0, 2, 2, 5, 8, 0, 5, 8, 3, 1]
-        // Nulls:   [ ,  , N,  ,  , N,  ,  , N,  ]
-        // Position 2 (index=2, patched) is null
-        // Position 5 (index=0, unpatched) is null
-        // Position 8 (index=3, unpatched) is null
+        // Take 10 indices, with nulls at positions 2, 5, 8.
         let indices = PrimitiveArray::new(
             buffer![0u32, 2, 2, 5, 8, 0, 5, 8, 3, 1],
             Validity::Array(
