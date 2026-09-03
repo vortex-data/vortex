@@ -120,24 +120,6 @@ impl<T> Buffer<T> {
         }
     }
 
-    fn from_bytes(bytes: Bytes, alignment: Alignment) -> Self {
-        if size_of::<T>() == 0 {
-            vortex_panic!("cannot infer a zero-sized buffer length from bytes");
-        }
-        let length = bytes.len() / size_of::<T>();
-        if length == 0 {
-            return Self::empty_aligned(alignment);
-        }
-        let ptr =
-            NonNull::new(bytes.as_ptr().cast_mut().cast()).vortex_expect("Bytes pointer is null");
-        Self {
-            ptr,
-            length,
-            alignment,
-            backing: Some(Arc::new(BufferBacking::Bytes(bytes))),
-        }
-    }
-
     #[cfg(feature = "arrow")]
     pub(crate) fn from_arrow_owner(
         arrow: arrow_buffer::Buffer,
@@ -309,40 +291,6 @@ impl<T> Buffer<T> {
             alignment,
             backing: buffer.backing,
         }
-    }
-
-    /// Create a `Buffer<T>` zero-copy from a `Bytes`.
-    ///
-    /// ## Panics
-    ///
-    /// Panics if the buffer is not aligned to the size of `T`, or the length is not a multiple of
-    /// the size of `T`. Also panics if `T` is zero-sized because bytes do not contain an element
-    /// count.
-    pub fn from_bytes_aligned(bytes: Bytes, alignment: Alignment) -> Self {
-        if size_of::<T>() == 0 {
-            vortex_panic!("cannot infer a zero-sized buffer length from bytes");
-        }
-        if !alignment.is_aligned_to(Alignment::of::<T>()) {
-            vortex_panic!(
-                "Alignment {} must be compatible with the scalar type's alignment {}",
-                alignment,
-                Alignment::of::<T>(),
-            );
-        }
-        if !alignment.is_ptr_aligned(bytes.as_ptr()) {
-            vortex_panic!(
-                "Bytes alignment must align to the requested alignment {}",
-                alignment,
-            );
-        }
-        if !bytes.len().is_multiple_of(size_of::<T>()) {
-            vortex_panic!(
-                "Bytes length {} must be a multiple of the scalar type's size {}",
-                bytes.len(),
-                size_of::<T>()
-            );
-        }
-        Self::from_bytes(bytes, alignment)
     }
 
     /// Create a buffer with values from the TrustedLen iterator.
@@ -712,6 +660,36 @@ impl<T> Buffer<T> {
         } else {
             vortex_panic!("Buffer is not aligned to requested alignment {}", alignment)
         }
+    }
+}
+
+impl Buffer<u8> {
+    fn from_bytes(bytes: Bytes, alignment: Alignment) -> Self {
+        if bytes.is_empty() {
+            return Self::empty_aligned(alignment);
+        }
+        let ptr = NonNull::new(bytes.as_ptr().cast_mut()).vortex_expect("Bytes pointer is null");
+        Self {
+            ptr,
+            length: bytes.len(),
+            alignment,
+            backing: Some(Arc::new(BufferBacking::Bytes(bytes))),
+        }
+    }
+
+    /// Create a byte buffer zero-copy from [`Bytes`] with the requested alignment.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if `bytes` is not aligned to `alignment`.
+    pub fn from_bytes_aligned(bytes: Bytes, alignment: Alignment) -> Self {
+        if !alignment.is_ptr_aligned(bytes.as_ptr()) {
+            vortex_panic!(
+                "Bytes alignment must align to the requested alignment {}",
+                alignment,
+            );
+        }
+        Self::from_bytes(bytes, alignment)
     }
 }
 
@@ -1296,15 +1274,6 @@ mod test {
     #[should_panic(expected = "zero-sized")]
     fn zero_sized_from_byte_buffer_is_rejected() {
         drop(Buffer::<()>::from_byte_buffer(ByteBuffer::empty()));
-    }
-
-    #[test]
-    #[should_panic(expected = "zero-sized")]
-    fn zero_sized_from_bytes_is_rejected() {
-        drop(Buffer::<()>::from_bytes_aligned(
-            Bytes::new(),
-            Alignment::of::<()>(),
-        ));
     }
 
     #[test]
