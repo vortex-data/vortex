@@ -6,7 +6,9 @@ use std::hash::Hash;
 use std::mem;
 
 use rustc_hash::FxBuildHasher;
+use vortex_buffer::Alignment;
 use vortex_buffer::BitBufferMut;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -31,6 +33,7 @@ use crate::validity::Validity;
 pub fn primitive_dict_builder<T: NativePType>(
     nullability: Nullability,
     constraints: &DictConstraints,
+    allocator: BufferAllocatorRef,
 ) -> Box<dyn DictEncoder>
 where
     NativeValue<T>: Hash + Eq,
@@ -44,20 +47,25 @@ where
         width => vortex_panic!("invalid bit_width: {width}"),
     });
     match max_possible_len {
-        max if max <= u8::MAX as u64 => {
-            Box::new(PrimitiveDictBuilder::<T, u8>::new(nullability, constraints))
-        }
+        max if max <= u8::MAX as u64 => Box::new(PrimitiveDictBuilder::<T, u8>::new(
+            nullability,
+            constraints,
+            allocator,
+        )),
         max if max <= u16::MAX as u64 => Box::new(PrimitiveDictBuilder::<T, u16>::new(
             nullability,
             constraints,
+            allocator,
         )),
         max if max <= u32::MAX as u64 => Box::new(PrimitiveDictBuilder::<T, u32>::new(
             nullability,
             constraints,
+            allocator,
         )),
         _ => Box::new(PrimitiveDictBuilder::<T, u64>::new(
             nullability,
             constraints,
+            allocator,
         )),
     }
 }
@@ -68,15 +76,20 @@ where
     NativeValue<T>: Hash + Eq,
     Code: UnsignedPType,
 {
-    pub fn new(nullability: Nullability, constraints: &DictConstraints) -> Self {
+    pub fn new(
+        nullability: Nullability,
+        constraints: &DictConstraints,
+        allocator: BufferAllocatorRef,
+    ) -> Self {
         let max_dict_len = constraints
             .max_len
             .min(constraints.max_bytes / T::PTYPE.byte_width());
         Self {
             lookup: HashMap::with_hasher(FxBuildHasher),
             null_code: OnceCell::new(),
-            values: BufferMut::<T>::empty(),
-            values_nulls: BitBufferMut::empty(),
+            values: BufferMut::<T>::empty_aligned_in(Alignment::of::<T>(), allocator.clone()),
+            values_nulls: BitBufferMut::empty_in(allocator.clone()),
+            allocator,
             nullability,
             max_dict_len,
         }
@@ -135,6 +148,7 @@ pub struct PrimitiveDictBuilder<T, Code> {
     values_nulls: BitBufferMut,
     nullability: Nullability,
     max_dict_len: usize,
+    allocator: BufferAllocatorRef,
 }
 
 impl<T, Code> DictEncoder for PrimitiveDictBuilder<T, Code>
@@ -144,7 +158,7 @@ where
     Code: UnsignedPType,
 {
     fn encode(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
-        let mut codes = BufferMut::<Code>::with_capacity(array.len());
+        let mut codes = BufferMut::<Code>::with_capacity_in(array.len(), self.allocator.clone());
 
         let prim = array.clone().execute::<PrimitiveArray>(ctx)?;
         match prim.validity()?.execute_mask(array.len(), ctx)? {
@@ -185,11 +199,16 @@ where
     fn reset(&mut self) -> ArrayRef {
         self.lookup.clear();
         self.null_code = OnceCell::new();
-        PrimitiveArray::new(
-            mem::take(&mut self.values),
-            Validity::from_bit_buffer(mem::take(&mut self.values_nulls).freeze(), self.nullability),
+        let values = mem::replace(
+            &mut self.values,
+            BufferMut::empty_aligned_in(Alignment::of::<T>(), self.allocator.clone()),
+        );
+        let nulls = mem::replace(
+            &mut self.values_nulls,
+            BitBufferMut::empty_in(self.allocator.clone()),
         )
-        .into_array()
+        .freeze();
+        PrimitiveArray::new(values, Validity::from_bit_buffer(nulls, self.nullability)).into_array()
     }
 
     fn codes_ptype(&self) -> PType {
@@ -256,7 +275,7 @@ mod test {
     fn reset_clears_dict() {
         let mut ctx = SESSION.create_execution_ctx();
         let first = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array();
-        let mut encoder = dict_encoder(&first, &UNCONSTRAINED);
+        let mut encoder = dict_encoder(&first, &UNCONSTRAINED, ctx.allocator().clone());
 
         assert_arrays_eq!(
             encoder.encode(&first, &mut ctx).unwrap(),

@@ -61,8 +61,11 @@ mod tests {
     });
 
     fn build_test_fsst_array() -> ArrayRef {
-        let mut builder =
-            VarBinBuilder::<i32>::with_capacity(DType::Utf8(Nullability::NonNullable), 10);
+        let mut builder = VarBinBuilder::<i32>::with_capacity(
+            DType::Utf8(Nullability::NonNullable),
+            10,
+            vortex_buffer::BufferAllocatorRef::static_ref(),
+        );
         builder.append_value(b"hello world");
         builder.append_value(b"foo bar baz");
         builder.append_value(b"testing fsst compression");
@@ -132,8 +135,11 @@ mod tests {
         // Test case with special characters and nulls
         // Values: ["", "", "", "", "", "", "", "", "", "", "", ",", "A<<<<<<<", "", "", "", "", null, null, null, null, null, null]
         // Mask: only the last element is selected (true at index 22)
-        let mut builder =
-            VarBinBuilder::<i32>::with_capacity(DType::Utf8(Nullability::Nullable), 23);
+        let mut builder = VarBinBuilder::<i32>::with_capacity(
+            DType::Utf8(Nullability::Nullable),
+            23,
+            vortex_buffer::BufferAllocatorRef::static_ref(),
+        );
         // 11 empty strings
         for _ in 0..11 {
             builder.append_value(b"");
@@ -174,8 +180,11 @@ mod tests {
 
     #[test]
     fn filter_only_null() -> VortexResult<()> {
-        let mut builder =
-            VarBinBuilder::<i32>::with_capacity(DType::Utf8(Nullability::Nullable), 3);
+        let mut builder = VarBinBuilder::<i32>::with_capacity(
+            DType::Utf8(Nullability::Nullable),
+            3,
+            vortex_buffer::BufferAllocatorRef::static_ref(),
+        );
         builder.push_null();
         builder.append_value(b"A");
         builder.push_null();
@@ -216,8 +225,11 @@ mod tests {
 
     #[test]
     fn test_fsst_byte_length() -> VortexResult<()> {
-        let mut builder =
-            VarBinBuilder::<i32>::with_capacity(DType::Utf8(Nullability::NonNullable), 3);
+        let mut builder = VarBinBuilder::<i32>::with_capacity(
+            DType::Utf8(Nullability::NonNullable),
+            3,
+            vortex_buffer::BufferAllocatorRef::static_ref(),
+        );
         builder.append_value(b"hello");
         builder.append_value(b"world!!");
         builder.append_value("Пуховички"); // 9 characters, 18 bytes

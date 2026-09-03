@@ -1770,7 +1770,10 @@ mod tests {
     #[test]
     fn test_append_to_varbin_copies_the_stored_values() -> VortexResult<()> {
         let slice = decompressed_slice(make_interleaved(&[b"hello", b"world"]), 0, 2, 0, 2);
-        let mut builder = VarBinBuilder::<i32>::new(DType::Utf8(NonNullable));
+        let mut builder = VarBinBuilder::<i32>::new(
+            DType::Utf8(NonNullable),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
+        );
         append_slice_to_varbin(&slice, &Mask::new_true(2), &mut builder)?;
 
         let appended = builder.finish_into_varbin();
@@ -1790,7 +1793,10 @@ mod tests {
         buffer.extend_from_slice(&1u32.to_le_bytes());
 
         let slice = decompressed_slice(ByteBuffer::copy_from(buffer.as_slice()), 0, 2, 0, 2);
-        let mut builder = VarBinBuilder::<i32>::new(DType::Utf8(NonNullable));
+        let mut builder = VarBinBuilder::<i32>::new(
+            DType::Utf8(NonNullable),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
+        );
         assert!(append_slice_to_varbin(&slice, &Mask::new_true(2), &mut builder).is_err());
         // The builder rejected the values before committing any of them.
         assert_eq!(builder.finish_into_varbin().len(), 0);

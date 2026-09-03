@@ -4,6 +4,7 @@
 use std::any::Any;
 
 use itertools::Itertools;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -35,8 +36,17 @@ pub struct StructBuilder {
 
 impl StructBuilder {
     /// Creates a new `StructBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
-    pub fn new(struct_dtype: StructFields, nullability: Nullability) -> Self {
-        Self::with_capacity(struct_dtype, nullability, DEFAULT_BUILDER_CAPACITY)
+    pub fn new(
+        struct_dtype: StructFields,
+        nullability: Nullability,
+        allocator: &BufferAllocatorRef,
+    ) -> Self {
+        Self::with_capacity(
+            struct_dtype,
+            nullability,
+            DEFAULT_BUILDER_CAPACITY,
+            allocator,
+        )
     }
 
     /// Creates a new `StructBuilder` with the given `capacity`.
@@ -44,15 +54,16 @@ impl StructBuilder {
         struct_dtype: StructFields,
         nullability: Nullability,
         capacity: usize,
+        allocator: &BufferAllocatorRef,
     ) -> Self {
         let builders = struct_dtype
             .fields()
-            .map(|dt| ChildBuilder::with_capacity(&dt, capacity))
+            .map(|dt| ChildBuilder::with_capacity(&dt, capacity, allocator))
             .collect();
 
         Self {
             builders,
-            nulls: ValidityBuilder::new(capacity),
+            nulls: ValidityBuilder::new(capacity, allocator),
             dtype: DType::Struct(struct_dtype, nullability),
         }
     }
@@ -200,6 +211,8 @@ impl ArrayBuilder for StructBuilder {
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::BufferAllocatorRef;
+
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;
@@ -220,7 +233,12 @@ mod tests {
     fn test_struct_builder() {
         let sdt = StructFields::new(["a", "b"].into(), vec![I32.into(), I32.into()]);
         let dtype = DType::Struct(sdt.clone(), Nullability::NonNullable);
-        let mut builder = StructBuilder::with_capacity(sdt, Nullability::NonNullable, 0);
+        let mut builder = StructBuilder::with_capacity(
+            sdt,
+            Nullability::NonNullable,
+            0,
+            BufferAllocatorRef::static_ref(),
+        );
 
         builder
             .append_value(Scalar::struct_(dtype.clone(), vec![1.into(), 2.into()]).as_struct())
@@ -235,7 +253,12 @@ mod tests {
     fn test_append_nullable_struct() {
         let sdt = StructFields::new(["a", "b"].into(), vec![I32.into(), I32.into()]);
         let dtype = DType::Struct(sdt.clone(), Nullability::Nullable);
-        let mut builder = StructBuilder::with_capacity(sdt, Nullability::Nullable, 0);
+        let mut builder = StructBuilder::with_capacity(
+            sdt,
+            Nullability::Nullable,
+            0,
+            BufferAllocatorRef::static_ref(),
+        );
 
         builder
             .append_value(Scalar::struct_(dtype.clone(), vec![1.into(), 2.into()]).as_struct())
@@ -271,7 +294,11 @@ mod tests {
             DType::Struct(fields, _) => fields.clone(),
             _ => panic!("Expected struct dtype"),
         };
-        let mut builder = StructBuilder::new(struct_fields, Nullability::Nullable);
+        let mut builder = StructBuilder::new(
+            struct_fields,
+            Nullability::Nullable,
+            BufferAllocatorRef::static_ref(),
+        );
 
         // Test appending a valid struct value.
         let struct_scalar1 = Scalar::struct_(
@@ -326,7 +353,11 @@ mod tests {
             DType::Struct(fields, _) => fields.clone(),
             _ => panic!("Expected struct dtype"),
         };
-        let mut builder = StructBuilder::new(struct_fields, Nullability::NonNullable);
+        let mut builder = StructBuilder::new(
+            struct_fields,
+            Nullability::NonNullable,
+            BufferAllocatorRef::static_ref(),
+        );
         let wrong_scalar = Scalar::from(42i32);
         assert!(builder.append_scalar(&wrong_scalar).is_err());
     }

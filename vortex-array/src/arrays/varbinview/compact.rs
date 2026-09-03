@@ -146,6 +146,7 @@ impl VarBinViewArray {
             self.dtype().clone(),
             self.len(),
             buffer_utilization_threshold,
+            ctx.allocator().clone(),
         );
         builder.append_varbinview_array(self, ctx)?;
         Ok(builder.finish_into_varbinview())

@@ -27,6 +27,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::OffsetBuilderPType;
 use vortex_array::match_each_integer_ptype;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -206,6 +207,7 @@ where
         DType::Binary(strings.dtype().nullability()),
         strings.len(),
         compressor,
+        ctx.allocator(),
     );
     let views = strings.views();
     let buffers = strings.data_buffers();
@@ -243,6 +245,7 @@ where
         DType::Binary(strings.dtype().nullability()),
         strings.len(),
         compressor,
+        ctx.allocator(),
     );
     let bytes = strings.bytes().as_slice();
     match_each_integer_ptype!(offsets.ptype(), |I| {
@@ -288,11 +291,16 @@ struct FsstSink<'c, O: OffsetBuilderPType + 'static> {
 }
 
 impl<'c, O: OffsetBuilderPType + 'static> FsstSink<'c, O> {
-    fn with_capacity(dtype: DType, len: usize, compressor: &'c Compressor) -> Self {
+    fn with_capacity(
+        dtype: DType,
+        len: usize,
+        compressor: &'c Compressor,
+        allocator: &BufferAllocatorRef,
+    ) -> Self {
         Self {
             buffer: Vec::with_capacity(DEFAULT_BUFFER_LEN),
-            builder: VarBinBuilder::<O>::with_capacity(dtype, len),
-            uncompressed_lengths: BufferMut::with_capacity(len),
+            builder: VarBinBuilder::<O>::with_capacity(dtype, len, allocator),
+            uncompressed_lengths: BufferMut::with_capacity_in(len, allocator.clone()),
             compressor,
         }
     }

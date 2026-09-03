@@ -30,8 +30,11 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 
 /// this function is VERY slow on miri, so we only want to run it once
 pub(crate) fn build_fsst_array(ctx: &mut ExecutionCtx) -> ArrayRef {
-    let mut input_array =
-        VarBinBuilder::<i32>::with_capacity(DType::Utf8(Nullability::NonNullable), 3);
+    let mut input_array = VarBinBuilder::<i32>::with_capacity(
+        DType::Utf8(Nullability::NonNullable),
+        3,
+        vortex_buffer::BufferAllocatorRef::static_ref(),
+    );
     input_array.append_value(b"The Greeks never said that the limit could not be overstepped");
     input_array.append_value(
         b"They said it existed and that whoever dared to exceed it was mercilessly struck down",
@@ -161,7 +164,11 @@ fn fsst_compress_offsets_overflow_i32() {
 
     println!("building large VarBinArray");
     let string = vec![b'a'; STRING_LEN];
-    let mut builder = VarBinBuilder::<i64>::with_capacity(DType::Utf8(Nullability::NonNullable), N);
+    let mut builder = VarBinBuilder::<i64>::with_capacity(
+        DType::Utf8(Nullability::NonNullable),
+        N,
+        vortex_buffer::BufferAllocatorRef::static_ref(),
+    );
     for _ in 0..N {
         builder.append_value(&string);
     }

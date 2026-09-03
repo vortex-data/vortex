@@ -6,6 +6,7 @@ use std::fmt::Formatter;
 
 use num_traits::AsPrimitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -383,7 +384,11 @@ impl Array<VarBin> {
         dtype: DType,
     ) -> Self {
         let iter = iter.into_iter();
-        let mut builder = VarBinBuilder::<u32>::with_capacity(dtype, iter.size_hint().0);
+        let mut builder = VarBinBuilder::<u32>::with_capacity(
+            dtype,
+            iter.size_hint().0,
+            BufferAllocatorRef::static_ref(),
+        );
         for v in iter {
             builder.append(v.as_ref().map(|o| o.as_ref()));
         }
@@ -395,7 +400,11 @@ impl Array<VarBin> {
         dtype: DType,
     ) -> Self {
         let iter = iter.into_iter();
-        let mut builder = VarBinBuilder::<u32>::with_capacity(dtype, iter.size_hint().0);
+        let mut builder = VarBinBuilder::<u32>::with_capacity(
+            dtype,
+            iter.size_hint().0,
+            BufferAllocatorRef::static_ref(),
+        );
         for v in iter {
             builder.append_value(v);
         }
@@ -407,7 +416,8 @@ impl Array<VarBin> {
         O: OffsetBuilderPType,
         T: AsRef<[u8]>,
     {
-        let mut builder = VarBinBuilder::<O>::with_capacity(dtype, vec.len());
+        let mut builder =
+            VarBinBuilder::<O>::with_capacity(dtype, vec.len(), BufferAllocatorRef::static_ref());
         for v in vec {
             builder.append_value(v.as_ref());
         }

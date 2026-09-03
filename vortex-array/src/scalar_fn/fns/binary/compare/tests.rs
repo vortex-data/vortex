@@ -709,7 +709,12 @@ fn map_array(
     let rows = rows.into_iter().collect::<Vec<_>>();
     let dtype = map_dtype(nullability)?;
     let map_dtype = dtype.as_map_opt().vortex_expect("map dtype").clone();
-    let mut builder = MapBuilder::<u64, u64>::with_capacity(map_dtype, nullability, rows.len());
+    let mut builder = MapBuilder::<u64, u64>::with_capacity(
+        map_dtype,
+        nullability,
+        rows.len(),
+        vortex_buffer::BufferAllocatorRef::static_ref(),
+    );
     for row in rows {
         let scalar = match row {
             Some(entries) => map_scalar(nullability, entries)?,

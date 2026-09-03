@@ -62,8 +62,11 @@ fn wkb_extension_array() -> VortexResult<(Vec<u8>, vortex_array::ArrayRef)> {
     wkb::writer::write_geometry(&mut buf, &test_polygon(), &WriteOptions::default())
         .map_err(|e| vortex_err!("writing WKB failed: {e}"))?;
 
-    let mut builder =
-        VarBinBuilder::<i32>::with_capacity(DType::Binary(Nullability::NonNullable), 3);
+    let mut builder = VarBinBuilder::<i32>::with_capacity(
+        DType::Binary(Nullability::NonNullable),
+        3,
+        vortex_buffer::BufferAllocatorRef::static_ref(),
+    );
     builder.append_value(&buf);
     builder.append_value(&buf);
     builder.append_value(&buf);

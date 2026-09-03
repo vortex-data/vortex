@@ -4,6 +4,7 @@
 use std::any::Any;
 use std::sync::Arc;
 
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -44,12 +45,18 @@ pub struct FixedSizeListBuilder {
 
 impl FixedSizeListBuilder {
     /// Creates a new `FixedSizeListBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
-    pub fn new(element_dtype: Arc<DType>, list_size: u32, nullability: Nullability) -> Self {
+    pub fn new(
+        element_dtype: Arc<DType>,
+        list_size: u32,
+        nullability: Nullability,
+        allocator: &BufferAllocatorRef,
+    ) -> Self {
         Self::with_capacity(
             element_dtype,
             list_size,
             nullability,
             DEFAULT_BUILDER_CAPACITY,
+            allocator,
         )
     }
 
@@ -59,12 +66,14 @@ impl FixedSizeListBuilder {
         list_size: u32,
         nullability: Nullability,
         capacity: usize,
+        allocator: &BufferAllocatorRef,
     ) -> Self {
         let elements_capacity = capacity * list_size as usize;
 
-        let elements_builder = ChildBuilder::with_capacity(&element_dtype, elements_capacity);
+        let elements_builder =
+            ChildBuilder::with_capacity(&element_dtype, elements_capacity, allocator);
         let fsl_dtype = DType::FixedSizeList(element_dtype, list_size, nullability);
-        let nulls = ValidityBuilder::new(capacity);
+        let nulls = ValidityBuilder::new(capacity, allocator);
 
         Self {
             dtype: fsl_dtype,
@@ -320,6 +329,7 @@ impl ArrayBuilder for FixedSizeListBuilder {
 mod tests {
     use std::sync::Arc;
 
+    use vortex_buffer::BufferAllocatorRef;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
 
@@ -341,8 +351,13 @@ mod tests {
 
     #[test]
     fn test_empty() {
-        let mut builder =
-            FixedSizeListBuilder::with_capacity(Arc::new(I32.into()), 3, NonNullable, 0);
+        let mut builder = FixedSizeListBuilder::with_capacity(
+            Arc::new(I32.into()),
+            3,
+            NonNullable,
+            0,
+            BufferAllocatorRef::static_ref(),
+        );
 
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 0);
@@ -351,8 +366,13 @@ mod tests {
     #[test]
     fn test_values() {
         let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut builder =
-            FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 3, NonNullable, 0);
+        let mut builder = FixedSizeListBuilder::with_capacity(
+            Arc::clone(&dtype),
+            3,
+            NonNullable,
+            0,
+            BufferAllocatorRef::static_ref(),
+        );
 
         builder
             .append_value(
@@ -388,8 +408,13 @@ mod tests {
     #[test]
     fn test_degenerate_size_zero_non_nullable() {
         let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut builder =
-            FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 0, NonNullable, 10000000);
+        let mut builder = FixedSizeListBuilder::with_capacity(
+            Arc::clone(&dtype),
+            0,
+            NonNullable,
+            10000000,
+            BufferAllocatorRef::static_ref(),
+        );
 
         // Append multiple "empty" lists.
         for _ in 0..100 {
@@ -414,8 +439,13 @@ mod tests {
     fn test_degenerate_size_zero_nullable() {
         // Use nullable elements since we'll be appending nulls
         let dtype: Arc<DType> = Arc::new(DType::Primitive(I32, Nullable));
-        let mut builder =
-            FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 0, Nullable, 10000000);
+        let mut builder = FixedSizeListBuilder::with_capacity(
+            Arc::clone(&dtype),
+            0,
+            Nullable,
+            10000000,
+            BufferAllocatorRef::static_ref(),
+        );
 
         // Mix of null and non-null empty lists.
         for i in 0..100 {
@@ -443,8 +473,13 @@ mod tests {
     fn test_capacity_growth() {
         let dtype: Arc<DType> = Arc::new(I32.into());
         // Start with capacity 0.
-        let mut builder =
-            FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 2, NonNullable, 0);
+        let mut builder = FixedSizeListBuilder::with_capacity(
+            Arc::clone(&dtype),
+            2,
+            NonNullable,
+            0,
+            BufferAllocatorRef::static_ref(),
+        );
 
         // Add more items than initial capacity.
         for i in 0..5 {
@@ -472,7 +507,13 @@ mod tests {
     fn test_large_size_zero_capacity_empty_result() {
         let dtype: Arc<DType> = Arc::new(I32.into());
         // Large list size but zero capacity and no appends.
-        let mut builder = FixedSizeListBuilder::with_capacity(dtype, 100000000, NonNullable, 0);
+        let mut builder = FixedSizeListBuilder::with_capacity(
+            dtype,
+            100000000,
+            NonNullable,
+            0,
+            BufferAllocatorRef::static_ref(),
+        );
 
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 0);
@@ -487,7 +528,13 @@ mod tests {
     fn test_nullable_lists_non_nullable_elements() {
         let mut ctx = array_session().create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(DType::Primitive(I32, NonNullable));
-        let mut builder = FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 2, Nullable, 0);
+        let mut builder = FixedSizeListBuilder::with_capacity(
+            Arc::clone(&dtype),
+            2,
+            Nullable,
+            0,
+            BufferAllocatorRef::static_ref(),
+        );
 
         builder
             .append_value(
@@ -538,8 +585,13 @@ mod tests {
     #[test]
     fn test_non_nullable_lists_nullable_elements() {
         let dtype: Arc<DType> = Arc::new(DType::Primitive(I32, Nullable));
-        let mut builder =
-            FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 3, NonNullable, 0);
+        let mut builder = FixedSizeListBuilder::with_capacity(
+            Arc::clone(&dtype),
+            3,
+            NonNullable,
+            0,
+            BufferAllocatorRef::static_ref(),
+        );
 
         builder
             .append_value(
@@ -582,7 +634,13 @@ mod tests {
     #[test]
     fn test_append_zeros() {
         let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut builder = FixedSizeListBuilder::with_capacity(dtype, 3, NonNullable, 0);
+        let mut builder = FixedSizeListBuilder::with_capacity(
+            dtype,
+            3,
+            NonNullable,
+            0,
+            BufferAllocatorRef::static_ref(),
+        );
 
         builder.append_zeros(5);
 
@@ -609,7 +667,13 @@ mod tests {
         let mut ctx = array_session().create_execution_ctx();
         // Elements must be nullable if we're going to append null lists
         let dtype: Arc<DType> = Arc::new(DType::Primitive(I32, Nullable));
-        let mut builder = FixedSizeListBuilder::with_capacity(dtype, 2, Nullable, 0);
+        let mut builder = FixedSizeListBuilder::with_capacity(
+            dtype,
+            2,
+            Nullable,
+            0,
+            BufferAllocatorRef::static_ref(),
+        );
 
         assert_eq!(builder.dtype().nullability(), Nullable);
         builder.append_nulls(3);
@@ -638,7 +702,13 @@ mod tests {
         let mut ctx = array_session().create_execution_ctx();
         // Elements must be nullable if we're going to append null lists
         let dtype: Arc<DType> = Arc::new(DType::Primitive(I32, Nullable));
-        let mut builder = FixedSizeListBuilder::with_capacity(dtype, 2, Nullable, 0);
+        let mut builder = FixedSizeListBuilder::with_capacity(
+            dtype,
+            2,
+            Nullable,
+            0,
+            BufferAllocatorRef::static_ref(),
+        );
 
         assert_eq!(builder.dtype().nullability(), Nullable);
         builder
@@ -665,7 +735,13 @@ mod tests {
     #[test]
     fn test_append_zeros_degenerate() {
         let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut builder = FixedSizeListBuilder::with_capacity(dtype, 0, NonNullable, 0);
+        let mut builder = FixedSizeListBuilder::with_capacity(
+            dtype,
+            0,
+            NonNullable,
+            0,
+            BufferAllocatorRef::static_ref(),
+        );
 
         assert_eq!(builder.len(), 0);
         builder.append_zeros(1000);
@@ -683,8 +759,13 @@ mod tests {
     #[test]
     fn test_invalid_size_error() {
         let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut builder =
-            FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 3, NonNullable, 0);
+        let mut builder = FixedSizeListBuilder::with_capacity(
+            Arc::clone(&dtype),
+            3,
+            NonNullable,
+            0,
+            BufferAllocatorRef::static_ref(),
+        );
 
         // Try to append a list with wrong size.
         let result = builder.append_value(
@@ -718,7 +799,13 @@ mod tests {
             3,
         );
 
-        let mut builder = FixedSizeListBuilder::with_capacity(dtype, 2, Nullable, 0);
+        let mut builder = FixedSizeListBuilder::with_capacity(
+            dtype,
+            2,
+            Nullable,
+            0,
+            BufferAllocatorRef::static_ref(),
+        );
 
         let source_array = source.into_array();
         source_array
@@ -799,7 +886,13 @@ mod tests {
             2,
         );
 
-        let mut builder = FixedSizeListBuilder::with_capacity(dtype, 0, Nullable, 0);
+        let mut builder = FixedSizeListBuilder::with_capacity(
+            dtype,
+            0,
+            Nullable,
+            0,
+            BufferAllocatorRef::static_ref(),
+        );
 
         source1
             .into_array()
@@ -868,8 +961,13 @@ mod tests {
             0,
         );
 
-        let mut builder =
-            FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 3, NonNullable, 0);
+        let mut builder = FixedSizeListBuilder::with_capacity(
+            Arc::clone(&dtype),
+            3,
+            NonNullable,
+            0,
+            BufferAllocatorRef::static_ref(),
+        );
 
         // Add some initial data.
         builder
@@ -898,7 +996,13 @@ mod tests {
         let mut ctx = array_session().create_execution_ctx();
         // Use nullable elements since we'll be appending nulls
         let dtype: Arc<DType> = Arc::new(DType::Primitive(I32, Nullable));
-        let mut builder = FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 2, Nullable, 0);
+        let mut builder = FixedSizeListBuilder::with_capacity(
+            Arc::clone(&dtype),
+            2,
+            Nullable,
+            0,
+            BufferAllocatorRef::static_ref(),
+        );
 
         // Mix of operations.
         builder
@@ -985,7 +1089,13 @@ mod tests {
     fn test_append_scalar() {
         let mut ctx = array_session().create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut builder = FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 2, Nullable, 10);
+        let mut builder = FixedSizeListBuilder::with_capacity(
+            Arc::clone(&dtype),
+            2,
+            Nullable,
+            10,
+            BufferAllocatorRef::static_ref(),
+        );
 
         // Test appending a valid fixed-size list.
         let list_scalar1 =
@@ -1045,7 +1155,13 @@ mod tests {
         );
 
         // Test wrong dtype error.
-        let mut builder = FixedSizeListBuilder::with_capacity(dtype, 2, NonNullable, 10);
+        let mut builder = FixedSizeListBuilder::with_capacity(
+            dtype,
+            2,
+            NonNullable,
+            10,
+            BufferAllocatorRef::static_ref(),
+        );
         let wrong_scalar = Scalar::from(42i32);
         assert!(builder.append_scalar(&wrong_scalar).is_err());
     }
@@ -1054,8 +1170,13 @@ mod tests {
     fn test_append_array_as_list() {
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut ctx = array_session().create_execution_ctx();
-        let mut builder =
-            FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 3, NonNullable, 10);
+        let mut builder = FixedSizeListBuilder::with_capacity(
+            Arc::clone(&dtype),
+            3,
+            NonNullable,
+            10,
+            BufferAllocatorRef::static_ref(),
+        );
 
         // Append a primitive array as a single list entry.
         let arr1 = buffer![1i32, 2, 3].into_array();
@@ -1105,8 +1226,13 @@ mod tests {
         );
 
         // Test dtype mismatch error.
-        let mut builder =
-            FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 3, NonNullable, 10);
+        let mut builder = FixedSizeListBuilder::with_capacity(
+            Arc::clone(&dtype),
+            3,
+            NonNullable,
+            10,
+            BufferAllocatorRef::static_ref(),
+        );
         let wrong_dtype_arr = buffer![1i64, 2, 3].into_array();
         assert!(
             builder
@@ -1115,7 +1241,13 @@ mod tests {
         );
 
         // Test length mismatch error.
-        let mut builder = FixedSizeListBuilder::with_capacity(dtype, 3, NonNullable, 10);
+        let mut builder = FixedSizeListBuilder::with_capacity(
+            dtype,
+            3,
+            NonNullable,
+            10,
+            BufferAllocatorRef::static_ref(),
+        );
         let wrong_len_arr = buffer![1i32, 2].into_array();
         assert!(
             builder

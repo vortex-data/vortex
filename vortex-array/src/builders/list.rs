@@ -5,6 +5,7 @@ use std::any::Any;
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -56,7 +57,11 @@ pub struct ListBuilder<O: OffsetBuilderPType> {
 
 impl<O: OffsetBuilderPType> ListBuilder<O> {
     /// Creates a new `ListBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
-    pub fn new(value_dtype: Arc<DType>, nullability: Nullability) -> Self {
+    pub fn new(
+        value_dtype: Arc<DType>,
+        nullability: Nullability,
+        allocator: &BufferAllocatorRef,
+    ) -> Self {
         Self::with_capacity(
             value_dtype,
             nullability,
@@ -64,6 +69,7 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
             // elements builder since we cannot know this ahead of time.
             DEFAULT_BUILDER_CAPACITY * 2,
             DEFAULT_BUILDER_CAPACITY,
+            allocator,
         )
     }
 
@@ -79,9 +85,12 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
         nullability: Nullability,
         elements_capacity: usize,
         capacity: usize,
+        allocator: &BufferAllocatorRef,
     ) -> Self {
-        let elements_builder = ChildBuilder::with_capacity(value_dtype.as_ref(), elements_capacity);
-        let mut offsets_builder = PrimitiveBuilder::<O>::with_capacity(NonNullable, capacity + 1);
+        let elements_builder =
+            ChildBuilder::with_capacity(value_dtype.as_ref(), elements_capacity, allocator);
+        let mut offsets_builder =
+            PrimitiveBuilder::<O>::with_capacity(NonNullable, capacity + 1, allocator);
 
         // The first offset is always 0 and represents an empty list.
         offsets_builder.append_zero();
@@ -89,7 +98,7 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
         Self {
             elements_builder,
             offsets_builder,
-            nulls: ValidityBuilder::new(capacity),
+            nulls: ValidityBuilder::new(capacity, allocator),
             dtype: DType::List(value_dtype, nullability),
         }
     }
@@ -395,6 +404,7 @@ mod tests {
 
     use Nullability::NonNullable;
     use Nullability::Nullable;
+    use vortex_buffer::BufferAllocatorRef;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
@@ -423,8 +433,13 @@ mod tests {
 
     #[test]
     fn test_empty() {
-        let mut builder =
-            ListBuilder::<u32>::with_capacity(Arc::new(I32.into()), NonNullable, 0, 0);
+        let mut builder = ListBuilder::<u32>::with_capacity(
+            Arc::new(I32.into()),
+            NonNullable,
+            0,
+            0,
+            BufferAllocatorRef::static_ref(),
+        );
 
         let list = builder.finish();
         assert_eq!(list.len(), 0);
@@ -433,7 +448,13 @@ mod tests {
     #[test]
     fn test_values() {
         let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut builder = ListBuilder::<u32>::with_capacity(Arc::clone(&dtype), NonNullable, 0, 0);
+        let mut builder = ListBuilder::<u32>::with_capacity(
+            Arc::clone(&dtype),
+            NonNullable,
+            0,
+            0,
+            BufferAllocatorRef::static_ref(),
+        );
 
         builder
             .append_value(
@@ -470,7 +491,13 @@ mod tests {
     #[test]
     fn test_append_empty_list() {
         let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut builder = ListBuilder::<u32>::with_capacity(Arc::clone(&dtype), NonNullable, 0, 0);
+        let mut builder = ListBuilder::<u32>::with_capacity(
+            Arc::clone(&dtype),
+            NonNullable,
+            0,
+            0,
+            BufferAllocatorRef::static_ref(),
+        );
 
         assert!(
             builder
@@ -482,7 +509,13 @@ mod tests {
     #[test]
     fn test_nullable_values() {
         let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut builder = ListBuilder::<u32>::with_capacity(Arc::clone(&dtype), Nullable, 0, 0);
+        let mut builder = ListBuilder::<u32>::with_capacity(
+            Arc::clone(&dtype),
+            Nullable,
+            0,
+            0,
+            BufferAllocatorRef::static_ref(),
+        );
 
         builder
             .append_value(
@@ -532,7 +565,13 @@ mod tests {
 
         let mut ctx = array_session().create_execution_ctx();
 
-        let mut builder = ListBuilder::<O>::with_capacity(Arc::new(I32.into()), Nullable, 18, 9);
+        let mut builder = ListBuilder::<O>::with_capacity(
+            Arc::new(I32.into()),
+            Nullable,
+            18,
+            9,
+            BufferAllocatorRef::static_ref(),
+        );
         list.append_to_builder(&mut builder, &mut ctx).unwrap();
         list.append_to_builder(&mut builder, &mut ctx).unwrap();
         list.slice(0..0)
@@ -604,34 +643,62 @@ mod tests {
 
         // `builder_with_capacity` produces a `ListViewBuilder` for `DType::List`; appending the
         // `List`-encoded array must dispatch into it instead of bailing.
-        let mut listview_builder = builder_with_capacity(list.dtype(), list.len());
+        let mut listview_builder =
+            builder_with_capacity(list.dtype(), list.len(), BufferAllocatorRef::static_ref());
         list.append_to_builder(listview_builder.as_mut(), &mut ctx)?;
         assert_arrays_eq!(listview_builder.finish(), list, &mut ctx);
 
         // A `ListViewBuilder` with non-`u64` (including signed) offset and size types must work
         // for both source encodings.
-        let mut lv_u64_u32 =
-            ListViewBuilder::<u64, u32>::with_capacity(elem_dtype(), Nullable, 8, 4);
+        let mut lv_u64_u32 = ListViewBuilder::<u64, u32>::with_capacity(
+            elem_dtype(),
+            Nullable,
+            8,
+            4,
+            BufferAllocatorRef::static_ref(),
+        );
         list.append_to_builder(&mut lv_u64_u32, &mut ctx)?;
         assert_arrays_eq!(lv_u64_u32.finish(), list, &mut ctx);
 
-        let mut lv_i64_i32 =
-            ListViewBuilder::<i64, i32>::with_capacity(elem_dtype(), Nullable, 8, 4);
+        let mut lv_i64_i32 = ListViewBuilder::<i64, i32>::with_capacity(
+            elem_dtype(),
+            Nullable,
+            8,
+            4,
+            BufferAllocatorRef::static_ref(),
+        );
         list.append_to_builder(&mut lv_i64_i32, &mut ctx)?;
         assert_arrays_eq!(lv_i64_i32.finish(), list, &mut ctx);
 
-        let mut lv_u32_u32 =
-            ListViewBuilder::<u32, u32>::with_capacity(elem_dtype(), Nullable, 8, 4);
+        let mut lv_u32_u32 = ListViewBuilder::<u32, u32>::with_capacity(
+            elem_dtype(),
+            Nullable,
+            8,
+            4,
+            BufferAllocatorRef::static_ref(),
+        );
         listview.append_to_builder(&mut lv_u32_u32, &mut ctx)?;
         assert_arrays_eq!(lv_u32_u32.finish(), list, &mut ctx);
 
         // Both source encodings appended into `ListBuilder`s with non-`u64` (including signed)
         // offset types.
-        let mut list_builder = ListBuilder::<u32>::with_capacity(elem_dtype(), Nullable, 8, 4);
+        let mut list_builder = ListBuilder::<u32>::with_capacity(
+            elem_dtype(),
+            Nullable,
+            8,
+            4,
+            BufferAllocatorRef::static_ref(),
+        );
         list.append_to_builder(&mut list_builder, &mut ctx)?;
         assert_arrays_eq!(list_builder.finish(), list, &mut ctx);
 
-        let mut list_builder_i32 = ListBuilder::<i32>::with_capacity(elem_dtype(), Nullable, 8, 4);
+        let mut list_builder_i32 = ListBuilder::<i32>::with_capacity(
+            elem_dtype(),
+            Nullable,
+            8,
+            4,
+            BufferAllocatorRef::static_ref(),
+        );
         listview.append_to_builder(&mut list_builder_i32, &mut ctx)?;
         assert_arrays_eq!(list_builder_i32.finish(), list, &mut ctx);
 
@@ -654,13 +721,25 @@ mod tests {
         )?;
 
         // Appending twice checks growth from a non-empty builder and offset rebasing.
-        let mut builder = ListBuilder::<u32>::with_capacity(Arc::clone(&dtype), Nullable, 0, 0);
+        let mut builder = ListBuilder::<u32>::with_capacity(
+            Arc::clone(&dtype),
+            Nullable,
+            0,
+            0,
+            BufferAllocatorRef::static_ref(),
+        );
         builder.append_list_array(source.as_view(), &mut ctx)?;
         builder.append_list_array(source.as_view(), &mut ctx)?;
         assert_arrays_eq!(builder.finish(), expected, &mut ctx);
 
         let source_listview = source.into_array().execute::<ListViewArray>(&mut ctx)?;
-        let mut builder = ListBuilder::<u32>::with_capacity(dtype, Nullable, 0, 0);
+        let mut builder = ListBuilder::<u32>::with_capacity(
+            dtype,
+            Nullable,
+            0,
+            0,
+            BufferAllocatorRef::static_ref(),
+        );
         builder.append_listview_array(source_listview.as_view(), &mut ctx)?;
         builder.append_listview_array(source_listview.as_view(), &mut ctx)?;
         assert_arrays_eq!(builder.finish(), expected, &mut ctx);
@@ -705,7 +784,13 @@ mod tests {
         .slice(1..2)?
         .execute::<ListViewArray>(&mut ctx)?;
 
-        let mut builder = ListBuilder::<u32>::with_capacity(dtype, Nullable, 0, 0);
+        let mut builder = ListBuilder::<u32>::with_capacity(
+            dtype,
+            Nullable,
+            0,
+            0,
+            BufferAllocatorRef::static_ref(),
+        );
         builder.append_listview_array(overlapping.as_view(), &mut ctx)?;
         builder.append_listview_array(sliced.as_view(), &mut ctx)?;
 
@@ -786,7 +871,13 @@ mod tests {
     #[test]
     fn test_append_scalar() {
         let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut builder = ListBuilder::<u64>::with_capacity(Arc::clone(&dtype), Nullable, 20, 10);
+        let mut builder = ListBuilder::<u64>::with_capacity(
+            Arc::clone(&dtype),
+            Nullable,
+            20,
+            10,
+            BufferAllocatorRef::static_ref(),
+        );
 
         // Test appending a valid list.
         let list_scalar1 =
@@ -857,7 +948,13 @@ mod tests {
         );
 
         // Test wrong dtype error.
-        let mut builder = ListBuilder::<u64>::with_capacity(dtype, NonNullable, 20, 10);
+        let mut builder = ListBuilder::<u64>::with_capacity(
+            dtype,
+            NonNullable,
+            20,
+            10,
+            BufferAllocatorRef::static_ref(),
+        );
         let wrong_scalar = Scalar::from(42i32);
         assert!(builder.append_scalar(&wrong_scalar).is_err());
     }
@@ -866,8 +963,13 @@ mod tests {
     fn test_append_array_as_list() {
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut ctx = array_session().create_execution_ctx();
-        let mut builder =
-            ListBuilder::<u32>::with_capacity(Arc::clone(&dtype), NonNullable, 20, 10);
+        let mut builder = ListBuilder::<u32>::with_capacity(
+            Arc::clone(&dtype),
+            NonNullable,
+            20,
+            10,
+            BufferAllocatorRef::static_ref(),
+        );
 
         // Append a primitive array as a single list entry.
         let arr1 = buffer![1i32, 2, 3].into_array();
@@ -916,7 +1018,13 @@ mod tests {
         );
 
         // Test dtype mismatch error.
-        let mut builder = ListBuilder::<u32>::with_capacity(dtype, NonNullable, 20, 10);
+        let mut builder = ListBuilder::<u32>::with_capacity(
+            dtype,
+            NonNullable,
+            20,
+            10,
+            BufferAllocatorRef::static_ref(),
+        );
         let wrong_dtype_arr = buffer![1i64, 2, 3].into_array();
         assert!(
             builder

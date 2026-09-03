@@ -233,8 +233,11 @@ fn test_zstd_append_to_offset_builder() {
         .unwrap()
         .slice(1..4)
         .unwrap();
-    let mut builder =
-        VarBinBuilder::<i32>::with_capacity(compressed.dtype().clone(), compressed.len());
+    let mut builder = VarBinBuilder::<i32>::with_capacity(
+        compressed.dtype().clone(),
+        compressed.len(),
+        vortex_buffer::BufferAllocatorRef::static_ref(),
+    );
     compressed
         .append_to_builder(&mut builder, &mut ctx)
         .unwrap();
@@ -261,7 +264,11 @@ fn test_zstd_append_to_view_builder_keeps_only_the_sliced_bytes() -> VortexResul
 
     // Seeded with a value of its own so the pushed buffers land after an in-progress buffer, and
     // appended to twice so the second push has to rebase past the first.
-    let mut builder = VarBinViewBuilder::with_capacity(compressed.dtype().clone(), 9);
+    let mut builder = VarBinViewBuilder::with_capacity(
+        compressed.dtype().clone(),
+        9,
+        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+    );
     builder.append_value(&values[0]);
     compressed.append_to_builder(&mut builder, &mut ctx)?;
     compressed.append_to_builder(&mut builder, &mut ctx)?;
@@ -373,8 +380,11 @@ fn test_zstd_rejects_corrupt_frame_metadata(
 
     assert!(Zstd::decompress(&compressed, &mut ctx).is_err());
 
-    let mut builder =
-        VarBinBuilder::<i32>::with_capacity(compressed.dtype().clone(), compressed.len());
+    let mut builder = VarBinBuilder::<i32>::with_capacity(
+        compressed.dtype().clone(),
+        compressed.len(),
+        vortex_buffer::BufferAllocatorRef::static_ref(),
+    );
     assert!(
         compressed
             .append_to_builder(&mut builder, &mut ctx)
@@ -414,9 +424,17 @@ fn test_zstd_rejects_a_frame_ending_in_a_dangling_length_prefix() -> VortexResul
     )?;
 
     assert!(Zstd::decompress(&compressed, &mut ctx).is_err());
-    let mut varbin = VarBinBuilder::<i32>::with_capacity(dtype.clone(), 2);
+    let mut varbin = VarBinBuilder::<i32>::with_capacity(
+        dtype.clone(),
+        2,
+        vortex_buffer::BufferAllocatorRef::static_ref(),
+    );
     assert!(compressed.append_to_builder(&mut varbin, &mut ctx).is_err());
-    let mut views = VarBinViewBuilder::with_capacity(dtype, 2);
+    let mut views = VarBinViewBuilder::with_capacity(
+        dtype,
+        2,
+        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+    );
     assert!(compressed.append_to_builder(&mut views, &mut ctx).is_err());
     Ok(())
 }

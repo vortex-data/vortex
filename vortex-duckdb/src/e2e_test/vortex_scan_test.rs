@@ -983,8 +983,11 @@ fn test_geometry() {
         let mut wkb_binary: Vec<u8> = Vec::new();
         wkb::writer::write_polygon(&mut wkb_binary, &rect10, &WriteOptions::default())
             .expect("serializing WKB");
-        let mut geometry =
-            VarBinBuilder::<u32>::with_capacity(DType::Binary(Nullability::NonNullable), 10);
+        let mut geometry = VarBinBuilder::<u32>::with_capacity(
+            DType::Binary(Nullability::NonNullable),
+            10,
+            vortex::buffer::BufferAllocatorRef::static_ref(),
+        );
         for _ in 0..10 {
             geometry.append_value(wkb_binary.as_slice());
         }

@@ -129,7 +129,11 @@ impl AggregateStatsArrayBuilder {
         Self {
             aggregate_fn,
             dtype: dtype.clone(),
-            builder: builder_with_capacity(dtype, capacity),
+            builder: builder_with_capacity(
+                dtype,
+                capacity,
+                vortex_buffer::BufferAllocatorRef::static_ref(),
+            ),
         }
     }
 

@@ -560,7 +560,7 @@ fn start_encoding(
     chunk: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<EncodingState> {
-    let encoder = dict_encoder(chunk, constraints);
+    let encoder = dict_encoder(chunk, constraints, ctx.allocator().clone());
     encode_chunk(encoder, chunk, ctx)
 }
 

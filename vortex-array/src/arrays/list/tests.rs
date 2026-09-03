@@ -386,8 +386,13 @@ fn test_list_filter_variable_sizes() {
 
 #[test]
 fn test_offset_to_0() {
-    let mut builder =
-        ListBuilder::<u32>::with_capacity(Arc::new(I32.into()), Nullability::NonNullable, 10, 5);
+    let mut builder = ListBuilder::<u32>::with_capacity(
+        Arc::new(I32.into()),
+        Nullability::NonNullable,
+        10,
+        5,
+        vortex_buffer::BufferAllocatorRef::static_ref(),
+    );
     builder
         .append_value(
             Scalar::list(
