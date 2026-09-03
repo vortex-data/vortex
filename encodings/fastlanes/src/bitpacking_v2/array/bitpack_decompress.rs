@@ -66,6 +66,32 @@ pub(crate) fn unpack_into_primitive_builder<T: BitPackedV2Unpack>(
     )
 }
 
+/// Unpack a bit-packed array of physical type `F` into a `PrimitiveBuilder<T>`, applying `map`
+/// to each value during decompression.
+///
+/// Use [`unpack_into_primitive_builder`] for same-type plain decompression. This mapped path is
+/// for widening casts or other element-wise transforms: each 1024-element FastLanes chunk is
+/// unpacked into a cache-resident scratch buffer and written through `map` directly into the `T`
+/// output, so when `F != T` no full-length `F`-typed intermediate is materialized.
+///
+/// The caller must ensure that every valid source value is representable in `T` under `map`; no
+/// per-value bounds check is performed.
+pub(crate) fn unpack_map_into_builder<F, T, M>(
+    array: ArrayView<'_, BitPackedV2>,
+    builder: &mut PrimitiveBuilder<T>,
+    ctx: &mut ExecutionCtx,
+    map: M,
+) -> VortexResult<()>
+where
+    F: BitPackedV2Unpack,
+    T: NativePType,
+    M: Fn(F) -> T,
+{
+    unpack_into_builder_with(array, builder, ctx, map, |chunks, output, map| {
+        chunks.decode_map_into(output, map);
+    })
+}
+
 fn unpack_into_builder_with<F, T, M, D>(
     array: ArrayView<'_, BitPackedV2>,
     builder: &mut PrimitiveBuilder<T>,
@@ -422,10 +448,11 @@ mod tests {
         let bitpacked = encode(&empty, 0);
 
         let mut builder = PrimitiveBuilder::<u32>::new(Nullability::NonNullable);
-        unpack_into_primitive_builder::<u32>(
+        unpack_map_into_builder(
             bitpacked.as_view(),
             &mut builder,
             &mut SESSION.create_execution_ctx(),
+            |v: u32| v,
         )?;
 
         let result = builder.finish_into_primitive();
@@ -450,10 +477,11 @@ mod tests {
 
         // Unpack into a new builder.
         let mut builder = PrimitiveBuilder::<u32>::with_capacity(Nullability::Nullable, 5);
-        unpack_into_primitive_builder::<u32>(
+        unpack_map_into_builder(
             bitpacked.as_view(),
             &mut builder,
             &mut SESSION.create_execution_ctx(),
+            |v: u32| v,
         )?;
 
         let result = builder.finish_into_primitive();
@@ -487,10 +515,11 @@ mod tests {
 
         // Unpack into a new builder.
         let mut builder = PrimitiveBuilder::<u32>::with_capacity(Nullability::NonNullable, 100);
-        unpack_into_primitive_builder::<u32>(
+        unpack_map_into_builder(
             bitpacked.as_view(),
             &mut builder,
             &mut SESSION.create_execution_ctx(),
+            |v: u32| v,
         )?;
 
         let result = builder.finish_into_primitive();

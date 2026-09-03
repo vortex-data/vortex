@@ -192,6 +192,60 @@ impl<'a, T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<'a, T, S> {
         debug_assert_eq!(local_idx, self.len);
     }
 
+    /// Decode all chunks (initial, full, and trailer), mapping each unpacked value through f.
+    pub(crate) fn decode_map_into<U>(
+        &mut self,
+        output: &mut [MaybeUninit<U>],
+        mut f: impl FnMut(T) -> U,
+    ) {
+        debug_assert_eq!(output.len(), self.len);
+
+        self.for_each_unpacked_chunk(|chunk, range| {
+            write_map(chunk, &mut output[range], &mut f);
+        });
+    }
+
+    /// Walk every unpacked chunk in array order, reusing the internal scratch buffer.
+    pub(crate) fn for_each_unpacked_chunk<F>(&mut self, mut f: F)
+    where
+        F: FnMut(&mut [T], Range<usize>),
+    {
+        let mut local_idx = 0;
+
+        if let Some(initial) = self.initial() {
+            let chunk_len = initial.len();
+            f(initial, local_idx..local_idx + chunk_len);
+            local_idx += chunk_len;
+        }
+
+        if self.num_chunks > 1 {
+            let range = self.full_chunks_range();
+            let packed = self.packed;
+            let widths: &'a ChunkWidths = self.widths;
+            let mut start = widths.byte_offset(range.start) / size_of::<T::Physical>();
+            for &bit_width in &widths.as_slice()[range] {
+                let len = chunk_packed_bytes(bit_width) / size_of::<T::Physical>();
+                let chunk = &packed[start..start + len];
+                start += len;
+                unsafe {
+                    let dst: &mut [T::Physical] = mem::transmute(&mut self.scratch[..]);
+                    self.strategy.unpack_chunk(bit_width as usize, chunk, dst);
+                    let unpacked: &mut [T] = mem::transmute(&mut self.scratch[..]);
+                    f(unpacked, local_idx..local_idx + CHUNK_SIZE);
+                }
+                local_idx += CHUNK_SIZE;
+            }
+        }
+
+        if let Some(trailer) = self.trailer() {
+            let chunk_len = trailer.len();
+            f(trailer, local_idx..local_idx + chunk_len);
+            local_idx += chunk_len;
+        }
+
+        debug_assert_eq!(local_idx, self.len);
+    }
+
     /// Unpack full chunks into output range starting at the given index.
     fn decode_full_chunks_into_at(
         &mut self,
@@ -250,6 +304,43 @@ impl<'a, T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<'a, T, S> {
     fn first_chunk_is_sliced(&self) -> bool {
         self.offset != 0
     }
+}
+
+/// Walk every *packed* chunk in array order, yielding the raw packed FastLanes block, its bit
+/// width, and the padded bit range it covers, without unpacking it.
+///
+/// Unlike [`UnpackedChunks::for_each_unpacked_chunk`], this does not fill a scratch buffer: it
+/// hands the still-packed block to the callback so fused kernels (e.g. compare) can unpack and
+/// consume it in a single pass.
+///
+/// The yielded range is in *padded* coordinates: block `c` covers
+/// `[c * 1024, min((c + 1) * 1024, offset + len))`, so it includes the leading `offset` rows
+/// that slicing skips. Block starts are therefore always 1024-aligned regardless of `offset`.
+/// Callers must account for the array's `offset` when mapping a block's rows back to logical
+/// output positions (e.g. by viewing the output buffer at a bit offset of `offset`).
+pub(crate) fn for_each_packed_chunk<T, F>(
+    packed: &[T::Physical],
+    widths: &ChunkWidths,
+    offset: usize,
+    len: usize,
+    mut f: F,
+) -> VortexResult<()>
+where
+    T: PhysicalPType,
+    F: FnMut(&[T::Physical], usize, Range<usize>),
+{
+    validate_packed::<T>(packed.len(), widths, offset, len)?;
+    let padded_len = offset + len;
+    let mut start = 0;
+    for (chunk, &bit_width) in widths.as_slice().iter().enumerate() {
+        let packed_len = chunk_packed_bytes(bit_width) / size_of::<T::Physical>();
+        let packed_chunk = &packed[start..start + packed_len];
+        start += packed_len;
+        let row_start = chunk * CHUNK_SIZE;
+        let row_end = (row_start + CHUNK_SIZE).min(padded_len);
+        f(packed_chunk, bit_width as usize, row_start..row_end);
+    }
+    Ok(())
 }
 
 /// Check that `packed_len` words of `T::Physical` hold exactly the chunks described by `widths`
@@ -335,5 +426,11 @@ impl<'a, T: BitPackedV2 + 'a> LendingIterator for BitUnpackIterator<'a, T> {
         self.start += len;
         // SAFETY: The buffer has the appropriate lifetime, the iterator signature doesn't account for it
         Some(unsafe { mem::transmute::<&mut [MaybeUninit<T>; 1024], &mut [T; 1024]>(self.buffer) })
+    }
+}
+
+fn write_map<T: Copy, U>(src: &[T], dst: &mut [MaybeUninit<U>], f: &mut impl FnMut(T) -> U) {
+    for (dst, &src) in dst.iter_mut().zip(src.iter()) {
+        dst.write(f(src));
     }
 }

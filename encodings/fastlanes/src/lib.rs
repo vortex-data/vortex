@@ -75,6 +75,7 @@ pub(crate) const fn untranspose_idx(idx: usize) -> usize {
 }
 
 use bitpacking::compute::is_constant::BitPackedIsConstantKernel;
+use bitpacking_v2::compute::is_constant::BitPackedV2IsConstantKernel;
 use r#for::compute::is_constant::FoRIsConstantKernel;
 use r#for::compute::is_sorted::FoRIsSortedKernel;
 use vortex_array::ArrayVTable;
@@ -101,6 +102,7 @@ pub fn initialize(session: &VortexSession) {
     session.arrays().register(RLE);
     session.arrays().register(TransposedBool);
     bitpacking::initialize(session);
+    bitpacking_v2::initialize(session);
     r#for::initialize(session);
     rle::initialize(session);
 
@@ -109,6 +111,11 @@ pub fn initialize(session: &VortexSession) {
         BitPacked.id(),
         Some(IsConstant.id()),
         &BitPackedIsConstantKernel,
+    );
+    session.aggregate_fns().register_aggregate_kernel(
+        BitPackedV2.id(),
+        Some(IsConstant.id()),
+        &BitPackedV2IsConstantKernel,
     );
     session.aggregate_fns().register_aggregate_kernel(
         FoR.id(),

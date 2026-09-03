@@ -51,11 +51,18 @@ use crate::bitpacking_v2::array::BitPackedV2SlotsView;
 use crate::bitpacking_v2::array::PATCH_SLOTS;
 use crate::bitpacking_v2::bitpack_decompress::unpack_array;
 use crate::bitpacking_v2::bitpack_decompress::unpack_into_primitive_builder;
+use crate::bitpacking_v2::vtable::rules::RULES;
+mod kernels;
 mod operations;
+mod rules;
 mod validity;
 
 /// A [`BitPackedV2`]-encoded Vortex array.
 pub type BitPackedV2Array = Array<BitPackedV2>;
+
+pub(crate) fn initialize(session: &VortexSession) {
+    kernels::initialize(session);
+}
 
 #[derive(Clone, prost::Message)]
 pub struct BitPackedV2Metadata {
@@ -295,6 +302,14 @@ impl VTable for BitPackedV2 {
         Ok(ExecutionResult::done(
             unpack_array(array.as_view(), ctx)?.into_array(),
         ))
+    }
+
+    fn reduce_parent(
+        array: ArrayView<'_, Self>,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
     }
 }
 

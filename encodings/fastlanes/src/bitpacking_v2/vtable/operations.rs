@@ -30,11 +30,15 @@ impl OperationsVTable<BitPackedV2> for BitPackedV2 {
 
 #[cfg(test)]
 mod test {
+    use std::ops::Range;
+
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::SliceArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::assert_nth_scalar;
     use vortex_array::buffer::BufferHandle;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -56,6 +60,155 @@ mod test {
 
     fn bp(array: &ArrayRef, bit_width: u8) -> BitPackedV2Array {
         BitPackedV2Data::encode(array, bit_width, &mut SESSION.create_execution_ctx()).unwrap()
+    }
+
+    fn slice_via_reduce(array: &BitPackedV2Array, range: Range<usize>) -> BitPackedV2Array {
+        let array_ref = array.clone().into_array();
+        let slice_array = SliceArray::new(array_ref.clone(), range);
+        let sliced = array_ref
+            .reduce_parent(&slice_array.into_array(), 0)
+            .expect("execute_parent failed")
+            .expect("expected slice kernel to execute");
+        sliced.as_::<BitPackedV2>().into_owned()
+    }
+
+    #[test]
+    pub fn slice_block() {
+        let arr = bp(
+            &PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).into_array(),
+            6,
+        );
+        let sliced = slice_via_reduce(&arr, 1024..2048);
+        assert_nth_scalar!(sliced, 0, 1024u32 % 64, &mut SESSION.create_execution_ctx());
+        assert_nth_scalar!(
+            sliced,
+            1023,
+            2047u32 % 64,
+            &mut SESSION.create_execution_ctx()
+        );
+        assert_eq!(sliced.offset(), 0);
+        assert_eq!(sliced.len(), 1024);
+    }
+
+    #[test]
+    pub fn slice_within_block() {
+        let arr = bp(
+            &PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).into_array(),
+            6,
+        );
+        let sliced = slice_via_reduce(&arr, 512..1434);
+        assert_nth_scalar!(sliced, 0, 512u32 % 64, &mut SESSION.create_execution_ctx());
+        assert_nth_scalar!(
+            sliced,
+            921,
+            1433u32 % 64,
+            &mut SESSION.create_execution_ctx()
+        );
+        assert_eq!(sliced.offset(), 512);
+        assert_eq!(sliced.len(), 922);
+    }
+
+    #[test]
+    fn slice_within_block_u8s() {
+        let packed = bp(
+            &PrimitiveArray::from_iter((0..10_000).map(|i| (i % 63) as u8)).into_array(),
+            7,
+        );
+
+        let compressed = packed.slice(768..9999).unwrap();
+        assert_nth_scalar!(
+            compressed,
+            0,
+            (768 % 63) as u8,
+            &mut SESSION.create_execution_ctx()
+        );
+        assert_nth_scalar!(
+            compressed,
+            compressed.len() - 1,
+            (9998 % 63) as u8,
+            &mut SESSION.create_execution_ctx()
+        );
+    }
+
+    #[test]
+    fn slice_block_boundary_u8s() {
+        let packed = bp(
+            &PrimitiveArray::from_iter((0..10_000).map(|i| (i % 63) as u8)).into_array(),
+            7,
+        );
+
+        let compressed = packed.slice(7168..9216).unwrap();
+        assert_nth_scalar!(
+            compressed,
+            0,
+            (7168 % 63) as u8,
+            &mut SESSION.create_execution_ctx()
+        );
+        assert_nth_scalar!(
+            compressed,
+            compressed.len() - 1,
+            (9215 % 63) as u8,
+            &mut SESSION.create_execution_ctx()
+        );
+    }
+
+    #[test]
+    fn double_slice_within_block() {
+        let arr = bp(
+            &PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).into_array(),
+            6,
+        );
+        let sliced = slice_via_reduce(&arr, 512..1434);
+        assert_nth_scalar!(sliced, 0, 512u32 % 64, &mut SESSION.create_execution_ctx());
+        assert_nth_scalar!(
+            sliced,
+            921,
+            1433u32 % 64,
+            &mut SESSION.create_execution_ctx()
+        );
+        assert_eq!(sliced.offset(), 512);
+        assert_eq!(sliced.len(), 922);
+        let doubly_sliced = slice_via_reduce(&sliced, 127..911);
+        assert_nth_scalar!(
+            doubly_sliced,
+            0,
+            (512u32 + 127) % 64,
+            &mut SESSION.create_execution_ctx()
+        );
+        assert_nth_scalar!(
+            doubly_sliced,
+            783,
+            (512u32 + 910) % 64,
+            &mut SESSION.create_execution_ctx()
+        );
+        assert_eq!(doubly_sliced.offset(), 639);
+        assert_eq!(doubly_sliced.len(), 784);
+    }
+
+    #[test]
+    fn slice_empty_patches() {
+        let mut ctx = SESSION.create_execution_ctx();
+        // We create an array that has 1 element that does not fit in the 6-bit range.
+        let array = BitPackedV2Data::encode(&buffer![0u32..=64].into_array(), 6, &mut ctx).unwrap();
+
+        assert!(array.patches().is_some());
+
+        let patch_indices = array.patches().unwrap().indices().clone();
+        assert_eq!(patch_indices.len(), 1);
+
+        // Slicing with patches requires the execute path (not reduce) since patches.slice()
+        // reads buffers. The slice range 0..64 excludes the patch at index 64, so the
+        // resulting array should have no patches.
+        let array_ref = array.into_array();
+        let slice_array = SliceArray::new(array_ref, 0..64);
+        let mut ctx = SESSION.create_execution_ctx();
+        let sliced_bp = slice_array
+            .into_array()
+            .execute::<ArrayRef>(&mut ctx)
+            .expect("slice execution failed")
+            .as_::<BitPackedV2>()
+            .into_owned();
+        assert!(sliced_bp.patches().is_none());
     }
 
     #[test]

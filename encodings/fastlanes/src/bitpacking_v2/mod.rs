@@ -15,8 +15,13 @@ pub use array::unpack_iter;
 
 #[cfg(test)]
 mod chunk_widths_tests;
+pub(crate) mod compute;
 
 mod vtable;
 
 pub use vtable::BitPackedV2;
 pub use vtable::BitPackedV2Array;
+
+pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+    vtable::initialize(session);
+}
