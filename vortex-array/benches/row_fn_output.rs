@@ -13,6 +13,7 @@ use divan::Bencher;
 use divan::counter::ItemsCount;
 use mimalloc::MiMalloc;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::array_session;
@@ -23,9 +24,14 @@ use vortex_array::dtype::NativePType;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::VecExecutionArgs;
+use vortex_array::scalar_fn::unstable::row::InitializedElement;
+use vortex_array::scalar_fn::unstable::row::InputElement;
 use vortex_array::scalar_fn::unstable::row::RowFn;
 use vortex_array::scalar_fn::unstable::row::RowVisitor;
+use vortex_array::scalar_fn::unstable::row::UninitElementSink;
 use vortex_array::scalar_fn::unstable::row::execute_rows;
+use vortex_array::validity::Validity;
+use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -56,11 +62,34 @@ const INPUT_SHAPES: &[InputShape] = &[InputShape::PerRowPerRow];
 /// and that is the difference worth watching.
 const CONSTANT_SHAPES: &[InputShape] = &[InputShape::PerRowConstant, InputShape::ConstantPerRow];
 
+const VALIDITY_PATTERNS: &[ValidityPattern] = &[
+    ValidityPattern::AllValid,
+    ValidityPattern::OneNullInEight,
+    ValidityPattern::NineNullsInTen,
+];
+
 #[derive(Clone, Copy, Debug)]
 enum InputShape {
     PerRowPerRow,
     PerRowConstant,
     ConstantPerRow,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum ValidityPattern {
+    AllValid,
+    OneNullInEight,
+    NineNullsInTen,
+}
+
+impl ValidityPattern {
+    fn is_valid(self, index: usize) -> bool {
+        match self {
+            Self::AllValid => true,
+            Self::OneNullInEight => !index.is_multiple_of(8),
+            Self::NineNullsInTen => index.is_multiple_of(10),
+        }
+    }
 }
 
 trait BenchPrimitive: NativePType {
@@ -91,6 +120,57 @@ impl BenchPrimitive for i64 {
     }
 }
 
+/// Primitive input that forces partially valid batches through the filtered fallback.
+///
+/// `DENSE_SAFE = false` selects valid-only execution. This type inherits the conservative
+/// null-tolerant decode implementation, so direct valid-row execution declines the original
+/// nullable input. A partially valid input must therefore use the executor's filtered fallback.
+struct FilteredI64;
+
+// SAFETY: the view is a native slice, and its reported length is the slice length.
+unsafe impl InputElement for FilteredI64 {
+    type Column = Buffer<i64>;
+    type Constant = i64;
+    type View<'a> = &'a [i64];
+    type Elem<'a> = i64;
+
+    const DENSE_SAFE: bool = false;
+    const DECODE_INFALLIBLE: bool = true;
+
+    fn validate(dtype: &DType) -> VortexResult<()> {
+        <i64 as InputElement>::validate(dtype)
+    }
+
+    fn decode(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self::Column> {
+        <i64 as InputElement>::decode(array, ctx)
+    }
+
+    fn decode_constant(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self::Constant> {
+        <i64 as InputElement>::decode_constant(array, ctx)
+    }
+
+    fn get(column: &Self::Column, index: usize) -> Self::Elem<'_> {
+        column[index]
+    }
+
+    fn get_constant(constant: &Self::Constant) -> Self::Elem<'_> {
+        *constant
+    }
+
+    fn view(column: &Self::Column) -> Self::View<'_> {
+        column.as_slice()
+    }
+
+    fn get_from_view<'a>(view: &Self::View<'a>, index: usize) -> Self::Elem<'a> {
+        view[index]
+    }
+
+    unsafe fn get_from_view_unchecked<'a>(view: &Self::View<'a>, index: usize) -> Self::Elem<'a> {
+        // SAFETY: forwarded from this method's contract.
+        unsafe { *view.get_unchecked(index) }
+    }
+}
+
 #[derive(Clone)]
 struct InfallibleBool<T>(PhantomData<T>);
 
@@ -99,6 +179,12 @@ struct DeferredBool<T>(PhantomData<T>);
 
 #[derive(Clone)]
 struct DeferredI64;
+
+#[derive(Clone)]
+struct FilteredOwnedI64;
+
+#[derive(Clone)]
+struct FilteredSinkI64;
 
 impl<T: BenchPrimitive> RowFn for InfallibleBool<T> {
     type Options = EmptyOptions;
@@ -181,6 +267,51 @@ impl RowFn for DeferredI64 {
     }
 }
 
+impl RowFn for FilteredOwnedI64 {
+    type Options = EmptyOptions;
+
+    const ARG_NAMES: &'static [&'static str] = &["value"];
+    const INFALLIBLE: bool = true;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("bench.row_fn_output.filtered_owned_i64");
+        *ID
+    }
+
+    fn dispatch<V: RowVisitor>(
+        &self,
+        _options: &Self::Options,
+        _args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        visitor.visit::<(FilteredI64,), i64>(|(value,)| value.wrapping_add(1))
+    }
+}
+
+impl RowFn for FilteredSinkI64 {
+    type Options = EmptyOptions;
+
+    const ARG_NAMES: &'static [&'static str] = &["value"];
+    const INFALLIBLE: bool = true;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("bench.row_fn_output.filtered_sink_i64");
+        *ID
+    }
+
+    fn dispatch<V: RowVisitor>(
+        &self,
+        _options: &Self::Options,
+        _args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        visitor.visit_into::<(FilteredI64,), UninitElementSink<i64>, _>((), |(value,), output| {
+            // SAFETY: `output` is the `UninitElementSink` row supplied for this callback.
+            unsafe { InitializedElement::write(output, value.wrapping_add(1)) }
+        })
+    }
+}
+
 #[vortex_bench_support::cpu_features]
 #[divan::bench(types = [i32, i64], args = INPUT_SHAPES)]
 fn infallible_bool<T: BenchPrimitive>(bencher: Bencher, &shape: &InputShape) {
@@ -215,6 +346,18 @@ fn deferred_i64(bencher: Bencher, &shape: &InputShape) {
     bench_row_fn(bencher, &DeferredI64, make_args::<i64>(shape));
 }
 
+#[vortex_bench_support::cpu_features]
+#[divan::bench(args = VALIDITY_PATTERNS)]
+fn filtered_owned_i64(bencher: Bencher, &validity: &ValidityPattern) {
+    bench_row_fn(bencher, &FilteredOwnedI64, make_filtered_args(validity));
+}
+
+#[vortex_bench_support::cpu_features]
+#[divan::bench(args = VALIDITY_PATTERNS)]
+fn filtered_sink_i64(bencher: Bencher, &validity: &ValidityPattern) {
+    bench_row_fn(bencher, &FilteredSinkI64, make_filtered_args(validity));
+}
+
 fn make_args<T: BenchPrimitive>(shape: InputShape) -> VecExecutionArgs {
     let args = match shape {
         InputShape::PerRowPerRow => vec![T::per_row(0), T::per_row(1)],
@@ -223,6 +366,16 @@ fn make_args<T: BenchPrimitive>(shape: InputShape) -> VecExecutionArgs {
     };
 
     VecExecutionArgs::new(args, ROWS)
+}
+
+fn make_filtered_args(validity: ValidityPattern) -> VecExecutionArgs {
+    let values = PrimitiveArray::new(
+        (0..ROWS).map(|index| index as i64).collect::<Buffer<_>>(),
+        Validity::from_iter((0..ROWS).map(|index| validity.is_valid(index))),
+    )
+    .into_array();
+
+    VecExecutionArgs::new(vec![values], ROWS)
 }
 
 fn bench_row_fn<F: RowFn<Options = EmptyOptions>>(
