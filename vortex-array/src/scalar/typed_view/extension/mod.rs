@@ -13,7 +13,6 @@ use vortex_error::vortex_panic;
 
 use crate::dtype::DType;
 use crate::dtype::extension::ExtDTypeRef;
-use crate::scalar::PrimitiveScalar;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 
@@ -80,10 +79,9 @@ impl<'a> ExtScalar<'a> {
             .vortex_expect("ExtScalar is invalid")
     }
 
-    /// Returns a PrimitiveScalar over storage value.
-    /// Errors if storage type is not a primitive.
-    pub fn as_storage_primitive(&self) -> VortexResult<PrimitiveScalar<'a>> {
-        PrimitiveScalar::try_new(self.ext_dtype.storage_dtype(), self.value)
+    /// Returns a reference to the underlying value
+    pub fn value(&self) -> Option<&ScalarValue> {
+        self.value
     }
 
     /// Casts this scalar to the given `dtype`.

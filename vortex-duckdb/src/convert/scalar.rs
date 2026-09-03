@@ -196,7 +196,7 @@ impl ToDuckDBScalar for ExtScalar<'_> {
             vortex_bail!("Cannot convert non-temporal extension scalar to duckdb value");
         };
 
-        let storage = self.as_storage_primitive()?;
+        let storage = PrimitiveScalar::try_new(self.ext_dtype().storage_dtype(), self.value())?;
         let value = || {
             storage
                 .as_::<i64>()
