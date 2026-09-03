@@ -160,6 +160,18 @@ runs:
         echo "CMAKE_C_COMPILER_LAUNCHER=sccache" >> "$GITHUB_ENV"
         echo "CMAKE_CXX_COMPILER_LAUNCHER=sccache" >> "$GITHUB_ENV"
 
+    # sccache does not cache Cargo's registry, build-script outputs, or linked dependency artifacts.
+    # Keep one cache key across CI jobs so each fresh VM can reuse those expensive inputs too.
+    # Only develop publishes caches; PRs restore them without racing to populate the same key.
+    - name: Restore Cargo dependency cache
+      if: github.repository == 'vortex-data/vortex' && inputs.enable-sccache == 'true'
+      uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
+      with:
+        shared-key: ci-dependencies
+        add-job-id-key: "false"
+        cache-bin: "false"
+        save-if: ${{ github.ref == 'refs/heads/develop' }}
+
     # Fallback path: full setup for forks
     - name: Full Rust setup
       if: github.repository != 'vortex-data/vortex'
