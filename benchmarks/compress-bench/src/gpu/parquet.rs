@@ -22,19 +22,21 @@ use std::path::Path;
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
+use std::time::Instant;
 
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
 use anyhow::ensure;
-use arrow_array::RecordBatch;
 use async_trait::async_trait;
 use parquet::arrow::ArrowWriter;
-use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use serde::Deserialize;
 use tempfile::NamedTempFile;
 use vortex_bench::Format;
+use vortex_bench::compress::Compressed;
+use vortex_bench::compress::CompressedData;
 use vortex_bench::compress::Compressor;
+use vortex_bench::compress::Uncompressed;
 
 use crate::gpu::writer::GpuCodec;
 use crate::gpu::writer::gpu_writer_properties;
@@ -84,25 +86,30 @@ impl GpuParquetCompressor {
         Self { codec, verify }
     }
 
-    /// Rewrite the source Parquet file with GPU-friendly writer settings.
-    fn write_gpu_parquet(&self, parquet_path: &Path) -> Result<(NamedTempFile, u64)> {
-        let builder = ParquetRecordBatchReaderBuilder::try_new(std::fs::File::open(parquet_path)?)?;
-        let schema = Arc::clone(builder.schema());
-        let batches: Vec<RecordBatch> = builder.build()?.collect::<Result<Vec<_>, _>>()?;
+    /// Rewrite the source data as a Parquet file with GPU-friendly writer settings.
+    fn write_gpu_parquet(&self, input: &Uncompressed) -> Result<Compressed> {
+        let (schema, batches) = input.arrow()?;
 
         let output = NamedTempFile::new()?;
+        let start = Instant::now();
         let mut writer = ArrowWriter::try_new(
             output.reopen()?,
-            schema,
+            Arc::clone(schema),
             Some(gpu_writer_properties(self.codec)),
         )?;
         for batch in batches {
-            writer.write(&batch)?;
+            writer.write(batch)?;
         }
         writer.flush()?;
         let size = writer.bytes_written() as u64;
         writer.close()?;
-        Ok((output, size))
+        let elapsed = start.elapsed();
+
+        Ok(Compressed {
+            data: CompressedData::File(output),
+            size,
+            elapsed,
+        })
     }
 }
 
@@ -112,21 +119,25 @@ impl Compressor for GpuParquetCompressor {
         Format::Parquet
     }
 
-    /// Unsupported: GPU mode measures decompression only.
+    /// Writes the file that [`Self::decompress`] reads.
     ///
-    /// `--gpu-decompress` restricts the suite to [`CompressOp::Decompress`], so nothing calls
-    /// this. It used to time [`Self::write_gpu_parquet`], but that measures the host Parquet
-    /// writer rather than anything on the device, and the result was never rendered — so it was
-    /// a number nobody could read and nobody should have compared. The Vortex GPU backend
-    /// refuses the same way.
+    /// `--gpu-decompress` restricts the suite to [`CompressOp::Decompress`], so the timing this
+    /// returns is never published. That is deliberate: it measures the host Parquet writer
+    /// rather than anything on the device.
     ///
     /// [`CompressOp::Decompress`]: vortex_bench::compress::CompressOp::Decompress
-    async fn compress(&self, _parquet_path: &Path) -> Result<(u64, Duration)> {
-        bail!("GPU compress-bench only supports decompression measurements")
+    async fn load(&self, parquet_path: &Path) -> Result<Uncompressed> {
+        Uncompressed::read_arrow(parquet_path)
     }
 
-    async fn decompress(&self, parquet_path: &Path) -> Result<Duration> {
-        let (gpu_file, _) = self.write_gpu_parquet(parquet_path)?;
+    async fn compress(&self, input: &Uncompressed) -> Result<Compressed> {
+        self.write_gpu_parquet(input)
+    }
+
+    async fn decompress(&self, compressed: &Compressed) -> Result<Duration> {
+        let CompressedData::File(gpu_file) = &compressed.data else {
+            bail!("GPU Parquet decompression expects a file on disk");
+        };
         let report = run_cudf_read(gpu_file.path(), self.verify)?;
 
         ensure!(

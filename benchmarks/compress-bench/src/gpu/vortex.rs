@@ -33,7 +33,10 @@ use vortex_arrow::ArrowSessionExt;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
 use vortex_bench::benchmark_write_options;
+use vortex_bench::compress::Compressed;
+use vortex_bench::compress::CompressedData;
 use vortex_bench::compress::Compressor;
+use vortex_bench::compress::Uncompressed;
 use vortex_bench::conversions::parquet_to_vortex_chunks_with_batch_size;
 use vortex_cuda::CanonicalCudaExt;
 use vortex_cuda::CudaExecutionCtx;
@@ -71,21 +74,26 @@ impl Compressor for GpuVortexCompressor {
         Format::OnDiskVortex
     }
 
-    async fn compress(&self, _parquet_path: &Path) -> Result<(u64, Duration)> {
-        anyhow::bail!("GPU compress-bench only supports decompression measurements")
-    }
-
-    async fn decompress(&self, parquet_path: &Path) -> Result<Duration> {
-        register_cuda_layout(&SESSION);
-
+    async fn load(&self, parquet_path: &Path) -> Result<Uncompressed> {
         // Rebatch to the same partition size the GPU Parquet file is written with. Left alone,
         // the Arrow reader hands back ~8K-row batches, each of which becomes its own Vortex
         // chunk and its own set of kernel launches.
-        let uncompressed = parquet_to_vortex_chunks_with_batch_size(
+        let chunks = parquet_to_vortex_chunks_with_batch_size(
             parquet_path.to_path_buf(),
             Some(GPU_ROW_GROUP_SIZE),
         )
         .await?;
+        Ok(Uncompressed::Vortex(chunks.into_array()))
+    }
+
+    /// Writes the CUDA-compatible file that [`Self::decompress`] reads.
+    ///
+    /// GPU mode never publishes this timing: `--gpu-decompress` restricts the suite to
+    /// decompression, and the write runs on the host anyway.
+    async fn compress(&self, input: &Uncompressed) -> Result<Compressed> {
+        register_cuda_layout(&SESSION);
+
+        let array = input.vortex()?;
         let gpu_file = NamedTempFile::new()?;
         let mut output = tokio::fs::File::create(gpu_file.path()).await?;
         // Write those batches straight through as root chunks, so a chunk on disk is one
@@ -96,12 +104,26 @@ impl Compressor for GpuVortexCompressor {
                 .only_cuda_compatible()
                 .build(),
         )));
+        let start = Instant::now();
         benchmark_write_options(SESSION.write_options())
             .with_strategy(strategy)
-            .write(&mut output, uncompressed.into_array().to_array_stream())
+            .write(&mut output, array.to_array_stream())
             .await?;
         output.sync_all().await?;
+        let elapsed = start.elapsed();
         drop(output);
+
+        Ok(Compressed {
+            size: gpu_file.as_file().metadata()?.len(),
+            data: CompressedData::File(gpu_file),
+            elapsed,
+        })
+    }
+
+    async fn decompress(&self, compressed: &Compressed) -> Result<Duration> {
+        let CompressedData::File(gpu_file) = &compressed.data else {
+            bail!("GPU Vortex decompression expects a file on disk");
+        };
 
         // Verification is a precondition on the measurement below, not a substitute for it. It
         // used to return its own elapsed time, which bundled a file copy, a second host scan and

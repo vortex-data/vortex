@@ -37,6 +37,7 @@ arrow-ipc = { workspace = true }
 arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
 async-trait = { workspace = true }
+bytes = { workspace = true }
 bzip2 = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 futures = { workspace = true }
@@ -59,6 +60,7 @@ regex = { workspace = true }
 reqwest = { workspace = true, features = ["stream"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+tempfile = { workspace = true }
 sha2 = { workspace = true }
 spatialbench = { workspace = true }
 spatialbench-arrow = { workspace = true }
@@ -85,7 +87,6 @@ wkb = { workspace = true }
 [dev-dependencies]
 insta = { workspace = true }
 rstest = { workspace = true }
-tempfile = { workspace = true }
 
 [features]
 unstable_encodings = ["vortex/unstable_encodings"]
