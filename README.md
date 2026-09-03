@@ -207,7 +207,9 @@ Please **do** read [CONTRIBUTING.md](CONTRIBUTING.md) before you contribute.
 
 ### Reporting Vulnerabilities
 
-If you discover a security vulnerability, please email <vuln-report@vortex.dev>.
+If you discover a security vulnerability, please email <vuln-report@vortex.dev>. See
+[SECURITY.md](SECURITY.md) for our full security policy, including emergency reporting and CRA
+stewardship.
 
 ### Trademarks
 
