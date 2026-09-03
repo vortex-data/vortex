@@ -3,14 +3,12 @@
 
 use std::mem::MaybeUninit;
 
-use fastlanes::BitPacking;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::filter::FilterKernel;
-use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::UnsignedPType;
 use vortex_array::match_each_unsigned_integer_ptype;
@@ -26,6 +24,7 @@ use super::take::UNPACK_CHUNK_THRESHOLD;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::BitPackedData;
+use crate::bitpacking::array::kernels::BitPackedPhysical;
 
 /// The threshold over which it is faster to fully unpack the entire [`BitPackedArray`](crate::BitPackedArray) and then
 /// filter the result than to unpack only specific bitpacked values into the output buffer.
@@ -106,7 +105,7 @@ impl FilterKernel for BitPacked {
 /// elements is relatively slow.
 ///
 /// Returns a tuple of (values buffer, validity mask).
-fn filter_primitive_without_patches<U: UnsignedPType + BitPacking>(
+fn filter_primitive_without_patches<U: UnsignedPType + BitPackedPhysical>(
     array: ArrayView<'_, BitPacked>,
     selection: &MaskValuesRef,
 ) -> VortexResult<(Buffer<U>, Validity)> {
@@ -118,12 +117,12 @@ fn filter_primitive_without_patches<U: UnsignedPType + BitPacking>(
     Ok((values.freeze(), validity))
 }
 
-fn filter_with_indices<T: NativePType + BitPacking>(
+fn filter_with_indices<T: BitPackedPhysical>(
     array: &BitPackedData,
     indices: &[usize],
 ) -> BufferMut<T> {
     let offset = array.offset() as usize;
-    let bit_width = array.bit_width() as usize;
+    let kernels = array.kernels::<T>();
     let mut values = BufferMut::with_capacity(indices.len());
 
     // Some re-usable memory to store per-chunk indices.
@@ -131,7 +130,7 @@ fn filter_with_indices<T: NativePType + BitPacking>(
     let packed_bytes = array.packed_slice::<T>();
 
     // Group the indices by the FastLanes chunk they belong to.
-    let chunk_size = 128 * bit_width / size_of::<T>();
+    let chunk_size = kernels.packed_block_len();
 
     chunked_indices(
         indices.iter().copied(),
@@ -141,21 +140,22 @@ fn filter_with_indices<T: NativePType + BitPacking>(
 
             if indices_within_chunk.len() == 1024 {
                 // Unpack the entire chunk.
+                // SAFETY: The capacity holds every index, so the 1024 new slots exist; `packed`
+                // is exactly one block and `unpack` initializes all 1024 slots before they are
+                // read.
                 unsafe {
                     let values_len = values.len();
                     values.set_len(values_len + 1024);
-                    BitPacking::unchecked_unpack(
-                        bit_width,
-                        packed,
-                        &mut values.as_mut_slice()[values_len..],
-                    );
+                    (kernels.unpack)(packed, &mut values.as_mut_slice()[values_len..]);
                 }
             } else if indices_within_chunk.len() > UNPACK_CHUNK_THRESHOLD {
                 // Unpack into a temporary chunk and then copy the values.
+                // SAFETY: &[MaybeUninit<T>] and &[T] have the same layout; `packed` is exactly
+                // one block and `unpacked` exactly 1024 values.
                 unsafe {
                     let dst: &mut [MaybeUninit<T>] = &mut unpacked;
                     let dst: &mut [T] = std::mem::transmute(dst);
-                    BitPacking::unchecked_unpack(bit_width, packed, dst);
+                    (kernels.unpack)(packed, dst);
                 }
                 values.extend_trusted(
                     indices_within_chunk
@@ -164,9 +164,12 @@ fn filter_with_indices<T: NativePType + BitPacking>(
                 );
             } else {
                 // Otherwise, unpack each element individually.
-                values.extend_trusted(indices_within_chunk.iter().map(|&idx| unsafe {
-                    BitPacking::unchecked_unpack_single(bit_width, packed, idx)
-                }));
+                // SAFETY: `packed` is exactly one block and every index is within the chunk.
+                values.extend_trusted(
+                    indices_within_chunk
+                        .iter()
+                        .map(|&idx| unsafe { (kernels.unpack_single)(packed, idx) }),
+                );
             }
         },
     );

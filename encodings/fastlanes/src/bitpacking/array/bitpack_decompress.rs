@@ -3,7 +3,6 @@
 
 use std::mem::MaybeUninit;
 
-use fastlanes::BitPacking;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use vortex_array::ArrayView;
@@ -23,6 +22,8 @@ use vortex_error::VortexResult;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::FL_CHUNK_SIZE;
+use crate::bitpacking::array::kernels::BitPackedKernels;
+use crate::bitpacking::array::kernels::BitPackedPhysical;
 use crate::unpack_iter::BitPacked as BitPackedUnpack;
 use crate::unpack_iter::BitUnpackedChunks;
 
@@ -161,39 +162,38 @@ pub(crate) fn apply_patches_to_uninit_range<S: NativePType, T: NativePType, F: F
 }
 
 pub fn unpack_single(array: ArrayView<'_, BitPacked>, index: usize) -> Scalar {
-    let bit_width = array.bit_width() as usize;
     let ptype = array.dtype().as_ptype();
-    // let packed = array.packed().into_primitive()?;
     let index_in_encoded = index + array.offset() as usize;
     let scalar: Scalar = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |P| {
-        unsafe {
-            unpack_single_primitive::<P>(array.packed_slice::<P>(), bit_width, index_in_encoded)
-                .into()
-        }
+        unpack_single_primitive::<P>(
+            array.kernels::<P>(),
+            array.packed_slice::<P>(),
+            index_in_encoded,
+        )
+        .into()
     });
     // Cast to fix signedness and nullability
     scalar.cast(array.dtype()).vortex_expect("cast failure")
 }
 
-/// # Safety
+/// Unpacks the value at `index_to_decode` from `packed`, a buffer of whole FastLanes blocks
+/// packed at the bit width `kernels` were resolved for.
 ///
-/// The caller must ensure the following invariants hold:
-/// * `packed.len() == (length + 1023) / 1024 * 128 * bit_width`
-/// * `index_to_decode < length`
+/// # Panics
 ///
-/// Where `length` is the length of the array/slice backed by `packed`
-/// (but is not provided to this function).
-pub unsafe fn unpack_single_primitive<T: NativePType + BitPacking>(
-    packed: &[T],
-    bit_width: usize,
+/// If `index_to_decode` falls outside the blocks held by `packed`.
+pub fn unpack_single_primitive<P: BitPackedPhysical>(
+    kernels: BitPackedKernels<P>,
+    packed: &[P],
     index_to_decode: usize,
-) -> T {
+) -> P {
     let chunk_index = index_to_decode / 1024;
     let index_in_chunk = index_to_decode % 1024;
-    let elems_per_chunk: usize = 128 * bit_width / size_of::<T>();
+    let elems_per_chunk = kernels.packed_block_len();
 
-    let packed_chunk = &packed[chunk_index * elems_per_chunk..][0..elems_per_chunk];
-    unsafe { BitPacking::unchecked_unpack_single(bit_width, packed_chunk, index_in_chunk) }
+    let packed_chunk = &packed[chunk_index * elems_per_chunk..][..elems_per_chunk];
+    // SAFETY: `packed_chunk` is exactly one block at the width `kernels` were resolved for.
+    unsafe { (kernels.unpack_single)(packed_chunk, index_in_chunk) }
 }
 
 pub fn count_exceptions(bit_width: u8, bit_width_freq: &[usize]) -> usize {

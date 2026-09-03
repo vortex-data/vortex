@@ -11052,6 +11052,7 @@ dependencies = [
  "prost 0.14.4",
  "rand 0.10.2",
  "rstest",
+ "seq-macro",
  "vortex-alp",
  "vortex-array",
  "vortex-buffer",

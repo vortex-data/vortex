@@ -3,7 +3,6 @@
 
 use std::mem::MaybeUninit;
 
-use fastlanes::FoR;
 use num_traits::PrimInt;
 use num_traits::WrappingAdd;
 use vortex_array::ArrayView;
@@ -24,29 +23,27 @@ use crate::BitPackedArrayExt;
 use crate::FL_CHUNK_SIZE;
 use crate::FoRArray;
 use crate::bitpack_decompress;
+use crate::bitpacking::kernels::BitPackedPhysical;
+use crate::bitpacking::kernels::UnforPackFn;
 use crate::r#for::array::FoRArrayExt;
 use crate::r#for::array::FoRArraySlotsExt;
 use crate::unpack_iter::UnpackStrategy;
 use crate::unpack_iter::UnpackedChunks;
 
-/// FoR unpacking strategy that applies a reference value during unpacking.
+/// FoR unpacking strategy that applies a reference value during unpacking, using the fused
+/// kernel resolved for the bit-packed child's width.
 struct FoRStrategy<T> {
     reference: T,
+    unfor_pack: UnforPackFn<T>,
 }
 
-impl<T: PhysicalPType<Physical = T> + FoR> UnpackStrategy<T> for FoRStrategy<T> {
+impl<T: PhysicalPType<Physical = T> + BitPackedPhysical> UnpackStrategy<T> for FoRStrategy<T> {
     #[allow(clippy::inline_always)]
     #[inline(always)]
-    unsafe fn unpack_chunk(
-        &self,
-        bit_width: usize,
-        chunk: &[T::Physical],
-        dst: &mut [T::Physical],
-    ) {
-        // SAFETY: Caller ensures chunk and dst have correct sizes.
-        unsafe {
-            FoR::unchecked_unfor_pack(bit_width, chunk, self.reference, dst);
-        }
+    unsafe fn unpack_chunk(&self, chunk: &[T::Physical], dst: &mut [T::Physical]) {
+        // SAFETY: The caller upholds the `unpack_chunk` length contract, which is
+        // `UnforPackFn`'s.
+        unsafe { (self.unfor_pack)(chunk, self.reference, dst) }
     }
 }
 
@@ -84,7 +81,7 @@ pub fn decompress(array: &FoRArray, ctx: &mut ExecutionCtx) -> VortexResult<Prim
 }
 
 pub(crate) fn fused_decompress<
-    T: PhysicalPType<Physical = T> + UnsignedPType + FoR + WrappingAdd,
+    T: PhysicalPType<Physical = T> + UnsignedPType + BitPackedPhysical + WrappingAdd,
 >(
     for_: &FoRArray,
     bp: ArrayView<'_, BitPacked>,
@@ -96,7 +93,10 @@ pub(crate) fn fused_decompress<
         .as_::<T>()
         .vortex_expect("cannot be null");
 
-    let strategy = FoRStrategy { reference: ref_ };
+    let strategy = FoRStrategy {
+        reference: ref_,
+        unfor_pack: bp.kernels::<T>().unfor_pack,
+    };
     let mut scratch = [const { MaybeUninit::<T>::uninit() }; FL_CHUNK_SIZE];
 
     // Create [`UnpackedChunks`] with FoR strategy.
