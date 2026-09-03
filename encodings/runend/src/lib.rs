@@ -23,6 +23,7 @@ mod trace_tests;
 #[doc(hidden)]
 pub mod _benchmarking {
     pub use compute::filter::filter_run_end_primitive;
+    pub use compute::filter::filter_run_end_sequential;
     pub use compute::take::take_indices_unchecked;
 
     use super::*;
