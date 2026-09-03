@@ -22,6 +22,7 @@ use serde::Serialize;
 use tempfile::NamedTempFile;
 use tempfile::TempDir;
 use vortex::array::ArrayRef;
+use vortex::expr::stats::Stat;
 use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::Format;
@@ -145,6 +146,27 @@ impl Uncompressed {
             _ => bail!("expected format-private input"),
         }
     }
+
+    /// Return the input to the state [`Self::read_arrow`] or a fresh conversion would produce.
+    ///
+    /// The Vortex writer computes statistics inside the timed region and caches them on the
+    /// array, so reusing one array across iterations would let every run after the first skip
+    /// that work. Clearing the cache keeps each iteration's measurement comparable.
+    pub fn reset(&self) {
+        if let Self::Vortex(array) = self {
+            clear_stats(array);
+        }
+    }
+}
+
+/// Clear cached statistics on `array` and every array beneath it.
+fn clear_stats(array: &ArrayRef) {
+    for stat in Stat::all() {
+        array.statistics().clear(stat);
+    }
+    for child in array.children_iter() {
+        clear_stats(child);
+    }
 }
 
 /// Where a format keeps its compressed output.
@@ -219,7 +241,8 @@ pub trait Compressor: Send + Sync {
 
 /// Run a compression benchmark for the given compressor.
 ///
-/// Compresses the same `input` `iterations` times and returns timing statistics.
+/// Compresses the same `input` `iterations` times and returns timing statistics. The input is
+/// [reset](Uncompressed::reset) before every iteration so none of them starts warm.
 pub async fn benchmark_compress(
     compressor: &dyn Compressor,
     input: &Uncompressed,
@@ -232,6 +255,7 @@ pub async fn benchmark_compress(
     let mut compressed = None;
 
     for _ in 0..iterations {
+        input.reset();
         let result = compressor.compress(input).await?;
 
         fastest = fastest.min(result.elapsed);
