@@ -14,6 +14,7 @@ mod lower;
 mod optimize;
 pub mod optimizer;
 mod plans;
+mod pruning;
 mod typed;
 mod vtable;
 
@@ -53,6 +54,7 @@ pub use plans::ZonedData;
 pub use plans::ZonedPlan;
 pub use plans::plan_row_idx_expression;
 pub use plans::row_idx_dtype;
+pub use pruning::uses_only_pruning_sources;
 pub use typed::DynPlan;
 pub use typed::Plan;
 pub use typed::PlanParts;

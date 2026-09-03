@@ -1218,6 +1218,8 @@ fn stats_expression_rewrites_to_zoned_pruning_plan() -> VortexResult<()> {
     insta::assert_snapshot!(optimized.display_tree(), @r"
     root: vortex.plan.zoned(bool?, rows=5) prune=(stat($, vortex.max()) <= 5i32)
       zones: vortex.plan.segment_scan({vortex.max()=i32?}, rows=2)
+      child: vortex.plan.eval(bool?, rows=5) expr=(stat($, vortex.max()) <= 5i32)
+        child: vortex.plan.segment_scan(i32, rows=5)
     ");
     let zoned = optimized
         .as_opt::<Zoned>()
@@ -1225,7 +1227,8 @@ fn stats_expression_rewrites_to_zoned_pruning_plan() -> VortexResult<()> {
     assert!(zoned.is_pruning());
     assert_eq!(zoned.pruning_expression(), Some(&falsifier));
     assert!(zoned.data_plan()?.is_none());
-    assert_eq!(zoned.children().len(), 1);
+    assert_eq!(zoned.children().len(), 2);
+    assert!(zoned.child_pruning_plan()?.is_some());
 
     let mixed_expression = bound_and(falsifier, gt(root(), lit(0_i32)).bind(&dtype)?);
     let mixed = optimize(EvalPlan::try_new(mixed_expression, source)?.into_plan())?;
@@ -1291,7 +1294,49 @@ fn pruning_expression_partitions_across_row_idx_and_zoned_struct_field() -> Vort
           child: vortex.plan.row_idx(u64, rows=5)
         child: vortex.plan.zoned(bool?, rows=5) prune=(stat($, vortex.max()) <= 5i32)
           zones: vortex.plan.segment_scan({vortex.max()=i32?}, rows=2)
+          child: vortex.plan.eval(bool?, rows=5) expr=(stat($, vortex.max()) <= 5i32)
+            child: vortex.plan.segment_scan(i32, rows=5)
     ");
+    Ok(())
+}
+
+#[test]
+fn zoned_pruning_composes_with_zoned_child() -> VortexResult<()> {
+    let dtype = primitive(PType::I32, Nullability::NonNullable);
+    let max = Max.bind(NumericalAggregateOpts::skip_nans());
+    let max_dtype = max
+        .state_dtype(&dtype)
+        .ok_or_else(|| vortex_err!("max does not support {dtype}"))?;
+    let zones_dtype = DType::Struct(
+        StructFields::from_iter([(max.to_string(), max_dtype.as_nullable())]),
+        Nullability::NonNullable,
+    );
+    let zone_len = NonZeroUsize::new(3).ok_or_else(|| vortex_err!("zone length is zero"))?;
+    let child = ZonedLayout::try_new(
+        flat(5, dtype.clone(), 0),
+        flat(2, zones_dtype.clone(), 1),
+        zone_len,
+        vec![max.clone()].into(),
+    )?
+    .into_layout();
+    let layout = ZonedLayout::try_new(child, flat(2, zones_dtype, 2), zone_len, vec![max].into())?
+        .into_layout();
+    let session = vortex_array::array_session();
+    let falsifier = gt(root(), lit(5_i32))
+        .bind(&dtype)?
+        .falsify(&session)?
+        .ok_or_else(|| vortex_err!("filter has no falsifier"))?;
+
+    let optimized = optimize(EvalPlan::try_new(falsifier, make_plan(layout)?)?.into_plan())?;
+    insta::assert_snapshot!(optimized.display_tree(), @r"
+    root: vortex.plan.zoned(bool?, rows=5) prune=(stat($, vortex.max()) <= 5i32)
+      zones: vortex.plan.segment_scan({vortex.max()=i32?}, rows=2)
+      child: vortex.plan.zoned(bool?, rows=5) prune=(stat($, vortex.max()) <= 5i32)
+        zones: vortex.plan.segment_scan({vortex.max()=i32?}, rows=2)
+        child: vortex.plan.eval(bool?, rows=5) expr=(stat($, vortex.max()) <= 5i32)
+          child: vortex.plan.segment_scan(i32, rows=5)
+    ");
+    assert!(uses_only_pruning_sources(&optimized, &(0..5))?);
     Ok(())
 }
 
