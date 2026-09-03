@@ -3,15 +3,20 @@
 
 use std::borrow::Cow;
 use std::fmt;
+use std::ops::Range;
 
+use futures::FutureExt;
 use vortex_array::EmptyMetadata;
+use vortex_array::MaskFuture;
 use vortex_array::expr::BoundExpression;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::registry::CachedId;
 
 use crate::plan::Plan;
+use crate::plan::PlanArrayFuture;
 use crate::plan::PlanChildren;
+use crate::plan::PlanExecutionContext;
 use crate::plan::PlanId;
 use crate::plan::PlanParts;
 use crate::plan::PlanRef;
@@ -104,6 +109,17 @@ impl PlanVTable for Eval {
             );
         }
         Ok(())
+    }
+
+    fn execute(
+        plan: &Plan<Self>,
+        ctx: &PlanExecutionContext,
+        row_range: &Range<u64>,
+        mask: MaskFuture,
+    ) -> VortexResult<PlanArrayFuture> {
+        let child = plan.child_plan()?.execute(ctx, row_range, mask)?;
+        let expression = plan.expression().clone();
+        Ok(async move { child.await?.apply_bound(&expression) }.boxed())
     }
 
     fn child_name(_plan: &Plan<Self>, index: usize) -> Cow<'_, str> {

@@ -9,6 +9,7 @@
 
 mod children;
 mod display;
+mod execution;
 mod lower;
 mod optimize;
 pub mod optimizer;
@@ -22,6 +23,8 @@ pub use display::PlanSummaryExtractor;
 pub use display::PlanTreeContext;
 pub use display::PlanTreeDisplay;
 pub use display::PlanTreeExtractor;
+pub use execution::PlanArrayFuture;
+pub use execution::PlanExecutionContext;
 pub use lower::lower;
 pub use optimize::optimize;
 pub use plans::Concat;
@@ -43,6 +46,7 @@ pub use plans::SegmentScan;
 pub use plans::SegmentScanData;
 pub use plans::SegmentScanPlan;
 pub use plans::Take;
+pub use plans::TakeData;
 pub use plans::TakePlan;
 pub use plans::Zoned;
 pub use plans::ZonedData;

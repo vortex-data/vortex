@@ -5,10 +5,17 @@ use std::fmt;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
+use vortex_array::ArrayContext;
+use vortex_array::IntoArray;
+use vortex_array::MaskFuture;
+use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
 use vortex_array::aggregate_fn::fns::max::Max;
+use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -25,6 +32,8 @@ use vortex_array::expr::pack;
 use vortex_array::expr::root;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_io::runtime::single::block_on;
+use vortex_io::session::RuntimeSessionExt;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::ReadContext;
 
@@ -32,10 +41,12 @@ use super::*;
 use crate::LayoutBuildContext;
 use crate::LayoutEncoding;
 use crate::LayoutRef;
+use crate::LayoutStrategy;
 use crate::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::dict::DictLayout;
 use crate::layouts::flat::FlatLayout;
+use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::layouts::foreign::new_foreign_layout;
 use crate::layouts::list::ListLayout;
 use crate::layouts::row_idx::row_idx;
@@ -43,6 +54,9 @@ use crate::layouts::struct_::StructLayout;
 use crate::layouts::zoned::LegacyStatsLayoutEncoding;
 use crate::layouts::zoned::ZonedLayout;
 use crate::segments::SegmentId;
+use crate::segments::TestSegments;
+use crate::sequence::SequenceId;
+use crate::sequence::SequentialArrayStreamExt;
 
 fn primitive(ptype: PType, nullability: Nullability) -> DType {
     DType::Primitive(ptype, nullability)
@@ -523,6 +537,51 @@ fn row_idx_only_expression_uses_row_idx_source() -> VortexResult<()> {
     insta::assert_snapshot!(optimized.display_tree(), @"root: vortex.plan.row_idx(u64, rows=3)");
     assert!(optimized.is::<RowIdx>());
     Ok(())
+}
+
+#[test]
+fn row_idx_source_adds_the_execution_range_start() -> VortexResult<()> {
+    block_on(|handle| async move {
+        let session = crate::test::new_session().with_handle(handle);
+        let execution =
+            PlanExecutionContext::new(Arc::new(TestSegments::default()), session.clone())
+                .with_row_offset(100);
+        let plan = RowIdxPlan::new(6).into_plan();
+
+        let actual = plan
+            .execute(&execution, &(2..5), MaskFuture::new_true(3))?
+            .await?;
+        let expected = PrimitiveArray::from_iter([102_u64, 103, 104]).into_array();
+
+        assert_arrays_eq!(actual, expected, &mut session.create_execution_ctx());
+        Ok(())
+    })
+}
+
+#[test]
+fn row_idx_source_uses_concat_child_row_domains() -> VortexResult<()> {
+    block_on(|handle| async move {
+        let session = crate::test::new_session().with_handle(handle);
+        let execution =
+            PlanExecutionContext::new(Arc::new(TestSegments::default()), session.clone())
+                .with_row_offset(100);
+        let plan = ConcatPlan::try_new(
+            row_idx_dtype(),
+            vec![
+                RowIdxPlan::new(2).into_plan(),
+                RowIdxPlan::new(3).into_plan(),
+            ],
+        )?
+        .into_plan();
+
+        let actual = plan
+            .execute(&execution, &(1..4), MaskFuture::new_true(3))?
+            .await?;
+        let expected = PrimitiveArray::from_iter([101_u64, 102, 103]).into_array();
+
+        assert_arrays_eq!(actual, expected, &mut session.create_execution_ctx());
+        Ok(())
+    })
 }
 
 #[test]
@@ -1268,4 +1327,69 @@ fn legacy_stats_layout_uses_zoned_plan() -> VortexResult<()> {
       zones: vortex.plan.segment_scan({}, rows=2)
     ");
     Ok(())
+}
+
+#[test]
+fn multi_field_struct_expression_does_not_read_unused_fields() -> VortexResult<()> {
+    block_on(|handle| async move {
+        let session = crate::test::new_session().with_handle(handle);
+        let segments = Arc::new(TestSegments::default());
+        let strategy = FlatLayoutStrategy::default();
+
+        let (a_sequence, a_eof) = SequenceId::root().split();
+        let a = strategy
+            .write_stream(
+                ArrayContext::empty().into(),
+                Arc::<TestSegments>::clone(&segments),
+                PrimitiveArray::from_iter([1_i32, 6, 8])
+                    .into_array()
+                    .to_array_stream()
+                    .sequenced(a_sequence),
+                a_eof,
+                &session,
+            )
+            .await?;
+        let (b_sequence, b_eof) = SequenceId::root().split();
+        let b = strategy
+            .write_stream(
+                ArrayContext::empty().into(),
+                Arc::<TestSegments>::clone(&segments),
+                PrimitiveArray::from_iter([10_i32, 8, 9])
+                    .into_array()
+                    .to_array_stream()
+                    .sequenced(b_sequence),
+                b_eof,
+                &session,
+            )
+            .await?;
+
+        let value_dtype = primitive(PType::I32, Nullability::NonNullable);
+        let layout = StructLayout::new(
+            3,
+            DType::Struct(
+                StructFields::from_iter([
+                    ("a", value_dtype.clone()),
+                    ("b", value_dtype.clone()),
+                    ("c", value_dtype.clone()),
+                ]),
+                Nullability::NonNullable,
+            ),
+            vec![a, b, flat(3, value_dtype, 2)],
+        )
+        .into_layout();
+        let expression = and(
+            gt(get_item("a", root()), lit(5_i32)),
+            gt(get_item("b", root()), lit(7_i32)),
+        );
+        let optimized = optimize(make_eval(expression, make_plan(layout)?)?.into_plan())?;
+        let execution = PlanExecutionContext::new(segments, session.clone());
+
+        let actual = optimized
+            .execute(&execution, &(0..3), MaskFuture::new_true(3))?
+            .await?;
+        let expected = BoolArray::from_iter([false, true, true]).into_array();
+
+        assert_arrays_eq!(actual, expected, &mut session.create_execution_ctx());
+        Ok(())
+    })
 }

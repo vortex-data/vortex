@@ -3,8 +3,12 @@
 
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::ops::Range;
 
+use futures::FutureExt;
 use vortex_array::EmptyMetadata;
+use vortex_array::IntoArray;
+use vortex_array::MaskFuture;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
@@ -22,10 +26,13 @@ use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 
 use crate::layouts::row_idx::RowIdx as RowIdxFn;
+use crate::layouts::row_idx::idx_array;
 use crate::plan::EvalPlan;
 use crate::plan::PackPlan;
 use crate::plan::Plan;
+use crate::plan::PlanArrayFuture;
 use crate::plan::PlanChildren;
+use crate::plan::PlanExecutionContext;
 use crate::plan::PlanId;
 use crate::plan::PlanParts;
 use crate::plan::PlanRef;
@@ -85,6 +92,40 @@ impl PlanVTable for RowIdx {
         _data: &mut Self::PlanData,
     ) -> VortexResult<()> {
         check_child_count("RowIdx", children, 0)
+    }
+
+    fn execute(
+        plan: &Plan<Self>,
+        ctx: &PlanExecutionContext,
+        row_range: &Range<u64>,
+        mask: MaskFuture,
+    ) -> VortexResult<PlanArrayFuture> {
+        vortex_ensure!(
+            row_range.start <= row_range.end && row_range.end <= plan.row_count(),
+            "RowIdx row range {:?} is outside 0..{}",
+            row_range,
+            plan.row_count()
+        );
+        vortex_ensure!(
+            mask.len() == usize::try_from(row_range.end - row_range.start)?,
+            "RowIdx mask length mismatch"
+        );
+        let row_offset = ctx.row_offset();
+        vortex_ensure!(
+            row_offset.checked_add(row_range.start).is_some()
+                && (row_range.is_empty() || row_offset.checked_add(row_range.end - 1).is_some()),
+            "RowIdx offset overflows u64"
+        );
+        let array = idx_array(row_offset, row_range).into_array();
+        Ok(async move {
+            let mask = mask.await?;
+            if mask.all_true() {
+                Ok(array)
+            } else {
+                array.filter(mask)
+            }
+        }
+        .boxed())
     }
 }
 

@@ -18,7 +18,7 @@ on demand.
 | `Take` | index `values` by `codes` |
 | `ListPack` | assemble a list from elements and offsets, plus optional validity |
 | `Eval` | apply an expression to its child |
-| `RowIdx` | offset row numbers into the file's row domain |
+| `RowIdx` | generate row numbers for the current execution row domain |
 
 Naming operators for what they compute is what lets one rule cover every case. `Concat` of
 `Concat` flattens on shape alone, and `Take` over `SegmentScan` is the dictionary pushdown,
@@ -55,9 +55,14 @@ ID, dtype, row count, and lazy children. Only the unsized tail containing the vt
 already serialize their metadata; the ones holding a read context or a bound expression return
 `None` until those codecs exist.
 
+## Execution
+
+Each operator executes over a row range and selection mask. `SegmentScan` reads its segment,
+structural operators combine their children, and `Eval` applies the remaining derived work.
+`vortex-scan-v2` copies the existing scan orchestration around this API, so the original
+`LayoutReader` scanner is untouched while the plan-native path is developed.
+
 ## Future work
 
-Plans currently stop at construction and optimization. Still to come: a plan registry and foreign
-operator placeholder so third-party operators survive a round trip, a serialization envelope, and
-an execution stage that walks an optimized plan, reads the referenced segments, and returns the
-query result.
+Still to come: a plan registry and foreign operator placeholder so third-party operators survive
+a round trip, and a serialization envelope.
