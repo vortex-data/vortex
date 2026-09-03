@@ -5,16 +5,13 @@
 //!
 //! [`TableStrategy`] is a *dispatcher*: it inspects the dtype of the stream it is handed and
 //! routes struct columns to [`StructStrategy`], list columns to [`ListLayoutStrategy`], and
-//! everything else to the configured leaf strategy. Because it hands *itself* (suitably descended)
-//! to those structural writers as the strategy for their children, arbitrarily nested struct/list
-//! trees are written with no manual wiring.
+//! everything else to the configured leaf strategy. Struct fields recurse through the dispatcher,
+//! while list elements always go directly to the leaf strategy.
 //!
 //! The dispatcher also owns field-path overrides, letting callers force a specific leaf field —
 //! at any depth — onto a custom strategy.
 
-use std::env;
 use std::sync::Arc;
-use std::sync::LazyLock;
 
 use async_trait::async_trait;
 use vortex_array::dtype::Field;
@@ -28,22 +25,12 @@ use vortex_utils::aliases::hash_set::HashSet;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
+use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
 use crate::layouts::list::writer::ListLayoutStrategy;
 use crate::layouts::struct_::StructStrategy;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
-
-/// Whether [`TableStrategy`] writes list fields using a [`ListLayoutStrategy`] by
-/// default. Disabled unless the environment variable `VORTEX_EXPERIMENTAL_LIST_LAYOUT`
-/// is set to `1`.
-///
-/// [`ListLayoutStrategy`]: ListLayoutStrategy
-pub fn use_experimental_list_layout() -> bool {
-    static USE_EXPERIMENTAL_LIST_LAYOUT: LazyLock<bool> =
-        LazyLock::new(|| env::var("VORTEX_EXPERIMENTAL_LIST_LAYOUT").is_ok_and(|v| v == "1"));
-    *USE_EXPERIMENTAL_LIST_LAYOUT
-}
 
 type ListLayoutFactory = Arc<dyn Fn(ListLayoutStrategy) -> Arc<dyn LayoutStrategy> + Send + Sync>;
 
@@ -53,9 +40,9 @@ type ListLayoutFactory = Arc<dyn Fn(ListLayoutStrategy) -> Arc<dyn LayoutStrateg
 /// Dispatch rules, applied to the dtype of the stream handed to [`write_stream`]:
 /// - **struct** → [`StructStrategy`], with each field written by its override (if any) or by a
 ///   descended copy of this dispatcher.
-/// - **list** → [`ListLayoutStrategy`], with `elements` written by a descended copy of this
-///   dispatcher (so nested structs/lists recurse) and `offsets`/`validity` by the leaf/validity
-///   strategies. Gated: only when list decomposition is enabled via
+/// - **list** → [`ListLayoutStrategy`], whose children are written through the configured leaf and
+///   validity strategies. List decomposition is deliberately shallow: nested lists and structs in
+///   the elements subtree are not decomposed recursively. Gated: only when enabled via
 ///   [`with_list_layout`][Self::with_list_layout] (off by default); otherwise a list falls through
 ///   to the leaf strategy.
 /// - **anything else** → the leaf strategy.
@@ -173,7 +160,7 @@ impl TableStrategy {
     /// **Note**: this is an unstable and experimental layout that is expected to change.
     /// Using it may lead to unreadable files in the future.
     pub fn with_list_layout(self) -> Self {
-        self.with_list_layout_factory(|strategy| Arc::new(strategy))
+        self.with_list_layout_factory(|strategy| Arc::new(ChunkedLayoutStrategy::new(strategy)))
     }
 
     /// Enable writing list fields with [`ListLayoutStrategy`] and wrap each list writer. This
@@ -225,15 +212,15 @@ impl TableStrategy {
 
     /// Build the [`ListLayoutStrategy`] used to write a list field stream at this level.
     ///
-    /// The `elements` sub-column is routed back through a clean descended dispatcher so nested
-    /// structs/lists recurse; `offsets` go straight to the leaf (they are always a primitive
-    /// column); and `validity` uses the shared validity strategy.
+    /// The `elements` and `offsets` sub-columns use the configured leaf strategy, while the
+    /// optional `validity` sub-column uses the configured validity strategy. In particular, nested
+    /// lists and structs in the elements subtree are not decomposed recursively.
     fn list_strategy(&self) -> Option<Arc<dyn LayoutStrategy>> {
         let factory = self.list_layout_factory.as_ref()?;
         let list_layout = ListLayoutStrategy::default()
-            .with_elements(Arc::new(self.descend_clean()))
-            .with_offsets(Arc::clone(&self.leaf))
-            .with_validity(Arc::clone(&self.validity))
+            .with_elements_strategy(Arc::clone(&self.leaf))
+            .with_offsets_strategy(Arc::clone(&self.leaf))
+            .with_validity_strategy(Arc::clone(&self.validity))
             .with_fallback(Arc::clone(&self.leaf));
         Some(factory(list_layout))
     }
@@ -353,9 +340,9 @@ mod tests {
 
     use crate::LayoutRef;
     use crate::LayoutStrategy;
+    use crate::layouts::chunked::Chunked;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::layouts::list::List;
     use crate::layouts::repartition::RepartitionStrategy;
     use crate::layouts::repartition::RepartitionWriterOptions;
     use crate::layouts::table::TableStrategy;
@@ -414,8 +401,7 @@ mod tests {
         Ok(())
     }
 
-    /// A `list<list<i32>>` column: the dispatcher recurses into itself so the outer list's
-    /// `elements` are decomposed as a nested `ListLayout`.
+    /// A `list<list<i32>>` column keeps its nested list elements in a flat layout.
     #[tokio::test]
     async fn dispatches_nested_list() -> VortexResult<()> {
         let inner = ListArray::try_new(
@@ -434,16 +420,14 @@ mod tests {
         let layout = write(&flat_table().with_list_layout(), outer).await?;
         insta::assert_snapshot!(layout.display_tree(), @r"
         vortex.list, dtype: list(list(i32)), children: 2
-        ├── elements: vortex.list, dtype: list(i32), children: 2
-        │   ├── elements: vortex.flat, dtype: i32, segment: 1
-        │   └── offsets: vortex.flat, dtype: u64, segment: 2
-        └── offsets: vortex.flat, dtype: u64, segment: 0
+        ├── elements: vortex.flat, dtype: list(i32), segment: 0
+        └── offsets: vortex.flat, dtype: u32, segment: 1
         ");
         Ok(())
     }
 
-    /// A `struct<{ items: list<struct<{a,b}>>? }>` column: list decomposition recurses into struct
-    /// decomposition for the elements, and a nullable list writes a validity child.
+    /// A `struct<{ items: list<struct<{a,b}>>? }>` column keeps the element struct in a flat
+    /// layout, and a nullable list writes a validity child.
     #[tokio::test]
     async fn dispatches_struct_list_struct() -> VortexResult<()> {
         let inner_struct = StructArray::from_fields(
@@ -466,18 +450,14 @@ mod tests {
         insta::assert_snapshot!(layout.display_tree(), @r"
         vortex.struct, dtype: {items=list({a=i32, b=i32})?}, children: 1
         └── items: vortex.list, dtype: list({a=i32, b=i32})?, children: 3
-            ├── elements: vortex.struct, dtype: {a=i32, b=i32}, children: 2
-            │   ├── a: vortex.flat, dtype: i32, segment: 2
-            │   └── b: vortex.flat, dtype: i32, segment: 3
-            ├── offsets: vortex.flat, dtype: u64, segment: 0
-            └── validity: vortex.flat, dtype: bool, segment: 1
+            ├── elements: vortex.flat, dtype: {a=i32, b=i32}, segment: 0
+            ├── offsets: vortex.flat, dtype: u32, segment: 1
+            └── validity: vortex.flat, dtype: bool, segment: 2
         ");
         Ok(())
     }
 
-    /// A multi-chunk `list<i32>` written with a chunked leaf: each sub-column (`elements`,
-    /// `offsets`) becomes its own `ChunkedLayout`, so elements are chunked independently of rows.
-    /// This is the "list-of-chunkeds" topology top-level decomposition unlocks.
+    /// A multi-chunk `list<i32>` is chunked in outer-row space before each page is shredded.
     #[tokio::test]
     async fn dispatches_chunked_list() -> VortexResult<()> {
         let chunk0 = ListArray::try_new(
@@ -496,25 +476,22 @@ mod tests {
         let chunked = ChunkedArray::try_new(vec![chunk0, chunk1], dtype)?.into_array();
 
         let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
-        let dispatcher = TableStrategy::new(
-            Arc::clone(&flat),
-            Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default())),
-        )
-        .with_list_layout();
+        let dispatcher =
+            TableStrategy::new(Arc::clone(&flat), Arc::clone(&flat)).with_list_layout();
         let layout = write(&dispatcher, chunked).await?;
         insta::assert_snapshot!(layout.display_tree(), @r"
-        vortex.list, dtype: list(i32), children: 2
-        ├── elements: vortex.chunked, dtype: i32, children: 2
-        │   ├── [0]: vortex.flat, dtype: i32, segment: 0
-        │   └── [1]: vortex.flat, dtype: i32, segment: 1
-        └── offsets: vortex.chunked, dtype: u64, children: 2
-            ├── [0]: vortex.flat, dtype: u64, segment: 2
-            └── [1]: vortex.flat, dtype: u64, segment: 3
+        vortex.chunked, dtype: list(i32), children: 2
+        ├── [0]: vortex.list, dtype: list(i32), children: 2
+        │   ├── elements: vortex.flat, dtype: i32, segment: 0
+        │   └── offsets: vortex.flat, dtype: u32, segment: 1
+        └── [1]: vortex.list, dtype: list(i32), children: 2
+            ├── elements: vortex.flat, dtype: i32, segment: 2
+            └── offsets: vortex.flat, dtype: u32, segment: 3
         ");
         Ok(())
     }
 
-    /// A wrapper can repartition and zone lists in outer-row space before decomposition.
+    /// A wrapper can repartition lists into physical outer-row chunks before decomposition.
     #[tokio::test]
     async fn wraps_list_strategy_before_decomposition() -> VortexResult<()> {
         let list = ListArray::try_new(
@@ -527,12 +504,10 @@ mod tests {
         let row_block_size = NonZeroUsize::new(4).vortex_expect("4 is non-zero");
         let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
         let stats = Arc::clone(&flat);
-        let chunked: Arc<dyn LayoutStrategy> =
-            Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()));
-        let dispatcher = TableStrategy::new(Arc::clone(&flat), chunked).with_list_layout_factory(
-            move |list_layout| {
+        let dispatcher = TableStrategy::new(Arc::clone(&flat), Arc::clone(&flat))
+            .with_list_layout_factory(move |list_layout| {
                 let zoned = ZonedStrategy::new(
-                    list_layout,
+                    ChunkedLayoutStrategy::new(list_layout),
                     Arc::clone(&stats),
                     ZonedLayoutOptions {
                         block_size: row_block_size,
@@ -548,8 +523,7 @@ mod tests {
                         canonicalize: false,
                     },
                 )) as Arc<dyn LayoutStrategy>
-            },
-        );
+            });
 
         let layout = write(&dispatcher, list).await?;
         let zoned = layout.as_::<Zoned>();
@@ -559,7 +533,7 @@ mod tests {
         let data = layout
             .slot(0)?
             .vortex_expect("ZonedLayout always has a data child");
-        assert!(data.is::<List>());
+        assert!(data.is::<Chunked>());
         assert_eq!(data.row_count(), 9);
         Ok(())
     }

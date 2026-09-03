@@ -1898,8 +1898,7 @@ async fn write_read_roundtrip_with_layout(
         .await
 }
 
-/// A `list<list<i32>>` column round-trips through the `TableStrategy` dispatcher, exercising list
-/// decomposition recursing into itself (the outer list's `elements` are themselves lists).
+/// A `list<list<i32>>` column round-trips through the shallow list-layout dispatcher.
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn nested_list_of_list_roundtrip() -> VortexResult<()> {
@@ -1987,9 +1986,8 @@ async fn struct_with_map_column_roundtrip() -> VortexResult<()> {
     Ok(())
 }
 
-/// A `struct<{ items: list<struct<{a,b}>>? }>` column round-trips, exercising list decomposition
-/// recursing into struct decomposition (list `elements` are structs) plus a nullable list validity
-/// child.
+/// A `struct<{ items: list<struct<{a,b}>>? }>` column round-trips with its element struct kept in a
+/// flat layout, plus a nullable list validity child.
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn nested_struct_list_struct_roundtrip() -> VortexResult<()> {
