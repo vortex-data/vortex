@@ -10,7 +10,6 @@ use std::hash::Hash;
 use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
@@ -21,6 +20,7 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnSatisfaction;
 use crate::dtype::DType;
+use crate::proto::expr as pb;
 use crate::scalar::Scalar;
 
 /// Defines the interface for aggregate function vtables.

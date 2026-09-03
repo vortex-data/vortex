@@ -7,7 +7,6 @@ use std::fmt::Formatter;
 use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -27,6 +26,7 @@ use crate::dtype::Nullability;
 use crate::expr::Expression;
 use crate::expr::display::ExprDisplay;
 use crate::expr::lit;
+use crate::proto::expr as pb;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;

@@ -3,15 +3,11 @@
 
 mod check_editions;
 mod generate_editions;
-mod generate_fbs;
-mod generate_proto;
 
 use clap::Parser;
 
 use crate::check_editions::check_editions;
 use crate::generate_editions::generate_editions;
-use crate::generate_fbs::generate_fbs;
-use crate::generate_proto::generate_proto;
 
 #[derive(clap::Parser)]
 struct Xtask {
@@ -31,12 +27,6 @@ enum Commands {
     /// Subcommand to regenerate the edition records under `vortex/editions`.
     #[command(name = "generate-editions")]
     Editions,
-    /// Subcommand to regenerate flatbuffers language bindings for the Rust project.
-    #[command(name = "generate-fbs")]
-    Flatbuffers,
-    /// Subcommand to regenerate protobuf language bindings for the Rust project.
-    #[command(name = "generate-proto")]
-    Proto,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -44,8 +34,6 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::CheckEditions { base } => check_editions(&base)?,
         Commands::Editions => generate_editions()?,
-        Commands::Flatbuffers => generate_fbs()?,
-        Commands::Proto => generate_proto()?,
     }
     Ok(())
 }

@@ -29,6 +29,7 @@ use vortex_array::expr::stats::Precision as StatPrecision;
 use vortex_array::expr::stats::Stat;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_pvalue;
+use vortex_array::proto::scalar::ScalarValue as ProtoScalarValue;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
@@ -58,9 +59,9 @@ pub type SequenceArray = Array<Sequence>;
 #[derive(Clone, prost::Message)]
 pub struct SequenceMetadata {
     #[prost(message, tag = "1")]
-    base: Option<vortex_proto::scalar::ScalarValue>,
+    base: Option<ProtoScalarValue>,
     #[prost(message, tag = "2")]
-    multiplier: Option<vortex_proto::scalar::ScalarValue>,
+    multiplier: Option<ProtoScalarValue>,
 }
 
 pub(super) const SLOT_NAMES: [&str; 0] = [];
@@ -175,10 +176,8 @@ impl SequenceData {
     }
 
     /// The step's ptype: the serialized form preserves its signedness but not its width.
-    fn multiplier_ptype_from_proto(
-        multiplier: &vortex_proto::scalar::ScalarValue,
-    ) -> VortexResult<PType> {
-        use vortex_proto::scalar::scalar_value::Kind;
+    fn multiplier_ptype_from_proto(multiplier: &ProtoScalarValue) -> VortexResult<PType> {
+        use vortex_array::proto::scalar::scalar_value::Kind;
         match multiplier
             .kind
             .as_ref()

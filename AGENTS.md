@@ -30,6 +30,11 @@ documentation in `docs/`, and benchmark tooling in `vortex-bench/` and `benchmar
   and the OpenDAL-backed services (`cos://`, `oss://`). Every binding resolves URLs through it.
 - `vortex-scan`, `vortex-session`, `vortex-datafusion`, and `vortex-duckdb` contain scan
   and execution integrations.
+- FlatBuffers (`.fbs`) and Protocol Buffers (`.proto`) schemas live in the crate that owns the
+  types they describe (`vortex-array`, `vortex-layout`, `vortex-file`, `vortex-ipc`), and are
+  compiled into `OUT_DIR` by that crate's `build.rs` via `vortex-build`. Generated code is never
+  checked in, and a schema that includes another crate's declares that crate with `depends_on`.
+  Building therefore requires `flatc` on `PATH` (or `FLATC` set); `protoc` is not needed.
 - `vortex-python` contains Python bindings. RST-flavored project docs live in `docs/`.
 
 ## Scoped Guidance

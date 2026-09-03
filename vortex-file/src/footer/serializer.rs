@@ -3,14 +3,14 @@
 
 use std::sync::Arc;
 
+use vortex_array::flatbuffers::FlatBuffer;
+use vortex_array::flatbuffers::FlatBufferRoot;
+use vortex_array::flatbuffers::WriteFlatBuffer;
+use vortex_array::flatbuffers::WriteFlatBufferExt;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_flatbuffers::FlatBuffer;
-use vortex_flatbuffers::FlatBufferRoot;
-use vortex_flatbuffers::WriteFlatBuffer;
-use vortex_flatbuffers::WriteFlatBufferExt;
 use vortex_layout::LayoutContext;
 use vortex_session::registry::ReadContext;
 use vortex_utils::aliases::hash_map::HashMap;

@@ -99,8 +99,11 @@ message. This is important for wide schemas where only a few columns are accesse
 the reader can jump directly to the relevant layout node without deserializing the rest of the
 footer.
 
-All FlatBuffers in Vortex are aligned to 8 bytes. Schema definitions live in the
-`vortex-flatbuffers` crate and cover arrays, layouts, the file footer, and IPC messages.
+All FlatBuffers in Vortex are aligned to 8 bytes. Each schema definition lives in the crate that
+owns the types it describes -- arrays and dtypes in `vortex-array`, layouts in `vortex-layout`, the
+file footer in `vortex-file`, and IPC messages in `vortex-ipc` -- next to the generated Rust
+bindings, which `build.rs` compiles into `OUT_DIR`. The read/write traits they all share live in
+`vortex_array::flatbuffers`.
 
 ## Zero-Copy Design
 

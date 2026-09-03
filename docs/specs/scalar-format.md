@@ -2,6 +2,6 @@
 
 ## Protobuf Definition
 
-:::{literalinclude} ../../vortex-proto/proto/scalar.proto
+:::{literalinclude} ../../vortex-array/proto/scalar.proto
 :language: protobuf
 :::

@@ -172,9 +172,13 @@ pub mod file {
     pub use vortex_file::*;
 }
 
-/// Generated flatbuffer bindings used by Vortex serialization.
+/// Traits for reading and writing Vortex types as flatbuffers, plus the generated bindings for the
+/// core array and dtype schemas.
+///
+/// Bindings for the other schemas live alongside the types they describe, in
+/// `layout::flatbuffers`, `file::flatbuffers` and `ipc::flatbuffers`.
 pub mod flatbuffers {
-    pub use vortex_flatbuffers::*;
+    pub use vortex_array::flatbuffers::*;
 }
 
 /// Async and blocking IO abstractions used by file readers and writers.
@@ -210,7 +214,7 @@ pub mod metrics {
 
 /// Generated protocol buffer bindings used by Vortex metadata.
 pub mod proto {
-    pub use vortex_proto::*;
+    pub use vortex_array::proto::*;
 }
 
 /// Scalar values and typed scalar views.

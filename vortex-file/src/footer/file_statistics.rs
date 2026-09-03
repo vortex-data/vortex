@@ -12,15 +12,16 @@ use flatbuffers::FlatBufferBuilder;
 use flatbuffers::WIPOffset;
 use itertools::Itertools;
 use vortex_array::dtype::DType;
+use vortex_array::flatbuffers::FlatBufferRoot;
+use vortex_array::flatbuffers::WriteFlatBuffer;
+use vortex_array::flatbuffers::array::ArrayStats;
 use vortex_array::stats::StatsSet;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
-use vortex_flatbuffers::FlatBufferRoot;
-use vortex_flatbuffers::WriteFlatBuffer;
-use vortex_flatbuffers::array::ArrayStats;
-use vortex_flatbuffers::footer as fb;
 use vortex_session::VortexSession;
+
+use crate::flatbuffers::footer as fb;
 
 /// Contains statistical information about the data in a Vortex file.
 ///

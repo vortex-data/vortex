@@ -5,14 +5,14 @@ use std::sync::Arc;
 
 use flatbuffers::root;
 use vortex_array::dtype::DType;
+use vortex_array::flatbuffers::FlatBuffer;
+use vortex_array::flatbuffers::ReadFlatBuffer;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_flatbuffers::FlatBuffer;
-use vortex_flatbuffers::ReadFlatBuffer;
 use vortex_session::VortexSession;
 
 use crate::EOF_SIZE;
@@ -299,7 +299,7 @@ impl FooterDeserializer {
     ) -> VortexResult<FileStatistics> {
         let sliced_buffer = checked_segment_slice(initial_read, initial_offset, segment)?;
 
-        let fb = root::<vortex_flatbuffers::footer::FileStatistics>(sliced_buffer)?;
+        let fb = root::<crate::flatbuffers::footer::FileStatistics>(sliced_buffer)?;
         FileStatistics::from_flatbuffer(&fb, dtype, session)
     }
 
@@ -364,7 +364,7 @@ mod tests {
     use vortex_array::array_session;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_flatbuffers::WriteFlatBufferExt;
+    use vortex_array::flatbuffers::WriteFlatBufferExt;
 
     use super::*;
 

@@ -166,3 +166,7 @@ runs:
         components: ${{ inputs.components }}
         targets: ${{ inputs.targets }}
         enable-sccache: "false"
+
+    # Pins the version; the prebuild AMIs bake in a flatc that may lag it.
+    - name: Install flatc (for FlatBuffers code generation)
+      uses: ./.github/actions/setup-flatc

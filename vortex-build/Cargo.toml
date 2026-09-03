@@ -2,10 +2,10 @@
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 [package]
-name = "vortex-flatbuffers"
+name = "vortex-build"
 authors = { workspace = true }
 categories = { workspace = true }
-description = "Flatbuffers definitions for Vortex types"
+description = "Build script helpers for generating Vortex FlatBuffers and Protocol Buffers bindings"
 edition = { workspace = true }
 homepage = { workspace = true }
 include = { workspace = true }
@@ -19,17 +19,9 @@ version = { workspace = true }
 [package.metadata.docs.rs]
 all-features = true
 
-[features]
-array = ["dtype"]
-dtype = []
-file = ["ipc"]
-ipc = ["array"]
-layout = ["array"]
-
 [dependencies]
-flatbuffers = { workspace = true }
-vortex-buffer = { workspace = true }
-vortex-error = { workspace = true }
+prost-build = { workspace = true }
+protox = { workspace = true }
 
 [lints]
 workspace = true
