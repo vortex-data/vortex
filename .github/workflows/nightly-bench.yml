@@ -23,11 +23,15 @@ jobs:
     with:
       mode: "develop"
       machine_type: ${{ matrix.machine_type.instance_name }}
+      build_machine_type: ${{ matrix.machine_type.build_instance_name }}
+      machine_image: ${{ matrix.machine_type.image }}
       matrix_preset: "nightly"
     strategy:
       # A single run not should kill the others
       fail-fast: false
       matrix:
         machine_type:
-          - id: x86
-            instance_name: c6id.metal
+          - id: arm64
+            instance_name: c7gd.metal
+            build_instance_name: c7gd.8xlarge
+            image: ubuntu24-full-arm64-pre-v2

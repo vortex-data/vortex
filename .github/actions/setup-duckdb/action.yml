@@ -10,8 +10,13 @@ runs:
     - name: Download DuckDB
       shell: bash
       run: |
+        case "$(uname -m)" in
+          x86_64) arch=amd64 ;;
+          aarch64) arch=arm64 ;;
+          *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+        esac
         wget -qO- \
-          "https://github.com/duckdb/duckdb/releases/download/v${{ inputs.duckdb_version }}/duckdb_cli-linux-amd64.zip" \
+          "https://github.com/duckdb/duckdb/releases/download/v${{ inputs.duckdb_version }}/duckdb_cli-linux-${arch}.zip" \
           | funzip > duckdb
         chmod +x duckdb
         echo "$PWD" >> "$GITHUB_PATH"

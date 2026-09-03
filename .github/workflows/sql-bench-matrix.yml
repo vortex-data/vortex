@@ -10,10 +10,21 @@ on:
         required: true
         type: string
         description: "Named benchmark matrix to run"
+      # The three machine inputs must agree on CPU architecture: the build job's binaries
+      # run on `machine_type`, and `bench-dedicated` defaults to an x64 image, so an arm64
+      # family needs the arm64 image spelled out.
       machine_type:
         required: false
         type: string
-        default: c6id.metal
+        default: c7gd.metal
+      build_machine_type:
+        required: false
+        type: string
+        default: c7gd.8xlarge
+      machine_image:
+        required: false
+        type: string
+        default: ubuntu24-full-arm64-pre-v2
 
 jobs:
   resolve-matrix:
@@ -50,7 +61,7 @@ jobs:
       FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=bench-dedicated/family=c6id.8xlarge/tag=build{1}', github.run_id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
+          && format('runs-on={0}/runner=bench-dedicated/family={1}/image={2}/tag=build{3}', github.run_id, inputs.build_machine_type, inputs.machine_image, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -112,7 +123,7 @@ jobs:
 
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=bench-dedicated/family={1}/tag={2}{3}', github.run_id, inputs.machine_type, matrix.id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
+          && format('runs-on={0}/runner=bench-dedicated/family={1}/image={2}/tag={3}{4}', github.run_id, inputs.machine_type, inputs.machine_image, matrix.id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2

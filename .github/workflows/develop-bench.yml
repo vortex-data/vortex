@@ -31,11 +31,14 @@ jobs:
           bash scripts/commit-json.sh > new-commit.json
           bash scripts/cat-s3.sh vortex-ci-benchmark-results commits.json new-commit.json
 
+  # Benchmarks run on Graviton3 (c7gd.metal). The binary is built on the same CPU family so
+  # `-C target-cpu=native` matches, and both jobs pin the arm64 image because the
+  # `bench-dedicated` runner defaults to x64.
   build:
     timeout-minutes: 60
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=bench-dedicated/family=c6id.8xlarge/extras=s3-cache/tag=build-{1}', github.run_id, matrix.benchmark.id)
+          && format('runs-on={0}/runner=bench-dedicated/family=c7gd.8xlarge/image=ubuntu24-full-arm64-pre-v2/extras=s3-cache/tag=build-{1}', github.run_id, matrix.benchmark.id)
           || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
@@ -83,7 +86,7 @@ jobs:
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=bench-dedicated/family=c6id.metal/extras=s3-cache/tag={1}', github.run_id, matrix.benchmark.id)
+          && format('runs-on={0}/runner=bench-dedicated/family=c7gd.metal/image=ubuntu24-full-arm64-pre-v2/extras=s3-cache/tag={1}', github.run_id, matrix.benchmark.id)
           || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
