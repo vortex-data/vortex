@@ -648,6 +648,7 @@ impl Patches {
                         self.offset(),
                         self.values(),
                         mask_indices,
+                        ctx.allocator().clone(),
                     )
                 })
             }
@@ -678,11 +679,15 @@ impl Patches {
                 let patch_indices = self.indices().clone().execute::<PrimitiveArray>(ctx)?;
                 match_each_unsigned_integer_ptype!(patch_indices.ptype(), |P| {
                     let patch_indices = patch_indices.as_slice::<P>();
-                    Mask::from_buffer(BitBuffer::collect_bool(patch_indices.len(), |i| {
-                        #[allow(clippy::cast_possible_truncation)]
-                        let idx = (patch_indices[i] as usize) - self.offset;
-                        !masked.value(idx)
-                    }))
+                    Mask::from_buffer(BitBuffer::collect_bool_in(
+                        patch_indices.len(),
+                        |i| {
+                            #[allow(clippy::cast_possible_truncation)]
+                            let idx = (patch_indices[i] as usize) - self.offset;
+                            !masked.value(idx)
+                        },
+                        ctx.allocator().clone(),
+                    ))
                 })
             }
         };
@@ -855,6 +860,7 @@ impl Patches {
                                     .validity()?
                                     .execute_mask(take_indices.as_ref().len(), ctx)?,
                                 include_nulls,
+                                ctx.allocator().clone(),
                                 |take_idx| {
                                     self.search_index_chunked_batch(
                                         patch_indices_slice,
@@ -873,6 +879,7 @@ impl Patches {
                                 .validity()?
                                 .execute_mask(take_indices.as_ref().len(), ctx)?,
                             include_nulls,
+                            ctx.allocator().clone(),
                             |take_idx| {
                                 let Some(offset) = <PatchT as NumCast>::from(self.offset) else {
                                     // If the offset cannot be converted to T, it's larger than all values in this array.
@@ -939,6 +946,7 @@ impl Patches {
                         min_index,
                         max_index,
                         include_nulls,
+                        ctx.allocator().clone(),
                     )?
                 })
             })
@@ -1028,6 +1036,7 @@ fn take_map<I: NativePType + Hash + Eq + TryFrom<usize>, T: NativePType>(
     min_index: usize,
     max_index: usize,
     include_nulls: bool,
+    allocator: vortex_buffer::BufferAllocatorRef,
 ) -> VortexResult<Option<(ArrayRef, ArrayRef)>>
 where
     usize: TryFrom<T>,
@@ -1043,8 +1052,9 @@ where
         .map(|(value_index, sparse_index)| (sparse_index, value_index))
         .collect();
 
-    let mut new_sparse_indices = BufferMut::<u64>::with_capacity(take_indices.len());
-    let mut value_indices = BufferMut::<u64>::with_capacity(take_indices.len());
+    let mut new_sparse_indices =
+        BufferMut::<u64>::with_capacity_in(take_indices.len(), allocator.clone());
+    let mut value_indices = BufferMut::<u64>::with_capacity_in(take_indices.len(), allocator);
 
     for (idx_in_take, &take_idx) in take_indices.iter().enumerate() {
         let ti = usize::try_from(take_idx)
@@ -1094,9 +1104,10 @@ fn filter_patches_with_mask<T: IntegerPType>(
     offset: usize,
     patch_values: &ArrayRef,
     mask_indices: &[usize],
+    allocator: vortex_buffer::BufferAllocatorRef,
 ) -> VortexResult<Option<Patches>> {
     let true_count = mask_indices.len();
-    let mut new_patch_indices = BufferMut::<u64>::with_capacity(true_count);
+    let mut new_patch_indices = BufferMut::<u64>::with_capacity_in(true_count, allocator);
     let mut new_mask_indices = Vec::with_capacity(true_count);
 
     // Attempt to move the window by `STRIDE` elements on each iteration. This assumes that
@@ -1192,10 +1203,11 @@ fn take_indices_with_search_fn<
     take_indices: &[T],
     take_validity: Mask,
     include_nulls: bool,
+    allocator: vortex_buffer::BufferAllocatorRef,
     search_fn: F,
 ) -> VortexResult<(BufferMut<u64>, BufferMut<u64>)> {
-    let mut values_indices = BufferMut::with_capacity(take_indices.len());
-    let mut new_indices = BufferMut::with_capacity(take_indices.len());
+    let mut values_indices = BufferMut::with_capacity_in(take_indices.len(), allocator.clone());
+    let mut new_indices = BufferMut::with_capacity_in(take_indices.len(), allocator);
 
     for (new_patch_idx, &take_idx) in take_indices.iter().enumerate() {
         if !take_validity.value(new_patch_idx) {

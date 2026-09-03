@@ -4,6 +4,7 @@
 //! Native comparison of boolean arrays using word-wise bit operations.
 
 use vortex_buffer::BitBuffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -77,16 +78,16 @@ pub(super) fn compare_bool(
             compare_bits(l, r, op)
         }
         (BoolOperand::Array { bits, .. }, BoolOperand::Constant { value, .. }) => {
-            compare_bits_constant(bits, value, op)
+            compare_bits_constant(bits, value, op, ctx.allocator().clone())
         }
         (BoolOperand::Constant { value, .. }, BoolOperand::Array { bits, .. }) => {
-            compare_bits_constant(bits, value, op.swap())
+            compare_bits_constant(bits, value, op.swap(), ctx.allocator().clone())
         }
         (BoolOperand::Constant { value: l, .. }, BoolOperand::Constant { value: r, .. }) => {
             // Unreachable through `execute_compare` (constant-constant is folded there), but
             // cheap to answer anyway.
             let result = super::ordering_predicate(op)(l.cmp(&r));
-            BitBuffer::full(result, len)
+            BitBuffer::full_in(result, len, ctx.allocator().clone())
         }
     };
 
@@ -109,7 +110,12 @@ fn compare_bits(lhs: BitBuffer, rhs: BitBuffer, op: CompareOperator) -> BitBuffe
 }
 
 /// Compare array bits against a non-null constant: `bits <op> value`.
-fn compare_bits_constant(bits: BitBuffer, value: bool, op: CompareOperator) -> BitBuffer {
+fn compare_bits_constant(
+    bits: BitBuffer,
+    value: bool,
+    op: CompareOperator,
+    allocator: BufferAllocatorRef,
+) -> BitBuffer {
     let len = bits.len();
     match (op, value) {
         (CompareOperator::Eq, true)
@@ -120,7 +126,11 @@ fn compare_bits_constant(bits: BitBuffer, value: bool, op: CompareOperator) -> B
         | (CompareOperator::NotEq, true)
         | (CompareOperator::Lt, true)
         | (CompareOperator::Lte, false) => !bits,
-        (CompareOperator::Lt, false) | (CompareOperator::Gt, true) => BitBuffer::new_unset(len),
-        (CompareOperator::Lte, true) | (CompareOperator::Gte, false) => BitBuffer::new_set(len),
+        (CompareOperator::Lt, false) | (CompareOperator::Gt, true) => {
+            BitBuffer::new_unset_in(len, allocator)
+        }
+        (CompareOperator::Lte, true) | (CompareOperator::Gte, false) => {
+            BitBuffer::new_set_in(len, allocator)
+        }
     }
 }

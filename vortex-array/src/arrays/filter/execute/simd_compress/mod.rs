@@ -27,6 +27,7 @@
 use std::ptr;
 
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_mask::MaskValues;
 
@@ -50,12 +51,14 @@ type Kernel = unsafe fn(*const u8, *mut u8, &MaskValues) -> usize;
 pub(super) fn filter_slice_by_bitmap<T: Copy>(
     values: &[T],
     mask: &MaskValues,
+    allocator: BufferAllocatorRef,
 ) -> Option<Buffer<T>> {
     debug_assert_eq!(values.len(), mask.len());
     let kernel = select_kernel::<T, false>(mask)?;
 
     let true_count = mask.true_count();
-    let mut out = BufferMut::<T>::with_capacity(true_count + SLACK_BYTES / size_of::<T>());
+    let mut out =
+        BufferMut::<T>::with_capacity_in(true_count + SLACK_BYTES / size_of::<T>(), allocator);
     // SAFETY: `select_kernel` probed the kernel's target features; `values` holds `mask.len()`
     // elements and the output has capacity for every selected element plus a full vector of
     // slack, so each unmasked store stays in bounds.

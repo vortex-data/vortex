@@ -19,6 +19,7 @@ use std::arch::x86_64::_mm256_set1_epi32;
 
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 
 use self::gather::Avx2Gather;
@@ -46,13 +47,14 @@ use crate::match_each_unsigned_integer_ptype;
 pub(super) unsafe fn take_avx2<V: FixedWidthTakeValue, I: UnsignedPType>(
     buffer: &[V],
     indices: &[I],
+    allocator: BufferAllocatorRef,
 ) -> Buffer<V> {
     if buffer.is_empty() {
         assert!(
             indices.is_empty(),
             "cannot take a non-empty set of indices from an empty buffer"
         );
-        return Buffer::empty();
+        return BufferMut::empty_aligned_in(Alignment::of::<V>(), allocator).freeze();
     }
 
     // Dispatch on the gather lane width. The index type must still be concretized to select the
@@ -63,7 +65,7 @@ pub(super) unsafe fn take_avx2<V: FixedWidthTakeValue, I: UnsignedPType>(
                 // SAFETY: `Idx` has the same `PTYPE` as `I`, so this is a no-op reinterpret of the
                 // index slice into the concrete type the gather impl is keyed on.
                 let indices = unsafe { std::mem::transmute::<&[I], &[Idx]>(indices) };
-                exec_take::<V, $lane, Idx, Avx2Gather>(buffer, indices)
+                exec_take::<V, $lane, Idx, Avx2Gather>(buffer, indices, allocator.clone())
             })
         }};
     }
@@ -72,12 +74,12 @@ pub(super) unsafe fn take_avx2<V: FixedWidthTakeValue, I: UnsignedPType>(
         // The i32 gather interprets u32 lanes as signed offsets. A valid high u32 index needs the
         // scalar path when the values slice exceeds the non-negative i32 addressable range.
         4 if I::PTYPE == PType::U32 && !i32_gather_can_address(buffer.len()) => {
-            take_values_scalar(buffer, indices)
+            take_values_scalar(buffer, indices, allocator)
         }
         4 => dispatch!(u32),
         8 => dispatch!(u64),
         // 1/2-byte and >8-byte values have no AVX2 gather lane, so fall back to scalar.
-        _ => take_values_scalar(buffer, indices),
+        _ => take_values_scalar(buffer, indices, allocator),
     }
 }
 
@@ -96,7 +98,11 @@ const fn i32_gather_can_address(values_len: usize) -> bool {
 /// Gather instructions tolerate the source's potentially weaker alignment.
 #[allow(clippy::inline_always)]
 #[inline(always)]
-fn exec_take<Out, Lane, Idx, Gather>(values: &[Out], indices: &[Idx]) -> Buffer<Out>
+fn exec_take<Out, Lane, Idx, Gather>(
+    values: &[Out],
+    indices: &[Idx],
+    allocator: BufferAllocatorRef,
+) -> Buffer<Out>
 where
     Out: FixedWidthTakeValue,
     Idx: UnsignedPType,
@@ -112,8 +118,11 @@ where
     // The length is an exclusive upper bound on valid indices. `None` means the bound does not
     // fit in the index type, so every representable index is in-bounds.
     let max_index = Idx::from(values.len());
-    let mut buffer =
-        BufferMut::<Out>::with_capacity_aligned(indices_len, Alignment::of::<__m256i>());
+    let mut buffer = BufferMut::<Out>::with_capacity_aligned_in(
+        indices_len,
+        Alignment::of::<__m256i>(),
+        allocator,
+    );
     let buf_uninit = buffer.spare_capacity_mut();
 
     let mut offset = 0;

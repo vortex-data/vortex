@@ -3,6 +3,7 @@
 
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -20,9 +21,10 @@ pub(in crate::arrays::filter) fn translate_indices(
     filter: &Mask,
     indices: &PrimitiveArray,
     indices_validity: Option<&BitBuffer>,
+    allocator: BufferAllocatorRef,
 ) -> VortexResult<Buffer<u64>> {
     match_each_integer_ptype!(indices.ptype(), |P| {
-        translate_ranks(filter, indices.as_slice::<P>(), indices_validity)
+        translate_ranks(filter, indices.as_slice::<P>(), indices_validity, allocator)
     })
 }
 
@@ -68,27 +70,34 @@ pub(in crate::arrays::filter) fn translate_ranks<P: IntegerPType>(
     filter: &Mask,
     ranks: &[P],
     ranks_validity: Option<&BitBuffer>,
+    allocator: BufferAllocatorRef,
 ) -> VortexResult<Buffer<u64>> {
     let filtered_len = filter.true_count();
 
     if let Some(start) = contiguous_filter_start(filter) {
-        return translate_ranks_with(ranks, ranks_validity, filtered_len, |rank| start + rank);
+        return translate_ranks_with(ranks, ranks_validity, filtered_len, allocator, |rank| {
+            start + rank
+        });
     }
 
     if ranks.len() <= small_take_rank_lookup_len(filter) {
-        return translate_ranks_with(ranks, ranks_validity, filtered_len, |rank| {
+        return translate_ranks_with(ranks, ranks_validity, filtered_len, allocator, |rank| {
             filter.rank(rank)
         });
     }
 
     match filter.indices() {
-        AllOr::All => translate_ranks_with(ranks, ranks_validity, filtered_len, |rank| rank),
-        AllOr::None => unreachable!("empty filters are handled by the filter short circuit"),
-        AllOr::Some(filter_indices) => {
-            translate_ranks_with(ranks, ranks_validity, filtered_len, |rank| unsafe {
-                *filter_indices.get_unchecked(rank)
-            })
+        AllOr::All => {
+            translate_ranks_with(ranks, ranks_validity, filtered_len, allocator, |rank| rank)
         }
+        AllOr::None => unreachable!("empty filters are handled by the filter short circuit"),
+        AllOr::Some(filter_indices) => translate_ranks_with(
+            ranks,
+            ranks_validity,
+            filtered_len,
+            allocator,
+            |rank| unsafe { *filter_indices.get_unchecked(rank) },
+        ),
     }
 }
 
@@ -96,13 +105,14 @@ fn translate_ranks_with<P, L>(
     ranks: &[P],
     ranks_validity: Option<&BitBuffer>,
     filtered_len: usize,
+    allocator: BufferAllocatorRef,
     translate: L,
 ) -> VortexResult<Buffer<u64>>
 where
     P: IntegerPType,
     L: Fn(usize) -> usize,
 {
-    let mut translated = BufferMut::<u64>::with_capacity(ranks.len());
+    let mut translated = BufferMut::<u64>::with_capacity_in(ranks.len(), allocator);
     let translated_ptr = translated.spare_capacity_mut().as_mut_ptr().cast::<u64>();
 
     for (idx, rank) in ranks.iter().enumerate() {

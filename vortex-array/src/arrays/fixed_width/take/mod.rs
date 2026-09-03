@@ -13,6 +13,7 @@ mod tests;
 use std::sync::LazyLock;
 
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
@@ -79,16 +80,17 @@ unsafe impl<const N: usize> FixedWidthTakeValue for [u8; N] {}
 pub(crate) fn take_values<T: FixedWidthTakeValue, I: UnsignedPType>(
     values: &[T],
     indices: &[I],
+    allocator: BufferAllocatorRef,
 ) -> Buffer<T> {
     #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
     if *HAS_AVX2 {
         // SAFETY: AVX2 was detected above and `FixedWidthTakeValue` guarantees an initialized byte
         // representation. The AVX2 dispatcher retains Primitive's existing scalar fallbacks and
         // out-of-bounds behavior for every value width.
-        return unsafe { avx2::take_avx2(values, indices) };
+        return unsafe { avx2::take_avx2(values, indices, allocator) };
     }
 
-    take_values_scalar(values, indices)
+    take_values_scalar(values, indices, allocator)
 }
 
 pub(crate) fn take<V: FixedWidthArray>(
@@ -142,6 +144,7 @@ pub(crate) fn take<V: FixedWidthArray>(
             V::byte_width(array),
             array.len(),
             indices.as_slice::<I>(),
+            ctx.allocator().clone(),
         )
     })?;
     Ok(Some(
@@ -173,6 +176,7 @@ fn take_contiguous_ranges<V: FixedWidthArray>(
                     starts.as_slice::<S>(),
                     length,
                     output_len,
+                    ctx.allocator().clone(),
                 )
             })
         }
@@ -187,6 +191,7 @@ fn take_contiguous_ranges<V: FixedWidthArray>(
                         starts.as_slice::<S>(),
                         lengths.as_slice::<L>(),
                         output_len,
+                        ctx.allocator().clone(),
                     )
                 })
             })
