@@ -120,19 +120,18 @@ jobs:
           uv run --all-packages pytest --benchmark-disable -n auto test/
         working-directory: vortex-python/
 
-      - parallel:
-          # The datasets integration relies on private `datasets` APIs, so exercise the oldest
-          # supported release in addition to the locked one.
-          - name: Pytest - Vortex (datasets 4.x floor)
-            run: |
-              uv run --all-packages --with 'datasets==4.0.0' --with 'huggingface-hub<1' \
-                pytest --benchmark-disable test/test_hf_datasets.py
-            working-directory: vortex-python/
+      # The datasets integration relies on private `datasets` APIs, so exercise the oldest
+      # supported release in addition to the locked one.
+      - name: Pytest - Vortex (datasets 4.x floor)
+        run: |
+          uv run --all-packages --with 'datasets==4.0.0' --with 'huggingface-hub<1' \
+            pytest --benchmark-disable test/test_hf_datasets.py
+        working-directory: vortex-python/
 
-          - name: Check Python documentation
-            run: |
-              uv run --all-packages make check
-            working-directory: docs/
+      - name: Check Python documentation
+        run: |
+          uv run --all-packages make check
+        working-directory: docs/
 
       # Keep this last: setup-benchmark.sh confines everything except the wrapped
       # benchmark to the housekeeping CPUs, so any step after it runs on few cores.
@@ -254,8 +253,12 @@ jobs:
       fail-fast: false
       matrix:
         config:
-          - name: "native feature sets"
+          - name: "all-features"
             runner: amd64-ci-large
+            args: "--all-features --all-targets"
+          - name: "default features"
+            runner: amd64-ci-large
+            args: "--all-targets"
           - name: "with tokio dispatcher"
             runner: amd64-ci-small
             # Only build the crates that have the tokio features, not re-building other crates with no-default-features
@@ -277,25 +280,7 @@ jobs:
         with:
           enable-sccache: "true"
           targets: ${{ matrix.config.target }}
-      - parallel:
-          - name: Build all features
-            if: matrix.config.name == 'native feature sets'
-            uses: ./.github/actions/check-rebuild
-            with:
-              command: >-
-                CARGO_TARGET_DIR=${{ runner.temp }}/vortex-build/all-features
-                cargo hack build --jobs "$(( ($(nproc) + 1) / 2 ))" --profile ci --locked
-                --all-features --all-targets --ignore-private
-          - name: Build default features
-            if: matrix.config.name == 'native feature sets'
-            uses: ./.github/actions/check-rebuild
-            with:
-              command: >-
-                CARGO_TARGET_DIR=${{ runner.temp }}/vortex-build/default-features
-                cargo hack build --jobs "$(( ($(nproc) + 1) / 2 ))" --profile ci --locked
-                --all-targets --ignore-private
       - uses: ./.github/actions/check-rebuild
-        if: matrix.config.name != 'native feature sets'
         with:
           command: "${{matrix.config.env.rustflags}} cargo hack build --profile ci --locked ${{matrix.config.args}} --ignore-private"
       - name: "Make sure no files changed after build"
@@ -367,48 +352,24 @@ jobs:
           enable-sccache: "true"
       - name: Install nightly for fmt
         run: rustup toolchain install $NIGHTLY_TOOLCHAIN --component rustfmt
-      # Each Cargo invocation gets its own target directory to avoid output locks. sccache
-      # still shares compiler artifacts, while capping each build to a quarter of the host
-      # keeps the four compile-heavy checks from oversubscribing the runner.
-      - parallel:
-          - name: Rust Lint - Format
-            id: fmt
-            continue-on-error: true
-            run: cargo +$NIGHTLY_TOOLCHAIN fmt --all --check
-          - name: Rustc check (release)
-            id: check-release
-            continue-on-error: true
-            env:
-              CARGO_TARGET_DIR: ${{ runner.temp }}/vortex-lint/release
-              RUSTFLAGS: "-D warnings"
-            run: |
-              cargo check --jobs "$(( ($(nproc) + 3) / 4 ))" --locked \
-                --all-features --all-targets --release
-          - name: Rust Lint - Clippy All Features
-            id: clippy-all
-            continue-on-error: true
-            env:
-              CARGO_TARGET_DIR: ${{ runner.temp }}/vortex-lint/clippy-all
-            run: |
-              cargo clippy --jobs "$(( ($(nproc) + 3) / 4 ))" --profile ci --locked \
-                --all-features --all-targets -- -D warnings
-          - name: Rust Lint - Clippy Default Features
-            id: clippy-default
-            continue-on-error: true
-            env:
-              CARGO_TARGET_DIR: ${{ runner.temp }}/vortex-lint/clippy-default
-            run: |
-              cargo clippy --jobs "$(( ($(nproc) + 3) / 4 ))" --profile ci --locked \
-                --all-targets -- -D warnings
-          - name: Rust Lint - Clippy No Default Features
-            id: clippy-no-default
-            continue-on-error: true
-            env:
-              CARGO_TARGET_DIR: ${{ runner.temp }}/vortex-lint/clippy-no-default
-            run: |
-              cargo hack --no-dev-deps --ignore-private clippy \
-                --jobs "$(( ($(nproc) + 3) / 4 ))" --profile ci --no-default-features \
-                -- -D warnings
+      # Run one Cargo command at a time so it can use the whole runner and reuse
+      # artifacts from the shared target directory in subsequent checks.
+      - name: Rust Lint - Format
+        id: fmt
+        continue-on-error: true
+        run: cargo +$NIGHTLY_TOOLCHAIN fmt --all --check
+      - name: Rustc check (release)
+        id: check-release
+        continue-on-error: true
+        run: RUSTFLAGS="-D warnings" cargo check --locked --all-features --all-targets --release
+      - name: Rust Lint - Clippy All Features
+        id: clippy-all
+        continue-on-error: true
+        run: cargo clippy --profile ci --locked --all-features --all-targets -- -D warnings
+      - name: Rust Lint - Clippy Default Features
+        id: clippy-default
+        continue-on-error: true
+        run: cargo clippy --profile ci --locked --all-targets -- -D warnings
       - name: Check lint results
         if: always()
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
@@ -419,7 +380,6 @@ jobs:
               'check-release': '${{ steps.check-release.outcome }}',
               'clippy-all': '${{ steps.clippy-all.outcome }}',
               'clippy-default': '${{ steps.clippy-default.outcome }}',
-              'clippy-no-default': '${{ steps.clippy-no-default.outcome }}',
             }).filter(([, o]) => o === 'failure').map(([n]) => n);
             if (!failed.length) return;
 
@@ -439,6 +399,28 @@ jobs:
       - name: sccache stats
         if: always() && github.repository == 'vortex-data/vortex'
         run: sccache --show-stats
+
+  rust-lint-no-default:
+    name: "Rust (lint, no default)"
+    timeout-minutes: 30
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-lint-no-default', github.run_id)
+          || 'ubuntu-latest' }}
+    steps:
+      - parallel:
+          - uses: runs-on/action@v2
+            if: github.repository == 'vortex-data/vortex'
+            with:
+              sccache: s3
+          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: "true"
+      - name: Rust Lint - Clippy No Default Features
+        shell: bash
+        run: |
+          cargo hack --no-dev-deps --ignore-private clippy --profile ci --no-default-features -- -D warnings
 
   cpp-lint:
     name: "C/C++ (lint)"
@@ -774,29 +756,24 @@ jobs:
           enable-sccache: "true"
       - name: Install nightly for cbindgen macro expansion
         run: rustup toolchain install $NIGHTLY_TOOLCHAIN
-      - parallel:
-          - name: "regenerate Rust sources and edition records"
-            env:
-              CARGO_TARGET_DIR: ${{ runner.temp }}/generated-files-target
-            run: |
-              cargo run --profile ci -p xtask -- generate-fbs
-              cargo run --profile ci -p xtask -- generate-proto
-              cargo run --profile ci -p xtask -- generate-editions
-          - name: "regenerate FFI header and test the C API"
-            run: |
-              cargo +$NIGHTLY_TOOLCHAIN build --profile ci -p vortex-ffi
-              cmake -S vortex-ffi -B "${RUNNER_TEMP}/ffi-c-build" -DRUST_BUILD_PROFILE=ci
-              cmake --build "${RUNNER_TEMP}/ffi-c-build" --parallel "$(nproc)"
-              ctest --test-dir "${RUNNER_TEMP}/ffi-c-build" --parallel "$(nproc)"
+      - name: "regenerate Rust sources and edition records"
+        run: |
+          cargo run --profile ci -p xtask -- generate-fbs
+          cargo run --profile ci -p xtask -- generate-proto
+          cargo run --profile ci -p xtask -- generate-editions
       - name: "check frozen edition records never change"
         # Independent of the regeneration above: a stale record must not mask a frozen one
         # being edited, nor the other way round.
         if: "!cancelled()"
-        env:
-          CARGO_TARGET_DIR: ${{ runner.temp }}/generated-files-target
         run: |
           BASE="${{ github.event.pull_request.base.sha || 'HEAD^' }}"
           cargo run --profile ci -p xtask -- check-editions --base "$BASE"
+      - name: "regenerate FFI header and test the C API"
+        run: |
+          cargo +$NIGHTLY_TOOLCHAIN build --profile ci -p vortex-ffi
+          cmake -S vortex-ffi -B "${RUNNER_TEMP}/ffi-c-build" -DRUST_BUILD_PROFILE=ci
+          cmake --build "${RUNNER_TEMP}/ffi-c-build" --parallel "$(nproc)"
+          ctest --test-dir "${RUNNER_TEMP}/ffi-c-build" --parallel "$(nproc)"
       - name: "Make sure no files changed after regenerating"
         run: |
           git status --porcelain
