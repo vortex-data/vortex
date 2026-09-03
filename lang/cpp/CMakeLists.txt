@@ -32,8 +32,11 @@ endif()
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     "${_vortex_workspace_root}/rust-toolchain.toml")
 
-include("${_vortex_cmake_dir}/VortexOptions.cmake")
-include("${_vortex_cmake_dir}/VortexCargo.cmake")
+option(VORTEX_BUILD_TESTING "Build Vortex C++ tests" OFF)
+option(VORTEX_BUILD_EXAMPLES "Build Vortex C++ examples" OFF)
+option(VORTEX_ENABLE_CUDA "Build the CUDA-enabled Vortex FFI" OFF)
+set(VORTEX_SANITIZER "" CACHE STRING "Instrument Vortex and its consumers with asan or tsan")
+set_property(CACHE VORTEX_SANITIZER PROPERTY STRINGS "" asan tsan)
 
 # Standalone builds treat warnings as errors; embedded builds do not impose that
 # policy on a parent.
@@ -47,7 +50,7 @@ option(VORTEX_WARNINGS_AS_ERRORS
     "${_vortex_warnings_as_errors_default}")
 
 # Build the private Rust FFI dependency before defining the public C++ target.
-_vortex_add_ffi_static()
+include("${_vortex_cmake_dir}/VortexCargo.cmake")
 
 set(_vortex_cpp_sources
     src/array.cpp
@@ -66,16 +69,9 @@ set_target_properties(vortex_cxx PROPERTIES
 target_compile_features(vortex_cxx PUBLIC cxx_std_20)
 # Warning policy is private to Vortex-owned sources so embedding this target
 # never injects warning flags into consumers.
-if(MSVC)
-    target_compile_options(vortex_cxx PRIVATE /W4)
-    if(VORTEX_WARNINGS_AS_ERRORS)
-        target_compile_options(vortex_cxx PRIVATE /WX)
-    endif()
-else()
-    target_compile_options(vortex_cxx PRIVATE -Wall -Wextra -Wpedantic)
-    if(VORTEX_WARNINGS_AS_ERRORS)
-        target_compile_options(vortex_cxx PRIVATE -Werror)
-    endif()
+target_compile_options(vortex_cxx PRIVATE -Wall -Wextra -Wpedantic)
+if(VORTEX_WARNINGS_AS_ERRORS)
+    target_compile_options(vortex_cxx PRIVATE -Werror)
 endif()
 target_include_directories(vortex_cxx PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(vortex_cxx PUBLIC vortex_ffi_static)
@@ -104,6 +100,7 @@ if(VORTEX_BUILD_TESTING)
         GIT_TAG v3.8.1)
     FetchContent_MakeAvailable(Catch)
     include(Catch)
+    target_compile_features(Catch2 PRIVATE cxx_std_17)
     target_compile_definitions(Catch2 PRIVATE CATCH_CONFIG_NO_POSIX_SIGNALS)
 
     if(_vortex_cpp_standalone)

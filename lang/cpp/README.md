@@ -5,8 +5,8 @@ Vortex provides a C++20 API for reading and writing Vortex files. See the
 
 ## Quick start
 
-Build from the repository root with CMake 3.28 or newer, Ninja, native C/C++ compilers, and the
-workspace Rust toolchain:
+Build from the repository root with CMake 3.28 or newer, Ninja, native C/C++ compilers, and
+Cargo and rustc available to CMake's program search:
 
 ```sh
 cmake -S lang/cpp -B build/cpp -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -24,8 +24,10 @@ add_subdirectory(path/to/vortex/lang/cpp vortex-cpp)
 target_link_libraries(my_target PRIVATE Vortex::cpp_static)
 ```
 
-`lang/cpp/CMakeLists.txt` is the only supported entry point. It provides one public target:
-`Vortex::cpp_static`, a static PIC C++20 library with all required transitive dependencies.
+`lang/cpp/CMakeLists.txt` is the only supported entry point. Its only supported consumer target is
+`Vortex::cpp_static`, an alias of the `vortex_cxx` build target. It transitively links the separate
+Rust FFI archive and required native libraries; consume the target rather than copying
+`libvortex_cxx.a` alone.
 
 The integration is source-only: it does not install Vortex or provide `find_package(Vortex)`. It
 enables C and C++ when needed, but keeps compile and link policy target-scoped and does not replace
@@ -36,7 +38,8 @@ the parent's build type, language standards, compiler flags, linker flags, or `B
 Vortex can be linked privately into a shared library such as `libcudf`. Keep Vortex calls in private
 C++ implementation files and preserve the parent's symbol-export policy. The parent must prevent
 `vx_*` and other implementation symbols from becoming part of its public ABI, for example with an
-ELF version script and `--exclude-libs,ALL` or a macOS exported-symbol allowlist.
+ELF version script and `--exclude-libs,ALL` or a macOS exported-symbol allowlist. CUDA-enabled builds
+also have runtime-library deployment requirements described below.
 
 ## Supported configurations
 
@@ -44,56 +47,69 @@ The build supports:
 
 - native GNU/Linux on x86_64 and aarch64;
 - native macOS on x86_64 and arm64 for standalone development;
-- an empty `CMAKE_BUILD_TYPE` (Rust development profile), `Debug`, `Release`, and `RelWithDebInfo`; and
+- a single-config generator, with `CMAKE_BUILD_TYPE` set to `Debug`, `Release`, or
+  `RelWithDebInfo`; and
 - Cargo and rustc 1.95.0 or newer, with the selected target's standard library installed.
 
-Cargo, rustc, and the CMake-selected C/C++ compilers must target the same native platform and
-architecture. The workspace toolchain is used by default.
+CMake discovers Cargo and rustc with `find_program`. Rustup proxies are resolved from the Vortex
+workspace, so they honor its `rust-toolchain.toml` and `RUSTUP_TOOLCHAIN`; concrete non-rustup
+binaries are used directly. Cargo and rustc must report the same host. The selected C and C++
+compilers must support `-dumpmachine` and target the same native platform and architecture.
 
 Cross-compilation, Apple universal binaries, Windows, musl, multi-config generators, and shared
-Vortex targets are not supported. macOS is not a supported cuDF integration target.
+Vortex targets are not supported. Ninja is recommended. macOS is not a supported cuDF integration
+target.
 
 ## Configuration
 
-Set options before `add_subdirectory`, or pass them with `-D` for a standalone build.
+Set these public Vortex-specific options before `add_subdirectory`, or pass them with `-D` for a
+standalone build:
 
-### Build options
-
-- `VORTEX_BUILD_TESTING=ON` builds the C++23 tests. Embedded builds require the parent to enable
-  CTest. Default: `OFF`.
+- `VORTEX_BUILD_TESTING=ON` builds the `vortex_cxx_test` C++23 test target. Embedded builds require
+  the parent to enable CTest. Default: `OFF`.
 - `VORTEX_BUILD_EXAMPLES=ON` builds the examples. Default: `OFF`.
-- `VORTEX_WARNINGS_AS_ERRORS` applies only to Vortex-owned C++ sources. Default: `ON` standalone and
-  `OFF` when embedded.
-- `VORTEX_SANITIZER=asan|tsan` enables sanitizer instrumentation. Use an explicit Debug build and a
-  nightly Rust toolchain with `rust-src`. Flags propagate to targets that link Vortex, and `mimalloc`
-  cannot be used with sanitizers.
+- `VORTEX_ENABLE_CUDA=ON` selects the Linux-only `vortex-cuda-ffi` archive, adds `vortex_cuda.h` to
+  the existing `Vortex::cpp_static` target, and requires `find_package(CUDAToolkit)`. Set
+  `CUDAToolkit_ROOT` when CMake cannot find the toolkit. Default: `OFF`.
+- `VORTEX_WARNINGS_AS_ERRORS` promotes warnings only while compiling `vortex_cxx`; it does not affect
+  tests, examples, consumers, Rust, or CUDA compilation. Default: `ON` standalone and `OFF` when
+  embedded.
+- `VORTEX_SANITIZER=asan|tsan` requires `Debug`, nightly Rust, and `rust-src`. ASan also enables
+  undefined-behavior and leak checks for native code and address/leak instrumentation for Rust;
+  TSan enables thread instrumentation. Flags propagate to targets linking Vortex, but CUDA device
+  code, the CUB helper, and nvCOMP are not sanitizer-instrumented. Default: empty.
 
-### Cargo options
+The selected Cargo and rustc binaries are fixed until CMake is reconfigured. Cargo runs with the
+lockfile, the selected native target and profile, and the selected FFI package's default features
+disabled. Optional features such as `mimalloc` are not enabled. The integration supplies its complete
+Rust flag sequence, overriding Rust flags from the environment and Cargo configuration.
 
-- `VORTEX_CARGO_EXECUTABLE` and `VORTEX_RUSTC_EXECUTABLE` override tool discovery.
-- `VORTEX_CARGO_TARGET_DIR` selects the Cargo cache root.
-- `VORTEX_CARGO_JOBS` sets Cargo's job limit.
-- `VORTEX_CARGO_OFFLINE=ON` passes `--offline` to Cargo; the Cargo cache must already be complete.
-- `VORTEX_CARGO_FEATURES=mimalloc` enables the only supported optional FFI feature.
-- `VORTEX_RUSTFLAGS` adds rustc arguments. `target-cpu=native` is rejected because parent artifacts
-  may run on a different CPU.
+Cargo's target cache is stored under `<CMake binary dir>/cargo-target`. The Cargo target runs whenever
+Vortex is built, while Cargo decides whether recompilation is needed. The standard CMake clean target
+removes both CMake outputs and this Cargo cache:
 
-CMake resolves and validates the toolchain during configure. The selected Cargo and rustc binaries
-remain fixed until the project is reconfigured, and CMake forwards its
-native toolchain settings to
-Cargo build scripts.
+```sh
+cmake --build build/cpp --target clean
+```
 
-Cargo artifacts are isolated by a fingerprint of the toolchain and build settings. CMake clean
-removes the staged Vortex archive but preserves the Cargo cache. Ambient Rust flag variables are
-ignored; use `VORTEX_RUSTFLAGS` for intentional additions.
+Public headers are consumed from the source checkout. `vortex.h` and `vortex_cuda.h` are checked in.
+A non-sanitizer nightly build may regenerate `vortex.h` with cbindgen and attempt to format it with
+`clang-format`; stable and sanitizer builds leave it unchanged. CUDA builds also generate kernel
+sources and PTX in the source checkout, so nightly and CUDA builds require it to be writable.
 
-Stable builds use the checked-in `vortex-ffi/cinclude/vortex.h`. A non-sanitizer nightly build may
-regenerate that header in the source checkout and run `clang-format`; sanitizer builds skip header
-generation.
+Cargo may download locked dependencies during the build. CUDA builds additionally require libclang
+for bindgen and may download the pinned CUDA 12 nvCOMP SDK directly from NVIDIA. Tests and examples
+may download Nanoarrow, Catch2, and magic_enum during CMake configure.
 
-Cargo may download locked Rust dependencies during the build. Tests and examples may download their
-CMake `FetchContent` dependencies during configure; `VORTEX_CARGO_OFFLINE` does not affect those
-downloads.
+### CUDA deployment
+
+CUDA builds continue to use `Vortex::cpp_static`; no separate CUDA CMake target is created. Current
+CUDA build scripts invoke NVCC with `-arch=native`, so `CMAKE_CUDA_ARCHITECTURES` has no effect.
+Generated PTX is embedded in the Rust archive, but CMake does not stage `libvortex_cub.so` or the
+downloaded `libnvcomp.so`. The CUB helper must remain at its original Cargo build path or be placed
+next to the host executable; nvCOMP is loaded from its original Cargo build path. CUDA operations
+also require a compatible NVIDIA driver and accessible GPU. Consequently, CUDA-enabled output is
+not currently a self-contained relocatable deployment artifact.
 
 ## Development
 
@@ -116,7 +132,8 @@ cmake -S lang/cpp -B build/cpp-examples -G Ninja \
 cmake --build build/cpp-examples --parallel
 ```
 
-The executables are written to `build/cpp-examples/examples/`.
+The `reader`, `writer`, `dtype`, `scan`, and `scan_to_arrow` executables are written to
+`build/cpp-examples/examples/`.
 
 ### Sanitizers
 
@@ -134,10 +151,12 @@ ctest --test-dir build/cpp-asan --output-on-failure
 
 ### Coverage
 
-Run the coverage helper from `lang/cpp`. It requires LCOV's `geninfo`, plus `genhtml` for HTML output:
+Run one of the following from `lang/cpp`. The helper reports C++ coverage only and requires a
+compatible gcov/LCOV toolchain, plus `genhtml` for HTML output:
 
 ```sh
 cd lang/cpp
-./gcov-report.sh
+./gcov-report.sh       # Writes coverage.info
+# Or:
 ./gcov-report.sh html  # Also writes coverage/
 ```

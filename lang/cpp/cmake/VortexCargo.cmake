@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-# Configure-time integration that builds vortex-ffi with Cargo and exposes it as
-# a CMake static-library target. Its lifecycle is validation -> toolchain
-# resolution -> fingerprinting -> support files -> custom target -> imported
-# target.
+# Configure-time integration that builds the selected Vortex FFI crate with
+# Cargo and exposes it as a CMake static-library target. The module resolves the
+# build policy and toolchain, writes build support files, and defines the Cargo
+# and imported-library targets.
 
 include_guard(GLOBAL)
 
@@ -12,107 +12,94 @@ include("${CMAKE_CURRENT_LIST_DIR}/VortexHelpers.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/VortexRustToolchain.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/VortexStaticLink.cmake")
 
-# Normalize the user-facing comma-separated feature scalar into the canonical
-# value written to `output` in PARENT_SCOPE. Semicolons and features outside the
-# allowlist are fatal because they cannot participate in a supported build.
-function(_vortex_normalize_cargo_features input output)
-    _vortex_reject_semicolon("VORTEX_CARGO_FEATURES" "${input}")
-    string(REPLACE "," ";" _features "${input}")
-    set(_normalized_features)
-    foreach(_feature IN LISTS _features)
-        string(STRIP "${_feature}" _feature)
-        if(_feature STREQUAL "")
-            continue()
-        endif()
-        if(NOT _feature STREQUAL "mimalloc")
-            message(FATAL_ERROR
-                "Unsupported vortex-ffi Cargo feature '${_feature}'. The "
-                "validated feature sets are empty and mimalloc.")
-        endif()
-        list(APPEND _normalized_features "${_feature}")
-    endforeach()
-    list(REMOVE_DUPLICATES _normalized_features)
-    list(SORT _normalized_features)
-    string(JOIN "," _normalized_features ${_normalized_features})
-    set(${output} "${_normalized_features}" PARENT_SCOPE)
-endfunction()
-
-# Validate the tokenized rustc arguments in ARGN against portability policy.
-# This function has no output; target-cpu=native and incomplete codegen options
-# are fatal. Recognizing every supported -C/--codegen spelling prevents
-# alternate syntax from bypassing the check.
-function(_vortex_validate_rustflags)
-    set(_expect_codegen_option FALSE)
-    foreach(_rustflag IN LISTS ARGN)
-        set(_codegen_option "")
-        if(_expect_codegen_option)
-            set(_codegen_option "${_rustflag}")
-            set(_expect_codegen_option FALSE)
-        elseif(_rustflag STREQUAL "-C" OR _rustflag STREQUAL "--codegen")
-            set(_expect_codegen_option TRUE)
-            continue()
-        elseif(_rustflag MATCHES "^-C=(.+)$")
-            set(_codegen_option "${CMAKE_MATCH_1}")
-        elseif(_rustflag MATCHES "^-C(.+)$")
-            set(_codegen_option "${CMAKE_MATCH_1}")
-        elseif(_rustflag MATCHES "^--codegen=(.+)$")
-            set(_codegen_option "${CMAKE_MATCH_1}")
-        else()
-            continue()
-        endif()
-
-        if(_codegen_option MATCHES "^target-cpu=(.+)$")
-            string(TOLOWER "${CMAKE_MATCH_1}" _target_cpu)
-            if(_target_cpu STREQUAL "native")
-                message(FATAL_ERROR
-                    "Vortex builds do not support Rust target-cpu=native because "
-                    "build-host CPU features are unsafe for distributed parent "
-                    "artifacts")
-            endif()
-        endif()
-    endforeach()
-
-    if(_expect_codegen_option)
-        message(FATAL_ERROR "VORTEX_RUSTFLAGS ends with an incomplete codegen option")
-    endif()
-endfunction()
-
-# Build the repository's vortex-ffi crate as a private C++ dependency.
-# VORTEX_* options supply build policy. Unsupported configuration or incoherent
-# toolchain metadata is fatal.
-function(_vortex_add_ffi_static)
-    if(ARGC GREATER 0)
-        message(FATAL_ERROR "_vortex_add_ffi_static does not accept arguments")
-    endif()
-    if(TARGET vortex_ffi_static)
-        message(FATAL_ERROR "The internal vortex_ffi_static target already exists")
-    endif()
-    _vortex_normalize_cargo_features("${VORTEX_CARGO_FEATURES}" _cargo_features)
-
-    # One Cargo profile is selected per invocation, so multi-config generators
-    # cannot share this target without ambiguous artifact locations.
+# Validate the single-config CMake build type and return its uppercase CMake
+# configuration, Cargo profile, and Cargo artifact directory. Unsupported build
+# types and multi-config generators are fatal.
+function(_vortex_resolve_cargo_profile configuration_output profile_output artifact_directory_output)
     if(CMAKE_CONFIGURATION_TYPES)
         message(FATAL_ERROR
             "The initial Vortex CMake integration supports single-config "
             "generators only; use Ninja with CMAKE_BUILD_TYPE=Debug, Release, "
             "or RelWithDebInfo")
     endif()
+
     string(TOUPPER "${CMAKE_BUILD_TYPE}" _configuration)
-    if(_configuration STREQUAL "")
-        message(STATUS
-            "Vortex: CMAKE_BUILD_TYPE is empty; using the Debug Cargo "
-            "profile without modifying the parent build type")
-    elseif(NOT _configuration STREQUAL "DEBUG" AND
-        NOT _configuration STREQUAL "RELEASE" AND
-        NOT _configuration STREQUAL "RELWITHDEBINFO")
+    if(_configuration STREQUAL "DEBUG")
+        set(_cargo_profile "dev")
+        set(_artifact_directory "debug")
+    elseif(_configuration STREQUAL "RELEASE")
+        set(_cargo_profile "release")
+        set(_artifact_directory "release")
+    elseif(_configuration STREQUAL "RELWITHDEBINFO")
+        set(_cargo_profile "release_debug")
+        set(_artifact_directory "release_debug")
+    else()
         message(FATAL_ERROR
-            "The ${CMAKE_BUILD_TYPE} CMake configuration has no configured "
-            "Cargo profile. Supported configurations are Debug, Release, and "
-            "RelWithDebInfo.")
+            "Vortex requires CMAKE_BUILD_TYPE=Debug, Release, or "
+            "RelWithDebInfo; got '${CMAKE_BUILD_TYPE}'")
     endif()
 
-    # Keep sanitizer builds on their validated nightly/Debug path and reject the
-    # allocator combination whose behavior cannot be guaranteed.
+    set(${configuration_output} "${_configuration}" PARENT_SCOPE)
+    set(${profile_output} "${_cargo_profile}" PARENT_SCOPE)
+    set(${artifact_directory_output} "${_artifact_directory}" PARENT_SCOPE)
+endfunction()
+
+# Select the CPU or CUDA FFI package from a complete workspace checkout. Return
+# its package and archive names, public header directories, optional nvcc path,
+# and CUDA root;
+# missing workspace files and CUDA on non-Linux platforms are fatal.
+function(_vortex_resolve_ffi_package
+    workspace_root
+    package_output
+    archive_name_output
+    include_dirs_output
+    nvcc_output
+    cuda_root_output)
+    set(_package "vortex-ffi")
+    set(_archive_name "libvortex_ffi.a")
+    set(_manifest "${workspace_root}/vortex-ffi/Cargo.toml")
+    set(_include_dirs "${workspace_root}/vortex-ffi/cinclude")
+    set(_nvcc "")
+    set(_cuda_root "")
+
+    if(VORTEX_ENABLE_CUDA)
+        if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            message(FATAL_ERROR "VORTEX_ENABLE_CUDA is supported on Linux only")
+        endif()
+        find_package(CUDAToolkit REQUIRED)
+        set(_package "vortex-cuda-ffi")
+        set(_archive_name "libvortex_cuda_ffi.a")
+        set(_manifest "${workspace_root}/vortex-cuda/ffi/Cargo.toml")
+        list(APPEND _include_dirs "${workspace_root}/vortex-cuda/ffi/cinclude")
+        set(_nvcc "${CUDAToolkit_NVCC_EXECUTABLE}")
+        set(_cuda_root "${CUDAToolkit_TARGET_DIR}")
+    endif()
+
+    if(NOT EXISTS "${workspace_root}/Cargo.toml" OR
+        NOT EXISTS "${workspace_root}/Cargo.lock" OR
+        NOT EXISTS "${_manifest}")
+        message(FATAL_ERROR
+            "Vortex's CMake source build requires a complete workspace "
+            "checkout containing ${_package}")
+    endif()
+
+    set(${package_output} "${_package}" PARENT_SCOPE)
+    set(${archive_name_output} "${_archive_name}" PARENT_SCOPE)
+    set(${include_dirs_output} "${_include_dirs}" PARENT_SCOPE)
+    set(${nvcc_output} "${_nvcc}" PARENT_SCOPE)
+    set(${cuda_root_output} "${_cuda_root}" PARENT_SCOPE)
+endfunction()
+
+# Validate the sanitizer selection against the CMake configuration and resolved
+# Rust release. Return the native compiler flag, additional rustc arguments,
+# and whether Cargo must rebuild the standard library. Invalid names,
+# non-Debug builds, and non-nightly Rust toolchains are fatal.
+function(_vortex_resolve_sanitizer
+    configuration
+    rustc_release
+    native_flag_output
+    rustflags_output
+    build_std_output)
     string(TOLOWER "${VORTEX_SANITIZER}" _sanitizer)
     if(NOT _sanitizer STREQUAL "" AND
         NOT _sanitizer STREQUAL "asan" AND
@@ -121,384 +108,269 @@ function(_vortex_add_ffi_static)
             "VORTEX_SANITIZER must be empty, asan, or tsan; got "
             "${VORTEX_SANITIZER}")
     endif()
-    if(NOT _sanitizer STREQUAL "" AND _cargo_features STREQUAL "mimalloc")
-        message(FATAL_ERROR
-            "VORTEX_CARGO_FEATURES=mimalloc is incompatible with "
-            "VORTEX_SANITIZER=${_sanitizer}; disable mimalloc for sanitizer "
-            "builds")
-    endif()
-    if(NOT _sanitizer STREQUAL "" AND
-        NOT _configuration STREQUAL "" AND
-        NOT _configuration STREQUAL "DEBUG")
+    if(NOT _sanitizer STREQUAL "" AND NOT configuration STREQUAL "DEBUG")
         message(FATAL_ERROR "Vortex sanitizer builds require CMAKE_BUILD_TYPE=Debug")
     endif()
-
-    if(VORTEX_CARGO_JOBS AND NOT VORTEX_CARGO_JOBS MATCHES "^[1-9][0-9]*$")
-        message(FATAL_ERROR "VORTEX_CARGO_JOBS must be a positive integer")
-    endif()
-
-    # Keep the CMake configuration, Cargo profile, and Cargo artifact directory
-    # in a single explicit mapping used by both the command and staged path.
-    if(_configuration STREQUAL "" OR _configuration STREQUAL "DEBUG")
-        set(_configuration_name "Debug")
-        set(_cargo_profile "dev")
-        set(_cargo_artifact_directory "debug")
-    elseif(_configuration STREQUAL "RELEASE")
-        set(_configuration_name "Release")
-        set(_cargo_profile "release")
-        set(_cargo_artifact_directory "release")
-    else()
-        set(_configuration_name "RelWithDebInfo")
-        set(_cargo_profile "release_debug")
-        set(_cargo_artifact_directory "release_debug")
-    endif()
-
-    # Canonicalize workspace identity before resolving tools. Values that cross
-    # CMake list and COMMAND boundaries must remain scalar: a semicolon would
-    # split one path or shell-style flag string into multiple elements.
-    get_filename_component(_workspace_root "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../../.." ABSOLUTE)
-    set(_ffi_source_dir "${_workspace_root}/vortex-ffi")
-    set(_ffi_manifest "${_ffi_source_dir}/Cargo.toml")
-    if(NOT EXISTS "${_workspace_root}/Cargo.toml" OR
-        NOT EXISTS "${_workspace_root}/Cargo.lock" OR
-        NOT EXISTS "${_ffi_manifest}")
-        message(FATAL_ERROR
-            "Vortex's CMake source build requires a complete workspace "
-            "checkout with Cargo.toml, Cargo.lock, and vortex-ffi/Cargo.toml")
-    endif()
-    file(REAL_PATH "${_workspace_root}" _workspace_real_path)
-    _vortex_reject_semicolon("Vortex workspace path" "${_workspace_root}")
-    _vortex_reject_semicolon("Vortex workspace real path" "${_workspace_real_path}")
-    _vortex_reject_semicolon("Vortex FFI source path" "${_ffi_source_dir}")
-    _vortex_reject_semicolon("Vortex FFI manifest path" "${_ffi_manifest}")
-    _vortex_reject_semicolon("Vortex binary path" "${CMAKE_CURRENT_BINARY_DIR}")
-    _vortex_reject_semicolon("VORTEX_CARGO_TARGET_DIR" "${VORTEX_CARGO_TARGET_DIR}")
-    _vortex_reject_semicolon("VORTEX_RUSTFLAGS" "${VORTEX_RUSTFLAGS}")
-
-    # Resolve rustup proxies to concrete Cargo/rustc binaries, then verify the
-    # Rust target and native C/C++ compilers describe the same host ABI.
-    _vortex_find_rust_tools("${_workspace_root}")
-    if(NOT _sanitizer STREQUAL "" AND NOT VORTEX_RESOLVED_RUSTC_RELEASE MATCHES "nightly")
+    if(NOT _sanitizer STREQUAL "" AND NOT rustc_release MATCHES "nightly")
         message(FATAL_ERROR
             "VORTEX_SANITIZER=${_sanitizer} requires a nightly Rust "
-            "toolchain; found ${VORTEX_RESOLVED_RUSTC_RELEASE}")
+            "toolchain; found ${rustc_release}")
     endif()
-    _vortex_resolve_native_target("${VORTEX_RESOLVED_RUSTC_EXECUTABLE}" "${_workspace_root}" _rust_target)
-    _vortex_resolve_apple_deployment_target(_apple_deployment_target)
-    _vortex_resolve_apple_sdkroot(_apple_sdkroot _apple_sdk_version)
 
-    string(TOUPPER "${_rust_target}" _target_env_upper)
-    string(REPLACE "-" "_" _target_env_upper "${_target_env_upper}")
-    string(TOLOWER "${_rust_target}" _target_env_lower)
-    string(REPLACE "-" "_" _target_env_lower "${_target_env_lower}")
-
-    # Parse the opted-in flag string with shell rules so rustc receives the
-    # intended argv. Ambient Rust flags are excluded because unvalidated state
-    # must not evade portability checks or the build fingerprint.
-    set(_user_rustflags)
-    if(VORTEX_RUSTFLAGS)
-        separate_arguments(_user_rustflags UNIX_COMMAND "${VORTEX_RUSTFLAGS}")
-    endif()
-    set(_ambient_rustflags FALSE)
-    if(DEFINED ENV{CARGO_ENCODED_RUSTFLAGS})
-        if(NOT "$ENV{CARGO_ENCODED_RUSTFLAGS}" STREQUAL "")
-            set(_ambient_rustflags TRUE)
-        endif()
-    endif()
-    if(DEFINED ENV{RUSTFLAGS})
-        if(NOT "$ENV{RUSTFLAGS}" STREQUAL "")
-            set(_ambient_rustflags TRUE)
-        endif()
-    endif()
-    if(_ambient_rustflags)
-        message(STATUS
-            "Vortex ignores ambient Rust flags; use VORTEX_RUSTFLAGS so "
-            "the validated flags participate in the CMake fingerprint")
-    endif()
-    set(_cargo_build_std OFF)
-    set(_cargo_no_default_features ON)
-    set(_sanitizer_compile_flag "")
+    set(_native_flag "")
+    set(_rust_sanitizer "")
     if(_sanitizer STREQUAL "asan")
-        set(_cargo_build_std ON)
-        set(_sanitizer_compile_flag "-fsanitize=address,undefined,leak")
-        list(APPEND _user_rustflags
-            -A warnings
-            -Cunsafe-allow-abi-mismatch=sanitizer
-            -C debuginfo=2
-            -C opt-level=0
-            -C strip=none
-            -Zexternal-clangrt
-            -Zsanitizer=address,leak)
+        set(_native_flag "-fsanitize=address,undefined,leak")
+        set(_rust_sanitizer "address,leak")
     elseif(_sanitizer STREQUAL "tsan")
-        set(_cargo_build_std ON)
-        set(_sanitizer_compile_flag "-fsanitize=thread")
-        list(APPEND _user_rustflags
-            -A warnings
-            -Cunsafe-allow-abi-mismatch=sanitizer
-            -C debuginfo=2
-            -C opt-level=0
-            -C strip=none
-            -Zexternal-clangrt
-            -Zsanitizer=thread)
+        set(_native_flag "-fsanitize=thread")
+        set(_rust_sanitizer "thread")
     endif()
 
-    _vortex_validate_rustflags(${_user_rustflags})
+    set(_rustflags)
+    set(_build_std OFF)
+    if(_rust_sanitizer)
+        set(_build_std ON)
+        list(APPEND _rustflags
+            -A warnings
+            -Cunsafe-allow-abi-mismatch=sanitizer
+            -C debuginfo=2
+            -C opt-level=0
+            -Zexternal-clangrt
+            "-Zsanitizer=${_rust_sanitizer}")
+    endif()
 
-    # Preserve CMake's separate compile and link sysroots. C/C++ compilations from
-    # Cargo build scripts consume the former, while rustc forwards the latter at
-    # link.
+    set(${native_flag_output} "${_native_flag}" PARENT_SCOPE)
+    set(${rustflags_output} "${_rustflags}" PARENT_SCOPE)
+    set(${build_std_output} "${_build_std}" PARENT_SCOPE)
+endfunction()
+
+# Resolve the compile and link sysroots that Cargo-built native code and rustc
+# must inherit from CMake. Explicit compile/link sysroots take precedence over
+# the shared CMake sysroot and the resolved Apple SDK.
+function(_vortex_resolve_cargo_sysroots apple_sdkroot compile_output link_output)
     if(CMAKE_SYSROOT_COMPILE)
         set(_compile_sysroot "${CMAKE_SYSROOT_COMPILE}")
     elseif(CMAKE_SYSROOT)
         set(_compile_sysroot "${CMAKE_SYSROOT}")
     elseif(APPLE)
-        set(_compile_sysroot "${_apple_sdkroot}")
+        set(_compile_sysroot "${apple_sdkroot}")
     else()
         set(_compile_sysroot "")
     endif()
+
     if(CMAKE_SYSROOT_LINK)
         set(_link_sysroot "${CMAKE_SYSROOT_LINK}")
     elseif(CMAKE_SYSROOT)
         set(_link_sysroot "${CMAKE_SYSROOT}")
     elseif(APPLE)
-        set(_link_sysroot "${_apple_sdkroot}")
+        set(_link_sysroot "${apple_sdkroot}")
     else()
         set(_link_sysroot "")
     endif()
 
-    # Cargo build scripts must use the exact CMake-selected native toolchain.
-    # Compiler wrappers generated below retain any CMAKE_*_COMPILER_ARG1 prefix.
-    _vortex_optional_value(CMAKE_C_COMPILER_ARG1 _c_compiler_arg1)
-    _vortex_optional_value(CMAKE_C_COMPILER_TARGET _c_compiler_target)
-    _vortex_optional_value(CMAKE_CXX_COMPILER _cxx_compiler)
-    _vortex_optional_value(CMAKE_CXX_COMPILER_ARG1 _cxx_compiler_arg1)
-    _vortex_optional_value(CMAKE_CXX_COMPILER_ID _cxx_compiler_id)
-    _vortex_optional_value(CMAKE_CXX_COMPILER_VERSION _cxx_compiler_version)
-    _vortex_optional_value(CMAKE_CXX_COMPILER_TARGET _cxx_compiler_target)
-    _vortex_optional_value(CMAKE_AR _archiver)
-    _vortex_optional_value(CMAKE_RANLIB _ranlib)
+    set(${compile_output} "${_compile_sysroot}" PARENT_SCOPE)
+    set(${link_output} "${_link_sysroot}" PARENT_SCOPE)
+endfunction()
 
-    if(_c_compiler_target AND CMAKE_C_COMPILER_ID MATCHES "^(AppleClang|Clang)$")
-        set(_native_c_compiler_target "${_c_compiler_target}")
+# Reconstruct CMake's effective C and C++ flags for Cargo build scripts, then
+# append target, sysroot, deployment-target, sanitizer, and PIC requirements.
+# Return the effective C compiler target and shell-encoded C/C++ flag strings.
+function(_vortex_encode_native_flags
+    configuration
+    compile_sysroot
+    apple_deployment_target
+    sanitizer_flag
+    c_target_output
+    cflags_output
+    cxxflags_output)
+    if(CMAKE_C_COMPILER_TARGET AND CMAKE_C_COMPILER_ID MATCHES "^(AppleClang|Clang)$")
+        set(_c_target "${CMAKE_C_COMPILER_TARGET}")
     else()
-        set(_native_c_compiler_target "")
+        set(_c_target "")
     endif()
-    if(_cxx_compiler_target AND _cxx_compiler_id MATCHES "^(AppleClang|Clang)$")
-        set(_native_cxx_compiler_target "${_cxx_compiler_target}")
+    if(CMAKE_CXX_COMPILER_TARGET AND CMAKE_CXX_COMPILER_ID MATCHES "^(AppleClang|Clang)$")
+        set(_cxx_target "${CMAKE_CXX_COMPILER_TARGET}")
     else()
-        set(_native_cxx_compiler_target "")
+        set(_cxx_target "")
     endif()
 
-    _vortex_reject_semicolon("CMAKE_C_COMPILER" "${CMAKE_C_COMPILER}")
-    _vortex_reject_semicolon("CMAKE_C_COMPILER_ARG1" "${_c_compiler_arg1}")
-    _vortex_reject_semicolon("CMAKE_CXX_COMPILER" "${_cxx_compiler}")
-    _vortex_reject_semicolon("CMAKE_CXX_COMPILER_ARG1" "${_cxx_compiler_arg1}")
-    _vortex_reject_semicolon("CMAKE_AR" "${_archiver}")
-    _vortex_reject_semicolon("CMAKE_RANLIB" "${_ranlib}")
-    _vortex_reject_semicolon("compile sysroot" "${_compile_sysroot}")
-    _vortex_reject_semicolon("link sysroot" "${_link_sysroot}")
-
-    # Reconstruct effective configuration-specific native flags as argv, then add
-    # target, sysroot, deployment, sanitizer, and PIC requirements consistently
-    # for native dependencies compiled from Cargo build scripts.
-    _vortex_optional_value(CMAKE_C_FLAGS _cmake_c_flags)
-    _vortex_optional_value(CMAKE_CXX_FLAGS _cmake_cxx_flags)
-    if(NOT _configuration STREQUAL "")
-        _vortex_optional_value(CMAKE_C_FLAGS_${_configuration} _cmake_c_configuration_flags)
-        _vortex_optional_value(CMAKE_CXX_FLAGS_${_configuration} _cmake_cxx_configuration_flags)
-        string(APPEND _cmake_c_flags " ${_cmake_c_configuration_flags}")
-        string(APPEND _cmake_cxx_flags " ${_cmake_cxx_configuration_flags}")
-    endif()
+    set(_cmake_c_flags "${CMAKE_C_FLAGS} ${CMAKE_C_FLAGS_${configuration}}")
+    set(_cmake_cxx_flags "${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_${configuration}}")
     _vortex_reject_semicolon("effective CMAKE_C_FLAGS" "${_cmake_c_flags}")
     _vortex_reject_semicolon("effective CMAKE_CXX_FLAGS" "${_cmake_cxx_flags}")
-    separate_arguments(_native_c_flags UNIX_COMMAND "${_cmake_c_flags}")
-    separate_arguments(_native_cxx_flags UNIX_COMMAND "${_cmake_cxx_flags}")
-    if(_compile_sysroot)
-        list(APPEND _native_c_flags "--sysroot=${_compile_sysroot}")
-        list(APPEND _native_cxx_flags "--sysroot=${_compile_sysroot}")
-    endif()
-    if(_native_c_compiler_target)
-        list(APPEND _native_c_flags "--target=${_native_c_compiler_target}")
-    endif()
-    if(_native_cxx_compiler_target)
-        list(APPEND _native_cxx_flags "--target=${_native_cxx_compiler_target}")
-    elseif(_native_c_compiler_target AND NOT _cxx_compiler)
-        list(APPEND _native_cxx_flags "--target=${_native_c_compiler_target}")
-    endif()
-    if(_apple_deployment_target)
-        list(APPEND _native_c_flags "-mmacosx-version-min=${_apple_deployment_target}")
-        list(APPEND _native_cxx_flags "-mmacosx-version-min=${_apple_deployment_target}")
-    endif()
-    if(_sanitizer_compile_flag)
-        list(APPEND _native_c_flags "${_sanitizer_compile_flag}")
-        list(APPEND _native_cxx_flags "${_sanitizer_compile_flag}")
-    endif()
-    # Native dependencies compiled by Cargo build scripts are part of the static
-    # archive and must remain suitable for embedding in a shared parent.
-    list(APPEND _native_c_flags -fPIC)
-    list(APPEND _native_cxx_flags -fPIC)
-    _vortex_encode_shell_arguments(_native_c_flags_shell ${_native_c_flags})
-    _vortex_encode_shell_arguments(_native_cxx_flags_shell ${_native_cxx_flags})
+    separate_arguments(_cflags UNIX_COMMAND "${_cmake_c_flags}")
+    separate_arguments(_cxxflags UNIX_COMMAND "${_cmake_cxx_flags}")
 
-    # Cargo's encoded rustflags format uses ASCII unit separator (31) between
-    # arguments, preserving exact rustc argv without another shell/list parse.
-    set(_final_rustflags ${_user_rustflags})
-    list(APPEND _final_rustflags
+    if(compile_sysroot)
+        list(APPEND _cflags "--sysroot=${compile_sysroot}")
+        list(APPEND _cxxflags "--sysroot=${compile_sysroot}")
+    endif()
+    if(_c_target)
+        list(APPEND _cflags "--target=${_c_target}")
+    endif()
+    if(_cxx_target)
+        list(APPEND _cxxflags "--target=${_cxx_target}")
+    endif()
+    if(apple_deployment_target)
+        list(APPEND _cflags "-mmacosx-version-min=${apple_deployment_target}")
+        list(APPEND _cxxflags "-mmacosx-version-min=${apple_deployment_target}")
+    endif()
+    if(sanitizer_flag)
+        list(APPEND _cflags "${sanitizer_flag}")
+        list(APPEND _cxxflags "${sanitizer_flag}")
+    endif()
+
+    # Native dependencies become part of the archive embedded in shared parents.
+    list(APPEND _cflags -fPIC)
+    list(APPEND _cxxflags -fPIC)
+    _vortex_encode_shell_arguments(_cflags_shell ${_cflags})
+    _vortex_encode_shell_arguments(_cxxflags_shell ${_cxxflags})
+
+    set(${c_target_output} "${_c_target}" PARENT_SCOPE)
+    set(${cflags_output} "${_cflags_shell}" PARENT_SCOPE)
+    set(${cxxflags_output} "${_cxxflags_shell}" PARENT_SCOPE)
+endfunction()
+
+# Add PIC, link-sysroot, and Clang-target requirements to optional sanitizer
+# rustflags, then encode the exact rustc argv with Cargo's ASCII unit separator.
+function(_vortex_encode_rustflags output link_sysroot c_compiler_target)
+    set(_rustflags ${ARGN})
+    list(APPEND _rustflags
         -C force-frame-pointers=yes
         -C relocation-model=pic)
-    if(_link_sysroot)
-        list(APPEND _final_rustflags -C "link-arg=--sysroot=${_link_sysroot}")
+    if(link_sysroot)
+        list(APPEND _rustflags -C "link-arg=--sysroot=${link_sysroot}")
     endif()
-    if(_native_c_compiler_target)
-        list(APPEND _final_rustflags -C "link-arg=--target=${_native_c_compiler_target}")
+    if(c_compiler_target)
+        list(APPEND _rustflags -C "link-arg=--target=${c_compiler_target}")
     endif()
-    string(ASCII 31 _rustflags_separator)
-    string(JOIN "${_rustflags_separator}" _encoded_rustflags ${_final_rustflags})
 
-    # Hash every resolved toolchain and ABI/codegen input that can affect the
-    # archive. A fingerprint-specific Cargo tree isolates incompatible caches;
-    # profile outputs are separated again by configuration below.
-    set(_fingerprint_input
-        "${_workspace_real_path}|"
-        "${VORTEX_RESOLVED_CARGO_EXECUTABLE}|${VORTEX_RESOLVED_CARGO_VERBOSE}|"
-        "${VORTEX_RESOLVED_RUSTC_EXECUTABLE}|${VORTEX_RESOLVED_RUSTC_VERBOSE}|"
-        "${_rust_target}|${_cargo_features}|${_cargo_no_default_features}|"
-        "${CMAKE_C_COMPILER}|${_c_compiler_arg1}|"
-        "${CMAKE_C_COMPILER_ID}|${CMAKE_C_COMPILER_VERSION}|"
-        "${_c_compiler_target}|"
-        "${_cxx_compiler}|${_cxx_compiler_arg1}|"
-        "${_cxx_compiler_id}|${_cxx_compiler_version}|"
-        "${_cxx_compiler_target}|${_archiver}|${_ranlib}|"
-        "${_compile_sysroot}|${_link_sysroot}|${_apple_sdkroot}|"
-        "${_apple_sdk_version}|"
-        "${_apple_deployment_target}|"
-        "${_sanitizer}|${_native_c_flags_shell}|"
-        "${_native_cxx_flags_shell}|${_encoded_rustflags}")
-    string(SHA256 _fingerprint "${_fingerprint_input}")
+    string(ASCII 31 _separator)
+    string(JOIN "${_separator}" _encoded ${_rustflags})
+    set(${output} "${_encoded}" PARENT_SCOPE)
+endfunction()
 
-    if(VORTEX_CARGO_TARGET_DIR)
-        get_filename_component(_cargo_target_root
-            "${VORTEX_CARGO_TARGET_DIR}" ABSOLUTE
-            BASE_DIR "${CMAKE_CURRENT_BINARY_DIR}")
-    else()
-        set(_cargo_target_root "${CMAKE_CURRENT_BINARY_DIR}/cargo-target")
-    endif()
-    set(_cargo_target_base "${_cargo_target_root}/${_fingerprint}")
-    set(_cargo_support_dir "${_cargo_target_base}/cmake-support")
-
-    # An explicit target root may be shared by concurrent configure processes.
-    # Hold a function-scoped lock while producing wrappers and support files so a
-    # build cannot observe a mixed or partially generated configuration.
-    file(MAKE_DIRECTORY "${_cargo_support_dir}")
-    file(LOCK "${_cargo_support_dir}/configure.lock"
-        GUARD FUNCTION
-        TIMEOUT 60
-        RESULT_VARIABLE _cargo_support_lock_result)
-    if(NOT _cargo_support_lock_result EQUAL 0)
-        message(FATAL_ERROR
-            "Could not lock Vortex Cargo support directory "
-            "${_cargo_support_dir}: ${_cargo_support_lock_result}")
-    endif()
+# Generate compiler wrappers and flag payload files under the CMake-local support
+# directory. Return the compiler paths Cargo build scripts must use;
+# unchanged support files retain their timestamps.
+function(_vortex_prepare_cargo_support
+    support_dir
+    encoded_rustflags
+    cflags
+    cxxflags
+    c_compiler_output
+    cxx_compiler_output)
+    file(MAKE_DIRECTORY "${support_dir}")
 
     _vortex_make_compiler_wrapper(
-        "${CMAKE_C_COMPILER}" "${_c_compiler_arg1}"
-        "${_cargo_support_dir}" cc _native_c_compiler)
-    if(_cxx_compiler)
-        _vortex_make_compiler_wrapper(
-            "${_cxx_compiler}" "${_cxx_compiler_arg1}"
-            "${_cargo_support_dir}" cxx _native_cxx_compiler)
-    else()
-        set(_native_cxx_compiler "${_native_c_compiler}")
+        "${CMAKE_C_COMPILER}" "${CMAKE_C_COMPILER_ARG1}"
+        "${support_dir}" cc _c_compiler)
+    _vortex_make_compiler_wrapper(
+        "${CMAKE_CXX_COMPILER}" "${CMAKE_CXX_COMPILER_ARG1}"
+        "${support_dir}" cxx _cxx_compiler)
+    _vortex_write_if_different("${support_dir}/rustflags" "${encoded_rustflags}")
+    _vortex_write_if_different("${support_dir}/cflags" "${cflags}")
+    _vortex_write_if_different("${support_dir}/cxxflags" "${cxxflags}")
+
+    set(${c_compiler_output} "${_c_compiler}" PARENT_SCOPE)
+    set(${cxx_compiler_output} "${_cxx_compiler}" PARENT_SCOPE)
+endfunction()
+
+# Orchestrate one source-local Cargo build and expose its staged archive as the
+# private dependency consumed by the public C++ target.
+block(SCOPE_FOR VARIABLES)
+    _vortex_resolve_cargo_profile(_configuration _cargo_profile _cargo_artifact_directory)
+
+    get_filename_component(_workspace_root "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
+    _vortex_resolve_ffi_package(
+        "${_workspace_root}"
+        _ffi_package
+        _cargo_archive_name
+        _ffi_include_dirs
+        _nvcc_executable
+        _cuda_root)
+
+    _vortex_find_rust_tools("${_workspace_root}")
+    _vortex_resolve_sanitizer(
+        "${_configuration}"
+        "${VORTEX_RESOLVED_RUSTC_RELEASE}"
+        _sanitizer_compile_flag
+        _sanitizer_rustflags
+        _cargo_build_std)
+    _vortex_resolve_native_target(_rust_target)
+    _vortex_resolve_apple_settings(_apple_sdkroot _apple_deployment_target)
+    _vortex_resolve_cargo_sysroots("${_apple_sdkroot}" _compile_sysroot _link_sysroot)
+
+    if(NOT "$ENV{CARGO_ENCODED_RUSTFLAGS}" STREQUAL "" OR NOT "$ENV{RUSTFLAGS}" STREQUAL "")
+        message(STATUS "Vortex ignores ambient Rust flags in its Cargo build")
     endif()
 
-    # Passing this generated file via Cargo --config makes its linker and profile
-    # policy explicit rather than dependent on directory discovery. The driver's
-    # target-specific environment has higher precedence for linker and rustflags.
-    set(_cargo_config "${_cargo_support_dir}/config.toml")
-    _vortex_toml_string("${_native_c_compiler}" _linker_toml)
-    string(CONCAT _cargo_config_contents
-        "[target.\"${_rust_target}\"]\n"
-        "linker = ${_linker_toml}\n"
-        "\n"
-        "[profile.dev]\n"
-        "strip = \"none\"\n"
-        "\n"
-        "[profile.release]\n"
-        "codegen-units = 1\n"
-        "lto = \"off\"\n"
-        "strip = \"none\"\n"
-        "\n"
-        "[profile.release_debug]\n"
-        "debug = \"full\"\n"
-        "strip = \"none\"\n")
-    _vortex_write_if_different("${_cargo_config}" "${_cargo_config_contents}")
+    _vortex_encode_native_flags(
+        "${_configuration}"
+        "${_compile_sysroot}"
+        "${_apple_deployment_target}"
+        "${_sanitizer_compile_flag}"
+        _native_c_compiler_target
+        _native_c_flags
+        _native_cxx_flags)
+    _vortex_encode_rustflags(
+        _encoded_rustflags
+        "${_link_sysroot}"
+        "${_native_c_compiler_target}"
+        ${_sanitizer_rustflags})
 
-    # Files carry shell-quoted native flags and ASCII-31 Rust flags safely across
-    # the configure/build boundary. Write-if-different avoids needless timestamp
-    # churn in the shared support directory.
-    set(_rustflags_file "${_cargo_support_dir}/rustflags")
-    set(_cflags_file "${_cargo_support_dir}/cflags")
-    set(_cxxflags_file "${_cargo_support_dir}/cxxflags")
-    _vortex_write_if_different("${_rustflags_file}" "${_encoded_rustflags}")
-    _vortex_write_if_different("${_cflags_file}" "${_native_c_flags_shell}")
-    _vortex_write_if_different("${_cxxflags_file}" "${_native_cxx_flags_shell}")
+    # Cargo owns incremental invalidation inside this CMake-build-local cache.
+    # Registering the directory as additional clean state gives the standard
+    # CMake clean target the same effect as `cargo clean --target-dir ...`.
+    set(_cargo_target_dir "${CMAKE_CURRENT_BINARY_DIR}/cargo-target")
+    set_property(DIRECTORY APPEND PROPERTY ADDITIONAL_CLEAN_FILES "${_cargo_target_dir}")
+    set(_cargo_support_dir "${CMAKE_CURRENT_BINARY_DIR}/cargo-support")
+    _vortex_prepare_cargo_support(
+        "${_cargo_support_dir}"
+        "${_encoded_rustflags}"
+        "${_native_c_flags}"
+        "${_native_cxx_flags}"
+        _native_c_compiler
+        _native_cxx_compiler)
+    set(_cargo_ffi_archive
+        "${_cargo_target_dir}/${_rust_target}/${_cargo_artifact_directory}/${_cargo_archive_name}")
+    set(_ffi_archive "${CMAKE_CURRENT_BINARY_DIR}/vortex-artifacts/libvortex_ffi.a")
 
-    set(_archive_name "libvortex_ffi.a")
-    set(_cargo_target_dir "${_cargo_target_base}/${_configuration_name}")
-    string(CONCAT _cargo_ffi_archive
-        "${_cargo_target_dir}/${_rust_target}/"
-        "${_cargo_artifact_directory}/${_archive_name}")
-    string(CONCAT _ffi_archive
-        "${CMAKE_CURRENT_BINARY_DIR}/vortex-artifacts/"
-        "${_configuration_name}/${_archive_name}")
-
-    # This phony target intentionally has no OUTPUT, so Cargo checks freshness on
-    # every build. BYPRODUCTS describes the staged archive to generators; each -D
-    # assignment is one list element and VERBATIM protects the outer cmake -P
-    # driver's argument boundaries.
-    add_custom_target(vortex_ffi_cargo_build ALL
+    # The phony target lets Cargo own dependency tracking. Copy-if-different in
+    # the driver prevents fresh Cargo checks from forcing downstream relinks.
+    add_custom_target(vortex_ffi_cargo_build
         COMMAND "${CMAKE_COMMAND}"
             "-DVORTEX_CARGO_EXECUTABLE=${VORTEX_RESOLVED_CARGO_EXECUTABLE}"
             "-DVORTEX_RUSTC_EXECUTABLE=${VORTEX_RESOLVED_RUSTC_EXECUTABLE}"
             "-DVORTEX_RUST_TARGET=${_rust_target}"
-            "-DVORTEX_WORKSPACE_ROOT=${_workspace_root}"
-            "-DVORTEX_FFI_MANIFEST=${_ffi_manifest}"
-            "-DVORTEX_CARGO_CONFIG_FILE=${_cargo_config}"
             "-DVORTEX_CARGO_TARGET_DIR=${_cargo_target_dir}"
             "-DVORTEX_CARGO_PROFILE=${_cargo_profile}"
-            "-DVORTEX_CARGO_JOBS=${VORTEX_CARGO_JOBS}"
-            "-DVORTEX_CARGO_OFFLINE=${VORTEX_CARGO_OFFLINE}"
-            "-DVORTEX_CARGO_FEATURES=${_cargo_features}"
-            "-DVORTEX_CARGO_BUILD_STD=${_cargo_build_std}"
-            "-DVORTEX_CARGO_NO_DEFAULT_FEATURES=${_cargo_no_default_features}"
+            "-DVORTEX_FFI_PACKAGE=${_ffi_package}"
             "-DVORTEX_CARGO_FFI_ARCHIVE=${_cargo_ffi_archive}"
+            "-DVORTEX_CARGO_SUPPORT_DIR=${_cargo_support_dir}"
+            "-DVORTEX_NVCC_EXECUTABLE=${_nvcc_executable}"
+            "-DVORTEX_CUDA_ROOT=${_cuda_root}"
+            "-DVORTEX_CARGO_BUILD_STD=${_cargo_build_std}"
             "-DVORTEX_CMAKE_FFI_ARCHIVE=${_ffi_archive}"
-            "-DVORTEX_TARGET_ENV_KEY_UPPER=${_target_env_upper}"
-            "-DVORTEX_TARGET_ENV_KEY_LOWER=${_target_env_lower}"
-            "-DVORTEX_C_LINKER=${_native_c_compiler}"
             "-DVORTEX_C_COMPILER=${_native_c_compiler}"
             "-DVORTEX_CXX_COMPILER=${_native_cxx_compiler}"
-            "-DVORTEX_AR=${_archiver}"
-            "-DVORTEX_RANLIB=${_ranlib}"
-            "-DVORTEX_RUSTFLAGS_FILE=${_rustflags_file}"
-            "-DVORTEX_CFLAGS_FILE=${_cflags_file}"
-            "-DVORTEX_CXXFLAGS_FILE=${_cxxflags_file}"
+            "-DVORTEX_AR=${CMAKE_AR}"
+            "-DVORTEX_RANLIB=${CMAKE_RANLIB}"
             "-DVORTEX_APPLE_DEPLOYMENT_TARGET=${_apple_deployment_target}"
             "-DVORTEX_APPLE_SDKROOT=${_apple_sdkroot}"
-            -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/BuildVortexCargo.cmake"
+            -P "${CMAKE_CURRENT_LIST_DIR}/BuildVortexCargo.cmake"
         BYPRODUCTS "${_ffi_archive}"
-        WORKING_DIRECTORY "${_workspace_root}"
-        COMMENT "Building the PIC vortex-ffi static archive with Cargo"
+        COMMENT "Building the PIC Vortex FFI static archive with Cargo"
         USES_TERMINAL
         VERBATIM)
 
-    # Keep the imported archive scoped to the C++ source directory. The public
-    # C++ target carries its include path, native libraries, and build dependency
-    # transitively without exposing a second supported consumer target.
+    # The imported target remains directory-scoped and is only carried to users
+    # through Vortex::cpp_static.
     add_library(vortex_ffi_static STATIC IMPORTED)
     set_target_properties(vortex_ffi_static PROPERTIES
         IMPORTED_LOCATION "${_ffi_archive}"
-        INTERFACE_INCLUDE_DIRECTORIES "${_ffi_source_dir}/cinclude")
+        INTERFACE_INCLUDE_DIRECTORIES "${_ffi_include_dirs}")
     add_dependencies(vortex_ffi_static vortex_ffi_cargo_build)
     _vortex_configure_static_link(vortex_ffi_static "${_rust_target}")
     if(_sanitizer_compile_flag)
@@ -507,5 +379,5 @@ function(_vortex_add_ffi_static)
     endif()
 
     message(STATUS "Vortex Rust target: ${_rust_target}")
-    message(STATUS "Vortex Cargo target base: ${_cargo_target_base}")
-endfunction()
+    message(STATUS "Vortex Cargo target directory: ${_cargo_target_dir}")
+endblock()
