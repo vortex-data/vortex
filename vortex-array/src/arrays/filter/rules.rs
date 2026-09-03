@@ -15,13 +15,20 @@ use crate::arrays::filter::FilterArraySlotsExt;
 use crate::arrays::filter::FilterReduce;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::filter::execute::buffer::prepare_mask_for_reuse;
+use crate::arrays::scalar_fn::ExactScalarFn;
+use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::arrays::struct_::StructDataParts;
+use crate::builtins::ArrayBuiltins;
+use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
+use crate::scalar_fn::fns::get_item::GetItem;
 
-pub(super) const PARENT_RULES: ParentRuleSet<Filter> =
-    ParentRuleSet::new(&[ParentRuleSet::lift(&FilterReduceAdaptor(Filter))]);
+pub(super) const PARENT_RULES: ParentRuleSet<Filter> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&FilterReduceAdaptor(Filter)),
+    ParentRuleSet::lift(&FilterGetItemRule),
+]);
 
 pub(super) const RULES: ReduceRuleSet<Filter> =
     ReduceRuleSet::new(&[&TrivialFilterRule, &FilterStructRule]);
@@ -32,6 +39,23 @@ impl FilterReduce for Filter {
         let new_array = array.child().filter(combined_mask)?;
 
         Ok(Some(new_array))
+    }
+}
+
+#[derive(Debug)]
+struct FilterGetItemRule;
+
+impl ArrayParentReduceRule<Filter> for FilterGetItemRule {
+    type Parent = ExactScalarFn<GetItem>;
+
+    fn reduce_parent(
+        &self,
+        array: ArrayView<'_, Filter>,
+        parent: ScalarFnArrayView<'_, GetItem>,
+        _child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let field = array.child().get_item(parent.options.clone())?;
+        Ok(Some(field.filter(array.filter_mask().clone())?))
     }
 }
 
