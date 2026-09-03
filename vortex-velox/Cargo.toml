@@ -26,6 +26,7 @@ arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }
 arrow-data = { workspace = true }
 arrow-schema = { workspace = true }
+async-fs = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true }
 vortex-array = { workspace = true }
@@ -33,7 +34,6 @@ vortex-buffer = { workspace = true }
 vortex-arrow = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
-vortex-ffi = { path = "../vortex-ffi" }
 vortex-io = { workspace = true }
 vortex = { workspace = true }
 

@@ -20,9 +20,9 @@ the difference before it returns outputs. Arrow release frees the final charge.
 
 ## Contract boundary
 
-The adapter exposes a versioned C ABI in `cinclude/vortex_velox.h`. Velox calls
-only `vx_velox_*` symbols. The static archive can contain general `vx_*` symbols
-from linked Vortex FFI objects. Opaque handle layouts stay inside Vortex.
+The adapter exposes a versioned C ABI in `cinclude/vortex_velox.h`. The header
+and static library are standalone. Velox calls only `vx_velox_*` symbols.
+Opaque handle layouts stay inside Vortex.
 
 The adapter accepts host callbacks for random reads. Velox can implement those
 callbacks with `dwio::common::BufferedInput`, so Vortex uses the existing cache

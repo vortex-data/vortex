@@ -38,15 +38,7 @@ box_wrapper!(
     ///
     /// Copying a vx_data_source via vx_data_source_clone is a cheap operation.
     MultiLayoutDataSource,
-    vx_data_source
-);
-
-/// Create an FFI data-source handle from a configured multi-layout data source.
-///
-/// Layered FFI crates use this function after their host-specific I/O adapter constructs a source.
-pub fn vx_data_source_new_with(data_source: MultiLayoutDataSource) -> *const vx_data_source {
-    vx_data_source::new(data_source)
-}
+    vx_data_source);
 
 /// Options for creating a data source.
 #[repr(C)]

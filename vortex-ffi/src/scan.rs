@@ -225,22 +225,6 @@ fn write_estimate<T: Into<u64>>(estimate: Precision<T>, out: &mut vx_estimate) {
     }
 }
 
-/// Start a scan from a request that a layered FFI crate already validated.
-///
-/// # Safety
-///
-/// `data_source` must point to a live data-source handle created by this crate.
-pub unsafe fn vx_data_source_scan_with(
-    data_source: *const vx_data_source,
-    request: ScanRequest,
-) -> VortexResult<*mut vx_scan> {
-    vortex_ensure!(!data_source.is_null(), "null vx_data_source");
-    RUNTIME.block_on(async {
-        let scan = vx_data_source::as_ref(data_source).scan(request).await?;
-        Ok(vx_scan::new(VxScan::Pending(scan)))
-    })
-}
-
 /// Scan a data source.
 ///
 /// A scan may be consumed only once.

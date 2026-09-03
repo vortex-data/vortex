@@ -19,13 +19,14 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_ffi::ffi_runtime;
-use vortex_ffi::try_or;
-use vortex_ffi::vx_error;
 use vortex_io::ReadAtRequest;
 use vortex_io::ReadAtStream;
 use vortex_io::VortexReadAt;
 use vortex_io::runtime::BlockingRuntime;
+
+use crate::ffi::ffi_runtime;
+use crate::ffi::try_or;
+use crate::ffi::vx_velox_error;
 
 /// A positional read request passed to the Velox callback.
 #[repr(C)]
@@ -410,7 +411,7 @@ pub struct vx_velox_read_at(CallbackReadAt);
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_velox_read_at_new(
     callbacks: *const vx_velox_read_at_callbacks,
-    error_out: *mut *mut vx_error,
+    error_out: *mut *mut vx_velox_error,
 ) -> *mut vx_velox_read_at {
     try_or(error_out, std::ptr::null_mut(), || {
         let callbacks = unsafe {
@@ -447,7 +448,7 @@ pub unsafe extern "C" fn vx_velox_read_at_free(reader: *mut vx_velox_read_at) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_velox_read_at_size(
     reader: *const vx_velox_read_at,
-    error_out: *mut *mut vx_error,
+    error_out: *mut *mut vx_velox_error,
 ) -> u64 {
     try_or(error_out, 0, || {
         let reader = unsafe {
@@ -483,11 +484,6 @@ mod tests {
     use vortex::file::WriteOptionsSessionExt;
     use vortex_buffer::Alignment;
     use vortex_error::vortex_ensure;
-    use vortex_ffi::vx_array_ref;
-    use vortex_ffi::vx_expression_new_with;
-    use vortex_ffi::vx_session_free;
-    use vortex_ffi::vx_session_new_with;
-    use vortex_ffi::vx_session_ref;
 
     use super::*;
     use crate::api::vx_velox_array_free;
@@ -500,6 +496,11 @@ mod tests {
     use crate::api::vx_velox_scan_next_partition;
     use crate::api::vx_velox_scan_options;
     use crate::api::vx_velox_scan_selection;
+    use crate::ffi::vx_array_ref;
+    use crate::ffi::vx_expression_new_with;
+    use crate::ffi::vx_session_free;
+    use crate::ffi::vx_session_new_with;
+    use crate::ffi::vx_session_ref;
     use crate::schema::vx_velox_source_export_schema;
     use crate::source::vx_velox_natural_split;
     use crate::source::vx_velox_source_data_source;

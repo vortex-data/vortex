@@ -6,9 +6,9 @@ use std::ptr;
 use arrow_array::ffi::FFI_ArrowSchema;
 use vortex_arrow::ArrowSessionExt;
 use vortex_error::vortex_err;
-use vortex_ffi::try_or;
-use vortex_ffi::vx_error;
 
+use crate::ffi::try_or;
+use crate::ffi::vx_velox_error;
 use crate::source::vx_velox_source;
 use crate::temporal::validate_velox_arrow_type;
 
@@ -24,7 +24,7 @@ use crate::temporal::validate_velox_arrow_type;
 pub unsafe extern "C-unwind" fn vx_velox_source_export_schema(
     source: *const vx_velox_source,
     schema_out: *mut FFI_ArrowSchema,
-    error_out: *mut *mut vx_error,
+    error_out: *mut *mut vx_velox_error,
 ) -> i32 {
     try_or(error_out, 1, || {
         let source = unsafe {
@@ -64,7 +64,7 @@ mod tests {
             unsafe { vx_velox_source_export_schema(ptr::null(), &raw mut schema, &raw mut error) };
         assert_eq!(status, 1);
         assert!(!error.is_null());
-        unsafe { vortex_ffi::vx_error_free(error) };
+        unsafe { crate::ffi::vx_error_free(error) };
         Ok(())
     }
 }

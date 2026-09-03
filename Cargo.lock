@@ -11698,6 +11698,7 @@ dependencies = [
  "arrow-buffer 59.2.0",
  "arrow-data 59.2.0",
  "arrow-schema 59.2.0",
+ "async-fs",
  "bytes",
  "futures",
  "rstest",
@@ -11707,7 +11708,6 @@ dependencies = [
  "vortex-buffer",
  "vortex-error",
  "vortex-fastlanes",
- "vortex-ffi",
  "vortex-io",
 ]
 

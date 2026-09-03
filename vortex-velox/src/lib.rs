@@ -10,11 +10,13 @@
 
 mod api;
 mod array;
+mod ffi;
 mod projection;
 mod read_at;
 mod schema;
 mod source;
 mod temporal;
+mod test_support;
 mod visitor;
 
 pub use api::*;

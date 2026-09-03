@@ -289,19 +289,10 @@ mod tests {
 
         let manifest = env!("CARGO_MANIFEST_DIR");
         let include = format!("-I{manifest}/cinclude");
-        let base_include = format!("-I{manifest}/../vortex-ffi/cinclude");
         let compiler = std::env::var("CC").unwrap_or_else(|_| "cc".to_owned());
         compile_stdin(
             &compiler,
-            &[
-                "-std=c11",
-                "-fsyntax-only",
-                "-x",
-                "c",
-                &include,
-                &base_include,
-                "-",
-            ],
+            &["-std=c11", "-fsyntax-only", "-x", "c", &include, "-"],
             &source,
         )
     }
@@ -310,21 +301,12 @@ mod tests {
     fn header_compiles_with_host_arrow_declarations() -> Result<(), Box<dyn std::error::Error>> {
         let manifest = env!("CARGO_MANIFEST_DIR");
         let include = format!("-I{manifest}/cinclude");
-        let base_include = format!("-I{manifest}/../vortex-ffi/cinclude");
         let compiler = std::env::var("CXX").unwrap_or_else(|_| "c++".to_owned());
         let source =
             std::fs::read_to_string(format!("{manifest}/tests/velox_include_contract.cpp"))?;
         compile_stdin(
             &compiler,
-            &[
-                "-std=c++20",
-                "-fsyntax-only",
-                "-x",
-                "c++",
-                &include,
-                &base_include,
-                "-",
-            ],
+            &["-std=c++20", "-fsyntax-only", "-x", "c++", &include, "-"],
             &source,
         )
     }

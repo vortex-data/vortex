@@ -24,14 +24,14 @@ use vortex_arrow::ArrowSessionExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_ffi::try_or;
-use vortex_ffi::vx_array;
-use vortex_ffi::vx_array_new_with;
-use vortex_ffi::vx_array_ref;
-use vortex_ffi::vx_error;
-use vortex_ffi::vx_session;
-use vortex_ffi::vx_session_ref;
 
+use crate::ffi::try_or;
+use crate::ffi::vx_array_new_with;
+use crate::ffi::vx_array_ref;
+use crate::ffi::vx_session_ref;
+use crate::ffi::vx_velox_array;
+use crate::ffi::vx_velox_error;
+use crate::ffi::vx_velox_session;
 use crate::temporal::validate_velox_arrow_data;
 
 /// Host memory callbacks for one Arrow C Data export.
@@ -358,11 +358,11 @@ pub(crate) fn conservative_export_reservation(
 /// The session and array pointers must identify live handles. `error_out` must be null or valid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_velox_array_get_field(
-    session: *const vx_session,
-    array: *const vx_array,
+    session: *const vx_velox_session,
+    array: *const vx_velox_array,
     index: usize,
-    error_out: *mut *mut vx_error,
-) -> *const vx_array {
+    error_out: *mut *mut vx_velox_error,
+) -> *const vx_velox_array {
     try_or(error_out, ptr::null(), || {
         let session = unsafe { vx_session_ref(session)? };
         let array = unsafe { vx_array_ref(array)? };
@@ -383,9 +383,9 @@ pub unsafe extern "C-unwind" fn vx_velox_array_get_field(
 /// The session and array pointers must identify live handles. `error_out` must be null or valid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_velox_array_invalid_count(
-    session: *const vx_session,
-    array: *const vx_array,
-    error_out: *mut *mut vx_error,
+    session: *const vx_velox_session,
+    array: *const vx_velox_array,
+    error_out: *mut *mut vx_velox_error,
 ) -> usize {
     try_or(error_out, 0, || {
         let session = unsafe { vx_session_ref(session)? };
@@ -410,12 +410,12 @@ pub unsafe extern "C-unwind" fn vx_velox_array_invalid_count(
 /// `error_out` must be null or identify writable storage for one error pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_velox_array_export_arrow(
-    session: *const vx_session,
-    array: *const vx_array,
+    session: *const vx_velox_session,
+    array: *const vx_velox_array,
     memory_callbacks: *const vx_velox_arrow_memory_callbacks,
     schema_out: *mut FFI_ArrowSchema,
     array_out: *mut FFI_ArrowArray,
-    error_out: *mut *mut vx_error,
+    error_out: *mut *mut vx_velox_error,
 ) -> i32 {
     try_or(error_out, 1, || {
         let session = unsafe { vx_session_ref(session)? };
@@ -481,13 +481,13 @@ mod tests {
     use vortex::array::arrays::StructArray;
     use vortex::array::validity::Validity;
     use vortex_error::VortexResult;
-    use vortex_ffi::vx_array_new_with;
-    use vortex_ffi::vx_error_free;
-    use vortex_ffi::vx_session_free;
-    use vortex_ffi::vx_session_new_with;
 
     use super::*;
     use crate::api::vx_velox_array_free;
+    use crate::ffi::vx_array_new_with;
+    use crate::ffi::vx_error_free;
+    use crate::ffi::vx_session_free;
+    use crate::ffi::vx_session_new_with;
 
     #[derive(Default)]
     struct MemoryCapture {

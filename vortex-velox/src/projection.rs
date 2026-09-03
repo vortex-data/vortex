@@ -12,13 +12,14 @@ use vortex::expr::get_item;
 use vortex::expr::pack;
 use vortex::expr::root;
 use vortex::layout::layouts::row_idx::row_idx;
-use vortex_ffi::try_or;
-use vortex_ffi::vx_error;
-use vortex_ffi::vx_expression;
-use vortex_ffi::vx_expression_new_with;
-use vortex_ffi::vx_view;
 
-unsafe fn field_names(names: *const vx_view, len: usize) -> VortexResult<Vec<FieldName>> {
+use crate::ffi::try_or;
+use crate::ffi::vx_expression_new_with;
+use crate::ffi::vx_velox_error;
+use crate::ffi::vx_velox_expression;
+use crate::ffi::vx_velox_view;
+
+unsafe fn field_names(names: *const vx_velox_view, len: usize) -> VortexResult<Vec<FieldName>> {
     let names = if names.is_null() {
         vortex_ensure!(len == 0, "null field names pointer with non-zero length");
         &[]
@@ -36,7 +37,10 @@ unsafe fn field_names(names: *const vx_view, len: usize) -> VortexResult<Vec<Fie
         .collect()
 }
 
-unsafe fn projection(names: *const vx_view, len: usize) -> VortexResult<*mut vx_expression> {
+unsafe fn projection(
+    names: *const vx_velox_view,
+    len: usize,
+) -> VortexResult<*mut vx_velox_expression> {
     let names = unsafe { field_names(names, len) }?;
     let fields = names
         .into_iter()
@@ -49,10 +53,10 @@ unsafe fn projection(names: *const vx_view, len: usize) -> VortexResult<*mut vx_
 }
 
 unsafe fn projection_with_row_index(
-    names: *const vx_view,
+    names: *const vx_velox_view,
     len: usize,
-    row_index_name: vx_view,
-) -> VortexResult<*mut vx_expression> {
+    row_index_name: vx_velox_view,
+) -> VortexResult<*mut vx_velox_expression> {
     vortex_ensure!(!row_index_name.ptr.is_null() || row_index_name.len == 0);
     // SAFETY: The caller keeps this view valid for the duration of this call.
     let row_index_name = unsafe { row_index_name.as_str() }?;
@@ -88,10 +92,10 @@ unsafe fn projection_with_row_index(
 /// `error_out` must be null or point to writable storage. No input operation can unwind.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_velox_expression_select(
-    names: *const vx_view,
+    names: *const vx_velox_view,
     len: usize,
-    error_out: *mut *mut vx_error,
-) -> *mut vx_expression {
+    error_out: *mut *mut vx_velox_error,
+) -> *mut vx_velox_expression {
     try_or(error_out, ptr::null_mut(), || unsafe {
         projection(names, len)
     })
@@ -109,11 +113,11 @@ pub unsafe extern "C-unwind" fn vx_velox_expression_select(
 /// `error_out` must be null or point to writable storage. No input operation can unwind.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_velox_expression_select_with_row_index(
-    names: *const vx_view,
+    names: *const vx_velox_view,
     len: usize,
-    row_index_name: vx_view,
-    error_out: *mut *mut vx_error,
-) -> *mut vx_expression {
+    row_index_name: vx_velox_view,
+    error_out: *mut *mut vx_velox_error,
+) -> *mut vx_velox_expression {
     try_or(error_out, ptr::null_mut(), || unsafe {
         projection_with_row_index(names, len, row_index_name)
     })
@@ -124,8 +128,8 @@ mod tests {
     use super::*;
     use crate::api::vx_velox_expression_free;
 
-    fn view(value: &str) -> vx_view {
-        vx_view {
+    fn view(value: &str) -> vx_velox_view {
+        vx_velox_view {
             ptr: value.as_ptr().cast(),
             len: value.len(),
         }
@@ -173,6 +177,6 @@ mod tests {
         };
         assert!(expression.is_null());
         assert!(!error.is_null());
-        unsafe { vortex_ffi::vx_error_free(error) };
+        unsafe { crate::ffi::vx_error_free(error) };
     }
 }

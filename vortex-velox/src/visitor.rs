@@ -54,17 +54,17 @@ use vortex_error::vortex_err;
 use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::BitPackedArrayExt;
 use vortex_fastlanes::FL_CHUNK_SIZE;
-use vortex_ffi::try_or;
-use vortex_ffi::vx_array;
-use vortex_ffi::vx_array_ref;
-use vortex_ffi::vx_error;
-use vortex_ffi::vx_session;
-use vortex_ffi::vx_session_ref;
 
 use crate::array::ArrowMemoryReservation;
 use crate::array::conservative_export_reservation;
 use crate::array::parse_memory_callbacks;
 use crate::array::vx_velox_arrow_memory_callbacks;
+use crate::ffi::try_or;
+use crate::ffi::vx_array_ref;
+use crate::ffi::vx_session_ref;
+use crate::ffi::vx_velox_array;
+use crate::ffi::vx_velox_error;
+use crate::ffi::vx_velox_session;
 
 /// A fixed-width primitive value identifier in a semantic visitor block.
 pub type vx_velox_primitive_type = u32;
@@ -2231,10 +2231,10 @@ fn visit_array(
 /// `error_out` must be null or valid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_velox_export_cursor_new(
-    session: *const vx_session,
-    array: *const vx_array,
+    session: *const vx_velox_session,
+    array: *const vx_velox_array,
     memory_callbacks: *const vx_velox_arrow_memory_callbacks,
-    error_out: *mut *mut vx_error,
+    error_out: *mut *mut vx_velox_error,
 ) -> *mut vx_velox_export_cursor {
     try_or(error_out, ptr::null_mut(), || {
         let session = unsafe { vx_session_ref(session)? };
@@ -2271,7 +2271,7 @@ pub unsafe extern "C-unwind" fn vx_velox_export_cursor_visit(
     offset: usize,
     length: usize,
     visitor: *const vx_velox_visitor,
-    error_out: *mut *mut vx_error,
+    error_out: *mut *mut vx_velox_error,
 ) -> i32 {
     try_or(error_out, 1, || {
         let cursor = unsafe {
@@ -2301,11 +2301,11 @@ pub unsafe extern "C-unwind" fn vx_velox_export_cursor_visit(
 /// must remain live until this call returns.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_velox_array_visit(
-    session: *const vx_session,
-    array: *const vx_array,
+    session: *const vx_velox_session,
+    array: *const vx_velox_array,
     request: *const vx_velox_visit_request,
     visitor: *const vx_velox_visitor,
-    error_out: *mut *mut vx_error,
+    error_out: *mut *mut vx_velox_error,
 ) -> i32 {
     try_or(error_out, 1, || {
         let session = unsafe { vx_session_ref(session)? };
@@ -2362,12 +2362,12 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_error::vortex_ensure;
     use vortex_fastlanes::BitPackedData;
-    use vortex_ffi::vx_array_new_with;
-    use vortex_ffi::vx_session_free;
-    use vortex_ffi::vx_session_new_with;
 
     use super::*;
     use crate::api::vx_velox_array_free;
+    use crate::ffi::vx_array_new_with;
+    use crate::ffi::vx_session_free;
+    use crate::ffi::vx_session_new_with;
 
     #[derive(Default)]
     struct TestMemory {

@@ -10,18 +10,18 @@ use vortex::layout::scan::multi::MultiLayoutDataSource;
 use vortex::mask::Mask;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_ffi::ffi_runtime;
-use vortex_ffi::try_or;
-use vortex_ffi::vx_data_source;
-use vortex_ffi::vx_data_source_new_with;
-use vortex_ffi::vx_error;
-use vortex_ffi::vx_expression;
-use vortex_ffi::vx_expression_ref;
-use vortex_ffi::vx_session;
-use vortex_ffi::vx_session_ref;
 use vortex_io::VortexReadAt;
 use vortex_io::runtime::BlockingRuntime;
 
+use crate::ffi::ffi_runtime;
+use crate::ffi::try_or;
+use crate::ffi::vx_data_source_new_with;
+use crate::ffi::vx_expression_ref;
+use crate::ffi::vx_session_ref;
+use crate::ffi::vx_velox_data_source;
+use crate::ffi::vx_velox_error;
+use crate::ffi::vx_velox_expression;
+use crate::ffi::vx_velox_session;
 use crate::read_at::vx_velox_read_at;
 
 /// A stable natural row range reported by a Vortex file.
@@ -60,9 +60,9 @@ impl vx_velox_source {
 /// error pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_velox_source_new(
-    session: *const vx_session,
+    session: *const vx_velox_session,
     reader: *const vx_velox_read_at,
-    error_out: *mut *mut vx_error,
+    error_out: *mut *mut vx_velox_error,
 ) -> *mut vx_velox_source {
     try_or(error_out, std::ptr::null_mut(), || {
         let session = unsafe { vx_session_ref(session)? }.clone();
@@ -160,7 +160,7 @@ pub unsafe extern "C-unwind" fn vx_velox_source_natural_split_at(
     source: *const vx_velox_source,
     index: usize,
     split_out: *mut vx_velox_natural_split,
-    error_out: *mut *mut vx_error,
+    error_out: *mut *mut vx_velox_error,
 ) -> i32 {
     try_or(error_out, 1, || {
         let source = unsafe {
@@ -203,11 +203,11 @@ pub unsafe extern "C-unwind" fn vx_velox_source_natural_split_at(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_velox_source_prune_natural_splits(
     source: *const vx_velox_source,
-    expression: *const vx_expression,
+    expression: *const vx_velox_expression,
     first_split: usize,
     split_count: usize,
     pruned_out: *mut u8,
-    error_out: *mut *mut vx_error,
+    error_out: *mut *mut vx_velox_error,
 ) -> i32 {
     try_or(error_out, 1, || {
         let source = unsafe {
@@ -259,8 +259,8 @@ pub unsafe extern "C-unwind" fn vx_velox_source_prune_natural_splits(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_velox_source_data_source(
     source: *const vx_velox_source,
-    error_out: *mut *mut vx_error,
-) -> *const vx_data_source {
+    error_out: *mut *mut vx_velox_error,
+) -> *const vx_velox_data_source {
     try_or(error_out, std::ptr::null(), || {
         let source = unsafe {
             source

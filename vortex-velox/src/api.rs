@@ -20,113 +20,23 @@ use vortex::scan::ScanRequest;
 use vortex::scan::selection::Selection;
 use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_error::vortex_bail;
-use vortex_ffi::try_or;
-use vortex_ffi::vx_array;
-use vortex_ffi::vx_data_source;
-use vortex_ffi::vx_data_source_scan_with;
-use vortex_ffi::vx_dtype;
-use vortex_ffi::vx_dtype_new_with;
-use vortex_ffi::vx_error;
-use vortex_ffi::vx_expression;
-use vortex_ffi::vx_expression_new_with;
-use vortex_ffi::vx_expression_ref;
-use vortex_ffi::vx_partition;
-use vortex_ffi::vx_scalar;
-use vortex_ffi::vx_scan;
-use vortex_ffi::vx_session;
-use vortex_ffi::vx_view;
 
-// The base FFI wrappers are opaque C handles despite their private Rust payloads.
-#[allow(improper_ctypes)]
-mod ffi {
-    use super::*;
-
-    unsafe extern "C-unwind" {
-        pub fn vx_error_message(error: *const vx_error) -> vx_view;
-        pub fn vx_error_free(error: *const vx_error);
-        pub fn vx_session_new() -> *mut vx_session;
-        pub fn vx_session_clone(session: *const vx_session) -> *mut vx_session;
-        pub fn vx_session_free(session: *const vx_session);
-        pub fn vx_dtype_free(dtype: *const vx_dtype);
-        pub fn vx_scalar_new_bool(value: bool, nullable: bool) -> *mut vx_scalar;
-        pub fn vx_scalar_new_i8(value: i8, nullable: bool) -> *mut vx_scalar;
-        pub fn vx_scalar_new_i16(value: i16, nullable: bool) -> *mut vx_scalar;
-        pub fn vx_scalar_new_i32(value: i32, nullable: bool) -> *mut vx_scalar;
-        pub fn vx_scalar_new_i64(value: i64, nullable: bool) -> *mut vx_scalar;
-        pub fn vx_scalar_new_f32(value: f32, nullable: bool) -> *mut vx_scalar;
-        pub fn vx_scalar_new_f64(value: f64, nullable: bool) -> *mut vx_scalar;
-        pub fn vx_scalar_new_utf8(
-            value: vx_view,
-            nullable: bool,
-            error_out: *mut *mut vx_error,
-        ) -> *mut vx_scalar;
-        pub fn vx_scalar_new_binary(
-            data: *const u8,
-            length: usize,
-            nullable: bool,
-            error_out: *mut *mut vx_error,
-        ) -> *mut vx_scalar;
-        pub fn vx_scalar_new_list(
-            element_dtype: *const vx_dtype,
-            elements: *const *const vx_scalar,
-            length: usize,
-            nullable: bool,
-            error_out: *mut *mut vx_error,
-        ) -> *mut vx_scalar;
-        pub fn vx_scalar_new_extension(
-            dtype: *const vx_dtype,
-            storage: *const vx_scalar,
-            error_out: *mut *mut vx_error,
-        ) -> *mut vx_scalar;
-        pub fn vx_scalar_free(scalar: *const vx_scalar);
-        pub fn vx_expression_literal(
-            scalar: *const vx_scalar,
-            error_out: *mut *mut vx_error,
-        ) -> *mut vx_expression;
-        pub fn vx_expression_free(expression: *const vx_expression);
-        pub fn vx_data_source_free(data_source: *const vx_data_source);
-        pub fn vx_scan_free(scan: *const vx_scan);
-        pub fn vx_scan_next_partition(
-            scan: *mut vx_scan,
-            error_out: *mut *mut vx_error,
-        ) -> *mut vx_partition;
-        pub fn vx_partition_free(partition: *const vx_partition);
-        pub fn vx_partition_next(
-            partition: *mut vx_partition,
-            error_out: *mut *mut vx_error,
-        ) -> *const vx_array;
-        pub fn vx_array_free(array: *const vx_array);
-        pub fn vx_array_len(array: *const vx_array) -> usize;
-        pub fn vx_array_slice(
-            array: *const vx_array,
-            begin: usize,
-            end: usize,
-            error_out: *mut *mut vx_error,
-        ) -> *const vx_array;
-    }
-
-    unsafe extern "C" {
-        pub fn vx_expression_root() -> *mut vx_expression;
-        pub fn vx_expression_get_item(
-            name: vx_view,
-            child: *const vx_expression,
-        ) -> *mut vx_expression;
-        pub fn vx_expression_and(
-            expressions: *const *const vx_expression,
-            length: usize,
-        ) -> *mut vx_expression;
-        pub fn vx_expression_or(
-            expressions: *const *const vx_expression,
-            length: usize,
-        ) -> *mut vx_expression;
-        pub fn vx_expression_not(child: *const vx_expression) -> *mut vx_expression;
-        pub fn vx_expression_is_null(child: *const vx_expression) -> *mut vx_expression;
-        pub fn vx_expression_list_contains(
-            list: *const vx_expression,
-            value: *const vx_expression,
-        ) -> *mut vx_expression;
-    }
-}
+use crate::ffi;
+use crate::ffi::try_or;
+use crate::ffi::vx_data_source_scan_with;
+use crate::ffi::vx_dtype_new_with;
+use crate::ffi::vx_expression_new_with;
+use crate::ffi::vx_expression_ref;
+use crate::ffi::vx_velox_array;
+use crate::ffi::vx_velox_data_source;
+use crate::ffi::vx_velox_dtype;
+use crate::ffi::vx_velox_error;
+use crate::ffi::vx_velox_expression;
+use crate::ffi::vx_velox_partition;
+use crate::ffi::vx_velox_scalar;
+use crate::ffi::vx_velox_scan;
+use crate::ffi::vx_velox_session;
+use crate::ffi::vx_velox_view;
 
 /// A fixed-width primitive type identifier for Velox scalar construction.
 pub type vx_velox_ptype = u32;
@@ -202,9 +112,9 @@ pub struct vx_velox_scan_options {
     /// Set this field to [`crate::VX_VELOX_ABI_VERSION`].
     pub abi_version: u32,
     /// The projected expression, or null for every field.
-    pub projection: *const vx_expression,
+    pub projection: *const vx_velox_expression,
     /// The exact filter expression, or null for no filter.
-    pub filter: *const vx_expression,
+    pub filter: *const vx_velox_expression,
     /// The first row in the scan range.
     pub row_range_begin: u64,
     /// One past the final row in the scan range.
@@ -233,7 +143,9 @@ impl Default for vx_velox_scan_selection {
 ///
 /// `error` must point to a live error handle.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_velox_error_message(error: *const vx_error) -> vx_view {
+pub unsafe extern "C-unwind" fn vx_velox_error_message(
+    error: *const vx_velox_error,
+) -> vx_velox_view {
     unsafe { ffi::vx_error_message(error) }
 }
 
@@ -243,14 +155,14 @@ pub unsafe extern "C-unwind" fn vx_velox_error_message(error: *const vx_error) -
 ///
 /// `error` must be null or an owned error handle.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_velox_error_free(error: *const vx_error) {
+pub unsafe extern "C-unwind" fn vx_velox_error_free(error: *const vx_velox_error) {
     unsafe { ffi::vx_error_free(error) };
 }
 
 /// Create a default Vortex session for Velox.
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn vx_velox_session_new() -> *mut vx_session {
-    unsafe { ffi::vx_session_new() }
+pub extern "C-unwind" fn vx_velox_session_new() -> *mut vx_velox_session {
+    ffi::vx_session_new()
 }
 
 /// Clone a Vortex session.
@@ -260,8 +172,8 @@ pub extern "C-unwind" fn vx_velox_session_new() -> *mut vx_session {
 /// `session` must point to a live Vortex session.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_velox_session_clone(
-    session: *const vx_session,
-) -> *mut vx_session {
+    session: *const vx_velox_session,
+) -> *mut vx_velox_session {
     unsafe { ffi::vx_session_clone(session) }
 }
 
@@ -271,7 +183,7 @@ pub unsafe extern "C-unwind" fn vx_velox_session_clone(
 ///
 /// `session` must be null or an owned session handle.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_velox_session_free(session: *const vx_session) {
+pub unsafe extern "C-unwind" fn vx_velox_session_free(session: *const vx_velox_session) {
     unsafe { ffi::vx_session_free(session) };
 }
 
@@ -301,8 +213,8 @@ fn primitive_type(ptype: vx_velox_ptype) -> vortex_error::VortexResult<PType> {
 pub unsafe extern "C-unwind" fn vx_velox_dtype_new_primitive(
     ptype: vx_velox_ptype,
     nullable: bool,
-    error_out: *mut *mut vx_error,
-) -> *const vx_dtype {
+    error_out: *mut *mut vx_velox_error,
+) -> *const vx_velox_dtype {
     try_or(error_out, ptr::null(), || {
         Ok(vx_dtype_new_with(DType::Primitive(
             primitive_type(ptype)?,
@@ -317,13 +229,16 @@ pub unsafe extern "C-unwind" fn vx_velox_dtype_new_primitive(
 ///
 /// `dtype` must be null or an owned dtype handle.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_velox_dtype_free(dtype: *const vx_dtype) {
+pub unsafe extern "C-unwind" fn vx_velox_dtype_free(dtype: *const vx_velox_dtype) {
     unsafe { ffi::vx_dtype_free(dtype) };
 }
 
 /// Create a Boolean scalar.
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn vx_velox_scalar_new_bool(value: bool, nullable: bool) -> *mut vx_scalar {
+pub extern "C-unwind" fn vx_velox_scalar_new_bool(
+    value: bool,
+    nullable: bool,
+) -> *mut vx_velox_scalar {
     unsafe { ffi::vx_scalar_new_bool(value, nullable) }
 }
 
@@ -331,7 +246,7 @@ macro_rules! scalar_primitive_wrapper {
     ($name:ident, $source:ident, $type:ty, $description:literal) => {
         #[doc = $description]
         #[unsafe(no_mangle)]
-        pub extern "C-unwind" fn $name(value: $type, nullable: bool) -> *mut vx_scalar {
+        pub extern "C-unwind" fn $name(value: $type, nullable: bool) -> *mut vx_velox_scalar {
             unsafe { ffi::$source(value, nullable) }
         }
     };
@@ -365,8 +280,8 @@ scalar_primitive_wrapper!(
 pub unsafe extern "C-unwind" fn vx_velox_scalar_new_date_days(
     value: i32,
     nullable: bool,
-    error_out: *mut *mut vx_error,
-) -> *mut vx_scalar {
+    error_out: *mut *mut vx_velox_error,
+) -> *mut vx_velox_scalar {
     let dtype = vx_dtype_new_with(DType::Extension(
         Date::new(TimeUnit::Days, Nullability::from(nullable)).erased(),
     ));
@@ -404,10 +319,10 @@ scalar_primitive_wrapper!(
 /// `value` and `error_out` must satisfy the adapter header contract.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_velox_scalar_new_utf8(
-    value: vx_view,
+    value: vx_velox_view,
     nullable: bool,
-    error_out: *mut *mut vx_error,
-) -> *mut vx_scalar {
+    error_out: *mut *mut vx_velox_error,
+) -> *mut vx_velox_scalar {
     unsafe { ffi::vx_scalar_new_utf8(value, nullable, error_out) }
 }
 
@@ -421,8 +336,8 @@ pub unsafe extern "C-unwind" fn vx_velox_scalar_new_binary(
     data: *const u8,
     length: usize,
     nullable: bool,
-    error_out: *mut *mut vx_error,
-) -> *mut vx_scalar {
+    error_out: *mut *mut vx_velox_error,
+) -> *mut vx_velox_scalar {
     unsafe { ffi::vx_scalar_new_binary(data, length, nullable, error_out) }
 }
 
@@ -433,12 +348,12 @@ pub unsafe extern "C-unwind" fn vx_velox_scalar_new_binary(
 /// Every pointer must satisfy the adapter header contract.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_velox_scalar_new_list(
-    element_dtype: *const vx_dtype,
-    elements: *const *const vx_scalar,
+    element_dtype: *const vx_velox_dtype,
+    elements: *const *const vx_velox_scalar,
     length: usize,
     nullable: bool,
-    error_out: *mut *mut vx_error,
-) -> *mut vx_scalar {
+    error_out: *mut *mut vx_velox_error,
+) -> *mut vx_velox_scalar {
     unsafe { ffi::vx_scalar_new_list(element_dtype, elements, length, nullable, error_out) }
 }
 
@@ -448,7 +363,7 @@ pub unsafe extern "C-unwind" fn vx_velox_scalar_new_list(
 ///
 /// `scalar` must be null or an owned scalar handle.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_velox_scalar_free(scalar: *const vx_scalar) {
+pub unsafe extern "C-unwind" fn vx_velox_scalar_free(scalar: *const vx_velox_scalar) {
     unsafe { ffi::vx_scalar_free(scalar) };
 }
 
@@ -459,16 +374,16 @@ pub unsafe extern "C-unwind" fn vx_velox_scalar_free(scalar: *const vx_scalar) {
 /// `scalar` must point to a live scalar. `error_out` must be null or valid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_velox_expression_literal(
-    scalar: *const vx_scalar,
-    error_out: *mut *mut vx_error,
-) -> *mut vx_expression {
+    scalar: *const vx_velox_scalar,
+    error_out: *mut *mut vx_velox_error,
+) -> *mut vx_velox_expression {
     unsafe { ffi::vx_expression_literal(scalar, error_out) }
 }
 
 /// Create a root expression.
 #[unsafe(no_mangle)]
-pub extern "C" fn vx_velox_expression_root() -> *mut vx_expression {
-    unsafe { ffi::vx_expression_root() }
+pub extern "C" fn vx_velox_expression_root() -> *mut vx_velox_expression {
+    ffi::vx_expression_root()
 }
 
 /// Create a field expression.
@@ -478,9 +393,9 @@ pub extern "C" fn vx_velox_expression_root() -> *mut vx_expression {
 /// `child` must point to a live expression. `name` must identify valid UTF-8.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_velox_expression_get_item(
-    name: vx_view,
-    child: *const vx_expression,
-) -> *mut vx_expression {
+    name: vx_velox_view,
+    child: *const vx_velox_expression,
+) -> *mut vx_velox_expression {
     unsafe { ffi::vx_expression_get_item(name, child) }
 }
 
@@ -506,10 +421,10 @@ fn binary_operator(operator: vx_velox_binary_operator) -> vortex_error::VortexRe
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_velox_expression_binary(
     operator: vx_velox_binary_operator,
-    left: *const vx_expression,
-    right: *const vx_expression,
-    error_out: *mut *mut vx_error,
-) -> *mut vx_expression {
+    left: *const vx_velox_expression,
+    right: *const vx_velox_expression,
+    error_out: *mut *mut vx_velox_error,
+) -> *mut vx_velox_expression {
     try_or(error_out, ptr::null_mut(), || {
         let operator = binary_operator(operator)?;
         let left = unsafe { vx_expression_ref(left)? }.clone();
@@ -527,9 +442,9 @@ pub unsafe extern "C-unwind" fn vx_velox_expression_binary(
 /// `expressions` must identify `length` live expression pointers.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_velox_expression_and(
-    expressions: *const *const vx_expression,
+    expressions: *const *const vx_velox_expression,
     length: usize,
-) -> *mut vx_expression {
+) -> *mut vx_velox_expression {
     unsafe { ffi::vx_expression_and(expressions, length) }
 }
 
@@ -540,9 +455,9 @@ pub unsafe extern "C" fn vx_velox_expression_and(
 /// `expressions` must identify `length` live expression pointers.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_velox_expression_or(
-    expressions: *const *const vx_expression,
+    expressions: *const *const vx_velox_expression,
     length: usize,
-) -> *mut vx_expression {
+) -> *mut vx_velox_expression {
     unsafe { ffi::vx_expression_or(expressions, length) }
 }
 
@@ -553,8 +468,8 @@ pub unsafe extern "C" fn vx_velox_expression_or(
 /// `child` must point to a live expression.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_velox_expression_not(
-    child: *const vx_expression,
-) -> *mut vx_expression {
+    child: *const vx_velox_expression,
+) -> *mut vx_velox_expression {
     unsafe { ffi::vx_expression_not(child) }
 }
 
@@ -565,8 +480,8 @@ pub unsafe extern "C" fn vx_velox_expression_not(
 /// `child` must point to a live expression.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_velox_expression_is_null(
-    child: *const vx_expression,
-) -> *mut vx_expression {
+    child: *const vx_velox_expression,
+) -> *mut vx_velox_expression {
     unsafe { ffi::vx_expression_is_null(child) }
 }
 
@@ -577,9 +492,9 @@ pub unsafe extern "C" fn vx_velox_expression_is_null(
 /// Both operands must point to live expressions.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_velox_expression_list_contains(
-    list: *const vx_expression,
-    value: *const vx_expression,
-) -> *mut vx_expression {
+    list: *const vx_velox_expression,
+    value: *const vx_velox_expression,
+) -> *mut vx_velox_expression {
     unsafe { ffi::vx_expression_list_contains(list, value) }
 }
 
@@ -595,7 +510,7 @@ pub extern "C" fn vx_velox_can_push_down_integer_values(value_count: usize) -> b
 ///
 /// `expression` must be null or an owned expression handle.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_velox_expression_free(expression: *const vx_expression) {
+pub unsafe extern "C-unwind" fn vx_velox_expression_free(expression: *const vx_velox_expression) {
     unsafe { ffi::vx_expression_free(expression) };
 }
 
@@ -605,7 +520,9 @@ pub unsafe extern "C-unwind" fn vx_velox_expression_free(expression: *const vx_e
 ///
 /// `data_source` must be null or an owned data-source handle.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_velox_data_source_free(data_source: *const vx_data_source) {
+pub unsafe extern "C-unwind" fn vx_velox_data_source_free(
+    data_source: *const vx_velox_data_source,
+) {
     unsafe { ffi::vx_data_source_free(data_source) };
 }
 
@@ -684,10 +601,10 @@ unsafe fn scan_options(options: &vx_velox_scan_options) -> vortex_error::VortexR
 /// Every pointer must satisfy the adapter header contract.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_velox_data_source_scan(
-    data_source: *const vx_data_source,
+    data_source: *const vx_velox_data_source,
     options: *const vx_velox_scan_options,
-    error_out: *mut *mut vx_error,
-) -> *mut vx_scan {
+    error_out: *mut *mut vx_velox_error,
+) -> *mut vx_velox_scan {
     try_or(error_out, ptr::null_mut(), || {
         let request = if options.is_null() {
             ScanRequest::default()
@@ -704,7 +621,7 @@ pub unsafe extern "C-unwind" fn vx_velox_data_source_scan(
 ///
 /// `scan` must be null or an owned scan handle.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_velox_scan_free(scan: *const vx_scan) {
+pub unsafe extern "C-unwind" fn vx_velox_scan_free(scan: *const vx_velox_scan) {
     unsafe { ffi::vx_scan_free(scan) };
 }
 
@@ -715,9 +632,9 @@ pub unsafe extern "C-unwind" fn vx_velox_scan_free(scan: *const vx_scan) {
 /// `scan` must point to a live scan. `error_out` must be null or valid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_velox_scan_next_partition(
-    scan: *mut vx_scan,
-    error_out: *mut *mut vx_error,
-) -> *mut vx_partition {
+    scan: *mut vx_velox_scan,
+    error_out: *mut *mut vx_velox_error,
+) -> *mut vx_velox_partition {
     unsafe { ffi::vx_scan_next_partition(scan, error_out) }
 }
 
@@ -727,7 +644,7 @@ pub unsafe extern "C-unwind" fn vx_velox_scan_next_partition(
 ///
 /// `partition` must be null or an owned partition handle.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_velox_partition_free(partition: *const vx_partition) {
+pub unsafe extern "C-unwind" fn vx_velox_partition_free(partition: *const vx_velox_partition) {
     unsafe { ffi::vx_partition_free(partition) };
 }
 
@@ -738,9 +655,9 @@ pub unsafe extern "C-unwind" fn vx_velox_partition_free(partition: *const vx_par
 /// `partition` must point to a live partition. `error_out` must be null or valid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_velox_partition_next(
-    partition: *mut vx_partition,
-    error_out: *mut *mut vx_error,
-) -> *const vx_array {
+    partition: *mut vx_velox_partition,
+    error_out: *mut *mut vx_velox_error,
+) -> *const vx_velox_array {
     unsafe { ffi::vx_partition_next(partition, error_out) }
 }
 
@@ -750,7 +667,7 @@ pub unsafe extern "C-unwind" fn vx_velox_partition_next(
 ///
 /// `array` must be null or an owned array handle.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_velox_array_free(array: *const vx_array) {
+pub unsafe extern "C-unwind" fn vx_velox_array_free(array: *const vx_velox_array) {
     unsafe { ffi::vx_array_free(array) };
 }
 
@@ -760,7 +677,7 @@ pub unsafe extern "C-unwind" fn vx_velox_array_free(array: *const vx_array) {
 ///
 /// `array` must point to a live array.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_velox_array_len(array: *const vx_array) -> usize {
+pub unsafe extern "C-unwind" fn vx_velox_array_len(array: *const vx_velox_array) -> usize {
     unsafe { ffi::vx_array_len(array) }
 }
 
@@ -771,11 +688,11 @@ pub unsafe extern "C-unwind" fn vx_velox_array_len(array: *const vx_array) -> us
 /// `array` must point to a live array. `error_out` must be null or valid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_velox_array_slice(
-    array: *const vx_array,
+    array: *const vx_velox_array,
     begin: usize,
     end: usize,
-    error_out: *mut *mut vx_error,
-) -> *const vx_array {
+    error_out: *mut *mut vx_velox_error,
+) -> *const vx_velox_array {
     unsafe { ffi::vx_array_slice(array, begin, end, error_out) }
 }
 
@@ -840,7 +757,7 @@ mod tests {
         let list_literal = unsafe { vx_velox_expression_literal(list, &raw mut error) };
         assert!(error.is_null());
         let root = vx_velox_expression_root();
-        let name = vx_view {
+        let name = vx_velox_view {
             ptr: c"value".as_ptr(),
             len: 5,
         };
