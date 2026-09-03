@@ -1,0 +1,21 @@
+[package]
+name = "onpair-unified-bench"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+onpair-original = { package = "onpair_rs", git = "https://github.com/gargiulofrancesco/onpair_rs", rev = "ac663abe92ef3de26a65d9684e78f2aea28366ff" }
+onpair-snapshot = { package = "onpair", path = "../onpair-rs" }
+serde = { version = "1.0.221", features = ["derive"] }
+serde_json = "1.0.138"
+sha2 = "0.11.0"
+vortex-onpair-sys = { path = "../onpair-sys" }
+
+[profile.release]
+codegen-units = 1
+debug = 1
+lto = "fat"
+panic = "abort"

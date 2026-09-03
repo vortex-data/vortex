@@ -1,0 +1,17 @@
+[package]
+name = "onpair-hashmap-codegen"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+hashbrown = "0.16.1"
+onpair = { git = "https://github.com/spiraldb/onpair", rev = "bac803ec26db816110fdd061ae8a67dfd8e008ba" }
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+panic = "abort"
+debug = 1

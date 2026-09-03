@@ -1,0 +1,27 @@
+[package]
+name = "vortex-onpair-sys"
+version = "0.1.0"
+authors = ["Vortex Authors <hello@vortex.dev>"]
+categories = ["compression"]
+description = "Native FFI bindings to the OnPair short-string compression library"
+edition = "2024"
+homepage = "https://github.com/spiraldb/vortex"
+include = [
+    "build.rs",
+    "src/**/*.rs",
+    "cxx/**/*",
+    "cmake/**/*",
+    "Cargo.toml",
+    "README.md",
+]
+keywords = ["compression", "onpair"]
+license = "Apache-2.0"
+links = "onpair_shim"
+readme = "README.md"
+repository = "https://github.com/spiraldb/vortex"
+rust-version = "1.95"
+
+[workspace]
+
+[build-dependencies]
+cmake = "0.1"

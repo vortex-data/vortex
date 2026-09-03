@@ -72,7 +72,12 @@ members = [
     "benchmarks/string-bench",
     "vortex-spatial",
 ]
-exclude = ["java/testfiles", "wasm-test"]
+exclude = [
+    "benchmarks/onpair-rs",
+    "benchmarks/onpair-sys",
+    "java/testfiles",
+    "wasm-test",
+]
 resolver = "3"
 
 [workspace.package]
@@ -201,7 +206,7 @@ num_enum = { version = "0.7.3", default-features = false }
 object_store = { version = "0.13.2", default-features = false }
 object_store_opendal = "0.58.0"
 once_cell = "1.21.4"
-onpair = "0.2.0"
+onpair = { path = "benchmarks/onpair-rs" }
 opendal = { version = "0.58.1", default-features = false }
 opentelemetry = "0.32.0"
 opentelemetry-otlp = "0.32.0"
