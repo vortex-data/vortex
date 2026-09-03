@@ -129,7 +129,7 @@ fn read_metadata_segments(
     file_size: Option<u64>,
 ) -> VortexResult<Vec<(String, ByteBuffer)>> {
     RUNTIME.block_on(async move {
-        let file = open_cached(session, source, cache_key, file_size, &|options| {
+        let file = open_cached(session, Some(cache_key), source, file_size, &|options| {
             options.include_metadata()
         })
         .await?;

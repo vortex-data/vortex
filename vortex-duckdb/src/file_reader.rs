@@ -16,7 +16,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_panic;
 use vortex::file::Footer;
 use vortex::file::multi::MultiFileSession;
-use vortex::file::multi::open_cached_with_key;
+use vortex::file::multi::open_cached;
 use vortex::file::multi::parse_uri_or_path;
 use vortex::file::v2::FileStatsLayoutReader;
 use vortex::io::compat::Compat;
@@ -105,12 +105,10 @@ pub struct OpenFileReader {
 }
 
 impl OpenFileReader {
-    async fn open(file_path: String) -> VortexResult<Self> {
-        let url = parse_uri_or_path(&file_path)?;
-        let (fs, path) = resolve_filesystem(&url)?;
-        let file = fs.open_read(&path).await?;
-        let file =
-            open_cached_with_key(&SESSION, file, &file_path, None, &|options| options).await?;
+    async fn open(path: String) -> VortexResult<Self> {
+        let (fs, fs_path) = resolve_filesystem(&parse_uri_or_path(&path)?)?;
+        let source = fs.open_read(&fs_path).await?;
+        let file = open_cached(&SESSION, Some(&path), source, None, &|options| options).await?;
         Ok(OpenFileReader {
             reader: file.layout_reader()?,
             cache: ConversionCache::default(),

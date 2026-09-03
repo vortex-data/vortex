@@ -234,45 +234,34 @@ async fn open_file(
     tracing::trace!(path = %file.path, "opening vortex file");
 
     let source = fs.open_read(&file.path).await?;
-    open_cached(session, source, &file.path, file.size, open_options_fn).await
+    open_cached(session, None, source, file.size, open_options_fn).await
 }
 
-/// Open a single Vortex file through the session's footer cache, so that a later open of the
-/// same file skips the footer read.
+/// Open a Vortex file and cache its footer on the session.
+/// Subsequent calls to this function will reuse the footer from cache.
 ///
-/// The cache is keyed by the source's [`uri`](vortex_io::VortexReadAt::uri) where it reports one,
-/// since that includes the full path (with any filesystem prefix) and so stays unique even when
-/// different filesystems strip paths to the same relative name. `fallback_key` identifies the file
-/// for sources that report no URI, and must be stable and unique within the session — two
-/// different files sharing a key would read each other's footer.
-///
-/// Caching the footer is independent of [`VortexOpenOptions::include_metadata`]: the footer holds
-/// only metadata *locators*, and each open resolves the segments it was asked for.
+/// "key" is the optional cache key provided by user. If it's not found,
+/// source.uri() is probed. If there's no uri(), open_cached errors.
 pub async fn open_cached(
     session: &VortexSession,
+    mut key: Option<&str>,
     source: Arc<dyn VortexReadAt>,
-    fallback_key: &str,
     file_size: Option<u64>,
     open_options_fn: &(dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync),
 ) -> VortexResult<VortexFile> {
     let uri = source.uri().cloned();
-    let cache_key = uri.as_deref().unwrap_or(fallback_key);
-    open_cached_with_key(session, source, cache_key, file_size, open_options_fn).await
-}
+    if key.is_none() {
+        key = uri.as_deref();
+    }
+    let Some(key) = key else {
+        vortex_bail!("Missing cache key");
+    };
 
-/// Same as open_cached, but caller provides the cache key.
-/// Key must be stable and unique within the session.
-pub async fn open_cached_with_key(
-    session: &VortexSession,
-    source: Arc<dyn VortexReadAt>,
-    key: &str,
-    file_size: Option<u64>,
-    open_options_fn: &(dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync),
-) -> VortexResult<VortexFile> {
     let mut options = open_options_fn(session.open_options());
     if let Some(size) = file_size {
         options = options.with_file_size(size);
     }
+
     {
         if let Some(footer) = session.multi_file().get_footer(key) {
             options = options.with_footer(footer);
