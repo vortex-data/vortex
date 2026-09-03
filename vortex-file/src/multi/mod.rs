@@ -255,30 +255,33 @@ pub async fn open_cached(
     file_size: Option<u64>,
     open_options_fn: &(dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync),
 ) -> VortexResult<VortexFile> {
-    let cache_key = source
-        .uri()
-        .map_or_else(|| fallback_key.to_owned(), |uri| uri.to_string());
+    let uri = source.uri().cloned();
+    let cache_key = uri.as_deref().unwrap_or(fallback_key);
+    open_cached_with_key(session, source, cache_key, file_size, open_options_fn).await
+}
 
-    // Build open options. The cache guard from multi_file() must not live across an await,
-    // so we scope the cache lookup in a block.
-    let options = {
-        let mut options = open_options_fn(session.open_options());
-        if let Some(size) = file_size {
-            options = options.with_file_size(size);
-        }
-        if let Some(footer) = session.multi_file().get_footer(&cache_key) {
+/// Same as open_cached, but caller provides the cache key.
+/// Key must be stable and unique within the session.
+pub async fn open_cached_with_key(
+    session: &VortexSession,
+    source: Arc<dyn VortexReadAt>,
+    key: &str,
+    file_size: Option<u64>,
+    open_options_fn: &(dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync),
+) -> VortexResult<VortexFile> {
+    let mut options = open_options_fn(session.open_options());
+    if let Some(size) = file_size {
+        options = options.with_file_size(size);
+    }
+    {
+        if let Some(footer) = session.multi_file().get_footer(key) {
             options = options.with_footer(footer);
         }
-        options
-    };
+    }
 
-    let vortex_file = options.open(source).await?;
-
-    // Store footer in cache (scoped to avoid holding the guard across subsequent code).
-    session
-        .multi_file()
-        .put_footer(&cache_key, vortex_file.footer().clone());
-    Ok(vortex_file)
+    let file = options.open(source).await?;
+    session.multi_file().put_footer(key, file.footer().clone());
+    Ok(file)
 }
 
 /// A [`LayoutReaderFactory`] that lazily opens a single Vortex file and returns its layout reader.

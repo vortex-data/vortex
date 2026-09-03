@@ -16,13 +16,12 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_panic;
 use vortex::file::Footer;
 use vortex::file::multi::MultiFileSession;
-use vortex::file::multi::open_cached;
+use vortex::file::multi::open_cached_with_key;
 use vortex::file::multi::parse_uri_or_path;
 use vortex::file::v2::FileStatsLayoutReader;
 use vortex::io::compat::Compat;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::io::object_store::ObjectStoreFileSystem;
-use vortex::io::object_store::object_path_from_literal;
 use vortex::io::runtime::BlockingRuntime as _;
 use vortex::layout::LayoutReaderRef;
 use vortex::layout::scan::scan_builder::ScanBuilder;
@@ -97,14 +96,6 @@ fn resolve_filesystem(url: &Url) -> VortexResult<(FileSystemRef, String)> {
     ))
 }
 
-/// Same as resolve_filesystem but doesn't create filesystem object
-fn resolve_path(url: &Url) -> VortexResult<String> {
-    if url.scheme() == "file" {
-        return Ok(url.path().to_string());
-    }
-    Ok(REGISTRY.resolve(url)?.1.to_string())
-}
-
 pub struct OpenFileReader {
     pub reader: LayoutReaderRef,
     /// File splits stored in inverse order
@@ -118,7 +109,8 @@ impl OpenFileReader {
         let url = parse_uri_or_path(&file_path)?;
         let (fs, path) = resolve_filesystem(&url)?;
         let file = fs.open_read(&path).await?;
-        let file = open_cached(&SESSION, file, &path, None, &|options| options).await?;
+        let file =
+            open_cached_with_key(&SESSION, file, &file_path, None, &|options| options).await?;
         Ok(OpenFileReader {
             reader: file.layout_reader()?,
             cache: ConversionCache::default(),
@@ -324,38 +316,12 @@ pub fn can_get_partition_stats(bind: &BindState) -> bool {
 /// If any footer is not present, it sets a flag in BindState so we won't try
 /// again.
 pub fn footer_get_cached(bind: &mut BindState, path: &str) -> VortexResult<Option<Footer>> {
-    let session = SESSION
+    let footer = SESSION
         .get_opt::<MultiFileSession>()
-        .vortex_expect("MultiFileSession not found");
-    let footer = match fast_footer_key(path) {
-        Some(key) => session.get_footer(key),
-        None => {
-            let url = parse_uri_or_path(path)?;
-            let path = resolve_path(&url)?;
-            session.get_footer(object_path_from_literal(&path).as_ref())
-        }
-    };
+        .vortex_expect("MultiFileSession not found")
+        .get_footer(path);
     bind.no_footer_caches |= footer.is_none();
     Ok(footer)
-}
-
-/// For absolute local paths without special characters we don't need
-/// allocations to get a footer key
-fn fast_footer_key(path: &str) -> Option<&str> {
-    let key = path.strip_prefix('/')?;
-    if key.is_empty() {
-        return None;
-    }
-    key.split('/')
-        .all(|part| {
-            !part.is_empty()
-                && part != "."
-                && part != ".."
-                && part
-                    .bytes() // Characters Url doesn't percent-encode
-                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'~' | b'-'))
-        })
-        .then_some(key)
 }
 
 /// Called by one thread for every footer in planning phase
@@ -370,40 +336,5 @@ pub fn footer_get_statistics(footer: &Footer, index: usize) -> Option<ColumnStat
     match ColumnStatistics::try_from(stats, dtype) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use rstest::rstest;
-
-    use super::*;
-
-    #[rstest]
-    #[case("/data/file.vortex")]
-    #[case("/a~b/c-1_2.file.vortex")]
-    #[case("/x/y/z")]
-    fn test_fast_key(#[case] path: &str) -> VortexResult<()> {
-        let url = parse_uri_or_path(path)?;
-        let slow = object_path_from_literal(&resolve_path(&url)?).to_string();
-        assert_eq!(fast_footer_key(path), Some(slow.as_str()));
-        Ok(())
-    }
-
-    #[rstest]
-    #[case::relative("data/file.vortex")]
-    #[case::scheme("s3://bucket/file.vortex")]
-    #[case::file_url("file:///a/b.vortex")]
-    #[case::empty_segment("/a//b")]
-    #[case::dot_segment("/a/./b")]
-    #[case::dotdot_segment("/a/../b")]
-    #[case::trailing_slash("/a/b/")]
-    #[case::root("/")]
-    #[case::space("/a b/c.vortex")]
-    #[case::percent("/a%20b/c.vortex")]
-    #[case::non_ascii("/ололо/file.vortex")]
-    #[case::glob("/a/*.vortex")]
-    fn test_no_fast_key(#[case] path: &str) {
-        assert_eq!(fast_footer_key(path), None);
     }
 }
