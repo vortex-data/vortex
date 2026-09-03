@@ -1,0 +1,46 @@
+name: Validate Fuzz Seeds
+
+concurrency:
+  group: fuzz-regression
+  cancel-in-progress: true
+
+on:
+  push:
+    branches:
+      - develop
+    paths:
+      - ".cargo/**"
+      - "**/*.c"
+      - "**/*.cpp"
+      - "**/*.cu"
+      - "**/*.cuh"
+      - "**/*.h"
+      - "**/*.hpp"
+      - "**/*.proto"
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "fuzz/**"
+      - ".github/actions/setup-prebuild/**"
+      - ".github/actions/setup-rust/**"
+      - ".github/workflows/build-fuzzers.yml"
+      - ".github/workflows/fuzz-regression.yml"
+      - ".github/workflows/validate-fuzz-corpora.yml"
+      - "scripts/s3-download.py"
+  workflow_dispatch: { }
+
+jobs:
+  build_cpu_fuzzers:
+    name: "Build CPU fuzzers"
+    uses: ./.github/workflows/build-fuzzers.yml
+
+  validate_existing_seeds:
+    name: "Validate existing seeds"
+    needs: build_cpu_fuzzers
+    uses: ./.github/workflows/validate-fuzz-corpora.yml
+    with:
+      fuzzer_artifact: ${{ needs.build_cpu_fuzzers.outputs.artifact_name }}
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}

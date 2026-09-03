@@ -7,18 +7,23 @@ on:
         description: "The cargo fuzz target name (e.g., file_io, array_ops, compress_roundtrip)"
         required: true
         type: string
-      family:
-        description: "Runner family"
+      fuzz_name:
+        description: "Display/storage name. Defaults to fuzz_target."
         required: false
         type: string
-        default: "m8g.2xlarge"
-      image:
-        description: "Runner image"
+        default: ""
+      runner:
+        description: "Runner name from .github-private runs-on.yml"
         required: false
         type: string
-        default: "ubuntu24-full-arm64"
+        default: "arm64-medium"
       extra_features:
         description: "Extra cargo features to enable (e.g., cuda)"
+        required: false
+        type: string
+        default: ""
+      extra_env:
+        description: "Extra environment variables for the fuzzer"
         required: false
         type: string
         default: ""
@@ -33,10 +38,12 @@ env:
 
 jobs:
   minimize:
-    name: "Minimize ${{ inputs.fuzz_target }}"
+    name: "Minimize ${{ inputs.fuzz_name || inputs.fuzz_target }}"
+    env:
+      FUZZ_NAME: ${{ inputs.fuzz_name || inputs.fuzz_target }}
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=arm64-medium/disk=large/extras=s3-cache/tag={1}-minimize', github.run_id, inputs.fuzz_target)
+          && format('runs-on={0}/runner={1}/disk=large/tag={2}-minimize', github.run_id, inputs.runner, inputs.fuzz_name || inputs.fuzz_target)
           || 'ubuntu-latest' }}
     timeout-minutes: 240
     steps:
@@ -46,18 +53,41 @@ jobs:
           echo "::error::Corpus minimization should only run on the develop branch (current: ${{ github.ref }})"
           exit 1
 
-      - uses: runs-on/action@v2
-        if: github.repository == 'vortex-data/vortex'
-        with:
-          sccache: s3
-
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - uses: ./.github/actions/setup-prebuild
+        if: >-
+          github.repository == 'vortex-data/vortex' &&
+          contains(fromJSON('["arm64-fuzz", "arm64-medium"]'), inputs.runner)
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
-          enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
+          enable-sccache: "false"
+
+      - uses: ./.github/actions/setup-rust
+        if: >-
+          github.repository != 'vortex-data/vortex' ||
+          !contains(fromJSON('["arm64-fuzz", "arm64-medium"]'), inputs.runner)
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
+          enable-sccache: "false"
+
+      - name: Check LLVM toolchain
+        id: llvm-toolchain
+        shell: bash
+        run: |
+          if command -v clang >/dev/null && command -v llvm-symbolizer >/dev/null; then
+            echo "installed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "installed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install llvm
+        if: steps.llvm-toolchain.outputs.installed != 'true'
+        uses: aminya/setup-cpp@v1
+        with:
+          compiler: llvm
 
       - name: Install cargo-fuzz
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
@@ -65,6 +95,7 @@ jobs:
           tool: cargo-fuzz
 
       - name: Restore corpus
+        id: corpus
         shell: bash
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
@@ -72,33 +103,68 @@ jobs:
           AWS_REGION: "us-east-1"
           AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
         run: |
-          CORPUS_KEY="${{ inputs.fuzz_target }}_corpus.tar.zst"
-          CORPUS_DIR="fuzz/corpus/${{ inputs.fuzz_target }}"
+          CORPUS_KEY="${FUZZ_NAME}_corpus.tar.zst"
+          CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}"
+          CORPUS_ETAG_FILE="$RUNNER_TEMP/${FUZZ_NAME}.etag"
 
-          if python3 scripts/s3-download.py "s3://vortex-fuzz-corpus/$CORPUS_KEY" "$CORPUS_KEY"; then
+          if python3 scripts/s3-download.py \
+            "s3://vortex-fuzz-corpus/$CORPUS_KEY" "$CORPUS_KEY" \
+            --etag-output "$CORPUS_ETAG_FILE"; then
             echo "Downloaded corpus successfully"
             tar -xf "$CORPUS_KEY"
+            echo "found=true" >> "$GITHUB_OUTPUT"
           else
             echo "No existing corpus found, nothing to minimize"
             mkdir -p "$CORPUS_DIR"
-            exit 0
+            echo "found=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Minimize corpus
+        if: steps.corpus.outputs.found == 'true'
+        shell: bash
         run: |
+          set -euo pipefail
           FEATURES_FLAG=""
           if [ -n "${{ inputs.extra_features }}" ]; then
             FEATURES_FLAG="--features ${{ inputs.extra_features }}"
           fi
-          CORPUS_DIR="fuzz/corpus/${{ inputs.fuzz_target }}"
+          CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}"
           MINIMIZED_DIR="${CORPUS_DIR}_minimized"
           mkdir -p "$MINIMIZED_DIR"
-          cargo +$NIGHTLY_TOOLCHAIN fuzz cmin $FEATURES_FLAG \
-            ${{ inputs.fuzz_target }} "$CORPUS_DIR" -- "$MINIMIZED_DIR"
+          ORIGINAL_COUNT=$(find "$CORPUS_DIR" -type f | wc -l)
+
+          cargo +$NIGHTLY_TOOLCHAIN fuzz build --release --debug-assertions \
+            $FEATURES_FLAG ${{ inputs.fuzz_target }}
+          FUZZ_BINARY=$(find target -type f \
+            -path "*/release/${{ inputs.fuzz_target }}" -perm -u+x -print -quit)
+          if [ -z "$FUZZ_BINARY" ]; then
+            echo "::error::Unable to find compiled fuzzer ${{ inputs.fuzz_target }}"
+            exit 1
+          fi
+
+          set +e
+          env ${{ inputs.extra_env }} "$FUZZ_BINARY" \
+            -merge=1 "$MINIMIZED_DIR" "$CORPUS_DIR" -rss_limit_mb=0 \
+            2>&1 | tee fuzz-minimize.log
+          MERGE_STATUS=${PIPESTATUS[0]}
+          set -e
+          MINIMIZED_COUNT=$(find "$MINIMIZED_DIR" -type f | wc -l)
+
+          if [ "$MERGE_STATUS" -ne 0 ] || grep -Fq "caused a failure" fuzz-minimize.log; then
+            echo "::error::Corpus minimization encountered failing inputs"
+            exit 1
+          fi
+          if [ "$ORIGINAL_COUNT" -gt 0 ] && [ "$MINIMIZED_COUNT" -eq 0 ]; then
+            echo "::error::Refusing to replace a non-empty corpus with an empty corpus"
+            exit 1
+          fi
+
+          echo "Minimized $ORIGINAL_COUNT inputs to $MINIMIZED_COUNT"
           rm -rf "$CORPUS_DIR"
           mv "$MINIMIZED_DIR" "$CORPUS_DIR"
 
       - name: Persist corpus
+        if: steps.corpus.outputs.found == 'true'
         shell: bash
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
@@ -106,7 +172,8 @@ jobs:
           AWS_REGION: "us-east-1"
           AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
         run: |
-          CORPUS_KEY="${{ inputs.fuzz_target }}_corpus.tar.zst"
-          CORPUS_DIR="fuzz/corpus/${{ inputs.fuzz_target }}"
-          tar -acf "$CORPUS_KEY" "$CORPUS_DIR"
-          python3 scripts/s3-upload.py --bucket vortex-fuzz-corpus --key "$CORPUS_KEY" --body "$CORPUS_KEY" --checksum-algorithm CRC32
+          CORPUS_KEY="${FUZZ_NAME}_corpus.tar.zst"
+          CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}"
+          CORPUS_ETAG_FILE="$RUNNER_TEMP/${FUZZ_NAME}.etag"
+          scripts/checkpoint-fuzz-corpus.sh \
+            "$CORPUS_DIR" "$CORPUS_KEY" "$CORPUS_ETAG_FILE"

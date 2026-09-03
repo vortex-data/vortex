@@ -1,0 +1,85 @@
+name: Build CPU Fuzzers
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: "Runner name from .github-private runs-on.yml"
+        required: false
+        type: string
+        default: "arm64-medium"
+    outputs:
+      artifact_name:
+        description: "Artifact containing the compiled CPU fuzzers"
+        value: ${{ jobs.build.outputs.artifact_name }}
+
+env:
+  NIGHTLY_TOOLCHAIN: nightly-2026-02-05
+
+jobs:
+  build:
+    name: "Build CPU fuzzers"
+    timeout-minutes: 120
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner={1}/disk=large/tag=fuzz-build', github.run_id, inputs.runner)
+          || 'ubuntu-latest' }}
+    outputs:
+      artifact_name: ${{ steps.artifact.outputs.name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
+          components: ""
+          enable-sccache: "false"
+
+      - name: Install cargo-fuzz
+        uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
+        with:
+          tool: cargo-fuzz
+
+      - name: Build fuzzers
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p fuzz-binaries
+
+          cargo +$NIGHTLY_TOOLCHAIN fuzz build --release --debug-assertions
+
+          copy_fuzzer() {
+            local target=$1
+            local output_name=${2:-$target}
+            local binary
+            binary=$(find target -type f -path "*/release/$target" -perm -u+x -print -quit)
+            if [ -z "$binary" ]; then
+              echo "::error::Unable to find compiled fuzzer $target"
+              exit 1
+            fi
+            install -m 755 "$binary" "fuzz-binaries/$output_name"
+          }
+
+          for target in array_ops compress_roundtrip file_io fsst_like row_encode; do
+            copy_fuzzer "$target"
+          done
+
+          cargo +$NIGHTLY_TOOLCHAIN fuzz build --release --debug-assertions \
+            --features vortex/unstable_encodings array_ops
+          copy_fuzzer array_ops array_ops_unstable_encodings
+
+          tar -acf cpu-fuzzers.tar.zst fuzz-binaries
+
+      - name: Set artifact name
+        id: artifact
+        shell: bash
+        run: echo "name=cpu-fuzzers-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload fuzzers
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          path: cpu-fuzzers.tar.zst
+          compression-level: 0
+          retention-days: 2
