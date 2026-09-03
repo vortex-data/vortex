@@ -3,8 +3,9 @@
 
 //! Arrow's decimal arithmetic rules, and their evaluation over [`DecimalValue`].
 //!
-//! Vortex coerces both operands of a decimal arithmetic expression to a single [`DecimalDType`],
-//! so Arrow's general `(p1, s1) op (p2, s2)` formulas collapse to a function of one input type:
+//! Add, Sub, and Div currently require both operands to share one [`DecimalDType`]. Decimal scalar
+//! arithmetic has the same constraint. For those operations, and for same-dtype Mul, Arrow's
+//! general `(p1, s1) op (p2, s2)` formulas collapse to a function of one input type:
 //!
 //! | operator | result precision | result scale |
 //! | -------- | ---------------- | ------------ |
@@ -15,6 +16,9 @@
 //! Precision saturates at [`MAX_PRECISION`]. Because Mul widens the scale, the product of the
 //! stored integers already sits at the result scale and no rounding is needed. Div instead scales
 //! the dividend up front and truncates toward zero, which is what Arrow does.
+//!
+//! Array multiplication can also use distinct decimal dtypes. Its general `p1 + p2 + 1,
+//! s1 + s2` result is derived by [`decimal_multiply_result_dtype`].
 //!
 //! Div is the one operator whose intermediate can outgrow the widest native width: scaling the
 //! dividend by `10^result_scale` overflows `i256` once `p + result_scale` passes
@@ -59,27 +63,7 @@ pub(crate) fn decimal_numeric_result_dtype(
                 input.scale(),
             ))
         }
-        NumericOperator::Mul => {
-            // Doubling the scale in i8 would saturate a very negative sum into a legal-looking
-            // scale, so widen first. The SQL standard rejects a product whose scale cannot be
-            // represented rather than rounding it away.
-            let result_scale = <i16 as From<i8>>::from(input.scale()) * 2;
-            let Some(result_scale) = i8::try_from(result_scale)
-                .ok()
-                .filter(|scale| *scale <= MAX_SCALE)
-            else {
-                vortex_bail!(
-                    "output scale {result_scale} of {input} {op} {input} is outside the \
-                     representable scale range of {} to {MAX_SCALE}",
-                    i8::MIN
-                );
-            };
-            let result_precision = input
-                .precision()
-                .saturating_add(input.precision().saturating_add(1))
-                .min(MAX_PRECISION);
-            DecimalDType::try_new(result_precision, result_scale)
-        }
+        NumericOperator::Mul => decimal_multiply_result_dtype(input, input),
         NumericOperator::Div => {
             // Arrow follows Postgres and MySQL in adding a fixed four fractional digits. Its
             // precision formula `p1 - s1 + s2 + result_scale` simplifies to `p + result_scale`
@@ -96,6 +80,38 @@ pub(crate) fn decimal_numeric_result_dtype(
             DecimalDType::try_new(result_precision.min(MAX_PRECISION), result_scale)
         }
     }
+}
+
+/// Derive the result decimal dtype of multiplying operands with decimal dtypes `lhs` and `rhs`.
+///
+/// Precision follows Arrow's `p1 + p2 + 1` rule and saturates at [`MAX_PRECISION`]. Scale is the
+/// exact sum `s1 + s2`, so the product of the stored integers needs no rescaling.
+///
+/// # Errors
+///
+/// Returns an error if the summed scale is outside Vortex's representable scale range.
+pub(crate) fn decimal_multiply_result_dtype(
+    lhs: DecimalDType,
+    rhs: DecimalDType,
+) -> VortexResult<DecimalDType> {
+    // Add in i16 so a very negative sum cannot wrap or saturate into a legal-looking i8 scale.
+    let result_scale = <i16 as From<i8>>::from(lhs.scale()) + <i16 as From<i8>>::from(rhs.scale());
+    let Some(result_scale) = i8::try_from(result_scale)
+        .ok()
+        .filter(|scale| *scale <= MAX_SCALE)
+    else {
+        vortex_bail!(
+            "output scale {result_scale} of {lhs} * {rhs} is outside the representable scale \
+             range of {} to {MAX_SCALE}",
+            i8::MIN
+        );
+    };
+    let result_precision = lhs
+        .precision()
+        .saturating_add(rhs.precision())
+        .saturating_add(1)
+        .min(MAX_PRECISION);
+    DecimalDType::try_new(result_precision, result_scale)
 }
 
 /// Apply `op` to two stored values of `input`, returning the result stored in `result`'s width.

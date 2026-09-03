@@ -7,6 +7,7 @@ mod arithmetic;
 mod dvalue;
 mod scalar;
 
+pub(crate) use arithmetic::decimal_multiply_result_dtype;
 pub(crate) use arithmetic::decimal_numeric_result_dtype;
 pub(crate) use arithmetic::decimal_numeric_work_dtype;
 pub use dvalue::DecimalValue;

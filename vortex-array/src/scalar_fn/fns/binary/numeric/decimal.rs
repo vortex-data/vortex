@@ -3,11 +3,11 @@
 
 //! Native execution of the arithmetic operators over decimal arrays.
 //!
-//! Both operands share a logical [`DecimalDType`] (equal precision and scale). Add and Sub apply
-//! directly to the unscaled stored integers and are exact at that shared scale. Mul takes the raw
-//! product, which the doubled result scale leaves correctly scaled, and Div rescales the dividend
-//! (or the divisor, for a negative result scale) before integer division. Result precision and
-//! scale follow Arrow's rules — see [`decimal_numeric_result_dtype`].
+//! Add, Sub, and Div operate on decimal operands sharing one logical [`DecimalDType`]. Mul also
+//! accepts decimals with different logical dtypes and signed integer operands. It multiplies their
+//! stored integers directly because the result scale is the sum of the operand scales. Div rescales
+//! the dividend (or the divisor, for a negative result scale) before integer division. Result
+//! precision and scale follow Arrow's rules.
 //!
 //! Lanes execute in a working width wide enough that in-precision inputs cannot spuriously
 //! overflow an intermediate, then narrow to the result's own storage width. Every lane is still
@@ -31,6 +31,7 @@ use vortex_mask::Mask;
 
 use super::checked::checked_lanes;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -43,31 +44,35 @@ use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
+use crate::dtype::PType;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
 use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
-use crate::scalar::decimal_numeric_result_dtype;
 use crate::scalar::decimal_numeric_work_dtype;
 use crate::validity::Validity;
 
-/// Execute a numeric operation between two decimal arrays sharing a decimal dtype.
+/// Execute a numeric operation whose result is decimal.
 pub(super) fn execute_numeric_decimal(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
     op: NumericOperator,
+    result_decimal_dtype: DecimalDType,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let decimal_dtype = lhs
-        .dtype()
-        .as_decimal_opt()
-        .vortex_expect("inputs are both decimals");
-
-    let result_decimal_dtype = decimal_numeric_result_dtype(*decimal_dtype, op)?;
     let result_dtype = DType::Decimal(
         result_decimal_dtype,
         lhs.dtype().nullability() | rhs.dtype().nullability(),
     );
+    let work_dtype = if op == NumericOperator::Mul {
+        DecimalDType::new(result_decimal_dtype.precision(), 0)
+    } else {
+        let input_dtype = lhs
+            .dtype()
+            .as_decimal_opt()
+            .vortex_expect("non-multiplication decimal operands share a decimal dtype");
+        decimal_numeric_work_dtype(*input_dtype, result_decimal_dtype, op)
+    };
 
     // Fast path for null constant arrays.
     if is_null_constant(lhs) || is_null_constant(rhs) {
@@ -86,7 +91,6 @@ pub(super) fn execute_numeric_decimal(
     let validity = lhs.validity().and(rhs.validity())?;
     let valid_rows = validity.execute_mask(len, ctx)?;
 
-    let work_dtype = decimal_numeric_work_dtype(*decimal_dtype, result_decimal_dtype, op);
     match_each_decimal_value_type!(DecimalType::smallest_decimal_value_type(&work_dtype), |W| {
         let constants = DecimalOpConstants::<W>::new(result_decimal_dtype, op)?;
         macro_rules! execute_typed {
@@ -122,10 +126,10 @@ fn null_result(dtype: &DType, len: usize) -> ArrayRef {
     ConstantArray::new(Scalar::null(dtype.clone()), len).into_array()
 }
 
-/// A decimal binary-operator operand: a canonical decimal array or a non-null constant.
+/// An integer-valued decimal operator operand, retaining the input's physical buffer.
 enum DecimalOperand {
     Array {
-        values: DecimalArray,
+        values: Canonical,
         validity: Validity,
     },
     Constant {
@@ -140,7 +144,7 @@ impl DecimalOperand {
         let columnar = array.clone().execute::<Columnar>(ctx)?;
 
         match columnar {
-            Columnar::Constant(array) => match array.scalar().as_decimal().decimal_value() {
+            Columnar::Constant(array) => match integer_scalar_value(array.scalar())? {
                 Some(value) => Ok(Some(Self::Constant {
                     value,
                     len: array.len(),
@@ -152,9 +156,14 @@ impl DecimalOperand {
                 })),
                 None => Ok(None),
             },
-            Columnar::Canonical(array) => {
-                let values = array.as_decimal().to_owned();
-                let validity = values.validity()?;
+            Columnar::Canonical(values) => {
+                let validity = match &values {
+                    Canonical::Decimal(values) => values.validity()?,
+                    Canonical::Primitive(values) if values.ptype().is_signed_int() => {
+                        values.validity()?
+                    }
+                    _ => unreachable!("unsupported decimal operand dtype {}", values.dtype()),
+                };
                 Ok(Some(Self::Array { values, validity }))
             }
         }
@@ -171,6 +180,29 @@ impl DecimalOperand {
         match self {
             Self::Array { validity, .. } | Self::Constant { validity, .. } => validity.clone(),
         }
+    }
+}
+
+fn integer_scalar_value(scalar: &Scalar) -> VortexResult<Option<DecimalValue>> {
+    match scalar.dtype() {
+        DType::Decimal(..) => Ok(scalar.as_decimal().decimal_value()),
+        DType::Primitive(PType::I8, _) => Ok(scalar
+            .as_primitive()
+            .try_typed_value::<i8>()?
+            .map(DecimalValue::from)),
+        DType::Primitive(PType::I16, _) => Ok(scalar
+            .as_primitive()
+            .try_typed_value::<i16>()?
+            .map(DecimalValue::from)),
+        DType::Primitive(PType::I32, _) => Ok(scalar
+            .as_primitive()
+            .try_typed_value::<i32>()?
+            .map(DecimalValue::from)),
+        DType::Primitive(PType::I64, _) => Ok(scalar
+            .as_primitive()
+            .try_typed_value::<i64>()?
+            .map(DecimalValue::from)),
+        dtype => unreachable!("unsupported decimal operand dtype {dtype}"),
     }
 }
 
@@ -318,6 +350,53 @@ impl CheckedDecimalOp for CheckedDecimalDiv {
     }
 }
 
+macro_rules! with_decimal_operand_values {
+    ($operand:expr, | $values:ident | $body:expr) => {{
+        match $operand {
+            DecimalOperand::Array {
+                values: Canonical::Decimal(values),
+                ..
+            } => {
+                match_each_decimal_value_type!(values.values_type(), |T| {
+                    let buffer = values.buffer::<T>();
+                    let $values = buffer.as_slice();
+                    $body
+                })
+            }
+            DecimalOperand::Array {
+                values: Canonical::Primitive(values),
+                ..
+            } => match values.ptype() {
+                PType::I8 => {
+                    let buffer = values.to_buffer::<i8>();
+                    let $values = buffer.as_slice();
+                    $body
+                }
+                PType::I16 => {
+                    let buffer = values.to_buffer::<i16>();
+                    let $values = buffer.as_slice();
+                    $body
+                }
+                PType::I32 => {
+                    let buffer = values.to_buffer::<i32>();
+                    let $values = buffer.as_slice();
+                    $body
+                }
+                PType::I64 => {
+                    let buffer = values.to_buffer::<i64>();
+                    let $values = buffer.as_slice();
+                    $body
+                }
+                ptype => unreachable!("unsupported decimal operand ptype {ptype}"),
+            },
+            DecimalOperand::Array { values, .. } => {
+                unreachable!("unsupported decimal operand dtype {}", values.dtype())
+            }
+            DecimalOperand::Constant { .. } => unreachable!("operand is an array"),
+        }
+    }};
+}
+
 fn execute_decimal_typed<W, Op>(
     lhs: &DecimalOperand,
     rhs: &DecimalOperand,
@@ -334,53 +413,132 @@ where
 {
     let len = lhs.len();
 
-    let values = match (lhs, rhs) {
-        (DecimalOperand::Array { values: lhs, .. }, DecimalOperand::Array { values: rhs, .. }) => {
-            checked_decimal_arrays::<W, Op>(lhs, rhs, constants, valid_rows)
-        }
-        (DecimalOperand::Array { values: lhs, .. }, DecimalOperand::Constant { value, .. }) => {
-            let rhs = typed_constant::<W>(value);
-            match_each_decimal_value_type!(lhs.values_type(), |L| {
-                let lhs = lhs.buffer::<L>();
-                checked_lanes(lhs.as_slice(), valid_rows, |lhs| {
-                    Op::apply(<W as BigCast>::from(lhs)?, rhs, constants)
-                })
-            })
-        }
-        (DecimalOperand::Constant { value, .. }, DecimalOperand::Array { values: rhs, .. }) => {
-            let lhs = typed_constant::<W>(value);
-            match_each_decimal_value_type!(rhs.values_type(), |R| {
-                let rhs = rhs.buffer::<R>();
-                checked_lanes(rhs.as_slice(), valid_rows, |rhs| {
-                    Op::apply(lhs, <W as BigCast>::from(rhs)?, constants)
-                })
-            })
-        }
-        (
-            DecimalOperand::Constant { value: lhs, .. },
-            DecimalOperand::Constant { value: rhs, .. },
-        ) => {
-            let lhs = typed_constant::<W>(lhs);
-            let rhs = typed_constant::<W>(rhs);
-            let value = Op::apply(lhs, rhs, constants)
-                .ok_or_else(|| vortex_err!(InvalidArgument: "{}", Op::ERROR))?;
-            let value = DecimalValue::from(value)
-                .normalize(result_decimal_dtype)
-                .vortex_expect("bounds-checked result fits the result precision");
-            return Ok(ConstantArray::new(
-                Scalar::decimal(value, result_decimal_dtype, result_dtype.nullability()),
-                len,
-            )
-            .into_array());
-        }
+    if let (
+        DecimalOperand::Constant { value: lhs, .. },
+        DecimalOperand::Constant { value: rhs, .. },
+    ) = (lhs, rhs)
+    {
+        let lhs = typed_constant::<W>(lhs);
+        let rhs = typed_constant::<W>(rhs);
+        let value = Op::apply(lhs, rhs, constants)
+            .ok_or_else(|| vortex_err!(InvalidArgument: "{}", Op::ERROR))?;
+        let value = DecimalValue::from(value)
+            .normalize(result_decimal_dtype)
+            .vortex_expect("bounds-checked result fits the result precision");
+        return Ok(ConstantArray::new(
+            Scalar::decimal(value, result_decimal_dtype, result_dtype.nullability()),
+            len,
+        )
+        .into_array());
     }
-    .map_err(|_lane| vortex_err!(InvalidArgument: "{}", Op::ERROR))?;
+
+    let values = execute_decimal_lanes::<W, Op>(lhs, rhs, constants, valid_rows)
+        .map_err(|_lane| vortex_err!(InvalidArgument: "{}", Op::ERROR))?;
 
     Ok(decimal_array_narrowed(
         values,
         result_decimal_dtype,
         validity.union_nullability(result_dtype.nullability()),
     ))
+}
+
+fn execute_decimal_lanes<W, Op>(
+    lhs: &DecimalOperand,
+    rhs: &DecimalOperand,
+    constants: &DecimalOpConstants<W>,
+    valid_rows: &Mask,
+) -> Result<Buffer<W>, usize>
+where
+    W: NativeDecimalType + CheckedAdd + CheckedSub + CheckedMul + CheckedDiv + Mul<Output = W>,
+    Op: CheckedDecimalOp,
+{
+    match (lhs, rhs) {
+        (DecimalOperand::Constant { value, .. }, DecimalOperand::Array { .. }) => {
+            execute_decimal_constant_array::<W, Op>(value, rhs, constants, valid_rows)
+        }
+        (DecimalOperand::Array { .. }, DecimalOperand::Constant { value, .. }) => {
+            execute_decimal_array_constant::<W, Op>(lhs, value, constants, valid_rows)
+        }
+        (DecimalOperand::Array { .. }, DecimalOperand::Array { .. }) => {
+            execute_decimal_array_array::<W, Op>(lhs, rhs, constants, valid_rows)
+        }
+        (DecimalOperand::Constant { .. }, DecimalOperand::Constant { .. }) => {
+            unreachable!("constant operands are handled before lane execution")
+        }
+    }
+}
+
+fn execute_decimal_constant_array<W, Op>(
+    lhs: &DecimalValue,
+    rhs: &DecimalOperand,
+    constants: &DecimalOpConstants<W>,
+    valid_rows: &Mask,
+) -> Result<Buffer<W>, usize>
+where
+    W: NativeDecimalType + CheckedAdd + CheckedSub + CheckedMul + CheckedDiv + Mul<Output = W>,
+    Op: CheckedDecimalOp,
+{
+    let lhs = typed_constant::<W>(lhs);
+    with_decimal_operand_values!(rhs, |rhs| {
+        checked_lanes(rhs, valid_rows, |rhs| {
+            Op::apply(lhs, <W as BigCast>::from(rhs)?, constants)
+        })
+    })
+}
+
+fn execute_decimal_array_constant<W, Op>(
+    lhs: &DecimalOperand,
+    rhs: &DecimalValue,
+    constants: &DecimalOpConstants<W>,
+    valid_rows: &Mask,
+) -> Result<Buffer<W>, usize>
+where
+    W: NativeDecimalType + CheckedAdd + CheckedSub + CheckedMul + CheckedDiv + Mul<Output = W>,
+    Op: CheckedDecimalOp,
+{
+    let rhs = typed_constant::<W>(rhs);
+    with_decimal_operand_values!(lhs, |lhs| {
+        checked_lanes(lhs, valid_rows, |lhs| {
+            Op::apply(<W as BigCast>::from(lhs)?, rhs, constants)
+        })
+    })
+}
+
+fn execute_decimal_array_array<W, Op>(
+    lhs: &DecimalOperand,
+    rhs: &DecimalOperand,
+    constants: &DecimalOpConstants<W>,
+    valid_rows: &Mask,
+) -> Result<Buffer<W>, usize>
+where
+    W: NativeDecimalType + CheckedAdd + CheckedSub + CheckedMul + CheckedDiv + Mul<Output = W>,
+    Op: CheckedDecimalOp,
+{
+    with_decimal_operand_values!(lhs, |lhs| {
+        execute_decimal_array_rhs::<W, Op, _>(lhs, rhs, constants, valid_rows)
+    })
+}
+
+fn execute_decimal_array_rhs<W, Op, L>(
+    lhs: &[L],
+    rhs: &DecimalOperand,
+    constants: &DecimalOpConstants<W>,
+    valid_rows: &Mask,
+) -> Result<Buffer<W>, usize>
+where
+    W: NativeDecimalType + CheckedAdd + CheckedSub + CheckedMul + CheckedDiv + Mul<Output = W>,
+    Op: CheckedDecimalOp,
+    L: NativeDecimalType,
+{
+    with_decimal_operand_values!(rhs, |rhs| {
+        checked_lanes(LaneZip::new(lhs, rhs), valid_rows, |(lhs, rhs)| {
+            Op::apply(
+                <W as BigCast>::from(lhs)?,
+                <W as BigCast>::from(rhs)?,
+                constants,
+            )
+        })
+    })
 }
 
 /// Build the result array, narrowing to the dtype's own storage width when the working width is
@@ -407,36 +565,6 @@ fn decimal_array_narrowed<W: NativeDecimalType>(
             })
             .collect();
         DecimalArray::new(narrowed, decimal_dtype, validity).into_array()
-    })
-}
-
-fn checked_decimal_arrays<W, Op>(
-    lhs: &DecimalArray,
-    rhs: &DecimalArray,
-    constants: &DecimalOpConstants<W>,
-    valid_rows: &Mask,
-) -> Result<Buffer<W>, usize>
-where
-    W: NativeDecimalType + CheckedAdd + CheckedSub + CheckedMul + CheckedDiv + Mul<Output = W>,
-    Op: CheckedDecimalOp,
-{
-    debug_assert_eq!(lhs.len(), rhs.len());
-    match_each_decimal_value_type!(lhs.values_type(), |L| {
-        let lhs = lhs.buffer::<L>();
-        match_each_decimal_value_type!(rhs.values_type(), |R| {
-            let rhs = rhs.buffer::<R>();
-            checked_lanes(
-                LaneZip::new(lhs.as_slice(), rhs.as_slice()),
-                valid_rows,
-                |(lhs, rhs)| {
-                    Op::apply(
-                        <W as BigCast>::from(lhs)?,
-                        <W as BigCast>::from(rhs)?,
-                        constants,
-                    )
-                },
-            )
-        })
     })
 }
 
