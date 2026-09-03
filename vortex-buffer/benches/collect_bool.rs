@@ -31,6 +31,7 @@ use vortex_buffer::collect_bool_word_scalar;
 #[cfg(not(codspeed))]
 use vortex_buffer::pack_bool_word_swar;
 
+#[vortex_bench_support::main]
 fn main() {
     // Pre-warm CPUID feature detection so the one-time probe cost is never
     // included in any benchmark iteration.
@@ -101,13 +102,25 @@ fn bench_words_gather(
     collect: impl Fn(&mut [u64], usize, &[bool]) + Sync,
 ) {
     let bools = make_bools(len);
+    // One output buffer for every iteration rather than one per iteration through
+    // `with_inputs`: divan builds a sample's inputs up front, and `sample_size` of them would
+    // leave the loop writing to cold memory (see `cpu_features`). Every word is assigned, so
+    // nothing carries over. The bools stay the per-iteration input so the loop takes divan's
+    // input-slot path, as it did with a buffer per iteration; the zero-sized-input path
+    // black-boxes every iteration, which on a 10 ns case is a measurable share. `black_box`
+    // keeps the stores observable: nothing reads the buffer before it is freed, so they would
+    // otherwise be fair game for the optimizer.
+    let mut words = vec![0u64; len.div_ceil(64)];
     bencher
-        .with_inputs(|| vec![0u64; len.div_ceil(64)])
-        .bench_refs(|words| collect(words, len, &bools));
+        .with_inputs(|| bools.as_slice())
+        .bench_local_refs(|bools| {
+            collect(&mut words, len, bools);
+            divan::black_box(&words);
+        });
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(args = INPUT_SIZE)]
+#[divan::bench(args = INPUT_SIZE, sample_size = 2048, sample_count = 200)]
 fn words_gather_dispatch(bencher: Bencher, len: usize) {
     bench_words_gather(bencher, len, |words, len, bools| {
         // SAFETY: `collect_bool_words` invokes the predicate with indices `0..len` only.
@@ -116,7 +129,7 @@ fn words_gather_dispatch(bencher: Bencher, len: usize) {
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(args = INPUT_SIZE)]
+#[divan::bench(args = INPUT_SIZE, sample_size = 256, sample_count = 200)]
 fn words_gather_scalar(bencher: Bencher, len: usize) {
     bench_words_gather(bencher, len, |words, len, bools| {
         // SAFETY: `collect_bool_words_old` invokes the predicate with indices `0..len` only.

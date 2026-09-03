@@ -48,6 +48,7 @@ use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_compute::lane_kernels::LaneZip;
 use vortex_compute::lane_kernels::ReinterpretSink;
 
+#[vortex_bench_support::main]
 fn main() {
     assert_overflow_parity();
     assert_null_overflow_suppressed();
@@ -330,7 +331,7 @@ fn add_fixture(n: usize) -> AddFixture {
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(args = SIZES)]
+#[divan::bench(args = SIZES, sample_size = 16)]
 fn lanezip_checked_add_u32(bencher: Bencher, n: usize) {
     let f = add_fixture(n);
     bencher
@@ -348,12 +349,14 @@ fn lanezip_checked_add_u32(bencher: Bencher, n: usize) {
             LaneZip::new(lhs.as_slice(), rhs.as_slice())
                 .try_map_masked_into(&combined, out.as_mut_slice(), |(a, b)| a.checked_add(b))
                 .unwrap();
-            (combined, out)
+            // Dropped here rather than returned, so the output block is recycled every
+            // iteration instead of `sample_size` of them piling up cold (see `cpu_features`).
+            divan::black_box_drop((combined, out));
         });
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(args = SIZES)]
+#[divan::bench(args = SIZES, sample_size = 8)]
 fn arrow_checked_add_u32(bencher: Bencher, n: usize) {
     let f = add_fixture(n);
     let lhs_arr: ArrowArrayRef = Arc::new(UInt32Array::new(
@@ -367,7 +370,7 @@ fn arrow_checked_add_u32(bencher: Bencher, n: usize) {
 
     bencher
         .with_inputs(|| (lhs_arr.clone(), rhs_arr.clone()))
-        .bench_values(|(lhs, rhs)| add(&lhs, &rhs).unwrap());
+        .bench_values(|(lhs, rhs)| divan::black_box_drop(add(&lhs, &rhs).unwrap()));
 }
 
 // -----------------------------------------------------------------------------

@@ -49,6 +49,7 @@ use vortex_buffer::Buffer;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
+#[vortex_bench_support::main]
 fn main() {
     divan::main();
 }
@@ -175,7 +176,7 @@ fn compare_bool_constant(bencher: Bencher) {
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench]
+#[divan::bench(sample_size = 32)]
 fn compare_int(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
     let arr1 = int_array(&mut rng);
@@ -184,7 +185,7 @@ fn compare_int(bencher: Bencher) {
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench]
+#[divan::bench(sample_size = 32)]
 fn compare_int_nullable(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
     let arr1 = int_array_nullable(&mut rng);
@@ -193,7 +194,7 @@ fn compare_int_nullable(bencher: Bencher) {
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench]
+#[divan::bench(sample_size = 32)]
 fn compare_int_constant(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
     let arr = int_array(&mut rng);
@@ -202,7 +203,7 @@ fn compare_int_constant(bencher: Bencher) {
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench]
+#[divan::bench(sample_size = 32)]
 fn compare_u8(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
     let arr1 = u8_array(&mut rng);
@@ -211,7 +212,7 @@ fn compare_u8(bencher: Bencher) {
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench]
+#[divan::bench(sample_size = 32)]
 fn compare_u64(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
     let arr1 = u64_array(&mut rng);
@@ -220,7 +221,7 @@ fn compare_u64(bencher: Bencher) {
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench]
+#[divan::bench(sample_size = 32)]
 fn compare_f32(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
     let arr1 = f32_array(&mut rng);
@@ -229,7 +230,7 @@ fn compare_f32(bencher: Bencher) {
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench]
+#[divan::bench(sample_size = 32)]
 fn compare_int_eq(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
     let arr1 = int_array(&mut rng);
@@ -238,7 +239,7 @@ fn compare_int_eq(bencher: Bencher) {
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench]
+#[divan::bench(sample_size = 32)]
 fn compare_float(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
     let arr1 = float_array(&mut rng);

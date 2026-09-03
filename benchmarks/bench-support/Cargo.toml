@@ -1,6 +1,6 @@
 [package]
 name = "vortex-bench-support"
-description = "Proc macros for gating Vortex benchmarks by CPU architecture and instruction set"
+description = "Proc macros for Vortex benchmarks measured once per CPU feature set"
 authors = { workspace = true }
 categories = { workspace = true }
 edition = { workspace = true }
