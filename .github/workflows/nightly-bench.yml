@@ -29,5 +29,5 @@ jobs:
       fail-fast: false
       matrix:
         machine_type:
-          - id: x86
-            instance_name: c6id.metal
+          - id: arm64
+            instance_name: c8gd.metal-24xl
