@@ -123,21 +123,17 @@ fn filter_with_indices<T: NativePType + BitPacking>(
     indices: &[usize],
 ) -> BufferMut<T> {
     let offset = array.offset() as usize;
-    let bit_width = array.bit_width() as usize;
     let mut values = BufferMut::with_capacity(indices.len());
 
     // Some re-usable memory to store per-chunk indices.
     let mut unpacked = [const { MaybeUninit::<T>::uninit() }; 1024];
-    let packed_bytes = array.packed_slice::<T>();
 
     // Group the indices by the FastLanes chunk they belong to.
-    let chunk_size = 128 * bit_width / size_of::<T>();
-
     chunked_indices(
         indices.iter().copied(),
         offset,
         |chunk_idx, indices_within_chunk| {
-            let packed = &packed_bytes[chunk_idx * chunk_size..][..chunk_size];
+            let (packed, bit_width) = array.packed_chunk::<T>(chunk_idx);
 
             if indices_within_chunk.len() == 1024 {
                 // Unpack the entire chunk.

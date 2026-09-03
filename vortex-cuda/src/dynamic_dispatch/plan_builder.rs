@@ -559,7 +559,11 @@ impl FusedPlan {
             let bp = child.as_::<BitPacked>();
             let offset = slice_arr.data().slice_range().start;
             let len = array.len();
-            let (packed, bitpacked_offset, patch_range) = bitpacked_slice_view(bp, offset, len)?;
+            let (packed, widths, bitpacked_offset, patch_range) =
+                bitpacked_slice_view(bp, offset, len)?;
+            let Some(bit_width) = widths.uniform_width() else {
+                vortex_bail!("CUDA bit-unpack requires every chunk to share one bit width");
+            };
 
             let source_ptype = ptype_to_tag(PType::try_from(bp.dtype()).map_err(|_| {
                 vortex_err!("BitPacked must have primitive dtype, got {:?}", bp.dtype())
@@ -567,7 +571,7 @@ impl FusedPlan {
             let buf_index = self.source_buffers.len();
             self.source_buffers.push(Some(packed));
             return Ok(Stage::new(
-                SourceOp::bitunpack(bp.bit_width(), bitpacked_offset),
+                SourceOp::bitunpack(bit_width, bitpacked_offset),
                 Some(buf_index),
                 source_ptype,
             )
@@ -615,6 +619,9 @@ impl FusedPlan {
 
     fn walk_bitpacked(&mut self, array: ArrayRef) -> VortexResult<Stage> {
         let bp = array.as_::<BitPacked>();
+        let Some(bit_width) = bp.chunk_widths().uniform_width() else {
+            vortex_bail!("CUDA bit-unpack requires every chunk to share one bit width");
+        };
 
         let source_ptype = ptype_to_tag(PType::try_from(bp.dtype()).map_err(|_| {
             vortex_err!("BitPacked must have primitive dtype, got {:?}", bp.dtype())
@@ -622,7 +629,7 @@ impl FusedPlan {
         let buf_index = self.source_buffers.len();
         self.source_buffers.push(Some(bp.packed().clone()));
         Ok(Stage::new(
-            SourceOp::bitunpack(bp.bit_width(), bp.offset()),
+            SourceOp::bitunpack(bit_width, bp.offset()),
             Some(buf_index),
             source_ptype,
         )

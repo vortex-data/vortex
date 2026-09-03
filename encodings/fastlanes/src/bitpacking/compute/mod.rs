@@ -53,7 +53,7 @@ mod tests {
     use vortex_array::compute::conformance::consistency::test_array_consistency;
 
     use crate::BitPackedArray;
-    use crate::bitpack_compress::bitpack_encode;
+    use crate::bitpacking::bitpack_compress::bitpack_encode;
     use crate::bitpacking::compute::chunked_indices;
 
     fn bp(array: &PrimitiveArray, bit_width: u8) -> BitPackedArray {

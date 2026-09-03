@@ -23,8 +23,8 @@ use vortex_error::VortexResult;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::FL_CHUNK_SIZE;
-use crate::unpack_iter::BitPacked as BitPackedUnpack;
-use crate::unpack_iter::BitUnpackedChunks;
+use crate::bitpacking::unpack_iter::BitPacked as BitPackedUnpack;
+use crate::bitpacking::unpack_iter::BitUnpackedChunks;
 
 /// Unpacks a bit-packed array into a primitive array.
 pub fn unpack_array(
@@ -161,15 +161,16 @@ pub(crate) fn apply_patches_to_uninit_range<S: NativePType, T: NativePType, F: F
 }
 
 pub fn unpack_single(array: ArrayView<'_, BitPacked>, index: usize) -> Scalar {
-    let bit_width = array.bit_width() as usize;
     let ptype = array.dtype().as_ptype();
-    // let packed = array.packed().into_primitive()?;
     let index_in_encoded = index + array.offset() as usize;
+    let chunk = index_in_encoded / FL_CHUNK_SIZE;
+    let index_in_chunk = index_in_encoded % FL_CHUNK_SIZE;
     let scalar: Scalar = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |P| {
-        unsafe {
-            unpack_single_primitive::<P>(array.packed_slice::<P>(), bit_width, index_in_encoded)
-                .into()
-        }
+        let (packed_chunk, bit_width) = array.packed_chunk::<P>(chunk);
+        // SAFETY: `packed_chunk` is exactly one packed block at `bit_width`, and the index is
+        // within the chunk.
+        unsafe { BitPacking::unchecked_unpack_single(bit_width, packed_chunk, index_in_chunk) }
+            .into()
     });
     // Cast to fix signedness and nullability
     scalar.cast(array.dtype()).vortex_expect("cast failure")
@@ -228,7 +229,7 @@ mod tests {
     use super::*;
     use crate::BitPackedArray;
     use crate::BitPackedData;
-    use crate::bitpack_compress::bitpack_encode;
+    use crate::bitpacking::bitpack_compress::bitpack_encode;
 
     fn encode(array: &PrimitiveArray, bit_width: u8) -> BitPackedArray {
         bitpack_encode(array, bit_width, None, &mut SESSION.create_execution_ctx()).unwrap()

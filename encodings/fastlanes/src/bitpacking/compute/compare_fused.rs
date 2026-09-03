@@ -11,7 +11,7 @@
 //! `[bool; 1024]` or `[T; 1024]` scratch. A single SIMD [`transpose_bits`] per block then rotates
 //! that mask into logical row order.
 //!
-//! The packed blocks are walked through [`crate::unpack_iter::for_each_packed_chunk`], so chunk
+//! The packed blocks are walked through [`crate::bitpacking::unpack_iter::for_each_packed_chunk`], so chunk
 //! sizing and bounds live in one place without allocating an unpack scratch buffer.
 //!
 //! Slicing is handled by working in *padded* coordinates: bit `offset + i` holds element `i`. The
@@ -48,8 +48,8 @@ use vortex_error::VortexResult;
 use super::stream_predicate::stream_predicate;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
-use crate::unpack_iter::BitPacked as BitPackedIter;
-use crate::unpack_iter::for_each_packed_chunk;
+use crate::bitpacking::unpack_iter::BitPacked as BitPackedIter;
+use crate::bitpacking::unpack_iter::for_each_packed_chunk;
 
 const CHUNK_SIZE: usize = 1024;
 const U64_BITS: usize = u64::BITS as usize;
@@ -78,12 +78,12 @@ where
     F: Fn(T, T) -> bool + Copy,
 {
     let len = array.len();
-    let bit_width = array.bit_width() as usize;
+    let widths = array.chunk_widths();
     let offset = array.offset() as usize;
 
     // A degenerate width has no packed payload for the fused kernel to consume; defer to the scalar
     // streaming predicate, which handles every layout (including the empty array).
-    if len == 0 || bit_width == 0 {
+    if len == 0 || widths.max_width() == 0 {
         return stream_predicate::<T, _>(array, nullability, move |v| cmp(v, rhs), ctx);
     }
 
@@ -97,14 +97,19 @@ where
         let mut lane_major = [0u64; WORDS_PER_CHUNK];
         for_each_packed_chunk::<T, _>(
             array.packed_slice::<<T as PhysicalPType>::Physical>(),
-            bit_width,
+            widths,
             offset,
             len,
-            |packed_chunk, range| {
+            |packed_chunk, bit_width, range| {
                 // Block starts are always 1024-aligned (padded coords), so the slot is a full block.
                 let out = words[range.start / U64_BITS..]
                     .first_chunk_mut::<WORDS_PER_CHUNK>()
                     .vortex_expect("over-allocated buffer holds a full block per chunk");
+                // A zero-width chunk has no packed payload: every value in it is zero.
+                if bit_width == 0 {
+                    out.fill(if cmp(T::default(), rhs) { u64::MAX } else { 0 });
+                    return;
+                }
                 // SAFETY: `packed_chunk` holds exactly `128 * bit_width / size_of::<U>()` packed
                 // elements and `bit_width <= U::T`, satisfying `unchecked_unpack_cmp`'s contract. The
                 // kernel assigns every word in `transposed`, so its previous contents are irrelevant.

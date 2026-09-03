@@ -23,6 +23,7 @@ use vortex_error::VortexResult;
 
 use crate::BitPacked;
 use crate::bitpacking::compute::stream_predicate::stream_predicate;
+use crate::bitpacking::unpack_iter::BitPacked as BitPackedIter;
 
 impl BetweenKernel for BitPacked {
     fn between(
@@ -74,7 +75,7 @@ fn between_constant_typed<T>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef>
 where
-    T: NativePType + Copy + crate::unpack_iter::BitPacked,
+    T: NativePType + Copy + BitPackedIter,
 {
     // Branch on strictness once at the top so each call into `between_impl` monomorphises
     // a single tight predicate — same shape as `Primitive::between` in `vortex-array`.
@@ -128,7 +129,7 @@ fn between_impl<T, Lo, Up>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef>
 where
-    T: NativePType + Copy + crate::unpack_iter::BitPacked,
+    T: NativePType + Copy + BitPackedIter,
     Lo: Fn(T, T) -> bool,
     Up: Fn(T, T) -> bool,
 {

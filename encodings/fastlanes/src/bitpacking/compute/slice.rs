@@ -54,15 +54,18 @@ fn slice_bitpacked(
     let block_start = max(0, offset_start - offset);
     let block_stop = offset_stop.div_ceil(1024) * 1024;
 
-    let encoded_start = (block_start / 8) * array.bit_width() as usize;
-    let encoded_stop = (block_stop / 8) * array.bit_width() as usize;
+    let chunk_start = block_start / 1024;
+    let chunk_stop = block_stop / 1024;
+    let widths = array.chunk_widths();
+    let encoded_start = widths.byte_offset(chunk_start);
+    let encoded_stop = widths.byte_offset(chunk_stop);
 
     Ok(BitPacked::try_new(
         array.packed().slice(encoded_start..encoded_stop),
         array.dtype().as_ptype(),
         array.validity()?.slice(range.clone())?,
         patches,
-        array.bit_width(),
+        widths.slice(chunk_start..chunk_stop),
         range.len(),
         offset as u16,
     )?
@@ -79,7 +82,7 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::BitPacked;
-    use crate::bitpack_compress::bitpack_encode;
+    use crate::bitpacking::bitpack_compress::bitpack_encode;
 
     #[test]
     fn test_reduce_parent_returns_bitpacked_slice() -> VortexResult<()> {

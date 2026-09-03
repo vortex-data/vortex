@@ -84,7 +84,7 @@ pub fn initialize(session: &VortexSession) {
     if use_experimental_patches() {
         session.arrays().register(BitPackedPatchedPlugin);
     } else {
-        session.arrays().register(BitPacked);
+        session.arrays().register(BitPackedPlugin);
     }
     session.arrays().register(Delta);
     session.arrays().register(FoR);
