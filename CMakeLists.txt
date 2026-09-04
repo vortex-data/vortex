@@ -47,6 +47,11 @@ cmake_minimum_required(VERSION 3.28)
 
 project(VortexNative DESCRIPTION "Vortex native libraries" LANGUAGES NONE)
 
+# A standalone configure writes compile_commands.json for editor tooling.
+if(PROJECT_IS_TOP_LEVEL)
+    set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+endif()
+
 # ctest only descends into subdirectories from a root that has testing enabled.
 enable_testing()
 

@@ -21,6 +21,11 @@ endif()
 # dependency scanners such as clang-scan-deps.
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
+# A standalone configure writes compile_commands.json for editor tooling.
+if(PROJECT_IS_TOP_LEVEL)
+    set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+endif()
+
 if(_vortex_top_level AND NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
 endif()
