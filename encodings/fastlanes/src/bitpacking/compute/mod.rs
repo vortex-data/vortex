@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::mem::size_of;
+
+use fastlanes::BitPacking;
+use vortex_array::dtype::NativePType;
+use vortex_buffer::BufferMut;
+
 mod between;
 mod cast;
 mod compare;
@@ -10,6 +16,35 @@ pub(crate) mod is_constant;
 mod slice;
 mod stream_predicate;
 mod take;
+
+const fn unpack_chunk_threshold<T>() -> usize {
+    // FastLanes and Vortex benchmarks set conservative crossovers for each physical type.
+    match size_of::<T>() {
+        1 => 16,
+        2 => 32,
+        4 => 64,
+        8 => 160,
+        _ => unreachable!(),
+    }
+}
+
+fn unpack_indices_into<T: NativePType + BitPacking>(
+    output: &mut BufferMut<T>,
+    bit_width: usize,
+    packed: &[T],
+    indices: &[usize],
+) {
+    let output_len = output.len();
+    let destination = &mut output.spare_capacity_mut()[..indices.len()];
+
+    // SAFETY: `bit_width` comes from validated data and fits `T`.
+    // `packed` contains one complete block, and each index is block-relative.
+    // The destination length equals the index length, and `output` reserves enough space.
+    unsafe {
+        T::unchecked_unpack_indices(bit_width, packed, indices, destination);
+        output.set_len(output_len + indices.len());
+    }
+}
 
 // TODO(connor): This is duplicated in `encodings/fastlanes/src/bitpacking/kernels/mod.rs`.
 fn chunked_indices<F: FnMut(usize, &[usize])>(
