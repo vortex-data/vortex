@@ -239,9 +239,9 @@ perform their analogous compatibility checks at their own serialization boundari
 ## The `preview` family
 
 The additive `preview` family is the shared opt-in set for core-maintained components whose serialized contracts have
-survived independent testing but are not yet available to the default core writer. Its first component,
-`vortex.decimal_byte_parts_v2`, joins at `preview2026.09.0`; unrelated work remains in independent families until it
-meets the preview compatibility bar.
+survived independent testing but are not yet available to the default core writer. Preview currently contains no
+components. Adding the first component will create a later preview edition; unrelated work remains in independent
+families until it meets the preview compatibility bar.
 
 ## Independently versioned component families
 
@@ -363,10 +363,6 @@ core. Optional plugin families state their own policy.
 #### `preview2026.08.0`
 
 This edition currently adds no components.
-
-#### `preview2026.09.0`
-
-- `array`: `vortex.decimal_byte_parts_v2`
 
 #### `tensor2026.04.0`
 

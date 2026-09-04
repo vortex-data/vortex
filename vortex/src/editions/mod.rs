@@ -44,7 +44,6 @@ pub use vortex_edition::declarations::core::CORE_2026_08_2;
 pub use vortex_edition::declarations::core::CORE_2026_08_3;
 pub use vortex_edition::declarations::preview;
 pub use vortex_edition::declarations::preview::PREVIEW_2026_08_0;
-pub use vortex_edition::declarations::preview::PREVIEW_2026_09_0;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
@@ -54,7 +53,7 @@ pub const DEFAULT_CORE_EDITION: EditionId = CORE_2026_08_3;
 
 /// The `preview` edition enabled for writing by the default Vortex session when the
 /// `unstable_encodings` feature is selected.
-pub const DEFAULT_PREVIEW_EDITION: EditionId = PREVIEW_2026_09_0;
+pub const DEFAULT_PREVIEW_EDITION: EditionId = PREVIEW_2026_08_0;
 
 /// Register the Vortex edition families and declarations with the session's
 /// [`EditionSession`].

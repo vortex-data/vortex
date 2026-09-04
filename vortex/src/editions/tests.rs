@@ -1,29 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::VortexSessionExecute;
 use vortex_array::array_session;
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
-use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::extension::datetime::Date;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::session::ArraySessionExt;
-use vortex_array::stream::ArrayStreamExt;
-use vortex_array::validity::Validity;
-use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_edition::ComponentKind;
 use vortex_edition::Edition;
@@ -41,7 +32,6 @@ use vortex_file::OpenOptionsSessionExt;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_file::WriteStrategyBuilder;
 use vortex_io::session::RuntimeSession;
-use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::session::LayoutSession;
 use vortex_sequence::Sequence;
 use vortex_session::VortexSession;
@@ -56,10 +46,6 @@ use super::DEFAULT_CORE_EDITION;
 use super::DEFAULT_PREVIEW_EDITION;
 use super::EDITION_DECLARATIONS;
 use super::PREVIEW_2026_08_0;
-use super::PREVIEW_2026_09_0;
-use crate::encodings::decimal_byte_parts::DecimalByteParts;
-use crate::encodings::decimal_byte_parts::DecimalBytePartsArraySlotsExt;
-use crate::encodings::decimal_byte_parts::split_decimal;
 
 fn session() -> Result<EditionSession, EditionError> {
     let session = EditionSession::empty();
@@ -148,30 +134,6 @@ fn core_2026_08_3_is_frozen_and_adds_variants() {
             .iter()
             .any(|inclusion| inclusion.component_id.as_str() == "vortex.uuid")
     );
-}
-
-#[test]
-fn preview_2026_09_adds_decimal_byte_parts_v2() {
-    let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
-    assert!(
-        session
-            .find(&PREVIEW_2026_09_0)
-            .unwrap_or_else(|| panic!("{PREVIEW_2026_09_0} is not registered"))
-            .is_draft()
-    );
-    let added: Vec<_> = session
-        .components_in(&PREVIEW_2026_09_0, ComponentKind::Array)
-        .iter()
-        .map(|inclusion| inclusion.component_id.as_str().to_string())
-        .collect();
-    assert_eq!(added, ["vortex.decimal_byte_parts_v2"]);
-    for kind in [
-        ComponentKind::Layout,
-        ComponentKind::DType,
-        ComponentKind::Aggregate,
-    ] {
-        assert!(session.components_in(&PREVIEW_2026_09_0, kind).is_empty());
-    }
 }
 
 #[test]
@@ -699,104 +661,5 @@ async fn serialization_context_accepts_supported_compressor_output() -> VortexRe
         )
         .await?;
 
-    Ok(())
-}
-
-/// A byte-parts column whose values need a lower part, so it serializes only as
-/// `vortex.decimal_byte_parts_v2`.
-fn wide_byte_parts_column() -> VortexResult<ArrayRef> {
-    let decimal = DecimalArray::new(
-        (0..64i128)
-            .map(|i| (1i128 << 70) + i)
-            .collect::<Buffer<i128>>(),
-        DecimalDType::new(38, 2),
-        Validity::NonNullable,
-    );
-    let parts = split_decimal(&decimal)?;
-    let encoded = DecimalByteParts::try_new_with_lower_parts(
-        parts.msp,
-        parts.lower_parts,
-        decimal.decimal_dtype(),
-    )?
-    .into_array();
-    Ok(StructArray::from_fields(&[("wide", encoded)])?.into_array())
-}
-
-/// A session with the default encodings and editions registered, enabling only the default core
-/// edition regardless of the `unstable_encodings` feature.
-fn core_only_session() -> VortexResult<VortexSession> {
-    let session = array_session()
-        .with::<EditionSession>()
-        .with::<LayoutSession>()
-        .with::<RuntimeSession>();
-    vortex_file::register_default_encodings(&session);
-    super::register_default_editions(&session);
-    session
-        .enable_edition(DEFAULT_CORE_EDITION)
-        .map_err(|error| vortex_err!("{error}"))?;
-    Ok(session)
-}
-
-/// Write `array` without recompressing it, so it reaches serialization exactly as built.
-async fn write_flat(session: &VortexSession, array: ArrayRef) -> VortexResult<ByteBufferMut> {
-    let mut buffer = ByteBufferMut::empty();
-    session
-        .write_options()
-        .with_strategy(Arc::new(FlatLayoutStrategy::default()))
-        .write(&mut buffer, array.to_array_stream())
-        .await?;
-    Ok(buffer)
-}
-
-/// The wide byte-parts format is gated by the editions enabled for writing.
-///
-/// The in-memory encoding is `vortex.decimal_byte_parts` either way; what the editions gate is
-/// the serialized ID. A flat write hands the multi-limb array straight to serialization, so the
-/// permitted-ID check is all that stands between it and the file: a core-only writer refuses it,
-/// and with the preview edition enabled it round-trips into the same in-memory encoding with its
-/// lower parts intact.
-#[tokio::test]
-async fn decimal_byte_parts_v2_is_gated_by_the_preview_edition() -> VortexResult<()> {
-    let column = wide_byte_parts_column()?;
-
-    let core_only = core_only_session()?;
-    let error = write_flat(&core_only, column.clone())
-        .await
-        .err()
-        .ok_or_else(|| vortex_err!("core-only writer accepted the v2 byte-parts format"))?;
-    assert!(
-        error.to_string().contains("not permitted by ctx"),
-        "unexpected error: {error}"
-    );
-
-    let preview = core_only_session()?;
-    preview
-        .enable_edition(PREVIEW_2026_09_0)
-        .map_err(|error| vortex_err!("{error}"))?;
-    let buffer = write_flat(&preview, column.clone()).await?;
-    let read = preview
-        .open_options()
-        .open_buffer(buffer)?
-        .scan()?
-        .into_array_stream()?
-        .read_all()
-        .await?;
-
-    let lower_part_counts: Vec<usize> = read
-        .depth_first_traversal()
-        .filter_map(|node| {
-            node.as_opt::<DecimalByteParts>()
-                .map(|array| array.lower_parts().len())
-        })
-        .collect();
-    assert!(
-        !lower_part_counts.is_empty(),
-        "expected the v2 format to deserialize into vortex.decimal_byte_parts"
-    );
-    assert!(
-        lower_part_counts.iter().all(|count| *count > 0),
-        "lower parts must survive the round trip"
-    );
-    assert_arrays_eq!(column, read, &mut preview.create_execution_ctx());
     Ok(())
 }
