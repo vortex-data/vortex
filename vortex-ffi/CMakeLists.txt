@@ -58,8 +58,14 @@ add_library(Vortex::ffi_static ALIAS vortex_ffi_static)
 # Test and example dependencies are fetched at configure time and never installed.
 if(VORTEX_BUILD_TESTING OR VORTEX_BUILD_EXAMPLES)
     include(FetchContent)
+
+    # Nanoarrow's developer warnings use -Werror and can reject newer compilers.
+    # Its headers are system headers when consumed by Vortex-owned targets.
+    set(NANOARROW_DEBUG_EXTRA_WARNINGS OFF CACHE BOOL
+        "Enable Nanoarrow's additional compiler warnings")
     FetchContent_Declare(
         Nanoarrow
+        SYSTEM
         GIT_REPOSITORY https://github.com/apache/arrow-nanoarrow
         GIT_TAG apache-arrow-nanoarrow-0.8.0)
     FetchContent_MakeAvailable(Nanoarrow)
