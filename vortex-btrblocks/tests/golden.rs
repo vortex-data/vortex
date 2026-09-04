@@ -9,9 +9,10 @@
 //! snapshot untouched, so snapshot churn in a later change is the reviewable signal of a
 //! behavior change.
 //!
-//! Two variants cover the edition and feature matrix:
+//! Three variants cover the edition and feature matrix:
 //!
-//! - `regular`: the schemes permitted by the default `core` edition.
+//! - `regular`: the schemes permitted by the default `core` edition, minus OnPair.
+//! - `onpair`: the structured-string entry with OnPair enabled — pins OnPair selection.
 //! - `compact`: the schemes permitted by the default `core` and opt-in `zstd` editions, with
 //!   the `zstd` + `pco` features and
 //!   [`BtrBlocksCompressorBuilder::with_compact`] — pins Zstd / Pco selection.
@@ -102,7 +103,17 @@ fn render(input: &ArrayRef, compressed: &ArrayRef) -> String {
 /// Compresses every corpus entry twice (direct determinism check) and snapshots the result
 /// under `{variant}__{entry}`.
 fn golden_corpus_snapshots(variant: &str, compressor: &BtrBlocksCompressor) -> VortexResult<()> {
-    for (name, array) in corpus()? {
+    golden_snapshots(variant, compressor, corpus()?)
+}
+
+/// Compresses each entry twice (direct determinism check) and snapshots the result under
+/// `{variant}__{entry}`.
+fn golden_snapshots(
+    variant: &str,
+    compressor: &BtrBlocksCompressor,
+    entries: Vec<(&'static str, ArrayRef)>,
+) -> VortexResult<()> {
+    for (name, array) in entries {
         let rendered = {
             let mut exec_ctx = SESSION.create_execution_ctx();
             render(&array, &compressor.compress(&array, &mut exec_ctx)?)
@@ -380,10 +391,9 @@ fn list_of_int_runs() -> VortexResult<ArrayRef> {
     Ok(ListArray::try_new(elements, offsets.into_array(), Validity::NonNullable)?.into_array())
 }
 
-/// Excludes OnPair from the golden compressors: its dictionary training (upstream `onpair`
-/// crate) iterates randomly-seeded `hashbrown` maps, so its compressed output — and therefore
-/// its sampled estimate — differs run-to-run. A nondeterministic scheme cannot serve as a
-/// golden baseline; excluding it keeps the remaining schemes pinned.
+/// Excludes OnPair from the `regular` and `compact` variants: it beats FSST on
+/// `string_fsst_structured`, and those variants pin the FSST selection. OnPair's own decisions
+/// are pinned by [`golden_onpair`].
 fn without_onpair(builder: BtrBlocksCompressorBuilder) -> BtrBlocksCompressorBuilder {
     use vortex_btrblocks::SchemeExt;
     use vortex_btrblocks::schemes::string::OnPairScheme;
@@ -425,11 +435,35 @@ fn compressor_for_session(
         .build()
 }
 
+/// Like [`compressor_for_session`] but keeps OnPair in the scheme pool.
+fn compressor_with_onpair(
+    session: &VortexSession,
+    builder: BtrBlocksCompressorBuilder,
+) -> BtrBlocksCompressor {
+    let allowed = session
+        .enabled_component_ids(ComponentKind::Array)
+        .into_iter()
+        .collect();
+    builder.retain_allowed_encodings(&allowed).build()
+}
+
 #[test]
 fn golden_regular() -> VortexResult<()> {
     let session = edition_session(&[CORE_2026_08_3])?;
     let compressor = compressor_for_session(&session, BtrBlocksCompressorBuilder::default());
     golden_corpus_snapshots("regular", &compressor)
+}
+
+/// Pins OnPair's selection over FSST on the structured-string entry.
+#[test]
+fn golden_onpair() -> VortexResult<()> {
+    let session = edition_session(&[CORE_2026_08_3])?;
+    let compressor = compressor_with_onpair(&session, BtrBlocksCompressorBuilder::default());
+    golden_snapshots(
+        "onpair",
+        &compressor,
+        vec![("string_fsst_structured", string_fsst_structured())],
+    )
 }
 
 #[cfg(all(feature = "zstd", feature = "pco"))]
