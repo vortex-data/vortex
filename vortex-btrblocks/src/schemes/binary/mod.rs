@@ -14,3 +14,5 @@ pub use vortex_compressor::builtins::BinaryDictScheme;
 pub use zstd::ZstdScheme;
 #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
 pub use zstd_buffers::ZstdBuffersScheme;
+
+pub use crate::schemes::varbin::VarBinScheme;

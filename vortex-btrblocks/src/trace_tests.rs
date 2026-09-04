@@ -317,14 +317,12 @@ fn trace_scan_compare_on_compressed_shipmode() -> VortexResult<()> {
       iter 3 current=vortex.dict(bool, len=4096) builder_active=false
         ExecuteSlot slot=1 parent=vortex.dict(bool, len=4096) child=vortex.binary(bool, len=7)
       iter 4 current=vortex.binary(bool, len=7) stack_parent=vortex.dict(bool, len=4096) slot=1 builder_active=false
-        child_execute_parent session[0]:execute_parent_fn slot=0 parent=vortex.binary(bool, len=7) child=vortex.fsst(utf8, len=7) -> vortex.binary(bool, len=7)
-      iter 5 current=vortex.binary(bool, len=7) stack_parent=vortex.dict(bool, len=4096) slot=1 builder_active=false
-        child_execute_parent session[0]:execute_parent_fn slot=0 parent=vortex.binary(bool, len=7) child=vortex.varbin(binary, len=7) -> vortex.bool(bool, len=7)
-      iter 6 current=vortex.bool(bool, len=7) stack_parent=vortex.dict(bool, len=4096) slot=1 builder_active=false
+        child_execute_parent session[0]:execute_parent_fn slot=0 parent=vortex.binary(bool, len=7) child=vortex.varbin(utf8, len=7) -> vortex.bool(bool, len=7)
+      iter 5 current=vortex.bool(bool, len=7) stack_parent=vortex.dict(bool, len=4096) slot=1 builder_active=false
         pop_frame slot=1 output=vortex.dict(bool, len=4096)
-      iter 7 current=vortex.dict(bool, len=4096) builder_active=false
+      iter 6 current=vortex.dict(bool, len=4096) builder_active=false
         child_execute_parent session[0]:execute_parent_fn slot=1 parent=vortex.dict(bool, len=4096) child=vortex.bool(bool, len=7) -> vortex.bool(bool, len=4096)
-      iter 8 current=vortex.bool(bool, len=4096) builder_active=false
+      iter 7 current=vortex.bool(bool, len=4096) builder_active=false
       return output=vortex.bool(bool, len=4096)
     ");
 

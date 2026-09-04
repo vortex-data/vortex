@@ -128,7 +128,7 @@ class VortexFile:
         >>> vxf.scan().read_all().to_arrow_array()
         <pyarrow.lib.StructArray object at ...>
         -- is_valid: all not null
-        -- child 0 type: string_view
+        -- child 0 type: string
           [
             "Joseph",
             null,

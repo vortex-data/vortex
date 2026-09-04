@@ -46,6 +46,7 @@ use vortex_btrblocks::schemes::string::FSSTScheme;
 use vortex_btrblocks::schemes::string::NullDominatedSparseScheme;
 use vortex_btrblocks::schemes::string::OnPairScheme;
 use vortex_btrblocks::schemes::string::StringDictScheme;
+use vortex_btrblocks::schemes::string::VarBinScheme;
 use vortex_onpair::DEFAULT_CONFIG;
 
 use crate::StringColumn;
@@ -67,6 +68,7 @@ fn default_string_scheme_ids() -> Vec<SchemeId> {
         FSSTScheme.id(),
         OnPairScheme.id(),
         NullDominatedSparseScheme.id(),
+        VarBinScheme::UTF8.id(),
     ]
 }
 

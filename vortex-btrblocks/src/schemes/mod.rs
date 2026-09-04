@@ -7,6 +7,7 @@ pub mod binary;
 pub mod float;
 pub mod integer;
 pub mod string;
+pub mod varbin;
 
 pub mod decimal;
 pub mod temporal;

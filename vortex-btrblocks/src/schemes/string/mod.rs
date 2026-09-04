@@ -18,13 +18,15 @@ pub use fsst::FSSTScheme;
 #[cfg(feature = "unstable_encodings")]
 pub use onpair::OnPairScheme;
 pub use sparse::NullDominatedSparseScheme;
-// Re-export builtin schemes from vortex-compressor.
 pub use vortex_compressor::builtins::StringDictScheme;
 pub use vortex_compressor::stats::StringStats;
 #[cfg(feature = "zstd")]
 pub use zstd::ZstdScheme;
 #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
 pub use zstd_buffers::ZstdBuffersScheme;
+
+// Re-export builtin schemes from vortex-compressor.
+pub use crate::schemes::varbin::VarBinScheme;
 
 #[cfg(test)]
 mod scheme_selection_tests;
