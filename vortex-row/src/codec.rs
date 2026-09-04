@@ -72,11 +72,11 @@ pub(crate) const VARLEN_NULL_SIZE: u32 = 1;
 /// Size in bytes of an encoded empty varlen value (just the sentinel byte).
 pub(crate) const VARLEN_EMPTY_SIZE: u32 = 1;
 
-/// Prefix before each byte of a recursively encoded variable-list element.
-const LIST_BYTE_ESCAPE: u8 = 0x01;
-/// List terminator for ascending fields; sorts before another escaped element byte.
+/// Prefix before each recursively encoded variable-list element.
+const LIST_ELEMENT_MARKER: u8 = 0x01;
+/// List terminator for ascending fields; sorts before another element marker.
 const LIST_END_ASCENDING: u8 = 0x00;
-/// List terminator for descending fields; sorts after another escaped element byte.
+/// List terminator for descending fields; sorts after another element marker.
 const LIST_END_DESCENDING: u8 = 0x02;
 
 /// Returns the size in bytes of the encoded form of a non-empty variable-length value.
@@ -179,6 +179,31 @@ pub(crate) enum RowWidth {
     Fixed(u32),
     /// Per-row width is data-dependent.
     Variable,
+}
+
+/// A canonical column plus any nested work retained from the sizing pass for encoding.
+pub(crate) enum PreparedField {
+    Canonical(Canonical),
+    List(PreparedList),
+}
+
+/// Prepared child row keys and list ranges shared by list sizing and encoding.
+pub(crate) struct PreparedList {
+    mask: vortex_mask::Mask,
+    ranges: Vec<(usize, usize)>,
+    elements: Canonical,
+    element_sizes: Vec<u32>,
+    element_offsets: Vec<u32>,
+    total_element_bytes: usize,
+}
+
+impl PreparedField {
+    pub(crate) fn as_canonical(&self) -> Option<&Canonical> {
+        match self {
+            Self::Canonical(canonical) => Some(canonical),
+            Self::List(_) => None,
+        }
+    }
 }
 
 /// Classify a column's per-row encoded width by inspecting only its [`DType`].
@@ -290,6 +315,27 @@ pub(crate) fn field_size(
     Ok(())
 }
 
+/// Size a top-level field and retain list child preparation for the encode pass.
+pub(crate) fn prepare_field(
+    canonical: Canonical,
+    field: RowSortField,
+    sizes: &mut [u32],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PreparedField> {
+    let prepared = match canonical {
+        Canonical::List(arr) => prepare_list(&arr, field, ctx)?,
+        Canonical::Map(arr) => {
+            prepare_list(&arr.entries().as_::<ListView>().into_owned(), field, ctx)?
+        }
+        canonical => {
+            field_size(&canonical, field, sizes, ctx)?;
+            return Ok(PreparedField::Canonical(canonical));
+        }
+    };
+    add_size_prepared_list(&prepared, sizes)?;
+    Ok(PreparedField::List(prepared))
+}
+
 /// Encode a fixed-width column at arithmetic offsets, without reading or writing any per-row
 /// cursor.
 ///
@@ -380,6 +426,23 @@ pub(crate) fn field_encode(
     Ok(())
 }
 
+/// Encode a field prepared by [`prepare_field`].
+pub(crate) fn field_encode_prepared(
+    prepared: &PreparedField,
+    field: RowSortField,
+    offsets: &[u32],
+    cursors: &mut [u32],
+    out: &mut [u8],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    match prepared {
+        PreparedField::Canonical(canonical) => {
+            field_encode(canonical, field, offsets, cursors, out, ctx)
+        }
+        PreparedField::List(list) => encode_prepared_list(list, field, offsets, cursors, out, ctx),
+    }
+}
+
 fn add_size_const(sizes: &mut [u32], add: u32) {
     for s in sizes.iter_mut() {
         *s += add;
@@ -441,23 +504,54 @@ fn add_size_list(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
     debug_assert_eq!(arr.len(), sizes.len());
+    let prepared = prepare_list(arr, field, ctx)?;
+    add_size_prepared_list(&prepared, sizes)
+}
+
+fn prepare_list(
+    arr: &ListViewArray,
+    field: RowSortField,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PreparedList> {
     let mask = arr.as_ref().validity()?.execute_mask(arr.len(), ctx)?;
     let ranges = list_ranges(arr, ctx)?;
     let elements = arr.elements().clone().execute::<Canonical>(ctx)?;
     let mut element_sizes = vec![0u32; elements.len()];
     field_size(&elements, field, &mut element_sizes, ctx)?;
+    let mut element_offsets = Vec::with_capacity(elements.len());
+    let mut total = 0u32;
+    for &size in &element_sizes {
+        element_offsets.push(total);
+        total = total
+            .checked_add(size)
+            .ok_or_else(|| vortex_error::vortex_err!("list element bytes overflow u32"))?;
+    }
+    Ok(PreparedList {
+        mask,
+        ranges,
+        elements,
+        element_sizes,
+        element_offsets,
+        total_element_bytes: usize::try_from(total)
+            .vortex_expect("list element bytes must fit usize"),
+    })
+}
 
-    for (i, (offset, len)) in ranges.into_iter().enumerate() {
-        let contribution = if !mask.value(i) || len == 0 {
+fn add_size_prepared_list(prepared: &PreparedList, sizes: &mut [u32]) -> VortexResult<()> {
+    for (i, &(offset, len)) in prepared.ranges.iter().enumerate() {
+        let contribution = if !prepared.mask.value(i) || len == 0 {
             1
         } else {
-            let body = element_sizes[offset..offset + len]
+            let body = prepared.element_sizes[offset..offset + len]
                 .iter()
                 .try_fold(0u32, |sum, &size| sum.checked_add(size))
                 .ok_or_else(|| vortex_error::vortex_err!("list element sizes overflow u32"))?;
-            body.checked_mul(2)
-                .and_then(|size| size.checked_add(2))
-                .ok_or_else(|| vortex_error::vortex_err!("list row size overflows u32"))?
+            body.checked_add(
+                u32::try_from(len)
+                    .map_err(|_| vortex_error::vortex_err!("list element count overflows u32"))?,
+            )
+            .and_then(|size| size.checked_add(2))
+            .ok_or_else(|| vortex_error::vortex_err!("list row size overflows u32"))?
         };
         sizes[i] = sizes[i]
             .checked_add(contribution)
@@ -764,26 +858,24 @@ fn encode_list(
     out: &mut [u8],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    let mask = arr.as_ref().validity()?.execute_mask(arr.len(), ctx)?;
-    let ranges = list_ranges(arr, ctx)?;
-    let elements = arr.elements().clone().execute::<Canonical>(ctx)?;
-    let mut element_sizes = vec![0u32; elements.len()];
-    field_size(&elements, field, &mut element_sizes, ctx)?;
+    let prepared = prepare_list(arr, field, ctx)?;
+    encode_prepared_list(&prepared, field, row_offsets, col_offset, out, ctx)
+}
 
-    let mut element_offsets = Vec::with_capacity(elements.len());
-    let mut total = 0u32;
-    for &size in &element_sizes {
-        element_offsets.push(total);
-        total = total
-            .checked_add(size)
-            .ok_or_else(|| vortex_error::vortex_err!("list element bytes overflow u32"))?;
-    }
-    let mut scratch = vec![0u8; total as usize];
-    let mut element_cursors = vec![0u32; elements.len()];
+fn encode_prepared_list(
+    prepared: &PreparedList,
+    field: RowSortField,
+    row_offsets: &[u32],
+    col_offset: &mut [u32],
+    out: &mut [u8],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    let mut scratch = vec![0u8; prepared.total_element_bytes];
+    let mut element_cursors = vec![0u32; prepared.elements.len()];
     field_encode(
-        &elements,
+        &prepared.elements,
         field,
-        &element_offsets,
+        &prepared.element_offsets,
         &mut element_cursors,
         &mut scratch,
         ctx,
@@ -797,9 +889,9 @@ fn encode_list(
     } else {
         LIST_END_ASCENDING
     };
-    for (i, (offset, len)) in ranges.into_iter().enumerate() {
+    for (i, &(offset, len)) in prepared.ranges.iter().enumerate() {
         let start = (row_offsets[i] + col_offset[i]) as usize;
-        if !mask.value(i) {
+        if !prepared.mask.value(i) {
             out[start] = null;
             col_offset[i] += 1;
             continue;
@@ -813,13 +905,12 @@ fn encode_list(
         out[start] = non_empty;
         let mut dst = start + 1;
         for element_index in offset..offset + len {
-            let src = element_offsets[element_index] as usize;
-            let size = element_sizes[element_index] as usize;
-            for &byte in &scratch[src..src + size] {
-                out[dst] = LIST_BYTE_ESCAPE;
-                out[dst + 1] = byte;
-                dst += 2;
-            }
+            let src = prepared.element_offsets[element_index] as usize;
+            let size = prepared.element_sizes[element_index] as usize;
+            out[dst] = LIST_ELEMENT_MARKER;
+            dst += 1;
+            out[dst..dst + size].copy_from_slice(&scratch[src..src + size]);
+            dst += size;
         }
         out[dst] = end;
         let written =
