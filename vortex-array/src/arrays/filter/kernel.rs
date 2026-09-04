@@ -29,11 +29,9 @@ use crate::arrays::Filter;
 use crate::arrays::FilterArray;
 use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
-use crate::arrays::Slice;
 use crate::arrays::dict::TakeExecuteAdaptor;
 use crate::arrays::filter::FilterSlots;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
-use crate::arrays::slice::SliceSlots;
 use crate::execute_parent_for_child;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
@@ -49,12 +47,7 @@ pub(crate) fn initialize(session: &VortexSession) {
     kernels.register_execute_parent_kernel(Dict.id(), Filter, TakeExecuteAdaptor(Filter));
 
     for parent in [Binary.id(), Between.id(), FillNull.id()] {
-        kernels.register_execute_parent_kernel(
-            parent,
-            Filter,
-            FilterSliceScalarFnUnaryPushDownRule,
-        );
-        kernels.register_execute_parent_kernel(parent, Slice, FilterSliceScalarFnUnaryPushDownRule);
+        kernels.register_execute_parent_kernel(parent, Filter, FilterScalarFnUnaryPushDownRule);
     }
 }
 
@@ -216,9 +209,9 @@ fn scalar_fn_on_inner(
 }
 
 #[derive(Debug)]
-struct FilterSliceScalarFnUnaryPushDownRule;
+struct FilterScalarFnUnaryPushDownRule;
 
-impl ExecuteParentKernel<Filter> for FilterSliceScalarFnUnaryPushDownRule {
+impl ExecuteParentKernel<Filter> for FilterScalarFnUnaryPushDownRule {
     type Parent = ScalarFn;
     fn execute_parent(
         &self,
@@ -236,35 +229,5 @@ impl ExecuteParentKernel<Filter> for FilterSliceScalarFnUnaryPushDownRule {
         let mask = child.filter_mask().clone();
         let new_parent = FilterArray::try_new(new_child, mask)?;
         Ok(Some(new_parent.into_array()))
-    }
-}
-
-impl ExecuteParentKernel<Slice> for FilterSliceScalarFnUnaryPushDownRule {
-    type Parent = ScalarFn;
-    fn execute_parent(
-        &self,
-        child: ArrayView<'_, Slice>,
-        parent: ArrayView<'_, ScalarFn>,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        let inner = child.slots()[SliceSlots::CHILD]
-            .as_ref()
-            .vortex_expect("no child for Slice");
-        // Executing Slice on compressed form is beneficial because Slice
-        // doesn't canonicalize but shortens the range of data.
-        let kernels = Arc::clone(&ctx.execute_parent_kernels);
-        let Some(sliced) = execute_parent_for_child(
-            "filter_scalar_fn_pushdown",
-            child.array(),
-            inner,
-            SliceSlots::CHILD,
-            &kernels,
-            ctx,
-        )?
-        else {
-            return Ok(None);
-        };
-        scalar_fn_on_inner(&sliced, parent, child_idx, ctx)
     }
 }

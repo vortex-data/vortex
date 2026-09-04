@@ -14,6 +14,7 @@ mod slice_;
 mod vtable;
 
 use std::ops::Range;
+use std::sync::Arc;
 
 pub use array::SliceArraySlotsExt;
 pub use array::SliceData;
@@ -29,6 +30,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::execute_parent_for_child;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
@@ -102,6 +104,31 @@ where
         }
         <V as SliceReduce>::slice(array, parent.range.clone())
     }
+}
+
+/// Slice an array and eagerly resolve slice through encoding's kernels
+pub fn slice_execute(
+    array: &ArrayRef,
+    range: Range<usize>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let sliced = array.slice(range)?;
+    let Some(view) = sliced.as_opt::<Slice>() else {
+        return Ok(sliced);
+    };
+    let Some(inner) = view.slots()[SliceSlots::CHILD].as_ref().cloned() else {
+        return Ok(sliced);
+    };
+    let kernels = Arc::clone(&ctx.execute_parent_kernels);
+    Ok(execute_parent_for_child(
+        "eager_slice",
+        &sliced,
+        &inner,
+        SliceSlots::CHILD,
+        &kernels,
+        ctx,
+    )?
+    .unwrap_or(sliced))
 }
 
 /// Adaptor that wraps a [`SliceKernel`] impl as an [`ExecuteParentKernel`].

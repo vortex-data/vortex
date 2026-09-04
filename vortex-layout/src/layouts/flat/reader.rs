@@ -11,6 +11,7 @@ use tracing::trace;
 use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::slice::slice_executed;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::BoundExpression;
@@ -142,10 +143,11 @@ impl LayoutReader for FlatReader {
             //  to evaluating the expression.
             let mut array = array.clone().await?;
             let mask = mask.await?;
+            let mut ctx = session.create_execution_ctx();
 
             // Slice the array based on the row mask.
             if row_range.start > 0 || row_range.end < array.len() {
-                array = array.slice(row_range.clone())?;
+                array = slice_executed(&array, row_range.clone(), &mut ctx)?;
             }
 
             let mask_density = mask.density();
@@ -155,14 +157,12 @@ impl LayoutReader for FlatReader {
                 // after this.
                 let array = array.apply_bound(&expr)?;
                 let array = array.filter(mask.clone())?;
-                let mut ctx = session.create_execution_ctx();
                 let array_mask = array.null_as_false().execute(&mut ctx)?;
 
                 mask.intersect_by_rank(&array_mask)
             } else {
                 // Run over the full array, with a simpler bitand at the end.
                 let array = array.apply_bound(&expr)?;
-                let mut ctx = session.create_execution_ctx();
                 let array_mask = array.null_as_false().execute(&mut ctx)?;
 
                 mask.bitand(&array_mask)
@@ -193,6 +193,7 @@ impl LayoutReader for FlatReader {
         let name = Arc::clone(&self.name);
         let array = self.array_future();
         let expr = expr.clone();
+        let session = self.session.clone();
 
         Ok(async move {
             trace!("Flat array evaluation {} - {}", name, expr);
@@ -202,7 +203,8 @@ impl LayoutReader for FlatReader {
 
             // Slice the array based on the row mask.
             if row_range.start > 0 || row_range.end < array.len() {
-                array = array.slice(row_range.clone())?;
+                let mut ctx = session.create_execution_ctx();
+                array = slice_executed(&array, row_range.clone(), &mut ctx)?;
             }
 
             // First apply the filter to the array.
