@@ -35,6 +35,7 @@ mimalloc = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-bench-support = { workspace = true }
 
 [features]
 arbitrary = ["dep:arbitrary", "vortex-array/arbitrary"]

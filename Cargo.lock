@@ -11502,6 +11502,7 @@ dependencies = [
  "rand 0.10.2",
  "rstest",
  "vortex-array",
+ "vortex-bench-support",
  "vortex-buffer",
  "vortex-error",
  "vortex-mask",

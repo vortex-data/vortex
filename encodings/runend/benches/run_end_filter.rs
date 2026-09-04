@@ -1,21 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! End-to-end benchmarks for filtering RunEnd arrays.
+//! Benchmarks for the run-end filter inner loop.
 //!
-//! The benchmarks compare production dispatch, direct take, the prior range scan, and the
-//! sequential scan. The array-length and run-length matrix calibrates the dispatch threshold.
+//! `filter_run_end` retains the historical production benchmark. The two materialization
+//! benchmarks compare the range and sequential implementations on each CPU feature runner.
 
 #![expect(clippy::cast_possible_truncation)]
+#![expect(clippy::cast_precision_loss)]
+#![expect(clippy::cast_sign_loss)]
 #![expect(clippy::expect_used)]
 
 use std::fmt;
-use std::ops::AddAssign;
 use std::sync::LazyLock;
 
 use divan::Bencher;
-use num_traits::AsPrimitive;
-use num_traits::NumCast;
+use mimalloc::MiMalloc;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
@@ -26,22 +26,24 @@ use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::dtype::NativePType;
-use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
-use vortex_buffer::buffer_mut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_runend::_benchmarking::filter_run_end_primitive;
+use vortex_runend::_benchmarking::filter_run_end_ranges;
 use vortex_runend::_benchmarking::filter_run_end_sequential;
-use vortex_runend::_benchmarking::take_indices_unchecked;
 use vortex_runend::RunEnd;
 use vortex_runend::RunEndArray;
 use vortex_runend::RunEndArrayExt;
 use vortex_runend::RunEndArraySlotsExt;
 use vortex_session::VortexSession;
+
+// Filtering allocates run ends and value masks inside the timed region. Use the same allocator on
+// each benchmark runner so that allocator differences do not obscure the scan comparison.
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();
@@ -54,51 +56,97 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 });
 
 #[derive(Clone, Copy)]
-enum FilterStrategy {
-    Dispatch,
-    DirectTake,
-    LegacyRunScan,
-    SequentialRunScan,
+struct FilterBenchArgs {
+    length: usize,
+    run_length: usize,
+    density: f64,
 }
 
-impl fmt::Display for FilterStrategy {
+impl fmt::Display for FilterBenchArgs {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Dispatch => formatter.write_str("dispatch"),
-            Self::DirectTake => formatter.write_str("direct_take"),
-            Self::LegacyRunScan => formatter.write_str("legacy_run_scan"),
-            Self::SequentialRunScan => formatter.write_str("sequential_run_scan"),
-        }
+        write!(
+            formatter,
+            "len={}_run={}_density={:.1}",
+            self.length, self.run_length, self.density
+        )
     }
 }
 
+const FILTER_ARGS: &[FilterBenchArgs] = &[
+    FilterBenchArgs {
+        length: 4_096,
+        run_length: 16,
+        density: 0.1,
+    },
+    FilterBenchArgs {
+        length: 4_096,
+        run_length: 16,
+        density: 0.5,
+    },
+    FilterBenchArgs {
+        length: 4_096,
+        run_length: 16,
+        density: 0.9,
+    },
+    FilterBenchArgs {
+        length: 16_384,
+        run_length: 16,
+        density: 0.1,
+    },
+    FilterBenchArgs {
+        length: 16_384,
+        run_length: 16,
+        density: 0.5,
+    },
+    FilterBenchArgs {
+        length: 16_384,
+        run_length: 16,
+        density: 0.9,
+    },
+];
+
+fn build_run_ends(length: usize, run_length: usize) -> Vec<u32> {
+    (0..length.div_ceil(run_length))
+        .map(|run_index| (((run_index + 1) * run_length).min(length)) as u32)
+        .collect()
+}
+
+fn build_mask(length: usize, density: f64) -> BitBuffer {
+    let selected = (length as f64 * density).round() as usize;
+    let mut bits = vec![false; length];
+    bits[..selected].fill(true);
+    bits.shuffle(&mut StdRng::seed_from_u64(0x5eed));
+    BitBuffer::from(bits)
+}
+
+#[divan::bench(args = FILTER_ARGS)]
+fn filter_run_end(bencher: Bencher, args: FilterBenchArgs) {
+    let run_ends = build_run_ends(args.length, args.run_length);
+    let mask = build_mask(args.length, args.density);
+    let length = args.length as u64;
+    bencher
+        .with_inputs(|| (run_ends.clone(), mask.clone()))
+        .bench_refs(|(run_ends, mask)| {
+            filter_run_end_primitive::<u32>(run_ends, 0, length, mask).expect("filter")
+        });
+}
+
 #[derive(Clone, Copy)]
-enum MaskPattern {
-    Random,
-    Clustered,
+struct StrategyBenchArgs {
+    length: usize,
+    run_length: usize,
+    density_percent: usize,
+    shape: ValuesShape,
+    offset: usize,
 }
 
-impl fmt::Display for MaskPattern {
+impl fmt::Display for StrategyBenchArgs {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Random => formatter.write_str("random"),
-            Self::Clustered => formatter.write_str("clustered"),
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-enum RunPattern {
-    Uniform,
-    Skewed,
-}
-
-impl fmt::Display for RunPattern {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Uniform => formatter.write_str("uniform"),
-            Self::Skewed => formatter.write_str("skewed"),
-        }
+        write!(
+            formatter,
+            "len{}_run{}_density{}_{}_offset{}",
+            self.length, self.run_length, self.density_percent, self.shape, self.offset
+        )
     }
 }
 
@@ -106,6 +154,7 @@ impl fmt::Display for RunPattern {
 enum ValuesShape {
     Primitive,
     Dictionary,
+    Irregular,
 }
 
 impl fmt::Display for ValuesShape {
@@ -113,237 +162,167 @@ impl fmt::Display for ValuesShape {
         match self {
             Self::Primitive => formatter.write_str("primitive"),
             Self::Dictionary => formatter.write_str("dictionary"),
+            Self::Irregular => formatter.write_str("irregular"),
         }
     }
 }
 
-#[derive(Clone, Copy)]
-struct FilterBenchArgs {
-    strategy: FilterStrategy,
+const STRATEGY_ARGS: &[StrategyBenchArgs] = &[
+    strategy_case(65_536, 16, 50),
+    strategy_case(65_536, 32, 50),
+    strategy_case(65_536, 64, 1),
+    strategy_case(65_536, 64, 50),
+    strategy_case(65_536, 64, 95),
+    strategy_case(65_536, 96, 50),
+    strategy_case(65_536, 128, 50),
+    strategy_case(65_536, 256, 50),
+    strategy_case(65_536, 512, 50),
+    strategy_case(128, 64, 50),
+    strategy_case(4_096, 64, 50),
+    StrategyBenchArgs {
+        length: 65_536,
+        run_length: 64,
+        density_percent: 50,
+        shape: ValuesShape::Irregular,
+        offset: 37,
+    },
+    StrategyBenchArgs {
+        length: 65_536,
+        run_length: 64,
+        density_percent: 50,
+        shape: ValuesShape::Dictionary,
+        offset: 0,
+    },
+    StrategyBenchArgs {
+        length: 65_536,
+        run_length: 128,
+        density_percent: 50,
+        shape: ValuesShape::Dictionary,
+        offset: 0,
+    },
+];
+
+const fn strategy_case(
     length: usize,
     run_length: usize,
     density_percent: usize,
-    mask_pattern: MaskPattern,
-    run_pattern: RunPattern,
-    values_shape: ValuesShape,
-}
-
-impl fmt::Display for FilterBenchArgs {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            formatter,
-            "{}_len{}_run{}_density{}_{}_{}_{}",
-            self.strategy,
-            self.length,
-            self.run_length,
-            self.density_percent,
-            self.mask_pattern,
-            self.run_pattern,
-            self.values_shape,
-        )
-    }
-}
-
-const fn filter_case(
-    strategy: FilterStrategy,
-    length: usize,
-    run_length: usize,
-    density_percent: usize,
-    mask_pattern: MaskPattern,
-    run_pattern: RunPattern,
-    values_shape: ValuesShape,
-) -> FilterBenchArgs {
-    FilterBenchArgs {
-        strategy,
+) -> StrategyBenchArgs {
+    StrategyBenchArgs {
         length,
         run_length,
         density_percent,
-        mask_pattern,
-        run_pattern,
-        values_shape,
+        shape: ValuesShape::Primitive,
+        offset: 0,
     }
 }
 
-fn filter_args() -> Vec<FilterBenchArgs> {
-    let mut args = Vec::new();
-
-    for run_length in [1, 4, 16, 64, 128, 256, 512] {
-        for density_percent in [1, 50, 95] {
-            for strategy in [
-                FilterStrategy::LegacyRunScan,
-                FilterStrategy::SequentialRunScan,
-            ] {
-                args.push(filter_case(
-                    strategy,
-                    65_536,
-                    run_length,
-                    density_percent,
-                    MaskPattern::Random,
-                    RunPattern::Uniform,
-                    ValuesShape::Primitive,
-                ));
-            }
-        }
-    }
-
-    for (length, run_length) in [(128, 4), (128, 64), (4_096, 4), (4_096, 64), (4_096, 256)] {
-        for strategy in [
-            FilterStrategy::LegacyRunScan,
-            FilterStrategy::SequentialRunScan,
-        ] {
-            args.push(filter_case(
-                strategy,
-                length,
-                run_length,
-                50,
-                MaskPattern::Random,
-                RunPattern::Uniform,
-                ValuesShape::Primitive,
-            ));
-        }
-    }
-
-    for run_length in [4, 64, 256] {
-        for strategy in [
-            FilterStrategy::LegacyRunScan,
-            FilterStrategy::SequentialRunScan,
-        ] {
-            args.push(filter_case(
-                strategy,
-                65_536,
-                run_length,
-                50,
-                MaskPattern::Random,
-                RunPattern::Skewed,
-                ValuesShape::Primitive,
-            ));
-        }
-    }
-
-    for run_length in [4, 256] {
-        for strategy in [
-            FilterStrategy::LegacyRunScan,
-            FilterStrategy::SequentialRunScan,
-        ] {
-            args.push(filter_case(
-                strategy,
-                65_536,
-                run_length,
-                50,
-                MaskPattern::Clustered,
-                RunPattern::Uniform,
-                ValuesShape::Primitive,
-            ));
-        }
-
-        for density_percent in [1, 50] {
-            for strategy in [FilterStrategy::Dispatch, FilterStrategy::DirectTake] {
-                args.push(filter_case(
-                    strategy,
-                    65_536,
-                    run_length,
-                    density_percent,
-                    MaskPattern::Random,
-                    RunPattern::Uniform,
-                    ValuesShape::Primitive,
-                ));
-            }
-        }
-    }
-
-    for strategy in [
-        FilterStrategy::LegacyRunScan,
-        FilterStrategy::SequentialRunScan,
-    ] {
-        args.push(filter_case(
-            strategy,
-            65_536,
-            4,
-            50,
-            MaskPattern::Random,
-            RunPattern::Uniform,
-            ValuesShape::Dictionary,
-        ));
-    }
-
-    args
+#[vortex_bench_support::cpu_features]
+#[divan::bench(args = STRATEGY_ARGS, sample_size = 1)]
+fn filter_materialized_range(bencher: Bencher, args: StrategyBenchArgs) {
+    benchmark_filter(bencher, args, filter_run_end_ranges::<u32>);
 }
 
-#[divan::bench(args = filter_args())]
-fn filter_materialized(bencher: Bencher, args: FilterBenchArgs) {
+#[vortex_bench_support::cpu_features]
+#[divan::bench(args = STRATEGY_ARGS, sample_size = 1)]
+fn filter_materialized_sequential(bencher: Bencher, args: StrategyBenchArgs) {
+    benchmark_filter(bencher, args, |run_ends, offset, length, mask| {
+        Ok(filter_run_end_sequential(run_ends, offset, length, mask))
+    });
+}
+
+fn benchmark_filter<F>(bencher: Bencher, args: StrategyBenchArgs, filter_run_ends: F)
+where
+    F: Fn(&[u32], u64, u64, &BitBuffer) -> VortexResult<(PrimitiveArray, Mask)>
+        + Copy
+        + Send
+        + Sync
+        + 'static,
+{
     let array = run_end_array(args);
-
+    let mask: Mask = build_mask(args.length, args.density_percent as f64 / 100.0).into();
     bencher
-        .with_inputs(|| {
-            (
-                array.clone(),
-                filter_mask(args),
-                SESSION.create_execution_ctx(),
-            )
-        })
+        .with_inputs(|| (array.clone(), mask.clone(), SESSION.create_execution_ctx()))
         .bench_refs(|(array, mask, execution_ctx)| {
-            filter_with_strategy(array, mask, args.strategy, execution_ctx)
+            filter_with_strategy(array, mask, filter_run_ends, execution_ctx)
                 .expect("filter")
                 .execute::<RecursiveCanonical>(execution_ctx)
                 .expect("materialize")
         });
 }
 
-fn filter_with_strategy(
-    array: &RunEndArray,
-    mask: &Mask,
-    strategy: FilterStrategy,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    match strategy {
-        FilterStrategy::Dispatch => array.clone().into_array().filter(mask.clone()),
-        FilterStrategy::DirectTake => {
-            let mask_values = mask
-                .values()
-                .vortex_expect("forced strategies require a non-trivial mask");
-            take_indices_unchecked(
-                array.as_view(),
-                mask_values.indices(),
-                &Validity::NonNullable,
-                ctx,
-            )
+fn run_end_array(args: StrategyBenchArgs) -> RunEndArray {
+    let source_length = args.length + args.offset;
+    let mut run_ends = match args.shape {
+        ValuesShape::Primitive | ValuesShape::Dictionary => {
+            build_run_ends(source_length, args.run_length)
         }
-        FilterStrategy::LegacyRunScan => filter_with_run_scan(array, mask, false, ctx),
-        FilterStrategy::SequentialRunScan => filter_with_run_scan(array, mask, true, ctx),
-    }
+        ValuesShape::Irregular => build_irregular_run_ends(source_length, args.run_length),
+    };
+    let first_visible_run = run_ends.partition_point(|&run_end| run_end < args.offset as u32);
+    run_ends.drain(..first_visible_run);
+    let values = match args.shape {
+        ValuesShape::Primitive | ValuesShape::Irregular => {
+            PrimitiveArray::from_iter(0..run_ends.len() as u64).into_array()
+        }
+        ValuesShape::Dictionary => DictArray::try_new(
+            (0..run_ends.len())
+                .map(|run_index| (run_index % 16) as u8)
+                .collect::<Buffer<_>>()
+                .into_array(),
+            PrimitiveArray::from_iter(0u64..16).into_array(),
+        )
+        .expect("dictionary")
+        .into_array(),
+    };
+    RunEnd::try_new_offset_length(
+        PrimitiveArray::from_iter(run_ends).into_array(),
+        values,
+        args.offset,
+        args.length,
+        &mut SESSION.create_execution_ctx(),
+    )
+    .expect("run-end array")
 }
 
-fn filter_with_run_scan(
+fn build_irregular_run_ends(length: usize, run_length: usize) -> Vec<u32> {
+    let mut run_ends = Vec::new();
+    let mut run_end = 0;
+    let mut run_index = 0;
+    while run_end < length {
+        let next_run_length = if run_index % 2 == 0 {
+            1
+        } else {
+            run_length * 2 - 1
+        };
+        run_end = (run_end + next_run_length).min(length);
+        run_ends.push(run_end as u32);
+        run_index += 1;
+    }
+    run_ends
+}
+
+fn filter_with_strategy<F>(
     array: &RunEndArray,
     mask: &Mask,
-    use_sequential_scan: bool,
+    filter_run_ends: F,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
+) -> VortexResult<ArrayRef>
+where
+    F: Fn(&[u32], u64, u64, &BitBuffer) -> VortexResult<(PrimitiveArray, Mask)>,
+{
     let mask_values = mask
         .values()
-        .vortex_expect("forced strategies require a non-trivial mask");
+        .vortex_expect("benchmark mask must be non-trivial");
     let primitive_run_ends = array.ends().clone().execute::<PrimitiveArray>(ctx)?;
-    let (filtered_run_ends, values_mask) =
-        match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |P| {
-            if use_sequential_scan {
-                Ok(filter_run_end_sequential(
-                    primitive_run_ends.as_slice::<P>(),
-                    array.offset() as u64,
-                    array.len() as u64,
-                    mask_values.bit_buffer(),
-                ))
-            } else {
-                legacy_filter_run_ends(
-                    primitive_run_ends.as_slice::<P>(),
-                    array.offset() as u64,
-                    array.len() as u64,
-                    mask_values.bit_buffer(),
-                )
-            }
-        })?;
+    let (filtered_run_ends, values_mask) = filter_run_ends(
+        primitive_run_ends.as_slice::<u32>(),
+        array.offset() as u64,
+        array.len() as u64,
+        mask_values.bit_buffer(),
+    )?;
     let filtered_values = array.values().filter(values_mask)?;
 
-    // SAFETY: Both scan implementations return one increasing end for each retained value.
+    // SAFETY: Both scan functions return one increasing end for each retained value.
     Ok(unsafe {
         RunEnd::new_unchecked(
             filtered_run_ends.into_array(),
@@ -353,123 +332,4 @@ fn filter_with_run_scan(
         )
         .into_array()
     })
-}
-
-/// Preserves the previous per-run range-popcount implementation as a benchmark baseline.
-fn legacy_filter_run_ends<R>(
-    run_ends: &[R],
-    offset: u64,
-    length: u64,
-    mask: &BitBuffer,
-) -> VortexResult<(PrimitiveArray, Mask)>
-where
-    R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>,
-{
-    let mut filtered_run_ends = buffer_mut![R::zero(); run_ends.len()];
-    let mut run_start = 0u64;
-    let mut retained_run_count = 0;
-    let mut filtered_end = R::zero();
-
-    let values_mask = BitBuffer::collect_bool(run_ends.len(), |run_index| {
-        let run_end = run_ends[run_index].as_() - offset;
-        let run_end = run_end.min(length);
-        let selected_in_run = mask.count_range(run_start as usize, run_end as usize);
-        filtered_end += <R as NumCast>::from(selected_in_run)
-            .vortex_expect("run popcount must fit in run-end native type");
-        let retain_run = selected_in_run > 0;
-        filtered_run_ends[retained_run_count] = filtered_end;
-        retained_run_count += retain_run as usize;
-        run_start = run_end;
-        retain_run
-    })
-    .into();
-
-    filtered_run_ends.truncate(retained_run_count);
-    Ok((
-        PrimitiveArray::new(filtered_run_ends, Validity::NonNullable),
-        values_mask,
-    ))
-}
-
-fn run_end_array(args: FilterBenchArgs) -> RunEndArray {
-    let ends = run_ends(args);
-    let run_count = ends.len();
-    let values = match args.values_shape {
-        ValuesShape::Primitive => {
-            PrimitiveArray::from_iter((0..run_count).map(|run_index| run_index as u64)).into_array()
-        }
-        ValuesShape::Dictionary => DictArray::try_new(
-            (0..run_count)
-                .map(|run_index| (run_index % 16) as u8)
-                .collect::<Buffer<_>>()
-                .into_array(),
-            PrimitiveArray::from_iter(0u64..16).into_array(),
-        )
-        .expect("dictionary")
-        .into_array(),
-    };
-    RunEnd::new(ends, values, &mut SESSION.create_execution_ctx())
-}
-
-fn run_ends(args: FilterBenchArgs) -> ArrayRef {
-    let mut run_ends = Vec::new();
-    let mut run_end = 0usize;
-    let mut run_index = 0usize;
-    while run_end < args.length {
-        let run_length = match args.run_pattern {
-            RunPattern::Uniform => args.run_length,
-            RunPattern::Skewed if run_index.is_multiple_of(2) => 1,
-            RunPattern::Skewed => args.run_length.saturating_mul(2).saturating_sub(1),
-        };
-        run_end = run_end.saturating_add(run_length).min(args.length);
-        run_ends.push(run_end);
-        run_index += 1;
-    }
-
-    if args.length <= u8::MAX as usize {
-        PrimitiveArray::from_iter(
-            run_ends
-                .into_iter()
-                .map(|run_end| u8::try_from(run_end).vortex_expect("run end must fit in u8")),
-        )
-        .into_array()
-    } else if args.length <= u16::MAX as usize {
-        PrimitiveArray::from_iter(
-            run_ends
-                .into_iter()
-                .map(|run_end| u16::try_from(run_end).vortex_expect("run end must fit in u16")),
-        )
-        .into_array()
-    } else {
-        PrimitiveArray::from_iter(
-            run_ends
-                .into_iter()
-                .map(|run_end| u32::try_from(run_end).vortex_expect("run end must fit in u32")),
-        )
-        .into_array()
-    }
-}
-
-fn filter_mask(args: FilterBenchArgs) -> Mask {
-    let selected = args.length * args.density_percent / 100;
-    let mut bits = vec![false; args.length];
-
-    match args.mask_pattern {
-        MaskPattern::Random => {
-            bits[..selected].fill(true);
-            bits.shuffle(&mut StdRng::seed_from_u64(0x5eed));
-        }
-        MaskPattern::Clustered => {
-            let cluster_count = 8.min(selected.max(1));
-            let cluster_span = args.length.div_ceil(cluster_count);
-            let selected_per_cluster = selected.div_ceil(cluster_count);
-            for cluster_index in 0..cluster_count {
-                let begin = cluster_index * cluster_span;
-                let end = (begin + selected_per_cluster).min(args.length);
-                bits[begin..end].fill(true);
-            }
-        }
-    }
-
-    Mask::from_iter(bits)
 }
