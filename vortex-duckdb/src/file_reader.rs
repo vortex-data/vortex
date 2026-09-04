@@ -23,6 +23,7 @@ use vortex::io::compat::Compat;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::runtime::BlockingRuntime as _;
+use vortex::io::std_file::StdFileSystem;
 use vortex::layout::LayoutReaderRef;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::mask::Mask;
@@ -80,7 +81,7 @@ fn resolve_filesystem(url: &Url) -> VortexResult<(FileSystemRef, String)> {
     // high-core machines because reads go into blocking pool
     if url.scheme() == "file" {
         return Ok((
-            Arc::new(ObjectStoreFileSystem::local(RUNTIME.handle())),
+            Arc::new(StdFileSystem::new(RUNTIME.handle())),
             url.path().to_string(),
         ));
     }
