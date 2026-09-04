@@ -88,6 +88,8 @@ function(_vortex_resolve_ffi_package
     set(_archive_name "libvortex_ffi.a")
     set(_manifest "${workspace_root}/vortex-ffi/Cargo.toml")
     set(_include_dirs "${workspace_root}/vortex-ffi/cinclude")
+
+    # Shadow parent-scope values so CPU-only builds return empty CUDA outputs.
     set(_nvcc "")
     set(_cuda_root "")
 
@@ -100,6 +102,7 @@ function(_vortex_resolve_ffi_package
         set(_archive_name "libvortex_cuda_ffi.a")
         set(_manifest "${workspace_root}/vortex-cuda/ffi/Cargo.toml")
         list(APPEND _include_dirs "${workspace_root}/vortex-cuda/ffi/cinclude")
+        # CMake's FindCUDAToolkit module sets these after find_package succeeds.
         set(_nvcc "${CUDAToolkit_NVCC_EXECUTABLE}")
         set(_cuda_root "${CUDAToolkit_TARGET_DIR}")
     endif()
