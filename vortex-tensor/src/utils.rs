@@ -255,6 +255,18 @@ pub mod test_helpers {
         Vector::try_new_vector_array(flat_fsl(elements, dim))
     }
 
+    /// Builds `row_count` zero-width vectors over an empty typed element buffer.
+    pub fn zero_width_vector_array<T: NativePType>(row_count: usize) -> VortexResult<ArrayRef> {
+        let storage = FixedSizeListArray::new(
+            Buffer::<T>::empty().into_array(),
+            0,
+            Validity::NonNullable,
+            row_count,
+        )
+        .into_array();
+        Vector::try_new_vector_array(storage)
+    }
+
     /// Builds a [`FixedShapeTensor`] extension array whose storage is a [`ConstantArray`],
     /// representing a single query tensor broadcast to `len` rows.
     pub fn constant_tensor_array<T: NativePType + Into<PValue>>(
