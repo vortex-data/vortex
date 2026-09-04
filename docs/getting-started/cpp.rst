@@ -54,10 +54,9 @@ The CMake integration is source-only: it does not provide installation rules or 
 ``find_package(Vortex)`` package. Downstream projects should vendor or fetch a pinned
 Vortex checkout and add ``lang/cpp`` directly.
 
-macOS arm64 and x86_64 are modeled, but only Apple Silicon is currently validated;
-macOS is not a cuDF integration target. GNU/Linux x86_64 and aarch64 are modeled,
-while full GCC 14, Conda compiler-wrapper, glibc 2.28, and cuDF validation remains
-deferred.
+Native macOS arm64 is supported for standalone development, but macOS is not a
+cuDF integration target. GNU/Linux x86_64 and aarch64 are modeled, while full
+GCC 14, Conda compiler-wrapper, glibc 2.28, and cuDF validation remains deferred.
 
 See the `C++ bindings README
 <https://github.com/vortex-data/vortex/blob/develop/lang/cpp/README.md>`_ for all CMake

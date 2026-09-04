@@ -75,8 +75,7 @@ function(_vortex_build_tool_path output)
 endfunction()
 
 # Assemble the target-specific Cargo environment from the selected tools and
-# generated Rust, C, and C++ flag files. On macOS, make the toolchain's LLVM
-# library available to llvm-tools binaries whose packaged rpath is insufficient.
+# generated Rust, C, and C++ flag files.
 function(_vortex_make_cargo_environment support_dir target_key_lower output)
     file(READ "${support_dir}/rustflags" _rustflags)
     file(READ "${support_dir}/cflags" _cflags)
@@ -102,18 +101,6 @@ function(_vortex_make_cargo_environment support_dir target_key_lower output)
     if(VORTEX_APPLE_DEPLOYMENT_TARGET)
         list(APPEND _environment
             "MACOSX_DEPLOYMENT_TARGET=${VORTEX_APPLE_DEPLOYMENT_TARGET}")
-
-        get_filename_component(_rust_bin_dir "${VORTEX_RUSTC_EXECUTABLE}" DIRECTORY)
-        get_filename_component(_rust_toolchain_dir "${_rust_bin_dir}" DIRECTORY)
-        set(_rust_toolchain_lib_dir "${_rust_toolchain_dir}/lib")
-
-        if(EXISTS "${_rust_toolchain_lib_dir}/libLLVM.dylib")
-            set(_dyld_path "${_rust_toolchain_lib_dir}")
-            if(NOT "$ENV{DYLD_FALLBACK_LIBRARY_PATH}" STREQUAL "")
-                string(APPEND _dyld_path ":$ENV{DYLD_FALLBACK_LIBRARY_PATH}")
-            endif()
-            list(APPEND _environment "DYLD_FALLBACK_LIBRARY_PATH=${_dyld_path}")
-        endif()
     endif()
 
     if(VORTEX_APPLE_SDKROOT)

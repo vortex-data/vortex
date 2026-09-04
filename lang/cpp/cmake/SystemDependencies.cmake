@@ -23,7 +23,7 @@ function(_vortex_attach_system_dependencies target rust_target)
             m
             ${CMAKE_DL_LIBS}
             c)
-    elseif(rust_target MATCHES "^(x86_64|aarch64)-apple-darwin$")
+    elseif(rust_target STREQUAL "aarch64-apple-darwin")
         # The public Vortex target is C++, whose driver adds libc++ and
         # libSystem. Publish only additional framework/library requirements.
         find_library(_vortex_core_foundation CoreFoundation REQUIRED NO_CACHE)

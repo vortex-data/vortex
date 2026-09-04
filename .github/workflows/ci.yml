@@ -604,8 +604,7 @@ jobs:
             -DVORTEX_BUILD_EXAMPLES=ON
           cmake --build build --parallel
       - name: Run C++ tests
-        run: |
-          build/tests/vortex_cxx_test
+        run: ctest --test-dir build --output-on-failure
       - name: Run C++ examples
         run: |
           cd build/examples

@@ -46,7 +46,7 @@ also have runtime-library deployment requirements described below.
 The build supports:
 
 - native GNU/Linux on x86_64 and aarch64;
-- native macOS on x86_64 and arm64 for standalone development;
+- native macOS on arm64 for standalone development;
 - a single-config generator; unless `VORTEX_CARGO_PROFILE` is set, `Debug`, `Release`,
   `RelWithDebInfo`, and `MinSizeRel` map to Cargo `dev`, `release`, `release_debug`, and
   `release_size`, respectively, while other build types warn and use `dev`; and
@@ -54,8 +54,8 @@ The build supports:
 
 CMake discovers Cargo and rustc with `find_program`. Rustup proxies are resolved from the Vortex
 workspace, so they honor its `rust-toolchain.toml` and `RUSTUP_TOOLCHAIN`; concrete non-rustup
-binaries are used directly. Cargo and rustc must report the same host. The selected C and C++
-compilers must support `-dumpmachine` and target the same native platform and architecture.
+binaries are used directly. Rustc and the selected C and C++ compilers must target the same native
+platform and architecture; the C and C++ compilers must support `-dumpmachine`.
 
 Cross-compilation, Apple universal binaries, Windows, musl, multi-config generators, and shared
 Vortex targets are not supported. Ninja is recommended. macOS is not a supported cuDF integration
@@ -78,10 +78,10 @@ standalone build:
 - `VORTEX_WARNINGS_AS_ERRORS` promotes warnings only while compiling `vortex_cxx`; it does not affect
   tests, examples, consumers, Rust, or CUDA compilation. Default: `ON` standalone and `OFF` when
   embedded.
-- `VORTEX_SANITIZER=asan|tsan` requires `Debug`, Clang or AppleClang, and nightly Rust. ASan also
-  enables undefined-behavior and leak checks for native code and address/leak instrumentation for Rust;
-  TSan enables thread instrumentation. Flags propagate to targets linking Vortex, but CUDA device
-  code, the CUB helper, and nvCOMP are not sanitizer-instrumented. Default: empty.
+- `VORTEX_SANITIZER=asan|tsan` requires `Debug`, Clang or AppleClang, and nightly Rust. ASan enables
+  address and undefined-behavior checks for native code and address instrumentation for Rust; TSan
+  enables thread instrumentation. Flags propagate to targets linking Vortex, but CUDA device code,
+  the CUB helper, and nvCOMP are not sanitizer-instrumented. Default: empty.
 - `VORTEX_SANITIZE_RUST_STD=ON` rebuilds Rust's standard library with the selected sanitizer and
   requires the nightly `rust-src` component. Default: `OFF`.
 
