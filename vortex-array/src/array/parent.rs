@@ -486,6 +486,7 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar_fn::ScalarFnVTableExt;
+    use crate::scalar_fn::fns::cast::Cast;
     use crate::scalar_fn::fns::pack::Pack;
     use crate::scalar_fn::fns::pack::PackOptions;
 
@@ -562,6 +563,27 @@ mod tests {
             "stack path should collapse Pack to a struct"
         );
         assert_arrays_eq!(stack, heap, &mut ctx);
+
+        Ok(())
+    }
+
+    /// Abstract reduce rules run against the borrowed parts. A cast to the child's own dtype
+    /// collapses to the child, and doing so must not allocate the `ScalarFn` wrapper.
+    #[test]
+    fn abstract_reduce_keeps_parts_on_stack() -> VortexResult<()> {
+        let mut ctx = crate::array_session().create_execution_ctx();
+        let child = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
+        let cast = Cast.bind(child.dtype().clone());
+        let parts = ScalarFnArray::try_new_parts(cast, vec![child.clone()], child.len())?;
+        let parent = ParentRef::from_parts(&parts);
+
+        let reduced = parent.reduce()?.expect("same-dtype cast should reduce");
+
+        assert!(
+            parent.into_cached_array_ref().is_none(),
+            "reducing borrowed parts must not materialize the parent"
+        );
+        assert_arrays_eq!(reduced, child, &mut ctx);
 
         Ok(())
     }

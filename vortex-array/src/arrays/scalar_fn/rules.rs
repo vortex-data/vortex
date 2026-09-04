@@ -91,7 +91,7 @@ impl ArrayParentReduceRule<ScalarFn> for ScalarFnSliceReduceRule {
 struct ScalarFnAbstractReduceRule;
 impl ArrayReduceRule<ScalarFn> for ScalarFnAbstractReduceRule {
     fn reduce(&self, array: ParentView<'_, ScalarFn>) -> VortexResult<Option<ArrayRef>> {
-        let node = ArrayReduceNode::new(array.materialize_array_ref());
+        let node = ArrayReduceNode::from_parent(array);
         if let Some(reduced) = array.scalar_fn().reduce_array(&node)? {
             return Ok(Some(reduced.into_array()));
         }
