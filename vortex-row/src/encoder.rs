@@ -139,6 +139,10 @@ fn reject_extension_dtype(dtype: &DType) -> VortexResult<()> {
         DType::FixedSizeList(elem, ..) | DType::List(elem, _) => {
             reject_extension_dtype(elem)?;
         }
+        DType::Map(map_dtype, _) => {
+            reject_extension_dtype(&map_dtype.key_dtype())?;
+            reject_extension_dtype(&map_dtype.value_dtype())?;
+        }
         _ => {}
     }
     Ok(())
