@@ -9,6 +9,9 @@ mod sample;
 mod select;
 mod structural;
 
+use vortex_array::ArrayId;
+use vortex_utils::aliases::hash_set::HashSet;
+
 use crate::builtins::IntDictScheme;
 use crate::scheme::ChildSelection;
 use crate::scheme::DescendantExclusion;
@@ -46,6 +49,10 @@ pub struct CascadingCompressor {
     /// Descendant exclusion rules for the compressor's own cascading (e.g. excluding Dict from
     /// list offsets).
     root_exclusions: Vec<DescendantExclusion>,
+
+    /// The serialized IDs the output may use, or `None` for no restriction. See
+    /// [`allows_serialized_id`](Self::allows_serialized_id).
+    allowed_serialized_ids: Option<HashSet<ArrayId>>,
 }
 
 impl CascadingCompressor {
@@ -63,7 +70,32 @@ impl CascadingCompressor {
         Self {
             schemes,
             root_exclusions,
+            allowed_serialized_ids: None,
         }
+    }
+
+    /// Restricts the output to the serialized IDs in `allowed`, intersecting with any earlier
+    /// restriction.
+    ///
+    /// The file writer passes the serialized IDs its editions permit, so a scheme whose encoding
+    /// has several wire formats produces the newest one still allowed.
+    pub fn with_allowed_serialized_ids(mut self, allowed: HashSet<ArrayId>) -> Self {
+        self.allowed_serialized_ids = Some(match self.allowed_serialized_ids.take() {
+            Some(existing) => existing.intersection(&allowed).copied().collect(),
+            None => allowed,
+        });
+        self
+    }
+
+    /// Returns whether the output may use the serialized ID `id`.
+    ///
+    /// Schemes whose encoding has several wire formats consult this to pick the newest allowed
+    /// one. Without a restriction every ID is allowed, so that is always the newest. The
+    /// serialization context still validates whatever ID a scheme ends up producing.
+    pub fn allows_serialized_id(&self, id: ArrayId) -> bool {
+        self.allowed_serialized_ids
+            .as_ref()
+            .is_none_or(|allowed| allowed.contains(&id))
     }
 
     /// Returns whether the compressor was configured with `scheme`.

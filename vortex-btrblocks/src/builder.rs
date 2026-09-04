@@ -91,12 +91,14 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
 #[derive(Debug, Clone)]
 pub struct BtrBlocksCompressorBuilder {
     schemes: Vec<&'static dyn Scheme>,
+    allowed_serialized_ids: Option<HashSet<ArrayId>>,
 }
 
 impl Default for BtrBlocksCompressorBuilder {
     fn default() -> Self {
         Self {
             schemes: ALL_SCHEMES.to_vec(),
+            allowed_serialized_ids: None,
         }
     }
 }
@@ -108,6 +110,7 @@ impl BtrBlocksCompressorBuilder {
     pub fn empty() -> Self {
         Self {
             schemes: Vec::new(),
+            allowed_serialized_ids: None,
         }
     }
 
@@ -188,6 +191,14 @@ impl BtrBlocksCompressorBuilder {
         #[cfg(feature = "pco")]
         excluded.extend([integer::PcoScheme.id(), float::PcoScheme.id()]);
         let builder = self.exclude_schemes(excluded);
+        // CUDA kernels decode each encoding's original wire format, whose ID is the encoding's
+        // own. An encoding with newer formats therefore keeps producing the original one here.
+        let original_formats = builder
+            .schemes
+            .iter()
+            .flat_map(|scheme| scheme.produced_encodings())
+            .collect();
+        let builder = builder.allow_serialized_ids(&original_formats);
 
         #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
         let builder = builder.with_new_scheme(&binary::ZstdBuffersScheme);
@@ -214,15 +225,33 @@ impl BtrBlocksCompressorBuilder {
         self
     }
 
+    /// Restricts the output to the serialized IDs in `allowed`, intersecting with any earlier
+    /// restriction, so a scheme whose encoding has several wire formats produces the newest one
+    /// still allowed.
+    ///
+    /// The file writer passes the serialized IDs of its configured editions.
+    pub fn allow_serialized_ids(mut self, allowed: &HashSet<ArrayId>) -> Self {
+        self.allowed_serialized_ids = Some(match self.allowed_serialized_ids.take() {
+            Some(existing) => existing.intersection(allowed).copied().collect(),
+            None => allowed.clone(),
+        });
+        self
+    }
+
     /// Builds the configured [`BtrBlocksCompressor`].
     pub fn build(self) -> BtrBlocksCompressor {
-        BtrBlocksCompressor(CascadingCompressor::new(self.schemes))
+        let compressor = CascadingCompressor::new(self.schemes);
+        BtrBlocksCompressor(match self.allowed_serialized_ids {
+            Some(allowed) => compressor.with_allowed_serialized_ids(allowed),
+            None => compressor,
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use vortex_array::VTable;
+    use vortex_array::arrays::Bool;
     use vortex_fastlanes::FoR;
 
     use super::*;
@@ -285,6 +314,20 @@ mod tests {
                 "{excluded} should be excluded"
             );
         }
+    }
+
+    /// Every serialized ID is allowed by default. The CUDA preset allows only the original format
+    /// of each encoding its schemes produce.
+    #[test]
+    fn cuda_compatible_allows_only_original_formats() {
+        let default = BtrBlocksCompressorBuilder::default().build();
+        assert!(default.0.allows_serialized_id(Bool.id()));
+
+        let cuda = BtrBlocksCompressorBuilder::default()
+            .only_cuda_compatible()
+            .build();
+        assert!(cuda.0.allows_serialized_id(FoR.id()));
+        assert!(!cuda.0.allows_serialized_id(Bool.id()));
     }
 
     #[test]
