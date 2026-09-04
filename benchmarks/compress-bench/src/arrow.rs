@@ -1,22 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fs::File;
 use std::io::Cursor;
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
+use anyhow::bail;
 use arrow_array::RecordBatch;
 use arrow_ipc::reader::FileReader;
 use arrow_ipc::writer::FileWriter;
 use arrow_schema::Schema;
 use async_trait::async_trait;
 use bytes::Bytes;
-use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use vortex_bench::Format;
+use vortex_bench::compress::Compressed;
+use vortex_bench::compress::CompressedData;
 use vortex_bench::compress::Compressor;
+use vortex_bench::compress::Uncompressed;
 use vortex_bench::compress::read_projection;
 
 /// Uncompressed Arrow IPC file baseline.
@@ -28,30 +29,38 @@ impl Compressor for ArrowIpcCompressor {
         Format::ArrowIpc
     }
 
-    async fn compress(&self, parquet_path: &Path) -> anyhow::Result<(u64, Duration)> {
-        let file = File::open(parquet_path)?;
-        let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
-        let schema = Arc::clone(builder.schema());
-        let batches = builder.build()?.collect::<Result<Vec<_>, _>>()?;
-
-        let mut buf = Vec::new();
-        let start = Instant::now();
-        arrow_file_write(&mut buf, &schema, &batches)?;
-        let elapsed = start.elapsed();
-        Ok((buf.len() as u64, elapsed))
+    async fn load(&self, parquet_path: &Path) -> anyhow::Result<Uncompressed> {
+        Uncompressed::read_arrow(parquet_path)
     }
 
-    async fn decompress(&self, parquet_path: &Path) -> anyhow::Result<Duration> {
-        let file = File::open(parquet_path)?;
-        let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
-        let schema = Arc::clone(builder.schema());
-        let batches = builder.build()?.collect::<Result<Vec<_>, _>>()?;
+    async fn compress(&self, input: &Uncompressed) -> anyhow::Result<Compressed> {
+        let (schema, batches) = input.arrow()?;
 
         let mut buf = Vec::new();
-        arrow_file_write(&mut buf, &schema, &batches)?;
+        let start = Instant::now();
+        arrow_file_write(&mut buf, schema, batches)?;
+        let elapsed = start.elapsed();
+
+        Ok(Compressed {
+            size: buf.len() as u64,
+            data: CompressedData::Bytes(Bytes::from(buf)),
+            elapsed,
+        })
+    }
+
+    async fn decompress(&self, compressed: &Compressed) -> anyhow::Result<Duration> {
+        let CompressedData::Bytes(buf) = &compressed.data else {
+            bail!("Arrow IPC decompression expects in-memory bytes");
+        };
+
+        // The projection needs the column count; read the footer before the clock starts.
+        let root_columns = FileReader::try_new(Cursor::new(buf.clone()), None)?
+            .schema()
+            .fields()
+            .len();
 
         let start = Instant::now();
-        arrow_file_read(Bytes::from(buf), schema.fields().len())?;
+        arrow_file_read(buf.clone(), root_columns)?;
         Ok(start.elapsed())
     }
 }

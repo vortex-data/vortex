@@ -9,17 +9,22 @@ use std::time::Duration;
 use std::time::Instant;
 
 use anyhow::anyhow;
+use anyhow::bail;
 use async_trait::async_trait;
 use futures::StreamExt;
 use lance::dataset::Dataset;
 use lance::dataset::WriteParams;
 use lance::deps::arrow_array::RecordBatch;
 use lance::deps::arrow_array::RecordBatchIterator;
+use lance::deps::arrow_schema::SchemaRef;
 use lance_encoding::version::LanceFileVersion;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use tempfile::TempDir;
 use vortex_bench::Format;
+use vortex_bench::compress::Compressed;
+use vortex_bench::compress::CompressedData;
 use vortex_bench::compress::Compressor;
+use vortex_bench::compress::Uncompressed;
 use vortex_bench::compress::read_projection;
 
 use crate::convert::convert_utf8view_batch;
@@ -84,6 +89,15 @@ pub fn calculate_lance_size(dataset_path: &Path) -> anyhow::Result<u64> {
     Ok(total_size)
 }
 
+/// Subdirectory of the temp directory holding the Lance dataset.
+const DATASET_DIR: &str = "dataset";
+
+/// Source batches in Lance's Arrow version, which differs from the workspace's.
+struct LanceInput {
+    schema: SchemaRef,
+    batches: Vec<RecordBatch>,
+}
+
 /// Compressor implementation for Lance format.
 ///
 /// Lance writes to the filesystem rather than in-memory buffers, so this implementation
@@ -96,7 +110,7 @@ impl Compressor for LanceCompressor {
         Format::Lance
     }
 
-    async fn compress(&self, parquet_path: &Path) -> anyhow::Result<(u64, Duration)> {
+    async fn load(&self, parquet_path: &Path) -> anyhow::Result<Uncompressed> {
         // Read the input parquet file
         let file = File::open(parquet_path)?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
@@ -105,15 +119,26 @@ impl Compressor for LanceCompressor {
         let batches: Vec<RecordBatch> = reader.collect::<Result<Vec<_>, _>>()?;
 
         // Convert Utf8View columns to Utf8 (Lance doesn't support Utf8View)
-        let converted_batches: Vec<RecordBatch> = batches
+        let batches = batches
             .into_iter()
             .map(convert_utf8view_batch)
             .collect::<anyhow::Result<Vec<_>>>()?;
-        let converted_schema = convert_utf8view_schema(&schema);
+        let schema = convert_utf8view_schema(&schema);
+
+        Ok(Uncompressed::Opaque(Box::new(LanceInput {
+            schema,
+            batches,
+        })))
+    }
+
+    async fn compress(&self, input: &Uncompressed) -> anyhow::Result<Compressed> {
+        let LanceInput { schema, batches } = input.opaque()?;
+        // The Lance writer wants an owned reader; batch clones only bump buffer refcounts.
+        let batches = batches.clone();
 
         // Create temp directory for Lance dataset
         let temp_dir = TempDir::new()?;
-        let dataset_path = temp_dir.path().join("dataset");
+        let dataset_path = temp_dir.path().join(DATASET_DIR);
         fs::create_dir_all(&dataset_path)?;
 
         let start = Instant::now();
@@ -122,8 +147,7 @@ impl Compressor for LanceCompressor {
         let path_str = dataset_path
             .to_str()
             .ok_or_else(|| anyhow!("Failed to convert path to str"))?;
-        let reader_iter =
-            RecordBatchIterator::new(converted_batches.into_iter().map(Ok), converted_schema);
+        let reader_iter = RecordBatchIterator::new(batches.into_iter().map(Ok), Arc::clone(schema));
         let write_params = WriteParams::with_storage_version(LanceFileVersion::V2_0);
         Dataset::write(reader_iter, path_str, Some(write_params)).await?;
 
@@ -132,39 +156,22 @@ impl Compressor for LanceCompressor {
         // Calculate size of Lance files on disk
         let size = calculate_lance_size(&dataset_path)?;
 
-        Ok((size, elapsed))
+        Ok(Compressed {
+            data: CompressedData::Dir(temp_dir),
+            size,
+            elapsed,
+        })
     }
 
-    async fn decompress(&self, parquet_path: &Path) -> anyhow::Result<Duration> {
-        // First compress to get the Lance dataset
-        let file = File::open(parquet_path)?;
-        let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
-        let schema = Arc::clone(builder.schema());
-        let reader = builder.build()?;
-        let batches: Vec<RecordBatch> = reader.collect::<Result<Vec<_>, _>>()?;
-
-        // Convert Utf8View columns to Utf8 (Lance doesn't support Utf8View)
-        let converted_batches: Vec<RecordBatch> = batches
-            .into_iter()
-            .map(convert_utf8view_batch)
-            .collect::<anyhow::Result<Vec<_>>>()?;
-        let converted_schema = convert_utf8view_schema(&schema);
-
-        // Create temp directory for Lance dataset
-        let temp_dir = TempDir::new()?;
-        let dataset_path = temp_dir.path().join("dataset");
-        fs::create_dir_all(&dataset_path)?;
-
-        // Write to Lance format
+    async fn decompress(&self, compressed: &Compressed) -> anyhow::Result<Duration> {
+        let CompressedData::Dir(temp_dir) = &compressed.data else {
+            bail!("Lance decompression expects a dataset directory");
+        };
+        let dataset_path = temp_dir.path().join(DATASET_DIR);
         let path_str = dataset_path
             .to_str()
             .ok_or_else(|| anyhow!("Failed to convert path to str"))?;
-        let reader_iter =
-            RecordBatchIterator::new(converted_batches.into_iter().map(Ok), converted_schema);
-        let write_params = WriteParams::with_storage_version(LanceFileVersion::V2_0);
-        Dataset::write(reader_iter, path_str, Some(write_params)).await?;
 
-        // Now decompress
         let start = Instant::now();
         lance_decompress_read(path_str).await?;
         Ok(start.elapsed())

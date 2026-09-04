@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
+use anyhow::bail;
 use arrow_array::RecordBatch;
 use arrow_schema::Schema;
 use async_trait::async_trait;
@@ -19,7 +20,10 @@ use parquet::basic::Compression;
 use parquet::basic::ZstdLevel;
 use parquet::file::properties::WriterProperties;
 use vortex_bench::Format;
+use vortex_bench::compress::Compressed;
+use vortex_bench::compress::CompressedData;
 use vortex_bench::compress::Compressor;
+use vortex_bench::compress::Uncompressed;
 use vortex_bench::compress::read_projection;
 
 /// Compressor implementation for Parquet format with ZSTD compression.
@@ -68,45 +72,40 @@ impl Compressor for ParquetCompressor {
         Format::Parquet
     }
 
-    async fn compress(&self, parquet_path: &Path) -> anyhow::Result<(u64, Duration)> {
-        // Read the input parquet file
-        let file = File::open(parquet_path)?;
-        let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
-        let schema = Arc::clone(builder.schema());
-        let reader = builder.build()?;
-        let batches: Vec<RecordBatch> = reader.collect::<Result<Vec<_>, _>>()?;
+    async fn load(&self, parquet_path: &Path) -> anyhow::Result<Uncompressed> {
+        Uncompressed::read_arrow(parquet_path)
+    }
+
+    async fn compress(&self, input: &Uncompressed) -> anyhow::Result<Compressed> {
+        let (schema, batches) = input.arrow()?;
 
         // Compress with our compression settings
         let mut buf = Vec::new();
         let start = Instant::now();
-        let size = parquet_compress_write(batches, schema, self.compression, &mut buf)?;
+        let size = parquet_compress_write(batches, Arc::clone(schema), self.compression, &mut buf)?;
         let elapsed = start.elapsed();
-        Ok((size as u64, elapsed))
+
+        Ok(Compressed {
+            data: CompressedData::Bytes(Bytes::from(buf)),
+            size: size as u64,
+            elapsed,
+        })
     }
 
-    async fn decompress(&self, parquet_path: &Path) -> anyhow::Result<Duration> {
-        // First compress to get the bytes we'll decompress
-        let file = File::open(parquet_path)?;
-        let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
-        let schema = Arc::clone(builder.schema());
-        let reader = builder.build()?;
-        let batches: Vec<RecordBatch> = reader.collect::<Result<Vec<_>, _>>()?;
+    async fn decompress(&self, compressed: &Compressed) -> anyhow::Result<Duration> {
+        let CompressedData::Bytes(buf) = &compressed.data else {
+            bail!("Parquet decompression expects in-memory bytes");
+        };
 
-        let mut buf = Vec::new();
-        parquet_compress_write(batches, schema, self.compression, &mut buf)?;
-
-        let buf = Bytes::from(buf);
-
-        // Now decompress
         let timer = Instant::now();
-        parquet_decompress_read(buf)?;
+        parquet_decompress_read(buf.clone())?;
         Ok(timer.elapsed())
     }
 }
 
 #[inline(never)]
 pub fn parquet_compress_write(
-    batches: Vec<RecordBatch>,
+    batches: &[RecordBatch],
     schema: Arc<Schema>,
     compression: Compression,
     buf: &mut Vec<u8>,
@@ -117,7 +116,7 @@ pub fn parquet_compress_write(
         .build();
     let mut writer = ArrowWriter::try_new(&mut buf, schema, Some(writer_properties))?;
     for batch in batches {
-        writer.write(&batch)?;
+        writer.write(batch)?;
     }
     writer.flush()?;
     let n_bytes = writer.bytes_written();

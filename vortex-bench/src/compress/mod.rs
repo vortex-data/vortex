@@ -1,15 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::borrow::Cow;
 use std::fmt;
+use std::fs::File;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::Context;
 use anyhow::Result;
+use anyhow::bail;
+use arrow_array::RecordBatch;
+use arrow_schema::Schema;
 use async_trait::async_trait;
+use bytes::Bytes;
 use clap::ValueEnum;
+use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use serde::Serialize;
+use tempfile::NamedTempFile;
+use tempfile::TempDir;
+use vortex::array::ArrayRef;
+use vortex::expr::stats::Stat;
 use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::Format;
@@ -84,10 +97,104 @@ impl fmt::Display for CompressOp {
     }
 }
 
+/// Source data in the form a format compresses, read from Parquet once per format.
+pub enum Uncompressed {
+    /// Arrow record batches sharing one schema.
+    Arrow {
+        schema: Arc<Schema>,
+        batches: Vec<RecordBatch>,
+    },
+    /// A Vortex array.
+    Vortex(ArrayRef),
+    /// Format-private input, for backends whose Arrow crate version differs from the
+    /// workspace's and so cannot share [`Self::Arrow`].
+    Opaque(Box<dyn Any + Send + Sync>),
+}
+
+impl Uncompressed {
+    /// Read a Parquet file into Arrow record batches.
+    pub fn read_arrow(parquet_path: &Path) -> Result<Self> {
+        let builder = ParquetRecordBatchReaderBuilder::try_new(File::open(parquet_path)?)?;
+        let schema = Arc::clone(builder.schema());
+        let batches = builder.build()?.collect::<Result<Vec<_>, _>>()?;
+
+        Ok(Self::Arrow { schema, batches })
+    }
+
+    /// The Arrow schema and batches, or an error if this is not Arrow data.
+    pub fn arrow(&self) -> Result<(&Arc<Schema>, &[RecordBatch])> {
+        match self {
+            Self::Arrow { schema, batches } => Ok((schema, batches)),
+            _ => bail!("expected Arrow record batches"),
+        }
+    }
+
+    /// The Vortex array, or an error if this is not Vortex data.
+    pub fn vortex(&self) -> Result<&ArrayRef> {
+        match self {
+            Self::Vortex(array) => Ok(array),
+            _ => bail!("expected a Vortex array"),
+        }
+    }
+
+    /// The format-private input as `T`, or an error if this holds something else.
+    pub fn opaque<T: Any>(&self) -> Result<&T> {
+        match self {
+            Self::Opaque(input) => input
+                .downcast_ref()
+                .ok_or_else(|| anyhow::anyhow!("format-private input has an unexpected type")),
+            _ => bail!("expected format-private input"),
+        }
+    }
+
+    /// Return the input to the state [`Self::read_arrow`] or a fresh conversion would produce.
+    ///
+    /// The Vortex writer computes statistics inside the timed region and caches them on the
+    /// array, so reusing one array across iterations would let every run after the first skip
+    /// that work. Clearing the cache keeps each iteration's measurement comparable.
+    pub fn reset(&self) {
+        if let Self::Vortex(array) = self {
+            clear_stats(array);
+        }
+    }
+}
+
+/// Clear cached statistics on `array` and every array beneath it.
+fn clear_stats(array: &ArrayRef) {
+    for stat in Stat::all() {
+        array.statistics().clear(stat);
+    }
+    for child in array.children_iter() {
+        clear_stats(child);
+    }
+}
+
+/// Where a format keeps its compressed output.
+///
+/// Temporary files and directories are removed on drop, so the output lives exactly as long as
+/// the value does.
+pub enum CompressedData {
+    /// In-memory file image.
+    Bytes(Bytes),
+    /// Single file on disk.
+    File(NamedTempFile),
+    /// Directory of files on disk.
+    Dir(TempDir),
+}
+
+/// Output of one compression run: the compressed data, its size and the compression time.
+pub struct Compressed {
+    pub data: CompressedData,
+    pub size: u64,
+    pub elapsed: Duration,
+}
+
 /// Result of a compression benchmark run.
 pub struct CompressResult {
     pub time: Duration,
     pub compressed_size: u64,
+    /// Output of the last iteration, kept so decompression need not compress again.
+    pub compressed: Compressed,
     pub timing: CompressionTimingMeasurement,
     /// Per-iteration encode wall times. Captured for v3 emission.
     pub all_runs: Vec<Duration>,
@@ -108,50 +215,56 @@ pub struct DecompressResult {
 /// (e.g., Vortex, Parquet, Lance). The benchmark functions use this trait
 /// to run timing measurements.
 ///
-/// The input data is provided as a path to a Parquet file, which implementations
-/// read and convert as needed for their target format.
+/// The input data is provided as a path to a Parquet file. [`Self::load`] reads it once into
+/// the form the format compresses; the timed operations never touch the file again.
 #[async_trait]
 pub trait Compressor: Send + Sync {
     /// The format this compressor handles.
     fn format(&self) -> Format;
 
-    /// Compress data from a Parquet file, returning the compressed size in bytes and elapsed time.
-    ///
-    /// The implementation should read the Parquet file and compress it
-    /// to the target format.
-    async fn compress(&self, parquet_path: &Path) -> Result<(u64, Duration)>;
+    /// Read a Parquet file into the form [`Self::compress`] consumes. Not timed.
+    async fn load(&self, parquet_path: &Path) -> Result<Uncompressed>;
 
-    /// Decompress data from the Parquet file (after compressing), returning the decompressed size.
+    /// Compress output previously produced by [`Self::load`].
     ///
-    /// This method first compresses the data to the target format, then decompresses it.
+    /// Only the compression itself should be timed.
+    async fn compress(&self, input: &Uncompressed) -> Result<Compressed>;
+
+    /// Decompress output previously produced by [`Self::compress`].
+    ///
     /// The timing returned should only measure the decompression phase.
     ///
     /// Format implementations apply the fixed wide-table read projection when the input schema
     /// matches the projection benchmark.
-    async fn decompress(&self, parquet_path: &Path) -> Result<Duration>;
+    async fn decompress(&self, compressed: &Compressed) -> Result<Duration>;
 }
 
 /// Run a compression benchmark for the given compressor.
 ///
-/// Executes compression `iterations` times and returns timing statistics.
+/// Compresses the same `input` `iterations` times and returns timing statistics. The input is
+/// [reset](Uncompressed::reset) before every iteration so none of them starts warm.
 pub async fn benchmark_compress(
     compressor: &dyn Compressor,
-    parquet_path: &Path,
+    input: &Uncompressed,
     iterations: usize,
     bench_name: &str,
 ) -> Result<CompressResult> {
     let format = compressor.format();
     let mut fastest = Duration::MAX;
-    let mut compressed_size = 0u64;
     let mut all_runs = Vec::with_capacity(iterations);
+    let mut compressed = None;
 
     for _ in 0..iterations {
-        let (size, elapsed) = compressor.compress(parquet_path).await?;
+        input.reset();
+        let result = compressor.compress(input).await?;
 
-        compressed_size = size;
-        fastest = fastest.min(elapsed);
-        all_runs.push(elapsed);
+        fastest = fastest.min(result.elapsed);
+        all_runs.push(result.elapsed);
+        compressed = Some(result);
     }
+
+    let compressed = compressed.context("--iterations must be at least 1")?;
+    let compressed_size = compressed.size;
 
     let ratios = vec![CustomUnitMeasurement {
         name: format!("{} size/{bench_name}", format.name()),
@@ -169,6 +282,7 @@ pub async fn benchmark_compress(
     Ok(CompressResult {
         time: fastest,
         compressed_size,
+        compressed,
         timing,
         all_runs,
         ratios,
@@ -177,10 +291,10 @@ pub async fn benchmark_compress(
 
 /// Run a decompression benchmark for the given compressor.
 ///
-/// Benchmarks decompression `iterations` times.
+/// Decompresses the same `compressed` output `iterations` times.
 pub async fn benchmark_decompress(
     compressor: &dyn Compressor,
-    parquet_path: &Path,
+    compressed: &Compressed,
     iterations: usize,
     bench_name: &str,
 ) -> Result<DecompressResult> {
@@ -189,7 +303,7 @@ pub async fn benchmark_decompress(
     let mut all_runs = Vec::with_capacity(iterations);
 
     for _ in 0..iterations {
-        let elapsed = compressor.decompress(parquet_path).await?;
+        let elapsed = compressor.decompress(compressed).await?;
 
         fastest = fastest.min(elapsed);
         all_runs.push(elapsed);

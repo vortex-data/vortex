@@ -10639,6 +10639,7 @@ dependencies = [
  "arrow-schema 59.2.0",
  "arrow-select 59.2.0",
  "async-trait",
+ "bytes",
  "bzip2",
  "clap",
  "futures",

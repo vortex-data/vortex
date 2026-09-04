@@ -8,6 +8,7 @@ use std::time::Duration;
 use std::time::Instant;
 
 use anyhow::Result;
+use anyhow::bail;
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::StreamExt;
@@ -22,7 +23,10 @@ use vortex_arrow::ArrowSessionExt;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
 use vortex_bench::benchmark_write_options;
+use vortex_bench::compress::Compressed;
+use vortex_bench::compress::CompressedData;
 use vortex_bench::compress::Compressor;
+use vortex_bench::compress::Uncompressed;
 use vortex_bench::compress::read_projection;
 use vortex_bench::conversions::parquet_to_vortex_chunks;
 
@@ -35,34 +39,36 @@ impl Compressor for VortexCompressor {
         Format::OnDiskVortex
     }
 
-    async fn compress(&self, parquet_path: &Path) -> Result<(u64, Duration)> {
-        // Read the parquet file as an array stream
-        let uncompressed = parquet_to_vortex_chunks(parquet_path.to_path_buf()).await?;
+    async fn load(&self, parquet_path: &Path) -> Result<Uncompressed> {
+        let chunks = parquet_to_vortex_chunks(parquet_path.to_path_buf()).await?;
+        Ok(Uncompressed::Vortex(chunks.into_array()))
+    }
+
+    async fn compress(&self, input: &Uncompressed) -> Result<Compressed> {
+        let array = input.vortex()?;
 
         let mut buf = Vec::new();
         let start = Instant::now();
         let mut cursor = Cursor::new(&mut buf);
         benchmark_write_options(SESSION.write_options())
-            .write(&mut cursor, uncompressed.into_array().to_array_stream())
+            .write(&mut cursor, array.to_array_stream())
             .await?;
         let elapsed = start.elapsed();
 
-        Ok((buf.len() as u64, elapsed))
+        Ok(Compressed {
+            size: buf.len() as u64,
+            data: CompressedData::Bytes(Bytes::from(buf)),
+            elapsed,
+        })
     }
 
-    async fn decompress(&self, parquet_path: &Path) -> Result<Duration> {
-        // First compress to get the bytes we'll decompress
-        let uncompressed = parquet_to_vortex_chunks(parquet_path.to_path_buf()).await?;
-        let mut buf = Vec::new();
-        let mut cursor = Cursor::new(&mut buf);
-        benchmark_write_options(SESSION.write_options())
-            .write(&mut cursor, uncompressed.into_array().to_array_stream())
-            .await?;
+    async fn decompress(&self, compressed: &Compressed) -> Result<Duration> {
+        let CompressedData::Bytes(data) = &compressed.data else {
+            bail!("Vortex decompression expects in-memory bytes");
+        };
 
-        // Now decompress
         let start = Instant::now();
-        let data = Bytes::from(buf);
-        let mut scan = SESSION.open_options().open_buffer(data)?.scan()?;
+        let mut scan = SESSION.open_options().open_buffer(data.clone())?.scan()?;
         let source_dtype = scan.dtype()?;
         let root_columns = source_dtype
             .as_struct_fields_opt()
