@@ -84,17 +84,19 @@ latter needs `TSAN_OPTIONS="suppressions=$PWD/tsan_suppressions.txt"`.
 
 ## Testing Rust and C with sanitizers
 
-CMake instruments the Rust archive, its C dependencies, and the tests together. It uses rustup's
-`nightly` toolchain, which needs the `rust-src` component, unless `RUSTUP_TOOLCHAIN` selects another,
-and it needs Clang for the C and C++ side:
+CMake instruments the Rust archive, its C dependencies, and the tests together. `VORTEX_SANITIZER`
+takes a comma-separated list of `asan`, `lsan`, `ubsan`, and `tsan`. Each instruments the C and C++
+code, and all but `ubsan` also instrument the Rust code, since rustc has no UBSan. Rust
+instrumentation uses rustup's `nightly` toolchain, which needs the `rust-src` component,
+unless `RUSTUP_TOOLCHAIN` selects another, and the C and C++ side needs Clang:
 
 ```sh
 cmake -S . -B build \
     -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
-    -DVORTEX_SANITIZER=asan -DVORTEX_SANITIZE_RUST_STD=ON \
+    -DVORTEX_SANITIZER=asan,ubsan -DVORTEX_SANITIZE_RUST_STD=ON \
     -DVORTEX_BUILD_TESTING=ON
 cmake --build build --parallel
 ./build/test/vortex_ffi_test 2>&1 | rustfilt -i-
 ```
 
-`VORTEX_SANITIZER=tsan` selects ThreadSanitizer; point `TSAN_OPTIONS` at `tsan_suppressions.txt`.
+For ThreadSanitizer use `tsan` and point `TSAN_OPTIONS` at `tsan_suppressions.txt`.

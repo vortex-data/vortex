@@ -24,7 +24,9 @@
 #   VORTEX_BUILD_EXAMPLES      Examples of both layers.
 #   VORTEX_CARGO_PROFILE       Cargo profile; otherwise mapped from CMAKE_BUILD_TYPE.
 #   VORTEX_ENABLE_CUDA         Linux-only CUDA-enabled FFI archive.
-#   VORTEX_SANITIZER           asan or tsan for Rust, C, and C++ together.
+#   VORTEX_SANITIZER           Comma-separated list of asan, lsan, ubsan, tsan
+#                              for Rust, C, and C++ together; ubsan has no Rust
+#                              side and covers C and C++ only.
 #   VORTEX_SANITIZE_RUST_STD   Also instrument Rust's standard library.
 #   VORTEX_WARNINGS_AS_ERRORS  ON for a Vortex-owned top level, OFF when embedded.
 #

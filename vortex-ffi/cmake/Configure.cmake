@@ -126,57 +126,66 @@ function(_vortex_resolve_ffi_package
     set(${cuda_root_output} "${_cuda_root}" PARENT_SCOPE)
 endfunction()
 
-# Validate and configure the optional sanitizer for native and Rust code.
-# Sanitizers require Clang and a Debug build; rustc itself rejects the
-# nightly-only flags on stable. Standard-library instrumentation is optional.
+# Validate and configure the optional sanitizers. VORTEX_SANITIZER is a comma-
+# or semicolon-separated list of asan, lsan, ubsan, and tsan. Each entry
+# instruments the C and C++ code that clang compiles, including Cargo-built C
+# dependencies, and all but ubsan also instrument the Rust code through rustc,
+# which has no UBSan. Sanitizers require Clang and a Debug build, and rustc
+# itself rejects the nightly-only Rust flags on stable. Standard-library
+# instrumentation is optional.
 function(_vortex_resolve_sanitizer
     configuration
     native_flag_output
     rustflags_output
     build_std_output)
-    string(TOUPPER "${VORTEX_SANITIZER}" VORTEX_SANITIZER)
-    # Reject unknown names before deriving native and Rust compiler flags.
-    if(NOT VORTEX_SANITIZER STREQUAL "" AND
-        NOT VORTEX_SANITIZER STREQUAL "ASAN" AND
-        NOT VORTEX_SANITIZER STREQUAL "TSAN")
-        message(FATAL_ERROR
-            "VORTEX_SANITIZER must be empty, asan, or tsan; got "
-            "${VORTEX_SANITIZER}")
-    endif()
+    string(REPLACE "," ";" _sanitizers "${VORTEX_SANITIZER}")
+    string(TOLOWER "${_sanitizers}" _sanitizers)
 
-    # Rebuilding std is meaningful only when sanitizer instrumentation is enabled.
-    if(VORTEX_SANITIZE_RUST_STD AND VORTEX_SANITIZER STREQUAL "")
-        message(FATAL_ERROR
-            "VORTEX_SANITIZE_RUST_STD=ON requires VORTEX_SANITIZER=asan or tsan")
-    endif()
+    set(_native "")
+    set(_rust "")
+    foreach(_sanitizer IN LISTS _sanitizers)
+        if(_sanitizer STREQUAL "asan")
+            list(APPEND _native address)
+            list(APPEND _rust address)
+        elseif(_sanitizer STREQUAL "lsan")
+            list(APPEND _native leak)
+            list(APPEND _rust leak)
+        elseif(_sanitizer STREQUAL "ubsan")
+            list(APPEND _native undefined)
+        elseif(_sanitizer STREQUAL "tsan")
+            list(APPEND _native thread)
+            list(APPEND _rust thread)
+        else()
+            message(FATAL_ERROR
+                "VORTEX_SANITIZER accepts asan, lsan, ubsan, and tsan; got '${_sanitizer}'")
+        endif()
+    endforeach()
 
-    # Use Clang so Rust and native code share one compatible sanitizer runtime.
-    if(NOT VORTEX_SANITIZER STREQUAL "" AND
-        (NOT CMAKE_C_COMPILER_ID MATCHES "^(AppleClang|Clang)$" OR
-         NOT CMAKE_CXX_COMPILER_ID MATCHES "^(AppleClang|Clang)$"))
+    # Rebuilding std is meaningful only when Rust itself is instrumented.
+    if(VORTEX_SANITIZE_RUST_STD AND NOT _rust)
         message(FATAL_ERROR
-            "Vortex sanitizer builds require Clang or AppleClang for C and C++; "
-            "found ${CMAKE_C_COMPILER_ID} and ${CMAKE_CXX_COMPILER_ID}")
-    endif()
-
-    # Restrict sanitizer instrumentation to the supported Debug configuration.
-    if(NOT VORTEX_SANITIZER STREQUAL "" AND NOT configuration STREQUAL "DEBUG")
-        message(FATAL_ERROR "Vortex sanitizer builds require CMAKE_BUILD_TYPE=Debug")
+            "VORTEX_SANITIZE_RUST_STD=ON requires a Rust sanitizer: asan, lsan, or tsan")
     endif()
 
     set(_native_flag "")
-    set(_rust_sanitizer "")
-    if(VORTEX_SANITIZER STREQUAL "ASAN")
-        set(_native_flag "-fsanitize=address,undefined")
-        set(_rust_sanitizer "address")
-    elseif(VORTEX_SANITIZER STREQUAL "TSAN")
-        set(_native_flag "-fsanitize=thread")
-        set(_rust_sanitizer "thread")
-    endif()
-
     set(_rustflags "")
-    set(_build_std "${VORTEX_SANITIZE_RUST_STD}")
-    if(_rust_sanitizer)
+    if(_native)
+        # Use Clang so Rust and native code share one compatible sanitizer runtime.
+        if(NOT CMAKE_C_COMPILER_ID MATCHES "^(AppleClang|Clang)$" OR
+            NOT CMAKE_CXX_COMPILER_ID MATCHES "^(AppleClang|Clang)$")
+            message(FATAL_ERROR
+                "Vortex sanitizer builds require Clang or AppleClang for C and C++; "
+                "found ${CMAKE_C_COMPILER_ID} and ${CMAKE_CXX_COMPILER_ID}")
+        endif()
+        if(NOT configuration STREQUAL "DEBUG")
+            message(FATAL_ERROR "Vortex sanitizer builds require CMAKE_BUILD_TYPE=Debug")
+        endif()
+
+        list(JOIN _native "," _native_joined)
+        set(_native_flag "-fsanitize=${_native_joined}")
+    endif()
+    if(_rust)
+        list(JOIN _rust "," _rust_joined)
         list(APPEND _rustflags
             -A warnings
             -Cunsafe-allow-abi-mismatch=sanitizer
@@ -184,12 +193,12 @@ function(_vortex_resolve_sanitizer
             -C opt-level=0
             # Use the sanitizer runtime linked by the final C++ target for both languages.
             -Zexternal-clangrt
-            "-Zsanitizer=${_rust_sanitizer}")
+            "-Zsanitizer=${_rust_joined}")
     endif()
 
     set(${native_flag_output} "${_native_flag}" PARENT_SCOPE)
     set(${rustflags_output} "${_rustflags}" PARENT_SCOPE)
-    set(${build_std_output} "${_build_std}" PARENT_SCOPE)
+    set(${build_std_output} "${VORTEX_SANITIZE_RUST_STD}" PARENT_SCOPE)
 endfunction()
 
 # Reconstruct CMake's effective C and C++ flags for Cargo build scripts, then
@@ -248,9 +257,9 @@ block(SCOPE_FOR VARIABLES)
         _sanitizer_compile_flag
         _sanitizer_rustflags
         _cargo_build_std)
-    # Sanitizer builds need nightly-only rustc flags; default to rustup's
+    # Rust sanitizers need nightly-only rustc flags; default to rustup's
     # nightly unless the environment already selected a toolchain.
-    if(NOT VORTEX_SANITIZER STREQUAL "" AND VORTEX_RUSTUP_TOOLCHAIN STREQUAL "")
+    if(_sanitizer_rustflags AND VORTEX_RUSTUP_TOOLCHAIN STREQUAL "")
         set(VORTEX_RUSTUP_TOOLCHAIN nightly)
     endif()
 

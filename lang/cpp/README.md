@@ -82,11 +82,13 @@ and apply to both layers:
 - `VORTEX_WARNINGS_AS_ERRORS` promotes warnings only while compiling `vortex_cxx`; it does not affect
   tests, examples, consumers, Rust, or CUDA compilation. Default: `ON` standalone and `OFF` when
   embedded.
-- `VORTEX_SANITIZER=asan|tsan` requires `Debug` and Clang or AppleClang, and selects rustup's `nightly`
-  toolchain unless `RUSTUP_TOOLCHAIN` is set. ASan enables
-  address and undefined-behavior checks for native code and address instrumentation for Rust; TSan
-  enables thread instrumentation. Flags propagate to targets linking Vortex, but CUDA device code,
-  the CUB helper, and nvCOMP are not sanitizer-instrumented. Default: empty.
+- `VORTEX_SANITIZER` takes a comma-separated list of `asan`, `lsan`, `ubsan`, and `tsan`, for
+  example `asan,ubsan`. It requires `Debug` and Clang or AppleClang. Each sanitizer instruments the
+  C and C++ code, including Cargo-built C dependencies, and all but `ubsan` also instrument the Rust
+  code, since rustc has no UBSan. Rust instrumentation selects rustup's `nightly` toolchain unless
+  `RUSTUP_TOOLCHAIN` is set. Apple clang does not support `lsan` on arm64. Flags
+  propagate to targets linking Vortex, but CUDA device code, the CUB helper, and nvCOMP are not
+  sanitizer-instrumented. Default: empty.
 - `VORTEX_SANITIZE_RUST_STD=ON` rebuilds Rust's standard library with the selected sanitizer and
   requires the nightly `rust-src` component. Default: `OFF`.
 
@@ -157,7 +159,7 @@ cmake -S lang/cpp -B build/cpp-asan -G Ninja \
     -DCMAKE_BUILD_TYPE=Debug \
     -DCMAKE_C_COMPILER=clang \
     -DCMAKE_CXX_COMPILER=clang++ \
-    -DVORTEX_SANITIZER=asan \
+    -DVORTEX_SANITIZER=asan,ubsan \
     -DVORTEX_BUILD_TESTING=ON
 cmake --build build/cpp-asan --parallel
 ctest --test-dir build/cpp-asan --output-on-failure

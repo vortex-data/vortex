@@ -226,7 +226,7 @@ jobs:
         include:
           # We don't run memory sanitizer as it's clang-only and provides many
           # false positives for Catch2
-          - sanitizer: asan
+          - sanitizer: "asan,lsan,ubsan"
           - sanitizer: tsan
     name: "Rust/C++ FFI tests (${{ matrix.sanitizer }})"
     timeout-minutes: 5

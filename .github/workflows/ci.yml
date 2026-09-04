@@ -598,7 +598,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
-            -DVORTEX_SANITIZER=asan \
+            -DVORTEX_SANITIZER=asan,lsan,ubsan \
             -DVORTEX_SANITIZE_RUST_STD=ON \
             -DVORTEX_BUILD_TESTING=ON \
             -DVORTEX_BUILD_EXAMPLES=ON

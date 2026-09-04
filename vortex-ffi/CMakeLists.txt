@@ -39,7 +39,8 @@ set(VORTEX_CARGO_PROFILE "" CACHE STRING "Override the Cargo profile selected fr
 
 # Sanitizers instrument the Rust archive, its C dependencies, and every target
 # that links Vortex::ffi_static; Configure.cmake enforces the toolchain constraints.
-set(VORTEX_SANITIZER "" CACHE STRING "Instrument Vortex and its consumers with asan or tsan")
+set(VORTEX_SANITIZER "" CACHE STRING
+    "Comma-separated sanitizers for Vortex and its consumers: asan, lsan, ubsan, tsan")
 option(VORTEX_SANITIZE_RUST_STD
     "Rebuild Rust's standard library with sanitizer instrumentation"
     OFF)
