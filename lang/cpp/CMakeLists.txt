@@ -10,6 +10,10 @@ cmake_minimum_required(VERSION 3.28)
 # tells the two cases apart wherever the defaults below differ.
 project(VortexCXX DESCRIPTION "Vortex C++ wrapper" LANGUAGES C CXX)
 
+# Vortex does not use C++ modules, so it does not require compiler-specific
+# dependency scanners such as clang-scan-deps.
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
+
 # Standalone builds default to Debug; embedded builds keep the parent's choice.
 if(PROJECT_IS_TOP_LEVEL AND NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
