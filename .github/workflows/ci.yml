@@ -585,26 +585,26 @@ jobs:
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: "true"
+
       - name: Install Rust nightly toolchain
         run: |
           rustup toolchain install $NIGHTLY_TOOLCHAIN
           rustup component add --toolchain $NIGHTLY_TOOLCHAIN rust-src rustfmt clippy llvm-tools-preview
-      - name: Build FFI library (asan)
-        run: |
-          RUSTFLAGS="-A warnings -Cunsafe-allow-abi-mismatch=sanitizer \
-                -C debuginfo=2 -C opt-level=0 -C strip=none -Zexternal-clangrt \
-                -Zsanitizer=address,leak" \
-          cargo +$NIGHTLY_TOOLCHAIN build --locked --no-default-features \
-            --target x86_64-unknown-linux-gnu -Zbuild-std \
-            -p vortex-ffi
       - name: Build C++ tests and examples (asan)
+        env:
+          RUSTUP_TOOLCHAIN: ${{ env.NIGHTLY_TOOLCHAIN }}
         run: |
-          mkdir -p build
-          cmake -S lang/cpp -Bbuild -DSANITIZER=asan -DBUILD_TESTS=1 -DBUILD_EXAMPLES=1 -DTARGET_TRIPLE="x86_64-unknown-linux-gnu"
-          cmake --build build --parallel $(nproc)
+          cmake -S lang/cpp -B build \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DVORTEX_SANITIZER=asan,lsan,ubsan \
+            -DVORTEX_SANITIZE_RUST_STD=ON \
+            -DVORTEX_BUILD_TESTING=ON \
+            -DVORTEX_BUILD_EXAMPLES=ON
+          cmake --build build --parallel
       - name: Run C++ tests
-        run: |
-          build/tests/vortex_cxx_test
+        run: ctest --test-dir build --output-on-failure
       - name: Run C++ examples
         run: |
           cd build/examples
@@ -782,13 +782,13 @@ jobs:
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: "true"
-      - name: "regenerate FFI header file"
+      - name: Build and run C API tests
+        env:
+          # Nightly regenerates cinclude/vortex.h with cbindgen during the build.
+          RUSTUP_TOOLCHAIN: ${{ env.NIGHTLY_TOOLCHAIN }}
         run: |
-          cargo +$NIGHTLY_TOOLCHAIN build --profile ci -p vortex-ffi
-      - name: Build and run C++ unit tests
-        run: |
-          cd vortex-ffi
-          mkdir build
-          cmake -Bbuild -DRUST_BUILD_PROFILE=ci
-          cmake --build build -j $(nproc)
-          ctest --test-dir build -j $(nproc)
+          cmake -S vortex-ffi -B vortex-ffi/build \
+            -DVORTEX_CARGO_PROFILE=ci \
+            -DVORTEX_BUILD_TESTING=ON
+          cmake --build vortex-ffi/build --parallel
+          ctest --test-dir vortex-ffi/build --output-on-failure

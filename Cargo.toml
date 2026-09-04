@@ -419,6 +419,10 @@ lto = "off"
 debug = "full"
 inherits = "release"
 
+[profile.release_size]
+inherits = "release"
+opt-level = "z"
+
 [profile.bench]
 codegen-units = 16
 debug = "full"

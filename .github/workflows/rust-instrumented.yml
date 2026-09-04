@@ -140,8 +140,6 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y lcov libjson-xs-perl
           fi
-      - name: Build FFI library
-        run: cargo build -p vortex-ffi
       - name: Build and test C++ API with coverage
         working-directory: lang/cpp
         run: ./gcov-report.sh
@@ -210,17 +208,14 @@ jobs:
             --target x86_64-unknown-linux-gnu -Zbuild-std \
             -p vortex-buffer -p vortex-fastlanes -p vortex-fsst -p vortex-alp -p vortex-array
 
-        # vortex-ffi requires --no-default-features as otherwise we pull in
-        # Mimalloc which interferes with sanitizers
         # cargo nextest reports less sanitizer issues than cargo test
-        # TODO(myrrc): remove --no-default-features once we make Mimalloc opt-in
         # --tests skips doctests: rustdoc ignores RUSTFLAGS (it uses RUSTDOCFLAGS),
         # so doctests would build vortex-ffi without -Zsanitizer and mismatch the
         # sanitizer-built deps.
       - name: Run vortex-ffi tests with sanitizer
         run: |
           RUSTFLAGS="${RUSTFLAGS} ${{ matrix.sanitizer_flags }}" \
-          cargo +$NIGHTLY_TOOLCHAIN test --locked --no-default-features \
+          cargo +$NIGHTLY_TOOLCHAIN test --locked \
             --target x86_64-unknown-linux-gnu --no-fail-fast -Zbuild-std \
             -p vortex-ffi --tests -- --no-capture
 
@@ -231,10 +226,8 @@ jobs:
         include:
           # We don't run memory sanitizer as it's clang-only and provides many
           # false positives for Catch2
-          - sanitizer: asan
-            sanitizer_flags: "-Zsanitizer=address,leak"
+          - sanitizer: "asan,lsan,ubsan"
           - sanitizer: tsan
-            sanitizer_flags: "-Zsanitizer=thread"
     name: "Rust/C++ FFI tests (${{ matrix.sanitizer }})"
     timeout-minutes: 5
     env:
@@ -246,8 +239,6 @@ jobs:
       TSAN_OPTIONS: "symbolize=1:suppressions=${{ github.workspace }}/vortex-ffi/tsan_suppressions.txt"
       TSAN_SYMBOLIZER_PATH: "/usr/bin/llvm-symbolizer"
       VORTEX_SKIP_SLOW_TESTS: "1"
-      # -Cunsafe-allow-abi-mismatch=sanitizer: libraries like compiler_builtins
-      # unset -Zsanitizer flag and we should allow that.
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=rust-ffi-test-sanitizer', github.run_id)
@@ -265,20 +256,20 @@ jobs:
         run: |
           rustup toolchain install $NIGHTLY_TOOLCHAIN
           rustup component add --toolchain $NIGHTLY_TOOLCHAIN rust-src rustfmt clippy llvm-tools-preview
-      - name: Build FFI library
-        run: |
-          # TODO(myrrc): remove --no-default-features
-          RUSTFLAGS="-A warnings -Cunsafe-allow-abi-mismatch=sanitizer \
-                -C debuginfo=2 -C opt-level=0 -C strip=none -Zexternal-clangrt \
-                ${{ matrix.sanitizer_flags }}" \
-          cargo +$NIGHTLY_TOOLCHAIN build --locked --no-default-features \
-            --target x86_64-unknown-linux-gnu -Zbuild-std \
-            -p vortex-ffi
-      - name: Build FFI library tests and examples
+      - name: Build FFI library, tests, and examples
         working-directory: vortex-ffi
+        env:
+          RUSTUP_TOOLCHAIN: ${{ env.NIGHTLY_TOOLCHAIN }}
         run: |
-          cmake -Bbuild -DBUILD_TESTS=1 -DBUILD_EXAMPLES=1 -DSANITIZER=${{ matrix.sanitizer }} -DTARGET_TRIPLE="x86_64-unknown-linux-gnu"
-          cmake --build build -j
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DVORTEX_SANITIZER=${{ matrix.sanitizer }} \
+            -DVORTEX_SANITIZE_RUST_STD=ON \
+            -DVORTEX_BUILD_TESTING=ON \
+            -DVORTEX_BUILD_EXAMPLES=ON
+          cmake --build build --parallel
       - name: Run tests
         run: |
           set -o pipefail

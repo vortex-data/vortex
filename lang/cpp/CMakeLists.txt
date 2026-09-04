@@ -1,159 +1,118 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-cmake_minimum_required(VERSION 3.10)
-project(VortexCXX
-    VERSION 0.0.1
-    LANGUAGES CXX)
+# Entry point for the static Vortex C++ wrapper. It consumes the Rust FFI
+# archive from vortex-ffi and exports Vortex::cpp_static. It supports standalone
+# configuration and add_subdirectory() from the repository root or a parent.
 
-include(FetchContent)
+cmake_minimum_required(VERSION 3.28)
 
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# project() is safe inside a parent's add_subdirectory(). A Vortex-owned top
+# level, this directory or the repository root, gets developer defaults below;
+# an embedding parent keeps its own.
+project(VortexCXX DESCRIPTION "Vortex C++ wrapper" LANGUAGES C CXX)
+if(CMAKE_PROJECT_NAME MATCHES "^Vortex")
+    set(_vortex_top_level ON)
+else()
+    set(_vortex_top_level OFF)
+endif()
 
-find_program(SCCACHE_PROGRAM sccache)
-if (SCCACHE_PROGRAM)
-    set(CMAKE_C_COMPILER_LAUNCHER "${SCCACHE_PROGRAM}")
-    set(CMAKE_CXX_COMPILER_LAUNCHER "${SCCACHE_PROGRAM}")
-    message(STATUS "Sccache found: ${SCCACHE_PROGRAM}")
-else ()
-    message(STATUS "Sccache not found")
-endif ()
+# Vortex does not use C++ modules, so it does not require compiler-specific
+# dependency scanners such as clang-scan-deps.
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
-option(BUILD_TESTS "Build tests" OFF)
+# A standalone configure writes compile_commands.json for editor tooling.
+if(PROJECT_IS_TOP_LEVEL)
+    set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+endif()
 
-set(SANITIZER "" CACHE STRING "Build with sanitizers")
-set(TARGET_TRIPLE "" CACHE STRING "Rust target triple for FFI library")
-set(RUST_BUILD_PROFILE "" CACHE STRING "Cargo profile name for Rust FFI library")
-
-if (NOT CMAKE_BUILD_TYPE)
+if(_vortex_top_level AND NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
 endif()
 
-if (NOT SANITIZER STREQUAL "")
-    message(NOTICE "Sanitizer: ${SANITIZER}")
-    if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
-        message(FATAL_ERROR "Only debug build is supported for sanitizer builds")
-    endif()
+# Public options. Embedding parents set these before add_subdirectory(). The
+# Cargo, CUDA, and sanitizer options are defined by vortex-ffi/CMakeLists.txt.
+option(VORTEX_BUILD_TESTING "Build Vortex tests" OFF)
+option(VORTEX_BUILD_EXAMPLES "Build Vortex examples" OFF)
+option(VORTEX_WARNINGS_AS_ERRORS
+    "Treat warnings in Vortex-owned sources as errors"
+    "${_vortex_top_level}")
 
-    if (SANITIZER STREQUAL "asan")
-        set(SANITIZER_FLAGS "-fsanitize=address,undefined,leak")
-    elseif (SANITIZER STREQUAL "tsan")
-        set(SANITIZER_FLAGS "-fsanitize=thread")
-    else()
-        message(FATAL_ERROR "Unknown sanitizer ${SANITIZER}")
-    endif()
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${SANITIZER_FLAGS}")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${SANITIZER_FLAGS}")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${SANITIZER_FLAGS}")
+# The Rust FFI archive comes from vortex-ffi. A standalone configure of this
+# directory adds it here; the repository root or a parent may already have.
+if(NOT TARGET Vortex::ffi_static)
+    add_subdirectory(../../vortex-ffi ffi)
 endif()
 
-if (RUST_BUILD_PROFILE STREQUAL "")
-    if (CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
-        set(RUST_BUILD_PROFILE "release_debug")
-    else()
-        string(TOLOWER "${CMAKE_BUILD_TYPE}" RUST_BUILD_PROFILE)
-    endif()
-endif()
+# The C++ wrapper over the C FFI. Public headers live under include/.
+file(GLOB _vortex_cpp_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 
-set(VORTEX_FFI_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../vortex-ffi")
-set(VORTEX_FFI_LIB_DIR "${VORTEX_FFI_DIR}/../target/${TARGET_TRIPLE}/${RUST_BUILD_PROFILE}")
-set(VORTEX_FFI_HEADERS "${VORTEX_FFI_DIR}/cinclude")
-
-if(APPLE)
-    set(VORTEX_FFI_STATIC "${VORTEX_FFI_LIB_DIR}/libvortex_ffi.a")
-    set(VORTEX_FFI_SHARED "${VORTEX_FFI_LIB_DIR}/libvortex_ffi.dylib")
-elseif(WIN32)
-    set(VORTEX_FFI_STATIC "${VORTEX_FFI_LIB_DIR}/libvortex_ffi.lib")
-    set(VORTEX_FFI_SHARED "${VORTEX_FFI_LIB_DIR}/libvortex_ffi.dll")
-else()
-    set(VORTEX_FFI_STATIC "${VORTEX_FFI_LIB_DIR}/libvortex_ffi.a")
-    set(VORTEX_FFI_SHARED "${VORTEX_FFI_LIB_DIR}/libvortex_ffi.so")
-endif()
-
-if(NOT EXISTS "${VORTEX_FFI_STATIC}")
-    message(FATAL_ERROR
-        "vortex-ffi static library not found at ${VORTEX_FFI_STATIC}. "
-        "Run: cargo build --profile <profile> -p vortex-ffi")
-endif()
-
-add_library(vortex_ffi STATIC IMPORTED)
-set_target_properties(vortex_ffi PROPERTIES
-    IMPORTED_LOCATION "${VORTEX_FFI_STATIC}"
-    INTERFACE_INCLUDE_DIRECTORIES "${VORTEX_FFI_HEADERS}")
-
-if(EXISTS "${VORTEX_FFI_SHARED}")
-    add_library(vortex_ffi_shared SHARED IMPORTED)
-    set_target_properties(vortex_ffi_shared PROPERTIES
-        IMPORTED_LOCATION "${VORTEX_FFI_SHARED}"
-        INTERFACE_INCLUDE_DIRECTORIES "${VORTEX_FFI_HEADERS}"
-        INTERFACE_LINK_OPTIONS "LINKER:-rpath,${VORTEX_FFI_LIB_DIR}")
-endif()
-
-file(GLOB VORTEX_CXX_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
-add_library(vortex_cxx STATIC ${VORTEX_CXX_SOURCES})
-target_include_directories(vortex_cxx PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../vortex-ffi/cinclude
-)
-target_link_libraries(vortex_cxx PUBLIC vortex_ffi)
-add_library(vortex::cxx ALIAS vortex_cxx)
+# Consumers inherit the FFI archive, its headers, and its system libraries
+# through this target. Hidden visibility keeps wrapper symbols out of a parent
+# shared library's exports.
+add_library(vortex_cxx STATIC ${_vortex_cpp_sources})
+set_target_properties(vortex_cxx PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN ON)
 target_compile_features(vortex_cxx PUBLIC cxx_std_20)
+target_include_directories(vortex_cxx PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_link_libraries(vortex_cxx PUBLIC Vortex::ffi_static)
 
-set(APPLE_LINK_FLAGS "-framework CoreFoundation -framework Security")
-
-if(APPLE)
-    target_link_libraries(vortex_cxx PRIVATE ${APPLE_LINK_FLAGS})
+# Warning policy is private to Vortex-owned sources so embedding this target
+# never injects warning flags into consumers.
+target_compile_options(vortex_cxx PRIVATE -Wall -Wextra -Wpedantic)
+if(VORTEX_WARNINGS_AS_ERRORS)
+    target_compile_options(vortex_cxx PRIVATE -Werror)
 endif()
 
-if(TARGET vortex_ffi_shared)
-    add_library(vortex_cxx_shared SHARED ${VORTEX_CXX_SOURCES})
-    set_target_properties(vortex_cxx_shared PROPERTIES POSITION_INDEPENDENT_CODE ON)
-    target_include_directories(vortex_cxx_shared PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/../vortex-ffi/cinclude
-    )
-    target_link_libraries(vortex_cxx_shared PUBLIC vortex_ffi_shared)
-    add_library(vortex::cxx_shared ALIAS vortex_cxx_shared)
-    target_compile_features(vortex_cxx_shared PUBLIC cxx_std_20)
+# The only supported consumer-facing name for the C++ API.
+add_library(Vortex::cpp_static ALIAS vortex_cxx)
 
-    if(APPLE)
-        target_link_libraries(vortex_cxx_shared PRIVATE ${APPLE_LINK_FLAGS})
-    endif()
-endif()
+# Test and example dependencies are fetched at configure time and never installed.
+if(VORTEX_BUILD_TESTING OR VORTEX_BUILD_EXAMPLES)
+    include(FetchContent)
 
-if (BUILD_TESTS OR BUILD_EXAMPLES)
+    # Nanoarrow's developer warnings use -Werror and can reject newer compilers.
+    # Its headers are system headers when consumed by Vortex-owned targets.
+    set(NANOARROW_DEBUG_EXTRA_WARNINGS OFF CACHE BOOL
+        "Enable Nanoarrow's additional compiler warnings")
     FetchContent_Declare(
-      Nanoarrow
-      GIT_REPOSITORY https://github.com/apache/arrow-nanoarrow
-      GIT_TAG        apache-arrow-nanoarrow-0.8.0
-    )
+        Nanoarrow
+        SYSTEM
+        GIT_REPOSITORY https://github.com/apache/arrow-nanoarrow
+        GIT_TAG apache-arrow-nanoarrow-0.8.0)
     FetchContent_MakeAvailable(Nanoarrow)
 
-    # arrow-nanoarrow creates a self-referential symlink
-    # python/subprojects/arrow-nanoarrow -> ../.. that makes any recursive
-    if (IS_SYMLINK "${nanoarrow_SOURCE_DIR}/python/subprojects/arrow-nanoarrow")
+    # arrow-nanoarrow creates a self-referential symlink:
+    # python/subprojects/arrow-nanoarrow -> ../..
+    if(IS_SYMLINK "${nanoarrow_SOURCE_DIR}/python/subprojects/arrow-nanoarrow")
         file(REMOVE "${nanoarrow_SOURCE_DIR}/python/subprojects/arrow-nanoarrow")
     endif()
 endif()
 
-if (BUILD_TESTS)
+if(VORTEX_BUILD_TESTING)
     FetchContent_Declare(
         Catch
+        SYSTEM
         GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-        GIT_TAG        v3.8.1
-    )
+        GIT_TAG v3.8.1)
     FetchContent_MakeAvailable(Catch)
-    include(Catch)
+    # By path: Catch2 exports its module directory only to the directory that
+    # populated it, which may be vortex-ffi/test.
+    include("${catch_SOURCE_DIR}/extras/Catch.cmake")
+
+    # Catch2 enables std::string_view, optional, variant, and byte support from
+    # C++17, in headers and compiled sources alike; build it with those on so it
+    # matches the C++23 tests that include its headers.
+    target_compile_features(Catch2 PRIVATE cxx_std_17)
     target_compile_definitions(Catch2 PRIVATE CATCH_CONFIG_NO_POSIX_SIGNALS)
 
-    include(CTest)
+    # Embedding parents must also call enable_testing() for ctest to find these.
+    enable_testing()
     add_subdirectory(tests)
 endif()
 
-if (BUILD_EXAMPLES)
+if(VORTEX_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()

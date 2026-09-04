@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#include <filesystem>
 #include <iostream>
 
 #include <vortex/data_source.hpp>

@@ -1,127 +1,88 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
-cmake_minimum_required(VERSION 3.10)
 
-include(FetchContent)
+# Entry point for the Rust FFI archive. It builds vortex-ffi with Cargo and
+# exports Vortex::ffi_static for C consumers; lang/cpp layers the C++ wrapper on
+# top. It supports standalone configuration and add_subdirectory() from a parent.
 
-project(VortexFFI
-    VERSION 0.0.1
-    LANGUAGES C)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_C_STANDARD 17)
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Werror -Wextra -Wpedantic")
+cmake_minimum_required(VERSION 3.28)
 
-option(BUILD_TESTS "Build tests" OFF)
-option(BUILD_EXAMPLES "Build examples" OFF)
+# project() is safe inside a parent's add_subdirectory(). A Vortex-owned top
+# level, this directory or the repository root, gets developer defaults below;
+# an embedding parent keeps its own.
+project(VortexFFI DESCRIPTION "Vortex C FFI" LANGUAGES C CXX)
+if(CMAKE_PROJECT_NAME MATCHES "^Vortex")
+    set(_vortex_top_level ON)
+else()
+    set(_vortex_top_level OFF)
+endif()
 
-set(SANITIZER "" CACHE STRING "Build with sanitizers")
-set(TARGET_TRIPLE "" CACHE STRING "Rust target triple for FFI library")
-set(RUST_BUILD_PROFILE "" CACHE STRING "Cargo profile name for the Rust FFI library")
+# Vortex does not use C++ modules, so it does not require compiler-specific
+# dependency scanners such as clang-scan-deps.
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
-if (NOT CMAKE_BUILD_TYPE)
+# A standalone configure writes compile_commands.json for editor tooling.
+if(PROJECT_IS_TOP_LEVEL)
+    set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+endif()
+
+if(_vortex_top_level AND NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
 endif()
 
-if (NOT SANITIZER STREQUAL "")
-    message(NOTICE "Sanitizer: ${SANITIZER}")
-    if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
-        message(FATAL_ERROR "Only debug build is supported for sanitizer builds")
-    endif()
+# Public options. Embedding parents set these before add_subdirectory(). The
+# testing and examples options are shared with lang/cpp.
+option(VORTEX_BUILD_TESTING "Build Vortex tests" OFF)
+option(VORTEX_BUILD_EXAMPLES "Build Vortex examples" OFF)
+option(VORTEX_ENABLE_CUDA "Build the CUDA-enabled Vortex FFI" OFF)
+set(VORTEX_CARGO_PROFILE "" CACHE STRING "Override the Cargo profile selected from CMAKE_BUILD_TYPE")
 
-    if (SANITIZER STREQUAL "asan")
-        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address,undefined,leak")
-        if (BUILD_TESTS)
-            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address,undefined,leak")
-        endif()
-    elseif (SANITIZER STREQUAL "tsan")
-        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=thread")
-        if (BUILD_TESTS)
-            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=thread")
-        endif()
-    else()
-        message(FATAL_ERROR "Unknown sanitizer ${SANITIZER}")
-    endif()
-endif()
+# Sanitizers instrument the Rust archive, its C dependencies, and every target
+# that links Vortex::ffi_static; Configure.cmake enforces the toolchain constraints.
+set(VORTEX_SANITIZER "" CACHE STRING
+    "Comma-separated sanitizers for Vortex and its consumers: asan, lsan, ubsan, tsan")
+option(VORTEX_SANITIZE_RUST_STD
+    "Rebuild Rust's standard library with sanitizer instrumentation"
+    OFF)
 
-message(NOTICE "Build type: ${CMAKE_BUILD_TYPE}")
-if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug" AND
-    NOT CMAKE_BUILD_TYPE STREQUAL "Release" AND
-    NOT CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
-    message(FATAL_ERROR "vortex-ffi can only be built in Release, Debug, or RelWithDebInfo mode")
-endif()
+option(VORTEX_WARNINGS_AS_ERRORS
+    "Treat warnings in Vortex-owned sources as errors"
+    "${_vortex_top_level}")
 
-if (RUST_BUILD_PROFILE STREQUAL "")
-    if (CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
-        set(RUST_BUILD_PROFILE "release_debug")
-    else()
-        string(TOLOWER ${CMAKE_BUILD_TYPE} RUST_BUILD_PROFILE)
-    endif()
-endif()
-set(LIBRARY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../target/${TARGET_TRIPLE}/${RUST_BUILD_PROFILE}")
+# Define the Cargo build and the imported vortex_ffi_static archive.
+include(cmake/Configure.cmake)
 
-if(WIN32)
-    set(LIBRARY_PATH "${LIBRARY_DIR}/libvortex_ffi.lib")
-    set(LIBRARY_PATH_SHARED "${LIBRARY_DIR}/libvortex_ffi.dll")
-elseif(APPLE)
-    set(LIBRARY_PATH "${LIBRARY_DIR}/libvortex_ffi.a")
-    set(LIBRARY_PATH_SHARED "${LIBRARY_DIR}/libvortex_ffi.dylib")
-else()
-    set(LIBRARY_PATH "${LIBRARY_DIR}/libvortex_ffi.a")
-    set(LIBRARY_PATH_SHARED "${LIBRARY_DIR}/libvortex_ffi.so")
-endif()
+# The only supported consumer-facing name for the C API.
+add_library(Vortex::ffi_static ALIAS vortex_ffi_static)
 
-set(LIBRARY_HEADERS "${CMAKE_CURRENT_SOURCE_DIR}/cinclude")
+# Test and example dependencies are fetched at configure time and never installed.
+if(VORTEX_BUILD_TESTING OR VORTEX_BUILD_EXAMPLES)
+    include(FetchContent)
 
-message(NOTICE "
-Library dir ${LIBRARY_DIR}
-Shared library path ${LIBRARY_PATH_SHARED}
-Static library path ${LIBRARY_PATH}
-Headers path ${LIBRARY_HEADERS}")
-
-if (NOT EXISTS "${LIBRARY_PATH_SHARED}")
-    message(FATAL_ERROR "Shared library not found, run `cargo build --release -p vortex-ffi`")
-endif()
-if (NOT EXISTS "${LIBRARY_PATH}")
-    message(FATAL_ERROR "Static library not found, run `cargo build --release -p vortex-ffi`")
-endif()
-
-add_library(vortex_ffi STATIC IMPORTED)
-set_target_properties(vortex_ffi PROPERTIES
-    IMPORTED_LOCATION "${LIBRARY_PATH}"
-    INTERFACE_INCLUDE_DIRECTORIES "${LIBRARY_HEADERS}"
-)
-
-add_library(vortex_ffi_shared SHARED IMPORTED)
-set_target_properties(vortex_ffi_shared PROPERTIES
-    IMPORTED_LOCATION "${LIBRARY_PATH_SHARED}"
-    INTERFACE_INCLUDE_DIRECTORIES "${LIBRARY_HEADERS}"
-    INTERFACE_LINK_OPTIONS "LINKER:-rpath,${LIBRARY_DIR}"
-)
-
-if (BUILD_TESTS OR BUILD_EXAMPLES)
+    # Nanoarrow's developer warnings use -Werror and can reject newer compilers.
+    # Its headers are system headers when consumed by Vortex-owned targets.
+    set(NANOARROW_DEBUG_EXTRA_WARNINGS OFF CACHE BOOL
+        "Enable Nanoarrow's additional compiler warnings")
     FetchContent_Declare(
-      Nanoarrow
-      GIT_REPOSITORY https://github.com/apache/arrow-nanoarrow
-      GIT_TAG        apache-arrow-nanoarrow-0.8.0
-    )
+        Nanoarrow
+        SYSTEM
+        GIT_REPOSITORY https://github.com/apache/arrow-nanoarrow
+        GIT_TAG apache-arrow-nanoarrow-0.8.0)
     FetchContent_MakeAvailable(Nanoarrow)
 
-    # arrow-nanoarrow creates a self-referential symlink
+    # arrow-nanoarrow creates a self-referential symlink:
     # python/subprojects/arrow-nanoarrow -> ../..
-    if (IS_SYMLINK "${nanoarrow_SOURCE_DIR}/python/subprojects/arrow-nanoarrow")
+    if(IS_SYMLINK "${nanoarrow_SOURCE_DIR}/python/subprojects/arrow-nanoarrow")
         file(REMOVE "${nanoarrow_SOURCE_DIR}/python/subprojects/arrow-nanoarrow")
     endif()
 endif()
 
-if (BUILD_TESTS)
-    enable_language(CXX)
-    set(CMAKE_CXX_STANDARD 20)
-    set(CMAKE_CXX_STANDARD_REQUIRED ON)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Werror -Wextra -Wpedantic")
+if(VORTEX_BUILD_TESTING)
+    # Embedding parents must also call enable_testing() for ctest to find these.
     enable_testing()
     add_subdirectory(test)
 endif()
 
-if (BUILD_EXAMPLES)
+if(VORTEX_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()

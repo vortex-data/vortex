@@ -91,7 +91,8 @@ Migrate from cxx to wrapping the C API:
 
 - **RAII wrappers:** Provide C++ classes that manage lifetime of C API objects (files, scanners,
   arrays, streams).
-- **CMake integration:** Ship a CMake config so downstream projects can `find_package(Vortex)`.
+- **CMake integration:** Provide source-tree CMake targets so vendored downstream projects can
+  build Vortex with `add_subdirectory`.
 - **Header generation:** Auto-generate C++ headers from the C API headers, adding type safety and
   namespace scoping.
 - **Target:** Tier 2 (native array access through the C API).
