@@ -27,21 +27,34 @@ use crate::arrays::Filter;
 use crate::arrays::FilterArray;
 use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
+use crate::arrays::Slice;
+use crate::arrays::SliceArray;
 use crate::arrays::dict::TakeExecuteAdaptor;
 use crate::arrays::filter::FilterSlots;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
+use crate::arrays::slice::SliceSlots;
 use crate::execute_parent_for_child;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar_fn::ScalarFnPlugin;
+use crate::scalar_fn::fns::between::Between;
 use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::fill_null::FillNull;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
     kernels.register_execute_parent_kernel(Dict.id(), Filter, TakeExecuteAdaptor(Filter));
-    kernels.register_execute_parent_kernel(Binary.id(), Filter, FilterScalarFnUnaryPushDownRule);
+
+    for parent in [Binary.id(), Between.id(), FillNull.id()] {
+        kernels.register_execute_parent_kernel(
+            parent,
+            Filter,
+            FilterSliceScalarFnUnaryPushDownRule,
+        );
+        kernels.register_execute_parent_kernel(parent, Slice, FilterSliceScalarFnUnaryPushDownRule);
+    }
 }
 
 pub trait FilterReduce: VTable {
@@ -148,12 +161,71 @@ where
     }
 }
 
+/// If we have one non-constant child, and ScalarFn has a registered
+/// kernel for given encoding id (e.g. can operate on compressed data),
+/// it's faster to pull V up so that it doesn't canonicalize its
+/// child.
+///
+/// Fn(V(x), consts) -> V(Fn(x, consts))
+///
+/// Returns new child, i.e. Fn(x, consts) with Fn applied eagerly.
+///
+/// Example: clickbench q1, SELECT * FROM hits WHERE AdvEngineID <> 0;
+/// AdvEngineID <> 0 is Binary over Sparse, but FlatReader applies
+/// Filter over Sparse, so we get Binary(Filter(Sparse)). Filter(Sparse)
+/// canonicalizes.
+fn filter_slice_execute_parent<const CHILD_SLOT: usize, V: VTable>(
+    child: ArrayView<'_, V>,
+    parent: ArrayView<'_, ScalarFn>,
+    child_idx: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    if parent
+        .iter_children()
+        .filter(|c| !c.is::<Constant>())
+        .count()
+        != 1
+    {
+        return Ok(None);
+    }
+
+    // "x" in above formula
+    let new_non_const_grandchild = child.slots()[CHILD_SLOT]
+        .as_ref()
+        .vortex_expect("no child for V");
+
+    let unfiltered_len = new_non_const_grandchild.len();
+    // (x, consts)
+    let new_grandchildren: Vec<_> = parent
+        .iter_children()
+        .map(|c| match c.as_constant() {
+            Some(scalar) => ConstantArray::new(scalar, unfiltered_len).into_array(),
+            // by above check this is the only non-const argument
+            None => new_non_const_grandchild.clone(),
+        })
+        .collect();
+
+    // Fn(x, consts)
+    let new_child =
+        ScalarFnArray::try_new(parent.scalar_fn().clone(), new_grandchildren)?.into_array();
+
+    // Eagerly execute swapped Fn to avoid infinite runtime with
+    // ScalarFnUnaryFilterPushDownRule. Returns Fn(x, consts)
+    execute_parent_for_child(
+        "filter_scalar_fn_pushdown",
+        &new_child,               // parent, Fn
+        new_non_const_grandchild, // child, x
+        child_idx,
+        &ctx.execute_parent_kernels.clone(),
+        ctx,
+    )
+}
+
 #[derive(Debug)]
-struct FilterScalarFnUnaryPushDownRule;
+struct FilterSliceScalarFnUnaryPushDownRule;
 
-impl ExecuteParentKernel<Filter> for FilterScalarFnUnaryPushDownRule {
+impl ExecuteParentKernel<Filter> for FilterSliceScalarFnUnaryPushDownRule {
     type Parent = ScalarFn;
-
     fn execute_parent(
         &self,
         child: ArrayView<'_, Filter>,
@@ -161,66 +233,34 @@ impl ExecuteParentKernel<Filter> for FilterScalarFnUnaryPushDownRule {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        // If we have one non-constant child, and ScalarFn has a registered
-        // kernel for given encoding id (e.g. can operate on compressed data),
-        // it's faster to pull Filter up so that it doesn't canonicalize its
-        // child.
-        //
-        // Fn(Filter(x), consts) -> Filter(Fn(x, consts))
-        //
-        // Example: clickbench q1, SELECT * FROM hits WHERE AdvEngineID <> 0;
-        // AdvEngineID <> 0 is Binary over Sparse, but FlatReader applies
-        // Filter over Sparse, so we get Binary(Filter(Sparse)). Filter(Sparse)
-        // canonicalizes.
-        if parent
-            .iter_children()
-            .filter(|c| !c.is::<Constant>())
-            .count()
-            != 1
-        {
-            return Ok(None);
-        }
-
-        // "x" in above formula
-        let new_non_const_grandchild = child.slots()[FilterSlots::CHILD]
-            .as_ref()
-            .vortex_expect("no child for Filter");
-
-        let unfiltered_len = new_non_const_grandchild.len();
-        // (x, consts)
-        let new_grandchildren: Vec<_> = parent
-            .iter_children()
-            .map(|c| match c.as_constant() {
-                Some(scalar) => ConstantArray::new(scalar, unfiltered_len).into_array(),
-                // by above check this is the only non-const argument
-                None => new_non_const_grandchild.clone(),
-            })
-            .collect();
-
-        // Fn(x, consts)
-        let new_child =
-            ScalarFnArray::try_new(parent.scalar_fn().clone(), new_grandchildren)?.into_array();
-
-        // Eagerly execute swapped Fn to avoid infinite runtime with
-        // ScalarFnUnaryFilterPushDownRule.
-        //
-        // This is Res = Fn(x, consts)
-        let new_child = execute_parent_for_child(
-            "filter_scalar_fn_pushdown",
-            &new_child,               // parent, Fn
-            new_non_const_grandchild, // child, x
-            child_idx,
-            &ctx.execute_parent_kernels.clone(),
-            ctx,
-        )?;
-        let Some(new_child) = new_child else {
-            // All child kernels rejected, can't proceed
+        const SLOT: usize = FilterSlots::CHILD;
+        let Some(new_child) =
+            filter_slice_execute_parent::<SLOT, Filter>(child, parent, child_idx, ctx)?
+        else {
             return Ok(None);
         };
-
         let mask = child.filter_mask().clone();
-        // Filter(Res)
         let new_parent = FilterArray::try_new(new_child.clone(), mask)?;
+        Ok(Some(new_parent.into_array()))
+    }
+}
+
+impl ExecuteParentKernel<Slice> for FilterSliceScalarFnUnaryPushDownRule {
+    type Parent = ScalarFn;
+    fn execute_parent(
+        &self,
+        child: ArrayView<'_, Slice>,
+        parent: ArrayView<'_, ScalarFn>,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        const SLOT: usize = SliceSlots::CHILD;
+        let Some(new_child) =
+            filter_slice_execute_parent::<SLOT, Slice>(child, parent, child_idx, ctx)?
+        else {
+            return Ok(None);
+        };
+        let new_parent = SliceArray::try_new(new_child.clone(), child.slice_range().clone())?;
         Ok(Some(new_parent.into_array()))
     }
 }
