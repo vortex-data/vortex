@@ -24,8 +24,8 @@ function(_vortex_resolve_cargo_profile configuration_output profile_output artif
     # Normalize user input for comparisons and CMAKE_<LANG>_FLAGS_<CONFIG> lookups.
     string(TOUPPER "${CMAKE_BUILD_TYPE}" _build_type)
 
-    # An explicit user override takes precedence over the CMake build-type mapping.
     if(VORTEX_CARGO_PROFILE)
+        # An explicit user override takes precedence over the CMake build-type mapping.
         _vortex_reject_semicolon("VORTEX_CARGO_PROFILE" "${VORTEX_CARGO_PROFILE}")
         if(NOT VORTEX_CARGO_PROFILE MATCHES "^[A-Za-z0-9_-]+$")
             message(FATAL_ERROR
@@ -40,14 +40,19 @@ function(_vortex_resolve_cargo_profile configuration_output profile_output artif
 
         set(_cargo_profile "${VORTEX_CARGO_PROFILE}")
     elseif(_build_type STREQUAL "DEBUG")
+        # Debug maps to Cargo's built-in development profile.
         set(_cargo_profile "dev")
     elseif(_build_type STREQUAL "RELEASE")
+        # Release maps to Cargo's built-in optimized profile.
         set(_cargo_profile "release")
     elseif(_build_type STREQUAL "RELWITHDEBINFO")
+        # RelWithDebInfo keeps release optimizations and full debug information.
         set(_cargo_profile "release_debug")
     elseif(_build_type STREQUAL "MINSIZEREL")
+        # MinSizeRel uses the release profile optimized for binary size.
         set(_cargo_profile "release_size")
     else()
+        # Unknown build types fall back to Cargo's development profile with a warning.
         message(WARNING
             "Vortex has no Cargo profile mapping for "
             "CMAKE_BUILD_TYPE='${CMAKE_BUILD_TYPE}'; using Cargo profile dev. "
