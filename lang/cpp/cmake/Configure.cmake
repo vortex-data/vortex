@@ -312,15 +312,13 @@ block(SCOPE_FOR VARIABLES)
         _nvcc_executable
         _cuda_root)
 
-    _vortex_find_rust_tools("${_workspace_root}")
+    _vortex_resolve_rust_toolchain("${_workspace_root}")
     _vortex_resolve_sanitizer(
         "${_configuration}"
-        "${VORTEX_RESOLVED_RUSTC_RELEASE}"
+        "${VORTEX_RUSTC_RELEASE}"
         _sanitizer_compile_flag
         _sanitizer_rustflags
         _cargo_build_std)
-    _vortex_resolve_native_target(_rust_target)
-    _vortex_resolve_apple_settings(_apple_sdkroot _apple_deployment_target)
 
     if(NOT "$ENV{CARGO_ENCODED_RUSTFLAGS}" STREQUAL "" OR NOT "$ENV{RUSTFLAGS}" STREQUAL "")
         message(STATUS "Vortex ignores ambient Rust flags in its Cargo build")
@@ -328,7 +326,7 @@ block(SCOPE_FOR VARIABLES)
 
     _vortex_encode_native_flags(
         "${_configuration}"
-        "${_apple_deployment_target}"
+        "${VORTEX_APPLE_DEPLOYMENT_TARGET}"
         "${_sanitizer_compile_flag}"
         _native_c_flags
         _native_cxx_flags)
@@ -348,16 +346,26 @@ block(SCOPE_FOR VARIABLES)
         _native_c_compiler
         _native_cxx_compiler)
     set(_cargo_ffi_archive
-        "${_cargo_target_dir}/${_rust_target}/${_cargo_artifact_directory}/${_cargo_archive_name}")
+        "${_cargo_target_dir}/${VORTEX_RUST_TARGET}/${_cargo_artifact_directory}/${_cargo_archive_name}")
     set(_ffi_archive "${CMAKE_CURRENT_BINARY_DIR}/vortex-artifacts/libvortex_ffi.a")
+
+    # Each value below becomes one `-D` argument of the driver and later one
+    # environment entry, where a semicolon would split it.
+    foreach(_name IN ITEMS
+        VORTEX_CARGO_EXECUTABLE VORTEX_RUSTC_EXECUTABLE VORTEX_RUSTUP_TOOLCHAIN
+        VORTEX_APPLE_SDKROOT VORTEX_APPLE_DEPLOYMENT_TARGET
+        _native_c_compiler _native_cxx_compiler CMAKE_AR CMAKE_RANLIB)
+        _vortex_reject_semicolon("${_name}" "${${_name}}")
+    endforeach()
 
     # The phony target lets Cargo own dependency tracking. Copy-if-different in
     # the driver prevents fresh Cargo checks from forcing downstream relinks.
     add_custom_target(vortex_ffi_cargo_build
         COMMAND "${CMAKE_COMMAND}"
-            "-DVORTEX_CARGO_EXECUTABLE=${VORTEX_RESOLVED_CARGO_EXECUTABLE}"
-            "-DVORTEX_RUSTC_EXECUTABLE=${VORTEX_RESOLVED_RUSTC_EXECUTABLE}"
-            "-DVORTEX_RUST_TARGET=${_rust_target}"
+            "-DVORTEX_CARGO_EXECUTABLE=${VORTEX_CARGO_EXECUTABLE}"
+            "-DVORTEX_RUSTC_EXECUTABLE=${VORTEX_RUSTC_EXECUTABLE}"
+            "-DVORTEX_RUSTUP_TOOLCHAIN=${VORTEX_RUSTUP_TOOLCHAIN}"
+            "-DVORTEX_RUST_TARGET=${VORTEX_RUST_TARGET}"
             "-DVORTEX_CARGO_TARGET_DIR=${_cargo_target_dir}"
             "-DVORTEX_CARGO_PROFILE=${_cargo_profile}"
             "-DVORTEX_FFI_PACKAGE=${_ffi_package}"
@@ -371,8 +379,8 @@ block(SCOPE_FOR VARIABLES)
             "-DVORTEX_CXX_COMPILER=${_native_cxx_compiler}"
             "-DVORTEX_AR=${CMAKE_AR}"
             "-DVORTEX_RANLIB=${CMAKE_RANLIB}"
-            "-DVORTEX_APPLE_DEPLOYMENT_TARGET=${_apple_deployment_target}"
-            "-DVORTEX_APPLE_SDKROOT=${_apple_sdkroot}"
+            "-DVORTEX_APPLE_DEPLOYMENT_TARGET=${VORTEX_APPLE_DEPLOYMENT_TARGET}"
+            "-DVORTEX_APPLE_SDKROOT=${VORTEX_APPLE_SDKROOT}"
             -P "${CMAKE_CURRENT_LIST_DIR}/CargoBuild.cmake"
         BYPRODUCTS "${_ffi_archive}"
         COMMENT "Building the PIC Vortex FFI static archive with Cargo"
@@ -386,12 +394,12 @@ block(SCOPE_FOR VARIABLES)
         IMPORTED_LOCATION "${_ffi_archive}"
         INTERFACE_INCLUDE_DIRECTORIES "${_ffi_include_dirs}")
     add_dependencies(vortex_ffi_static vortex_ffi_cargo_build)
-    _vortex_attach_system_dependencies(vortex_ffi_static "${_rust_target}")
+    _vortex_attach_system_dependencies(vortex_ffi_static "${VORTEX_RUST_TARGET}")
     if(_sanitizer_compile_flag)
         target_compile_options(vortex_ffi_static INTERFACE "${_sanitizer_compile_flag}")
         target_link_options(vortex_ffi_static INTERFACE "${_sanitizer_compile_flag}")
     endif()
 
-    message(STATUS "Vortex Rust target: ${_rust_target}")
+    message(STATUS "Vortex Rust target: ${VORTEX_RUST_TARGET}")
     message(STATUS "Vortex Cargo target directory: ${_cargo_target_dir}")
 endblock()

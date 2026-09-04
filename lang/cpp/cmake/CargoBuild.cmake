@@ -94,6 +94,14 @@ function(_vortex_make_cargo_environment support_dir target_key_lower output)
         "CXXFLAGS_${target_key_lower}=${_cxxflags}"
         "CARGO_ENCODED_RUSTFLAGS=${_rustflags}")
 
+    # Keep the toolchain selection seen at configure time, even when the
+    # ambient environment differs at build time.
+    if(VORTEX_RUSTUP_TOOLCHAIN)
+        list(APPEND _environment "RUSTUP_TOOLCHAIN=${VORTEX_RUSTUP_TOOLCHAIN}")
+    else()
+        list(APPEND _environment --unset=RUSTUP_TOOLCHAIN)
+    endif()
+
     if(VORTEX_CUDA_ROOT)
         list(APPEND _environment "CUDA_PATH=${VORTEX_CUDA_ROOT}")
     endif()

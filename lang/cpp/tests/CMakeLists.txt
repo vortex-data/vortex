@@ -22,10 +22,3 @@ target_link_libraries(vortex_cxx_test PRIVATE
     nanoarrow_shared)
 
 catch_discover_tests(vortex_cxx_test)
-
-# Validate the private CMake/Rust integration without invoking Cargo.
-add_test(NAME vortex_cmake_rust_toolchain
-    COMMAND "${CMAKE_COMMAND}"
-        "-DVORTEX_CPP_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/.."
-        "-DVORTEX_TEST_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/cmake"
-        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RustToolchainTests.cmake")

@@ -50,12 +50,13 @@ The build supports:
 - a single-config generator; unless `VORTEX_CARGO_PROFILE` is set, `Debug`, `Release`,
   `RelWithDebInfo`, and `MinSizeRel` map to Cargo `dev`, `release`, `release_debug`, and
   `release_size`, respectively, while other build types warn and use `dev`; and
-- Cargo and rustc 1.95.0 or newer, with the selected target's standard library installed.
+- Cargo and rustc 1.95 or newer, which Cargo enforces from the workspace `rust-version` during
+  the build.
 
-CMake discovers Cargo and rustc with `find_program`. Rustup proxies are resolved from the Vortex
-workspace, so they honor its `rust-toolchain.toml` and `RUSTUP_TOOLCHAIN`; concrete non-rustup
-binaries are used directly. Rustc and the selected C and C++ compilers must target the same native
-platform and architecture; the C and C++ compilers must support `-dumpmachine`.
+CMake discovers Cargo and rustc with `find_program`; set `VORTEX_CARGO_EXECUTABLE` and
+`VORTEX_RUSTC_EXECUTABLE` to override them. Rustup proxies run from the Vortex workspace, so they
+honor its `rust-toolchain.toml`, and the `RUSTUP_TOOLCHAIN` value present at configure time applies
+to every Cargo build until CMake is reconfigured. The rustc host selects the Rust target.
 
 Cross-compilation, Apple universal binaries, Windows, musl, multi-config generators, and shared
 Vortex targets are not supported. Ninja is recommended. macOS is not a supported cuDF integration
@@ -85,10 +86,10 @@ standalone build:
 - `VORTEX_SANITIZE_RUST_STD=ON` rebuilds Rust's standard library with the selected sanitizer and
   requires the nightly `rust-src` component. Default: `OFF`.
 
-The selected Cargo and rustc binaries are fixed until CMake is reconfigured. Cargo runs with the
-lockfile, the selected native target and profile, and the selected FFI package's default features
-disabled. Optional features such as `mimalloc` are not enabled. The integration supplies its complete
-Rust flag sequence, overriding Rust flags from the environment and Cargo configuration.
+Cargo runs with the lockfile, the selected native target and profile, and the selected FFI package's
+default features disabled. Optional features such as `mimalloc` are not enabled. The integration
+supplies its complete Rust flag sequence, overriding Rust flags from the environment and Cargo
+configuration.
 
 Cargo's target cache is stored under `<CMake binary dir>/cargo-target`. The Cargo target runs whenever
 Vortex is built, while Cargo decides whether recompilation is needed. The standard CMake clean target
