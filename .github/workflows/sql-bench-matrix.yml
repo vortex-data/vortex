@@ -102,6 +102,7 @@ jobs:
     timeout-minutes: 120
     env:
       VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
+      VORTEX_PATCHES_V2_SCATTER: "1"
       FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
       # Makes python output nicer
       COLUMNS: 120

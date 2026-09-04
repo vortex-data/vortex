@@ -342,6 +342,7 @@ mod test {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::patches_v2::force_patches_v2_scatter;
     use vortex_buffer::Buffer;
     use vortex_session::VortexSession;
 
@@ -396,15 +397,25 @@ mod test {
 
         let packed_with_patches = BitPackedData::encode(&parray, 9, &mut ctx).unwrap();
         assert!(packed_with_patches.patches().is_some());
-        let packed_primitive = packed_with_patches
-            .as_array()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
-        assert_arrays_eq!(
-            packed_primitive,
-            PrimitiveArray::new(values, vortex_array::validity::Validity::NonNullable),
-            &mut ctx
-        );
+
+        // Both scatter paths must decompress to the original values. Toggling the chunk-local
+        // scatter around the decode pins down that the two agree on a real patched array.
+        for chunk_local in [false, true] {
+            force_patches_v2_scatter(chunk_local);
+            let packed_primitive = packed_with_patches
+                .as_array()
+                .clone()
+                .execute::<PrimitiveArray>(&mut ctx)
+                .unwrap();
+            assert_arrays_eq!(
+                packed_primitive,
+                PrimitiveArray::new(
+                    values.clone(),
+                    vortex_array::validity::Validity::NonNullable
+                ),
+                &mut ctx
+            );
+        }
+        force_patches_v2_scatter(false);
     }
 }

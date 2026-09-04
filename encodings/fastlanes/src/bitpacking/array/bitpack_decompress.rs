@@ -16,6 +16,8 @@ use vortex_array::dtype::NativePType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::patches::Patches;
+use vortex_array::patches_v2::PatchesV2;
+use vortex_array::patches_v2::use_patches_v2_scatter;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -144,11 +146,20 @@ pub(crate) fn apply_patches_to_uninit_range<S: NativePType, T: NativePType, F: F
 ) -> VortexResult<()> {
     assert_eq!(patches.array_len(), dst.len());
 
-    let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
     let values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
     assert!(values.all_valid(ctx)?, "Patch values must be all valid");
     let values = values.as_slice::<S>();
 
+    // When enabled, chunked patch sets scatter through the chunk-local PatchesV2 form to
+    // exercise it on the real decompression path. Converting per decompression costs a pass and
+    // allocations over the patch set, so this stays opt-in until the stored layout is
+    // chunk-local; the default path below is unchanged and the branch stays out of line to keep
+    // it out of the hot scatter loop's codegen.
+    if use_patches_v2_scatter() && patches.chunk_offsets().is_some() {
+        return apply_patches_v2(dst, patches, values, ctx, f);
+    }
+
+    let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
     match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
         for (index, &value) in indices.as_slice::<P>().iter().zip_eq(values) {
             dst.set_value(
@@ -158,6 +169,22 @@ pub(crate) fn apply_patches_to_uninit_range<S: NativePType, T: NativePType, F: F
         }
     });
     Ok(())
+}
+
+/// Scatter patch values through the chunk-local [`PatchesV2`] form.
+#[cold]
+#[inline(never)]
+fn apply_patches_v2<S: NativePType, T: NativePType, F: Fn(S) -> T>(
+    dst: &mut UninitRange<T>,
+    patches: &Patches,
+    values: &[S],
+    ctx: &mut ExecutionCtx,
+    f: F,
+) -> VortexResult<()> {
+    let v2 = PatchesV2::from_patches(patches, ctx)?;
+    v2.apply_each(ctx, |logical, ordinal| {
+        dst.set_value(logical, f(values[ordinal]));
+    })
 }
 
 pub fn unpack_single(array: ArrayView<'_, BitPacked>, index: usize) -> Scalar {

@@ -80,6 +80,7 @@ pub use builder::ALL_SCHEMES;
 pub use builder::BtrBlocksCompressorBuilder;
 pub use canonical_compressor::BtrBlocksCompressor;
 pub use schemes::patches::compress_patches;
+pub use schemes::patches::force_patch_index_bitpack;
 pub use vortex_compressor::CascadingCompressor;
 pub use vortex_compressor::scheme::CompressorContext;
 pub use vortex_compressor::scheme::MAX_CASCADE;

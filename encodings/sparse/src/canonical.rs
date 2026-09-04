@@ -53,6 +53,8 @@ use vortex_array::match_each_native_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::match_smallest_list_offset_type;
 use vortex_array::patches::Patches;
+use vortex_array::patches_v2::PatchesV2;
+use vortex_array::patches_v2::use_patches_v2_scatter;
 use vortex_array::scalar::DecimalScalar;
 use vortex_array::scalar::ListScalar;
 use vortex_array::scalar::Scalar;
@@ -60,6 +62,7 @@ use vortex_array::scalar::StructScalar;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::buffer;
@@ -704,6 +707,17 @@ fn execute_sparse_primitives<T: NativePType + for<'a> TryFrom<&'a Scalar, Error 
             },
         )
     };
+
+    // A non-nullable result has no validity to patch, so the whole canonicalization is a value
+    // scatter over a constant fill -- exactly what PatchesV2 addresses. Chunked patch sets take
+    // that path when the chunk-local scatter is enabled; everything else falls back to `patch`,
+    // which also handles patching validity.
+    if use_patches_v2_scatter() && matches!(validity, Validity::NonNullable) {
+        let mut out = BufferMut::full(primitive_fill, patches.array_len());
+        let v2 = PatchesV2::from_patches(patches, ctx)?;
+        v2.apply_into(out.as_mut_slice(), ctx)?;
+        return Ok(PrimitiveArray::new(out.freeze(), Validity::NonNullable).into_array());
+    }
 
     let parray = PrimitiveArray::new(buffer![primitive_fill; patches.array_len()], validity);
 
