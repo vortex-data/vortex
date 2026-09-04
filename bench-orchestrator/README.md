@@ -364,6 +364,6 @@ Benchmarks are built with:
 
 - Profile: `release_debug`
 - RUSTFLAGS: `-C target-cpu=native -C force-frame-pointers=yes`
-- Features: `unstable_encodings`
+- Features: none
 
 This enables native CPU optimizations while preserving debug symbols for profiling.

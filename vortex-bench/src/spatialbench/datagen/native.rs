@@ -38,7 +38,6 @@ use vortex_arrow::ArrowSessionExt;
 use super::table::GeometryKind;
 use super::table::Table;
 use crate::SESSION;
-use crate::benchmark_write_options;
 use crate::utils::file::idempotent_async;
 
 fn geoarrow_metadata() -> Arc<Metadata> {
@@ -59,7 +58,7 @@ pub async fn write_native_vortex(
             let dtype = chunks[0].dtype().clone();
             let chunked = ChunkedArray::try_new(chunks, dtype)?.into_array();
             let mut file = TokioFile::create(&path).await?;
-            benchmark_write_options(SESSION.write_options())
+            SESSION.write_options()
                 .write(&mut file, chunked.to_array_stream())
                 .await?;
             tracing::info!(path = %path.display(), table = table.name(), "wrote native geometry table");

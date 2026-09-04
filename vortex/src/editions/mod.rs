@@ -14,10 +14,9 @@
 //! choose a wire representation independently of the enabled editions; the serialization context
 //! rejects an ID that is not permitted unless the writer explicitly disables edition enforcement.
 //!
-//! The default file writer resolves the session's enabled editions at write time. The
-//! facade enables [`crate::editions::CORE_2026_08_3`] and
-//! additionally enables the `preview` edition when the
-//! `unstable_encodings` feature is selected.
+//! The default file writer resolves the session's enabled editions at write time. The facade
+//! enables the newest frozen `core` edition, [`crate::editions::CORE_2026_08_3`]. Other editions
+//! must be enabled explicitly or by initializing their owning plugin.
 
 #[cfg(test)]
 mod tests;
@@ -51,8 +50,7 @@ use vortex_session::VortexSession;
 /// The `core` edition enabled for writing by the default Vortex session.
 pub const DEFAULT_CORE_EDITION: EditionId = CORE_2026_08_3;
 
-/// The `preview` edition enabled for writing by the default Vortex session when the
-/// `unstable_encodings` feature is selected.
+/// The newest `preview` edition. The default Vortex session registers it but does not enable it.
 pub const DEFAULT_PREVIEW_EDITION: EditionId = PREVIEW_2026_08_0;
 
 /// Register the Vortex edition families and declarations with the session's
@@ -75,18 +73,11 @@ pub fn register_default_editions(session: &VortexSession) {
 
 /// Enable the default Vortex editions for writing.
 ///
-/// This selects the default `core` edition and, when configured, the `preview` edition. All
-/// declarations must have been registered first with
-/// [`register_default_editions`].
+/// This selects the newest frozen `core` edition. All declarations must have been registered
+/// first with [`register_default_editions`].
 pub fn enable_default_editions(session: &VortexSession) {
     session
         .enable_edition(DEFAULT_CORE_EDITION)
         .map_err(|e| vortex_err!("{e}"))
         .vortex_expect("default core edition is registered");
-
-    #[cfg(feature = "unstable_encodings")]
-    session
-        .enable_edition(DEFAULT_PREVIEW_EDITION)
-        .map_err(|e| vortex_err!("{e}"))
-        .vortex_expect("feature edition is registered");
 }

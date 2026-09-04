@@ -70,18 +70,15 @@ fn trace_session() -> VortexSession {
     let session = VortexSession::empty().with::<ArraySession>();
 
     vortex_fsst::initialize(&session);
-    #[cfg(feature = "unstable_encodings")]
     vortex_onpair::initialize(&session);
     vortex_zigzag::initialize(&session);
+    #[cfg(feature = "zstd")]
+    vortex_zstd::initialize(&session);
 
     {
         let arrays = session.arrays();
         #[cfg(feature = "pco")]
         arrays.register(vortex_pco::Pco);
-        #[cfg(feature = "zstd")]
-        arrays.register(vortex_zstd::Zstd);
-        #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
-        arrays.register(vortex_zstd::ZstdBuffers);
         if use_experimental_patches() {
             arrays.register(Patched);
         }
@@ -333,8 +330,7 @@ fn trace_scan_compare_on_compressed_shipmode() -> VortexResult<()> {
 
 /// Q13-style predicate over the comment column: `l_comment LIKE '%special%'`.
 ///
-/// The column compresses to `fsst -> bitpacked lengths/offsets`, or to `fsst -> delta offsets`
-/// (with bitpacked residuals) when `unstable_encodings` makes Delta available.
+/// The column compresses to `fsst -> delta offsets` with bitpacked residuals.
 fn comment_predicate(column: ArrayRef, len: usize) -> VortexResult<ArrayRef> {
     Like::try_new(
         column,
@@ -359,17 +355,6 @@ fn trace_scan_like_on_compressed_comment() -> VortexResult<()> {
     // No reduce rule rewrites a like over FSST; the FSST like kernel compiles the pattern and
     // matches in compressed space at execution time.
     insta::assert_snapshot!(optimized.trace.to_string(), @"");
-    // Delta is only registered under `unstable_encodings`. Without it the offsets stay bitpacked
-    // and canonicalize inside the FSST kernel, so the scan has no extra children to execute.
-    #[cfg(not(feature = "unstable_encodings"))]
-    insta::assert_snapshot!(executed.trace.to_string(), @"
-    execute_until target=AnyCanonical root=vortex.like(bool, len=4096)
-      iter 0 current=vortex.like(bool, len=4096) builder_active=false
-        child_execute_parent session[0]:execute_parent_fn slot=0 parent=vortex.like(bool, len=4096) child=vortex.fsst(utf8, len=4096) -> vortex.bool(bool, len=4096)
-      iter 1 current=vortex.bool(bool, len=4096) builder_active=false
-      return output=vortex.bool(bool, len=4096)
-    ");
-    #[cfg(feature = "unstable_encodings")]
     insta::assert_snapshot!(executed.trace.to_string(), @"
     execute_until target=AnyCanonical root=vortex.like(bool, len=4096)
       iter 0 current=vortex.like(bool, len=4096) builder_active=false

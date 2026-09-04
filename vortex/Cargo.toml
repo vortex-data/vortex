@@ -16,9 +16,6 @@ version = { workspace = true }
 [package.metadata.docs.rs]
 all-features = true
 
-[package.metadata.cargo-shear]
-ignored = ["vortex-tensor"]
-
 [lints]
 workspace = true
 
@@ -89,6 +86,7 @@ tokio = [
     "vortex-layout/tokio",
 ]
 zstd = ["dep:vortex-zstd", "vortex-file?/zstd"]
+tensor = ["dep:vortex-tensor", "vortex-file?/tensor"]
 wasm-bindgen = [
     "vortex-file?/wasm-bindgen",
     "vortex-io/wasm-bindgen",
@@ -98,13 +96,6 @@ pretty = ["vortex-array/table-display"]
 serde = ["vortex-array/serde", "vortex-buffer/serde", "vortex-mask/serde"]
 # Exposes experimental row-function APIs without compatibility guarantees.
 unstable_row_fns = ["vortex-array/unstable_row_fns"]
-# This feature enabled unstable encodings for which we don't guarantee stability.
-unstable_encodings = [
-    "dep:vortex-tensor",
-    "vortex-btrblocks/unstable_encodings",
-    "vortex-file?/unstable_encodings",
-    "vortex-zstd?/unstable_encodings",
-]
 
 [[bench]]
 name = "single_encoding_throughput"

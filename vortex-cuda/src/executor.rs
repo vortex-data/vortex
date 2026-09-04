@@ -313,7 +313,6 @@ impl CudaExecutionCtx {
     }
 
     /// Returns the Vortex session backing this CUDA execution context.
-    #[cfg(feature = "unstable_encodings")]
     pub(crate) fn session(&self) -> &vortex::session::VortexSession {
         self.ctx.session()
     }

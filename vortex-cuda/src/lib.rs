@@ -56,7 +56,6 @@ use kernel::RunEndExecutor;
 use kernel::SharedExecutor;
 pub use kernel::TracingLaunchStrategy;
 use kernel::ZigZagExecutor;
-#[cfg(feature = "unstable_encodings")]
 use kernel::ZstdBuffersExecutor;
 use kernel::ZstdExecutor;
 pub use kernel::ZstdKernelPrep;
@@ -92,7 +91,6 @@ use vortex::encodings::runend::RunEnd;
 use vortex::encodings::sequence::Sequence;
 use vortex::encodings::zigzag::ZigZag;
 use vortex::encodings::zstd::Zstd;
-#[cfg(feature = "unstable_encodings")]
 use vortex::encodings::zstd::ZstdBuffers;
 #[cfg(test)]
 use vortex_cuda_macros::test;
@@ -134,7 +132,6 @@ pub fn initialize_cuda(session: &CudaSession) {
     session.register_kernel(Sequence.id(), &SequenceExecutor);
     session.register_kernel(ZigZag.id(), &ZigZagExecutor);
     session.register_kernel(Zstd.id(), &ZstdExecutor);
-    #[cfg(feature = "unstable_encodings")]
     session.register_kernel(ZstdBuffers.id(), &ZstdBuffersExecutor);
 
     // Operation kernels

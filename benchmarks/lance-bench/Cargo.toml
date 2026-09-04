@@ -30,9 +30,6 @@ tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 vortex-bench = { workspace = true }
 
-[features]
-unstable_encodings = ["vortex-bench/unstable_encodings"]
-
 [lib]
 test = false
 

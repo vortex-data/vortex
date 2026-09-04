@@ -191,7 +191,7 @@ pub fn register_default_encodings(session: &VortexSession) {
     vortex_sequence::initialize(session);
     vortex_sparse::initialize(session);
 
-    #[cfg(feature = "unstable_encodings")]
+    #[cfg(feature = "tensor")]
     vortex_tensor::initialize(session);
 }
 

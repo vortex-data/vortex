@@ -24,6 +24,8 @@ use vortex::array::arrays::StructArray;
 use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::buffer::ByteBufferMut;
 use vortex::compressor::BtrBlocksCompressorBuilder;
+use vortex::editions::ComponentKind;
+use vortex::editions::EditionSessionExt;
 use vortex::error::VortexResult;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
@@ -92,9 +94,17 @@ async fn main() -> VortexResult<()> {
 
 /// Build the write strategy used for CUDA-compatible file output.
 #[cuda_available]
-fn cuda_write_strategy() -> Arc<dyn vortex::layout::LayoutStrategy> {
+fn cuda_write_strategy(session: &VortexSession) -> Arc<dyn vortex::layout::LayoutStrategy> {
+    let allowed_encodings = session
+        .enabled_component_ids(ComponentKind::Array)
+        .into_iter()
+        .collect();
     WriteStrategyBuilder::default()
-        .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().only_cuda_compatible())
+        .with_btrblocks_builder(
+            BtrBlocksCompressorBuilder::default()
+                .only_cuda_compatible()
+                .retain_allowed_encodings(&allowed_encodings),
+        )
         .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()))
         .build()
 }
@@ -111,7 +121,7 @@ async fn cmd_convert(input: PathBuf, output: PathBuf) -> VortexResult<()> {
     let mut out = tokio::fs::File::create(&output).await?;
     session
         .write_options()
-        .with_strategy(cuda_write_strategy())
+        .with_strategy(cuda_write_strategy(&session))
         .write(&mut out, scan)
         .await?;
 
@@ -223,7 +233,7 @@ async fn recompress_for_gpu(
     let mut out = ByteBufferMut::empty();
     let result = session
         .write_options()
-        .with_strategy(cuda_write_strategy())
+        .with_strategy(cuda_write_strategy(&session))
         .write(&mut out, scan)
         .await?;
 

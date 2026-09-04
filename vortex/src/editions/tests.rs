@@ -217,9 +217,6 @@ fn default_session_enables_the_write_editions() {
             .contains(&Id::from("vortex.pco"))
     );
 
-    #[cfg(feature = "unstable_encodings")]
-    assert!(enabled.contains(&DEFAULT_PREVIEW_EDITION));
-    #[cfg(not(feature = "unstable_encodings"))]
     assert!(!enabled.contains(&DEFAULT_PREVIEW_EDITION));
 }
 

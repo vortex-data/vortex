@@ -9,12 +9,12 @@
 //! snapshot untouched, so snapshot churn in a later change is the reviewable signal of a
 //! behavior change.
 //!
-//! Three variants cover the feature matrix:
+//! Three variants cover the edition and feature matrix:
 //!
-//! - `default`: the default feature set and [`BtrBlocksCompressor::default`].
-//! - `unstable`: `unstable_encodings` enabled, default builder — pins Delta / OnPair
-//!   selection (compiled out of `ALL_SCHEMES` otherwise).
-//! - `compact`: `unstable_encodings` + `zstd` + `pco`, with
+//! - `regular`: the schemes permitted by the default `core` edition, minus OnPair.
+//! - `onpair`: the structured-string entry with OnPair enabled — pins OnPair selection.
+//! - `compact`: the schemes permitted by the default `core` and opt-in `zstd` editions, with
+//!   the `zstd` + `pco` features and
 //!   [`BtrBlocksCompressorBuilder::with_compact`] — pins Zstd / Pco selection.
 //!
 //! Every corpus entry is longer than 1024 values so the sampling-based estimation path is
@@ -49,8 +49,17 @@ use vortex_array::dtype::Nullability;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressor;
+use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_buffer::Buffer;
+use vortex_edition::ComponentKind;
+use vortex_edition::EDITION_DECLARATIONS;
+use vortex_edition::EDITION_FAMILIES;
+use vortex_edition::EditionId;
+use vortex_edition::EditionSession;
+use vortex_edition::EditionSessionExt;
+use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
@@ -94,7 +103,17 @@ fn render(input: &ArrayRef, compressed: &ArrayRef) -> String {
 /// Compresses every corpus entry twice (direct determinism check) and snapshots the result
 /// under `{variant}__{entry}`.
 fn golden_corpus_snapshots(variant: &str, compressor: &BtrBlocksCompressor) -> VortexResult<()> {
-    for (name, array) in corpus()? {
+    golden_snapshots(variant, compressor, corpus()?)
+}
+
+/// Compresses each entry twice (direct determinism check) and snapshots the result under
+/// `{variant}__{entry}`.
+fn golden_snapshots(
+    variant: &str,
+    compressor: &BtrBlocksCompressor,
+    entries: Vec<(&'static str, ArrayRef)>,
+) -> VortexResult<()> {
+    for (name, array) in entries {
         let rendered = {
             let mut exec_ctx = SESSION.create_execution_ctx();
             render(&array, &compressor.compress(&array, &mut exec_ctx)?)
@@ -372,44 +391,92 @@ fn list_of_int_runs() -> VortexResult<ArrayRef> {
     Ok(ListArray::try_new(elements, offsets.into_array(), Validity::NonNullable)?.into_array())
 }
 
-/// Excludes OnPair from the golden compressors: its dictionary training (upstream `onpair`
-/// crate) iterates randomly-seeded `hashbrown` maps, so its compressed output — and therefore
-/// its sampled estimate — differs run-to-run. A nondeterministic scheme cannot serve as a
-/// golden baseline; excluding it keeps the remaining unstable schemes pinned.
-#[cfg(feature = "unstable_encodings")]
-fn without_onpair(
-    builder: vortex_btrblocks::BtrBlocksCompressorBuilder,
-) -> vortex_btrblocks::BtrBlocksCompressorBuilder {
+/// Excludes OnPair from the `regular` and `compact` variants: it beats FSST on
+/// `string_fsst_structured`, and those variants pin the FSST selection. OnPair's own decisions
+/// are pinned by [`golden_onpair`].
+fn without_onpair(builder: BtrBlocksCompressorBuilder) -> BtrBlocksCompressorBuilder {
     use vortex_btrblocks::SchemeExt;
     use vortex_btrblocks::schemes::string::OnPairScheme;
 
     builder.exclude_schemes([OnPairScheme.id()])
 }
 
-#[cfg(not(feature = "unstable_encodings"))]
-#[test]
-fn golden_default() -> VortexResult<()> {
-    golden_corpus_snapshots("default", &BtrBlocksCompressor::default())
+fn edition_session(editions: &[EditionId]) -> VortexResult<VortexSession> {
+    let session = vortex_array::array_session().with::<EditionSession>();
+    for family in EDITION_FAMILIES {
+        session
+            .editions()
+            .declare_family(family)
+            .map_err(|error| vortex_err!("{error}"))?;
+    }
+    for declaration in EDITION_DECLARATIONS {
+        session
+            .register_edition(declaration)
+            .map_err(|error| vortex_err!("{error}"))?;
+    }
+    for edition in editions {
+        session
+            .enable_edition(*edition)
+            .map_err(|error| vortex_err!("{error}"))?;
+    }
+    Ok(session)
 }
 
-#[cfg(feature = "unstable_encodings")]
-#[test]
-fn golden_unstable() -> VortexResult<()> {
-    use vortex_btrblocks::BtrBlocksCompressorBuilder;
+fn compressor_for_session(
+    session: &VortexSession,
+    builder: BtrBlocksCompressorBuilder,
+) -> BtrBlocksCompressor {
+    let allowed = session
+        .enabled_component_ids(ComponentKind::Array)
+        .into_iter()
+        .collect();
+    without_onpair(builder)
+        .retain_allowed_encodings(&allowed)
+        .build()
+}
 
-    golden_corpus_snapshots(
-        "unstable",
-        &without_onpair(BtrBlocksCompressorBuilder::default()).build(),
+/// Like [`compressor_for_session`] but keeps OnPair in the scheme pool.
+fn compressor_with_onpair(
+    session: &VortexSession,
+    builder: BtrBlocksCompressorBuilder,
+) -> BtrBlocksCompressor {
+    let allowed = session
+        .enabled_component_ids(ComponentKind::Array)
+        .into_iter()
+        .collect();
+    builder.retain_allowed_encodings(&allowed).build()
+}
+
+#[test]
+fn golden_regular() -> VortexResult<()> {
+    let session = edition_session(&[CORE_2026_08_3])?;
+    let compressor = compressor_for_session(&session, BtrBlocksCompressorBuilder::default());
+    golden_corpus_snapshots("regular", &compressor)
+}
+
+/// Pins OnPair's selection over FSST on the structured-string entry.
+#[test]
+fn golden_onpair() -> VortexResult<()> {
+    let session = edition_session(&[CORE_2026_08_3])?;
+    let compressor = compressor_with_onpair(&session, BtrBlocksCompressorBuilder::default());
+    golden_snapshots(
+        "onpair",
+        &compressor,
+        vec![("string_fsst_structured", string_fsst_structured())],
     )
 }
 
-#[cfg(all(feature = "unstable_encodings", feature = "zstd", feature = "pco"))]
+#[cfg(all(feature = "zstd", feature = "pco"))]
 #[test]
 fn golden_compact() -> VortexResult<()> {
-    use vortex_btrblocks::BtrBlocksCompressorBuilder;
-
-    golden_corpus_snapshots(
-        "compact",
-        &without_onpair(BtrBlocksCompressorBuilder::default().with_compact()).build(),
-    )
+    let session = edition_session(&[CORE_2026_08_3])?;
+    vortex_zstd::initialize(&session);
+    session
+        .enable_edition(vortex_zstd::editions::ZSTD_2026_02)
+        .map_err(|error| vortex_err!("{error}"))?;
+    let compressor = compressor_for_session(
+        &session,
+        BtrBlocksCompressorBuilder::default().with_compact(),
+    );
+    golden_corpus_snapshots("compact", &compressor)
 }

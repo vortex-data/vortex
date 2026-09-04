@@ -17,6 +17,8 @@ use vortex::array::iter::ArrayIterator;
 use vortex::array::iter::ArrayIteratorAdapter;
 use vortex::array::iter::ArrayIteratorExt;
 use vortex::compressor::BtrBlocksCompressorBuilder;
+use vortex::editions::ComponentKind;
+use vortex::editions::EditionSessionExt;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::file::WriteOptionsSessionExt;
@@ -313,7 +315,7 @@ impl PyVortexWriteOptions {
     /// >>> vx.io.VortexWriteOptions.default().write(sprl, "chonky.vortex")
     /// >>> import os
     /// >>> os.path.getsize('chonky.vortex')
-    /// 215788
+    /// 215820
     ///
     /// Wow, Vortex manages to use about two bytes per integer! So advanced. So tiny.
     ///
@@ -323,7 +325,7 @@ impl PyVortexWriteOptions {
     ///
     /// >>> vx.io.VortexWriteOptions.compact().write(sprl, "tiny.vortex")
     /// >>> os.path.getsize('tiny.vortex')
-    /// 54992
+    /// 55024
     ///
     /// Random numbers are not (usually) composed of random bytes!
     #[staticmethod]
@@ -378,11 +380,16 @@ impl PyVortexWriteOptions {
     ) -> PyVortexResult<()> {
         let session = session();
         py.detach(|| {
-            let mut strategy = WriteStrategyBuilder::default();
+            let allowed_encodings = session
+                .enabled_component_ids(ComponentKind::Array)
+                .into_iter()
+                .collect();
+            let mut compressor = BtrBlocksCompressorBuilder::default();
             if self.use_compact_encodings {
-                strategy = strategy
-                    .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact());
+                compressor = compressor.with_compact();
             }
+            let strategy = WriteStrategyBuilder::default()
+                .with_btrblocks_builder(compressor.retain_allowed_encodings(&allowed_encodings));
             let strategy = strategy.build();
             current_runtime().block_on(async move {
                 match resolve_store(path, store.map(|x| x.into_inner()))? {
