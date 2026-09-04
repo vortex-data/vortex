@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=arm64-medium/disk=large/extras=s3-cache', github.run_id)
+          && format('runs-on={0}/runner=arm64-medium/extras=s3-cache', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
