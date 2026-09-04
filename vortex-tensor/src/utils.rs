@@ -19,6 +19,7 @@ use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::proto::dtype as pb;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -86,6 +87,23 @@ impl FlatElements {
         let row_idx = if self.is_constant { 0 } else { i };
         let slice = self.elems.as_slice::<T>();
         &slice[row_idx * self.list_size..][..self.list_size]
+    }
+
+    /// Returns the number of elements in each row.
+    #[must_use]
+    pub fn list_size(&self) -> usize {
+        self.list_size
+    }
+
+    /// Returns the physical distance between rows, or zero when every row uses one stored value.
+    #[must_use]
+    pub fn row_stride(&self) -> usize {
+        if self.is_constant { 0 } else { self.list_size }
+    }
+
+    /// Returns the elements as a typed buffer, performing the ptype check once for the batch.
+    pub fn into_buffer<T: NativePType>(self) -> Buffer<T> {
+        self.elems.into_buffer::<T>()
     }
 }
 
