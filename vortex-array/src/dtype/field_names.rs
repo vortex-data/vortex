@@ -25,6 +25,11 @@ impl FieldName {
     pub fn inner(&self) -> &Arc<str> {
         &self.0
     }
+
+    /// Move inner `Arc<str>` out of `self`
+    pub fn take(self) -> Arc<str> {
+        self.0
+    }
 }
 
 // We manually implement serde for `FieldName` so it can round-trip with any string type

@@ -68,7 +68,9 @@ pub fn bind_stats<B: StatBinder + ?Sized>(
 
             match bind_stat_fn(&expr, binder)? {
                 Some(bound) => Ok(Transformed::yes(bound)),
-                None => Ok(Transformed::yes(binder.missing_stat(expr.dtype().clone())?)),
+                None => Ok(Transformed::yes(
+                    binder.missing_stat(expr.dtype()?.clone())?,
+                )),
             }
         })?
         .into_inner())
@@ -83,7 +85,7 @@ fn bind_stat_fn(
     // `StatFn` has exactly one child: the expression the aggregate statistic is computed over.
     let input = expr.child(0);
 
-    binder.bind_aggregate(input, aggregate_fn, expr.dtype())
+    binder.bind_aggregate(input, aggregate_fn, expr.dtype()?)
 }
 
 fn null_expr(dtype: DType) -> VortexResult<BoundExpression> {

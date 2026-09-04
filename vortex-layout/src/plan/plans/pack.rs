@@ -473,7 +473,7 @@ fn expanded_struct_root(
 
 fn is_identity_expression(expression: &BoundExpression, input_dtype: &DType) -> VortexResult<bool> {
     if expression.is_root() {
-        return Ok(expression.dtype() == input_dtype);
+        return Ok(expression.dtype()? == input_dtype);
     }
     if input_dtype.is_nullable() {
         return Ok(false);

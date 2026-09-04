@@ -213,7 +213,7 @@ mod tests {
 
         assert_eq!(bound.children(), &[root]);
         assert_eq!(
-            bound.dtype(),
+            bound.dtype()?,
             &DType::Primitive(PType::I64, Nullability::Nullable)
         );
         assert_eq!(bound, sum(crate::expr::root()).bind(&input_dtype)?);

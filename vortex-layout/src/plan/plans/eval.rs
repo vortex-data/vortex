@@ -6,6 +6,8 @@ use std::fmt;
 
 use vortex_array::EmptyMetadata;
 use vortex_array::expr::BoundExpression;
+use vortex_array::expr::traversal::TraversalOrder;
+use vortex_array::expr::traversal::pre_order_visit_down;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::registry::CachedId;
@@ -38,7 +40,7 @@ impl EvalPlan {
         validate_expression_child(&expression, &child)?;
 
         // SAFETY: The expression root dtype was validated against the child dtype above.
-        Ok(unsafe { Self::new_unchecked(expression, child) })
+        unsafe { Self::new_unchecked(expression, child) }
     }
 
     /// Creates an evaluation without validating the expression's root dtype.
@@ -46,15 +48,15 @@ impl EvalPlan {
     /// # Safety
     ///
     /// Every scope root in `expression` must have the same dtype as `child`.
-    pub unsafe fn new_unchecked(expression: BoundExpression, child: PlanRef) -> Self {
-        PlanParts {
+    pub unsafe fn new_unchecked(expression: BoundExpression, child: PlanRef) -> VortexResult<Self> {
+        Ok(PlanParts {
             vtable: Eval,
-            dtype: expression.dtype().clone(),
+            dtype: expression.dtype()?.clone(),
             row_count: child.row_count(),
             children: vec![child].into(),
             data: EvalData { expression },
         }
-        .into_typed()
+        .into_typed())
     }
 
     /// Returns the expression evaluated by this plan.
@@ -116,7 +118,19 @@ impl PlanVTable for Eval {
 }
 
 fn validate_expression_child(expression: &BoundExpression, child: &PlanRef) -> VortexResult<()> {
-    if !expression.is_root_bound_to(child.dtype()) {
+    pre_order_visit_down(expression, |expression| match expression {
+        BoundExpression::Lambda(_) => {
+            vortex_bail!("Eval cannot evaluate a standalone lambda")
+        }
+        BoundExpression::Variable(_) => {
+            vortex_bail!("Eval cannot evaluate an expression containing variables")
+        }
+        BoundExpression::Scalar { .. } | BoundExpression::Root { .. } => {
+            Ok(TraversalOrder::Continue)
+        }
+    })?;
+
+    if !expression.is_root_bound_to(child.dtype())? {
         vortex_bail!(
             "Eval expression is not bound to child dtype {}",
             child.dtype()

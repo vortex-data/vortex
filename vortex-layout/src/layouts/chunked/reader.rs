@@ -384,7 +384,7 @@ impl LayoutReader for ChunkedReader {
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         if row_range.is_empty() {
-            return Ok(future::ready(Ok(Canonical::empty(expr.dtype()).into_array())).boxed());
+            return Ok(future::ready(Ok(Canonical::empty(expr.dtype()?).into_array())).boxed());
         }
 
         let mut chunk_evals = vec![];

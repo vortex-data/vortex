@@ -67,7 +67,11 @@ pub fn make_bound_free_field_annotator(
 ) -> impl AnnotationFn<BoundExpression, Annotation = FieldName> {
     move |expr: &BoundExpression| {
         let Some(scalar_fn) = expr.as_scalar() else {
-            return scope.names().iter().cloned().collect();
+            return if expr.is_root() {
+                scope.names().iter().cloned().collect()
+            } else {
+                vec![]
+            };
         };
 
         if let Some(selection) = scalar_fn.as_opt::<Select>() {
@@ -85,5 +89,39 @@ pub fn make_bound_free_field_annotator(
         }
 
         vec![]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_error::VortexResult;
+
+    use super::*;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::expr::Scope;
+    use crate::expr::Variable;
+    use crate::expr::test_harness::struct_dtype;
+    use crate::expr::var;
+
+    #[test]
+    fn a_bound_variable_accesses_no_root_fields() -> VortexResult<()> {
+        let scope_dtype = struct_dtype();
+        let fields = scope_dtype
+            .as_struct_fields_opt()
+            .vortex_expect("test scope is a struct");
+
+        let bound = var("x").bind(&Scope::new(scope_dtype.clone()).with_bindings([(
+            Variable::new("x"),
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+        )])?)?;
+
+        let annotator = make_bound_free_field_annotator(fields);
+        assert!(
+            annotator(&bound).is_empty(),
+            "a variable should read no root fields"
+        );
+        Ok(())
     }
 }

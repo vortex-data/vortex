@@ -207,3 +207,15 @@ pub struct CaseWhenOpts {
     #[prost(uint32, tag = "1")]
     pub num_children: u32,
 }
+/// Options for `vortex.var`, a reference to a name bound in an enclosing scope.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct VariableOpts {
+    #[prost(string, tag = "1")]
+    pub name: ::prost::alloc::string::String,
+}
+/// Options for `vortex.lambda`. The body is the expression's single child.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct LambdaOpts {
+    #[prost(string, repeated, tag = "1")]
+    pub params: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}

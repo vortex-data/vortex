@@ -247,19 +247,19 @@ pub trait ReduceNode: Clone {
     fn new_node(&self, scalar_fn: ScalarFnRef, children: &[Self]) -> VortexResult<Self>;
 }
 
-/// A [`ReduceNode`] over an expression tree, typed within a scope.
+/// A [`ReduceNode`] over an expression tree, typed against its root dtype.
 #[derive(Clone)]
 pub struct ExpressionReduceNode<'a> {
     expression: Cow<'a, Expression>,
-    scope: &'a DType,
+    root_dtype: &'a DType,
 }
 
 impl<'a> ExpressionReduceNode<'a> {
-    /// Creates a node borrowing the given expression and scope.
-    pub fn new(expression: &'a Expression, scope: &'a DType) -> Self {
+    /// Creates a node borrowing the given expression and root dtype.
+    pub fn new(expression: &'a Expression, root_dtype: &'a DType) -> Self {
         Self {
             expression: Cow::Borrowed(expression),
-            scope,
+            root_dtype,
         }
     }
 
@@ -276,7 +276,7 @@ impl<'a> ExpressionReduceNode<'a> {
 
 impl ReduceNode for ExpressionReduceNode<'_> {
     fn node_dtype(&self) -> VortexResult<DType> {
-        self.expression.return_dtype(self.scope)
+        self.expression.return_dtype(self.root_dtype)
     }
 
     fn scalar_fn(&self) -> Option<&ScalarFnRef> {
@@ -290,7 +290,7 @@ impl ReduceNode for ExpressionReduceNode<'_> {
         };
         Self {
             expression,
-            scope: self.scope,
+            root_dtype: self.root_dtype,
         }
     }
 
@@ -308,7 +308,7 @@ impl ReduceNode for ExpressionReduceNode<'_> {
         )?;
         Ok(Self {
             expression: Cow::Owned(expression),
-            scope: self.scope,
+            root_dtype: self.root_dtype,
         })
     }
 }

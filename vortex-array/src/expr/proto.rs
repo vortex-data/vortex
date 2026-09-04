@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
+use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -9,8 +10,11 @@ use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
 use crate::expr::Expression;
+use crate::expr::Lambda;
+use crate::expr::Variable;
 use crate::scalar_fn::ForeignScalarFnVTable;
 use crate::scalar_fn::ScalarFnId;
+use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::session::ScalarFnSessionExt;
 
 pub trait ExprSerializeProtoExt {
@@ -18,45 +22,124 @@ pub trait ExprSerializeProtoExt {
     fn serialize_proto(&self) -> VortexResult<pb::Expr>;
 }
 
-/// The wire id for [`Expression::Root`], retained from when `Root` was a scalar function so that
-/// already-serialized expressions keep round-tripping.
+/// The wire id for [`Expression::Root`].
 pub(crate) const ROOT_ID: &str = "vortex.root";
+
+/// The wire id for [`Expression::Variable`].
+pub(crate) const VARIABLE_ID: &str = "vortex.var";
+
+/// The wire id for [`Expression::Lambda`].
+pub(crate) const LAMBDA_ID: &str = "vortex.lambda";
+
+impl Lambda {
+    /// Serialize the `Lambda` to its protobuf representation.
+    pub fn serialize_proto(&self) -> VortexResult<pb::Expr> {
+        Ok(pb::Expr {
+            id: LAMBDA_ID.to_string(),
+            children: vec![self.body().serialize_proto()?],
+            metadata: Some(
+                pb::LambdaOpts {
+                    params: self
+                        .params()
+                        .iter()
+                        .map(|variable| variable.name().to_string())
+                        .collect(),
+                }
+                .encode_to_vec(),
+            ),
+        })
+    }
+
+    /// Deserialize the `Lambda` from its protobuf representation.
+    ///
+    /// Assumes that `expr.id == LAMBDA_ID`.
+    pub fn from_proto(expr: &pb::Expr, session: &VortexSession) -> VortexResult<Self> {
+        vortex_ensure!(
+            expr.children.len() == 1,
+            "a lambda must have exactly one child, its body, got {}",
+            expr.children.len()
+        );
+        let opts = pb::LambdaOpts::decode(expr.metadata())?;
+        Self::try_new(
+            opts.params.into_iter().map(Variable::new),
+            Expression::from_proto(&expr.children[0], session)?,
+        )
+    }
+}
+
+impl Variable {
+    /// Serialize the `Variable` to its protobuf representation.
+    pub fn serialize_proto(&self) -> VortexResult<pb::Expr> {
+        Ok(pb::Expr {
+            id: VARIABLE_ID.to_string(),
+            children: vec![],
+            metadata: Some(
+                pb::VariableOpts {
+                    name: self.name().to_string(),
+                }
+                .encode_to_vec(),
+            ),
+        })
+    }
+
+    /// Deserialize the `Variable` from its protobuf representation.
+    ///
+    /// Assumes that `expr.id == VARIABLE_ID`.
+    pub fn from_proto(expr: &pb::Expr) -> VortexResult<Self> {
+        vortex_ensure!(
+            expr.children.is_empty(),
+            "a variable must have no children, got {}",
+            expr.children.len()
+        );
+        let opts = pb::VariableOpts::decode(expr.metadata())?;
+        Ok(Variable::new(opts.name))
+    }
+}
+
+fn serialize_root() -> VortexResult<pb::Expr> {
+    Ok(pb::Expr {
+        id: ROOT_ID.to_string(),
+        children: vec![],
+        metadata: Some(vec![]),
+    })
+}
+
+fn serialize_scalar(scalar_fn: &ScalarFnRef, children: &[Expression]) -> VortexResult<pb::Expr> {
+    let children_ser = children
+        .iter()
+        .map(|child| child.serialize_proto())
+        .try_collect()?;
+
+    let metadata = scalar_fn
+        .options()
+        .serialize()?
+        .ok_or_else(|| vortex_err!("Expression '{}' is not serializable", scalar_fn.id()))?;
+
+    Ok(pb::Expr {
+        id: scalar_fn.id().to_string(),
+        children: children_ser,
+        metadata: Some(metadata),
+    })
+}
 
 impl ExprSerializeProtoExt for Expression {
     fn serialize_proto(&self) -> VortexResult<pb::Expr> {
-        let Some(scalar_fn) = self.as_scalar() else {
-            return Ok(pb::Expr {
-                id: ROOT_ID.to_string(),
-                children: vec![],
-                metadata: Some(vec![]),
-            });
-        };
-
-        let children = self
-            .children()
-            .iter()
-            .map(|child| child.serialize_proto())
-            .try_collect()?;
-
-        let metadata = scalar_fn.options().serialize()?.ok_or_else(|| {
-            vortex_err!(
-                "Expression '{}' is not serializable: {}",
-                scalar_fn.id(),
-                self
-            )
-        })?;
-
-        Ok(pb::Expr {
-            id: scalar_fn.id().to_string(),
-            children,
-            metadata: Some(metadata),
-        })
+        match self {
+            Expression::Lambda(lambda) => lambda.serialize_proto(),
+            Expression::Root => serialize_root(),
+            Expression::Variable(variable) => variable.serialize_proto(),
+            Expression::Scalar {
+                scalar_fn,
+                children,
+            } => serialize_scalar(scalar_fn, children),
+        }
     }
 }
 
 impl Expression {
     pub fn from_proto(expr: &pb::Expr, session: &VortexSession) -> VortexResult<Expression> {
-        // Root is not a registered scalar fn, so it must be resolved before the registry lookup.
+        // These are language primitives rather than registered scalar fns, so they must be
+        // resolved before the registry lookup below.
         if expr.id == ROOT_ID {
             vortex_ensure!(
                 expr.children.is_empty(),
@@ -64,6 +147,14 @@ impl Expression {
                 expr.children.len()
             );
             return Ok(Expression::Root);
+        }
+
+        if expr.id == VARIABLE_ID {
+            return Ok(Variable::from_proto(expr)?.into());
+        }
+
+        if expr.id == LAMBDA_ID {
+            return Ok(Lambda::from_proto(expr, session)?.into());
         }
 
         #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
@@ -98,6 +189,7 @@ pub fn deserialize_expr_proto(
 #[cfg(test)]
 mod tests {
     use prost::Message;
+    use vortex_error::VortexResult;
     use vortex_proto::expr as pb;
     use vortex_session::VortexSession;
 
@@ -106,11 +198,14 @@ mod tests {
     use crate::expr::Expression;
     use crate::expr::and;
     use crate::expr::between;
+    use crate::expr::checked_add;
     use crate::expr::eq;
     use crate::expr::get_item;
+    use crate::expr::lambda;
     use crate::expr::lit;
     use crate::expr::or;
     use crate::expr::root;
+    use crate::expr::var;
     use crate::scalar_fn::fns::between::BetweenOptions;
     use crate::scalar_fn::fns::between::StrictComparison;
     use crate::scalar_fn::session::ScalarFnSession;
@@ -139,6 +234,37 @@ mod tests {
         let deser_expr = Expression::from_proto(&s_expr, &array_session()).unwrap();
 
         assert_eq!(&deser_expr, &expr);
+    }
+
+    #[test]
+    fn lambda_expression_round_trips() -> VortexResult<()> {
+        let expression = lambda(
+            ["x", "y"],
+            checked_add(var("x"), checked_add(var("y"), lit(1_i32))),
+        )?;
+
+        let bytes = expression.serialize_proto()?.encode_to_vec();
+        let decoded =
+            Expression::from_proto(&pb::Expr::decode(bytes.as_slice())?, &array_session())?;
+        assert_eq!(decoded, expression);
+        Ok(())
+    }
+
+    /// A lambda carries its body as a child, so a malformed message must be rejected rather than
+    /// silently producing a lambda with the wrong arity.
+    #[test]
+    fn a_lambda_without_a_body_is_rejected() {
+        let malformed = pb::Expr {
+            id: "vortex.lambda".to_string(),
+            children: vec![],
+            metadata: Some(
+                pb::LambdaOpts {
+                    params: vec!["x".to_string()],
+                }
+                .encode_to_vec(),
+            ),
+        };
+        assert!(Expression::from_proto(&malformed, &array_session()).is_err());
     }
 
     #[test]

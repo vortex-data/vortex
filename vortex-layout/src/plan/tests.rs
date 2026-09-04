@@ -9,14 +9,18 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::Expression;
+use vortex_array::expr::Scope;
+use vortex_array::expr::Variable;
 use vortex_array::expr::and;
 use vortex_array::expr::checked_add;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
 use vortex_array::expr::is_null;
+use vortex_array::expr::lambda;
 use vortex_array::expr::lit;
 use vortex_array::expr::pack;
 use vortex_array::expr::root;
+use vortex_array::expr::var;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
@@ -306,7 +310,7 @@ fn with_children_replaces_children_in_order() -> VortexResult<()> {
 
 #[test]
 fn eval_try_new_validates_expression_root_dtype() -> VortexResult<()> {
-    let expression = root().bind(&primitive(PType::I32, Nullability::NonNullable))?;
+    let expression = root().bind(primitive(PType::I32, Nullability::NonNullable))?;
     let child = make_plan(flat(3, primitive(PType::I64, Nullability::NonNullable), 0))?;
 
     let error = EvalPlan::try_new(expression, child)
@@ -317,6 +321,44 @@ fn eval_try_new_validates_expression_root_dtype() -> VortexResult<()> {
             .to_string()
             .contains("Eval expression is not bound to child dtype i64"),
         "unexpected error: {error}"
+    );
+    Ok(())
+}
+
+#[test]
+fn eval_try_new_rejects_lambda() -> VortexResult<()> {
+    let dtype = primitive(PType::I32, Nullability::NonNullable);
+    let expression = lambda(["value"], root())?.bind(
+        Scope::new(dtype.clone()).with_bindings([(Variable::new("value"), dtype.clone())])?,
+    )?;
+    let child = make_plan(flat(3, dtype, 0))?;
+
+    let error = EvalPlan::try_new(expression, child)
+        .err()
+        .ok_or_else(|| vortex_err!("lambda expression unexpectedly produced an Eval plan"))?;
+    assert!(
+        error
+            .to_string()
+            .contains("Eval cannot evaluate a standalone lambda"),
+    );
+    Ok(())
+}
+
+#[test]
+fn eval_try_new_rejects_variables() -> VortexResult<()> {
+    let dtype = primitive(PType::I32, Nullability::NonNullable);
+    let scope =
+        Scope::new(dtype.clone()).with_bindings([(Variable::new("value"), dtype.clone())])?;
+    let expression = checked_add(var("value"), lit(1_i32)).bind(scope)?;
+    let child = make_plan(flat(3, dtype, 0))?;
+
+    let error = EvalPlan::try_new(expression, child)
+        .err()
+        .ok_or_else(|| vortex_err!("variable expression unexpectedly produced an Eval plan"))?;
+    assert!(
+        error
+            .to_string()
+            .contains("Eval cannot evaluate an expression containing variables"),
     );
     Ok(())
 }

@@ -305,7 +305,12 @@ impl FileOpener for VortexOpener {
                 .map_err(|_e| {
                     exec_datafusion_err!("Couldn't get the dtype for the underlying Vortex scan")
                 })?;
-            let scan_dtype = scan_projection.dtype().clone();
+            let scan_dtype = scan_projection
+                .dtype()
+                .map_err(|_e| {
+                    exec_datafusion_err!("Couldn't get the dtype for the underlying Vortex scan")
+                })?
+                .clone();
 
             // When projection pushdown is enabled, the scan outputs the projected columns.
             // When disabled, the scan outputs raw columns and the projection is applied after.

@@ -179,10 +179,11 @@ impl StatBinder for ZoneMapStatsBinder<'_> {
         if !input.is_root() {
             return Ok(None);
         }
+        let input_dtype = input.dtype()?;
         vortex_ensure!(
-            input.dtype() == &self.zone_map.column_dtype,
+            input_dtype == &self.zone_map.column_dtype,
             "Stats predicate root dtype {} does not match zone-map column dtype {}",
-            input.dtype(),
+            input_dtype,
             self.zone_map.column_dtype
         );
 

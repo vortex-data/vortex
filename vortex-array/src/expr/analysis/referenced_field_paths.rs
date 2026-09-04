@@ -83,7 +83,7 @@ impl NodeFolderContext for ReferencedFieldPaths {
             .and_then(|scalar_fn| scalar_fn.as_opt::<Select>())
         {
             let child_fields = node.children()[0]
-                .dtype()
+                .dtype()?
                 .as_struct_fields_opt()
                 .ok_or_else(|| vortex_err!("Select child is not a struct"))?;
             let included_fields = selection.normalize_to_included_fields(child_fields.names())?;
@@ -154,7 +154,7 @@ mod tests {
 
     /// Collects the prefix-minimal field paths referenced by `expr` against [`scope`].
     fn referenced(expr: &Expression) -> VortexResult<HashSet<FieldPath>> {
-        Ok(referenced_field_paths(&expr.bind(&scope())?)?
+        Ok(referenced_field_paths(&expr.bind(scope())?)?
             .into_iter()
             .collect())
     }
@@ -231,7 +231,7 @@ mod tests {
     #[test]
     fn invalid_get_item_path_returns_error() {
         let result = get_item("missing", root())
-            .bind(&scope())
+            .bind(scope())
             .and_then(|expr| referenced_field_paths(&expr));
         assert!(result.is_err());
     }

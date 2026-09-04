@@ -133,7 +133,7 @@ impl PlanParentReduceRule<Take> for ExpressionTakeRule {
         _child_idx: usize,
     ) -> VortexResult<Option<PlanRef>> {
         let expression = parent.expression();
-        if !expression.dtype().is_boolean() {
+        if !expression.dtype()?.is_boolean() {
             return Ok(None);
         }
         // Evaluating over values rather than codes is only sound when the expression reads the

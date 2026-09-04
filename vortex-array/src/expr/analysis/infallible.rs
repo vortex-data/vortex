@@ -15,6 +15,8 @@ pub fn label_infallible(expr: &Expression) -> BooleanLabels<'_> {
         expr,
         |expr| match expr {
             Expression::Scalar { scalar_fn, .. } => scalar_fn.signature().is_infallible(),
+            // A lambda or variable adds no fallibility of its own.
+            Expression::Lambda(_) | Expression::Variable(_) => true,
             // The scope itself cannot fail.
             Expression::Root => true,
         },

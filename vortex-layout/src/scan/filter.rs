@@ -186,8 +186,8 @@ mod tests {
         assert_eq!(
             conjuncts
                 .iter()
-                .map(|expr| expr.dtype().clone())
-                .collect::<Vec<_>>(),
+                .map(|expr| expr.dtype().cloned())
+                .collect::<VortexResult<Vec<_>>>()?,
             vec![
                 DType::Bool(Nullability::Nullable),
                 DType::Bool(Nullability::Nullable),

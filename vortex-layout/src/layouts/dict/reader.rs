@@ -774,11 +774,11 @@ mod tests {
         split_expression_for_pushdown(&bound)
     }
 
-    fn pushed_scope(inner: &BoundExpression) -> DType {
-        DType::Struct(
-            StructFields::from_iter([(PUSHDOWN_ANNOTATION, inner.dtype().clone())]),
+    fn pushed_scope(inner: &BoundExpression) -> VortexResult<DType> {
+        Ok(DType::Struct(
+            StructFields::from_iter([(PUSHDOWN_ANNOTATION, inner.dtype()?.clone())]),
             Nullability::NonNullable,
-        )
+        ))
     }
 
     #[test]
@@ -793,14 +793,14 @@ mod tests {
         // cast is fallible, thus not pushed
         let target = DType::Primitive(PType::I64, Nullability::Nullable);
         let expr = cast(byte_length(root()), target.clone());
-        let dtype = DType::Utf8(false.into());
+        let dtype = DType::Utf8(Nullability::Nullable);
         let (outer, inner) = split_bound(expr.clone(), &dtype)?;
         let inner = inner.unwrap();
         // [0] = cast([1], dtype)
         // [1] = byte_length(root)
         assert_eq!(
             outer,
-            cast(pushed_ref(0), target).bind(&pushed_scope(&inner))?
+            cast(pushed_ref(0), target).bind(pushed_scope(&inner)?)?
         );
         assert_eq!(inner, pushed_inner([byte_length(root())]).bind(&dtype)?);
         test_apply(expr, outer, inner)
@@ -809,10 +809,10 @@ mod tests {
     #[test]
     fn split_expr_full_pushdown() -> VortexResult<()> {
         let expr = byte_length(root());
-        let dtype = DType::Utf8(false.into());
+        let dtype = DType::Utf8(Nullability::Nullable);
         let (outer, inner) = split_bound(expr.clone(), &dtype)?;
         let inner = inner.unwrap();
-        assert_eq!(outer, pushed_ref(0).bind(&pushed_scope(&inner))?);
+        assert_eq!(outer, pushed_ref(0).bind(pushed_scope(&inner)?)?);
         assert_eq!(inner, pushed_inner([byte_length(root())]).bind(&dtype)?);
         test_apply(expr, outer, inner)
     }

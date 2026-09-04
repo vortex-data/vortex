@@ -125,3 +125,13 @@ message SelectOpts {
 message CaseWhenOpts {
   uint32 num_children = 1;
 }
+
+// Options for `vortex.var`, a reference to a name bound in an enclosing scope.
+message VariableOpts {
+  string name = 1;
+}
+
+// Options for `vortex.lambda`. The body is the expression's single child.
+message LambdaOpts {
+  repeated string params = 1;
+}

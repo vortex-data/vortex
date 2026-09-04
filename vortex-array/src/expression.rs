@@ -2,8 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -11,63 +13,118 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArray;
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
+use crate::expr::Scope;
+use crate::expr::VariableRef;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar_fn::fns::literal::Literal;
 
-impl ArrayRef {
-    /// Apply a bound expression to this array, producing a new array in constant time.
-    pub fn apply_bound(self, expr: &BoundExpression) -> VortexResult<ArrayRef> {
-        let BoundExpression::Scalar {
-            scalar_fn,
-            children,
-            ..
-        } = expr
-        else {
-            return Ok(self);
-        };
+/// Dynamic lexical state shared while an expression is applied to an array.
+pub(crate) struct ApplyCtx {
+    bindings: HashMap<VariableRef, ArrayRef>,
+}
 
-        if let Some(scalar) = scalar_fn.as_opt::<Literal>() {
-            return Ok(ConstantArray::new(scalar.clone(), self.len()).into_array());
+impl ApplyCtx {
+    fn new() -> Self {
+        Self {
+            bindings: HashMap::new(),
         }
+    }
 
-        let children: Vec<_> = children
-            .iter()
-            .map(|child| self.clone().apply_bound(child))
-            .try_collect()?;
+    fn binding(&self, variable_ref: VariableRef) -> Option<&ArrayRef> {
+        self.bindings.get(&variable_ref)
+    }
+}
 
-        let array =
-            ScalarFnArray::try_new_with_len(scalar_fn.clone(), children, self.len())?.into_array();
-
-        array.optimize()
+impl ArrayRef {
+    /// Apply a bound expression to this array.
+    pub fn apply_bound(self, expr: &BoundExpression) -> VortexResult<ArrayRef> {
+        apply(self, expr, &mut ApplyCtx::new())?.optimize()
     }
 
     /// Apply the expression to this array, producing a new array in constant time.
     pub fn apply(self, expr: &Expression) -> VortexResult<ArrayRef> {
-        // If the expression is a root, return self.
-        if expr.is_root() {
-            return Ok(self);
+        let scope = Scope::new(self.dtype().clone());
+        let bound = expr.bind(&scope)?;
+        self.apply_bound(&bound)
+    }
+}
+
+/// Lower `expr` into an array in `root`'s row domain using the current lexical bindings.
+pub(crate) fn apply(
+    root: ArrayRef,
+    expr: &BoundExpression,
+    apply_ctx: &mut ApplyCtx,
+) -> VortexResult<ArrayRef> {
+    let (scalar_fn, children) = match expr {
+        BoundExpression::Root { dtype } => {
+            vortex_ensure!(
+                root.dtype() == dtype,
+                "expression root dtype {dtype} does not match input array dtype {}",
+                root.dtype()
+            );
+            return Ok(root);
         }
-
-        // Manually convert literals to ConstantArray.
-        if let Some(scalar) = expr.as_opt::<Literal>() {
-            return Ok(ConstantArray::new(scalar.clone(), self.len()).into_array());
+        BoundExpression::Variable(variable) => {
+            let array = apply_ctx
+                .binding(variable.variable_ref())
+                .cloned()
+                .ok_or_else(|| vortex_err!("cannot apply unbound variable '{variable}'"))?;
+            vortex_ensure!(
+                array.dtype() == variable.dtype(),
+                "binding for variable '{variable}' has dtype {}, expected {}",
+                array.dtype(),
+                variable.dtype(),
+            );
+            vortex_ensure!(
+                array.len() == root.len(),
+                "binding for variable '{variable}' has length {}, expected {}",
+                array.len(),
+                root.len()
+            );
+            return Ok(array);
         }
+        BoundExpression::Lambda(_) => {
+            return Err(vortex_err!(
+                "a lambda can be applied only by the binder that established its scope"
+            ));
+        }
+        BoundExpression::Scalar {
+            scalar_fn,
+            children,
+            ..
+        } => (scalar_fn, children),
+    };
 
-        // Otherwise, collect the child arrays.
-        let children: Vec<_> = expr
-            .children()
-            .iter()
-            .map(|e| self.clone().apply(e))
-            .try_collect()?;
+    if let Some(scalar) = scalar_fn.as_opt::<Literal>() {
+        return Ok(ConstantArray::new(scalar.clone(), root.len()).into_array());
+    }
 
-        // And wrap the scalar function up in an array.
-        let scalar_fn = expr
-            .as_scalar()
-            .vortex_expect("root and literal were handled above, so this is a scalar node");
-        let array =
-            ScalarFnArray::try_new_with_len(scalar_fn.clone(), children, self.len())?.into_array();
+    let children = children
+        .iter()
+        .map(|child| apply(root.clone(), child, apply_ctx))
+        .try_collect()?;
 
-        // Optimize the resulting array's root.
-        array.optimize()
+    Ok(ScalarFnArray::try_new_with_len(scalar_fn.clone(), children, root.len())?.into_array())
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+
+    use crate::IntoArray;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::expr::root;
+
+    #[test]
+    fn bound_application_checks_root_dtype() -> VortexResult<()> {
+        let expected = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let bound = root().bind(&expected)?;
+        let root = buffer![0_i64, 0].into_array();
+
+        assert!(root.apply_bound(&bound).is_err());
+        Ok(())
     }
 }

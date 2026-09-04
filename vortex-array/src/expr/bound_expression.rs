@@ -11,15 +11,20 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::dtype::DType;
 use crate::expr::Expression;
+use crate::expr::Lambda;
 use crate::expr::display::DisplayTreeExpr;
 use crate::expr::scope::Scope;
+use crate::expr::scope::VariableRef;
 use crate::expr::traversal::TraversalOrder;
 use crate::expr::traversal::pre_order_visit_down;
+use crate::expr::variable::Variable;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::stats::rewrite::StatsRewriteCtx;
@@ -45,11 +50,85 @@ pub enum BoundExpression {
         /// consumers from destructuring a `BoundExpression` by value.
         children: Arc<Vec<BoundExpression>>,
     },
+    /// A lambda with a bound body and bound params.
+    Lambda(BoundLambda),
     /// The scope itself. Its dtype is the scope's root dtype.
     Root {
         /// The dtype this node evaluates to.
         dtype: DType,
     },
+    /// A variable with resolved dtype and reference in the bound scope.
+    Variable(BoundVariable),
+}
+
+/// A bound variable.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct BoundVariable {
+    dtype: DType,
+    variable: Variable,
+    variable_ref: VariableRef,
+}
+
+impl BoundVariable {
+    /// The dtype of the value bound to this variable.
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    /// The source-level name, retained for display and diagnostics.
+    pub fn variable(&self) -> &Variable {
+        &self.variable
+    }
+
+    /// The lexical location resolved while binding.
+    pub fn variable_ref(&self) -> VariableRef {
+        self.variable_ref
+    }
+}
+
+impl Display for BoundVariable {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        Display::fmt(&self.variable, f)
+    }
+}
+
+/// A bound lambda.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct BoundLambda {
+    params: Arc<Vec<BoundVariable>>,
+    body: Arc<BoundExpression>,
+}
+
+impl BoundLambda {
+    /// The variables this lambda binds, in declaration order.
+    pub fn params(&self) -> &[BoundVariable] {
+        &self.params
+    }
+
+    /// The bound body.
+    pub fn body(&self) -> &BoundExpression {
+        &self.body
+    }
+
+    /// Take the bound body when this lambda is its sole owner.
+    fn take_body(&mut self) -> Option<BoundExpression> {
+        Arc::try_unwrap(std::mem::replace(
+            &mut self.body,
+            Arc::new(BoundExpression::new_root(DType::Null)),
+        ))
+        .ok()
+    }
+
+    /// The dtype the body evaluates to.
+    pub fn body_dtype(&self) -> VortexResult<&DType> {
+        self.body.dtype()
+    }
+}
+
+impl Display for BoundLambda {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "({}) -> {}", self.params.iter().join(", "), self.body)
+    }
 }
 
 /// A bound-expression wrapper that compares shared tree identity instead of structure.
@@ -79,7 +158,12 @@ impl PartialEq for ExactBoundExpr {
                     && Arc::ptr_eq(lhs_children, rhs_children)
                     && lhs_dtype == rhs_dtype
             }
-            _ => false,
+            (BoundExpression::Lambda(lhs), BoundExpression::Lambda(rhs)) => lhs == rhs,
+            (BoundExpression::Variable(lhs), BoundExpression::Variable(rhs)) => lhs == rhs,
+            (BoundExpression::Root { .. }, _)
+            | (BoundExpression::Scalar { .. }, _)
+            | (BoundExpression::Lambda(_), _)
+            | (BoundExpression::Variable(_), _) => false,
         }
     }
 }
@@ -92,6 +176,11 @@ impl Hash for ExactBoundExpr {
         // identity-keyed cache lookups from deserializing an entire schema just to compute a hash.
         match &self.0 {
             BoundExpression::Root { .. } => state.write_u8(0),
+            BoundExpression::Variable(variable) => {
+                state.write_u8(2);
+                variable.variable().hash(state);
+                variable.variable_ref().hash(state);
+            }
             BoundExpression::Scalar {
                 scalar_fn,
                 children,
@@ -100,6 +189,10 @@ impl Hash for ExactBoundExpr {
                 state.write_u8(1);
                 scalar_fn.hash(state);
                 Arc::as_ptr(children).hash(state);
+            }
+            BoundExpression::Lambda(lambda) => {
+                state.write_u8(4);
+                lambda.hash(state);
             }
         }
     }
@@ -126,11 +219,15 @@ impl BoundExpression {
             scalar_fn.signature().arity(),
             children.len()
         );
+        vortex_ensure!(
+            children.iter().all(|child| !child.as_lambda().is_some()),
+            "a scalar function cannot take a lambda as an ordinary argument"
+        );
 
-        let arg_dtypes = children
+        let arg_dtypes: Vec<DType> = children
             .iter()
-            .map(|child| child.dtype().clone())
-            .collect_vec();
+            .map(|child| child.dtype().cloned())
+            .try_collect()?;
         let dtype = scalar_fn.return_dtype(&arg_dtypes)?;
 
         Ok(Self::Scalar {
@@ -146,22 +243,29 @@ impl BoundExpression {
         children: impl IntoIterator<Item = BoundExpression>,
     ) -> VortexResult<Self> {
         let children = Vec::from_iter(children);
-        let BoundExpression::Scalar { scalar_fn, .. } = &self else {
-            vortex_ensure!(
-                children.is_empty(),
-                "Root expression cannot have {} children",
-                children.len()
-            );
-            return Ok(self);
-        };
-
-        Self::try_new_vec(scalar_fn.clone(), children)
+        match &self {
+            BoundExpression::Scalar { scalar_fn, .. } => Self::try_new(scalar_fn.clone(), children),
+            BoundExpression::Lambda(_)
+            | BoundExpression::Root { .. }
+            | BoundExpression::Variable(_) => {
+                vortex_ensure!(
+                    children.is_empty(),
+                    "{self} cannot have {} children",
+                    children.len()
+                );
+                Ok(self)
+            }
+        }
     }
 
     /// The dtype this expression evaluates to.
-    pub fn dtype(&self) -> &DType {
+    ///
+    /// A lambda is callable but not array-valued, so it has no standalone dtype.
+    pub fn dtype(&self) -> VortexResult<&DType> {
         match self {
-            Self::Scalar { dtype, .. } | Self::Root { dtype } => dtype,
+            Self::Scalar { dtype, .. } | Self::Root { dtype } => Ok(dtype),
+            Self::Lambda(_) => vortex_bail!("a lambda has no standalone dtype"),
+            Self::Variable(variable) => Ok(variable.dtype()),
         }
     }
 
@@ -169,7 +273,7 @@ impl BoundExpression {
     pub fn children(&self) -> &[BoundExpression] {
         match self {
             Self::Scalar { children, .. } => children.as_slice(),
-            Self::Root { .. } => &[],
+            Self::Lambda(_) | Self::Root { .. } | Self::Variable(_) => &[],
         }
     }
 
@@ -182,7 +286,23 @@ impl BoundExpression {
     pub fn as_scalar(&self) -> Option<&ScalarFnRef> {
         match self {
             Self::Scalar { scalar_fn, .. } => Some(scalar_fn),
-            Self::Root { .. } => None,
+            Self::Lambda(_) | Self::Root { .. } | Self::Variable(_) => None,
+        }
+    }
+
+    /// Return this node's bound lambda, if it is a lambda binder.
+    pub fn as_lambda(&self) -> Option<&BoundLambda> {
+        match self {
+            Self::Lambda(lambda) => Some(lambda),
+            Self::Scalar { .. } | Self::Root { .. } | Self::Variable(_) => None,
+        }
+    }
+
+    /// Return thjis node's bound variable, if it is a bound variable.
+    pub fn as_variable(&self) -> Option<&BoundVariable> {
+        match self {
+            Self::Variable(variable) => Some(variable),
+            Self::Scalar { .. } | Self::Lambda(_) | Self::Root { .. } => None,
         }
     }
 
@@ -227,17 +347,16 @@ impl BoundExpression {
     /// Return whether every scope root in this expression has `dtype`.
     ///
     /// Expressions without a scope root, such as literals, match every dtype.
-    pub fn is_root_bound_to(&self, dtype: &DType) -> bool {
+    pub fn is_root_bound_to(&self, dtype: &DType) -> VortexResult<bool> {
         let mut is_bound_to = true;
         pre_order_visit_down(self, |node| {
-            if node.is_root() && node.dtype() != dtype {
+            if node.is_root() && node.dtype()? != dtype {
                 is_bound_to = false;
                 return Ok(TraversalOrder::Stop);
             }
             Ok(TraversalOrder::Continue)
-        })
-        .vortex_expect("bound expression traversal cannot not fail");
-        is_bound_to
+        })?;
+        Ok(is_bound_to)
     }
 
     /// Return an expression that proves this predicate is definitely false from statistics.
@@ -260,72 +379,132 @@ impl Display for BoundExpression {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Scalar { scalar_fn, .. } => scalar_fn.fmt_sql(self, f),
+            Self::Lambda(lambda) => Display::fmt(lambda, f),
             Self::Root { .. } => f.write_str("$"),
+            Self::Variable(variable) => write!(f, "${variable}"),
         }
     }
 }
 
 impl Expression {
-    /// Bind this expression against a root dtype, type-checking every node in a single walk.
+    /// Bind this expression against `scope`, type-checking every node in a single walk.
     ///
     /// The returned tree carries a dtype on each node, so callers needing types at more than one
     /// node should bind once and read fields rather than calling
     /// [`return_dtype`](Expression::return_dtype) repeatedly.
-    pub fn bind(&self, dtype: &DType) -> VortexResult<BoundExpression> {
-        self.bind_scope(&Scope::new(dtype.clone()))
+    pub fn bind(&self, scope: impl Into<Scope>) -> VortexResult<BoundExpression> {
+        self.bind_inner(&scope.into())
     }
 
-    /// Bind this expression against an explicit [`Scope`].
-    pub fn bind_scope(&self, scope: &Scope) -> VortexResult<BoundExpression> {
-        if self.is_root() {
-            return Ok(BoundExpression::new_root(scope.root().clone()));
+    fn bind_inner(&self, scope: &Scope) -> VortexResult<BoundExpression> {
+        match self {
+            Expression::Root => Ok(BoundExpression::new_root(scope.root().clone())),
+            Expression::Variable(variable) => {
+                let Some((dtype, variable_ref)) = scope.resolve(variable) else {
+                    vortex_bail!("unbound variable '{variable}'");
+                };
+                Ok(BoundExpression::Variable(BoundVariable {
+                    dtype: dtype.clone(),
+                    variable: variable.clone(),
+                    variable_ref,
+                }))
+            }
+            Expression::Scalar {
+                scalar_fn,
+                children,
+            } => {
+                let children: Vec<_> = children
+                    .iter()
+                    .map(|child| child.bind_inner(scope))
+                    .try_collect()?;
+                BoundExpression::try_new(scalar_fn.clone(), children)
+            }
+            Expression::Lambda(lambda) => {
+                Ok(BoundExpression::Lambda(Self::bind_lambda(lambda, scope)?))
+            }
         }
+    }
 
-        let children: Vec<_> = self
-            .children()
+    fn bind_lambda(lambda: &Lambda, scope: &Scope) -> VortexResult<BoundLambda> {
+        vortex_ensure!(
+            scope.depth() > 0,
+            "a lambda can be bound only in a scope with a parameter frame"
+        );
+        let parameter_frame = scope.depth() - 1;
+        let params = lambda
+            .params()
             .iter()
-            .map(|child| child.bind_scope(scope))
-            .try_collect()?;
-        let scalar_fn = self
-            .as_scalar()
-            .vortex_expect("root was handled above, so this is a scalar node");
-        BoundExpression::try_new(scalar_fn.clone(), children)
+            .map(|parameter| {
+                scope
+                    .resolve(parameter)
+                    .map(|(dtype, variable_ref)| BoundVariable {
+                        dtype: dtype.clone(),
+                        variable: parameter.clone(),
+                        variable_ref,
+                    })
+                    .ok_or_else(|| {
+                        vortex_err!("lambda parameter '{parameter}' is not bound in its scope")
+                    })
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
+        vortex_ensure!(
+            params
+                .iter()
+                .all(|parameter| parameter.variable_ref().frame() == parameter_frame),
+            "lambda parameters must be bound in the innermost lexical frame"
+        );
+
+        Ok(BoundLambda {
+            params: Arc::new(params),
+            body: Arc::new(lambda.body().bind_inner(scope)?),
+        })
     }
 }
 
-/// Iterative drop to avoid stack overflows on deep trees.
+fn drain_bound_drop_children(expression: &mut BoundExpression, to_drop: &mut Vec<BoundExpression>) {
+    match expression {
+        BoundExpression::Scalar { children, .. } => {
+            if let Some(children) = Arc::get_mut(children) {
+                to_drop.append(children);
+            }
+        }
+        BoundExpression::Lambda(lambda) => {
+            if let Some(body) = lambda.take_body() {
+                to_drop.push(body);
+            }
+        }
+        BoundExpression::Root { .. } | BoundExpression::Variable(_) => {}
+    }
+}
+
+/// Iterative drop to avoid stack overflows on deep value trees and lambda bodies.
 impl Drop for BoundExpression {
     fn drop(&mut self) {
-        let Self::Scalar { children, .. } = self else {
-            return;
-        };
-        let Some(children) = Arc::get_mut(children) else {
-            return;
-        };
-
-        let mut to_drop = std::mem::take(children);
-        while let Some(mut child) = to_drop.pop() {
-            if let BoundExpression::Scalar { children, .. } = &mut child
-                && let Some(grandchildren) = Arc::get_mut(children)
-            {
-                to_drop.append(grandchildren);
-            }
+        let mut to_drop = Vec::new();
+        drain_bound_drop_children(self, &mut to_drop);
+        while let Some(mut expression) = to_drop.pop() {
+            drain_bound_drop_children(&mut expression, &mut to_drop);
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
 
     use super::*;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::expr::checked_add;
     use crate::expr::col;
     use crate::expr::eq;
+    use crate::expr::lambda;
     use crate::expr::lit;
     use crate::expr::root;
     use crate::expr::test_harness::struct_dtype;
+    use crate::expr::var;
+    use crate::scalar_fn::fns::is_not_null::IsNotNull;
     use crate::scalar_fn::fns::literal::Literal;
 
     fn scope() -> Scope {
@@ -334,9 +513,9 @@ mod tests {
 
     #[test]
     fn root_binds_to_the_scope() -> VortexResult<()> {
-        let bound = root().bind_scope(&scope())?;
+        let bound = root().bind(scope())?;
         assert!(bound.is_root());
-        assert_eq!(bound.dtype(), &struct_dtype());
+        assert_eq!(bound.dtype()?, &struct_dtype());
         assert_eq!(bound, BoundExpression::new_root(struct_dtype()));
         Ok(())
     }
@@ -344,16 +523,16 @@ mod tests {
     #[test]
     fn every_node_carries_its_dtype() -> VortexResult<()> {
         let expr = eq(col("a"), lit(1_i32));
-        let bound = expr.bind_scope(&scope())?;
+        let bound = expr.bind(scope())?;
 
-        assert_eq!(bound.dtype(), &DType::Bool(Nullability::NonNullable));
+        assert_eq!(bound.dtype()?, &DType::Bool(Nullability::NonNullable));
 
         let lhs = &bound.children()[0];
         assert_eq!(
-            lhs.dtype(),
+            lhs.dtype()?,
             &DType::Primitive(PType::I32, Nullability::NonNullable)
         );
-        assert_eq!(lhs.children()[0].dtype(), &struct_dtype());
+        assert_eq!(lhs.children()[0].dtype()?, &struct_dtype());
         Ok(())
     }
 
@@ -361,7 +540,7 @@ mod tests {
     fn bind_agrees_with_return_dtype() -> VortexResult<()> {
         for expr in [root(), col("a"), eq(col("a"), lit(1_i32)), lit(true)] {
             assert_eq!(
-                expr.bind(&struct_dtype())?.dtype(),
+                expr.bind(struct_dtype())?.dtype()?,
                 &expr.return_dtype(&struct_dtype())?,
                 "disagreement for {expr}"
             );
@@ -371,9 +550,9 @@ mod tests {
 
     #[test]
     fn contains_scalar_function() -> VortexResult<()> {
-        let bound = eq(col("a"), lit(1_i32)).bind_scope(&scope())?;
+        let bound = eq(col("a"), lit(1_i32)).bind(scope())?;
         assert!(bound.contains::<Literal>()?);
-        assert!(!root().bind_scope(&scope())?.contains::<Literal>()?);
+        assert!(!root().bind(scope())?.contains::<Literal>()?);
         Ok(())
     }
 
@@ -381,12 +560,12 @@ mod tests {
     fn bound_to_checks_every_root() -> VortexResult<()> {
         let dtype = struct_dtype();
         let bound = eq(col("a"), col("a")).bind(&dtype)?;
-        assert!(bound.is_root_bound_to(&dtype));
-        assert!(!bound.is_root_bound_to(&DType::Bool(Nullability::NonNullable)));
+        assert!(bound.is_root_bound_to(&dtype)?);
+        assert!(!bound.is_root_bound_to(&DType::Bool(Nullability::NonNullable))?);
         assert!(
             lit(true)
                 .bind(&dtype)?
-                .is_root_bound_to(&DType::Bool(Nullability::NonNullable))
+                .is_root_bound_to(&DType::Bool(Nullability::NonNullable))?
         );
         Ok(())
     }
@@ -394,7 +573,7 @@ mod tests {
     #[test]
     fn bound_display_matches_unbound() -> VortexResult<()> {
         for expr in [root(), col("a"), eq(col("a"), lit(1_i32)), lit(true)] {
-            let bound = expr.bind_scope(&scope())?;
+            let bound = expr.bind(scope())?;
             assert_eq!(bound.to_string(), expr.to_string());
             assert_eq!(
                 bound.display_tree().to_string(),
@@ -405,35 +584,82 @@ mod tests {
     }
 
     #[test]
-    fn clone_shares_children() -> VortexResult<()> {
-        let bound = eq(col("a"), lit(1_i32)).bind_scope(&scope())?;
-        let cloned = bound.clone();
+    fn variable_binds_to_its_scope() -> VortexResult<()> {
+        let scope = scope().with_bindings([(
+            Variable::new("value"),
+            DType::Primitive(PType::I64, Nullability::Nullable),
+        )])?;
 
-        let (
-            BoundExpression::Scalar { children: a, .. },
-            BoundExpression::Scalar { children: b, .. },
-        ) = (&bound, &cloned)
-        else {
-            unreachable!("eq is a scalar node")
-        };
-        assert!(Arc::ptr_eq(a, b));
+        let bound = var("value").bind(&scope)?;
+        let variable = bound
+            .as_variable()
+            .vortex_expect("variable must remain bound");
+
+        assert_eq!(variable.variable(), &Variable::new("value"));
+        assert_eq!(
+            bound.dtype()?,
+            &DType::Primitive(PType::I64, Nullability::Nullable)
+        );
         Ok(())
     }
 
     #[test]
-    fn repeated_subtree_is_bound_per_occurrence() -> VortexResult<()> {
-        let shared = col("a");
-        let bound = eq(shared.clone(), shared).bind_scope(&scope())?;
-        let children = bound.children();
-        assert_eq!(children[0].dtype(), children[1].dtype());
+    fn variable_validity_is_deferred_to_its_bound_array() -> VortexResult<()> {
+        let scope = scope().with_bindings([(
+            Variable::new("value"),
+            DType::Primitive(PType::I32, Nullability::Nullable),
+        )])?;
+        let expression = checked_add(var("value"), lit(1_i32));
+
+        let validity = expression.validity()?;
+        assert!(validity.contains::<IsNotNull>()?);
+        assert_eq!(
+            validity.bind(&scope)?.dtype()?,
+            &DType::Bool(Nullability::NonNullable)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn duplicate_lambda_parameters_are_rejected() {
+        assert!(lambda(["x", "x"], var("x")).is_err());
+    }
+
+    #[test]
+    fn lambda_signature_comes_from_its_scope() -> VortexResult<()> {
+        let lambda = lambda(["value"], var("value"))?;
+        let value_dtype = DType::Primitive(PType::I64, Nullability::Nullable);
+        let lambda_scope =
+            scope().with_bindings([(Variable::new("value"), value_dtype.clone())])?;
+
+        assert!(lambda.return_dtype(&struct_dtype()).is_err());
+
+        let bound = lambda.bind(&lambda_scope)?;
+        assert!(bound.dtype().is_err());
+        let bound = bound
+            .as_lambda()
+            .vortex_expect("a bound lambda expression must contain a bound lambda");
+        assert_eq!(bound.body_dtype()?, &value_dtype);
+        let parameter = &bound.params()[0];
+        assert_eq!(parameter.dtype(), &value_dtype);
+        assert_eq!(parameter.variable(), &Variable::new("value"));
+        assert_eq!(parameter.variable_ref().frame(), 0);
+        assert_eq!(
+            bound
+                .body()
+                .as_variable()
+                .vortex_expect("lambda body must resolve its parameter"),
+            parameter
+        );
+        assert!(lambda.bind(scope()).is_err());
         Ok(())
     }
 
     #[test]
     fn structural_and_exact_equality_are_distinct() -> VortexResult<()> {
         let expr = eq(col("a"), lit(1_i32));
-        let bound = expr.bind_scope(&scope())?;
-        let independently_bound = expr.bind_scope(&scope())?;
+        let bound = expr.bind(scope())?;
+        let independently_bound = expr.bind(scope())?;
 
         assert_eq!(bound, independently_bound);
         assert_eq!(ExactBoundExpr(bound.clone()), ExactBoundExpr(bound.clone()));
@@ -443,7 +669,6 @@ mod tests {
 
     #[test]
     fn binding_reports_a_type_error() {
-        let expr = eq(col("a"), lit("nope"));
-        assert!(expr.bind_scope(&scope()).is_err());
+        assert!(eq(col("a"), lit("nope")).bind(scope()).is_err());
     }
 }

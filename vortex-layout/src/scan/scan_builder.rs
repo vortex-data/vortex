@@ -264,7 +264,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
     /// The [`DType`] returned by the scan, after applying the projection.
     pub fn dtype(&self) -> VortexResult<DType> {
-        Ok(self.projection.dtype().clone())
+        Ok(self.projection.dtype()?.clone())
     }
 
     /// The session used by the scan.

@@ -62,12 +62,14 @@ pub(crate) mod expression;
 mod exprs;
 pub(crate) mod field;
 pub mod forms;
+pub mod lambda;
 mod optimize;
 pub mod proto;
 pub mod scope;
 pub mod stats;
 pub mod transform;
 pub mod traversal;
+pub mod variable;
 
 pub use analysis::*;
 pub use bound_expression::*;
@@ -77,6 +79,7 @@ pub use exprs::and_collect;
 pub use exprs::between;
 pub use exprs::binary;
 pub use exprs::bound;
+pub use exprs::bound_root;
 pub use exprs::byte_length;
 pub use exprs::case_when;
 pub use exprs::case_when_no_else;
@@ -95,6 +98,7 @@ pub use exprs::ilike;
 pub use exprs::is_not_null;
 pub use exprs::is_null;
 pub use exprs::is_root;
+pub use exprs::lambda;
 pub use exprs::like;
 pub use exprs::list_contains;
 pub use exprs::list_length;
@@ -118,9 +122,12 @@ pub use exprs::root;
 pub use exprs::select;
 pub use exprs::select_exclude;
 pub use exprs::union_child_validities;
+pub use exprs::var;
 pub use exprs::variant_get;
 pub use exprs::zip_expr;
+pub use lambda::*;
 pub use scope::*;
+pub use variable::*;
 
 pub trait VortexExprExt {
     /// Accumulate all field references from this expression and its children in a set
@@ -163,6 +170,8 @@ impl PartialEq for ExactExpr {
     fn eq(&self, other: &Self) -> bool {
         match (&self.0, &other.0) {
             (Expression::Root, Expression::Root) => true,
+            (Expression::Variable(lhs), Expression::Variable(rhs)) => lhs == rhs,
+            (Expression::Lambda(lhs), Expression::Lambda(rhs)) => lhs == rhs,
             (
                 Expression::Scalar {
                     scalar_fn: lhs_fn,
@@ -183,6 +192,14 @@ impl Hash for ExactExpr {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match &self.0 {
             Expression::Root => state.write_u8(0),
+            Expression::Variable(variable) => {
+                state.write_u8(2);
+                variable.hash(state);
+            }
+            Expression::Lambda(lambda) => {
+                state.write_u8(3);
+                lambda.hash(state);
+            }
             Expression::Scalar {
                 scalar_fn,
                 children,
@@ -227,6 +244,7 @@ mod tests {
     use vortex_array::expr::eq;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
+    use vortex_error::VortexResult;
 
     use super::*;
     use crate::dtype::DType;
@@ -235,8 +253,6 @@ mod tests {
     use crate::dtype::PType;
     use crate::dtype::StructFields;
     use crate::expr::and;
-    use crate::expr::bound;
-    use crate::expr::case_when;
     use crate::expr::col;
     use crate::expr::get_item;
     use crate::expr::gt;
@@ -286,7 +302,7 @@ mod tests {
     }
 
     #[test]
-    fn bound_constructors_preserve_order_and_types() -> vortex_error::VortexResult<()> {
+    fn bound_constructors_preserve_order_and_types() -> VortexResult<()> {
         let value_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let scope = DType::Struct(
             StructFields::from_iter([("value", value_dtype.clone())]),
@@ -297,11 +313,11 @@ mod tests {
         let value = bound::get_item("value", root);
         let literal = bound::lit(5i32);
         let condition = bound::gt(value.clone(), literal.clone());
-        assert_eq!(condition.dtype(), &DType::Bool(Nullability::NonNullable));
+        assert_eq!(condition.dtype()?, &DType::Bool(Nullability::NonNullable));
         assert_eq!(condition.children(), &[value.clone(), literal.clone()]);
 
         let case = bound::case_when(condition.clone(), value.clone(), literal.clone());
-        assert_eq!(case.dtype(), &value_dtype);
+        assert_eq!(case.dtype()?, &value_dtype);
         assert_eq!(case.children(), &[condition.clone(), value, literal]);
 
         let packed = bound::pack(
@@ -310,7 +326,7 @@ mod tests {
         );
         assert_eq!(packed.children(), &[condition, case.clone()]);
         assert_eq!(
-            packed.dtype(),
+            packed.dtype()?,
             &DType::Struct(
                 StructFields::from_iter([
                     ("condition", DType::Bool(Nullability::NonNullable)),
@@ -326,9 +342,14 @@ mod tests {
     }
 
     #[test]
-    fn expr_display() {
+    fn expr_display() -> VortexResult<()> {
         assert_eq!(col("a").to_string(), "$.a");
         assert_eq!(root().to_string(), "$");
+        assert_eq!(var("value").to_string(), "$value");
+        assert_eq!(
+            lambda(["left", "right"], var("left"))?.to_string(),
+            "(left, right) -> $left"
+        );
 
         let col1: Expression = col("col1");
         let col2: Expression = col("col2");
@@ -422,6 +443,7 @@ mod tests {
             .to_string(),
             "{dog: 32u32, cat: \"rufus\"}"
         );
+        Ok(())
     }
 
     #[test]

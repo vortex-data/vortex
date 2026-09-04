@@ -303,7 +303,7 @@ impl DataSource for MultiLayoutDataSource {
         }
 
         let request = BoundScanRequest::try_new(scan_request, &self.dtype)?;
-        let dtype = request.projection.dtype().clone();
+        let dtype = request.projection.dtype()?.clone();
 
         Ok(Box::new(MultiLayoutScan {
             session: self.session.clone(),
@@ -650,7 +650,7 @@ mod tests {
 
         let request = BoundScanRequest::try_new(request, &dtype)?;
 
-        assert_eq!(request.projection.dtype(), &dtype);
+        assert_eq!(request.projection.dtype()?, &dtype);
         assert!(request.filter.is_err());
         Ok(())
     }

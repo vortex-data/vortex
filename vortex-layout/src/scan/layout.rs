@@ -126,7 +126,7 @@ impl DataSource for LayoutReaderDataSource {
                     .bind(self.reader.dtype())
             })
             .transpose()?;
-        let dtype = projection.dtype().clone();
+        let dtype = projection.dtype()?.clone();
 
         // If the dtype is an empty struct, and there is no filter, we can return a special
         // length-only scan.

@@ -103,7 +103,7 @@ impl<'a> StatsRewriteCtx<'a> {
 
     /// Return the dtype of `expr` within this rewrite scope.
     pub fn return_dtype(&self, expr: &BoundExpression) -> VortexResult<DType> {
-        Ok(expr.dtype().clone())
+        Ok(expr.dtype()?.clone())
     }
 
     /// Rewrite `expr` into a stats-backed falsifier.
