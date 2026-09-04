@@ -6,7 +6,8 @@
 
 cmake_minimum_required(VERSION 3.28)
 
-# Require every configure-time input consumed by this build script.
+# Configure.cmake passes these required values as `-D` arguments when the
+# `vortex_ffi_cargo_build` target launches this script with `cmake -P`.
 function(_vortex_require_build_inputs)
     foreach(_required IN ITEMS
         VORTEX_CARGO_EXECUTABLE
@@ -28,10 +29,8 @@ function(_vortex_require_build_inputs)
     endforeach()
 endfunction()
 
-# Normalize a target such as `aarch64-apple-darwin` into the suffixes used by
-# target-specific environment variables: `AARCH64_APPLE_DARWIN` for Cargo's
-# `CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS`, and `aarch64_apple_darwin` for
-# the `cc` crate's `CC_aarch64_apple_darwin`, `CFLAGS_aarch64_apple_darwin`, etc.
+# Format the Rust target for Cargo (`AARCH64_APPLE_DARWIN`) and `cc`
+# (`aarch64_apple_darwin`) environment variable names.
 function(_vortex_cargo_target_env_keys upper_output lower_output)
     string(REPLACE "-" "_" _target_key "${VORTEX_RUST_TARGET}")
     string(TOUPPER "${_target_key}" _target_key_upper)
@@ -40,8 +39,8 @@ function(_vortex_cargo_target_env_keys upper_output lower_output)
     set(${lower_output} "${_target_key_lower}" PARENT_SCOPE)
 endfunction()
 
-# Assemble the Cargo command that builds the selected FFI package as a static
-# library using the workspace's Cargo profile policy.
+# Assemble the Cargo command that builds the selected FFI package as
+# a static library with the selected Cargo profile.
 function(_vortex_make_cargo_command output)
     set(_command
         "${VORTEX_CARGO_EXECUTABLE}"
@@ -60,23 +59,21 @@ function(_vortex_make_cargo_command output)
     set(${output} "${_command}" PARENT_SCOPE)
 endfunction()
 
-# Prepend the selected Rust and CUDA tool directories to the ambient PATH.
+# Prepend the selected Rust and CUDA toolchain directories to the ambient PATH.
 function(_vortex_build_tool_path output)
-    get_filename_component(_rust_bin_dir "${VORTEX_RUSTC_EXECUTABLE}" DIRECTORY)
-    set(_tool_bin_dirs "${_rust_bin_dir}")
+    get_filename_component(_path "${VORTEX_RUSTC_EXECUTABLE}" DIRECTORY)
+
     if(VORTEX_NVCC_EXECUTABLE)
         get_filename_component(_nvcc_bin_dir "${VORTEX_NVCC_EXECUTABLE}" DIRECTORY)
-        list(APPEND _tool_bin_dirs "${_nvcc_bin_dir}")
+        string(APPEND _path ":${_nvcc_bin_dir}")
     endif()
-    list(JOIN _tool_bin_dirs ":" _path)
 
-    if(DEFINED ENV{PATH} AND NOT "$ENV{PATH}" STREQUAL "")
-        if("$ENV{PATH}" MATCHES ";")
-            message(FATAL_ERROR
-                "The CMake-owned Cargo build does not support semicolons in PATH")
-        endif()
+    if("$ENV{PATH}" MATCHES ";")
+        message(FATAL_ERROR "The CMake-owned Cargo build does not support semicolons in PATH")
+    elseif(NOT "$ENV{PATH}" STREQUAL "")
         string(APPEND _path ":$ENV{PATH}")
     endif()
+
     set(${output} "${_path}" PARENT_SCOPE)
 endfunction()
 
