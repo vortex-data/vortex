@@ -255,6 +255,38 @@ mod tests {
 
     #[test]
     #[cfg_attr(miri, ignore)]
+    fn test_object_store_url_routing() {
+        unsafe {
+            let session = vx_session_new();
+            let mut error = ptr::null_mut();
+
+            // A URL scheme must route through the object-store registry, not
+            // the local filesystem. The Azure builder deterministically
+            // fails without configuration, and that failure can only arise
+            // on the registry path.
+            let url = vx_view::from_str("az://account/container/missing.vortex");
+            let opts = vx_data_source_options {
+                paths: &raw const url,
+                paths_len: 1,
+            };
+            let ds = vx_data_source_new(session, &raw const opts, &raw mut error);
+            assert!(ds.is_null());
+            assert!(!error.is_null());
+            let message = crate::error::vx_error_message(error).as_str().unwrap();
+            // Local-path handling would report an unmatched glob pattern;
+            // the registry path fails earlier, in the store builder.
+            assert!(
+                !message.contains("glob"),
+                "URL was resolved as a local path: {message}"
+            );
+            assert_error(error);
+
+            vx_session_free(session);
+        }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_row_count() {
         unsafe {
             let session = vx_session_new();

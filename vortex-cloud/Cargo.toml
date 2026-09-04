@@ -35,7 +35,9 @@ tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
 vortex-array = { workspace = true }
 vortex-error = { workspace = true, features = ["object_store"] }
-vortex-file = { workspace = true, features = ["object_store", "tokio"] }
+# Path-only (no version) so the publish graph stays acyclic now that
+# vortex-file optionally depends on this crate.
+vortex-file = { path = "../vortex-file", features = ["object_store", "tokio"] }
 vortex-io = { workspace = true, features = ["object_store", "tokio"] }
 vortex-layout = { workspace = true }
 
