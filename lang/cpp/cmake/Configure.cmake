@@ -73,9 +73,10 @@ function(_vortex_resolve_cargo_profile configuration_output profile_output artif
     set(${artifact_directory_output} "${_artifact_directory}" PARENT_SCOPE)
 endfunction()
 
-# Select the Vortex FFI package and archive for a CPU-only or CUDA-enabled
-# build. Return its include directories and optional CUDA tools. Fail when the
-# workspace is incomplete or CUDA is requested outside Linux.
+# Select the Cargo package and static archive that provide Vortex FFI for a
+# CPU-only or CUDA-enabled build. Return the include directories and optional
+# CUDA tools. Fail if the workspace manifest, lockfile, or selected package
+# manifest is missing, or CUDA is requested outside Linux.
 function(_vortex_resolve_ffi_package
     workspace_root
     package_output
