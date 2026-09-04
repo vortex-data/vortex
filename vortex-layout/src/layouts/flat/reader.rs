@@ -11,7 +11,7 @@ use tracing::trace;
 use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::slice::slice_executed;
+use vortex_array::arrays::slice::slice_execute;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::BoundExpression;
