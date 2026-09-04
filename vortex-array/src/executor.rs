@@ -621,7 +621,7 @@ fn finalize_done(
     Ok((output, None))
 }
 
-fn execute_parent_for_child(
+pub(crate) fn execute_parent_for_child(
     _phase: &'static str,
     parent: &ArrayRef,
     child: &ArrayRef,

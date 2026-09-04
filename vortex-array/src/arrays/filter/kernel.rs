@@ -8,6 +8,7 @@
 //! [`FilterExecuteAdaptor`] bridge these into the execution model as
 //! [`ArrayParentReduceRule`] and [`ExecuteParentKernel`] respectively.
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -19,9 +20,17 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::arrays::Constant;
+use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
 use crate::arrays::Filter;
+use crate::arrays::FilterArray;
+use crate::arrays::ScalarFn;
+use crate::arrays::ScalarFnArray;
 use crate::arrays::dict::TakeExecuteAdaptor;
+use crate::arrays::filter::FilterSlots;
+use crate::arrays::scalar_fn::ScalarFnArrayExt;
+use crate::execute_parent_for_child;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
 use crate::optimizer::kernels::ArrayKernelsExt;
@@ -136,5 +145,82 @@ where
             return Ok(Some(result));
         }
         <V as FilterKernel>::filter(array, parent.filter_mask(), ctx)
+    }
+}
+
+#[derive(Debug)]
+struct FilterScalarFnUnaryPushDownRule;
+
+impl ExecuteParentKernel<Filter> for FilterScalarFnUnaryPushDownRule {
+    type Parent = ScalarFn;
+
+    fn execute_parent(
+        &self,
+        child: ArrayView<'_, Filter>,
+        parent: ArrayView<'_, ScalarFn>,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        // If we have one non-constant child, and ScalarFn has a registered
+        // kernel for given encoding id (e.g. can operate on compressed data),
+        // it's faster to pull Filter up so that it doesn't canonicalize its
+        // child.
+        //
+        // Fn(Filter(x), consts) -> Filter(Fn(x, consts))
+        //
+        // Example: clickbench q1, SELECT * FROM hits WHERE AdvEngineID <> 0;
+        // AdvEngineID <> 0 is Binary over Sparse, but FlatReader applies
+        // Filter over Sparse, so we get Binary(Filter(Sparse)). Filter(Sparse)
+        // canonicalizes.
+        if parent
+            .iter_children()
+            .filter(|c| !c.is::<Constant>())
+            .count()
+            != 1
+        {
+            return Ok(None);
+        }
+
+        // "x" in above formula
+        let new_non_const_grandchild = child.slots()[FilterSlots::CHILD]
+            .as_ref()
+            .vortex_expect("no child for Filter");
+
+        let unfiltered_len = new_non_const_grandchild.len();
+        // (x, consts)
+        let new_grandchildren: Vec<_> = parent
+            .iter_children()
+            .map(|c| match c.as_constant() {
+                Some(scalar) => ConstantArray::new(scalar, unfiltered_len).into_array(),
+                // by above check this is the only non-const argument
+                None => new_non_const_grandchild.clone(),
+            })
+            .collect();
+
+        // Fn(x, consts)
+        let new_child =
+            ScalarFnArray::try_new(parent.scalar_fn().clone(), new_grandchildren)?.into_array();
+
+        // Eagerly execute swapped Fn to avoid infinite runtime with
+        // ScalarFnUnaryFilterPushDownRule.
+        //
+        // This is Res = Fn(x, consts)
+        let new_child = execute_parent_for_child(
+            "filter_scalar_fn_pushdown",
+            &new_child,               // parent, Fn
+            new_non_const_grandchild, // child, x
+            child_idx,
+            &ctx.execute_parent_kernels.clone(),
+            ctx,
+        )?;
+        let Some(new_child) = new_child else {
+            // All child kernels rejected, can't proceed
+            return Ok(None);
+        };
+
+        let mask = child.filter_mask().clone();
+        // Filter(Res)
+        let new_parent = FilterArray::try_new(new_child.clone(), mask)?;
+        Ok(Some(new_parent.into_array()))
     }
 }
