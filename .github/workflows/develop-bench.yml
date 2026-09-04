@@ -83,8 +83,9 @@ jobs:
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=bench-dedicated/family=c8gd.metal-24xl/image=ubuntu24-full-arm64-pre-v2/extras=s3-cache/tag={1}', github.run_id, matrix.benchmark.id)
+          && format('runs-on={0}/runner=bench-dedicated/family=c8gd.metal-24xl/image=ubuntu24-full-arm64-pre-v2/extras=s3-cache/tag={1}{2}', github.run_id, matrix.benchmark.id, matrix.benchmark.variant_id)
           || 'ubuntu-latest' }}
+    name: bench (${{ matrix.benchmark.id }}${{ matrix.benchmark.variant_id }})
     strategy:
       fail-fast: false
       matrix:
@@ -93,6 +94,14 @@ jobs:
             name: Random Access
             build_args: "--features lance"
             v4_ingest: true
+          # Same benchmark, reading the data from S3 instead of local NVMe.
+          - id: random-access-bench
+            variant_id: "-s3"
+            name: Random Access (S3)
+            build_args: "--features lance"
+            v4_ingest: true
+            remote_data_dir: >-
+              s3://vortex-ci-benchmark-datasets/develop/random-access/
           - id: compress-bench
             name: Compression
             build_args: "--features lance"
@@ -135,6 +144,25 @@ jobs:
           extra_args: "--debuginfo-strip=false"
           parca_agent_version: "0.49.0"
 
+      - name: Setup AWS CLI
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c  # v6
+        with:
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+
+      - name: Upload benchmark data to S3
+        if: matrix.benchmark.remote_data_dir != null
+        shell: bash
+        env:
+          AWS_REGION: "us-east-1"
+        run: |
+          set -Eeu -o pipefail -x
+
+          target/release_debug/${{ matrix.benchmark.id }} --prepare-data \
+            --formats parquet,vortex,lance
+          aws s3 rm --recursive "${{ matrix.benchmark.remote_data_dir }}"
+          aws s3 cp --recursive vortex-bench/data "${{ matrix.benchmark.remote_data_dir }}"
+
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
 
@@ -145,8 +173,10 @@ jobs:
           RUST_BACKTRACE: full
           VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+          AWS_REGION: "us-east-1"
         run: |
-          python3 scripts/random-access-split.py --emit-ingest-records
+          python3 scripts/random-access-split.py --emit-ingest-records \
+            ${{ matrix.benchmark.remote_data_dir && format('--remote-data-dir {0}', matrix.benchmark.remote_data_dir) || '' }}
 
       - name: Run ${{ matrix.benchmark.name }} benchmark (per-dataset)
         if: matrix.benchmark.id == 'compress-bench'
@@ -167,12 +197,6 @@ jobs:
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
         run: |
           python3 scripts/string-split.py
-
-      - name: Setup AWS CLI
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c  # v6
-        with:
-          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
-          aws-region: us-east-1
 
       - name: Upload Benchmark Results
         shell: bash

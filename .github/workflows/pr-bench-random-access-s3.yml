@@ -1,0 +1,24 @@
+# Runs the random-access benchmark for a pull request, reading the data from S3.
+
+name: PR Random Access S3 Benchmark
+
+on:
+  workflow_call: { }
+  workflow_dispatch: { }
+
+permissions:
+  contents: read
+  pull-requests: write  # for commenting on PRs
+  id-token: write  # enables AWS-GitHub OIDC
+
+jobs:
+  bench:
+    uses: ./.github/workflows/pr-bench-runner.yml
+    secrets: inherit
+    with:
+      benchmark_id: random-access-bench
+      benchmark_name: Random Access (S3)
+      with_lance: true
+      variant_id: "-s3"
+      remote_data_dir: >-
+        s3://vortex-ci-benchmark-datasets/${{ github.ref_name }}/${{ github.run_id }}/random-access/

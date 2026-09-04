@@ -15,7 +15,8 @@ version.workspace = true
 publish = false
 
 [dependencies]
-lance = { version = "10", default-features = false }
+# `aws` registers Lance's s3:// object store provider, needed to benchmark against remote data.
+lance = { version = "10", default-features = false, features = ["aws"] }
 lance-encoding = { version = "10" }
 
 anyhow = { workspace = true }
