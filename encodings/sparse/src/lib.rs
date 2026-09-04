@@ -77,13 +77,14 @@ use vortex_array::aggregate_fn::fns::min_max::MinMax;
 use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::aggregate_fn::fns::null_count::NullCount;
 use vortex_array::aggregate_fn::fns::sum::Sum;
+use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::session::ArraySessionExt;
 
 /// Initialize Sparse encoding in the given session.
 ///
 /// Registers the Sparse array vtable, parent execution kernels, and aggregate kernels
-/// (`IsConstant`, `Sum`, `MinMax`, `NullCount`, `NanCount`).
+/// (`IsConstant`, `Sum`, `SumV2`, `MinMax`, `NullCount`, `NanCount`).
 pub fn initialize(session: &VortexSession) {
     session.arrays().register(Sparse);
     kernel::initialize(session);
@@ -97,6 +98,11 @@ pub fn initialize(session: &VortexSession) {
     aggregate_fns.register_aggregate_kernel(
         Sparse.id(),
         Some(Sum.id()),
+        &compute::sum::SparseSumKernel,
+    );
+    aggregate_fns.register_aggregate_kernel(
+        Sparse.id(),
+        Some(SumV2.id()),
         &compute::sum::SparseSumKernel,
     );
     aggregate_fns.register_aggregate_kernel(
