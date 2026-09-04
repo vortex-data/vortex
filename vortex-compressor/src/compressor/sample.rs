@@ -42,12 +42,7 @@ pub(crate) fn sample(input: &ArrayRef, sample_size: u32, sample_count: u32) -> A
         return input.clone();
     }
 
-    let slices = stratified_slices(
-        input.len(),
-        sample_size,
-        sample_count,
-        &mut StdRng::seed_from_u64(SAMPLE_SEED),
-    );
+    let slices = sample_slices(input.len(), sample_size, sample_count);
 
     // For every slice, grab the relevant slice and repack into a new PrimitiveArray.
     let chunks: Vec<_> = slices
@@ -60,6 +55,20 @@ pub(crate) fn sample(input: &ArrayRef, sample_size: u32, sample_count: u32) -> A
         .collect();
     // SAFETY: all chunks are slices of `input`, so they share its dtype.
     unsafe { ChunkedArray::new_unchecked(chunks, input.dtype().clone()) }.into_array()
+}
+
+/// Returns deterministic stratified sample ranges for an array length.
+pub(crate) fn sample_slices(
+    length: usize,
+    sample_size: u32,
+    sample_count: u32,
+) -> Vec<(usize, usize)> {
+    stratified_slices(
+        length,
+        sample_size,
+        sample_count,
+        &mut StdRng::seed_from_u64(SAMPLE_SEED),
+    )
 }
 
 /// Computes the number of sample chunks to cover approximately 1% of `len` elements,
@@ -76,6 +85,21 @@ pub(crate) fn sample_count_approx_one_percent(len: usize) -> u32 {
         ),
         SAMPLE_COUNT,
     )
+}
+
+/// Materializes a compact canonical sample.
+fn materialize_sample(
+    array: &ArrayRef,
+    sample_count: u32,
+    exec_ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let canonical: Canonical = sample(array, SAMPLE_SIZE, sample_count).execute(exec_ctx)?;
+    match canonical {
+        Canonical::VarBinView(array) => {
+            Ok(array.compact_with_threshold(1.0, exec_ctx)?.into_array())
+        }
+        canonical => Ok(canonical.into_array()),
+    }
 }
 
 /// Divides an array into `sample_count` equal partitions and picks one random contiguous
@@ -149,7 +173,7 @@ fn partition_indices(length: usize, num_partitions: u32) -> Vec<(usize, usize)> 
 /// # Errors
 ///
 /// Returns an error if sample compression fails.
-pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
+pub(crate) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
     compressor: &CascadingCompressor,
     scheme: &S,
     array: &ArrayRef,
@@ -160,9 +184,7 @@ pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
         array.clone()
     } else {
         let sample_count = sample_count_approx_one_percent(array.len());
-        // `ArrayAndStats` expects a canonical array (so that it can easily compute lazy stats).
-        let canonical: Canonical = sample(array, SAMPLE_SIZE, sample_count).execute(exec_ctx)?;
-        canonical.into_array()
+        materialize_sample(array, sample_count, exec_ctx)?
     };
 
     let sample_data = ArrayAndStats::new(sample_array, scheme.stats_options());
@@ -195,6 +217,7 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
@@ -217,6 +240,26 @@ mod tests {
             assert_eq!(first.nbytes(), again.nbytes());
             assert_arrays_eq!(&first, &again, &mut ctx);
         }
+        Ok(())
+    }
+
+    #[test]
+    fn materialized_string_sample_drops_unreferenced_payload() -> VortexResult<()> {
+        let values = (0..4096)
+            .map(|index| format!("outlined-string-value-{index:08x}"))
+            .collect::<Vec<_>>();
+        let source = VarBinViewArray::from_iter_str(&values).into_array();
+        let mut exec_ctx = array_session().create_execution_ctx();
+        let uncompacted: Canonical =
+            sample(&source, SAMPLE_SIZE, SAMPLE_COUNT).execute(&mut exec_ctx)?;
+        let compacted = materialize_sample(&source, SAMPLE_COUNT, &mut exec_ctx)?;
+
+        assert!(compacted.nbytes() < uncompacted.into_array().nbytes());
+        assert_arrays_eq!(
+            compacted,
+            sample(&source, SAMPLE_SIZE, SAMPLE_COUNT),
+            &mut exec_ctx
+        );
         Ok(())
     }
 }

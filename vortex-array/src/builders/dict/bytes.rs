@@ -50,19 +50,55 @@ pub struct BytesDictBuilder<Code> {
     dtype: DType,
     max_dict_bytes: usize,
     max_dict_len: usize,
+    input_byte_limit: Option<usize>,
+    remaining_input_bytes: Option<usize>,
 }
 
 pub fn bytes_dict_builder(dtype: DType, constraints: &DictConstraints) -> Box<dyn DictEncoder> {
+    bytes_dict_builder_with_optional_input_byte_limit(dtype, constraints, None)
+}
+
+pub(super) fn bytes_dict_builder_with_input_byte_limit(
+    dtype: DType,
+    constraints: &DictConstraints,
+    max_input_bytes: usize,
+) -> Box<dyn DictEncoder> {
+    bytes_dict_builder_with_optional_input_byte_limit(dtype, constraints, Some(max_input_bytes))
+}
+
+fn bytes_dict_builder_with_optional_input_byte_limit(
+    dtype: DType,
+    constraints: &DictConstraints,
+    input_byte_limit: Option<usize>,
+) -> Box<dyn DictEncoder> {
     match constraints.max_len as u64 {
-        max if max <= u8::MAX as u64 => Box::new(BytesDictBuilder::<u8>::new(dtype, constraints)),
-        max if max <= u16::MAX as u64 => Box::new(BytesDictBuilder::<u16>::new(dtype, constraints)),
-        max if max <= u32::MAX as u64 => Box::new(BytesDictBuilder::<u32>::new(dtype, constraints)),
-        _ => Box::new(BytesDictBuilder::<u64>::new(dtype, constraints)),
+        max if max <= u8::MAX as u64 + 1 => {
+            new_bytes_dict_builder::<u8>(dtype, constraints, input_byte_limit)
+        }
+        max if max <= u16::MAX as u64 + 1 => {
+            new_bytes_dict_builder::<u16>(dtype, constraints, input_byte_limit)
+        }
+        max if max <= u32::MAX as u64 + 1 => {
+            new_bytes_dict_builder::<u32>(dtype, constraints, input_byte_limit)
+        }
+        _ => new_bytes_dict_builder::<u64>(dtype, constraints, input_byte_limit),
     }
 }
 
+fn new_bytes_dict_builder<Code: UnsignedPType>(
+    dtype: DType,
+    constraints: &DictConstraints,
+    input_byte_limit: Option<usize>,
+) -> Box<dyn DictEncoder> {
+    Box::new(BytesDictBuilder::<Code>::new(
+        dtype,
+        constraints,
+        input_byte_limit,
+    ))
+}
+
 impl<Code: UnsignedPType> BytesDictBuilder<Code> {
-    pub fn new(dtype: DType, constraints: &DictConstraints) -> Self {
+    fn new(dtype: DType, constraints: &DictConstraints, input_byte_limit: Option<usize>) -> Self {
         Self {
             lookup: Some(HashTable::new()),
             views: BufferMut::<BinaryView>::empty(),
@@ -73,6 +109,8 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
             dtype,
             max_dict_bytes: constraints.max_bytes.min(u32::MAX as usize),
             max_dict_len: constraints.max_len,
+            input_byte_limit,
+            remaining_input_bytes: input_byte_limit,
         }
     }
 
@@ -92,6 +130,10 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
     /// Returns `None` when assigning a code would exceed the dictionary constraints,
     /// and callers should stop encoding after the current prefix.
     fn encode_value(&mut self, lookup: &mut HashTable<Code>, val: &[u8]) -> Option<Code> {
+        if let Some(remaining_input_bytes) = self.remaining_input_bytes {
+            self.remaining_input_bytes = Some(remaining_input_bytes.checked_sub(val.len())?);
+        }
+
         match lookup.entry(
             self.hasher.hash_one(val),
             |idx| val == self.lookup_bytes(idx.as_()),
@@ -290,6 +332,7 @@ impl<Code: UnsignedPType> DictEncoder for BytesDictBuilder<Code> {
             lookup.clear();
         }
         self.null_code = OnceCell::new();
+        self.remaining_input_bytes = self.input_byte_limit;
         let views = mem::take(&mut self.views).freeze();
         let buffer = mem::take(&mut self.values).freeze();
         let value_nulls = mem::take(&mut self.values_nulls).freeze();
@@ -317,12 +360,14 @@ mod test {
     use std::sync::Arc;
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBuffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use super::BytesDictBuilder;
+    use super::bytes_dict_builder;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
@@ -332,11 +377,15 @@ mod test {
     use crate::arrays::varbinview::BinaryView;
     use crate::assert_arrays_eq;
     use crate::buffer::BufferHandle;
+    use crate::builders::dict::DictConstraints;
+    use crate::builders::dict::DictEncoder;
     use crate::builders::dict::UNCONSTRAINED;
     use crate::builders::dict::dict_encode;
+    use crate::builders::dict::dict_encode_with_input_byte_limit;
     use crate::builders::dict::dict_encoder;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
@@ -464,9 +513,93 @@ mod test {
     }
 
     #[test]
+    fn nulls_do_not_consume_input_bytes() -> VortexResult<()> {
+        let array = VarBinViewArray::from_iter(
+            [Some("aa"), None, Some("aa"), Some("b")],
+            DType::Utf8(Nullability::Nullable),
+        )
+        .into_array();
+        let constraints = DictConstraints {
+            max_bytes: usize::MAX,
+            max_len: usize::MAX,
+        };
+        let mut ctx = SESSION.create_execution_ctx();
+        let limited = dict_encode_with_input_byte_limit(&array, &constraints, 4, &mut ctx)?;
+        let expected = array.slice(0..3)?;
+
+        assert_eq!(limited.len(), 3);
+        assert_arrays_eq!(limited, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn limits_varbin_and_varbinview_input_bytes() -> VortexResult<()> {
+        let constraints = DictConstraints {
+            max_bytes: usize::MAX,
+            max_len: usize::MAX,
+        };
+        let arrays = [
+            VarBinArray::from(vec!["aa", "b", "aa"]).into_array(),
+            VarBinViewArray::from_iter_str(["aa", "b", "aa"]).into_array(),
+        ];
+        let mut ctx = SESSION.create_execution_ctx();
+
+        for array in arrays {
+            let complete = dict_encode_with_input_byte_limit(&array, &constraints, 5, &mut ctx)?;
+            let limited = dict_encode_with_input_byte_limit(&array, &constraints, 3, &mut ctx)?;
+            let expected_prefix = array.slice(0..2)?;
+            assert_eq!(complete.len(), 3);
+            assert_eq!(limited.len(), 2);
+            assert_arrays_eq!(complete, array, &mut ctx);
+            assert_arrays_eq!(limited, expected_prefix, &mut ctx);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn input_byte_limit_accumulates_and_resets() -> VortexResult<()> {
+        let constraints = DictConstraints {
+            max_bytes: usize::MAX,
+            max_len: usize::MAX,
+        };
+        let first = VarBinViewArray::from_iter_str(["aa"]).into_array();
+        let second = VarBinViewArray::from_iter_str(["b"]).into_array();
+        let mut encoder = BytesDictBuilder::<u8>::new(
+            DType::Utf8(Nullability::NonNullable),
+            &constraints,
+            Some(2),
+        );
+        let mut ctx = SESSION.create_execution_ctx();
+
+        assert_eq!(encoder.encode(&first, &mut ctx)?.len(), 1);
+        assert_eq!(encoder.encode(&second, &mut ctx)?.len(), 0);
+        drop(encoder.reset());
+        assert_eq!(encoder.encode(&first, &mut ctx)?.len(), 1);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(usize::from(u8::MAX) + 1, PType::U8)]
+    #[case(usize::from(u8::MAX) + 2, PType::U16)]
+    #[case(usize::from(u16::MAX) + 1, PType::U16)]
+    #[case(usize::from(u16::MAX) + 2, PType::U32)]
+    fn selects_narrowest_code_type(#[case] max_len: usize, #[case] expected: PType) {
+        let constraints = DictConstraints {
+            max_bytes: usize::MAX,
+            max_len,
+        };
+        let encoder = bytes_dict_builder(DType::Utf8(Nullability::NonNullable), &constraints);
+
+        assert_eq!(encoder.codes_ptype(), expected);
+    }
+
+    #[test]
     fn max_dict_bytes_cannot_exceed_the_view_offset_range() {
-        let builder =
-            BytesDictBuilder::<u32>::new(DType::Utf8(Nullability::NonNullable), &UNCONSTRAINED);
+        let builder = BytesDictBuilder::<u32>::new(
+            DType::Utf8(Nullability::NonNullable),
+            &UNCONSTRAINED,
+            None,
+        );
         assert_eq!(builder.max_dict_bytes, u32::MAX as usize);
     }
 }
