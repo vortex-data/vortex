@@ -26,6 +26,11 @@ else()
     endif()
 endif()
 
+# Standalone builds default to Debug; embedded builds keep the parent's choice.
+if(_vortex_cpp_standalone AND NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Debug)
+endif()
+
 # A toolchain-file change must re-run configure so Cargo and rustc are resolved
 # again. Cargo itself tracks manifests, the lockfile, and Rust sources at build
 # time because its phony CMake target runs on every build.

@@ -29,9 +29,9 @@ workspace checkout; the C++ directory cannot be built from an isolated source co
       -DVORTEX_BUILD_EXAMPLES=ON
     cmake --build build/cpp --parallel
 
-Configuration queries Cargo and rustc and validates the native target and Rust
-standard library. The locked ``vortex-ffi`` compilation occurs only when the CMake
-build runs, so a separate ``cargo build`` step is neither required nor recommended.
+Configuration locates Cargo and rustc and takes the Rust target from the rustc
+host. The locked ``vortex-ffi`` compilation occurs only when the CMake build runs,
+so a separate ``cargo build`` step is neither required nor recommended.
 Building examples can download nanoarrow during configure; Cargo can download
 locked Rust dependencies during the build.
 

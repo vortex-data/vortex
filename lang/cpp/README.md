@@ -47,9 +47,10 @@ The build supports:
 
 - native GNU/Linux on x86_64 and aarch64;
 - native macOS on arm64 for standalone development;
-- a single-config generator; unless `VORTEX_CARGO_PROFILE` is set, `Debug`, `Release`,
-  `RelWithDebInfo`, and `MinSizeRel` map to Cargo `dev`, `release`, `release_debug`, and
-  `release_size`, respectively, while other build types warn and use `dev`; and
+- a single-config generator; standalone builds default to `Debug`, and unless
+  `VORTEX_CARGO_PROFILE` is set, `Debug`, `Release`, `RelWithDebInfo`, and `MinSizeRel` map to
+  Cargo `dev`, `release`, `release_debug`, and `release_size`, respectively, an empty build type
+  uses `dev`, and other build types warn and use `dev`; and
 - Cargo and rustc 1.95 or newer, which Cargo enforces from the workspace `rust-version` during
   the build.
 
@@ -86,10 +87,9 @@ standalone build:
 - `VORTEX_SANITIZE_RUST_STD=ON` rebuilds Rust's standard library with the selected sanitizer and
   requires the nightly `rust-src` component. Default: `OFF`.
 
-Cargo runs with the lockfile, the selected native target and profile, and the selected FFI package's
-default features disabled. Optional features such as `mimalloc` are not enabled. The integration
-supplies its complete Rust flag sequence, overriding Rust flags from the environment and Cargo
-configuration.
+Cargo runs with the lockfile and the selected native target and profile. Optional features such as
+`mimalloc` are not enabled. The integration supplies its complete Rust flag sequence, overriding Rust
+flags from the environment and Cargo configuration.
 
 Cargo's target cache is stored under `<CMake binary dir>/cargo-target`. The Cargo target runs whenever
 Vortex is built, while Cargo decides whether recompilation is needed. The standard CMake clean target

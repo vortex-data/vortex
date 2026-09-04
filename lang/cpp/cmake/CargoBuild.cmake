@@ -6,6 +6,8 @@
 
 cmake_minimum_required(VERSION 3.28)
 
+include("${CMAKE_CURRENT_LIST_DIR}/Helpers.cmake")
+
 # Configure.cmake passes these required values as `-D` arguments when the
 # `vortex_ffi_cargo_build` target launches this script with `cmake -P`.
 function(_vortex_require_build_inputs)
@@ -18,7 +20,9 @@ function(_vortex_require_build_inputs)
         VORTEX_FFI_PACKAGE
         VORTEX_CARGO_FFI_ARCHIVE
         VORTEX_CMAKE_FFI_ARCHIVE
-        VORTEX_CARGO_SUPPORT_DIR
+        VORTEX_RUSTFLAGS
+        VORTEX_CFLAGS
+        VORTEX_CXXFLAGS
         VORTEX_C_COMPILER
         VORTEX_CXX_COMPILER
         VORTEX_AR
@@ -46,7 +50,6 @@ function(_vortex_make_cargo_command output)
         --package "${VORTEX_FFI_PACKAGE}"
         --lib
         --crate-type=staticlib
-        --no-default-features
         --target "${VORTEX_RUST_TARGET}"
         --target-dir "${VORTEX_CARGO_TARGET_DIR}"
         --profile "${VORTEX_CARGO_PROFILE}")
@@ -75,11 +78,14 @@ function(_vortex_build_tool_path output)
 endfunction()
 
 # Assemble the target-specific Cargo environment from the selected tools and
-# generated Rust, C, and C++ flag files.
-function(_vortex_make_cargo_environment support_dir target_key_lower output)
-    file(READ "${support_dir}/rustflags" _rustflags)
-    file(READ "${support_dir}/cflags" _cflags)
-    file(READ "${support_dir}/cxxflags" _cxxflags)
+# flags.
+function(_vortex_make_cargo_environment target_key_lower output)
+    # Cargo separates CARGO_ENCODED_RUSTFLAGS arguments with ASCII unit separator,
+    # and the cc crate reads shell-quoted words with CC_SHELL_ESCAPED_FLAGS.
+    string(ASCII 31 _separator)
+    string(JOIN "${_separator}" _rustflags ${VORTEX_RUSTFLAGS})
+    _vortex_encode_shell_arguments(_cflags ${VORTEX_CFLAGS})
+    _vortex_encode_shell_arguments(_cxxflags ${VORTEX_CXXFLAGS})
     _vortex_build_tool_path(_cargo_path)
 
     set(_environment
@@ -111,10 +117,6 @@ function(_vortex_make_cargo_environment support_dir target_key_lower output)
             "MACOSX_DEPLOYMENT_TARGET=${VORTEX_APPLE_DEPLOYMENT_TARGET}")
     endif()
 
-    if(VORTEX_APPLE_SDKROOT)
-        list(APPEND _environment "SDKROOT=${VORTEX_APPLE_SDKROOT}")
-    endif()
-
     set(${output} "${_environment}" PARENT_SCOPE)
 endfunction()
 
@@ -122,7 +124,7 @@ _vortex_require_build_inputs()
 get_filename_component(_workspace_root "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
 _vortex_cc_target_env_key(_target_key)
 _vortex_make_cargo_command(_cargo_command)
-_vortex_make_cargo_environment("${VORTEX_CARGO_SUPPORT_DIR}" "${_target_key}" _cargo_environment)
+_vortex_make_cargo_environment("${_target_key}" _cargo_environment)
 
 # Run Cargo with the CMake-selected tools and flags. Cargo remains responsible
 # for dependency tracking and incremental freshness.
