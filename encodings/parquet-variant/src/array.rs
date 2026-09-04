@@ -198,7 +198,7 @@ pub(crate) fn logical_shredded_from_parquet_typed_value(
         .into_array());
     }
 
-    let Some(struct_array) = typed_value.as_opt::<Struct>() else {
+    let Some(struct_array) = typed_value.as_typed::<Struct>() else {
         return Ok(typed_value);
     };
 
@@ -237,7 +237,7 @@ fn logical_shredded_from_parquet_field(
     field: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
-    let Some(field_struct) = field.as_opt::<Struct>() else {
+    let Some(field_struct) = field.as_typed::<Struct>() else {
         return Ok(Some(field));
     };
 
@@ -364,7 +364,7 @@ pub(crate) fn parquet_typed_value_from_logical_shredded(
         FieldNames::from_iter(names),
         fields,
         struct_array.len(),
-        struct_array.validity()?,
+        struct_array.struct_validity(),
     )?
     .into_array())
 }
@@ -430,8 +430,8 @@ pub trait ParquetVariantArrayExt:
     /// Returns the outer row validity for the Variant values.
     fn parquet_variant_validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[ParquetVariantSlots::VALIDITY].as_ref(),
-            self.as_ref().dtype().nullability(),
+            self.slots()[ParquetVariantSlots::VALIDITY].as_ref(),
+            self.dtype().nullability(),
         )
     }
 

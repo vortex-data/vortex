@@ -16,8 +16,10 @@ use crate::scalar_fn::fns::mask::MaskReduce;
 
 impl MaskReduce for Map {
     fn mask(array: ArrayView<'_, Self>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        let Some(entries) =
-            <ListView as MaskReduce>::mask(array.entries().as_::<ListView>(), mask)?
+        let Some(entries) = <ListView as MaskReduce>::mask(
+            array.entries().as_::<ListView>().materialize_view(),
+            mask,
+        )?
         else {
             return Ok(None);
         };

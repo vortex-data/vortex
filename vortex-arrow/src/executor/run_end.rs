@@ -16,6 +16,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::matcher::AsParent;
 use vortex_array::matcher::Matcher;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -33,10 +34,10 @@ use crate::session::ArrowSessionExt;
 struct ArrowRunEndExportable;
 
 impl Matcher for ArrowRunEndExportable {
-    type Match<'a> = &'a ArrayRef;
+    type Match<'a> = ();
 
-    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        (array.is::<RunEnd>() || array.is::<Constant>()).then_some(array)
+    fn try_match<'a, P: AsParent>(parent: &'a P) -> Option<Self::Match<'a>> {
+        (parent.is::<RunEnd>() || parent.is::<Constant>()).then_some(())
     }
 }
 

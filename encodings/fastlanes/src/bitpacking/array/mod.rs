@@ -302,15 +302,15 @@ pub trait BitPackedArrayExt: BitPackedArraySlotsExt {
     fn patches(&self) -> Option<Patches> {
         PatchesData::patches_from_slots(
             self.patches_data.as_ref(),
-            self.as_ref().len(),
-            self.as_ref().slots(),
+            self.len(),
+            self.slots(),
             PATCH_SLOTS,
         )
     }
 
     #[inline]
     fn validity(&self) -> Validity {
-        child_to_validity(self.validity_child(), self.as_ref().dtype().nullability())
+        child_to_validity(self.validity_child(), self.dtype().nullability())
     }
 
     #[inline]
@@ -323,12 +323,7 @@ pub trait BitPackedArrayExt: BitPackedArraySlotsExt {
         &'a self,
         scratch: &'a mut [MaybeUninit<T>; FL_CHUNK_SIZE],
     ) -> VortexResult<BitUnpackedChunks<'a, T>> {
-        BitPackedData::unpacked_chunks::<T>(
-            self,
-            self.as_ref().dtype(),
-            self.as_ref().len(),
-            scratch,
-        )
+        BitPackedData::unpacked_chunks::<T>(self, self.dtype(), self.len(), scratch)
     }
 }
 

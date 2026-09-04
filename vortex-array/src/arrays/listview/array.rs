@@ -355,7 +355,7 @@ fn fill_referenced_mask<O: IntegerPType, S: IntegerPType>(
 
 pub trait ListViewArrayExt: ListViewArraySlotsExt {
     fn nullability(&self) -> crate::dtype::Nullability {
-        match self.as_ref().dtype() {
+        match self.dtype() {
             DType::List(_, nullability) => *nullability,
             _ => unreachable!("ListViewArrayExt requires a list dtype"),
         }
@@ -363,7 +363,7 @@ pub trait ListViewArrayExt: ListViewArraySlotsExt {
 
     fn listview_validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[ListViewSlots::VALIDITY].as_ref(),
+            self.slots()[ListViewSlots::VALIDITY].as_ref(),
             self.nullability(),
         )
     }
@@ -371,9 +371,9 @@ pub trait ListViewArrayExt: ListViewArraySlotsExt {
     #[allow(clippy::disallowed_methods)]
     fn offset_at(&self, index: usize) -> usize {
         assert!(
-            index < self.as_ref().len(),
+            index < self.len(),
             "Index {index} out of bounds 0..{}",
-            self.as_ref().len()
+            self.len()
         );
         self.offsets()
             .as_opt::<Primitive>()
@@ -391,10 +391,10 @@ pub trait ListViewArrayExt: ListViewArraySlotsExt {
     #[allow(clippy::disallowed_methods)]
     fn size_at(&self, index: usize) -> usize {
         assert!(
-            index < self.as_ref().len(),
+            index < self.len(),
             "Index {} out of bounds 0..{}",
             index,
-            self.as_ref().len()
+            self.len()
         );
         self.sizes()
             .as_opt::<Primitive>()
@@ -521,7 +521,7 @@ pub trait ListViewArrayExt: ListViewArraySlotsExt {
     ///
     /// The array must contain at least one list (`len() > 0`).
     fn referenced_element_bounds(&self, ctx: &mut ExecutionCtx) -> VortexResult<(usize, usize)> {
-        let n_lists = self.as_ref().len();
+        let n_lists = self.len();
         vortex_ensure!(
             n_lists > 0,
             "referenced_element_bounds requires a non-empty array"

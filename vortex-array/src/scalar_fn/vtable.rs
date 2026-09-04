@@ -18,8 +18,10 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ParentView;
 use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
+use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::dtype::DType;
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
@@ -104,7 +106,7 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     /// Implementations may assume correct arity and will panic or return nonsensical results if
     /// violated.
     ///
-    /// [`Expression::try_new`]: crate::expr::Expression::try_new
+    /// [`Expression::try_new`]: Expression::try_new
     fn return_dtype(&self, options: &Self::Options, args: &[DType]) -> VortexResult<DType>;
 
     /// Execute the expression over the input arguments.
@@ -314,71 +316,104 @@ impl ReduceNode for ExpressionReduceNode<'_> {
 }
 
 /// A [`ReduceNode`] over an array tree.
+///
+/// The root may be a [`ParentView`] over stack-allocated construction parts. Rules read its
+/// dtype, length, scalar function, and children without materializing it; only
+/// [`Self::into_array`] on the root itself allocates. Children are always heap-backed
+/// [`ArrayRef`]s, so descending borrows them directly.
 #[derive(Clone)]
-pub struct ArrayReduceNode<'a> {
-    array: Cow<'a, ArrayRef>,
+pub struct ArrayReduceNode<'a>(NodeRef<'a>);
+
+#[derive(Clone)]
+enum NodeRef<'a> {
+    /// The root of a reduction, possibly stack-backed.
+    Parent(ParentView<'a, ScalarFn>),
+    /// A child borrowed from the tree being reduced.
+    Borrowed(&'a ArrayRef),
+    /// A freshly-built subtree produced by [`ReduceNode::new_node`].
+    Owned(ArrayRef),
 }
 
 impl<'a> ArrayReduceNode<'a> {
     /// Creates a node borrowing the given array.
     pub fn new(array: &'a ArrayRef) -> Self {
-        Self {
-            array: Cow::Borrowed(array),
+        Self(NodeRef::Borrowed(array))
+    }
+
+    /// Creates a root node over a parent view, leaving stack-backed parents unmaterialized.
+    pub fn from_parent(parent: ParentView<'a, ScalarFn>) -> Self {
+        Self(NodeRef::Parent(parent))
+    }
+
+    /// Consumes this node and returns the backing array, materializing a stack-backed root.
+    pub fn into_array(self) -> ArrayRef {
+        match self.0 {
+            NodeRef::Parent(parent) => parent.materialize_array_ref().clone(),
+            NodeRef::Borrowed(array) => array.clone(),
+            NodeRef::Owned(array) => array,
         }
     }
 
-    /// Returns the array backing this node.
-    pub fn array(&self) -> &ArrayRef {
-        &self.array
-    }
-
-    /// Consumes this node and returns the backing array.
-    pub fn into_array(self) -> ArrayRef {
-        self.array.into_owned()
+    fn len(&self) -> usize {
+        match &self.0 {
+            NodeRef::Parent(parent) => parent.len(),
+            NodeRef::Borrowed(array) => array.len(),
+            NodeRef::Owned(array) => array.len(),
+        }
     }
 }
 
 impl ReduceNode for ArrayReduceNode<'_> {
     fn node_dtype(&self) -> VortexResult<DType> {
-        Ok(self.array.dtype().clone())
+        Ok(match &self.0 {
+            NodeRef::Parent(parent) => parent.dtype().clone(),
+            NodeRef::Borrowed(array) => array.dtype().clone(),
+            NodeRef::Owned(array) => array.dtype().clone(),
+        })
     }
 
     fn scalar_fn(&self) -> Option<&ScalarFnRef> {
-        self.array
-            .as_opt::<ScalarFn>()
-            .map(|a| a.data().scalar_fn())
+        match &self.0 {
+            NodeRef::Parent(parent) => Some(ScalarFnArrayExt::scalar_fn(parent)),
+            NodeRef::Borrowed(array) => array.as_opt::<ScalarFn>().map(|a| a.data().scalar_fn()),
+            NodeRef::Owned(array) => array.as_opt::<ScalarFn>().map(|a| a.data().scalar_fn()),
+        }
     }
 
     fn child(&self, idx: usize) -> Self {
-        let array = match &self.array {
-            Cow::Borrowed(array) => Cow::Borrowed(
-                array
-                    .children_iter()
-                    .nth(idx)
-                    .vortex_expect("child idx out of bounds"),
+        Self(match &self.0 {
+            // Slots borrow from the parent for `'a`, so children stay borrowed.
+            NodeRef::Parent(parent) => NodeRef::Borrowed(
+                parent.slots()[idx]
+                    .as_ref()
+                    .vortex_expect("ScalarFnArray child slot"),
             ),
-            Cow::Owned(array) => Cow::Owned(
+            NodeRef::Borrowed(array) => NodeRef::Borrowed(
                 array
                     .nth_child(idx)
                     .vortex_expect("child idx out of bounds"),
             ),
-        };
-        Self { array }
+            NodeRef::Owned(array) => NodeRef::Owned(
+                array
+                    .nth_child(idx)
+                    .vortex_expect("child idx out of bounds")
+                    .clone(),
+            ),
+        })
     }
 
     fn child_count(&self) -> usize {
-        self.array.nchildren()
+        match &self.0 {
+            NodeRef::Parent(parent) => parent.slots().len(),
+            NodeRef::Borrowed(array) => array.nchildren(),
+            NodeRef::Owned(array) => array.nchildren(),
+        }
     }
 
     fn new_node(&self, scalar_fn: ScalarFnRef, children: &[Self]) -> VortexResult<Self> {
-        let array = ScalarFnArray::try_new_with_len(
-            scalar_fn,
-            children.iter().map(|c| c.array.as_ref().clone()).collect(),
-            self.array.len(),
-        )?;
-        Ok(Self {
-            array: Cow::Owned(array.into_array()),
-        })
+        let children = children.iter().map(|c| c.clone().into_array()).collect();
+        let array = ScalarFnArray::try_new_with_len(scalar_fn, children, self.len())?;
+        Ok(Self(NodeRef::Owned(array.into_array())))
     }
 }
 

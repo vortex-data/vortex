@@ -8,6 +8,7 @@ use crate::ArrayRef;
 use crate::EqMode;
 use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::array::ParentView;
 use crate::array::VTable;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
@@ -25,7 +26,6 @@ use crate::arrays::scalar_fn::AnyScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::builtins::ArrayBuiltins;
-use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::Cast;
@@ -59,7 +59,7 @@ impl ArrayParentReduceRule<Dict> for DictionaryChunkedValuesPullUpRule {
     fn reduce_parent(
         &self,
         array: ArrayView<'_, Dict>,
-        parent: ArrayView<'_, Chunked>,
+        parent: ParentView<'_, Chunked>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         let values = array.values();
@@ -103,7 +103,7 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnValuesPushDownRule {
     fn reduce_parent(
         &self,
         array: ArrayView<'_, Dict>,
-        parent: ArrayView<'_, ScalarFn>,
+        parent: ParentView<'_, ScalarFn>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         let scalar_fn = parent.scalar_fn();
@@ -174,9 +174,9 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnValuesPushDownRule {
             }
         }
 
-        let transformed_values = ScalarFnArray::try_new(scalar_fn.clone(), value_children)?
-            .into_array()
-            .optimize()?;
+        let transformed_values =
+            ScalarFnArray::try_new_parts(scalar_fn.clone(), value_children, values_len)?
+                .optimize()?;
 
         // A non-strict function reaches this point only when the codes are all valid, but their
         // dtype may still be nullable. Remove that declared nullability while rebuilding the
@@ -216,7 +216,7 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnCodesPullUpRule {
     fn reduce_parent(
         &self,
         array: ArrayView<'_, Dict>,
-        parent: ArrayView<'_, ScalarFn>,
+        parent: ParentView<'_, ScalarFn>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // Don't attempt to pull up if there are less than 2 siblings.
@@ -252,9 +252,12 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnCodesPullUpRule {
             }
         }
 
-        let new_values = ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children)?
-            .into_array()
-            .optimize()?;
+        let parts = ScalarFnArray::try_new_parts(
+            parent.scalar_fn().clone(),
+            new_children,
+            array.values().len(),
+        )?;
+        let new_values = parts.optimize()?;
 
         let new_dict =
             unsafe { DictArray::new_unchecked(array.codes().clone(), new_values) }.into_array();

@@ -6,6 +6,7 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::array::ParentView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Filter;
@@ -39,7 +40,7 @@ impl ArrayParentReduceRule<Constant> for ConstantFilterRule {
     fn reduce_parent(
         &self,
         child: ArrayView<'_, Constant>,
-        parent: ArrayView<'_, Filter>,
+        parent: ParentView<'_, Filter>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(

@@ -34,6 +34,9 @@ pub use plugin::*;
 mod foreign;
 pub(crate) use foreign::*;
 
+mod parent;
+pub use parent::*;
+
 mod typed;
 pub use typed::*;
 
@@ -117,7 +120,11 @@ impl std::ops::Index<usize> for SlotSlice<'_> {
 #[doc(hidden)]
 pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
     /// Returns the array as a reference to a generic [`Any`] trait object.
-    fn as_any(&self) -> &dyn Any;
+    ///
+    /// The `+ Send + Sync` bound is preserved so [`ParentRef`] — which carries
+    /// this reference as `&dyn Any` to stay type-erased over `V` — stays
+    /// `Send + Sync` for use across `.await` boundaries.
+    fn as_any(&self) -> &(dyn Any + Send + Sync);
 
     /// Returns the array as a mutable reference to a generic [`Any`] trait object.
     fn as_any_mut(&mut self) -> &mut dyn Any;
@@ -191,7 +198,7 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
     fn reduce_parent(
         &self,
         this: &ArrayRef,
-        parent: &ArrayRef,
+        parent: &ParentRef<'_>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>>;
 
@@ -254,7 +261,7 @@ mod private {
 /// This is self-contained: identity methods use `ArrayData<V>`'s own fields (dtype, len, stats),
 /// while data-access methods delegate to VTable methods on the inner `V::TypedArrayData`.
 impl<V: VTable> DynArrayData for ArrayData<V> {
-    fn as_any(&self) -> &dyn Any {
+    fn as_any(&self) -> &(dyn Any + Send + Sync) {
         self
     }
 
@@ -404,7 +411,10 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
     }
 
     fn reduce(&self, this: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
+        let parent = ParentRef::from_array_ref(this);
+        let view = parent
+            .as_parent_view::<V>()
+            .vortex_expect("ArrayRef reduce: encoding mismatch");
         let Some(reduced) = V::reduce(view)? else {
             return Ok(None);
         };
@@ -426,7 +436,7 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
     fn reduce_parent(
         &self,
         this: &ArrayRef,
-        parent: &ArrayRef,
+        parent: &ParentRef<'_>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };

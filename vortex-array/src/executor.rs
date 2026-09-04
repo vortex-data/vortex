@@ -35,6 +35,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::array::ArrayId;
+use crate::array::ParentRef;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
@@ -188,10 +189,10 @@ impl ArrayRef {
 
             let is_done = stack
                 .last()
-                .map_or(M::matches as DonePredicate, |frame| frame.done);
+                .map_or(M::matches::<ArrayRef> as DonePredicate, |frame| frame.done);
 
             let done_target = is_done(&current_array);
-            let done_canonical = AnyCanonical::matches(&current_array);
+            let done_canonical = current_array.is::<AnyCanonical>();
             trace_op!(record_execute_until_done_check(done_target, done_canonical));
 
             if done_target || done_canonical {
@@ -476,9 +477,18 @@ impl Executable for ArrayRef {
         }
         trace_op!(record_single_step_phase_none("reduce", &array));
 
+        let parent_ref = ParentRef::from_array_ref(&array);
         for (slot_idx, slot) in array.slots().iter().enumerate() {
             let Some(child) = slot else { continue };
-            if let Some(reduced_parent) = child.reduce_parent(&array, slot_idx)? {
+            if let Some(reduced_parent) = child.reduce_parent(&parent_ref, slot_idx)? {
+                log_parent_rewrite(
+                    ctx,
+                    "reduce_parent",
+                    slot_idx,
+                    &parent_ref,
+                    child,
+                    &reduced_parent,
+                );
                 reduced_parent.statistics().inherit_from(array.statistics());
                 trace_op!(record_single_step_applied(
                     "reduce_parent",
@@ -503,13 +513,6 @@ impl Executable for ArrayRef {
                 kernels,
                 ctx,
             )? {
-                ctx.log(format_args!(
-                    "execute_parent: slot[{}]({}) rewrote {} -> {}",
-                    slot_idx,
-                    child.encoding_id(),
-                    array,
-                    executed_parent
-                ));
                 executed_parent
                     .statistics()
                     .inherit_from(array.statistics());
@@ -622,7 +625,7 @@ fn finalize_done(
 }
 
 fn execute_parent_for_child(
-    _phase: &'static str,
+    phase: &'static str,
     parent: &ArrayRef,
     child: &ArrayRef,
     slot_idx: usize,
@@ -644,8 +647,9 @@ fn execute_parent_for_child(
                         "Executed parent canonical dtype mismatch"
                     );
                 }
+                log_parent_rewrite(ctx, phase, slot_idx, parent, child, &result);
                 trace_op!(record_session_execute_parent_applied(
-                    _phase,
+                    phase,
                     parent,
                     child,
                     slot_idx,
@@ -655,7 +659,7 @@ fn execute_parent_for_child(
                 return Ok(Some(result));
             }
             trace_op!(record_session_execute_parent_declined(
-                _phase,
+                phase,
                 parent,
                 child,
                 slot_idx,
@@ -665,6 +669,24 @@ fn execute_parent_for_child(
     }
 
     Ok(None)
+}
+
+/// Log a parent rewrite to the execution log.
+///
+/// `parent` is taken as `impl Display` so a rewrite driven from a [`ParentRef`] logs its
+/// encoding summary without materializing the borrowed construction parts.
+fn log_parent_rewrite(
+    ctx: &mut ExecutionCtx,
+    phase: &'static str,
+    slot_idx: usize,
+    parent: &impl Display,
+    child: &ArrayRef,
+    output: &ArrayRef,
+) {
+    ctx.log(format_args!(
+        "{phase}: slot[{slot_idx}]({}) rewrote {parent} -> {output}",
+        child.encoding_id(),
+    ));
 }
 
 /// Try execute_parent on each occupied slot of the array.
@@ -678,13 +700,6 @@ fn try_execute_parent(
         if let Some(executed_parent) =
             execute_parent_for_child("child_execute_parent", array, child, slot_idx, kernels, ctx)?
         {
-            ctx.log(format_args!(
-                "execute_parent: slot[{}]({}) rewrote {} -> {}",
-                slot_idx,
-                child.encoding_id(),
-                array,
-                executed_parent
-            ));
             executed_parent
                 .statistics()
                 .inherit_from(array.statistics());
@@ -786,10 +801,9 @@ impl ExecutionResult {
     ///
     /// The provided array is the (possibly modified) parent that still needs its slot executed.
     pub fn execute_slot<M: Matcher>(array: impl IntoArray, slot_idx: usize) -> Self {
-        let array = array.into_array();
         Self {
-            array,
-            step: ExecutionStep::ExecuteSlot(slot_idx, M::matches),
+            array: array.into_array(),
+            step: ExecutionStep::ExecuteSlot(slot_idx, M::matches::<ArrayRef>),
         }
     }
 

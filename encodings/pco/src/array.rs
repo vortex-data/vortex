@@ -29,6 +29,7 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::ParentRef;
 use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
 use vortex_array::arrays::Primitive;
@@ -259,7 +260,7 @@ impl VTable for Pco {
 
     fn reduce_parent(
         array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
+        parent: &ParentRef<'_>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         crate::rules::RULES.evaluate(array, parent, child_idx)
@@ -365,8 +366,8 @@ pub trait PcoArrayExt: PcoArraySlotsExt {
     /// Reconstruct the unsliced [`Validity`] from the validity slot.
     fn unsliced_validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[PcoSlots::VALIDITY].as_ref(),
-            self.as_ref().dtype().nullability(),
+            self.slots()[PcoSlots::VALIDITY].as_ref(),
+            self.dtype().nullability(),
         )
     }
 }

@@ -10,6 +10,7 @@ use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::array::ParentView;
 use crate::array::VTable;
 use crate::arrays::ConstantArray;
 use crate::arrays::dict::DictArraySlotsExt;
@@ -90,7 +91,7 @@ where
     fn reduce_parent(
         &self,
         array: ArrayView<'_, V>,
-        parent: ArrayView<'_, Dict>,
+        parent: ParentView<'_, Dict>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // Only handle the values child (index 1), not the codes child (index 0).
@@ -169,4 +170,28 @@ pub(crate) fn propagate_take_stats(
             &(unsafe { StatsSet::new_unchecked(inexact_min_max) }).as_typed_ref(source.dtype()),
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_error::VortexResult;
+
+    use crate::IntoArray;
+    use crate::arrays::Constant;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::DictArray;
+    use crate::arrays::PrimitiveArray;
+
+    #[test]
+    fn reduce_adaptor_handles_stack_backed_dict_parent() -> VortexResult<()> {
+        let indices = PrimitiveArray::from_iter([0u32, 0, 0]).into_array();
+        let values = ConstantArray::new(7i32, 1).into_array();
+        let parts = DictArray::try_new_parts(indices, values)?;
+
+        let reduced = parts.optimize()?;
+
+        assert!(reduced.is::<Constant>());
+        assert_eq!(reduced.len(), 3);
+        Ok(())
+    }
 }

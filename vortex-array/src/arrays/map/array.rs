@@ -91,8 +91,7 @@ pub trait MapArrayExt: MapArraySlotsExt {
 
     /// Returns this map's key/value type information.
     fn map_dtype(&self) -> &MapDType {
-        self.as_ref()
-            .dtype()
+        self.dtype()
             .as_map_opt()
             .vortex_expect("MapArray requires a map dtype")
     }

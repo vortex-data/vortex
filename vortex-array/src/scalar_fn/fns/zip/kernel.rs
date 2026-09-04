@@ -1,16 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::VTable;
-use crate::arrays::ScalarFn;
 use crate::arrays::scalar_fn::ExactScalarFn;
-use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
@@ -67,11 +64,8 @@ where
         if child_idx != 0 {
             return Ok(None);
         }
-        let scalar_fn_array = parent
-            .as_opt::<ScalarFn>()
-            .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
-        let if_false = scalar_fn_array.get_child(1);
-        let mask_array = scalar_fn_array.get_child(2);
+        let if_false = parent.get_child(1);
+        let mask_array = parent.get_child(2);
         <V as ZipReduce>::zip(array, if_false, mask_array)
     }
 }
@@ -96,11 +90,8 @@ where
         if child_idx != 0 {
             return Ok(None);
         }
-        let scalar_fn_array = parent
-            .as_opt::<ScalarFn>()
-            .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
-        let if_false = scalar_fn_array.get_child(1);
-        let mask_array = scalar_fn_array.get_child(2);
+        let if_false = parent.get_child(1);
+        let mask_array = parent.get_child(2);
         <V as ZipKernel>::zip(array, if_false, mask_array, ctx)
     }
 }

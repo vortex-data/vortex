@@ -339,7 +339,8 @@ impl TakeExecute for Chunked {
         }
 
         if let Some(piecewise_indices) = indices.as_opt::<PiecewiseSequence>()
-            && let Some(taken) = take_piecewise_chunked(array, piecewise_indices, ctx)?
+            && let Some(taken) =
+                take_piecewise_chunked(array, piecewise_indices.materialize_view(), ctx)?
         {
             return Ok(Some(taken));
         }

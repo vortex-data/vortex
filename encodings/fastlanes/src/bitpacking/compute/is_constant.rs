@@ -40,7 +40,7 @@ impl DynAggregateKernel for BitPackedIsConstantKernel {
             return Ok(None);
         }
 
-        let Some(array) = batch.as_opt::<BitPacked>() else {
+        let Some(array) = batch.as_typed::<BitPacked>() else {
             return Ok(None);
         };
 

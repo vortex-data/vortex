@@ -72,6 +72,7 @@ fn slice_bitpacked(
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
+    use vortex_array::ParentRef;
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
@@ -91,7 +92,7 @@ mod tests {
 
         let bitpacked_ref = bitpacked.into_array();
         let reduced = bitpacked_ref
-            .reduce_parent(&slice_array.into_array(), 0)?
+            .reduce_parent(&ParentRef::from_array(&slice_array), 0)?
             .expect("expected slice kernel to execute");
 
         assert!(reduced.is::<BitPacked>());

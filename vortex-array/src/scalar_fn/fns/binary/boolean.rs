@@ -22,9 +22,7 @@ use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ScalarFn;
 use crate::arrays::scalar_fn::ExactScalarFn;
-use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -80,12 +78,9 @@ where
             return Ok(None);
         }
 
-        let Some(scalar_fn_array) = parent.as_opt::<ScalarFn>() else {
-            return Ok(None);
-        };
         let other = match child_idx {
-            0 => scalar_fn_array.get_child(1),
-            1 => scalar_fn_array.get_child(0),
+            0 => parent.get_child(1),
+            1 => parent.get_child(0),
             _ => return Ok(None),
         };
 

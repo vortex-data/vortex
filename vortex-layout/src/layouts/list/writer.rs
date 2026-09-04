@@ -21,6 +21,7 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::matcher::AsParent;
 use vortex_array::matcher::Matcher;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexExpect;
@@ -314,8 +315,8 @@ struct AnyList;
 impl Matcher for AnyList {
     type Match<'a> = ();
 
-    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        (array.as_opt::<List>().is_some() || array.as_opt::<ListView>().is_some()).then_some(())
+    fn try_match<'a, P: AsParent>(parent: &'a P) -> Option<Self::Match<'a>> {
+        (parent.is::<List>() || parent.is::<ListView>()).then_some(())
     }
 }
 

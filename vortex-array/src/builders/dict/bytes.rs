@@ -273,9 +273,9 @@ impl<Code: UnsignedPType> DictEncoder for BytesDictBuilder<Code> {
             self.dtype
         );
 
-        if let Some(varbinview) = array.as_opt::<VarBinView>() {
+        if let Some(varbinview) = array.as_typed::<VarBinView>() {
             self.encode_varbinview(varbinview, ctx)
-        } else if let Some(varbin) = array.as_opt::<VarBin>() {
+        } else if let Some(varbin) = array.as_typed::<VarBin>() {
             self.encode_varbin(varbin, ctx)
         } else {
             // NOTE(aduffy): it is very rare that this path would be taken, only e.g.
