@@ -13,7 +13,7 @@ use crate::IntoArray;
 use crate::builtins::ArrayBuiltins;
 
 impl RowFnExecutionArgs {
-    /// Resolve validity and try direct valid-row execution before filter-and-scatter.
+    /// Resolve validity and try direct valid-row execution before filtered execution.
     pub(super) fn execute_valid_only(
         &self,
         kernel: impl Fn(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
@@ -22,6 +22,11 @@ impl RowFnExecutionArgs {
             MaskValuesRef,
             &mut ExecutionCtx,
         ) -> VortexResult<Option<ArrayRef>>,
+        execute_filtered_rows: impl FnOnce(
+            BorrowedRowFnArgs<'_>,
+            MaskValuesRef,
+            &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let validity = self.validity.clone().execute_mask(self.row_count, ctx)?;
@@ -42,7 +47,7 @@ impl RowFnExecutionArgs {
             return Ok(result);
         }
 
-        self.filter_and_scatter(kernel, &valid_rows, ctx)
+        self.execute_filtered(execute_filtered_rows, &valid_rows, ctx)
     }
 
     /// Try execution against the original inputs, then mask a returned full-length result.

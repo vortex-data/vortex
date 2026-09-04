@@ -63,13 +63,13 @@ impl DeferredAdd {
 struct ValidOnlyIdentity;
 
 #[derive(Clone)]
-struct FilterAndScatterIdentity;
+struct FilteredIdentity;
 
 #[derive(Clone)]
 struct DenseRetryIncrement;
 
 #[derive(Clone)]
-struct FilterAndScatterRepeat;
+struct FilteredRepeat;
 
 #[derive(Clone)]
 struct InvalidKernelOutput;
@@ -245,7 +245,8 @@ impl OutputElement for NullProducingI64 {
 struct I64Sink(BufferMut<i64>);
 
 // SAFETY: every row is initialized by `BufferMut::zeroed`, and the sink exposes exactly that
-// initialized slice. The `()` write token therefore proves no additional invariant.
+// initialized slice. The `()` write token therefore proves no additional invariant, and the
+// default skipped-row initializer only rewrites the zeroes.
 unsafe impl OutputSink for I64Sink {
     type Params = ();
     type Rows<'a> = &'a mut [i64];
@@ -365,14 +366,14 @@ impl RowFn for ValidOnlyIdentity {
     }
 }
 
-impl RowFn for FilterAndScatterIdentity {
+impl RowFn for FilteredIdentity {
     type Options = EmptyOptions;
 
     const ARG_NAMES: &'static [&'static str] = &["value"];
     const INFALLIBLE: bool = false;
 
     fn id(&self) -> ScalarFnId {
-        static ID: CachedId = CachedId::new("test.filter_and_scatter_identity");
+        static ID: CachedId = CachedId::new("test.filtered_identity");
         *ID
     }
 
@@ -416,14 +417,14 @@ impl RowFn for DenseRetryIncrement {
     }
 }
 
-impl RowFn for FilterAndScatterRepeat {
+impl RowFn for FilteredRepeat {
     type Options = usize;
 
     const ARG_NAMES: &'static [&'static str] = &["value"];
     const INFALLIBLE: bool = true;
 
     fn id(&self) -> ScalarFnId {
-        static ID: CachedId = CachedId::new("test.filter_and_scatter_repeat");
+        static ID: CachedId = CachedId::new("test.filtered_repeat");
         *ID
     }
 
@@ -436,7 +437,7 @@ impl RowFn for FilterAndScatterRepeat {
         vortex_ensure!(
             u32::try_from(*width).is_ok(),
             InvalidArgument:
-            "test.filter_and_scatter_repeat width must fit in u32, got {width}",
+            "test.filtered_repeat width must fit in u32, got {width}",
         );
 
         visitor
@@ -789,14 +790,14 @@ fn test_valid_only_bool_output_skips_invalid_rows() -> VortexResult<()> {
 }
 
 #[test]
-fn test_filter_and_scatter_skips_invalid_decode_payloads() -> VortexResult<()> {
+fn test_filtered_execution_skips_invalid_decode_payloads() -> VortexResult<()> {
     let validity = Validity::from_iter([false, true, false, true]);
     let input =
         PrimitiveArray::new(vec![i64::MIN, 10, i64::MIN, 30], validity.clone()).into_array();
     let args = VecExecutionArgs::new(vec![input], 4);
     let mut ctx = array_session().create_execution_ctx();
 
-    let actual = execute_rows(&FilterAndScatterIdentity, &EmptyOptions, &args, &mut ctx)?;
+    let actual = execute_rows(&FilteredIdentity, &EmptyOptions, &args, &mut ctx)?;
     let expected = PrimitiveArray::new(vec![0_i64, 10, 0, 30], validity).into_array();
 
     assert_arrays_eq!(&actual, &expected, &mut ctx);
@@ -806,7 +807,7 @@ fn test_filter_and_scatter_skips_invalid_decode_payloads() -> VortexResult<()> {
 #[rstest]
 #[case::width_two(2, vec![0_i64, 0, 7, 7])]
 #[case::zero_width(0, vec![])]
-fn test_filter_and_scatter_preserves_runtime_sink_params(
+fn test_filtered_execution_preserves_runtime_sink_params(
     #[case] width: usize,
     #[case] expected_elements: Vec<i64>,
 ) -> VortexResult<()> {
@@ -815,7 +816,7 @@ fn test_filter_and_scatter_preserves_runtime_sink_params(
     let args = VecExecutionArgs::new(vec![input], 2);
     let mut ctx = array_session().create_execution_ctx();
 
-    let actual = execute_rows(&FilterAndScatterRepeat, &width, &args, &mut ctx)?;
+    let actual = execute_rows(&FilteredRepeat, &width, &args, &mut ctx)?;
     let expected = FixedSizeListArray::new(
         PrimitiveArray::from_iter(expected_elements).into_array(),
         u32::try_from(width)

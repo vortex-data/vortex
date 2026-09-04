@@ -33,7 +33,6 @@ impl RowFnExecutionArgs {
     /// recompute the error.
     pub(super) fn execute_dense_with_retry(
         &self,
-        kernel: impl Fn(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
         execute_dense_attempt: impl FnOnce(
             BorrowedRowFnArgs<'_>,
             &mut ExecutionCtx,
@@ -43,6 +42,11 @@ impl RowFnExecutionArgs {
             MaskValuesRef,
             &mut ExecutionCtx,
         ) -> VortexResult<Option<ArrayRef>>,
+        execute_filtered_rows: impl FnOnce(
+            BorrowedRowFnArgs<'_>,
+            MaskValuesRef,
+            &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let attempt =
@@ -51,7 +55,7 @@ impl RowFnExecutionArgs {
         match attempt {
             DenseAttempt::Values(values) => self.finalize_dense_output(values, ctx),
             DenseAttempt::DeferredError(error) => {
-                self.resolve_deferred_error(error, kernel, try_valid_rows, ctx)
+                self.resolve_deferred_error(error, try_valid_rows, execute_filtered_rows, ctx)
             }
         }
     }
@@ -59,12 +63,16 @@ impl RowFnExecutionArgs {
     fn resolve_deferred_error(
         &self,
         deferred_error: VortexError,
-        kernel: impl Fn(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
         try_valid_rows: impl FnOnce(
             BorrowedRowFnArgs<'_>,
             MaskValuesRef,
             &mut ExecutionCtx,
         ) -> VortexResult<Option<ArrayRef>>,
+        execute_filtered_rows: impl FnOnce(
+            BorrowedRowFnArgs<'_>,
+            MaskValuesRef,
+            &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let valid_rows = match self.validity.execute_mask(self.row_count, ctx)? {
@@ -85,7 +93,7 @@ impl RowFnExecutionArgs {
             return Ok(result);
         }
 
-        self.filter_and_scatter(kernel, &valid_rows, ctx)
+        self.execute_filtered(execute_filtered_rows, &valid_rows, ctx)
     }
 
     fn finalize_dense_output(

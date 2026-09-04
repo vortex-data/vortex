@@ -5,7 +5,9 @@
 //!
 //! [`execute_owned`] writes fallible row results into spare vector capacity and reduces compact
 //! failure evidence outside the hot loop. [`execute_owned_infallible`] lets the output type map a
-//! validated row source directly into its physical representation.
+//! validated row source directly into its physical representation. The `_valid_rows` variants skip
+//! invalid rows over the original inputs, and the `_filtered` variants read inputs filtered to the
+//! valid rows while writing each output at its original row index.
 
 use std::ops::BitOrAssign;
 
@@ -79,6 +81,106 @@ where
         move |prepared, args| (apply(prepared, args), NoFailure),
         |_| Ok(()),
     )
+}
+
+/// Decode filtered inputs, then store one output for each valid row from an infallible kernel.
+pub(crate) fn execute_owned_infallible_filtered<Args, Out, Prepared>(
+    args: &dyn ExecutionArgs,
+    valid: &MaskValuesRef,
+    ctx: &mut ExecutionCtx,
+    prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
+    apply: impl Fn(&Prepared, Args::Elems<'_>) -> Out,
+) -> VortexResult<ArrayRef>
+where
+    Args: IndexedElementTuple,
+    Out: OutputElement,
+{
+    execute_owned_filtered::<Args, Out, Prepared, NoFailure>(
+        args,
+        valid,
+        ctx,
+        prepare,
+        move |prepared, args| (apply(prepared, args), NoFailure),
+        |_| Ok(()),
+    )
+}
+
+/// Decode inputs filtered to valid rows, then write one output at each valid row's original index.
+///
+/// `args` addresses only the valid rows of the original batch, in order. `valid` is the original
+/// batch's conjoined validity: each of its set positions receives the output of the next filtered
+/// row, and unset positions keep [`Default::default`] placeholders that batch execution masks.
+/// This writes directly into the original row domain, so the compact kernel output never needs a
+/// columnar scatter.
+pub(crate) fn execute_owned_filtered<Args, Out, Prepared, Fail>(
+    args: &dyn ExecutionArgs,
+    valid: &MaskValuesRef,
+    ctx: &mut ExecutionCtx,
+    prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
+    apply: impl Fn(&Prepared, Args::Elems<'_>) -> (Out, Fail),
+    finish_failure: impl FnOnce(Fail) -> VortexResult<()>,
+) -> VortexResult<ArrayRef>
+where
+    Args: IndexedElementTuple,
+    Out: OutputElement,
+    Fail: FailureEvidence,
+{
+    const { assert_owned_output_needs_no_drop::<Out>() };
+
+    let columns = Args::decode(args, ctx)?;
+
+    let filtered_len = args.row_count();
+    vortex_ensure_eq!(
+        valid.true_count(),
+        filtered_len,
+        "the filtered batch must contain one row per valid row: {} valid rows, got {filtered_len}",
+        valid.true_count(),
+    );
+
+    let prepared = prepare(Args::const_values(&columns));
+    let valid_rows = valid.bit_buffer();
+    let mut values: Vec<Out> = std::iter::repeat_with(Out::default)
+        .take(valid_rows.len())
+        .collect();
+    let mut failure = Fail::default();
+    let mut filtered_index = 0;
+
+    if let Some(views) = Args::views_if_no_consts(&columns) {
+        vortex_ensure!(
+            Args::view_lens_match(&views, filtered_len),
+            "a decoded row input does not address exactly {filtered_len} rows",
+        );
+
+        valid_rows.for_each_set_index(|index| {
+            // SAFETY: the ascending set-index traversal runs exactly `true_count` times, and the
+            // checks above proved every view addresses `filtered_len == true_count` rows.
+            let elements = unsafe { Args::get_from_views_unchecked(&views, filtered_index) };
+            let (value, row_failure) = apply(&prepared, elements);
+
+            // SAFETY: every set index is below the mask length, which sized `values`.
+            unsafe { *values.get_unchecked_mut(index) = value };
+            failure |= row_failure;
+            filtered_index += 1;
+        });
+    } else {
+        vortex_ensure!(
+            Args::decoded_lens_match(&columns, filtered_len),
+            "a decoded row input does not address exactly {filtered_len} rows",
+        );
+
+        valid_rows.for_each_set_index(|index| {
+            let (value, row_failure) = apply(&prepared, Args::get(&columns, filtered_index));
+
+            // SAFETY: every set index is below the mask length, which sized `values`.
+            unsafe { *values.get_unchecked_mut(index) = value };
+            failure |= row_failure;
+            filtered_index += 1;
+        });
+    }
+
+    finish_failure(failure)?;
+
+    Ok(Out::build(values))
 }
 
 /// Decode nullable inputs, then store outputs and combine failure evidence for valid rows.

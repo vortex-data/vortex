@@ -3,10 +3,14 @@
 
 //! Input decoding and output construction for row functions.
 //!
-//! [`ViewLen`] reports the rows addressable through a row-loop view. [`element`] defines the Rust
-//! values decoded from input columns and built into simple output columns. [`sink`] handles outputs
-//! that need row handles or batch-wide state. [`result`] defines immediate and deferred row
-//! outcomes.
+//! [`ViewLen`] reports the rows addressable through a row-loop view, and [`FillDefault`] fills a
+//! view with placeholder values. [`element`] defines the Rust values decoded from input columns
+//! and built into simple output columns. [`sink`] handles outputs that need row handles or
+//! batch-wide state. [`result`] defines immediate and deferred row outcomes.
+
+mod fill;
+pub use fill::FillDefault;
+pub use fill::Preinitialized;
 
 mod element;
 pub use element::ElementTuple;

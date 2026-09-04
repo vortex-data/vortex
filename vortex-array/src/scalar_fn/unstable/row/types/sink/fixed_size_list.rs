@@ -19,6 +19,7 @@ use crate::IntoArray;
 use crate::arrays::FixedSizeListArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
+use crate::scalar_fn::unstable::row::FillDefault;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::scalar_fn::unstable::row::ViewLen;
 use crate::validity::Validity;
@@ -63,6 +64,14 @@ impl<T> ViewLen for FixedSizeRows<'_, T> {
     }
 }
 
+impl<T: Copy + Default> FillDefault for FixedSizeRows<'_, T> {
+    fn fill_default(&mut self) {
+        for element in self.elements.iter_mut() {
+            element.write(T::default());
+        }
+    }
+}
+
 /// A fixed-size-list sink whose row width is supplied at dispatch time.
 ///
 /// The row closure must return the [`InitializedRow`] from [`InitializedRow::fill`] on success.
@@ -83,22 +92,14 @@ pub struct FixedSizeListSink<T> {
 
 // SAFETY: `with_capacity` reserves `row_count * width` elements, and `FixedSizeRows` retains that
 // shape for its lifetime. Each row is one disjoint `width`-element slice. `InitializedRow::fill`
-// writes every element before returning its private token, and the skipped-row initializer writes
-// every flat element before masked traversal. `values` retains length zero until every row is safe
-// to publish in `finish`.
+// writes every element before returning its private token, and `FixedSizeRows::fill_default`
+// writes every flat element before masked traversal. `values` retains length zero until every row
+// is safe to publish in `finish`.
 unsafe impl<T: OutputElement + Copy + Default> OutputSink for FixedSizeListSink<T> {
     type Params = usize;
     type Rows<'a> = FixedSizeRows<'a, T>;
     type Row<'a> = &'a mut [MaybeUninit<T>];
     type WriteToken = InitializedRow;
-
-    fn skipped_rows_initializer() -> Option<for<'a> fn(&mut Self::Rows<'a>)> {
-        Some(|rows| {
-            for element in rows.elements.iter_mut() {
-                element.write(T::default());
-            }
-        })
-    }
 
     fn storage_dtype(params: &Self::Params) -> DType {
         DType::FixedSizeList(

@@ -19,6 +19,7 @@ use super::batch::finalize_kernel_output;
 use super::row_fn::RowFn;
 use super::visitor::BatchPlanner;
 use super::visitor::ExecuteDenseWithRetry;
+use super::visitor::ExecuteFilteredRows;
 use super::visitor::ExecuteRows;
 use super::visitor::ExecuteValidRows;
 use crate::ArrayRef;
@@ -126,6 +127,7 @@ pub fn execute_rows<F: RowFn>(
         |args, ctx| execute_row_kernel(function, options, args, ctx),
         |args, ctx| execute_dense_attempt(function, options, args, ctx),
         |args, valid, ctx| try_execute_valid_rows(function, options, args, valid, ctx),
+        |args, valid, ctx| execute_filtered_rows(function, options, args, valid, ctx),
         ctx,
     )
 }
@@ -197,6 +199,21 @@ fn try_execute_valid_rows<F: RowFn>(
         options,
         args.dtypes(),
         ExecuteValidRows::<F>::new(&args, args.dtypes(), args.plan(), valid, ctx),
+    )
+}
+
+/// Execute valid rows over `args` filtered to the valid row domain of `valid`.
+fn execute_filtered_rows<F: RowFn>(
+    function: &F,
+    options: &F::Options,
+    args: BorrowedRowFnArgs<'_>,
+    valid: MaskValuesRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    function.dispatch(
+        options,
+        args.dtypes(),
+        ExecuteFilteredRows::<F>::new(&args, args.dtypes(), args.plan(), valid, ctx),
     )
 }
 

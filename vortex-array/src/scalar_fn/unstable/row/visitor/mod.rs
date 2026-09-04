@@ -9,6 +9,7 @@ mod check;
 pub(super) use check::assert_owned_output_needs_no_drop;
 
 mod execute;
+pub(super) use execute::ExecuteFilteredRows;
 pub(super) use execute::ExecuteRows;
 pub(super) use execute::ExecuteValidRows;
 

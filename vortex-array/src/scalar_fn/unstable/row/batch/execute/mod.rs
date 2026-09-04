@@ -21,7 +21,7 @@ use crate::validity::Validity;
 
 mod constant;
 mod dense;
-mod filter_scatter;
+mod filtered;
 mod valid_only;
 
 mod output;
@@ -31,7 +31,8 @@ impl RowFnExecutionArgs {
     /// Apply constant folding and null handling around `kernel`.
     ///
     /// For a partially valid batch, `try_valid_rows` can avoid filtering. `Ok(None)` filters the
-    /// valid rows and scatters the output back. Every result is checked against the planned shape
+    /// inputs to the valid rows and `execute_filtered_rows` runs the kernel over them while
+    /// writing into the original row domain. Every result is checked against the planned shape
     /// and dtype.
     pub(crate) fn execute(
         &self,
@@ -45,6 +46,11 @@ impl RowFnExecutionArgs {
             MaskValuesRef,
             &mut ExecutionCtx,
         ) -> VortexResult<Option<ArrayRef>>,
+        execute_filtered_rows: impl FnOnce(
+            BorrowedRowFnArgs<'_>,
+            MaskValuesRef,
+            &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         // Strictness: an all-null batch has no observable row work. Keep the literal-constant
@@ -77,10 +83,15 @@ impl RowFnExecutionArgs {
 
         match self.plan.policy() {
             RowPolicy::Dense => self.execute_dense(kernel, ctx),
-            RowPolicy::DenseWithRetry => {
-                self.execute_dense_with_retry(kernel, execute_dense_attempt, try_valid_rows, ctx)
+            RowPolicy::DenseWithRetry => self.execute_dense_with_retry(
+                execute_dense_attempt,
+                try_valid_rows,
+                execute_filtered_rows,
+                ctx,
+            ),
+            RowPolicy::ValidOnly => {
+                self.execute_valid_only(kernel, try_valid_rows, execute_filtered_rows, ctx)
             }
-            RowPolicy::ValidOnly => self.execute_valid_only(kernel, try_valid_rows, ctx),
         }
     }
 }
