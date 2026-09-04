@@ -51,10 +51,9 @@ use crate::extension::single_geometry;
 /// shape (in either operand order), or the column's dtype carries no [`GeometryAabb`] statistic.
 /// An asymmetric predicate (e.g. a future contains) must recover which operand is the column
 /// itself instead of calling this.
-fn geometry_and_constant<'a>(
-    expr: &'a BoundExpression,
-    ctx: &StatsRewriteCtx<'_>,
-) -> VortexResult<Option<(&'a BoundExpression, &'a Scalar)>> {
+fn geometry_and_constant(
+    expr: &BoundExpression,
+) -> VortexResult<Option<(&BoundExpression, &Scalar)>> {
     // The predicate is symmetric, so the column (scope root) and the constant may be on either
     // side.
     let (lhs, rhs) = (expr.child(0), expr.child(1));
@@ -68,7 +67,7 @@ fn geometry_and_constant<'a>(
 
     // A `GeometryAabb` stat reference only binds for dtypes it supports; anything else (e.g. a
     // WKB column) must fall through to the scan.
-    if !is_native_geometry(&ctx.return_dtype(geom)?) {
+    if !is_native_geometry(geom.dtype()) {
         return Ok(None);
     }
 

@@ -101,11 +101,6 @@ impl<'a> StatsRewriteCtx<'a> {
         self.session
     }
 
-    /// Return the dtype of `expr` within this rewrite scope.
-    pub fn return_dtype(&self, expr: &BoundExpression) -> VortexResult<DType> {
-        Ok(expr.dtype().clone())
-    }
-
     /// Rewrite `expr` into a stats-backed falsifier.
     pub fn falsify(&self, expr: &BoundExpression) -> VortexResult<Option<BoundExpression>> {
         self.ensure_predicate(expr)?;
@@ -118,8 +113,9 @@ impl<'a> StatsRewriteCtx<'a> {
         rewrite(expr, self, StatsRewriteRule::satisfy)
     }
 
+    #[inline]
     fn ensure_predicate(&self, expr: &BoundExpression) -> VortexResult<()> {
-        let dtype = self.return_dtype(expr)?;
+        let dtype = expr.dtype();
         vortex_ensure!(
             matches!(dtype, DType::Bool(_)),
             "Stats rewrites require a boolean predicate, got {dtype}",

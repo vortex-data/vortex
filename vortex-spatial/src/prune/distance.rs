@@ -77,7 +77,7 @@ impl StatsRewriteRule for SpatialDistancePrune {
             return Ok(None);
         }
 
-        let Some((geom, constant)) = geometry_and_constant(distance, ctx)? else {
+        let Some((geom, constant)) = geometry_and_constant(distance)? else {
             return Ok(None);
         };
         let Some(query) = query_aabb(constant, ctx)? else {
