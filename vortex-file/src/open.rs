@@ -792,9 +792,10 @@ mod tests {
         std::fs::write(&file_path, ByteBuffer::from(buf).as_slice()).unwrap();
 
         let allocations = Arc::new(AtomicUsize::new(0));
-        let session = session.with_allocator(BufferAllocatorRef::new(CountingAllocator {
-            allocations: Arc::clone(&allocations),
-        }));
+        let session =
+            session.with_allocator(BufferAllocatorRef::new_arc(Arc::new(CountingAllocator {
+                allocations: Arc::clone(&allocations),
+            })));
 
         let _file = session.open_options().open_path(&file_path).await.unwrap();
         std::fs::remove_file(&file_path).unwrap();

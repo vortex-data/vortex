@@ -7,6 +7,7 @@ use std::any::Any;
 
 pub use vortex_buffer::BufferAllocator;
 pub use vortex_buffer::BufferAllocatorRef;
+pub use vortex_buffer::DEFAULT_BUFFER_ALLOCATOR;
 pub use vortex_buffer::StaticBufferAllocator;
 use vortex_session::SessionExt;
 use vortex_session::SessionGuard;
@@ -38,7 +39,7 @@ impl MemorySession {
 
 impl Default for MemorySession {
     fn default() -> Self {
-        Self::new(BufferAllocatorRef::statically_allocated())
+        Self::new(DEFAULT_BUFFER_ALLOCATOR.clone())
     }
 }
 
@@ -76,16 +77,17 @@ impl<S: SessionExt> MemorySessionExt for S {}
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::BufferAllocatorRef;
+    use vortex_buffer::BufferMut;
+    use vortex_buffer::DEFAULT_BUFFER_ALLOCATOR;
 
     use super::MemorySession;
 
     #[test]
     fn memory_session_replaces_allocator() {
-        let allocator = BufferAllocatorRef::statically_allocated();
+        let allocator = DEFAULT_BUFFER_ALLOCATOR.clone();
         let mut session = MemorySession::default();
         session.set_allocator(allocator);
-        let buffer = session.allocator().copy_from([1u32, 2, 3]);
+        let buffer = BufferMut::copy_from_in([1u32, 2, 3], session.allocator());
         assert_eq!(buffer.as_slice(), [1, 2, 3]);
     }
 }

@@ -10738,6 +10738,7 @@ name = "vortex-buffer"
 version = "0.1.0"
 dependencies = [
  "allocator-api2",
+ "arcref",
  "arrow-buffer 59.2.0",
  "bitvec",
  "bytes",

@@ -995,9 +995,9 @@ mod tests {
 
     #[test]
     fn execution_ctx_allocator_override() {
-        let first = BufferAllocatorRef::new(vortex_buffer::StaticBufferAllocator);
-        let second = BufferAllocatorRef::new(vortex_buffer::StaticBufferAllocator);
-        let third = BufferAllocatorRef::new(vortex_buffer::StaticBufferAllocator);
+        let first = BufferAllocatorRef::new_arc(Arc::new(vortex_buffer::StaticBufferAllocator));
+        let second = BufferAllocatorRef::new_arc(Arc::new(vortex_buffer::StaticBufferAllocator));
+        let third = BufferAllocatorRef::new_arc(Arc::new(vortex_buffer::StaticBufferAllocator));
         let session = VortexSession::empty()
             .with::<MemorySession>()
             .with_allocator(first.clone());
@@ -1007,12 +1007,12 @@ mod tests {
             .get_mut::<MemorySession>()
             .set_allocator(third.clone());
 
-        assert!(session.allocator().ptr_eq(&third));
-        assert!(ctx.allocator().ptr_eq(&third));
+        assert!(std::ptr::eq(session.allocator().as_ref(), third.as_ref()));
+        assert!(std::ptr::eq(ctx.allocator().as_ref(), third.as_ref()));
 
         let ctx = ctx.with_allocator(second.clone());
         session.get_mut::<MemorySession>().set_allocator(first);
 
-        assert!(ctx.allocator().ptr_eq(&second));
+        assert!(std::ptr::eq(ctx.allocator().as_ref(), second.as_ref()));
     }
 }
