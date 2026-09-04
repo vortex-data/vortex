@@ -93,6 +93,7 @@ pub use null::NullArray;
 pub mod patched;
 pub use patched::Patched;
 pub use patched::PatchedArray;
+pub use patched::PatchedPlugin;
 
 pub mod piecewise_sequence;
 pub use piecewise_sequence::PiecewiseSequence;
