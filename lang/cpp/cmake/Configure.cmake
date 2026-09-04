@@ -10,19 +10,40 @@ include("${CMAKE_CURRENT_LIST_DIR}/Helpers.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/RustToolchain.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/SystemDependencies.cmake")
 
-# Validate the single-config CMake build type and return its uppercase CMake
-# configuration, Cargo profile, and Cargo artifact directory. Unsupported build
-# types and multi-config generators are fatal.
+# Use an explicit Cargo profile override or map the single-config CMake build
+# type to a profile and artifact directory. Unknown build types warn and use
+# Cargo's development profile; multi-config generators remain unsupported.
 function(_vortex_resolve_cargo_profile configuration_output profile_output artifact_directory_output)
     if(CMAKE_CONFIGURATION_TYPES)
         message(FATAL_ERROR
             "The initial Vortex CMake integration supports single-config "
             "generators only; use Ninja with CMAKE_BUILD_TYPE=Debug, Release, "
-            "or RelWithDebInfo")
+            "RelWithDebInfo, or MinSizeRel")
     endif()
 
     string(TOUPPER "${CMAKE_BUILD_TYPE}" _configuration)
-    if(_configuration STREQUAL "DEBUG")
+    if(VORTEX_CARGO_PROFILE)
+        _vortex_reject_semicolon("VORTEX_CARGO_PROFILE" "${VORTEX_CARGO_PROFILE}")
+        if(NOT VORTEX_CARGO_PROFILE MATCHES "^[A-Za-z0-9_-]+$")
+            message(FATAL_ERROR
+                "VORTEX_CARGO_PROFILE must contain only letters, numbers, "
+                "underscores, or hyphens; got '${VORTEX_CARGO_PROFILE}'")
+        endif()
+        if(VORTEX_CARGO_PROFILE STREQUAL "test" OR VORTEX_CARGO_PROFILE STREQUAL "bench")
+            message(FATAL_ERROR
+                "VORTEX_CARGO_PROFILE=${VORTEX_CARGO_PROFILE} is unsupported because "
+                "its artifact location is not stable")
+        endif()
+
+        set(_cargo_profile "${VORTEX_CARGO_PROFILE}")
+        if(_cargo_profile STREQUAL "dev")
+            set(_artifact_directory "debug")
+        elseif(_cargo_profile STREQUAL "release")
+            set(_artifact_directory "release")
+        else()
+            set(_artifact_directory "${_cargo_profile}")
+        endif()
+    elseif(_configuration STREQUAL "DEBUG")
         set(_cargo_profile "dev")
         set(_artifact_directory "debug")
     elseif(_configuration STREQUAL "RELEASE")
@@ -31,10 +52,16 @@ function(_vortex_resolve_cargo_profile configuration_output profile_output artif
     elseif(_configuration STREQUAL "RELWITHDEBINFO")
         set(_cargo_profile "release_debug")
         set(_artifact_directory "release_debug")
+    elseif(_configuration STREQUAL "MINSIZEREL")
+        set(_cargo_profile "release_size")
+        set(_artifact_directory "release_size")
     else()
-        message(FATAL_ERROR
-            "Vortex requires CMAKE_BUILD_TYPE=Debug, Release, or "
-            "RelWithDebInfo; got '${CMAKE_BUILD_TYPE}'")
+        message(WARNING
+            "Vortex has no Cargo profile mapping for "
+            "CMAKE_BUILD_TYPE='${CMAKE_BUILD_TYPE}'; using Cargo profile dev. "
+            "Set VORTEX_CARGO_PROFILE to override it")
+        set(_cargo_profile "dev")
+        set(_artifact_directory "debug")
     endif()
 
     set(${configuration_output} "${_configuration}" PARENT_SCOPE)

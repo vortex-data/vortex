@@ -28,8 +28,10 @@ function(_vortex_require_build_inputs)
     endforeach()
 endfunction()
 
-# Derive Cargo's uppercase and the Rust `cc` crate's lowercase environment keys
-# for the selected target.
+# Normalize a target such as `aarch64-apple-darwin` into the suffixes used by
+# target-specific environment variables: `AARCH64_APPLE_DARWIN` for Cargo's
+# `CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS`, and `aarch64_apple_darwin` for
+# the `cc` crate's `CC_aarch64_apple_darwin`, `CFLAGS_aarch64_apple_darwin`, etc.
 function(_vortex_cargo_target_env_keys upper_output lower_output)
     string(REPLACE "-" "_" _target_key "${VORTEX_RUST_TARGET}")
     string(TOUPPER "${_target_key}" _target_key_upper)

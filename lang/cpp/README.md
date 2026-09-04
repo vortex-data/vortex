@@ -47,8 +47,9 @@ The build supports:
 
 - native GNU/Linux on x86_64 and aarch64;
 - native macOS on x86_64 and arm64 for standalone development;
-- a single-config generator, with `CMAKE_BUILD_TYPE` set to `Debug`, `Release`, or
-  `RelWithDebInfo`; and
+- a single-config generator; unless `VORTEX_CARGO_PROFILE` is set, `Debug`, `Release`,
+  `RelWithDebInfo`, and `MinSizeRel` map to Cargo `dev`, `release`, `release_debug`, and
+  `release_size`, respectively, while other build types warn and use `dev`; and
 - Cargo and rustc 1.95.0 or newer, with the selected target's standard library installed.
 
 CMake discovers Cargo and rustc with `find_program`. Rustup proxies are resolved from the Vortex
@@ -71,6 +72,9 @@ standalone build:
 - `VORTEX_ENABLE_CUDA=ON` selects the Linux-only `vortex-cuda-ffi` archive, adds `vortex_cuda.h` to
   the existing `Vortex::cpp_static` target, and requires `find_package(CUDAToolkit)`. Set
   `CUDAToolkit_ROOT` when CMake cannot find the toolkit. Default: `OFF`.
+- `VORTEX_CARGO_PROFILE` overrides the Cargo profile inferred from `CMAKE_BUILD_TYPE`. Custom
+  profiles use the same-named Cargo artifact directory; Cargo's `test` and `bench` profiles are not
+  supported. Default: empty.
 - `VORTEX_WARNINGS_AS_ERRORS` promotes warnings only while compiling `vortex_cxx`; it does not affect
   tests, examples, consumers, Rust, or CUDA compilation. Default: `ON` standalone and `OFF` when
   embedded.

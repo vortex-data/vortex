@@ -35,6 +35,7 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
 option(VORTEX_BUILD_TESTING "Build Vortex C++ tests" OFF)
 option(VORTEX_BUILD_EXAMPLES "Build Vortex C++ examples" OFF)
 option(VORTEX_ENABLE_CUDA "Build the CUDA-enabled Vortex FFI" OFF)
+set(VORTEX_CARGO_PROFILE "" CACHE STRING "Override the Cargo profile selected from CMAKE_BUILD_TYPE")
 set(VORTEX_SANITIZER "" CACHE STRING "Instrument Vortex and its consumers with asan or tsan")
 set_property(CACHE VORTEX_SANITIZER PROPERTY STRINGS "" asan tsan)
 
