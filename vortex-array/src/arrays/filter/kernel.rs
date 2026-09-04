@@ -8,6 +8,9 @@
 //! [`FilterExecuteAdaptor`] bridge these into the execution model as
 //! [`ArrayParentReduceRule`] and [`ExecuteParentKernel`] respectively.
 
+use std::sync::Arc;
+
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -19,17 +22,33 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::arrays::Constant;
+use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
 use crate::arrays::Filter;
+use crate::arrays::FilterArray;
+use crate::arrays::ScalarFn;
+use crate::arrays::ScalarFnArray;
 use crate::arrays::dict::TakeExecuteAdaptor;
+use crate::arrays::filter::FilterSlots;
+use crate::arrays::scalar_fn::ScalarFnArrayExt;
+use crate::execute_parent_for_child;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::scalar_fn::ScalarFnPlugin;
+use crate::scalar_fn::fns::between::Between;
+use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::fill_null::FillNull;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
     kernels.register_execute_parent_kernel(Dict.id(), Filter, TakeExecuteAdaptor(Filter));
+
+    for parent in [Binary.id(), Between.id(), FillNull.id()] {
+        kernels.register_execute_parent_kernel(parent, Filter, FilterScalarFnUnaryPushDownRule);
+    }
 }
 
 pub trait FilterReduce: VTable {
@@ -133,5 +152,82 @@ where
             return Ok(Some(result));
         }
         <V as FilterKernel>::filter(array, parent.filter_mask(), ctx)
+    }
+}
+
+/// If we have one non-constant child, and ScalarFn has a registered
+/// kernel for the encoding of "inner" (e.g. can operate on compressed data),
+/// it's faster to execute Fn on "inner" directly so that the we avoid
+/// canonicalizing data while executing "inner"
+///
+/// Returns Fn(inner, consts) with Fn applied eagerly.
+///
+/// Example: clickbench q1, SELECT * FROM hits WHERE AdvEngineID <> 0;
+/// AdvEngineID <> 0 is Binary over Sparse, but FlatReader applies
+/// Filter over Sparse, so we get Binary(Filter(Sparse)). Filter(Sparse)
+/// canonicalizes.
+fn scalar_fn_on_inner(
+    inner: &ArrayRef,
+    parent: ArrayView<'_, ScalarFn>,
+    child_idx: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    if parent
+        .iter_children()
+        .filter(|c| !c.is::<Constant>())
+        .count()
+        != 1
+    {
+        return Ok(None);
+    }
+
+    let inner_len = inner.len();
+    // (inner, consts)
+    let new_children: Vec<_> = parent
+        .iter_children()
+        .map(|c| match c.as_constant() {
+            Some(scalar) => ConstantArray::new(scalar, inner_len).into_array(),
+            // by above check this is the only non-const argument
+            None => inner.clone(),
+        })
+        .collect();
+
+    // Fn(inner, consts)
+    let new_fn = ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children)?.into_array();
+
+    // Eagerly execute swapped Fn to avoid infinite runtime with
+    // ScalarFnUnaryFilterPushDownRule. Returns Fn(inner, consts)
+    let kernels = Arc::clone(&ctx.execute_parent_kernels);
+    execute_parent_for_child(
+        "filter_scalar_fn_pushdown",
+        &new_fn, // parent, Fn
+        inner,   // child
+        child_idx,
+        &kernels,
+        ctx,
+    )
+}
+
+#[derive(Debug)]
+struct FilterScalarFnUnaryPushDownRule;
+
+impl ExecuteParentKernel<Filter> for FilterScalarFnUnaryPushDownRule {
+    type Parent = ScalarFn;
+    fn execute_parent(
+        &self,
+        child: ArrayView<'_, Filter>,
+        parent: ArrayView<'_, ScalarFn>,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let inner = child.slots()[FilterSlots::CHILD]
+            .as_ref()
+            .vortex_expect("no child for Filter");
+        let Some(new_child) = scalar_fn_on_inner(inner, parent, child_idx, ctx)? else {
+            return Ok(None);
+        };
+        let mask = child.filter_mask().clone();
+        let new_parent = FilterArray::try_new(new_child, mask)?;
+        Ok(Some(new_parent.into_array()))
     }
 }

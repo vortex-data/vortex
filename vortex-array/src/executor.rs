@@ -353,7 +353,7 @@ pub struct ExecutionCtx {
     session: VortexSession,
     // OnceLock avoids cloning the session allocator when a context does not allocate.
     allocator: OnceLock<BufferAllocatorRef>,
-    execute_parent_kernels: Arc<ParentExecutionKernels>,
+    pub(crate) execute_parent_kernels: Arc<ParentExecutionKernels>,
     #[cfg(debug_assertions)]
     id: usize,
     #[cfg(debug_assertions)]
@@ -621,7 +621,7 @@ fn finalize_done(
     Ok((output, None))
 }
 
-fn execute_parent_for_child(
+pub(crate) fn execute_parent_for_child(
     _phase: &'static str,
     parent: &ArrayRef,
     child: &ArrayRef,
