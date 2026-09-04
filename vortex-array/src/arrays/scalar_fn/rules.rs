@@ -5,16 +5,20 @@ use itertools::Itertools;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Filter;
+use crate::arrays::FilterArray;
 use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::Slice;
 use crate::arrays::StructArray;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
+use crate::kernel::ExecuteParentKernel;
+use crate::optimizer::kernels::execute_parent_key;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
@@ -131,6 +135,66 @@ impl ArrayParentReduceRule<ScalarFn> for ScalarFnUnaryFilterPushDownRule {
         }
 
         Ok(None)
+    }
+}
+
+#[derive(Debug)]
+struct FilterScalarFnUnaryPushDownRule;
+
+impl ExecuteParentKernel<Filter> for FilterScalarFnUnaryPushDownRule {
+    type Parent = ScalarFn;
+
+    fn execute_parent(
+        &self,
+        child: ArrayView<'_, Filter>,
+        parent: ArrayView<'_, ScalarFn>,
+        _child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        // If we have one non-constant child, and ScalarFn has a registered
+        // kernel for given encoding id (e.g. can operate on compressed data),
+        // it's faster to pull Filter up so that it doesn't canonicalize its
+        // child.
+        //
+        // Fn(Filter(x), consts) -> Filter(Fn(x, consts))
+        //
+        // Example: clickbench q1, SELECT * FROM hits WHERE AdvEngineID <> 0;
+        // AdvEngineID <> 0 is Binary over Sparse, but FlatReader applies
+        // Filter over Sparse, so we get Binary(Filter(Sparse)). Filter(Sparse)
+        // canonicalizes.
+        let mut non_const_child_id: usize = usize::MAX;
+        for (i, child) in parent.iter_children().enumerate() {
+            if child.is::<Constant>() {
+                continue;
+            }
+            if non_const_child_id != usize::MAX {
+                return Ok(None);
+            }
+            non_const_child_id = i;
+        }
+
+        let new_non_const_grandchild = parent.child_at(non_const_child_id);
+
+        let key = execute_parent_key(
+            parent.scalar_fn.id(),
+            new_non_const_grandchild.encoding_id(),
+        );
+        if !ctx.execute_parent_kernels.contains_key(&key) {
+            return Ok(None);
+        };
+
+        let new_grandchildren: Vec<_> = parent
+            .iter_children()
+            .map(|child| match child.as_constant() {
+                Some(scalar) => ConstantArray::new(scalar, parent.len()).into_array(),
+                None => new_non_const_grandchild.clone(),
+            })
+            .collect();
+
+        let new_child = ScalarFnArray::try_new(parent.scalar_fn().clone(), new_grandchildren)?;
+        let mask = child.filter_mask().clone();
+        let new_parent = FilterArray::try_new(new_child.into_array(), mask)?;
+        Ok(Some(new_parent.into_array()))
     }
 }
 
