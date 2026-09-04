@@ -9,6 +9,9 @@ mod sample;
 mod select;
 mod structural;
 
+use vortex_array::ArrayId;
+use vortex_utils::aliases::hash_set::HashSet;
+
 use crate::builtins::IntDictScheme;
 use crate::scheme::ChildSelection;
 use crate::scheme::DescendantExclusion;
@@ -46,6 +49,10 @@ pub struct CascadingCompressor {
     /// Descendant exclusion rules for the compressor's own cascading (e.g. excluding Dict from
     /// list offsets).
     root_exclusions: Vec<DescendantExclusion>,
+
+    /// The serialized IDs the output may use, or `None` for no restriction. See
+    /// [`allows_serialized_id`](Self::allows_serialized_id).
+    allowed_serialized_ids: Option<HashSet<ArrayId>>,
 }
 
 impl CascadingCompressor {
@@ -63,7 +70,34 @@ impl CascadingCompressor {
         Self {
             schemes,
             root_exclusions,
+            allowed_serialized_ids: None,
         }
+    }
+
+    /// Hands the compressor the serialized IDs the writer may emit, intersecting with any earlier
+    /// call.
+    ///
+    /// The file writer passes the serialized IDs its enabled editions permit. A scheme whose
+    /// encoding has several wire formats picks its compression mode from this set, the newest
+    /// permitted one, before estimating or compressing.
+    pub fn with_allowed_serialized_ids(mut self, allowed: HashSet<ArrayId>) -> Self {
+        self.allowed_serialized_ids = Some(match self.allowed_serialized_ids.take() {
+            Some(existing) => existing.intersection(&allowed).copied().collect(),
+            None => allowed,
+        });
+        self
+    }
+
+    /// Returns whether the writer may emit the serialized ID `id`.
+    ///
+    /// Schemes whose encoding has several wire formats consult this to pick their compression
+    /// mode. Without a restriction every ID is allowed, so the newest mode is chosen. The
+    /// serializer still emits the oldest wire form the resulting array fits, and the
+    /// serialization context validates that ID.
+    pub fn allows_serialized_id(&self, id: ArrayId) -> bool {
+        self.allowed_serialized_ids
+            .as_ref()
+            .is_none_or(|allowed| allowed.contains(&id))
     }
 
     /// Returns whether the compressor was configured with `scheme`.

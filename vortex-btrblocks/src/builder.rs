@@ -91,12 +91,14 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
 #[derive(Debug, Clone)]
 pub struct BtrBlocksCompressorBuilder {
     schemes: Vec<&'static dyn Scheme>,
+    allowed_serialized_ids: Option<HashSet<ArrayId>>,
 }
 
 impl Default for BtrBlocksCompressorBuilder {
     fn default() -> Self {
         Self {
             schemes: ALL_SCHEMES.to_vec(),
+            allowed_serialized_ids: None,
         }
     }
 }
@@ -108,6 +110,7 @@ impl BtrBlocksCompressorBuilder {
     pub fn empty() -> Self {
         Self {
             schemes: Vec::new(),
+            allowed_serialized_ids: None,
         }
     }
 
@@ -214,15 +217,33 @@ impl BtrBlocksCompressorBuilder {
         self
     }
 
+    /// Hands the compressor the serialized IDs the writer may emit, intersecting with any earlier
+    /// call. A scheme whose encoding has several wire formats picks its compression mode from this
+    /// set: the newest permitted one.
+    ///
+    /// The file writer passes the serialized IDs its enabled editions permit.
+    pub fn allow_serialized_ids(mut self, allowed: &HashSet<ArrayId>) -> Self {
+        self.allowed_serialized_ids = Some(match self.allowed_serialized_ids.take() {
+            Some(existing) => existing.intersection(allowed).copied().collect(),
+            None => allowed.clone(),
+        });
+        self
+    }
+
     /// Builds the configured [`BtrBlocksCompressor`].
     pub fn build(self) -> BtrBlocksCompressor {
-        BtrBlocksCompressor(CascadingCompressor::new(self.schemes))
+        let compressor = CascadingCompressor::new(self.schemes);
+        BtrBlocksCompressor(match self.allowed_serialized_ids {
+            Some(allowed) => compressor.with_allowed_serialized_ids(allowed),
+            None => compressor,
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use vortex_array::VTable;
+    use vortex_array::arrays::Bool;
     use vortex_fastlanes::FoR;
 
     use super::*;
@@ -285,6 +306,19 @@ mod tests {
                 "{excluded} should be excluded"
             );
         }
+    }
+
+    /// Every serialized ID is allowed until the writer narrows the set to its editions.
+    #[test]
+    fn allowed_serialized_ids_reach_the_compressor() {
+        let default = BtrBlocksCompressorBuilder::default().build();
+        assert!(default.0.allows_serialized_id(Bool.id()));
+
+        let narrowed = BtrBlocksCompressorBuilder::default()
+            .allow_serialized_ids(&HashSet::from([FoR.id()]))
+            .build();
+        assert!(narrowed.0.allows_serialized_id(FoR.id()));
+        assert!(!narrowed.0.allows_serialized_id(Bool.id()));
     }
 
     #[test]
