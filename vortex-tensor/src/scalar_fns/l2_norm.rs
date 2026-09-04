@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! L2 norm expression for tensor-like types.
+//! L2 norms for tensor-like columns.
+//!
+//! [`L2Norm`] computes only the magnitude of each input row. Use
+//! [`L2Normalize`](super::l2_normalize::L2Normalize) when the normalized coordinates and the
+//! magnitude are both required.
 
-use num_traits::Float;
 use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -20,7 +23,6 @@ use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayParts;
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::proto::dtype as pb;
 use vortex_array::expr::Expression;
@@ -38,32 +40,25 @@ use vortex_array::serde::ArrayChildren;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::encodings::normalized::Normalized;
 use crate::matcher::AnyTensor;
+use crate::scalar_fns::arithmetic::l2_norm_row;
 use crate::utils::extract_flat_elements;
-use crate::utils::extract_normalized_children;
-use crate::utils::reattach_validity;
 use crate::utils::validate_tensor_float_input;
 
 /// L2 norm (Euclidean norm) of a tensor or vector column.
 ///
-/// Computes `||v|| = sqrt(sum(v_i^2))` over the flat backing buffer of each tensor-like type.
+/// Computes `||v|| = sqrt(sum(v_i^2))` over the flat coordinates of each tensor-like value.
 ///
 /// The input must be a tensor-like extension array with a float element type. The output is a float
-/// column of the same float type.
+/// column of the same float type. Use [`L2Normalize`] when both the normalized value and its norm
+/// are required.
 ///
-/// When the input is [`Normalized`]-encoded, this operator treats the stored norms as
-/// authoritative. For lossy normalized children, that means `L2Norm` intentionally reads the
-/// stored norms instead of re-deriving them from fully decoded coordinates. That behavior is part
-/// of the storage contract, not a separate lossy-compute mode.
-///
-/// [`Normalized`]: crate::encodings::normalized::Normalized
-#[derive(Clone)]
+/// [`L2Normalize`]: crate::scalar_fns::l2_normalize::L2Normalize
+#[derive(Clone, Debug, Default)]
 pub struct L2Norm;
 
 impl L2Norm {
@@ -71,8 +66,10 @@ impl L2Norm {
     ///
     /// # Errors
     ///
-    /// Returns an error if the [`ScalarFnArray`] cannot be constructed (e.g. due to dtype
-    /// mismatches).
+    /// Returns an error if `child` is not a float [`Vector`] or [`FixedShapeTensor`].
+    ///
+    /// [`FixedShapeTensor`]: crate::fixed_shape_tensor::FixedShapeTensor
+    /// [`Vector`]: crate::vector::Vector
     pub fn try_new(child: ArrayRef) -> VortexResult<ScalarFnArray> {
         ScalarFnArray::try_new(L2Norm.bind(EmptyOptions), vec![child])
     }
@@ -118,20 +115,11 @@ impl ScalarFnVTable for L2Norm {
         let ext = input_ref.dtype().as_extension();
         let tensor_match = ext
             .metadata_opt::<AnyTensor>()
-            .vortex_expect("we already validated this in `return_dtype`");
+            .vortex_expect("L2Norm::return_dtype validated the input tensor metadata");
         let tensor_flat_size = tensor_match.list_size() as usize;
         let element_ptype = tensor_match.element_ptype();
 
         let norm_dtype = DType::Primitive(element_ptype, ext.nullability());
-
-        // Stored norms are authoritative. Reattach the parent validity because the child is
-        // non-nullable.
-        if input_ref.is::<Normalized>() {
-            let (_, norms) = extract_normalized_children(&input_ref);
-            let norms = reattach_validity(norms, input_ref.validity()?)?;
-            vortex_ensure_eq!(norms.dtype(), &norm_dtype);
-            return Ok(norms);
-        }
 
         // Optimize for the constant array case.
         if let Some(array) = input_ref.as_opt::<Constant>() {
@@ -144,10 +132,11 @@ impl ScalarFnVTable for L2Norm {
             let norm_scalar = match_each_float_ptype!(element_ptype, |T| {
                 let values: Vec<T> = elements
                     .iter()
-                    .map(|s| {
-                        s.as_primitive()
+                    .map(|element| {
+                        element
+                            .as_primitive()
                             .as_::<T>()
-                            .vortex_expect("element was somehow not the correct float")
+                            .vortex_expect("L2Norm::return_dtype validated the float element type")
                     })
                     .collect();
                 let norm = l2_norm_row::<T>(&values);
@@ -167,7 +156,7 @@ impl ScalarFnVTable for L2Norm {
 
         match_each_float_ptype!(flat.ptype(), |T| {
             let buffer: Buffer<T> = (0..row_count)
-                .map(|i| l2_norm_row(flat.row::<T>(i)))
+                .map(|row_index| l2_norm_row(flat.row::<T>(row_index)))
                 .collect();
 
             // SAFETY: The buffer length equals `row_count`, which matches the source validity
@@ -181,7 +170,6 @@ impl ScalarFnVTable for L2Norm {
         _options: &Self::Options,
         expression: &Expression,
     ) -> VortexResult<Option<Expression>> {
-        // The result is null if the input tensor is null.
         union_child_validities(expression)
     }
 
@@ -223,11 +211,11 @@ impl ScalarFnArrayVTable for L2Norm {
         session: &VortexSession,
     ) -> VortexResult<ScalarFnArrayParts<Self>> {
         let metadata = L2NormMetadata::decode(metadata)
-            .map_err(|e| vortex_err!("Failed to decode L2NormMetadata: {e}"))?;
+            .map_err(|error| vortex_err!("failed to decode L2Norm metadata: {error}"))?;
         let input_pb = metadata
             .input_dtype
             .as_ref()
-            .ok_or_else(|| vortex_err!("L2NormMetadata missing input_dtype"))?;
+            .ok_or_else(|| vortex_err!("L2Norm metadata must contain input_dtype"))?;
         let input_dtype = DType::from_proto(input_pb, session)?;
         let child = children.get(0, &input_dtype, len)?;
         Ok(ScalarFnArrayParts {
@@ -237,20 +225,8 @@ impl ScalarFnArrayVTable for L2Norm {
     }
 }
 
-/// Computes the L2 norm (Euclidean norm) of a float slice.
-///
-/// Returns `sqrt(sum(v_i^2))`. A zero-length or all-zero input produces `0.0`.
-fn l2_norm_row<T: Float + NativePType>(v: &[T]) -> T {
-    let mut sum_sq = T::zero();
-    for &x in v {
-        sum_sq = sum_sq + x * x;
-    }
-    sum_sq.sqrt()
-}
-
 #[cfg(test)]
 mod tests {
-
     use rstest::rstest;
     use vortex_array::ArrayDeserialization;
     use vortex_array::ArrayPlugin;
@@ -271,7 +247,6 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
 
-    use crate::encodings::normalized::Normalized;
     use crate::scalar_fns::l2_norm::L2Norm;
     use crate::tests::SESSION;
     use crate::types::vector::Vector;
@@ -398,29 +373,6 @@ mod tests {
             constant.dtype(),
             &DType::Primitive(PType::F64, Nullability::Nullable)
         );
-        Ok(())
-    }
-
-    #[test]
-    fn reads_through_a_nullable_normalized_column() -> VortexResult<()> {
-        let normalized = vector_array(2, &[0.6f64, 0.8, 1.0, 0.0])?;
-        let norms = PrimitiveArray::from_iter([5.0f64, 1.0]).into_array();
-
-        let mut ctx = SESSION.create_execution_ctx();
-        let validity = Validity::from_iter([true, false]);
-        let input = Normalized::try_new(normalized, norms, validity, &mut ctx)?.into_array();
-
-        let result = L2Norm::try_new(input)?.into_array();
-        let prim: PrimitiveArray = result.execute(&mut ctx)?;
-
-        assert_eq!(
-            prim.dtype(),
-            &DType::Primitive(PType::F64, Nullability::Nullable)
-        );
-        assert!(prim.is_valid(0, &mut ctx)?);
-        assert!(!prim.is_valid(1, &mut ctx)?);
-        assert_close(&[prim.as_slice::<f64>()[0]], &[5.0]);
-
         Ok(())
     }
 

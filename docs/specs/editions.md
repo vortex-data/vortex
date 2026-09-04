@@ -367,7 +367,7 @@ This edition currently adds no components.
 #### `tensor2026.04.0`
 
 - `array`: `vortex.tensor.cosine_similarity`, `vortex.tensor.inner_product`, `vortex.tensor.l2_norm`,
-  `vortex.tensor.normalized`
+  `vortex.tensor.l2_normalize`
 - `dtype`: `vortex.tensor.fixed_shape_tensor`, `vortex.tensor.vector`
 
 #### `zstd2026.02.0`

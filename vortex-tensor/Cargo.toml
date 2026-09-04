@@ -49,9 +49,5 @@ name = "l2_norm"
 harness = false
 
 [[bench]]
-name = "normalized"
-harness = false
-
-[[bench]]
 name = "inner_product"
 harness = false

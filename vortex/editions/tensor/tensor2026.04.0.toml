@@ -15,7 +15,7 @@ arrays = [
     "vortex.tensor.cosine_similarity",
     "vortex.tensor.inner_product",
     "vortex.tensor.l2_norm",
-    "vortex.tensor.normalized",
+    "vortex.tensor.l2_normalize",
 ]
 layouts = []
 dtypes = [
@@ -31,7 +31,7 @@ arrays = [
     "vortex.tensor.cosine_similarity",
     "vortex.tensor.inner_product",
     "vortex.tensor.l2_norm",
-    "vortex.tensor.normalized",
+    "vortex.tensor.l2_normalize",
 ]
 layouts = []
 dtypes = [
