@@ -89,15 +89,7 @@ impl StructFields {
             })
             .collect::<Vec<_>>();
 
-        if names.len() != dtypes.len() {
-            vortex_bail!(
-                "length mismatch between struct names ({}) and dtypes ({})",
-                names.len(),
-                dtypes.len()
-            );
-        }
-
-        Ok(StructFields::from_fields(names, dtypes))
+        StructFields::try_from_fields(names, dtypes)
     }
 }
 
@@ -752,6 +744,111 @@ mod test {
         let viewed = DType::try_from(view).unwrap();
         assert_eq!(eager, viewed);
         assert_eq!(viewed, eager);
+    }
+
+    /// A struct field whose own dtype cannot be decoded must fail here, not later in
+    /// `StructFields::fields()` (#8848).
+    #[test]
+    fn test_struct_field_with_undecodable_dtype_errors() {
+        let mut fbb = FlatBufferBuilder::new();
+        let name = fbb.create_string("bad");
+        let names = fbb.create_vector(&[name]);
+        // `names` is optional in the schema, so the verifier accepts this struct but
+        // decoding it fails.
+        let inner_struct = fb::Struct_::create(
+            &mut fbb,
+            &fb::Struct_Args {
+                names: None,
+                dtypes: None,
+                nullable: false,
+            },
+        );
+        let bad_field = fb::DType::create(
+            &mut fbb,
+            &fb::DTypeArgs {
+                type_type: fb::Type::Struct_,
+                type_: Some(inner_struct.as_union_value()),
+            },
+        );
+        let dtypes = fbb.create_vector(&[bad_field]);
+        let struct_table = fb::Struct_::create(
+            &mut fbb,
+            &fb::Struct_Args {
+                names: Some(names),
+                dtypes: Some(dtypes),
+                nullable: false,
+            },
+        );
+        let dtype = fb::DType::create(
+            &mut fbb,
+            &fb::DTypeArgs {
+                type_type: fb::Type::Struct_,
+                type_: Some(struct_table.as_union_value()),
+            },
+        );
+        fbb.finish_minimal(dtype);
+        let (vec, start) = fbb.collapse();
+        let end = vec.len();
+        let buffer = FlatBuffer::align_from(ByteBuffer::from(vec).slice(start..end));
+
+        let root_fb = root::<fb::DType>(&buffer).unwrap();
+        let view = ViewedDType::from_fb_loc(root_fb._tab.loc(), buffer, SESSION.clone());
+
+        let err = DType::try_from(view).expect_err("undecodable field dtype must not parse");
+        assert!(
+            err.to_string().contains("bad"),
+            "error should name the field: {err}"
+        );
+    }
+
+    /// The same on the union side.
+    #[test]
+    fn test_union_variant_with_undecodable_dtype_errors() {
+        let mut fbb = FlatBufferBuilder::new();
+        let name = fbb.create_string("bad");
+        let names = fbb.create_vector(&[name]);
+        let inner_struct = fb::Struct_::create(
+            &mut fbb,
+            &fb::Struct_Args {
+                names: None,
+                dtypes: None,
+                nullable: false,
+            },
+        );
+        let bad_variant = fb::DType::create(
+            &mut fbb,
+            &fb::DTypeArgs {
+                type_type: fb::Type::Struct_,
+                type_: Some(inner_struct.as_union_value()),
+            },
+        );
+        let dtypes = fbb.create_vector(&[bad_variant]);
+        let type_ids = fbb.create_vector(&[0i8]);
+        let union_table = fb::Union::create(
+            &mut fbb,
+            &fb::UnionArgs {
+                names: Some(names),
+                dtypes: Some(dtypes),
+                type_ids: Some(type_ids),
+                nullable: false,
+            },
+        );
+        let dtype = fb::DType::create(
+            &mut fbb,
+            &fb::DTypeArgs {
+                type_type: fb::Type::Union,
+                type_: Some(union_table.as_union_value()),
+            },
+        );
+        fbb.finish_minimal(dtype);
+        let (vec, start) = fbb.collapse();
+        let end = vec.len();
+        let buffer = FlatBuffer::align_from(ByteBuffer::from(vec).slice(start..end));
+
+        let root_fb = root::<fb::DType>(&buffer).unwrap();
+        let view = ViewedDType::from_fb_loc(root_fb._tab.loc(), buffer, SESSION.clone());
+
+        DType::try_from(view).expect_err("undecodable variant dtype must not parse");
     }
 
     #[test]
