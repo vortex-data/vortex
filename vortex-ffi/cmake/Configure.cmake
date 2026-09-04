@@ -233,7 +233,7 @@ endfunction()
 block(SCOPE_FOR VARIABLES)
     _vortex_resolve_cargo_profile(_configuration _cargo_profile _cargo_artifact_directory)
 
-    get_filename_component(_workspace_root "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
+    get_filename_component(_workspace_root "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
     _vortex_resolve_ffi_package(
         "${_workspace_root}"
         _ffi_package
@@ -248,6 +248,11 @@ block(SCOPE_FOR VARIABLES)
         _sanitizer_compile_flag
         _sanitizer_rustflags
         _cargo_build_std)
+    # Sanitizer builds need nightly-only rustc flags; default to rustup's
+    # nightly unless the environment already selected a toolchain.
+    if(NOT VORTEX_SANITIZER STREQUAL "" AND VORTEX_RUSTUP_TOOLCHAIN STREQUAL "")
+        set(VORTEX_RUSTUP_TOOLCHAIN nightly)
+    endif()
 
     if(NOT "$ENV{CARGO_ENCODED_RUSTFLAGS}" STREQUAL "" OR NOT "$ENV{RUSTFLAGS}" STREQUAL "")
         message(STATUS "Vortex ignores ambient Rust flags in its Cargo build")
@@ -312,9 +317,8 @@ block(SCOPE_FOR VARIABLES)
         USES_TERMINAL
         VERBATIM)
 
-    # The imported target remains directory-scoped and is only carried to users
-    # through Vortex::cpp_static.
-    add_library(vortex_ffi_static STATIC IMPORTED)
+    # Global so that sibling directories such as lang/cpp can link it.
+    add_library(vortex_ffi_static STATIC IMPORTED GLOBAL)
     set_target_properties(vortex_ffi_static PROPERTIES
         IMPORTED_LOCATION "${_ffi_archive}"
         INTERFACE_INCLUDE_DIRECTORIES "${_ffi_include_dirs}")

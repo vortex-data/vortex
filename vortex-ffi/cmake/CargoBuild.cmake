@@ -121,7 +121,7 @@ function(_vortex_make_cargo_environment target_key_lower output)
 endfunction()
 
 _vortex_require_build_inputs()
-get_filename_component(_workspace_root "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
+get_filename_component(_workspace_root "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 _vortex_cc_target_env_key(_target_key)
 _vortex_make_cargo_command(_cargo_command)
 _vortex_make_cargo_environment("${_target_key}" _cargo_environment)

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: CC-BY-4.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 #include "vortex.h"
+#include <inttypes.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -16,10 +17,10 @@ void print_estimate(const char *what, const vx_estimate *estimate) {
         printf("%s: unknown\n", what);
         return;
     case VX_ESTIMATE_EXACT:
-        printf("%s: %lu\n", what, estimate->estimate);
+        printf("%s: %" PRIu64 "\n", what, estimate->estimate);
         return;
     case VX_ESTIMATE_INEXACT:
-        printf("%s: approximately %lu\n", what, estimate->estimate);
+        printf("%s: approximately %" PRIu64 "\n", what, estimate->estimate);
         break;
     }
 }
@@ -30,7 +31,7 @@ void print_error(const char *what, const vx_error *error) {
 }
 
 struct scan_thread_info {
-    pthread_t thread_id;
+    size_t thread_id;
     pthread_mutex_t *mutex;
     vx_scan *scan;
     size_t partitions, arrays, rows;
@@ -59,7 +60,7 @@ void *execute_scan_thread(void *arg) {
             return NULL;
         }
 
-        printf("Thread %lu processing partition %lu, ", info->thread_id + 1, info->partitions);
+        printf("Thread %zu processing partition %zu, ", info->thread_id + 1, info->partitions);
         print_estimate("row count", &row_count);
 
         // An array is a batch of rows from a partition
@@ -77,21 +78,18 @@ void *execute_scan_thread(void *arg) {
         }
     }
 
-    printf("Thread %lu finished, processed %lu partitions, %lu arrays, %lu rows\n",
-           info->thread_id + 1,
-           info->partitions,
-           info->arrays,
-           info->rows);
+    printf("Thread %zu finished, processed %zu partitions, %zu arrays, %zu rows\n", info->thread_id + 1,
+           info->partitions, info->arrays, info->rows);
     return NULL;
 }
 
-vx_error *execute_scan(vx_scan *scan, pthread_t num_threads) {
+vx_error *execute_scan(vx_scan *scan, size_t num_threads) {
     pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
     pthread_t threads[MAX_THREADS];
     struct scan_thread_info infos[MAX_THREADS] = {0};
 
-    printf("Starting scan, using %lu threads\n", num_threads);
-    for (pthread_t id = 0; id < num_threads; ++id) {
+    printf("Starting scan, using %zu threads\n", num_threads);
+    for (size_t id = 0; id < num_threads; ++id) {
         struct scan_thread_info *info = &infos[id];
         info->thread_id = id;
         info->mutex = &mutex;
@@ -100,7 +98,7 @@ vx_error *execute_scan(vx_scan *scan, pthread_t num_threads) {
     }
 
     size_t partitions = 0, arrays = 0, rows = 0;
-    for (pthread_t id = 0; id < num_threads; ++id) {
+    for (size_t id = 0; id < num_threads; ++id) {
         pthread_join(threads[id], NULL);
         struct scan_thread_info *info = &infos[id];
 
@@ -114,11 +112,11 @@ vx_error *execute_scan(vx_scan *scan, pthread_t num_threads) {
         rows += info->rows;
     }
 
-    printf("Finished scan, processed %lu partitions, %lu arrays, %lu rows\n", partitions, arrays, rows);
+    printf("Finished scan, processed %zu partitions, %zu arrays, %zu rows\n", partitions, arrays, rows);
     return NULL;
 }
 
-int parse_options(int argc, char *argv[], pthread_t *threads, char **paths) {
+int parse_options(int argc, char *argv[], size_t *threads, char **paths) {
     int opt;
     while ((opt = getopt(argc, argv, "j:")) != -1) {
         switch (opt) {
@@ -132,7 +130,7 @@ int parse_options(int argc, char *argv[], pthread_t *threads, char **paths) {
     }
 
     if (*threads != 0 && (*threads < 1 || *threads > MAX_THREADS)) {
-        fprintf(stderr, "Invalid thread count %lu, expected [1; 64]\n", *threads);
+        fprintf(stderr, "Invalid thread count %zu, expected [1; 64]\n", *threads);
         return 1;
     }
 
@@ -146,7 +144,7 @@ int parse_options(int argc, char *argv[], pthread_t *threads, char **paths) {
 }
 
 int main(int argc, char *argv[]) {
-    pthread_t threads = 0;
+    size_t threads = 0;
     char *paths;
     if (parse_options(argc, argv, &threads, &paths)) {
         return 1;

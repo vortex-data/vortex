@@ -782,13 +782,13 @@ jobs:
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: "true"
-      - name: "regenerate FFI header file"
+      - name: Build and run C API tests
+        env:
+          # Nightly regenerates cinclude/vortex.h with cbindgen during the build.
+          RUSTUP_TOOLCHAIN: ${{ env.NIGHTLY_TOOLCHAIN }}
         run: |
-          cargo +$NIGHTLY_TOOLCHAIN build --profile ci -p vortex-ffi
-      - name: Build and run C++ unit tests
-        run: |
-          cd vortex-ffi
-          mkdir build
-          cmake -Bbuild -DRUST_BUILD_PROFILE=ci
-          cmake --build build -j $(nproc)
-          ctest --test-dir build -j $(nproc)
+          cmake -S vortex-ffi -B vortex-ffi/build \
+            -DVORTEX_CARGO_PROFILE=ci \
+            -DVORTEX_BUILD_TESTING=ON
+          cmake --build vortex-ffi/build --parallel
+          ctest --test-dir vortex-ffi/build --output-on-failure

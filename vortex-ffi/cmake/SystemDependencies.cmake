@@ -24,8 +24,8 @@ function(_vortex_attach_system_dependencies target rust_target)
             ${CMAKE_DL_LIBS}
             c)
     elseif(rust_target STREQUAL "aarch64-apple-darwin")
-        # The public Vortex target is C++, whose driver adds libc++ and
-        # libSystem. Publish only additional framework/library requirements.
+        # The archive needs no C++ runtime, so C and C++ consumers alike only
+        # need libSystem from their driver plus these extra libraries.
         find_library(_vortex_core_foundation CoreFoundation REQUIRED NO_CACHE)
         target_link_libraries("${target}" INTERFACE iconv "${_vortex_core_foundation}")
     else()

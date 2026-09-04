@@ -38,11 +38,12 @@ locked Rust dependencies during the build.
 Tests and examples default to ``OFF``. ``VORTEX_WARNINGS_AS_ERRORS`` defaults to
 ``ON`` for a standalone build and ``OFF`` when a parent adds ``lang/cpp``.
 
-Source-tree consumers add ``lang/cpp`` and link the canonical target:
+Source-tree consumers add the repository root, which builds the Rust FFI once and
+the C++ wrapper on top, and link the canonical target:
 
 .. code-block:: cmake
 
-    add_subdirectory(path/to/vortex/lang/cpp vortex-cpp)
+    add_subdirectory(path/to/vortex vortex)
     target_link_libraries(target PRIVATE Vortex::cpp_static)
 
 The Vortex archives are PIC and can be embedded into a shared parent. Keep calls
@@ -52,7 +53,7 @@ interface target does not apply parent-wide symbol-export policy.
 
 The CMake integration is source-only: it does not provide installation rules or a
 ``find_package(Vortex)`` package. Downstream projects should vendor or fetch a pinned
-Vortex checkout and add ``lang/cpp`` directly.
+Vortex checkout and add it directly.
 
 Native macOS arm64 is supported for standalone development, but macOS is not a
 cuDF integration target. GNU/Linux x86_64 and aarch64 are modeled, while full

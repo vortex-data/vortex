@@ -27,100 +27,74 @@ cargo +nightly build -p vortex-ffi
 
 ## Usage from a CMake project
 
-```
-# in vortex folder
-cargo build --release -p vortex-ffi
+CMake builds the Rust archive through Cargo; no separate `cargo build` is needed. Add the
+repository root, or this directory alone, and link the static target:
 
-# in your CMakeLists.txt
-include_directory(vortex/vortex-ffi)
-target_link_libraries(my_target, vortex_ffi_shared)
-# or target_link_libraries(my_target, vortex_ffi)
+```cmake
+add_subdirectory(path/to/vortex vortex)
+target_link_libraries(my_target PRIVATE Vortex::ffi_static)
 ```
+
+The target carries the headers in `cinclude/`, the archive, and the system libraries it needs.
+Build options such as `VORTEX_CARGO_PROFILE`, `VORTEX_ENABLE_CUDA`, and `VORTEX_SANITIZER` are
+documented in the [C++ README](../lang/cpp/README.md) and apply to both layers.
 
 ## Running C examples
 
 ```sh
-cmake -Bbuild -DBUILD_EXAMPLES=1
-cmake --build build
-./build/examples/dtype
-./build/examples/scan
-./build/examples/scan_to_arrow
-./build/examples/write_sample
+cmake -S . -B build -DVORTEX_BUILD_EXAMPLES=ON
+cmake --build build --parallel
+./build/examples/write_sample sample.vortex
+./build/examples/dtype 'sample.vortex'
+./build/examples/scan 'sample.vortex'
+./build/examples/scan_to_arrow 'sample.vortex'
 ```
 
 ## Testing C part
 
-Build the test library:
+The tests use Catch2, so a C++ compiler is required:
 
 ```sh
-cmake -Bbuild -DBUILD_TESTS=1
-cmake --build build
+cmake -S . -B build -DVORTEX_BUILD_TESTING=ON
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure
 ```
-
-Run the tests:
-
-```sh
-ctest --test-dir build -j $(nproc)
-```
-
-You will need C++ compiler toolchain to run the tests since they use Catch2.
 
 ## Testing Rust part with sanitizers
 
-AddressSanitizer:
+The Rust tests run under a sanitizer with nightly `cargo test`. Substitute the native target
+triple, for example `x86_64-unknown-linux-gnu`:
 
 ```sh
 # inside vortex-ffi
-RUSTFLAGS="-Z sanitizer=address" \
-cargo +nightly test -Zbuild-std \
-    --no-default-features --target <target triple> \
-    -- --no-capture
+RUSTFLAGS="-Zsanitizer=address -Cunsafe-allow-abi-mismatch=sanitizer" \
+cargo +nightly test -Zbuild-std --target <target triple> --tests -- --no-capture
 ```
 
-MemorySanitizer:
-
-```sh
-RUSTFLAGS="-Z sanitizer=memory -Cunsafe-allow-abi-mismatch=sanitizer" \
-cargo +nightly test -Zbuild-std \
-    --no-default-features --target <target triple> \
-    -- --no-capture
-```
-
-ThreadSanitizer:
-
-```sh
-TSAN_OPTIONS="suppressions=$HOME/vortex/vortex-ffi/tsan_suppressions.txt" \
-RUSTFLAGS="-Z sanitizer=thread -Cunsafe-allow-abi-mismatch=sanitizer" \
-cargo +nightly test -Zbuild-std \
-    --no-default-features --target <target triple> \
-    -- --no-capture
-```
+Use `-Zsanitizer=memory` for MemorySanitizer and `-Zsanitizer=thread` for ThreadSanitizer; the
+latter needs `TSAN_OPTIONS="suppressions=$PWD/tsan_suppressions.txt"`.
 
 - `-Zbuild-std` is needed as memory and thread sanitizers report std errors otherwise.
-- `--no-default-features` is needed as we use Mimalloc otherwise which interferes with sanitizers.
 - `allow-abi-mismatch` is safe because in our dependency graph only crates like `compiler_builtins`
   unset sanitization, and they do it on purpose.
+- `--tests` skips doctests, which rustdoc builds without `RUSTFLAGS` and which would therefore
+  mismatch the sanitizer-built dependencies.
 - Make sure to use `cargo test` and not `cargo nextest` as nextest reports less leaks.
 - If you want stack trace symbolization, install `llvm-symbolizer`.
 
 ## Testing Rust and C with sanitizers
 
-1. Build FFI library with external sanitizer runtime:
+CMake instruments the Rust archive, its C dependencies, and the tests together. It uses rustup's
+`nightly` toolchain, which needs the `rust-src` component, unless `RUSTUP_TOOLCHAIN` selects another,
+and it needs Clang for the C and C++ side:
 
 ```sh
-RUSTFLAGS="-Zsanitizer=address -Zexternal-clangrt" \
-cargo +nightly build -Zbuild-std --target=<target triple> \
-    --no-default-features -p vortex-ffi
+cmake -S . -B build \
+    -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+    -DVORTEX_SANITIZER=asan -DVORTEX_SANITIZE_RUST_STD=ON \
+    -DVORTEX_BUILD_TESTING=ON
+cmake --build build --parallel
+./build/test/vortex_ffi_test 2>&1 | rustfilt -i-
 ```
 
-2. Build tests with target triple:
-
-```sh
-cmake -Bbuild -DSANITIZER=asan -DTARGET_TRIPLE=<target triple>
-```
-
-3. Run the tests (ctest doesn't output failures in detail):
-
-```sh
-./build/test/vortex_ffi_test 2>& 1 | rustfilt -i-
-```
+`VORTEX_SANITIZER=tsan` selects ThreadSanitizer; point `TSAN_OPTIONS` at `tsan_suppressions.txt`.

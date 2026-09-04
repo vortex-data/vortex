@@ -5,11 +5,11 @@ Vortex provides a C++20 API for reading and writing Vortex files. See the
 
 ## Quick start
 
-Build from the repository root with CMake 3.28 or newer, Ninja, native C/C++ compilers, and
-Cargo and rustc available to CMake's program search:
+Build from the repository root with CMake 3.28 or newer, native C/C++ compilers, and Cargo and
+rustc available to CMake's program search:
 
 ```sh
-cmake -S lang/cpp -B build/cpp -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake -S lang/cpp -B build/cpp -DCMAKE_BUILD_TYPE=Release
 cmake --build build/cpp --parallel
 ```
 
@@ -17,17 +17,18 @@ CMake builds the Rust FFI through Cargo. A separate `cargo build` is not require
 
 ## Embed in a CMake project
 
-Vendor or fetch a pinned, complete Vortex checkout, then add `lang/cpp` once:
+Vendor or fetch a pinned, complete Vortex checkout, then add the repository root once:
 
 ```cmake
-add_subdirectory(path/to/vortex/lang/cpp vortex-cpp)
-target_link_libraries(my_target PRIVATE Vortex::cpp_static)
+add_subdirectory(path/to/vortex vortex)
+target_link_libraries(my_cpp_target PRIVATE Vortex::cpp_static)
+target_link_libraries(my_c_target PRIVATE Vortex::ffi_static)
 ```
 
-`lang/cpp/CMakeLists.txt` is the only supported entry point. Its only supported consumer target is
-`Vortex::cpp_static`, an alias of the `vortex_cxx` build target. It transitively links the separate
-Rust FFI archive and required native libraries; consume the target rather than copying
-`libvortex_cxx.a` alone.
+The root builds the Rust FFI archive once under `vortex-ffi` and layers this directory on top;
+`lang/cpp` and `vortex-ffi` can also be added on their own. `Vortex::cpp_static` is an alias of the
+`vortex_cxx` build target. It transitively links the FFI archive and required native libraries, so
+consume the target rather than copying `libvortex_cxx.a` alone.
 
 The integration is source-only: it does not install Vortex or provide `find_package(Vortex)`. It
 enables C and C++ when needed, but keeps compile and link policy target-scoped and does not replace
@@ -66,11 +67,12 @@ target.
 ## Configuration
 
 Set these public Vortex-specific options before `add_subdirectory`, or pass them with `-D` for a
-standalone build:
+standalone build. The Cargo, CUDA, and sanitizer options are defined by `vortex-ffi/CMakeLists.txt`
+and apply to both layers:
 
-- `VORTEX_BUILD_TESTING=ON` builds the `vortex_cxx_test` C++23 test target. Embedded builds require
-  the parent to enable CTest. Default: `OFF`.
-- `VORTEX_BUILD_EXAMPLES=ON` builds the examples. Default: `OFF`.
+- `VORTEX_BUILD_TESTING=ON` builds the `vortex_cxx_test` C++23 test target and the C API tests in
+  `vortex-ffi`. Embedded builds require the parent to enable CTest. Default: `OFF`.
+- `VORTEX_BUILD_EXAMPLES=ON` builds the C++ and C examples. Default: `OFF`.
 - `VORTEX_ENABLE_CUDA=ON` selects the Linux-only `vortex-cuda-ffi` archive, adds `vortex_cuda.h` to
   the existing `Vortex::cpp_static` target, and requires `find_package(CUDAToolkit)`. Set
   `CUDAToolkit_ROOT` when CMake cannot find the toolkit. Default: `OFF`.
@@ -80,7 +82,8 @@ standalone build:
 - `VORTEX_WARNINGS_AS_ERRORS` promotes warnings only while compiling `vortex_cxx`; it does not affect
   tests, examples, consumers, Rust, or CUDA compilation. Default: `ON` standalone and `OFF` when
   embedded.
-- `VORTEX_SANITIZER=asan|tsan` requires `Debug`, Clang or AppleClang, and nightly Rust. ASan enables
+- `VORTEX_SANITIZER=asan|tsan` requires `Debug` and Clang or AppleClang, and selects rustup's `nightly`
+  toolchain unless `RUSTUP_TOOLCHAIN` is set. ASan enables
   address and undefined-behavior checks for native code and address instrumentation for Rust; TSan
   enables thread instrumentation. Flags propagate to targets linking Vortex, but CUDA device code,
   the CUB helper, and nvCOMP are not sanitizer-instrumented. Default: empty.
@@ -91,7 +94,8 @@ Cargo runs with the lockfile and the selected native target and profile. Optiona
 `mimalloc` are not enabled. The integration supplies its complete Rust flag sequence, overriding Rust
 flags from the environment and Cargo configuration.
 
-Cargo's target cache is stored under `<CMake binary dir>/cargo-target`. The Cargo target runs whenever
+Cargo's target cache is stored under the `vortex-ffi` binary directory, which is `ffi/cargo-target`
+inside a root or `lang/cpp` build directory. The Cargo target runs whenever
 Vortex is built, while Cargo decides whether recompilation is needed. The standard CMake clean target
 removes both CMake outputs and this Cargo cache:
 
@@ -144,11 +148,12 @@ The `reader`, `writer`, `dtype`, `scan`, and `scan_to_arrow` executables are wri
 
 ### Sanitizers
 
-Install nightly Rust, then select it explicitly. CMake must use Clang or AppleClang:
+Sanitizer builds use rustup's `nightly` toolchain unless `RUSTUP_TOOLCHAIN` selects another, and
+CMake must use Clang or AppleClang:
 
 ```sh
 rustup toolchain install nightly
-RUSTUP_TOOLCHAIN=nightly cmake -S lang/cpp -B build/cpp-asan -G Ninja \
+cmake -S lang/cpp -B build/cpp-asan -G Ninja \
     -DCMAKE_BUILD_TYPE=Debug \
     -DCMAKE_C_COMPILER=clang \
     -DCMAKE_CXX_COMPILER=clang++ \

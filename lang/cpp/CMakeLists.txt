@@ -1,46 +1,43 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-# Entry point for the static Vortex C++ and Rust FFI libraries. It supports both
-# standalone configuration and inclusion from a parent via add_subdirectory().
+# Entry point for the static Vortex C++ wrapper. It consumes the Rust FFI
+# archive from vortex-ffi and exports Vortex::cpp_static. It supports standalone
+# configuration and add_subdirectory() from the repository root or a parent.
 
 cmake_minimum_required(VERSION 3.28)
 
-# project() is safe inside a parent's add_subdirectory(); PROJECT_IS_TOP_LEVEL
-# tells the two cases apart wherever the defaults below differ.
+# project() is safe inside a parent's add_subdirectory(). A Vortex-owned top
+# level, this directory or the repository root, gets developer defaults below;
+# an embedding parent keeps its own.
 project(VortexCXX DESCRIPTION "Vortex C++ wrapper" LANGUAGES C CXX)
+if(CMAKE_PROJECT_NAME MATCHES "^Vortex")
+    set(_vortex_top_level ON)
+else()
+    set(_vortex_top_level OFF)
+endif()
 
 # Vortex does not use C++ modules, so it does not require compiler-specific
 # dependency scanners such as clang-scan-deps.
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
-# Standalone builds default to Debug; embedded builds keep the parent's choice.
-if(PROJECT_IS_TOP_LEVEL AND NOT CMAKE_BUILD_TYPE)
+if(_vortex_top_level AND NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
 endif()
 
-# Public options. Embedding parents set these before add_subdirectory().
-option(VORTEX_BUILD_TESTING "Build Vortex C++ tests" OFF)
-option(VORTEX_BUILD_EXAMPLES "Build Vortex C++ examples" OFF)
-option(VORTEX_ENABLE_CUDA "Build the CUDA-enabled Vortex FFI" OFF)
-set(VORTEX_CARGO_PROFILE "" CACHE STRING "Override the Cargo profile selected from CMAKE_BUILD_TYPE")
-
-# Sanitizers instrument the Rust archive, its C dependencies, and the C++
-# sources together; Configure.cmake enforces the toolchain constraints.
-set(VORTEX_SANITIZER "" CACHE STRING "Instrument Vortex and its consumers with asan or tsan")
-option(VORTEX_SANITIZE_RUST_STD
-    "Rebuild Rust's standard library with sanitizer instrumentation"
-    OFF)
-
-# Standalone builds treat warnings as errors; embedded builds do not impose that
-# policy on a parent.
+# Public options. Embedding parents set these before add_subdirectory(). The
+# Cargo, CUDA, and sanitizer options are defined by vortex-ffi/CMakeLists.txt.
+option(VORTEX_BUILD_TESTING "Build Vortex tests" OFF)
+option(VORTEX_BUILD_EXAMPLES "Build Vortex examples" OFF)
 option(VORTEX_WARNINGS_AS_ERRORS
-    "Treat warnings in Vortex-owned C++ sources as errors"
-    "${PROJECT_IS_TOP_LEVEL}")
+    "Treat warnings in Vortex-owned sources as errors"
+    "${_vortex_top_level}")
 
-# Run the private configure-time integration that defines the Cargo build and
-# the imported vortex_ffi_static target consumed below.
-include(cmake/Configure.cmake)
+# The Rust FFI archive comes from vortex-ffi. A standalone configure of this
+# directory adds it here; the repository root or a parent may already have.
+if(NOT TARGET Vortex::ffi_static)
+    add_subdirectory(../../vortex-ffi ffi)
+endif()
 
 # The C++ wrapper over the C FFI. Public headers live under include/.
 file(GLOB _vortex_cpp_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
@@ -55,7 +52,7 @@ set_target_properties(vortex_cxx PROPERTIES
     VISIBILITY_INLINES_HIDDEN ON)
 target_compile_features(vortex_cxx PUBLIC cxx_std_20)
 target_include_directories(vortex_cxx PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_link_libraries(vortex_cxx PUBLIC vortex_ffi_static)
+target_link_libraries(vortex_cxx PUBLIC Vortex::ffi_static)
 
 # Warning policy is private to Vortex-owned sources so embedding this target
 # never injects warning flags into consumers.
@@ -64,7 +61,7 @@ if(VORTEX_WARNINGS_AS_ERRORS)
     target_compile_options(vortex_cxx PRIVATE -Werror)
 endif()
 
-# The only supported consumer-facing target name.
+# The only supported consumer-facing name for the C++ API.
 add_library(Vortex::cpp_static ALIAS vortex_cxx)
 
 # Test and example dependencies are fetched at configure time and never installed.
@@ -89,7 +86,9 @@ if(VORTEX_BUILD_TESTING)
         GIT_REPOSITORY https://github.com/catchorg/Catch2.git
         GIT_TAG v3.8.1)
     FetchContent_MakeAvailable(Catch)
-    include(Catch)
+    # By path: Catch2 exports its module directory only to the directory that
+    # populated it, which may be vortex-ffi/test.
+    include("${catch_SOURCE_DIR}/extras/Catch.cmake")
 
     # Catch2 enables std::string_view, optional, variant, and byte support from
     # C++17, in headers and compiled sources alike; build it with those on so it
