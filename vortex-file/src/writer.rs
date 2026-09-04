@@ -239,7 +239,7 @@ impl VortexWriteOptions {
         let enforce_editions = !self.disable_editions;
         // The array context is built here, rather than when the options were constructed, so that
         // encodings registered on the session in between are still eligible for the file.
-        let (array_ctx, allowed_array_encodings) =
+        let (array_ctx, allowed_array_encodings, allowed_serialized_ids) =
             new_array_context(&self.session, enforce_editions);
         let ctx = LayoutWriterContext::new(array_ctx)
             .with_buffered_bytes_tracker(self.buffered_bytes.clone());
@@ -253,7 +253,8 @@ impl VortexWriteOptions {
             None => WriteStrategyBuilder::default()
                 .with_btrblocks_builder(
                     BtrBlocksCompressorBuilder::default()
-                        .retain_allowed_encodings(&allowed_array_encodings),
+                        .retain_allowed_encodings(&allowed_array_encodings)
+                        .allow_serialized_ids(&allowed_serialized_ids),
                 )
                 .build(),
         };
@@ -384,10 +385,12 @@ impl VortexWriteOptions {
     }
 }
 
+/// Returns the array context, the in-memory encodings the compressor may produce, and the
+/// serialized IDs its output may use.
 fn new_array_context(
     session: &VortexSession,
     enforce_editions: bool,
-) -> (ArrayContext, HashSet<ArrayId>) {
+) -> (ArrayContext, HashSet<ArrayId>, HashSet<ArrayId>) {
     // NOTE(os): Set up an array context with all eligible serialized IDs pre-populated.
     // This is preferred for now over having an empty context here, because only the
     // serialised array order is deterministic. The serialisation of arrays are done
@@ -406,6 +409,9 @@ fn new_array_context(
         .filter_map(|serialized_id| arrays.registry().get(serialized_id))
         .map(|plugin| plugin.id())
         .collect();
+    // The compressor sees the same set, so an encoding with several wire formats produces the
+    // newest one the editions permit.
+    let allowed_serialized_ids: HashSet<ArrayId> = serialized_ids.iter().copied().collect();
     let array_ctx = ArrayContext::new(serialized_ids.iter().copied().sorted().collect());
     let array_ctx = if enforce_editions {
         // Only permit serialized IDs in the enabled editions.
@@ -413,7 +419,7 @@ fn new_array_context(
     } else {
         array_ctx
     };
-    (array_ctx, allowed_array_encodings)
+    (array_ctx, allowed_array_encodings, allowed_serialized_ids)
 }
 
 /// The ids of `kind` the enabled editions permit.
@@ -787,10 +793,12 @@ mod tests {
         session.register_edition(&DECLARATION)?;
         session.enable_edition(EDITION)?;
 
-        let (ctx, allowed_array_encodings) = new_array_context(&session, true);
+        let (ctx, allowed_array_encodings, allowed_serialized_ids) =
+            new_array_context(&session, true);
         assert_eq!(ctx.to_ids(), [Primitive.id()]);
         assert!(ctx.intern(&Bool.id()).is_none());
         assert_eq!(allowed_array_encodings, HashSet::from([Primitive.id()]));
+        assert_eq!(allowed_serialized_ids, HashSet::from([Primitive.id()]));
         Ok(())
     }
 
@@ -807,9 +815,14 @@ mod tests {
             )
         });
 
-        let (ctx, allowed_array_encodings) = new_array_context(&session, false);
+        let (ctx, allowed_array_encodings, allowed_serialized_ids) =
+            new_array_context(&session, false);
         assert_eq!(ctx.to_ids(), registered_ids);
         assert_eq!(allowed_array_encodings, registered_encodings);
+        assert_eq!(
+            allowed_serialized_ids,
+            registered_ids.iter().copied().collect::<HashSet<_>>()
+        );
         assert!(ctx.intern(&Bool.id()).is_some());
     }
 

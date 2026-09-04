@@ -9,11 +9,14 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VTable;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::Bool;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::Map;
 use vortex_array::arrays::NullArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::builders::MapBuilder;
@@ -26,6 +29,7 @@ use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use super::CascadingCompressor;
 use super::ROOT_SCHEME_ID;
@@ -93,6 +97,48 @@ impl Scheme for DirectRatioScheme {
         _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         unreachable!("test helper should never be selected for compression")
+    }
+}
+
+/// What the last `FormatRecordingScheme::compress` call saw for `allows_serialized_id`.
+static SEEN_FORMAT: Mutex<Option<bool>> = Mutex::new(None);
+
+/// Stands in for a scheme whose encoding has several wire formats: it asks the compressor whether
+/// the newer one is allowed and records the answer.
+#[derive(Debug)]
+struct FormatRecordingScheme;
+
+impl Scheme for FormatRecordingScheme {
+    fn scheme_name(&self) -> &'static str {
+        "test.format_recording"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        matches_integer_primitive(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
+    }
+
+    fn compress(
+        &self,
+        compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        *SEEN_FORMAT.lock() = Some(compressor.allows_serialized_id(Constant.id()));
+        Ok(data.array().clone())
     }
 }
 
@@ -839,5 +885,40 @@ fn map_compression_preserves_repeated_entry_children() -> VortexResult<()> {
     assert!(compressed.is::<Map>());
     assert_eq!(compressed.dtype(), array.dtype());
     assert_arrays_eq!(&compressed, &array, &mut exec_ctx);
+    Ok(())
+}
+
+#[test]
+fn allowed_serialized_ids_default_to_everything_and_intersect() {
+    let compressor = compressor();
+    assert!(compressor.allows_serialized_id(Constant.id()));
+    assert!(compressor.allows_serialized_id(Bool.id()));
+
+    let restricted =
+        compressor.with_allowed_serialized_ids(HashSet::from([Primitive.id(), Constant.id()]));
+    assert!(restricted.allows_serialized_id(Constant.id()));
+    assert!(!restricted.allows_serialized_id(Bool.id()));
+
+    let narrowed =
+        restricted.with_allowed_serialized_ids(HashSet::from([Primitive.id(), Bool.id()]));
+    assert!(narrowed.allows_serialized_id(Primitive.id()));
+    assert!(!narrowed.allows_serialized_id(Constant.id()));
+    assert!(!narrowed.allows_serialized_id(Bool.id()));
+}
+
+/// A scheme sees the restriction through the compressor it is handed: everything is allowed until
+/// the writer narrows the set to its editions.
+#[test]
+fn schemes_see_the_allowed_serialized_ids() -> VortexResult<()> {
+    let array = PrimitiveArray::from_iter(0..4096i32).into_array();
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    let unrestricted = CascadingCompressor::new(vec![&FormatRecordingScheme]);
+    unrestricted.compress(&array, &mut exec_ctx)?;
+    assert_eq!(*SEEN_FORMAT.lock(), Some(true));
+
+    let restricted = unrestricted.with_allowed_serialized_ids(HashSet::from([Primitive.id()]));
+    restricted.compress(&array, &mut exec_ctx)?;
+    assert_eq!(*SEEN_FORMAT.lock(), Some(false));
     Ok(())
 }

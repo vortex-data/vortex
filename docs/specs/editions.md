@@ -95,8 +95,10 @@ unrestricted. It does not register missing readers, so files written this way ha
 
 Compression and edition compatibility are separate. Compressors produce current in-memory arrays and do not select a
 wire ID. The writer maps each allowed serialized ID to its current in-memory encoding and restricts the default
-BtrBlocks compressor to schemes producing those encodings. Custom compressors remain unrestricted, with serialization
-providing the final compatibility boundary when edition enforcement is enabled. At that boundary, the array plugin
+BtrBlocks compressor to schemes producing those encodings. It also hands the compressor the allowed serialized IDs
+themselves, so a scheme whose encoding has more than one wire format can produce the newest form those IDs permit
+instead of one the serializer would refuse; the compressor never reads editions directly. Custom compressors remain
+unrestricted, with serialization providing the final compatibility boundary when edition enforcement is enabled. At that boundary, the array plugin
 produces an ID, metadata, buffers, and children. The serialization context interns the returned ID and fails the write
 if the selected editions do not permit it. A serializer may emit a historical ID when the value satisfies that ID's
 frozen contract, but it does not inspect the edition allowlist. Without disabling edition enforcement, a custom layout
