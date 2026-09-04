@@ -839,6 +839,81 @@ mod tests {
     }
 
     #[test]
+    fn postorder_layout_three_level_nesting_with_mixed_nullability() {
+        // root (nullable) -> a (non-nullable) -> b (nullable) -> c (leaf). Exercises composition
+        // across more than one level, including a non-nullable struct sandwiched between two
+        // nullable ones, which should get no entry of its own.
+        let b_dtype = DType::struct_([("c", i32_dtype())], Nullability::Nullable);
+        let a_dtype = DType::struct_([("b", b_dtype.clone())], Nullability::NonNullable);
+        let root_dtype = DType::struct_([("a", a_dtype)], Nullability::Nullable);
+
+        let layout = postorder_stats_layout(&root_dtype);
+        assert_eq!(
+            layout,
+            vec![
+                (FieldPath::from_name("a").push("b").push("c"), i32_dtype()),
+                (FieldPath::from_name("a").push("b"), b_dtype),
+                (FieldPath::root(), root_dtype),
+            ]
+        );
+    }
+
+    #[test]
+    fn three_level_nested_struct_accumulates_stats_at_each_level() -> VortexResult<()> {
+        // Same shape as `postorder_layout_three_level_nesting_with_mixed_nullability`, but
+        // exercises actual accumulation: each nullable level along the path should independently
+        // contribute its own null-count entry, in post-order.
+        let mut ctx = array_session().create_execution_ctx();
+
+        let leaf_c = buffer![10i32, 20, 30].into_array();
+        let b_validity = Validity::Array(BoolArray::from_iter([true, false, true]).into_array());
+        let struct_b =
+            StructArray::new(FieldNames::from(["c"]), [leaf_c], 3, b_validity).into_array();
+        let struct_a = StructArray::new(
+            FieldNames::from(["b"]),
+            [struct_b],
+            3,
+            Validity::NonNullable,
+        )
+        .into_array();
+        let root_validity = Validity::Array(BoolArray::from_iter([true, true, false]).into_array());
+        let root =
+            StructArray::new(FieldNames::from(["a"]), [struct_a], 3, root_validity).into_array();
+
+        let requested = [Stat::NullCount, Stat::Min, Stat::Max];
+        let mut node = StatsNode::build(root.dtype(), &requested, 1024);
+        node.push_chunk(&root, &mut ctx)?;
+
+        let mut stats_sets = Vec::new();
+        node.collect_stats_sets(&mut ctx, &mut stats_sets)?;
+
+        // `a.b.c`'s own stats come first (post-order), then `a.b`'s null-count entry, then the
+        // root's own null-count entry.
+        assert_eq!(stats_sets.len(), 3);
+        assert_eq!(
+            stats_sets[0].get(Stat::Min).as_exact(),
+            Some(ScalarValue::from(10i32))
+        );
+        assert_eq!(
+            stats_sets[0].get(Stat::Max).as_exact(),
+            Some(ScalarValue::from(30i32))
+        );
+        assert_eq!(
+            stats_sets[0].get(Stat::NullCount).as_exact(),
+            Some(ScalarValue::from(0u64))
+        );
+        assert_eq!(
+            stats_sets[1].get(Stat::NullCount).as_exact(),
+            Some(ScalarValue::from(1u64))
+        );
+        assert_eq!(
+            stats_sets[2].get(Stat::NullCount).as_exact(),
+            Some(ScalarValue::from(1u64))
+        );
+        Ok(())
+    }
+
+    #[test]
     fn nested_nullable_struct_accumulates_its_own_null_count() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
 

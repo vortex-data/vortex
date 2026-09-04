@@ -2766,6 +2766,39 @@ async fn test_can_prune_nested_struct_field() -> VortexResult<()> {
 
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
+async fn test_can_prune_three_level_nested_struct_field() -> VortexResult<()> {
+    // Regression test for vortex-data/vortex#6389: whole-file stats resolve field paths at
+    // arbitrary nesting depth, not just one level.
+    let struct_z = StructArray::from_fields(&[("z", buffer![15i32, 18, 22, 25].into_array())])?;
+    let struct_y = StructArray::try_new(
+        ["y"].into(),
+        vec![struct_z.into_array()],
+        4,
+        Validity::NonNullable,
+    )?;
+    let struct_x = StructArray::try_new(
+        ["x"].into(),
+        vec![struct_y.into_array()],
+        4,
+        Validity::NonNullable,
+    )?;
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, struct_x.into_array().to_array_stream())
+        .await?;
+    let file = SESSION.open_options().open_buffer(buf)?;
+
+    let z_field = get_item("z", get_item("y", col("x")));
+    assert!(file.can_prune(&gt(z_field.clone(), lit(30)))?);
+    assert!(!file.can_prune(&gt(z_field, lit(20)))?);
+
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
 async fn repro_8166_binary_gt_all_ff_max() -> VortexResult<()> {
     use vortex_buffer::ByteBuffer;
 
