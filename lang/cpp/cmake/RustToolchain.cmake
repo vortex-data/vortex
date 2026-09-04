@@ -1,14 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-# Rust toolchain and native-target validation for Cargo-backed Vortex CMake builds.
-# This module resolves concrete tools and one supported native Rust target
-# before build rules are created; it neither installs toolchains nor enables
-# cross builds.
+# Resolves and validates the Rust and native toolchains used by the Vortex C++
+# build.
 
 include_guard(GLOBAL)
 
-include("${CMAKE_CURRENT_LIST_DIR}/VortexHelpers.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/Helpers.cmake")
 
 # Normalize supported architecture aliases and target prefixes to `x86_64` or
 # `aarch64`; lowercase other values for later validation.

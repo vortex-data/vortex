@@ -1,16 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-# Configure-time integration that builds the selected Vortex FFI crate with
-# Cargo and exposes it as a CMake static-library target. The module resolves the
-# build policy and toolchain, writes build support files, and defines the Cargo
-# and imported-library targets.
+# Configures the Rust FFI library used by the Vortex C++ target. This module
+# defines the Cargo build and exposes its output to the CMake build.
 
 include_guard(GLOBAL)
 
-include("${CMAKE_CURRENT_LIST_DIR}/VortexHelpers.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/VortexRustToolchain.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/VortexStaticLink.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/Helpers.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/RustToolchain.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/SystemDependencies.cmake")
 
 # Validate the single-config CMake build type and return its uppercase CMake
 # configuration, Cargo profile, and Cargo artifact directory. Unsupported build
@@ -359,7 +357,7 @@ block(SCOPE_FOR VARIABLES)
             "-DVORTEX_RANLIB=${CMAKE_RANLIB}"
             "-DVORTEX_APPLE_DEPLOYMENT_TARGET=${_apple_deployment_target}"
             "-DVORTEX_APPLE_SDKROOT=${_apple_sdkroot}"
-            -P "${CMAKE_CURRENT_LIST_DIR}/BuildVortexCargo.cmake"
+            -P "${CMAKE_CURRENT_LIST_DIR}/CargoBuild.cmake"
         BYPRODUCTS "${_ffi_archive}"
         COMMENT "Building the PIC Vortex FFI static archive with Cargo"
         USES_TERMINAL
@@ -372,7 +370,7 @@ block(SCOPE_FOR VARIABLES)
         IMPORTED_LOCATION "${_ffi_archive}"
         INTERFACE_INCLUDE_DIRECTORIES "${_ffi_include_dirs}")
     add_dependencies(vortex_ffi_static vortex_ffi_cargo_build)
-    _vortex_configure_static_link(vortex_ffi_static "${_rust_target}")
+    _vortex_attach_system_dependencies(vortex_ffi_static "${_rust_target}")
     if(_sanitizer_compile_flag)
         target_compile_options(vortex_ffi_static INTERFACE "${_sanitizer_compile_flag}")
         target_link_options(vortex_ffi_static INTERFACE "${_sanitizer_compile_flag}")

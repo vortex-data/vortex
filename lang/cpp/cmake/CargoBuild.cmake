@@ -1,10 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-# Build-time `cmake -P` driver for the custom target defined by
-# VortexCargo.cmake. Configuration arrives through -D variables; this script
-# recreates the validated Cargo environment, builds the selected FFI crate, and
-# stages its static archive at the stable path consumed by CMake.
+# Builds and stages the Rust FFI static library used by the Vortex C++ target.
+# Configure.cmake invokes this internal script automatically during the build.
 
 cmake_minimum_required(VERSION 3.28)
 
@@ -25,7 +23,7 @@ function(_vortex_require_build_inputs)
         VORTEX_AR
         VORTEX_RANLIB)
         if(NOT DEFINED ${_required} OR "${${_required}}" STREQUAL "")
-            message(FATAL_ERROR "BuildVortexCargo.cmake requires ${_required}")
+            message(FATAL_ERROR "CargoBuild.cmake requires ${_required}")
         endif()
     endforeach()
 endfunction()

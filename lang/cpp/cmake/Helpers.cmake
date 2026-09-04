@@ -1,9 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-# Internal quoting and file-generation primitives shared by the CMake modules.
-# Value-producing helpers assign named outputs with PARENT_SCOPE because CMake
-# functions otherwise isolate their variables.
+# Provides shared internal utilities for the Vortex CMake integration.
 
 include_guard(GLOBAL)
 

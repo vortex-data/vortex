@@ -1,16 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-# Native link requirements for the source-built Rust static archive. Rust
-# archives leave platform-library references for the final linker, so the CMake
-# target must publish the validated manifest explicitly. Export policy for an
-# enclosing shared library remains the parent's responsibility.
+# Defines the system libraries required to link the Rust FFI archive into C++
+# targets.
 
 include_guard(GLOBAL)
 
 # Attach the platform libraries required by the Rust static archive; fail if the
 # Rust target has no supported link manifest.
-function(_vortex_configure_static_link target rust_target)
+function(_vortex_attach_system_dependencies target rust_target)
     if(rust_target MATCHES "^(x86_64|aarch64)-unknown-linux-gnu$")
         if(NOT TARGET Threads::Threads)
             set(THREADS_PREFER_PTHREAD_FLAG TRUE)

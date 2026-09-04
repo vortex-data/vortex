@@ -49,8 +49,9 @@ option(VORTEX_WARNINGS_AS_ERRORS
     "Treat warnings in Vortex-owned C++ sources as errors"
     "${_vortex_warnings_as_errors_default}")
 
-# Build the private Rust FFI dependency before defining the public C++ target.
-include("${_vortex_cmake_dir}/VortexCargo.cmake")
+# Run the private configure-time integration that defines the Cargo build and
+# imported Rust FFI target used by the public C++ library.
+include("${_vortex_cmake_dir}/Configure.cmake")
 
 set(_vortex_cpp_sources
     src/array.cpp
