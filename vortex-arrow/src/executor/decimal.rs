@@ -274,7 +274,11 @@ mod tests {
         #[case] _decimal_type: T,
     ) -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
-        let mut decimal = DecimalBuilder::new::<T>(DecimalDType::new(2, 1), false.into());
+        let mut decimal = DecimalBuilder::new::<T>(
+            DecimalDType::new(2, 1),
+            false.into(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
+        );
         decimal.append_value(10);
         decimal.append_value(11);
         decimal.append_value(12);
@@ -302,7 +306,11 @@ mod tests {
         use arrow_array::Decimal32Array;
 
         let mut ctx = array_session().create_execution_ctx();
-        let mut decimal = DecimalBuilder::new::<T>(DecimalDType::new(2, 1), false.into());
+        let mut decimal = DecimalBuilder::new::<T>(
+            DecimalDType::new(2, 1),
+            false.into(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
+        );
         decimal.append_value(10);
         decimal.append_value(11);
         decimal.append_value(12);
@@ -330,7 +338,11 @@ mod tests {
         use arrow_array::Decimal64Array;
 
         let mut ctx = array_session().create_execution_ctx();
-        let mut decimal = DecimalBuilder::new::<T>(DecimalDType::new(2, 1), false.into());
+        let mut decimal = DecimalBuilder::new::<T>(
+            DecimalDType::new(2, 1),
+            false.into(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
+        );
         decimal.append_value(10);
         decimal.append_value(11);
         decimal.append_value(12);
@@ -358,7 +370,11 @@ mod tests {
         #[case] _decimal_type: T,
     ) -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
-        let mut decimal = DecimalBuilder::new::<T>(DecimalDType::new(2, 1), false.into());
+        let mut decimal = DecimalBuilder::new::<T>(
+            DecimalDType::new(2, 1),
+            false.into(),
+            vortex_buffer::BufferAllocatorRef::static_ref(),
+        );
         decimal.append_value(10);
         decimal.append_value(11);
         decimal.append_value(12);

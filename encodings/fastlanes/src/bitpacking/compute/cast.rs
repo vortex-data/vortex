@@ -100,7 +100,8 @@ impl CastKernel for BitPacked {
             .cast_nullability(tgt_nullability, array.len(), ctx)?;
 
         let result = match_each_integer_ptype!(tgt, |T| {
-            let mut builder = PrimitiveBuilder::<T>::with_capacity(tgt_nullability, array.len());
+            let mut builder =
+                PrimitiveBuilder::<T>::with_capacity(tgt_nullability, array.len(), ctx.allocator());
             match_each_integer_ptype!(src, |F| {
                 unpack_map_into_builder::<F, T, _>(array, &mut builder, ctx, |v: F| v.as_())?;
             });

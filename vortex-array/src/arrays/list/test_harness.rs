@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 
 use crate::arrays::ListArray;
@@ -31,6 +32,7 @@ impl ListArray {
             crate::dtype::Nullability::NonNullable,
             2 * iter.size_hint().0,
             iter.size_hint().0,
+            BufferAllocatorRef::static_ref(),
         );
 
         for v in iter {
@@ -58,6 +60,7 @@ impl ListArray {
             crate::dtype::Nullability::Nullable,
             2 * iter.size_hint().0,
             iter.size_hint().0,
+            BufferAllocatorRef::static_ref(),
         );
 
         for v in iter {

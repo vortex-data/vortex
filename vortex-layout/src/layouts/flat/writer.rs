@@ -260,8 +260,11 @@ mod tests {
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
-            let mut builder =
-                VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::NonNullable), 2);
+            let mut builder = VarBinViewBuilder::with_capacity(
+                DType::Utf8(Nullability::NonNullable),
+                2,
+                vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            );
             builder.append_value("Long value to test that the statistics are actually truncated, it needs a bit of extra padding though");
             builder.append_value("Another string that's meant to be smaller than the previous value, though still need extra padding");
             let array = builder.finish();

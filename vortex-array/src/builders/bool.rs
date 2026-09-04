@@ -5,6 +5,7 @@ use std::any::Any;
 use std::mem;
 
 use vortex_buffer::BitBufferMut;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -28,14 +29,19 @@ pub struct BoolBuilder {
 }
 
 impl BoolBuilder {
-    pub fn new(nullability: Nullability) -> Self {
-        Self::with_capacity(nullability, DEFAULT_BUILDER_CAPACITY)
+    pub fn new(nullability: Nullability, allocator: &BufferAllocatorRef) -> Self {
+        Self::with_capacity(nullability, DEFAULT_BUILDER_CAPACITY, allocator)
     }
 
-    pub fn with_capacity(nullability: Nullability, capacity: usize) -> Self {
+    /// Creates a builder with the given capacity and allocator.
+    pub fn with_capacity(
+        nullability: Nullability,
+        capacity: usize,
+        allocator: &BufferAllocatorRef,
+    ) -> Self {
         Self {
-            inner: BitBufferMut::with_capacity(capacity),
-            nulls: LazyBitBufferBuilder::new(capacity),
+            inner: BitBufferMut::with_capacity_in(capacity, allocator.clone()),
+            nulls: LazyBitBufferBuilder::new(capacity, allocator.clone()),
             dtype: DType::Bool(nullability),
         }
     }
@@ -61,8 +67,10 @@ impl BoolBuilder {
             "Null count and value count should match when calling BoolBuilder::finish."
         );
 
+        let allocator = self.inner.allocator().clone();
+        let inner = mem::replace(&mut self.inner, BitBufferMut::empty_in(allocator)).freeze();
         BoolArray::new(
-            mem::take(&mut self.inner).freeze(),
+            inner,
             self.nulls.finish_with_nullability(self.dtype.nullability()),
         )
     }
@@ -140,6 +148,7 @@ mod tests {
     use rand::RngExt;
     use rand::SeedableRng;
     use rand::prelude::StdRng;
+    use vortex_buffer::BufferAllocatorRef;
     use vortex_error::VortexResult;
 
     use crate::ArrayRef;
@@ -181,7 +190,11 @@ mod tests {
         let chunk = make_opt_bool_chunks(len, chunk_count);
 
         let mut ctx = array_session().create_execution_ctx();
-        let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
+        let mut builder = builder_with_capacity(
+            chunk.dtype(),
+            len * chunk_count,
+            BufferAllocatorRef::static_ref(),
+        );
         chunk
             .clone()
             .append_to_builder(builder.as_mut(), &mut ctx)?;
@@ -201,7 +214,8 @@ mod tests {
     #[test]
     fn test_append_scalar() {
         let mut ctx = array_session().create_execution_ctx();
-        let mut builder = BoolBuilder::with_capacity(Nullability::Nullable, 10);
+        let mut builder =
+            BoolBuilder::with_capacity(Nullability::Nullable, 10, BufferAllocatorRef::static_ref());
 
         // Test appending true value.
         let true_scalar = Scalar::bool(true, Nullability::Nullable);
@@ -220,7 +234,11 @@ mod tests {
         assert_arrays_eq!(&array, &expected, &mut ctx);
 
         // Test wrong dtype error.
-        let mut builder = BoolBuilder::with_capacity(Nullability::NonNullable, 10);
+        let mut builder = BoolBuilder::with_capacity(
+            Nullability::NonNullable,
+            10,
+            BufferAllocatorRef::static_ref(),
+        );
         let wrong_scalar = Scalar::from(42i32);
         assert!(builder.append_scalar(&wrong_scalar).is_err());
     }

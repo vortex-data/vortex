@@ -9,6 +9,7 @@ use itertools::Itertools;
 use num_traits::AsPrimitive;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
@@ -46,30 +47,49 @@ pub struct VarBinViewBuilder {
     in_progress: Option<ByteBufferMut>,
     growth_strategy: BufferGrowthStrategy,
     compaction_threshold: f64,
+    allocator: BufferAllocatorRef,
 }
 
 impl VarBinViewBuilder {
-    pub fn with_capacity(dtype: DType, capacity: usize) -> Self {
-        Self::new(dtype, capacity, Default::default(), Default::default(), 0.0)
+    pub fn with_capacity(dtype: DType, capacity: usize, allocator: BufferAllocatorRef) -> Self {
+        Self::new(
+            dtype,
+            capacity,
+            Default::default(),
+            Default::default(),
+            0.0,
+            allocator,
+        )
     }
 
-    pub fn with_buffer_deduplication(dtype: DType, capacity: usize) -> Self {
+    pub fn with_buffer_deduplication(
+        dtype: DType,
+        capacity: usize,
+        allocator: BufferAllocatorRef,
+    ) -> Self {
         Self::new(
             dtype,
             capacity,
             CompletedBuffers::Deduplicated(Default::default()),
             Default::default(),
             0.0,
+            allocator,
         )
     }
 
-    pub fn with_compaction(dtype: DType, capacity: usize, compaction_threshold: f64) -> Self {
+    pub fn with_compaction(
+        dtype: DType,
+        capacity: usize,
+        compaction_threshold: f64,
+        allocator: BufferAllocatorRef,
+    ) -> Self {
         Self::new(
             dtype,
             capacity,
             Default::default(),
             Default::default(),
             compaction_threshold,
+            allocator,
         )
     }
 
@@ -79,23 +99,26 @@ impl VarBinViewBuilder {
         completed: CompletedBuffers,
         growth_strategy: BufferGrowthStrategy,
         compaction_threshold: f64,
+        allocator: BufferAllocatorRef,
     ) -> Self {
         assert!(
             matches!(dtype, DType::Utf8(_) | DType::Binary(_)),
             "VarBinViewBuilder DType must be Utf8 or Binary."
         );
         Self {
-            views_builder: BufferMut::with_capacity_preferred_aligned(
+            views_builder: BufferMut::with_capacity_preferred_aligned_in(
                 capacity,
                 Alignment::of::<BinaryView>(),
                 None,
+                allocator.clone(),
             ),
-            nulls: LazyBitBufferBuilder::new(capacity),
+            nulls: LazyBitBufferBuilder::new(capacity, allocator.clone()),
             completed,
             in_progress: None,
             dtype,
             growth_strategy,
             compaction_threshold,
+            allocator,
         }
     }
 
@@ -153,10 +176,11 @@ impl VarBinViewBuilder {
     fn init_in_progress(&mut self, min_len: usize) {
         let next_buffer_size = self.growth_strategy.next_size() as usize;
         let to_reserve = next_buffer_size.max(min_len);
-        self.in_progress = Some(ByteBufferMut::with_capacity_preferred_aligned(
+        self.in_progress = Some(ByteBufferMut::with_capacity_preferred_aligned_in(
             to_reserve,
             Alignment::of::<u8>(),
             None,
+            self.allocator.clone(),
         ));
     }
 
@@ -616,7 +640,7 @@ impl VarBinViewBuilder {
         referenced: usize,
     ) {
         let buf_index = self.completed.len();
-        let mut compact = ByteBufferMut::with_capacity(referenced);
+        let mut compact = ByteBufferMut::with_capacity_in(referenced, self.allocator.clone());
         self.views_builder.reserve(count);
 
         let data = bytes.as_slice();
@@ -667,14 +691,15 @@ impl VarBinViewBuilder {
 
         let validity = self.nulls.finish_with_nullability(self.dtype.nullability());
 
+        let views = std::mem::replace(
+            &mut self.views_builder,
+            BufferMut::empty_aligned_in(Alignment::of::<BinaryView>(), self.allocator.clone()),
+        )
+        .freeze();
+
         // SAFETY: the builder methods check safety at each step.
         unsafe {
-            VarBinViewArray::new_unchecked(
-                std::mem::take(&mut self.views_builder).freeze(),
-                buffers.finish(),
-                self.dtype.clone(),
-                validity,
-            )
+            VarBinViewArray::new_unchecked(views, buffers.finish(), self.dtype.clone(), validity)
         }
     }
 
@@ -1326,6 +1351,7 @@ impl RewritingViewAdjustment {
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::BufferAllocatorRef;
     use vortex_buffer::ByteBuffer;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
@@ -1348,7 +1374,11 @@ mod tests {
     #[test]
     fn test_append_buffer_with_lengths() {
         let mut ctx = array_session().create_execution_ctx();
-        let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 8);
+        let mut builder = VarBinViewBuilder::with_capacity(
+            DType::Utf8(Nullability::Nullable),
+            8,
+            BufferAllocatorRef::statically_allocated(),
+        );
 
         // Stages an in-progress buffer the bulk append has to flush first.
         builder.append_value(LONG);
@@ -1378,7 +1408,11 @@ mod tests {
     #[test]
     fn test_append_buffer_with_offsets() {
         let mut ctx = array_session().create_execution_ctx();
-        let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 8);
+        let mut builder = VarBinViewBuilder::with_capacity(
+            DType::Utf8(Nullability::Nullable),
+            8,
+            BufferAllocatorRef::statically_allocated(),
+        );
 
         let heap = ByteBuffer::copy_from(format!("..{LONG}tiny!!"));
         let long_len = u32::try_from(LONG.len()).unwrap();
@@ -1411,8 +1445,12 @@ mod tests {
     #[test]
     fn test_append_buffer_with_lengths_compacts_underutilized_heap() {
         let mut ctx = array_session().create_execution_ctx();
-        let mut builder =
-            VarBinViewBuilder::with_compaction(DType::Utf8(Nullability::Nullable), 4, 1.0);
+        let mut builder = VarBinViewBuilder::with_compaction(
+            DType::Utf8(Nullability::Nullable),
+            4,
+            1.0,
+            BufferAllocatorRef::statically_allocated(),
+        );
 
         let heap = ByteBuffer::copy_from([b"short".as_slice(), LONG.as_bytes(), b"tiny"].concat());
         let lengths = [5u32, u32::try_from(LONG.len()).unwrap(), 4];
@@ -1439,8 +1477,12 @@ mod tests {
     #[test]
     fn test_append_buffer_with_lengths_compaction_skips_null_bytes() {
         let mut ctx = array_session().create_execution_ctx();
-        let mut builder =
-            VarBinViewBuilder::with_compaction(DType::Utf8(Nullability::Nullable), 2, 1.0);
+        let mut builder = VarBinViewBuilder::with_compaction(
+            DType::Utf8(Nullability::Nullable),
+            2,
+            1.0,
+            BufferAllocatorRef::statically_allocated(),
+        );
 
         let heap = ByteBuffer::copy_from([LONG.as_bytes(), LONG.as_bytes()].concat());
         let lengths = [u32::try_from(LONG.len()).unwrap(); 2];
@@ -1462,8 +1504,11 @@ mod tests {
     /// re-pushed buffer back to its existing index instead of holding it twice.
     #[test]
     fn test_push_buffers_deduplicates() {
-        let mut builder =
-            VarBinViewBuilder::with_buffer_deduplication(DType::Utf8(Nullability::Nullable), 8);
+        let mut builder = VarBinViewBuilder::with_buffer_deduplication(
+            DType::Utf8(Nullability::Nullable),
+            8,
+            BufferAllocatorRef::statically_allocated(),
+        );
 
         let first = ByteBuffer::copy_from(LONG);
         let second = ByteBuffer::copy_from("another value far too long to inline");
@@ -1492,7 +1537,11 @@ mod tests {
             .map(|buffer| buffer.as_host().clone())
             .collect::<Vec<_>>();
 
-        let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 8);
+        let mut builder = VarBinViewBuilder::with_capacity(
+            DType::Utf8(Nullability::Nullable),
+            8,
+            BufferAllocatorRef::statically_allocated(),
+        );
         // Stages an in-progress buffer that the gather has to flush ahead of its own buffers.
         builder.append_value(LONG);
 
@@ -1539,7 +1588,11 @@ mod tests {
             0,
         );
 
-        let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 8);
+        let mut builder = VarBinViewBuilder::with_capacity(
+            DType::Utf8(Nullability::Nullable),
+            8,
+            BufferAllocatorRef::statically_allocated(),
+        );
         let views = patch_values.views();
         builder.append_views_scattered(
             buffers,
@@ -1577,8 +1630,12 @@ mod tests {
             .map(|buffer| buffer.as_host().clone())
             .collect::<Vec<_>>();
 
-        let mut builder =
-            VarBinViewBuilder::with_compaction(DType::Utf8(Nullability::Nullable), 8, 1.0);
+        let mut builder = VarBinViewBuilder::with_compaction(
+            DType::Utf8(Nullability::Nullable),
+            8,
+            1.0,
+            BufferAllocatorRef::statically_allocated(),
+        );
         let codes: [usize; 5] = [2, 0, usize::MAX, 2, 0];
         builder.append_views_gathered(
             buffers,
@@ -1615,8 +1672,12 @@ mod tests {
         let dictionary = <VarBinViewArray as FromIterator<_>>::from_iter([Some(LONG), Some(TAIL)]);
         let heap = dictionary.data_buffers()[0].as_host().clone();
 
-        let mut builder =
-            VarBinViewBuilder::with_compaction(DType::Utf8(Nullability::Nullable), 8, 1.0);
+        let mut builder = VarBinViewBuilder::with_compaction(
+            DType::Utf8(Nullability::Nullable),
+            8,
+            1.0,
+            BufferAllocatorRef::statically_allocated(),
+        );
         builder.append_views_gathered(
             [heap.clone()],
             dictionary.views(),
@@ -1646,8 +1707,12 @@ mod tests {
             <VarBinViewArray as FromIterator<_>>::from_iter([Some(LONG), Some(SHORTER)]);
         let heap = dictionary.data_buffers()[0].as_host().clone();
 
-        let mut builder =
-            VarBinViewBuilder::with_compaction(DType::Utf8(Nullability::Nullable), 8, 0.5);
+        let mut builder = VarBinViewBuilder::with_compaction(
+            DType::Utf8(Nullability::Nullable),
+            8,
+            0.5,
+            BufferAllocatorRef::statically_allocated(),
+        );
         builder.append_views_gathered(
             [heap.clone()],
             dictionary.views(),
@@ -1676,8 +1741,12 @@ mod tests {
             .map(|buffer| buffer.as_host().clone())
             .collect::<Vec<_>>();
 
-        let mut builder =
-            VarBinViewBuilder::with_compaction(DType::Utf8(Nullability::Nullable), 8, 1.0);
+        let mut builder = VarBinViewBuilder::with_compaction(
+            DType::Utf8(Nullability::Nullable),
+            8,
+            1.0,
+            BufferAllocatorRef::statically_allocated(),
+        );
         builder.append_views_gathered(buffers, dictionary.views(), &Mask::new_false(3), |_| {
             usize::MAX
         });
@@ -1696,8 +1765,12 @@ mod tests {
     #[test]
     fn test_append_buffer_with_lengths_drops_fully_inlined_heap() {
         let mut ctx = array_session().create_execution_ctx();
-        let mut builder =
-            VarBinViewBuilder::with_compaction(DType::Utf8(Nullability::Nullable), 4, 1.0);
+        let mut builder = VarBinViewBuilder::with_compaction(
+            DType::Utf8(Nullability::Nullable),
+            4,
+            1.0,
+            BufferAllocatorRef::statically_allocated(),
+        );
 
         let heap = ByteBuffer::copy_from(b"shorttinysmall".as_slice());
         builder.append_buffer_with_lengths(heap, &[5u32, 4, 5], &Mask::new_true(3));
@@ -1719,7 +1792,11 @@ mod tests {
     #[test]
     fn test_utf8_builder() {
         let mut ctx = array_session().create_execution_ctx();
-        let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
+        let mut builder = VarBinViewBuilder::with_capacity(
+            DType::Utf8(Nullability::Nullable),
+            10,
+            BufferAllocatorRef::statically_allocated(),
+        );
 
         builder.append_value("Hello");
         builder.append_null();
@@ -1748,13 +1825,20 @@ mod tests {
     fn test_utf8_builder_with_extend() {
         let mut ctx = array_session().create_execution_ctx();
         let array = {
-            let mut builder =
-                VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
+            let mut builder = VarBinViewBuilder::with_capacity(
+                DType::Utf8(Nullability::Nullable),
+                10,
+                BufferAllocatorRef::statically_allocated(),
+            );
             builder.append_null();
             builder.append_value("Hello2");
             builder.finish()
         };
-        let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
+        let mut builder = VarBinViewBuilder::with_capacity(
+            DType::Utf8(Nullability::Nullable),
+            10,
+            BufferAllocatorRef::statically_allocated(),
+        );
 
         builder.append_value("Hello1");
         array.append_to_builder(&mut builder, &mut ctx).unwrap();
@@ -1776,16 +1860,22 @@ mod tests {
     #[test]
     fn test_buffer_deduplication() -> VortexResult<()> {
         let array = {
-            let mut builder =
-                VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
+            let mut builder = VarBinViewBuilder::with_capacity(
+                DType::Utf8(Nullability::Nullable),
+                10,
+                BufferAllocatorRef::statically_allocated(),
+            );
             builder.append_value("This is a long string that should not be inlined");
             builder.append_value("short string");
             builder.finish_into_varbinview()
         };
 
         assert_eq!(array.data_buffers().len(), 1);
-        let mut builder =
-            VarBinViewBuilder::with_buffer_deduplication(DType::Utf8(Nullability::Nullable), 10);
+        let mut builder = VarBinViewBuilder::with_buffer_deduplication(
+            DType::Utf8(Nullability::Nullable),
+            10,
+            BufferAllocatorRef::statically_allocated(),
+        );
 
         let mut ctx = array_session().create_execution_ctx();
 
@@ -1801,8 +1891,11 @@ mod tests {
         assert_eq!(builder.completed_block_count(), 1);
 
         let array2 = {
-            let mut builder =
-                VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
+            let mut builder = VarBinViewBuilder::with_capacity(
+                DType::Utf8(Nullability::Nullable),
+                10,
+                BufferAllocatorRef::statically_allocated(),
+            );
             builder.append_value("This is a long string that should not be inlined");
             builder.finish_into_varbinview()
         };
@@ -1826,8 +1919,11 @@ mod tests {
         use crate::scalar::Scalar;
 
         // Test with Utf8 builder.
-        let mut utf8_builder =
-            VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
+        let mut utf8_builder = VarBinViewBuilder::with_capacity(
+            DType::Utf8(Nullability::Nullable),
+            10,
+            BufferAllocatorRef::statically_allocated(),
+        );
 
         // Test appending a valid utf8 value.
         let utf8_scalar1 = Scalar::utf8("hello", Nullability::Nullable);
@@ -1847,8 +1943,11 @@ mod tests {
         assert_arrays_eq!(&array, &expected, &mut ctx);
 
         // Test with Binary builder.
-        let mut binary_builder =
-            VarBinViewBuilder::with_capacity(DType::Binary(Nullability::Nullable), 10);
+        let mut binary_builder = VarBinViewBuilder::with_capacity(
+            DType::Binary(Nullability::Nullable),
+            10,
+            BufferAllocatorRef::statically_allocated(),
+        );
 
         let binary_scalar = Scalar::binary(vec![1u8, 2, 3], Nullability::Nullable);
         binary_builder.append_scalar(&binary_scalar).unwrap();
@@ -1862,8 +1961,11 @@ mod tests {
         assert_arrays_eq!(&binary_array, &expected, &mut ctx);
 
         // Test wrong dtype error.
-        let mut builder =
-            VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::NonNullable), 10);
+        let mut builder = VarBinViewBuilder::with_capacity(
+            DType::Utf8(Nullability::NonNullable),
+            10,
+            BufferAllocatorRef::statically_allocated(),
+        );
         let wrong_scalar = Scalar::from(42i32);
         assert!(builder.append_scalar(&wrong_scalar).is_err());
     }
@@ -1902,6 +2004,7 @@ mod tests {
             Default::default(),
             BufferGrowthStrategy::exponential(1024, 4096),
             0.0,
+            BufferAllocatorRef::statically_allocated(),
         );
 
         // Create a value larger than max_size

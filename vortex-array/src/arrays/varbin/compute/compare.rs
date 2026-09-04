@@ -303,8 +303,11 @@ mod tests {
     #[test]
     fn varbin_i64_offsets_compare_constant() {
         let mut ctx = array_session().create_execution_ctx();
-        let mut builder =
-            VarBinBuilder::<i64>::with_capacity(DType::Utf8(Nullability::NonNullable), 3);
+        let mut builder = VarBinBuilder::<i64>::with_capacity(
+            DType::Utf8(Nullability::NonNullable),
+            3,
+            vortex_buffer::BufferAllocatorRef::static_ref(),
+        );
         builder.append_value(b"abc");
         builder.append_value(b"xyz");
         builder.append_value(b"abc");
@@ -325,8 +328,11 @@ mod tests {
     #[test]
     fn varbin_i64_offsets_compare_constant_binary() {
         let mut ctx = array_session().create_execution_ctx();
-        let mut builder =
-            VarBinBuilder::<i64>::with_capacity(DType::Binary(Nullability::NonNullable), 3);
+        let mut builder = VarBinBuilder::<i64>::with_capacity(
+            DType::Binary(Nullability::NonNullable),
+            3,
+            vortex_buffer::BufferAllocatorRef::static_ref(),
+        );
         builder.append_value(b"abc");
         builder.append_value(b"xyz");
         builder.append_value(b"abc");

@@ -9,6 +9,7 @@ use std::sync::Arc;
 use smallvec::smallvec;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -575,7 +576,11 @@ impl VarBinViewData {
         dtype: DType,
     ) -> Self {
         let iter = iter.into_iter();
-        let mut builder = VarBinViewBuilder::with_capacity(dtype, iter.size_hint().0);
+        let mut builder = VarBinViewBuilder::with_capacity(
+            dtype,
+            iter.size_hint().0,
+            BufferAllocatorRef::statically_allocated(),
+        );
 
         for item in iter {
             match item {
@@ -592,6 +597,7 @@ impl VarBinViewData {
         let mut builder = VarBinViewBuilder::with_capacity(
             DType::Utf8(Nullability::NonNullable),
             iter.size_hint().0,
+            BufferAllocatorRef::statically_allocated(),
         );
 
         for item in iter {
@@ -608,6 +614,7 @@ impl VarBinViewData {
         let mut builder = VarBinViewBuilder::with_capacity(
             DType::Utf8(Nullability::Nullable),
             iter.size_hint().0,
+            BufferAllocatorRef::statically_allocated(),
         );
 
         for item in iter {
@@ -625,6 +632,7 @@ impl VarBinViewData {
         let mut builder = VarBinViewBuilder::with_capacity(
             DType::Binary(Nullability::NonNullable),
             iter.size_hint().0,
+            BufferAllocatorRef::statically_allocated(),
         );
 
         for item in iter {
@@ -641,6 +649,7 @@ impl VarBinViewData {
         let mut builder = VarBinViewBuilder::with_capacity(
             DType::Binary(Nullability::Nullable),
             iter.size_hint().0,
+            BufferAllocatorRef::statically_allocated(),
         );
 
         for item in iter {
@@ -693,7 +702,11 @@ impl Array<VarBinView> {
         dtype: DType,
     ) -> Self {
         let iter = iter.into_iter();
-        let mut builder = VarBinViewBuilder::with_capacity(dtype, iter.size_hint().0);
+        let mut builder = VarBinViewBuilder::with_capacity(
+            dtype,
+            iter.size_hint().0,
+            BufferAllocatorRef::statically_allocated(),
+        );
         for value in iter {
             match value {
                 Some(value) => builder.append_value(value),
@@ -708,6 +721,7 @@ impl Array<VarBinView> {
         let mut builder = VarBinViewBuilder::with_capacity(
             DType::Utf8(Nullability::NonNullable),
             iter.size_hint().0,
+            BufferAllocatorRef::statically_allocated(),
         );
         for value in iter {
             builder.append_value(value.as_ref());
@@ -722,6 +736,7 @@ impl Array<VarBinView> {
         let mut builder = VarBinViewBuilder::with_capacity(
             DType::Utf8(Nullability::Nullable),
             iter.size_hint().0,
+            BufferAllocatorRef::statically_allocated(),
         );
         for value in iter {
             match value {
@@ -737,6 +752,7 @@ impl Array<VarBinView> {
         let mut builder = VarBinViewBuilder::with_capacity(
             DType::Binary(Nullability::NonNullable),
             iter.size_hint().0,
+            BufferAllocatorRef::statically_allocated(),
         );
         for value in iter {
             builder.append_value(value.as_ref());
@@ -751,6 +767,7 @@ impl Array<VarBinView> {
         let mut builder = VarBinViewBuilder::with_capacity(
             DType::Binary(Nullability::Nullable),
             iter.size_hint().0,
+            BufferAllocatorRef::statically_allocated(),
         );
         for value in iter {
             match value {

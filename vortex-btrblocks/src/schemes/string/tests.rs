@@ -45,7 +45,11 @@ fn test_strings() -> VortexResult<()> {
 
 #[test]
 fn test_sparse_nulls() -> VortexResult<()> {
-    let mut strings = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 100);
+    let mut strings = VarBinViewBuilder::with_capacity(
+        DType::Utf8(Nullability::Nullable),
+        100,
+        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+    );
     strings.append_nulls(99);
 
     strings.append_value("one little string");

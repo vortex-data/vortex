@@ -216,7 +216,7 @@ pub(crate) fn zip_impl(
         &if_true,
         &if_false,
         mask_values.as_ref(),
-        builder_with_capacity(&return_type, if_true.len()),
+        builder_with_capacity(&return_type, if_true.len(), ctx.allocator()),
         ctx,
     )
 }
@@ -528,6 +528,7 @@ mod tests {
                 Default::default(),
                 BufferGrowthStrategy::fixed(64 * 1024),
                 0.0,
+                vortex_buffer::BufferAllocatorRef::statically_allocated(),
             );
             for _ in 0..100 {
                 builder.append_value("Hello");
@@ -543,6 +544,7 @@ mod tests {
                 Default::default(),
                 BufferGrowthStrategy::fixed(64 * 1024),
                 0.0,
+                vortex_buffer::BufferAllocatorRef::statically_allocated(),
             );
             for _ in 0..100 {
                 builder.append_value("Hello2");

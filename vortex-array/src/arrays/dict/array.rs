@@ -449,8 +449,9 @@ mod test {
         let values = VarBinViewArray::from_iter_str(["zero", "one", "two"]);
         let dict = DictArray::try_new(buffer![2u8, 0, 2, 1].into_array(), values.into_array())?;
         let expected = VarBinViewArray::from_iter_str(["two", "zero", "two", "one"]);
-        let mut builder = VarBinBuilder::<i32>::with_capacity(dict.dtype().clone(), dict.len());
         let mut ctx = array_session().create_execution_ctx();
+        let mut builder =
+            VarBinBuilder::<i32>::with_capacity(dict.dtype().clone(), dict.len(), ctx.allocator());
 
         dict.into_array()
             .append_to_builder(&mut builder, &mut ctx)?;
@@ -469,6 +470,7 @@ mod test {
         let mut builder = builder_with_capacity(
             &DType::Primitive(PType::U64, NonNullable),
             len * chunk_count,
+            ctx.allocator(),
         );
         array.append_to_builder(
             builder.as_mut(),

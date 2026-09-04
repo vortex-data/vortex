@@ -22,7 +22,7 @@ use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::VariantArray;
-use crate::builders::builder_with_capacity_in;
+use crate::builders::builder_with_capacity;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::Nullability;
@@ -144,8 +144,7 @@ impl ScalarFnVTable for VariantGet {
             .map_or(DType::Variant(Nullability::Nullable), DType::as_nullable);
 
         if !dtype.is_variant() {
-            let mut builder =
-                builder_with_capacity_in(ctx.allocator().clone(), &dtype, input.len());
+            let mut builder = builder_with_capacity(&dtype, input.len(), ctx.allocator());
             for idx in 0..input.len() {
                 let scalar = input.execute_scalar(idx, ctx)?;
                 let output = variant_get_scalar(&scalar, options, &dtype)?;

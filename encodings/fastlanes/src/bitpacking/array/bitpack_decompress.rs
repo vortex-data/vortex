@@ -40,7 +40,8 @@ pub fn unpack_primitive_array<T: BitPackedUnpack>(
     array: ArrayView<'_, BitPacked>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
-    let mut builder = PrimitiveBuilder::with_capacity(array.dtype().nullability(), array.len());
+    let mut builder =
+        PrimitiveBuilder::with_capacity(array.dtype().nullability(), array.len(), ctx.allocator());
     unpack_into_primitive_builder::<T>(array, &mut builder, ctx)?;
     assert_eq!(builder.len(), array.len());
     Ok(builder.finish_into_primitive())
@@ -299,6 +300,7 @@ mod tests {
             Nullability::NonNullable,
             0,
             0,
+            ctx.allocator(),
         );
         list.clone()
             .into_array()
@@ -310,6 +312,7 @@ mod tests {
             Nullability::NonNullable,
             0,
             0,
+            ctx.allocator(),
         );
         list.clone()
             .into_array()
@@ -323,8 +326,13 @@ mod tests {
             Buffer::from_iter(std::iter::repeat_n(64u32, 48)).into_array(),
             Validity::NonNullable,
         )?;
-        let mut list_builder =
-            ListBuilder::<u64>::with_capacity(element_dtype, Nullability::NonNullable, 0, 0);
+        let mut list_builder = ListBuilder::<u64>::with_capacity(
+            element_dtype,
+            Nullability::NonNullable,
+            0,
+            0,
+            vortex_buffer::BufferAllocatorRef::static_ref(),
+        );
         listview
             .into_array()
             .append_to_builder(&mut list_builder, &mut ctx)?;
@@ -452,7 +460,10 @@ mod tests {
         let empty: PrimitiveArray = PrimitiveArray::from_iter(Vec::<u32>::new());
         let bitpacked = encode(&empty, 0);
 
-        let mut builder = PrimitiveBuilder::<u32>::new(Nullability::NonNullable);
+        let mut builder = PrimitiveBuilder::<u32>::new(
+            Nullability::NonNullable,
+            vortex_buffer::BufferAllocatorRef::static_ref(),
+        );
         unpack_map_into_builder(
             bitpacked.as_view(),
             &mut builder,
@@ -481,7 +492,11 @@ mod tests {
         let bitpacked = encode(&array, 3);
 
         // Unpack into a new builder.
-        let mut builder = PrimitiveBuilder::<u32>::with_capacity(Nullability::Nullable, 5);
+        let mut builder = PrimitiveBuilder::<u32>::with_capacity(
+            Nullability::Nullable,
+            5,
+            vortex_buffer::BufferAllocatorRef::static_ref(),
+        );
         unpack_map_into_builder(
             bitpacked.as_view(),
             &mut builder,
@@ -519,7 +534,11 @@ mod tests {
         );
 
         // Unpack into a new builder.
-        let mut builder = PrimitiveBuilder::<u32>::with_capacity(Nullability::NonNullable, 100);
+        let mut builder = PrimitiveBuilder::<u32>::with_capacity(
+            Nullability::NonNullable,
+            100,
+            vortex_buffer::BufferAllocatorRef::static_ref(),
+        );
         unpack_map_into_builder(
             bitpacked.as_view(),
             &mut builder,

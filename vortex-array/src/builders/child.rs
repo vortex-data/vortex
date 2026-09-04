@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -42,12 +43,13 @@ pub struct ChildBuilder {
 
 impl ChildBuilder {
     /// Creates a new `ChildBuilder` whose scalar builder is pre-allocated for `capacity` values.
-    pub fn with_capacity(dtype: &DType, capacity: usize) -> Self {
+    /// Creates a child builder with the provided allocator.
+    pub fn with_capacity(dtype: &DType, capacity: usize, allocator: &BufferAllocatorRef) -> Self {
         Self {
             dtype: dtype.clone(),
             chunks: Vec::new(),
             chunks_len: 0,
-            pending: builder_with_capacity(dtype, capacity),
+            pending: builder_with_capacity(dtype, capacity, allocator),
         }
     }
 
@@ -155,6 +157,7 @@ impl ChildBuilder {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_buffer::BufferAllocatorRef;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
@@ -194,7 +197,8 @@ mod tests {
     #[test]
     fn test_appended_arrays_are_kept_as_chunks() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
-        let mut builder = ChildBuilder::with_capacity(&DType::from(I32), 0);
+        let mut builder =
+            ChildBuilder::with_capacity(&DType::from(I32), 0, BufferAllocatorRef::static_ref());
 
         builder.append_array(&constant(1, CHUNK_LEN), &mut ctx)?;
         builder.append_array(&constant(2, CHUNK_LEN), &mut ctx)?;
@@ -214,7 +218,8 @@ mod tests {
     #[test]
     fn test_short_arrays_are_kept_as_chunks_too() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
-        let mut builder = ChildBuilder::with_capacity(&DType::from(I32), 0);
+        let mut builder =
+            ChildBuilder::with_capacity(&DType::from(I32), 0, BufferAllocatorRef::static_ref());
 
         builder.append_array(&constant(1, 1), &mut ctx)?;
         builder.append_array(&constant(2, 1), &mut ctx)?;
@@ -231,7 +236,8 @@ mod tests {
     #[test]
     fn test_scalars_interleaved_with_chunks_keep_their_order() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
-        let mut builder = ChildBuilder::with_capacity(&DType::from(I32), 0);
+        let mut builder =
+            ChildBuilder::with_capacity(&DType::from(I32), 0, BufferAllocatorRef::static_ref());
 
         builder.append_scalar(&1i32.into())?;
         builder.append_array(&constant(2, CHUNK_LEN), &mut ctx)?;
@@ -257,7 +263,8 @@ mod tests {
     #[test]
     fn test_single_chunk_is_not_wrapped() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
-        let mut builder = ChildBuilder::with_capacity(&DType::from(I32), 0);
+        let mut builder =
+            ChildBuilder::with_capacity(&DType::from(I32), 0, BufferAllocatorRef::static_ref());
 
         builder.append_array(&constant(7, CHUNK_LEN), &mut ctx)?;
 
@@ -270,7 +277,8 @@ mod tests {
     #[test]
     fn test_empty_arrays_never_become_chunks() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
-        let mut builder = ChildBuilder::with_capacity(&DType::from(I32), 0);
+        let mut builder =
+            ChildBuilder::with_capacity(&DType::from(I32), 0, BufferAllocatorRef::static_ref());
         let empty = constant(1, CHUNK_LEN).slice(0..0)?;
 
         builder.append_array(&empty, &mut ctx)?;
@@ -289,7 +297,8 @@ mod tests {
     #[test]
     fn test_empty_child_finishes_without_chunks() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
-        let mut builder = ChildBuilder::with_capacity(&DType::from(I32), 0);
+        let mut builder =
+            ChildBuilder::with_capacity(&DType::from(I32), 0, BufferAllocatorRef::static_ref());
 
         builder.append_array(&constant(1, CHUNK_LEN).slice(0..0)?, &mut ctx)?;
 
@@ -307,7 +316,8 @@ mod tests {
     #[case::non_empty(CHUNK_LEN)]
     fn test_appending_a_mismatched_dtype_is_rejected(#[case] len: usize) {
         let mut ctx = array_session().create_execution_ctx();
-        let mut builder = ChildBuilder::with_capacity(&DType::from(I32), 0);
+        let mut builder =
+            ChildBuilder::with_capacity(&DType::from(I32), 0, BufferAllocatorRef::static_ref());
 
         let wrong_dtype = ConstantArray::new(1i64, len).into_array();
         assert!(builder.append_array(&wrong_dtype, &mut ctx).is_err());
@@ -318,7 +328,7 @@ mod tests {
     fn test_zeros_and_nulls_around_chunks_keep_their_order() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         let dtype = DType::Primitive(I32, Nullable);
-        let mut builder = ChildBuilder::with_capacity(&dtype, 0);
+        let mut builder = ChildBuilder::with_capacity(&dtype, 0, BufferAllocatorRef::static_ref());
 
         builder.append_array(&nullable_constant(1, CHUNK_LEN), &mut ctx)?;
         builder.append_nulls(2);
@@ -344,7 +354,8 @@ mod tests {
     #[test]
     fn test_finish_resets_the_builder() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
-        let mut builder = ChildBuilder::with_capacity(&DType::from(I32), 0);
+        let mut builder =
+            ChildBuilder::with_capacity(&DType::from(I32), 0, BufferAllocatorRef::static_ref());
 
         builder.append_array(&constant(1, CHUNK_LEN), &mut ctx)?;
         builder.append_scalar(&2i32.into())?;
