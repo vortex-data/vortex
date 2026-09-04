@@ -28,7 +28,7 @@ use vortex_error::VortexResult;
 
 use crate::BitPacked;
 use crate::bitpacking::compute::compare_fused::stream_compare_fused;
-use crate::unpack_iter::BitPacked as BitPackedIter;
+use crate::bitpacking::unpack_iter::BitPacked as BitPackedIter;
 
 impl CompareKernel for BitPacked {
     fn compare(

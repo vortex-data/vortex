@@ -103,7 +103,7 @@ pub(crate) fn fused_decompress<
     let mut unpacked = UnpackedChunks::try_new_with_strategy(
         strategy,
         bp.packed_slice::<T>(),
-        bp.bit_width() as usize,
+        bp.chunk_widths(),
         bp.offset() as usize,
         bp.len(),
         &mut scratch,

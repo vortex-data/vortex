@@ -44,7 +44,7 @@ fn build_with_validity(
             .patches()
             .map(|patches| patches.map_values(|values| values.cast(dtype.clone())))
             .transpose()?,
-        array.bit_width(),
+        array.chunk_widths().clone(),
         array.len(),
         array.offset(),
     )?

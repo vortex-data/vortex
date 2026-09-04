@@ -8,8 +8,8 @@ use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
-use crate::bitpack_decompress;
 use crate::bitpacking::array::BitPackedArrayExt;
+use crate::bitpacking::bitpack_decompress;
 impl OperationsVTable<BitPacked> for BitPacked {
     fn scalar_at(
         array: ArrayView<'_, BitPacked>,
@@ -54,6 +54,7 @@ mod test {
     use crate::BitPacked;
     use crate::BitPackedArray;
     use crate::BitPackedData;
+    use crate::ChunkWidths;
     use crate::bitpacking::array::BitPackedArrayExt;
     use crate::test::SESSION;
 
@@ -253,7 +254,7 @@ mod test {
                 )
                 .unwrap(),
             ),
-            1,
+            ChunkWidths::uniform(1, 1),
             8,
             0,
         )

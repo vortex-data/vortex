@@ -35,7 +35,7 @@ use vortex_error::VortexResult;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::FL_CHUNK_SIZE;
-use crate::unpack_iter::BitPacked as BitPackedIter;
+use crate::bitpacking::unpack_iter::BitPacked as BitPackedIter;
 
 /// Stream `predicate` over the unpacked values of a [`BitPackedArray`](crate::BitPackedArray), one FastLanes
 /// block at a time, producing a [`BoolArray`].

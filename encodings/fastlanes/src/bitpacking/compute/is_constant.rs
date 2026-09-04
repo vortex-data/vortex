@@ -23,7 +23,7 @@ use vortex_error::VortexResult;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
-use crate::unpack_iter::BitPacked as BitPackedUnpack;
+use crate::bitpacking::unpack_iter::BitPacked as BitPackedUnpack;
 
 /// BitPacked-specific is_constant kernel with SIMD support.
 #[derive(Debug)]
