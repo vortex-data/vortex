@@ -387,6 +387,24 @@ impl ExecutionCtx {
         &self.session
     }
 
+    /// Try registered parent kernels without executing either array as a fallback.
+    pub(crate) fn try_execute_parent_kernel(
+        &mut self,
+        parent: &ArrayRef,
+        child: &ArrayRef,
+        slot_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let execute_parent_kernels = Arc::clone(&self.execute_parent_kernels);
+        execute_parent_for_child(
+            "delegated_execute_parent",
+            parent,
+            child,
+            slot_idx,
+            execute_parent_kernels.as_ref(),
+            self,
+        )
+    }
+
     /// Get the allocator for this execution context.
     pub fn allocator(&self) -> &BufferAllocatorRef {
         self.allocator.get_or_init(|| self.session.allocator())
